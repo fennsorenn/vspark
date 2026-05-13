@@ -1,0 +1,184 @@
+// Core identity types
+export type NodeKind = 'avatar' | 'model' | 'light' | 'camera' | 'trigger' | 'particle' | 'sfx' | 'fx' | 'prop';
+
+// Animation tracking: tracks which clip is playing and when it started
+export interface AnimationState {
+  clipId: string;
+  startedAt: number; // performance.now() timestamp
+}
+
+// A component carries animation state per node
+export interface AnimationComponent {
+  kind: 'animation';
+  state: AnimationState | null;
+}
+
+export interface TransformComponent {
+  kind: 'transform';
+  position: [number, number, number];
+  rotation: [number, number, number];
+  scale: [number, number, number];
+}
+
+export interface VisibilityComponent {
+  kind: 'visibility';
+  visible: boolean;
+}
+
+export type Component = AnimationComponent | TransformComponent | VisibilityComponent;
+
+// A node in a scene tree
+export interface SceneNode {
+  id: string;
+  parentId: string | null;
+  name: string;
+  kind: NodeKind;
+  filePath: string | null; // local path to asset file
+  components: Record<string, Component>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Scene {
+  id: string;
+  projectId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  nodes: SceneNode[];
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+  scenes: Scene[];
+}
+
+// Player/identity
+export interface Player {
+  id: string;
+  username: string;
+  email: string;
+  displayAvatarId: string | null;
+  createdAt: string;
+}
+
+// Session & presence
+export interface Session {
+  id: string;
+  playerId: string;
+  sceneId: string;
+  token: string;
+  wsConnected: boolean;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface PresenceState {
+  sessionId: string;
+  nodeId: string;
+  position: [number, number, number];
+  rotation: [number, number, number];
+  updatedAt: string;
+}
+
+// Avatar and asset
+export interface Avatar {
+  id: string;
+  playerId: string;
+  vrmFilePath: string;
+  name: string;
+  isDefault: boolean;
+  createdAt: string;
+}
+
+export interface AssetFile {
+  id: string;
+  projectId: string;
+  originalName: string;
+  storedPath: string;
+  mimeType: string;
+  size: number;
+  hash: string;
+  isDeduplicated: boolean;
+  createdAt: string;
+}
+
+// Animation clip
+export interface AnimationClip {
+  id: string;
+  name: string;
+  sourceNodeId: string;
+  sourceFilePath: string;
+  clipIndex: number;
+  label: string;
+  startTime: number;
+  endTime: number;
+  duration: number;
+  fps: number;
+  createdAt: string;
+}
+
+// Trigger
+export interface Trigger {
+  id: string;
+  nodeId: string;
+  kind: string;
+  condition: Record<string, unknown>;
+  action: Record<string, unknown>;
+  enabled: boolean;
+  createdAt: string;
+}
+
+// Preference
+export interface Preference {
+  id: string;
+  playerId: string;
+  key: string;
+  value: string;
+  updatedAt: string;
+}
+
+// Audit log
+export interface AuditLog {
+  id: string;
+  projectId: string;
+  playerId: string | null;
+  action: string;
+  targetKind: string;
+  targetId: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+// WebSocket message types
+export type WSMessageKind =
+  | 'node_update'
+  | 'node_add'
+  | 'node_remove'
+  | 'presence_move'
+  | 'presence_join'
+  | 'presence_leave'
+  | 'animation_play'
+  | 'trigger_fire'
+  | 'scene_dirty';
+
+export interface WSMessage {
+  kind: WSMessageKind;
+  payload: Record<string, unknown>;
+  timestamp: number;
+}
+
+// API response types
+export interface APIError {
+  status: number;
+  message: string;
+  code: string;
+}
+
+export type APIResponse<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: APIError };

@@ -1,0 +1,22 @@
+{
+  "name": "@vspark/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/types.ts",
+    "./schema": "./src/schema.ts",
+    "./signal": "./src/signal.ts",
+    "./arkit": "./src/arkit_tables.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

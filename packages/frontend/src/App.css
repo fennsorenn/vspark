@@ -1,0 +1,28 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: #1a1a1a;
+}
+
+.status {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  color: #ccc;
+  font-size: 13px;
+  font-family: system-ui, sans-serif;
+  pointer-events: none;
+}

@@ -1,0 +1,32 @@
+.file-drop {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 30, 0.9);
+  border: 2px dashed #555;
+  border-radius: 12px;
+  padding: 16px 28px;
+  color: #ccc;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  backdrop-filter: blur(8px);
+  pointer-events: all;
+}
+
+.file-drop button {
+  background: #4a90d9;
+  border: none;
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.file-drop button:hover {
+  background: #3a7bc8;
+}
