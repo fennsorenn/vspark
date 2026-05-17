@@ -42,7 +42,8 @@ jobs:
         run: pnpm --filter frontend build
 
       - name: Build backend bundle
-        run: node packages/backend/bundle.mjs
+        run: node bundle.mjs
+        working-directory: packages/backend
 
       - name: Write version.json
         shell: bash

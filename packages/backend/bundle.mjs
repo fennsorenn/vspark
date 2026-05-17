@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { copyFileSync, mkdirSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -26,8 +26,14 @@ await build({
   },
 });
 
-// Copy the sqlite-wasm .wasm file next to the bundle so it can be located at runtime
-const wasmSrc = join(__dirname, 'node_modules/node-sqlite3-wasm/node-sqlite3-wasm.wasm');
+// Copy the sqlite-wasm .wasm file next to the bundle.
+// Location varies: package root in local installs, dist/ subdir in pnpm store.
+const wasmCandidates = [
+  join(__dirname, 'node_modules/node-sqlite3-wasm/node-sqlite3-wasm.wasm'),
+  join(__dirname, 'node_modules/node-sqlite3-wasm/dist/node-sqlite3-wasm.wasm'),
+];
+const wasmSrc = wasmCandidates.find(existsSync);
+if (!wasmSrc) throw new Error('Could not locate node-sqlite3-wasm.wasm in node_modules');
 mkdirSync('dist', { recursive: true });
 copyFileSync(wasmSrc, 'dist/node-sqlite3-wasm.wasm');
 
