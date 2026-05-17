@@ -1,12 +1,11 @@
-import { createRequire } from 'module';
 import { readdir, readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+// esbuild handles CJS→ESM interop; this import gets bundled into bundle.cjs
+import nodeSqliteWasm from 'node-sqlite3-wasm';
 import type { Database as DatabaseType, Statement } from 'node-sqlite3-wasm';
 
-const require = createRequire(import.meta.url);
-// node-sqlite3-wasm is CJS-only; use createRequire to load it from ESM
-const { Database } = require('node-sqlite3-wasm') as { Database: typeof DatabaseType };
+const { Database } = nodeSqliteWasm as unknown as { Database: typeof DatabaseType };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(__dirname, '..', 'vspark.db');
