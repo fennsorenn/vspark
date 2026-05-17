@@ -2,6 +2,10 @@ node_modules/
 dist/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
+bundle.mjs
+*.exe
 .env
 .env.local
 *.tsbuildinfo

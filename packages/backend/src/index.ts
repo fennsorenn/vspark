@@ -5,6 +5,8 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { runMigrations, getDb } from './db/index.js';
 import { apiRoutes, setVmcManager, setBreathingManager, setLipsyncManager, setTrackingManager, setWsSync } from './routes/api.js';
+import { updateRoutes, initUpdateChecker, getInstallDir } from './routes/update.js';
+import { configRoutes } from './routes/config.js';
 import { WSSync } from './ws/index.js';
 import { VmcManager } from './node_components/vmc_receiver/manager.js';
 import { BreathingManager } from './node_components/breathing/manager.js';
@@ -24,6 +26,8 @@ mkdirSync(UPLOADS_DIR, { recursive: true });
 app.use(express.json({ limit: '150mb' }));
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use('/api', apiRoutes);
+app.use('/api', updateRoutes);
+app.use('/api', configRoutes);
 app.get('/health', (_req, res) => {
   res.json({ ok: true, connected: wsSync.connectedCount });
 });
@@ -45,6 +49,7 @@ async function start() {
   await runMigrations();
 
   setWsSync(wsSync);
+  initUpdateChecker(getInstallDir(), wsSync);
 
   const vmcManager = new VmcManager(wsSync);
   setVmcManager(vmcManager);
