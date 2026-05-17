@@ -1,0 +1,1 @@
+export default "ALTER TABLE scene_nodes ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;\n";
