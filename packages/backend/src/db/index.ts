@@ -1,19 +1,35 @@
-import { readdir, readFile } from 'fs/promises';
-import { join, dirname } from 'path';
+import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 // esbuild handles CJS→ESM interop; this import gets bundled into bundle.cjs
 import nodeSqliteWasm from 'node-sqlite3-wasm';
 import type { Database as DatabaseType, Statement } from 'node-sqlite3-wasm';
+import m001 from './migrations/001_initial.js';
+import m002 from './migrations/002_node_components.js';
+import m003 from './migrations/003_camera_effects.js';
+import m004 from './migrations/004_bone_attachment.js';
+import m005 from './migrations/005_node_hidden.js';
 
 const { Database } = nodeSqliteWasm as unknown as { Database: typeof DatabaseType };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = join(__dirname, '..', 'vspark.db');
-const MIGRATIONS_DIR = join(__dirname, 'migrations');
+
+// In dev (tsx): __dirname is src/db/ → DB lives at src/vspark.db (one level up)
+// In bundle:    __dirname is the install dir containing bundle.cjs → DB lives there
+const IS_BUNDLED = !__dirname.includes('/src/');
+const DB_PATH = IS_BUNDLED
+  ? join(__dirname, 'vspark.db')
+  : join(__dirname, '..', 'vspark.db');
+
+const MIGRATIONS = [
+  { name: '001_initial.sql',       sql: m001 },
+  { name: '002_node_components.sql', sql: m002 },
+  { name: '003_camera_effects.sql',  sql: m003 },
+  { name: '004_bone_attachment.sql', sql: m004 },
+  { name: '005_node_hidden.sql',     sql: m005 },
+];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.
-// node-sqlite3-wasm's Statement.run() takes a single BindValues argument,
-// but the existing codebase spreads positional params.
+// node-sqlite3-wasm Statement.run() takes a single BindValues argument.
 class PreparedStatement {
   constructor(private stmt: Statement) {}
 
@@ -69,9 +85,6 @@ export function getDb(): WasmDb {
 export async function initDb(): Promise<void> {
   if (_db) return;
   const db = new Database(DB_PATH);
-  // node-sqlite3-wasm enables foreign_keys by default.
-  // WAL mode omitted: node-sqlite3-wasm's VFS creates journal files next to the
-  // db file; in some environments this fails if the path isn't writable for sidecars.
   _db = new WasmDb(db);
 }
 
@@ -88,17 +101,13 @@ export async function runMigrations(): Promise<void> {
     (db.prepare('SELECT name FROM _migrations').all() as { name: string }[]).map((r) => r.name)
   );
 
-  const files = await readdir(MIGRATIONS_DIR).catch(() => [] as string[]);
-  const migrationFiles = files.filter((f) => f.endsWith('.sql')).sort();
-
-  for (const file of migrationFiles) {
-    if (applied.has(file)) continue;
-    const sql = await readFile(join(MIGRATIONS_DIR, file), 'utf-8');
+  for (const { name, sql } of MIGRATIONS) {
+    if (applied.has(name)) continue;
     try {
       db.exec(sql);
-      db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
+      db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(name);
     } catch (error) {
-      console.error(`Failed to run migration ${file}:`, error);
+      console.error(`Failed to run migration ${name}:`, error);
       throw error;
     }
   }
