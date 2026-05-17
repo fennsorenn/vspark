@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ matrix.platform }}" == "win-x64" ]]; then
-            printf '@echo off\r\n"%~dp0node.exe" "%~dp0bundle.cjs"\r\n' > packages/backend/dist/start.bat
+            python3 -c "open('packages/backend/dist/start.bat','wb').write(b'@echo off\r\n\"%~dp0node.exe\" \"%~dp0bundle.cjs\"\r\n')"
           else
             printf '#!/bin/sh\nDIR="$(cd "$(dirname "$0")" && pwd)"\n"$DIR/node" "$DIR/bundle.cjs"\n' \
               > packages/backend/dist/start.sh
