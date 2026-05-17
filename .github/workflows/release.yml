@@ -28,11 +28,11 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: '9'
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -67,7 +67,7 @@ jobs:
       - name: Download Node.js LTS binary
         shell: bash
         run: |
-          NODE_VERSION="20.19.1"
+          NODE_VERSION="22.16.0"
           if [[ "${{ matrix.platform }}" == "win-x64" ]]; then
             curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-win-x64.zip" -o node-dist.zip
             unzip -j node-dist.zip "node-v${NODE_VERSION}-win-x64/node.exe" -d packages/backend/dist/
