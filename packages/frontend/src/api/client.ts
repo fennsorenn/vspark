@@ -104,6 +104,7 @@ export interface NodeRecord {
   kind: string
   filePath?: string | null
   components: Record<string, unknown>
+  hidden?: boolean
 }
 
 export interface AssetFile {
