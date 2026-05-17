@@ -30,7 +30,8 @@ packages/
 |--------|--------|-------|
 | HTTP + WebSocket server | Implemented | `index.ts` |
 | REST API | Implemented | `routes/api.ts` — projects, scenes, nodes, components, assets, effects, signal |
-| SQLite persistence | Implemented | `db/` — better-sqlite3, 5 migrations |
+| Update routes | Implemented | `routes/update.ts`, `routes/config.ts` — GitHub Releases update check/download/apply, config.json channel preference |
+| SQLite persistence | Implemented | `db/` — `node-sqlite3-wasm` (WASM, no native addon); `WasmDb` adapter; `initDb()` async |
 | Signal graph engine | Implemented | `signal/engine.ts` — typed ports, value cache, cycle detection |
 | Signal node registry | Implemented | `signal/registry.ts` — 26 node kinds |
 | VMC receiver manager | Implemented | `node_components/vmc_receiver/` |
@@ -45,13 +46,14 @@ packages/
 | Module | Status | Notes |
 |--------|--------|-------|
 | Router + App shell | Implemented | `App.tsx` — 4 routes |
-| Zustand store | Implemented | `store/editorStore.ts` |
+| Zustand store | Implemented | `store/editorStore.ts` — includes update state slice (updateAvailable, updateInfo, pendingReload) |
 | 3D Viewport | Implemented | `components/editor/Viewport.tsx` — R3F, pose application, post-processing, particles |
 | Scene graph panel | Implemented | `components/editor/SceneGraph.tsx` |
 | Properties panel | Implemented | `components/editor/PropertiesPanel.tsx` |
 | Asset manager | Implemented | `components/editor/AssetManager.tsx` |
+| TopBar update UI | Implemented | `components/editor/TopBar.tsx` + `components/editor/UpdateDialog.tsx` — update badge, channel selector, download/apply flow |
 | Signal graph editor | Implemented | `components/editor/signal/SignalGraphCanvas.tsx` |
-| WebSocket sync | Implemented | `hooks/useWsSync.ts` — auto-reconnect |
+| WebSocket sync | Implemented | `hooks/useWsSync.ts` — includes server_update handler + pendingReload-on-reconnect |
 | Lipsync uplink | Implemented | `hooks/useLipsyncUplink.ts` — mic → WS |
 | Tracking uplink | Implemented | `hooks/useTrackingUplink.ts` — MediaPipe → WS |
 
@@ -59,9 +61,15 @@ packages/
 
 | Module | Status |
 |--------|--------|
-| Domain types | Implemented — `types.ts` |
+| Domain types | Implemented — `types.ts` — includes UpdateChannel, UpdateStatus, AppConfig, server_update WSMessageKind |
 | Zod request schemas | Implemented — `schema.ts` |
 | Signal graph types | Implemented — `signal.ts` (Quaternion, NormalizedPose, VRM_BONE_NAMES, SignalNodeClass, GraphDescriptor) |
+
+### Release & Deployment
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| GitHub Actions release workflow | Implemented | `.github/workflows/release.yml` — win-x64 + linux-x64 zips, bundled Node.js 20 LTS binary, start/updater scripts, pre-release flag from tag |
 
 ## Data Flows
 

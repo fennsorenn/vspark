@@ -169,7 +169,23 @@ export type WSMessageKind =
   | 'lipsync_input'
   | 'lipsync_status'
   | 'tracking_input'
-  | 'tracking_status';
+  | 'tracking_status'
+  | 'server_update';
+
+export type UpdateChannel = 'stable' | 'recent' | 'experimental';
+
+export interface UpdateStatus {
+  updateAvailable: boolean;
+  downloadReady: boolean;
+  currentVersion: string;
+  latestVersion: string | null;
+  releaseNotes: string | null;
+  channel: UpdateChannel;
+}
+
+export interface AppConfig {
+  channel: UpdateChannel;
+}
 
 export interface WSMessage {
   kind: WSMessageKind;

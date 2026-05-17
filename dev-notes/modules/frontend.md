@@ -15,6 +15,13 @@ React + React Three Fiber application. Entry: `packages/frontend/src/`.
 
 Single Zustand store for the entire editor session. Key slices:
 
+**Update state**
+- `updateAvailable: boolean`
+- `updateInfo: UpdateInfo | null` — version, release notes, download URL
+- `pendingReload: boolean` — set after an update is applied; triggers a page reload on the next WS reconnect
+
+Actions: `setUpdateAvailable(info)`, `setPendingReload(value)`.
+
 **Scene state**
 - `projectId`, `projectName`
 - `scenes: SceneItem[]`, `activeSceneId`
@@ -55,6 +62,9 @@ Incoming message handlers:
 | `node_added` | Adds node to store (dedup check) |
 | `node_removed` | Removes node from store |
 | `camera_effect_added/updated/removed` | Updates effects slice |
+| `server_update` | Sets `updateAvailable` + `updateInfo` in store |
+
+**pendingReload-on-reconnect**: a `pendingReloadRef` (not store state — avoids re-render) is set when a `server_update` message carries `reloadOnReconnect: true`. On the next `ws.onopen`, if the ref is set, the page is reloaded. Normal reconnects are unaffected.
 
 ## Browser uplinks
 
@@ -86,6 +96,16 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 **Post-processing effects**: Applied per camera node's `cameraEffects` list. Each effect kind maps to a `@react-three/postprocessing` effect.
 
 **Particle system**: Emission and simulation handled entirely within Viewport via a custom particle buffer.
+
+## TopBar + UpdateDialog — `components/editor/TopBar.tsx` + `components/editor/UpdateDialog.tsx`
+
+TopBar checks update status on mount (`GET /api/update-status`). When an update is available it shows an amber "↑ Update" badge. A "⚙ ver" button is always visible and opens `UpdateDialog`.
+
+`UpdateDialog` is a floating panel (top-right, dark style matching MediaInputWindow):
+- Displays current version, latest version, and scrollable release notes.
+- **Channel selector**: dropdown for `stable` / `recent` / `experimental`; saves to `config.json` via `PUT /api/config`.
+- **Update Now flow**: `POST /api/update/download` → polls `GET /api/update-status` until `downloadReady` → `POST /api/update/apply` (server exits; client reloads on reconnect via `pendingReloadRef`).
+- **Later**: dismisses the dialog without downloading.
 
 ## Editor panels
 

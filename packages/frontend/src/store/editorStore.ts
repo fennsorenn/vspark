@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { AssetFile, ComponentKindMeta, CameraEffectRecord } from '../api/client'
+import type { UpdateChannel } from '@vspark/shared'
 
 export type { AssetFile, ComponentKindMeta, CameraEffectRecord }
 
@@ -254,6 +255,13 @@ interface EditorState {
   setPreviewEffectsCamera: (nodeId: string | null) => void
   selectEffect: (nodeId: string, kind: string) => void
   clearSelectedEffect: () => void
+
+  // Update state
+  updateAvailable: boolean
+  updateInfo: { latestVersion: string; releaseNotes: string | null; channel: UpdateChannel } | null
+  pendingReload: boolean
+  setUpdateAvailable: (available: boolean, info: EditorState['updateInfo']) => void
+  setPendingReload: (pending: boolean) => void
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -371,4 +379,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({ previewEffectsCamera: s.previewEffectsCamera === nodeId ? null : nodeId })),
   selectEffect: (nodeId, kind) => set({ selectedEffect: { nodeId, kind }, selectedComponentId: null }),
   clearSelectedEffect: () => set({ selectedEffect: null }),
+
+  updateAvailable: false,
+  updateInfo: null,
+  pendingReload: false,
+  setUpdateAvailable: (available, info) => set({ updateAvailable: available, updateInfo: info }),
+  setPendingReload: (pending) => set({ pendingReload: pending }),
 }))
