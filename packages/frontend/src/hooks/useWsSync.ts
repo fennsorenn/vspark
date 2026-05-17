@@ -12,6 +12,7 @@ export function useWsSync() {
   const setVmcTracking = useEditorStore((s) => s.setVmcTracking)
   const wsRef = useRef<WebSocket | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingReloadRef = useRef<boolean>(false)
 
   useEffect(() => {
     let dead = false
@@ -20,6 +21,14 @@ export function useWsSync() {
       if (dead) return
       const ws = new WebSocket(WS_URL)
       wsRef.current = ws
+
+      ws.onopen = () => {
+        if (pendingReloadRef.current) {
+          pendingReloadRef.current = false
+          useEditorStore.getState().setPendingReload(false)
+          window.location.reload()
+        }
+      }
 
       ws.onmessage = (ev) => {
         try {
@@ -63,6 +72,11 @@ export function useWsSync() {
             })
           } else if (msg.kind === 'camera_effect_removed') {
             useEditorStore.getState().removeCameraEffect(msg.payload.id as string)
+          } else if (msg.kind === 'server_update') {
+            if ((msg.payload as { reloadOnReconnect?: boolean }).reloadOnReconnect) {
+              pendingReloadRef.current = true
+              useEditorStore.getState().setPendingReload(true)
+            }
           }
         } catch { /* ignore malformed */ }
       }

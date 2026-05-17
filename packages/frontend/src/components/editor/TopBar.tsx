@@ -3,12 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { useEditorStore } from '../../store/editorStore'
 import { api } from '../../api/client'
 import { MediaInputWindow } from '../MediaInputWindow'
+import { UpdateDialog } from './UpdateDialog'
 
 export function TopBar() {
   const navigate = useNavigate()
-  const { projectId, projectName, scenes, activeSceneId, setScenes, setActiveScene, setNodes } = useEditorStore()
+  const { projectId, projectName, scenes, activeSceneId, setScenes, setActiveScene, setNodes, updateAvailable, setUpdateAvailable } = useEditorStore()
   const [connected, setConnected] = useState(false)
   const [mediaOpen, setMediaOpen] = useState(false)
+  const [updateOpen, setUpdateOpen] = useState(false)
 
   useEffect(() => {
     const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`)
@@ -16,6 +18,14 @@ export function TopBar() {
     ws.onclose = () => setConnected(false)
     ws.onerror = () => setConnected(false)
     return () => ws.close()
+  }, [])
+
+  useEffect(() => {
+    void api.getUpdateStatus().then((s) => {
+      if (s.updateAvailable && s.latestVersion) {
+        setUpdateAvailable(true, { latestVersion: s.latestVersion, releaseNotes: s.releaseNotes, channel: s.channel })
+      }
+    }).catch(() => {})
   }, [])
 
   const handleSceneChange = async (sceneId: string) => {
@@ -145,9 +155,26 @@ export function TopBar() {
           <span style={{ fontSize: 10 }}>{connected ? '●' : '○'}</span>
           {connected ? 'Connected' : 'Disconnected'}
         </div>
+        {updateAvailable && (
+          <button
+            onClick={() => setUpdateOpen(true)}
+            style={{ background: '#2a1a00', border: '1px solid #f59e0b', color: '#f59e0b', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}
+            title="An update is available"
+          >
+            ↑ Update
+          </button>
+        )}
+        <button
+          onClick={() => setUpdateOpen(true)}
+          style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 11, padding: '0 2px' }}
+          title="Updates & release channel"
+        >
+          ⚙ ver
+        </button>
       </div>
     </div>
     {mediaOpen && <MediaInputWindow />}
+    {updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}
     </>
   )
 }

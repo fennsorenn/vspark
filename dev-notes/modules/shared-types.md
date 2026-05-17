@@ -17,6 +17,12 @@
 - `LipsyncInputMessage` — `{ kind: 'lipsync_input', componentId, visemes }`
 - `TrackingInputMessage` — `{ kind: 'tracking_input', componentId, face?, leftHand?, rightHand?, pose? }`
 
+**Update / config types**:
+- `UpdateChannel` — `'stable' | 'recent' | 'experimental'`
+- `UpdateStatus` — `{ version, latestVersion, releaseNotes, channel, downloadReady }`
+- `AppConfig` — shape of `config.json` on disk; includes `channel: UpdateChannel`
+- `server_update` in `WSMessageKind` — payload carries update availability info; `reloadOnReconnect: true` triggers a page reload after server restart
+
 ## `schema.ts` — Zod validation schemas
 
 Request body validation for all REST routes. All schemas are strict (no extra keys). Used in route handlers via `schema.parse(req.body)`.

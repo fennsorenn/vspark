@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win-x64
+            node_binary: node.exe
+            start_script: start.bat
+            updater_script: updater.bat
+          - os: ubuntu-latest
+            platform: linux-x64
+            node_binary: node
+            start_script: start.sh
+            updater_script: updater.sh
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm --filter frontend build
+
+      - name: Copy frontend build output to backend dist
+        shell: bash
+        run: |
+          mkdir -p packages/backend/dist/public
+          cp -r packages/frontend/dist/. packages/backend/dist/public/
+
+      - name: Build backend bundle
+        run: node packages/backend/bundle.mjs
+
+      - name: Write version.json
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          if [[ "$TAG" =~ -alpha ]]; then
+            CHANNEL="experimental"
+          elif [[ "$TAG" =~ -beta ]]; then
+            CHANNEL="recent"
+          else
+            CHANNEL="stable"
+          fi
+          echo "{\"version\":\"$VERSION\",\"channel\":\"$CHANNEL\"}" > packages/backend/dist/version.json
+
+      - name: Download Node.js LTS binary
+        shell: bash
+        run: |
+          NODE_VERSION="20.19.1"
+          if [[ "${{ matrix.platform }}" == "win-x64" ]]; then
+            curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-win-x64.zip" -o node-dist.zip
+            unzip -j node-dist.zip "node-v${NODE_VERSION}-win-x64/node.exe" -d packages/backend/dist/
+          else
+            curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" \
+              | tar xz -C packages/backend/dist/ --strip-components=2 \
+              "node-v${NODE_VERSION}-linux-x64/bin/node"
+          fi
+
+      - name: Write start script
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "win-x64" ]]; then
+            printf '@echo off\r\n"%~dp0node.exe" "%~dp0bundle.cjs"\r\n' > packages/backend/dist/start.bat
+          else
+            printf '#!/bin/sh\nDIR="$(cd "$(dirname "$0")" && pwd)"\n"$DIR/node" "$DIR/bundle.cjs"\n' \
+              > packages/backend/dist/start.sh
+            chmod +x packages/backend/dist/start.sh
+          fi
+
+      - name: Write updater script
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "win-x64" ]]; then
+            cat > packages/backend/dist/updater.bat << 'SCRIPT'
+          @echo off
+          set PID=%1
+          set ZIP=%2
+          set INSTALLDIR=%3
+          :wait
+          tasklist /FI "PID eq %PID%" | find "%PID%" >nul && timeout /t 1 /nobreak >nul && goto wait
+          powershell -Command "Expand-Archive -Force -Path '%ZIP%' -DestinationPath '%INSTALLDIR%'"
+          start "" "%INSTALLDIR%\vspark\start.bat"
+          SCRIPT
+          else
+            cat > packages/backend/dist/updater.sh << 'SCRIPT'
+          #!/bin/sh
+          PID=$1
+          ZIP=$2
+          INSTALLDIR=$3
+          while kill -0 $PID 2>/dev/null; do sleep 1; done
+          unzip -o "$ZIP" -d "$INSTALLDIR"
+          "$INSTALLDIR/vspark/start.sh" &
+          SCRIPT
+            chmod +x packages/backend/dist/updater.sh
+          fi
+
+      - name: Package release zip
+        shell: bash
+        run: |
+          mkdir -p release/vspark
+          cp packages/backend/dist/bundle.cjs release/vspark/
+          cp packages/backend/dist/node-sqlite3-wasm.wasm release/vspark/
+          cp -r packages/backend/dist/public release/vspark/
+          cp packages/backend/dist/${{ matrix.node_binary }} release/vspark/
+          cp packages/backend/dist/${{ matrix.start_script }} release/vspark/
+          cp packages/backend/dist/${{ matrix.updater_script }} release/vspark/
+          cp packages/backend/dist/version.json release/vspark/
+          cd release
+          if [[ "${{ matrix.platform }}" == "win-x64" ]]; then
+            powershell -Command "Compress-Archive -Path vspark -DestinationPath vspark-${{ matrix.platform }}.zip"
+          else
+            zip -r vspark-${{ matrix.platform }}.zip vspark/
+          fi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/vspark-${{ matrix.platform }}.zip
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

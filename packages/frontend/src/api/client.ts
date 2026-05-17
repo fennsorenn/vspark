@@ -306,6 +306,22 @@ export interface ComponentKindMeta {
 export const getComponentKinds = () =>
   request<ComponentKindMeta[]>('/component-kinds')
 
+// Update / config
+export const getUpdateStatus = () =>
+  request<import('@vspark/shared').UpdateStatus>('/update-status')
+
+export const startUpdateDownload = () =>
+  request<{ started: boolean }>('/update/download', { method: 'POST' })
+
+export const applyUpdate = () =>
+  request<{ ok: boolean }>('/update/apply', { method: 'POST' })
+
+export const getConfig = () =>
+  request<import('@vspark/shared').AppConfig>('/config')
+
+export const putConfig = (cfg: Partial<import('@vspark/shared').AppConfig>) =>
+  request<import('@vspark/shared').AppConfig>('/config', { method: 'PUT', body: JSON.stringify(cfg) })
+
 export const getSignalGraphStates = (graphId: string) =>
   request<import('@vspark/shared/signal').GraphStateSnapshot>(
     `/signal/graphs/${encodeURIComponent(graphId)}/node-states`,
@@ -318,6 +334,11 @@ export const fireSignalEvent = (graphId: string, nodeId: string, port: string) =
   })
 
 export const api = {
+  getUpdateStatus,
+  startUpdateDownload,
+  applyUpdate,
+  getConfig,
+  putConfig,
   getProjects,
   createProject,
   deleteProject,
