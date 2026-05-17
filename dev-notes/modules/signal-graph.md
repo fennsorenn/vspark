@@ -1,0 +1,114 @@
+# Signal Graph
+
+The reactive execution engine at the core of vspark. Defined in `packages/backend/src/signal/`.
+
+## Runtime — `signal/engine.ts`
+
+`SignalGraph` is instantiated per component (one per VMC receiver, one per breathing component, etc.).
+
+**Execution model**: hybrid push/pull.
+- `event` edges: push-based. Source fires, payload travels forward to target node.
+- `value` edges: pull-based. Target requests current value from source synchronously during execution.
+- `list` edges: pull-based, multi-source. Target gathers values from all connected sources.
+
+A graph executes when `fire(nodeId, portName, value)` is called from outside (by a manager). That event propagates forward through event edges; each reached node then pulls its value inputs on demand.
+
+**Node execution** (`_deliver`):
+1. Check enabled flag (from config); skip if false
+2. Pull all value/list inputs
+3. Call `node.execute(inputs)` → outputs
+4. Fire each output event downstream
+5. Catch and log errors without halting the graph
+
+**Hydration**: `SignalGraph.fromDescriptor(descriptor, registry, getConfig, getState, onSetState)` — builds a graph from a `GraphDescriptor` template. Config and state are injected from outside (DB-backed), so the graph itself is stateless across restarts.
+
+**Inspection**: `getStates()` returns a snapshot of all node last-inputs, last-outputs, last-executed timestamps, and edge fire history — used by `/api/signal/graphs/:id/node-states`.
+
+**Key internal detail**: event edge keys are stored as `fromId\x00fromPort` (null-byte separator).
+
+## Node Registry — `signal/registry.ts`
+
+`NODE_REGISTRY` maps kind string → `SignalNodeClass`. All 26 built-in node kinds are registered here. `getAllNodeKindMeta()` returns port declarations and display metadata for each kind — this drives the UI node palette.
+
+## Node Kinds — `signal/nodes/`
+
+26 implementations. Organized by role:
+
+### Input sources (fired externally by managers)
+| Kind | Description |
+|------|-------------|
+| `vmc_packet_source` | Entry for VMC/RhyLive UDP data; outputs `bones` (BoneRotations) and `arkit` events |
+| `mediapipe_source` | Entry for MediaPipe landmarks; outputs `face`, `leftHand`, `rightHand`, `pose` events |
+| `lipsync_source` | Entry for viseme weights from mic analysis; outputs `visemes` event |
+| `manual_trigger` | UI-facing trigger button; fires an event on demand |
+| `clock` | Outputs elapsed time since graph start |
+| `time` | Outputs current time in seconds (pull) |
+| `sine_wave` | Time → sine wave (configurable freq/amplitude/phase) |
+
+### Bone/blendshape mappers
+| Kind | Description |
+|------|-------------|
+| `rhylive_bone_mapper` | BoneRotations (VMC/RhyLive format) → NormalizedPose (VRM bone names); applies coordinate flipping |
+| `arkit_vrm_mapper` | ARKit 52-shape weights → VRM expressions; supports `fcl`, `expressions`, and `passthrough` modes |
+| `face_landmarks_to_blendshapes` | 478 MediaPipe face points → vowel shapes (A/E/I/O/U), eye blink, brow raise |
+| `hand_landmarks_to_bones` | 21 MediaPipe hand points → finger joint quaternions |
+| `pose_landmarks_to_bones` | 33 MediaPipe body points → upper-body bone quaternions |
+
+### Calibration
+| Kind | Description |
+|------|-------------|
+| `body_calibration` | Captures neutral pose; subtracts offset via quaternion inversion on incoming frames |
+| `arm_ik_calibration` | Two-bone arm IK; captures arm reach (finger-to-eye-corner); applies corrected IK at runtime |
+
+### Processing / utility
+| Kind | Description |
+|------|-------------|
+| `blendshapes_sum` | List port → clamped sum across multiple Blendshapes inputs |
+| `euler_to_quaternion` | Euler angles → quaternion |
+| `unpack_event` | Event<T> → separate `trigger` event port + `value` pull port |
+| `pose_apply_bone` | Overrides a single bone in a NormalizedPose |
+
+### Output/broadcast
+| Kind | Description |
+|------|-------------|
+| `pose_broadcast` | NormalizedPose → WebSocket `vmc_pose` broadcast; respects interceptor chain |
+| `blendshapes_broadcast` | Blendshapes → WebSocket `vmc_blendshapes` broadcast |
+
+### Pose interceptor chain
+The interceptor chain lets components (e.g., breathing) modify poses in-flight before broadcast.
+
+| Kind | Description |
+|------|-------------|
+| `on_pose_broadcast` | Entry for interceptor graph; receives InterceptorFrame from the registry |
+| `pose_interceptor_broadcast` | Exit for interceptor graph; re-broadcasts modified pose back through chain |
+
+### Config/context
+| Kind | Description |
+|------|-------------|
+| `component_config` | Dot-notation extractor on component config JSON (e.g., `field: "myNode.param"`) |
+| `component_id` | Injects the owning componentId as a string value |
+| `scene_entity` | Injects the scene node ID for addressed broadcasts |
+| `viseme_passthrough` | Scales viseme weights by a sensitivity config value |
+
+## Graph Descriptor
+
+A `GraphDescriptor` (defined in `packages/shared/src/signal.ts`) is a static template:
+```ts
+{
+  label: string
+  readonly?: boolean
+  nodes: Array<{ id, kind, position, defaultConfig }>
+  edges: Array<{ fromNodeId, fromPort, toNodeId, toPort, kind? }>
+}
+```
+
+Each manager creates its own descriptor factory (e.g., `makeVmcGraphDescriptor(componentId)`). The descriptor is passed to `SignalGraph.fromDescriptor()` along with live config/state callbacks.
+
+## Adding a new node kind
+
+1. Create `packages/backend/src/signal/nodes/my_node.ts` implementing `SignalNodeClass`
+2. Decorate with `@SignalNode({ label, description, tags, color })`
+3. Register in `packages/backend/src/signal/registry.ts`
+4. Add to the appropriate manager's graph descriptor if needed
+
+The node's `execute(inputs)` function receives typed ports (matching static port declarations) and returns typed outputs. Nodes should be pure functions — no side effects except via explicit output ports or `setState`.
