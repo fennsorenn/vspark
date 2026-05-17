@@ -41,12 +41,6 @@ jobs:
       - name: Build frontend
         run: pnpm --filter frontend build
 
-      - name: Copy frontend build output to backend dist
-        shell: bash
-        run: |
-          mkdir -p packages/backend/dist/public
-          cp -r packages/frontend/dist/. packages/backend/dist/public/
-
       - name: Build backend bundle
         run: node packages/backend/bundle.mjs
 
