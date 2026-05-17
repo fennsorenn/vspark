@@ -4,7 +4,6 @@ dist/
 *.db-journal
 *.db-shm
 *.db-wal
-bundle.mjs
 *.exe
 .env
 .env.local
