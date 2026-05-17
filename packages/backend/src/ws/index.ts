@@ -4,6 +4,7 @@ import { IncomingMessage } from 'http';
 export class WSSync {
   private wss: WebSocketServer;
   private clientConnectedHandlers: ((ws: WebSocket) => void)[] = [];
+  private messageHandlers: ((kind: string, payload: unknown) => void)[] = [];
 
   constructor() {
     this.wss = new WebSocketServer({ noServer: true });
@@ -14,10 +15,23 @@ export class WSSync {
     this.clientConnectedHandlers.push(handler);
   }
 
+  /** Register a callback that fires for every parsed message received from any client. */
+  onMessage(handler: (kind: string, payload: unknown) => void) {
+    this.messageHandlers.push(handler);
+  }
+
   upgrade(req: IncomingMessage, socket: any, head: Buffer) {
     this.wss.handleUpgrade(req, socket, head, (ws) => {
       this.wss.emit('connection', ws, req);
       for (const h of this.clientConnectedHandlers) h(ws);
+      ws.on('message', (data) => {
+        try {
+          const msg = JSON.parse(data.toString()) as { kind?: string; [k: string]: unknown }
+          if (typeof msg.kind === 'string') {
+            for (const h of this.messageHandlers) h(msg.kind, msg)
+          }
+        } catch { /* ignore malformed messages */ }
+      });
     });
   }
 

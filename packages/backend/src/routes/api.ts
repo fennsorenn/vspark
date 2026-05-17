@@ -5,25 +5,50 @@ import { writeFileSync, unlinkSync, mkdirSync, readdirSync, statSync, existsSync
 import { join, extname, basename } from 'path';
 import { networkInterfaces } from 'os';
 import type { VmcManager } from '../vmc/manager.js';
+import type { LipsyncManager } from '../node_components/lipsync/manager.js';
+import type { TrackingManager } from '../node_components/mediapipe_tracker/manager.js';
 import { getAllNodeKindMeta } from '../signal/registry.js';
+import { getAllComponentKindMeta } from '../node_components/registry.js';
 
 let _vmc: VmcManager | null = null;
 export function setVmcManager(m: VmcManager) { _vmc = m; }
+
+let _lipsync: LipsyncManager | null = null;
+export function setLipsyncManager(m: LipsyncManager) { _lipsync = m; }
+
+let _tracking: TrackingManager | null = null;
+export function setTrackingManager(m: TrackingManager) { _tracking = m; }
 
 import type { WSSync } from '../ws/index.js';
 let _ws: WSSync | null = null;
 export function setWsSync(w: WSSync) { _ws = w; }
 
-function refreshVmc() {
-  if (!_vmc) return;
-  const rows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'vmc_receiver'").all() as Record<string, unknown>[];
-  _vmc.syncComponents(rows.map((r) => ({
+function _mapComponentRow(r: Record<string, unknown>) {
+  return {
     id:      r.id as string,
     nodeId:  r.node_id as string,
     kind:    r.kind as string,
     enabled: (r.enabled as number) === 1,
     config:  JSON.parse((r.config as string) || '{}'),
-  })));
+  };
+}
+
+function refreshVmc() {
+  if (!_vmc) return;
+  const rows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'vmc_receiver'").all() as Record<string, unknown>[];
+  _vmc.syncComponents(rows.map(_mapComponentRow));
+}
+
+function refreshLipsync() {
+  if (!_lipsync) return;
+  const rows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'lipsync_processor'").all() as Record<string, unknown>[];
+  _lipsync.syncComponents(rows.map(_mapComponentRow));
+}
+
+function refreshTracking() {
+  if (!_tracking) return;
+  const rows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'mediapipe_tracker'").all() as Record<string, unknown>[];
+  _tracking.syncComponents(rows.map(_mapComponentRow));
 }
 
 const UPLOADS_DIR = join(process.cwd(), 'uploads');
@@ -268,6 +293,8 @@ router.post('/scene-nodes/:nodeId/components', (req, res) => {
   getDb().prepare('INSERT INTO node_components (id, node_id, kind, enabled, config, sort_order) VALUES (?, ?, ?, ?, ?, ?)')
     .run(compId, req.params.nodeId, kind, enabled ? 1 : 0, JSON.stringify(config ?? {}), sortOrder ?? 0);
   refreshVmc();
+  refreshLipsync();
+  refreshTracking();
   res.status(201).json({ ok: true, data: { id: compId, node_id: req.params.nodeId, kind, enabled: enabled ?? true, config: config ?? {}, sort_order: sortOrder ?? 0 } });
 });
 
@@ -280,12 +307,16 @@ router.put('/node-components/:id', (req, res) => {
     WHERE id = ?`)
     .run(enabled != null ? (enabled ? 1 : 0) : null, config != null ? JSON.stringify(config) : null, req.params.id);
   refreshVmc();
+  refreshLipsync();
+  refreshTracking();
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
 router.delete('/node-components/:id', (req, res) => {
   getDb().prepare('DELETE FROM node_components WHERE id = ?').run(req.params.id);
   refreshVmc();
+  refreshLipsync();
+  refreshTracking();
   res.json({ ok: true, data: {} });
 });
 
@@ -343,6 +374,11 @@ router.post('/signal/graphs/:id/fire', (req, res) => {
 // All registered node kinds with display metadata (drives the node palette).
 router.get('/signal/node-kinds', (_req, res) => {
   res.json({ ok: true, data: getAllNodeKindMeta() });
+});
+
+// All registered component kinds.
+router.get('/component-kinds', (_req, res) => {
+  res.json({ ok: true, data: getAllComponentKindMeta() });
 });
 
 // --- System ---

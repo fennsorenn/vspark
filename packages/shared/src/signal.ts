@@ -255,6 +255,8 @@ export interface SignalTypeMap {
   MappingTable:     Record<string, [string, number][]> | null
   /** Wildcard — compatible with any other type for generic nodes. */
   Any:              unknown
+  /** Raw MediaPipe landmark array (face=478, hand=21, pose=33 points). */
+  LandmarkList:     Array<{ x: number; y: number; z: number; visibility?: number }>
 }
 
 export type SignalTypeName = keyof SignalTypeMap
@@ -369,6 +371,7 @@ export const SIGNAL_TYPE_COLORS: Record<SignalTypeName, string> = {
   EntityId:        '#6a8aaf',
   MappingTable:    '#a07050',
   Any:             '#888888',
+  LandmarkList:    '#7a9a6a',
 }
 
 const _displayMap = new WeakMap<object, NodeDisplay>()

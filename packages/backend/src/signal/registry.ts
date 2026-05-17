@@ -13,6 +13,14 @@ import { PoseBroadcast }        from './nodes/pose_broadcast.js'
 import { BlendshapesBroadcast } from './nodes/blendshapes_broadcast.js'
 import { BlendshapesSum }       from './nodes/blendshapes_sum.js'
 import { UnpackEvent }          from './nodes/unpack_event.js'
+// Lipsync nodes
+import { LipsyncSource }             from './nodes/lipsync_source.js'
+import { VisemePassthrough }         from './nodes/viseme_passthrough.js'
+// MediaPipe tracking nodes
+import { MediapipeSource }              from './nodes/mediapipe_source.js'
+import { FaceLandmarksToBlendshapes }   from './nodes/face_landmarks_to_blendshapes.js'
+import { PoseLandmarksToBones }         from './nodes/pose_landmarks_to_bones.js'
+import { HandLandmarksToBones }         from './nodes/hand_landmarks_to_bones.js'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -35,6 +43,14 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   BlendshapesBroadcast,
   BlendshapesSum,
   UnpackEvent,
+  // Lipsync nodes
+  LipsyncSource,
+  VisemePassthrough,
+  // MediaPipe tracking nodes
+  MediapipeSource,
+  FaceLandmarksToBlendshapes,
+  PoseLandmarksToBones,
+  HandLandmarksToBones,
 ]
 
 export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> =

@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useEditorStore } from '../../store/editorStore'
 import { api } from '../../api/client'
+import { MediaInputWindow } from '../MediaInputWindow'
 
 export function TopBar() {
   const navigate = useNavigate()
   const { projectId, projectName, scenes, activeSceneId, setScenes, setActiveScene, setNodes } = useEditorStore()
   const [connected, setConnected] = useState(false)
+  const [mediaOpen, setMediaOpen] = useState(false)
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:3001/ws')
+    const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`)
     ws.onopen = () => setConnected(true)
     ws.onclose = () => setConnected(false)
     ws.onerror = () => setConnected(false)
@@ -78,6 +80,7 @@ export function TopBar() {
   }
 
   return (
+    <>
     <div style={barStyle}>
       {/* Left */}
       <button
@@ -111,11 +114,40 @@ export function TopBar() {
       {/* Spacer */}
       <div style={{ flex: 1 }} />
 
-      {/* Right - WS status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: connected ? '#4ade80' : '#f87171' }}>
-        <span style={{ fontSize: 10 }}>{connected ? '●' : '○'}</span>
-        {connected ? 'Connected' : 'Disconnected'}
+      {/* Right - Media input + WS status */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button
+          style={{
+            background: mediaOpen ? '#1a3a2a' : '#2a2a2a',
+            border: `1px solid ${mediaOpen ? '#4ade80' : '#3a3a3a'}`,
+            color: mediaOpen ? '#4ade80' : '#ccc',
+            borderRadius: 5,
+            padding: '3px 10px',
+            cursor: 'pointer',
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+          }}
+          onClick={() => setMediaOpen(v => !v)}
+          title="Media Inputs (mic / camera)"
+        >
+          🎤 Media
+        </button>
+        <button
+          style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 11, padding: 0 }}
+          onClick={() => projectId && window.open(`/media-input/${projectId}`, '_blank')}
+          title="Open Media Input in new tab"
+        >
+          ↗
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: connected ? '#4ade80' : '#f87171' }}>
+          <span style={{ fontSize: 10 }}>{connected ? '●' : '○'}</span>
+          {connected ? 'Connected' : 'Disconnected'}
+        </div>
       </div>
     </div>
+    {mediaOpen && <MediaInputWindow />}
+    </>
   )
 }

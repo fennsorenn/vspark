@@ -803,9 +803,97 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
   )
 }
 
+// ── Lipsync props ─────────────────────────────────────────────────────────────
+
+function LipsyncProcessorProps({ comp }: { comp: NodeComponent }) {
+  const { updateNodeComponent } = useEditorStore()
+  const { projectId } = useParams<{ projectId: string }>()
+  const cfg = comp.config as { sensitivity?: number }
+  const [sensitivity, setSensitivity] = useState(cfg.sensitivity ?? 1.0)
+
+  const save = (patch: Record<string, unknown>) => {
+    const config = { ...comp.config, ...patch }
+    updateNodeComponent(comp.id, { config })
+    api.updateNodeComponent(comp.id, { config }).catch(() => {})
+  }
+
+  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }
+  const labelStyle: React.CSSProperties = { fontSize: 12, color: '#888', flex: 1 }
+  const inputStyle: React.CSSProperties = { width: 72, background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#e0e0e0', borderRadius: 4, padding: '2px 6px', fontSize: 12 }
+
+  return (
+    <div>
+      <div style={rowStyle}>
+        <span style={labelStyle}>Sensitivity</span>
+        <input
+          type='number'
+          style={inputStyle}
+          min={0.1} max={5} step={0.05}
+          value={sensitivity}
+          onChange={e => setSensitivity(Number(e.target.value))}
+          onBlur={() => save({ sensitivity })}
+        />
+      </div>
+      <div style={{ marginTop: 8, borderTop: '1px solid #2a2a2a', paddingTop: 8 }}>
+        <button
+          style={{ background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#ccc', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12 }}
+          onClick={() => projectId && window.open(`/media-input/${projectId}`, '_blank')}
+        >
+          🎤 Open Media Input
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── MediaPipe tracker props ────────────────────────────────────────────────────
+
+function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
+  const { updateNodeComponent } = useEditorStore()
+  const { projectId } = useParams<{ projectId: string }>()
+  const cfg = comp.config as { enableFace?: boolean; enablePose?: boolean; enableHands?: boolean }
+
+  const save = (patch: Record<string, unknown>) => {
+    const config = { ...comp.config, ...patch }
+    updateNodeComponent(comp.id, { config })
+    api.updateNodeComponent(comp.id, { config }).catch(() => {})
+  }
+
+  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }
+  const labelStyle: React.CSSProperties = { fontSize: 12, color: '#888', flex: 1 }
+
+  return (
+    <div>
+      {([ ['enableFace', 'Face landmarks'], ['enablePose', 'Pose (body)'], ['enableHands', 'Hand tracking'] ] as const).map(([field, lbl]) => (
+        <div key={field} style={rowStyle}>
+          <span style={labelStyle}>{lbl}</span>
+          <input
+            type='checkbox'
+            checked={(cfg[field] as boolean | undefined) ?? true}
+            onChange={e => save({ [field]: e.target.checked })}
+            style={{ cursor: 'pointer' }}
+          />
+        </div>
+      ))}
+      <div style={{ marginTop: 8, borderTop: '1px solid #2a2a2a', paddingTop: 8 }}>
+        <button
+          style={{ background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#ccc', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12 }}
+          onClick={() => projectId && window.open(`/media-input/${projectId}`, '_blank')}
+        >
+          📷 Open Media Input
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Component dispatcher ──────────────────────────────────────────────────────
+
 function ComponentProps({ comp }: { comp: NodeComponent }) {
   switch (comp.kind) {
-    case 'vmc_receiver': return <VmcReceiverProps comp={comp} />
+    case 'vmc_receiver':      return <VmcReceiverProps comp={comp} />
+    case 'lipsync_processor': return <LipsyncProcessorProps comp={comp} />
+    case 'mediapipe_tracker': return <MediapipeTrackerProps comp={comp} />
     default: return (
       <div style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>
         No configurable properties.

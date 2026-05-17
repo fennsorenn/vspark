@@ -164,12 +164,53 @@ export type WSMessageKind =
   | 'presence_leave'
   | 'animation_play'
   | 'trigger_fire'
-  | 'scene_dirty';
+  | 'scene_dirty'
+  | 'lipsync_input'
+  | 'lipsync_status'
+  | 'tracking_input'
+  | 'tracking_status';
 
 export interface WSMessage {
   kind: WSMessageKind;
   payload: Record<string, unknown>;
   timestamp: number;
+}
+
+// Raw landmark point as emitted by MediaPipe
+export interface Landmark {
+  x: number;
+  y: number;
+  z: number;
+  visibility?: number;
+}
+
+export interface LipsyncInputMessage {
+  kind: 'lipsync_input';
+  componentId: string;
+  visemes: Record<string, number>;
+}
+
+export interface LipsyncStatusMessage {
+  kind: 'lipsync_status';
+  componentId: string;
+  active: boolean;
+  error?: string;
+}
+
+export interface TrackingInputMessage {
+  kind: 'tracking_input';
+  componentId: string;
+  face?: Landmark[];      // 478 points
+  leftHand?: Landmark[];  // 21 points
+  rightHand?: Landmark[]; // 21 points
+  pose?: Landmark[];      // 33 points
+}
+
+export interface TrackingStatusMessage {
+  kind: 'tracking_status';
+  componentId: string;
+  active: boolean;
+  error?: string;
 }
 
 // API response types
