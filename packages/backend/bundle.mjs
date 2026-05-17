@@ -27,7 +27,7 @@ await build({
 });
 
 // Copy the sqlite-wasm .wasm file next to the bundle.
-// Location varies between local (package root) and pnpm store (dist/ subdir).
+// Location varies: package root in local installs, dist/ subdir in pnpm store.
 const wasmCandidates = [
   join(__dirname, 'node_modules/node-sqlite3-wasm/node-sqlite3-wasm.wasm'),
   join(__dirname, 'node_modules/node-sqlite3-wasm/dist/node-sqlite3-wasm.wasm'),
