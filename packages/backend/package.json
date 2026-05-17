@@ -7,19 +7,23 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "bundle": "node bundle.mjs"
   },
   "dependencies": {
     "@vspark/shared": "workspace:*",
     "better-sqlite3": "^12.9.0",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
+    "open": "^10.2.0",
     "ws": "^8.18.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.3",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.0",
+    "pkg": "^5.8.1",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
   }

@@ -1,16 +1,18 @@
 import { create } from 'zustand'
-import type { AssetFile } from '../api/client'
+import type { AssetFile, ComponentKindMeta, CameraEffectRecord } from '../api/client'
 
-export type { AssetFile }
+export type { AssetFile, ComponentKindMeta, CameraEffectRecord }
 
 export interface NodeRecord {
   id: string
   sceneId: string
   parentId: string | null
+  boneAttachment?: string | null
   name: string
   kind: string
   filePath?: string | null
   components: Record<string, unknown>
+  hidden?: boolean
 }
 
 export interface SceneItem {
@@ -29,6 +31,162 @@ export interface NodeComponent {
 let _compSeq = 0
 export const newComponentId = () => `comp-${++_compSeq}-${Date.now()}`
 
+export interface CameraEffectKind {
+  kind: string
+  label: string
+  icon: string
+  description: string
+  defaultConfig: Record<string, unknown>
+}
+
+export const CAMERA_EFFECT_KINDS: CameraEffectKind[] = [
+  // --- Color & Tone ---
+  {
+    kind: 'fx_tone_mapping',
+    label: 'Tone Mapping',
+    icon: '🎚',
+    description: 'Controls how HDR values are mapped to the display',
+    defaultConfig: { mode: 6 }, // 6 = ACES_FILMIC
+  },
+  {
+    kind: 'fx_brightness_contrast',
+    label: 'Brightness / Contrast',
+    icon: '☀',
+    description: 'Adjusts overall image brightness and contrast',
+    defaultConfig: { brightness: 0, contrast: 0 },
+  },
+  {
+    kind: 'fx_hue_saturation',
+    label: 'Hue / Saturation',
+    icon: '🎨',
+    description: 'Shifts hue and scales color saturation',
+    defaultConfig: { hue: 0, saturation: 0 },
+  },
+  {
+    kind: 'fx_sepia',
+    label: 'Sepia',
+    icon: '🟫',
+    description: 'Warm brownish cinematic tint',
+    defaultConfig: { intensity: 1.0 },
+  },
+  // --- Depth & Atmosphere ---
+  {
+    kind: 'fx_bloom',
+    label: 'Bloom',
+    icon: '✨',
+    description: 'Glowing highlights bleed from bright areas',
+    defaultConfig: { intensity: 1.0, luminanceThreshold: 0.9, luminanceSmoothing: 0.025, mipmapBlur: true },
+  },
+  {
+    kind: 'fx_depth_of_field',
+    label: 'Depth of Field',
+    icon: '📷',
+    description: 'Bokeh blur outside the focal plane',
+    defaultConfig: {
+      worldFocusDistance: 3, worldFocusRange: 2, bokehScale: 2,
+      autofocus: false,
+      afMode: 'point',        // 'point' | 'percentile'
+      afPointX: 0.5, afPointY: 0.5,
+      afPercentile: 15,
+      afSpeed: 4,             // convergence speed (higher = faster)
+      afDelay: 0.2,           // seconds before AF starts moving
+      afOvershoot: 0.15,      // fraction of delta to overshoot by
+    },
+  },
+  {
+    kind: 'fx_chromatic_aberration',
+    label: 'Chromatic Aberration',
+    icon: '🌈',
+    description: 'RGB channel fringing along edges, like a real lens',
+    defaultConfig: { offsetX: 0.002, offsetY: 0.002 },
+  },
+  {
+    kind: 'fx_ssao',
+    label: 'Ambient Occlusion',
+    icon: '🌑',
+    description: 'Screen-space contact shadows in crevices',
+    defaultConfig: { intensity: 1.5, radius: 0.2, bias: 0.025, rings: 4, samples: 30 },
+  },
+  // --- Stylization ---
+  {
+    kind: 'fx_outline',
+    label: 'Edge Outline',
+    icon: '🖊',
+    description: 'Depth-buffer edge detection outlines',
+    defaultConfig: { color: '#000000', threshold: 0.001, thickness: 1.0, alpha: 1.0, normalStrength: 1.0, blendMode: 'NORMAL' },
+  },
+  {
+    kind: 'fx_vignette',
+    label: 'Vignette',
+    icon: '🔲',
+    description: 'Darkened edges around the frame',
+    defaultConfig: { offset: 0.5, darkness: 0.5 },
+  },
+  {
+    kind: 'fx_noise',
+    label: 'Noise',
+    icon: '📺',
+    description: 'Film grain overlay',
+    defaultConfig: { opacity: 0.2 },
+  },
+  {
+    kind: 'fx_scanline',
+    label: 'Scanline',
+    icon: '📟',
+    description: 'CRT horizontal scanline overlay',
+    defaultConfig: { density: 1.25, opacity: 0.1 },
+  },
+  {
+    kind: 'fx_pixelation',
+    label: 'Pixelation',
+    icon: '🟦',
+    description: 'Retro pixel art look',
+    defaultConfig: { granularity: 8 },
+  },
+  {
+    kind: 'fx_ascii',
+    label: 'ASCII',
+    icon: '🔤',
+    description: 'Renders the scene as ASCII characters',
+    defaultConfig: { characters: ' .:-+*=%@#', fontSize: 54, cellSize: 16, color: '#ffffff', invert: false },
+  },
+  {
+    kind: 'fx_dot_screen',
+    label: 'Dot Screen',
+    icon: '🔵',
+    description: 'Halftone dot pattern overlay',
+    defaultConfig: { angle: 1.57, scale: 1.0 },
+  },
+  {
+    kind: 'fx_glitch',
+    label: 'Glitch',
+    icon: '⚡',
+    description: 'Digital glitch distortion',
+    defaultConfig: { delay: [1.5, 3.5], duration: [0.06, 0.3], strength: [0.3, 1.0], columns: 0.05, ratio: 0.85 },
+  },
+  {
+    kind: 'fx_smaa',
+    label: 'SMAA',
+    icon: '🔍',
+    description: 'Subpixel morphological antialiasing',
+    defaultConfig: {},
+  },
+  {
+    kind: 'fx_tilt_shift',
+    label: 'Tilt Shift',
+    icon: '📸',
+    description: 'Miniature / tilt-shift blur effect',
+    defaultConfig: { offset: 0.0, rotation: 0.0, focusArea: 0.4, feather: 0.3 },
+  },
+  {
+    kind: 'fx_water',
+    label: 'Water',
+    icon: '🌊',
+    description: 'Watery ripple distortion',
+    defaultConfig: { factor: 1.0 },
+  },
+]
+
 interface EditorState {
   projectId: string | null
   projectName: string
@@ -45,10 +203,14 @@ interface EditorState {
   vrmExpressionsByNode: Record<string, string[]>   // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>  // nodeId → mesh morph target names
   hoveredBoneName: string | null
+  componentKinds: ComponentKindMeta[]
   activeGraphId: string | null
   selectedSignalNodeId: string | null
   boneListExpanded: Record<string, boolean>   // nodeId → bone list open in SceneGraph
   fbxDebugVisible: Record<string, boolean>    // nodeId → FBX debug model shown
+  cameraEffects: CameraEffectRecord[]
+  previewEffectsCamera: string | null         // nodeId of the camera with Preview Effects active
+  selectedEffect: { nodeId: string; kind: string } | null
 
   // Actions
   setProject: (id: string, name: string) => void
@@ -78,10 +240,20 @@ interface EditorState {
   setVrmMorphTargetsForNode: (nodeId: string, names: string[]) => void
   clearVrmMorphTargetsForNode: (nodeId: string) => void
   setHoveredBone: (name: string | null) => void
+  setComponentKinds: (kinds: ComponentKindMeta[]) => void
   setActiveGraph: (id: string | null) => void
   setSelectedSignalNode: (id: string | null) => void
   setBoneListExpanded: (nodeId: string, expanded: boolean) => void
   setFbxDebugVisible: (nodeId: string, visible: boolean) => void
+  toggleNodeHidden: (nodeId: string) => void
+  setCameraEffects: (effects: CameraEffectRecord[]) => void
+  addCameraEffect: (effect: CameraEffectRecord) => void
+  updateCameraEffect: (id: string, updates: Partial<Omit<CameraEffectRecord, 'id' | 'nodeId'>>) => void
+  removeCameraEffect: (id: string) => void
+  cameraEffectsFor: (nodeId: string) => CameraEffectRecord[]
+  setPreviewEffectsCamera: (nodeId: string | null) => void
+  selectEffect: (nodeId: string, kind: string) => void
+  clearSelectedEffect: () => void
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -100,10 +272,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vrmExpressionsByNode: {},
   vrmMorphTargetsByNode: {},
   hoveredBoneName: null,
+  componentKinds: [],
   activeGraphId: null,
   selectedSignalNodeId: null,
   boneListExpanded: {},
   fbxDebugVisible: {},
+
+  cameraEffects: [],
+  previewEffectsCamera: null,
+  selectedEffect: null,
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
   setScenes: (scenes) => set({ scenes }),
@@ -124,8 +301,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         nodeComponents: s.nodeComponents.filter((c) => c.nodeId !== id),
       }
     }),
-  selectNode: (id) => set({ selectedNodeId: id, selectedComponentId: null }),
-  selectComponent: (id) => set({ selectedComponentId: id }),
+  selectNode: (id) => set({ selectedNodeId: id, selectedComponentId: null, selectedEffect: null }),
+  selectComponent: (id) => set({ selectedComponentId: id, selectedEffect: null }),
   setAssets: (assets) => set({ assets }),
   addAsset: (asset) => set((s) => ({ assets: [...s.assets, asset] })),
   deleteAsset: (id) => set((s) => ({ assets: s.assets.filter((a) => a.id !== id) })),
@@ -174,10 +351,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { vrmMorphTargetsByNode: next }
     }),
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
+  setComponentKinds: (kinds) => set({ componentKinds: kinds }),
   setActiveGraph: (id) => set({ activeGraphId: id, selectedSignalNodeId: null }),
   setSelectedSignalNode: (id) => set({ selectedSignalNodeId: id }),
   setBoneListExpanded: (nodeId, expanded) =>
     set((s) => ({ boneListExpanded: { ...s.boneListExpanded, [nodeId]: expanded } })),
   setFbxDebugVisible: (nodeId, visible) =>
     set((s) => ({ fbxDebugVisible: { ...s.fbxDebugVisible, [nodeId]: visible } })),
+  toggleNodeHidden: (nodeId) =>
+    set((s) => ({ nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, hidden: !n.hidden } : n) })),
+  setCameraEffects: (effects) => set({ cameraEffects: effects }),
+  addCameraEffect: (effect) => set((s) => ({ cameraEffects: [...s.cameraEffects, effect] })),
+  updateCameraEffect: (id, updates) =>
+    set((s) => ({ cameraEffects: s.cameraEffects.map((e) => e.id === id ? { ...e, ...updates } : e) })),
+  removeCameraEffect: (id) =>
+    set((s) => ({ cameraEffects: s.cameraEffects.filter((e) => e.id !== id) })),
+  cameraEffectsFor: (nodeId) => get().cameraEffects.filter((e) => e.nodeId === nodeId),
+  setPreviewEffectsCamera: (nodeId) =>
+    set((s) => ({ previewEffectsCamera: s.previewEffectsCamera === nodeId ? null : nodeId })),
+  selectEffect: (nodeId, kind) => set({ selectedEffect: { nodeId, kind }, selectedComponentId: null }),
+  clearSelectedEffect: () => set({ selectedEffect: null }),
 }))

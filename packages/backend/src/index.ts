@@ -1,37 +1,39 @@
 import express from 'express';
 import { createServer } from 'http';
-import { mkdirSync } from 'fs';
-import { join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { runMigrations, getDb } from './db/index.js';
-import { apiRoutes, setVmcManager, setLipsyncManager, setTrackingManager, setWsSync } from './routes/api.js';
+import { apiRoutes, setVmcManager, setBreathingManager, setLipsyncManager, setTrackingManager, setWsSync } from './routes/api.js';
 import { WSSync } from './ws/index.js';
-import { VmcManager } from './vmc/manager.js';
+import { VmcManager } from './node_components/vmc_receiver/manager.js';
+import { BreathingManager } from './node_components/breathing/manager.js';
 import { LipsyncManager } from './node_components/lipsync/manager.js';
 import { TrackingManager } from './node_components/mediapipe_tracker/manager.js';
 import type { LipsyncInputMessage, TrackingInputMessage } from '@vspark/shared';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const wsSync = new WSSync();
 const app = express();
 const server = createServer(app);
 
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
 const UPLOADS_DIR = join(process.cwd(), 'uploads');
 mkdirSync(UPLOADS_DIR, { recursive: true });
 
 app.use(express.json({ limit: '150mb' }));
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use('/api', apiRoutes);
-
-// Health check
 app.get('/health', (_req, res) => {
   res.json({ ok: true, connected: wsSync.connectedCount });
 });
+
+// Serve built frontend — only present in production bundle
+const PUBLIC_DIR = join(__dirname, 'public');
+if (existsSync(PUBLIC_DIR)) {
+  app.use(express.static(PUBLIC_DIR));
+  app.get('*', (_req, res) => res.sendFile(join(PUBLIC_DIR, 'index.html')));
+}
 
 server.on('upgrade', (req, socket, head) => {
   if (req.url?.startsWith('/ws')) {
@@ -43,8 +45,12 @@ async function start() {
   await runMigrations();
 
   setWsSync(wsSync);
+
   const vmcManager = new VmcManager(wsSync);
   setVmcManager(vmcManager);
+
+  const breathingManager = new BreathingManager();
+  setBreathingManager(breathingManager);
 
   const lipsyncManager = new LipsyncManager();
   setLipsyncManager(lipsyncManager);
@@ -78,9 +84,12 @@ async function start() {
     };
   }
 
-  // Start receivers for any VMC components that were persisted
-  const rows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'vmc_receiver'").all() as Record<string, unknown>[];
-  vmcManager.syncComponents(rows.map(mapRow));
+  // Start receivers for any components that were persisted
+  const vmcRows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'vmc_receiver'").all() as Record<string, unknown>[];
+  vmcManager.syncComponents(vmcRows.map(mapRow));
+
+  const breathingRows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'breathing'").all() as Record<string, unknown>[];
+  breathingManager.syncComponents(breathingRows.map(mapRow));
 
   const lipsyncRows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'lipsync_processor'").all() as Record<string, unknown>[];
   lipsyncManager.syncComponents(lipsyncRows.map(mapRow));
@@ -89,8 +98,12 @@ async function start() {
   trackingManager.syncComponents(trackingRows.map(mapRow));
 
   const port = 3001;
-  server.listen(port, () => {
-    console.log('backend listening on :3001');
+  server.listen(port, async () => {
+    console.log('vspark listening on http://localhost:3001');
+    if (existsSync(PUBLIC_DIR)) {
+      const { default: open } = await import('open');
+      open(`http://localhost:${port}`);
+    }
   });
 }
 

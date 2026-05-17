@@ -199,6 +199,19 @@ export class Blendshapes {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// InterceptorFrame — opaque token passed through the pose interceptor chain
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface InterceptorFrame {
+  /** Scene node the broadcast is addressed to. */
+  readonly nodeId:   string
+  /** Pose at the point this interceptor was invoked. */
+  readonly pose:     NormalizedPose
+  /** Priority of the on_pose_broadcast node that produced this frame. */
+  readonly priority: number
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // PoseFrame — fully assembled frame, wire format for server → client broadcast
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -253,6 +266,10 @@ export interface SignalTypeMap {
   EntityId:         string
   /** ARKit→target mapping table: shape name → [(targetName, weight), ...] */
   MappingTable:     Record<string, [string, number][]> | null
+  /** Opaque token passed through the pose interceptor chain. */
+  InterceptorFrame: InterceptorFrame
+  /** A single unit quaternion rotation. */
+  Quaternion:       Quaternion
   /** Wildcard — compatible with any other type for generic nodes. */
   Any:              unknown
   /** Raw MediaPipe landmark array (face=478, hand=21, pose=33 points). */
@@ -369,9 +386,11 @@ export const SIGNAL_TYPE_COLORS: Record<SignalTypeName, string> = {
   String:          '#7ab8c8',
   ComponentConfig: '#8a6aaf',
   EntityId:        '#6a8aaf',
-  MappingTable:    '#a07050',
-  Any:             '#888888',
-  LandmarkList:    '#7a9a6a',
+MappingTable:      '#a07050',
+  InterceptorFrame:  '#9a5a8a',
+  Quaternion:        '#5a9a7a',
+  LandmarkList:      '#7a9a6a',
+  Any:               '#888888',
 }
 
 const _displayMap = new WeakMap<object, NodeDisplay>()

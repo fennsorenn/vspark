@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
+import { PARTICLE_DEFAULTS } from '../../particleUtils'
+import { getBuiltinParticleTextures } from '../../particleTextures'
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit'
 import { useParams } from 'react-router-dom'
 import { useEditorStore } from '../../store/editorStore'
 import { api, fireSignalEvent } from '../../api/client'
 import type { NodeRecord, NodeComponent } from '../../store/editorStore'
+import { CAMERA_EFFECT_KINDS } from '../../store/editorStore'
 import type { AssetFile } from '../../api/client'
 import { animRegistry } from '../../animRegistry'
-import { COMPONENT_TYPES } from './componentTypes'
 
 interface Transform {
   x: number; y: number; z: number
@@ -864,9 +866,9 @@ function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
 
   return (
     <div>
-      {([ ['enableFace', 'Face landmarks'], ['enablePose', 'Pose (body)'], ['enableHands', 'Hand tracking'] ] as const).map(([field, lbl]) => (
+{([ ['enableFace', 'Face landmarks'], ['enablePose', 'Pose (body)'], ['enableHands', 'Hand tracking'] ] as const).map(([field, label]) => (
         <div key={field} style={rowStyle}>
-          <span style={labelStyle}>{lbl}</span>
+          <span style={labelStyle}>{label}</span>
           <input
             type='checkbox'
             checked={(cfg[field] as boolean | undefined) ?? true}
@@ -902,16 +904,284 @@ function ComponentProps({ comp }: { comp: NodeComponent }) {
   }
 }
 
+// ---------- Camera effect property panel ----------
+
+function EffectRow({ label, cfg, field, step, min, max, onSave }: {
+  label: string
+  cfg: Record<string, unknown>
+  field: string
+  step?: number
+  min?: number
+  max?: number
+  onSave: (patch: Record<string, unknown>) => void
+}) {
+  const value = (cfg[field] as number) ?? 0
+  const save = (v: number) => {
+    const clamped = min !== undefined ? Math.max(min, max !== undefined ? Math.min(max, v) : v) : v
+    onSave({ [field]: clamped })
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{label}</span>
+      <NumInput value={value} step={step ?? 0.01} onChange={save} onBlur={() => {}} style={{ width: 72 }} />
+    </div>
+  )
+}
+
+function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
+  const effect = useEditorStore((s) => s.cameraEffects.find((e) => e.id === effectId))
+  const updateCameraEffect = useEditorStore((s) => s.updateCameraEffect)
+
+  if (!effect) return null
+  const cfg = effect.config
+  const ek = CAMERA_EFFECT_KINDS.find((k) => k.kind === kind)!
+
+  const save = (patch: Record<string, unknown>) => {
+    const config = { ...cfg, ...patch }
+    updateCameraEffect(effectId, { config })
+    api.updateCameraEffect(effectId, { config }).catch(() => {})
+  }
+
+  const TONE_MAPPING_MODES: { label: string; value: number }[] = [
+    { label: 'ACES Filmic', value: 6 },
+    { label: 'AGX',         value: 7 },
+    { label: 'Neutral',     value: 8 },
+    { label: 'Reinhard',    value: 1 },
+    { label: 'Reinhard 2',  value: 2 },
+    { label: 'Reinhard 2 Adaptive', value: 3 },
+    { label: 'Cineon',      value: 5 },
+    { label: 'Linear',      value: 0 },
+  ]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {kind === 'fx_tone_mapping' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Mode</span>
+          <select
+            value={(cfg.mode as number) ?? 6}
+            onChange={(e) => save({ mode: Number(e.target.value) })}
+            style={{ background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#e0e0e0', borderRadius: 4, padding: '3px 6px', fontSize: 12 }}
+          >
+            {TONE_MAPPING_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </div>
+      )}
+      {kind === 'fx_brightness_contrast' && (
+        <>
+          <EffectRow label="Brightness" cfg={cfg} field="brightness" step={0.01} min={-1} max={1} onSave={save} />
+          <EffectRow label="Contrast" cfg={cfg} field="contrast" step={0.01} min={-1} max={1} onSave={save} />
+        </>
+      )}
+      {kind === 'fx_hue_saturation' && (
+        <>
+          <EffectRow label="Hue" cfg={cfg} field="hue" step={0.01} min={-Math.PI} max={Math.PI} onSave={save} />
+          <EffectRow label="Saturation" cfg={cfg} field="saturation" step={0.01} min={-1} max={1} onSave={save} />
+        </>
+      )}
+      {kind === 'fx_sepia' && (
+        <EffectRow label="Intensity" cfg={cfg} field="intensity" step={0.01} min={0} max={1} onSave={save} />
+      )}
+      {kind === 'fx_bloom' && (
+        <>
+          <EffectRow label="Intensity" cfg={cfg} field="intensity" step={0.1} min={0} onSave={save} />
+          <EffectRow label="Lum. Threshold" cfg={cfg} field="luminanceThreshold" step={0.01} min={0} max={1} onSave={save} />
+          <EffectRow label="Lum. Smoothing" cfg={cfg} field="luminanceSmoothing" step={0.005} min={0} max={1} onSave={save} />
+        </>
+      )}
+      {kind === 'fx_depth_of_field' && (() => {
+        const autofocus = (cfg.autofocus as boolean) ?? false
+        const afMode = (cfg.afMode as string) ?? 'point'
+        const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8 }
+        const labelStyle: React.CSSProperties = { fontSize: 12, color: '#888', flex: 1 }
+        const selectStyle: React.CSSProperties = { background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#e0e0e0', borderRadius: 4, padding: '3px 6px', fontSize: 12 }
+        return (
+          <>
+            <div style={{ height: 1, background: '#222', margin: '2px 0' }} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', userSelect: 'none' }}>
+              <input type="checkbox" checked={autofocus} onChange={(e) => save({ autofocus: e.target.checked })} />
+              <span style={{ color: autofocus ? '#7ab' : '#888' }}>Autofocus (Experimental)</span>
+            </label>
+            {autofocus ? (
+              <>
+                <div style={rowStyle}>
+                  <span style={labelStyle}>AF Mode</span>
+                  <select value={afMode} onChange={(e) => save({ afMode: e.target.value })} style={selectStyle}>
+                    <option value="point">Point</option>
+                    <option value="percentile">Percentile</option>
+                  </select>
+                </div>
+                {afMode === 'point' && (
+                  <>
+                    <EffectRow label="Point X" cfg={cfg} field="afPointX" step={0.01} min={0} max={1} onSave={save} />
+                    <EffectRow label="Point Y" cfg={cfg} field="afPointY" step={0.01} min={0} max={1} onSave={save} />
+                  </>
+                )}
+                {afMode === 'percentile' && (
+                  <EffectRow label="Percentile %" cfg={cfg} field="afPercentile" step={1} min={1} max={99} onSave={save} />
+                )}
+                <div style={{ height: 1, background: '#222', margin: '2px 0' }} />
+                <EffectRow label="AF Speed" cfg={cfg} field="afSpeed" step={0.1} min={0.1} max={20} onSave={save} />
+                <EffectRow label="AF Delay" cfg={cfg} field="afDelay" step={0.05} min={0} max={2} onSave={save} />
+                <EffectRow label="Overshoot" cfg={cfg} field="afOvershoot" step={0.01} min={0} max={1} onSave={save} />
+              </>
+            ) : (
+              <EffectRow label="Focus Distance" cfg={cfg} field="worldFocusDistance" step={0.1} min={0} onSave={save} />
+            )}
+            <div style={{ height: 1, background: '#222', margin: '2px 0' }} />
+            <EffectRow label="Focus Range" cfg={cfg} field="worldFocusRange" step={0.1} min={0} onSave={save} />
+            <EffectRow label="Bokeh Scale" cfg={cfg} field="bokehScale" step={0.1} min={0} onSave={save} />
+          </>
+        )
+      })()}
+      {kind === 'fx_chromatic_aberration' && (
+        <>
+          <EffectRow label="Offset X" cfg={cfg} field="offsetX" step={0.001} min={0} max={0.05} onSave={save} />
+          <EffectRow label="Offset Y" cfg={cfg} field="offsetY" step={0.001} min={0} max={0.05} onSave={save} />
+        </>
+      )}
+      {kind === 'fx_ssao' && (
+        <>
+          <EffectRow label="Intensity" cfg={cfg} field="intensity" step={0.1} min={0} max={10} onSave={save} />
+          <EffectRow label="Radius" cfg={cfg} field="radius" step={0.01} min={0.001} max={1} onSave={save} />
+          <EffectRow label="Bias" cfg={cfg} field="bias" step={0.001} min={0} max={0.1} onSave={save} />
+          <EffectRow label="Rings" cfg={cfg} field="rings" step={1} min={1} max={16} onSave={save} />
+          <EffectRow label="Samples" cfg={cfg} field="samples" step={1} min={1} max={64} onSave={save} />
+        </>
+      )}
+      {kind === 'fx_outline' && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Color</span>
+            <input type="color" value={(cfg.color as string) ?? '#000000'}
+              onChange={(e) => save({ color: e.target.value })}
+              style={{ width: 36, height: 24, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} />
+          </div>
+          <EffectRow label="Threshold" cfg={cfg} field="threshold" step={0.0001} min={0} onSave={save} />
+          <EffectRow label="Thickness" cfg={cfg} field="thickness" step={0.5} min={0.5} onSave={save} />
+          <EffectRow label="Alpha" cfg={cfg} field="alpha" step={0.01} min={0} max={1} onSave={save} />
+          <EffectRow label="Normal Strength" cfg={cfg} field="normalStrength" step={0.05} min={0} onSave={save} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Blend Mode</span>
+            <select
+              value={(cfg.blendMode as string) ?? 'NORMAL'}
+              onChange={(e) => save({ blendMode: e.target.value })}
+              style={{ background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#e0e0e0', borderRadius: 4, padding: '3px 6px', fontSize: 12 }}
+            >
+              {['NORMAL','MULTIPLY','SCREEN','OVERLAY','DARKEN','LIGHTEN','ADD','DIFFERENCE','EXCLUSION','SOFT_LIGHT','HARD_LIGHT','COLOR_BURN','COLOR_DODGE','SUBTRACT'].map((m) => (
+                <option key={m} value={m}>{m.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
+      {kind === 'fx_vignette' && (
+        <>
+          <EffectRow label="Offset" cfg={cfg} field="offset" step={0.01} min={0} max={1} onSave={save} />
+          <EffectRow label="Darkness" cfg={cfg} field="darkness" step={0.01} min={0} max={1} onSave={save} />
+        </>
+      )}
+      {kind === 'fx_noise' && (
+        <EffectRow label="Opacity" cfg={cfg} field="opacity" step={0.01} min={0} max={1} onSave={save} />
+      )}
+      {kind === 'fx_scanline' && (
+        <>
+          <EffectRow label="Density" cfg={cfg} field="density" step={0.05} min={0} onSave={save} />
+          <EffectRow label="Opacity" cfg={cfg} field="opacity" step={0.01} min={0} max={1} onSave={save} />
+        </>
+      )}
+      {kind === 'fx_pixelation' && (
+        <EffectRow label="Granularity" cfg={cfg} field="granularity" step={1} min={1} onSave={save} />
+      )}
+      {kind === 'fx_ascii' && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Characters</span>
+            <input
+              value={(cfg.characters as string) ?? ' .:-+*=%@#'}
+              onChange={(e) => save({ characters: e.target.value })}
+              style={{ background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#e0e0e0', borderRadius: 4, padding: '3px 6px', fontSize: 12, width: 120 }}
+            />
+          </div>
+          <EffectRow label="Font Size" cfg={cfg} field="fontSize" step={1} min={8} onSave={save} />
+          <EffectRow label="Cell Size" cfg={cfg} field="cellSize" step={1} min={4} onSave={save} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Color</span>
+            <input type="color" value={(cfg.color as string) ?? '#ffffff'}
+              onChange={(e) => save({ color: e.target.value })}
+              style={{ width: 36, height: 24, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Invert</span>
+            <input type="checkbox" checked={(cfg.invert as boolean) ?? false}
+              onChange={(e) => save({ invert: e.target.checked })} />
+          </div>
+        </>
+      )}
+      {kind === 'fx_dot_screen' && (
+        <>
+          <EffectRow label="Angle" cfg={cfg} field="angle" step={0.01} min={0} onSave={save} />
+          <EffectRow label="Scale" cfg={cfg} field="scale" step={0.05} min={0.1} onSave={save} />
+        </>
+      )}
+      {kind === 'fx_glitch' && (
+        <>
+          {([
+            ['Delay min',    'delay',    0, 0.1],
+            ['Delay max',    'delay',    1, 0.1],
+            ['Strength min', 'strength', 0, 0.05],
+            ['Strength max', 'strength', 1, 0.05],
+          ] as [string, string, number, number][]).map(([label, field, idx, step]) => {
+            const pair = (cfg[field] as number[]) ?? (field === 'delay' ? [1.5, 3.5] : [0.3, 1.0])
+            return (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{label}</span>
+                <NumInput
+                  value={pair[idx]}
+                  step={step}
+                  onChange={(v) => { const next = [...pair]; next[idx] = Math.max(0, v); save({ [field]: next }) }}
+                  onBlur={() => {}}
+                  style={{ width: 72 }}
+                />
+              </div>
+            )
+          })}
+          <EffectRow label="Columns" cfg={cfg} field="columns" step={0.01} min={0} max={1} onSave={save} />
+          <EffectRow label="Ratio" cfg={cfg} field="ratio" step={0.05} min={0} max={1} onSave={save} />
+        </>
+      )}
+      {kind === 'fx_tilt_shift' && (
+        <>
+          <EffectRow label="Offset" cfg={cfg} field="offset" step={0.01} min={-1} max={1} onSave={save} />
+          <EffectRow label="Rotation" cfg={cfg} field="rotation" step={0.01} onSave={save} />
+          <EffectRow label="Focus Area" cfg={cfg} field="focusArea" step={0.01} min={0} max={1} onSave={save} />
+          <EffectRow label="Feather" cfg={cfg} field="feather" step={0.01} min={0} max={1} onSave={save} />
+        </>
+      )}
+      {kind === 'fx_water' && (
+        <EffectRow label="Factor" cfg={cfg} field="factor" step={0.05} min={0} onSave={save} />
+      )}
+      <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>{ek.description}</div>
+    </div>
+  )
+}
+
 // ---------- Main panel ----------
 
 export function PropertiesPanel() {
   const { projectId } = useParams<{ projectId: string }>()
   const { nodes, selectedNodeId, updateNode: storeUpdateNode, assets, selectedComponentId, nodeComponents,
-    fbxDebugVisible, setFbxDebugVisible, vrmExpressionsByNode, vrmMorphTargetsByNode } = useEditorStore()
+    fbxDebugVisible, setFbxDebugVisible, vrmExpressionsByNode, vrmMorphTargetsByNode, componentKinds,
+    cameraEffects, selectedEffect } = useEditorStore()
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation')
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null
   const selectedComp = nodeComponents.find((c) => c.id === selectedComponentId) ?? null
-  const selectedCompType = selectedComp ? COMPONENT_TYPES.find((ct) => ct.kind === selectedComp.kind) : null
+  const selectedCompType = selectedComp ? componentKinds.find((ct) => ct.kind === selectedComp.kind) : null
+  const selectedEffectRecord = selectedEffect
+    ? cameraEffects.find((e) => e.nodeId === selectedEffect.nodeId && e.kind === selectedEffect.kind)
+    : null
+  const selectedEffectNode = selectedEffect ? nodes.find((n) => n.id === selectedEffect.nodeId) : null
+  const selectedEffectKind = selectedEffect ? CAMERA_EFFECT_KINDS.find((k) => k.kind === selectedEffect.kind) : null
 
   const [name, setName] = useState('')
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 })
@@ -970,6 +1240,31 @@ export function PropertiesPanel() {
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
   }, [node?.id, animPlaying])
 
+  const panelShell = (children: React.ReactNode) => (
+    <div style={{
+      width: 280, flexShrink: 0, background: '#141414', borderLeft: '1px solid #2a2a2a',
+      overflowY: 'auto', fontFamily: 'system-ui, sans-serif', color: '#e0e0e0',
+    }}>
+      <div style={{ padding: '14px 16px' }}>{children}</div>
+    </div>
+  )
+
+  // Effect selected — show focused effect panel.
+  if (selectedEffect && selectedEffectRecord && selectedEffectNode && selectedEffectKind) {
+    return panelShell(
+      <>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <span style={{ fontSize: 18 }}>{selectedEffectKind.icon}</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>{selectedEffectKind.label}</div>
+            <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{selectedEffectNode.name}</div>
+          </div>
+        </div>
+        <EffectPanel effectId={selectedEffectRecord.id} kind={selectedEffect.kind} />
+      </>
+    )
+  }
+
   if (!node && !selectedComp) {
     return (
       <div style={{
@@ -991,31 +1286,17 @@ export function PropertiesPanel() {
 
   // Component selected without a parent node selected — show a focused component panel.
   if (!node && selectedComp && selectedCompType) {
-    return (
-      <div style={{
-        width: 280,
-        flexShrink: 0,
-        background: '#141414',
-        borderLeft: '1px solid #2a2a2a',
-        overflowY: 'auto',
-        fontFamily: 'system-ui, sans-serif',
-        color: '#e0e0e0',
-      }}>
-        <div style={{ padding: '14px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <span style={{ fontSize: 18 }}>{selectedCompType.icon}</span>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>
-                {selectedCompType.label}
-              </div>
-              <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
-                {selectedCompType.description}
-              </div>
-            </div>
+    return panelShell(
+      <>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <span style={{ fontSize: 18 }}>{selectedCompType.icon}</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>{selectedCompType.label}</div>
+            <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{selectedCompType.description}</div>
           </div>
-          <ComponentProps comp={selectedComp} />
         </div>
-      </div>
+        <ComponentProps comp={selectedComp} />
+      </>
     )
   }
 
@@ -1209,6 +1490,45 @@ export function PropertiesPanel() {
               ))}
             </div>
 
+            <div style={sectionHeader}>Background Image</div>
+            {(() => {
+              const cam = (node.components?.camera ?? {}) as Record<string, unknown>
+              const bgAssets = assets.filter((a) => a.kind === 'image')
+              const saveBgImage = (url: string | null) => {
+                const components = { ...node.components, camera: { ...cam, backgroundImage: url } }
+                api.updateNode(node.id, { components }).catch(() => {})
+                storeUpdateNode(node.id, { components })
+              }
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <datalist id="cam-bg-list">
+                    {bgAssets.map((a) => <option key={a.id} value={a.url} label={a.name} />)}
+                  </datalist>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      list="cam-bg-list"
+                      style={{ ...textInput, flex: 1 }}
+                      placeholder="URL or pick from Images…"
+                      defaultValue={(cam.backgroundImage as string) ?? ''}
+                      key={node.id + '-bg'}
+                      onBlur={(e) => saveBgImage(e.target.value.trim() || null)}
+                    />
+                    {!!cam.backgroundImage && (
+                      <button
+                        title="Clear background image"
+                        style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 16, padding: '0 4px', flexShrink: 0 }}
+                        onClick={() => saveBgImage(null)}
+                      >×</button>
+                    )}
+                  </div>
+                  {!!cam.backgroundImage && (
+                    <img src={cam.backgroundImage as string} alt="preview"
+                      style={{ width: '100%', maxHeight: 80, objectFit: 'cover', borderRadius: 4, background: '#111' }} />
+                  )}
+                </div>
+              )
+            })()}
+
             <div style={sectionHeader}>Viewer</div>
             {(() => {
               const url = `${window.location.origin}/viewer/${projectId ?? ''}/${node.id}`
@@ -1261,6 +1581,297 @@ export function PropertiesPanel() {
             })()}
           </>
         )}
+
+        {/* Godray Caster Properties */}
+        {node.kind === 'godray_caster' && (() => {
+          const gr = (node.components.godray as Record<string, unknown>) ?? {}
+          const saveGr = (patch: Record<string, unknown>) => {
+            const components = { ...node.components, godray: { ...gr, ...patch } }
+            api.updateNode(node.id, { components }).catch(() => {})
+            storeUpdateNode(node.id, { components })
+          }
+          const defaults: Record<string, number> = { scale: 0.3, samples: 60, density: 0.96, decay: 0.93, weight: 0.4, exposure: 0.6, clampMax: 1.0 }
+          const grWithDefaults: Record<string, unknown> = { ...defaults, ...gr }
+          return (
+            <>
+              <div style={sectionHeader}>Sun Appearance</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Color</span>
+                  <input type="color" value={(gr.color as string) ?? '#ffffff'}
+                    onChange={(e) => saveGr({ color: e.target.value })}
+                    style={{ width: 36, height: 24, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} />
+                </div>
+                <EffectRow label="Scale" cfg={grWithDefaults} field="scale" step={0.05} min={0.01} onSave={saveGr} />
+              </div>
+              <div style={sectionHeader}>God Ray Parameters</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <EffectRow label="Samples"   cfg={grWithDefaults} field="samples"  step={1}    min={10}  max={120} onSave={saveGr} />
+                <EffectRow label="Density"   cfg={grWithDefaults} field="density"  step={0.01} min={0}   max={1}   onSave={saveGr} />
+                <EffectRow label="Decay"     cfg={grWithDefaults} field="decay"    step={0.01} min={0}   max={1}   onSave={saveGr} />
+                <EffectRow label="Weight"    cfg={grWithDefaults} field="weight"   step={0.01} min={0}   max={1}   onSave={saveGr} />
+                <EffectRow label="Exposure"  cfg={grWithDefaults} field="exposure" step={0.01} min={0}   max={2}   onSave={saveGr} />
+                <EffectRow label="Clamp Max" cfg={grWithDefaults} field="clampMax" step={0.01} min={0}   max={1}   onSave={saveGr} />
+              </div>
+            </>
+          )
+        })()}
+
+        {node.kind === 'billboard' && (() => {
+          const bc: Record<string, unknown> = {
+            facing: 'screen', backface: 'none', width: 1, height: 1, alpha: 1, textureUrl: null,
+            ...((node.components?.billboard ?? {}) as Record<string, unknown>),
+          }
+          const saveBc = (patch: Record<string, unknown>) => {
+            const components = { ...node.components, billboard: { ...bc, ...patch } }
+            api.updateNode(node.id, { components }).catch(() => {})
+            storeUpdateNode(node.id, { components })
+          }
+          const imageAssets = assets.filter((a) => a.kind === 'image')
+          const sel: React.CSSProperties = {
+            background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#e0e0e0',
+            borderRadius: 4, padding: '3px 6px', fontSize: 12, outline: 'none',
+          }
+          const row = (label: string, children: React.ReactNode) => (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{label}</span>
+              {children}
+            </div>
+          )
+          return (
+            <>
+              <div style={sectionHeader}>Billboard</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {row('Facing', (
+                  <select style={sel} value={bc.facing as string} onChange={(e) => saveBc({ facing: e.target.value })}>
+                    <option value="screen">Screen (always faces camera)</option>
+                    <option value="world">World (fixed rotation)</option>
+                  </select>
+                ))}
+                {row('Backface', (
+                  <select style={sel} value={bc.backface as string} onChange={(e) => saveBc({ backface: e.target.value })}>
+                    <option value="none">None (single-sided)</option>
+                    <option value="mirror">Mirror (flip X)</option>
+                    <option value="unmirrored">Unmirrored (double-sided)</option>
+                  </select>
+                ))}
+                <EffectRow label="Width"  cfg={bc} field="width"  step={0.05} min={0.01} onSave={saveBc} />
+                <EffectRow label="Height" cfg={bc} field="height" step={0.05} min={0.01} onSave={saveBc} />
+                <EffectRow label="Alpha"  cfg={bc} field="alpha"  step={0.05} min={0}    max={1} onSave={saveBc} />
+              </div>
+              <div style={sectionHeader}>Texture</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <datalist id="billboard-img-list">
+                  {imageAssets.map((a) => <option key={a.id} value={a.url} label={a.name} />)}
+                </datalist>
+                {row('Image', (
+                  <input list="billboard-img-list" style={{ ...numInput, width: 120 }}
+                    placeholder="URL or pick asset…"
+                    defaultValue={(bc.textureUrl as string) ?? ''}
+                    key={node.id + '-bbtex'}
+                    onBlur={(e) => saveBc({ textureUrl: e.target.value.trim() || null })} />
+                ))}
+                {bc.textureUrl ? (
+                  <img src={bc.textureUrl as string} alt="preview"
+                    style={{ width: '100%', maxHeight: 120, objectFit: 'contain', borderRadius: 4, background: '#111', marginTop: 4 }} />
+                ) : null}
+              </div>
+            </>
+          )
+        })()}
+
+        {node.kind === 'particle' && (() => {
+          const pc: Record<string, unknown> = { ...PARTICLE_DEFAULTS, ...((node.components?.particle ?? {}) as Record<string, unknown>) }
+          const savePc = (patch: Record<string, unknown>) => {
+            const components = { ...node.components, particle: { ...pc, ...patch } }
+            api.updateNode(node.id, { components }).catch(() => {})
+            storeUpdateNode(node.id, { components })
+          }
+          const imageAssets = assets.filter((a) => a.kind === 'image')
+          const sel: React.CSSProperties = {
+            background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#e0e0e0',
+            borderRadius: 4, padding: '3px 6px', fontSize: 12, outline: 'none',
+          }
+          const chk = (field: string) => (
+            <input type="checkbox" checked={Boolean(pc[field])}
+              onChange={(e) => savePc({ [field]: e.target.checked })} />
+          )
+          const row = (label: string, children: React.ReactNode) => (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{label}</span>
+              {children}
+            </div>
+          )
+          return (
+            <>
+              <div style={sectionHeader}>Texture</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {/* Built-in presets */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {getBuiltinParticleTextures().map((t) => {
+                    const active = pc.textureUrl === t.dataUrl
+                    return (
+                      <button key={t.label} title={t.label}
+                        onClick={() => savePc({ textureUrl: t.dataUrl })}
+                        style={{
+                          background: active ? '#2a4a6a' : '#1e1e1e',
+                          border: active ? '1px solid #4a8aaa' : '1px solid #2a2a2a',
+                          borderRadius: 4, padding: 2, cursor: 'pointer',
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                        }}>
+                        <img src={t.dataUrl} alt={t.label}
+                          style={{ width: 28, height: 28, imageRendering: 'pixelated', background: '#333', borderRadius: 2 }} />
+                        <span style={{ fontSize: 9, color: active ? '#9cf' : '#666', lineHeight: 1 }}>{t.label}</span>
+                      </button>
+                    )
+                  })}
+                  <button title="None (default sprite)"
+                    onClick={() => savePc({ textureUrl: null })}
+                    style={{
+                      background: !pc.textureUrl ? '#2a4a6a' : '#1e1e1e',
+                      border: !pc.textureUrl ? '1px solid #4a8aaa' : '1px solid #2a2a2a',
+                      borderRadius: 4, padding: 2, cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                      width: 34,
+                    }}>
+                    <span style={{ fontSize: 16, lineHeight: '28px' }}>○</span>
+                    <span style={{ fontSize: 9, color: !pc.textureUrl ? '#9cf' : '#666', lineHeight: 1 }}>Default</span>
+                  </button>
+                </div>
+                {/* Custom image asset or URL */}
+                <datalist id="particle-img-list">
+                  {imageAssets.map((a) => <option key={a.id} value={a.url} label={a.name} />)}
+                </datalist>
+                {row('Custom', (
+                  <input list="particle-img-list" style={{ ...numInput, width: 120 }}
+                    placeholder="URL or pick asset…"
+                    defaultValue={(pc.textureUrl as string) ?? ''}
+                    key={node.id + '-tex'}
+                    onBlur={(e) => savePc({ textureUrl: e.target.value.trim() || null })} />
+                ))}
+              </div>
+
+              <div style={sectionHeader}>Rendering</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {row('Blend Mode', (
+                  <select style={sel} value={pc.blendMode as string}
+                    onChange={(e) => savePc({ blendMode: e.target.value })}>
+                    <option value="additive">Additive</option>
+                    <option value="normal">Normal</option>
+                    <option value="multiply">Multiply</option>
+                  </select>
+                ))}
+                {row('Simulation Space', (
+                  <select style={sel} value={pc.simulationSpace as string}
+                    onChange={(e) => savePc({ simulationSpace: e.target.value })}>
+                    <option value="world">World (particles stay in place)</option>
+                    <option value="local">Local (particles follow emitter)</option>
+                  </select>
+                ))}
+                <EffectRow label="Max Count" cfg={pc} field="maxCount" step={10} min={1} max={5000} onSave={savePc} />
+                {row('Depth Write', chk('depthWrite'))}
+                {row('Depth Test',  chk('depthTest'))}
+              </div>
+
+              <div style={sectionHeader}>Emission</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <EffectRow label="Rate (p/s)" cfg={pc} field="emissionRate" step={1} min={0} onSave={savePc} />
+                {row('Burst Mode',    chk('burstMode'))}
+                {row('Loop',          chk('loop'))}
+                {row('Play on Start', chk('playOnStart'))}
+              </div>
+
+              <div style={sectionHeader}>Lifetime</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <EffectRow label="Lifetime (s)"  cfg={pc} field="lifetime"       step={0.1} min={0.01} onSave={savePc} />
+                <EffectRow label="Lifetime ±"    cfg={pc} field="lifetimeRandom" step={0.05} min={0} max={1} onSave={savePc} />
+              </div>
+
+              <div style={sectionHeader}>Size</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <EffectRow label="Width"        cfg={pc} field="sizeX"       step={0.005} min={0.001} onSave={savePc} />
+                <EffectRow label="Height"       cfg={pc} field="sizeY"       step={0.005} min={0.001} onSave={savePc} />
+                <EffectRow label="Width ±"      cfg={pc} field="sizeRandomX" step={0.05}  min={0} max={1} onSave={savePc} />
+                <EffectRow label="Height ±"     cfg={pc} field="sizeRandomY" step={0.05}  min={0} max={1} onSave={savePc} />
+                {row('Size Over Lifetime', (
+                  <select style={sel} value={pc.sizeOverLifetime as string}
+                    onChange={(e) => savePc({ sizeOverLifetime: e.target.value })}>
+                    <option value="constant">Constant</option>
+                    <option value="shrink">Shrink</option>
+                    <option value="grow">Grow</option>
+                    <option value="pulse">Pulse</option>
+                  </select>
+                ))}
+              </div>
+
+              <div style={sectionHeader}>Color &amp; Alpha</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {row('Color Start', (
+                  <input type="color" value={(pc.colorStart as string) ?? '#ffffff'}
+                    onChange={(e) => savePc({ colorStart: e.target.value })}
+                    style={{ width: 36, height: 24, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} />
+                ))}
+                {row('Color End', (
+                  <input type="color" value={(pc.colorEnd as string) ?? '#ff6600'}
+                    onChange={(e) => savePc({ colorEnd: e.target.value })}
+                    style={{ width: 36, height: 24, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} />
+                ))}
+                <EffectRow label="Alpha"            cfg={pc} field="alpha"            step={0.05} min={0} max={1} onSave={savePc} />
+                {row('Alpha Over Lifetime', (
+                  <select style={sel} value={pc.alphaOverLifetime as string}
+                    onChange={(e) => savePc({ alphaOverLifetime: e.target.value })}>
+                    <option value="constant">Constant</option>
+                    <option value="fade-in">Fade In</option>
+                    <option value="fade-out">Fade Out</option>
+                    <option value="fade-in-out">Fade In→Out</option>
+                  </select>
+                ))}
+                <EffectRow label="Emissive Intensity" cfg={pc} field="emissiveIntensity" step={0.1} min={0} onSave={savePc} />
+              </div>
+
+              <div style={sectionHeader}>Direction &amp; Speed</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <EffectRow label="Dir X"     cfg={pc} field="directionX"  step={0.1} onSave={savePc} />
+                <EffectRow label="Dir Y"     cfg={pc} field="directionY"  step={0.1} onSave={savePc} />
+                <EffectRow label="Dir Z"     cfg={pc} field="directionZ"  step={0.1} onSave={savePc} />
+                <EffectRow label="Spread (°)" cfg={pc} field="spread"     step={1} min={0} max={180} onSave={savePc} />
+                <EffectRow label="Speed"     cfg={pc} field="speed"       step={0.1} min={0} onSave={savePc} />
+                <EffectRow label="Speed ±"   cfg={pc} field="speedRandom" step={0.05} min={0} max={1} onSave={savePc} />
+              </div>
+
+              <div style={sectionHeader}>Origin Area</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <EffectRow label="Width"  cfg={pc} field="originW" step={0.05} min={0} onSave={savePc} />
+                <EffectRow label="Height" cfg={pc} field="originH" step={0.05} min={0} onSave={savePc} />
+                <EffectRow label="Depth"  cfg={pc} field="originD" step={0.05} min={0} onSave={savePc} />
+              </div>
+
+              <div style={sectionHeader}>Motion</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <EffectRow label="Gravity X"   cfg={pc} field="gravityX"   step={0.05} onSave={savePc} />
+                <EffectRow label="Gravity Y"   cfg={pc} field="gravityY"   step={0.05} onSave={savePc} />
+                <EffectRow label="Gravity Z"   cfg={pc} field="gravityZ"   step={0.05} onSave={savePc} />
+                <EffectRow label="Turbulence"  cfg={pc} field="turbulence" step={0.05} min={0} onSave={savePc} />
+              </div>
+
+              <div style={sectionHeader}>Rotation</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {row('Mode', (
+                  <select style={sel} value={(pc.rotationMode as string) ?? 'free'}
+                    onChange={(e) => savePc({ rotationMode: e.target.value })}>
+                    <option value="free">Free (spin over lifetime)</option>
+                    <option value="velocity">Velocity aligned</option>
+                  </select>
+                ))}
+                {pc.rotationMode !== 'velocity' && <>
+                  <EffectRow label="Start Rotation ±(°)" cfg={pc} field="rotationStart"        step={5}   min={0} max={180} onSave={savePc} />
+                  <EffectRow label="Angular Vel (°/s)"   cfg={pc} field="angularVelocity"       step={5}   onSave={savePc} />
+                  <EffectRow label="Angular Vel ±"       cfg={pc} field="angularVelocityRandom" step={5}   min={0} onSave={savePc} />
+                </>}
+              </div>
+            </>
+          )
+        })()}
 
         {/* Morph targets + expressions — avatar only, shown once model is loaded */}
         {node.kind === 'avatar' && (() => {
@@ -1379,6 +1990,49 @@ export function PropertiesPanel() {
                     {a.name}
                   </button>
                 ))}
+              </div>
+            )}
+            {/* Speed and offset */}
+            {(node.components?.animation as { idleUrl?: string })?.idleUrl && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <label style={{ flex: 1, fontSize: 12, color: '#888', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  Speed
+                  <input
+                    type="number"
+                    style={{ ...textInput }}
+                    step={0.1}
+                    min={0}
+                    defaultValue={(node.components?.animation as { speed?: number })?.speed ?? 1}
+                    key={`${node.id}-speed`}
+                    onBlur={(e) => {
+                      const speed = parseFloat(e.target.value)
+                      if (isNaN(speed) || speed < 0) return
+                      const animation = { ...(node.components?.animation as object), speed }
+                      const components = { ...node.components, animation }
+                      api.updateNode(node.id, { components }).catch(() => {})
+                      storeUpdateNode(node.id, { components })
+                    }}
+                  />
+                </label>
+                <label style={{ flex: 1, fontSize: 12, color: '#888', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  Offset (s)
+                  <input
+                    type="number"
+                    style={{ ...textInput }}
+                    step={0.1}
+                    min={0}
+                    defaultValue={(node.components?.animation as { offset?: number })?.offset ?? 0}
+                    key={`${node.id}-offset`}
+                    onBlur={(e) => {
+                      const offset = parseFloat(e.target.value)
+                      if (isNaN(offset) || offset < 0) return
+                      const animation = { ...(node.components?.animation as object), offset }
+                      const components = { ...node.components, animation }
+                      api.updateNode(node.id, { components }).catch(() => {})
+                      storeUpdateNode(node.id, { components })
+                    }}
+                  />
+                </label>
               </div>
             )}
             {/* Animation playback controls */}

@@ -72,15 +72,6 @@ const MIRROR_VMC: Readonly<Record<string, string>> = {
 // Config
 // ──────────────────────────────────────────────────────────────────────────────
 
-export interface RhyliveBoneMapperConfig {
-  /** Fallback when no value connection supplies mirror state. */
-  mirror?: boolean
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Node class
-// ──────────────────────────────────────────────────────────────────────────────
-
 @SignalNode({
   label:       'RhyLive Bone Mapper',
   description: 'Maps Unity HumanBodyBones to VRM bone names and corrects RhyLive coordinate conventions.',
@@ -97,11 +88,11 @@ export class RhyliveBoneMapper {
 
   static execute(
     inputs: InputsOf<typeof RhyliveBoneMapper>,
-    config: RhyliveBoneMapperConfig,
+    _config: unknown,
     _ctx: NodeExecutionContext,
   ): OutputsOf<typeof RhyliveBoneMapper> {
     const bones  = inputs.bones  as BoneRotations | undefined
-    const mirror = (inputs.mirror as boolean | undefined) ?? config.mirror === true
+    const mirror = (inputs.mirror as boolean | undefined) ?? false
     if (!bones) return {} as OutputsOf<typeof RhyliveBoneMapper>
 
     const entries: Array<readonly [VRMBoneName, Quaternion]> = []
@@ -121,7 +112,7 @@ export function applyBoneMapping(bones: BoneRotations, mirror = false): Normaliz
   const noopCtx: NodeExecutionContext = { triggeredPort: '', getState: () => ({} as never), setState: () => {} }
   return RhyliveBoneMapper.execute(
     { bones, mirror } as InputsOf<typeof RhyliveBoneMapper>,
-    { mirror },
+    {},
     noopCtx,
   ).pose as NormalizedPose
 }

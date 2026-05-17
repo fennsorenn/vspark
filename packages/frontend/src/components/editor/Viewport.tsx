@@ -1,6 +1,16 @@
-import { useRef, useEffect, useState, useMemo } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { useRef, useEffect, useState, useMemo, useContext } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Grid, Environment, Line, TransformControls, Billboard } from '@react-three/drei'
+import {
+  EffectComposer, Bloom, Vignette, ToneMapping,
+  BrightnessContrast, HueSaturation, Sepia, DepthOfField,
+  ChromaticAberration, Pixelation, Noise, Scanline,
+  EffectComposerContext,
+  ASCII, DotScreen, Glitch, SMAA, TiltShift, WaterEffect,
+} from '@react-three/postprocessing'
+import { SSAOEffect, BlendFunction } from 'postprocessing'
+import { DepthEdgeEffect } from './DepthEdgeEffect'
+import { GodRaysEffectFixed as GodRaysEffect } from './GodRaysEffectFixed'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
@@ -17,11 +27,41 @@ import type { VmcCalibration } from '../../calibration'
 import { VRM_BONE_NAMES } from '@vspark/shared/signal'
 import { api } from '../../api/client'
 import { BoneFilterBank } from '../../oneEuroFilter'
+import { mergeParticleConfig, createParticlePool, tickParticles } from '../../particleUtils'
+import type { ParticlePool } from '../../particleUtils'
 
 type GizmoMode = 'translate' | 'rotate' | 'scale'
 
 // Maps nodeId → outermost Three.js group, used to attach TransformControls
 const nodeGroupRegistry = new Map<string, THREE.Group>()
+
+/** Imperatively parents a node's group into a VRM bone so it follows the bone's transform. */
+function BoneAttacher({ avatarNodeId, boneName, nodeId }: {
+  avatarNodeId: string
+  boneName: string
+  nodeId: string
+}) {
+  const { scene } = useThree()
+  useEffect(() => {
+    const group = nodeGroupRegistry.get(nodeId)
+    const vrm = vrmRegistry.get(avatarNodeId)
+    if (!group || !vrm) return
+    const bone = vrm.humanoid.getRawBoneNode(boneName as VRMHumanBoneName)
+    if (!bone) return
+    // Zero out stored world-space offset — position is now bone-local
+    group.position.set(0, 0, 0)
+    group.quaternion.identity()
+    bone.add(group)
+    return () => {
+      // Restore to scene root on detach so Three.js doesn't orphan it
+      scene.add(group)
+    }
+  })
+  return null
+}
+
+// Maps nodeId → sun mesh, used by the implicit GodRays postprocessing pass
+const godrayCasterRegistry = new Map<string, THREE.Mesh>()
 
 // Mixamo rig bone name → VRM humanoid bone name (used by FBX animation retargeting)
 const MIXAMO_TO_VRM: Record<string, VRMHumanBoneName> = {
@@ -223,14 +263,13 @@ function getTransform(node: NodeRecord): Transform {
   }
 }
 
-function AvatarNode({ node }: { node: NodeRecord }) {
+function AvatarNode({ node, children }: { node: NodeRecord; children?: React.ReactNode }) {
   const outerRef      = useRef<THREE.Group>(null)
   const groupRef      = useRef<THREE.Group>(null)
   const fbxGroupRef   = useRef<THREE.Group>(null)
   const vrmHelperRef  = useRef<THREE.Group>(null)
   const fbxHelperRef  = useRef<THREE.Group>(null)
   const boneCylRef = useRef<THREE.Mesh>(null)
-  const bindPoseGroupRef = useRef<THREE.Group>(null)
   const fbxMixerRef   = useRef<THREE.AnimationMixer | null>(null)
   const vrmMixerRef   = useRef<THREE.AnimationMixer | null>(null)
   const vrmRef        = useRef<VRM | null>(null)
@@ -274,8 +313,10 @@ function AvatarNode({ node }: { node: NodeRecord }) {
   type MorphEntry = { mesh: THREE.SkinnedMesh; index: number }
   const morphMapRef = useRef<Map<string, MorphEntry[]>>(new Map())
 
-  const animComp = node.components?.animation as { idleUrl?: string } | undefined
+  const animComp = node.components?.animation as { idleUrl?: string; speed?: number; offset?: number } | undefined
   const animUrl = animComp?.idleUrl ?? null
+  const animSpeed = animComp?.speed ?? 1
+  const animOffset = animComp?.offset ?? 0
 
   // --- VRM load ---
   useEffect(() => {
@@ -595,9 +636,35 @@ function AvatarNode({ node }: { node: NodeRecord }) {
       const fbxBoneNode: Record<string, THREE.Object3D> = {}
       fbx.traverse(o => { if (FBX_BONE_TO_VRM[o.name] && !fbxBoneNode[o.name]) fbxBoneNode[o.name] = o })
 
-      // 1. Hips: full 3-axis basis alignment.
+      // Detect the FBX's "up axis" by looking at which world axis the hips→spine
+      // direction most aligns with. UE4 has root with 90°X (Z-up→Y-up baked in) →
+      // spine points +Y. UE5 has identity root → spine points +Z (Z-up native).
+      // Build a coordinate-fix rotation that brings whatever the FBX considers "up"
+      // back to world +Y. Apply this fix to ALL fbxBindWQ values.
       const hipsFbxName = VRM_TO_FBX.hips
       const spineFbxName = VRM_TO_FBX.spine
+      const fbxCoordFix = new THREE.Quaternion()
+      if (hipsFbxName && spineFbxName && fbxBindWQ[hipsFbxName] && fbxBoneNode[spineFbxName]) {
+        const fbxSpineDir = fbxBoneNode[spineFbxName].position.clone().normalize()
+          .applyQuaternion(fbxBindWQ[hipsFbxName]!)
+        // Find the world axis closest to fbxSpineDir
+        const ax = Math.abs(fbxSpineDir.x), ay = Math.abs(fbxSpineDir.y), az = Math.abs(fbxSpineDir.z)
+        let majorAxis = new THREE.Vector3(0, 1, 0)
+        if (ax > ay && ax > az) majorAxis.set(Math.sign(fbxSpineDir.x), 0, 0)
+        else if (az > ay) majorAxis.set(0, 0, Math.sign(fbxSpineDir.z))
+        else majorAxis.set(0, Math.sign(fbxSpineDir.y), 0)
+        // Rotation that maps majorAxis → world +Y
+        fbxCoordFix.setFromUnitVectors(majorAxis, new THREE.Vector3(0, 1, 0))
+        console.log(`[fbxCoordFix] spineDir=(${fbxSpineDir.x.toFixed(2)},${fbxSpineDir.y.toFixed(2)},${fbxSpineDir.z.toFixed(2)}) major=(${majorAxis.x.toFixed(0)},${majorAxis.y.toFixed(0)},${majorAxis.z.toFixed(0)}) fix=(${fbxCoordFix.x.toFixed(3)},${fbxCoordFix.y.toFixed(3)},${fbxCoordFix.z.toFixed(3)},${fbxCoordFix.w.toFixed(3)})`)
+        // Apply the fix to all fbxBindWQ values: newWQ = fix × oldWQ
+        for (const k of Object.keys(fbxBindWQ)) {
+          const fixed = fbxCoordFix.clone().multiply(fbxBindWQ[k])
+          fbxBindWQ[k].copy(fixed)
+          fbxBindWQInv[k].copy(fixed).invert()
+        }
+      }
+
+      // 1. Hips: full 3-axis basis alignment.
       const lThighFbxName = VRM_TO_FBX.leftUpperLeg
       const rThighFbxName = VRM_TO_FBX.rightUpperLeg
       if (hipsFbxName && spineFbxName && lThighFbxName && rThighFbxName &&
@@ -618,7 +685,6 @@ function AvatarNode({ node }: { node: NodeRecord }) {
         const fbxBasis = new THREE.Matrix4().makeBasis(fRight2, fUp, fForward)
 
         const fullRot = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().multiplyMatrices(fbxBasis, vrmBasis.clone().invert()))
-        // Apply rot in world to hips: newWQ = rot × oldWQ
         vrmAposeWQ.hips = fullRot.clone().multiply(hipsBindWQ)
       } else {
         vrmAposeWQ.hips = vrmBindWQ.hips?.clone()
@@ -667,11 +733,18 @@ function AvatarNode({ node }: { node: NodeRecord }) {
                 const vF = vMid.clone().normalize()
                 const vS = vLit.clone().normalize()
                 const vU = new THREE.Vector3().crossVectors(vF, vS).normalize()
-                const vR = new THREE.Vector3().crossVectors(vU, vF).normalize()
-                const vMat = new THREE.Matrix4().makeBasis(vR, vU, vF)
+                // Ensure vU and fU both point the same anatomical direction (palm normal
+                // = downward in world for A-pose). Use fU's sign as the reference and
+                // match vU to it so both bases represent the same palm orientation.
                 const fF = fMid.clone().normalize()
                 const fS = fLit.clone().normalize()
-                const fU = new THREE.Vector3().crossVectors(fF, fS).normalize().multiplyScalar(-1)
+                const fU = new THREE.Vector3().crossVectors(fF, fS).normalize()
+                // Canonical palm normal: whichever of ±fU points more downward (-Y)
+                if (fU.y > 0) fU.multiplyScalar(-1)
+                // Match vU chirality to fU
+                if (vU.dot(fU) < 0) vU.multiplyScalar(-1)
+                const vR = new THREE.Vector3().crossVectors(vU, vF).normalize()
+                const vMat = new THREE.Matrix4().makeBasis(vR, vU, vF)
                 const fR = new THREE.Vector3().crossVectors(fU, fF).normalize()
                 const fMat = new THREE.Matrix4().makeBasis(fR, fU, fF)
                 const handRot = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().multiplyMatrices(fMat, vMat.invert()))
@@ -691,241 +764,6 @@ function AvatarNode({ node }: { node: NodeRecord }) {
         if (vrmAposeWQ[vn]) vrmAposeWQInv[vn] = vrmAposeWQ[vn]!.clone().invert()
       }
       console.log('[apose] computed corrections for', Object.keys(vrmAposeWQ).length, 'bones')
-
-      // --- Bind-pose VRM copy: load a second VRM to the right, apply FBX bind world Qs ---
-      // Uses getWorldQuaternion() values (same as SkeletonHelper), compensated for VRM scene rotation.
-      if (bindPoseGroupRef.current && node.filePath) {
-        bindPoseGroupRef.current.clear()
-        new GLTFLoader().register(p => new VRMLoaderPlugin(p)).load(node.filePath, (gltf2) => {
-          if (!bindPoseGroupRef.current) return
-          const vrm2 = gltf2.userData.vrm as VRM | undefined
-          if (!vrm2) return
-          vrm2.scene.rotation.y = Math.PI
-          bindPoseGroupRef.current.add(vrm2.scene)
-
-          // Pose the VRM in the FBX bind/A-pose using direction-based swing retargeting.
-          //
-          // Different rigs orient bones with different local axes (e.g. UE4 Y+ along bone,
-          // VRM world-aligned). Setting bone world Qs to match FBX world Qs would twist the
-          // skinned mesh because each rig's mesh was bound to its OWN rest orientations.
-          //
-          // The fix: compute the bone "direction" (vector from bone to its first rig child)
-          // in world space for both VRM rest and FBX bind. Build a swing quaternion that
-          // rotates VRM rest direction onto FBX bind direction. Apply it to the VRM bone in
-          // world space, then decompose to local for the bone.
-          //
-          // No twist component is recovered — this gives the visual A-pose shape without
-          // axial roll information.
-          vrm2.scene.updateMatrixWorld(true)
-
-          // Preferred child for direction computation. For trunk bones with multiple
-          // rig children (e.g. spine→chest+shoulders, chest→neck+shoulders), we must
-          // pick the canonical downstream bone or the swing direction becomes ambiguous
-          // and can rotate the whole upper body sideways.
-          const PREFERRED_VRM_CHILD: Partial<Record<VRMHumanBoneName, VRMHumanBoneName>> = {
-            hips: 'spine',
-            spine: 'chest',
-            chest: 'upperChest',
-            upperChest: 'neck',
-            neck: 'head',
-            leftShoulder: 'leftUpperArm',
-            rightShoulder: 'rightUpperArm',
-            leftUpperArm: 'leftLowerArm',
-            rightUpperArm: 'rightLowerArm',
-            leftLowerArm: 'leftHand',
-            rightLowerArm: 'rightHand',
-            leftUpperLeg: 'leftLowerLeg',
-            rightUpperLeg: 'rightLowerLeg',
-            leftLowerLeg: 'leftFoot',
-            rightLowerLeg: 'rightFoot',
-            leftFoot: 'leftToes',
-            rightFoot: 'rightToes',
-          }
-
-          // Build FBX child by inverting FBX_BONE_TO_VRM + PREFERRED_VRM_CHILD.
-          // Only consider FBX bones that actually exist in THIS FBX (fbxBindWQ has them).
-          const VRM_TO_FBX: Partial<Record<VRMHumanBoneName, string>> = {}
-          for (const [fb, vb] of Object.entries(FBX_BONE_TO_VRM)) {
-            if (!fbxBindWQ[fb]) continue
-            if (!VRM_TO_FBX[vb as VRMHumanBoneName]) VRM_TO_FBX[vb as VRMHumanBoneName] = fb
-          }
-          const fbxChild: Record<string, string | null> = {}
-          for (const name of Object.keys(fbxBindWQ)) {
-            const vn = FBX_BONE_TO_VRM[name] as VRMHumanBoneName | undefined
-            const preferredV = vn ? PREFERRED_VRM_CHILD[vn] : undefined
-            fbxChild[name] = preferredV ? (VRM_TO_FBX[preferredV] ?? null) : null
-          }
-          // Fallback for bones not in the preferred map: first rig child
-          for (const name of Object.keys(fbxBindWQ)) {
-            if (fbxChild[name]) continue
-            for (const candidate of Object.keys(fbxBindWQ)) {
-              if (fbxBoneParent[candidate] === name) { fbxChild[name] = candidate; break }
-            }
-          }
-
-          const vrmChild: Partial<Record<VRMHumanBoneName, VRMHumanBoneName>> = {}
-          for (const n of allVRMBoneNames) {
-            const preferred = PREFERRED_VRM_CHILD[n]
-            if (preferred && vrmBoneObj[preferred]) { vrmChild[n] = preferred; continue }
-            // fallback
-            for (const candidate of allVRMBoneNames) {
-              if (vrmBoneParent[candidate] === n) { vrmChild[n] = candidate; break }
-            }
-          }
-
-          // Find the FBX bone node positions for direction computation
-          const fbxBoneNode: Record<string, THREE.Object3D> = {}
-          fbx.traverse(o => { if (FBX_BONE_TO_VRM[o.name] && !fbxBoneNode[o.name]) fbxBoneNode[o.name] = o })
-
-          const _vrmChildLocalPos = new THREE.Vector3()
-          const _fbxChildLocalPos = new THREE.Vector3()
-          const _vrmDir = new THREE.Vector3()
-          const _fbxDir = new THREE.Vector3()
-          const _swing = new THREE.Quaternion()
-          const _pWQ = new THREE.Quaternion()
-
-          // Debug: dump childmaps for arms/legs
-          console.log('[childmap] upperarm_l →', fbxChild['upperarm_l'], 'leftUpperArm →', vrmChild['leftUpperArm'])
-          console.log('[childmap] thigh_l →', fbxChild['thigh_l'], 'leftUpperLeg →', vrmChild['leftUpperLeg'])
-          console.log('[childmap] spine_01 →', fbxChild['spine_01'])
-          // Handle the rig root (pelvis/hips) specially. Single-direction swing only
-          // constrains 2 of 3 axes; for the root we need full orientation. Build an
-          // orthonormal basis from (up = to spine, right = right-thigh→left-thigh) for
-          // both rigs and compute the rotation that aligns FBX basis to VRM rest basis.
-          {
-            const hipsVn: VRMHumanBoneName = 'hips'
-            const hipsBone = vrm2.humanoid.getRawBoneNode(hipsVn)
-            const hipsFbx = VRM_TO_FBX[hipsVn]
-            const spineVn: VRMHumanBoneName = 'spine'
-            const spineBone = vrm2.humanoid.getRawBoneNode(spineVn)
-            const spineFbx = VRM_TO_FBX[spineVn]
-            const lThighVn: VRMHumanBoneName = 'leftUpperLeg'
-            const rThighVn: VRMHumanBoneName = 'rightUpperLeg'
-            const lThighBone = vrm2.humanoid.getRawBoneNode(lThighVn)
-            const rThighBone = vrm2.humanoid.getRawBoneNode(rThighVn)
-            const lThighFbx = VRM_TO_FBX[lThighVn]
-            const rThighFbx = VRM_TO_FBX[rThighVn]
-            if (hipsBone && hipsFbx && spineBone && spineFbx && lThighBone && rThighBone && lThighFbx && rThighFbx) {
-              const vUp = new THREE.Vector3().copy(spineBone.position).normalize()
-              const vRight = new THREE.Vector3().subVectors(lThighBone.position, rThighBone.position).normalize()
-              // Bring vrm vectors into world space via hips current world Q (= rest, since
-              // we haven't touched it yet).
-              const hipsWQ = new THREE.Quaternion()
-              hipsBone.getWorldQuaternion(hipsWQ)
-              vUp.applyQuaternion(hipsWQ)
-              vRight.applyQuaternion(hipsWQ)
-              const vForward = new THREE.Vector3().crossVectors(vRight, vUp).normalize()
-              const vRight2 = new THREE.Vector3().crossVectors(vUp, vForward).normalize()
-              const vrmBasis = new THREE.Matrix4().makeBasis(vRight2, vUp, vForward)
-
-              const fUp = new THREE.Vector3().copy(fbxBoneNode[spineFbx]!.position).normalize()
-              const fRight = new THREE.Vector3().subVectors(fbxBoneNode[lThighFbx]!.position, fbxBoneNode[rThighFbx]!.position).normalize()
-              fUp.applyQuaternion(fbxBindWQ[hipsFbx]!)
-              fRight.applyQuaternion(fbxBindWQ[hipsFbx]!)
-              const fForward = new THREE.Vector3().crossVectors(fRight, fUp).normalize()
-              const fRight2 = new THREE.Vector3().crossVectors(fUp, fForward).normalize()
-              const fbxBasis = new THREE.Matrix4().makeBasis(fRight2, fUp, fForward)
-
-              // Rotation that maps vrm basis → fbx basis: fbxBasis × vrmBasisInv
-              const vrmBasisInv = vrmBasis.clone().invert()
-              const rotMat = new THREE.Matrix4().multiplyMatrices(fbxBasis, vrmBasisInv)
-              const fullRot = new THREE.Quaternion().setFromRotationMatrix(rotMat)
-
-              const hipsParentWQ = new THREE.Quaternion()
-              if (hipsBone.parent) hipsBone.parent.getWorldQuaternion(hipsParentWQ)
-              const newLocal = hipsParentWQ.clone().invert().multiply(fullRot).multiply(hipsParentWQ).multiply(hipsBone.quaternion)
-              hipsBone.quaternion.copy(newLocal)
-              hipsBone.updateMatrixWorld(true)
-              console.log(`[hipsBasis] vrmRight=(${vRight2.x.toFixed(2)},${vRight2.y.toFixed(2)},${vRight2.z.toFixed(2)}) vrmFwd=(${vForward.x.toFixed(2)},${vForward.y.toFixed(2)},${vForward.z.toFixed(2)}) fbxRight=(${fRight2.x.toFixed(2)},${fRight2.y.toFixed(2)},${fRight2.z.toFixed(2)}) fbxFwd=(${fForward.x.toFixed(2)},${fForward.y.toFixed(2)},${fForward.z.toFixed(2)})`)
-            }
-          }
-
-          for (const mb of bonesInOrder) {
-            const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName
-            const bone2 = vrm2.humanoid.getRawBoneNode(vn)
-            const fbxNode = fbxBoneNode[mb]
-            if (!bone2 || !fbxNode) { if (mb === 'upperarm_l' || mb === 'thigh_l') console.log(`[skip] ${mb} bone2=${!!bone2} fbxNode=${!!fbxNode}`); continue }
-            // Skip the hips/pelvis — already handled above with full basis alignment.
-            if (vn === 'hips') continue
-            const childMb = fbxChild[mb]
-            const childVn = vrmChild[vn]
-            const parentWQ = new THREE.Quaternion()
-            if (bone2.parent) bone2.parent.getWorldQuaternion(parentWQ)
-
-            if (mb === 'upperarm_l' || mb === 'thigh_l') console.log(`[loop] ${mb} childMb=${childMb} childVn=${childVn} hasChildren=${!!(childMb && childVn)}`)
-
-            if (childMb && childVn) {
-              const vrmChildBone = vrm2.humanoid.getRawBoneNode(childVn)
-              const fbxChildNode = fbxBoneNode[childMb]
-              if (!vrmChildBone || !fbxChildNode) continue
-              _vrmChildLocalPos.copy(vrmChildBone.position)
-              _fbxChildLocalPos.copy(fbxChildNode.position)
-              if (_vrmChildLocalPos.lengthSq() < 1e-10 || _fbxChildLocalPos.lengthSq() < 1e-10) continue
-
-              _vrmDir.copy(_vrmChildLocalPos).normalize()
-              bone2.getWorldQuaternion(_pWQ)
-              _vrmDir.applyQuaternion(_pWQ)
-
-              _fbxDir.copy(_fbxChildLocalPos).normalize()
-              _fbxDir.applyQuaternion(fbxBindWQ[mb]!)
-
-              _swing.setFromUnitVectors(_vrmDir, _fbxDir)
-
-              if (mb === 'upperarm_l' || mb === 'thigh_l' || mb === 'spine_01' || mb === 'lowerarm_l') {
-                console.log(`[swing] ${mb}→${childMb} vrmDir=(${_vrmDir.x.toFixed(2)},${_vrmDir.y.toFixed(2)},${_vrmDir.z.toFixed(2)}) fbxDir=(${_fbxDir.x.toFixed(2)},${_fbxDir.y.toFixed(2)},${_fbxDir.z.toFixed(2)}) swing=(${_swing.x.toFixed(3)},${_swing.y.toFixed(3)},${_swing.z.toFixed(3)},${_swing.w.toFixed(3)}) childVn=${childVn}`)
-              }
-
-              const newLocalQ = parentWQ.clone().invert().multiply(_swing).multiply(parentWQ).multiply(bone2.quaternion)
-              bone2.quaternion.copy(newLocalQ)
-              bone2.updateMatrixWorld(true)
-
-              // For hands, the single-axis swing leaves the roll unconstrained, twisting
-              // the wrist. Do a full basis alignment using two child fingers (middle +
-              // little) to lock the palm orientation.
-              const isHand = vn === 'leftHand' || vn === 'rightHand'
-              if (isHand) {
-                const middleVn = (vn === 'leftHand' ? 'leftMiddleProximal' : 'rightMiddleProximal') as VRMHumanBoneName
-                const littleVn = (vn === 'leftHand' ? 'leftLittleProximal' : 'rightLittleProximal') as VRMHumanBoneName
-                const middleFbx = VRM_TO_FBX[middleVn]
-                const littleFbx = VRM_TO_FBX[littleVn]
-                const middleVrm = vrm2.humanoid.getRawBoneNode(middleVn)
-                const littleVrm = vrm2.humanoid.getRawBoneNode(littleVn)
-                const middleNodeFbx = middleFbx ? fbxBoneNode[middleFbx] : null
-                const littleNodeFbx = littleFbx ? fbxBoneNode[littleFbx] : null
-                if (middleVrm && littleVrm && middleNodeFbx && littleNodeFbx) {
-                  const handWQv = new THREE.Quaternion()
-                  bone2.getWorldQuaternion(handWQv)
-                  const vMid = middleVrm.position.clone().normalize().applyQuaternion(handWQv)
-                  const vLit = littleVrm.position.clone().normalize().applyQuaternion(handWQv)
-                  const fMid = middleNodeFbx.position.clone().normalize().applyQuaternion(fbxBindWQ[mb]!)
-                  const fLit = littleNodeFbx.position.clone().normalize().applyQuaternion(fbxBindWQ[mb]!)
-                  const vF = vMid.clone().normalize()
-                  const vS = vLit.clone().normalize()
-                  const vU = new THREE.Vector3().crossVectors(vF, vS).normalize()
-                  const vR = new THREE.Vector3().crossVectors(vU, vF).normalize()
-                  const vMat = new THREE.Matrix4().makeBasis(vR, vU, vF)
-                  const fF = fMid.clone().normalize()
-                  const fS = fLit.clone().normalize()
-                  const fU = new THREE.Vector3().crossVectors(fF, fS).normalize().multiplyScalar(-1)
-                  const fR = new THREE.Vector3().crossVectors(fU, fF).normalize()
-                  const fMat = new THREE.Matrix4().makeBasis(fR, fU, fF)
-                  const rot = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().multiplyMatrices(fMat, vMat.invert()))
-                  const pWQh = new THREE.Quaternion()
-                  if (bone2.parent) bone2.parent.getWorldQuaternion(pWQh)
-                  const fixed = pWQh.clone().invert().multiply(rot).multiply(pWQh).multiply(bone2.quaternion)
-                  bone2.quaternion.copy(fixed)
-                  bone2.updateMatrixWorld(true)
-                }
-              }
-            } else {
-              // Leaf bone (no rig child): keep the VRM rest local Q (head, feet, finger tips).
-              if (vrmBindLocalQ[vn]) bone2.quaternion.copy(vrmBindLocalQ[vn]!)
-            }
-            bone2.updateMatrixWorld(true)
-          }
-          vrm2.scene.updateMatrixWorld(true)
-        })
-      }
 
       // --- Phase 3: Create interpolants, collect keyframe times ---
       const qInterp: Record<string, THREE.Interpolant> = {}
@@ -1019,9 +857,13 @@ function AvatarNode({ node }: { node: NodeRecord }) {
             _q.copy(IDQ)
           }
           const fbxPN = fbxBoneParent[mb]
-          const parentFBXWQ = fbxPN ? curFBXWQ[fbxPN] : IDQ
+          const parentFBXWQ = fbxPN ? curFBXWQ[fbxPN] : fbxCoordFix
           curFBXWQ[mb].copy(parentFBXWQ).multiply(_q)
           _delta.copy(curFBXWQ[mb]).multiply(fbxBindWQInv[mb]!).multiply(vrmAposeWQ[vn] ?? vrmBindWQ[vn]!)
+          if ((ti === 0 || ti === allTimes.length - 1 || ti === allTimes.length - 2) && (mb === 'upperarm_l' || mb === 'upperarm_r')) {
+            const fwq2 = curFBXWQ[mb]; const bwq2 = fbxBindWQ[mb]!
+            console.log(`[ph4 ti=${ti}/${allTimes.length-1} t=${t.toFixed(3)}] ${mb} curFBXWQ=(${fwq2.x.toFixed(3)},${fwq2.y.toFixed(3)},${fwq2.z.toFixed(3)},${fwq2.w.toFixed(3)}) bind=(${bwq2.x.toFixed(3)},${bwq2.y.toFixed(3)},${bwq2.z.toFixed(3)},${bwq2.w.toFixed(3)})`)
+          }
           if (ti === 0 && (mb === 'upperarm_l' || mb === 'upperarm_r')) {
             const fwq = curFBXWQ[mb]; const bwq = fbxBindWQ[mb]!
             // angle of delta (how much frame0 rotated from bind)
@@ -1059,7 +901,11 @@ function AvatarNode({ node }: { node: NodeRecord }) {
         const values = new Float32Array(hipsPosTrack.values.length)
         for (let i = 0; i < hipsPosTrack.values.length; i += 3) {
           _v.set(hipsPosTrack.values[i], hipsPosTrack.values[i+1], hipsPosTrack.values[i+2])
-          _v.sub(fbxRestPos).multiplyScalar(0.01).add(vrmRestPos)
+          // Delta from FBX rest, in FBX coordinate frame
+          _v.sub(fbxRestPos)
+          // Map FBX coord frame → VRM coord frame (e.g. Z-up → Y-up)
+          _v.applyQuaternion(fbxCoordFix)
+          _v.multiplyScalar(0.01).add(vrmRestPos)
           values[i] = _v.x; values[i+1] = _v.y; values[i+2] = _v.z
         }
         vrmTracks.push(new THREE.VectorKeyframeTrack(
@@ -1077,11 +923,51 @@ function AvatarNode({ node }: { node: NodeRecord }) {
       const fbxAction = fbxMixer.clipAction(clip)
       fbxAction.reset().play()
 
-      const vrmClip  = new THREE.AnimationClip(clip.name, clip.duration, vrmTracks)
+      // Clamp duration. If the last keyframe value duplicates the first (a "closed loop"
+      // where t=0 and t=lastKey hold the same pose), shorten to the second-to-last keyframe
+      // so the loop wraps cleanly without a single-frame discontinuity at the boundary.
+      let lastKeyTime = allTimes.length > 0 ? allTimes[allTimes.length - 1] : clip.duration
+      const lastIdx = allTimes.length - 1
+      if (lastIdx >= 1) {
+        // Compare first and last baked quaternion for a representative bone (hips)
+        const hipsVn = FBX_BONE_TO_VRM[VRM_TO_FBX.hips ?? ''] as VRMHumanBoneName | undefined
+        const arr = hipsVn ? outQVals[hipsVn] : undefined
+        if (arr) {
+          const dx = arr[0] - arr[lastIdx*4]
+          const dy = arr[1] - arr[lastIdx*4+1]
+          const dz = arr[2] - arr[lastIdx*4+2]
+          const dw = arr[3] - arr[lastIdx*4+3]
+          const dist = Math.sqrt(dx*dx + dy*dy + dz*dz + dw*dw)
+          if (dist < 1e-3) {
+            lastKeyTime = allTimes[lastIdx - 1]
+            console.log(`[clipDur] first==last detected (dist=${dist.toExponential(2)}), trimming duration to ${lastKeyTime.toFixed(3)}`)
+          }
+        }
+      }
+      const vrmDuration = Math.min(clip.duration, lastKeyTime)
+      // Diagnostics: per-track time ranges to spot mismatches
+      let minStart = Infinity, maxEnd = -Infinity
+      const trackTails: string[] = []
+      for (const t of clip.tracks) {
+        const ts = t.times
+        if (ts.length < 2) continue
+        if (ts[0] < minStart) minStart = ts[0]
+        if (ts[ts.length - 1] > maxEnd) maxEnd = ts[ts.length - 1]
+        // Flag tracks whose end deviates from the consensus
+        if (Math.abs(ts[ts.length - 1] - lastKeyTime) > 0.001) {
+          trackTails.push(`${t.name}@[${ts[0].toFixed(3)}…${ts[ts.length-1].toFixed(3)},n=${ts.length}]`)
+        }
+      }
+      console.log(`[clipDur] orig=${clip.duration.toFixed(3)} consensusEnd=${lastKeyTime.toFixed(3)} actualSpan=[${minStart.toFixed(3)}…${maxEnd.toFixed(3)}] outliers:`, trackTails.slice(0, 10))
+      const vrmClip  = new THREE.AnimationClip(clip.name, vrmDuration, vrmTracks)
       const vrmMixer = new THREE.AnimationMixer(vrm.scene)
       vrmMixerRef.current = vrmMixer
       const vrmAction = vrmMixer.clipAction(vrmClip)
       vrmAction.reset().play()
+      vrmAction.time = animOffset % vrmDuration
+      fbxAction.time = animOffset % clip.duration
+      vrmAction.timeScale = animSpeed
+      fbxAction.timeScale = animSpeed
 
       animRegistry.set(node.id, {
         action: vrmAction, mixer: vrmMixer,
@@ -1103,6 +989,13 @@ function AvatarNode({ node }: { node: NodeRecord }) {
       animRegistry.delete(node.id)
     }
   }, [node.filePath, animUrl, vrmLoaded])
+
+  useEffect(() => {
+    const entry = animRegistry.get(node.id)
+    if (!entry) return
+    entry.action.timeScale = animSpeed
+    entry.fbxAction.timeScale = animSpeed
+  }, [animSpeed, node.id])
 
   const _boneStartWP   = useRef(new THREE.Vector3())
   const _boneEndWP     = useRef(new THREE.Vector3())
@@ -1275,9 +1168,9 @@ function AvatarNode({ node }: { node: NodeRecord }) {
           <cylinderGeometry args={[0.004, 0.004, 1, 6]} />
           <meshBasicMaterial color={0xffff00} depthTest={false} />
         </mesh>
+        {children}
       </group>
       <group ref={vrmHelperRef} />
-      <group ref={bindPoseGroupRef} position={[2, 0, 0]} />
     </>
   )
 }
@@ -1493,7 +1386,405 @@ function CameraNode({ node }: { node: NodeRecord }) {
   )
 }
 
-function ModelNode({ node }: { node: NodeRecord }) {
+interface BillboardConfig {
+  facing: 'screen' | 'world'
+  backface: 'none' | 'mirror' | 'unmirrored'
+  width: number
+  height: number
+  alpha: number
+  textureUrl: string | null
+}
+
+const BILLBOARD_DEFAULTS: BillboardConfig = {
+  facing: 'screen',
+  backface: 'none',
+  width: 1,
+  height: 1,
+  alpha: 1,
+  textureUrl: null,
+}
+
+function BillboardNode({ node }: { node: NodeRecord }) {
+  const outerRef   = useRef<THREE.Group>(null)
+  const billboardRef = useRef<THREE.Group>(null)
+  const frontRef   = useRef<THREE.Mesh>(null)
+  const backRef    = useRef<THREE.Mesh>(null)
+  const t = getTransform(node)
+  const bc: BillboardConfig = { ...BILLBOARD_DEFAULTS, ...((node.components?.billboard ?? {}) as Partial<BillboardConfig>) }
+
+  // Load texture imperatively and mark materials needsUpdate when it arrives
+  const textureRef = useRef<THREE.Texture | null>(null)
+  useEffect(() => {
+    if (!bc.textureUrl) {
+      textureRef.current = null
+      const applyNull = (m: THREE.Mesh | null) => {
+        if (!m) return
+        const mat = m.material as THREE.MeshBasicMaterial
+        mat.map = null
+        mat.needsUpdate = true
+      }
+      applyNull(frontRef.current)
+      applyNull(backRef.current)
+      return
+    }
+    let cancelled = false
+    new THREE.TextureLoader().load(bc.textureUrl, (tex) => {
+      if (cancelled) { tex.dispose(); return }
+      tex.colorSpace = THREE.SRGBColorSpace
+      textureRef.current = tex
+      const applyTex = (m: THREE.Mesh | null, t: THREE.Texture) => {
+        if (!m) return
+        const mat = m.material as THREE.MeshBasicMaterial
+        mat.map = t
+        mat.needsUpdate = true
+      }
+      applyTex(frontRef.current, tex)
+      if (bc.backface === 'mirror') {
+        const mirror = tex.clone()
+        mirror.repeat.set(-1, 1)
+        mirror.offset.set(1, 0)
+        mirror.needsUpdate = true
+        applyTex(backRef.current, mirror)
+      } else {
+        applyTex(backRef.current, tex)
+      }
+    })
+    return () => { cancelled = true }
+  }, [bc.textureUrl, bc.backface]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (outerRef.current) nodeGroupRegistry.set(node.id, outerRef.current)
+    return () => { nodeGroupRegistry.delete(node.id) }
+  }, [node.id])
+
+  // Copy camera quaternion onto the inner group each frame when in screen-facing mode,
+  // or reset to identity when in world mode so the node's own rotation applies cleanly.
+  useFrame(({ camera }) => {
+    if (!billboardRef.current) return
+    if (bc.facing === 'screen') {
+      billboardRef.current.quaternion.copy(camera.quaternion)
+    } else {
+      billboardRef.current.quaternion.identity()
+    }
+  })
+
+  const w = bc.width
+  const h = bc.height
+
+  const inner = (
+    <group ref={billboardRef}>
+      <mesh ref={frontRef}>
+        <planeGeometry args={[w, h]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={bc.alpha} side={THREE.FrontSide} depthWrite={false} />
+      </mesh>
+      {bc.backface !== 'none' && (
+        <mesh ref={backRef} rotation={[0, Math.PI, 0]}>
+          <planeGeometry args={[w, h]} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={bc.alpha} side={THREE.FrontSide} depthWrite={false} />
+        </mesh>
+      )}
+    </group>
+  )
+
+  return (
+    <group ref={outerRef} position={[t.x, t.y, t.z]} rotation={[t.rx, t.ry, t.rz]} scale={[t.sx, t.sy, t.sz]}>
+      {inner}
+    </group>
+  )
+}
+
+// Reusable scratch objects for InstancedMesh matrix composition
+const _particlePos   = new THREE.Vector3()
+const _particleQuat  = new THREE.Quaternion()
+const _particleScale = new THREE.Vector3()
+const _particleMat   = new THREE.Matrix4()
+const _particleColor = new THREE.Color()
+
+// Per-instance alpha lives as a geometry attribute (instanceColor only gives RGB).
+// The vertex shader forwards it; the fragment shader uses it for gl_FragColor.a.
+const PARTICLE_INST_VERT = `
+#include <common>
+#include <fog_pars_vertex>
+attribute float aAlpha;
+varying vec3 vColor;
+varying float vAlpha;
+varying vec2 vUv;
+void main() {
+  vColor = instanceColor;
+  vAlpha = aAlpha;
+  vUv = uv;
+  vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+}
+`
+
+const PARTICLE_INST_FRAG = `
+uniform sampler2D uTex;
+uniform float uHasTex;
+varying vec3 vColor;
+varying float vAlpha;
+varying vec2 vUv;
+void main() {
+  vec4 texSample = uHasTex > 0.5 ? texture2D(uTex, vUv) : vec4(1.0);
+  gl_FragColor = vec4(vColor * texSample.rgb, vAlpha * texSample.a);
+}
+`
+
+function makeInstancedParticleMaterial(
+  texture: THREE.Texture | null,
+  blending: THREE.Blending,
+  depthWrite: boolean,
+  depthTest: boolean,
+): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    vertexShader: PARTICLE_INST_VERT,
+    fragmentShader: PARTICLE_INST_FRAG,
+    uniforms: {
+      uTex:    { value: texture ?? new THREE.Texture() },
+      uHasTex: { value: texture ? 1.0 : 0.0 },
+    },
+    blending,
+    depthWrite,
+    depthTest,
+    transparent: true,
+  })
+}
+
+function ParticleNode({ node }: { node: NodeRecord }) {
+  const outerRef = useRef<THREE.Group>(null)
+  // InstancedMesh for local-space; a scene-root InstancedMesh for world-space
+  const localMeshRef  = useRef<THREE.InstancedMesh>(null)
+  const worldMeshRef  = useRef<THREE.InstancedMesh | null>(null)
+  const t = getTransform(node)
+  const pc = mergeParticleConfig((node.components?.particle ?? {}) as Record<string, unknown>)
+  const isWorld = pc.simulationSpace === 'world'
+
+  const pool = useRef<ParticlePool | null>(null)
+  const { scene } = useThree()
+
+  const blendingMap: Record<string, THREE.Blending> = {
+    normal: THREE.NormalBlending,
+    additive: THREE.AdditiveBlending,
+    multiply: THREE.MultiplyBlending,
+  }
+  const blending = blendingMap[pc.blendMode] ?? THREE.AdditiveBlending
+
+  // (Re-)allocate pool when maxCount changes, preserving playing state
+  useEffect(() => {
+    const wasPlaying = pool.current?.playing ?? pc.playOnStart
+    const p = createParticlePool(pc.maxCount)
+    p.playing = wasPlaying
+    pool.current = p
+  }, [pc.maxCount]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (pool.current && pc.playOnStart && !pool.current.playing) {
+      pool.current.playing = true
+      pool.current.burstFired = false
+    }
+  }, [pc.playOnStart])
+
+  useEffect(() => {
+    if (outerRef.current) nodeGroupRegistry.set(node.id, outerRef.current)
+    return () => { nodeGroupRegistry.delete(node.id) }
+  }, [node.id])
+
+  // Texture loading
+  const [texture, setTexture] = useState<THREE.Texture | null>(null)
+  useEffect(() => {
+    if (!pc.textureUrl) { setTexture(null); return }
+    let cancelled = false
+    new THREE.TextureLoader().load(pc.textureUrl, (tex) => { if (!cancelled) { tex.colorSpace = THREE.SRGBColorSpace; setTexture(tex) } })
+    return () => { cancelled = true }
+  }, [pc.textureUrl])
+
+  // Creates/replaces the InstancedMesh for the given space mode.
+  // aAlpha is a per-instance float attribute on the PlaneGeometry — instanced attributes
+  // are supported in WebGL2 (Three.js r152+) via InstancedBufferAttribute on the geometry.
+  const buildMesh = (count: number): THREE.InstancedMesh => {
+    const geo = new THREE.PlaneGeometry(1, 1)
+    const alphaAttr = new THREE.InstancedBufferAttribute(new Float32Array(count).fill(0), 1)
+    alphaAttr.setUsage(THREE.DynamicDrawUsage)
+    geo.setAttribute('aAlpha', alphaAttr)
+    const mat = makeInstancedParticleMaterial(texture, blending, pc.depthWrite, pc.depthTest)
+    const mesh = new THREE.InstancedMesh(geo, mat, count)
+    mesh.frustumCulled = false
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    // instanceColor provides per-instance RGB read by the vertex shader as `instanceColor`
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3).fill(1), 3)
+    mesh.instanceColor.setUsage(THREE.DynamicDrawUsage)
+    // Hide all instances initially
+    _particleMat.makeScale(0, 0, 0)
+    for (let i = 0; i < count; i++) mesh.setMatrixAt(i, _particleMat)
+    mesh.instanceMatrix.needsUpdate = true
+    return mesh
+  }
+
+  // World-space InstancedMesh lives at scene root
+  useEffect(() => {
+    if (!isWorld) return
+    const mesh = buildMesh(pc.maxCount)
+    worldMeshRef.current = mesh
+    scene.add(mesh)
+    return () => {
+      scene.remove(mesh)
+      mesh.geometry.dispose()
+      ;(mesh.material as THREE.ShaderMaterial).dispose()
+      worldMeshRef.current = null
+    }
+  }, [isWorld, pc.maxCount, scene]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep world-space shader uniforms in sync every render
+  useEffect(() => {
+    const mesh = worldMeshRef.current
+    if (!mesh) return
+    const mat = mesh.material as THREE.ShaderMaterial
+    mat.uniforms.uTex.value    = texture ?? new THREE.Texture()
+    mat.uniforms.uHasTex.value = texture ? 1.0 : 0.0
+    mat.blending   = blending
+    mat.depthWrite = pc.depthWrite
+    mat.depthTest  = pc.depthTest
+    mat.needsUpdate = true
+  })
+
+  const geoCountRef = useRef<number>(-1)
+  const emitterWorld = useRef(new THREE.Vector3())
+
+  useFrame(({ camera }, delta) => {
+    if (!pool.current || !outerRef.current) return
+
+    // First frame after local-space mount: initialize instanceColor and shader on the R3F mesh
+    if (!isWorld && localMeshRef.current && geoCountRef.current !== pc.maxCount) {
+      const mat = localMeshRef.current.material as THREE.ShaderMaterial
+      mat.uniforms.uTex.value    = texture ?? new THREE.Texture()
+      mat.uniforms.uHasTex.value = texture ? 1.0 : 0.0
+      if (!localMeshRef.current.instanceColor) {
+        localMeshRef.current.instanceColor = new THREE.InstancedBufferAttribute(
+          new Float32Array(pc.maxCount * 3).fill(1), 3,
+        )
+        localMeshRef.current.instanceColor.setUsage(THREE.DynamicDrawUsage)
+      }
+      geoCountRef.current = pc.maxCount
+    }
+
+    outerRef.current.getWorldPosition(emitterWorld.current)
+    tickParticles(pool.current, pc, delta, emitterWorld.current, node.hidden)
+    const p = pool.current
+
+    const mesh = isWorld ? worldMeshRef.current : localMeshRef.current
+    if (!mesh) return
+
+    const alphaAttr = mesh.geometry.attributes.aAlpha as THREE.InstancedBufferAttribute | undefined
+    const camQuat = camera.getWorldQuaternion(_particleQuat)
+
+    // Camera right/up in world space — used for velocity-aligned rotation
+    const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camQuat)
+    const camUp    = new THREE.Vector3(0, 1, 0).applyQuaternion(camQuat)
+
+    const invWorld = _particleMat.copy(outerRef.current.matrixWorld).invert()
+    const yRatio = pc.sizeX > 0 ? pc.sizeY / pc.sizeX : 1
+    const _rot = new THREE.Quaternion()
+    const _axis = new THREE.Vector3(0, 0, 1)
+    const velocityMode = pc.rotationMode === 'velocity'
+
+    for (let i = 0; i < p.maxCount; i++) {
+      if (!p.active[i]) {
+        mesh.setMatrixAt(i, _particleMat.makeScale(0, 0, 0))
+        mesh.setColorAt(i, _particleColor.setRGB(0, 0, 0))
+        if (alphaAttr) (alphaAttr.array as Float32Array)[i] = 0
+        continue
+      }
+      const b = i * 3
+      _particlePos.set(p.positions[b], p.positions[b+1], p.positions[b+2])
+      if (!isWorld) _particlePos.applyMatrix4(invWorld)
+
+      _particleScale.set(p.sizes[i], p.sizes[i] * yRatio, 1)
+
+      let zAngle: number
+      if (velocityMode) {
+        // Project velocity onto the camera plane to get screen-space direction,
+        // then atan2 gives the rotation angle that aligns the particle's +Y with its velocity.
+        const vx = p.velocities[b], vy = p.velocities[b+1], vz = p.velocities[b+2]
+        const screenX = vx * camRight.x + vy * camRight.y + vz * camRight.z
+        const screenY = vx * camUp.x    + vy * camUp.y    + vz * camUp.z
+        zAngle = Math.atan2(-screenX, screenY)  // align particle +Y with screen-space velocity
+      } else {
+        zAngle = p.rotations[i]
+      }
+
+      _rot.setFromAxisAngle(_axis, zAngle)
+      mesh.setMatrixAt(i, _particleMat.compose(
+        _particlePos,
+        camQuat.clone().multiply(_rot),
+        _particleScale,
+      ))
+
+      mesh.setColorAt(i, _particleColor.setRGB(p.colors[b], p.colors[b+1], p.colors[b+2]))
+      if (alphaAttr) (alphaAttr.array as Float32Array)[i] = p.alphas[i]
+    }
+
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    if (alphaAttr) alphaAttr.needsUpdate = true
+  })
+
+  return (
+    <group ref={outerRef} position={[t.x, t.y, t.z]} rotation={[t.rx, t.ry, t.rz]} scale={[t.sx, t.sy, t.sz]}>
+      {!isWorld && (() => {
+        // Build the local-space geometry with the aAlpha instanced attribute already attached
+        const geo = useMemo(() => {
+          const g = new THREE.PlaneGeometry(1, 1)
+          const a = new THREE.InstancedBufferAttribute(new Float32Array(pc.maxCount).fill(0), 1)
+          a.setUsage(THREE.DynamicDrawUsage)
+          g.setAttribute('aAlpha', a)
+          return g
+        }, [pc.maxCount]) // eslint-disable-line react-hooks/exhaustive-deps
+        return (
+          <instancedMesh ref={localMeshRef} args={[geo, undefined, pc.maxCount]} frustumCulled={false}>
+            <shaderMaterial
+              vertexShader={PARTICLE_INST_VERT}
+              fragmentShader={PARTICLE_INST_FRAG}
+              uniforms={{ uTex: { value: texture ?? new THREE.Texture() }, uHasTex: { value: texture ? 1.0 : 0.0 } }}
+              blending={blending}
+              depthWrite={pc.depthWrite}
+              depthTest={pc.depthTest}
+              transparent
+            />
+          </instancedMesh>
+        )
+      })()}
+    </group>
+  )
+}
+
+function GodrayCasterNode({ node }: { node: NodeRecord }) {
+  const outerRef = useRef<THREE.Group>(null)
+  const meshRef = useRef<THREE.Mesh>(null)
+  const t = getTransform(node)
+  const color = (node.components.godray as any)?.color ?? '#ffffff'
+  const scale = (node.components.godray as any)?.scale ?? 0.3
+
+  useEffect(() => {
+    if (outerRef.current) nodeGroupRegistry.set(node.id, outerRef.current)
+    return () => { nodeGroupRegistry.delete(node.id) }
+  }, [node.id])
+
+  useEffect(() => {
+    if (meshRef.current) godrayCasterRegistry.set(node.id, meshRef.current)
+    return () => { godrayCasterRegistry.delete(node.id) }
+  }, [node.id])
+
+  return (
+    <group ref={outerRef} position={[t.x, t.y, t.z]} rotation={[t.rx, t.ry, t.rz]} scale={[t.sx, t.sy, t.sz]}>
+      <mesh ref={meshRef}>
+        <sphereGeometry args={[scale, 16, 16]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+    </group>
+  )
+}
+
+function ModelNode({ node, children }: { node: NodeRecord; children?: React.ReactNode }) {
   const outerRef = useRef<THREE.Group>(null)
   const innerRef = useRef<THREE.Group>(null)
   const t = getTransform(node)
@@ -1525,8 +1816,38 @@ function ModelNode({ node }: { node: NodeRecord }) {
           <meshStandardMaterial color="#5588cc" />
         </mesh>
       )}
+      {children}
     </group>
   )
+}
+
+function renderNodeElement(
+  node: NodeRecord,
+  allNodes?: NodeRecord[],
+  viewerMode?: boolean,
+): React.ReactNode {
+  const freeChildren = allNodes
+    ? allNodes.filter((n) => n.parentId === node.id && !n.boneAttachment)
+    : []
+  const boneChildren = allNodes
+    ? allNodes.filter((n) => n.parentId === node.id && !!n.boneAttachment)
+    : []
+  const childElements = freeChildren.map((c) => renderNodeElement(c, allNodes, viewerMode))
+  // Bone-attached children render as normal top-level nodes; BoneFollower syncs their position each frame
+  const boneFollowers = boneChildren.flatMap((c) => [
+    renderNodeElement(c, allNodes, viewerMode),
+    <BoneAttacher key={`ba-${c.id}`} avatarNodeId={node.id} boneName={c.boneAttachment!} nodeId={c.id} />,
+  ])
+
+  const visible = !node.hidden
+  if (node.kind === 'avatar') return <><group key={node.id} visible={visible}><AvatarNode node={node}>{childElements}</AvatarNode></group>{boneFollowers}</>
+  if (node.kind === 'light') return <group key={node.id} visible={visible}><LightNode node={node} viewerMode={viewerMode} /></group>
+  if (node.kind === 'camera') return <group key={node.id} visible={visible}><CameraNode node={node} /></group>
+  if (node.kind === 'godray_caster') return <group key={node.id} visible={visible}><GodrayCasterNode node={node} /></group>
+  // particle and billboard are rendered flat in SceneNodes to keep their React position stable across reparents
+  if (node.kind === 'particle') return null
+  if (node.kind === 'billboard') return null
+  return <group key={node.id} visible={visible}><ModelNode node={node}>{childElements}</ModelNode></group>
 }
 
 export function SceneNodes({ omitNodeId, omitKinds, viewerMode }: {
@@ -1538,15 +1859,18 @@ export function SceneNodes({ omitNodeId, omitKinds, viewerMode }: {
     n.id !== omitNodeId &&
     !omitKinds?.includes(n.kind)
   )
+  const rootNodes = sceneNodes.filter((n) => !n.parentId)
+  // Particle and billboard nodes are always rendered at the top level so their React
+  // component instance never moves in the tree (reparenting in the scene graph would
+  // otherwise unmount+remount them, destroying the particle pool).
+  const flatParticles = sceneNodes.filter((n) => n.kind === 'particle')
+  const flatBillboards = sceneNodes.filter((n) => n.kind === 'billboard')
 
   return (
     <>
-      {sceneNodes.map((node) => {
-        if (node.kind === 'avatar') return <AvatarNode key={node.id} node={node} />
-        if (node.kind === 'light') return <LightNode key={node.id} node={node} viewerMode={viewerMode} />
-        if (node.kind === 'camera') return <CameraNode key={node.id} node={node} />
-        return <ModelNode key={node.id} node={node} />
-      })}
+      {rootNodes.map((node) => renderNodeElement(node, sceneNodes, viewerMode))}
+      {flatParticles.map((node) => <group key={node.id} visible={!node.hidden}><ParticleNode node={node} /></group>)}
+      {flatBillboards.map((node) => <group key={node.id} visible={!node.hidden}><BillboardNode node={node} /></group>)}
     </>
   )
 }
@@ -1615,13 +1939,351 @@ function GizmoToolbar({ mode, setMode }: { mode: GizmoMode; setMode: (m: GizmoMo
   )
 }
 
+const _afRay = new THREE.Raycaster()
+const _afBox = new THREE.Box3()
+const _afVec = new THREE.Vector3()
+
+function AutofocusDOF({ cfg }: { cfg: Record<string, unknown> }) {
+  const { camera, scene } = useThree()
+  const autofocus  = (cfg.autofocus   as boolean) ?? false
+  const afMode     = (cfg.afMode      as string)  ?? 'point'
+  const afPointX   = (cfg.afPointX    as number)  ?? 0.5
+  const afPointY   = (cfg.afPointY    as number)  ?? 0.5
+  const percentile = (cfg.afPercentile as number)  ?? 15
+  const speed      = (cfg.afSpeed     as number)  ?? 4
+
+  const spring     = useRef({ pos: (cfg.worldFocusDistance as number) ?? 3, vel: 0 })
+  const scanTimer  = useRef(0)
+  const targetRef  = useRef<number | null>(null)
+  const dofRef     = useRef<any>(null)
+  const logTimer   = useRef(0)
+
+  useFrame((_, delta) => {
+    logTimer.current += delta
+    const shouldLog = logTimer.current >= 2
+    if (shouldLog) logTimer.current = 0
+
+    const dofEffect = dofRef.current
+    const cam = camera as THREE.PerspectiveCamera
+    if (!autofocus) return
+
+    // Depth scan at ~10 Hz via bounding-box raycasting — no GPU render, no GL state touched
+    scanTimer.current -= delta
+    if (scanTimer.current <= 0) {
+      scanTimer.current = 0.1
+
+      // Collect world-space bounding boxes of visible, opaque, non-wireframe meshes
+      const boxes: THREE.Box3[] = []
+      scene.traverse((obj) => {
+        if (!(obj as THREE.Mesh).isMesh) return
+        const mesh = obj as THREE.Mesh
+        if (!mesh.visible) return
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        const hasOpaque = mats.some((m) => {
+          if (!m || (m as THREE.Material).transparent) return false
+          if ((m as THREE.MeshBasicMaterial).wireframe) return false
+          if ((m as THREE.Material).opacity < 0.9) return false
+          return true
+        })
+        if (!hasOpaque) return
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox()
+        if (!mesh.geometry.boundingBox) return
+        _afBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld)
+        boxes.push(_afBox.clone())
+      })
+
+      if (shouldLog) console.log('[AF] boxes:', boxes.length)
+
+      // Cast rays against those boxes from NDC sample points
+      const sampleNDC = afMode === 'point'
+        ? [new THREE.Vector2(afPointX * 2 - 1, (1 - afPointY) * 2 - 1)]
+        : Array.from({ length: 16 }, () => new THREE.Vector2(Math.random() * 2 - 1, Math.random() * 2 - 1))
+
+      const hits: number[] = []
+      for (const ndc of sampleNDC) {
+        _afRay.setFromCamera(ndc, cam)
+        let closest = Infinity
+        for (const box of boxes) {
+          const hit = _afRay.ray.intersectBox(box, _afVec)
+          if (hit !== null) {
+            // COC shader uses length(viewPosition) — Euclidean distance from camera origin
+            const dist = _afVec.distanceTo(cam.position)
+            if (dist < closest) closest = dist
+          }
+        }
+        if (closest < Infinity) hits.push(closest)
+      }
+
+      let targetDist: number | null = null
+      if (afMode === 'point') {
+        targetDist = hits[0] ?? null
+      } else if (hits.length > 0) {
+        hits.sort((a, b) => a - b)
+        targetDist = hits[Math.floor((percentile / 100) * (hits.length - 1))]
+      }
+
+      if (shouldLog) console.log('[AF] hits:', hits.length, 'targetDist:', targetDist)
+      if (targetDist !== null) targetRef.current = targetDist
+    }
+
+    // Spring convergence — write to cocMaterial.focusDistance directly
+    if (!dofEffect) return
+    const targetDist = targetRef.current
+    if (targetDist === null) return
+
+    const s = spring.current
+    const diff = targetDist - s.pos
+    if (shouldLog) console.log('[AF] spring pos=', s.pos.toFixed(2), 'target=', targetDist.toFixed(2), 'focusDistance=', dofEffect.cocMaterial?.focusDistance?.toFixed(2))
+    const acc = speed * speed * diff - 2 * speed * s.vel
+    s.vel += acc * delta
+    s.pos += s.vel * delta
+    dofEffect.cocMaterial.focusDistance = Math.max(cam.near, s.pos)
+  }, 2)
+
+  return (
+    <DepthOfField
+      ref={dofRef}
+      worldFocusDistance={(cfg.worldFocusDistance as number) ?? 3}
+      worldFocusRange={(cfg.worldFocusRange as number) ?? 2}
+      bokehScale={(cfg.bokehScale as number) ?? 2}
+    />
+  )
+}
+
+
+function GodRaysSync({ effect }: { effect: GodRaysEffect }) {
+  const { composer } = useContext(EffectComposerContext)!
+  useEffect(() => {
+    const dt = (composer as any).depthTexture ?? null
+    if (dt) effect.setDepthTexture(dt)
+  }, [effect, composer])
+  return null
+}
+
+function NormalBufferSync({ effect }: { effect: DepthEdgeEffect }) {
+  const { normalPass } = useContext(EffectComposerContext)!
+  useEffect(() => {
+    effect.setNormalBuffer(normalPass?.texture ?? null)
+  }, [effect, normalPass])
+  return null
+}
+
+type SSAOParams = { intensity: number; radius: number; bias: number; rings: number; samples: number }
+function SSAOEffectPrimitive({ params }: { params: SSAOParams }) {
+  const { camera, normalPass, downSamplingPass } = useContext(EffectComposerContext)!
+  const effect = useMemo(() => new SSAOEffect(camera, normalPass?.texture ?? undefined, {
+    blendFunction: BlendFunction.MULTIPLY,
+    normalDepthBuffer: downSamplingPass ? downSamplingPass.texture : undefined,
+    depthAwareUpsampling: true,
+    worldDistanceThreshold: 20,
+    worldDistanceFalloff: 5,
+    worldProximityThreshold: 0.3,
+    worldProximityFalloff: 0.1,
+    intensity: params.intensity,
+    radius: params.radius,
+    bias: params.bias,
+    rings: params.rings,
+    samples: params.samples,
+  }), [camera, normalPass, downSamplingPass])
+  useEffect(() => {
+    effect.intensity = params.intensity
+    effect.radius = params.radius
+    effect.ssaoMaterial.bias = params.bias
+    effect.rings = params.rings
+    effect.samples = params.samples
+  })
+  return <primitive object={effect} dispose={null} />
+}
+
+export function CameraEffects({ forceNodeId }: { forceNodeId?: string } = {}) {
+  const { previewEffectsCamera, cameraEffects, nodes, activeSceneId } = useEditorStore()
+
+  const effectsNodeId = forceNodeId ?? previewEffectsCamera
+  const activeEffects = effectsNodeId
+    ? cameraEffects.filter((e) => e.nodeId === effectsNodeId && e.enabled)
+    : []
+
+  const get = <T,>(kind: string, key: string, fallback: T): T => {
+    const e = activeEffects.find((e) => e.kind === kind)
+    return ((e?.config[key]) ?? fallback) as T
+  }
+  const has = (kind: string) => activeEffects.some((e) => e.kind === kind)
+
+  const [sunMesh, setSunMesh] = useState<THREE.Mesh | null>(null)
+  useFrame(() => {
+    const caster = nodes.find((n) => n.sceneId === activeSceneId && n.kind === 'godray_caster')
+    const mesh = caster ? godrayCasterRegistry.get(caster.id) ?? null : null
+    if (mesh !== sunMesh) setSunMesh(mesh)
+  })
+  const godrayCaster = nodes.find((n) => n.sceneId === activeSceneId && n.kind === 'godray_caster')
+  const gr = (godrayCaster?.components.godray as Record<string, number>) ?? {}
+
+  const { camera } = useThree()
+  const godRays = useMemo(
+    () => sunMesh ? new GodRaysEffect(camera, sunMesh, {
+      samples:  gr.samples  ?? 60,
+      density:  gr.density  ?? 0.96,
+      decay:    gr.decay    ?? 0.93,
+      weight:   gr.weight   ?? 0.4,
+      exposure: gr.exposure ?? 0.6,
+      clampMax: gr.clampMax ?? 1.0,
+      blur: true,
+    }) : null,
+    // Re-create only when the sun mesh changes; param updates are handled imperatively below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [camera, sunMesh]
+  )
+  useEffect(() => {
+    if (!godRays) return
+    const m = godRays.godRaysMaterial
+    m.density  = gr.density  ?? 0.96
+    m.decay    = gr.decay    ?? 0.93
+    m.weight   = gr.weight   ?? 0.4
+    m.exposure = gr.exposure ?? 0.6
+    m.maxIntensity = gr.clampMax ?? 1.0
+    m.samples  = gr.samples  ?? 60
+  })
+
+  const depthEdge = useMemo(() => new DepthEdgeEffect(), [])
+  useEffect(() => {
+    depthEdge.setColor(get('fx_outline', 'color', '#000000') as string)
+    depthEdge.setThreshold(get('fx_outline', 'threshold', 0.001) as number)
+    depthEdge.setThickness(get('fx_outline', 'thickness', 1.0) as number)
+    depthEdge.setAlpha(get('fx_outline', 'alpha', 1.0) as number)
+    depthEdge.setNormalStrength(get('fx_outline', 'normalStrength', 1.0) as number)
+    depthEdge.setBlendMode(get('fx_outline', 'blendMode', 'NORMAL') as any)
+  })
+
+  // Always mount the composer so it owns tone mapping — renderer has NoToneMapping set.
+  return (
+    <EffectComposer
+      enableNormalPass={has('fx_ssao') || has('fx_outline')}
+      frameBufferType={THREE.HalfFloatType}
+      multisampling={0}
+    >
+      {has('fx_brightness_contrast') ? (
+        <BrightnessContrast
+          brightness={get('fx_brightness_contrast', 'brightness', 0)}
+          contrast={get('fx_brightness_contrast', 'contrast', 0)}
+        />
+      ) : <></>}
+      {has('fx_hue_saturation') ? (
+        <HueSaturation
+          hue={get('fx_hue_saturation', 'hue', 0)}
+          saturation={get('fx_hue_saturation', 'saturation', 0)}
+        />
+      ) : <></>}
+      {has('fx_sepia') ? (
+        <Sepia intensity={get('fx_sepia', 'intensity', 1)} />
+      ) : <></>}
+      {has('fx_bloom') ? (
+        <Bloom
+          intensity={get('fx_bloom', 'intensity', 1)}
+          luminanceThreshold={get('fx_bloom', 'luminanceThreshold', 0.9)}
+          luminanceSmoothing={get('fx_bloom', 'luminanceSmoothing', 0.025)}
+          mipmapBlur={get('fx_bloom', 'mipmapBlur', true)}
+        />
+      ) : <></>}
+      {has('fx_depth_of_field') ? (
+        <AutofocusDOF cfg={activeEffects.find((e) => e.kind === 'fx_depth_of_field')!.config} />
+      ) : <></>}
+      {has('fx_chromatic_aberration') ? (
+        <ChromaticAberration
+          offset={new THREE.Vector2(
+            get('fx_chromatic_aberration', 'offsetX', 0.002),
+            get('fx_chromatic_aberration', 'offsetY', 0.002),
+          )}
+          radialModulation={false}
+          modulationOffset={0}
+        />
+      ) : <></>}
+      {has('fx_ssao') ? (
+        <SSAOEffectPrimitive params={{
+          intensity: get('fx_ssao', 'intensity', 1.5) as number,
+          radius: Math.min(1, Math.max(1e-6, get('fx_ssao', 'radius', 0.2) as number)),
+          bias: get('fx_ssao', 'bias', 0.025) as number,
+          rings: get('fx_ssao', 'rings', 4) as number,
+          samples: get('fx_ssao', 'samples', 30) as number,
+        }} />
+      ) : <></>}
+      {has('fx_outline') ? (
+        <>
+          <primitive object={depthEdge} />
+          <NormalBufferSync effect={depthEdge} />
+        </>
+      ) : <></>}
+      {has('fx_vignette') ? (
+        <Vignette
+          offset={get('fx_vignette', 'offset', 0.5)}
+          darkness={get('fx_vignette', 'darkness', 0.5)}
+        />
+      ) : <></>}
+      {has('fx_noise') ? (
+        <Noise opacity={get('fx_noise', 'opacity', 0.2)} />
+      ) : <></>}
+      {has('fx_scanline') ? (
+        <Scanline
+          density={get('fx_scanline', 'density', 1.25)}
+          opacity={get('fx_scanline', 'opacity', 0.1)}
+        />
+      ) : <></>}
+      {has('fx_pixelation') ? (
+        <Pixelation granularity={get('fx_pixelation', 'granularity', 8)} />
+      ) : <></>}
+      {has('fx_ascii') ? (
+        <ASCII
+          characters={get('fx_ascii', 'characters', ' .:-+*=%@#')}
+          fontSize={get('fx_ascii', 'fontSize', 54)}
+          cellSize={get('fx_ascii', 'cellSize', 16)}
+          color={get('fx_ascii', 'color', '#ffffff')}
+          invert={get('fx_ascii', 'invert', false)}
+        />
+      ) : <></>}
+      {has('fx_dot_screen') ? (
+        <DotScreen
+          angle={get('fx_dot_screen', 'angle', 1.57)}
+          scale={get('fx_dot_screen', 'scale', 1.0)}
+        />
+      ) : <></>}
+      {has('fx_glitch') ? (
+        <Glitch
+          delay={new THREE.Vector2(...(get('fx_glitch', 'delay', [1.5, 3.5]) as [number, number]))}
+          duration={new THREE.Vector2(...(get('fx_glitch', 'duration', [0.06, 0.3]) as [number, number]))}
+          strength={new THREE.Vector2(...(get('fx_glitch', 'strength', [0.3, 1.0]) as [number, number]))}
+          columns={get('fx_glitch', 'columns', 0.05)}
+          ratio={get('fx_glitch', 'ratio', 0.85)}
+        />
+      ) : <></>}
+      {has('fx_smaa') ? <SMAA /> : <></>}
+      {has('fx_tilt_shift') ? (
+        <TiltShift
+          offset={get('fx_tilt_shift', 'offset', 0.0)}
+          rotation={get('fx_tilt_shift', 'rotation', 0.0)}
+          focusArea={get('fx_tilt_shift', 'focusArea', 0.4)}
+          feather={get('fx_tilt_shift', 'feather', 0.3)}
+        />
+      ) : <></>}
+      {has('fx_water') ? (
+        <WaterEffect factor={get('fx_water', 'factor', 1.0)} />
+      ) : <></>}
+      {godRays ? (
+        <>
+          <primitive object={godRays} />
+          <GodRaysSync effect={godRays} />
+        </>
+      ) : <></>}
+      <ToneMapping mode={get('fx_tone_mapping', 'mode', 6) as any} />
+    </EffectComposer>
+  )
+}
+
 export function Viewport() {
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate')
   const orbitRef = useRef<any>(null)
 
   return (
     <div style={{ width: '100%', height: '100%', background: '#1a1a1a', overflow: 'hidden', position: 'relative' }}>
-      <Canvas camera={{ position: [0, 1.5, 5], fov: 50 }}>
+      <Canvas camera={{ position: [0, 1.5, 5], fov: 50 }} gl={{ toneMapping: THREE.NoToneMapping }}>
         <ambientLight intensity={0.4} />
         <directionalLight position={[5, 10, 5]} intensity={0.8} />
         <SceneNodes />
@@ -1629,6 +2291,7 @@ export function Viewport() {
         <Grid infiniteGrid fadeDistance={30} fadeStrength={1} />
         <Environment preset="city" />
         <OrbitControls ref={orbitRef} makeDefault />
+        <CameraEffects />
       </Canvas>
       <GizmoToolbar mode={gizmoMode} setMode={setGizmoMode} />
     </div>

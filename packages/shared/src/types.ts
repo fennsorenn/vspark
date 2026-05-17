@@ -1,5 +1,5 @@
 // Core identity types
-export type NodeKind = 'avatar' | 'model' | 'light' | 'camera' | 'trigger' | 'particle' | 'sfx' | 'fx' | 'prop';
+export type NodeKind = 'avatar' | 'model' | 'light' | 'camera' | 'trigger' | 'particle' | 'sfx' | 'fx' | 'prop' | 'godray_caster' | 'billboard';
 
 // Animation tracking: tracks which clip is playing and when it started
 export interface AnimationState {
@@ -31,6 +31,7 @@ export type Component = AnimationComponent | TransformComponent | VisibilityComp
 export interface SceneNode {
   id: string;
   parentId: string | null;
+  boneAttachment: string | null; // VRM bone name if this node is pinned to a bone on its parent
   name: string;
   kind: NodeKind;
   filePath: string | null; // local path to asset file

@@ -24,13 +24,25 @@ export function initDb(): Database.Database {
 
 export async function runMigrations() {
   const database = initDb();
+
+  database.exec(`CREATE TABLE IF NOT EXISTS _migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+
+  const applied = new Set(
+    (database.prepare('SELECT name FROM _migrations').all() as { name: string }[]).map((r) => r.name)
+  );
+
   const files = await readdir(MIGRATIONS_DIR).catch(() => [] as string[]);
   const migrationFiles = files.filter((f) => f.endsWith('.sql')).sort();
 
   for (const file of migrationFiles) {
+    if (applied.has(file)) continue;
     const sql = await readFile(join(MIGRATIONS_DIR, file), 'utf-8');
     try {
       database.exec(sql);
+      database.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
     } catch (error) {
       console.error(`Failed to run migration ${file}:`, error);
       throw error;

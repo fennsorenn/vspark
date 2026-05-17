@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { useEditorStore } from '../store/editorStore'
 import type { NodeRecord } from '../store/editorStore'
+import type { CameraEffectRecord } from '../api/client'
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore'
 
-const WS_URL = 'ws://localhost:3001/ws'
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
 const RECONNECT_MS = 3000
 
 export function useWsSync() {
@@ -43,6 +44,25 @@ export function useWsSync() {
             }
           } else if (msg.kind === 'node_removed') {
             useEditorStore.getState().deleteNode(msg.payload.id as string)
+          } else if (msg.kind === 'camera_effect_added') {
+            const p = msg.payload as Record<string, unknown>
+            const effect: CameraEffectRecord = {
+              id: p.id as string,
+              nodeId: (p.node_id ?? p.nodeId) as string,
+              kind: p.kind as string,
+              enabled: Boolean(p.enabled),
+              config: typeof p.config === 'string' ? JSON.parse(p.config) : (p.config as Record<string, unknown> ?? {}),
+            }
+            const store = useEditorStore.getState()
+            if (store.cameraEffects.every((e) => e.id !== effect.id)) store.addCameraEffect(effect)
+          } else if (msg.kind === 'camera_effect_updated') {
+            const p = msg.payload as { id: string; enabled?: boolean; config?: Record<string, unknown> }
+            useEditorStore.getState().updateCameraEffect(p.id, {
+              ...(p.enabled != null ? { enabled: p.enabled } : {}),
+              ...(p.config != null ? { config: p.config } : {}),
+            })
+          } else if (msg.kind === 'camera_effect_removed') {
+            useEditorStore.getState().removeCameraEffect(msg.payload.id as string)
           }
         } catch { /* ignore malformed */ }
       }

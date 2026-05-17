@@ -11,6 +11,15 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '0.0.0.0',
+    proxy: {
+      '/api': 'http://localhost:3001',
+      '/ws':  { target: 'ws://localhost:3001', ws: true },
+      '/uploads': 'http://localhost:3001',
+    },
+  },
+  build: {
+    outDir: '../../packages/backend/dist/public',
+    emptyOutDir: true,
   },
   resolve: {
     // More-specific aliases must come before less-specific ones.

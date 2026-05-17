@@ -15,12 +15,13 @@ import type { NodeKindMeta } from '@vspark/shared/signal'
 export function Editor() {
   useWsSync()
   const { projectId } = useParams<{ projectId: string }>()
-  const { setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, activeGraphId } = useEditorStore()
+  const { setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setComponentKinds, setCameraEffects, activeGraphId } = useEditorStore()
   const [kindMeta, setKindMeta] = useState<NodeKindMeta[]>([])
 
   useEffect(() => {
     api.getSignalNodeKinds().then(setKindMeta).catch(() => {})
-  }, [])
+    api.getComponentKinds().then(setComponentKinds).catch(() => {})
+  }, [setComponentKinds])
 
   useEffect(() => {
     if (!projectId) return
@@ -30,9 +31,10 @@ export function Editor() {
       if (project) setProject(project.id, project.name)
     })
 
-    api.getScenes(projectId).then(async ({ scenes, nodes, nodeComponents }) => {
+    api.getScenes(projectId).then(async ({ scenes, nodes, nodeComponents, cameraEffects }) => {
       setScenes(scenes)
       setNodeComponents(nodeComponents)
+      setCameraEffects(cameraEffects)
       if (scenes.length > 0) {
         const firstId = scenes[0].id
         setActiveScene(firstId)
@@ -47,7 +49,7 @@ export function Editor() {
     })
 
     api.getAssets(projectId).then(setAssets).catch(() => {})
-  }, [projectId, setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents])
+  }, [projectId, setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setCameraEffects])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0f0f0f' }}>

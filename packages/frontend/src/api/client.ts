@@ -1,4 +1,4 @@
-const BASE = 'http://localhost:3001/api'
+const BASE = '/api'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, {
@@ -10,20 +10,39 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return json.data as T
 }
 
+// Strip legacy absolute backend origin from stored paths so they route through the Vite proxy.
+function normalizeFilePath(raw: unknown): string | null {
+  if (!raw) return null
+  let s = raw as string
+  try {
+    const u = new URL(s)
+    // If it points to localhost (any port), keep only the path so it routes via proxy.
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') s = u.pathname + u.search
+  } catch { /* not an absolute URL — already relative, keep as-is */ }
+  return s
+}
+
 // snake_case → camelCase for rows coming out of SQLite
 function mapNode(r: Record<string, unknown>, sceneId?: string): NodeRecord {
   const components = typeof r.components === 'string'
     ? JSON.parse(r.components as string)
     : (r.components ?? {})
+  // Normalize any localhost URLs nested inside component blobs (e.g. animation.idleUrl)
+  if (components.animation && typeof (components.animation as Record<string, unknown>).idleUrl === 'string') {
+    (components.animation as Record<string, unknown>).idleUrl =
+      normalizeFilePath((components.animation as Record<string, unknown>).idleUrl)
+  }
   return {
     id: r.id as string,
     // backend may return snake_case (from SQLite rows) or camelCase (from INSERT response)
     sceneId: (r.scene_id ?? r.sceneId ?? sceneId ?? '') as string,
     parentId: (r.parent_id ?? r.parentId ?? null) as string | null,
+    boneAttachment: (r.bone_attachment ?? r.boneAttachment ?? null) as string | null,
     name: r.name as string,
     kind: r.kind as string,
-    filePath: (r.file_path ?? r.filePath ?? null) as string | null,
+    filePath: normalizeFilePath(r.file_path ?? r.filePath),
     components,
+    hidden: Boolean(r.hidden),
   }
 }
 
@@ -50,15 +69,16 @@ function mapAsset(r: Record<string, unknown>): AssetFile {
     projectId: (r.project_id ?? '') as string,
     name: (r.original_name ?? '') as string,
     storedPath: (r.stored_path ?? '') as string,
-    url: `http://localhost:3001${r.stored_path}`,
+    url: r.stored_path as string,
     mimeType: (r.mime_type ?? '') as string,
     kind: guessAssetKind((r.original_name as string) ?? ''),
   }
 }
 
-function guessAssetKind(name: string): 'model' | 'animation' {
+function guessAssetKind(name: string): 'model' | 'animation' | 'image' {
   const ext = name.split('.').pop()?.toLowerCase() ?? ''
   if (['fbx', 'bvh'].includes(ext)) return 'animation'
+  if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'].includes(ext)) return 'image'
   return 'model'
 }
 
@@ -79,6 +99,7 @@ export interface NodeRecord {
   id: string
   sceneId: string
   parentId: string | null
+  boneAttachment?: string | null
   name: string
   kind: string
   filePath?: string | null
@@ -92,10 +113,18 @@ export interface AssetFile {
   storedPath: string
   url: string
   mimeType: string
-  kind: 'model' | 'animation'
+  kind: 'model' | 'animation' | 'image'
 }
 
 export interface NodeComponentRecord {
+  id: string
+  nodeId: string
+  kind: string
+  enabled: boolean
+  config: Record<string, unknown>
+}
+
+export interface CameraEffectRecord {
   id: string
   nodeId: string
   kind: string
@@ -132,14 +161,25 @@ function mapNodeComponent(r: Record<string, unknown>): NodeComponentRecord {
   }
 }
 
-// Scenes — backend returns { scenes: [], nodes: [], nodeComponents: [] }
+function mapCameraEffect(r: Record<string, unknown>): CameraEffectRecord {
+  return {
+    id: r.id as string,
+    nodeId: (r.node_id ?? r.nodeId ?? '') as string,
+    kind: r.kind as string,
+    enabled: Boolean(r.enabled),
+    config: typeof r.config === 'string' ? JSON.parse(r.config) : (r.config ?? {}),
+  }
+}
+
+// Scenes — backend returns { scenes: [], nodes: [], nodeComponents: [], cameraEffects: [] }
 export const getScenes = (projectId: string) =>
-  request<{ scenes: Record<string, unknown>[]; nodes: Record<string, unknown>[]; nodeComponents?: Record<string, unknown>[] }>(
+  request<{ scenes: Record<string, unknown>[]; nodes: Record<string, unknown>[]; nodeComponents?: Record<string, unknown>[]; cameraEffects?: Record<string, unknown>[] }>(
     `/projects/${projectId}/scenes`
-  ).then(({ scenes, nodes, nodeComponents }) => ({
+  ).then(({ scenes, nodes, nodeComponents, cameraEffects }) => ({
     scenes: scenes.map(mapScene),
     nodes: nodes.map((n) => mapNode(n)),
     nodeComponents: (nodeComponents ?? []).map(mapNodeComponent),
+    cameraEffects: (cameraEffects ?? []).map(mapCameraEffect),
   }))
 
 export const createScene = (projectId: string, name: string) =>
@@ -161,22 +201,24 @@ export const createNode = (sceneId: string, data: Omit<NodeRecord, 'id' | 'scene
       name: data.name,
       kind: data.kind,
       parentId: data.parentId,
+      boneAttachment: data.boneAttachment,
       filePath: data.filePath,
       components: data.components,
     }),
   }).then((r) => mapNode(r, sceneId))
 
-export const updateNode = (id: string, data: Partial<Omit<NodeRecord, 'id' | 'sceneId'>>) =>
-  request<void>(`/scene-nodes/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify({
-      name: data.name,
-      parentId: data.parentId,
-      kind: data.kind,
-      filePath: data.filePath,
-      components: data.components,
-    }),
-  })
+export const updateNode = (id: string, data: Partial<Omit<NodeRecord, 'id' | 'sceneId'>>) => {
+  const body: Record<string, unknown> = {}
+  if (data.name      !== undefined) body.name       = data.name
+  if (data.parentId  !== undefined) body.parentId   = data.parentId
+  if (data.kind      !== undefined) body.kind       = data.kind
+  if (data.filePath  !== undefined) body.filePath   = data.filePath
+  if (data.components !== undefined) body.components = data.components
+  // boneAttachment must be sent explicitly even when null (to support detach)
+  if ('boneAttachment' in data) body.boneAttachment = data.boneAttachment ?? null
+  if ('hidden' in data) body.hidden = data.hidden ?? false
+  return request<void>(`/scene-nodes/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+}
 
 export const deleteNode = (id: string) =>
   request<void>(`/scene-nodes/${id}`, { method: 'DELETE' })
@@ -222,6 +264,19 @@ export const updateNodeComponent = (id: string, patch: { enabled?: boolean; conf
 export const deleteNodeComponent = (id: string) =>
   request<void>(`/node-components/${id}`, { method: 'DELETE' })
 
+// Camera Effects
+export const createCameraEffect = (nodeId: string, effect: Omit<CameraEffectRecord, 'nodeId'>) =>
+  request<Record<string, unknown>>(`/scene-nodes/${nodeId}/effects`, {
+    method: 'POST',
+    body: JSON.stringify({ id: effect.id, kind: effect.kind, enabled: effect.enabled, config: effect.config }),
+  }).then(mapCameraEffect)
+
+export const updateCameraEffect = (id: string, patch: { enabled?: boolean; config?: Record<string, unknown> }) =>
+  request<void>(`/camera-effects/${id}`, { method: 'PUT', body: JSON.stringify(patch) })
+
+export const deleteCameraEffect = (id: string) =>
+  request<void>(`/camera-effects/${id}`, { method: 'DELETE' })
+
 // System
 export const getLocalIps = () =>
   request<{ ips: string[] }>('/system/local-ips').then((d) => d.ips)
@@ -238,6 +293,18 @@ export const getSignalGraphs = () =>
 
 export const getSignalNodeKinds = () =>
   request<import('@vspark/shared/signal').NodeKindMeta[]>('/signal/node-kinds')
+
+export interface ComponentKindMeta {
+  kind:          string
+  label:         string
+  icon:          string
+  description:   string
+  applicableTo:  string[]
+  defaultConfig: Record<string, unknown>
+}
+
+export const getComponentKinds = () =>
+  request<ComponentKindMeta[]>('/component-kinds')
 
 export const getSignalGraphStates = (graphId: string) =>
   request<import('@vspark/shared/signal').GraphStateSnapshot>(
@@ -267,10 +334,14 @@ export const api = {
   createNodeComponent,
   updateNodeComponent,
   deleteNodeComponent,
+  createCameraEffect,
+  updateCameraEffect,
+  deleteCameraEffect,
   getLocalIps,
   getBodyCalibState,
   getSignalGraphs,
   getSignalNodeKinds,
   getSignalGraphStates,
   fireSignalEvent,
+  getComponentKinds,
 }

@@ -9,10 +9,17 @@ import { VmcPacketSource }    from './nodes/vmc_packet_source.js'
 import { RhyliveBoneMapper }  from './nodes/rhylive_bone_mapper.js'
 import { ArkitVrmMapper }     from './nodes/arkit_vrm_mapper.js'
 import { BodyCalibration }    from './nodes/body_calibration.js'
-import { PoseBroadcast }        from './nodes/pose_broadcast.js'
-import { BlendshapesBroadcast } from './nodes/blendshapes_broadcast.js'
-import { BlendshapesSum }       from './nodes/blendshapes_sum.js'
-import { UnpackEvent }          from './nodes/unpack_event.js'
+import { PoseBroadcast }             from './nodes/pose_broadcast.js'
+import { BlendshapesBroadcast }      from './nodes/blendshapes_broadcast.js'
+import { BlendshapesSum }            from './nodes/blendshapes_sum.js'
+import { UnpackEvent }               from './nodes/unpack_event.js'
+import { OnPoseBroadcast }           from './nodes/on_pose_broadcast.js'
+import { PoseInterceptorBroadcast }  from './nodes/pose_interceptor_broadcast.js'
+import { Clock }                     from './nodes/clock.js'
+import { Time }                      from './nodes/time.js'
+import { SineWave }                  from './nodes/sine_wave.js'
+import { EulerToQuaternion }         from './nodes/euler_to_quaternion.js'
+import { PoseApplyBone }             from './nodes/pose_apply_bone.js'
 // Lipsync nodes
 import { LipsyncSource }             from './nodes/lipsync_source.js'
 import { VisemePassthrough }         from './nodes/viseme_passthrough.js'
@@ -43,6 +50,15 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   BlendshapesBroadcast,
   BlendshapesSum,
   UnpackEvent,
+// Interceptor nodes
+  OnPoseBroadcast,
+  PoseInterceptorBroadcast,
+  // Math / procedural nodes
+  Clock,
+  Time,
+  SineWave,
+  EulerToQuaternion,
+  PoseApplyBone,
   // Lipsync nodes
   LipsyncSource,
   VisemePassthrough,

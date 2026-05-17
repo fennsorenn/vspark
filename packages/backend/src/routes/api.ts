@@ -4,7 +4,8 @@ import { randomUUID } from 'crypto';
 import { writeFileSync, unlinkSync, mkdirSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, extname, basename } from 'path';
 import { networkInterfaces } from 'os';
-import type { VmcManager } from '../vmc/manager.js';
+import type { VmcManager } from '../node_components/vmc_receiver/manager.js';
+import type { BreathingManager } from '../node_components/breathing/manager.js';
 import type { LipsyncManager } from '../node_components/lipsync/manager.js';
 import type { TrackingManager } from '../node_components/mediapipe_tracker/manager.js';
 import { getAllNodeKindMeta } from '../signal/registry.js';
@@ -13,6 +14,8 @@ import { getAllComponentKindMeta } from '../node_components/registry.js';
 let _vmc: VmcManager | null = null;
 export function setVmcManager(m: VmcManager) { _vmc = m; }
 
+let _breathing: BreathingManager | null = null;
+export function setBreathingManager(m: BreathingManager) { _breathing = m; }
 let _lipsync: LipsyncManager | null = null;
 export function setLipsyncManager(m: LipsyncManager) { _lipsync = m; }
 
@@ -39,6 +42,11 @@ function refreshVmc() {
   _vmc.syncComponents(rows.map(_mapComponentRow));
 }
 
+function refreshBreathing() {
+  if (!_breathing) return;
+  const rows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'breathing'").all() as Record<string, unknown>[];
+  _breathing.syncComponents(rows.map(_mapComponentRow));
+}
 function refreshLipsync() {
   if (!_lipsync) return;
   const rows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'lipsync_processor'").all() as Record<string, unknown>[];
@@ -58,11 +66,15 @@ mkdirSync(UPLOADS_DIR, { recursive: true });
 const SUBFOLDER_BY_EXT: Record<string, string> = {
   '.vrm': 'avatars', '.glb': 'avatars', '.gltf': 'avatars',
   '.fbx': 'animations', '.bvh': 'animations',
+  '.jpg': 'images', '.jpeg': 'images', '.png': 'images',
+  '.webp': 'images', '.gif': 'images', '.avif': 'images',
 }
 // Extension → MIME type (used when registering manually dropped files)
 const MIME_BY_EXT: Record<string, string> = {
   '.vrm': 'model/gltf-binary', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json',
   '.fbx': 'application/octet-stream', '.bvh': 'text/plain',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+  '.webp': 'image/webp', '.gif': 'image/gif', '.avif': 'image/avif',
 }
 
 function assetSubfolder(ext: string): string {
@@ -161,15 +173,18 @@ router.get('/projects/:projectId/scenes', (req, res) => {
   const scenes = db.prepare('SELECT * FROM scenes WHERE project_id = ?').all(req.params.projectId);
   const nodes: unknown[] = [];
   const nodeComponents: unknown[] = [];
+  const cameraEffects: unknown[] = [];
   for (const s of scenes as { id: string }[]) {
     const sceneNodes = db.prepare('SELECT * FROM scene_nodes WHERE scene_id = ?').all(s.id);
     nodes.push(...sceneNodes);
     for (const n of sceneNodes as { id: string }[]) {
       const comps = db.prepare('SELECT * FROM node_components WHERE node_id = ? ORDER BY sort_order').all(n.id);
       nodeComponents.push(...comps);
+      const effects = db.prepare('SELECT * FROM camera_effects WHERE node_id = ?').all(n.id);
+      cameraEffects.push(...effects);
     }
   }
-  res.json({ ok: true, data: { scenes, nodes, nodeComponents } });
+  res.json({ ok: true, data: { scenes, nodes, nodeComponents, cameraEffects } });
 });
 
 router.post('/projects/:projectId/scenes', (req, res) => {
@@ -188,37 +203,53 @@ router.get('/scenes/:sceneId/nodes', (req, res) => {
 });
 
 router.post('/scenes/:sceneId/nodes', (req, res) => {
-  const { name, parentId, kind, filePath, components } = req.body;
+  const { name, parentId, boneAttachment, kind, filePath, components } = req.body;
   if (!name || !kind) return res.status(400).json({ ok: false, error: { status: 400, message: 'name and kind are required', code: 'VALIDATION_ERROR' } });
   const id = randomUUID();
   const sceneId = req.params.sceneId;
-  getDb().prepare('INSERT INTO scene_nodes (id, scene_id, parent_id, name, kind, file_path, components) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(id, sceneId, parentId ?? null, name, kind, filePath ?? null, JSON.stringify(components ?? {}));
-  const node = { id, sceneId, name, kind, parentId: parentId ?? null, filePath: filePath ?? null, components: components ?? {} };
+  getDb().prepare('INSERT INTO scene_nodes (id, scene_id, parent_id, bone_attachment, name, kind, file_path, components) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, sceneId, parentId ?? null, boneAttachment ?? null, name, kind, filePath ?? null, JSON.stringify(components ?? {}));
+  const node = { id, sceneId, name, kind, parentId: parentId ?? null, boneAttachment: boneAttachment ?? null, filePath: filePath ?? null, components: components ?? {} };
   _ws?.broadcast('node_added', node);
   res.status(201).json({ ok: true, data: node });
 });
 
 router.put('/scene-nodes/:id', (req, res) => {
-  const { name, parentId, kind, filePath, components } = req.body;
-  getDb().prepare(`UPDATE scene_nodes SET
+  const { name, kind, filePath, components } = req.body;
+  const db = getDb();
+  db.prepare(`UPDATE scene_nodes SET
       name = COALESCE(?, name),
-      parent_id = COALESCE(?, parent_id),
       kind = COALESCE(?, kind),
       file_path = COALESCE(?, file_path),
       components = COALESCE(?, components),
       updated_at = datetime('now')
     WHERE id = ?`)
-    .run(name ?? null, parentId ?? null, kind ?? null, filePath ?? null,
+    .run(name ?? null, kind ?? null, filePath ?? null,
       components != null ? JSON.stringify(components) : null, req.params.id);
+
+  // parentId and bone_attachment both support explicit null, so handle separately
+  if ('parentId' in req.body) {
+    db.prepare(`UPDATE scene_nodes SET parent_id = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(req.body.parentId ?? null, req.params.id);
+  }
+  if ('boneAttachment' in req.body) {
+    db.prepare(`UPDATE scene_nodes SET bone_attachment = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(req.body.boneAttachment ?? null, req.params.id);
+  }
+  if ('hidden' in req.body) {
+    db.prepare(`UPDATE scene_nodes SET hidden = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(req.body.hidden ? 1 : 0, req.params.id);
+  }
 
   // Broadcast to all other connected clients (viewer pages, etc.)
   const patch: Record<string, unknown> = { id: req.params.id };
   if (name      != null) patch.name       = name;
-  if (parentId  != null) patch.parentId   = parentId;
+  if ('parentId' in req.body) patch.parentId = req.body.parentId ?? null;
   if (kind      != null) patch.kind       = kind;
   if (filePath  != null) patch.filePath   = filePath;
   if (components != null) patch.components = components;
+  if ('boneAttachment' in req.body) patch.boneAttachment = req.body.boneAttachment ?? null;
+  if ('hidden' in req.body) patch.hidden = Boolean(req.body.hidden);
   _ws?.broadcast('node_updated', patch);
 
   res.json({ ok: true, data: { id: req.params.id } });
@@ -293,6 +324,7 @@ router.post('/scene-nodes/:nodeId/components', (req, res) => {
   getDb().prepare('INSERT INTO node_components (id, node_id, kind, enabled, config, sort_order) VALUES (?, ?, ?, ?, ?, ?)')
     .run(compId, req.params.nodeId, kind, enabled ? 1 : 0, JSON.stringify(config ?? {}), sortOrder ?? 0);
   refreshVmc();
+  refreshBreathing();
   refreshLipsync();
   refreshTracking();
   res.status(201).json({ ok: true, data: { id: compId, node_id: req.params.nodeId, kind, enabled: enabled ?? true, config: config ?? {}, sort_order: sortOrder ?? 0 } });
@@ -307,6 +339,7 @@ router.put('/node-components/:id', (req, res) => {
     WHERE id = ?`)
     .run(enabled != null ? (enabled ? 1 : 0) : null, config != null ? JSON.stringify(config) : null, req.params.id);
   refreshVmc();
+  refreshBreathing();
   refreshLipsync();
   refreshTracking();
   res.json({ ok: true, data: { id: req.params.id } });
@@ -315,8 +348,45 @@ router.put('/node-components/:id', (req, res) => {
 router.delete('/node-components/:id', (req, res) => {
   getDb().prepare('DELETE FROM node_components WHERE id = ?').run(req.params.id);
   refreshVmc();
+  refreshBreathing();
   refreshLipsync();
   refreshTracking();
+  res.json({ ok: true, data: {} });
+});
+
+// --- Camera Effects ---
+
+router.get('/scene-nodes/:nodeId/effects', (req, res) => {
+  const data = getDb().prepare('SELECT * FROM camera_effects WHERE node_id = ?').all(req.params.nodeId);
+  res.json({ ok: true, data });
+});
+
+router.post('/scene-nodes/:nodeId/effects', (req, res) => {
+  const { id, kind, enabled, config } = req.body;
+  if (!kind) return res.status(400).json({ ok: false, error: { message: 'kind is required' } });
+  const effectId = id ?? randomUUID();
+  getDb().prepare('INSERT INTO camera_effects (id, node_id, kind, enabled, config) VALUES (?, ?, ?, ?, ?)')
+    .run(effectId, req.params.nodeId, kind, enabled ? 1 : 0, JSON.stringify(config ?? {}));
+  const data = { id: effectId, node_id: req.params.nodeId, kind, enabled: enabled ?? true, config: config ?? {} };
+  _ws?.broadcast('camera_effect_added', data);
+  res.status(201).json({ ok: true, data });
+});
+
+router.put('/camera-effects/:id', (req, res) => {
+  const { enabled, config } = req.body;
+  getDb().prepare(`UPDATE camera_effects SET
+      enabled = COALESCE(?, enabled),
+      config  = COALESCE(?, config),
+      updated_at = datetime('now')
+    WHERE id = ?`)
+    .run(enabled != null ? (enabled ? 1 : 0) : null, config != null ? JSON.stringify(config) : null, req.params.id);
+  _ws?.broadcast('camera_effect_updated', { id: req.params.id, enabled, config });
+  res.json({ ok: true, data: { id: req.params.id } });
+});
+
+router.delete('/camera-effects/:id', (req, res) => {
+  getDb().prepare('DELETE FROM camera_effects WHERE id = ?').run(req.params.id);
+  _ws?.broadcast('camera_effect_removed', { id: req.params.id });
   res.json({ ok: true, data: {} });
 });
 
@@ -332,36 +402,42 @@ router.get('/node-components/:id/body-calib-state', (req, res) => {
 
 // --- Signal graph ---
 
+function _allGraphDescriptors() {
+  return [
+    ...(_vmc?.getAllGraphDescriptors()       ?? []),
+    ...(_breathing?.getAllGraphDescriptors() ?? []),
+  ];
+}
+
 // All active graph descriptors (implicit + future explicit).
 router.get('/signal/graphs', (_req, res) => {
-  const implicit = _vmc?.getAllGraphDescriptors() ?? [];
-  res.json({ ok: true, data: implicit });
+  res.json({ ok: true, data: _allGraphDescriptors() });
 });
 
 // Single graph descriptor by id.
 router.get('/signal/graphs/:id', (req, res) => {
-  const all = _vmc?.getAllGraphDescriptors() ?? [];
-  const graph = all.find((g) => g.id === req.params.id);
+  const graph = _allGraphDescriptors().find((g) => g.id === req.params.id);
   if (!graph) return res.status(404).json({ ok: false, error: { status: 404, message: 'not found', code: 'NOT_FOUND' } });
   res.json({ ok: true, data: graph });
 });
 
-// Live node states for a graph — polled by the canvas for monitoring.
-// Graph IDs are formatted as `vmc-pipeline:<componentId>`.
+// Live node states for a graph.
+// Graph IDs: `vmc-pipeline:<componentId>` or `breathing:<componentId>`.
 router.get('/signal/graphs/:id/node-states', (req, res) => {
-  const graphId = req.params.id;
-  const componentId = graphId.startsWith('vmc-pipeline:') ? graphId.slice('vmc-pipeline:'.length) : graphId;
-  const states = _vmc?.getStates(componentId);
+  const graphId     = req.params.id;
+  const componentId = _stripPrefix(graphId);
+  const states = graphId.startsWith('breathing:')
+    ? _breathing?.getStates(componentId)
+    : _vmc?.getStates(componentId);
   if (!states) return res.status(404).json({ ok: false, error: { status: 404, message: 'not found', code: 'NOT_FOUND' } });
   res.json({ ok: true, data: states });
 });
 
 // Fire a trigger event into a specific node port.
 // Body: { nodeId: string, port: string }
-// Graph IDs formatted as `vmc-pipeline:<componentId>`.
 router.post('/signal/graphs/:id/fire', (req, res) => {
-  const graphId = req.params.id;
-  const componentId = graphId.startsWith('vmc-pipeline:') ? graphId.slice('vmc-pipeline:'.length) : graphId;
+  const graphId     = req.params.id;
+  const componentId = _stripPrefix(graphId);
   const { nodeId, port } = req.body as { nodeId?: string; port?: string };
   if (!nodeId || !port) {
     return res.status(400).json({ ok: false, error: { status: 400, message: 'nodeId and port are required', code: 'VALIDATION_ERROR' } });
@@ -371,12 +447,18 @@ router.post('/signal/graphs/:id/fire', (req, res) => {
   res.json({ ok: true });
 });
 
+function _stripPrefix(graphId: string): string {
+  const prefixes = ['vmc-pipeline:', 'breathing:'];
+  for (const p of prefixes) if (graphId.startsWith(p)) return graphId.slice(p.length);
+  return graphId;
+}
+
 // All registered node kinds with display metadata (drives the node palette).
 router.get('/signal/node-kinds', (_req, res) => {
   res.json({ ok: true, data: getAllNodeKindMeta() });
 });
 
-// All registered component kinds.
+
 router.get('/component-kinds', (_req, res) => {
   res.json({ ok: true, data: getAllComponentKindMeta() });
 });

@@ -11,15 +11,6 @@ export type ArkitShape = typeof ARKIT_SHAPES[number]
 export type ArkitMapperMode = 'expressions' | 'fcl' | 'passthrough'
 
 export interface ArkitVrmMapperConfig {
-  /**
-   * expressions — map ARKit shapes to VRM expression names (default)
-   * fcl         — map to VRoid Studio Fcl_* morph target names
-   * passthrough — forward raw ARKit shape names unchanged
-   *
-   * Controlled by defaultConfig on the graph node descriptor — not user-editable.
-   * enabled and customMapping are supplied via value input ports from a sibling
-   * ArkitMapperConfig node.
-   */
   mode?: ArkitMapperMode
 }
 
