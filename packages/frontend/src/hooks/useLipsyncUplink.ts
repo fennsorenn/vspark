@@ -6,10 +6,10 @@ const FRAME_MS   = 1000 / TARGET_FPS
 
 /**
  * Drives mic analysis at up to 30 fps and sends viseme weights to the server
- * via the provided WebSocket. Safe to call whether or not the mic is active.
+ * via the provided WebSocket ref. Using a ref avoids stale closure issues.
  */
 export function useLipsyncUplink(
-  ws:          WebSocket | null,
+  wsRef:       React.RefObject<WebSocket | null>,
   componentId: string | null,
   micRef:      React.RefObject<MicCapture | null>,
   active:      boolean,
@@ -18,11 +18,8 @@ export function useLipsyncUplink(
   const rafRef      = useRef<number | null>(null)
 
   useEffect(() => {
-    if (!active || !componentId || !ws || ws.readyState !== WebSocket.OPEN) {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
+    if (!active || !componentId) {
+      if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
       return
     }
 
@@ -33,6 +30,7 @@ export function useLipsyncUplink(
       lastSentRef.current = now
 
       const mic = micRef.current
+      const ws  = wsRef.current
       if (!mic?.active || !ws || ws.readyState !== WebSocket.OPEN || !componentId) return
 
       const visemes = mic.getVisemes()
@@ -43,5 +41,5 @@ export function useLipsyncUplink(
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
     }
-  }, [active, componentId, ws, micRef])
+  }, [active, componentId, wsRef, micRef])
 }

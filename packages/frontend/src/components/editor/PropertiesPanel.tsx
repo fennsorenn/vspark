@@ -853,7 +853,32 @@ function LipsyncProcessorProps({ comp }: { comp: NodeComponent }) {
 function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
   const { updateNodeComponent } = useEditorStore()
   const { projectId } = useParams<{ projectId: string }>()
-  const cfg = comp.config as { enableFace?: boolean; enablePose?: boolean; enableHands?: boolean }
+  const cfg = comp.config as {
+    enableFace?: boolean; enablePose?: boolean; enableHands?: boolean
+    useIk?: boolean
+    ikCalibration?: {
+      xScale?: number; yScale?: number; zScale?: number
+      xOffset?: number; yOffset?: number; zOffset?: number
+      invertX?: boolean; invertY?: boolean; invertZ?: boolean
+    }
+    headCalibration?: {
+      pitchGain?: number; yawGain?: number; rollGain?: number; restPitch?: number
+    }
+  }
+  const headCfg = cfg.headCalibration ?? {}
+  const head = {
+    pitchGain: headCfg.pitchGain ?? 2.0,
+    yawGain:   headCfg.yawGain   ?? 1.0,
+    rollGain:  headCfg.rollGain  ?? 1.0,
+    restPitch: headCfg.restPitch ?? -0.43,
+  }
+  const useIk = cfg.useIk ?? false
+  const ikCfg = cfg.ikCalibration ?? {}
+  const ax = {
+    x: { scale: ikCfg.xScale ?? 1, offset: ikCfg.xOffset ?? 0, invert: ikCfg.invertX ?? false },
+    y: { scale: ikCfg.yScale ?? 1, offset: ikCfg.yOffset ?? 0, invert: ikCfg.invertY ?? false },
+    z: { scale: ikCfg.zScale ?? 3, offset: ikCfg.zOffset ?? 0, invert: ikCfg.invertZ ?? false },
+  }
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch }
@@ -861,8 +886,29 @@ function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
     api.updateNodeComponent(comp.id, { config }).catch(() => {})
   }
 
+  const saveIk = (patch: Record<string, unknown>) => {
+    save({ ikCalibration: { ...ikCfg, ...patch } })
+  }
+  const saveHead = (patch: Record<string, unknown>) => {
+    save({ headCalibration: { ...headCfg, ...patch } })
+  }
+
+  const graphId = `mediapipe_tracker:${comp.id}`
+  const [calibFlash, setCalibFlash] = useState<string | null>(null)
+  const flashCalib = (msg: string) => { setCalibFlash(msg); setTimeout(() => setCalibFlash(null), 1800) }
+  const fireCalib = async (nodeId: string, label: string) => {
+    try {
+      await fireSignalEvent(graphId, nodeId, 'trigger')
+      flashCalib(label)
+    } catch {
+      flashCalib('Could not reach pipeline — is tracking active?')
+    }
+  }
+
   const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }
   const labelStyle: React.CSSProperties = { fontSize: 12, color: '#888', flex: 1 }
+  const sliderStyle: React.CSSProperties = { flex: 2 }
+  const valueStyle:  React.CSSProperties = { fontSize: 11, color: '#aaa', width: 36, textAlign: 'right' }
 
   return (
     <div>
@@ -877,6 +923,112 @@ function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
           />
         </div>
       ))}
+
+      <div style={{ marginTop: 8, borderTop: '1px solid #2a2a2a', paddingTop: 8 }}>
+        <div style={{ fontSize: 11, color: '#666', textTransform: 'uppercase', marginBottom: 4 }}>Calibration</div>
+        <div style={{ fontSize: 10, color: '#777', marginBottom: 2 }}>Head/torso — capture in a relaxed neutral stance.</div>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+          <button
+            style={{ background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#ccc', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12, flex: 1 }}
+            onClick={() => fireCalib('head_calib_capture', 'Head neutral captured ✓')}
+          >Capture head</button>
+          <button
+            style={{ background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#ccc', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12, flex: 1 }}
+            onClick={() => fireCalib('head_calib_reset', 'Head calibration reset')}
+          >Reset head</button>
+        </div>
+        <div style={{ fontSize: 10, color: '#777', marginBottom: 2 }}>
+          Fingers — hold one hand up in the avatar's finger rest pose (for VRoid: straight fingers,
+          thumb relaxed-out). The higher hand wins; the other side is mirrored from it.
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+          <button
+            style={{ background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#ccc', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12, flex: 1 }}
+            onClick={() => fireCalib('finger_calib_capture', 'Finger neutral captured ✓')}
+          >Capture fingers</button>
+          <button
+            style={{ background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#ccc', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12, flex: 1 }}
+            onClick={() => fireCalib('finger_calib_reset', 'Finger calibration reset')}
+          >Reset fingers</button>
+        </div>
+        {calibFlash && <div style={{ fontSize: 11, color: '#7d7', marginBottom: 6 }}>{calibFlash}</div>}
+
+        <div style={rowStyle}>
+          <span style={labelStyle}>Use IK arms</span>
+          <input
+            type='checkbox'
+            checked={useIk}
+            onChange={e => save({ useIk: e.target.checked })}
+            style={{ cursor: 'pointer' }}
+          />
+        </div>
+        <div style={{ fontSize: 10, color: '#555', marginBottom: 6 }}>
+          When off, arms are driven by per-bone quaternions (lower fidelity but always stable).
+        </div>
+        <div style={{ fontSize: 11, color: '#666', textTransform: 'uppercase', marginBottom: 4 }}>
+          IK calibration <span style={{ textTransform: 'none', color: '#555' }}>(X is symmetric: +offset spreads outward)</span>
+        </div>
+{(['x', 'y', 'z'] as const).map(axis => {
+          const a = ax[axis]
+          const scaleField  = `${axis}Scale`  as const
+          const offsetField = `${axis}Offset` as const
+          const invertField = `invert${axis.toUpperCase()}` as 'invertX' | 'invertY' | 'invertZ'
+          return (
+            <div key={axis} style={{ marginBottom: 4 }}>
+              <div style={{ fontSize: 10, color: '#777', marginBottom: 2 }}>{axis.toUpperCase()} axis</div>
+              <div style={rowStyle}>
+                <span style={labelStyle}>Scale</span>
+                <input type='range' min={0} max={8} step={0.1} value={a.scale}
+                  onChange={e => saveIk({ [scaleField]: parseFloat(e.target.value) })} style={sliderStyle} />
+                <span style={valueStyle}>{a.scale.toFixed(1)}</span>
+              </div>
+              <div style={rowStyle}>
+                <span style={labelStyle}>Offset</span>
+                <input type='range' min={-0.5} max={0.5} step={0.01} value={a.offset}
+                  onChange={e => saveIk({ [offsetField]: parseFloat(e.target.value) })} style={sliderStyle} />
+                <span style={valueStyle}>{a.offset.toFixed(2)}</span>
+              </div>
+              <div style={rowStyle}>
+                <span style={labelStyle}>Invert</span>
+                <input type='checkbox' checked={a.invert}
+                  onChange={e => saveIk({ [invertField]: e.target.checked })}
+                  style={{ cursor: 'pointer' }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div style={{ marginTop: 8, borderTop: '1px solid #2a2a2a', paddingTop: 8 }}>
+        <div style={{ fontSize: 11, color: '#666', textTransform: 'uppercase', marginBottom: 4 }}>
+          Head calibration <span style={{ textTransform: 'none', color: '#555' }}>(gains amplify rotation axes; rest pitch shifts neutral nod)</span>
+        </div>
+        <div style={rowStyle}>
+          <span style={labelStyle}>Pitch gain</span>
+          <input type='range' min={0.5} max={5} step={0.1} value={head.pitchGain}
+            onChange={e => saveHead({ pitchGain: parseFloat(e.target.value) })} style={sliderStyle} />
+          <span style={valueStyle}>{head.pitchGain.toFixed(1)}</span>
+        </div>
+        <div style={rowStyle}>
+          <span style={labelStyle}>Yaw gain</span>
+          <input type='range' min={0.5} max={5} step={0.1} value={head.yawGain}
+            onChange={e => saveHead({ yawGain: parseFloat(e.target.value) })} style={sliderStyle} />
+          <span style={valueStyle}>{head.yawGain.toFixed(1)}</span>
+        </div>
+        <div style={rowStyle}>
+          <span style={labelStyle}>Roll gain</span>
+          <input type='range' min={0.5} max={5} step={0.1} value={head.rollGain}
+            onChange={e => saveHead({ rollGain: parseFloat(e.target.value) })} style={sliderStyle} />
+          <span style={valueStyle}>{head.rollGain.toFixed(1)}</span>
+        </div>
+        <div style={rowStyle}>
+          <span style={labelStyle}>Rest pitch</span>
+          <input type='range' min={-1.0} max={1.0} step={0.01} value={head.restPitch}
+            onChange={e => saveHead({ restPitch: parseFloat(e.target.value) })} style={sliderStyle} />
+          <span style={valueStyle}>{head.restPitch.toFixed(2)}</span>
+        </div>
+      </div>
+
       <div style={{ marginTop: 8, borderTop: '1px solid #2a2a2a', paddingTop: 8 }}>
         <button
           style={{ background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#ccc', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12 }}

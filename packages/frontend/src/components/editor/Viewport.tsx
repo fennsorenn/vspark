@@ -21,6 +21,7 @@ import type { NodeRecord, NodeComponent } from '../../store/editorStore'
 
 import { animRegistry } from '../../animRegistry'
 import { getVmcPose, getVmcPoseTime, getVmcBlendshapes } from '../../vmcPoseStore'
+import { getIkTargets, getIkTargetsTime } from '../../ikTargetStore'
 import { vrmRegistry } from '../../vrmRegistry'
 import { applyArmCalib, upperArmNormRotFromTarget, DEFAULT_CALIBRATION } from '../../calibration'
 import type { VmcCalibration } from '../../calibration'
@@ -34,6 +35,145 @@ type GizmoMode = 'translate' | 'rotate' | 'scale'
 
 // Maps nodeId → outermost Three.js group, used to attach TransformControls
 const nodeGroupRegistry = new Map<string, THREE.Group>()
+
+// ── Two-bone analytical IK ──────────────────────────────────────────────────
+// Solves root→mid chain so that mid's child (tip) reaches targetWorld.
+// Uses the cosine rule. Pole vector = current mid position (preserves elbow side).
+// Writes local quaternions directly to the raw bone nodes.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Two-bone IK solver.
+//
+// Approach: work entirely in the root bone's PARENT-space (i.e. the shoulder's frame).
+// In that space, the bone "rest" directions are fixed (root→mid is wherever the upper
+// arm points at rest, mid→tip is wherever the forearm points at rest). We solve the
+// triangle, then express the final root/mid orientations as local quaternions that
+// rotate the rest directions to the solved directions.
+//
+// This avoids the trap of "apply delta in world space then convert to local" — which
+// gets confused by the parent's own rotation contribution to the bone's world frame.
+//
+// Steps:
+//   1. Measure rest-pose vectors u = (mid - root) and v = (tip - mid) in parent space.
+//      These are constants for a given rig (assuming the bones don't translate).
+//   2. Solve cosine triangle for the angles at A (root) and B (elbow).
+//   3. Build target vector u' (root→mid direction in parent space) by:
+//      - pointing the upper bone at the target direction tDir (in parent space)
+//      - rotating by angA around the bend axis (perpendicular to tDir and pole)
+//   4. Root local rotation = rotation that maps u → u'.
+//   5. Mid local rotation = rotation that maps v (in root's child frame) → v'
+//      where v' is computed in the same parent space as u', then expressed in
+//      the now-rotated root's local frame.
+// ─────────────────────────────────────────────────────────────────────────────
+function _solveTwoBoneIk(
+  vrm: VRM,
+  rootBoneName: VRMHumanBoneName,
+  midBoneName:  VRMHumanBoneName,
+  targetWorld:  THREE.Vector3,
+): void {
+  const rootBone = vrm.humanoid.getRawBoneNode(rootBoneName)
+  const midBone  = vrm.humanoid.getRawBoneNode(midBoneName)
+  if (!rootBone || !midBone) return
+  const rootParent = rootBone.parent
+  if (!rootParent) return
+
+  const tipBone = midBone.children.find(c => c instanceof THREE.Bone) as THREE.Bone | undefined
+
+  // ── 1. Rest-pose bone vectors in parent space ─────────────────────────────
+  // We use the *current* local position of midBone as the rest offset from root
+  // (bones in a skeleton are typically translated, not at origin). Similarly for tip.
+  // We assume bone translations are constant; only rotations vary.
+  const restU = midBone.position.clone()  // mid offset in root's local space
+                                          // ≡ root→mid direction (scaled) in root's REST local frame
+  if (restU.lengthSq() < 1e-9) return
+  const lenAB = restU.length()
+  restU.normalize()
+
+  // restV: tip offset in mid's local space (i.e. mid→tip in mid's rest frame).
+  let restV: THREE.Vector3
+  let lenBC: number
+  if (tipBone) {
+    restV = tipBone.position.clone()
+    lenBC = restV.length()
+    if (lenBC < 1e-9) return
+    restV.normalize()
+  } else {
+    // No tip bone — assume forearm continues along upper arm direction
+    restV = restU.clone()
+    lenBC = lenAB
+  }
+
+  // ── 2. Convert target into parent space ──────────────────────────────────
+  // posA in parent space = rootBone's local position (since rootBone is a child of rootParent).
+  // But for the math we just need (target - posA_world) expressed in parent space.
+  const parentWorldInv = new THREE.Matrix4().copy(rootParent.matrixWorld).invert()
+  const targetParent = targetWorld.clone().applyMatrix4(parentWorldInv)
+  // root's position in parent space = rootBone.position (local).
+  const rootInParent = rootBone.position.clone()
+  const toTarget = targetParent.clone().sub(rootInParent)
+  let lenAT = toTarget.length()
+  if (lenAT < 1e-6) return
+  const maxReach = lenAB + lenBC - 1e-4
+  if (lenAT > maxReach) lenAT = maxReach
+  const tDir = toTarget.normalize()  // root→target direction, in parent space
+
+  // ── 3. Cosine rule ────────────────────────────────────────────────────────
+  const cosA = (lenAB*lenAB + lenAT*lenAT - lenBC*lenBC) / (2*lenAB*lenAT)
+  const angA = Math.acos(Math.max(-1, Math.min(1, cosA)))
+
+  // ── 4. Bend axis ──────────────────────────────────────────────────────────
+  // Pole hint in parent space: elbows should bend "behind" the chest. The chest's local
+  // -Z is "behind", so in parent space we want -Z. We also want a small -Y so the elbow
+  // points slightly down. We orthogonalise this against tDir to get the in-plane pole.
+  const poleHint = new THREE.Vector3(0, -0.3, -1).normalize()
+  const poleProj = poleHint.clone().sub(tDir.clone().multiplyScalar(poleHint.dot(tDir)))
+  let poleDir: THREE.Vector3
+  if (poleProj.lengthSq() < 1e-6) {
+    // Target direction parallel to hint — fall back to using the current restU's perp
+    const fallback = restU.clone().sub(tDir.clone().multiplyScalar(restU.dot(tDir)))
+    poleDir = fallback.lengthSq() > 1e-6 ? fallback.normalize() : new THREE.Vector3(0, -1, 0)
+  } else {
+    poleDir = poleProj.normalize()
+  }
+  // bendAxis = cross(tDir, poleDir) — rotating tDir by +angA around bendAxis bends TOWARD pole.
+  const bendAxis = new THREE.Vector3().crossVectors(tDir, poleDir).normalize()
+  if (bendAxis.lengthSq() < 1e-6) return
+
+  // ── 5. Desired upper-arm direction in parent space ───────────────────────
+  // Rotate tDir by angA around bendAxis (away from straight-at-target, toward pole).
+  // Actually: root→mid direction = rotate tDir by -angA around bendAxis (the elbow's outside angle).
+  // The triangle has vertex A; the angle at A is between sides AB and AT. So AB direction is
+  // tDir rotated by angA AWAY from AT direction toward the side opposite the pole.
+  // We want the elbow on the pole side, so AB should rotate by -angA around bendAxis
+  // (since bendAxis was constructed as cross(tDir, poleDir), rotating tDir by +ang around it
+  // moves toward poleDir).
+  const qRotU = new THREE.Quaternion().setFromAxisAngle(bendAxis, angA)
+  const desiredU = tDir.clone().applyQuaternion(qRotU).normalize()
+
+  // Root local rotation: rotates restU → desiredU.
+  const rootLocalQ = new THREE.Quaternion().setFromUnitVectors(restU, desiredU)
+  rootBone.quaternion.copy(rootLocalQ)
+  rootBone.updateWorldMatrix(true, false)
+
+  // ── 6. Mid bone ──────────────────────────────────────────────────────────
+  // Desired mid→tip direction in parent space:
+  // The elbow is at A + desiredU * lenAB. The tip is at target (clamped to lenAT).
+  // So mid→tip direction (parent space) = (rootInParent + tDir*lenAT) - (rootInParent + desiredU*lenAB)
+  //                                     = tDir*lenAT - desiredU*lenAB, then normalize.
+  const desiredVparent = tDir.clone().multiplyScalar(lenAT).sub(desiredU.clone().multiplyScalar(lenAB))
+  if (desiredVparent.lengthSq() < 1e-6) return
+  desiredVparent.normalize()
+
+  // We need this in the mid bone's parent space, which is the now-rotated rootBone's local space.
+  // desiredVparent is in rootParent space. To get it in rootBone's local space:
+  //   v_rootLocal = inv(rootLocalQ) * desiredVparent
+  const desiredVrootLocal = desiredVparent.clone().applyQuaternion(rootLocalQ.clone().invert())
+
+  // Mid local rotation: rotates restV → desiredVrootLocal (both in mid's parent / root's local space).
+  const midLocalQ = new THREE.Quaternion().setFromUnitVectors(restV, desiredVrootLocal)
+  midBone.quaternion.copy(midLocalQ)
+  midBone.updateWorldMatrix(true, false)
+}
 
 /** Imperatively parents a node's group into a VRM bone so it follows the bone's transform. */
 function BoneAttacher({ avatarNodeId, boneName, nodeId }: {
@@ -274,7 +414,8 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
   const vrmMixerRef   = useRef<THREE.AnimationMixer | null>(null)
   const vrmRef        = useRef<VRM | null>(null)
   const corrAxesRef   = useRef<THREE.Object3D[]>([])
-  const vmcCompRef    = useRef<NodeComponent | null>(null)
+  const vmcCompRef        = useRef<NodeComponent | null>(null)
+  const lipsyncCompRef    = useRef<NodeComponent | null>(null)
   const vmcRetargetRef  = useRef<VmcRetarget | null>(null)
   const boneFiltersRef    = useRef(new BoneFilterBank())
   const poseWasActiveRef  = useRef(false)
@@ -299,11 +440,21 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
     if (fbxHelperRef.current) fbxHelperRef.current.visible = showFbxDebug
   }, [showFbxDebug])
 
-  // Track active VMC receiver component without causing useFrame re-subscription
+  // Track active pose-driving component without causing useFrame re-subscription
   const vmcComp = useEditorStore((s) =>
-    s.nodeComponentsFor(node.id).find((c) => c.kind === 'vmc_receiver' && c.enabled) ?? null
+    s.nodeComponentsFor(node.id).find((c) =>
+      (c.kind === 'vmc_receiver' || c.kind === 'mediapipe_tracker') && c.enabled
+    ) ?? null
   )
   useEffect(() => { vmcCompRef.current = vmcComp }, [vmcComp])
+
+  // Track active blendshape-driving component (lipsync, face tracking)
+  const lipsyncComp = useEditorStore((s) =>
+    s.nodeComponentsFor(node.id).find((c) =>
+      (c.kind === 'lipsync_processor' || c.kind === 'mediapipe_tracker') && c.enabled
+    ) ?? null
+  )
+  useEffect(() => { lipsyncCompRef.current = lipsyncComp }, [lipsyncComp])
 
   const { setVrmBonesForNode, clearVrmBonesForNode,
           setVrmExpressionsForNode, clearVrmExpressionsForNode,
@@ -1113,27 +1264,122 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
         }
       }
 
+    }
+
+    // ── Step 3: remaining VRM subsystems on the final blended pose ───────────────
+    if (vrm) {
+      const v = vrm as unknown as Record<string, { update: (d?: number) => void } | undefined>
+
+
+
       // Pre-expressionManager.update() pass: drive expression preset names via setValue.
+      // Runs whenever a blendshape-driving component is active (lipsync, face tracking, VMC).
       // Morph-target names (Fcl_*, etc.) are deferred to after update() so they
       // aren't overwritten when expressionManager applies its tracked clip values.
-      const bs = getVmcBlendshapes(node.id)
+      const bsActive = lipsyncCompRef.current != null || vmcCompRef.current != null
+      const bs = bsActive ? getVmcBlendshapes(node.id) : null
       if (bs && vrm.expressionManager) {
         const morphMap = morphMapRef.current
         for (const [name, value] of Object.entries(bs)) {
           if (!morphMap.has(name)) vrm.expressionManager.setValue(name, value)
         }
       }
-    }
 
-    // ── Step 3: remaining VRM subsystems on the final blended pose ───────────────
-    if (vrm) {
-      const v = vrm as unknown as Record<string, { update: (d?: number) => void } | undefined>
+      // ── Step 2.5: IK solve ──────────────────────────────────────────────────
+      // Only when the component opts into IK. Otherwise arms are driven by pose_arms_to_bones quaternions.
+      const useIk = (vmcCompRef.current?.config as { useIk?: boolean } | undefined)?.useIk === true
+      if (vmcCompRef.current?.kind === 'mediapipe_tracker' && useIk) {
+        const ikFrame = getIkTargets(node.id)
+        const ikTime  = getIkTargetsTime(node.id)
+        const IK_TIMEOUT_MS = 2000
+        if (ikFrame && ikTime && (Date.now() - ikTime) < IK_TIMEOUT_MS) {
+          // Resolve the reference bone world position
+          const refBoneNode = vrm.humanoid.getRawBoneNode(ikFrame.referenceBone as VRMHumanBoneName)
+          if (refBoneNode) {
+            const refWorldPos = new THREE.Vector3()
+            refBoneNode.getWorldPosition(refWorldPos)
+            // Avatar's facing rotation: applies to chest-relative offsets so MP "subject front" maps
+            // to avatar's front regardless of scene-level rotations on the VRM.
+            const avatarOrient = new THREE.Quaternion()
+            refBoneNode.getWorldQuaternion(avatarOrient)
+
+            // Uniform scale: fit source shoulder width to target rig's shoulder width.
+            // Both upper-arm bones' world positions are the avatar's shoulder joints.
+            let scale = 1
+            const lUA = vrm.humanoid.getRawBoneNode('leftUpperArm' as VRMHumanBoneName)
+            const rUA = vrm.humanoid.getRawBoneNode('rightUpperArm' as VRMHumanBoneName)
+            const avatarLeftShoulderChestRel  = new THREE.Vector3()
+            const avatarRightShoulderChestRel = new THREE.Vector3()
+            // Avatar shoulder offsets, expressed in the chest's LOCAL frame (so we can compare
+            // them to source positions which are in the source subject's local chest frame).
+            const avatarOrientInv = avatarOrient.clone().invert()
+            if (lUA && rUA) {
+              const lp = new THREE.Vector3(); lUA.getWorldPosition(lp)
+              const rp = new THREE.Vector3(); rUA.getWorldPosition(rp)
+              avatarLeftShoulderChestRel.copy(lp).sub(refWorldPos).applyQuaternion(avatarOrientInv)
+              avatarRightShoulderChestRel.copy(rp).sub(refWorldPos).applyQuaternion(avatarOrientInv)
+              if (ikFrame.sourceShoulderWidth && ikFrame.sourceShoulderWidth > 1e-4) {
+                const avatarShoulderWidth = lp.distanceTo(rp)
+                if (avatarShoulderWidth > 1e-4) scale = avatarShoulderWidth / ikFrame.sourceShoulderWidth
+              }
+            }
+
+            // Per-side correction: align source shoulder (scaled) with avatar shoulder,
+            // both expressed relative to the chest reference. This re-anchors arm motion
+            // to the avatar's actual shoulder while keeping chest as the global frame origin.
+            const leftCorrection  = new THREE.Vector3()
+            const rightCorrection = new THREE.Vector3()
+            if (ikFrame.sourceLeftShoulder && lUA) {
+              leftCorrection.set(
+                avatarLeftShoulderChestRel.x  - ikFrame.sourceLeftShoulder[0]  * scale,
+                avatarLeftShoulderChestRel.y  - ikFrame.sourceLeftShoulder[1]  * scale,
+                avatarLeftShoulderChestRel.z  - ikFrame.sourceLeftShoulder[2]  * scale,
+              )
+            }
+            if (ikFrame.sourceRightShoulder && rUA) {
+              rightCorrection.set(
+                avatarRightShoulderChestRel.x - ikFrame.sourceRightShoulder[0] * scale,
+                avatarRightShoulderChestRel.y - ikFrame.sourceRightShoulder[1] * scale,
+                avatarRightShoulderChestRel.z - ikFrame.sourceRightShoulder[2] * scale,
+              )
+            }
+
+            for (const target of ikFrame.targets) {
+              if (!target.position || target.confidence < 0.4) continue
+              if (target.chain.length < 2) continue
+
+              // Pick the side-specific correction. Fingers + arms on the left side use leftCorrection.
+              const isLeft  = target.bone.startsWith('left')
+              const correction = isLeft ? leftCorrection : rightCorrection
+
+              // Build target in chest-local space (correction is already in chest-local).
+              const targetLocal = new THREE.Vector3(
+                target.position[0] * scale + correction.x,
+                target.position[1] * scale + correction.y,
+                target.position[2] * scale + correction.z,
+              )
+              // Rotate from chest-local to world by the chest's world orientation, then add chest world position.
+              const targetWorld = targetLocal.clone().applyQuaternion(avatarOrient).add(refWorldPos)
+
+              if (target.chain.length === 2) {
+                // Two-bone analytical IK: chain[0]=upper, chain[1]=lower (end-effector = bone)
+                _solveTwoBoneIk(vrm, target.chain[0] as VRMHumanBoneName, target.chain[1] as VRMHumanBoneName, targetWorld)
+              } else if (target.chain.length === 3) {
+                // Three-bone: solve upper+lower to reach the wrist, then leave hand orientation
+                _solveTwoBoneIk(vrm, target.chain[0] as VRMHumanBoneName, target.chain[1] as VRMHumanBoneName, targetWorld)
+              }
+              // Longer chains (fingers) are not IK-solved here — handled by quaternion mapper
+            }
+          }
+        }
+      }
+
       v['lookAt']?.update(delta)
       v['expressionManager']?.update()
 
       // Post-expressionManager.update() pass: write morph targets directly.
       // expressionManager.update() has already run, so these won't be overwritten.
-      if (blend > 0) {
+      if (bsActive) {
         const bs2 = getVmcBlendshapes(node.id)
         if (bs2) {
           const morphMap = morphMapRef.current

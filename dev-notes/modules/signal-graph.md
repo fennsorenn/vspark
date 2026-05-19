@@ -28,7 +28,7 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → `SignalNodeClass`. All 26 built-in node kinds are registered here. `getAllNodeKindMeta()` returns port declarations and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → `SignalNodeClass`. All 32 built-in node kinds are registered here. `getAllNodeKindMeta()` returns port declarations and display metadata for each kind — this drives the UI node palette.
 
 ## Node Kinds — `signal/nodes/`
 
@@ -51,13 +51,15 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 | `rhylive_bone_mapper` | BoneRotations (VMC/RhyLive format) → NormalizedPose (VRM bone names); applies coordinate flipping |
 | `arkit_vrm_mapper` | ARKit 52-shape weights → VRM expressions; supports `fcl`, `expressions`, and `passthrough` modes |
 | `face_landmarks_to_blendshapes` | 478 MediaPipe face points → vowel shapes (A/E/I/O/U), eye blink, brow raise |
-| `hand_landmarks_to_bones` | 21 MediaPipe hand points → finger joint quaternions |
-| `pose_landmarks_to_bones` | 33 MediaPipe body points → upper-body bone quaternions |
+| `hand_landmarks_to_bones` | 21 MediaPipe hand points → finger joint quaternions (residual rest-pose offsets are an open issue — see mediapipe-tracker.md) |
+| `pose_torso_head_to_bones` | 33 MediaPipe body points → torso + head + eye bone quaternions |
+| `pose_arms_to_bones` | 33 MediaPipe body points → shoulder/upper-arm/lower-arm quaternions (quat-arm mode) |
+| `pose_ik_targets` | 33 MediaPipe body points → chest-relative IK end-effector targets for arms (IK-arm mode) |
 
 ### Calibration
 | Kind | Description |
 |------|-------------|
-| `body_calibration` | Captures neutral pose; subtracts offset via quaternion inversion on incoming frames |
+| `body_calibration` | Captures neutral pose; subtracts offset via quaternion inversion. Supports optional `mirrorPairs` config + `mirrorSource` input port for one-hand symmetric calibration (used by finger_calib in MediaPipe tracker). |
 | `arm_ik_calibration` | Two-bone arm IK; captures arm reach (finger-to-eye-corner); applies corrected IK at runtime |
 
 ### Processing / utility
@@ -67,12 +69,16 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 | `euler_to_quaternion` | Euler angles → quaternion |
 | `unpack_event` | Event<T> → separate `trigger` event port + `value` pull port |
 | `pose_apply_bone` | Overrides a single bone in a NormalizedPose |
+| `pose_merge` | Merges multiple NormalizedPose inputs into a single pose (later inputs win per bone) |
+| `not_bool` | Inverts a boolean value (used to gate arm vs IK branches from `useIk`) |
+| `hand_height_compare` | Compares left/right hand Y positions; outputs which hand is higher (mirror calibration helper) |
 
 ### Output/broadcast
 | Kind | Description |
 |------|-------------|
 | `pose_broadcast` | NormalizedPose → WebSocket `vmc_pose` broadcast; respects interceptor chain |
 | `blendshapes_broadcast` | Blendshapes → WebSocket `vmc_blendshapes` broadcast |
+| `ik_broadcast` | IkTargetFrame → WebSocket `ik_targets` broadcast (consumed by frontend `ikTargetStore` + Viewport Step 2.5 solver) |
 
 ### Pose interceptor chain
 The interceptor chain lets components (e.g., breathing) modify poses in-flight before broadcast.
