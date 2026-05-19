@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { MicCapture } from '../media/MicCapture'
 import { CameraCapture } from '../media/CameraCapture'
-import type { TrackingResult } from '../media/CameraCapture'
 import { useLipsyncUplink } from '../hooks/useLipsyncUplink'
-import { useTrackingUplink } from '../hooks/useTrackingUplink'
+import { editorWsRef } from '../hooks/useWsSync'
 import { useEditorStore } from '../store/editorStore'
 
 // ── Styles ───────────────────────────────────────────────────────────────────
@@ -197,11 +196,7 @@ export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwa
   const [enableHands, setEnableHands] = useState(true)
   const cameraRef = useRef<CameraCapture | null>(null)
   const previewCanvasRef = useRef<HTMLCanvasElement>(null)
-  const lastResultRef = useRef<TrackingResult | null>(null)
-
-  // WS connection — use prop if provided (standalone), else open our own
-  const [ownWs, setOwnWs] = useState<WebSocket | null>(null)
-  const ws = externalWs ?? ownWs
+  // WS connection — use prop if provided (standalone page), else use the shared editor socket
 
   // Resolve component IDs from store if not provided as props
   const nodeComponents = useEditorStore(s => s.nodeComponents)
@@ -212,13 +207,14 @@ export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwa
     ?? nodeComponents.find(c => c.kind === 'mediapipe_tracker' && c.enabled)?.id
     ?? null
 
-  // ── WS (own connection when no external WS provided) ──────────────────────
+  // ── WS: point wsRef at the shared editor socket (or provided standalone socket) ──
   useEffect(() => {
-    if (externalWs) return
-    const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-    const socket = new WebSocket(`${protocol}://${location.host}/ws`)
-    setOwnWs(socket)
-    return () => socket.close()
+    if (externalWs) { wsRef.current = externalWs; return }
+    // Use the module-level ref from useWsSync — already open, no new connection needed
+    wsRef.current = editorWsRef.current
+    // Keep it fresh on each render tick (the editor socket reconnects automatically)
+    const id = setInterval(() => { wsRef.current = editorWsRef.current }, 1000)
+    return () => clearInterval(id)
   }, [externalWs])
 
   // ── Enumerate devices ──────────────────────────────────────────────────────
@@ -246,6 +242,13 @@ export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwa
     }
   }, [lipsyncActive, micDeviceId])
 
+  // Refs so onResult closure always reads the latest values without going stale
+  const wsRef              = useRef<WebSocket | null>(null)
+  const trackingCompIdRef  = useRef<string | null>(null)
+  const showPreviewRef     = useRef(showPreview)
+  useEffect(() => { trackingCompIdRef.current = resolvedTrackingId }, [resolvedTrackingId])
+  useEffect(() => { showPreviewRef.current = showPreview },   [showPreview])
+
   // ── Tracking activate/deactivate ───────────────────────────────────────────
   const toggleTracking = useCallback(async () => {
     if (trackingActive) {
@@ -255,6 +258,31 @@ export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwa
     } else {
       const cam = new CameraCapture()
       cam.onError = (e) => { console.error('[CameraCapture]', e); setTrackingActive(false) }
+      // WS uplink via onResult (receives the filtered TrackingResult)
+      cam.onResult = (result) => {
+        const socket = wsRef.current
+        const compId = trackingCompIdRef.current
+        if (socket && socket.readyState === WebSocket.OPEN && compId) {
+          socket.send(JSON.stringify({ kind: 'tracking_input', componentId: compId, ...result }))
+        }
+      }
+      // Preview via onRawResult (receives the live HolisticLandmarkerResult in-frame)
+      cam.onRawResult = (raw) => {
+        if (!showPreviewRef.current) return
+        const canvas = previewCanvasRef.current
+        if (!canvas) return
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        const video = cam.video
+        if (video && video.readyState >= 2) {
+          const w = video.videoWidth  || 640
+          const h = video.videoHeight || 480
+          if (canvas.width !== w)  canvas.width  = w
+          if (canvas.height !== h) canvas.height = h
+          ctx.drawImage(video, 0, 0, w, h)
+          CameraCapture.drawLandmarksSync(ctx, raw)
+        }
+      }
       try {
         await cam.start(camDeviceId, { enableFace, enablePose, enableHands })
         cameraRef.current = cam
@@ -265,22 +293,8 @@ export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwa
     }
   }, [trackingActive, camDeviceId, enableFace, enablePose, enableHands])
 
-  // ── Preview canvas drawing ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (!trackingActive || !showPreview) return
-    const cam = cameraRef.current
-    if (!cam) return
-    const prev = cam.onResult
-    cam.onResult = (result) => {
-      prev?.(result)
-      lastResultRef.current = result
-    }
-    return () => { cam.onResult = prev }
-  }, [trackingActive, showPreview])
-
   // ── Uplink hooks ───────────────────────────────────────────────────────────
-  useLipsyncUplink(ws ?? null, resolvedLipsyncId, micRef, lipsyncActive)
-  useTrackingUplink(ws ?? null, resolvedTrackingId, cameraRef.current, trackingActive)
+  useLipsyncUplink(wsRef, resolvedLipsyncId, micRef, lipsyncActive)
 
   // ── Drag handling ─────────────────────────────────────────────────────────
   const onMouseDownBar = useCallback((e: React.MouseEvent) => {
@@ -403,7 +417,7 @@ export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwa
             {trackingActive && showPreview && (
               <canvas
                 ref={previewCanvasRef}
-                style={{ ...S.canvas, marginTop: 6 }}
+                style={{ ...S.canvas, marginTop: 6, transform: 'scaleX(-1)' }}
                 width={300}
                 height={180}
               />

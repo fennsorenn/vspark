@@ -4,7 +4,7 @@ import { mkEvent } from '@vspark/shared/signal'
 import type { GraphDescriptor } from '@vspark/shared/signal'
 import { getDb } from '../../db/index.js'
 import { ComponentKind } from '../decorator.js'
-import { makeMediapipeGraphDescriptor } from './graph.js'
+import { makeMediapipeGraphDescriptor, HEAD_CALIB_BONES, FINGER_CALIB_BONES, FINGER_MIRROR_PAIRS } from './graph.js'
 import type { Landmark } from '@vspark/shared'
 
 interface TrackingFrame {
@@ -51,12 +51,27 @@ export class TrackingManager {
     const nodeId_ = this.nodeIds.get(componentId) ?? ''
     if (nodeId === 'scene_entity') return { nodeId: nodeId_ }
     if (nodeId === 'comp_id')      return { componentId }
+    if (nodeId === 'head_calib')   return { boneFilter: HEAD_CALIB_BONES }
+    if (nodeId === 'finger_calib') return { boneFilter: FINGER_CALIB_BONES, mirrorPairs: FINGER_MIRROR_PAIRS }
 
     const descriptor = this.descriptors.get(componentId)
     const nodeDef    = descriptor?.nodes.find(n => n.id === nodeId)
     const defaults   = nodeDef?.defaultConfig ?? {}
-    const overrides  = ((cfg.nodeConfig as Record<string, unknown> | undefined)?.[nodeId] ?? {}) as Record<string, unknown>
-    return { ...defaults, ...overrides }
+
+    // component_config nodes resolve dot-notation paths against the live component config.
+    // No other node type may reach into the component config — calibration values must flow
+    // through value-port edges from component_config nodes.
+    if (nodeDef?.kind === 'component_config') {
+      return { ...defaults, _componentConfig: cfg }
+    }
+
+    return defaults
+  }
+
+  fireGraphEvent(componentId: string, nodeId: string, port: string): void {
+    const graph = this.graphs.get(componentId)
+    if (!graph) return
+    graph.fire(nodeId, port, mkEvent(undefined))
   }
 
   private _persistNodeState(componentId: string, nodeId: string, state: unknown): void {

@@ -3,9 +3,14 @@ import { useEditorStore } from '../store/editorStore'
 import type { NodeRecord } from '../store/editorStore'
 import type { CameraEffectRecord } from '../api/client'
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore'
+import { setIkTargets } from '../ikTargetStore'
+import type { IkTargetFrame } from '@vspark/shared/types'
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
 const RECONNECT_MS = 3000
+
+/** Module-level ref so any component can send messages on the shared editor WS. */
+export const editorWsRef = { current: null as WebSocket | null }
 
 export function useWsSync() {
   const setVmcStatus   = useEditorStore((s) => s.setVmcStatus)
@@ -21,6 +26,7 @@ export function useWsSync() {
       if (dead) return
       const ws = new WebSocket(WS_URL)
       wsRef.current = ws
+      editorWsRef.current = ws
 
       ws.onopen = () => {
         if (pendingReloadRef.current) {
@@ -41,6 +47,8 @@ export function useWsSync() {
             setVmcPose(msg.payload.nodeId as string, msg.payload.bones as Record<string, [number, number, number, number]>)
           } else if (msg.kind === 'vmc_blendshapes') {
             setVmcBlendshapes(msg.payload.nodeId as string, msg.payload.blendshapes as Record<string, number>)
+          } else if (msg.kind === 'pose_ik_targets') {
+            setIkTargets(msg.payload.nodeId as string, msg.payload as unknown as IkTargetFrame)
           } else if (msg.kind === 'node_updated') {
             const { id, ...updates } = msg.payload as { id: string } & Record<string, unknown>
             useEditorStore.getState().updateNode(id, updates)

@@ -12,6 +12,9 @@ import { VmcManager } from './node_components/vmc_receiver/manager.js';
 import { BreathingManager } from './node_components/breathing/manager.js';
 import { LipsyncManager } from './node_components/lipsync/manager.js';
 import { TrackingManager } from './node_components/mediapipe_tracker/manager.js';
+import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
+import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
+import { initIkBroadcast } from './signal/nodes/ik_broadcast.js';
 import type { LipsyncInputMessage, TrackingInputMessage } from '@vspark/shared';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -49,6 +52,9 @@ async function start() {
   await runMigrations();
 
   setWsSync(wsSync);
+  initPoseBroadcast(wsSync);
+  initBlendshapesBroadcast(wsSync);
+  initIkBroadcast(wsSync);
   initUpdateChecker(getInstallDir(), wsSync);
 
   const vmcManager = new VmcManager(wsSync);

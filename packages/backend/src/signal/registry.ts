@@ -20,14 +20,20 @@ import { Time }                      from './nodes/time.js'
 import { SineWave }                  from './nodes/sine_wave.js'
 import { EulerToQuaternion }         from './nodes/euler_to_quaternion.js'
 import { PoseApplyBone }             from './nodes/pose_apply_bone.js'
+import { PoseMerge }                 from './nodes/pose_merge.js'
 // Lipsync nodes
 import { LipsyncSource }             from './nodes/lipsync_source.js'
 import { VisemePassthrough }         from './nodes/viseme_passthrough.js'
 // MediaPipe tracking nodes
 import { MediapipeSource }              from './nodes/mediapipe_source.js'
 import { FaceLandmarksToBlendshapes }   from './nodes/face_landmarks_to_blendshapes.js'
-import { PoseLandmarksToBones }         from './nodes/pose_landmarks_to_bones.js'
+import { PoseTorsoHeadToBones }         from './nodes/pose_torso_head_to_bones.js'
+import { PoseArmsToBones }              from './nodes/pose_arms_to_bones.js'
 import { HandLandmarksToBones }         from './nodes/hand_landmarks_to_bones.js'
+import { PoseIkTargets }                from './nodes/pose_ik_targets.js'
+import { IkBroadcast }                  from './nodes/ik_broadcast.js'
+import { NotBool }                      from './nodes/not_bool.js'
+import { HandHeightCompare }            from './nodes/hand_height_compare.js'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -59,14 +65,21 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   SineWave,
   EulerToQuaternion,
   PoseApplyBone,
+  PoseMerge,
   // Lipsync nodes
   LipsyncSource,
   VisemePassthrough,
   // MediaPipe tracking nodes
   MediapipeSource,
   FaceLandmarksToBlendshapes,
-  PoseLandmarksToBones,
+  PoseTorsoHeadToBones,
+  PoseArmsToBones,
   HandLandmarksToBones,
+  PoseIkTargets,
+  IkBroadcast,
+  // Logic utilities
+  NotBool,
+  HandHeightCompare,
 ]
 
 export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> =

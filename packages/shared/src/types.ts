@@ -156,6 +156,36 @@ export interface AuditLog {
 }
 
 // WebSocket message types
+/** A single IK end-effector target. */
+export interface IkTarget {
+  /** VRM bone name being targeted (end-effector). */
+  bone: string
+  /** Bones to solve, ordered root→tip. Tip must equal `bone`. */
+  chain: string[]
+  /** Target position, relative to the frame's `referenceBone` world position. */
+  position?: [number, number, number]
+  /** Target orientation in world space (optional). */
+  orientation?: [number, number, number, number]
+  /** Landmark visibility confidence 0–1. */
+  confidence: number
+}
+
+/** A frame of IK targets broadcast per tracking update. */
+export interface IkTargetFrame {
+  nodeId: string
+  /** VRM bone whose world position is the coordinate origin for all target positions. */
+  referenceBone: string
+  /** Distance between the source skeleton's shoulders (e.g. tracked human), in the same units
+   *  as `targets[].position`. Used by consumers to scale the input frame to fit the target rig. */
+  sourceShoulderWidth?: number
+  /** Source skeleton's left shoulder position, expressed in the same reference frame as `targets[].position`
+   *  (i.e. relative to `referenceBone`). Lets consumers correct for shoulder-to-chest offsets that
+   *  differ between source and target rigs while keeping a single chest anchor. */
+  sourceLeftShoulder?:  [number, number, number]
+  sourceRightShoulder?: [number, number, number]
+  targets: IkTarget[]
+}
+
 export type WSMessageKind =
   | 'node_update'
   | 'node_add'
@@ -170,6 +200,7 @@ export type WSMessageKind =
   | 'lipsync_status'
   | 'tracking_input'
   | 'tracking_status'
+  | 'pose_ik_targets'
   | 'server_update';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';

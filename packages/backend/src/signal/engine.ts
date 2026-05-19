@@ -206,7 +206,7 @@ export class SignalGraph {
 
     let result: Record<string, unknown>
     try { result = srcNode.def.execute(inputs, this._getConfig(fromId), ctx) }
-    catch { return undefined }
+    catch (err) { console.error(`[SignalGraph pull] ${fromId} (${srcNode.kind}):`, err); return undefined }
 
     const val = result[fromPort]
     srcNode.lastOutputs.set(fromPort, val)

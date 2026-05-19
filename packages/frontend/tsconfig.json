@@ -18,6 +18,7 @@
     "forceConsistentCasingInFileNames": true,
     "paths": {
       "@vspark/shared": ["../shared/src/types.ts"],
+      "@vspark/shared/types": ["../shared/src/types.ts"],
       "@vspark/shared/schema": ["../shared/src/schema.ts"],
       "@vspark/shared/signal": ["../shared/src/signal.ts"],
       "@vspark/shared/arkit": ["../shared/src/arkit_tables.ts"]
