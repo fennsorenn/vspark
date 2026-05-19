@@ -33,7 +33,7 @@ packages/
 | Update routes | Implemented | `routes/update.ts`, `routes/config.ts` — GitHub Releases update check/download/apply, config.json channel preference |
 | SQLite persistence | Implemented | `db/` — `node-sqlite3-wasm` (WASM, no native addon); `WasmDb` adapter; `initDb()` async |
 | Signal graph engine | Implemented | `signal/engine.ts` — typed ports, value cache, cycle detection |
-| Signal node registry | Implemented | `signal/registry.ts` — 26 node kinds |
+| Signal node registry | Implemented | `signal/registry.ts` — 32 node kinds (incl. mediapipe converters + IK + utility) |
 | VMC receiver manager | Implemented | `node_components/vmc_receiver/` |
 | Breathing manager | Implemented | `node_components/breathing/` |
 | Lipsync manager | Implemented | `node_components/lipsync/` |
@@ -97,14 +97,34 @@ Browser mic → FFT analysis → useLipsyncUplink (30fps)
 
 ### MediaPipe tracking
 
+Browser-side camera capture runs in a Web Worker (`public/mediapipeWorker.js`, built from
+`src/media/mediapipeWorker.ts` via `scripts/build-mediapipe-worker.mjs`) at 320×240, 10 FPS.
+Landmarks are sent over WS and processed in a backend signal graph:
+
 ```
-Browser camera → MediaPipe Holistic → useTrackingUplink
+Browser camera (worker) → MediaPipe Holistic → useTrackingUplink
   → WS tracking_input
   → TrackingManager.fireLandmarks() → mediapipe_source
-  → face_landmarks_to_blendshapes → blendshapes_broadcast
-  → pose/hand_landmarks_to_bones → pose_broadcast
-  → WS vmc_pose / vmc_blendshapes → Frontend → VRM
+     ├── face   → face_landmarks_to_blendshapes ─┐
+     ├── pose   → pose_torso_head_to_bones ──────┤
+     ├── pose   → pose_arms_to_bones (quat arms) ┤
+     ├── hands  → hand_landmarks_to_bones (L/R) ─┤
+     │                                           ├── pose_merge
+     │                                           │     → head_calib (body_calibration: HEAD_CALIB_BONES)
+     │                                           │     → finger_calib (body_calibration: FINGER_CALIB_BONES, mirrorPairs)
+     │                                           │     → pose_broadcast → WS vmc_pose
+     │                                           └── blendshapes_broadcast → WS vmc_blendshapes
+     └── pose   → pose_ik_targets → ik_broadcast → WS ik_targets   (IK-arms branch)
+
+Arm mode toggle: useIk config → not_bool fan-out enables either pose_arms_to_bones
+                  or pose_ik_targets/ik_broadcast branch.
+Capture/reset:   component_trigger nodes wired via POST /api/signal/graphs/:id/fire
+                  (api.ts dispatches by graph-id prefix to VMC or TrackingManager).
 ```
+
+Frontend `Viewport.tsx` Step 2.5 runs an analytical two-bone IK solve
+(`_solveTwoBoneIk`) in parent space using rest-pose bone offsets, with
+source-to-avatar shoulder scaling and chest-relative target frame.
 
 ### Scene state mutations
 
@@ -125,6 +145,7 @@ REST write → SQLite → WS broadcast (node_added/updated/removed, camera_effec
 - [camera-effects.md](modules/camera-effects.md) — post-processing pipeline, all 18 effect kinds, config schemas
 - [animation.md](modules/animation.md) — FBX/BVH retargeting, VMC pose application, blendshape mapping, clip playback, all coordinate corrections
 - [nodes/particle.md](modules/nodes/particle.md) — GPU-instanced particle system, billboard node, shader, physics simulation, camera alignment
+- [mediapipe-tracker.md](modules/mediapipe-tracker.md) — MediaPipe tracking pipeline: worker, signal graph, IK arms, head/finger calibration, open work
 
 ## Key Files
 

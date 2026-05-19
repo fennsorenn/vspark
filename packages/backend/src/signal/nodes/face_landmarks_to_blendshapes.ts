@@ -1,5 +1,5 @@
-import { SignalNode, eventPort, valuePort, mkEvent, Blendshapes } from '@vspark/shared/signal'
-import type { InputsOf, OutputsOf, NodeExecutionContext, Event } from '@vspark/shared/signal'
+import { SignalNode, valuePort, Blendshapes } from '@vspark/shared/signal'
+import type { InputsOf, OutputsOf, NodeExecutionContext } from '@vspark/shared/signal'
 
 type Landmark = { x: number; y: number; z: number; visibility?: number }
 
@@ -112,22 +112,16 @@ function estimateBlendshapes(pts: Landmark[]): Blendshapes {
 })
 export class FaceLandmarksToBlendshapes {
   static readonly kind        = 'face_landmarks_to_blendshapes'
-  static readonly inputPorts  = [eventPort('face', 'LandmarkList')] as const
-  static readonly outputPorts = [
-    eventPort('out',        'Blendshapes'),
-    valuePort('blendshapes', 'Blendshapes'),
-  ] as const
+  static readonly inputPorts  = [valuePort('face', 'LandmarkList')] as const
+  static readonly outputPorts = [valuePort('blendshapes', 'Blendshapes')] as const
 
   static execute(
     inputs: InputsOf<typeof FaceLandmarksToBlendshapes>,
     _config: unknown,
-    ctx: NodeExecutionContext,
+    _ctx: NodeExecutionContext,
   ): OutputsOf<typeof FaceLandmarksToBlendshapes> {
-    const evt = inputs.face as Event<Landmark[]> | undefined
-    if (!evt?.payload) return {} as OutputsOf<typeof FaceLandmarksToBlendshapes>
-
-    const bs = estimateBlendshapes(evt.payload)
-    ctx.setState(bs)
-    return { out: mkEvent(bs, evt.timestamp), blendshapes: bs }
+    const pts = inputs.face as Landmark[] | undefined
+    if (!pts?.length) return {} as OutputsOf<typeof FaceLandmarksToBlendshapes>
+    return { blendshapes: estimateBlendshapes(pts) }
   }
 }

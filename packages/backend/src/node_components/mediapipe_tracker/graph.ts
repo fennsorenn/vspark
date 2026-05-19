@@ -1,55 +1,210 @@
 import type { GraphDescriptor } from '@vspark/shared/signal'
 
+// VRM bone names whose neutral-pose bias is captured by the head_calib node.
+// Limited to head/torso bones — arm and finger calibration would warrant separate nodes
+// since arm corrections are sensitive to the IK target frame, not raw quaternion bias.
+export const HEAD_CALIB_BONES = [
+  'hips', 'spine', 'chest', 'upperChest', 'neck', 'head', 'jaw', 'leftEye', 'rightEye',
+] as const
+
+// VRM bone names captured by the finger_calib node. Held separate from head calibration
+// because the user-facing capture ritual is different — fingers must be held in the avatar's
+// T-pose finger rest (straight, thumb relaxed-out), not a body-neutral pose.
+export const FINGER_CALIB_BONES = [
+  'leftThumbMetacarpal', 'leftThumbProximal', 'leftThumbDistal',
+  'leftIndexProximal', 'leftIndexIntermediate', 'leftIndexDistal',
+  'leftMiddleProximal', 'leftMiddleIntermediate', 'leftMiddleDistal',
+  'leftRingProximal', 'leftRingIntermediate', 'leftRingDistal',
+  'leftLittleProximal', 'leftLittleIntermediate', 'leftLittleDistal',
+  'rightThumbMetacarpal', 'rightThumbProximal', 'rightThumbDistal',
+  'rightIndexProximal', 'rightIndexIntermediate', 'rightIndexDistal',
+  'rightMiddleProximal', 'rightMiddleIntermediate', 'rightMiddleDistal',
+  'rightRingProximal', 'rightRingIntermediate', 'rightRingDistal',
+  'rightLittleProximal', 'rightLittleIntermediate', 'rightLittleDistal',
+] as const
+
+// Left/right pairs used for symmetric mirror-fill during finger calibration —
+// lets the user hold only one hand in rest while the other clicks the button.
+export const FINGER_MIRROR_PAIRS = [
+  ['leftThumbMetacarpal',     'rightThumbMetacarpal'],
+  ['leftThumbProximal',       'rightThumbProximal'],
+  ['leftThumbDistal',         'rightThumbDistal'],
+  ['leftIndexProximal',       'rightIndexProximal'],
+  ['leftIndexIntermediate',   'rightIndexIntermediate'],
+  ['leftIndexDistal',         'rightIndexDistal'],
+  ['leftMiddleProximal',      'rightMiddleProximal'],
+  ['leftMiddleIntermediate',  'rightMiddleIntermediate'],
+  ['leftMiddleDistal',        'rightMiddleDistal'],
+  ['leftRingProximal',        'rightRingProximal'],
+  ['leftRingIntermediate',    'rightRingIntermediate'],
+  ['leftRingDistal',          'rightRingDistal'],
+  ['leftLittleProximal',      'rightLittleProximal'],
+  ['leftLittleIntermediate',  'rightLittleIntermediate'],
+  ['leftLittleDistal',        'rightLittleDistal'],
+] as const
+
+// Pipeline shape (per-stream):
+//
+//   mp_source (event: face/pose/leftHand/rightHand)
+//     → unpack_* (UnpackEvent: splits event → trigger + stored value)
+//       trigger → broadcast nodes
+//       value (via pull) → converter node → pose_merge / bs_out
+//
+// Arm tracking has two modes — IK and quaternion — controlled by `useIk` in the component
+// config. The mode is read by a `component_config` node and wired through to each arm-related
+// node's `enabled` input. `useIk` defaults to false (quaternion arms).
+
+// Helper to keep the descriptor readable: a component_config node that reads one field.
+function cfgNode(id: string, field: string, defaultValue: unknown, position: { x: number; y: number }) {
+  return { id, kind: 'component_config', position, defaultConfig: { field, defaultValue } }
+}
+
 export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label:    'MediaPipe Tracker',
   readonly: true,
   nodes: [
     // ── Infrastructure ───────────────────────────────────────────────────────
-    { id: 'comp_id',      kind: 'component_id',    position: { x: -300, y: -80 } },
-    { id: 'scene_entity', kind: 'scene_entity',    position: { x:  960, y: -80 } },
-    // ── Config toggles ────────────────────────────────────────────────────────
-    { id: 'cfg_enable_face',  kind: 'component_config', position: { x: -300, y:  80 },
-      defaultConfig: { field: 'enableFace',  defaultValue: true } },
-    { id: 'cfg_enable_pose',  kind: 'component_config', position: { x: -300, y: 160 },
-      defaultConfig: { field: 'enablePose',  defaultValue: true } },
-    { id: 'cfg_enable_hands', kind: 'component_config', position: { x: -300, y: 240 },
-      defaultConfig: { field: 'enableHands', defaultValue: true } },
-    // ── Entry point (fired by TrackingManager) ───────────────────────────────
-    { id: 'mp_source',    kind: 'mediapipe_source',  position: { x: -60,  y:   0 } },
-    // ── Face pipeline ─────────────────────────────────────────────────────────
-    { id: 'face_to_bs',   kind: 'face_landmarks_to_blendshapes', position: { x: 260, y: -80 } },
-    { id: 'bs_out',       kind: 'blendshapes_broadcast',          position: { x: 620, y: -80 } },
-    // ── Pose pipeline ─────────────────────────────────────────────────────────
-    { id: 'pose_to_bones', kind: 'pose_landmarks_to_bones', position: { x: 260, y: 80  } },
-    { id: 'pose_out',      kind: 'pose_broadcast',           position: { x: 960, y: 80  } },
-    // ── Left hand pipeline ───────────────────────────────────────────────────
-    { id: 'left_hand',    kind: 'hand_landmarks_to_bones', position: { x: 260, y: 200 },
+    { id: 'scene_entity', kind: 'scene_entity', position: { x: 1400, y: 0 } },
+    // ── Entry point ──────────────────────────────────────────────────────────
+    { id: 'mp_source', kind: 'mediapipe_source', position: { x: -120, y: 0 } },
+
+    // ── Face stream ───────────────────────────────────────────────────────────
+    { id: 'unpack_face',  kind: 'unpack_event',                  position: { x: 120,  y: -160 } },
+    { id: 'face_to_bs',   kind: 'face_landmarks_to_blendshapes', position: { x: 360,  y: -160 } },
+    { id: 'bs_out',       kind: 'blendshapes_broadcast',         position: { x: 720,  y: -160 } },
+
+    // ── Pose stream ───────────────────────────────────────────────────────────
+    { id: 'unpack_pose',     kind: 'unpack_event',              position: { x: 120, y:   0 } },
+    { id: 'pose_torso_head', kind: 'pose_torso_head_to_bones',  position: { x: 360, y:   0 } },
+    // Quaternion-driven arms — used when IK is off
+    { id: 'pose_arms',       kind: 'pose_arms_to_bones',        position: { x: 360, y:  80 } },
+
+    // ── Left hand stream ──────────────────────────────────────────────────────
+    { id: 'unpack_lh', kind: 'unpack_event',           position: { x: 120, y: 200 } },
+    { id: 'left_hand', kind: 'hand_landmarks_to_bones', position: { x: 360, y: 200 },
       defaultConfig: { side: 'left' } },
-    { id: 'left_apply',   kind: 'pose_apply_bone',         position: { x: 620, y: 200 } },
-    // ── Right hand pipeline ──────────────────────────────────────────────────
-    { id: 'right_hand',   kind: 'hand_landmarks_to_bones', position: { x: 260, y: 320 },
+
+    // ── Right hand stream ─────────────────────────────────────────────────────
+    { id: 'unpack_rh',  kind: 'unpack_event',           position: { x: 120, y: 320 } },
+    { id: 'right_hand', kind: 'hand_landmarks_to_bones', position: { x: 360, y: 320 },
       defaultConfig: { side: 'right' } },
-    { id: 'right_apply',  kind: 'pose_apply_bone',         position: { x: 620, y: 320 } },
+
+    // ── Merge all pose streams ────────────────────────────────────────────────
+    { id: 'pose_merge', kind: 'pose_merge',    position: { x: 800, y: 160 } },
+    // ── Calibration: head/spine ──────────────────────────────────────────────
+    // Removes neutral-pose bias for head + torso bones via capture/reset triggers.
+    { id: 'head_calib',         kind: 'body_calibration',  position: { x: 1100, y: 160 } },
+    { id: 'head_calib_capture', kind: 'component_trigger', position: { x: 1100, y:  60 }, defaultConfig: { button: 'Capture head neutral' } },
+    { id: 'head_calib_reset',   kind: 'component_trigger', position: { x: 1260, y:  60 }, defaultConfig: { button: 'Reset head'           } },
+    // ── Calibration: fingers ────────────────────────────────────────────────
+    // Held separate from head — user holds one hand in the avatar's finger T-pose rest
+    // (straight fingers, thumb relaxed-out). The higher hand at capture time wins; the
+    // other side is mirrored from it.
+    { id: 'finger_calib',         kind: 'body_calibration',   position: { x: 1250, y: 160 } },
+    { id: 'finger_calib_capture', kind: 'component_trigger',  position: { x: 1100, y: 260 }, defaultConfig: { button: 'Capture finger neutral' } },
+    { id: 'finger_calib_reset',   kind: 'component_trigger',  position: { x: 1260, y: 260 }, defaultConfig: { button: 'Reset fingers'          } },
+    { id: 'hand_height',          kind: 'hand_height_compare', position: { x: 1000, y: 260 } },
+    { id: 'pose_out',             kind: 'pose_broadcast',    position: { x: 1400, y: 160 } },
+
+    // ── IK targets stream ─────────────────────────────────────────────────────
+    { id: 'ik_targets', kind: 'pose_ik_targets', position: { x: 800, y: 440 },
+      defaultConfig: { smoothing: 0.25, referenceBone: 'chest' } },
+    { id: 'ik_out',     kind: 'ik_broadcast',    position: { x: 1400, y: 440 } },
+
+    // ── Config: useIk flag + NOT for inverting it ────────────────────────────
+    cfgNode('cfg_useIk',   'useIk',   false, { x: -120, y: 440 }),
+    { id: 'not_useIk', kind: 'not_bool', position: { x: 120, y: 440 } },
+
+    // ── Config: per-axis IK calibration ──────────────────────────────────────
+    cfgNode('cfg_xScale',  'ikCalibration.xScale',  1,     { x: 520, y: 500 }),
+    cfgNode('cfg_yScale',  'ikCalibration.yScale',  1,     { x: 520, y: 540 }),
+    cfgNode('cfg_zScale',  'ikCalibration.zScale',  3,     { x: 520, y: 580 }),
+    cfgNode('cfg_xOffset', 'ikCalibration.xOffset', 0,     { x: 520, y: 620 }),
+    cfgNode('cfg_yOffset', 'ikCalibration.yOffset', 0,     { x: 520, y: 660 }),
+    cfgNode('cfg_zOffset', 'ikCalibration.zOffset', 0,     { x: 520, y: 700 }),
+    cfgNode('cfg_invertX', 'ikCalibration.invertX', false, { x: 520, y: 740 }),
+    cfgNode('cfg_invertY', 'ikCalibration.invertY', false, { x: 520, y: 780 }),
+    cfgNode('cfg_invertZ', 'ikCalibration.invertZ', false, { x: 520, y: 820 }),
+
+    // ── Config: head calibration ─────────────────────────────────────────────
+    cfgNode('cfg_head_pitchGain', 'headCalibration.pitchGain', 2.0,   { x: 160, y: 500 }),
+    cfgNode('cfg_head_yawGain',   'headCalibration.yawGain',   1.0,   { x: 160, y: 540 }),
+    cfgNode('cfg_head_rollGain',  'headCalibration.rollGain',  1.0,   { x: 160, y: 580 }),
+    cfgNode('cfg_head_restPitch', 'headCalibration.restPitch', -0.43, { x: 160, y: 620 }),
   ],
   edges: [
-    // ── Face → blendshapes ───────────────────────────────────────────────────
-    { fromNodeId: 'mp_source',    fromPort: 'face',        toNodeId: 'face_to_bs',    toPort: 'face'        },
-    { fromNodeId: 'face_to_bs',   fromPort: 'out',         toNodeId: 'bs_out',        toPort: 'trigger'     },
-    { fromNodeId: 'face_to_bs',   fromPort: 'blendshapes', toNodeId: 'bs_out',        toPort: 'blendshapes', kind: 'value' },
-    { fromNodeId: 'scene_entity', fromPort: 'nodeId',      toNodeId: 'bs_out',        toPort: 'nodeId',      kind: 'value' },
-    // ── Pose → bones ─────────────────────────────────────────────────────────
-    { fromNodeId: 'mp_source',    fromPort: 'pose',        toNodeId: 'pose_to_bones', toPort: 'pose'        },
-    { fromNodeId: 'pose_to_bones',fromPort: 'out',         toNodeId: 'pose_out',      toPort: 'trigger'     },
-    { fromNodeId: 'right_apply',  fromPort: 'pose',        toNodeId: 'pose_out',      toPort: 'pose',        kind: 'value' },
-    { fromNodeId: 'scene_entity', fromPort: 'nodeId',      toNodeId: 'pose_out',      toPort: 'nodeId',      kind: 'value' },
-    // ── Left hand → finger bones → merge into pose chain ────────────────────
-    { fromNodeId: 'mp_source',    fromPort: 'leftHand',    toNodeId: 'left_hand',     toPort: 'landmarks'   },
-    { fromNodeId: 'left_hand',    fromPort: 'pose',        toNodeId: 'left_apply',    toPort: 'pose',        kind: 'value' },
-    { fromNodeId: 'pose_to_bones',fromPort: 'pose',        toNodeId: 'left_apply',    toPort: 'pose',        kind: 'value' },
-    // ── Right hand → finger bones ────────────────────────────────────────────
-    { fromNodeId: 'mp_source',    fromPort: 'rightHand',   toNodeId: 'right_hand',    toPort: 'landmarks'   },
-    { fromNodeId: 'right_hand',   fromPort: 'pose',        toNodeId: 'right_apply',   toPort: 'pose',        kind: 'value' },
-    { fromNodeId: 'left_apply',   fromPort: 'pose',        toNodeId: 'right_apply',   toPort: 'pose',        kind: 'value' },
+    // ── mp_source → unpackers (event) ─────────────────────────────────────────
+    { fromNodeId: 'mp_source', fromPort: 'face',      toNodeId: 'unpack_face', toPort: 'event' },
+    { fromNodeId: 'mp_source', fromPort: 'pose',      toNodeId: 'unpack_pose', toPort: 'event' },
+    { fromNodeId: 'mp_source', fromPort: 'leftHand',  toNodeId: 'unpack_lh',   toPort: 'event' },
+    { fromNodeId: 'mp_source', fromPort: 'rightHand', toNodeId: 'unpack_rh',   toPort: 'event' },
+
+    // ── Face: trigger → bs_out; value pulled by face_to_bs ───────────────────
+    { fromNodeId: 'unpack_face',  fromPort: 'trigger',     toNodeId: 'bs_out',     toPort: 'trigger' },
+    { fromNodeId: 'unpack_face',  fromPort: 'value',       toNodeId: 'face_to_bs', toPort: 'face',        kind: 'value' },
+    { fromNodeId: 'face_to_bs',   fromPort: 'blendshapes', toNodeId: 'bs_out',     toPort: 'blendshapes', kind: 'value' },
+    { fromNodeId: 'scene_entity', fromPort: 'nodeId',      toNodeId: 'bs_out',     toPort: 'nodeId',      kind: 'value' },
+
+    // ── Pose: trigger → pose_out; value pulled by torso/head + arms ──────────
+    { fromNodeId: 'unpack_pose',   fromPort: 'trigger', toNodeId: 'pose_out',         toPort: 'trigger' },
+    { fromNodeId: 'unpack_pose',   fromPort: 'value',   toNodeId: 'pose_torso_head',  toPort: 'pose', kind: 'value' },
+    { fromNodeId: 'unpack_pose',   fromPort: 'value',   toNodeId: 'pose_arms',        toPort: 'pose', kind: 'value' },
+
+    // ── Hands: unpacked values pulled by converters ───────────────────────────
+    { fromNodeId: 'unpack_lh', fromPort: 'value', toNodeId: 'left_hand',  toPort: 'landmarks', kind: 'value' },
+    { fromNodeId: 'unpack_rh', fromPort: 'value', toNodeId: 'right_hand', toPort: 'landmarks', kind: 'value' },
+
+    // ── Merge: torso/head + arms (quat) + both hands → pose_merge ────────────
+    // pose_arms returns empty pose when disabled, so it's safe to wire unconditionally.
+    { fromNodeId: 'pose_torso_head', fromPort: 'pose', toNodeId: 'pose_merge', toPort: 'poses', kind: 'list' },
+    { fromNodeId: 'pose_arms',       fromPort: 'pose', toNodeId: 'pose_merge', toPort: 'poses', kind: 'list' },
+    { fromNodeId: 'left_hand',       fromPort: 'pose', toNodeId: 'pose_merge', toPort: 'poses', kind: 'list' },
+    { fromNodeId: 'right_hand',      fromPort: 'pose', toNodeId: 'pose_merge', toPort: 'poses', kind: 'list' },
+    { fromNodeId: 'pose_merge',      fromPort: 'pose',   toNodeId: 'head_calib',   toPort: 'pose', kind: 'value' },
+    { fromNodeId: 'head_calib',      fromPort: 'pose',   toNodeId: 'finger_calib', toPort: 'pose', kind: 'value' },
+    { fromNodeId: 'finger_calib',    fromPort: 'pose',   toNodeId: 'pose_out',     toPort: 'pose', kind: 'value' },
+    // Manual triggers → body_calibration capture/reset event ports.
+    { fromNodeId: 'head_calib_capture',   fromPort: 'trigger', toNodeId: 'head_calib',   toPort: 'capture' },
+    { fromNodeId: 'head_calib_reset',     fromPort: 'trigger', toNodeId: 'head_calib',   toPort: 'reset' },
+    { fromNodeId: 'finger_calib_capture', fromPort: 'trigger', toNodeId: 'finger_calib', toPort: 'capture' },
+    { fromNodeId: 'finger_calib_reset',   fromPort: 'trigger', toNodeId: 'finger_calib', toPort: 'reset' },
+    // Hand-height comparator feeds the mirror-source decision: higher hand wins.
+    { fromNodeId: 'unpack_pose', fromPort: 'value', toNodeId: 'hand_height',   toPort: 'pose', kind: 'value' },
+    { fromNodeId: 'hand_height', fromPort: 'side',  toNodeId: 'finger_calib',  toPort: 'mirrorSource', kind: 'value' },
+    { fromNodeId: 'scene_entity',    fromPort: 'nodeId', toNodeId: 'pose_out',     toPort: 'nodeId', kind: 'value' },
+
+    // ── IK targets: triggered by pose; pulls pose + hand landmark lists ───────
+    { fromNodeId: 'unpack_pose',   fromPort: 'trigger', toNodeId: 'ik_out',     toPort: 'trigger' },
+    { fromNodeId: 'unpack_pose',   fromPort: 'value',   toNodeId: 'ik_targets', toPort: 'pose',      kind: 'value' },
+    { fromNodeId: 'unpack_lh',     fromPort: 'value',   toNodeId: 'ik_targets', toPort: 'leftHand',  kind: 'value' },
+    { fromNodeId: 'unpack_rh',     fromPort: 'value',   toNodeId: 'ik_targets', toPort: 'rightHand', kind: 'value' },
+    { fromNodeId: 'ik_targets',    fromPort: 'targets', toNodeId: 'ik_out',     toPort: 'targets',   kind: 'value' },
+    { fromNodeId: 'scene_entity',  fromPort: 'nodeId',  toNodeId: 'ik_out',     toPort: 'nodeId',    kind: 'value' },
+
+    // ── Enable gates ──────────────────────────────────────────────────────────
+    // useIk → ik_targets.enabled, ik_out.enabled
+    { fromNodeId: 'cfg_useIk', fromPort: 'value', toNodeId: 'ik_targets', toPort: 'enabled', kind: 'value' },
+    { fromNodeId: 'cfg_useIk', fromPort: 'value', toNodeId: 'ik_out',     toPort: 'enabled', kind: 'value' },
+    // useIk → NOT → pose_arms.enabled (arms-by-quat is the inverse)
+    { fromNodeId: 'cfg_useIk', fromPort: 'value',  toNodeId: 'not_useIk',  toPort: 'value',   kind: 'value' },
+    { fromNodeId: 'not_useIk', fromPort: 'result', toNodeId: 'pose_arms',  toPort: 'enabled', kind: 'value' },
+
+    // ── IK calibration: config nodes → ik_targets value ports ────────────────
+    { fromNodeId: 'cfg_xScale',  fromPort: 'value', toNodeId: 'ik_targets', toPort: 'xScale',  kind: 'value' },
+    { fromNodeId: 'cfg_yScale',  fromPort: 'value', toNodeId: 'ik_targets', toPort: 'yScale',  kind: 'value' },
+    { fromNodeId: 'cfg_zScale',  fromPort: 'value', toNodeId: 'ik_targets', toPort: 'zScale',  kind: 'value' },
+    { fromNodeId: 'cfg_xOffset', fromPort: 'value', toNodeId: 'ik_targets', toPort: 'xOffset', kind: 'value' },
+    { fromNodeId: 'cfg_yOffset', fromPort: 'value', toNodeId: 'ik_targets', toPort: 'yOffset', kind: 'value' },
+    { fromNodeId: 'cfg_zOffset', fromPort: 'value', toNodeId: 'ik_targets', toPort: 'zOffset', kind: 'value' },
+    { fromNodeId: 'cfg_invertX', fromPort: 'value', toNodeId: 'ik_targets', toPort: 'invertX', kind: 'value' },
+    { fromNodeId: 'cfg_invertY', fromPort: 'value', toNodeId: 'ik_targets', toPort: 'invertY', kind: 'value' },
+    { fromNodeId: 'cfg_invertZ', fromPort: 'value', toNodeId: 'ik_targets', toPort: 'invertZ', kind: 'value' },
+
+    // ── Head calibration: config nodes → pose_torso_head value ports ─────────
+    { fromNodeId: 'cfg_head_pitchGain', fromPort: 'value', toNodeId: 'pose_torso_head', toPort: 'pitchGain', kind: 'value' },
+    { fromNodeId: 'cfg_head_yawGain',   fromPort: 'value', toNodeId: 'pose_torso_head', toPort: 'yawGain',   kind: 'value' },
+    { fromNodeId: 'cfg_head_rollGain',  fromPort: 'value', toNodeId: 'pose_torso_head', toPort: 'rollGain',  kind: 'value' },
+    { fromNodeId: 'cfg_head_restPitch', fromPort: 'value', toNodeId: 'pose_torso_head', toPort: 'restPitch', kind: 'value' },
   ],
 }
 

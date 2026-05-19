@@ -274,6 +274,8 @@ export interface SignalTypeMap {
   Any:              unknown
   /** Raw MediaPipe landmark array (face=478, hand=21, pose=33 points). */
   LandmarkList:     Array<{ x: number; y: number; z: number; visibility?: number }>
+  /** IK end-effector targets for a single frame, ready for frontend solve. */
+  IkTargets:        import('./types.js').IkTargetFrame
 }
 
 export type SignalTypeName = keyof SignalTypeMap
@@ -390,6 +392,7 @@ MappingTable:      '#a07050',
   InterceptorFrame:  '#9a5a8a',
   Quaternion:        '#5a9a7a',
   LandmarkList:      '#7a9a6a',
+  IkTargets:         '#a06a9a',
   Any:               '#888888',
 }
 
@@ -512,7 +515,8 @@ export function portsCompatible(
   // A value output can feed into a list input (many-to-one fan-in).
   const effectiveFromKind = from.fromKind === 'value' && to.toKind === 'list' ? 'list' : from.fromKind
   if (effectiveFromKind !== to.toKind) return false
-  // ComponentConfig is a raw escape-hatch type — compatible with any value/list port.
-  if (from.fromType === 'ComponentConfig') return true
+  // ComponentConfig and Any are wildcard types — compatible with any value/list port.
+  if (from.fromType === 'ComponentConfig' || from.fromType === 'Any') return true
+  if (to.toType === 'Any') return true
   return from.fromType === to.toType
 }

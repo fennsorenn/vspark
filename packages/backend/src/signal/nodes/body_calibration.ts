@@ -18,6 +18,13 @@ export interface BodyCalibConfig {
    * When absent, all bones are captured and corrected.
    */
   boneFilter?: readonly string[]
+  /**
+   * Optional pairs of [leftBone, rightBone] for symmetric body parts. On capture, if only
+   * one side has a valid quaternion (e.g. the user could only present one hand because the
+   * other was needed to click the button), the missing side is filled with the X-axis-mirrored
+   * quaternion from the captured side. Both sides captured → both kept as-is.
+   */
+  mirrorPairs?: readonly (readonly [string, string])[]
 }
 
 /**
@@ -41,9 +48,10 @@ export interface BodyCalibConfig {
 export class BodyCalibration {
   static readonly kind        = 'body_calibration'
   static readonly inputPorts  = [
-    valuePort('pose',    'NormalizedPose'),
-    eventPort('capture', 'Trigger'),
-    eventPort('reset',   'Trigger'),
+    valuePort('pose',         'NormalizedPose'),
+    valuePort('mirrorSource', 'String'),
+    eventPort('capture',      'Trigger'),
+    eventPort('reset',        'Trigger'),
   ] as const
   static readonly outputPorts = [valuePort('pose', 'NormalizedPose')] as const
 
@@ -64,6 +72,43 @@ export class BodyCalibration {
         if (filter && !filter.has(bone as string)) continue
         if (!q.isValid) continue
         bodyOffsets[bone as string] = q.toArray()
+      }
+      // Symmetric fill across left/right pairs. X-axis mirror for unit quaternions:
+      // (x, y, z, w) → (x, -y, -z, w).
+      //
+      // mirrorSource = 'left' or 'right'  → that side wins; the other is always written from it
+      //                                     (even if the other was also captured — useful when only
+      //                                     one hand is in a known-good pose and the other isn't).
+      // mirrorSource = anything else      → fallback: only fill side that wasn't captured.
+      if (config.mirrorPairs) {
+        const src = inputs.mirrorSource as 'left' | 'right' | null | undefined
+        let mirrored = 0
+        for (const [a, b] of config.mirrorPairs) {
+          // Convention in mirrorPairs: first is the left bone, second is the right.
+          const leftName  = a
+          const rightName = b
+          const hasL = leftName  in bodyOffsets
+          const hasR = rightName in bodyOffsets
+
+          if (src === 'left' && hasL) {
+            const [x, y, z, w] = bodyOffsets[leftName]
+            bodyOffsets[rightName] = [x, -y, -z, w]
+            mirrored++
+          } else if (src === 'right' && hasR) {
+            const [x, y, z, w] = bodyOffsets[rightName]
+            bodyOffsets[leftName] = [x, -y, -z, w]
+            mirrored++
+          } else if (hasL && !hasR) {
+            const [x, y, z, w] = bodyOffsets[leftName]
+            bodyOffsets[rightName] = [x, -y, -z, w]
+            mirrored++
+          } else if (hasR && !hasL) {
+            const [x, y, z, w] = bodyOffsets[rightName]
+            bodyOffsets[leftName] = [x, -y, -z, w]
+            mirrored++
+          }
+        }
+        if (mirrored > 0) console.log(`[BodyCalibration] Mirrored ${mirrored} offsets (source=${src ?? 'auto'})`)
       }
       ctx.setState({ bodyOffsets })
       console.log(`[BodyCalibration] Captured ${Object.keys(bodyOffsets).length} bone offsets`)

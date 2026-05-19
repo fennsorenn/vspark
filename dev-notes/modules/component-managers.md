@@ -83,20 +83,26 @@ lipsync_source → unpack_event → viseme_passthrough → blendshapes_broadcast
 ## TrackingManager — `mediapipe_tracker/manager.ts`
 
 Processes MediaPipe landmark data streamed from the browser (face, hands, body pose).
+See [mediapipe-tracker.md](mediapipe-tracker.md) for full pipeline detail; this section
+covers only the manager-level lifecycle pattern.
 
-**Input**: `tracking_input` WebSocket message with `{face?, leftHand?, rightHand?, pose?}` Landmark arrays  
-**Output**: `vmc_pose` and `vmc_blendshapes` WebSocket broadcasts
+**Input**: `tracking_input` WebSocket message with `{face?, leftHand?, rightHand?, pose?}` Landmark arrays
+**Output**: `vmc_pose`, `vmc_blendshapes`, and `ik_targets` WebSocket broadcasts
 
-**Entry point**: `fireLandmarks(componentId, frame)` — fires separate events per landmark stream.
+**Entry point**: `fireLandmarks(componentId, frame)` — fires separate events per landmark stream
+into `mediapipe_source`.
 
-**Graph descriptor**: `makeMediapipeGraphDescriptor(componentId)` wires:
-```
-mediapipe_source → face_landmarks_to_blendshapes → blendshapes_broadcast
-                → pose_landmarks_to_bones → pose_apply_bone (hands merged) → pose_broadcast
-                → hand_landmarks_to_bones (left, right) ↗
-```
+**Graph descriptor**: `makeMediapipeGraphDescriptor(componentId)` in
+`node_components/mediapipe_tracker/graph.ts`. See module doc for the full node/edge layout.
 
-Config toggles: `enableFace`, `enablePose`, `enableHands`.
+**Manual triggers**: `fireGraphEvent(componentId, nodeId, port)` — used by the head/finger/IK
+capture+reset buttons in `PropertiesPanel.tsx`, dispatched by `POST /api/signal/graphs/:id/fire`.
+`routes/api.ts` routes by graph-id prefix (VMC vs tracking).
+
+**Config**: `useIk` (arm mode toggle), `enableFace`, `enablePose`, `enableHands`, plus head and
+IK calibration knobs (see PropertiesPanel `MediapipeTrackerProps`). All knobs are surfaced
+through `component_config` nodes wired into converter value ports — no `nodeConfig[nodeId]`
+side-channel.
 
 ---
 
