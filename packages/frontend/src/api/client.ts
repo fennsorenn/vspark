@@ -47,9 +47,17 @@ function mapNode(r: Record<string, unknown>, sceneId?: string): NodeRecord {
 }
 
 function mapScene(r: Record<string, unknown>): SceneItem {
+  const raw = (r.runtime_settings ?? r.runtimeSettings ?? '{}') as string | Record<string, unknown>
+  let runtimeSettings: SceneRuntimeSettings = {}
+  if (typeof raw === 'string') {
+    try { runtimeSettings = JSON.parse(raw || '{}') as SceneRuntimeSettings } catch { /* keep default */ }
+  } else {
+    runtimeSettings = raw as SceneRuntimeSettings
+  }
   return {
     id: r.id as string,
     name: r.name as string,
+    runtimeSettings,
   }
 }
 
@@ -90,9 +98,15 @@ export interface Project {
   updatedAt: string
 }
 
+export interface SceneRuntimeSettings {
+  /** Broadcast Bus tick rate in Hz. Defaults to 60 when undefined. */
+  broadcastTickHz?: number
+}
+
 export interface SceneItem {
   id: string
   name: string
+  runtimeSettings: SceneRuntimeSettings
 }
 
 export interface NodeRecord {
@@ -188,6 +202,15 @@ export const createScene = (projectId: string, name: string) =>
     method: 'POST',
     body: JSON.stringify({ name }),
   }).then(mapScene)
+
+export const updateScene = (
+  sceneId: string,
+  patch:   { name?: string; runtimeSettings?: SceneRuntimeSettings },
+) =>
+  request<Record<string, unknown>>(`/scenes/${sceneId}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  })
 
 // Nodes
 export const getNodes = (sceneId: string) =>

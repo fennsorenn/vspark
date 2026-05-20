@@ -12,13 +12,23 @@ export const sceneNodeSchema = z.object({
   updatedAt: z.string(),
 });
 
+export const sceneRuntimeSettingsSchema = z.object({
+  broadcastTickHz: z.number().min(1).max(240).optional(),
+});
+
 export const sceneSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   name: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  runtimeSettings: sceneRuntimeSettingsSchema,
   nodes: z.array(sceneNodeSchema),
+});
+
+export const updateSceneSchema = z.object({
+  name: z.string().min(1).optional(),
+  runtimeSettings: sceneRuntimeSettingsSchema.optional(),
 });
 
 export const projectSchema = z.object({
@@ -62,5 +72,7 @@ export type SceneInput = z.infer<typeof sceneSchema>;
 export type ProjectInput = z.infer<typeof projectSchema>;
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export type UpdateSceneNodeInput = z.infer<typeof updateSceneNodeSchema>;
+export type UpdateSceneInput = z.infer<typeof updateSceneSchema>;
+export type SceneRuntimeSettingsInput = z.infer<typeof sceneRuntimeSettingsSchema>;
 export type PresenceStateInput = z.infer<typeof presenceStateSchema>;
 export type AnimationStateInput = z.infer<typeof animationStateSchema>;

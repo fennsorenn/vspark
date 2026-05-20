@@ -618,6 +618,7 @@ export function SceneGraph() {
     boneListExpanded, setBoneListExpanded,
     previewEffectsCamera, setPreviewEffectsCamera,
     toggleNodeHidden,
+    sceneSelected, setSceneSelected,
   } = useEditorStore()
 
   const [dockTab, setDockTab] = useState<'scene' | 'graphs'>('scene')
@@ -626,7 +627,6 @@ export function SceneGraph() {
   const [collapsedBones, setCollapsedBones] = useState<Set<string>>(new Set()) // key: `${nodeId}:${boneName}`
   const [expandedComponents, setExpandedComponents] = useState<Set<string>>(new Set())
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null)
-  const [sceneSelected, setSceneSelected] = useState(false)
   const [dragNodeId, setDragNodeId] = useState<string | null>(null)
   const [dragOverBone, setDragOverBone] = useState<{ nodeId: string; bone: string } | null>(null)
   const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null)
@@ -1083,7 +1083,7 @@ export function SceneGraph() {
                 borderBottom: '1px solid #1e1e1e',
                 marginBottom: 4,
               }}
-              onClick={() => { setSceneSelected((v) => !v); selectNode(null) }}
+              onClick={() => { setSceneSelected(!sceneSelected); selectNode(null) }}
             >
               <span style={{ fontSize: 14 }}>🎬</span>
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>

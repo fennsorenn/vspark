@@ -1,7 +1,7 @@
 import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal'
 import type { InputsOf, OutputsOf, NodeExecutionContext, NormalizedPose, InterceptorFrame } from '@vspark/shared/signal'
 import { poseInterceptorRegistry } from '../pose_interceptor_registry.js'
-import { broadcastPose } from './pose_broadcast.js'
+import { broadcastBus } from '../../broadcast/bus.js'
 
 @SignalNode({
   label:       'Pose Interceptor Broadcast',
@@ -26,7 +26,9 @@ export class PoseInterceptorBroadcast {
     const frame = inputs.frame as InterceptorFrame | undefined
     const pose  = inputs.pose  as NormalizedPose  | undefined
     if (!frame || !pose) return {}
-    poseInterceptorRegistry.advance(frame.nodeId, frame.priority, pose, broadcastPose)
+    poseInterceptorRegistry.advance(frame.nodeId, frame.priority, pose, (nodeId, finalPose) => {
+      broadcastBus.emitMergedPose(nodeId, finalPose)
+    })
     return {}
   }
 }

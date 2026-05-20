@@ -40,12 +40,22 @@ export interface SceneNode {
   updatedAt: string;
 }
 
+/** Per-scene runtime parameters that live in the `scenes.runtime_settings` JSON column. */
+export interface SceneRuntimeSettings {
+  /** Broadcast Bus tick rate in Hz. Defaults to 60. */
+  broadcastTickHz?: number;
+}
+
+/** How the frontend should composite a broadcast pose against the active animation clip. */
+export type AnimationBlendMode = 'override' | 'additive';
+
 export interface Scene {
   id: string;
   projectId: string;
   name: string;
   createdAt: string;
   updatedAt: string;
+  runtimeSettings: SceneRuntimeSettings;
   nodes: SceneNode[];
 }
 
