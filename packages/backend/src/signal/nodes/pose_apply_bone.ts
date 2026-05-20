@@ -24,12 +24,14 @@ export class PoseApplyBone {
     _config: unknown,
     _ctx:    NodeExecutionContext,
   ): OutputsOf<typeof PoseApplyBone> {
-    const pose       = inputs.pose       as NormalizedPose | undefined
     const quaternion = inputs.quaternion as Quaternion     | undefined
     const bone       = (inputs.bone as string | undefined ?? '') as VRMBoneName
     const mode       = (inputs.mode as string | undefined ?? 'multiply')
+    // When upstream pose is absent (e.g. this node is a slot producer building a delta-only
+    // pose from identity), start from an empty pose rather than bailing out.
+    const pose       = (inputs.pose as NormalizedPose | undefined) ?? new NormalizedPose()
 
-    if (!pose || !quaternion || !bone) return { pose: pose ?? new NormalizedPose() }
+    if (!quaternion || !bone) return { pose }
 
     const existing = pose.get(bone) ?? Quaternion.IDENTITY
     const applied  = mode === 'set' ? quaternion : existing.multiply(quaternion)

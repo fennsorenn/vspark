@@ -16,9 +16,14 @@ export interface NodeRecord {
   hidden?: boolean
 }
 
+export interface SceneRuntimeSettings {
+  broadcastTickHz?: number
+}
+
 export interface SceneItem {
   id: string
   name: string
+  runtimeSettings: SceneRuntimeSettings
 }
 
 export interface NodeComponent {
@@ -195,6 +200,7 @@ interface EditorState {
   activeSceneId: string | null
   nodes: NodeRecord[]
   selectedNodeId: string | null
+  sceneSelected: boolean
   selectedComponentId: string | null
   assets: AssetFile[]
   nodeComponents: NodeComponent[]
@@ -216,7 +222,9 @@ interface EditorState {
   // Actions
   setProject: (id: string, name: string) => void
   setScenes: (scenes: SceneItem[]) => void
+  updateSceneItem: (sceneId: string, updates: Partial<Omit<SceneItem, 'id'>>) => void
   setActiveScene: (id: string | null) => void
+  setSceneSelected: (selected: boolean) => void
   setNodes: (nodes: NodeRecord[]) => void
   addNode: (node: NodeRecord) => void
   updateNode: (id: string, updates: Partial<NodeRecord>) => void
@@ -271,6 +279,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeSceneId: null,
   nodes: [],
   selectedNodeId: null,
+  sceneSelected: false,
   selectedComponentId: null,
   assets: [],
   nodeComponents: [],
@@ -292,7 +301,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
   setScenes: (scenes) => set({ scenes }),
+  updateSceneItem: (sceneId, updates) =>
+    set((s) => ({ scenes: s.scenes.map((sc) => (sc.id === sceneId ? { ...sc, ...updates } : sc)) })),
   setActiveScene: (id) => set({ activeSceneId: id }),
+  setSceneSelected: (selected) => set({ sceneSelected: selected }),
   setNodes: (nodes) => set({ nodes }),
   addNode: (node) => set((s) => ({ nodes: [...s.nodes, node] })),
   updateNode: (id, updates) =>
@@ -309,7 +321,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         nodeComponents: s.nodeComponents.filter((c) => c.nodeId !== id),
       }
     }),
-  selectNode: (id) => set({ selectedNodeId: id, selectedComponentId: null, selectedEffect: null }),
+  selectNode: (id) => set((s) => ({
+    selectedNodeId: id,
+    // Only clear the scene selection when actually selecting a node, not when clearing.
+    sceneSelected: id != null ? false : s.sceneSelected,
+    selectedComponentId: null,
+    selectedEffect: null,
+  })),
   selectComponent: (id) => set({ selectedComponentId: id, selectedEffect: null }),
   setAssets: (assets) => set({ assets }),
   addAsset: (asset) => set((s) => ({ assets: [...s.assets, asset] })),

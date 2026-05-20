@@ -20,7 +20,7 @@ import { useEditorStore } from '../../store/editorStore'
 import type { NodeRecord, NodeComponent } from '../../store/editorStore'
 
 import { animRegistry } from '../../animRegistry'
-import { getVmcPose, getVmcPoseTime, getVmcBlendshapes } from '../../vmcPoseStore'
+import { getVmcPose, getVmcPoseTime, getVmcPoseBlendMode, getVmcBlendshapes } from '../../vmcPoseStore'
 import { getIkTargets, getIkTargetsTime } from '../../ikTargetStore'
 import { vrmRegistry } from '../../vrmRegistry'
 import { applyArmCalib, upperArmNormRotFromTarget, DEFAULT_CALIBRATION } from '../../calibration'
@@ -1192,7 +1192,17 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
     const lastPoseTime  = vc ? getVmcPoseTime(node.id) : null
     const pose          = vc ? getVmcPose(node.id) : null
     const trackingLost  = vc ? useEditorStore.getState().vmcTracking[vc.id] === false : false
-    const poseActive    = !trackingLost && pose != null && lastPoseTime != null && (Date.now() - lastPoseTime) < poseTimeoutMs
+    const poseBlendMode = vc ? getVmcPoseBlendMode(node.id) : 'override'
+    // In additive mode the merged broadcast pose is meant to let the animation
+    // clip show through (e.g. on tracking loss the bus publishes identity-ish
+    // values with mode=additive). We treat this as "broadcast contributes
+    // nothing on top of the animation" — the simplest interpretation that
+    // matches the "animation shows through again" intent.
+    const poseActive    = poseBlendMode === 'override'
+                          && !trackingLost
+                          && pose != null
+                          && lastPoseTime != null
+                          && (Date.now() - lastPoseTime) < poseTimeoutMs
 
     // Transition detection: reset filters when VMC goes inactive.
     if (!poseActive && poseWasActiveRef.current) {

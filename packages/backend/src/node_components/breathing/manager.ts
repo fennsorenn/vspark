@@ -1,7 +1,8 @@
 import { SignalGraph } from '../../signal/engine.js'
 import { NODE_REGISTRY } from '../../signal/registry.js'
-import { OnPoseBroadcast } from '../../signal/nodes/on_pose_broadcast.js'
+import { Clock } from '../../signal/nodes/clock.js'
 import { makeBreathingGraphDescriptor } from './graph.js'
+import { broadcastBus } from '../../broadcast/bus.js'
 import type { GraphDescriptor } from '@vspark/shared/signal'
 import { getDb } from '../../db/index.js'
 import { ComponentKind } from '../decorator.js'
@@ -41,16 +42,18 @@ export class BreathingManager {
     )
 
     const fns: Array<() => void> = []
-    const sceneNodeId = this.componentNodeIds.get(componentId) ?? ''
 
+    // Attach clock nodes so they fire on their own timer (tick-driven, independent of tracking).
     for (const nodeDef of descriptor.nodes) {
-      if (nodeDef.kind === 'on_pose_broadcast') {
-        const priority = (nodeDef.defaultConfig?.priority as number | undefined) ?? 1
-        fns.push(OnPoseBroadcast.register(
-          sceneNodeId,
+      if (nodeDef.kind === 'clock') {
+        const defaultHz = (nodeDef.defaultConfig?.hz as number | undefined) ?? 30
+        fns.push(Clock.attach(
           nodeDef.id,
-          priority,
-          (gId, state) => graph.setNodeState(gId, state),
+          defaultHz,
+          (gId) => {
+            const state = this.nodeStates.get(componentId)?.get(gId) as { hz?: number } | undefined
+            return state?.hz ?? defaultHz
+          },
           (gId, port, value) => graph.fire(gId, port, value),
         ))
       }
@@ -65,6 +68,7 @@ export class BreathingManager {
     const nodeId_  = this.componentNodeIds.get(componentId) ?? ''
 
     if (nodeId === 'scene_entity') return { nodeId: nodeId_ }
+    if (nodeId === 'comp_id')      return { componentId }
 
     const descriptor = this.descriptors.get(componentId)
     const nodeDef    = descriptor?.nodes.find(n => n.id === nodeId)
@@ -100,6 +104,7 @@ export class BreathingManager {
     for (const fn of this.cleanups.get(componentId) ?? []) fn()
     this.cleanups.delete(componentId)
     this.graphs.delete(componentId)
+    broadcastBus.removeComponent(componentId)
     console.log(`[Breathing] Stopped component ${componentId}`)
   }
 

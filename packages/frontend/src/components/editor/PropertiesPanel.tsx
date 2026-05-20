@@ -4,7 +4,7 @@ import { getBuiltinParticleTextures } from '../../particleTextures'
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit'
 import { useParams } from 'react-router-dom'
 import { useEditorStore } from '../../store/editorStore'
-import { api, fireSignalEvent } from '../../api/client'
+import { api, fireSignalEvent, updateScene } from '../../api/client'
 import type { NodeRecord, NodeComponent } from '../../store/editorStore'
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore'
 import type { AssetFile } from '../../api/client'
@@ -1318,13 +1318,79 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
   )
 }
 
+// ---------- Scene settings ----------
+
+function SceneSettings({
+  sceneId, sceneName, broadcastTickHz, onChange,
+}: {
+  sceneId:          string
+  sceneName:        string
+  broadcastTickHz:  number
+  onChange:         (hz: number) => void
+}) {
+  const [local, setLocal] = useState<string>(String(broadcastTickHz))
+  useEffect(() => { setLocal(String(broadcastTickHz)) }, [sceneId, broadcastTickHz])
+
+  const commit = () => {
+    const parsed = Number.parseFloat(local)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setLocal(String(broadcastTickHz))
+      return
+    }
+    const clamped = Math.max(1, Math.min(240, Math.round(parsed)))
+    setLocal(String(clamped))
+    if (clamped !== broadcastTickHz) onChange(clamped)
+  }
+
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <span style={{ fontSize: 18 }}>🎬</span>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>Scene Settings</div>
+          <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{sceneName}</div>
+        </div>
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>Broadcast Tick Rate (Hz)</div>
+        <input
+          type="number"
+          min={1}
+          max={240}
+          step={1}
+          value={local}
+          onChange={(e) => setLocal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur() }}
+          style={{
+            width: '100%',
+            background: '#1c1c1c',
+            border: '1px solid #2a2a2a',
+            borderRadius: 3,
+            padding: '6px 8px',
+            color: '#e0e0e0',
+            fontSize: 12,
+            fontFamily: 'inherit',
+          }}
+        />
+        <div style={{ fontSize: 10, color: '#555', marginTop: 4, lineHeight: 1.4 }}>
+          How often the server merges pose + blendshape sources and broadcasts a frame.
+          Default 60. Lower values reduce bandwidth at the cost of smoothness.
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ---------- Main panel ----------
 
 export function PropertiesPanel() {
   const { projectId } = useParams<{ projectId: string }>()
   const { nodes, selectedNodeId, updateNode: storeUpdateNode, assets, selectedComponentId, nodeComponents,
     fbxDebugVisible, setFbxDebugVisible, vrmExpressionsByNode, vrmMorphTargetsByNode, componentKinds,
-    cameraEffects, selectedEffect } = useEditorStore()
+    cameraEffects, selectedEffect,
+    scenes, activeSceneId, sceneSelected, updateSceneItem } = useEditorStore()
+  const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation')
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null
   const selectedComp = nodeComponents.find((c) => c.id === selectedComponentId) ?? null
@@ -1414,6 +1480,23 @@ export function PropertiesPanel() {
         </div>
         <EffectPanel effectId={selectedEffectRecord.id} kind={selectedEffect.kind} />
       </>
+    )
+  }
+
+  if (sceneSelected && activeScene) {
+    return panelShell(
+      <SceneSettings
+        sceneId={activeScene.id}
+        sceneName={activeScene.name}
+        broadcastTickHz={activeScene.runtimeSettings.broadcastTickHz ?? 60}
+        onChange={(hz) => {
+          // Optimistic store update so the input stays responsive.
+          updateSceneItem(activeScene.id, {
+            runtimeSettings: { ...activeScene.runtimeSettings, broadcastTickHz: hz },
+          })
+          void updateScene(activeScene.id, { runtimeSettings: { broadcastTickHz: hz } })
+        }}
+      />
     )
   }
 

@@ -44,7 +44,7 @@ export function TopBar() {
     if (!name?.trim()) return
     try {
       const scene = await api.createScene(projectId, name.trim())
-      const updated = [...scenes, { id: scene.id, name: scene.name }]
+      const updated = [...scenes, { id: scene.id, name: scene.name, runtimeSettings: scene.runtimeSettings }]
       setScenes(updated)
       setActiveScene(scene.id)
       setNodes([])

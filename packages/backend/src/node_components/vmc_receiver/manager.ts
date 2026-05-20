@@ -8,6 +8,7 @@ import { NODE_REGISTRY } from '../../signal/registry.js';
 import { initPoseBroadcast } from '../../signal/nodes/pose_broadcast.js';
 import { initBlendshapesBroadcast } from '../../signal/nodes/blendshapes_broadcast.js';
 import { OnPoseBroadcast } from '../../signal/nodes/on_pose_broadcast.js';
+import { broadcastBus } from '../../broadcast/bus.js';
 import { makeVmcGraphDescriptor, HEAD_CALIB_BONES } from './graph.js';
 import { loadVrmSkeleton } from '../../vrm/skeleton.js';
 import type { VrmSkeletonData } from '../../vrm/skeleton.js';
@@ -340,6 +341,7 @@ export class VmcManager {
     this.graphs.delete(componentId);
     for (const cleanup of this.interceptorCleanups.get(componentId) ?? []) cleanup();
     this.interceptorCleanups.delete(componentId);
+    broadcastBus.removeComponent(componentId);
     if (info.connected) this.ws.broadcast('vmc_status', { componentId, connected: false });
     console.log(`[VMC] Receiver stopped (component ${componentId})`);
   }

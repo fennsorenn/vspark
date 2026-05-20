@@ -5,6 +5,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal'
 import { getDb } from '../../db/index.js'
 import { ComponentKind } from '../decorator.js'
 import { makeLipsyncGraphDescriptor } from './graph.js'
+import { broadcastBus } from '../../broadcast/bus.js'
 
 @ComponentKind({
   kind:          'lipsync_processor',
@@ -73,6 +74,7 @@ export class LipsyncManager {
   stop(componentId: string): void {
     if (!this.graphs.has(componentId)) return
     this.graphs.delete(componentId)
+    broadcastBus.removeComponent(componentId)
     console.log(`[Lipsync] Stopped component ${componentId}`)
   }
 

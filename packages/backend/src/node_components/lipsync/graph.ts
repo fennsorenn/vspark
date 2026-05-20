@@ -32,6 +32,7 @@ export const LIPSYNC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     { fromNodeId: 'cfg_sensitivity', fromPort: 'value',   toNodeId: 'passthrough', toPort: 'blendshapes', kind: 'value' },
     // Scene entity → broadcast
     { fromNodeId: 'scene_entity', fromPort: 'nodeId',     toNodeId: 'bs_out',      toPort: 'nodeId',      kind: 'value' },
+    { fromNodeId: 'comp_id',      fromPort: 'id',         toNodeId: 'bs_out',      toPort: 'componentId', kind: 'value' },
   ],
 }
 
