@@ -321,7 +321,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         nodeComponents: s.nodeComponents.filter((c) => c.nodeId !== id),
       }
     }),
-  selectNode: (id) => set({ selectedNodeId: id, sceneSelected: false, selectedComponentId: null, selectedEffect: null }),
+  selectNode: (id) => set((s) => ({
+    selectedNodeId: id,
+    // Only clear the scene selection when actually selecting a node, not when clearing.
+    sceneSelected: id != null ? false : s.sceneSelected,
+    selectedComponentId: null,
+    selectedEffect: null,
+  })),
   selectComponent: (id) => set({ selectedComponentId: id, selectedEffect: null }),
   setAssets: (assets) => set({ assets }),
   addAsset: (asset) => set((s) => ({ assets: [...s.assets, asset] })),
