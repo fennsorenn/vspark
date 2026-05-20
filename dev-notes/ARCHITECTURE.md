@@ -55,6 +55,7 @@ packages/
 | Signal graph editor | Implemented | `components/editor/signal/SignalGraphCanvas.tsx` |
 | WebSocket sync | Implemented | `hooks/useWsSync.ts` — includes server_update handler + pendingReload-on-reconnect |
 | Lipsync uplink | Implemented | `hooks/useLipsyncUplink.ts` — mic → WS |
+| Lipsync MFCC classifier | Implemented | `media/MicCapture.ts` — in-browser MFCC vowel classification + per-component calibration |
 | Tracking uplink | Implemented | `hooks/useTrackingUplink.ts` — MediaPipe → WS |
 
 ### Shared — `packages/shared/src/`
@@ -88,12 +89,15 @@ UDP port (configurable)
 ### Lipsync
 
 ```
-Browser mic → FFT analysis → useLipsyncUplink (30fps)
-  → WS lipsync_input
+Browser mic → MicCapture (MFCC → centred+L2 vs per-vowel templates → softmax → EMA)
+  → Fcl_MTH_* weights + jawOpen (RMS)
+  → useLipsyncUplink (30fps) → WS lipsync_input
   → LipsyncManager.fireVisemes() → lipsync_source
   → unpack_event → viseme_passthrough → blendshapes_broadcast
   → WS vmc_blendshapes → Frontend → VRM expressions
 ```
+
+Per-component templates live in `node_components.config.vowelTemplates`; see [modules/lipsync.md](modules/lipsync.md).
 
 ### MediaPipe tracking
 
@@ -146,6 +150,7 @@ REST write → SQLite → WS broadcast (node_added/updated/removed, camera_effec
 - [animation.md](modules/animation.md) — FBX/BVH retargeting, VMC pose application, blendshape mapping, clip playback, all coordinate corrections
 - [nodes/particle.md](modules/nodes/particle.md) — GPU-instanced particle system, billboard node, shader, physics simulation, camera alignment
 - [mediapipe-tracker.md](modules/mediapipe-tracker.md) — MediaPipe tracking pipeline: worker, signal graph, IK arms, head/finger calibration, open work
+- [lipsync.md](modules/lipsync.md) — MFCC vowel classification, per-component calibration, default templates
 
 ## Key Files
 
