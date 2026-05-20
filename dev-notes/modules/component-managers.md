@@ -66,9 +66,9 @@ Config controls `_chest_bone`, `_spine_bone`, and blend `_mode` (multiply/add).
 
 ## LipsyncManager — `lipsync/manager.ts`
 
-Drives VRM blendshapes from microphone viseme weights sent from the browser.
+Drives VRM blendshapes from microphone viseme weights sent from the browser. Vowel classification is performed client-side; the manager only fans the resulting weights through the signal graph and broadcasts them.
 
-**Input**: `lipsync_input` WebSocket message (kind + componentId + visemes map)  
+**Input**: `lipsync_input` WebSocket message (kind + componentId + visemes map, already `Fcl_MTH_*` keyed)
 **Output**: `vmc_blendshapes` WebSocket broadcast
 
 **Entry point**: `fireVisemes(componentId, visemes)` — stores weights in `lipsync_source` node state, then fires the trigger event into the graph.
@@ -77,6 +77,10 @@ Drives VRM blendshapes from microphone viseme weights sent from the browser.
 ```
 lipsync_source → unpack_event → viseme_passthrough → blendshapes_broadcast
 ```
+
+See [lipsync.md](lipsync.md) for the frontend MFCC classification pipeline, per-component calibration, and config schema.
+
+**Known issue (latent, not yet fixed)**: `viseme_passthrough` reads `config.sensitivity` directly, but `_getNodeConfig` only forwards `cfg.nodeConfig[nodeId]` overrides — not top-level component config. The sensitivity slider in the UI is currently a no-op as a result.
 
 ---
 
