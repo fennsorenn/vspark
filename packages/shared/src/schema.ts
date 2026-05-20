@@ -67,6 +67,26 @@ export const animationStateSchema = z.object({
   startedAt: z.number(),
 });
 
+// --- API controller component schemas ---
+
+export const apiControllerAnimationSchema = z.object({
+  animation: z.string().min(1),
+});
+
+export const apiControllerAnimationQueueSchema = z.object({
+  queue: z.array(z.object({ animation: z.string().min(1) })),
+  loopMode: z.enum(['none', 'last', 'queue']).optional(),
+});
+
+export const apiControllerBlendshapesSchema = z.union([
+  z.object({ preset: z.string().min(1) }),
+  z.object({ blendshapes: z.record(z.string(), z.number()) }),
+]);
+
+export type ApiControllerAnimationInput       = z.infer<typeof apiControllerAnimationSchema>;
+export type ApiControllerAnimationQueueInput  = z.infer<typeof apiControllerAnimationQueueSchema>;
+export type ApiControllerBlendshapesInput     = z.infer<typeof apiControllerBlendshapesSchema>;
+
 export type SceneNodeInput = z.infer<typeof sceneNodeSchema>;
 export type SceneInput = z.infer<typeof sceneSchema>;
 export type ProjectInput = z.infer<typeof projectSchema>;

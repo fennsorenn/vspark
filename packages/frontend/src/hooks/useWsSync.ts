@@ -4,7 +4,7 @@ import type { NodeRecord } from '../store/editorStore'
 import type { CameraEffectRecord } from '../api/client'
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore'
 import { setIkTargets } from '../ikTargetStore'
-import type { IkTargetFrame, AnimationBlendMode } from '@vspark/shared/types'
+import type { IkTargetFrame, AnimationBlendMode, ApiAnimationMessage } from '@vspark/shared/types'
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
 const RECONNECT_MS = 3000
@@ -53,6 +53,14 @@ export function useWsSync() {
             setVmcBlendshapes(msg.payload.nodeId as string, msg.payload.blendshapes as Record<string, number>)
           } else if (msg.kind === 'pose_ik_targets') {
             setIkTargets(msg.payload.nodeId as string, msg.payload as unknown as IkTargetFrame)
+          } else if (msg.kind === 'api_animation') {
+            const p = msg.payload as unknown as ApiAnimationMessage
+            useEditorStore.getState().setApiAnimation(
+              p.nodeId,
+              p.queue.length > 0 && p.startedAt != null
+                ? { queue: p.queue, loopMode: p.loopMode, startedAt: p.startedAt }
+                : null,
+            )
           } else if (msg.kind === 'node_updated') {
             const { id, ...updates } = msg.payload as { id: string } & Record<string, unknown>
             useEditorStore.getState().updateNode(id, updates)

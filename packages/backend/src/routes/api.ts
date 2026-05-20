@@ -8,8 +8,14 @@ import type { VmcManager } from '../node_components/vmc_receiver/manager.js';
 import type { BreathingManager } from '../node_components/breathing/manager.js';
 import type { LipsyncManager } from '../node_components/lipsync/manager.js';
 import type { TrackingManager } from '../node_components/mediapipe_tracker/manager.js';
+import type { ApiControllerManager } from '../node_components/api_controller/manager.js';
 import { getAllNodeKindMeta } from '../signal/registry.js';
 import { getAllComponentKindMeta } from '../node_components/registry.js';
+import {
+  apiControllerAnimationSchema,
+  apiControllerAnimationQueueSchema,
+  apiControllerBlendshapesSchema,
+} from '@vspark/shared/schema';
 
 let _vmc: VmcManager | null = null;
 export function setVmcManager(m: VmcManager) { _vmc = m; }
@@ -21,6 +27,9 @@ export function setLipsyncManager(m: LipsyncManager) { _lipsync = m; }
 
 let _tracking: TrackingManager | null = null;
 export function setTrackingManager(m: TrackingManager) { _tracking = m; }
+
+let _apiController: ApiControllerManager | null = null;
+export function setApiControllerManager(m: ApiControllerManager) { _apiController = m; }
 
 import type { WSSync } from '../ws/index.js';
 import { broadcastBus } from '../broadcast/bus.js';
@@ -58,6 +67,12 @@ function refreshTracking() {
   if (!_tracking) return;
   const rows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'mediapipe_tracker'").all() as Record<string, unknown>[];
   _tracking.syncComponents(rows.map(_mapComponentRow));
+}
+
+function refreshApiController() {
+  if (!_apiController) return;
+  const rows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'api_controller'").all() as Record<string, unknown>[];
+  _apiController.syncComponents(rows.map(_mapComponentRow));
 }
 
 const UPLOADS_DIR = join(process.cwd(), 'uploads');
@@ -364,6 +379,7 @@ router.post('/scene-nodes/:nodeId/components', (req, res) => {
   refreshBreathing();
   refreshLipsync();
   refreshTracking();
+  refreshApiController();
   res.status(201).json({ ok: true, data: { id: compId, node_id: req.params.nodeId, kind, enabled: enabled ?? true, config: config ?? {}, sort_order: sortOrder ?? 0 } });
 });
 
@@ -379,6 +395,7 @@ router.put('/node-components/:id', (req, res) => {
   refreshBreathing();
   refreshLipsync();
   refreshTracking();
+  refreshApiController();
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -388,7 +405,127 @@ router.delete('/node-components/:id', (req, res) => {
   refreshBreathing();
   refreshLipsync();
   refreshTracking();
+  refreshApiController();
   res.json({ ok: true, data: {} });
+});
+
+// --- API Controller ---
+
+/** Resolve (projectId, nodeId) → active api_controller component id. 404 if none. */
+function _resolveApiController(projectId: string, nodeId: string): { componentId: string } | { error: { status: number; message: string; code: string } } {
+  if (!_apiController) return { error: { status: 503, message: 'API controller manager not ready', code: 'NOT_READY' } };
+  // Verify the node belongs to the project.
+  const row = getDb().prepare(`
+    SELECT n.id FROM scene_nodes n
+    INNER JOIN scenes s ON s.id = n.scene_id
+    WHERE n.id = ? AND s.project_id = ?
+  `).get(nodeId, projectId) as { id: string } | undefined;
+  if (!row) return { error: { status: 404, message: 'node not found in project', code: 'NOT_FOUND' } };
+  const found = _apiController.findByNode(nodeId);
+  if (!found) return { error: { status: 404, message: 'no api_controller component on node', code: 'NOT_FOUND' } };
+  return { componentId: found.componentId };
+}
+
+router.get('/projects/:projectId/nodes/:nodeId/api-controller/state', (req, res) => {
+  const resolved = _resolveApiController(req.params.projectId, req.params.nodeId);
+  if ('error' in resolved) return res.status(resolved.error.status).json({ ok: false, error: resolved.error });
+  const state = _apiController!.getState(resolved.componentId);
+  if (!state) return res.status(404).json({ ok: false, error: { status: 404, message: 'state not found', code: 'NOT_FOUND' } });
+  res.json({
+    ok: true,
+    data: {
+      queue:       state.queue,
+      loopMode:    state.loopMode,
+      startedAt:   state.startedAt,
+      blendshapes: state.blendshapes.toRecord(),
+    },
+  });
+});
+
+router.put('/projects/:projectId/nodes/:nodeId/api-controller/animation', (req, res) => {
+  const resolved = _resolveApiController(req.params.projectId, req.params.nodeId);
+  if ('error' in resolved) return res.status(resolved.error.status).json({ ok: false, error: resolved.error });
+  const parsed = apiControllerAnimationSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: { status: 400, message: parsed.error.message, code: 'VALIDATION_ERROR' } });
+  try {
+    _apiController!.setAnimationQueue(resolved.componentId, [{ animation: parsed.data.animation }], 'last');
+    res.json({ ok: true, data: {} });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: { status: 400, message: (e as Error).message, code: 'CLIP_NOT_FOUND' } });
+  }
+});
+
+router.put('/projects/:projectId/nodes/:nodeId/api-controller/animation-queue', (req, res) => {
+  const resolved = _resolveApiController(req.params.projectId, req.params.nodeId);
+  if ('error' in resolved) return res.status(resolved.error.status).json({ ok: false, error: resolved.error });
+  const parsed = apiControllerAnimationQueueSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: { status: 400, message: parsed.error.message, code: 'VALIDATION_ERROR' } });
+  try {
+    _apiController!.setAnimationQueue(resolved.componentId, parsed.data.queue, parsed.data.loopMode ?? 'none');
+    res.json({ ok: true, data: {} });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: { status: 400, message: (e as Error).message, code: 'CLIP_NOT_FOUND' } });
+  }
+});
+
+router.put('/projects/:projectId/nodes/:nodeId/api-controller/blendshapes', (req, res) => {
+  const resolved = _resolveApiController(req.params.projectId, req.params.nodeId);
+  if ('error' in resolved) return res.status(resolved.error.status).json({ ok: false, error: resolved.error });
+  const parsed = apiControllerBlendshapesSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: { status: 400, message: parsed.error.message, code: 'VALIDATION_ERROR' } });
+  const weights = 'preset' in parsed.data
+    ? { [parsed.data.preset]: 1.0 }
+    : parsed.data.blendshapes;
+  _apiController!.setBlendshapes(resolved.componentId, weights);
+  res.json({ ok: true, data: {} });
+});
+
+router.delete('/projects/:projectId/nodes/:nodeId/api-controller/blendshapes', (req, res) => {
+  const resolved = _resolveApiController(req.params.projectId, req.params.nodeId);
+  if ('error' in resolved) return res.status(resolved.error.status).json({ ok: false, error: resolved.error });
+  _apiController!.clearBlendshapes(resolved.componentId);
+  res.json({ ok: true, data: {} });
+});
+
+/** List the VRM expression names available on this avatar (populated by the frontend on VRM load). */
+router.get('/projects/:projectId/nodes/:nodeId/expressions', (req, res) => {
+  const { projectId, nodeId } = req.params;
+  const owns = getDb().prepare(`
+    SELECT n.id FROM scene_nodes n
+    INNER JOIN scenes s ON s.id = n.scene_id
+    WHERE n.id = ? AND s.project_id = ?
+  `).get(nodeId, projectId) as { id: string } | undefined;
+  if (!owns) return res.status(404).json({ ok: false, error: { status: 404, message: 'node not found in project', code: 'NOT_FOUND' } });
+  if (!_apiController) return res.status(503).json({ ok: false, error: { status: 503, message: 'API controller manager not ready', code: 'NOT_READY' } });
+  const expressions = _apiController.getExpressionsForNode(nodeId);
+  res.json({ ok: true, data: { expressions: expressions ?? [], reported: expressions != null } });
+});
+
+/** List animation clips registered for this avatar node. */
+router.get('/projects/:projectId/nodes/:nodeId/animations', (req, res) => {
+  const { projectId, nodeId } = req.params;
+  const owns = getDb().prepare(`
+    SELECT n.id FROM scene_nodes n
+    INNER JOIN scenes s ON s.id = n.scene_id
+    WHERE n.id = ? AND s.project_id = ?
+  `).get(nodeId, projectId) as { id: string } | undefined;
+  if (!owns) return res.status(404).json({ ok: false, error: { status: 404, message: 'node not found in project', code: 'NOT_FOUND' } });
+  const rows = getDb().prepare(
+    'SELECT id, name, label, duration, fps, source_file_path FROM animation_clips WHERE source_node_id = ? ORDER BY name'
+  ).all(nodeId) as Array<{ id: string; name: string; label: string; duration: number; fps: number; source_file_path: string }>;
+  res.json({
+    ok: true,
+    data: {
+      animations: rows.map((r) => ({
+        id:        r.id,
+        name:      r.name,
+        label:     r.label,
+        duration:  r.duration,
+        fps:       r.fps,
+        sourceUrl: r.source_file_path,
+      })),
+    },
+  });
 });
 
 // --- Camera Effects ---

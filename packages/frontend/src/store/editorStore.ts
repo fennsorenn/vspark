@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import type { AssetFile, ComponentKindMeta, CameraEffectRecord } from '../api/client'
-import type { UpdateChannel } from '@vspark/shared'
+import type { UpdateChannel, ApiAnimationLoopMode, ApiAnimationQueueEntry } from '@vspark/shared'
+
+export interface ApiAnimationState {
+  queue:     ApiAnimationQueueEntry[]
+  loopMode:  ApiAnimationLoopMode
+  startedAt: number | null
+}
 
 export type { AssetFile, ComponentKindMeta, CameraEffectRecord }
 
@@ -206,6 +212,7 @@ interface EditorState {
   nodeComponents: NodeComponent[]
   vmcStatus: Record<string, boolean>   // componentId → connected
   vmcTracking: Record<string, boolean>  // componentId → tracking active
+  apiAnimationByNode: Record<string, ApiAnimationState>  // nodeId → current api-driven animation queue
   vrmBonesByNode: Record<string, string[]>        // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>   // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>  // nodeId → mesh morph target names
@@ -242,6 +249,7 @@ interface EditorState {
   nodeComponentsFor: (nodeId: string) => NodeComponent[]
   setVmcStatus: (componentId: string, connected: boolean) => void
   setVmcTracking: (componentId: string, tracking: boolean) => void
+  setApiAnimation: (nodeId: string, state: ApiAnimationState | null) => void
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void
   clearVrmBonesForNode: (nodeId: string) => void
   setVrmExpressionsForNode: (nodeId: string, expressions: string[]) => void
@@ -285,6 +293,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   nodeComponents: [],
   vmcStatus: {},
   vmcTracking: {},
+  apiAnimationByNode: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
   vrmMorphTargetsByNode: {},
@@ -352,6 +361,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({ vmcStatus: { ...s.vmcStatus, [componentId]: connected } })),
   setVmcTracking: (componentId, tracking) =>
     set((s) => ({ vmcTracking: { ...s.vmcTracking, [componentId]: tracking } })),
+  setApiAnimation: (nodeId, state) =>
+    set((s) => {
+      const next = { ...s.apiAnimationByNode }
+      if (state === null) delete next[nodeId]
+      else next[nodeId] = state
+      return { apiAnimationByNode: next }
+    }),
   setVrmBonesForNode: (nodeId, bones) =>
     set((s) => ({ vrmBonesByNode: { ...s.vrmBonesByNode, [nodeId]: bones } })),
   clearVrmBonesForNode: (nodeId) =>

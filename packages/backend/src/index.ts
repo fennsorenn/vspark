@@ -4,7 +4,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { runMigrations, getDb } from './db/index.js';
-import { apiRoutes, setVmcManager, setBreathingManager, setLipsyncManager, setTrackingManager, setWsSync } from './routes/api.js';
+import { apiRoutes, setVmcManager, setBreathingManager, setLipsyncManager, setTrackingManager, setApiControllerManager, setWsSync } from './routes/api.js';
 import { updateRoutes, initUpdateChecker, getInstallDir } from './routes/update.js';
 import { configRoutes } from './routes/config.js';
 import { WSSync } from './ws/index.js';
@@ -12,10 +12,11 @@ import { VmcManager } from './node_components/vmc_receiver/manager.js';
 import { BreathingManager } from './node_components/breathing/manager.js';
 import { LipsyncManager } from './node_components/lipsync/manager.js';
 import { TrackingManager } from './node_components/mediapipe_tracker/manager.js';
+import { ApiControllerManager } from './node_components/api_controller/manager.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
 import { initIkBroadcast } from './signal/nodes/ik_broadcast.js';
-import type { LipsyncInputMessage, TrackingInputMessage } from '@vspark/shared';
+import type { LipsyncInputMessage, TrackingInputMessage, AvatarExpressionsReportMessage } from '@vspark/shared';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -69,6 +70,14 @@ async function start() {
   const trackingManager = new TrackingManager();
   setTrackingManager(trackingManager);
 
+  const apiControllerManager = new ApiControllerManager(wsSync);
+  setApiControllerManager(apiControllerManager);
+
+  // Rebroadcast current api_controller state to any newly-connecting client.
+  wsSync.onClientConnected((ws) => {
+    apiControllerManager.rebroadcastTo((kind, payload) => wsSync.sendTo(ws, kind, payload));
+  });
+
   // Handle browser → server media messages
   wsSync.onMessage((kind, payload) => {
     if (kind === 'lipsync_input') {
@@ -82,6 +91,9 @@ async function start() {
         rightHand: msg.rightHand,
         pose:      msg.pose,
       })
+    } else if (kind === 'avatar_expressions_report') {
+      const msg = payload as AvatarExpressionsReportMessage
+      apiControllerManager.setExpressionsForNode(msg.nodeId, msg.expressions ?? [])
     }
   });
 
@@ -107,6 +119,9 @@ async function start() {
 
   const trackingRows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'mediapipe_tracker'").all() as Record<string, unknown>[];
   trackingManager.syncComponents(trackingRows.map(mapRow));
+
+  const apiControllerRows = getDb().prepare("SELECT * FROM node_components WHERE kind = 'api_controller'").all() as Record<string, unknown>[];
+  apiControllerManager.syncComponents(apiControllerRows.map(mapRow));
 
   const port = 3001;
   server.listen(port, async () => {
