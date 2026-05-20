@@ -82,9 +82,11 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     { fromNodeId: 'cfg_expr_map', fromPort: 'value', toNodeId: 'arkit_expr', toPort: 'mapping', kind: 'value' },
     { fromNodeId: 'cfg_pass_en',  fromPort: 'value', toNodeId: 'arkit_pass', toPort: 'enabled', kind: 'value' },
     { fromNodeId: 'cfg_pass_map', fromPort: 'value', toNodeId: 'arkit_pass', toPort: 'mapping', kind: 'value' },
-    // ── Value: nodeId for broadcast ────────────────────────────────────────────
-    { fromNodeId: 'scene_entity', fromPort: 'nodeId', toNodeId: 'pose_out', toPort: 'nodeId', kind: 'value' },
-    { fromNodeId: 'scene_entity', fromPort: 'nodeId', toNodeId: 'bs_out',   toPort: 'nodeId', kind: 'value' },
+    // ── Value: nodeId + componentId for broadcast ──────────────────────────────
+    { fromNodeId: 'scene_entity', fromPort: 'nodeId', toNodeId: 'pose_out', toPort: 'nodeId',      kind: 'value' },
+    { fromNodeId: 'scene_entity', fromPort: 'nodeId', toNodeId: 'bs_out',   toPort: 'nodeId',      kind: 'value' },
+    { fromNodeId: 'comp_id',      fromPort: 'id',     toNodeId: 'pose_out', toPort: 'componentId', kind: 'value' },
+    { fromNodeId: 'comp_id',      fromPort: 'id',     toNodeId: 'bs_out',   toPort: 'componentId', kind: 'value' },
     // ── Event: calibration commands ────────────────────────────────────────────
     { fromNodeId: 'head_calib_capture', fromPort: 'trigger', toNodeId: 'head_calib',   toPort: 'capture'       },
     { fromNodeId: 'head_calib_reset',   fromPort: 'trigger', toNodeId: 'head_calib',   toPort: 'reset'         },

@@ -23,6 +23,7 @@ let _tracking: TrackingManager | null = null;
 export function setTrackingManager(m: TrackingManager) { _tracking = m; }
 
 import type { WSSync } from '../ws/index.js';
+import { broadcastBus } from '../broadcast/bus.js';
 let _ws: WSSync | null = null;
 export function setWsSync(w: WSSync) { _ws = w; }
 
@@ -192,7 +193,43 @@ router.post('/projects/:projectId/scenes', (req, res) => {
   if (!name) return res.status(400).json({ ok: false, error: { status: 400, message: 'name is required', code: 'VALIDATION_ERROR' } });
   const id = randomUUID();
   getDb().prepare('INSERT INTO scenes (id, project_id, name) VALUES (?, ?, ?)').run(id, req.params.projectId, name);
-  res.status(201).json({ ok: true, data: { id, name } });
+  res.status(201).json({ ok: true, data: { id, name, runtime_settings: '{}' } });
+});
+
+router.put('/scenes/:sceneId', (req, res) => {
+  const db = getDb();
+  const sceneId = req.params.sceneId;
+  const row = db.prepare('SELECT id, runtime_settings FROM scenes WHERE id = ?').get(sceneId) as
+    | { id: string; runtime_settings: string }
+    | undefined;
+  if (!row) {
+    return res.status(404).json({ ok: false, error: { status: 404, message: 'scene not found', code: 'NOT_FOUND' } });
+  }
+  const { name, runtimeSettings } = req.body as { name?: string; runtimeSettings?: Record<string, unknown> };
+
+  if (name != null) {
+    db.prepare(`UPDATE scenes SET name = ?, updated_at = datetime('now') WHERE id = ?`).run(name, sceneId);
+  }
+
+  let settingsChanged = false;
+  if (runtimeSettings && typeof runtimeSettings === 'object') {
+    const merged = { ...(JSON.parse(row.runtime_settings || '{}') as Record<string, unknown>), ...runtimeSettings };
+    db.prepare(`UPDATE scenes SET runtime_settings = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(JSON.stringify(merged), sceneId);
+    settingsChanged = true;
+  }
+
+  if (settingsChanged) broadcastBus.reloadSceneSettings(sceneId);
+
+  const patch: Record<string, unknown> = { id: sceneId };
+  if (name != null) patch.name = name;
+  if (settingsChanged) {
+    const updated = db.prepare('SELECT runtime_settings FROM scenes WHERE id = ?').get(sceneId) as { runtime_settings: string };
+    patch.runtimeSettings = JSON.parse(updated.runtime_settings || '{}');
+  }
+  _ws?.broadcast('scene_updated', patch);
+
+  res.json({ ok: true, data: patch });
 });
 
 // --- Scene Nodes ---

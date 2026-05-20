@@ -4,7 +4,7 @@ import type { NodeRecord } from '../store/editorStore'
 import type { CameraEffectRecord } from '../api/client'
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore'
 import { setIkTargets } from '../ikTargetStore'
-import type { IkTargetFrame } from '@vspark/shared/types'
+import type { IkTargetFrame, AnimationBlendMode } from '@vspark/shared/types'
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
 const RECONNECT_MS = 3000
@@ -44,7 +44,11 @@ export function useWsSync() {
           } else if (msg.kind === 'vmc_tracking_state') {
             setVmcTracking(msg.payload.componentId as string, msg.payload.tracking as boolean)
           } else if (msg.kind === 'vmc_pose') {
-            setVmcPose(msg.payload.nodeId as string, msg.payload.bones as Record<string, [number, number, number, number]>)
+            setVmcPose(
+              msg.payload.nodeId as string,
+              msg.payload.bones as Record<string, [number, number, number, number]>,
+              (msg.payload.animationBlendMode as AnimationBlendMode | undefined) ?? 'override',
+            )
           } else if (msg.kind === 'vmc_blendshapes') {
             setVmcBlendshapes(msg.payload.nodeId as string, msg.payload.blendshapes as Record<string, number>)
           } else if (msg.kind === 'pose_ik_targets') {
@@ -61,6 +65,12 @@ export function useWsSync() {
             }
           } else if (msg.kind === 'node_removed') {
             useEditorStore.getState().deleteNode(msg.payload.id as string)
+          } else if (msg.kind === 'scene_updated') {
+            const p = msg.payload as { id: string; name?: string; runtimeSettings?: Record<string, unknown> }
+            const patch: Record<string, unknown> = {}
+            if (p.name != null) patch.name = p.name
+            if (p.runtimeSettings != null) patch.runtimeSettings = p.runtimeSettings
+            useEditorStore.getState().updateSceneItem(p.id, patch)
           } else if (msg.kind === 'camera_effect_added') {
             const p = msg.payload as Record<string, unknown>
             const effect: CameraEffectRecord = {

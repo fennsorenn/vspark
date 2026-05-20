@@ -4,11 +4,12 @@ import { getBuiltinParticleTextures } from '../../particleTextures'
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit'
 import { useParams } from 'react-router-dom'
 import { useEditorStore } from '../../store/editorStore'
-import { api, fireSignalEvent } from '../../api/client'
+import { api, fireSignalEvent, updateScene } from '../../api/client'
 import type { NodeRecord, NodeComponent } from '../../store/editorStore'
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore'
 import type { AssetFile } from '../../api/client'
 import { animRegistry } from '../../animRegistry'
+import { MicCapture, type VowelTemplates } from '../../media/MicCapture'
 
 interface Transform {
   x: number; y: number; z: number
@@ -810,7 +811,7 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
 function LipsyncProcessorProps({ comp }: { comp: NodeComponent }) {
   const { updateNodeComponent } = useEditorStore()
   const { projectId } = useParams<{ projectId: string }>()
-  const cfg = comp.config as { sensitivity?: number }
+  const cfg = comp.config as { sensitivity?: number; vowelTemplates?: VowelTemplates }
   const [sensitivity, setSensitivity] = useState(cfg.sensitivity ?? 1.0)
 
   const save = (patch: Record<string, unknown>) => {
@@ -844,6 +845,131 @@ function LipsyncProcessorProps({ comp }: { comp: NodeComponent }) {
           🎤 Open Media Input
         </button>
       </div>
+      <LipsyncCalibration
+        templates={cfg.vowelTemplates}
+        onSave={(t) => save({ vowelTemplates: t })}
+        onReset={() => save({ vowelTemplates: undefined })}
+      />
+    </div>
+  )
+}
+
+// ── Lipsync calibration ───────────────────────────────────────────────────────
+
+const VOWEL_KEYS = ['A', 'E', 'I', 'O', 'U'] as const
+type CalibrationStatus = 'idle' | 'capturing' | 'error'
+
+function LipsyncCalibration({
+  templates,
+  onSave,
+  onReset,
+}: {
+  templates: VowelTemplates | undefined
+  onSave:    (t: VowelTemplates) => void
+  onReset:   () => void
+}) {
+  const [draft, setDraft]     = useState<Partial<VowelTemplates>>(templates ?? {})
+  const [holding, setHolding] = useState<string | null>(null)
+  const [status, setStatus]   = useState<CalibrationStatus>('idle')
+  const [error, setError]     = useState<string | null>(null)
+  const micRef = useRef<MicCapture | null>(null)
+  const collectedRef = useRef<Float32Array[]>([])
+
+  useEffect(() => () => { micRef.current?.stop() }, [])
+
+  const startHold = async (v: string) => {
+    setError(null)
+    setStatus('capturing')
+    setHolding(v)
+    collectedRef.current = []
+    try {
+      const mic = new MicCapture()
+      mic.silenceRms = 0 // disable gate during calibration so even quiet samples land
+      mic.onCaptureFrame((mfcc) => {
+        // Defensive copy — the callback shares the analyser's working buffer.
+        collectedRef.current.push(new Float32Array(mfcc))
+      })
+      await mic.start()
+      micRef.current = mic
+    } catch (e) {
+      setError((e as Error).message)
+      setStatus('error')
+      setHolding(null)
+    }
+  }
+
+  const stopHold = async () => {
+    if (!holding || !micRef.current) return
+    const v = holding
+    await micRef.current.stop()
+    micRef.current = null
+    setHolding(null)
+
+    const frames = collectedRef.current
+    if (frames.length === 0) { setStatus('idle'); return }
+    // Average the MFCC vectors collected during the hold.
+    const dim = frames[0].length
+    const avg = new Array<number>(dim).fill(0)
+    for (const f of frames) for (let i = 0; i < dim; i++) avg[i] += f[i]
+    for (let i = 0; i < dim; i++) avg[i] /= frames.length
+    setDraft({ ...draft, [v]: avg })
+    setStatus('idle')
+  }
+
+  const canSave = VOWEL_KEYS.every(v => draft[v] && draft[v]!.length > 0)
+
+  const sectionStyle: React.CSSProperties = { marginTop: 12, borderTop: '1px solid #2a2a2a', paddingTop: 8 }
+  const headerStyle:  React.CSSProperties = { fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }
+  const rowStyle:     React.CSSProperties = { display: 'flex', gap: 4, marginBottom: 6 }
+  const btnStyle = (v: string): React.CSSProperties => ({
+    flex: 1,
+    background: holding === v ? '#4a7a5a' : (draft[v as keyof VowelTemplates] ? '#2a3a2a' : '#2a2a2a'),
+    border: '1px solid #3a3a3a',
+    color: '#ddd',
+    borderRadius: 4,
+    padding: '6px 0',
+    cursor: 'pointer',
+    fontSize: 12,
+    userSelect: 'none',
+  })
+  const actionBtn: React.CSSProperties = { background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#ccc', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12, marginRight: 6 }
+
+  return (
+    <div style={sectionStyle}>
+      <div style={headerStyle}>Vowel Calibration</div>
+      <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>
+        Hold each button while sustaining the vowel sound (~1s).
+      </div>
+      <div style={rowStyle}>
+        {VOWEL_KEYS.map(v => (
+          <button
+            key={v}
+            style={btnStyle(v)}
+            onMouseDown={() => startHold(v)}
+            onMouseUp={stopHold}
+            onMouseLeave={() => { if (holding === v) stopHold() }}
+            disabled={status === 'capturing' && holding !== v}
+          >
+            {v}{draft[v] ? ' ✓' : ''}
+          </button>
+        ))}
+      </div>
+      <div>
+        <button
+          style={{ ...actionBtn, opacity: canSave ? 1 : 0.4 }}
+          disabled={!canSave}
+          onClick={() => canSave && onSave(draft as VowelTemplates)}
+        >
+          Save
+        </button>
+        <button
+          style={actionBtn}
+          onClick={() => { setDraft({}); onReset() }}
+        >
+          Reset to defaults
+        </button>
+      </div>
+      {error && <div style={{ marginTop: 6, color: '#d66', fontSize: 11 }}>{error}</div>}
     </div>
   )
 }
@@ -1318,13 +1444,79 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
   )
 }
 
+// ---------- Scene settings ----------
+
+function SceneSettings({
+  sceneId, sceneName, broadcastTickHz, onChange,
+}: {
+  sceneId:          string
+  sceneName:        string
+  broadcastTickHz:  number
+  onChange:         (hz: number) => void
+}) {
+  const [local, setLocal] = useState<string>(String(broadcastTickHz))
+  useEffect(() => { setLocal(String(broadcastTickHz)) }, [sceneId, broadcastTickHz])
+
+  const commit = () => {
+    const parsed = Number.parseFloat(local)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setLocal(String(broadcastTickHz))
+      return
+    }
+    const clamped = Math.max(1, Math.min(240, Math.round(parsed)))
+    setLocal(String(clamped))
+    if (clamped !== broadcastTickHz) onChange(clamped)
+  }
+
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <span style={{ fontSize: 18 }}>🎬</span>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>Scene Settings</div>
+          <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{sceneName}</div>
+        </div>
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>Broadcast Tick Rate (Hz)</div>
+        <input
+          type="number"
+          min={1}
+          max={240}
+          step={1}
+          value={local}
+          onChange={(e) => setLocal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur() }}
+          style={{
+            width: '100%',
+            background: '#1c1c1c',
+            border: '1px solid #2a2a2a',
+            borderRadius: 3,
+            padding: '6px 8px',
+            color: '#e0e0e0',
+            fontSize: 12,
+            fontFamily: 'inherit',
+          }}
+        />
+        <div style={{ fontSize: 10, color: '#555', marginTop: 4, lineHeight: 1.4 }}>
+          How often the server merges pose + blendshape sources and broadcasts a frame.
+          Default 60. Lower values reduce bandwidth at the cost of smoothness.
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ---------- Main panel ----------
 
 export function PropertiesPanel() {
   const { projectId } = useParams<{ projectId: string }>()
   const { nodes, selectedNodeId, updateNode: storeUpdateNode, assets, selectedComponentId, nodeComponents,
     fbxDebugVisible, setFbxDebugVisible, vrmExpressionsByNode, vrmMorphTargetsByNode, componentKinds,
-    cameraEffects, selectedEffect } = useEditorStore()
+    cameraEffects, selectedEffect,
+    scenes, activeSceneId, sceneSelected, updateSceneItem } = useEditorStore()
+  const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation')
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null
   const selectedComp = nodeComponents.find((c) => c.id === selectedComponentId) ?? null
@@ -1414,6 +1606,23 @@ export function PropertiesPanel() {
         </div>
         <EffectPanel effectId={selectedEffectRecord.id} kind={selectedEffect.kind} />
       </>
+    )
+  }
+
+  if (sceneSelected && activeScene) {
+    return panelShell(
+      <SceneSettings
+        sceneId={activeScene.id}
+        sceneName={activeScene.name}
+        broadcastTickHz={activeScene.runtimeSettings.broadcastTickHz ?? 60}
+        onChange={(hz) => {
+          // Optimistic store update so the input stays responsive.
+          updateSceneItem(activeScene.id, {
+            runtimeSettings: { ...activeScene.runtimeSettings, broadcastTickHz: hz },
+          })
+          void updateScene(activeScene.id, { runtimeSettings: { broadcastTickHz: hz } })
+        }}
+      />
     )
   }
 
