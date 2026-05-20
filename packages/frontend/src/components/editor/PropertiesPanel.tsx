@@ -9,6 +9,7 @@ import type { NodeRecord, NodeComponent } from '../../store/editorStore'
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore'
 import type { AssetFile } from '../../api/client'
 import { animRegistry } from '../../animRegistry'
+import { MicCapture, type VowelTemplates } from '../../media/MicCapture'
 
 interface Transform {
   x: number; y: number; z: number
@@ -810,7 +811,7 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
 function LipsyncProcessorProps({ comp }: { comp: NodeComponent }) {
   const { updateNodeComponent } = useEditorStore()
   const { projectId } = useParams<{ projectId: string }>()
-  const cfg = comp.config as { sensitivity?: number }
+  const cfg = comp.config as { sensitivity?: number; vowelTemplates?: VowelTemplates }
   const [sensitivity, setSensitivity] = useState(cfg.sensitivity ?? 1.0)
 
   const save = (patch: Record<string, unknown>) => {
@@ -844,6 +845,131 @@ function LipsyncProcessorProps({ comp }: { comp: NodeComponent }) {
           🎤 Open Media Input
         </button>
       </div>
+      <LipsyncCalibration
+        templates={cfg.vowelTemplates}
+        onSave={(t) => save({ vowelTemplates: t })}
+        onReset={() => save({ vowelTemplates: undefined })}
+      />
+    </div>
+  )
+}
+
+// ── Lipsync calibration ───────────────────────────────────────────────────────
+
+const VOWEL_KEYS = ['A', 'E', 'I', 'O', 'U'] as const
+type CalibrationStatus = 'idle' | 'capturing' | 'error'
+
+function LipsyncCalibration({
+  templates,
+  onSave,
+  onReset,
+}: {
+  templates: VowelTemplates | undefined
+  onSave:    (t: VowelTemplates) => void
+  onReset:   () => void
+}) {
+  const [draft, setDraft]     = useState<Partial<VowelTemplates>>(templates ?? {})
+  const [holding, setHolding] = useState<string | null>(null)
+  const [status, setStatus]   = useState<CalibrationStatus>('idle')
+  const [error, setError]     = useState<string | null>(null)
+  const micRef = useRef<MicCapture | null>(null)
+  const collectedRef = useRef<Float32Array[]>([])
+
+  useEffect(() => () => { micRef.current?.stop() }, [])
+
+  const startHold = async (v: string) => {
+    setError(null)
+    setStatus('capturing')
+    setHolding(v)
+    collectedRef.current = []
+    try {
+      const mic = new MicCapture()
+      mic.silenceRms = 0 // disable gate during calibration so even quiet samples land
+      mic.onCaptureFrame((mfcc) => {
+        // Defensive copy — the callback shares the analyser's working buffer.
+        collectedRef.current.push(new Float32Array(mfcc))
+      })
+      await mic.start()
+      micRef.current = mic
+    } catch (e) {
+      setError((e as Error).message)
+      setStatus('error')
+      setHolding(null)
+    }
+  }
+
+  const stopHold = async () => {
+    if (!holding || !micRef.current) return
+    const v = holding
+    await micRef.current.stop()
+    micRef.current = null
+    setHolding(null)
+
+    const frames = collectedRef.current
+    if (frames.length === 0) { setStatus('idle'); return }
+    // Average the MFCC vectors collected during the hold.
+    const dim = frames[0].length
+    const avg = new Array<number>(dim).fill(0)
+    for (const f of frames) for (let i = 0; i < dim; i++) avg[i] += f[i]
+    for (let i = 0; i < dim; i++) avg[i] /= frames.length
+    setDraft({ ...draft, [v]: avg })
+    setStatus('idle')
+  }
+
+  const canSave = VOWEL_KEYS.every(v => draft[v] && draft[v]!.length > 0)
+
+  const sectionStyle: React.CSSProperties = { marginTop: 12, borderTop: '1px solid #2a2a2a', paddingTop: 8 }
+  const headerStyle:  React.CSSProperties = { fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }
+  const rowStyle:     React.CSSProperties = { display: 'flex', gap: 4, marginBottom: 6 }
+  const btnStyle = (v: string): React.CSSProperties => ({
+    flex: 1,
+    background: holding === v ? '#4a7a5a' : (draft[v as keyof VowelTemplates] ? '#2a3a2a' : '#2a2a2a'),
+    border: '1px solid #3a3a3a',
+    color: '#ddd',
+    borderRadius: 4,
+    padding: '6px 0',
+    cursor: 'pointer',
+    fontSize: 12,
+    userSelect: 'none',
+  })
+  const actionBtn: React.CSSProperties = { background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#ccc', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12, marginRight: 6 }
+
+  return (
+    <div style={sectionStyle}>
+      <div style={headerStyle}>Vowel Calibration</div>
+      <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>
+        Hold each button while sustaining the vowel sound (~1s).
+      </div>
+      <div style={rowStyle}>
+        {VOWEL_KEYS.map(v => (
+          <button
+            key={v}
+            style={btnStyle(v)}
+            onMouseDown={() => startHold(v)}
+            onMouseUp={stopHold}
+            onMouseLeave={() => { if (holding === v) stopHold() }}
+            disabled={status === 'capturing' && holding !== v}
+          >
+            {v}{draft[v] ? ' ✓' : ''}
+          </button>
+        ))}
+      </div>
+      <div>
+        <button
+          style={{ ...actionBtn, opacity: canSave ? 1 : 0.4 }}
+          disabled={!canSave}
+          onClick={() => canSave && onSave(draft as VowelTemplates)}
+        >
+          Save
+        </button>
+        <button
+          style={actionBtn}
+          onClick={() => { setDraft({}); onReset() }}
+        >
+          Reset to defaults
+        </button>
+      </div>
+      {error && <div style={{ marginTop: 6, color: '#d66', fontSize: 11 }}>{error}</div>}
     </div>
   )
 }

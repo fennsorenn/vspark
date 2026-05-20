@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MicCapture } from '../media/MicCapture'
+import { MicCapture, type VowelTemplates } from '../media/MicCapture'
 import { CameraCapture } from '../media/CameraCapture'
 import { useLipsyncUplink } from '../hooks/useLipsyncUplink'
 import { editorWsRef } from '../hooks/useWsSync'
@@ -231,7 +231,13 @@ export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwa
     } else {
       const mic = new MicCapture()
       mic.onLevelChange = (rms) => { rmsRef.current = rms }
-      mic.smoothingAlpha = 0.5
+      // Apply calibrated vowel templates from the lipsync component config, if any.
+      const lipsyncComp = nodeComponents.find(c => c.id === resolvedLipsyncId)
+      const cfg         = lipsyncComp?.config as { vowelTemplates?: Record<string, number[]> } | undefined
+      const tpl         = cfg?.vowelTemplates
+      if (tpl && tpl.A && tpl.E && tpl.I && tpl.O && tpl.U) {
+        mic.setTemplates(tpl as VowelTemplates)
+      }
       try {
         await mic.start(micDeviceId)
         micRef.current = mic
@@ -240,7 +246,7 @@ export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwa
         alert(`Mic error: ${(e as Error).message}`)
       }
     }
-  }, [lipsyncActive, micDeviceId])
+  }, [lipsyncActive, micDeviceId, nodeComponents, resolvedLipsyncId])
 
   // Refs so onResult closure always reads the latest values without going stale
   const wsRef              = useRef<WebSocket | null>(null)
