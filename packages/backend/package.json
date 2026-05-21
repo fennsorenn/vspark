@@ -11,15 +11,21 @@
     "bundle": "node bundle.mjs"
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^8.5.0",
     "@vspark/shared": "workspace:*",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
     "node-sqlite3-wasm": "^0.8.57",
     "open": "^10.2.0",
-    "ws": "^8.18.2"
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "ws": "^8.18.2",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.28.0",
     "tsx": "^4.20.3",

@@ -17,7 +17,8 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { VRMLoaderPlugin } from '@pixiv/three-vrm'
 import type { VRM, VRMHumanBoneName, VRMPose } from '@pixiv/three-vrm'
 import { useEditorStore } from '../../store/editorStore'
-import type { NodeRecord, NodeComponent } from '../../store/editorStore'
+import type { NodeRecord, NodeComponent, ApiAnimationState } from '../../store/editorStore'
+import { editorWsRef } from '../../hooks/useWsSync'
 
 import { animRegistry } from '../../animRegistry'
 import { getVmcPose, getVmcPoseTime, getVmcPoseBlendMode, getVmcBlendshapes } from '../../vmcPoseStore'
@@ -403,6 +404,63 @@ function getTransform(node: NodeRecord): Transform {
   }
 }
 
+/** Send the avatar's expression list to the backend so it can serve GET /expressions. */
+function _sendExpressionsReport(nodeId: string, expressions: string[]): void {
+  const ws = editorWsRef.current
+  if (!ws || ws.readyState !== WebSocket.OPEN) return
+  ws.send(JSON.stringify({ kind: 'avatar_expressions_report', nodeId, expressions }))
+}
+
+/**
+ * Resolve which clip in an api-driven queue should be playing right now.
+ * Returns the clip URL + time offset within that clip, and how many ms until the next clip starts
+ * (null if no advancement scheduled, i.e. holding/looping final clip indefinitely).
+ */
+function _resolveApiAnimation(
+  state: ApiAnimationState,
+  nowMs: number,
+): { url: string; offset: number; msUntilNext: number | null } | null {
+  const { queue, loopMode, startedAt } = state
+  if (queue.length === 0 || startedAt == null) return null
+  const elapsedSec = Math.max(0, (nowMs - startedAt) / 1000)
+  const totalSec   = queue.reduce((s, e) => s + Math.max(0.001, e.duration), 0)
+
+  // Determine effective elapsed within the cycle, given loopMode.
+  let phase = elapsedSec
+  if (elapsedSec < totalSec) {
+    // Still in initial pass.
+    phase = elapsedSec
+  } else if (loopMode === 'queue') {
+    phase = elapsedSec % totalSec
+  } else if (loopMode === 'last') {
+    // Hold at start of last clip, then loop within it.
+    const last      = queue[queue.length - 1]
+    const lastDur   = Math.max(0.001, last.duration)
+    const tailStart = totalSec - lastDur
+    const inLast    = (elapsedSec - tailStart) % lastDur
+    return { url: last.sourceUrl, offset: inLast, msUntilNext: null }
+  } else {
+    // 'none' — hold last frame of last clip.
+    const last = queue[queue.length - 1]
+    return { url: last.sourceUrl, offset: Math.max(0, last.duration - 0.001), msUntilNext: null }
+  }
+
+  // Find the clip within `phase`.
+  let acc = 0
+  for (const entry of queue) {
+    const dur = Math.max(0.001, entry.duration)
+    if (phase < acc + dur) {
+      const offset      = phase - acc
+      const msUntilNext = Math.max(0, (acc + dur - phase) * 1000)
+      return { url: entry.sourceUrl, offset, msUntilNext }
+    }
+    acc += dur
+  }
+  // Should be unreachable.
+  const last = queue[queue.length - 1]
+  return { url: last.sourceUrl, offset: 0, msUntilNext: null }
+}
+
 function AvatarNode({ node, children }: { node: NodeRecord; children?: React.ReactNode }) {
   const outerRef      = useRef<THREE.Group>(null)
   const groupRef      = useRef<THREE.Group>(null)
@@ -465,9 +523,19 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
   const morphMapRef = useRef<Map<string, MorphEntry[]>>(new Map())
 
   const animComp = node.components?.animation as { idleUrl?: string; speed?: number; offset?: number } | undefined
-  const animUrl = animComp?.idleUrl ?? null
-  const animSpeed = animComp?.speed ?? 1
-  const animOffset = animComp?.offset ?? 0
+  const apiAnim  = useEditorStore((s) => s.apiAnimationByNode[node.id] ?? null)
+  // Tick that re-fires when the active clip in the api-driven queue should change.
+  const [apiAnimTick, setApiAnimTick] = useState(0)
+  const apiResolved = apiAnim ? _resolveApiAnimation(apiAnim, Date.now()) : null
+  useEffect(() => {
+    if (!apiResolved || apiResolved.msUntilNext == null) return
+    const handle = setTimeout(() => setApiAnimTick((n) => n + 1), Math.max(0, apiResolved.msUntilNext))
+    return () => clearTimeout(handle)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiAnim, apiAnimTick])
+  const animUrl    = apiResolved?.url    ?? animComp?.idleUrl ?? null
+  const animSpeed  = animComp?.speed     ?? 1
+  const animOffset = apiResolved?.offset ?? animComp?.offset  ?? 0
 
   // --- VRM load ---
   useEffect(() => {
@@ -504,7 +572,9 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
 
         // Expressions
         const exprMap = (vrm.expressionManager as unknown as { expressionMap?: Record<string, unknown> } | null)?.expressionMap
-        setVrmExpressionsForNode(node.id, exprMap ? Object.keys(exprMap).sort() : [])
+        const expressions = exprMap ? Object.keys(exprMap).sort() : []
+        setVrmExpressionsForNode(node.id, expressions)
+        _sendExpressionsReport(node.id, expressions)
 
         // Morph targets — walk every SkinnedMesh in the scene
         const morphMap = new Map<string, Array<{ mesh: THREE.SkinnedMesh; index: number }>>()
@@ -535,11 +605,61 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
       vrmHelperRef.current?.clear()
       clearVrmBonesForNode(node.id)
       clearVrmExpressionsForNode(node.id)
+      _sendExpressionsReport(node.id, [])
       clearVrmMorphTargetsForNode(node.id)
       morphMapRef.current.clear()
       vrmRegistry.delete(node.id)
     }
   }, [node.filePath])
+
+  // --- Animation clip auto-registration ---
+  // Once the avatar VRM is loaded, probe each .fbx asset in the project for its real
+  // clip duration and POST an animation_clips row. The backend route upserts so this is
+  // idempotent. Skips assets already registered for this node.
+  const assetsForProbe = useEditorStore((s) => s.assets)
+  useEffect(() => {
+    if (!vrmLoaded || node.kind !== 'avatar') return
+    let cancelled = false
+    const fbxAssets = assetsForProbe.filter((a) => a.kind === 'animation' && a.name.toLowerCase().endsWith('.fbx'))
+    if (fbxAssets.length === 0) return
+
+    void (async () => {
+      try {
+        const listResp = await fetch(`/api/scene-nodes/${node.id}/clips`)
+        const listJson = await listResp.json() as { ok: boolean; data?: Array<{ source_file_path: string; clip_index: number }> }
+        const registered = new Set(
+          (listJson.data ?? []).map((c) => `${c.source_file_path}#${c.clip_index ?? 0}`)
+        )
+        for (const asset of fbxAssets) {
+          if (cancelled) return
+          if (registered.has(`${asset.url}#0`)) continue
+          await new Promise<void>((resolve) => {
+            new FBXLoader().load(asset.url, (fbx) => {
+              if (cancelled) return resolve()
+              const clip = fbx.animations[0]
+              if (!clip) return resolve()
+              fetch(`/api/scene-nodes/${node.id}/clips`, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  name:           asset.name.replace(/\.fbx$/i, ''),
+                  sourceFilePath: asset.url,
+                  clipIndex:      0,
+                  label:          clip.name || asset.name,
+                  startTime:      0,
+                  endTime:        clip.duration,
+                  duration:       clip.duration,
+                  fps:            30,
+                }),
+              }).catch(() => { /* non-fatal */ }).finally(() => resolve())
+            }, undefined, () => resolve())
+          })
+        }
+      } catch { /* non-fatal */ }
+    })()
+
+    return () => { cancelled = true }
+  }, [vrmLoaded, node.id, node.kind, assetsForProbe])
 
   // --- Animation load ---
   useEffect(() => {

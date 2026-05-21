@@ -16,6 +16,10 @@
 - `Landmark` — `{ x, y, z, visibility? }` (MediaPipe format)
 - `LipsyncInputMessage` — `{ kind: 'lipsync_input', componentId, visemes }`
 - `TrackingInputMessage` — `{ kind: 'tracking_input', componentId, face?, leftHand?, rightHand?, pose? }`
+- `ApiAnimationLoopMode` — `'none' | 'last' | 'queue'`
+- `ApiAnimationQueueEntry` — `{ animationId, sourceUrl, duration }` (server-resolved playback entry)
+- `ApiAnimationMessage` — `{ nodeId, componentId, queue, loopMode, startedAt }` — WS `api_animation` payload broadcast by `ApiControllerManager`
+- `AvatarExpressionsReportMessage` — `{ kind: 'avatar_expressions_report', nodeId, expressions }` — frontend → backend on VRM load
 
 **Update / config types**:
 - `UpdateChannel` — `'stable' | 'recent' | 'experimental'`
@@ -25,7 +29,14 @@
 
 ## `schema.ts` — Zod validation schemas
 
-Request body validation for all REST routes. All schemas are strict (no extra keys). Used in route handlers via `schema.parse(req.body)`.
+Request body validation for all REST routes. All schemas are strict (no extra keys). Used in route handlers via `schema.parse(req.body)` (or `safeParse` + `z.prettifyError()` in newer handlers).
+
+**Zod is on v4** (upgraded from 3.25). Validation error formatting uses `z.prettifyError(parsed.error)` instead of the raw `error.message`.
+
+**Schemas double as OpenAPI components**. Every schema is tagged with `.openapi('Name')` via `@asteasolutions/zod-to-openapi`; the backend's `routes/openapi.ts` registers them in an `OpenAPIRegistry` and generates the `components.schemas` block at startup. Adding a new request schema means: (a) define + `.openapi('Name')` here, (b) register it in `routes/openapi.ts`'s `named` array. See [backend-api.md](backend-api.md#openapi-docs--routesopenapits).
+
+**Registered OpenAPI schemas**:
+`Error`, `EmptyOk`, `SceneNodeKind`, `CreateProject`, `UpdateProject`, `CreateScene`, `UpdateScene`, `CreateSceneNode`, `UpdateSceneNode`, `CreateAnimationClip`, `CreateAsset`, `CreateNodeComponent`, `UpdateNodeComponent`, `CreateCameraEffect`, `UpdateCameraEffect`, `FireGraphEvent`, `ApiControllerAnimation`, `ApiControllerAnimationQueue`, `ApiControllerBlendshapes`.
 
 ## `signal.ts` — Signal graph type system
 

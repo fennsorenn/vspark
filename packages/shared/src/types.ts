@@ -271,6 +271,35 @@ export interface TrackingStatusMessage {
   error?: string;
 }
 
+// API controller — frontend-driven animation playback synced via startedAt.
+export type ApiAnimationLoopMode = 'none' | 'last' | 'queue';
+
+export interface ApiAnimationQueueEntry {
+  /** Animation clip id. */
+  animationId: string;
+  /** Resolved URL of the clip source file (so the frontend can load directly). */
+  sourceUrl: string;
+  /** Duration in seconds (used to schedule queue advancement). */
+  duration: number;
+}
+
+/** Frontend → backend report of the VRM expression list for a loaded avatar node. */
+export interface AvatarExpressionsReportMessage {
+  kind: 'avatar_expressions_report';
+  nodeId: string;
+  /** Empty array signals the avatar was unloaded. */
+  expressions: string[];
+}
+
+export interface ApiAnimationMessage {
+  nodeId: string;
+  componentId: string;
+  queue: ApiAnimationQueueEntry[];
+  loopMode: ApiAnimationLoopMode;
+  /** ms epoch when the queue started; null when stopped. */
+  startedAt: number | null;
+}
+
 // API response types
 export interface APIError {
   status: number;
