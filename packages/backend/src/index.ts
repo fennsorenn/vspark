@@ -7,6 +7,8 @@ import { runMigrations, getDb } from './db/index.js';
 import { apiRoutes, setVmcManager, setBreathingManager, setLipsyncManager, setTrackingManager, setApiControllerManager, setWsSync } from './routes/index.js';
 import { updateRoutes, initUpdateChecker, getInstallDir } from './routes/update.js';
 import { configRoutes } from './routes/config.js';
+import { openApiDoc } from './routes/openapi.js';
+import swaggerUi from 'swagger-ui-express';
 import { WSSync } from './ws/index.js';
 import { VmcManager } from './node_components/vmc_receiver/manager.js';
 import { BreathingManager } from './node_components/breathing/manager.js';
@@ -32,6 +34,8 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 app.use('/api', apiRoutes);
 app.use('/api', updateRoutes);
 app.use('/api', configRoutes);
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiDoc));
+app.get('/api-docs.json', (_req, res) => res.json(openApiDoc));
 app.get('/health', (_req, res) => {
   res.json({ ok: true, connected: wsSync.connectedCount });
 });

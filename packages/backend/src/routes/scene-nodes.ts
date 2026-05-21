@@ -5,11 +5,39 @@ import { _ws } from './shared.js';
 
 const router: ReturnType<typeof Router> = Router();
 
+/**
+ * @openapi
+ * /api/scenes/{sceneId}/nodes:
+ *   get:
+ *     tags: [scene_nodes]
+ *     summary: List all nodes within a scene
+ *     parameters:
+ *       - { in: path, name: sceneId, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Array of scene_node rows }
+ */
 router.get('/scenes/:sceneId/nodes', (req, res) => {
   const data = getDb().prepare('SELECT * FROM scene_nodes WHERE scene_id = ?').all(req.params.sceneId);
   res.json({ ok: true, data });
 });
 
+/**
+ * @openapi
+ * /api/scenes/{sceneId}/nodes:
+ *   post:
+ *     tags: [scene_nodes]
+ *     summary: Create a new node within a scene
+ *     parameters:
+ *       - { in: path, name: sceneId, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/CreateSceneNode' }
+ *     responses:
+ *       201: { description: Node created; broadcast as node_added over WebSocket }
+ *       400: { description: Missing name or kind, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+ */
 router.post('/scenes/:sceneId/nodes', (req, res) => {
   const { name, parentId, boneAttachment, kind, filePath, components } = req.body;
   if (!name || !kind) return res.status(400).json({ ok: false, error: { status: 400, message: 'name and kind are required', code: 'VALIDATION_ERROR' } });
@@ -22,6 +50,25 @@ router.post('/scenes/:sceneId/nodes', (req, res) => {
   res.status(201).json({ ok: true, data: node });
 });
 
+/**
+ * @openapi
+ * /api/scene-nodes/{id}:
+ *   put:
+ *     tags: [scene_nodes]
+ *     summary: Patch a scene node; only fields present in the body are updated
+ *     description: |
+ *       `parentId`, `boneAttachment`, and `hidden` support explicit null/false values
+ *       and are only touched when the key is present in the request body.
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/UpdateSceneNode' }
+ *     responses:
+ *       200: { description: Updated; patch broadcast as node_updated over WebSocket }
+ */
 router.put('/scene-nodes/:id', (req, res) => {
   const { name, kind, filePath, components } = req.body;
   const db = getDb();
@@ -63,6 +110,17 @@ router.put('/scene-nodes/:id', (req, res) => {
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
+/**
+ * @openapi
+ * /api/scene-nodes/{id}:
+ *   delete:
+ *     tags: [scene_nodes]
+ *     summary: Delete a scene node (cascades to its components and effects)
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Deleted; broadcast as node_removed over WebSocket }
+ */
 router.delete('/scene-nodes/:id', (req, res) => {
   getDb().prepare('DELETE FROM scene_nodes WHERE id = ?').run(req.params.id);
   _ws?.broadcast('node_removed', { id: req.params.id });
@@ -71,11 +129,40 @@ router.delete('/scene-nodes/:id', (req, res) => {
 
 // --- Animation Clips ---
 
+/**
+ * @openapi
+ * /api/scene-nodes/{nodeId}/clips:
+ *   get:
+ *     tags: [scene_nodes]
+ *     summary: List animation clips imported from this node's source file
+ *     parameters:
+ *       - { in: path, name: nodeId, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Array of animation_clip rows }
+ */
 router.get('/scene-nodes/:nodeId/clips', (req, res) => {
   const data = getDb().prepare('SELECT * FROM animation_clips WHERE source_node_id = ?').all(req.params.nodeId);
   res.json({ ok: true, data });
 });
 
+/**
+ * @openapi
+ * /api/scene-nodes/{nodeId}/clips:
+ *   post:
+ *     tags: [scene_nodes]
+ *     summary: Register (or refresh) an animation clip imported from an FBX/BVH file
+ *     description: Upsert by (sourceNodeId, sourceFilePath, clipIndex) — re-probing updates the duration in place.
+ *     parameters:
+ *       - { in: path, name: nodeId, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/CreateAnimationClip' }
+ *     responses:
+ *       200: { description: Existing clip updated }
+ *       201: { description: New clip registered }
+ */
 router.post('/scene-nodes/:nodeId/clips', (req, res) => {
   const { name, sourceFilePath, clipIndex, label, startTime, endTime, duration, fps } = req.body;
   const nodeId = req.params.nodeId;

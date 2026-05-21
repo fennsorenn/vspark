@@ -19,19 +19,49 @@ function _stripPrefix(graphId: string): string {
   return graphId;
 }
 
-// All active graph descriptors (implicit + future explicit).
+/**
+ * @openapi
+ * /api/signal/graphs:
+ *   get:
+ *     tags: [signal]
+ *     summary: List all active signal-graph descriptors across every component manager
+ *     responses:
+ *       200: { description: Array of GraphDescriptor objects }
+ */
 router.get('/signal/graphs', (_req, res) => {
   res.json({ ok: true, data: _allGraphDescriptors() });
 });
 
-// Single graph descriptor by id.
+/**
+ * @openapi
+ * /api/signal/graphs/{id}:
+ *   get:
+ *     tags: [signal]
+ *     summary: Fetch a single signal-graph descriptor by id
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string }, description: 'Graph id with manager prefix (e.g. "vmc-pipeline:<componentId>")' }
+ *     responses:
+ *       200: { description: GraphDescriptor object }
+ *       404: { description: Not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+ */
 router.get('/signal/graphs/:id', (req, res) => {
   const graph = _allGraphDescriptors().find((g) => g.id === req.params.id);
   if (!graph) return res.status(404).json({ ok: false, error: { status: 404, message: 'not found', code: 'NOT_FOUND' } });
   res.json({ ok: true, data: graph });
 });
 
-// Live node states for a graph.
+/**
+ * @openapi
+ * /api/signal/graphs/{id}/node-states:
+ *   get:
+ *     tags: [signal]
+ *     summary: Read the live node-state snapshot for an active graph
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Map of nodeId → current state }
+ *       404: { description: Graph not active, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+ */
 router.get('/signal/graphs/:id/node-states', (req, res) => {
   const graphId     = req.params.id;
   const componentId = _stripPrefix(graphId);
@@ -44,8 +74,24 @@ router.get('/signal/graphs/:id/node-states', (req, res) => {
   res.json({ ok: true, data: states });
 });
 
-// Fire a trigger event into a specific node port.
-// Body: { nodeId: string, port: string }
+/**
+ * @openapi
+ * /api/signal/graphs/{id}/fire:
+ *   post:
+ *     tags: [signal]
+ *     summary: Fire a trigger event into a specific node port on a running graph
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/FireGraphEvent' }
+ *     responses:
+ *       200: { description: Event dispatched }
+ *       400: { description: Missing nodeId/port, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+ *       503: { description: Target manager not ready, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+ */
 router.post('/signal/graphs/:id/fire', (req, res) => {
   const graphId     = req.params.id;
   const componentId = _stripPrefix(graphId);
@@ -63,7 +109,15 @@ router.post('/signal/graphs/:id/fire', (req, res) => {
   res.json({ ok: true });
 });
 
-// All registered node kinds with display metadata (drives the node palette).
+/**
+ * @openapi
+ * /api/signal/node-kinds:
+ *   get:
+ *     tags: [signal]
+ *     summary: List all registered signal-node kinds with display metadata (drives the node palette UI)
+ *     responses:
+ *       200: { description: Array of node-kind metadata objects }
+ */
 router.get('/signal/node-kinds', (_req, res) => {
   res.json({ ok: true, data: getAllNodeKindMeta() });
 });
