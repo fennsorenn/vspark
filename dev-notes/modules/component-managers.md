@@ -110,6 +110,32 @@ side-channel.
 
 ---
 
+## ApiControllerManager — `api_controller/manager.ts`
+
+REST-driven driver for VRM avatars: external clients PUT an animation queue or blendshape weights and the manager broadcasts the change. Unlike the other managers it does **not** instantiate a signal graph — it owns plain in-memory state per component and writes to the broadcast bus directly. See [api-controller.md](api-controller.md) for the full REST surface and message wire format.
+
+**Input**: REST mutations via `routes/api-controller.ts`; `avatar_expressions_report` WS messages from the frontend recording which expressions the loaded VRM exposes.
+**Output**: `api_animation` WS broadcast on every queue change (carries `nodeId, componentId, queue, loopMode, startedAt`); blendshape changes flow through `broadcastBus.publishBlendshapes()` → `vmc_blendshapes` like every other source.
+
+**State per component** (in-memory only, not persisted): `{ sceneNodeId, queue, loopMode, startedAt, blendshapes }`. There is no graph and no `_nodeState`. Lifecycle is just `syncComponents()` allocating/freeing entries in a `Map`.
+
+**Public API used by routes**:
+- `findByNode(nodeId)` → `{ componentId, state } | null`
+- `getState(componentId)` → live state snapshot or null
+- `setAnimationQueue(componentId, queueInput, loopMode)` — resolves each `{ animation: idOrName }` against `animation_clips` (id first, then name, both scoped to the avatar's `source_node_id`); throws if not found; sets `startedAt = Date.now()` and broadcasts `api_animation`
+- `setBlendshapes(componentId, weights)` / `clearBlendshapes(componentId)` — publish to `broadcastBus`
+- `setExpressionsForNode(nodeId, expressions)` / `getExpressionsForNode(nodeId)` — cache populated by `avatar_expressions_report` WS messages on VRM load
+- `rebroadcastTo(send)` — called on each new WS connect to re-emit the current `api_animation` state so reconnecting clients catch up
+- `snapshotAll()` — diagnostic snapshot of all active components
+
+**Frontend playback sync**: clients consume `startedAt` (server-side `Date.now()`) and `queue[i].duration` to determine the current clip and offset. Animation clip durations are auto-registered on VRM load by Viewport — see [animation.md](animation.md) for the clip table.
+
+**Frontend UI**: `ApiControllerProps` in `PropertiesPanel.tsx` shows the per-component REST base URL with a copy button.
+
+**Limitations**: state is in-memory only and does not survive a backend restart (no `_nodeState` namespace); the queue/blendshapes have to be re-PUT by the client.
+
+---
+
 ## Adding a new manager
 
 1. Create `packages/backend/src/node_components/<kind>/manager.ts`

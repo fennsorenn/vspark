@@ -10,6 +10,7 @@ dist/
 *.tsbuildinfo
 .vscode/
 .idea/
+.claude/
 .DS_Store
 itellar
 **/uploads/**

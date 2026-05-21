@@ -29,7 +29,8 @@ packages/
 | Module | Status | Notes |
 |--------|--------|-------|
 | HTTP + WebSocket server | Implemented | `index.ts` |
-| REST API | Implemented | `routes/api.ts` — projects, scenes, nodes, components, assets, effects, signal |
+| REST API | Implemented | `routes/` — split per resource (projects, scenes, scene-nodes, assets, node-components, api-controller, expressions, camera-effects, signal, meta) composed via `routes/index.ts`; manager singletons + helpers in `routes/shared.ts` |
+| OpenAPI docs | Implemented | Swagger UI at `/api-docs`, raw spec at `/api-docs.json`; `routes/openapi.ts` generates `components.schemas` from Zod via `@asteasolutions/zod-to-openapi`; per-route `@openapi` JSDoc scanned by `swagger-jsdoc` |
 | Update routes | Implemented | `routes/update.ts`, `routes/config.ts` — GitHub Releases update check/download/apply, config.json channel preference |
 | SQLite persistence | Implemented | `db/` — `node-sqlite3-wasm` (WASM, no native addon); `WasmDb` adapter; `initDb()` async |
 | Signal graph engine | Implemented | `signal/engine.ts` — typed ports, value cache, cycle detection |
@@ -38,6 +39,7 @@ packages/
 | Breathing manager | Implemented | `node_components/breathing/` |
 | Lipsync manager | Implemented | `node_components/lipsync/` |
 | MediaPipe tracking manager | Implemented | `node_components/mediapipe_tracker/` |
+| API controller manager | Implemented | `node_components/api_controller/` — REST-driven animation queue + blendshapes; first component with a public REST control surface |
 | VRM skeleton parsing | Implemented | `vrm/skeleton.ts` — GLB/VRM 0.x + 1.x |
 | WebSocket sync | Implemented | `ws/index.ts` — broadcast bus |
 
@@ -63,7 +65,7 @@ packages/
 | Module | Status |
 |--------|--------|
 | Domain types | Implemented — `types.ts` — includes UpdateChannel, UpdateStatus, AppConfig, server_update WSMessageKind |
-| Zod request schemas | Implemented — `schema.ts` |
+| Zod request schemas | Implemented — `schema.ts`; on Zod v4; each schema tagged with `.openapi('Name')` and consumed by the backend to generate OpenAPI `components.schemas` |
 | Signal graph types | Implemented — `signal.ts` (Quaternion, NormalizedPose, VRM_BONE_NAMES, SignalNodeClass, GraphDescriptor) |
 
 ### Release & Deployment
@@ -140,7 +142,8 @@ REST write → SQLite → WS broadcast (node_added/updated/removed, camera_effec
 ## Module Docs
 
 - [signal-graph.md](modules/signal-graph.md) — engine, all 26 node kinds, how to add a new node
-- [component-managers.md](modules/component-managers.md) — VMC, breathing, lipsync, tracking managers; lifecycle pattern
+- [component-managers.md](modules/component-managers.md) — VMC, breathing, lipsync, tracking, api_controller managers; lifecycle pattern
+- [api-controller.md](modules/api-controller.md) — REST-driven animation/blendshape control surface, the first node component with public REST endpoints
 - [backend-api.md](modules/backend-api.md) — REST routes, WebSocket, DB migrations
 - [frontend.md](modules/frontend.md) — Zustand store, Viewport, editor panels, hooks
 - [shared-types.md](modules/shared-types.md) — domain types, Quaternion/NormalizedPose/Blendshapes, port system
@@ -154,8 +157,9 @@ REST write → SQLite → WS broadcast (node_added/updated/removed, camera_effec
 
 ## Key Files
 
-- [packages/backend/src/index.ts](../packages/backend/src/index.ts) — server entry, manager init, WS message dispatch
-- [packages/backend/src/routes/api.ts](../packages/backend/src/routes/api.ts) — all REST routes
+- [packages/backend/src/index.ts](../packages/backend/src/index.ts) — server entry, manager init, WS message dispatch, Swagger UI mount
+- [packages/backend/src/routes/index.ts](../packages/backend/src/routes/index.ts) — per-resource sub-router composition (manager setters re-exported from `shared.ts`)
+- [packages/backend/src/routes/openapi.ts](../packages/backend/src/routes/openapi.ts) — OpenAPI base doc + Zod→OpenAPI components
 - [packages/backend/src/signal/engine.ts](../packages/backend/src/signal/engine.ts) — graph runtime
 - [packages/backend/src/signal/registry.ts](../packages/backend/src/signal/registry.ts) — node kind registry
 - [packages/frontend/src/store/editorStore.ts](../packages/frontend/src/store/editorStore.ts) — Zustand store
