@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import {
   apiControllerAnimationSchema,
   apiControllerAnimationQueueSchema,
@@ -75,7 +76,7 @@ router.put('/projects/:projectId/nodes/:nodeId/api-controller/animation', (req, 
   const resolved = _resolveApiController(req.params.projectId, req.params.nodeId);
   if ('error' in resolved) return res.status(resolved.error.status).json({ ok: false, error: resolved.error });
   const parsed = apiControllerAnimationSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ ok: false, error: { status: 400, message: parsed.error.message, code: 'VALIDATION_ERROR' } });
+  if (!parsed.success) return res.status(400).json({ ok: false, error: { status: 400, message: z.prettifyError(parsed.error), code: 'VALIDATION_ERROR' } });
   try {
     _apiController!.setAnimationQueue(resolved.componentId, [{ animation: parsed.data.animation }], 'last');
     res.json({ ok: true, data: {} });
@@ -107,7 +108,7 @@ router.put('/projects/:projectId/nodes/:nodeId/api-controller/animation-queue', 
   const resolved = _resolveApiController(req.params.projectId, req.params.nodeId);
   if ('error' in resolved) return res.status(resolved.error.status).json({ ok: false, error: resolved.error });
   const parsed = apiControllerAnimationQueueSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ ok: false, error: { status: 400, message: parsed.error.message, code: 'VALIDATION_ERROR' } });
+  if (!parsed.success) return res.status(400).json({ ok: false, error: { status: 400, message: z.prettifyError(parsed.error), code: 'VALIDATION_ERROR' } });
   try {
     _apiController!.setAnimationQueue(resolved.componentId, parsed.data.queue, parsed.data.loopMode ?? 'none');
     res.json({ ok: true, data: {} });
@@ -138,7 +139,7 @@ router.put('/projects/:projectId/nodes/:nodeId/api-controller/blendshapes', (req
   const resolved = _resolveApiController(req.params.projectId, req.params.nodeId);
   if ('error' in resolved) return res.status(resolved.error.status).json({ ok: false, error: resolved.error });
   const parsed = apiControllerBlendshapesSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ ok: false, error: { status: 400, message: parsed.error.message, code: 'VALIDATION_ERROR' } });
+  if (!parsed.success) return res.status(400).json({ ok: false, error: { status: 400, message: z.prettifyError(parsed.error), code: 'VALIDATION_ERROR' } });
   const weights = 'preset' in parsed.data
     ? { [parsed.data.preset]: 1.0 }
     : parsed.data.blendshapes;

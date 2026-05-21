@@ -1,4 +1,85 @@
 import swaggerJSDoc from 'swagger-jsdoc';
+import { OpenAPIRegistry, OpenApiGeneratorV3 } from '@asteasolutions/zod-to-openapi';
+import {
+  errorEnvelopeSchema,
+  emptyOkSchema,
+  sceneNodeKindSchema,
+  createProjectSchema,
+  updateProjectSchema,
+  createSceneSchema,
+  updateSceneSchema,
+  createSceneNodeSchema,
+  updateSceneNodeSchema,
+  createAnimationClipSchema,
+  createAssetSchema,
+  createNodeComponentSchema,
+  updateNodeComponentSchema,
+  createCameraEffectSchema,
+  updateCameraEffectSchema,
+  fireGraphEventSchema,
+  apiControllerAnimationSchema,
+  apiControllerAnimationQueueSchema,
+  apiControllerBlendshapesSchema,
+} from '@vspark/shared/schema';
+
+/**
+ * Build the `components.schemas` block from Zod schemas in @vspark/shared.
+ *
+ * Schemas in packages/shared/src/schema.ts are tagged with `.openapi('Name')`
+ * via @asteasolutions/zod-to-openapi. We register them here so the generator
+ * produces a JSON Schema for each — the same names we reference from $ref's
+ * in the route-level @openapi JSDoc blocks.
+ */
+function buildZodComponentSchemas(): Record<string, unknown> {
+  const registry = new OpenAPIRegistry();
+  const schemas = [
+    errorEnvelopeSchema,
+    emptyOkSchema,
+    sceneNodeKindSchema,
+    createProjectSchema,
+    updateProjectSchema,
+    createSceneSchema,
+    updateSceneSchema,
+    createSceneNodeSchema,
+    updateSceneNodeSchema,
+    createAnimationClipSchema,
+    createAssetSchema,
+    createNodeComponentSchema,
+    updateNodeComponentSchema,
+    createCameraEffectSchema,
+    updateCameraEffectSchema,
+    fireGraphEventSchema,
+    apiControllerAnimationSchema,
+    apiControllerAnimationQueueSchema,
+    apiControllerBlendshapesSchema,
+  ];
+  // Each schema carries its OpenAPI name via .openapi('Name') in schema.ts;
+  // pass it explicitly here so the registry indexes it correctly.
+  const named: Array<[string, (typeof schemas)[number]]> = [
+    ['Error',                       errorEnvelopeSchema],
+    ['EmptyOk',                     emptyOkSchema],
+    ['SceneNodeKind',               sceneNodeKindSchema],
+    ['CreateProject',               createProjectSchema],
+    ['UpdateProject',               updateProjectSchema],
+    ['CreateScene',                 createSceneSchema],
+    ['UpdateScene',                 updateSceneSchema],
+    ['CreateSceneNode',             createSceneNodeSchema],
+    ['UpdateSceneNode',             updateSceneNodeSchema],
+    ['CreateAnimationClip',         createAnimationClipSchema],
+    ['CreateAsset',                 createAssetSchema],
+    ['CreateNodeComponent',         createNodeComponentSchema],
+    ['UpdateNodeComponent',         updateNodeComponentSchema],
+    ['CreateCameraEffect',          createCameraEffectSchema],
+    ['UpdateCameraEffect',          updateCameraEffectSchema],
+    ['FireGraphEvent',              fireGraphEventSchema],
+    ['ApiControllerAnimation',      apiControllerAnimationSchema],
+    ['ApiControllerAnimationQueue', apiControllerAnimationQueueSchema],
+    ['ApiControllerBlendshapes',    apiControllerBlendshapesSchema],
+  ];
+  for (const [name, s] of named) registry.register(name, s);
+  const generated = new OpenApiGeneratorV3(registry.definitions).generateComponents();
+  return (generated.components?.schemas ?? {}) as Record<string, unknown>;
+}
 
 /**
  * OpenAPI 3.0 spec for the vspark backend.
@@ -7,9 +88,9 @@ import swaggerJSDoc from 'swagger-jsdoc';
  * in the per-resource files under this directory; swagger-jsdoc scans those
  * files at startup and merges the resulting paths into this base document.
  *
- * Reusable request/response component schemas are declared inline below.
- * They mirror the Zod schemas in packages/shared/src/schema.ts — if you
- * change a Zod schema there, update the matching entry here.
+ * Reusable request/response component schemas are *generated* from the Zod
+ * schemas in packages/shared/src/schema.ts — the validation and the docs
+ * cannot drift.
  */
 export const openApiDoc = swaggerJSDoc({
   definition: {
@@ -21,211 +102,7 @@ export const openApiDoc = swaggerJSDoc({
     },
     servers: [{ url: 'http://localhost:3001' }],
     components: {
-      schemas: {
-        // --- Envelope shapes ---
-        Error: {
-          type: 'object',
-          properties: {
-            ok:    { type: 'boolean', enum: [false] },
-            error: {
-              type: 'object',
-              properties: {
-                status:  { type: 'integer' },
-                message: { type: 'string' },
-                code:    { type: 'string' },
-              },
-            },
-          },
-        },
-        EmptyOk: {
-          type: 'object',
-          properties: {
-            ok:   { type: 'boolean', enum: [true] },
-            data: { type: 'object' },
-          },
-        },
-
-        // --- Projects ---
-        CreateProject: {
-          type: 'object',
-          required: ['name'],
-          properties: {
-            name:        { type: 'string', minLength: 1 },
-            description: { type: 'string' },
-          },
-        },
-        UpdateProject: {
-          type: 'object',
-          properties: {
-            name:        { type: 'string', minLength: 1 },
-            description: { type: 'string', nullable: true },
-          },
-        },
-
-        // --- Scenes ---
-        CreateScene: {
-          type: 'object',
-          required: ['name'],
-          properties: { name: { type: 'string', minLength: 1 } },
-        },
-        UpdateScene: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', minLength: 1 },
-            runtimeSettings: {
-              type: 'object',
-              properties: { broadcastTickHz: { type: 'number', minimum: 1, maximum: 240 } },
-            },
-          },
-        },
-
-        // --- Scene Nodes ---
-        SceneNodeKind: {
-          type: 'string',
-          enum: ['avatar', 'model', 'light', 'camera', 'trigger', 'particle', 'sfx', 'fx', 'prop', 'godray_caster'],
-        },
-        CreateSceneNode: {
-          type: 'object',
-          required: ['name', 'kind'],
-          properties: {
-            name:           { type: 'string', minLength: 1 },
-            kind:           { $ref: '#/components/schemas/SceneNodeKind' },
-            parentId:       { type: 'string', nullable: true },
-            boneAttachment: { type: 'string', nullable: true },
-            filePath:       { type: 'string', nullable: true },
-            components:     { type: 'object', additionalProperties: true },
-          },
-        },
-        UpdateSceneNode: {
-          type: 'object',
-          properties: {
-            name:           { type: 'string', minLength: 1 },
-            kind:           { $ref: '#/components/schemas/SceneNodeKind' },
-            parentId:       { type: 'string', nullable: true },
-            boneAttachment: { type: 'string', nullable: true },
-            filePath:       { type: 'string' },
-            components:     { type: 'object', additionalProperties: true },
-            hidden:         { type: 'boolean' },
-          },
-        },
-
-        // --- Animation Clips ---
-        CreateAnimationClip: {
-          type: 'object',
-          required: ['name', 'sourceFilePath', 'duration'],
-          properties: {
-            name:           { type: 'string' },
-            sourceFilePath: { type: 'string' },
-            clipIndex:      { type: 'integer', default: 0 },
-            label:          { type: 'string' },
-            startTime:      { type: 'number', default: 0 },
-            endTime:        { type: 'number' },
-            duration:       { type: 'number' },
-            fps:            { type: 'number', default: 30 },
-          },
-        },
-
-        // --- Assets ---
-        CreateAsset: {
-          type: 'object',
-          required: ['name', 'data'],
-          properties: {
-            name:     { type: 'string', description: 'Original filename with extension' },
-            mimeType: { type: 'string' },
-            data:     { type: 'string', format: 'byte', description: 'Base64-encoded file contents' },
-          },
-        },
-
-        // --- Node Components ---
-        CreateNodeComponent: {
-          type: 'object',
-          required: ['kind'],
-          properties: {
-            id:        { type: 'string' },
-            kind:      { type: 'string' },
-            enabled:   { type: 'boolean' },
-            config:    { type: 'object', additionalProperties: true },
-            sortOrder: { type: 'integer' },
-          },
-        },
-        UpdateNodeComponent: {
-          type: 'object',
-          properties: {
-            enabled: { type: 'boolean' },
-            config:  { type: 'object', additionalProperties: true },
-          },
-        },
-
-        // --- API Controller ---
-        ApiControllerAnimation: {
-          type: 'object',
-          required: ['animation'],
-          properties: { animation: { type: 'string', minLength: 1 } },
-        },
-        ApiControllerAnimationQueue: {
-          type: 'object',
-          required: ['queue'],
-          properties: {
-            queue: {
-              type: 'array',
-              items: {
-                type: 'object',
-                required: ['animation'],
-                properties: { animation: { type: 'string', minLength: 1 } },
-              },
-            },
-            loopMode: { type: 'string', enum: ['none', 'last', 'queue'] },
-          },
-        },
-        ApiControllerBlendshapes: {
-          oneOf: [
-            {
-              type: 'object',
-              required: ['preset'],
-              properties: { preset: { type: 'string', minLength: 1 } },
-            },
-            {
-              type: 'object',
-              required: ['blendshapes'],
-              properties: {
-                blendshapes: {
-                  type: 'object',
-                  additionalProperties: { type: 'number' },
-                },
-              },
-            },
-          ],
-        },
-
-        // --- Camera Effects ---
-        CreateCameraEffect: {
-          type: 'object',
-          required: ['kind'],
-          properties: {
-            id:      { type: 'string' },
-            kind:    { type: 'string' },
-            enabled: { type: 'boolean' },
-            config:  { type: 'object', additionalProperties: true },
-          },
-        },
-        UpdateCameraEffect: {
-          type: 'object',
-          properties: {
-            enabled: { type: 'boolean' },
-            config:  { type: 'object', additionalProperties: true },
-          },
-        },
-
-        // --- Signal Graph ---
-        FireGraphEvent: {
-          type: 'object',
-          required: ['nodeId', 'port'],
-          properties: {
-            nodeId: { type: 'string' },
-            port:   { type: 'string' },
-          },
-        },
-      },
+      schemas: buildZodComponentSchemas(),
     },
     tags: [
       { name: 'projects',        description: 'Project CRUD' },
