@@ -1,96 +1,92 @@
 # Backend API
 
-Entry point: `packages/backend/src/index.ts`  
-Routes: `packages/backend/src/routes/api.ts` (mounted at `/api`)  
+Entry point: `packages/backend/src/index.ts`
+Routes: `packages/backend/src/routes/` — per-resource sub-routers composed via [routes/index.ts](../../packages/backend/src/routes/index.ts), mounted at `/api`
+OpenAPI: Swagger UI at `/api-docs`, raw spec at `/api-docs.json` (see [OpenAPI docs](#openapi-docs--routesopenapits))
 WebSocket: `packages/backend/src/ws/index.ts`
 
 ## Server startup sequence (`index.ts`)
 
 1. `await initDb()` — load WASM module, open DB, run migrations
 2. `initUpdateChecker(installDir, wsSync)` — async GitHub Releases check on boot
-3. Instantiate managers (VmcManager, BreathingManager, LipsyncManager, TrackingManager)
-4. Inject managers into route module via setters
-5. Load all persisted `node_components` rows from DB and call `syncComponents()` on each manager
-6. Bind WebSocket upgrade handler
-7. Start HTTP server on port 3001
+3. Instantiate managers (VmcManager, BreathingManager, LipsyncManager, TrackingManager, ApiControllerManager)
+4. Inject managers into route module via setters (re-exported from `routes/index.ts`, defined in `routes/shared.ts`)
+5. Mount Swagger UI at `/api-docs` and serve the raw spec at `/api-docs.json`
+6. Load all persisted `node_components` rows from DB and call `syncComponents()` on each manager
+7. Bind WebSocket upgrade handler; on connect, ApiController re-emits its current state via `rebroadcastTo()`
+8. Start HTTP server on port 3001
 
 **WebSocket message handlers** (registered on connect):
 - `lipsync_input` → `LipsyncManager.fireVisemes(componentId, visemes)`
 - `tracking_input` → `TrackingManager.fireLandmarks(componentId, frame)`
+- `avatar_expressions_report` → `ApiControllerManager.setExpressionsForNode(nodeId, expressions)` — frontend tells the backend which VRM expressions exist on a freshly loaded avatar
 
-## REST routes (`routes/api.ts`)
+## REST routes — `routes/` (per-resource split)
 
-Response shape: `{ ok: true, data: ... }` or `{ ok: false, error: string }`.
+Response shape: `{ ok: true, data: ... }` or `{ ok: false, error: { status, message, code } }`. Older routes still return a plain string error; new routes (api_controller, expressions) use the structured `Error` envelope.
 
-### Projects
-```
-GET    /projects
-POST   /projects            body: { name, description }
-PUT    /projects/:id        body: { name?, description? }
-DELETE /projects/:id
-```
+### File layout
 
-### Scenes & Nodes
-```
-GET    /projects/:projectId/scenes
-POST   /projects/:projectId/scenes          body: { name }
-DELETE /scenes/:sceneId
+| File | Covers |
+|------|--------|
+| [routes/index.ts](../../packages/backend/src/routes/index.ts) | Composes sub-routers, re-exports manager/ws setters from `shared.ts` |
+| [routes/shared.ts](../../packages/backend/src/routes/shared.ts) | Manager singletons + setters, `refresh*` helpers (DB → `syncComponents`), uploads dir + extension/MIME tables, `discoverAssets`, `_resolveApiController` |
+| [routes/projects.ts](../../packages/backend/src/routes/projects.ts) | `/projects` CRUD |
+| [routes/scenes.ts](../../packages/backend/src/routes/scenes.ts) | `/projects/:projectId/scenes`, `/scenes/:sceneId` |
+| [routes/scene-nodes.ts](../../packages/backend/src/routes/scene-nodes.ts) | `/scenes/:sceneId/nodes`, `/scene-nodes/:nodeId`, animation-clip CRUD |
+| [routes/assets.ts](../../packages/backend/src/routes/assets.ts) | Project asset upload + listing (runs `discoverAssets()` on GET) |
+| [routes/node-components.ts](../../packages/backend/src/routes/node-components.ts) | Component CRUD — each mutation calls `refreshAllComponentManagers()` |
+| [routes/api-controller.ts](../../packages/backend/src/routes/api-controller.ts) | REST surface of the api_controller node component (see below) |
+| [routes/expressions.ts](../../packages/backend/src/routes/expressions.ts) | Read-only listings: VRM expressions + animation clips for an avatar node |
+| [routes/camera-effects.ts](../../packages/backend/src/routes/camera-effects.ts) | `/scene-nodes/:nodeId/effects`, `/effects/:id` — WS `camera_effect_*` broadcasts |
+| [routes/signal.ts](../../packages/backend/src/routes/signal.ts) | Signal graph inspection + `POST /signal/graphs/:graphId/fire` (dispatches by graph-id prefix to VMC or tracking) |
+| [routes/meta.ts](../../packages/backend/src/routes/meta.ts) | `/signal/node-kinds`, `/component-kinds`, `/system/local-ips` |
+| [routes/openapi.ts](../../packages/backend/src/routes/openapi.ts) | OpenAPI base spec + Zod→OpenAPI component-schema build |
 
-GET    /scenes/:sceneId/nodes
-POST   /scenes/:sceneId/nodes               body: SceneNode shape
-PUT    /scene-nodes/:nodeId                 body: partial SceneNode
-DELETE /scene-nodes/:nodeId
-```
-`POST /scenes/:sceneId/nodes` broadcasts `node_added` to all WS clients.
+Sub-routers are composed with `router.use(subRouter)` in `routes/index.ts` (no path prefix — each sub-router declares its full path).
 
-### Assets
-```
-GET    /projects/:projectId/assets          (also runs discoverAssets() on each call)
-POST   /projects/:projectId/assets          body: { name, data (base64), mimeType }
-DELETE /assets/:assetId
-```
-Files are stored under `uploads/{projectId}/{subdir}/`. Subdir is inferred from extension (avatars, animations, images, other). Filenames are sanitized and deduplicated with `allocateFilename()`.
+### Route catalogue
 
-### Animation Clips
-```
-GET    /scene-nodes/:nodeId/clips
-POST   /scene-nodes/:nodeId/clips           body: AnimationClip shape
-PUT    /clips/:clipId
-DELETE /clips/:clipId
-```
+For the canonical, always-current request/response contracts of every route, browse Swagger UI at `http://localhost:3001/api-docs`. The notes below cover only behaviour that is not visible from the schema alone.
 
-### Node Components
-```
-GET    /scene-nodes/:nodeId/components
-POST   /scene-nodes/:nodeId/components      body: { kind, config }
-PUT    /components/:id                      body: { config?, enabled? }
-DELETE /components/:id
-```
-Every mutation calls all four managers' `syncComponents()` to hot-reload the runtime. Config is stored as a JSON string; `_nodeState` sub-key is managed by the graph.
+- **node-components**: every mutation calls `refreshAllComponentManagers()` so manager state hot-reloads from DB.
+- **scene-nodes**: `POST /scenes/:sceneId/nodes` broadcasts `node_added` over WS; updates/deletes broadcast `node_updated`/`node_removed`. `POST /scene-nodes/:nodeId/clips` is an idempotent upsert keyed on `(source_file_path, clip_index)` — the frontend's Viewport calls it on VRM load to register real FBX clip durations.
+- **assets**: GET also runs `discoverAssets()`; files live under `uploads/{projectId}/{subdir}/` with subdir inferred from extension (avatars, animations, images, other). See `routes/shared.ts` for `SUBFOLDER_BY_EXT` / `MIME_BY_EXT` / `allocateFilename`.
+- **camera-effects**: mutations broadcast `camera_effect_added/updated/removed` over WS.
+- **signal**: `graphId` format is `<prefix>:<componentId>` (e.g. `vmc-pipeline:abc123`); `routes/signal.ts` dispatches by prefix to the right manager's `fireGraphEvent`.
+- **api-controller**: see the section below — first node component with a public REST control surface.
+- **expressions**: read-only — `GET .../expressions` returns the VRM expression list reported by the frontend on VRM load (with `reported: false` until the frontend has loaded the avatar at least once); `GET .../animations` lists registered animation clips with playback metadata.
 
-### Camera Effects
-```
-GET    /scene-nodes/:nodeId/effects
-POST   /scene-nodes/:nodeId/effects         body: { kind, config }
-PUT    /effects/:id                         body: { config?, enabled? }
-DELETE /effects/:id
-```
-Mutations broadcast `camera_effect_added/updated/removed` over WebSocket.
+### api_controller REST surface — `routes/api-controller.ts`
 
-### Signal Graph inspection
-```
-GET    /signal/graphs                       list active graph descriptors
-GET    /signal/graphs/:graphId/node-states  live port values snapshot
-POST   /signal/graphs/:graphId/fire         body: { nodeId, port } — manual trigger
-```
-`graphId` format: `<prefix>:<componentId>` (e.g., `vmc-pipeline:abc123`). The API strips the prefix to find the right manager.
+All routes are project-scoped via `/projects/:projectId/nodes/:nodeId/...`; `_resolveApiController` in `routes/shared.ts` confirms node ownership and resolves the active component id (404 if no component is attached, 503 if the manager hasn't been wired yet).
 
-### Metadata
-```
-GET    /signal/node-kinds                   all registered node kinds with port/display info
-GET    /component-kinds                     all registered component kinds
-GET    /system/local-ips                    local IPv4 addresses for client discovery
-```
+| Method + path | Behaviour |
+|---|---|
+| `GET .../api-controller/state` | Returns `{ queue, loopMode, startedAt, blendshapes }` from `ApiControllerManager.getState()` |
+| `PUT .../api-controller/animation` | One-shot: replaces the queue with one entry, forces `loopMode = 'last'` |
+| `PUT .../api-controller/animation-queue` | Replaces the queue with an ordered list, accepts `loopMode: 'none' | 'last' | 'queue'` |
+| `PUT .../api-controller/blendshapes` | Either `{ preset: '<name>' }` (single shape at weight 1.0) or `{ blendshapes: { name: weight, ... } }` |
+| `DELETE .../api-controller/blendshapes` | Clears all active weights |
+
+Clip resolution (in [api_controller/manager.ts:169](../../packages/backend/src/node_components/api_controller/manager.ts)) tries clip id first then clip name, both scoped to the avatar's `source_node_id`, so the queue can only reference clips owned by this avatar. See [api-controller.md](api-controller.md).
+
+## OpenAPI docs — `routes/openapi.ts`
+
+`swagger-jsdoc` scans every `./src/routes/*.ts` for `@openapi` JSDoc blocks and merges them with the base spec in [openapi.ts](../../packages/backend/src/routes/openapi.ts). The base spec declares tags, servers, and `components.schemas`.
+
+**Component schemas are generated from Zod**, not hand-written. Each schema in [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) is tagged `.openapi('Name')` via `@asteasolutions/zod-to-openapi`; `buildZodComponentSchemas()` registers them in an `OpenAPIRegistry` and calls `OpenApiGeneratorV3.generateComponents()`. Routes reference these by name via `$ref: '#/components/schemas/<Name>'`. This means validation and docs cannot drift.
+
+**Endpoints**:
+- `GET /api-docs` — Swagger UI (interactive)
+- `GET /api-docs.json` — raw OpenAPI 3.0 JSON spec
+
+**Adding docs for a new route**:
+1. Add an `@openapi` JSDoc block above the handler, with `tags`, `summary`, `parameters`, `requestBody`, `responses`.
+2. If you need a new request/response body schema, add it to `packages/shared/src/schema.ts` with `.openapi('Name')`, and register it in the `named` array in `routes/openapi.ts`.
+3. The named tags themselves are declared in the `tags:` array of the base spec — add a new tag there if you don't fit any existing one.
+
+`z.prettifyError(parsed.error)` is used in v4-style validation handlers (api-controller routes) for human-readable messages.
 
 ## WebSocket — `ws/index.ts`
 
