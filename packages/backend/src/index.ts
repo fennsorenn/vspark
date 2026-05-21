@@ -4,7 +4,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { runMigrations, getDb } from './db/index.js';
-import { apiRoutes, setVmcManager, setBreathingManager, setLipsyncManager, setTrackingManager, setApiControllerManager, setWsSync } from './routes/api.js';
+import { apiRoutes, setVmcManager, setBreathingManager, setLipsyncManager, setTrackingManager, setApiControllerManager, setWsSync } from './routes/index.js';
 import { updateRoutes, initUpdateChecker, getInstallDir } from './routes/update.js';
 import { configRoutes } from './routes/config.js';
 import { WSSync } from './ws/index.js';
