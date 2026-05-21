@@ -1167,6 +1167,63 @@ function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
   )
 }
 
+function ApiControllerProps({ comp }: { comp: NodeComponent }) {
+  const { projectId } = useParams<{ projectId: string }>()
+  const [copied, setCopied] = useState(false)
+  const baseUrl = projectId
+    ? `${window.location.origin}/api/projects/${projectId}/nodes/${comp.nodeId}/api-controller`
+    : ''
+
+  const copy = () => {
+    if (!baseUrl) return
+    navigator.clipboard.writeText(baseUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }).catch(() => { /* ignore */ })
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>Component API base URL</div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+        <input
+          readOnly
+          value={baseUrl}
+          onFocus={(e) => e.currentTarget.select()}
+          style={{
+            flex: 1,
+            background: '#1a1a1a',
+            border: '1px solid #2a2a2a',
+            color: '#ccc',
+            borderRadius: 4,
+            padding: '4px 8px',
+            fontSize: 11,
+            fontFamily: 'monospace',
+          }}
+        />
+        <button
+          onClick={copy}
+          disabled={!baseUrl}
+          style={{
+            background: '#2a2a2a',
+            border: '1px solid #3a3a3a',
+            color: copied ? '#7fd17f' : '#ccc',
+            borderRadius: 4,
+            padding: '4px 10px',
+            cursor: baseUrl ? 'pointer' : 'not-allowed',
+            fontSize: 12,
+          }}
+        >
+          {copied ? '✓ Copied' : 'Copy'}
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: '#666', marginTop: 6, lineHeight: 1.5 }}>
+        Append <code style={{ color: '#aaa' }}>/animation</code>, <code style={{ color: '#aaa' }}>/animation-queue</code>, <code style={{ color: '#aaa' }}>/blendshapes</code>, or <code style={{ color: '#aaa' }}>/state</code>.
+      </div>
+    </div>
+  )
+}
+
 // ── Component dispatcher ──────────────────────────────────────────────────────
 
 function ComponentProps({ comp }: { comp: NodeComponent }) {
@@ -1174,6 +1231,7 @@ function ComponentProps({ comp }: { comp: NodeComponent }) {
     case 'vmc_receiver':      return <VmcReceiverProps comp={comp} />
     case 'lipsync_processor': return <LipsyncProcessorProps comp={comp} />
     case 'mediapipe_tracker': return <MediapipeTrackerProps comp={comp} />
+    case 'api_controller':    return <ApiControllerProps comp={comp} />
     default: return (
       <div style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>
         No configurable properties.

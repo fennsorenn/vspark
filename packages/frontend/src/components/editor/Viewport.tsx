@@ -612,6 +612,55 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
     }
   }, [node.filePath])
 
+  // --- Animation clip auto-registration ---
+  // Once the avatar VRM is loaded, probe each .fbx asset in the project for its real
+  // clip duration and POST an animation_clips row. The backend route upserts so this is
+  // idempotent. Skips assets already registered for this node.
+  const assetsForProbe = useEditorStore((s) => s.assets)
+  useEffect(() => {
+    if (!vrmLoaded || node.kind !== 'avatar') return
+    let cancelled = false
+    const fbxAssets = assetsForProbe.filter((a) => a.kind === 'animation' && a.name.toLowerCase().endsWith('.fbx'))
+    if (fbxAssets.length === 0) return
+
+    void (async () => {
+      try {
+        const listResp = await fetch(`/api/scene-nodes/${node.id}/clips`)
+        const listJson = await listResp.json() as { ok: boolean; data?: Array<{ source_file_path: string; clip_index: number }> }
+        const registered = new Set(
+          (listJson.data ?? []).map((c) => `${c.source_file_path}#${c.clip_index ?? 0}`)
+        )
+        for (const asset of fbxAssets) {
+          if (cancelled) return
+          if (registered.has(`${asset.url}#0`)) continue
+          await new Promise<void>((resolve) => {
+            new FBXLoader().load(asset.url, (fbx) => {
+              if (cancelled) return resolve()
+              const clip = fbx.animations[0]
+              if (!clip) return resolve()
+              fetch(`/api/scene-nodes/${node.id}/clips`, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  name:           asset.name.replace(/\.fbx$/i, ''),
+                  sourceFilePath: asset.url,
+                  clipIndex:      0,
+                  label:          clip.name || asset.name,
+                  startTime:      0,
+                  endTime:        clip.duration,
+                  duration:       clip.duration,
+                  fps:            30,
+                }),
+              }).catch(() => { /* non-fatal */ }).finally(() => resolve())
+            }, undefined, () => resolve())
+          })
+        }
+      } catch { /* non-fatal */ }
+    })()
+
+    return () => { cancelled = true }
+  }, [vrmLoaded, node.id, node.kind, assetsForProbe])
+
   // --- Animation load ---
   useEffect(() => {
     if (!animUrl || !node.filePath || !vrmLoaded) return
