@@ -25,6 +25,10 @@ export const sceneNodeKindSchema = z
   .enum(['avatar', 'model', 'light', 'camera', 'trigger', 'particle', 'sfx', 'fx', 'prop', 'godray_caster'])
   .openapi('SceneNodeKind');
 
+export const sceneNodePropertiesSchema = z.object({
+  blendTransitionTime: z.number().min(0).max(10).optional(),
+}).openapi('SceneNodeProperties');
+
 export const sceneNodeSchema = z.object({
   id: z.string(),
   parentId: z.string().nullable(),
@@ -33,6 +37,7 @@ export const sceneNodeSchema = z.object({
   kind: sceneNodeKindSchema,
   filePath: z.string().nullable(),
   components: z.record(z.string(), z.unknown()),
+  properties: sceneNodePropertiesSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
 }).openapi('SceneNode');
@@ -86,6 +91,7 @@ export const createSceneNodeSchema = z.object({
   boneAttachment: z.string().nullable().optional(),
   filePath: z.string().nullable().optional(),
   components: z.record(z.string(), z.unknown()).optional(),
+  properties: sceneNodePropertiesSchema.optional(),
 }).openapi('CreateSceneNode');
 
 export const updateSceneNodeSchema = z.object({
@@ -95,6 +101,7 @@ export const updateSceneNodeSchema = z.object({
   kind: sceneNodeKindSchema.optional(),
   filePath: z.string().optional(),
   components: z.record(z.string(), z.unknown()).optional(),
+  properties: sceneNodePropertiesSchema.optional(),
   hidden: z.boolean().optional(),
 }).openapi('UpdateSceneNode');
 
@@ -192,6 +199,7 @@ export type ApiControllerAnimationInput       = z.infer<typeof apiControllerAnim
 export type ApiControllerAnimationQueueInput  = z.infer<typeof apiControllerAnimationQueueSchema>;
 export type ApiControllerBlendshapesInput     = z.infer<typeof apiControllerBlendshapesSchema>;
 
+export type SceneNodePropertiesInput    = z.infer<typeof sceneNodePropertiesSchema>;
 export type SceneNodeInput              = z.infer<typeof sceneNodeSchema>;
 export type SceneInput                  = z.infer<typeof sceneSchema>;
 export type ProjectInput                = z.infer<typeof projectSchema>;

@@ -20,6 +20,7 @@ The hierarchy of spatial nodes in a scene. Covers both the DB/API layer and the 
 | file_path | TEXT | asset path (avatars, models) |
 | bone_attachment | TEXT | VRM bone name; child is parented to this bone on an ancestor avatar |
 | hidden | INTEGER | 0/1; added in migration 005 |
+| properties | TEXT | Migration 007 (implemented): JSON blob of per-node properties. First use: `blendTransitionTime` on VRM avatar nodes (default 0.5s). Plumbed through shared types/schema, scene-nodes routes, API client `mapNode`, editorStore `NodeRecord`. `PUT /scene-nodes/:nodeId` shallow-merges incoming `properties` into the stored blob (mirrors the scene `runtime_settings` pattern). |
 | components | TEXT | JSON blob of per-kind config (transform, light, camera, etc.) |
 | created_at, updated_at | TEXT | |
 

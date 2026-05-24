@@ -159,8 +159,12 @@ export class SignalGraph {
     if ((config as Record<string, unknown> | null)?.enabled === false) return
 
     const inputs: Record<string, unknown> = {}
+    const cfgRec = (config ?? {}) as Record<string, unknown>
     for (const p of node.def.inputPorts) {
-      if (p.kind === 'value')     inputs[p.name] = this._pullValue(toNodeId, p.name)
+      if (p.kind === 'value') {
+        const pulled = this._pullValue(toNodeId, p.name)
+        inputs[p.name] = pulled !== undefined ? pulled : cfgRec[p.name]
+      }
       else if (p.kind === 'list') inputs[p.name] = this._pullList(toNodeId, p.name)
       else                        inputs[p.name] = node.lastInputs.get(p.name)
     }
@@ -198,14 +202,18 @@ export class SignalGraph {
     }
 
     const inputs: Record<string, unknown> = {}
+    const srcCfg = (this._getConfig(fromId) ?? {}) as Record<string, unknown>
     for (const p of srcNode.def.inputPorts) {
-      if (p.kind === 'value')     inputs[p.name] = this._pullValue(fromId, p.name)
+      if (p.kind === 'value') {
+        const pulled = this._pullValue(fromId, p.name)
+        inputs[p.name] = pulled !== undefined ? pulled : srcCfg[p.name]
+      }
       else if (p.kind === 'list') inputs[p.name] = this._pullList(fromId, p.name)
       else                        inputs[p.name] = srcNode.lastInputs.get(p.name)
     }
 
     let result: Record<string, unknown>
-    try { result = srcNode.def.execute(inputs, this._getConfig(fromId), ctx) }
+    try { result = srcNode.def.execute(inputs, srcCfg, ctx) }
     catch (err) { console.error(`[SignalGraph pull] ${fromId} (${srcNode.kind}):`, err); return undefined }
 
     const val = result[fromPort]

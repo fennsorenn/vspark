@@ -336,7 +336,15 @@ export class MicCapture {
   }
 
   static async getDevices(): Promise<MediaDeviceInfo[]> {
-    await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null)
+    // Probe getUserMedia so the browser surfaces a permission prompt and the
+    // subsequent enumerateDevices() call returns labelled devices. Release the
+    // probe stream immediately — we only need the prompt side-effect.
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true })
+      probe.getTracks().forEach(t => t.stop())
+    } catch (e) {
+      console.warn('[MicCapture.getDevices] mic probe failed:', e)
+    }
     const devices = await navigator.mediaDevices.enumerateDevices()
     return devices.filter(d => d.kind === 'audioinput')
   }

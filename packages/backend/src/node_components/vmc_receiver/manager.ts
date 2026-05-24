@@ -296,6 +296,10 @@ export class VmcManager {
               info.trackingActive = nowTracking;
               console.log(`[VMC] Tracking ${nowTracking ? 'ACTIVE' : 'LOST'} (component ${componentId})`);
               this.ws.broadcast('vmc_tracking_state', { componentId, tracking: nowTracking });
+              // Drop our bus slot on tracking loss so the merge falls back to other
+              // producers (or the additive-identity fallback frame if we were the
+              // only one). Resume is automatic — the next publishBones re-creates it.
+              if (!nowTracking) broadcastBus.removeComponent(componentId);
             }
           }
           info.prevBodyArgs = cur.slice();

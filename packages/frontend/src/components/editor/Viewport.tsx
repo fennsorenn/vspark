@@ -1306,33 +1306,36 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
       }
     }
 
-    const vc = vmcCompRef.current
-    const cfg = vc?.config as Record<string, unknown> | undefined
-    const poseTimeoutMs = ((cfg?.poseTimeout as number | undefined) ?? 2) * 1000
-    const lastPoseTime  = vc ? getVmcPoseTime(node.id) : null
-    const pose          = vc ? getVmcPose(node.id) : null
-    const trackingLost  = vc ? useEditorStore.getState().vmcTracking[vc.id] === false : false
-    const poseBlendMode = vc ? getVmcPoseBlendMode(node.id) : 'override'
-    // In additive mode the merged broadcast pose is meant to let the animation
-    // clip show through (e.g. on tracking loss the bus publishes identity-ish
-    // values with mode=additive). We treat this as "broadcast contributes
-    // nothing on top of the animation" — the simplest interpretation that
-    // matches the "animation shows through again" intent.
-    const poseActive    = poseBlendMode === 'override'
-                          && !trackingLost
-                          && pose != null
+    // Pose gating is now driven by the bus, not by component presence.
+    // The bus emits a merged frame whenever any producer publishes; when all
+    // producers drop out it emits a single fallback frame with empty bones +
+    // mode=additive, which trips `poseActive` off and the avatar ramps back
+    // to pure animation. The mode flag selects composition (see Step 2):
+    //   override → broadcast replaces animation
+    //   additive → broadcast quats multiply onto animation quats
+    //
+    // poseTimeout: client-side safety net for missed transition messages
+    // (e.g. WS reconnect mid-deactivation). Once the bus-driven transition
+    // flow has proven robust in production, this can likely be removed.
+    const POSE_TIMEOUT_MS = 2000
+    const lastPoseTime  = getVmcPoseTime(node.id)
+    const pose          = getVmcPose(node.id)
+    const poseMode      = getVmcPoseBlendMode(node.id)
+    const poseActive    = pose != null
+                          && Object.keys(pose).length > 0
                           && lastPoseTime != null
-                          && (Date.now() - lastPoseTime) < poseTimeoutMs
+                          && (Date.now() - lastPoseTime) < POSE_TIMEOUT_MS
 
-    // Transition detection: reset filters when VMC goes inactive.
+    // Transition detection: reset filters when broadcast pose goes inactive.
     if (!poseActive && poseWasActiveRef.current) {
       boneFiltersRef.current.reset()
       vrm?.humanoid.resetNormalizedPose()
     }
     poseWasActiveRef.current = poseActive
 
-    // Ramp blend weight: 0 = pure animation, 1 = pure VMC.
-    const blendTime = Math.max(0, (cfg?.blendTime as number | undefined) ?? 0.3)
+    // Ramp blend weight: 0 = pure animation, 1 = pure broadcast pose.
+    // Configured per-avatar via the VRM node's `blendTransitionTime` property.
+    const blendTime = Math.max(0, node.properties?.blendTransitionTime ?? 0.5)
     const BLEND_SPEED = blendTime > 0 ? 1 / blendTime : Infinity
     const targetWeight = poseActive ? 1 : 0
     const w = blendWeightRef.current
@@ -1347,9 +1350,9 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
       vrmMixerRef.current?.update(delta)
     }
 
-    // ── Step 2: VMC blend (skipped entirely when blend === 0) ───────────────────
+    // ── Step 2: broadcast pose composition (skipped entirely when blend === 0) ──
     if (blend > 0 && pose && vrm) {
-      // Build filtered VMC normalized pose.
+      // Build filtered broadcast normalized pose.
       const normalizedPose: VRMPose = {}
       const filters = boneFiltersRef.current
       for (const [boneName, q] of Object.entries(pose)) {
@@ -1358,29 +1361,80 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
         normalizedPose[boneName as VRMHumanBoneName] = { rotation: [s.x, s.y, s.z, s.w] }
       }
 
-      // Arm position calibration (client-side, requires world positions).
-      const calib = (cfg?.calibration ?? DEFAULT_CALIBRATION) as VmcCalibration
-      for (const side of ['left', 'right'] as const) {
-        const armCalib = calib[side]
-        if (armCalib.scale === 1 && armCalib.offset[0] === 0 && armCalib.offset[1] === 0 && armCalib.offset[2] === 0) continue
-        const upperArmName = (side === 'left' ? 'leftUpperArm' : 'rightUpperArm') as VRMHumanBoneName
-        const handName     = (side === 'left' ? 'leftHand'     : 'rightHand')     as VRMHumanBoneName
-        const upperArmBone = vrm.humanoid.getRawBoneNode(upperArmName)
-        const handBone     = vrm.humanoid.getRawBoneNode(handName)
-        if (!upperArmBone || !handBone) continue
-        upperArmBone.getWorldPosition(_shoulderWorld.current)
-        handBone.getWorldPosition(_wristWorld.current)
-        applyArmCalib(_wristWorld.current, _shoulderWorld.current, armCalib, _correctedWrist.current)
-        const rot = upperArmNormRotFromTarget(_correctedWrist.current, upperArmBone, side === 'right')
-        normalizedPose[upperArmName] = { rotation: [rot.x, rot.y, rot.z, rot.w] }
+      // Arm calibration writes absolute rotations from world-space targets, which
+      // only makes sense when broadcast replaces animation. Skip in additive mode.
+      if (poseMode === 'override') {
+        const vmcCfg = vmcCompRef.current?.config as Record<string, unknown> | undefined
+        const calib = (vmcCfg?.calibration ?? DEFAULT_CALIBRATION) as VmcCalibration
+        for (const side of ['left', 'right'] as const) {
+          const armCalib = calib[side]
+          if (armCalib.scale === 1 && armCalib.offset[0] === 0 && armCalib.offset[1] === 0 && armCalib.offset[2] === 0) continue
+          const upperArmName = (side === 'left' ? 'leftUpperArm' : 'rightUpperArm') as VRMHumanBoneName
+          const handName     = (side === 'left' ? 'leftHand'     : 'rightHand')     as VRMHumanBoneName
+          const upperArmBone = vrm.humanoid.getRawBoneNode(upperArmName)
+          const handBone     = vrm.humanoid.getRawBoneNode(handName)
+          if (!upperArmBone || !handBone) continue
+          upperArmBone.getWorldPosition(_shoulderWorld.current)
+          handBone.getWorldPosition(_wristWorld.current)
+          applyArmCalib(_wristWorld.current, _shoulderWorld.current, armCalib, _correctedWrist.current)
+          const rot = upperArmNormRotFromTarget(_correctedWrist.current, upperArmBone, side === 'right')
+          normalizedPose[upperArmName] = { rotation: [rot.x, rot.y, rot.z, rot.w] }
+        }
       }
 
-      if (blend >= 1) {
-        // Pure VMC — skip the per-bone slerp.
+      if (poseMode === 'additive') {
+        // Additive: stack the broadcast on top of the animation.
+        //
+        // The broadcast pose is in normalized humanoid space; we need it in
+        // each bone's raw local space to compose with the anim's raw quats.
+        // We extract the per-bone raw delta in two passes:
+        //
+        //   1. Save the anim raw quats for all bones.
+        //   2. Reset normalized pose to identity + update → bones now hold
+        //      their *rest* raw quaternions. Save these as restRawQ per
+        //      broadcast bone.
+        //   3. Apply the broadcast as normalized pose + update → bones hold
+        //      (rest_raw ∘ broadcast_delta_raw). The delta is
+        //      restRawQ⁻¹ * bone.quaternion.
+        //   4. For each broadcast bone: bone.quaternion = animQ * delta,
+        //      slerped from animQ by `blend`. Restore other bones to animQ.
+        const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[]
+        const animQuats: Array<[VRMHumanBoneName, THREE.Object3D, THREE.Quaternion]> = []
+        for (const name of allBones) {
+          const bone = vrm.humanoid.getRawBoneNode(name)
+          if (bone) animQuats.push([name, bone, bone.quaternion.clone()])
+        }
+        const broadcastSet = new Set(Object.keys(normalizedPose) as VRMHumanBoneName[])
+
+        // Pass A: rest raw quats for the broadcast bones.
+        vrm.humanoid.resetNormalizedPose()
+        ;(vrm.humanoid as unknown as { update?: () => void }).update?.()
+        const restRaw = new Map<VRMHumanBoneName, THREE.Quaternion>()
+        for (const [name, bone] of animQuats) {
+          if (broadcastSet.has(name)) restRaw.set(name, bone.quaternion.clone())
+        }
+
+        // Pass B: apply the broadcast, read posed raw quats, compute delta.
+        vrm.humanoid.setNormalizedPose(normalizedPose)
+        ;(vrm.humanoid as unknown as { update?: () => void }).update?.()
+
+        for (const [name, bone, animQ] of animQuats) {
+          if (broadcastSet.has(name)) {
+            const restQ  = restRaw.get(name)!
+            const posedQ = bone.quaternion              // (rest * delta)
+            const deltaQ = restQ.clone().invert().multiply(posedQ)
+            const finalQ = animQ.clone().multiply(deltaQ)
+            bone.quaternion.copy(blend >= 1 ? finalQ : animQ.clone().slerp(finalQ, blend))
+          } else {
+            bone.quaternion.copy(animQ)
+          }
+        }
+      } else if (blend >= 1) {
+        // Override at full weight — replace animation.
         vrm.humanoid.setNormalizedPose(normalizedPose)
         ;(vrm.humanoid as unknown as { update?: () => void }).update?.()
       } else {
-        // Blend — save animation raw quaternions, apply VMC, slerp back by (1-blend).
+        // Override mid-transition: save animation quats, apply pose, slerp back by (1-blend).
         const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[]
         const animQuats: Array<[THREE.Object3D, THREE.Quaternion]> = []
         for (const name of allBones) {
@@ -1403,11 +1457,12 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
 
 
       // Pre-expressionManager.update() pass: drive expression preset names via setValue.
-      // Runs whenever a blendshape-driving component is active (lipsync, face tracking, VMC).
+      // Whatever the bus has most recently emitted is authoritative — producers that
+      // go inactive cause the bus to emit an empty blendshapes record, which is a
+      // safe no-op here.
       // Morph-target names (Fcl_*, etc.) are deferred to after update() so they
       // aren't overwritten when expressionManager applies its tracked clip values.
-      const bsActive = lipsyncCompRef.current != null || vmcCompRef.current != null
-      const bs = bsActive ? getVmcBlendshapes(node.id) : null
+      const bs = getVmcBlendshapes(node.id) ?? null
       if (bs && vrm.expressionManager) {
         const morphMap = morphMapRef.current
         for (const [name, value] of Object.entries(bs)) {
@@ -1509,16 +1564,14 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
 
       // Post-expressionManager.update() pass: write morph targets directly.
       // expressionManager.update() has already run, so these won't be overwritten.
-      if (bsActive) {
-        const bs2 = getVmcBlendshapes(node.id)
-        if (bs2) {
-          const morphMap = morphMapRef.current
-          for (const [name, value] of Object.entries(bs2)) {
-            const targets = morphMap.get(name)
-            if (targets) {
-              for (const { mesh, index } of targets) {
-                if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = value
-              }
+      const bs2 = getVmcBlendshapes(node.id)
+      if (bs2) {
+        const morphMap = morphMapRef.current
+        for (const [name, value] of Object.entries(bs2)) {
+          const targets = morphMap.get(name)
+          if (targets) {
+            for (const { mesh, index } of targets) {
+              if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = value
             }
           }
         }

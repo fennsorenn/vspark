@@ -74,7 +74,9 @@ export class BreathingManager {
     const nodeDef    = descriptor?.nodes.find(n => n.id === nodeId)
     const defaults   = nodeDef?.defaultConfig ?? {}
     const overrides  = ((cfg.nodeConfig as Record<string, unknown> | undefined)?.[nodeId] ?? {}) as Record<string, unknown>
-    return { ...defaults, ...overrides }
+    // _componentConfig is consumed by `component_config` nodes to resolve dotted
+    // field paths against the live component config.
+    return { ...defaults, ...overrides, _componentConfig: cfg }
   }
 
   private _persistNodeState(componentId: string, nodeId: string, state: unknown): void {

@@ -10,6 +10,12 @@ export interface ApiAnimationState {
 
 export type { AssetFile, ComponentKindMeta, CameraEffectRecord }
 
+/** Per-node free-form properties (mirror of backend `scene_nodes.properties`). */
+export interface NodeProperties {
+  /** VRM avatar: seconds to ramp between override and additive on bus mode flip. */
+  blendTransitionTime?: number
+}
+
 export interface NodeRecord {
   id: string
   sceneId: string
@@ -19,6 +25,7 @@ export interface NodeRecord {
   kind: string
   filePath?: string | null
   components: Record<string, unknown>
+  properties?: NodeProperties
   hidden?: boolean
 }
 
