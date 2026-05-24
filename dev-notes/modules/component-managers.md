@@ -38,6 +38,10 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
 
 **Tracking detection**: Frame-to-frame delta compared to a threshold; sets `vmcTracking` flag broadcast over WS.
 
+**Tracking-loss → bus removal** (implemented): on the `nowTracking === false` transition the manager calls `broadcastBus.removeComponent(componentId)`, which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic — the next `publishBones` re-creates the per-component slot in the bus's nodeMap.
+
+**Review-later**: `poseTimeout` on vmc_receiver is largely redundant now that tracking-loss drives an immediate bus-side additive transition. Kept on the frontend (`Viewport.tsx`) as a client-side safety net for missed WS transition messages; revisit once the new flow proves robust in practice.
+
 **Interceptors**: `OnPoseBroadcast` nodes from other components (breathing) are registered into the VMC graph's interceptor chain. Cleanup callbacks are stored per receiver so they're removed on stop.
 
 **VRM skeleton loading**: On start, parses the node's `.vrm`/`.glb` file to extract the humanoid bone hierarchy (used by `arm_ik_calibration` for forward kinematics). See `vrm/skeleton.ts`.
@@ -48,19 +52,21 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
 
 ## BreathingManager — `breathing/manager.ts`
 
-Procedural sine-wave breathing applied as a pose interceptor.
+Procedural sine-wave breathing published as an additive pose source through the broadcast bus.
 
-**Input**: Intercepts `OnPoseBroadcast` events from the VMC pipeline  
-**Output**: Modified pose re-emitted through `PoseInterceptorBroadcast`
+**Input**: Internal `time` / `sine_wave` ticks (no external event source)  
+**Output**: `vmc_pose` (additive blend mode) via `pose_broadcast` through `broadcastBus`
 
-**Graph descriptor**: `makeBreathingGraphDescriptor(componentId)` wires:
-```
-on_pose_broadcast → time → sine_wave (chest, phase 0°)
-                         → sine_wave (spine, phase 30°)
-                → euler_to_quaternion (×2) → pose_apply_bone (×2) → pose_interceptor_broadcast
-```
+**6-bone topology**:
+- `chest` (+pitch) and `upperChest` (−pitch) — additive breathing tilt; head intentionally stays put.
+- `leftShoulder` / `rightShoulder` lift on inhale.
+- `leftUpperArm` / `rightUpperArm` counter-rotate by the negated shoulder amplitude so the arm visually stays in place while the shoulder lifts.
 
-Config controls `_chest_bone`, `_spine_bone`, and blend `_mode` (multiply/add).
+**Configurable amplitudes** (`component_config` nodes): `chestAmplitude`, `shoulderAmplitude`. Both flow through a single `multiply(-1)` node to produce the counter-rotated value used by the upperChest and upper-arm branches.
+
+**Graph descriptor** (`breathing/graph.ts`): the older "fake `component_config` literal helpers" for bone names / mode / priority / blend mode have been dropped — those now live as per-port `defaultConfig` on the consuming nodes (see the engine auto-fallback note below). Only the two amplitude `component_config` nodes remain, because they need to track live user edits.
+
+**Live config plumbing**: the manager injects `_componentConfig` into the graph runtime so the `component_config` nodes can resolve their dotted field paths against the current row.
 
 ---
 
@@ -135,6 +141,19 @@ REST-driven driver for VRM avatars: external clients PUT an animation queue or b
 **Limitations**: state is in-memory only and does not survive a backend restart (no `_nodeState` namespace); the queue/blendshapes have to be re-PUT by the client.
 
 ---
+
+## BroadcastBus — `broadcast/bus.ts`
+
+Shared sink that merges per-component pose/blendshape outputs into the single `vmc_pose` / `vmc_blendshapes` WS streams. Each sceneNode owns a `nodeMap` of `componentId → latest contribution`; the bus combines entries and rebroadcasts.
+
+**Fallback frame on last-producer removal** (`removeComponent`, implemented):
+- Removes the component's entry from its sceneNode's `nodeMap`.
+- If the `nodeMap` is now empty, emits one final fallback frame before dropping the empty entry:
+  - `vmc_pose` with empty `bones` and `animationBlendMode: 'additive'`
+  - `vmc_blendshapes` with empty `{}` record
+- The frontend Viewport sees the empty-bones frame, trips off pose application, and ramps back to pure animation. While *any* producer is still active (e.g. breathing) the fallback does not fire and other producers continue uninterrupted.
+
+**Producer requirement**: any source publishing into the bus (via `pose_broadcast` / `blendshapes_broadcast`) must supply a `componentId` so its contribution can be slotted and later cleared. The mediapipe tracker graph was previously missing this wiring (silent no-op); fixed by adding a `comp_id` node feeding both broadcast nodes in `mediapipe_tracker/graph.ts`.
 
 ## Adding a new manager
 

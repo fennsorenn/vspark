@@ -150,6 +150,7 @@ PUT /api/config       writes config.json; channel change triggers checkForUpdate
 | `003_camera_effects.sql` | `camera_effects` table |
 | `004_bone_attachment.sql` | `scene_nodes.bone_attachment` column (VRM bone name) |
 | `005_node_hidden.sql` | `scene_nodes.hidden` column |
+| `007_scene_node_properties.sql` | `scene_nodes.properties` JSON column — per-node properties bag; first use `blendTransitionTime` on VRM avatar nodes. `PUT /scene-nodes/:nodeId` shallow-merges incoming `properties` (mirrors the scene `runtime_settings` pattern); `POST` accepts the bag at insert time. |
 
 All tables carry `project_id` FK for strict workspace isolation. The `node_components.config` column stores component config JSON including the `_nodeState` sub-key for graph persistence.
 

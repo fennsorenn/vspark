@@ -89,6 +89,23 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 3. Advance timeline animations
 4. Simulate particles
 
+**Pose gate (current rules, implemented)**: the `vmcCompRef` and tracking-lost gates were dropped. The broadcast pose is applied whenever `pose != null && Object.keys(pose).length > 0 && fresh`. The bus's fallback frame (empty `bones`) trips application off — that is the sole "stop applying" signal.
+
+`blendMode` no longer gates whether the pose is applied; it selects the composition strategy inside Step 2:
+
+- **override**: broadcast pose fully replaces the animation result (existing logic).
+- **additive**: layered on top of animation per-bone. For each bone present in the broadcast pose:
+  1. Read the bone's *rest raw* quaternion captured at avatar load (`restRawQ`).
+  2. Treat the broadcast quaternion as the *posed raw* (`posedRawQ`).
+  3. Extract the source-rig delta: `delta = restRawQ⁻¹ * posedRawQ`.
+  4. Compose: `bone.quaternion = animQ * delta`, then slerp from `animQ` toward this result by `blend`.
+
+  Bones absent from the broadcast pose are restored to `animQ`. This is how breathing (and any future additive producer) layers cleanly on top of an FBX-driven animation.
+
+`blendTransitionTime` is now read from the VRM avatar node's `properties.blendTransitionTime` (default 0.5s) and controls the ramp between blend modes (and between "apply" and "don't apply" when the bus drops the last producer).
+
+`poseTimeout` is retained as a client-side safety net for missed WS transition messages — flagged for review once the new flow proves robust. See [component-managers.md](component-managers.md) BroadcastBus section.
+
 **Animation retargeting**: FBX/BVH bone names → VRM bone names. Supports Mixamo and UE4 rig conventions. World-space delta retargeting (not local-space — see memory `feedback_fbx_retargeting.md`).
 
 **Calibration**: `VmcCalibration` data (body offsets, arm IK params) is applied as post-processing on incoming poses before setting VRM bones.
@@ -122,6 +139,11 @@ Inspector for the selected node. Sections:
 - **Camera effects**: add/configure post-processing per camera
 - **Particle emitter**: emitter config
 - **FBX debug**: toggle debug model visibility
+
+**Blend-time relocation + breathing UI (implemented)**:
+- `blendTime` removed from the vmc_receiver component UI.
+- New **Blend transition** input on VRM avatar nodes writes to `node.properties.blendTransitionTime` (persisted via the `scene_nodes.properties` JSON column, migration 007). Default 0.5s. Controls the Viewport ramp between blend modes and between apply/don't-apply.
+- New `BreathingProps` panel for breathing components: **Chest amplitude** + **Shoulder lift** fields, writing to component config `chestAmplitude` / `shoulderAmplitude`. See [component-managers.md](component-managers.md) BreathingManager.
 
 ### `AssetManager.tsx`
 File upload and asset library. Sends base64-encoded files to `POST /api/projects/:id/assets`.

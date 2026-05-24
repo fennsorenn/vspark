@@ -34,7 +34,8 @@ packages/
 | Update routes | Implemented | `routes/update.ts`, `routes/config.ts` — GitHub Releases update check/download/apply, config.json channel preference |
 | SQLite persistence | Implemented | `db/` — `node-sqlite3-wasm` (WASM, no native addon); `WasmDb` adapter; `initDb()` async |
 | Signal graph engine | Implemented | `signal/engine.ts` — typed ports, value cache, cycle detection |
-| Signal node registry | Implemented | `signal/registry.ts` — 32 node kinds (incl. mediapipe converters + IK + utility) |
+| Signal node registry | Implemented | `signal/registry.ts` — 33 node kinds (incl. mediapipe converters + IK + utility; added `multiply`) |
+| Engine value-input auto-fallback to `config.<port>` | Implemented | `signal/engine.ts` — unconnected value-input ports automatically resolve to `defaultConfig.<portName>`; nodes no longer need per-port `cfg?.X` boilerplate |
 | VMC receiver manager | Implemented | `node_components/vmc_receiver/` |
 | Breathing manager | Implemented | `node_components/breathing/` |
 | Lipsync manager | Implemented | `node_components/lipsync/` |
@@ -42,6 +43,9 @@ packages/
 | API controller manager | Implemented | `node_components/api_controller/` — REST-driven animation queue + blendshapes; first component with a public REST control surface |
 | VRM skeleton parsing | Implemented | `vrm/skeleton.ts` — GLB/VRM 0.x + 1.x |
 | WebSocket sync | Implemented | `ws/index.ts` — broadcast bus |
+| Broadcast bus lifecycle refactor | Implemented | `broadcast/bus.ts` — final-fallback frame (empty bones + `animationBlendMode: 'additive'`, empty blendshapes) on last-producer removal; vmc_receiver tracking-loss now calls `removeComponent`; mediapipe `pose_broadcast`/`blendshapes_broadcast` now wired with `componentId`. See [component-managers.md](modules/component-managers.md) and [frontend.md](modules/frontend.md). |
+| `scene_nodes.properties` JSON column | Implemented | Migration 007; per-node properties bag, first use `blendTransitionTime` on VRM avatar nodes; PUT shallow-merges (mirrors scene `runtime_settings`) |
+| Breathing component (6-bone topology) | Implemented | `node_components/breathing/` — drives chest/upperChest + L/R shoulder lift with counter-rotated upper arms; configurable `chestAmplitude` + `shoulderAmplitude` via `component_config` nodes; remaining literals collapsed into per-port `defaultConfig` |
 
 ### Frontend — `packages/frontend/src/`
 
@@ -50,6 +54,8 @@ packages/
 | Router + App shell | Implemented | `App.tsx` — 4 routes |
 | Zustand store | Implemented | `store/editorStore.ts` — includes update state slice (updateAvailable, updateInfo, pendingReload) |
 | 3D Viewport | Implemented | `components/editor/Viewport.tsx` — R3F, pose application, post-processing, particles |
+| Viewport pose-gate rewrite | Implemented | Drops `vmcCompRef`/tracking-lost gates; pose applied whenever `pose != null && Object.keys(pose).length > 0 && fresh`; `blendMode` now selects composition strategy (override = replace anim; additive = `animQ * (restRawQ⁻¹ * posedRawQ)`); ramps over per-avatar `blendTransitionTime` (default 0.5s) |
+| PropertiesPanel: blend-time relocation + breathing UI | Implemented | `blendTime` removed from vmc_receiver UI; `blendTransitionTime` lives on the VRM avatar node's `properties`; new `BreathingProps` panel (Chest amplitude + Shoulder lift) |
 | Scene graph panel | Implemented | `components/editor/SceneGraph.tsx` |
 | Properties panel | Implemented | `components/editor/PropertiesPanel.tsx` |
 | Asset manager | Implemented | `components/editor/AssetManager.tsx` |

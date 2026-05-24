@@ -64,7 +64,8 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   readonly: true,
   nodes: [
     // ── Infrastructure ───────────────────────────────────────────────────────
-    { id: 'scene_entity', kind: 'scene_entity', position: { x: 1400, y: 0 } },
+    { id: 'scene_entity', kind: 'scene_entity', position: { x: 1400, y:   0 } },
+    { id: 'comp_id',      kind: 'component_id', position: { x: 1400, y:  80 } },
     // ── Entry point ──────────────────────────────────────────────────────────
     { id: 'mp_source', kind: 'mediapipe_source', position: { x: -120, y: 0 } },
 
@@ -144,6 +145,7 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     { fromNodeId: 'unpack_face',  fromPort: 'value',       toNodeId: 'face_to_bs', toPort: 'face',        kind: 'value' },
     { fromNodeId: 'face_to_bs',   fromPort: 'blendshapes', toNodeId: 'bs_out',     toPort: 'blendshapes', kind: 'value' },
     { fromNodeId: 'scene_entity', fromPort: 'nodeId',      toNodeId: 'bs_out',     toPort: 'nodeId',      kind: 'value' },
+    { fromNodeId: 'comp_id',      fromPort: 'id',          toNodeId: 'bs_out',     toPort: 'componentId', kind: 'value' },
 
     // ── Pose: trigger → pose_out; value pulled by torso/head + arms ──────────
     { fromNodeId: 'unpack_pose',   fromPort: 'trigger', toNodeId: 'pose_out',         toPort: 'trigger' },
@@ -171,7 +173,8 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     // Hand-height comparator feeds the mirror-source decision: higher hand wins.
     { fromNodeId: 'unpack_pose', fromPort: 'value', toNodeId: 'hand_height',   toPort: 'pose', kind: 'value' },
     { fromNodeId: 'hand_height', fromPort: 'side',  toNodeId: 'finger_calib',  toPort: 'mirrorSource', kind: 'value' },
-    { fromNodeId: 'scene_entity',    fromPort: 'nodeId', toNodeId: 'pose_out',     toPort: 'nodeId', kind: 'value' },
+    { fromNodeId: 'scene_entity',    fromPort: 'nodeId', toNodeId: 'pose_out',     toPort: 'nodeId',      kind: 'value' },
+    { fromNodeId: 'comp_id',         fromPort: 'id',     toNodeId: 'pose_out',     toPort: 'componentId', kind: 'value' },
 
     // ── IK targets: triggered by pose; pulls pose + hand landmark lists ───────
     { fromNodeId: 'unpack_pose',   fromPort: 'trigger', toNodeId: 'ik_out',     toPort: 'trigger' },

@@ -19,6 +19,7 @@ import { Clock }                     from './nodes/clock.js'
 import { Time }                      from './nodes/time.js'
 import { SineWave }                  from './nodes/sine_wave.js'
 import { EulerToQuaternion }         from './nodes/euler_to_quaternion.js'
+import { Multiply }                  from './nodes/multiply.js'
 import { PoseApplyBone }             from './nodes/pose_apply_bone.js'
 import { PoseMerge }                 from './nodes/pose_merge.js'
 // Lipsync nodes
@@ -64,6 +65,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   Time,
   SineWave,
   EulerToQuaternion,
+  Multiply,
   PoseApplyBone,
   PoseMerge,
   // Lipsync nodes

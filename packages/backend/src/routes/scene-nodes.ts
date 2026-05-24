@@ -39,13 +39,13 @@ router.get('/scenes/:sceneId/nodes', (req, res) => {
  *       400: { description: Missing name or kind, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
 router.post('/scenes/:sceneId/nodes', (req, res) => {
-  const { name, parentId, boneAttachment, kind, filePath, components } = req.body;
+  const { name, parentId, boneAttachment, kind, filePath, components, properties } = req.body;
   if (!name || !kind) return res.status(400).json({ ok: false, error: { status: 400, message: 'name and kind are required', code: 'VALIDATION_ERROR' } });
   const id = randomUUID();
   const sceneId = req.params.sceneId;
-  getDb().prepare('INSERT INTO scene_nodes (id, scene_id, parent_id, bone_attachment, name, kind, file_path, components) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, sceneId, parentId ?? null, boneAttachment ?? null, name, kind, filePath ?? null, JSON.stringify(components ?? {}));
-  const node = { id, sceneId, name, kind, parentId: parentId ?? null, boneAttachment: boneAttachment ?? null, filePath: filePath ?? null, components: components ?? {} };
+  getDb().prepare('INSERT INTO scene_nodes (id, scene_id, parent_id, bone_attachment, name, kind, file_path, components, properties) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, sceneId, parentId ?? null, boneAttachment ?? null, name, kind, filePath ?? null, JSON.stringify(components ?? {}), JSON.stringify(properties ?? {}));
+  const node = { id, sceneId, name, kind, parentId: parentId ?? null, boneAttachment: boneAttachment ?? null, filePath: filePath ?? null, components: components ?? {}, properties: properties ?? {} };
   _ws?.broadcast('node_added', node);
   res.status(201).json({ ok: true, data: node });
 });
@@ -96,6 +96,18 @@ router.put('/scene-nodes/:id', (req, res) => {
       .run(req.body.hidden ? 1 : 0, req.params.id);
   }
 
+  // Properties: shallow-merged JSON column.
+  let mergedProperties: Record<string, unknown> | undefined;
+  if (req.body.properties != null && typeof req.body.properties === 'object') {
+    const row = db.prepare('SELECT properties FROM scene_nodes WHERE id = ?').get(req.params.id) as
+      | { properties: string }
+      | undefined;
+    const current = row ? (JSON.parse(row.properties || '{}') as Record<string, unknown>) : {};
+    mergedProperties = { ...current, ...(req.body.properties as Record<string, unknown>) };
+    db.prepare(`UPDATE scene_nodes SET properties = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(JSON.stringify(mergedProperties), req.params.id);
+  }
+
   // Broadcast to all other connected clients (viewer pages, etc.)
   const patch: Record<string, unknown> = { id: req.params.id };
   if (name      != null) patch.name       = name;
@@ -105,6 +117,7 @@ router.put('/scene-nodes/:id', (req, res) => {
   if (components != null) patch.components = components;
   if ('boneAttachment' in req.body) patch.boneAttachment = req.body.boneAttachment ?? null;
   if ('hidden' in req.body) patch.hidden = Boolean(req.body.hidden);
+  if (mergedProperties != null) patch.properties = mergedProperties;
   _ws?.broadcast('node_updated', patch);
 
   res.json({ ok: true, data: { id: req.params.id } });

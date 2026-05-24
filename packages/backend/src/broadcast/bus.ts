@@ -73,13 +73,37 @@ export class BroadcastBus {
     slot.blendshapes = { blendshapes }
   }
 
-  /** Drop all slots belonging to a component (call when the component is deleted/recreated). */
+  /** Drop all slots belonging to a component (call when the component is deleted/recreated,
+   *  or when a producer like vmc_receiver loses tracking and should fall out of the merge).
+   *
+   *  When removing a slot makes its parent nodeMap empty, the bus emits one final fallback
+   *  frame on that sceneNode — empty bones with `animationBlendMode: 'additive'` and empty
+   *  blendshapes — so the frontend ramps back to pure animation rather than holding the
+   *  last live frame. The empty nodeMap entry is then dropped. */
   removeComponent(componentId: string): void {
     for (const sceneMap of this._slots.values()) {
-      for (const nodeMap of sceneMap.values()) {
+      for (const [sceneNodeId, nodeMap] of sceneMap) {
+        if (!nodeMap.has(componentId)) continue
         nodeMap.delete(componentId)
+        if (nodeMap.size === 0) {
+          this._emitFallback(sceneNodeId)
+          sceneMap.delete(sceneNodeId)
+          this._pendingModes.delete(sceneNodeId)
+        }
       }
     }
+  }
+
+  private _emitFallback(sceneNodeId: string): void {
+    this._ws?.broadcast('vmc_pose', {
+      nodeId:             sceneNodeId,
+      bones:              {},
+      animationBlendMode: 'additive' as AnimationBlendMode,
+    })
+    this._ws?.broadcast('vmc_blendshapes', {
+      nodeId:      sceneNodeId,
+      blendshapes: {},
+    })
   }
 
   /**
