@@ -7,6 +7,7 @@ import { useEditorStore } from '../../store/editorStore'
 import { api, fireSignalEvent, updateScene } from '../../api/client'
 import type { NodeRecord, NodeComponent } from '../../store/editorStore'
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore'
+import { ComposeLayerProperties } from './ComposeLayerProperties'
 import type { AssetFile } from '../../api/client'
 import { animRegistry } from '../../animRegistry'
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture'
@@ -1607,7 +1608,8 @@ export function PropertiesPanel() {
   const { nodes, selectedNodeId, updateNode: storeUpdateNode, assets, selectedComponentId, nodeComponents,
     fbxDebugVisible, setFbxDebugVisible, vrmExpressionsByNode, vrmMorphTargetsByNode, componentKinds,
     cameraEffects, selectedEffect,
-    scenes, activeSceneId, sceneSelected, updateSceneItem } = useEditorStore()
+    scenes, activeSceneId, sceneSelected, updateSceneItem,
+    composeLayers, selectedComposeLayerId } = useEditorStore()
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation')
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null
@@ -1684,6 +1686,14 @@ export function PropertiesPanel() {
       <div style={{ padding: '14px 16px' }}>{children}</div>
     </div>
   )
+
+  // Compose layer selected — show layer properties.
+  const selectedComposeLayer = selectedComposeLayerId
+    ? composeLayers.find((l) => l.id === selectedComposeLayerId)
+    : null
+  if (selectedComposeLayer) {
+    return panelShell(<ComposeLayerProperties layer={selectedComposeLayer} />)
+  }
 
   // Effect selected — show focused effect panel.
   if (selectedEffect && selectedEffectRecord && selectedEffectNode && selectedEffectKind) {
