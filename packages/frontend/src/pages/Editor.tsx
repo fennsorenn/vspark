@@ -10,12 +10,13 @@ import { PropertiesPanel } from '../components/editor/PropertiesPanel'
 import { AssetManager } from '../components/editor/AssetManager'
 import { SignalGraphCanvas } from '../components/editor/signal/SignalGraphCanvas'
 import { NodePalette } from '../components/editor/signal/NodePalette'
+import { ComposeView } from '../components/editor/ComposeView'
 import type { NodeKindMeta } from '@vspark/shared/signal'
 
 export function Editor() {
   useWsSync()
   const { projectId } = useParams<{ projectId: string }>()
-  const { setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setComponentKinds, setCameraEffects, activeGraphId } = useEditorStore()
+  const { setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setComponentKinds, setCameraEffects, setComposeLayers, activeGraphId, leftTab } = useEditorStore()
   const [kindMeta, setKindMeta] = useState<NodeKindMeta[]>([])
 
   useEffect(() => {
@@ -31,10 +32,11 @@ export function Editor() {
       if (project) setProject(project.id, project.name)
     })
 
-    api.getScenes(projectId).then(async ({ scenes, nodes, nodeComponents, cameraEffects }) => {
+    api.getScenes(projectId).then(async ({ scenes, nodes, nodeComponents, cameraEffects, composeLayers }) => {
       setScenes(scenes)
       setNodeComponents(nodeComponents)
       setCameraEffects(cameraEffects)
+      setComposeLayers(composeLayers)
       if (scenes.length > 0) {
         const firstId = scenes[0].id
         setActiveScene(firstId)
@@ -49,22 +51,25 @@ export function Editor() {
     })
 
     api.getAssets(projectId).then(setAssets).catch(() => {})
-  }, [projectId, setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setCameraEffects])
+  }, [projectId, setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setCameraEffects, setComposeLayers])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0f0f0f' }}>
       <TopBar />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <SceneGraph />
-        {/* Viewport always mounts (keeps 3D scene alive) but is hidden behind the graph canvas */}
+        {/* Viewport always mounts (keeps 3D scene alive) but is hidden when another mode is active */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', inset: 0, visibility: activeGraphId ? 'hidden' : 'visible' }}>
+          <div style={{ position: 'absolute', inset: 0, visibility: (activeGraphId || leftTab === 'compose') ? 'hidden' : 'visible' }}>
             <Viewport />
           </div>
           {activeGraphId && (
             <div style={{ position: 'absolute', inset: 0 }}>
               <SignalGraphCanvas graphId={activeGraphId} kindMeta={kindMeta} />
             </div>
+          )}
+          {!activeGraphId && leftTab === 'compose' && (
+            <ComposeView />
           )}
         </div>
         <PropertiesPanel />

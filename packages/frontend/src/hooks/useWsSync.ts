@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useEditorStore } from '../store/editorStore'
 import type { NodeRecord } from '../store/editorStore'
 import type { CameraEffectRecord } from '../api/client'
+import { mapComposeLayer } from '../api/client'
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore'
 import { setIkTargets } from '../ikTargetStore'
 import type { IkTargetFrame, AnimationBlendMode, ApiAnimationMessage } from '@vspark/shared/types'
@@ -98,6 +99,19 @@ export function useWsSync() {
             })
           } else if (msg.kind === 'camera_effect_removed') {
             useEditorStore.getState().removeCameraEffect(msg.payload.id as string)
+          } else if (msg.kind === 'compose_layer_added') {
+            useEditorStore.getState().addComposeLayer(mapComposeLayer(msg.payload))
+          } else if (msg.kind === 'compose_layer_updated') {
+            const layer = mapComposeLayer(msg.payload)
+            useEditorStore.getState().updateComposeLayerLocal(layer.id, layer)
+          } else if (msg.kind === 'compose_layer_removed') {
+            useEditorStore.getState().removeComposeLayer(msg.payload.id as string)
+          } else if (msg.kind === 'compose_layer_reordered') {
+            const updates = (msg.payload.updates ?? []) as { id: string; sceneOrder: number; cameraOrder: number }[]
+            const store = useEditorStore.getState()
+            for (const u of updates) {
+              store.updateComposeLayerLocal(u.id, { sceneOrder: u.sceneOrder, cameraOrder: u.cameraOrder })
+            }
           } else if (msg.kind === 'server_update') {
             if ((msg.payload as { reloadOnReconnect?: boolean }).reloadOnReconnect) {
               pendingReloadRef.current = true
