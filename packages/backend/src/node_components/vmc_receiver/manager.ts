@@ -1,5 +1,5 @@
-import { createSocket, type Socket } from 'dgram';
 import { BoneRotations, Blendshapes, mkEvent } from '@vspark/shared/signal';
+import { udpSocketPool } from '../../vmc/udp_socket_pool.js';
 import { ARKIT_SHAPES } from '../../signal/nodes/arkit_vrm_mapper.js';
 import type { NormalizedPose, GraphDescriptor } from '@vspark/shared/signal';
 import type { WSSync } from '../../ws/index.js';
@@ -102,7 +102,9 @@ const RHYLIVE_BONES = [
 // ---------- Receiver ----------
 
 interface Receiver {
-  socket: Socket;
+  /** Returned by udpSocketPool.subscribe — drops our listener and closes the
+   *  shared socket if we were the last subscriber on that port. */
+  unsubscribe: () => void;
   port: number;
   lastSeen: number;
   connected: boolean;
@@ -256,15 +258,18 @@ export class VmcManager {
     if (existing?.port === port) return;
     if (existing) this.stopReceiver(componentId);
 
-    const socket = createSocket('udp4');
-    const info: Receiver = { socket, port, lastSeen: 0, connected: false,
-      prevBodyArgs: [], trackingActive: null };
-    this.receivers.set(componentId, info);
-
     const graph = this.createGraph(componentId);
     this.graphs.set(componentId, graph);
 
-    socket.on('message', (buf, rinfo) => {
+    // Listener is captured here so we can store the unsubscribe handle on `info`
+    // before defining the handler — info itself is referenced inside the handler.
+    const info: Receiver = {
+      unsubscribe: () => {},  // replaced after subscribe() returns
+      port, lastSeen: 0, connected: false, prevBodyArgs: [], trackingActive: null,
+    };
+    this.receivers.set(componentId, info);
+
+    const onPacket = (buf: Buffer, rinfo: { address: string; port: number }) => {
       const wasConnected = info.connected;
       info.lastSeen = Date.now();
 
@@ -296,6 +301,10 @@ export class VmcManager {
               info.trackingActive = nowTracking;
               console.log(`[VMC] Tracking ${nowTracking ? 'ACTIVE' : 'LOST'} (component ${componentId})`);
               this.ws.broadcast('vmc_tracking_state', { componentId, tracking: nowTracking });
+              // Drop our bus slot on tracking loss so the merge falls back to other
+              // producers (or the additive-identity fallback frame if we were the
+              // only one). Resume is automatic — the next publishBones re-creates it.
+              if (!nowTracking) broadcastBus.removeComponent(componentId);
             }
           }
           info.prevBodyArgs = cur.slice();
@@ -322,21 +331,17 @@ export class VmcManager {
       if (Object.keys(rawArkit).length > 0) {
         graph.fire('vmc', 'arkit', mkEvent(Blendshapes.fromRecord(rawArkit), ts))
       }
-    });
+    };
 
-    socket.on('error', (err) => {
-      console.error(`[VMC] Socket error on port ${port}:`, err.message);
-    });
-
-    socket.bind(port, '0.0.0.0', () => {
-      console.log(`[VMC] Receiver listening on port ${port} (component ${componentId})`);
+    info.unsubscribe = udpSocketPool.subscribe(port, onPacket, () => {
+      console.log(`[VMC] Receiver attached to port ${port} (component ${componentId})`);
     });
   }
 
   stopReceiver(componentId: string) {
     const info = this.receivers.get(componentId);
     if (!info) return;
-    try { info.socket.close(); } catch { /* already closed */ }
+    info.unsubscribe();
     this.receivers.delete(componentId);
     this.graphs.delete(componentId);
     for (const cleanup of this.interceptorCleanups.get(componentId) ?? []) cleanup();

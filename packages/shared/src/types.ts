@@ -27,6 +27,15 @@ export interface VisibilityComponent {
 
 export type Component = AnimationComponent | TransformComponent | VisibilityComponent;
 
+/** Per-node free-form properties stored in the `scene_nodes.properties` JSON column.
+ *  Kind-specific fields are namespaced on this object; readers should treat unknown
+ *  keys as opaque so different node kinds can carry their own settings. */
+export interface SceneNodeProperties {
+  /** Seconds to ramp between override and additive when the broadcast bus flips
+   *  blend modes for this avatar. Applies to VRM avatar nodes. Default 0.5. */
+  blendTransitionTime?: number;
+}
+
 // A node in a scene tree
 export interface SceneNode {
   id: string;
@@ -36,6 +45,7 @@ export interface SceneNode {
   kind: NodeKind;
   filePath: string | null; // local path to asset file
   components: Record<string, Component>;
+  properties: SceneNodeProperties;
   createdAt: string;
   updatedAt: string;
 }

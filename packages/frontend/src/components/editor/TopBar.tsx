@@ -10,6 +10,7 @@ export function TopBar() {
   const { projectId, projectName, scenes, activeSceneId, setScenes, setActiveScene, setNodes, updateAvailable, setUpdateAvailable } = useEditorStore()
   const [connected, setConnected] = useState(false)
   const [mediaOpen, setMediaOpen] = useState(false)
+  const [mediaMounted, setMediaMounted] = useState(false)
   const [updateOpen, setUpdateOpen] = useState(false)
 
   useEffect(() => {
@@ -139,7 +140,7 @@ export function TopBar() {
             alignItems: 'center',
             gap: 5,
           }}
-          onClick={() => setMediaOpen(v => !v)}
+          onClick={() => { setMediaOpen(v => !v); setMediaMounted(true) }}
           title="Media Inputs (mic / camera)"
         >
           🎤 Media
@@ -173,7 +174,7 @@ export function TopBar() {
         </button>
       </div>
     </div>
-    {mediaOpen && <MediaInputWindow />}
+    {mediaMounted && <MediaInputWindow visible={mediaOpen} />}
     {updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}
     </>
   )

@@ -599,13 +599,12 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
     ...(ARKIT_SHAPES as unknown as string[]),
     ...morphTargets,
   ])].sort()
-  const cfg = (comp.config ?? {}) as { host?: string; port?: number; blendMode?: string; mirror?: boolean; poseTimeout?: number; blendTime?: number; nodeConfig?: Record<string, { enabled?: boolean; mapping?: Record<string, [string, number][]> }> }
+  const cfg = (comp.config ?? {}) as { host?: string; port?: number; blendMode?: string; mirror?: boolean; poseTimeout?: number; nodeConfig?: Record<string, { enabled?: boolean; mapping?: Record<string, [string, number][]> }> }
   const [host, setHost] = useState(cfg.host ?? '0.0.0.0')
   const [port, setPort] = useState(cfg.port ?? 39539)
   const [blendMode, setBlendMode] = useState(cfg.blendMode ?? 'override')
   const [mirror, setMirror] = useState(cfg.mirror ?? false)
   const [poseTimeout, setPoseTimeout] = useState(cfg.poseTimeout ?? 2)
-  const [blendTime, setBlendTime] = useState(cfg.blendTime ?? 0.3)
   const [localIps, setLocalIps] = useState<string[]>([])
 
   // Build mapper config state from stored nodeConfig, filling defaults.
@@ -627,7 +626,6 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
     setBlendMode(cfg.blendMode ?? 'override')
     setMirror(cfg.mirror ?? false)
     setPoseTimeout(cfg.poseTimeout ?? 2)
-    setBlendTime(cfg.blendTime ?? 0.3)
     setMapperConfigs(getMapperConfigs())
 
     // Persist defaults immediately if nodeConfig is absent so the stored config
@@ -731,18 +729,6 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
           style={{ width: 56 }}
           onChange={(v) => setPoseTimeout(Math.max(0.1, v))}
           onBlur={() => save({ poseTimeout })}
-        />
-        <span style={{ fontSize: 11, color: '#555' }}>s</span>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12, color: '#888', width: 72, flexShrink: 0 }}>Blend time</span>
-        <NumInput
-          value={blendTime}
-          step={0.05}
-          style={{ width: 56 }}
-          onChange={(v) => setBlendTime(Math.max(0, v))}
-          onBlur={() => save({ blendTime })}
         />
         <span style={{ fontSize: 11, color: '#555' }}>s</span>
       </div>
@@ -1224,6 +1210,53 @@ function ApiControllerProps({ comp }: { comp: NodeComponent }) {
   )
 }
 
+// ── Breathing component panel ────────────────────────────────────────────────
+
+function BreathingProps({ comp }: { comp: NodeComponent }) {
+  const { updateNodeComponent } = useEditorStore()
+  const cfg = (comp.config ?? {}) as { chestAmplitude?: number; shoulderAmplitude?: number }
+  const [chest,    setChest]    = useState(cfg.chestAmplitude    ?? 0.04)
+  const [shoulder, setShoulder] = useState(cfg.shoulderAmplitude ?? 0.02)
+
+  useEffect(() => {
+    setChest(cfg.chestAmplitude    ?? 0.04)
+    setShoulder(cfg.shoulderAmplitude ?? 0.02)
+  }, [comp.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = (patch: Record<string, unknown>) => {
+    const config = { ...comp.config, ...patch }
+    updateNodeComponent(comp.id, { config })
+    api.updateNodeComponent(comp.id, { config }).catch(() => {})
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}>Chest amplitude</span>
+        <NumInput
+          value={chest}
+          step={0.01}
+          style={{ width: 64 }}
+          onChange={(v) => setChest(Math.max(0, v))}
+          onBlur={() => save({ chestAmplitude: chest })}
+        />
+        <span style={{ fontSize: 11, color: '#555' }}>rad</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}>Shoulder lift</span>
+        <NumInput
+          value={shoulder}
+          step={0.01}
+          style={{ width: 64 }}
+          onChange={(v) => setShoulder(Math.max(0, v))}
+          onBlur={() => save({ shoulderAmplitude: shoulder })}
+        />
+        <span style={{ fontSize: 11, color: '#555' }}>rad</span>
+      </div>
+    </div>
+  )
+}
+
 // ── Component dispatcher ──────────────────────────────────────────────────────
 
 function ComponentProps({ comp }: { comp: NodeComponent }) {
@@ -1232,6 +1265,7 @@ function ComponentProps({ comp }: { comp: NodeComponent }) {
     case 'lipsync_processor': return <LipsyncProcessorProps comp={comp} />
     case 'mediapipe_tracker': return <MediapipeTrackerProps comp={comp} />
     case 'api_controller':    return <ApiControllerProps comp={comp} />
+    case 'breathing':         return <BreathingProps comp={comp} />
     default: return (
       <div style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>
         No configurable properties.
@@ -2326,6 +2360,32 @@ export function PropertiesPanel() {
             </>
           )
         })()}
+
+        {/* Avatar properties — broadcast pose blend, etc. */}
+        {node.kind === 'avatar' && (
+          <>
+            <div style={sectionHeader}>Properties</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: '#888', width: 110, flexShrink: 0 }}>Blend transition</span>
+              <NumInput
+                value={node.properties?.blendTransitionTime ?? 0.5}
+                step={0.05}
+                style={{ width: 56 }}
+                onChange={(v) => {
+                  const blendTransitionTime = Math.max(0, v)
+                  const properties = { ...node.properties, blendTransitionTime }
+                  storeUpdateNode(node.id, { properties })
+                }}
+                onBlur={() => {
+                  api.updateNode(node.id, {
+                    properties: { blendTransitionTime: node.properties?.blendTransitionTime ?? 0.5 },
+                  }).catch(() => {})
+                }}
+              />
+              <span style={{ fontSize: 11, color: '#555' }}>s</span>
+            </div>
+          </>
+        )}
 
         {/* FBX debug toggle — avatar only */}
         {node.kind === 'avatar' && (

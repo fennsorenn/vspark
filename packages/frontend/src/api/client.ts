@@ -32,6 +32,9 @@ function mapNode(r: Record<string, unknown>, sceneId?: string): NodeRecord {
     (components.animation as Record<string, unknown>).idleUrl =
       normalizeFilePath((components.animation as Record<string, unknown>).idleUrl)
   }
+  const properties = typeof r.properties === 'string'
+    ? JSON.parse(r.properties as string)
+    : (r.properties ?? {})
   return {
     id: r.id as string,
     // backend may return snake_case (from SQLite rows) or camelCase (from INSERT response)
@@ -42,6 +45,7 @@ function mapNode(r: Record<string, unknown>, sceneId?: string): NodeRecord {
     kind: r.kind as string,
     filePath: normalizeFilePath(r.file_path ?? r.filePath),
     components,
+    properties,
     hidden: Boolean(r.hidden),
   }
 }
@@ -109,6 +113,14 @@ export interface SceneItem {
   runtimeSettings: SceneRuntimeSettings
 }
 
+/** Per-node free-form properties stored in scene_nodes.properties.
+ *  Mirrors the shared `SceneNodeProperties` shape — kind-specific keys live here. */
+export interface NodeProperties {
+  /** VRM avatar: seconds to ramp between override and additive when the bus flips
+   *  blend mode (e.g. on tracking loss). Default 0.5. */
+  blendTransitionTime?: number
+}
+
 export interface NodeRecord {
   id: string
   sceneId: string
@@ -118,6 +130,7 @@ export interface NodeRecord {
   kind: string
   filePath?: string | null
   components: Record<string, unknown>
+  properties?: NodeProperties
   hidden?: boolean
 }
 
@@ -228,6 +241,7 @@ export const createNode = (sceneId: string, data: Omit<NodeRecord, 'id' | 'scene
       boneAttachment: data.boneAttachment,
       filePath: data.filePath,
       components: data.components,
+      properties: data.properties,
     }),
   }).then((r) => mapNode(r, sceneId))
 
@@ -238,6 +252,7 @@ export const updateNode = (id: string, data: Partial<Omit<NodeRecord, 'id' | 'sc
   if (data.kind      !== undefined) body.kind       = data.kind
   if (data.filePath  !== undefined) body.filePath   = data.filePath
   if (data.components !== undefined) body.components = data.components
+  if (data.properties !== undefined) body.properties = data.properties
   // boneAttachment must be sent explicitly even when null (to support detach)
   if ('boneAttachment' in data) body.boneAttachment = data.boneAttachment ?? null
   if ('hidden' in data) body.hidden = data.hidden ?? false

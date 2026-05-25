@@ -170,9 +170,11 @@ interface Props {
   alwaysExpanded?: boolean
   /** Provide a WS if this component manages its own connection (standalone mode). */
   ws?: WebSocket | null
+  /** When false, hide the window via CSS without unmounting — keeps active mic/cam streams alive. */
+  visible?: boolean
 }
 
-export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwaysExpanded = false, ws: externalWs }: Props) {
+export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwaysExpanded = false, ws: externalWs, visible = true }: Props) {
   // ── State ──────────────────────────────────────────────────────────────────
   const [expanded, setExpanded]     = useState(true)
   const [pos, setPos]               = useState({ x: 24, y: 72 })
@@ -218,9 +220,13 @@ export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwa
   }, [externalWs])
 
   // ── Enumerate devices ──────────────────────────────────────────────────────
+  // Sequenced (not parallel) so both permission prompts surface — Chromium
+  // collapses concurrent getUserMedia prompts and only one ends up shown.
   useEffect(() => {
-    MicCapture.getDevices().then(setMicDevices).catch(() => {})
-    CameraCapture.getDevices().then(setCamDevices).catch(() => {})
+    void (async () => {
+      try { setCamDevices(await CameraCapture.getDevices()) } catch {}
+      try { setMicDevices(await MicCapture.getDevices()) }   catch {}
+    })()
   }, [])
 
   // ── Lipsync activate/deactivate ────────────────────────────────────────────
@@ -337,7 +343,7 @@ export function MediaInputWindow({ lipsyncComponentId, trackingComponentId, alwa
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={S.window(pos.x, pos.y)}>
+    <div style={{ ...S.window(pos.x, pos.y), display: visible ? undefined : 'none' }}>
       {/* Title bar */}
       <div style={S.titleBar} onMouseDown={onMouseDownBar}>
         <div style={S.dot(lipsyncActive || trackingActive)} />

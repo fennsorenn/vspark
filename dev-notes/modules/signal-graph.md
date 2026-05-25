@@ -20,6 +20,8 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 4. Fire each output event downstream
 5. Catch and log errors without halting the graph
 
+**Value-input auto-fallback to `config.<port>`** (convention since the broadcast-bus-additive-fallback work): when a node has an unconnected value-input port, the engine automatically resolves it to `defaultConfig.<portName>` from the descriptor. Node `execute()` functions no longer need to write `inputs.X ?? cfg?.X` — they just read `inputs.X`. This is the preferred pattern for all new signal nodes; reserve `component_config` nodes for values that need to track live user edits at runtime. The breathing graph is the reference example (bone names / mode / priority / blend mode collapsed into per-port `defaultConfig`; only the two live-editable amplitudes remain as `component_config` nodes).
+
 **Hydration**: `SignalGraph.fromDescriptor(descriptor, registry, getConfig, getState, onSetState)` — builds a graph from a `GraphDescriptor` template. Config and state are injected from outside (DB-backed), so the graph itself is stateless across restarts.
 
 **Inspection**: `getStates()` returns a snapshot of all node last-inputs, last-outputs, last-executed timestamps, and edge fire history — used by `/api/signal/graphs/:id/node-states`.
@@ -28,7 +30,7 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → `SignalNodeClass`. All 32 built-in node kinds are registered here. `getAllNodeKindMeta()` returns port declarations and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → `SignalNodeClass`. All 33 built-in node kinds are registered here. `getAllNodeKindMeta()` returns port declarations and display metadata for each kind — this drives the UI node palette.
 
 ## Node Kinds — `signal/nodes/`
 
@@ -72,6 +74,7 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 | `pose_merge` | Merges multiple NormalizedPose inputs into a single pose (later inputs win per bone) |
 | `not_bool` | Inverts a boolean value (used to gate arm vs IK branches from `useIk`) |
 | `hand_height_compare` | Compares left/right hand Y positions; outputs which hand is higher (mirror calibration helper) |
+| `multiply` | Scalar `a × b`. Used by breathing to derive the counter-rotated amplitude (`amp × -1`). |
 
 ### Output/broadcast
 | Kind | Description |

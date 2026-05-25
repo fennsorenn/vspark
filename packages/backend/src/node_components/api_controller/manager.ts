@@ -130,7 +130,11 @@ export class ApiControllerManager {
   setBlendshapes(componentId: string, weights: Record<string, number>): void {
     const st = this._state.get(componentId)
     if (!st) throw new Error(`api_controller component ${componentId} not active`)
-    st.blendshapes = Blendshapes.fromRecord(weights)
+    const full: Record<string, number> = {}
+    const known = this._expressionsByNode.get(st.sceneNodeId)
+    if (known) for (const name of known) full[name] = 0
+    for (const [name, value] of Object.entries(weights)) full[name] = value
+    st.blendshapes = Blendshapes.fromRecord(full)
     broadcastBus.publishBlendshapes(st.sceneNodeId, componentId, st.blendshapes)
   }
 

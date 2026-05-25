@@ -1,0 +1,6 @@
+- vrm0 model bones checken
+- vmc receiver node singleton
+- smoothing überarbeiten 
+- browser sources
+- rhylive arm calibration
+- 
