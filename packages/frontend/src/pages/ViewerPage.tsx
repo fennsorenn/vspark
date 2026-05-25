@@ -7,6 +7,7 @@ import { useEditorStore } from '../store/editorStore'
 import { api } from '../api/client'
 import { useWsSync } from '../hooks/useWsSync'
 import { SceneNodes, CameraEffects } from '../components/editor/Viewport'
+import { ComposeLayerStack } from '../components/editor/ComposeLayerStack'
 
 function getT(components: Record<string, unknown> | undefined) {
   const t = components?.transform as Partial<{ x: number; y: number; z: number; rx: number; ry: number; rz: number }> | undefined
@@ -19,7 +20,7 @@ function getT(components: Record<string, unknown> | undefined) {
 export function ViewerPage() {
   useWsSync()
   const { projectId, nodeId } = useParams<{ projectId: string; nodeId: string }>()
-  const { setProject, setScenes, setActiveScene, setNodes, setNodeComponents, setCameraEffects, nodes } = useEditorStore()
+  const { setProject, setScenes, setActiveScene, setNodes, setNodeComponents, setCameraEffects, setComposeLayers, nodes, composeLayers, assets, activeSceneId } = useEditorStore()
 
   useEffect(() => {
     document.documentElement.style.background = 'transparent'
@@ -38,17 +39,19 @@ export function ViewerPage() {
       if (project) setProject(project.id, project.name)
     }).catch(() => {})
 
-    api.getScenes(projectId).then(async ({ scenes, nodes: sceneNodes, nodeComponents, cameraEffects }) => {
+    api.getScenes(projectId).then(async ({ scenes, nodes: sceneNodes, nodeComponents, cameraEffects, composeLayers }) => {
       setScenes(scenes)
       setNodeComponents(nodeComponents)
       setCameraEffects(cameraEffects)
+      setComposeLayers(composeLayers)
       if (scenes.length === 0) return
       const firstId = scenes[0].id
       setActiveScene(firstId)
       const filtered = sceneNodes.filter((n) => n.sceneId === firstId)
       setNodes(filtered.length > 0 ? filtered : await api.getNodes(firstId))
     }).catch(() => {})
-  }, [projectId, setProject, setScenes, setActiveScene, setNodes, setNodeComponents, setCameraEffects])
+    api.getAssets(projectId).then((rows) => useEditorStore.getState().setAssets(rows)).catch(() => {})
+  }, [projectId, setProject, setScenes, setActiveScene, setNodes, setNodeComponents, setCameraEffects, setComposeLayers])
 
   const camNode = nodes.find((n) => n.id === nodeId)
   const cc = camNode?.components?.camera as { fov?: number; near?: number; far?: number; backgroundImage?: string } | undefined
@@ -56,6 +59,10 @@ export function ViewerPage() {
   const bgImage = cc?.backgroundImage ?? null
 
   const isHidden = camNode?.hidden ?? false
+
+  const stackLayers = composeLayers.filter(
+    (l) => l.sceneId === activeSceneId && (l.cameraNodeId == null || l.cameraNodeId === nodeId),
+  )
 
   return (
     <div style={{ width: '100vw', height: '100vh', background: 'transparent', position: 'relative' }}>
@@ -69,9 +76,10 @@ export function ViewerPage() {
           alt=""
         />
       )}
+      <ComposeLayerStack layers={stackLayers} assets={assets} mode="viewer" />
       <Canvas
         gl={{ alpha: true, antialias: true, toneMapping: THREE.NoToneMapping }}
-        style={{ background: 'transparent', position: 'relative', zIndex: 1, visibility: isHidden ? 'hidden' : 'visible' }}
+        style={{ background: 'transparent', position: 'relative', zIndex: 1, visibility: isHidden ? 'hidden' : 'visible', pointerEvents: 'none' }}
         onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
         frameloop={isHidden ? 'never' : 'always'}
       >
