@@ -83,7 +83,7 @@ async function start() {
   });
 
   // Handle browser → server media messages
-  wsSync.onMessage((kind, payload) => {
+  wsSync.onMessage((kind, payload, sourceWs) => {
     if (kind === 'lipsync_input') {
       const msg = payload as LipsyncInputMessage
       lipsyncManager.fireVisemes(msg.componentId, msg.visemes ?? {})
@@ -98,6 +98,21 @@ async function start() {
     } else if (kind === 'avatar_expressions_report') {
       const msg = payload as AvatarExpressionsReportMessage
       apiControllerManager.setExpressionsForNode(msg.nodeId, msg.expressions ?? [])
+    } else if (kind === 'node_transform_preview') {
+      // Live in-flight transform from a drag/wheel gesture in one client; relay
+      // to every other client without persisting. The eventual mouseup/settle
+      // commits via the REST PUT, which re-broadcasts the canonical state.
+      const p = payload as { nodeId?: string; transform?: Record<string, number> }
+      if (typeof p.nodeId === 'string' && p.transform) {
+        wsSync.broadcast('node_transform_preview', { nodeId: p.nodeId, transform: p.transform }, sourceWs)
+      }
+    } else if (kind === 'compose_layer_preview') {
+      // Same idea for compose layer drag/resize/rotate: relay the patch without
+      // touching the DB; the final REST PUT will write+broadcast the canonical row.
+      const p = payload as { id?: string; patch?: Record<string, unknown> }
+      if (typeof p.id === 'string' && p.patch) {
+        wsSync.broadcast('compose_layer_preview', { id: p.id, patch: p.patch }, sourceWs)
+      }
     }
   });
 

@@ -47,6 +47,7 @@ packages/
 | Broadcast bus lifecycle refactor | Implemented | `broadcast/bus.ts` — final-fallback frame (empty bones + `animationBlendMode: 'additive'`, empty blendshapes) on last-producer removal; vmc_receiver tracking-loss now calls `removeComponent`; mediapipe `pose_broadcast`/`blendshapes_broadcast` now wired with `componentId`. See [component-managers.md](modules/component-managers.md) and [frontend.md](modules/frontend.md). |
 | `scene_nodes.properties` JSON column | Implemented | Migration 007; per-node properties bag, first use `blendTransitionTime` on VRM avatar nodes; PUT shallow-merges (mirrors scene `runtime_settings`) |
 | Breathing component (6-bone topology) | Implemented | `node_components/breathing/` — drives chest/upperChest + L/R shoulder lift with counter-rotated upper arms; configurable `chestAmplitude` + `shoulderAmplitude` via `component_config` nodes; remaining literals collapsed into per-port `defaultConfig` |
+| Compose layers (DB + routes + WS) | Implemented | Backend half of the Compose View feature. Migration 008 adds `compose_layers` table (scene-scoped, nullable `camera_node_id` for per-camera layers, two-axis ordering: `scene_order` signed with 0 = 3D render slot, negative = in front, positive = behind; `camera_order` anchored to a `scene_order` slot; pixel-space `x`/`y` + anchor `top|bottom × left|right`; `rotation` degrees). REST routes in `routes/compose-layers.ts`; scene bundle endpoint includes `composeLayers`. WS broadcasts: `compose_layer_added/updated/removed/reordered`. Deleting a scene-wide layer re-anchors any camera-specific layers anchored at its `scene_order` slot. Layer kinds: image, video, browser-iframe. See [compose.md](modules/compose.md). |
 
 ### Frontend — `packages/frontend/src/`
 
@@ -66,6 +67,7 @@ packages/
 | Lipsync uplink | Implemented | `hooks/useLipsyncUplink.ts` — mic → WS |
 | Lipsync MFCC classifier | Implemented | `media/MicCapture.ts` — in-browser MFCC vowel classification + per-component calibration |
 | Tracking uplink | Implemented | `hooks/useTrackingUplink.ts` — MediaPipe → WS |
+| Compose View (left-dock tab + viewport) | Implemented | Second tab in the editor's left dock (`leftTab` in store, disabled until at least one camera node exists). `ComposeTree` shows a Scene section plus one per camera with scene-wide layers pinned as interleaved items. `ComposeView` renders the selected camera POV via R3F with behind-/front-layer DOM stacks. `ComposeLayerStack` is shared with `ViewerPage` (`mode: 'editor' | 'viewer'`) so streamed output matches. Drag/resize/rotate gestures in `composeLayerInteractions.ts` patch the store optimistically and persist on pointerup; resize math is anchor-aware so screen-direction drags always grow/shrink visually. Properties panel gains a layer-properties branch. Limitations: no DnD reorder yet (manual ↑/↓ + numeric inputs), no resolution-independent scaling. See [compose.md](modules/compose.md). |
 
 ### Shared — `packages/shared/src/`
 
@@ -161,6 +163,7 @@ REST write → SQLite → WS broadcast (node_added/updated/removed, camera_effec
 - [nodes/particle.md](modules/nodes/particle.md) — GPU-instanced particle system, billboard node, shader, physics simulation, camera alignment
 - [mediapipe-tracker.md](modules/mediapipe-tracker.md) — MediaPipe tracking pipeline: worker, signal graph, IK arms, head/finger calibration, open work
 - [lipsync.md](modules/lipsync.md) — MFCC vowel classification, per-component calibration, default templates
+- [compose.md](modules/compose.md) — Compose View: 2D layer composition over the 3D scene, ordering model, shared editor/viewer renderer, anchor-aware drag math
 
 ## Key Files
 

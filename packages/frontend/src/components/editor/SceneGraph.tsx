@@ -5,6 +5,7 @@ import { api } from '../../api/client'
 import type { NodeRecord, NodeComponent } from '../../store/editorStore'
 import { newComponentId } from '../../store/editorStore'
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore'
+import { ComposeTree } from './ComposeTree'
 import { PARTICLE_DEFAULTS } from '../../particleUtils'
 
 const KIND_ICONS: Record<string, string> = {
@@ -621,7 +622,8 @@ export function SceneGraph() {
     sceneSelected, setSceneSelected,
   } = useEditorStore()
 
-  const [dockTab, setDockTab] = useState<'scene' | 'graphs'>('scene')
+  const dockTab = useEditorStore((s) => s.leftTab)
+  const setDockTab = useEditorStore((s) => s.setLeftTab)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set())
   const [collapsedBones, setCollapsedBones] = useState<Set<string>>(new Set()) // key: `${nodeId}:${boneName}`
@@ -637,6 +639,12 @@ export function SceneGraph() {
     setBoneListExpanded(id, !(boneListExpanded[id] ?? false))
 
   const sceneNodes = nodes.filter((n) => n.sceneId === activeSceneId)
+  const composeEnabled = sceneNodes.some((n) => n.kind === 'camera')
+
+  // Auto-fall back to Scene tab if the Compose tab gets disabled (last camera deleted).
+  useEffect(() => {
+    if (dockTab === 'compose' && !composeEnabled) setDockTab('scene')
+  }, [dockTab, composeEnabled, setDockTab])
 
   const toggleCollapse = (id: string) =>
     setCollapsedNodes((s) => {
@@ -1046,11 +1054,18 @@ export function SceneGraph() {
     }}>
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid #2a2a2a', flexShrink: 0 }}>
-        <button style={tabStyle(dockTab === 'scene')}  onClick={() => setDockTab('scene')}>Scene</button>
-        <button style={tabStyle(dockTab === 'graphs')} onClick={() => setDockTab('graphs')}>Graphs</button>
+        <button style={tabStyle(dockTab === 'scene')}   onClick={() => setDockTab('scene')}>Scene</button>
+        <button
+          style={tabStyle(dockTab === 'compose')}
+          onClick={() => { if (composeEnabled) setDockTab('compose') }}
+          disabled={!composeEnabled}
+          title={composeEnabled ? 'Compose' : 'Add a camera node to enable Compose'}
+        >Compose</button>
+        <button style={tabStyle(dockTab === 'graphs')}  onClick={() => setDockTab('graphs')}>Graphs</button>
       </div>
 
       {dockTab === 'graphs' && <GraphListPanel />}
+      {dockTab === 'compose' && <ComposeTree />}
 
       {dockTab === 'scene' && <>
       {/* Node list */}

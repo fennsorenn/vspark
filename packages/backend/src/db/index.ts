@@ -10,6 +10,7 @@ import m004 from './migrations/004_bone_attachment.js';
 import m005 from './migrations/005_node_hidden.js';
 import m006 from './migrations/006_scene_runtime_settings.js';
 import m007 from './migrations/007_scene_node_properties.js';
+import m008 from './migrations/008_compose_layers.js';
 
 const { Database } = nodeSqliteWasm as unknown as { Database: typeof DatabaseType };
 
@@ -30,6 +31,7 @@ const MIGRATIONS = [
   { name: '005_node_hidden.sql',     sql: m005 },
   { name: '006_scene_runtime_settings.sql', sql: m006 },
   { name: '007_scene_node_properties.sql', sql: m007 },
+  { name: '008_compose_layers.sql', sql: m008 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

@@ -155,6 +155,55 @@ export const updateCameraEffectSchema = z.object({
   config:  z.record(z.string(), z.unknown()).optional(),
 }).openapi('UpdateCameraEffect');
 
+// --- Compose layers ---
+
+export const composeLayerKindSchema = z.enum(['image', 'video', 'browser']).openapi('ComposeLayerKind');
+export const composeAnchorHSchema   = z.enum(['left', 'right']).openapi('ComposeAnchorH');
+export const composeAnchorVSchema   = z.enum(['top', 'bottom']).openapi('ComposeAnchorV');
+
+export const createComposeLayerSchema = z.object({
+  id:           z.string().optional(),
+  cameraNodeId: z.string().nullable().optional(),
+  name:         z.string().min(1),
+  kind:         composeLayerKindSchema,
+  assetId:      z.string().nullable().optional(),
+  config:       z.record(z.string(), z.unknown()).optional(),
+  x:            z.number().optional(),
+  y:            z.number().optional(),
+  width:        z.number().positive().optional(),
+  height:       z.number().positive().optional(),
+  rotation:     z.number().optional(),
+  anchorH:      composeAnchorHSchema.optional(),
+  anchorV:      composeAnchorVSchema.optional(),
+  sceneOrder:   z.number().int().optional(),
+  cameraOrder:  z.number().int().optional(),
+  visible:      z.boolean().optional(),
+}).openapi('CreateComposeLayer');
+
+export const updateComposeLayerSchema = z.object({
+  name:         z.string().min(1).optional(),
+  assetId:      z.string().nullable().optional(),
+  config:       z.record(z.string(), z.unknown()).optional(),
+  x:            z.number().optional(),
+  y:            z.number().optional(),
+  width:        z.number().positive().optional(),
+  height:       z.number().positive().optional(),
+  rotation:     z.number().optional(),
+  anchorH:      composeAnchorHSchema.optional(),
+  anchorV:      composeAnchorVSchema.optional(),
+  sceneOrder:   z.number().int().optional(),
+  cameraOrder:  z.number().int().optional(),
+  visible:      z.boolean().optional(),
+}).openapi('UpdateComposeLayer');
+
+export const reorderComposeLayersSchema = z.object({
+  updates: z.array(z.object({
+    id:          z.string(),
+    sceneOrder:  z.number().int(),
+    cameraOrder: z.number().int(),
+  })).min(1),
+}).openapi('ReorderComposeLayers');
+
 // --- Signal graph ---
 
 export const fireGraphEventSchema = z.object({
@@ -216,6 +265,9 @@ export type CreateNodeComponentInput    = z.infer<typeof createNodeComponentSche
 export type UpdateNodeComponentInput    = z.infer<typeof updateNodeComponentSchema>;
 export type CreateCameraEffectInput     = z.infer<typeof createCameraEffectSchema>;
 export type UpdateCameraEffectInput     = z.infer<typeof updateCameraEffectSchema>;
+export type CreateComposeLayerInput     = z.infer<typeof createComposeLayerSchema>;
+export type UpdateComposeLayerInput     = z.infer<typeof updateComposeLayerSchema>;
+export type ReorderComposeLayersInput   = z.infer<typeof reorderComposeLayersSchema>;
 export type FireGraphEventInput         = z.infer<typeof fireGraphEventSchema>;
 export type PresenceStateInput          = z.infer<typeof presenceStateSchema>;
 export type AnimationStateInput         = z.infer<typeof animationStateSchema>;
