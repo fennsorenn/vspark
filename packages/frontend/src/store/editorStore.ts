@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AssetFile, ComponentKindMeta, CameraEffectRecord } from '../api/client'
+import type { AssetFile, ComponentKindMeta, CameraEffectRecord, ComposeLayerRecord } from '../api/client'
 import type { UpdateChannel, ApiAnimationLoopMode, ApiAnimationQueueEntry } from '@vspark/shared'
 
 export interface ApiAnimationState {
@@ -8,7 +8,9 @@ export interface ApiAnimationState {
   startedAt: number | null
 }
 
-export type { AssetFile, ComponentKindMeta, CameraEffectRecord }
+export type { AssetFile, ComponentKindMeta, CameraEffectRecord, ComposeLayerRecord }
+
+export type LeftDockTab = 'scene' | 'compose' | 'graphs'
 
 /** Per-node free-form properties (mirror of backend `scene_nodes.properties`). */
 export interface NodeProperties {
@@ -233,6 +235,12 @@ interface EditorState {
   previewEffectsCamera: string | null         // nodeId of the camera with Preview Effects active
   selectedEffect: { nodeId: string; kind: string } | null
 
+  // Compose view
+  composeLayers: ComposeLayerRecord[]
+  leftTab: LeftDockTab
+  selectedComposeLayerId: string | null
+  composeCameraId: string | null              // camera node id the Compose view renders through
+
   // Actions
   setProject: (id: string, name: string) => void
   setScenes: (scenes: SceneItem[]) => void
@@ -279,6 +287,14 @@ interface EditorState {
   selectEffect: (nodeId: string, kind: string) => void
   clearSelectedEffect: () => void
 
+  setComposeLayers: (layers: ComposeLayerRecord[]) => void
+  addComposeLayer: (layer: ComposeLayerRecord) => void
+  updateComposeLayerLocal: (id: string, patch: Partial<ComposeLayerRecord>) => void
+  removeComposeLayer: (id: string) => void
+  setLeftTab: (tab: LeftDockTab) => void
+  selectComposeLayer: (id: string | null) => void
+  setComposeCameraId: (id: string | null) => void
+
   // Update state
   updateAvailable: boolean
   updateInfo: { latestVersion: string; releaseNotes: string | null; channel: UpdateChannel } | null
@@ -314,6 +330,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   cameraEffects: [],
   previewEffectsCamera: null,
   selectedEffect: null,
+
+  composeLayers: [],
+  leftTab: 'scene',
+  selectedComposeLayerId: null,
+  composeCameraId: null,
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
   setScenes: (scenes) => set({ scenes }),
@@ -420,6 +441,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({ previewEffectsCamera: s.previewEffectsCamera === nodeId ? null : nodeId })),
   selectEffect: (nodeId, kind) => set({ selectedEffect: { nodeId, kind }, selectedComponentId: null }),
   clearSelectedEffect: () => set({ selectedEffect: null }),
+
+  setComposeLayers: (layers) => set({ composeLayers: layers }),
+  addComposeLayer: (layer) =>
+    set((s) => (s.composeLayers.some((l) => l.id === layer.id) ? {} : { composeLayers: [...s.composeLayers, layer] })),
+  updateComposeLayerLocal: (id, patch) =>
+    set((s) => ({ composeLayers: s.composeLayers.map((l) => (l.id === id ? { ...l, ...patch } : l)) })),
+  removeComposeLayer: (id) =>
+    set((s) => ({
+      composeLayers: s.composeLayers.filter((l) => l.id !== id),
+      selectedComposeLayerId: s.selectedComposeLayerId === id ? null : s.selectedComposeLayerId,
+    })),
+  setLeftTab: (tab) => set({ leftTab: tab }),
+  selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
+  setComposeCameraId: (id) => set({ composeCameraId: id }),
 
   updateAvailable: false,
   updateInfo: null,

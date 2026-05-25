@@ -160,6 +160,30 @@ export interface CameraEffectRecord {
   config: Record<string, unknown>
 }
 
+export type ComposeLayerKind = 'image' | 'video' | 'browser'
+export type ComposeAnchorH = 'left' | 'right'
+export type ComposeAnchorV = 'top' | 'bottom'
+
+export interface ComposeLayerRecord {
+  id: string
+  sceneId: string
+  cameraNodeId: string | null
+  name: string
+  kind: ComposeLayerKind
+  assetId: string | null
+  config: Record<string, unknown>
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+  anchorH: ComposeAnchorH
+  anchorV: ComposeAnchorV
+  sceneOrder: number
+  cameraOrder: number
+  visible: boolean
+}
+
 // Projects
 export const getProjects = () =>
   request<Record<string, unknown>[]>('/projects').then((rows) => rows.map(mapProject))
@@ -199,15 +223,38 @@ function mapCameraEffect(r: Record<string, unknown>): CameraEffectRecord {
   }
 }
 
-// Scenes — backend returns { scenes: [], nodes: [], nodeComponents: [], cameraEffects: [] }
+export function mapComposeLayer(r: Record<string, unknown>): ComposeLayerRecord {
+  return {
+    id: r.id as string,
+    sceneId: (r.scene_id ?? r.sceneId ?? '') as string,
+    cameraNodeId: (r.camera_node_id ?? r.cameraNodeId ?? null) as string | null,
+    name: r.name as string,
+    kind: r.kind as ComposeLayerKind,
+    assetId: (r.asset_id ?? r.assetId ?? null) as string | null,
+    config: typeof r.config === 'string' ? JSON.parse(r.config) : (r.config ?? {}) as Record<string, unknown>,
+    x: Number(r.x ?? 0),
+    y: Number(r.y ?? 0),
+    width: Number(r.width ?? 320),
+    height: Number(r.height ?? 180),
+    rotation: Number(r.rotation ?? 0),
+    anchorH: ((r.anchor_h ?? r.anchorH ?? 'left') as ComposeAnchorH),
+    anchorV: ((r.anchor_v ?? r.anchorV ?? 'top') as ComposeAnchorV),
+    sceneOrder: Number(r.scene_order ?? r.sceneOrder ?? 0),
+    cameraOrder: Number(r.camera_order ?? r.cameraOrder ?? 0),
+    visible: r.visible === undefined ? true : Boolean(r.visible),
+  }
+}
+
+// Scenes — backend returns { scenes: [], nodes: [], nodeComponents: [], cameraEffects: [], composeLayers: [] }
 export const getScenes = (projectId: string) =>
-  request<{ scenes: Record<string, unknown>[]; nodes: Record<string, unknown>[]; nodeComponents?: Record<string, unknown>[]; cameraEffects?: Record<string, unknown>[] }>(
+  request<{ scenes: Record<string, unknown>[]; nodes: Record<string, unknown>[]; nodeComponents?: Record<string, unknown>[]; cameraEffects?: Record<string, unknown>[]; composeLayers?: Record<string, unknown>[] }>(
     `/projects/${projectId}/scenes`
-  ).then(({ scenes, nodes, nodeComponents, cameraEffects }) => ({
+  ).then(({ scenes, nodes, nodeComponents, cameraEffects, composeLayers }) => ({
     scenes: scenes.map(mapScene),
     nodes: nodes.map((n) => mapNode(n)),
     nodeComponents: (nodeComponents ?? []).map(mapNodeComponent),
     cameraEffects: (cameraEffects ?? []).map(mapCameraEffect),
+    composeLayers: (composeLayers ?? []).map(mapComposeLayer),
   }))
 
 export const createScene = (projectId: string, name: string) =>
@@ -316,6 +363,31 @@ export const updateCameraEffect = (id: string, patch: { enabled?: boolean; confi
 export const deleteCameraEffect = (id: string) =>
   request<void>(`/camera-effects/${id}`, { method: 'DELETE' })
 
+// Compose Layers
+export const getComposeLayers = (sceneId: string) =>
+  request<Record<string, unknown>[]>(`/scenes/${sceneId}/compose-layers`).then((rows) => rows.map(mapComposeLayer))
+
+export const createComposeLayer = (sceneId: string, layer: Partial<ComposeLayerRecord> & { name: string; kind: ComposeLayerKind }) =>
+  request<Record<string, unknown>>(`/scenes/${sceneId}/compose-layers`, {
+    method: 'POST',
+    body: JSON.stringify(layer),
+  }).then(mapComposeLayer)
+
+export const updateComposeLayer = (id: string, patch: Partial<Omit<ComposeLayerRecord, 'id' | 'sceneId' | 'cameraNodeId' | 'kind'>>) =>
+  request<Record<string, unknown>>(`/compose-layers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  }).then(mapComposeLayer)
+
+export const deleteComposeLayer = (id: string) =>
+  request<{ id: string; reanchored?: { id: string; sceneOrder: number; cameraOrder: number }[] }>(`/compose-layers/${id}`, { method: 'DELETE' })
+
+export const reorderComposeLayers = (updates: { id: string; sceneOrder: number; cameraOrder: number }[]) =>
+  request<void>('/compose-layers/reorder', {
+    method: 'POST',
+    body: JSON.stringify({ updates }),
+  })
+
 // System
 export const getLocalIps = () =>
   request<{ ips: string[] }>('/system/local-ips').then((d) => d.ips)
@@ -397,6 +469,11 @@ export const api = {
   createCameraEffect,
   updateCameraEffect,
   deleteCameraEffect,
+  getComposeLayers,
+  createComposeLayer,
+  updateComposeLayer,
+  deleteComposeLayer,
+  reorderComposeLayers,
   getLocalIps,
   getBodyCalibState,
   getSignalGraphs,

@@ -40,6 +40,7 @@ router.get('/projects/:projectId/scenes', (req, res) => {
   const nodes: unknown[] = [];
   const nodeComponents: unknown[] = [];
   const cameraEffects: unknown[] = [];
+  const composeLayers: unknown[] = [];
   for (const s of scenes as { id: string }[]) {
     const sceneNodes = db.prepare('SELECT * FROM scene_nodes WHERE scene_id = ?').all(s.id);
     nodes.push(...sceneNodes);
@@ -49,8 +50,12 @@ router.get('/projects/:projectId/scenes', (req, res) => {
       const effects = db.prepare('SELECT * FROM camera_effects WHERE node_id = ?').all(n.id);
       cameraEffects.push(...effects);
     }
+    const layers = db
+      .prepare('SELECT * FROM compose_layers WHERE scene_id = ? ORDER BY scene_order DESC, camera_order ASC')
+      .all(s.id);
+    composeLayers.push(...layers);
   }
-  res.json({ ok: true, data: { scenes, nodes, nodeComponents, cameraEffects } });
+  res.json({ ok: true, data: { scenes, nodes, nodeComponents, cameraEffects, composeLayers } });
 });
 
 /**

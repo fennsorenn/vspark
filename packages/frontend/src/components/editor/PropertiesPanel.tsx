@@ -7,6 +7,7 @@ import { useEditorStore } from '../../store/editorStore'
 import { api, fireSignalEvent, updateScene } from '../../api/client'
 import type { NodeRecord, NodeComponent } from '../../store/editorStore'
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore'
+import { ComposeLayerProperties } from './ComposeLayerProperties'
 import type { AssetFile } from '../../api/client'
 import { animRegistry } from '../../animRegistry'
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture'
@@ -21,8 +22,12 @@ interface LightProps {
   lightType: string; color: string; intensity: number
 }
 
+export type CameraProjection = 'perspective' | 'orthographic'
 interface CameraProps {
+  projection: CameraProjection
   fov: number; near: number; far: number
+  /** Half-height of the orthographic view frustum (world units). */
+  orthoSize: number
 }
 
 const RAD = Math.PI / 180
@@ -43,7 +48,13 @@ function getLightProps(node: NodeRecord): LightProps {
 
 function getCameraProps(node: NodeRecord): CameraProps {
   const c = node.components?.camera as Partial<CameraProps> | undefined
-  return { fov: c?.fov ?? 50, near: c?.near ?? 0.1, far: c?.far ?? 1000 }
+  return {
+    projection: c?.projection ?? 'perspective',
+    fov: c?.fov ?? 50,
+    near: c?.near ?? 0.1,
+    far: c?.far ?? 1000,
+    orthoSize: c?.orthoSize ?? 2,
+  }
 }
 
 const numInput: React.CSSProperties = {
@@ -1607,7 +1618,8 @@ export function PropertiesPanel() {
   const { nodes, selectedNodeId, updateNode: storeUpdateNode, assets, selectedComponentId, nodeComponents,
     fbxDebugVisible, setFbxDebugVisible, vrmExpressionsByNode, vrmMorphTargetsByNode, componentKinds,
     cameraEffects, selectedEffect,
-    scenes, activeSceneId, sceneSelected, updateSceneItem } = useEditorStore()
+    scenes, activeSceneId, sceneSelected, updateSceneItem,
+    composeLayers, selectedComposeLayerId } = useEditorStore()
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation')
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null
@@ -1625,7 +1637,7 @@ export function PropertiesPanel() {
   const transformRef = useRef<Transform>({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 })
   const isEditingTransform = useRef(false)
   const [light, setLight] = useState<LightProps>({ lightType: 'point', color: '#ffffff', intensity: 1 })
-  const [camera, setCamera] = useState<CameraProps>({ fov: 50, near: 0.1, far: 1000 })
+  const [camera, setCamera] = useState<CameraProps>({ projection: 'perspective', fov: 50, near: 0.1, far: 1000, orthoSize: 2 })
   const [animPlaying, setAnimPlaying] = useState(true)
   const [animTime, setAnimTime] = useState(0)
   const [hasAnim, setHasAnim] = useState(false)
@@ -1684,6 +1696,14 @@ export function PropertiesPanel() {
       <div style={{ padding: '14px 16px' }}>{children}</div>
     </div>
   )
+
+  // Compose layer selected — show layer properties.
+  const selectedComposeLayer = selectedComposeLayerId
+    ? composeLayers.find((l) => l.id === selectedComposeLayerId)
+    : null
+  if (selectedComposeLayer) {
+    return panelShell(<ComposeLayerProperties layer={selectedComposeLayer} />)
+  }
 
   // Effect selected — show focused effect panel.
   if (selectedEffect && selectedEffectRecord && selectedEffectNode && selectedEffectKind) {
@@ -1929,7 +1949,45 @@ export function PropertiesPanel() {
           <>
             <div style={sectionHeader}>Camera Properties</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {([['FOV', 'fov', 1], ['Near', 'near', 0.001], ['Far', 'far', 1]] as [string, keyof CameraProps, number][]).map(([lab, key, step]) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', width: 60 }}>Projection</span>
+                <select
+                  value={camera.projection}
+                  onChange={(e) => {
+                    const next = { ...camera, projection: e.target.value as CameraProjection }
+                    setCamera(next)
+                    saveCamera(next)
+                  }}
+                  style={{ ...textInput, width: 'auto', flex: 1 }}
+                >
+                  <option value="perspective">Perspective</option>
+                  <option value="orthographic">Orthographic</option>
+                </select>
+              </div>
+              {camera.projection === 'perspective' ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: '#888', width: 60 }}>FOV</span>
+                  <NumInput
+                    value={camera.fov}
+                    step={1}
+                    style={{ width: 80 }}
+                    onChange={(v) => setCamera({ ...camera, fov: v })}
+                    onBlur={() => saveCamera(camera)}
+                  />
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: '#888', width: 60 }} title="Half-height of the orthographic view volume">Size</span>
+                  <NumInput
+                    value={camera.orthoSize}
+                    step={0.1}
+                    style={{ width: 80 }}
+                    onChange={(v) => setCamera({ ...camera, orthoSize: v })}
+                    onBlur={() => saveCamera(camera)}
+                  />
+                </div>
+              )}
+              {([['Near', 'near', 0.001], ['Far', 'far', 1]] as [string, 'near' | 'far', number][]).map(([lab, key, step]) => (
                 <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: 12, color: '#888', width: 60 }}>{lab}</span>
                   <NumInput
