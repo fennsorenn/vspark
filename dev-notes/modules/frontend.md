@@ -129,6 +129,9 @@ TopBar checks update status on mount (`GET /api/update-status`). When an update 
 ### `SceneGraph.tsx`
 Node hierarchy tree. Context menu: Add Child, Move Into, Unparent, Delete. Expandable bone list per avatar node with VRM expression/bone visualization. Hidden node toggle.
 
+### Left dock — Compose tab (WIP)
+A second tab is being added to the editor's left dock alongside the existing Scene Graph view. It lists the 2D layer stack (image / video / browser-iframe) for the active scene, with per-camera overrides. Switching to the Compose tab also swaps the centre viewport to a composed view that renders the selected camera's full output — 3D + DOM layers (above/below the canvas) + post-processing — reusing `<SceneNodes>` + `<CameraEffects>` from `Viewport.tsx` so it matches `ViewerPage`. Backed by the new `compose_layers` table; per-layer fields are edited in `PropertiesPanel`. Full module doc will be added once the implementation lands.
+
 ### `PropertiesPanel.tsx`
 Inspector for the selected node. Sections:
 - **Transform**: position, rotation, scale with drag-to-adjust (ns-resize NumInput)

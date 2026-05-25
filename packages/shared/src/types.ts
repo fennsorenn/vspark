@@ -78,6 +78,41 @@ export interface Project {
   scenes: Scene[];
 }
 
+// --- Compose layers (2D overlays composited with the 3D scene render) ---
+
+export type ComposeLayerKind = 'image' | 'video' | 'browser';
+export type ComposeAnchorH = 'left' | 'right';
+export type ComposeAnchorV = 'top' | 'bottom';
+
+/** scene_order = 0 is the 3D render slot. Negative paints above the 3D, positive paints behind.
+ *  Camera-specific layers carry a non-zero camera_order to interleave within a scene_order slot. */
+export const SCENE_RENDER_SLOT = 0;
+
+export interface ComposeLayer {
+  id: string;
+  sceneId: string;
+  /** null = scene-wide (visible from every camera) */
+  cameraNodeId: string | null;
+  name: string;
+  kind: ComposeLayerKind;
+  assetId: string | null;
+  /** kind-specific: { url?: string; opacity?: number; objectFit?: 'cover'|'contain'|'fill'; ... } */
+  config: Record<string, unknown>;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** degrees, clockwise around layer center */
+  rotation: number;
+  anchorH: ComposeAnchorH;
+  anchorV: ComposeAnchorV;
+  sceneOrder: number;
+  cameraOrder: number;
+  visible: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Player/identity
 export interface Player {
   id: string;
@@ -221,7 +256,11 @@ export type WSMessageKind =
   | 'tracking_input'
   | 'tracking_status'
   | 'pose_ik_targets'
-  | 'server_update';
+  | 'server_update'
+  | 'compose_layer_added'
+  | 'compose_layer_updated'
+  | 'compose_layer_removed'
+  | 'compose_layer_reordered';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 

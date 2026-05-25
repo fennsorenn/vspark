@@ -7,6 +7,7 @@ import nodeComponents from './node-components.js';
 import apiController from './api-controller.js';
 import expressions from './expressions.js';
 import cameraEffects from './camera-effects.js';
+import composeLayers from './compose-layers.js';
 import signal from './signal.js';
 import meta from './meta.js';
 
@@ -19,6 +20,7 @@ router.use(nodeComponents);
 router.use(apiController);
 router.use(expressions);
 router.use(cameraEffects);
+router.use(composeLayers);
 router.use(signal);
 router.use(meta);
 

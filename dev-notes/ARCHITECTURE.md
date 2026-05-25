@@ -47,6 +47,7 @@ packages/
 | Broadcast bus lifecycle refactor | Implemented | `broadcast/bus.ts` — final-fallback frame (empty bones + `animationBlendMode: 'additive'`, empty blendshapes) on last-producer removal; vmc_receiver tracking-loss now calls `removeComponent`; mediapipe `pose_broadcast`/`blendshapes_broadcast` now wired with `componentId`. See [component-managers.md](modules/component-managers.md) and [frontend.md](modules/frontend.md). |
 | `scene_nodes.properties` JSON column | Implemented | Migration 007; per-node properties bag, first use `blendTransitionTime` on VRM avatar nodes; PUT shallow-merges (mirrors scene `runtime_settings`) |
 | Breathing component (6-bone topology) | Implemented | `node_components/breathing/` — drives chest/upperChest + L/R shoulder lift with counter-rotated upper arms; configurable `chestAmplitude` + `shoulderAmplitude` via `component_config` nodes; remaining literals collapsed into per-port `defaultConfig` |
+| Compose layers (DB + routes + WS) | WIP | Backend half of the Compose View feature. Migration 008 adds `compose_layers` table (scene-scoped, nullable `camera_node_id` for per-camera layers, two-axis ordering: `scene_order` signed with 0 = 3D render slot, negative = above, positive = behind; `camera_order` anchored to a `scene_order` slot; pixel-space `x`/`y` + anchor `top|bottom × left|right`; `rotation` degrees). REST route mirrors `routes/camera-effects.ts` pattern; mutations broadcast over WS for multi-client sync. Layer kinds: image, video, browser-iframe. See [frontend Compose View](#frontend--packagesfrontendsrc). |
 
 ### Frontend — `packages/frontend/src/`
 
@@ -66,6 +67,7 @@ packages/
 | Lipsync uplink | Implemented | `hooks/useLipsyncUplink.ts` — mic → WS |
 | Lipsync MFCC classifier | Implemented | `media/MicCapture.ts` — in-browser MFCC vowel classification + per-component calibration |
 | Tracking uplink | Implemented | `hooks/useTrackingUplink.ts` — MediaPipe → WS |
+| Compose View (left-dock tab + viewport) | WIP | New second tab in the editor's left dock for building 2D layer stacks (image / video / browser-iframe) in front of and behind the 3D scene render, both scene-wide and per-camera. Compose center viewport renders the selected camera's composited output (3D + layers + post-processing), reusing `<SceneNodes>` + `<CameraEffects>` from `Viewport.tsx` so it matches what `ViewerPage` produces. Layers render as DOM (HTML/CSS) above/below the Three.js canvas — no CSS3D, no WebGL texture proxy. Two-axis ordering (scene_order with signed 0 = 3D slot; camera_order anchored to a scene slot); pixel-space position with anchor (top|bottom × left|right) + rotation (deg, CSS transform around centre). Properties panel gains layer-editing UI; Viewer page gains the same layer composition pass. Backed by `compose_layers` (migration 008) and a new REST route; multi-client sync via WS. |
 
 ### Shared — `packages/shared/src/`
 
