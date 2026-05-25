@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useEditorStore } from '../../store/editorStore'
 import { api } from '../../api/client'
-import { findNodeIdForObject, getNodeGroup, listRegisteredNodeGroups } from './Viewport'
+import { getNodeGroup, listRegisteredNodeGroups } from './Viewport'
 import { sendNodeTransformPreview } from '../../hooks/useWsSync'
-import { cyclePickAt } from './composePickCycle'
 
 const PREVIEW_INTERVAL_MS = 33   // ~30 Hz cap on outgoing transform previews
 
@@ -29,10 +28,14 @@ const ndc = new THREE.Vector2()
 export const composeScenePicker: { current: ((clientX: number, clientY: number) => string | null) | null } = { current: null }
 
 /** Module-level handle for starting a 3D drag on the currently-selected scene
- *  node from outside the Canvas (e.g. when a layer wrapper intercepted the
- *  pointerdown but the user actually wants to drag a 3D object behind it).
- *  Returns true if a drag was started, false if there's nothing to drag. */
+ *  node from outside the Canvas (e.g. from ComposeEventCapture, which owns all
+ *  pointer events and dispatches them). Returns true if a drag was started. */
 export const composeSceneDragStarter: { current: ((nodeId: string, clientX: number, clientY: number, pointerId: number) => boolean) | null } = { current: null }
+
+/** Module-level handle for the wheel impulse on the currently-selected 3D
+ *  node. Lives here because the integration loop runs inside the Canvas via
+ *  useFrame, but the wheel listener is attached at the capture-overlay level. */
+export const composeSceneWheel: { current: ((deltaY: number, clientX: number, clientY: number) => void) | null } = { current: null }
 
 /** Inside-canvas component that turns mesh clicks into scene-node selection
  *  and drags the selected node along the viewport-aligned plane through its
@@ -54,7 +57,7 @@ function transformPayload(group: THREE.Group, node: { components: Record<string,
   }
 }
 
-export function ComposeSceneInteractions({ children, wheelTargetRef }: { children: React.ReactNode; wheelTargetRef: React.RefObject<HTMLElement> }) {
+export function ComposeSceneInteractions({ children }: { children: React.ReactNode }) {
   const { camera, gl } = useThree()
   // Per-gesture throttle: only emit when at least PREVIEW_INTERVAL_MS has passed
   // since the last emission for this nodeId.
@@ -122,49 +125,6 @@ export function ComposeSceneInteractions({ children, wheelTargetRef }: { childre
   }
 
 
-  const onPointerDown = (e: ThreeEvent<PointerEvent>) => {
-    if (e.button !== 0) return
-    const nodeId = findNodeIdForObject(e.object)
-    if (!nodeId) return
-    e.stopPropagation()
-
-    const group = getNodeGroup(nodeId)
-    if (!group) return
-
-    // Always run click-vs-drag. Drag → select-if-needed and begin drag. Click
-    // → cycle through pickables under the cursor. The cycle's "nothing
-    // currently selected" path picks the topmost slot — same effect as a
-    // direct select — so this handles first-click too.
-    const start = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY }
-    const ray = e.ray.clone()
-    const pointerId = e.pointerId
-    let dragging = false
-    const DRAG_THRESHOLD_PX = 3
-    const onPreMove = (ev: PointerEvent) => {
-      if (dragging) return
-      const dx = ev.clientX - start.x
-      const dy = ev.clientY - start.y
-      if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return
-      dragging = true
-      window.removeEventListener('pointermove', onPreMove)
-      window.removeEventListener('pointerup', onPreUp)
-      // Ensure the node is selected before drag starts.
-      const s = useEditorStore.getState()
-      if (s.selectedNodeId !== nodeId || s.selectedComposeLayerId) {
-        s.selectComposeLayer(null)
-        s.selectNode(nodeId)
-      }
-      beginDrag(nodeId, group, ray, pointerId)
-    }
-    const onPreUp = () => {
-      window.removeEventListener('pointermove', onPreMove)
-      window.removeEventListener('pointerup', onPreUp)
-      if (dragging) return
-      cyclePickAt(start.x, start.y)
-    }
-    window.addEventListener('pointermove', onPreMove)
-    window.addEventListener('pointerup', onPreUp)
-  }
 
   const onMove = (ev: PointerEvent) => {
     const d = dragRef.current
@@ -228,46 +188,35 @@ export function ComposeSceneInteractions({ children, wheelTargetRef }: { childre
     velocity: THREE.Vector3   // world-space units / sec
   } | null>(null)
 
+  // The wheel handler is now invoked from the capture overlay (which owns all
+  // input events). It applies an impulse to the selected node's velocity; the
+  // useFrame loop below integrates and persists.
   useEffect(() => {
-    // Attach the wheel listener to the viewport container (not the canvas) so
-    // it fires even when a front 2D layer covers the cursor. Wheel events
-    // bubble, so a listener at this level captures wheels from any descendant.
-    const target = wheelTargetRef.current ?? gl.domElement
-    const onWheel = (ev: WheelEvent) => {
+    composeSceneWheel.current = (deltaY: number, clientX: number, clientY: number) => {
       const store = useEditorStore.getState()
       const nodeId = store.selectedNodeId
       if (!nodeId) return
       const group = getNodeGroup(nodeId)
       if (!group) return
-      ev.preventDefault()
 
-      // Cursor ray direction in world space — the axis the impulse is applied along.
       const rect = gl.domElement.getBoundingClientRect()
-      ndc.x =  ((ev.clientX - rect.left) / rect.width)  * 2 - 1
-      ndc.y = -((ev.clientY - rect.top)  / rect.height) * 2 + 1
+      ndc.x =  ((clientX - rect.left) / rect.width)  * 2 - 1
+      ndc.y = -((clientY - rect.top)  / rect.height) * 2 + 1
       wheelRay.setFromCamera(ndc, camera)
       const axis = wheelRay.ray.direction.clone().normalize()
 
-      // Impulse magnitude scales with current camera distance so the gesture
-      // feels consistent at any zoom. Inverted: scroll up (deltaY < 0) pushes
-      // away; scroll down (deltaY > 0) pulls towards the camera.
       const camPos = new THREE.Vector3()
       camera.getWorldPosition(camPos)
       const pivotWorld = group.getWorldPosition(new THREE.Vector3())
       const distance = Math.max(MIN_CAM_DISTANCE, pivotWorld.distanceTo(camPos))
-      const impulse = axis.multiplyScalar(distance * WHEEL_IMPULSE_FRACTION * -Math.sign(ev.deltaY))
+      const impulse = axis.multiplyScalar(distance * WHEEL_IMPULSE_FRACTION * -Math.sign(deltaY))
 
-      // Switching nodes mid-glide: drop prior velocity rather than transferring it.
       const cur = wheelStateRef.current
-      if (cur && cur.nodeId === nodeId) {
-        cur.velocity.add(impulse)
-      } else {
-        wheelStateRef.current = { nodeId, velocity: impulse }
-      }
+      if (cur && cur.nodeId === nodeId) cur.velocity.add(impulse)
+      else wheelStateRef.current = { nodeId, velocity: impulse }
     }
-    target.addEventListener('wheel', onWheel, { passive: false })
-    return () => target.removeEventListener('wheel', onWheel)
-  }, [camera, gl, wheelTargetRef])
+    return () => { composeSceneWheel.current = null }
+  })
 
   // Integrate the wheel velocity each frame. Persists the transform once the
   // glide settles (or when the selection changes / the node unmounts).
@@ -580,7 +529,7 @@ export function ComposeSceneInteractions({ children, wheelTargetRef }: { childre
   })
 
   return (
-    <group ref={wrapperRef} onPointerDown={onPointerDown}>
+    <group ref={wrapperRef}>
       {children}
       <BoneBoxDebug wrapperRef={wrapperRef} />
     </group>

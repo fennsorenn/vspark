@@ -1,19 +1,15 @@
 import type { CSSProperties } from 'react'
-import { useEditorStore, type ComposeLayerRecord, type AssetFile } from '../../store/editorStore'
-import { cyclePickAt } from './composePickCycle'
-import { composeSceneDragStarter } from './ComposeSceneInteractions'
+import type { ComposeLayerRecord, AssetFile } from '../../store/editorStore'
 
 const SCENE_RENDER_SLOT = 0
 
 interface ComposeLayerStackProps {
   layers: ComposeLayerRecord[]
   assets: AssetFile[]
-  selectedId?: string | null
-  /** Called when a layer is clicked. Provide to enable selection; omit for read-only viewer use. */
-  onSelect?: (id: string | null) => void
-  /** Render mode: 'editor' makes layers selection targets;
-   *  'viewer' makes everything pointer-events:none for the streamed output. */
-  mode: 'editor' | 'viewer'
+  /** Render mode is currently ignored — both editor and viewer render the same
+   *  passive DOM; the editor's input goes through ComposeEventCapture. Kept
+   *  in the signature so ViewerPage's call site doesn't need to change. */
+  mode?: 'editor' | 'viewer'
 }
 
 function resolveAssetUrl(layer: ComposeLayerRecord, assets: AssetFile[]): string | null {
@@ -66,69 +62,27 @@ function Placeholder({ text }: { text: string }) {
 }
 
 function LayerView({
-  layer, assets, interactive, onSelect,
+  layer, assets,
 }: {
   layer: ComposeLayerRecord
   assets: AssetFile[]
-  interactive: boolean
-  onSelect?: (id: string | null) => void
 }) {
+  // Layer wrappers are passive: pointer events go to the top-level capture
+  // overlay (ComposeEventCapture), which uses document.elementsFromPoint to
+  // find which layer is under the cursor via data-compose-layer-id. This
+  // single-owner model removes the need to route between layer wrappers,
+  // canvas, and selection chrome.
   return (
     <div
       data-compose-layer-id={layer.id}
-      style={{
-        ...layerStyle(layer),
-        pointerEvents: interactive ? 'auto' : 'none',
-        cursor: interactive ? 'pointer' : 'default',
-      }}
-      onPointerDown={(e) => {
-        if (!interactive) return
-        if (e.button !== 0) return
-        e.stopPropagation()
-        // Always run a click-vs-drag watcher and cycle on click. The cycle's
-        // "nothing currently selected" path picks the topmost layer under the
-        // cursor — same effect as a plain select — so this also handles the
-        // first-click-on-an-unselected-layer case. Drags fall through; the
-        // selection chrome (which floats above) owns the actual drag gesture.
-        const start = { x: e.clientX, y: e.clientY }
-        let dragging = false
-        const DRAG_THRESHOLD_PX = 3
-        const onMove = (ev: PointerEvent) => {
-          if (dragging) return
-          const dx = ev.clientX - start.x
-          const dy = ev.clientY - start.y
-          if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return
-          dragging = true
-          window.removeEventListener('pointermove', onMove)
-          window.removeEventListener('pointerup', onUp)
-          // Drag routing: if a 3D node is currently selected (and no layer is),
-          // the drag should move that 3D node — even though the click landed on
-          // this layer wrapper, the user picked the 3D via cycling and now wants
-          // to drag it. Otherwise the drag belongs to this layer: select it if
-          // needed and let the chrome's drag handler take over on subsequent moves.
-          const store = useEditorStore.getState()
-          if (!store.selectedComposeLayerId && store.selectedNodeId) {
-            const started = composeSceneDragStarter.current?.(store.selectedNodeId, start.x, start.y, ev.pointerId) ?? false
-            if (started) return
-          }
-          if (store.selectedComposeLayerId !== layer.id) onSelect?.(layer.id)
-        }
-        const onUp = () => {
-          window.removeEventListener('pointermove', onMove)
-          window.removeEventListener('pointerup', onUp)
-          if (dragging) return
-          cyclePickAt(start.x, start.y)
-        }
-        window.addEventListener('pointermove', onMove)
-        window.addEventListener('pointerup', onUp)
-      }}
+      style={{ ...layerStyle(layer), pointerEvents: 'none' }}
     >
       <LayerContent layer={layer} assets={assets} />
     </div>
   )
 }
 
-export function ComposeLayerStack({ layers, assets, selectedId: _selectedId, onSelect, mode }: ComposeLayerStackProps) {
+export function ComposeLayerStack({ layers, assets }: ComposeLayerStackProps) {
   const behind = layers
     .filter((l) => l.sceneOrder > SCENE_RENDER_SLOT)
     .sort((a, b) => b.sceneOrder - a.sceneOrder || a.cameraOrder - b.cameraOrder)
@@ -136,16 +90,8 @@ export function ComposeLayerStack({ layers, assets, selectedId: _selectedId, onS
     .filter((l) => l.sceneOrder <= SCENE_RENDER_SLOT)
     .sort((a, b) => b.sceneOrder - a.sceneOrder || a.cameraOrder - b.cameraOrder)
 
-  const interactive = mode === 'editor'
-
   const renderLayer = (l: ComposeLayerRecord) => (
-    <LayerView
-      key={l.id}
-      layer={l}
-      assets={assets}
-      interactive={interactive}
-      onSelect={onSelect}
-    />
+    <LayerView key={l.id} layer={l} assets={assets} />
   )
 
   // Both containers stay pointer-transparent so empty space falls through to the

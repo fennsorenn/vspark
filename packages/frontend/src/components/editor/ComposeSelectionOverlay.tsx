@@ -1,7 +1,6 @@
 import { useEffect, useState, type CSSProperties, type RefObject } from 'react'
 import { useEditorStore, type ComposeLayerRecord } from '../../store/editorStore'
-import { startDrag, startResize, startRotate, type ResizeEdge } from './composeLayerInteractions'
-import { cyclePickAt } from './composePickCycle'
+import { startResize, startRotate, type ResizeEdge } from './composeLayerInteractions'
 
 interface ComposeSelectionOverlayProps {
   viewportRef: RefObject<HTMLElement>
@@ -88,22 +87,6 @@ export function ComposeSelectionOverlay({ viewportRef, layer }: ComposeSelection
     overflow: 'visible',
   }
 
-  // The draggable body covers the layer rect (axis-aligned). Easier than a rotated polygon
-  // hit area for the common case; for high rotation, users can still grab edges/handles.
-  // Position it as a rotated rect using transform so the body precisely overlays the layer.
-  const bodyStyle: CSSProperties = {
-    position: 'absolute',
-    left: f.cx - f.hx,
-    top: f.cy - f.hy,
-    width: f.hx * 2,
-    height: f.hy * 2,
-    transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined,
-    transformOrigin: 'center center',
-    pointerEvents: 'auto',
-    cursor: 'move',
-    background: 'transparent',
-  }
-
   const handleStyleAt = (pt: { x: number; y: number }, cursor: string, extra: CSSProperties = {}): CSSProperties => ({
     position: 'absolute',
     left: pt.x - HANDLE_SIZE / 2,
@@ -139,40 +122,9 @@ export function ComposeSelectionOverlay({ viewportRef, layer }: ComposeSelection
         <line x1={topMid.x} y1={topMid.y} x2={rotPos.x} y2={rotPos.y} stroke="#4a9eff" strokeWidth={1} />
       </svg>
 
-      {/* Drag body — distinguishes click vs drag by movement threshold. A click
-          cycles selection through any layers stacked under the cursor (so the
-          chrome doesn't trap the user on the front layer when several overlap). */}
-      <div
-        style={bodyStyle}
-        onPointerDown={(e) => {
-          if (e.button !== 0) return
-          e.preventDefault()
-          e.stopPropagation()
-          const start = { x: e.clientX, y: e.clientY }
-          let dragging = false
-          const DRAG_THRESHOLD_PX = 3
-          const onMove = (ev: PointerEvent) => {
-            if (dragging) return
-            const dx = ev.clientX - start.x
-            const dy = ev.clientY - start.y
-            if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return
-            dragging = true
-            window.removeEventListener('pointermove', onMove)
-            window.removeEventListener('pointerup', onUp)
-            // Start the real drag from the original press coords so the layer
-            // doesn't jump by the threshold delta.
-            startDrag({ clientX: start.x, clientY: start.y }, layer, apply)
-          }
-          const onUp = () => {
-            window.removeEventListener('pointermove', onMove)
-            window.removeEventListener('pointerup', onUp)
-            if (dragging) return
-            cyclePickAt(start.x, start.y)
-          }
-          window.addEventListener('pointermove', onMove)
-          window.addEventListener('pointerup', onUp)
-        }}
-      />
+      {/* Drag-move is handled by the capture overlay underneath this chrome.
+          We no longer mount a drag body here — clicks and drags on the layer's
+          body flow through the capture overlay's unified routing. */}
 
       {/* Resize handles */}
       {(Object.keys(EDGE_OFFSETS) as ResizeEdge[]).map((edge) => {

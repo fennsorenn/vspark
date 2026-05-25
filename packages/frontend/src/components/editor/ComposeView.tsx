@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { PerspectiveCamera, Environment } from '@react-three/drei'
 import * as THREE from 'three'
@@ -7,7 +7,9 @@ import { SceneNodes, CameraEffects } from './Viewport'
 import { ComposeLayerStack } from './ComposeLayerStack'
 import { ComposeSelectionOverlay } from './ComposeSelectionOverlay'
 import { ComposeSceneInteractions } from './ComposeSceneInteractions'
+import { ComposeEventCapture } from './ComposeEventCapture'
 import { FittedOrthoCamera } from './FittedOrthoCamera'
+import { composeViewportRect } from './composeHitTest'
 
 function getT(components: Record<string, unknown> | undefined) {
   const t = components?.transform as Partial<{ x: number; y: number; z: number; rx: number; ry: number; rz: number }> | undefined
@@ -39,6 +41,13 @@ export function ComposeView() {
 
   const camNode = cameras.find((c) => c.id === composeCameraId) ?? null
   const viewportRef = useRef<HTMLDivElement>(null)
+
+  // Install a module-level getter so other modules (cycle, capture overlay)
+  // can resolve the viewport rect without prop-drilling.
+  useLayoutEffect(() => {
+    composeViewportRect.current = () => viewportRef.current?.getBoundingClientRect() ?? null
+    return () => { composeViewportRect.current = null }
+  }, [])
   const selectedLayer = composeLayers.find((l) => l.id === selectedComposeLayerId) ?? null
   const cc = camNode?.components?.camera as { projection?: 'perspective' | 'orthographic'; fov?: number; near?: number; far?: number; orthoSize?: number; backgroundImage?: string } | undefined
   const projection = cc?.projection ?? 'perspective'
@@ -56,17 +65,6 @@ export function ComposeView() {
         No camera available.
       </div>
     )
-  }
-
-  /** Forward a click to whatever layer is at (x, y) in screen-client coords,
-   *  skipping the 3D canvas. Selects null if no layer is under the cursor. */
-  const selectByClientPoint = (x: number, y: number) => {
-    const els = document.elementsFromPoint(x, y)
-    for (const el of els) {
-      const id = (el as HTMLElement).getAttribute?.('data-compose-layer-id')
-      if (id) { selectComposeLayer(id); return }
-    }
-    selectComposeLayer(null)
   }
 
   return (
@@ -88,26 +86,14 @@ export function ComposeView() {
       <div
         ref={viewportRef}
         style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#000' }}
-        onPointerDown={(e) => { if (e.target === e.currentTarget) selectComposeLayer(null) }}
       >
-        <ComposeLayerStack
-          layers={stackLayers}
-          assets={assets}
-          selectedId={selectedComposeLayerId}
-          onSelect={selectComposeLayer}
-          mode="editor"
-        />
-        {/* 3D canvas sits at z-index 1, between behind-layers (0) and front-layers (2).
-            The canvas itself receives pointer events so R3F can hit-test 3D objects;
-            when the click lands on empty 3D space, onPointerMissed fires and we
-            forward the click via elementsFromPoint so behind layers stay selectable
-            through 3D-empty pixels. */}
-        <div data-compose-3d="" style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+        <ComposeLayerStack layers={stackLayers} assets={assets} />
+        {/* 3D canvas — all DOM is pointer-events:none; the capture overlay owns input. */}
+        <div data-compose-3d="" style={{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none' }}>
           <Canvas
             gl={{ alpha: true, antialias: true, toneMapping: THREE.NoToneMapping }}
             style={{ background: 'transparent' }}
             onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
-            onPointerMissed={(e) => selectByClientPoint(e.clientX, e.clientY)}
           >
             {projection === 'perspective' ? (
               <PerspectiveCamera
@@ -127,14 +113,18 @@ export function ComposeView() {
                 rotation={[t.rx, t.ry, t.rz]}
               />
             )}
-            <ComposeSceneInteractions wheelTargetRef={viewportRef}>
+            <ComposeSceneInteractions>
               <SceneNodes omitKinds={['camera']} viewerMode />
             </ComposeSceneInteractions>
             <Environment preset="city" />
             <CameraEffects forceNodeId={camNode.id} />
           </Canvas>
         </div>
-        {/* Selection chrome lives above everything so handles never get occluded. */}
+        {/* The capture overlay owns all pointer/wheel events for the compose
+            viewport. Sits above the canvas and layers but below the selection
+            chrome so the chrome's handles can still receive precise hits. */}
+        <ComposeEventCapture viewportRef={viewportRef} />
+        {/* Selection chrome (outline + resize/rotate handles) lives on top. */}
         {selectedLayer && (
           <ComposeSelectionOverlay viewportRef={viewportRef} layer={selectedLayer} />
         )}
