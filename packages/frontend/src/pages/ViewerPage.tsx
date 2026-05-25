@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { Canvas } from '@react-three/fiber'
 import { PerspectiveCamera, Environment } from '@react-three/drei'
+import { FittedOrthoCamera } from '../components/editor/FittedOrthoCamera'
 import * as THREE from 'three'
 import { useEditorStore } from '../store/editorStore'
 import { api } from '../api/client'
@@ -54,7 +55,9 @@ export function ViewerPage() {
   }, [projectId, setProject, setScenes, setActiveScene, setNodes, setNodeComponents, setCameraEffects, setComposeLayers])
 
   const camNode = nodes.find((n) => n.id === nodeId)
-  const cc = camNode?.components?.camera as { fov?: number; near?: number; far?: number; backgroundImage?: string } | undefined
+  const cc = camNode?.components?.camera as { projection?: 'perspective' | 'orthographic'; fov?: number; near?: number; far?: number; orthoSize?: number; backgroundImage?: string } | undefined
+  const projection = cc?.projection ?? 'perspective'
+  const orthoSize = cc?.orthoSize ?? 2
   const t = getT(camNode?.components as Record<string, unknown> | undefined)
   const bgImage = cc?.backgroundImage ?? null
 
@@ -83,14 +86,24 @@ export function ViewerPage() {
         onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
         frameloop={isHidden ? 'never' : 'always'}
       >
-        <PerspectiveCamera
-          makeDefault
-          fov={cc?.fov ?? 50}
-          near={cc?.near ?? 0.1}
-          far={cc?.far ?? 1000}
-          position={[t.x, t.y, t.z]}
-          rotation={[t.rx, t.ry, t.rz]}
-        />
+        {projection === 'perspective' ? (
+          <PerspectiveCamera
+            makeDefault
+            fov={cc?.fov ?? 50}
+            near={cc?.near ?? 0.1}
+            far={cc?.far ?? 1000}
+            position={[t.x, t.y, t.z]}
+            rotation={[t.rx, t.ry, t.rz]}
+          />
+        ) : (
+          <FittedOrthoCamera
+            size={orthoSize}
+            near={cc?.near ?? 0.1}
+            far={cc?.far ?? 1000}
+            position={[t.x, t.y, t.z]}
+            rotation={[t.rx, t.ry, t.rz]}
+          />
+        )}
         <SceneNodes omitKinds={['camera']} viewerMode />
         <Environment preset="city" />
         {nodeId && <CameraEffects forceNodeId={nodeId} />}

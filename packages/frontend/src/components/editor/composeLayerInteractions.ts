@@ -1,5 +1,19 @@
 import type { ComposeLayerRecord } from '../../store/editorStore'
 import { api } from '../../api/client'
+import { sendComposeLayerPreview } from '../../hooks/useWsSync'
+
+const PREVIEW_INTERVAL_MS = 33   // ~30 Hz cap on outgoing layer previews
+
+/** Throttled preview emitter scoped to a single gesture. */
+function makePreviewEmitter(id: string) {
+  let last = 0
+  return (patch: Partial<ComposeLayerRecord>) => {
+    const now = performance.now()
+    if (now - last < PREVIEW_INTERVAL_MS) return
+    last = now
+    sendComposeLayerPreview(id, patch as Record<string, unknown>)
+  }
+}
 
 /** Sign multipliers so that "dragging towards the bottom-right of the screen"
  *  always increases width/height, regardless of which corner the layer is anchored to.
@@ -22,6 +36,7 @@ export function startDrag(
 ) {
   const start = { x: e.clientX, y: e.clientY, lx: layer.x, ly: layer.y }
   const { sx, sy } = anchorSigns(layer)
+  const emit = makePreviewEmitter(layer.id)
   let last: Partial<ComposeLayerRecord> | null = null
 
   const move = (ev: PointerEvent) => {
@@ -29,6 +44,7 @@ export function startDrag(
     const dy = ev.clientY - start.y
     last = { x: start.lx + dx * sx, y: start.ly + dy * sy }
     apply(last)
+    emit(last)
   }
   const up = () => {
     window.removeEventListener('pointermove', move)
@@ -47,7 +63,7 @@ export function startResize(
   apply: (patch: Partial<ComposeLayerRecord>) => void,
 ) {
   const start = { x: e.clientX, y: e.clientY, lx: layer.x, ly: layer.y, w: layer.width, h: layer.height }
-  const { sx, sy } = anchorSigns(layer)
+  const emit = makePreviewEmitter(layer.id)
   // Which directions does this edge stretch in?
   const touchesWest  = edge.includes('w')
   const touchesEast  = edge.includes('e')
@@ -55,35 +71,57 @@ export function startResize(
   const touchesSouth = edge.includes('s')
   let last: Partial<ComposeLayerRecord> | null = null
 
+  // Project screen-space deltas onto the layer's local axes so rotated layers
+  // resize along their own edges. Anchor-aware position adjustment ensures that
+  // dragging the far edge from the anchor leaves the anchored edge pinned.
+  // (For rotated layers we don't fully compensate the centre shift, so the layer
+  // grows from its centre rather than its opposite edge — acceptable for v1.)
+  const rad = (layer.rotation * Math.PI) / 180
+  const cosR = Math.cos(rad)
+  const sinR = Math.sin(rad)
+
   const move = (ev: PointerEvent) => {
-    const dx = ev.clientX - start.x
-    const dy = ev.clientY - start.y
+    const dxs = ev.clientX - start.x
+    const dys = ev.clientY - start.y
+    const dxl =  cosR * dxs + sinR * dys
+    const dyl = -sinR * dxs + cosR * dys
     const patch: Partial<ComposeLayerRecord> = {}
+
     // Horizontal
     if (touchesEast) {
-      // Far edge from anchor when anchorH=left; near edge when anchorH=right.
-      // anchorH=left:  east edge moves with cursor → width += dx
-      // anchorH=right: east edge is the anchored side → width -= dx, x stays
-      patch.width = Math.max(8, start.w + dx * sx)
+      // East = visual right edge. anchorH=left → far edge, grows by dxl.
+      // anchorH=right → anchored edge, ideally no-op (we just no-op here).
+      if (layer.anchorH === 'left') {
+        patch.width = Math.max(8, start.w + dxl)
+      }
     } else if (touchesWest) {
-      // anchorH=left:  dragging west edge shrinks/grows width AND shifts x by dx
-      // anchorH=right: west edge is the far edge → width += -dx (since sx=-1, dx*sx = -dx) — wait, careful:
-      //   When anchorH=right, sx=-1. The visual "left edge" of the layer is the FAR side from the anchor.
-      //   So dragging left edge to the left should grow width by -dx (no change to x).
-      //   When anchorH=left, sx=+1. Dragging left edge to the left grows width by -dx and shifts x by dx.
-      patch.width = Math.max(8, start.w - dx * sx)
-      if (layer.anchorH === 'left')  patch.x = start.lx + dx
-      // anchorH=right: x unchanged when resizing west edge.
+      // West = visual left edge. anchorH=left → near edge, width shrinks/grows AND x shifts.
+      // anchorH=right → far edge, grows by -dxl.
+      if (layer.anchorH === 'right') {
+        patch.width = Math.max(8, start.w - dxl)
+      } else if (layer.rotation === 0) {
+        patch.width = Math.max(8, start.w - dxs)
+        patch.x = start.lx + dxs
+      }
     }
-    // Vertical (mirror logic)
+
+    // Vertical
     if (touchesSouth) {
-      patch.height = Math.max(8, start.h + dy * sy)
+      if (layer.anchorV === 'top') {
+        patch.height = Math.max(8, start.h + dyl)
+      }
     } else if (touchesNorth) {
-      patch.height = Math.max(8, start.h - dy * sy)
-      if (layer.anchorV === 'top') patch.y = start.ly + dy
+      if (layer.anchorV === 'bottom') {
+        patch.height = Math.max(8, start.h - dyl)
+      } else if (layer.rotation === 0) {
+        patch.height = Math.max(8, start.h - dys)
+        patch.y = start.ly + dys
+      }
     }
+
     last = patch
     apply(patch)
+    emit(patch)
   }
   const up = () => {
     window.removeEventListener('pointermove', move)
@@ -94,18 +132,19 @@ export function startResize(
   window.addEventListener('pointerup', up)
 }
 
-/** Start a rotation gesture. Rotation is measured in degrees clockwise around the layer center. */
+/** Start a rotation gesture. Rotation is measured in degrees clockwise around the layer center.
+ *  `centre` is the layer centre in screen-client coords. */
 export function startRotate(
-  e: PointerEvent | { clientX: number; clientY: number; currentTarget: Element },
+  e: PointerEvent | { clientX: number; clientY: number },
   layer: ComposeLayerRecord,
-  layerEl: HTMLElement,
+  centre: { x: number; y: number },
   apply: (patch: Partial<ComposeLayerRecord>) => void,
 ) {
-  const rect = layerEl.getBoundingClientRect()
-  const cx = rect.left + rect.width / 2
-  const cy = rect.top + rect.height / 2
+  const cx = centre.x
+  const cy = centre.y
   const startAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI
   const startRotation = layer.rotation
+  const emit = makePreviewEmitter(layer.id)
   let last: Partial<ComposeLayerRecord> | null = null
 
   const move = (ev: PointerEvent) => {
@@ -116,6 +155,7 @@ export function startRotate(
     while (next <= -180) next += 360
     last = { rotation: Math.round(next * 10) / 10 }
     apply(last)
+    emit(last)
   }
   const up = () => {
     window.removeEventListener('pointermove', move)

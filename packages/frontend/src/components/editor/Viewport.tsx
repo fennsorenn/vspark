@@ -18,7 +18,7 @@ import { VRMLoaderPlugin } from '@pixiv/three-vrm'
 import type { VRM, VRMHumanBoneName, VRMPose } from '@pixiv/three-vrm'
 import { useEditorStore } from '../../store/editorStore'
 import type { NodeRecord, NodeComponent, ApiAnimationState } from '../../store/editorStore'
-import { editorWsRef } from '../../hooks/useWsSync'
+import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync'
 
 import { animRegistry } from '../../animRegistry'
 import { getVmcPose, getVmcPoseTime, getVmcPoseBlendMode, getVmcBlendshapes } from '../../vmcPoseStore'
@@ -34,8 +34,56 @@ import type { ParticlePool } from '../../particleUtils'
 
 type GizmoMode = 'translate' | 'rotate' | 'scale'
 
-// Maps nodeId → outermost Three.js group, used to attach TransformControls
-const nodeGroupRegistry = new Map<string, THREE.Group>()
+// Maps nodeId → outermost Three.js groups for that node. A node can have
+// multiple registered groups concurrently when the Scene tab's Viewport and the
+// Compose tab's Canvas both mount their own copy of <SceneNodes>. The Scene
+// tab's group registers first and stays primary; lookups prefer the first entry.
+const nodeGroupRegistry = new Map<string, THREE.Group[]>()
+
+function registerNodeGroup(nodeId: string, group: THREE.Group): () => void {
+  const existing = nodeGroupRegistry.get(nodeId)
+  if (existing) existing.push(group)
+  else nodeGroupRegistry.set(nodeId, [group])
+  return () => {
+    const list = nodeGroupRegistry.get(nodeId)
+    if (!list) return
+    const idx = list.indexOf(group)
+    if (idx >= 0) list.splice(idx, 1)
+    if (list.length === 0) nodeGroupRegistry.delete(nodeId)
+  }
+}
+
+/** Walk up an Object3D's parent chain and return the nodeId of the first ancestor
+ *  registered as a scene-node root group, or null if none. Lets click handlers
+ *  inside the R3F scene map a raycast hit back to its owning scene node. */
+export function findNodeIdForObject(obj: THREE.Object3D | null): string | null {
+  let cur: THREE.Object3D | null = obj
+  while (cur) {
+    for (const [nodeId, groups] of nodeGroupRegistry) {
+      if (groups.includes(cur as THREE.Group)) return nodeId
+    }
+    cur = cur.parent
+  }
+  return null
+}
+
+/** Get the Three.js group for a given scene node id, or null if unmounted.
+ *  Returns the first registered group (the Scene tab's, since it mounts first). */
+export function getNodeGroup(nodeId: string): THREE.Group | null {
+  const list = nodeGroupRegistry.get(nodeId)
+  return list && list.length > 0 ? list[0] : null
+}
+
+/** Enumerate `(nodeId, group)` pairs for every registered group. Lets the
+ *  Compose interaction layer walk all candidate hit targets cheaply, e.g. to
+ *  AABB-test instead of triangle-raycasting the whole scene. */
+export function listRegisteredNodeGroups(): Array<[string, THREE.Group]> {
+  const out: Array<[string, THREE.Group]> = []
+  for (const [nodeId, groups] of nodeGroupRegistry) {
+    for (const g of groups) out.push([nodeId, g])
+  }
+  return out
+}
 
 // ── Two-bone analytical IK ──────────────────────────────────────────────────
 // Solves root→mid chain so that mid's child (tip) reaches targetWorld.
@@ -184,7 +232,7 @@ function BoneAttacher({ avatarNodeId, boneName, nodeId }: {
 }) {
   const { scene } = useThree()
   useEffect(() => {
-    const group = nodeGroupRegistry.get(nodeId)
+    const group = getNodeGroup(nodeId)
     const vrm = vrmRegistry.get(avatarNodeId)
     if (!group || !vrm) return
     const bone = vrm.humanoid.getRawBoneNode(boneName as VRMHumanBoneName)
@@ -485,8 +533,8 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
   const showFbxDebug   = useEditorStore((s) => s.fbxDebugVisible[node.id]  ?? false)
 
   useEffect(() => {
-    if (outerRef.current) nodeGroupRegistry.set(node.id, outerRef.current)
-    return () => { nodeGroupRegistry.delete(node.id) }
+    if (!outerRef.current) return
+    return registerNodeGroup(node.id, outerRef.current)
   }, [node.id])
 
   useEffect(() => {
@@ -1649,8 +1697,8 @@ function LightNode({ node, viewerMode }: { node: NodeRecord; viewerMode?: boolea
   const iconColor = '#ffaa22'
 
   useEffect(() => {
-    if (groupRef.current) nodeGroupRegistry.set(node.id, groupRef.current)
-    return () => { nodeGroupRegistry.delete(node.id) }
+    if (!groupRef.current) return
+    return registerNodeGroup(node.id, groupRef.current)
   }, [node.id])
 
   return (
@@ -1692,22 +1740,26 @@ function CameraNode({ node }: { node: NodeRecord }) {
   const isSelected = selectedNodeId === node.id
   const groupRef = useRef<THREE.Group>(null)
   const t = getTransform(node)
-  const cc = node.components?.camera as { fov?: number; near?: number; far?: number } | undefined
+  const cc = node.components?.camera as { projection?: 'perspective' | 'orthographic'; fov?: number; near?: number; far?: number; orthoSize?: number } | undefined
 
   useEffect(() => {
-    if (groupRef.current) nodeGroupRegistry.set(node.id, groupRef.current)
-    return () => { nodeGroupRegistry.delete(node.id) }
+    if (!groupRef.current) return
+    return registerNodeGroup(node.id, groupRef.current)
   }, [node.id])
 
   const near   = cc?.near ?? 0.1
   const far    = cc?.far  ?? 100
   const fov    = cc?.fov  ?? 50
+  const projection = cc?.projection ?? 'perspective'
+  const orthoSize  = cc?.orthoSize ?? 2
   const aspect = 16 / 9
   const tanHalf = Math.tan((fov / 2) * Math.PI / 180)
-  const halfH  = near * tanHalf
-  const halfW  = halfH * aspect
-  const farH   = far  * tanHalf
-  const farW   = farH * aspect
+  // Near/far frustum half-extents. For perspective, near scales with distance;
+  // for orthographic, both planes share the same size (parallel walls).
+  const halfH  = projection === 'perspective' ? near * tanHalf : orthoSize
+  const halfW  = projection === 'perspective' ? halfH * aspect : orthoSize * aspect
+  const farH   = projection === 'perspective' ? far  * tanHalf : orthoSize
+  const farW   = projection === 'perspective' ? farH * aspect  : orthoSize * aspect
 
   // Camera body — center is the true optical center at (0,0,0)
   const bW = 0.12, bH = 0.08, bD = 0.08
@@ -1725,14 +1777,19 @@ function CameraNode({ node }: { node: NodeRecord }) {
     [-halfW,  halfH, -near],
   ]
 
-  // Where each ray from (0,0,0) → nCorner exits the front face (z = frontZ).
-  // Parametric: pos = t * corner → z = -t*near = frontZ → t = (-frontZ)/near = bD/(2*near)
-  // Only valid when near > bD/2 (near plane is outside the cube).
-  const nearOutside = near > bD / 2
-  const cutT = nearOutside ? (bD / 2) / near : 1
-  const cutCorners: [number, number, number][] = nCorners.map(
-    ([cx, cy]) => [cx * cutT, cy * cutT, frontZ],
-  )
+  // Where the visible part of the frustum starts on the body's front face.
+  // Perspective: ray from (0,0,0) → near-corner hits z=frontZ at scaled (cx, cy).
+  //   Parametric: pos = t * corner → z = -t*near = frontZ → t = bD/(2*near).
+  //   Only valid when near > bD/2 (near plane is outside the cube).
+  // Orthographic: rays are parallel along -Z, so the front-face cut is just the
+  //   near-frame's (x, y) at frontZ. Always "outside" because the body is short.
+  const nearOutside = projection === 'orthographic' ? true : near > bD / 2
+  const cutCorners: [number, number, number][] = projection === 'orthographic'
+    ? nCorners.map(([cx, cy]) => [cx, cy, frontZ])
+    : (() => {
+        const cutT = nearOutside ? (bD / 2) / near : 1
+        return nCorners.map(([cx, cy]) => [cx * cutT, cy * cutT, frontZ])
+      })()
 
   const pyramidGeo = useMemo(() => {
     // 4 visible edges (cut surface → near corner) + near rect + optional cut rect
@@ -1750,7 +1807,7 @@ function CameraNode({ node }: { node: NodeRecord }) {
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(segs), 3))
     return g
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [halfW, halfH, near, nearOutside, cutT])
+  }, [halfW, halfH, near, nearOutside, projection])
   useEffect(() => () => pyramidGeo.dispose(), [pyramidGeo])
 
   // Far-plane corners — perspective-correct, same rays as near corners scaled to far distance
@@ -1882,8 +1939,8 @@ function BillboardNode({ node }: { node: NodeRecord }) {
   }, [bc.textureUrl, bc.backface]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (outerRef.current) nodeGroupRegistry.set(node.id, outerRef.current)
-    return () => { nodeGroupRegistry.delete(node.id) }
+    if (!outerRef.current) return
+    return registerNodeGroup(node.id, outerRef.current)
   }, [node.id])
 
   // Copy camera quaternion onto the inner group each frame when in screen-facing mode,
@@ -2014,8 +2071,8 @@ function ParticleNode({ node }: { node: NodeRecord }) {
   }, [pc.playOnStart])
 
   useEffect(() => {
-    if (outerRef.current) nodeGroupRegistry.set(node.id, outerRef.current)
-    return () => { nodeGroupRegistry.delete(node.id) }
+    if (!outerRef.current) return
+    return registerNodeGroup(node.id, outerRef.current)
   }, [node.id])
 
   // Texture loading
@@ -2194,8 +2251,8 @@ function GodrayCasterNode({ node }: { node: NodeRecord }) {
   const scale = (node.components.godray as any)?.scale ?? 0.3
 
   useEffect(() => {
-    if (outerRef.current) nodeGroupRegistry.set(node.id, outerRef.current)
-    return () => { nodeGroupRegistry.delete(node.id) }
+    if (!outerRef.current) return
+    return registerNodeGroup(node.id, outerRef.current)
   }, [node.id])
 
   useEffect(() => {
@@ -2221,8 +2278,8 @@ function ModelNode({ node, children }: { node: NodeRecord; children?: React.Reac
   const isGlb = Boolean(node.filePath && (ext === 'glb' || ext === 'gltf'))
 
   useEffect(() => {
-    if (outerRef.current) nodeGroupRegistry.set(node.id, outerRef.current)
-    return () => { nodeGroupRegistry.delete(node.id) }
+    if (!outerRef.current) return
+    return registerNodeGroup(node.id, outerRef.current)
   }, [node.id])
 
   useEffect(() => {
@@ -2306,15 +2363,30 @@ export function SceneNodes({ omitNodeId, omitKinds, viewerMode }: {
 
 function TransformGizmo({ mode, orbitRef }: { mode: GizmoMode; orbitRef: React.RefObject<any> }) {
   const { selectedNodeId, updateNode: storeUpdateNode } = useEditorStore()
-  const group = selectedNodeId ? nodeGroupRegistry.get(selectedNodeId) : undefined
+  const group = selectedNodeId ? getNodeGroup(selectedNodeId) : null
+  // Throttle outgoing live previews to ~30 Hz; the gizmo fires onObjectChange
+  // on every animation frame while dragging, which would otherwise spam the WS.
+  const lastPreviewAtRef = useRef(0)
   if (!group) return null
+
+  const buildTransform = () => {
+    const p = group.position, r = group.rotation, s = group.scale
+    return { x: p.x, y: p.y, z: p.z, rx: r.x, ry: r.y, rz: r.z, sx: s.x, sy: s.y, sz: s.z }
+  }
+
+  const onChange = () => {
+    if (!selectedNodeId) return
+    const now = performance.now()
+    if (now - lastPreviewAtRef.current < 33) return
+    lastPreviewAtRef.current = now
+    sendNodeTransformPreview(selectedNodeId, buildTransform())
+  }
 
   const onEnd = () => {
     if (orbitRef.current) orbitRef.current.enabled = true
     const node = useEditorStore.getState().nodes.find(n => n.id === selectedNodeId)
     if (!node) return
-    const p = group.position, r = group.rotation, s = group.scale
-    const transform = { x: p.x, y: p.y, z: p.z, rx: r.x, ry: r.y, rz: r.z, sx: s.x, sy: s.y, sz: s.z }
+    const transform = buildTransform()
     const components = { ...node.components, transform: { type: 'transform', ...transform } }
     storeUpdateNode(node.id, { components })
     api.updateNode(node.id, { components }).catch(() => {})
@@ -2326,6 +2398,7 @@ function TransformGizmo({ mode, orbitRef }: { mode: GizmoMode; orbitRef: React.R
       object={group}
       mode={mode}
       onMouseDown={() => { if (orbitRef.current) orbitRef.current.enabled = false }}
+      onObjectChange={onChange}
       onMouseUp={onEnd}
     />
   )

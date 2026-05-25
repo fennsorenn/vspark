@@ -1,6 +1,7 @@
-import { useRef, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import type { CSSProperties } from 'react'
 import { useEditorStore, type ComposeLayerRecord, type AssetFile } from '../../store/editorStore'
-import { startDrag, startResize, startRotate, type ResizeEdge } from './composeLayerInteractions'
+import { cyclePickAt } from './composePickCycle'
+import { composeSceneDragStarter } from './ComposeSceneInteractions'
 
 const SCENE_RENDER_SLOT = 0
 
@@ -10,7 +11,7 @@ interface ComposeLayerStackProps {
   selectedId?: string | null
   /** Called when a layer is clicked. Provide to enable selection; omit for read-only viewer use. */
   onSelect?: (id: string | null) => void
-  /** Render mode: 'editor' enables selection outlines + drag/resize/rotate handles;
+  /** Render mode: 'editor' makes layers selection targets;
    *  'viewer' makes everything pointer-events:none for the streamed output. */
   mode: 'editor' | 'viewer'
 }
@@ -31,6 +32,7 @@ function layerStyle(layer: ComposeLayerRecord): CSSProperties {
     transformOrigin: 'center center',
     visibility: layer.visible ? 'visible' : 'hidden',
     opacity,
+    overflow: 'hidden',
   }
   if (layer.anchorH === 'left')   style.left   = layer.x
   if (layer.anchorH === 'right')  style.right  = layer.x
@@ -44,149 +46,89 @@ function LayerContent({ layer, assets }: { layer: ComposeLayerRecord; assets: As
   if (layer.kind === 'image') {
     const url = resolveAssetUrl(layer, assets)
     if (!url) return <Placeholder text="no image" />
-    return <img src={url} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit, display: 'block' }} />
+    return <img src={url} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit, display: 'block', pointerEvents: 'none' }} />
   }
   if (layer.kind === 'video') {
     const url = resolveAssetUrl(layer, assets)
     if (!url) return <Placeholder text="no video" />
-    return <video src={url} autoPlay muted loop playsInline style={{ width: '100%', height: '100%', objectFit, display: 'block' }} />
+    return <video src={url} autoPlay muted loop playsInline style={{ width: '100%', height: '100%', objectFit, display: 'block', pointerEvents: 'none' }} />
   }
   const url = (layer.config.url as string | undefined) ?? ''
   if (!url) return <Placeholder text="no URL" />
-  return <iframe src={url} sandbox="allow-scripts allow-same-origin allow-forms allow-popups" style={{ width: '100%', height: '100%', border: 'none', display: 'block' }} title={layer.name} />
+  // Iframes always swallow events when active. We keep them pointer-events:none
+  // in editor mode so selection works; the streamed output (viewer mode) makes
+  // them interactive only there.
+  return <iframe src={url} sandbox="allow-scripts allow-same-origin allow-forms allow-popups" style={{ width: '100%', height: '100%', border: 'none', display: 'block', pointerEvents: 'none' }} title={layer.name} />
 }
 
 function Placeholder({ text }: { text: string }) {
-  return <div style={{ width: '100%', height: '100%', background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 11 }}>{text}</div>
+  return <div style={{ width: '100%', height: '100%', background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 11, pointerEvents: 'none' }}>{text}</div>
 }
-
-const HANDLE_SIZE = 8
-const handleBase: CSSProperties = {
-  position: 'absolute',
-  width: HANDLE_SIZE,
-  height: HANDLE_SIZE,
-  background: '#4a9eff',
-  border: '1px solid #fff',
-  borderRadius: 2,
-  pointerEvents: 'auto',
-}
-
-function handleStyle(edge: ResizeEdge): CSSProperties {
-  const half = HANDLE_SIZE / 2
-  const s: CSSProperties = { ...handleBase, cursor: cursorFor(edge) }
-  if (edge.includes('n')) s.top = -half
-  if (edge.includes('s')) s.bottom = -half
-  if (edge.includes('w')) s.left = -half
-  if (edge.includes('e')) s.right = -half
-  if (edge === 'n' || edge === 's') { s.left = `calc(50% - ${half}px)` }
-  if (edge === 'e' || edge === 'w') { s.top  = `calc(50% - ${half}px)` }
-  return s
-}
-
-function cursorFor(edge: ResizeEdge): string {
-  switch (edge) {
-    case 'n': case 's': return 'ns-resize'
-    case 'e': case 'w': return 'ew-resize'
-    case 'ne': case 'sw': return 'nesw-resize'
-    case 'nw': case 'se': return 'nwse-resize'
-  }
-}
-
-const ALL_EDGES: ResizeEdge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']
 
 function LayerView({
-  layer, assets, selected, interactive, onSelect,
+  layer, assets, interactive, onSelect,
 }: {
   layer: ComposeLayerRecord
   assets: AssetFile[]
-  selected: boolean
   interactive: boolean
   onSelect?: (id: string | null) => void
 }) {
-  const updateLayer = useEditorStore((s) => s.updateComposeLayerLocal)
-  const wrapRef = useRef<HTMLDivElement>(null)
-
-  const apply = (patch: Partial<ComposeLayerRecord>) => updateLayer(layer.id, patch)
-
-  // For browser layers in editor mode, only enable pointer events on the iframe while selected
-  // (so dragging the layer body still works when unselected).
-  const allowChildPointer = interactive && (layer.kind !== 'browser' || selected)
-
-  const onPointerDownBody = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!interactive) return
-    if (!selected) { onSelect?.(layer.id); return }
-    if (e.button !== 0) return
-    // Drag-move
-    e.preventDefault()
-    e.stopPropagation()
-    startDrag({ clientX: e.clientX, clientY: e.clientY }, layer, apply)
-  }
-
   return (
     <div
-      ref={wrapRef}
+      data-compose-layer-id={layer.id}
       style={{
         ...layerStyle(layer),
         pointerEvents: interactive ? 'auto' : 'none',
-        cursor: interactive ? (selected ? 'move' : 'pointer') : 'default',
-        outline: selected ? '1px solid #4a9eff' : 'none',
+        cursor: interactive ? 'pointer' : 'default',
       }}
-      onPointerDown={onPointerDownBody}
-      onClick={(e) => { if (interactive) e.stopPropagation() }}
+      onPointerDown={(e) => {
+        if (!interactive) return
+        if (e.button !== 0) return
+        e.stopPropagation()
+        // Always run a click-vs-drag watcher and cycle on click. The cycle's
+        // "nothing currently selected" path picks the topmost layer under the
+        // cursor — same effect as a plain select — so this also handles the
+        // first-click-on-an-unselected-layer case. Drags fall through; the
+        // selection chrome (which floats above) owns the actual drag gesture.
+        const start = { x: e.clientX, y: e.clientY }
+        let dragging = false
+        const DRAG_THRESHOLD_PX = 3
+        const onMove = (ev: PointerEvent) => {
+          if (dragging) return
+          const dx = ev.clientX - start.x
+          const dy = ev.clientY - start.y
+          if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return
+          dragging = true
+          window.removeEventListener('pointermove', onMove)
+          window.removeEventListener('pointerup', onUp)
+          // Drag routing: if a 3D node is currently selected (and no layer is),
+          // the drag should move that 3D node — even though the click landed on
+          // this layer wrapper, the user picked the 3D via cycling and now wants
+          // to drag it. Otherwise the drag belongs to this layer: select it if
+          // needed and let the chrome's drag handler take over on subsequent moves.
+          const store = useEditorStore.getState()
+          if (!store.selectedComposeLayerId && store.selectedNodeId) {
+            const started = composeSceneDragStarter.current?.(store.selectedNodeId, start.x, start.y, ev.pointerId) ?? false
+            if (started) return
+          }
+          if (store.selectedComposeLayerId !== layer.id) onSelect?.(layer.id)
+        }
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove)
+          window.removeEventListener('pointerup', onUp)
+          if (dragging) return
+          cyclePickAt(start.x, start.y)
+        }
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+      }}
     >
-      <div style={{ width: '100%', height: '100%', pointerEvents: allowChildPointer ? 'auto' : 'none', overflow: 'hidden' }}>
-        <LayerContent layer={layer} assets={assets} />
-      </div>
-      {selected && interactive && (
-        <>
-          {ALL_EDGES.map((edge) => (
-            <div
-              key={edge}
-              style={handleStyle(edge)}
-              onPointerDown={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                startResize({ clientX: e.clientX, clientY: e.clientY }, layer, edge, apply)
-              }}
-            />
-          ))}
-          {/* Rotation handle */}
-          <div
-            style={{
-              position: 'absolute',
-              top: -28,
-              left: `calc(50% - ${HANDLE_SIZE / 2}px)`,
-              width: HANDLE_SIZE,
-              height: HANDLE_SIZE,
-              background: '#fff',
-              border: '1px solid #4a9eff',
-              borderRadius: '50%',
-              cursor: 'grab',
-              pointerEvents: 'auto',
-            }}
-            onPointerDown={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              if (wrapRef.current) startRotate({ clientX: e.clientX, clientY: e.clientY, currentTarget: e.currentTarget as Element }, layer, wrapRef.current, apply)
-            }}
-          />
-          {/* Tether line from rotation handle to layer top edge */}
-          <div style={{
-            position: 'absolute',
-            top: -20,
-            left: '50%',
-            width: 1,
-            height: 20,
-            background: '#4a9eff',
-            pointerEvents: 'none',
-          }} />
-        </>
-      )}
+      <LayerContent layer={layer} assets={assets} />
     </div>
   )
 }
 
-export function ComposeLayerStack({ layers, assets, selectedId, onSelect, mode }: ComposeLayerStackProps) {
+export function ComposeLayerStack({ layers, assets, selectedId: _selectedId, onSelect, mode }: ComposeLayerStackProps) {
   const behind = layers
     .filter((l) => l.sceneOrder > SCENE_RENDER_SLOT)
     .sort((a, b) => b.sceneOrder - a.sceneOrder || a.cameraOrder - b.cameraOrder)
@@ -195,35 +137,28 @@ export function ComposeLayerStack({ layers, assets, selectedId, onSelect, mode }
     .sort((a, b) => b.sceneOrder - a.sceneOrder || a.cameraOrder - b.cameraOrder)
 
   const interactive = mode === 'editor'
-  const handleClickBg = (e: MouseEvent) => {
-    if (!interactive || !onSelect) return
-    if (e.target === e.currentTarget) onSelect(null)
-  }
 
   const renderLayer = (l: ComposeLayerRecord) => (
     <LayerView
       key={l.id}
       layer={l}
       assets={assets}
-      selected={selectedId === l.id}
       interactive={interactive}
       onSelect={onSelect}
     />
   )
 
+  // Both containers stay pointer-transparent so empty space falls through to the
+  // parent viewport (which handles click-to-deselect). Individual layer wrappers
+  // re-enable pointer events on their own bounds. Selection chrome (handles,
+  // outline, drag body) lives on a separate ComposeSelectionOverlay above both
+  // layer groups and the 3D canvas, so it never gets occluded.
   return (
     <>
-      {/* Behind the 3D canvas. Container is pointer-transparent so empty space falls through
-          to the canvas (which is itself pointer-transparent in compose mode, letting clicks reach
-          the front container below). Individual layers re-enable pointer events. */}
       <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
         {behind.map(renderLayer)}
       </div>
-      {/* In front of the 3D canvas. Captures click-empty to deselect in editor mode. */}
-      <div
-        style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: interactive ? 'auto' : 'none' }}
-        onClick={handleClickBg}
-      >
+      <div style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none' }}>
         {front.map(renderLayer)}
       </div>
     </>

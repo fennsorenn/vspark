@@ -260,7 +260,9 @@ export type WSMessageKind =
   | 'compose_layer_added'
   | 'compose_layer_updated'
   | 'compose_layer_removed'
-  | 'compose_layer_reordered';
+  | 'compose_layer_reordered'
+  | 'node_transform_preview'
+  | 'compose_layer_preview';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 

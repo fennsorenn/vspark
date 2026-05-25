@@ -4,6 +4,7 @@ import type { NodeRecord } from '../store/editorStore'
 import type { CameraEffectRecord } from '../api/client'
 import { mapComposeLayer } from '../api/client'
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore'
+import { smoothNodeTransform, smoothComposeLayer } from '../previewSmoother'
 import { setIkTargets } from '../ikTargetStore'
 import type { IkTargetFrame, AnimationBlendMode, ApiAnimationMessage } from '@vspark/shared/types'
 
@@ -12,6 +13,22 @@ const RECONNECT_MS = 3000
 
 /** Module-level ref so any component can send messages on the shared editor WS. */
 export const editorWsRef = { current: null as WebSocket | null }
+
+/** Send a live in-flight transform update so other connected editors can preview
+ *  the motion without waiting for the final PUT. Silently no-ops if the WS isn't open. */
+export function sendNodeTransformPreview(nodeId: string, transform: Record<string, number>) {
+  const ws = editorWsRef.current
+  if (!ws || ws.readyState !== WebSocket.OPEN) return
+  ws.send(JSON.stringify({ kind: 'node_transform_preview', nodeId, transform }))
+}
+
+/** Send a live in-flight compose-layer patch (position/size/rotation) so other
+ *  editors see the change before the user releases the mouse. */
+export function sendComposeLayerPreview(id: string, patch: Record<string, unknown>) {
+  const ws = editorWsRef.current
+  if (!ws || ws.readyState !== WebSocket.OPEN) return
+  ws.send(JSON.stringify({ kind: 'compose_layer_preview', id, patch }))
+}
 
 export function useWsSync() {
   const setVmcStatus   = useEditorStore((s) => s.setVmcStatus)
@@ -65,6 +82,12 @@ export function useWsSync() {
           } else if (msg.kind === 'node_updated') {
             const { id, ...updates } = msg.payload as { id: string } & Record<string, unknown>
             useEditorStore.getState().updateNode(id, updates)
+          } else if (msg.kind === 'node_transform_preview') {
+            // In-flight transform from another client's drag/wheel; tween the
+            // displayed value towards it instead of snapping. The originating
+            // client follows up with a node_updated when the gesture settles.
+            const p = msg.payload as { nodeId: string; transform: Record<string, number> }
+            smoothNodeTransform(p.nodeId, p.transform)
           } else if (msg.kind === 'node_added') {
             const store = useEditorStore.getState()
             const node = msg.payload as unknown as NodeRecord
@@ -102,10 +125,18 @@ export function useWsSync() {
           } else if (msg.kind === 'compose_layer_added') {
             useEditorStore.getState().addComposeLayer(mapComposeLayer(msg.payload))
           } else if (msg.kind === 'compose_layer_updated') {
+            // Final committed state from a PUT. Route through the smoother so
+            // numeric fields (x/y/w/h/rotation) tween from the last preview
+            // into the canonical value instead of snapping.
             const layer = mapComposeLayer(msg.payload)
-            useEditorStore.getState().updateComposeLayerLocal(layer.id, layer)
+            smoothComposeLayer(layer.id, layer as unknown as Record<string, unknown>)
           } else if (msg.kind === 'compose_layer_removed') {
             useEditorStore.getState().removeComposeLayer(msg.payload.id as string)
+          } else if (msg.kind === 'compose_layer_preview') {
+            const p = msg.payload as { id: string; patch: Record<string, unknown> }
+            // Tween numeric fields (x/y/width/height/rotation); apply other
+            // fields immediately. Mirrors the smoothing applied to 3D node previews.
+            smoothComposeLayer(p.id, p.patch)
           } else if (msg.kind === 'compose_layer_reordered') {
             const updates = (msg.payload.updates ?? []) as { id: string; sceneOrder: number; cameraOrder: number }[]
             const store = useEditorStore.getState()
