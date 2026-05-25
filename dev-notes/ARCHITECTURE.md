@@ -37,6 +37,7 @@ packages/
 | Signal node registry | Implemented | `signal/registry.ts` — 33 node kinds (incl. mediapipe converters + IK + utility; added `multiply`) |
 | Engine value-input auto-fallback to `config.<port>` | Implemented | `signal/engine.ts` — unconnected value-input ports automatically resolve to `defaultConfig.<portName>`; nodes no longer need per-port `cfg?.X` boilerplate |
 | VMC receiver manager | Implemented | `node_components/vmc_receiver/` |
+| Shared UDP socket pool (vmc_receiver) | Implemented | `vmc/udp_socket_pool.ts` — refcounted `UdpSocketPool` singleton (`udpSocketPool`) exposing `subscribe(port, listener, onBound?) -> unsubscribe`. First subscriber binds (currently `0.0.0.0`), last unsubscribe closes; listener dispatch snapshots the set so mid-dispatch unsubscribe is safe. `VmcManager.startReceiver` subscribes instead of binding its own `dgram` socket, so multiple `vmc_receiver` components on the same port each receive every packet independently. See [component-managers.md](modules/component-managers.md). |
 | Breathing manager | Implemented | `node_components/breathing/` |
 | Lipsync manager | Implemented | `node_components/lipsync/` |
 | MediaPipe tracking manager | Implemented | `node_components/mediapipe_tracker/` |

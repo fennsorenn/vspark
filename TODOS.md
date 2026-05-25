@@ -1,5 +1,4 @@
 - vrm0 model bones checken
-- media pipe tracking fixen
 - vmc receiver node singleton
 - smoothing überarbeiten 
 - browser sources

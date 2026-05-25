@@ -20,10 +20,12 @@ State lives in `config._nodeState[nodeId]` so it survives restarts without a sep
 
 ## VmcManager — `vmc_receiver/manager.ts`
 
-Manages VMC/RhyLive motion capture receivers. Each component gets its own UDP socket and `SignalGraph`.
+Manages VMC/RhyLive motion capture receivers. Each component owns a `SignalGraph` and shares the process-wide UDP socket pool for transport.
 
 **Input**: UDP OSC packets on a configurable port  
 **Output**: `vmc_pose` and `vmc_blendshapes` WebSocket broadcasts
+
+**Shared UDP socket pool** (implemented): transport lives in `vmc/udp_socket_pool.ts` — a process-wide singleton (`udpSocketPool`) exporting `subscribe(port, listener, onBound?) -> unsubscribe`. Refcounted per port: the first subscriber binds, the last unsubscribe closes. Listener dispatch snapshots the subscriber set, so a listener can unsubscribe mid-dispatch safely. The pool currently binds `0.0.0.0` (the per-component `host` config is not yet honored — matches pre-refactor behavior). The `Receiver` struct no longer holds a `socket: Socket`; it holds an `unsubscribe: () => void` instead. `startReceiver` subscribes to the pool; `stopReceiver` calls the unsubscribe. Port changes go through the existing `stopReceiver` → `startReceiver` sequence. Multiple `vmc_receiver` components on the same port now each receive every packet independently — per-component tracking detection, calibration and bus slot publication are unaffected. Verified with two avatars on the same port both animating from one source.
 
 **Packet formats handled** (no external OSC library):
 - `/VMC/Ext/Bone/Pos` — Unity HumanBodyBones rotation array
