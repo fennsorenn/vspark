@@ -1,62 +1,93 @@
 # Project Graphs (standalone signal graphs)
 
-**Status: WIP.** Branch `feature/overlive-integration`.
+**Status: Implemented.** Caveat: `SignalGraphCanvas` currently renders project graphs **read-only**; the writable canvas (node create/move/connect/edit persisted via `PUT /api/project-graphs/:id`) is tracked as a follow-up. Everything backend-side (CRUD, lifecycle, descriptor validation, event-fire entry point) is shipped.
 
-Adds project-scoped **standalone** signal graphs that exist independently of any node component. Until now, every `SignalGraph` was owned by a `node_components` row (one graph per component, hardcoded shape per component kind, read-only in the UI). This module introduces user-authored graphs at the project level — primarily to host [Overlive](overlive.md) event handlers, but usable for any cross-cutting reactive logic.
+Project-scoped **standalone** signal graphs exist independently of any node component. Unlike component-owned graphs (one per `node_components` row, hardcoded shape, read-only in the UI), project graphs are user-authored at the project level — primarily to host [Overlive](overlive.md) event handlers, but usable for any cross-cutting reactive logic.
 
-See also [signal-graph.md](signal-graph.md) for the underlying engine.
+See [signal-graph.md](signal-graph.md) for the underlying engine.
 
 ## Scope
 
-| | Component graphs (existing) | Project graphs (new) |
+| | Component graphs | Project graphs |
 |---|---|---|
 | Ownership | `node_components` row | `project_graphs` row |
-| Lifecycle | Created/destroyed with component | Enabled flag on the row |
-| Shape | Hardcoded per component kind | User-authored |
-| Editor | Read-only canvas | **Writable** `SignalGraphCanvas` |
-| Context nodes | `component_config`, `component_id`, `scene_entity` available | **NOT available** — throw at runtime |
-| Inputs | Component config + scene context | Inline literals + `Account` port (Overlive) |
+| Lifecycle | Created/destroyed with component | `enabled` flag on the row |
+| Shape | Hardcoded per component kind | User-authored, persisted as `GraphDescriptor` |
+| Editor | Read-only canvas | Read-only canvas today; writable canvas is a follow-up |
+| Context nodes | `component_config`, `component_id`, `scene_entity` available | **Rejected** at runtime — descriptor validation throws |
+| External event entry | Manager `fire()` (VMC packet, mediapipe frame, etc.) | `OverliveManager` → `ProjectGraphManager.fire()` |
 
-## DB (planned)
+## DB — migration 011
 
-Migration adds `project_graphs`:
+`project_graphs`:
 
-- `id` (text, pk)
-- `project_id` (fk, cascade)
-- `name` (text)
-- `enabled` (int, 0/1)
-- `descriptor` (json — `GraphDescriptor`)
-- timestamps
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PK | |
+| `project_id` | TEXT FK → `projects(id)` ON DELETE CASCADE | |
+| `name` | TEXT | |
+| `enabled` | INTEGER 0/1, default 1 | |
+| `descriptor` | TEXT (JSON `GraphDescriptor`), default `{"nodes":[],"edges":[]}` | |
+| `node_state` | TEXT (JSON, keyed by node id), default `{}` | Per-node persisted state. Mirrors the `_nodeState` convention used by component managers, but lives on the graph row directly. |
+| `created_at` / `updated_at` | TEXT | |
 
-Lifecycle: when `enabled` flips on, the backend hydrates a `SignalGraph` from the descriptor and registers it with relevant managers (notably `OverliveManager`). Flipping off disposes it.
+Indexes on `project_id` and a partial index on `enabled = 1`.
 
-## Backend (planned)
+## REST surface — `routes/project-graphs.ts`
 
-- `packages/backend/src/routes/project-graphs.ts` — REST CRUD + enable/disable.
-- Lifecycle owner TBD (likely a `ProjectGraphManager` parallel to other component managers, or folded into `OverliveManager` if Overlive remains the only consumer).
-- Engine: `component_config`, `component_id`, `scene_entity` nodes throw if executed inside a standalone graph (no component context to resolve against).
+| Method + path | Purpose |
+|---|---|
+| `GET  /api/projects/:projectId/graphs` | List graphs for a project. |
+| `POST /api/projects/:projectId/graphs` | Create empty graph (body: `{ name }`). Auto-reconciles. |
+| `PUT  /api/project-graphs/:id` | Patch `name` / `enabled` / `descriptor` (each optional). Triggers `reconcile()`. |
+| `DELETE /api/project-graphs/:id` | Stop runtime instance + delete the row. |
 
-## Frontend (planned)
+## Backend lifecycle — `project_graphs/manager.ts`
 
-The Graphs panel currently lives in `components/editor/SceneGraph.tsx`'s left sidebar and lists per-component graphs read-only. Restructuring:
+`ProjectGraphManager` (singleton, mounted via `routes/shared.ts`) owns the runtime instances.
+
+- **`startAllEnabled()`** — called at server boot. Hydrates and starts every `enabled = 1` row.
+- **`reconcile(id)`** — called on every `PUT`. If row is `enabled` it stops then re-starts the instance (which picks up descriptor + node_state changes); if disabled, it just stops.
+- **Descriptor validation** — `validateDescriptor()` rejects any node whose kind is in `COMPONENT_CONTEXT_KINDS = { component_config, component_id, scene_entity }`. Thrown errors surface as `400` from the PUT handler.
+- **State persistence** — each `setState(nodeId, state)` writes the JSON map back to the row's `node_state` column.
+- **Clock self-tick** — for each `clock` node in the descriptor, the manager calls `Clock.attach(...)` and stashes the cleanup; defaults to 30Hz or `defaultConfig.hz`. State `hz` overrides at runtime.
+
+External event entry point:
+
+```ts
+projectGraphManager.fire(graphId, nodeId, portName, value)
+```
+
+No-op if the graph is not running. Used by `OverliveManager.routeEvent()` to deliver Twitch / SE events into matching `overlive_*` nodes — see [overlive.md](overlive.md).
+
+Iteration helper for managers that need to discover nodes across all running project graphs:
+
+```ts
+for (const { graphId, node, projectId } of projectGraphManager.iterateNodes()) { ... }
+```
+
+## Frontend — `components/editor/SceneGraph.tsx`
+
+Graphs panel restructure (now shipped):
 
 ```
-Graphs
-├── <Standalone graph 1>        ← new, writable
-├── <Standalone graph 2>
-└── Component graphs            ← collapsible parent
-    ├── <component A> graph     ← existing, read-only
-    └── <component B> graph
+Project Graphs                  ← top-level, with add/rename/toggle/delete
+  ├── <Standalone graph 1>
+  └── <Standalone graph 2>
+Component Graphs (collapsible, count badge)
+  ├── <component A> graph       ← read-only
+  └── <component B> graph
 ```
 
-Selecting a standalone graph opens the existing `SignalGraphCanvas` in writable mode.
+Both sections currently open the same `SignalGraphCanvas` in read-only mode when selected. The writable variant for project graphs is the outstanding follow-up: when implemented, edits dispatch as `PUT /api/project-graphs/:id` with the new descriptor and the manager's `reconcile()` rehydrates the running instance.
 
 ## Constraints
 
-- Standalone graphs **cannot** reference scene nodes or components directly. If they need to drive scene state, they go through the same broadcast/manager surfaces that REST does.
-- All event-driven entry points are external (Overlive events, future webhooks). No automatic per-frame tick.
+- Standalone graphs cannot reference scene nodes or components directly. To drive scene state they must go through the same broadcast/manager surfaces REST does.
+- All event-driven entry points are external (Overlive today; future webhooks). No automatic per-frame tick beyond the descriptor's own `clock` nodes.
 
-## Open questions / TBD
+## Open follow-ups
 
-- WS broadcast shape for live graph edits (likely mirrors existing scene-state mutations: `project_graph_added/updated/removed`).
-- Whether standalone graphs can target compose layers / track-clip triggers directly, or only via REST-equivalent nodes.
+- Writable `SignalGraphCanvas` (node create/move/edit/connect → `PUT descriptor`).
+- WS broadcast shape for live edits coming from other clients (`project_graph_added/updated/removed`) — not strictly needed while single-user.
+- Decision on whether standalone graphs may target compose layers / track-clip triggers directly, or only via REST-equivalent nodes.
