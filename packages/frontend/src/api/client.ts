@@ -744,6 +744,30 @@ export const updateOverliveAccount = (
 export const deleteOverliveAccount = (id: string) =>
   request<Record<string, never>>(`/overlive-accounts/${id}`, { method: 'DELETE' })
 
+// ─── Overlive: OAuth (Twitch) ────────────────────────────────────────────────
+
+/**
+ * Fetch the Twitch authorize URL the user's browser should navigate to.
+ * The caller is expected to open the URL in a popup; the OAuth callback
+ * server-side renders an HTML page that posts a message back to
+ * `window.opener` and closes the popup.
+ *
+ * Pass `accountId` to enter the reconnect flow (updates an existing row
+ * in place instead of inserting). Otherwise a new account row is created.
+ */
+export const startTwitchOAuth = (params: {
+  projectId: string
+  appCredentialId: string
+  accountId?: string
+}) => {
+  const qs = new URLSearchParams({
+    projectId:       params.projectId,
+    appCredentialId: params.appCredentialId,
+    ...(params.accountId ? { accountId: params.accountId } : {}),
+  })
+  return request<{ authorizeUrl: string }>(`/auth/twitch/start?${qs.toString()}`)
+}
+
 export const api = {
   getUpdateStatus,
   startUpdateDownload,
@@ -807,4 +831,5 @@ export const api = {
   createOverliveAccount,
   updateOverliveAccount,
   deleteOverliveAccount,
+  startTwitchOAuth,
 }
