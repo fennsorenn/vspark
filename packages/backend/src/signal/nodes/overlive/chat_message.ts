@@ -1,6 +1,7 @@
 import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal'
 import type { InputsOf, OutputsOf, NodeExecutionContext } from '@vspark/shared/signal'
-import type { ChatMessageEvent, MessageToken } from '@overlive/core'
+import type { ChatMessageEvent } from '@overlive/core'
+import { tokensToHtml } from '@overlive/emotes'
 import { handleOverliveEvent } from './_helpers.js'
 
 /**
@@ -55,7 +56,7 @@ export class OverliveChatMessage {
         username:      e.data.username,
         displayName:   e.data.displayName,
         text:          e.data.text,
-        html:          tokensToHtml(e.data.tokens, e.data.text),
+        html:          tokensToHtml(e.data.tokens ?? [], e.data.text),
         color:         e.data.color ?? '',
         isMod:         e.data.isMod,
         isSub:         e.data.isSub,
@@ -71,31 +72,3 @@ export class OverliveChatMessage {
   }
 }
 
-/** Render parsed tokens to a safe HTML string. Falls back to escaped text. */
-function tokensToHtml(tokens: MessageToken[] | undefined, fallback: string): string {
-  if (!tokens || tokens.length === 0) return esc(fallback)
-  const parts: string[] = []
-  for (const t of tokens) {
-    switch (t.type) {
-      case 'text':    parts.push(esc(t.value)); break
-      case 'mention': parts.push(`<span class="mention">@${esc(t.username)}</span>`); break
-      case 'url':     parts.push(`<a href="${escAttr(t.href)}" rel="noreferrer">${esc(t.display)}</a>`); break
-      case 'cheer':   parts.push(`<span class="cheer">${t.amount}</span>`); break
-      case 'emote': {
-        const e = t.emote
-        const url = e.urls?.x2 ?? e.urls?.x1 ?? ''
-        if (!url) { parts.push(esc(e.name)); break }
-        parts.push(`<img class="emote" src="${escAttr(url)}" alt="${esc(e.name)}" title="${esc(e.name)}" />`)
-        break
-      }
-    }
-  }
-  return parts.join(' ')
-}
-
-function esc(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
-}
-function escAttr(s: string): string {
-  return esc(s)
-}
