@@ -276,6 +276,12 @@ export interface SignalTypeMap {
   LandmarkList:     Array<{ x: number; y: number; z: number; visibility?: number }>
   /** IK end-effector targets for a single frame, ready for frontend solve. */
   IkTargets:        import('./types.js').IkTargetFrame
+  /**
+   * Reference to a configured overlive login account (Twitch / StreamElements).
+   * Carried as the account row id string at runtime; the frontend port editor
+   * renders a dropdown of the project's accounts when nothing is wired in.
+   */
+  Account:          string
 }
 
 export type SignalTypeName = keyof SignalTypeMap
@@ -393,6 +399,7 @@ MappingTable:      '#a07050',
   Quaternion:        '#5a9a7a',
   LandmarkList:      '#7a9a6a',
   IkTargets:         '#a06a9a',
+  Account:           '#9146ff',
   Any:               '#888888',
 }
 

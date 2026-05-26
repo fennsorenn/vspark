@@ -265,6 +265,9 @@ interface EditorState {
   vrmMorphTargetsByNode: Record<string, string[]>  // nodeId → mesh morph target names
   hoveredBoneName: string | null
   componentKinds: ComponentKindMeta[]
+  /** Overlive login accounts for the current project. Populated lazily by Editor.tsx;
+   *  consumed by signal-graph Account port dropdowns. */
+  overliveAccounts: import('../api/client').OverliveAccountRecord[]
   activeGraphId: string | null
   selectedSignalNodeId: string | null
   boneListExpanded: Record<string, boolean>   // nodeId → bone list open in SceneGraph
@@ -333,6 +336,7 @@ interface EditorState {
   clearVrmMorphTargetsForNode: (nodeId: string) => void
   setHoveredBone: (name: string | null) => void
   setComponentKinds: (kinds: ComponentKindMeta[]) => void
+  setOverliveAccounts: (accounts: import('../api/client').OverliveAccountRecord[]) => void
   setActiveGraph: (id: string | null) => void
   setSelectedSignalNode: (id: string | null) => void
   setBoneListExpanded: (nodeId: string, expanded: boolean) => void
@@ -405,6 +409,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vrmMorphTargetsByNode: {},
   hoveredBoneName: null,
   componentKinds: [],
+  overliveAccounts: [],
   activeGraphId: null,
   selectedSignalNodeId: null,
   boneListExpanded: {},
@@ -514,6 +519,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }),
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
   setComponentKinds: (kinds) => set({ componentKinds: kinds }),
+  setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
   setActiveGraph: (id) => set({ activeGraphId: id, selectedSignalNodeId: null }),
   setSelectedSignalNode: (id) => set({ selectedSignalNodeId: id }),
   setBoneListExpanded: (nodeId, expanded) =>

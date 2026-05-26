@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../../api/client'
+import { useEditorStore } from '../../store/editorStore'
 import type {
   OverliveAppCredentialRecord,
   OverliveAccountRecord,
@@ -36,8 +37,18 @@ const STATUS_LABEL: Record<OverliveAccountStatus, { text: string; color: string 
 
 export function OverliveAccountsModal({ onClose }: Props) {
   const { projectId } = useParams<{ projectId: string }>()
+  const setStoreAccounts = useEditorStore((s) => s.setOverliveAccounts)
   const [apps,     setApps]     = useState<OverliveAppCredentialRecord[]>([])
-  const [accounts, setAccounts] = useState<OverliveAccountRecord[]>([])
+  const [accounts, _setAccounts] = useState<OverliveAccountRecord[]>([])
+  // Mirror modal-local accounts into the editor store so Account port dropdowns
+  // update without waiting for the next Editor mount.
+  const setAccounts = (next: OverliveAccountRecord[] | ((prev: OverliveAccountRecord[]) => OverliveAccountRecord[])) => {
+    _setAccounts((prev) => {
+      const resolved = typeof next === 'function' ? (next as (p: OverliveAccountRecord[]) => OverliveAccountRecord[])(prev) : next
+      setStoreAccounts(resolved)
+      return resolved
+    })
+  }
   const [busy,     setBusy]     = useState(false)
   const [showAppWalkthrough, setShowAppWalkthrough] = useState(false)
   const [showSeForm, setShowSeForm] = useState(false)
