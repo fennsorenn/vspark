@@ -4,7 +4,7 @@ The reactive execution engine at the core of vspark. Defined in `packages/backen
 
 ## Runtime — `signal/engine.ts`
 
-`SignalGraph` is instantiated per component (one per VMC receiver, one per breathing component, etc.).
+`SignalGraph` is instantiated per component (one per VMC receiver, one per breathing component, etc.). Graphs can also now be **project-scoped** rather than component-scoped — see [project-graphs.md](project-graphs.md) (WIP) for standalone user-authored graphs that have no component context and cannot use the `component_config`, `component_id`, or `scene_entity` context nodes.
 
 **Execution model**: hybrid push/pull.
 - `event` edges: push-based. Source fires, payload travels forward to target node.
