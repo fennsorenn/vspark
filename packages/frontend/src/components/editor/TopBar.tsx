@@ -4,6 +4,7 @@ import { useEditorStore } from '../../store/editorStore'
 import { api } from '../../api/client'
 import { MediaInputWindow } from '../MediaInputWindow'
 import { UpdateDialog } from './UpdateDialog'
+import { OverliveAccountsModal } from './OverliveAccountsModal'
 
 export function TopBar() {
   const navigate = useNavigate()
@@ -12,6 +13,7 @@ export function TopBar() {
   const [mediaOpen, setMediaOpen] = useState(false)
   const [mediaMounted, setMediaMounted] = useState(false)
   const [updateOpen, setUpdateOpen] = useState(false)
+  const [accountsOpen, setAccountsOpen] = useState(false)
 
   useEffect(() => {
     const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`)
@@ -156,6 +158,21 @@ export function TopBar() {
           <span style={{ fontSize: 10 }}>{connected ? '●' : '○'}</span>
           {connected ? 'Connected' : 'Disconnected'}
         </div>
+        <button
+          style={{
+            background: '#2a2a2a',
+            border: '1px solid #3a3a3a',
+            color: '#ccc',
+            borderRadius: 5,
+            padding: '3px 10px',
+            cursor: 'pointer',
+            fontSize: 12,
+          }}
+          onClick={() => setAccountsOpen(true)}
+          title="Stream accounts (Twitch / StreamElements)"
+        >
+          🟣 Accounts
+        </button>
         {updateAvailable && (
           <button
             onClick={() => setUpdateOpen(true)}
@@ -176,6 +193,7 @@ export function TopBar() {
     </div>
     {mediaMounted && <MediaInputWindow visible={mediaOpen} />}
     {updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}
+    {accountsOpen && <OverliveAccountsModal onClose={() => setAccountsOpen(false)} />}
     </>
   )
 }
