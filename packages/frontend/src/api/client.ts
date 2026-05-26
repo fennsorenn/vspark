@@ -640,6 +640,110 @@ export const updateProjectGraph = (
 export const deleteProjectGraph = (id: string) =>
   request<Record<string, never>>(`/project-graphs/${id}`, { method: 'DELETE' })
 
+// ─── Overlive: app credentials ───────────────────────────────────────────────
+
+export interface OverliveAppCredentialRecord {
+  id:           string
+  projectId:    string
+  label:        string
+  clientId:     string
+  clientSecret: string
+  redirectUri:  string
+  createdAt?:   string
+  updatedAt?:   string
+}
+
+export const getOverliveAppCredentials = (projectId: string) =>
+  request<OverliveAppCredentialRecord[]>(`/projects/${projectId}/overlive-app-credentials`)
+
+export const createOverliveAppCredential = (
+  projectId: string,
+  body: { label: string; clientId: string; clientSecret: string; redirectUri: string },
+) =>
+  request<OverliveAppCredentialRecord>(`/projects/${projectId}/overlive-app-credentials`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const updateOverliveAppCredential = (
+  id: string,
+  patch: Partial<{ label: string; clientId: string; clientSecret: string; redirectUri: string }>,
+) =>
+  request<OverliveAppCredentialRecord>(`/overlive-app-credentials/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  })
+
+export const deleteOverliveAppCredential = (id: string) =>
+  request<Record<string, never>>(`/overlive-app-credentials/${id}`, { method: 'DELETE' })
+
+export const copyOverliveAppCredentialsFromProject = (projectId: string, sourceProjectId: string) =>
+  request<OverliveAppCredentialRecord[]>(
+    `/projects/${projectId}/overlive-app-credentials/copy-from/${sourceProjectId}`,
+    { method: 'POST' },
+  )
+
+// ─── Overlive: login accounts ────────────────────────────────────────────────
+
+export type OverlivePlatform = 'twitch' | 'streamelements'
+export type OverliveAccountStatus =
+  | 'connected' | 'connecting' | 'disconnected' | 'reconnecting' | 'error' | 'needs_reauth'
+
+export interface OverliveAccountRecord {
+  id:                 string
+  projectId:          string
+  platform:           OverlivePlatform
+  label:              string
+  appCredentialId:    string | null
+  credentials:        Record<string, unknown>
+  broadcasterId:      string | null
+  broadcasterLogin:   string | null
+  status:             OverliveAccountStatus
+  statusReason:       string | null
+  statusMessage:      string | null
+  createdAt?:         string
+  updatedAt?:         string
+}
+
+export const getOverliveAccounts = (projectId: string) =>
+  request<OverliveAccountRecord[]>(`/projects/${projectId}/overlive-accounts`)
+
+export const createOverliveAccount = (
+  projectId: string,
+  body: {
+    platform: OverlivePlatform
+    label: string
+    appCredentialId?: string | null
+    credentials?: Record<string, unknown>
+    broadcasterId?: string
+    broadcasterLogin?: string
+  },
+) =>
+  request<OverliveAccountRecord>(`/projects/${projectId}/overlive-accounts`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const updateOverliveAccount = (
+  id: string,
+  patch: Partial<{
+    label: string
+    credentials: Record<string, unknown>
+    broadcasterId: string | null
+    broadcasterLogin: string | null
+    status: OverliveAccountStatus
+    statusReason: string | null
+    statusMessage: string | null
+  }>,
+) =>
+  request<OverliveAccountRecord>(`/overlive-accounts/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  })
+
+export const deleteOverliveAccount = (id: string) =>
+  request<Record<string, never>>(`/overlive-accounts/${id}`, { method: 'DELETE' })
+
 export const api = {
   getUpdateStatus,
   startUpdateDownload,
@@ -694,4 +798,13 @@ export const api = {
   createProjectGraph,
   updateProjectGraph,
   deleteProjectGraph,
+  getOverliveAppCredentials,
+  createOverliveAppCredential,
+  updateOverliveAppCredential,
+  deleteOverliveAppCredential,
+  copyOverliveAppCredentialsFromProject,
+  getOverliveAccounts,
+  createOverliveAccount,
+  updateOverliveAccount,
+  deleteOverliveAccount,
 }
