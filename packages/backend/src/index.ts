@@ -89,6 +89,12 @@ async function start() {
   const { projectGraphManager } = await import('./project_graphs/manager.js');
   projectGraphManager.startAllEnabled();
 
+  // Overlive integration — one shared kit per project with configured accounts.
+  // See dev-notes/modules/overlive.md.
+  const { initOverliveManager } = await import('./overlive/manager.js');
+  const overliveManager = initOverliveManager(wsSync);
+  await overliveManager.startAll();
+
   // Rebroadcast current state to any newly-connecting client.
   wsSync.onClientConnected((ws) => {
     apiControllerManager.rebroadcastTo((kind, payload) => wsSync.sendTo(ws, kind, payload));

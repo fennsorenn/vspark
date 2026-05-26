@@ -25,6 +25,7 @@
 import { Router } from 'express'
 import { randomUUID } from 'crypto'
 import { getDb } from '../db/index.js'
+import { getOverliveManager } from '../overlive/manager.js'
 import {
   buildAuthorizeUrl,
   exchangeCode,
@@ -213,6 +214,9 @@ router.get('/auth/twitch/callback', async (req, res) => {
   }
 
   res.send(renderCallbackPage({ ok: true, accountId, login: user.login, displayName: user.displayName }))
+
+  // Spin up (or update) the project's kit with the new credentials.
+  void getOverliveManager().refreshProject(pending.projectId).catch(() => {})
 })
 
 // ─── Callback HTML ────────────────────────────────────────────────────────────

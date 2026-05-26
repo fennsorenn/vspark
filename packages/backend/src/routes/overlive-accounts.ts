@@ -10,6 +10,7 @@
 import { Router } from 'express'
 import { randomUUID } from 'crypto'
 import { getDb } from '../db/index.js'
+import { getOverliveManager } from '../overlive/manager.js'
 
 const router: ReturnType<typeof Router> = Router()
 
@@ -202,6 +203,7 @@ router.post('/projects/:projectId/overlive-accounts', (req, res) => {
     broadcasterLogin ?? null,
   )
   res.status(201).json({ ok: true, data: getAccount(id) })
+  void getOverliveManager().refreshProject(req.params.projectId).catch(() => {})
 })
 
 /**
@@ -245,6 +247,7 @@ router.put('/overlive-accounts/:id', (req, res) => {
   const row = getAccount(req.params.id)
   if (!row) return res.status(404).json({ ok: false, error: { message: 'account not found' } })
   res.json({ ok: true, data: row })
+  void getOverliveManager().refreshProject(row.projectId).catch(() => {})
 })
 
 /**
@@ -258,9 +261,15 @@ router.put('/overlive-accounts/:id', (req, res) => {
  *       via the OAuth helper so no dangling authorization remains on Twitch.
  *       The OverliveManager handles that — this endpoint only deletes the row.
  */
-router.delete('/overlive-accounts/:id', (req, res) => {
+router.delete('/overlive-accounts/:id', async (req, res) => {
+  // Capture projectId before delete so we can reconcile its kit afterwards.
+  const before = getDb().prepare('SELECT project_id FROM overlive_accounts WHERE id = ?')
+    .get(req.params.id) as { project_id: string } | undefined
+  // Revoke Twitch tokens + remove from kit before dropping the row.
+  try { await getOverliveManager().beforeAccountDelete(req.params.id) } catch { /* best effort */ }
   getDb().prepare('DELETE FROM overlive_accounts WHERE id = ?').run(req.params.id)
   res.json({ ok: true, data: {} })
+  if (before) void getOverliveManager().refreshProject(before.project_id).catch(() => {})
 })
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
