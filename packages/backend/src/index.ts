@@ -4,7 +4,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { runMigrations, getDb } from './db/index.js';
-import { apiRoutes, setVmcManager, setBreathingManager, setLipsyncManager, setTrackingManager, setApiControllerManager, setWsSync } from './routes/index.js';
+import { apiRoutes, setVmcManager, setBreathingManager, setLipsyncManager, setTrackingManager, setApiControllerManager, setWsSync, setTrackClipPlaybackManager } from './routes/index.js';
 import { updateRoutes, initUpdateChecker, getInstallDir } from './routes/update.js';
 import { configRoutes } from './routes/config.js';
 import { openApiDoc } from './routes/openapi.js';
@@ -15,9 +15,11 @@ import { BreathingManager } from './node_components/breathing/manager.js';
 import { LipsyncManager } from './node_components/lipsync/manager.js';
 import { TrackingManager } from './node_components/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from './node_components/api_controller/manager.js';
+import { TrackClipPlaybackManager } from './track_clips/playback.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
 import { initIkBroadcast } from './signal/nodes/ik_broadcast.js';
+import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
 import type { LipsyncInputMessage, TrackingInputMessage, AvatarExpressionsReportMessage } from '@vspark/shared';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -77,9 +79,15 @@ async function start() {
   const apiControllerManager = new ApiControllerManager(wsSync);
   setApiControllerManager(apiControllerManager);
 
-  // Rebroadcast current api_controller state to any newly-connecting client.
+  const trackClipPlayback = new TrackClipPlaybackManager(wsSync);
+  trackClipPlayback.hydrateAutoplay();
+  setTrackClipPlaybackManager(trackClipPlayback);
+  initTrackClipTrigger(trackClipPlayback);
+
+  // Rebroadcast current state to any newly-connecting client.
   wsSync.onClientConnected((ws) => {
     apiControllerManager.rebroadcastTo((kind, payload) => wsSync.sendTo(ws, kind, payload));
+    trackClipPlayback.sendSnapshotTo((kind, payload) => wsSync.sendTo(ws, kind, payload));
   });
 
   // Handle browser → server media messages

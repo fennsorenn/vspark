@@ -1,12 +1,26 @@
 const BASE = '/api'
 
+/** Thrown by `request()` on a non-ok response. `status` is the HTTP status so
+ *  callers can branch on 404 / 503 / etc; `code` is the backend's error code. */
+export class ApiError extends Error {
+  constructor(public status: number, message: string, public code: string) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, {
     headers: { 'Content-Type': 'application/json', ...init?.headers },
     ...init,
   })
-  const json = await res.json()
-  if (!json.ok) throw new Error(json.error?.message ?? 'API error')
+  const json = await res.json().catch(() => null)
+  if (!json?.ok) {
+    const status = json?.error?.status ?? res.status
+    const code   = json?.error?.code   ?? 'UNKNOWN'
+    const msg    = json?.error?.message ?? `API error ${status}`
+    throw new ApiError(status, msg, code)
+  }
   return json.data as T
 }
 
@@ -184,6 +198,47 @@ export interface ComposeLayerRecord {
   visible: boolean
 }
 
+// ─── Track clips ─────────────────────────────────────────────────────────────
+
+export type TrackClipMode       = 'override' | 'relative'
+export type TrackClipTargetKind = 'scene_node' | 'compose_layer'
+export type TrackClipEasing     = 'linear' | 'step' | 'bezier'
+
+export interface TrackClipKeyframeRecord {
+  id: string
+  t: number
+  value: number
+  easing: TrackClipEasing
+  /** Bezier handle offsets as fractions of the adjoining segment.
+   *  Resolved to absolute (Δt, Δv) at use time using neighbouring keyframes. */
+  inHandleTFraction:  number | null
+  inHandleVFraction:  number | null
+  outHandleTFraction: number | null
+  outHandleVFraction: number | null
+}
+
+export interface TrackClipLaneRecord {
+  id: string
+  clipId: string
+  targetKind: TrackClipTargetKind
+  targetId: string
+  paramPath: string
+  defaultValue: number
+  keyframes: TrackClipKeyframeRecord[]
+}
+
+export interface TrackClipRecord {
+  id: string
+  sceneId: string
+  name: string
+  duration: number
+  loop: boolean
+  mode: TrackClipMode
+  autoplay: boolean
+  startedAt: number | null
+  lanes: TrackClipLaneRecord[]
+}
+
 // Projects
 export const getProjects = () =>
   request<Record<string, unknown>[]>('/projects').then((rows) => rows.map(mapProject))
@@ -223,6 +278,53 @@ function mapCameraEffect(r: Record<string, unknown>): CameraEffectRecord {
   }
 }
 
+function pickFractional(r: Record<string, unknown>, snake: string, camel: string): number | null {
+  if (r[snake] != null) return Number(r[snake])
+  if (r[camel] != null) return Number(r[camel])
+  return null
+}
+
+export function mapTrackClipKeyframe(r: Record<string, unknown>): TrackClipKeyframeRecord {
+  return {
+    id: r.id as string,
+    t: Number(r.t ?? 0),
+    value: Number(r.value ?? 0),
+    easing: ((r.easing ?? 'linear') as TrackClipEasing),
+    inHandleTFraction:  pickFractional(r, 'in_handle_t_fraction',  'inHandleTFraction'),
+    inHandleVFraction:  pickFractional(r, 'in_handle_v_fraction',  'inHandleVFraction'),
+    outHandleTFraction: pickFractional(r, 'out_handle_t_fraction', 'outHandleTFraction'),
+    outHandleVFraction: pickFractional(r, 'out_handle_v_fraction', 'outHandleVFraction'),
+  }
+}
+
+export function mapTrackClipLane(r: Record<string, unknown>): TrackClipLaneRecord {
+  const rawKfs = (r.keyframes as Record<string, unknown>[] | undefined) ?? []
+  return {
+    id: r.id as string,
+    clipId: (r.clip_id ?? r.clipId ?? '') as string,
+    targetKind: ((r.target_kind ?? r.targetKind) as TrackClipTargetKind),
+    targetId:   ((r.target_id   ?? r.targetId)   as string),
+    paramPath:  ((r.param_path  ?? r.paramPath)  as string),
+    defaultValue: Number(r.default_value ?? r.defaultValue ?? 0),
+    keyframes: rawKfs.map(mapTrackClipKeyframe),
+  }
+}
+
+export function mapTrackClip(r: Record<string, unknown>): TrackClipRecord {
+  const rawLanes = (r.lanes as Record<string, unknown>[] | undefined) ?? []
+  return {
+    id: r.id as string,
+    sceneId: (r.scene_id ?? r.sceneId ?? '') as string,
+    name: r.name as string,
+    duration: Number(r.duration ?? 2),
+    loop: r.loop === undefined ? false : Boolean(r.loop),
+    mode: ((r.mode ?? 'override') as TrackClipMode),
+    autoplay: r.autoplay === undefined ? false : Boolean(r.autoplay),
+    startedAt: r.started_at != null ? Number(r.started_at) : (r.startedAt != null ? Number(r.startedAt) : null),
+    lanes: rawLanes.map(mapTrackClipLane),
+  }
+}
+
 export function mapComposeLayer(r: Record<string, unknown>): ComposeLayerRecord {
   return {
     id: r.id as string,
@@ -245,16 +347,22 @@ export function mapComposeLayer(r: Record<string, unknown>): ComposeLayerRecord 
   }
 }
 
-// Scenes — backend returns { scenes: [], nodes: [], nodeComponents: [], cameraEffects: [], composeLayers: [] }
+// Scenes — backend returns { scenes, nodes, nodeComponents, cameraEffects, composeLayers, trackClips }
 export const getScenes = (projectId: string) =>
-  request<{ scenes: Record<string, unknown>[]; nodes: Record<string, unknown>[]; nodeComponents?: Record<string, unknown>[]; cameraEffects?: Record<string, unknown>[]; composeLayers?: Record<string, unknown>[] }>(
-    `/projects/${projectId}/scenes`
-  ).then(({ scenes, nodes, nodeComponents, cameraEffects, composeLayers }) => ({
+  request<{
+    scenes: Record<string, unknown>[]
+    nodes: Record<string, unknown>[]
+    nodeComponents?: Record<string, unknown>[]
+    cameraEffects?: Record<string, unknown>[]
+    composeLayers?: Record<string, unknown>[]
+    trackClips?: Record<string, unknown>[]
+  }>(`/projects/${projectId}/scenes`).then(({ scenes, nodes, nodeComponents, cameraEffects, composeLayers, trackClips }) => ({
     scenes: scenes.map(mapScene),
     nodes: nodes.map((n) => mapNode(n)),
     nodeComponents: (nodeComponents ?? []).map(mapNodeComponent),
     cameraEffects: (cameraEffects ?? []).map(mapCameraEffect),
     composeLayers: (composeLayers ?? []).map(mapComposeLayer),
+    trackClips: (trackClips ?? []).map(mapTrackClip),
   }))
 
 export const createScene = (projectId: string, name: string) =>
@@ -388,6 +496,61 @@ export const reorderComposeLayers = (updates: { id: string; sceneOrder: number; 
     body: JSON.stringify({ updates }),
   })
 
+// Track clips
+export const getTrackClips = (sceneId: string) =>
+  request<Record<string, unknown>[]>(`/scenes/${sceneId}/track-clips`).then((rows) => rows.map(mapTrackClip))
+
+export const createTrackClip = (sceneId: string, body: { name: string; duration?: number; loop?: boolean; mode?: TrackClipMode; autoplay?: boolean }) =>
+  request<Record<string, unknown>>(`/scenes/${sceneId}/track-clips`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }).then(mapTrackClip)
+
+export const updateTrackClip = (id: string, patch: { name?: string; duration?: number; loop?: boolean; mode?: TrackClipMode; autoplay?: boolean }) =>
+  request<Record<string, unknown>>(`/track-clips/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  }).then(mapTrackClip)
+
+export const deleteTrackClip = (id: string) =>
+  request<void>(`/track-clips/${id}`, { method: 'DELETE' })
+
+export const createTrackClipLane = (clipId: string, body: { targetKind: TrackClipTargetKind; targetId: string; paramPath: string; defaultValue?: number }) =>
+  request<Record<string, unknown>>(`/track-clips/${clipId}/lanes`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }).then(mapTrackClipLane)
+
+export const updateTrackClipLane = (id: string, patch: { targetKind?: TrackClipTargetKind; targetId?: string; paramPath?: string; defaultValue?: number }) =>
+  request<Record<string, unknown>>(`/track-clip-lanes/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  }).then(mapTrackClipLane)
+
+export const deleteTrackClipLane = (id: string) =>
+  request<void>(`/track-clip-lanes/${id}`, { method: 'DELETE' })
+
+export const replaceTrackClipKeyframes = (laneId: string, keyframes: Array<Partial<TrackClipKeyframeRecord> & { t: number; value: number }>) =>
+  request<{ laneId: string; keyframes: Record<string, unknown>[] }>(`/track-clip-lanes/${laneId}/keyframes`, {
+    method: 'PUT',
+    body: JSON.stringify({ keyframes }),
+  }).then((r) => ({ laneId: r.laneId, keyframes: r.keyframes.map(mapTrackClipKeyframe) }))
+
+export const triggerTrackClip = (id: string) =>
+  request<void>(`/track-clips/${id}/trigger`, { method: 'POST' })
+
+export const stopTrackClip = (id: string) =>
+  request<void>(`/track-clips/${id}/stop`, { method: 'POST' })
+
+export const pauseTrackClip = (id: string) =>
+  request<void>(`/track-clips/${id}/pause`, { method: 'POST' })
+
+export const resumeTrackClip = (id: string) =>
+  request<void>(`/track-clips/${id}/resume`, { method: 'POST' })
+
+export const seekTrackClip = (id: string, t: number) =>
+  request<void>(`/track-clips/${id}/seek`, { method: 'POST', body: JSON.stringify({ t }) })
+
 // System
 export const getLocalIps = () =>
   request<{ ips: string[] }>('/system/local-ips').then((d) => d.ips)
@@ -474,6 +637,19 @@ export const api = {
   updateComposeLayer,
   deleteComposeLayer,
   reorderComposeLayers,
+  getTrackClips,
+  createTrackClip,
+  updateTrackClip,
+  deleteTrackClip,
+  createTrackClipLane,
+  updateTrackClipLane,
+  deleteTrackClipLane,
+  replaceTrackClipKeyframes,
+  triggerTrackClip,
+  stopTrackClip,
+  pauseTrackClip,
+  resumeTrackClip,
+  seekTrackClip,
   getLocalIps,
   getBodyCalibState,
   getSignalGraphs,

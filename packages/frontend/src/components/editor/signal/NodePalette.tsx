@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal'
 import type { NodeKindMeta, NodePortMeta } from '@vspark/shared/signal'
+import { useEditorStore } from '../../../store/editorStore'
+import { BottomDockResizeHandle } from '../AssetManager'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Port chip
@@ -89,6 +91,7 @@ interface Props {
 }
 
 export function NodePalette({ kindMeta, graphReadonly }: Props) {
+  const bottomDockHeight = useEditorStore((s) => s.bottomDockHeight)
   // Collect all unique tags, preserving insertion order. "all" tab is always first.
   const tags = ['all', ...Array.from(new Set(kindMeta.flatMap((m) => m.display?.tags ?? [])))]
   const [activeTag, setActiveTag] = useState('all')
@@ -113,14 +116,16 @@ export function NodePalette({ kindMeta, graphReadonly }: Props) {
 
   return (
     <div style={{
-      height: 160,
+      height: bottomDockHeight,
       background: '#111',
       borderTop: '1px solid #2a2a2a',
       display: 'flex',
       flexDirection: 'column',
       fontFamily: 'system-ui, sans-serif',
       flexShrink: 0,
+      position: 'relative',
     }}>
+      <BottomDockResizeHandle />
       {/* Tab bar */}
       <div style={{
         display: 'flex',

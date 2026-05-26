@@ -204,6 +204,59 @@ export const reorderComposeLayersSchema = z.object({
   })).min(1),
 }).openapi('ReorderComposeLayers');
 
+// --- Track clips (timeline parameter animation) ---
+
+export const trackClipModeSchema       = z.enum(['override', 'relative']).openapi('TrackClipMode');
+export const trackClipTargetKindSchema = z.enum(['scene_node', 'compose_layer']).openapi('TrackClipTargetKind');
+export const trackClipEasingSchema     = z.enum(['linear', 'step', 'bezier']).openapi('TrackClipEasing');
+
+export const trackClipKeyframeSchema = z.object({
+  id:         z.string().optional(),
+  t:          z.number().min(0),
+  value:      z.number(),
+  easing:     trackClipEasingSchema.optional(),
+  inHandleTFraction:  z.number().nullable().optional(),
+  inHandleVFraction:  z.number().nullable().optional(),
+  outHandleTFraction: z.number().nullable().optional(),
+  outHandleVFraction: z.number().nullable().optional(),
+}).openapi('TrackClipKeyframe');
+
+export const createTrackClipSchema = z.object({
+  id:       z.string().optional(),
+  name:     z.string().min(1),
+  duration: z.number().positive().optional(),
+  loop:     z.boolean().optional(),
+  mode:     trackClipModeSchema.optional(),
+  autoplay: z.boolean().optional(),
+}).openapi('CreateTrackClip');
+
+export const updateTrackClipSchema = z.object({
+  name:     z.string().min(1).optional(),
+  duration: z.number().positive().optional(),
+  loop:     z.boolean().optional(),
+  mode:     trackClipModeSchema.optional(),
+  autoplay: z.boolean().optional(),
+}).openapi('UpdateTrackClip');
+
+export const createTrackClipLaneSchema = z.object({
+  id:           z.string().optional(),
+  targetKind:   trackClipTargetKindSchema,
+  targetId:     z.string().min(1),
+  paramPath:    z.string().min(1),
+  defaultValue: z.number().optional(),
+}).openapi('CreateTrackClipLane');
+
+export const updateTrackClipLaneSchema = z.object({
+  targetKind:   trackClipTargetKindSchema.optional(),
+  targetId:     z.string().min(1).optional(),
+  paramPath:    z.string().min(1).optional(),
+  defaultValue: z.number().optional(),
+}).openapi('UpdateTrackClipLane');
+
+export const replaceTrackClipKeyframesSchema = z.object({
+  keyframes: z.array(trackClipKeyframeSchema),
+}).openapi('ReplaceTrackClipKeyframes');
+
 // --- Signal graph ---
 
 export const fireGraphEventSchema = z.object({
@@ -271,3 +324,9 @@ export type ReorderComposeLayersInput   = z.infer<typeof reorderComposeLayersSch
 export type FireGraphEventInput         = z.infer<typeof fireGraphEventSchema>;
 export type PresenceStateInput          = z.infer<typeof presenceStateSchema>;
 export type AnimationStateInput         = z.infer<typeof animationStateSchema>;
+export type CreateTrackClipInput            = z.infer<typeof createTrackClipSchema>;
+export type UpdateTrackClipInput            = z.infer<typeof updateTrackClipSchema>;
+export type CreateTrackClipLaneInput        = z.infer<typeof createTrackClipLaneSchema>;
+export type UpdateTrackClipLaneInput        = z.infer<typeof updateTrackClipLaneSchema>;
+export type ReplaceTrackClipKeyframesInput  = z.infer<typeof replaceTrackClipKeyframesSchema>;
+export type TrackClipKeyframeInput          = z.infer<typeof trackClipKeyframeSchema>;

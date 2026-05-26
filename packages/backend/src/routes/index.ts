@@ -8,6 +8,7 @@ import apiController from './api-controller.js';
 import expressions from './expressions.js';
 import cameraEffects from './camera-effects.js';
 import composeLayers from './compose-layers.js';
+import trackClips from './track-clips.js';
 import signal from './signal.js';
 import meta from './meta.js';
 
@@ -21,6 +22,7 @@ router.use(apiController);
 router.use(expressions);
 router.use(cameraEffects);
 router.use(composeLayers);
+router.use(trackClips);
 router.use(signal);
 router.use(meta);
 
@@ -32,4 +34,5 @@ export {
   setTrackingManager,
   setApiControllerManager,
   setWsSync,
+  setTrackClipPlaybackManager,
 } from './shared.js';

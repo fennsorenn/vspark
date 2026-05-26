@@ -1,19 +1,12 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 import { useEditorStore, type ComposeLayerRecord } from '../../store/editorStore'
 import { api } from '../../api/client'
 import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client'
+import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder'
+import { NumInput, VecInput, SliderInput } from './numericInputs'
 
-const numInput: CSSProperties = {
-  width: 64,
-  background: '#2a2a2a',
-  border: '1px solid #3a3a3a',
-  color: '#e0e0e0',
-  borderRadius: 4,
-  padding: '3px 6px',
-  fontSize: 12,
-  outline: 'none',
-  textAlign: 'right',
-}
+// The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
+// numeric controls were unified — see ./numericInputs.tsx.
 
 const textInput: CSSProperties = {
   width: '100%',
@@ -61,30 +54,11 @@ const select: CSSProperties = {
   outline: 'none',
 }
 
-function NumberField({ value, onCommit, step = 1 }: { value: number; onCommit: (n: number) => void; step?: number }) {
-  const [text, setText] = useState(String(value))
-  useEffect(() => { setText(String(value)) }, [value])
-  return (
-    <input
-      type="number"
-      value={text}
-      step={step}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => {
-        const n = Number(text)
-        if (Number.isFinite(n) && n !== value) onCommit(n)
-        else setText(String(value))
-      }}
-      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-      style={numInput}
-    />
-  )
-}
-
 export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord }) {
   const assets = useEditorStore((s) => s.assets)
   const updateLayerLocal = useEditorStore((s) => s.updateComposeLayerLocal)
   const nodes = useEditorStore((s) => s.nodes)
+  const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder()
 
   const cameraNode = layer.cameraNodeId ? nodes.find((n) => n.id === layer.cameraNodeId) : null
   const scopeLabel = layer.cameraNodeId
@@ -122,12 +96,26 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
       />
 
       <div style={sectionHeader}>Position</div>
-      <div style={row}>
-        <span style={label}>X</span>
-        <NumberField value={layer.x} onCommit={(n) => commit({ x: n })} />
-        <span style={label}>Y</span>
-        <NumberField value={layer.y} onCommit={(n) => commit({ y: n })} />
-      </div>
+      <VecInput
+        values={[layer.x, layer.y]}
+        labels={['X', 'Y']}
+        step={1}
+        onChange={(_next, axis) => {
+          // Suppress any active clip override so the typed value isn't masked.
+          const paramPath = axis === 0 ? 'x' : 'y'
+          useEditorStore.getState().suppressOverride('compose_layer', layer.id, paramPath)
+        }}
+        onCommit={(next, axis) => commit(axis === 0 ? { x: next[0] } : { y: next[1] })}
+        canRecord={canRecord}
+        onSetAxisKeyframe={(axis, value) => {
+          const paramPath = axis === 0 ? 'x' : 'y'
+          return recordKeyframe({ targetKind: 'compose_layer', targetId: layer.id, paramPath, value })
+        }}
+        onSetGroupKeyframe={() => recordKeyframes([
+          { targetKind: 'compose_layer', targetId: layer.id, paramPath: 'x', value: layer.x },
+          { targetKind: 'compose_layer', targetId: layer.id, paramPath: 'y', value: layer.y },
+        ])}
+      />
       <div style={row}>
         <span style={label}>Anchor</span>
         <select
@@ -149,18 +137,26 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
       </div>
 
       <div style={sectionHeader}>Size</div>
-      <div style={row}>
-        <span style={label}>W</span>
-        <NumberField value={layer.width} onCommit={(n) => commit({ width: Math.max(8, n) })} />
-        <span style={label}>H</span>
-        <NumberField value={layer.height} onCommit={(n) => commit({ height: Math.max(8, n) })} />
-      </div>
+      <VecInput
+        values={[layer.width, layer.height]}
+        labels={['W', 'H']}
+        step={1}
+        min={[8, 8]}
+        onCommit={(next, axis) => commit(axis === 0 ? { width: next[0] } : { height: next[1] })}
+      />
 
       <div style={sectionHeader}>Rotation</div>
-      <div style={row}>
-        <span style={label}>Deg</span>
-        <NumberField value={layer.rotation} step={1} onCommit={(n) => commit({ rotation: n })} />
-      </div>
+      <NumInput
+        value={layer.rotation}
+        step={1}
+        prefix="∠"
+        suffix="°"
+        onChange={() => useEditorStore.getState().suppressOverride('compose_layer', layer.id, 'rotation')}
+        onCommit={(v) => commit({ rotation: v })}
+        canRecord={canRecord}
+        onSetKeyframe={(value) => recordKeyframe({ targetKind: 'compose_layer', targetId: layer.id, paramPath: 'rotation', value })}
+        style={{ width: 110 }}
+      />
 
       <div style={sectionHeader}>Visibility</div>
       <div style={row}>
@@ -175,16 +171,11 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
       </div>
       <div style={row}>
         <span style={label}>Opacity</span>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
+        <SliderInput
           value={typeof layer.config.opacity === 'number' ? layer.config.opacity : 1}
-          onChange={(e) => {
-            const o = Number(e.target.value)
-            commit({ config: { ...layer.config, opacity: o } })
-          }}
+          min={0} max={1} step={0.01}
+          precision={2}
+          onChange={(o) => commit({ config: { ...layer.config, opacity: o } })}
           style={{ flex: 1 }}
         />
       </div>
@@ -233,10 +224,22 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
 
       <div style={sectionHeader}>Stack order</div>
       <div style={row}>
-        <span style={label}>Scene</span>
-        <NumberField value={layer.sceneOrder} onCommit={(n) => commit({ sceneOrder: n })} />
-        <span style={label}>Camera</span>
-        <NumberField value={layer.cameraOrder} onCommit={(n) => commit({ cameraOrder: n })} />
+        <NumInput
+          value={layer.sceneOrder}
+          prefix="Scene"
+          step={1}
+          precision={0}
+          onCommit={(v) => commit({ sceneOrder: Math.round(v) })}
+          style={{ flex: 1 }}
+        />
+        <NumInput
+          value={layer.cameraOrder}
+          prefix="Cam"
+          step={1}
+          precision={0}
+          onCommit={(v) => commit({ cameraOrder: Math.round(v) })}
+          style={{ flex: 1 }}
+        />
       </div>
       <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4, marginTop: -2 }}>
         scene_order &lt; 0 = in front of 3D · 0 = at 3D · &gt; 0 = behind 3D

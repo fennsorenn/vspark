@@ -35,6 +35,7 @@ import { PoseIkTargets }                from './nodes/pose_ik_targets.js'
 import { IkBroadcast }                  from './nodes/ik_broadcast.js'
 import { NotBool }                      from './nodes/not_bool.js'
 import { HandHeightCompare }            from './nodes/hand_height_compare.js'
+import { TrackClipTrigger }             from './nodes/track_clip_trigger.js'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -82,6 +83,8 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   // Logic utilities
   NotBool,
   HandHeightCompare,
+  // Track clips
+  TrackClipTrigger,
 ]
 
 export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> =

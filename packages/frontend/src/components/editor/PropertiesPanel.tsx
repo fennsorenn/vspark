@@ -11,6 +11,8 @@ import { ComposeLayerProperties } from './ComposeLayerProperties'
 import type { AssetFile } from '../../api/client'
 import { animRegistry } from '../../animRegistry'
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture'
+import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder'
+import { NumInput, VecInput, SliderInput } from './numericInputs'
 
 interface Transform {
   x: number; y: number; z: number
@@ -91,80 +93,9 @@ const sectionHeader: React.CSSProperties = {
   marginTop: 16,
 }
 
-function NumInput({
-  value,
-  onChange,
-  onBlur,
-  onFocus,
-  step = 0.01,
-  style,
-}: {
-  value: number
-  onChange: (v: number) => void
-  onBlur: () => void
-  onFocus?: () => void
-  step?: number
-  style?: React.CSSProperties
-}) {
-  const dragging = useRef(false)
-  const startY = useRef(0)
-  const startVal = useRef(0)
-  // Keep refs current so drag closures always call the latest callbacks
-  const onChangeRef = useRef(onChange)
-  const onBlurRef = useRef(onBlur)
-  useEffect(() => { onChangeRef.current = onChange }, [onChange])
-  useEffect(() => { onBlurRef.current = onBlur }, [onBlur])
-
-  const onMouseDown = (e: React.MouseEvent<HTMLInputElement>) => {
-    dragging.current = true
-    startY.current = e.clientY
-    startVal.current = value
-
-    const onMove = (me: MouseEvent) => {
-      if (!dragging.current) return
-      const delta = (startY.current - me.clientY) * step
-      onChangeRef.current(parseFloat((startVal.current + delta).toFixed(10)))
-    }
-    const onUp = () => {
-      if (!dragging.current) return
-      dragging.current = false
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-      document.body.style.cursor = ''
-      onBlurRef.current()
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-    document.body.style.cursor = 'ns-resize'
-  }
-
-  return (
-    <input
-      type="number"
-      style={{ ...numInput, cursor: 'ns-resize', ...style }}
-      value={value}
-      step={step}
-      onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-      onBlur={onBlur}
-      onFocus={onFocus}
-      onMouseDown={onMouseDown}
-    />
-  )
-}
-
-const row3: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: '20px 1fr 20px 1fr 20px 1fr',
-  gap: 4,
-  alignItems: 'center',
-  marginBottom: 6,
-}
-
-const label: React.CSSProperties = {
-  fontSize: 11,
-  color: '#666',
-  textAlign: 'right',
-}
+// The old `KfBtn`, local `NumInput`, and Vec3 row helpers (`row3`, `label`,
+// `cellWithBtn`, `groupHeaderRow`, `kfGroupBtnStyle`) were removed when the
+// numeric controls were unified — see ./numericInputs.tsx.
 
 // ---------- Calibration wizard ----------
 
@@ -406,21 +337,13 @@ function MappingEditor({
                   onChange={v => setOutput(i, j, { target: v })}
                   placeholder="Morph target or expression…"
                 />
-                <input
-                  type="number" value={out.weight} step={0.05}
-                  style={{
-                    width: 50, flexShrink: 0, background: '#1e1e1e', border: '1px solid #2e2e2e',
-                    color: '#ddd', borderRadius: 3, padding: '3px 4px', fontSize: 11,
-                    outline: 'none', textAlign: 'right',
-                  }}
-                  onChange={e => setOutput(i, j, { weight: parseFloat(e.target.value) || 0 })}
-                />
                 <button style={xBtn} title="Remove output" onClick={() => removeOutput(i, j)}>×</button>
               </div>
-              <input
-                type="range" min={-2} max={2} step={0.05} value={out.weight}
-                style={{ width: '100%', accentColor: '#2563eb', cursor: 'pointer', display: 'block' }}
-                onChange={e => setOutput(i, j, { weight: parseFloat(e.target.value) })}
+              <SliderInput
+                value={out.weight}
+                min={-2} max={2} step={0.05}
+                precision={2}
+                onChange={(v) => setOutput(i, j, { weight: v })}
               />
             </div>
           ))}
@@ -702,9 +625,12 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
         <NumInput
           value={port}
           step={1}
+          min={1}
+          max={65535}
+          precision={0}
           style={{ flex: 1 }}
-          onChange={(v) => setPort(Math.round(Math.max(1, Math.min(65535, v))))}
-          onBlur={() => save({ port })}
+          onChange={(v) => setPort(Math.round(v))}
+          onCommit={(v) => { const p = Math.round(v); setPort(p); save({ port: p }) }}
         />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -737,11 +663,12 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
         <NumInput
           value={poseTimeout}
           step={0.1}
-          style={{ width: 56 }}
-          onChange={(v) => setPoseTimeout(Math.max(0.1, v))}
-          onBlur={() => save({ poseTimeout })}
+          min={0.1}
+          suffix="s"
+          style={{ width: 80 }}
+          onChange={(v) => setPoseTimeout(v)}
+          onCommit={(v) => { setPoseTimeout(v); save({ poseTimeout: v }) }}
         />
-        <span style={{ fontSize: 11, color: '#555' }}>s</span>
       </div>
 
       {/* Face mappers */}
@@ -1030,8 +957,6 @@ function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
 
   const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }
   const labelStyle: React.CSSProperties = { fontSize: 12, color: '#888', flex: 1 }
-  const sliderStyle: React.CSSProperties = { flex: 2 }
-  const valueStyle:  React.CSSProperties = { fontSize: 11, color: '#aaa', width: 36, textAlign: 'right' }
 
   return (
     <div>
@@ -1099,18 +1024,16 @@ function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
           return (
             <div key={axis} style={{ marginBottom: 4 }}>
               <div style={{ fontSize: 10, color: '#777', marginBottom: 2 }}>{axis.toUpperCase()} axis</div>
-              <div style={rowStyle}>
-                <span style={labelStyle}>Scale</span>
-                <input type='range' min={0} max={8} step={0.1} value={a.scale}
-                  onChange={e => saveIk({ [scaleField]: parseFloat(e.target.value) })} style={sliderStyle} />
-                <span style={valueStyle}>{a.scale.toFixed(1)}</span>
-              </div>
-              <div style={rowStyle}>
-                <span style={labelStyle}>Offset</span>
-                <input type='range' min={-0.5} max={0.5} step={0.01} value={a.offset}
-                  onChange={e => saveIk({ [offsetField]: parseFloat(e.target.value) })} style={sliderStyle} />
-                <span style={valueStyle}>{a.offset.toFixed(2)}</span>
-              </div>
+              <SliderInput
+                label="Scale"
+                value={a.scale} min={0} max={8} step={0.1} precision={1}
+                onChange={(v) => saveIk({ [scaleField]: v })}
+              />
+              <SliderInput
+                label="Offset"
+                value={a.offset} min={-0.5} max={0.5} step={0.01} precision={2}
+                onChange={(v) => saveIk({ [offsetField]: v })}
+              />
               <div style={rowStyle}>
                 <span style={labelStyle}>Invert</span>
                 <input type='checkbox' checked={a.invert}
@@ -1126,30 +1049,14 @@ function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
         <div style={{ fontSize: 11, color: '#666', textTransform: 'uppercase', marginBottom: 4 }}>
           Head calibration <span style={{ textTransform: 'none', color: '#555' }}>(gains amplify rotation axes; rest pitch shifts neutral nod)</span>
         </div>
-        <div style={rowStyle}>
-          <span style={labelStyle}>Pitch gain</span>
-          <input type='range' min={0.5} max={5} step={0.1} value={head.pitchGain}
-            onChange={e => saveHead({ pitchGain: parseFloat(e.target.value) })} style={sliderStyle} />
-          <span style={valueStyle}>{head.pitchGain.toFixed(1)}</span>
-        </div>
-        <div style={rowStyle}>
-          <span style={labelStyle}>Yaw gain</span>
-          <input type='range' min={0.5} max={5} step={0.1} value={head.yawGain}
-            onChange={e => saveHead({ yawGain: parseFloat(e.target.value) })} style={sliderStyle} />
-          <span style={valueStyle}>{head.yawGain.toFixed(1)}</span>
-        </div>
-        <div style={rowStyle}>
-          <span style={labelStyle}>Roll gain</span>
-          <input type='range' min={0.5} max={5} step={0.1} value={head.rollGain}
-            onChange={e => saveHead({ rollGain: parseFloat(e.target.value) })} style={sliderStyle} />
-          <span style={valueStyle}>{head.rollGain.toFixed(1)}</span>
-        </div>
-        <div style={rowStyle}>
-          <span style={labelStyle}>Rest pitch</span>
-          <input type='range' min={-1.0} max={1.0} step={0.01} value={head.restPitch}
-            onChange={e => saveHead({ restPitch: parseFloat(e.target.value) })} style={sliderStyle} />
-          <span style={valueStyle}>{head.restPitch.toFixed(2)}</span>
-        </div>
+        <SliderInput label="Pitch gain" value={head.pitchGain} min={0.5} max={5} step={0.1} precision={1}
+          onChange={(v) => saveHead({ pitchGain: v })} />
+        <SliderInput label="Yaw gain" value={head.yawGain} min={0.5} max={5} step={0.1} precision={1}
+          onChange={(v) => saveHead({ yawGain: v })} />
+        <SliderInput label="Roll gain" value={head.rollGain} min={0.5} max={5} step={0.1} precision={1}
+          onChange={(v) => saveHead({ rollGain: v })} />
+        <SliderInput label="Rest pitch" value={head.restPitch} min={-1.0} max={1.0} step={0.01} precision={2}
+          onChange={(v) => saveHead({ restPitch: v })} />
       </div>
 
       <div style={{ marginTop: 8, borderTop: '1px solid #2a2a2a', paddingTop: 8 }}>
@@ -1247,22 +1154,24 @@ function BreathingProps({ comp }: { comp: NodeComponent }) {
         <NumInput
           value={chest}
           step={0.01}
-          style={{ width: 64 }}
-          onChange={(v) => setChest(Math.max(0, v))}
-          onBlur={() => save({ chestAmplitude: chest })}
+          min={0}
+          suffix="rad"
+          style={{ width: 96 }}
+          onChange={(v) => setChest(v)}
+          onCommit={(v) => { setChest(v); save({ chestAmplitude: v }) }}
         />
-        <span style={{ fontSize: 11, color: '#555' }}>rad</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}>Shoulder lift</span>
         <NumInput
           value={shoulder}
           step={0.01}
-          style={{ width: 64 }}
-          onChange={(v) => setShoulder(Math.max(0, v))}
-          onBlur={() => save({ shoulderAmplitude: shoulder })}
+          min={0}
+          suffix="rad"
+          style={{ width: 96 }}
+          onChange={(v) => setShoulder(v)}
+          onCommit={(v) => { setShoulder(v); save({ shoulderAmplitude: v }) }}
         />
-        <span style={{ fontSize: 11, color: '#555' }}>rad</span>
       </div>
     </div>
   )
@@ -1297,14 +1206,17 @@ function EffectRow({ label, cfg, field, step, min, max, onSave }: {
   onSave: (patch: Record<string, unknown>) => void
 }) {
   const value = (cfg[field] as number) ?? 0
-  const save = (v: number) => {
-    const clamped = min !== undefined ? Math.max(min, max !== undefined ? Math.min(max, v) : v) : v
-    onSave({ [field]: clamped })
-  }
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{label}</span>
-      <NumInput value={value} step={step ?? 0.01} onChange={save} onBlur={() => {}} style={{ width: 72 }} />
+      <NumInput
+        value={value}
+        step={step ?? 0.01}
+        min={min}
+        max={max}
+        onCommit={(v) => onSave({ [field]: v })}
+        style={{ width: 96 }}
+      />
     </div>
   )
 }
@@ -1520,9 +1432,9 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                 <NumInput
                   value={pair[idx]}
                   step={step}
-                  onChange={(v) => { const next = [...pair]; next[idx] = Math.max(0, v); save({ [field]: next }) }}
-                  onBlur={() => {}}
-                  style={{ width: 72 }}
+                  min={0}
+                  onCommit={(v) => { const next = [...pair]; next[idx] = v; save({ [field]: next }) }}
+                  style={{ width: 96 }}
                 />
               </div>
             )
@@ -1631,6 +1543,7 @@ export function PropertiesPanel() {
   const selectedEffectNode = selectedEffect ? nodes.find((n) => n.id === selectedEffect.nodeId) : null
   const selectedEffectKind = selectedEffect ? CAMERA_EFFECT_KINDS.find((k) => k.kind === selectedEffect.kind) : null
 
+  const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder()
   const [name, setName] = useState('')
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 })
   // Ref always holds the latest transform — avoids stale closures in onBlur handlers
@@ -1847,53 +1760,93 @@ export function PropertiesPanel() {
 
         {/* Transform */}
         <div style={sectionHeader}>Transform</div>
-        <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Position</div>
-        <div style={row3}>
-          <span style={label}>X</span>
-          <NumInput value={transform.x} onFocus={() => { isEditingTransform.current = true }} onChange={(v) => { const t = { ...transformRef.current, x: v }; transformRef.current = t; setTransform(t) }} onBlur={() => { isEditingTransform.current = false; saveTransform() }} />
-          <span style={label}>Y</span>
-          <NumInput value={transform.y} onFocus={() => { isEditingTransform.current = true }} onChange={(v) => { const t = { ...transformRef.current, y: v }; transformRef.current = t; setTransform(t) }} onBlur={() => { isEditingTransform.current = false; saveTransform() }} />
-          <span style={label}>Z</span>
-          <NumInput value={transform.z} onFocus={() => { isEditingTransform.current = true }} onChange={(v) => { const t = { ...transformRef.current, z: v }; transformRef.current = t; setTransform(t) }} onBlur={() => { isEditingTransform.current = false; saveTransform() }} />
-        </div>
 
-        <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Rotation (deg)</div>
-        <div style={row3}>
-          <span style={label}>X</span>
-          <NumInput
-            value={parseFloat((transform.rx / RAD).toFixed(2))}
-            onFocus={() => { isEditingTransform.current = true }}
-            onChange={(v) => { const t = { ...transformRef.current, rx: v * RAD }; transformRef.current = t; setTransform(t) }}
-            onBlur={() => { isEditingTransform.current = false; saveTransform() }}
-            step={1}
-          />
-          <span style={label}>Y</span>
-          <NumInput
-            value={parseFloat((transform.ry / RAD).toFixed(2))}
-            onFocus={() => { isEditingTransform.current = true }}
-            onChange={(v) => { const t = { ...transformRef.current, ry: v * RAD }; transformRef.current = t; setTransform(t) }}
-            onBlur={() => { isEditingTransform.current = false; saveTransform() }}
-            step={1}
-          />
-          <span style={label}>Z</span>
-          <NumInput
-            value={parseFloat((transform.rz / RAD).toFixed(2))}
-            onFocus={() => { isEditingTransform.current = true }}
-            onChange={(v) => { const t = { ...transformRef.current, rz: v * RAD }; transformRef.current = t; setTransform(t) }}
-            onBlur={() => { isEditingTransform.current = false; saveTransform() }}
-            step={1}
-          />
-        </div>
+        <VecInput
+          groupLabel="Position"
+          labels={['X', 'Y', 'Z']}
+          values={[transform.x, transform.y, transform.z]}
+          onChange={(next, axis) => {
+            isEditingTransform.current = true
+            const t = { ...transformRef.current, x: next[0], y: next[1], z: next[2] }
+            transformRef.current = t
+            setTransform(t)
+            // Suppress any active clip override for this axis so the user sees
+            // their typed value land; cleared on the next clip event.
+            const path = axis === 0 ? 'position.x' : axis === 1 ? 'position.y' : 'position.z'
+            useEditorStore.getState().suppressOverride('scene_node', node.id, path)
+          }}
+          onCommit={() => { isEditingTransform.current = false; saveTransform() }}
+          canRecord={canRecord}
+          onSetAxisKeyframe={(axis, value) => {
+            const path = axis === 0 ? 'position.x' : axis === 1 ? 'position.y' : 'position.z'
+            return recordKeyframe({ targetKind: 'scene_node', targetId: node.id, paramPath: path, value })
+          }}
+          onSetGroupKeyframe={() => recordKeyframes([
+            { targetKind: 'scene_node', targetId: node.id, paramPath: 'position.x', value: transformRef.current.x },
+            { targetKind: 'scene_node', targetId: node.id, paramPath: 'position.y', value: transformRef.current.y },
+            { targetKind: 'scene_node', targetId: node.id, paramPath: 'position.z', value: transformRef.current.z },
+          ])}
+          style={{ marginBottom: 8 }}
+        />
 
-        <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Scale</div>
-        <div style={row3}>
-          <span style={label}>X</span>
-          <NumInput value={transform.sx} onFocus={() => { isEditingTransform.current = true }} onChange={(v) => { const t = { ...transformRef.current, sx: v }; transformRef.current = t; setTransform(t) }} onBlur={() => { isEditingTransform.current = false; saveTransform() }} />
-          <span style={label}>Y</span>
-          <NumInput value={transform.sy} onFocus={() => { isEditingTransform.current = true }} onChange={(v) => { const t = { ...transformRef.current, sy: v }; transformRef.current = t; setTransform(t) }} onBlur={() => { isEditingTransform.current = false; saveTransform() }} />
-          <span style={label}>Z</span>
-          <NumInput value={transform.sz} onFocus={() => { isEditingTransform.current = true }} onChange={(v) => { const t = { ...transformRef.current, sz: v }; transformRef.current = t; setTransform(t) }} onBlur={() => { isEditingTransform.current = false; saveTransform() }} />
-        </div>
+        {/* Rotation is stored in radians on the transform component but edited in degrees;
+            convert at the UI boundary so VecInput stays unit-agnostic. */}
+        <VecInput
+          groupLabel="Rotation (deg)"
+          labels={['X', 'Y', 'Z']}
+          values={[transform.rx / RAD, transform.ry / RAD, transform.rz / RAD]}
+          step={1}
+          precision={2}
+          onChange={(next, axis) => {
+            isEditingTransform.current = true
+            const t = { ...transformRef.current, rx: next[0] * RAD, ry: next[1] * RAD, rz: next[2] * RAD }
+            transformRef.current = t
+            setTransform(t)
+            const path = axis === 0 ? 'rotation.x' : axis === 1 ? 'rotation.y' : 'rotation.z'
+            useEditorStore.getState().suppressOverride('scene_node', node.id, path)
+          }}
+          onCommit={() => { isEditingTransform.current = false; saveTransform() }}
+          canRecord={canRecord}
+          onSetAxisKeyframe={(axis) => {
+            const [path, rad] = axis === 0
+              ? (['rotation.x', transformRef.current.rx] as const)
+              : axis === 1
+                ? (['rotation.y', transformRef.current.ry] as const)
+                : (['rotation.z', transformRef.current.rz] as const)
+            return recordKeyframe({ targetKind: 'scene_node', targetId: node.id, paramPath: path, value: rad })
+          }}
+          onSetGroupKeyframe={() => recordKeyframes([
+            { targetKind: 'scene_node', targetId: node.id, paramPath: 'rotation.x', value: transformRef.current.rx },
+            { targetKind: 'scene_node', targetId: node.id, paramPath: 'rotation.y', value: transformRef.current.ry },
+            { targetKind: 'scene_node', targetId: node.id, paramPath: 'rotation.z', value: transformRef.current.rz },
+          ])}
+          style={{ marginBottom: 8 }}
+        />
+
+        <VecInput
+          groupLabel="Scale"
+          labels={['X', 'Y', 'Z']}
+          values={[transform.sx, transform.sy, transform.sz]}
+          onChange={(next, axis) => {
+            isEditingTransform.current = true
+            const t = { ...transformRef.current, sx: next[0], sy: next[1], sz: next[2] }
+            transformRef.current = t
+            setTransform(t)
+            const path = axis === 0 ? 'scale.x' : axis === 1 ? 'scale.y' : 'scale.z'
+            useEditorStore.getState().suppressOverride('scene_node', node.id, path)
+          }}
+          onCommit={() => { isEditingTransform.current = false; saveTransform() }}
+          canRecord={canRecord}
+          onSetAxisKeyframe={(axis, value) => {
+            const path = axis === 0 ? 'scale.x' : axis === 1 ? 'scale.y' : 'scale.z'
+            return recordKeyframe({ targetKind: 'scene_node', targetId: node.id, paramPath: path, value })
+          }}
+          onSetGroupKeyframe={() => recordKeyframes([
+            { targetKind: 'scene_node', targetId: node.id, paramPath: 'scale.x', value: transformRef.current.sx },
+            { targetKind: 'scene_node', targetId: node.id, paramPath: 'scale.y', value: transformRef.current.sy },
+            { targetKind: 'scene_node', targetId: node.id, paramPath: 'scale.z', value: transformRef.current.sz },
+          ])}
+        />
 
         {/* Light Properties */}
         {node.kind === 'light' && (
@@ -1935,9 +1888,10 @@ export function PropertiesPanel() {
                 <NumInput
                   value={light.intensity}
                   step={0.1}
-                  style={{ width: 80 }}
-                  onChange={(v) => setLight({ ...light, intensity: Math.max(0, v) })}
-                  onBlur={() => saveLight(light)}
+                  min={0}
+                  style={{ width: 96 }}
+                  onChange={(v) => setLight({ ...light, intensity: v })}
+                  onCommit={(v) => { const next = { ...light, intensity: v }; setLight(next); saveLight(next) }}
                 />
               </div>
             </div>
@@ -1970,9 +1924,10 @@ export function PropertiesPanel() {
                   <NumInput
                     value={camera.fov}
                     step={1}
-                    style={{ width: 80 }}
+                    suffix="°"
+                    style={{ width: 96 }}
                     onChange={(v) => setCamera({ ...camera, fov: v })}
-                    onBlur={() => saveCamera(camera)}
+                    onCommit={(v) => { const next = { ...camera, fov: v }; setCamera(next); saveCamera(next) }}
                   />
                 </div>
               ) : (
@@ -1981,9 +1936,9 @@ export function PropertiesPanel() {
                   <NumInput
                     value={camera.orthoSize}
                     step={0.1}
-                    style={{ width: 80 }}
+                    style={{ width: 96 }}
                     onChange={(v) => setCamera({ ...camera, orthoSize: v })}
-                    onBlur={() => saveCamera(camera)}
+                    onCommit={(v) => { const next = { ...camera, orthoSize: v }; setCamera(next); saveCamera(next) }}
                   />
                 </div>
               )}
@@ -1993,9 +1948,9 @@ export function PropertiesPanel() {
                   <NumInput
                     value={camera[key]}
                     step={step}
-                    style={{ width: 80 }}
+                    style={{ width: 96 }}
                     onChange={(v) => setCamera({ ...camera, [key]: v })}
-                    onBlur={() => saveCamera(camera)}
+                    onCommit={(v) => { const next = { ...camera, [key]: v }; setCamera(next); saveCamera(next) }}
                   />
                 </div>
               ))}
@@ -2428,19 +2383,19 @@ export function PropertiesPanel() {
               <NumInput
                 value={node.properties?.blendTransitionTime ?? 0.5}
                 step={0.05}
-                style={{ width: 56 }}
+                min={0}
+                suffix="s"
+                style={{ width: 96 }}
                 onChange={(v) => {
-                  const blendTransitionTime = Math.max(0, v)
-                  const properties = { ...node.properties, blendTransitionTime }
+                  const properties = { ...node.properties, blendTransitionTime: v }
                   storeUpdateNode(node.id, { properties })
                 }}
-                onBlur={() => {
-                  api.updateNode(node.id, {
-                    properties: { blendTransitionTime: node.properties?.blendTransitionTime ?? 0.5 },
-                  }).catch(() => {})
+                onCommit={(v) => {
+                  const properties = { ...node.properties, blendTransitionTime: v }
+                  storeUpdateNode(node.id, { properties })
+                  api.updateNode(node.id, { properties: { blendTransitionTime: v } }).catch(() => {})
                 }}
               />
-              <span style={{ fontSize: 11, color: '#555' }}>s</span>
             </div>
           </>
         )}
@@ -2461,6 +2416,13 @@ export function PropertiesPanel() {
         )}
 
         {/* Animation */}
+        {/* TODO: Overhaul this section in a dedicated pass. The Speed/Offset
+            number inputs and the seek slider were intentionally left on the
+            raw <input type="number"|"range"> primitives during the
+            NumInput/VecInput/SliderInput unification because the playback
+            transport + custom "current/total" readout aren't a clean fit for
+            the shared components yet. Revisit when the FBX animation flow gets
+            its planned UX update. */}
         {(node.kind === 'avatar' || node.kind === 'model') && (
           <>
             <div style={sectionHeader}>Animation</div>

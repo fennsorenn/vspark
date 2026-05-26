@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { useEditorStore } from '../store/editorStore'
 import { useWsSync } from '../hooks/useWsSync'
+import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator'
 import { TopBar } from '../components/editor/TopBar'
 import { SceneGraph } from '../components/editor/SceneGraph'
 import { Viewport } from '../components/editor/Viewport'
@@ -15,8 +16,9 @@ import type { NodeKindMeta } from '@vspark/shared/signal'
 
 export function Editor() {
   useWsSync()
+  useTrackClipEvaluator()
   const { projectId } = useParams<{ projectId: string }>()
-  const { setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setComponentKinds, setCameraEffects, setComposeLayers, activeGraphId, leftTab } = useEditorStore()
+  const { setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setComponentKinds, setCameraEffects, setComposeLayers, setTrackClips, activeGraphId, leftTab } = useEditorStore()
   const [kindMeta, setKindMeta] = useState<NodeKindMeta[]>([])
 
   useEffect(() => {
@@ -32,11 +34,12 @@ export function Editor() {
       if (project) setProject(project.id, project.name)
     })
 
-    api.getScenes(projectId).then(async ({ scenes, nodes, nodeComponents, cameraEffects, composeLayers }) => {
+    api.getScenes(projectId).then(async ({ scenes, nodes, nodeComponents, cameraEffects, composeLayers, trackClips }) => {
       setScenes(scenes)
       setNodeComponents(nodeComponents)
       setCameraEffects(cameraEffects)
       setComposeLayers(composeLayers)
+      setTrackClips(trackClips)
       if (scenes.length > 0) {
         const firstId = scenes[0].id
         setActiveScene(firstId)
@@ -51,7 +54,7 @@ export function Editor() {
     })
 
     api.getAssets(projectId).then(setAssets).catch(() => {})
-  }, [projectId, setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setCameraEffects, setComposeLayers])
+  }, [projectId, setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setCameraEffects, setComposeLayers, setTrackClips])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0f0f0f' }}>

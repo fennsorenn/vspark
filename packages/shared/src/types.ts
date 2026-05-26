@@ -113,6 +113,90 @@ export interface ComposeLayer {
   updatedAt: string;
 }
 
+// --- Track clips (timeline-based parameter animation) ---
+
+export type TrackClipMode = 'override' | 'relative';
+export type TrackClipTargetKind = 'scene_node' | 'compose_layer';
+export type TrackClipEasing = 'linear' | 'step' | 'bezier';
+
+/** Scalar parameter paths supported in v1.
+ *  Scene node:    'position.x' | 'position.y' | 'position.z'
+ *                | 'rotation.x' | 'rotation.y' | 'rotation.z'
+ *                | 'scale.x'    | 'scale.y'    | 'scale.z'
+ *  Compose layer: 'x' | 'y' | 'rotation' */
+export type TrackClipParamPath = string;
+
+export interface TrackClipKeyframe {
+  id: string;
+  t: number;          // seconds from clip start
+  value: number;
+  easing: TrackClipEasing;
+  /** Bezier handle offsets stored as fractions of the adjoining segment (only
+   *  present for easing='bezier'). The absolute (Δt, Δv) used by the evaluator
+   *  is resolved at use time as:
+   *     out: dt = outHandleTFraction * (next.t  - kf.t)
+   *          dv = outHandleVFraction * (next.value  - kf.value)
+   *     in:  dt = -inHandleTFraction * (kf.t   - prev.t)        (negative)
+   *          dv = -inHandleVFraction * (kf.value   - prev.value)
+   *  When the adjoining neighbour is missing the handle is hidden / no curve
+   *  is drawn on that side (the segment is flat). Δt fractions are clamped to
+   *  [0, 1]; Δv fractions are unbounded. */
+  inHandleTFraction:  number | null;
+  inHandleVFraction:  number | null;
+  outHandleTFraction: number | null;
+  outHandleVFraction: number | null;
+}
+
+export interface TrackClipLane {
+  id: string;
+  clipId: string;
+  targetKind: TrackClipTargetKind;
+  targetId: string;
+  paramPath: TrackClipParamPath;
+  /** "Rest" value the keyframes are offsets from when the clip is in relative mode. */
+  defaultValue: number;
+  keyframes: TrackClipKeyframe[];
+}
+
+export interface TrackClip {
+  id: string;
+  sceneId: string;
+  name: string;
+  duration: number;        // seconds
+  loop: boolean;
+  mode: TrackClipMode;
+  /** When true AND loop=true, playback auto-resumes on backend boot using the persisted startedAt. */
+  autoplay: boolean;
+  /** ms-epoch anchor for an active loop+autoplay playhead; null when not autoplaying. */
+  startedAt: number | null;
+  createdAt: string;
+  lanes: TrackClipLane[];
+}
+
+/** WS payload broadcast when a clip begins playback. Clients compute their own clock offset
+ *  from (serverNow - Date.now()) on the first such message and evaluate locally thereafter. */
+export interface TrackClipStartedMessage {
+  clipId: string;
+  startedAt: number;
+  loop: boolean;
+  serverNow: number;
+}
+
+export interface TrackClipPlaybackEntry {
+  clipId: string;
+  loop: boolean;
+  /** ms epoch anchor when playing; null when paused. */
+  startedAt?: number;
+  /** seconds-into-clip when paused; null when playing. */
+  pausedAtT?: number;
+}
+
+/** Snapshot of currently-active playback, sent to each freshly-connected WS client. */
+export interface TrackClipPlaybackSnapshot {
+  entries: TrackClipPlaybackEntry[];
+  serverNow: number;
+}
+
 // Player/identity
 export interface Player {
   id: string;
@@ -262,7 +346,18 @@ export type WSMessageKind =
   | 'compose_layer_removed'
   | 'compose_layer_reordered'
   | 'node_transform_preview'
-  | 'compose_layer_preview';
+  | 'compose_layer_preview'
+  | 'track_clip_added'
+  | 'track_clip_updated'
+  | 'track_clip_removed'
+  | 'track_clip_lane_added'
+  | 'track_clip_lane_updated'
+  | 'track_clip_lane_removed'
+  | 'track_clip_keyframes_replaced'
+  | 'track_clip_started'
+  | 'track_clip_paused'
+  | 'track_clip_stopped'
+  | 'track_clip_playback_snapshot';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 

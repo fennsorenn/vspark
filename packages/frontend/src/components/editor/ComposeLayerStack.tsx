@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { useEditorStore } from '../../store/editorStore'
 import type { ComposeLayerRecord, AssetFile } from '../../store/editorStore'
 
 const SCENE_RENDER_SLOT = 0
@@ -18,22 +19,25 @@ function resolveAssetUrl(layer: ComposeLayerRecord, assets: AssetFile[]): string
   return a?.url ?? null
 }
 
-function layerStyle(layer: ComposeLayerRecord): CSSProperties {
+function layerStyle(layer: ComposeLayerRecord, override?: { x?: number; y?: number; rotation?: number }): CSSProperties {
   const opacity = typeof layer.config.opacity === 'number' ? layer.config.opacity : 1
+  const x        = override?.x        ?? layer.x
+  const y        = override?.y        ?? layer.y
+  const rotation = override?.rotation ?? layer.rotation
   const style: CSSProperties = {
     position: 'absolute',
     width: layer.width,
     height: layer.height,
-    transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined,
+    transform: rotation ? `rotate(${rotation}deg)` : undefined,
     transformOrigin: 'center center',
     visibility: layer.visible ? 'visible' : 'hidden',
     opacity,
     overflow: 'hidden',
   }
-  if (layer.anchorH === 'left')   style.left   = layer.x
-  if (layer.anchorH === 'right')  style.right  = layer.x
-  if (layer.anchorV === 'top')    style.top    = layer.y
-  if (layer.anchorV === 'bottom') style.bottom = layer.y
+  if (layer.anchorH === 'left')   style.left   = x
+  if (layer.anchorH === 'right')  style.right  = x
+  if (layer.anchorV === 'top')    style.top    = y
+  if (layer.anchorV === 'bottom') style.bottom = y
   return style
 }
 
@@ -67,6 +71,9 @@ function LayerView({
   layer: ComposeLayerRecord
   assets: AssetFile[]
 }) {
+  // Per-layer subscription to its track-clip override: this keeps re-renders
+  // localized to layers being animated; idle layers don't re-render each rAF.
+  const override = useEditorStore((s) => s.composeLayerOverrides[layer.id])
   // Layer wrappers are passive: pointer events go to the top-level capture
   // overlay (ComposeEventCapture), which uses document.elementsFromPoint to
   // find which layer is under the cursor via data-compose-layer-id. This
@@ -75,7 +82,7 @@ function LayerView({
   return (
     <div
       data-compose-layer-id={layer.id}
-      style={{ ...layerStyle(layer), pointerEvents: 'none' }}
+      style={{ ...layerStyle(layer, override), pointerEvents: 'none' }}
     >
       <LayerContent layer={layer} assets={assets} />
     </div>

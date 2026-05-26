@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useEditorStore } from '../store/editorStore'
 import type { NodeRecord } from '../store/editorStore'
 import type { CameraEffectRecord } from '../api/client'
-import { mapComposeLayer } from '../api/client'
+import { mapComposeLayer, mapTrackClip, mapTrackClipLane, mapTrackClipKeyframe } from '../api/client'
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore'
 import { smoothNodeTransform, smoothComposeLayer } from '../previewSmoother'
 import { setIkTargets } from '../ikTargetStore'
@@ -143,6 +143,65 @@ export function useWsSync() {
             for (const u of updates) {
               store.updateComposeLayerLocal(u.id, { sceneOrder: u.sceneOrder, cameraOrder: u.cameraOrder })
             }
+          } else if (msg.kind === 'track_clip_added') {
+            useEditorStore.getState().addTrackClip(mapTrackClip(msg.payload))
+          } else if (msg.kind === 'track_clip_updated') {
+            useEditorStore.getState().updateTrackClipLocal(mapTrackClip(msg.payload))
+          } else if (msg.kind === 'track_clip_removed') {
+            useEditorStore.getState().removeTrackClip(msg.payload.id as string)
+          } else if (msg.kind === 'track_clip_lane_added') {
+            const lane = mapTrackClipLane(msg.payload)
+            useEditorStore.getState().addTrackClipLane(lane.clipId, lane)
+          } else if (msg.kind === 'track_clip_lane_updated') {
+            useEditorStore.getState().updateTrackClipLaneLocal(mapTrackClipLane(msg.payload))
+          } else if (msg.kind === 'track_clip_lane_removed') {
+            useEditorStore.getState().removeTrackClipLane(
+              msg.payload.id as string,
+              (msg.payload.clipId ?? null) as string | null,
+            )
+          } else if (msg.kind === 'track_clip_keyframes_replaced') {
+            const laneId = msg.payload.laneId as string
+            const rows = (msg.payload.keyframes as Record<string, unknown>[]) ?? []
+            useEditorStore.getState().replaceTrackClipLaneKeyframes(laneId, rows.map(mapTrackClipKeyframe))
+          } else if (msg.kind === 'track_clip_started') {
+            const p = msg.payload as { clipId: string; startedAt: number; loop: boolean; serverNow: number }
+            const clockOffsetMs = p.serverNow - Date.now()
+            // Any pending user-override suppressions are dropped: triggering /
+            // resuming / seeking re-asserts the clip as the source of truth.
+            useEditorStore.getState().clearOverrideSuppressions()
+            useEditorStore.getState().setTrackClipPlayback(p.clipId, {
+              kind: 'playing', startedAt: p.startedAt, loop: p.loop, clockOffsetMs,
+            })
+          } else if (msg.kind === 'track_clip_paused') {
+            const p = msg.payload as { clipId: string; pausedAtT: number; serverNow: number }
+            const clockOffsetMs = p.serverNow - Date.now()
+            const prev = useEditorStore.getState().trackClipPlayback[p.clipId]
+            const loop = prev?.loop ?? false
+            // Pausing here is reached via the Pause button OR a Seek operation;
+            // either way we want the clip's value back in the inputs.
+            useEditorStore.getState().clearOverrideSuppressions()
+            useEditorStore.getState().setTrackClipPlayback(p.clipId, {
+              kind: 'paused', pausedAtT: p.pausedAtT, loop, clockOffsetMs,
+            })
+          } else if (msg.kind === 'track_clip_stopped') {
+            useEditorStore.getState().setTrackClipPlayback(msg.payload.clipId as string, null)
+            useEditorStore.getState().clearOverrideSuppressions()
+          } else if (msg.kind === 'track_clip_playback_snapshot') {
+            const p = msg.payload as {
+              entries: { clipId: string; loop: boolean; startedAt?: number; pausedAtT?: number }[]
+              serverNow: number
+            }
+            const clockOffsetMs = p.serverNow - Date.now()
+            const next: Record<string, import('../store/editorStore').TrackClipPlayback> = {}
+            for (const e of p.entries ?? []) {
+              if (e.startedAt != null) {
+                next[e.clipId] = { kind: 'playing', startedAt: e.startedAt, loop: e.loop, clockOffsetMs }
+              } else if (e.pausedAtT != null) {
+                next[e.clipId] = { kind: 'paused', pausedAtT: e.pausedAtT, loop: e.loop, clockOffsetMs }
+              }
+            }
+            useEditorStore.getState().clearOverrideSuppressions()
+            useEditorStore.getState().replaceTrackClipPlayback(next)
           } else if (msg.kind === 'server_update') {
             if ((msg.payload as { reloadOnReconnect?: boolean }).reloadOnReconnect) {
               pendingReloadRef.current = true

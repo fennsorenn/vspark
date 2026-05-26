@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import { useEditorStore } from '../store/editorStore'
 import { api } from '../api/client'
 import { useWsSync } from '../hooks/useWsSync'
+import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator'
 import { SceneNodes, CameraEffects } from '../components/editor/Viewport'
 import { ComposeLayerStack } from '../components/editor/ComposeLayerStack'
 
@@ -20,8 +21,9 @@ function getT(components: Record<string, unknown> | undefined) {
 
 export function ViewerPage() {
   useWsSync()
+  useTrackClipEvaluator()
   const { projectId, nodeId } = useParams<{ projectId: string; nodeId: string }>()
-  const { setProject, setScenes, setActiveScene, setNodes, setNodeComponents, setCameraEffects, setComposeLayers, nodes, composeLayers, assets, activeSceneId } = useEditorStore()
+  const { setProject, setScenes, setActiveScene, setNodes, setNodeComponents, setCameraEffects, setComposeLayers, setTrackClips, nodes, composeLayers, assets, activeSceneId } = useEditorStore()
 
   useEffect(() => {
     document.documentElement.style.background = 'transparent'
@@ -40,11 +42,12 @@ export function ViewerPage() {
       if (project) setProject(project.id, project.name)
     }).catch(() => {})
 
-    api.getScenes(projectId).then(async ({ scenes, nodes: sceneNodes, nodeComponents, cameraEffects, composeLayers }) => {
+    api.getScenes(projectId).then(async ({ scenes, nodes: sceneNodes, nodeComponents, cameraEffects, composeLayers, trackClips }) => {
       setScenes(scenes)
       setNodeComponents(nodeComponents)
       setCameraEffects(cameraEffects)
       setComposeLayers(composeLayers)
+      setTrackClips(trackClips)
       if (scenes.length === 0) return
       const firstId = scenes[0].id
       setActiveScene(firstId)
@@ -52,7 +55,7 @@ export function ViewerPage() {
       setNodes(filtered.length > 0 ? filtered : await api.getNodes(firstId))
     }).catch(() => {})
     api.getAssets(projectId).then((rows) => useEditorStore.getState().setAssets(rows)).catch(() => {})
-  }, [projectId, setProject, setScenes, setActiveScene, setNodes, setNodeComponents, setCameraEffects, setComposeLayers])
+  }, [projectId, setProject, setScenes, setActiveScene, setNodes, setNodeComponents, setCameraEffects, setComposeLayers, setTrackClips])
 
   const camNode = nodes.find((n) => n.id === nodeId)
   const cc = camNode?.components?.camera as { projection?: 'perspective' | 'orthographic'; fov?: number; near?: number; far?: number; orthoSize?: number; backgroundImage?: string } | undefined

@@ -41,6 +41,7 @@ router.get('/projects/:projectId/scenes', (req, res) => {
   const nodeComponents: unknown[] = [];
   const cameraEffects: unknown[] = [];
   const composeLayers: unknown[] = [];
+  const trackClips: unknown[] = [];
   for (const s of scenes as { id: string }[]) {
     const sceneNodes = db.prepare('SELECT * FROM scene_nodes WHERE scene_id = ?').all(s.id);
     nodes.push(...sceneNodes);
@@ -54,8 +55,20 @@ router.get('/projects/:projectId/scenes', (req, res) => {
       .prepare('SELECT * FROM compose_layers WHERE scene_id = ? ORDER BY scene_order DESC, camera_order ASC')
       .all(s.id);
     composeLayers.push(...layers);
+    // Track clips: include nested lanes + keyframes so the frontend gets a complete tree
+    // (mirrors `loadClip` in routes/track-clips.ts but emits raw snake_case rows for the
+    // frontend's `mapTrackClip` to consume).
+    const clips = db.prepare('SELECT * FROM track_clips WHERE scene_id = ? ORDER BY created_at').all(s.id) as { id: string }[];
+    for (const c of clips) {
+      const lanes = db.prepare('SELECT * FROM track_clip_lanes WHERE clip_id = ?').all(c.id) as { id: string }[];
+      const lanesWithKfs = lanes.map((lane) => ({
+        ...lane,
+        keyframes: db.prepare('SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t').all(lane.id),
+      }));
+      trackClips.push({ ...c, lanes: lanesWithKfs });
+    }
   }
-  res.json({ ok: true, data: { scenes, nodes, nodeComponents, cameraEffects, composeLayers } });
+  res.json({ ok: true, data: { scenes, nodes, nodeComponents, cameraEffects, composeLayers, trackClips } });
 });
 
 /**

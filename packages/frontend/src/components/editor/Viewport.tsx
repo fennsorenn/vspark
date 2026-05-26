@@ -452,6 +452,27 @@ function getTransform(node: NodeRecord): Transform {
   }
 }
 
+/** Hook: subscribe to this node's transform override (set per-frame by the
+ *  track-clip evaluator) and return a transform with the override merged on top
+ *  of the persisted base. Subscribing per-node keeps the re-render blast radius
+ *  tight — only nodes with active overrides re-render. */
+function useTransformWithOverride(node: NodeRecord): Transform {
+  const override = useEditorStore((s) => s.nodeTransformOverrides[node.id])
+  const base = getTransform(node)
+  if (!override) return base
+  const out: Transform = { ...base }
+  if (override.position?.x !== undefined) out.x = override.position.x
+  if (override.position?.y !== undefined) out.y = override.position.y
+  if (override.position?.z !== undefined) out.z = override.position.z
+  if (override.rotation?.x !== undefined) out.rx = override.rotation.x
+  if (override.rotation?.y !== undefined) out.ry = override.rotation.y
+  if (override.rotation?.z !== undefined) out.rz = override.rotation.z
+  if (override.scale?.x    !== undefined) out.sx = override.scale.x
+  if (override.scale?.y    !== undefined) out.sy = override.scale.y
+  if (override.scale?.z    !== undefined) out.sz = override.scale.z
+  return out
+}
+
 /** Send the avatar's expression list to the backend so it can serve GET /expressions. */
 function _sendExpressionsReport(nodeId: string, expressions: string[]): void {
   const ws = editorWsRef.current
@@ -527,7 +548,7 @@ function AvatarNode({ node, children }: { node: NodeRecord; children?: React.Rea
   const poseWasActiveRef  = useRef(false)
   const blendWeightRef    = useRef(0)  // 0 = animation, 1 = VMC
   const [vrmLoaded, setVrmLoaded] = useState(false)
-  const t = getTransform(node)
+  const t = useTransformWithOverride(node)
 
   const showBoneHelper = useEditorStore((s) => s.boneListExpanded[node.id] ?? false)
   const showFbxDebug   = useEditorStore((s) => s.fbxDebugVisible[node.id]  ?? false)
@@ -1689,7 +1710,7 @@ const DIR_RAYS = Array.from({ length: 8 }, (_, i) => {
 
 function LightNode({ node, viewerMode }: { node: NodeRecord; viewerMode?: boolean }) {
   const groupRef = useRef<THREE.Group>(null)
-  const t = getTransform(node)
+  const t = useTransformWithOverride(node)
   const lc = node.components?.light as { lightType?: string; color?: string; intensity?: number } | undefined
   const lightType = lc?.lightType ?? 'point'
   const color = lc?.color ?? '#ffffff'
@@ -1739,7 +1760,7 @@ function CameraNode({ node }: { node: NodeRecord }) {
   const { selectedNodeId } = useEditorStore()
   const isSelected = selectedNodeId === node.id
   const groupRef = useRef<THREE.Group>(null)
-  const t = getTransform(node)
+  const t = useTransformWithOverride(node)
   const cc = node.components?.camera as { projection?: 'perspective' | 'orthographic'; fov?: number; near?: number; far?: number; orthoSize?: number } | undefined
 
   useEffect(() => {
@@ -1895,7 +1916,7 @@ function BillboardNode({ node }: { node: NodeRecord }) {
   const billboardRef = useRef<THREE.Group>(null)
   const frontRef   = useRef<THREE.Mesh>(null)
   const backRef    = useRef<THREE.Mesh>(null)
-  const t = getTransform(node)
+  const t = useTransformWithOverride(node)
   const bc: BillboardConfig = { ...BILLBOARD_DEFAULTS, ...((node.components?.billboard ?? {}) as Partial<BillboardConfig>) }
 
   // Load texture imperatively and mark materials needsUpdate when it arrives
@@ -2041,7 +2062,7 @@ function ParticleNode({ node }: { node: NodeRecord }) {
   // InstancedMesh for local-space; a scene-root InstancedMesh for world-space
   const localMeshRef  = useRef<THREE.InstancedMesh>(null)
   const worldMeshRef  = useRef<THREE.InstancedMesh | null>(null)
-  const t = getTransform(node)
+  const t = useTransformWithOverride(node)
   const pc = mergeParticleConfig((node.components?.particle ?? {}) as Record<string, unknown>)
   const isWorld = pc.simulationSpace === 'world'
 
@@ -2246,7 +2267,7 @@ function ParticleNode({ node }: { node: NodeRecord }) {
 function GodrayCasterNode({ node }: { node: NodeRecord }) {
   const outerRef = useRef<THREE.Group>(null)
   const meshRef = useRef<THREE.Mesh>(null)
-  const t = getTransform(node)
+  const t = useTransformWithOverride(node)
   const color = (node.components.godray as any)?.color ?? '#ffffff'
   const scale = (node.components.godray as any)?.scale ?? 0.3
 
@@ -2273,7 +2294,7 @@ function GodrayCasterNode({ node }: { node: NodeRecord }) {
 function ModelNode({ node, children }: { node: NodeRecord; children?: React.ReactNode }) {
   const outerRef = useRef<THREE.Group>(null)
   const innerRef = useRef<THREE.Group>(null)
-  const t = getTransform(node)
+  const t = useTransformWithOverride(node)
   const ext = node.filePath?.split('.').pop()?.toLowerCase()
   const isGlb = Boolean(node.filePath && (ext === 'glb' || ext === 'gltf'))
 

@@ -4,6 +4,7 @@ import { api } from '../../api/client'
 import type { AssetFile } from '../../api/client'
 import type { NodeComponent } from '../../store/editorStore'
 import { newComponentId, CAMERA_EFFECT_KINDS } from '../../store/editorStore'
+import { TrackClipTimeline } from './TrackClipTimeline'
 
 
 export function AssetManager() {
@@ -12,7 +13,9 @@ export function AssetManager() {
   const canApplyAnim = selectedNode?.kind === 'avatar' || selectedNode?.kind === 'model'
   const canApplyTexture = selectedNode?.kind === 'billboard' || selectedNode?.kind === 'particle'
   const canApplyCameraBg = selectedNode?.kind === 'camera'
-  const [tab, setTab] = useState<'models' | 'animations' | 'images' | 'components' | 'effects'>('models')
+  const tab = useEditorStore((s) => s.bottomTab)
+  const setTab = useEditorStore((s) => s.setBottomTab)
+  const bottomDockHeight = useEditorStore((s) => s.bottomDockHeight)
   const [uploading, setUploading] = useState(false)
   const modelInputRef = useRef<HTMLInputElement>(null)
   const animInputRef = useRef<HTMLInputElement>(null)
@@ -151,7 +154,7 @@ export function AssetManager() {
     try { await api.createCameraEffect(selectedNode.id, effect) } catch { /* non-fatal */ }
   }
 
-  const tabBtn = (t: 'models' | 'animations' | 'images' | 'components' | 'effects'): React.CSSProperties => ({
+  const tabBtn = (t: 'models' | 'animations' | 'images' | 'components' | 'effects' | 'clips'): React.CSSProperties => ({
     background: tab === t ? '#2a2a2a' : 'none',
     border: 'none',
     borderBottom: tab === t ? '2px solid #2563eb' : '2px solid transparent',
@@ -176,14 +179,16 @@ export function AssetManager() {
 
   return (
     <div style={{
-      height: 200,
+      height: bottomDockHeight,
       flexShrink: 0,
       background: '#141414',
       borderTop: '1px solid #2a2a2a',
       display: 'flex',
       flexDirection: 'column',
       fontFamily: 'system-ui, sans-serif',
+      position: 'relative',
     }}>
+      <BottomDockResizeHandle />
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -197,8 +202,9 @@ export function AssetManager() {
         <button style={tabBtn('images')} onClick={() => setTab('images')}>Images</button>
         <button style={tabBtn('components')} onClick={() => setTab('components')}>Components</button>
         <button style={tabBtn('effects')} onClick={() => setTab('effects')}>Effects</button>
+        <button style={tabBtn('clips')} onClick={() => setTab('clips')}>Clips</button>
         <div style={{ flex: 1 }} />
-        {tab === 'components' || tab === 'effects' ? null : tab === 'models' ? (
+        {tab === 'components' || tab === 'effects' || tab === 'clips' ? null : tab === 'models' ? (
           <>
             <button style={uploadBtn} disabled={uploading} onClick={() => modelInputRef.current?.click()}>
               {uploading ? 'Uploading…' : 'Upload Model'}
@@ -225,6 +231,11 @@ export function AssetManager() {
         ) : null}
       </div>
 
+      {tab === 'clips' ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+          <TrackClipTimeline />
+        </div>
+      ) : (
       <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
         {/* Components tab */}
         {tab === 'components' && (
@@ -390,7 +401,49 @@ export function AssetManager() {
           )
         })()}
       </div>
+      )}
     </div>
+  )
+}
+
+/** 4px hit-strip along the top edge of the bottom dock. Dragging up enlarges
+ *  the dock; the height is clamped in the store action. Highlights on hover so
+ *  the user can find it. */
+export function BottomDockResizeHandle() {
+  const setBottomDockHeight = useEditorStore((s) => s.setBottomDockHeight)
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = useEditorStore.getState().bottomDockHeight
+    const onMove = (me: PointerEvent) => {
+      setBottomDockHeight(startH + (startY - me.clientY))
+    }
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+    document.body.style.cursor = 'ns-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      title="Drag to resize"
+      style={{
+        position: 'absolute',
+        top: -2, left: 0, right: 0,
+        height: 6,
+        cursor: 'ns-resize',
+        zIndex: 10,
+      }}
+    />
   )
 }
 

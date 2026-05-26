@@ -8,6 +8,7 @@ import type { LipsyncManager } from '../node_components/lipsync/manager.js';
 import type { TrackingManager } from '../node_components/mediapipe_tracker/manager.js';
 import type { ApiControllerManager } from '../node_components/api_controller/manager.js';
 import type { WSSync } from '../ws/index.js';
+import type { TrackClipPlaybackManager } from '../track_clips/playback.js';
 
 // --- Manager singletons + setters ---
 
@@ -28,6 +29,9 @@ export function setApiControllerManager(m: ApiControllerManager) { _apiControlle
 
 export let _ws: WSSync | null = null;
 export function setWsSync(w: WSSync) { _ws = w; }
+
+export let _trackClipPlayback: TrackClipPlaybackManager | null = null;
+export function setTrackClipPlaybackManager(m: TrackClipPlaybackManager) { _trackClipPlayback = m; }
 
 // --- Component row mapping + refresh helpers ---
 

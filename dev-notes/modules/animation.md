@@ -187,6 +187,10 @@ Per frame:
 
 **Pose timeout**: If no VMC frame has been received for `poseTimeout` seconds (default 2s), blend weight ramps back to 0. OneEuroFilter resets to prevent stale filtered values carrying over when mocap reconnects.
 
+## Two clip systems
+
+This module covers `animation_clips` — imported FBX/BVH clips retargeted to VRM and played via Three.js `AnimationMixer`. A second, unrelated clip system also exists: `track_clips` (see [track-clips.md](track-clips.md)), authored in the editor timeline to animate scalar params on scene nodes / compose layers via a frontend rAF evaluator. The two share no storage, no playback machinery, and no UI surface.
+
 ## Animation clip DB — `animation_clips` (migration 001)
 
 ```sql

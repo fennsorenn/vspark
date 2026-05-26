@@ -3,4 +3,4 @@
 - smoothing überarbeiten 
 - browser sources
 - rhylive arm calibration
-- 
+- clip editor

@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build-migrations": "node scripts/buildMigrations.mjs",
+    "predev":    "node scripts/buildMigrations.mjs",
+    "prebuild":  "node scripts/buildMigrations.mjs",
+    "prelint":   "node scripts/buildMigrations.mjs",
+    "prebundle": "node scripts/buildMigrations.mjs",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",

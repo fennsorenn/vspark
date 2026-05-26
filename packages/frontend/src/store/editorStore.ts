@@ -1,5 +1,8 @@
 import { create } from 'zustand'
-import type { AssetFile, ComponentKindMeta, CameraEffectRecord, ComposeLayerRecord } from '../api/client'
+import type {
+  AssetFile, ComponentKindMeta, CameraEffectRecord, ComposeLayerRecord,
+  TrackClipRecord, TrackClipLaneRecord, TrackClipKeyframeRecord,
+} from '../api/client'
 import type { UpdateChannel, ApiAnimationLoopMode, ApiAnimationQueueEntry } from '@vspark/shared'
 
 export interface ApiAnimationState {
@@ -8,9 +11,44 @@ export interface ApiAnimationState {
   startedAt: number | null
 }
 
-export type { AssetFile, ComponentKindMeta, CameraEffectRecord, ComposeLayerRecord }
+export type { AssetFile, ComponentKindMeta, CameraEffectRecord, ComposeLayerRecord, TrackClipRecord, TrackClipLaneRecord, TrackClipKeyframeRecord }
+
+/** Active playback for one track clip — either playing (wall clock advances from
+ *  `startedAt`) or paused at a fixed `pausedAtT` seconds.
+ *  `clockOffsetMs = serverNow − clientNow` sampled when the anchor was received,
+ *  used to keep evaluation in phase with the backend-authoritative playhead. */
+export type TrackClipPlayback =
+  | {
+      kind: 'playing'
+      startedAt: number      // ms epoch in server clock
+      loop: boolean
+      clockOffsetMs: number
+    }
+  | {
+      kind: 'paused'
+      pausedAtT: number      // seconds into the clip
+      loop: boolean
+      clockOffsetMs: number
+    }
+
+/** Per-node ephemeral transform overrides produced by the track-clip evaluator.
+ *  Never persisted; cleared each frame the evaluator decides to stop driving a param.
+ *  Read by Viewport.tsx inside an existing useFrame and applied directly to Three.js objects. */
+export interface NodeTransformOverride {
+  position?: { x?: number; y?: number; z?: number }
+  rotation?: { x?: number; y?: number; z?: number }
+  scale?:    { x?: number; y?: number; z?: number }
+}
+
+/** Per-compose-layer ephemeral DOM-space overrides produced by the evaluator. */
+export interface ComposeLayerOverride {
+  x?: number
+  y?: number
+  rotation?: number
+}
 
 export type LeftDockTab = 'scene' | 'compose' | 'graphs'
+export type BottomDockTab = 'models' | 'animations' | 'images' | 'components' | 'effects' | 'clips'
 
 /** Per-node free-form properties (mirror of backend `scene_nodes.properties`). */
 export interface NodeProperties {
@@ -238,8 +276,30 @@ interface EditorState {
   // Compose view
   composeLayers: ComposeLayerRecord[]
   leftTab: LeftDockTab
+  bottomTab: BottomDockTab
+  /** Height of the bottom dock (AssetManager / NodePalette) in pixels.
+   *  Persisted in-session only; clamped at the call site. */
+  bottomDockHeight: number
   selectedComposeLayerId: string | null
   composeCameraId: string | null              // camera node id the Compose view renders through
+
+  // Track clips
+  trackClips: TrackClipRecord[]
+  selectedTrackClipId: string | null
+  /** clipId → active playback anchor */
+  trackClipPlayback: Record<string, TrackClipPlayback>
+  /** nodeId → ephemeral transform override produced by the evaluator (never persisted) */
+  nodeTransformOverrides: Record<string, NodeTransformOverride>
+  /** composeLayerId → ephemeral DOM-space override produced by the evaluator */
+  composeLayerOverrides: Record<string, ComposeLayerOverride>
+  /** Per-(target, param) suppression set: while a key is present, the evaluator
+   *  must NOT apply that lane's value as an override, and the existing override
+   *  slot for it should be cleared. Set when the user edits a numeric input on
+   *  a driven param; cleared when the clip is triggered / paused / scrubbed
+   *  (any track_clip_started or track_clip_paused WS arrival), at which point
+   *  the override is re-asserted on the next evaluator tick.
+   *  Key format: `${targetKind}:${targetId}:${paramPath}` */
+  suppressedOverrides: Set<string>
 
   // Actions
   setProject: (id: string, name: string) => void
@@ -292,8 +352,31 @@ interface EditorState {
   updateComposeLayerLocal: (id: string, patch: Partial<ComposeLayerRecord>) => void
   removeComposeLayer: (id: string) => void
   setLeftTab: (tab: LeftDockTab) => void
+  setBottomTab: (tab: BottomDockTab) => void
+  setBottomDockHeight: (h: number) => void
   selectComposeLayer: (id: string | null) => void
   setComposeCameraId: (id: string | null) => void
+
+  // Track clip actions
+  setTrackClips: (clips: TrackClipRecord[]) => void
+  addTrackClip: (clip: TrackClipRecord) => void
+  updateTrackClipLocal: (clip: TrackClipRecord) => void
+  removeTrackClip: (id: string) => void
+  selectTrackClip: (id: string | null) => void
+  addTrackClipLane: (clipId: string, lane: TrackClipLaneRecord) => void
+  updateTrackClipLaneLocal: (lane: TrackClipLaneRecord) => void
+  removeTrackClipLane: (laneId: string, clipId?: string | null) => void
+  replaceTrackClipLaneKeyframes: (laneId: string, keyframes: TrackClipKeyframeRecord[]) => void
+  setTrackClipPlayback: (clipId: string, entry: TrackClipPlayback | null) => void
+  /** Bulk replace (used by playback snapshot on (re)connect). */
+  replaceTrackClipPlayback: (entries: Record<string, TrackClipPlayback>) => void
+  setNodeTransformOverride: (nodeId: string, override: NodeTransformOverride | null) => void
+  setComposeLayerOverride: (layerId: string, override: ComposeLayerOverride | null) => void
+  /** Mark a (target, param) as user-edited so the evaluator stops overwriting it
+   *  until the next clip event. `paramPath` matches the lane's param path. */
+  suppressOverride: (targetKind: 'scene_node' | 'compose_layer', targetId: string, paramPath: string) => void
+  /** Drop all suppressions — called when a clip is triggered / paused / scrubbed. */
+  clearOverrideSuppressions: () => void
 
   // Update state
   updateAvailable: boolean
@@ -333,8 +416,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   composeLayers: [],
   leftTab: 'scene',
+  bottomTab: 'models',
+  bottomDockHeight: 200,
   selectedComposeLayerId: null,
   composeCameraId: null,
+
+  trackClips: [],
+  selectedTrackClipId: null,
+  trackClipPlayback: {},
+  nodeTransformOverrides: {},
+  composeLayerOverrides: {},
+  suppressedOverrides: new Set<string>(),
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
   setScenes: (scenes) => set({ scenes }),
@@ -453,8 +545,89 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedComposeLayerId: s.selectedComposeLayerId === id ? null : s.selectedComposeLayerId,
     })),
   setLeftTab: (tab) => set({ leftTab: tab }),
+  setBottomTab: (tab) => set({ bottomTab: tab }),
+  setBottomDockHeight: (h) => set({ bottomDockHeight: Math.max(120, Math.min(800, Math.round(h))) }),
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
   setComposeCameraId: (id) => set({ composeCameraId: id }),
+
+  setTrackClips: (clips) => set({ trackClips: clips }),
+  addTrackClip: (clip) =>
+    set((s) => (s.trackClips.some((c) => c.id === clip.id) ? {} : { trackClips: [...s.trackClips, clip] })),
+  updateTrackClipLocal: (clip) =>
+    set((s) => ({ trackClips: s.trackClips.map((c) => (c.id === clip.id ? clip : c)) })),
+  removeTrackClip: (id) =>
+    set((s) => {
+      const nextPlayback = { ...s.trackClipPlayback }; delete nextPlayback[id]
+      return {
+        trackClips: s.trackClips.filter((c) => c.id !== id),
+        selectedTrackClipId: s.selectedTrackClipId === id ? null : s.selectedTrackClipId,
+        trackClipPlayback: nextPlayback,
+      }
+    }),
+  selectTrackClip: (id) => set({ selectedTrackClipId: id }),
+  addTrackClipLane: (clipId, lane) =>
+    set((s) => ({
+      trackClips: s.trackClips.map((c) =>
+        c.id === clipId
+          ? { ...c, lanes: c.lanes.some((l) => l.id === lane.id) ? c.lanes : [...c.lanes, lane] }
+          : c,
+      ),
+    })),
+  updateTrackClipLaneLocal: (lane) =>
+    set((s) => ({
+      trackClips: s.trackClips.map((c) =>
+        c.id === lane.clipId
+          ? { ...c, lanes: c.lanes.map((l) => (l.id === lane.id ? lane : l)) }
+          : c,
+      ),
+    })),
+  removeTrackClipLane: (laneId, clipId) =>
+    set((s) => ({
+      trackClips: s.trackClips.map((c) =>
+        (clipId == null || c.id === clipId)
+          ? { ...c, lanes: c.lanes.filter((l) => l.id !== laneId) }
+          : c,
+      ),
+    })),
+  replaceTrackClipLaneKeyframes: (laneId, keyframes) =>
+    set((s) => ({
+      trackClips: s.trackClips.map((c) => ({
+        ...c,
+        lanes: c.lanes.map((l) => (l.id === laneId ? { ...l, keyframes } : l)),
+      })),
+    })),
+  setTrackClipPlayback: (clipId, entry) =>
+    set((s) => {
+      const next = { ...s.trackClipPlayback }
+      if (entry == null) delete next[clipId]
+      else next[clipId] = entry
+      return { trackClipPlayback: next }
+    }),
+  replaceTrackClipPlayback: (entries) => set({ trackClipPlayback: entries }),
+  setNodeTransformOverride: (nodeId, override) =>
+    set((s) => {
+      const next = { ...s.nodeTransformOverrides }
+      if (override == null) delete next[nodeId]
+      else next[nodeId] = override
+      return { nodeTransformOverrides: next }
+    }),
+  suppressOverride: (targetKind, targetId, paramPath) =>
+    set((s) => {
+      const key = `${targetKind}:${targetId}:${paramPath}`
+      if (s.suppressedOverrides.has(key)) return {}
+      const next = new Set(s.suppressedOverrides)
+      next.add(key)
+      return { suppressedOverrides: next }
+    }),
+  clearOverrideSuppressions: () =>
+    set((s) => (s.suppressedOverrides.size === 0 ? {} : { suppressedOverrides: new Set<string>() })),
+  setComposeLayerOverride: (layerId, override) =>
+    set((s) => {
+      const next = { ...s.composeLayerOverrides }
+      if (override == null) delete next[layerId]
+      else next[layerId] = override
+      return { composeLayerOverrides: next }
+    }),
 
   updateAvailable: false,
   updateInfo: null,

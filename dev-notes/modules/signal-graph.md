@@ -46,6 +46,7 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 | `clock` | Outputs elapsed time since graph start |
 | `time` | Outputs current time in seconds (pull) |
 | `sine_wave` | Time → sine wave (configurable freq/amplitude/phase) |
+| `track_clip_trigger` | Event input `fire`, value input `clipId` (scene-scoped). Calls `TrackClipPlaybackManager.trigger(clipId)` on the backend so any graph (VMC events, API controller, etc.) can drive a track clip. See [track-clips.md](track-clips.md). |
 
 ### Bone/blendshape mappers
 | Kind | Description |
