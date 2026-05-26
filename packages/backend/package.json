@@ -17,6 +17,11 @@
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
+    "@overlive/core": "workspace:*",
+    "@overlive/emotes": "workspace:*",
+    "@overlive/se": "workspace:*",
+    "@overlive/twitch": "workspace:*",
+    "@overlive/twitch-oauth": "workspace:*",
     "@vspark/shared": "workspace:*",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
