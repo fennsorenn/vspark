@@ -84,6 +84,11 @@ async function start() {
   setTrackClipPlaybackManager(trackClipPlayback);
   initTrackClipTrigger(trackClipPlayback);
 
+  // Standalone project graphs — start every persisted-enabled graph on boot.
+  // See dev-notes/modules/project-graphs.md.
+  const { projectGraphManager } = await import('./project_graphs/manager.js');
+  projectGraphManager.startAllEnabled();
+
   // Rebroadcast current state to any newly-connecting client.
   wsSync.onClientConnected((ws) => {
     apiControllerManager.rebroadcastTo((kind, payload) => wsSync.sendTo(ws, kind, payload));

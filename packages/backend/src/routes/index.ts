@@ -9,6 +9,7 @@ import expressions from './expressions.js';
 import cameraEffects from './camera-effects.js';
 import composeLayers from './compose-layers.js';
 import trackClips from './track-clips.js';
+import projectGraphs from './project-graphs.js';
 import signal from './signal.js';
 import meta from './meta.js';
 
@@ -23,6 +24,7 @@ router.use(expressions);
 router.use(cameraEffects);
 router.use(composeLayers);
 router.use(trackClips);
+router.use(projectGraphs);
 router.use(signal);
 router.use(meta);
 

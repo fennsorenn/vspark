@@ -607,6 +607,39 @@ export const fireSignalEvent = (graphId: string, nodeId: string, port: string) =
     body: JSON.stringify({ nodeId, port }),
   })
 
+// ─── Project graphs ──────────────────────────────────────────────────────────
+
+export interface ProjectGraphRecord {
+  id:         string
+  projectId:  string
+  name:       string
+  enabled:    boolean
+  descriptor: import('@vspark/shared/signal').GraphDescriptor
+  createdAt?: string
+  updatedAt?: string
+}
+
+export const getProjectGraphs = (projectId: string) =>
+  request<ProjectGraphRecord[]>(`/projects/${projectId}/graphs`)
+
+export const createProjectGraph = (projectId: string, name: string) =>
+  request<ProjectGraphRecord>(`/projects/${projectId}/graphs`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+
+export const updateProjectGraph = (
+  id: string,
+  patch: Partial<{ name: string; enabled: boolean; descriptor: import('@vspark/shared/signal').GraphDescriptor }>,
+) =>
+  request<ProjectGraphRecord>(`/project-graphs/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  })
+
+export const deleteProjectGraph = (id: string) =>
+  request<Record<string, never>>(`/project-graphs/${id}`, { method: 'DELETE' })
+
 export const api = {
   getUpdateStatus,
   startUpdateDownload,
@@ -657,4 +690,8 @@ export const api = {
   getSignalGraphStates,
   fireSignalEvent,
   getComponentKinds,
+  getProjectGraphs,
+  createProjectGraph,
+  updateProjectGraph,
+  deleteProjectGraph,
 }

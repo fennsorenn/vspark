@@ -15,6 +15,7 @@ import { FlashEdge } from './FlashEdge'
 import type { FlashEdgeData } from './FlashEdge'
 import { useEditorStore } from '../../../store/editorStore'
 import { api, getSignalGraphStates } from '../../../api/client'
+import { useParams } from 'react-router-dom'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Stable type registries (must be outside component to avoid identity changes)
@@ -135,15 +136,37 @@ export function SignalGraphCanvas({ graphId, kindMeta }: Props) {
     [kindMeta],
   )
 
-  // Load descriptor once.
+  const { projectId } = useParams<{ projectId: string }>()
+
+  // Load descriptor — first check component-owned graphs (read-only), then
+  // fall back to standalone project graphs (writable).
   useEffect(() => {
     if (!graphId) return
     let cancelled = false
-    api.getSignalGraphs()
-      .then((gs) => { if (!cancelled) setDescriptor(gs.find((g) => g.id === graphId) ?? null) })
-      .catch(() => {})
+    ;(async () => {
+      try {
+        const componentGraphs = await api.getSignalGraphs()
+        const match = componentGraphs.find((g) => g.id === graphId)
+        if (match) { if (!cancelled) setDescriptor(match); return }
+      } catch { /* ignore */ }
+      if (!projectId) return
+      try {
+        const projectGraphs = await api.getProjectGraphs(projectId)
+        const pg = projectGraphs.find((g) => g.id === graphId)
+        if (pg && !cancelled) {
+          // Project graph: feed in as a GraphDescriptor (already that shape) but
+          // tag with label/readonly for the canvas. Project graphs are writable.
+          setDescriptor({
+            ...pg.descriptor,
+            id: pg.id,
+            label: pg.name,
+            readonly: false,
+          })
+        }
+      } catch { /* ignore */ }
+    })()
     return () => { cancelled = true }
-  }, [graphId])
+  }, [graphId, projectId])
 
   // Poll graph states at ~500ms for live monitoring.
   useEffect(() => {
