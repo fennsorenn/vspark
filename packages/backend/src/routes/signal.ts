@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getAllNodeKindMeta } from '../signal/registry.js';
 import { _vmc, _breathing, _lipsync, _tracking } from './shared.js';
+import { projectGraphManager } from '../project_graphs/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -64,6 +65,11 @@ router.get('/signal/graphs/:id', (req, res) => {
  */
 router.get('/signal/graphs/:id/node-states', (req, res) => {
   const graphId     = req.params.id;
+  // Standalone project graphs use bare UUIDs (no prefix). Try those first.
+  if (!graphId.includes(':')) {
+    const pgStates = projectGraphManager.getStates(graphId);
+    if (pgStates) return res.json({ ok: true, data: pgStates });
+  }
   const componentId = _stripPrefix(graphId);
   const states =
     graphId.startsWith('breathing:')         ? _breathing?.getStates(componentId) :
@@ -94,11 +100,16 @@ router.get('/signal/graphs/:id/node-states', (req, res) => {
  */
 router.post('/signal/graphs/:id/fire', (req, res) => {
   const graphId     = req.params.id;
-  const componentId = _stripPrefix(graphId);
   const { nodeId, port } = req.body as { nodeId?: string; port?: string };
   if (!nodeId || !port) {
     return res.status(400).json({ ok: false, error: { status: 400, message: 'nodeId and port are required', code: 'VALIDATION_ERROR' } });
   }
+  // Standalone project graphs fire through the ProjectGraphManager.
+  if (!graphId.includes(':')) {
+    projectGraphManager.fire(graphId, nodeId, port, undefined);
+    return res.json({ ok: true });
+  }
+  const componentId = _stripPrefix(graphId);
   if (graphId.startsWith('mediapipe_tracker:')) {
     if (!_tracking) return res.status(503).json({ ok: false, error: { status: 503, message: 'Tracking manager not ready', code: 'NOT_READY' } });
     _tracking.fireGraphEvent(componentId, nodeId, port);
