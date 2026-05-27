@@ -1,5 +1,7 @@
 // Core identity types
 export type NodeKind =
+  | 'scene'
+  | 'scene_instance'
   | 'avatar'
   | 'model'
   | 'light'
@@ -49,11 +51,17 @@ export interface SceneNodeProperties {
   /** Seconds to ramp between override and additive when the broadcast bus flips
    *  blend modes for this avatar. Applies to VRM avatar nodes. Default 0.5. */
   blendTransitionTime?: number;
+  /** Broadcast Bus tick rate in Hz. Applies to kind='scene' nodes. Default 60. */
+  broadcastTickHz?: number;
+  /** References another kind='scene' node. Applies to kind='scene_instance' nodes. */
+  sourceSceneId?: string;
 }
 
 // A node in a scene tree
 export interface SceneNode {
   id: string;
+  projectId: string;
+  rootSceneNodeId: string;
   parentId: string | null;
   boneAttachment: string | null; // VRM bone name if this node is pinned to a bone on its parent
   name: string;
@@ -65,7 +73,7 @@ export interface SceneNode {
   updatedAt: string;
 }
 
-/** Per-scene runtime parameters that live in the `scenes.runtime_settings` JSON column. */
+/** Per-scene runtime parameters that live in the scene node's `properties` JSON column. */
 export interface SceneRuntimeSettings {
   /** Broadcast Bus tick rate in Hz. Defaults to 60. */
   broadcastTickHz?: number;
@@ -95,7 +103,13 @@ export interface Project {
 
 // --- Compose layers (2D overlays composited with the 3D scene render) ---
 
-export type ComposeLayerKind = 'image' | 'video' | 'browser' | 'group';
+export type ComposeLayerKind =
+  | 'compose_scene'
+  | 'camera_view'
+  | 'image'
+  | 'video'
+  | 'browser'
+  | 'group';
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
 
@@ -105,8 +119,10 @@ export const SCENE_RENDER_SLOT = 0;
 
 export interface ComposeLayer {
   id: string;
-  sceneId: string;
-  /** null = scene-wide (visible from every camera) */
+  projectId: string;
+  /** null = this IS a compose_scene; non-null = belongs to this compose_scene */
+  rootComposeSceneId: string | null;
+  /** References a camera scene_node for kind='camera_view' */
   cameraNodeId: string | null;
   /** null = root layer; set to nest under another layer */
   parentId: string | null;
@@ -194,7 +210,7 @@ export interface TrackClipLane {
 
 export interface TrackClip {
   id: string;
-  sceneId: string;
+  rootSceneNodeId: string;
   ownerKind: TrackClipOwnerKind;
   ownerId: string;
   name: string;

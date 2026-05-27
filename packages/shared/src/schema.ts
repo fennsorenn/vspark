@@ -27,6 +27,8 @@ export const emptyOkSchema = z
 
 export const sceneNodeKindSchema = z
   .enum([
+    'scene',
+    'scene_instance',
     'avatar',
     'model',
     'light',
@@ -44,6 +46,8 @@ export const sceneNodeKindSchema = z
 export const sceneNodePropertiesSchema = z
   .object({
     blendTransitionTime: z.number().min(0).max(10).optional(),
+    broadcastTickHz: z.number().min(1).max(240).optional(),
+    sourceSceneId: z.string().optional(),
   })
   .openapi('SceneNodeProperties');
 
@@ -208,7 +212,7 @@ export const updateCameraEffectSchema = z
 // --- Compose layers ---
 
 export const composeLayerKindSchema = z
-  .enum(['image', 'video', 'browser', 'group'])
+  .enum(['compose_scene', 'camera_view', 'image', 'video', 'browser', 'group'])
   .openapi('ComposeLayerKind');
 export const composeAnchorHSchema = z
   .enum(['left', 'right'])

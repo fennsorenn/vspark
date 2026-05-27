@@ -145,21 +145,21 @@ export class BroadcastBus {
   private _resolveSceneId(sceneNodeId: string): string | null {
     const cached = this._nodeScene.get(sceneNodeId)
     if (cached) return cached
-    const row = getDb().prepare('SELECT scene_id FROM scene_nodes WHERE id = ?').get(sceneNodeId) as
-      | { scene_id: string }
+    const row = getDb().prepare('SELECT root_scene_node_id FROM scene_nodes WHERE id = ?').get(sceneNodeId) as
+      | { root_scene_node_id: string }
       | undefined
-    if (!row?.scene_id) return null
-    this._nodeScene.set(sceneNodeId, row.scene_id)
-    return row.scene_id
+    if (!row?.root_scene_node_id) return null
+    this._nodeScene.set(sceneNodeId, row.root_scene_node_id)
+    return row.root_scene_node_id
   }
 
   private _loadSceneTickHz(sceneId: string): number {
-    const row = getDb().prepare('SELECT runtime_settings FROM scenes WHERE id = ?').get(sceneId) as
-      | { runtime_settings: string }
+    const row = getDb().prepare("SELECT properties FROM scene_nodes WHERE id = ? AND kind = 'scene'").get(sceneId) as
+      | { properties: string }
       | undefined
-    if (!row?.runtime_settings) return DEFAULT_TICK_HZ
+    if (!row?.properties) return DEFAULT_TICK_HZ
     try {
-      const parsed = JSON.parse(row.runtime_settings) as { broadcastTickHz?: number }
+      const parsed = JSON.parse(row.properties) as { broadcastTickHz?: number }
       return _clampHz(parsed.broadcastTickHz ?? DEFAULT_TICK_HZ)
     } catch {
       return DEFAULT_TICK_HZ

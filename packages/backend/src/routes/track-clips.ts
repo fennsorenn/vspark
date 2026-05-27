@@ -7,7 +7,7 @@ const router: ReturnType<typeof Router> = Router();
 
 type ClipRow = {
   id: string;
-  scene_id: string;
+  root_scene_node_id: string;
   owner_kind: string;
   owner_id: string;
   name: string;
@@ -68,7 +68,7 @@ function mapLane(r: LaneRow, keyframes: KeyframeRow[]) {
 function mapClip(r: ClipRow, lanes: { lane: LaneRow; kfs: KeyframeRow[] }[]) {
   return {
     id: r.id,
-    sceneId: r.scene_id,
+    rootSceneNodeId: r.root_scene_node_id,
     ownerKind: r.owner_kind,
     ownerId: r.owner_id,
     name: r.name,
@@ -116,7 +116,7 @@ function loadClip(clipId: string) {
 router.get('/scenes/:sceneId/track-clips', (req, res) => {
   const db = getDb();
   const clips = db
-    .prepare('SELECT * FROM track_clips WHERE scene_id = ? ORDER BY created_at')
+    .prepare('SELECT * FROM track_clips WHERE root_scene_node_id = ? ORDER BY created_at')
     .all(req.params.sceneId) as ClipRow[];
   const data = clips.map((c) => loadClip(c.id)).filter((c) => c != null);
   res.json({ ok: true, data });
@@ -183,7 +183,7 @@ router.post('/scenes/:sceneId/track-clips', (req, res) => {
   const resolvedOwnerId = ownerId ?? sceneId;
   getDb()
     .prepare(
-      `INSERT INTO track_clips (id, scene_id, name, duration, loop, mode, autoplay, owner_kind, owner_id)
+      `INSERT INTO track_clips (id, root_scene_node_id, name, duration, loop, mode, autoplay, owner_kind, owner_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(

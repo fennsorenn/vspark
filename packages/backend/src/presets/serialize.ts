@@ -224,21 +224,18 @@ export function serializeSceneNodeSubtree(
   });
 
   const rootNode = db
-    .prepare('SELECT scene_id FROM scene_nodes WHERE id = ?')
-    .get(rootId) as { scene_id: string } | undefined;
-  const sceneRow = rootNode
-    ? (db
-        .prepare('SELECT project_id FROM scenes WHERE id = ?')
-        .get(rootNode.scene_id) as { project_id: string } | undefined)
-    : undefined;
+    .prepare('SELECT project_id, root_scene_node_id FROM scene_nodes WHERE id = ?')
+    .get(rootId) as
+    | { project_id: string; root_scene_node_id: string }
+    | undefined;
 
   return {
-    format: 'vspark.preset.v1' as const,
+    format: 'vspark.preset.v2' as const,
     rootKind: 'scene_node' as const,
     exportedAt: new Date().toISOString(),
     exportedFrom: {
-      projectId: sceneRow?.project_id ?? '',
-      sceneId: rootNode?.scene_id ?? '',
+      projectId: rootNode?.project_id ?? '',
+      rootSceneNodeId: rootNode?.root_scene_node_id ?? '',
       rootId,
     },
     assets,
@@ -390,21 +387,18 @@ export function serializeComposeLayerSubtree(
   });
 
   const rootLayer = db
-    .prepare('SELECT scene_id FROM compose_layers WHERE id = ?')
-    .get(rootId) as { scene_id: string } | undefined;
-  const sceneRow = rootLayer
-    ? (db
-        .prepare('SELECT project_id FROM scenes WHERE id = ?')
-        .get(rootLayer.scene_id) as { project_id: string } | undefined)
-    : undefined;
+    .prepare('SELECT project_id, root_compose_scene_id FROM compose_layers WHERE id = ?')
+    .get(rootId) as
+    | { project_id: string; root_compose_scene_id: string | null }
+    | undefined;
 
   return {
-    format: 'vspark.preset.v1' as const,
+    format: 'vspark.preset.v2' as const,
     rootKind: 'compose_layer' as const,
     exportedAt: new Date().toISOString(),
     exportedFrom: {
-      projectId: sceneRow?.project_id ?? '',
-      sceneId: rootLayer?.scene_id ?? '',
+      projectId: rootLayer?.project_id ?? '',
+      rootComposeSceneId: rootLayer?.root_compose_scene_id ?? '',
       rootId,
     },
     assets,

@@ -9,7 +9,7 @@ type PlaybackEntry =
       kind: 'playing';
       startedAt: number;
       loop: boolean;
-      sceneId: string;
+      rootSceneNodeId: string;
       duration: number;
       stopTimer: NodeJS.Timeout | null;
     }
@@ -17,7 +17,7 @@ type PlaybackEntry =
       kind: 'paused';
       pausedAtT: number;
       loop: boolean;
-      sceneId: string;
+      rootSceneNodeId: string;
       duration: number;
     };
 
@@ -43,8 +43,8 @@ export class TrackClipPlaybackManager {
   /** Restore loop+autoplay clips on boot. */
   hydrateAutoplay(): void {
     const rows = getDb().prepare(
-      "SELECT id, scene_id, duration, loop, autoplay, started_at FROM track_clips WHERE loop = 1 AND autoplay = 1"
-    ).all() as { id: string; scene_id: string; duration: number; loop: number; autoplay: number; started_at: number | null }[];
+      "SELECT id, root_scene_node_id, duration, loop, autoplay, started_at FROM track_clips WHERE loop = 1 AND autoplay = 1"
+    ).all() as { id: string; root_scene_node_id: string; duration: number; loop: number; autoplay: number; started_at: number | null }[];
 
     for (const r of rows) {
       const startedAt = r.started_at ?? Date.now();
@@ -55,7 +55,7 @@ export class TrackClipPlaybackManager {
         kind: 'playing',
         startedAt,
         loop: true,
-        sceneId: r.scene_id,
+        rootSceneNodeId: r.root_scene_node_id,
         duration: r.duration,
         stopTimer: null,
       });
@@ -90,7 +90,7 @@ export class TrackClipPlaybackManager {
     const entry: PlaybackEntry = {
       kind: 'playing',
       startedAt, loop,
-      sceneId: row.scene_id,
+      rootSceneNodeId: row.root_scene_node_id,
       duration: row.duration,
       stopTimer: null,
     };
@@ -122,7 +122,7 @@ export class TrackClipPlaybackManager {
       kind: 'paused',
       pausedAtT,
       loop: entry.loop,
-      sceneId: entry.sceneId,
+      rootSceneNodeId: entry.rootSceneNodeId,
       duration: entry.duration,
     });
     // Stop persisting an anchor while paused — restart-after-pause is undefined
@@ -146,7 +146,7 @@ export class TrackClipPlaybackManager {
     const next: PlaybackEntry = {
       kind: 'playing',
       startedAt, loop,
-      sceneId: entry.sceneId,
+      rootSceneNodeId: entry.rootSceneNodeId,
       duration: entry.duration,
       stopTimer: null,
     };
@@ -177,7 +177,7 @@ export class TrackClipPlaybackManager {
         kind: 'paused',
         pausedAtT: t,
         loop,
-        sceneId: row.scene_id,
+        rootSceneNodeId: row.root_scene_node_id,
         duration,
       });
       getDb().prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?').run(clipId);
@@ -191,7 +191,7 @@ export class TrackClipPlaybackManager {
     const next: PlaybackEntry = {
       kind: 'playing',
       startedAt, loop,
-      sceneId: entry.sceneId,
+      rootSceneNodeId: entry.rootSceneNodeId,
       duration,
       stopTimer: null,
     };
@@ -243,9 +243,9 @@ export class TrackClipPlaybackManager {
 
   // ── helpers ─────────────────────────────────────────────────────────────
 
-  private loadClipRow(clipId: string): { scene_id: string; duration: number; loop: number; autoplay: number } | null {
-    const r = getDb().prepare('SELECT scene_id, duration, loop, autoplay FROM track_clips WHERE id = ?').get(clipId) as
-      { scene_id: string; duration: number; loop: number; autoplay: number } | undefined;
+  private loadClipRow(clipId: string): { root_scene_node_id: string; duration: number; loop: number; autoplay: number } | null {
+    const r = getDb().prepare('SELECT root_scene_node_id, duration, loop, autoplay FROM track_clips WHERE id = ?').get(clipId) as
+      { root_scene_node_id: string; duration: number; loop: number; autoplay: number } | undefined;
     return r ?? null;
   }
 

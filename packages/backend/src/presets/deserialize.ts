@@ -108,7 +108,12 @@ export interface InstantiateResult {
 
 export function instantiatePreset(
   payload: PresetPayload,
-  target: { projectId: string; sceneId: string; parentId?: string | null }
+  target: {
+    projectId: string;
+    rootSceneNodeId?: string;
+    rootComposeSceneId?: string;
+    parentId?: string | null;
+  }
 ): InstantiateResult {
   const db = getDb();
   const idMap: Record<string, string> = {};
@@ -172,11 +177,12 @@ export function instantiatePreset(
         : null;
 
       db.prepare(
-        `INSERT INTO scene_nodes (id, scene_id, parent_id, bone_attachment, name, kind, file_path, components, properties, hidden)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO scene_nodes (id, project_id, root_scene_node_id, parent_id, bone_attachment, name, kind, file_path, components, properties, hidden)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         realId,
-        target.sceneId,
+        target.projectId,
+        target.rootSceneNodeId ?? '',
         parentId,
         node.boneAttachment,
         node.name,
@@ -243,12 +249,13 @@ export function instantiatePreset(
         : null;
 
       db.prepare(
-        `INSERT INTO compose_layers (id, scene_id, camera_node_id, parent_id, name, kind, asset_id, config,
+        `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, asset_id, config,
            x, y, width, height, rotation, anchor_h, anchor_v, scene_order, camera_order, visible)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         realId,
-        target.sceneId,
+        target.projectId,
+        target.rootComposeSceneId ?? null,
         null,
         parentId,
         layer.name,
@@ -292,11 +299,11 @@ export function instantiatePreset(
     const clipId = mintId(tc.presetId);
     const ownerId = resolveId(tc.ownerPresetId);
     db.prepare(
-      `INSERT INTO track_clips (id, scene_id, name, duration, loop, mode, autoplay, owner_kind, owner_id)
+      `INSERT INTO track_clips (id, root_scene_node_id, name, duration, loop, mode, autoplay, owner_kind, owner_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       clipId,
-      target.sceneId,
+      target.rootSceneNodeId ?? '',
       tc.name,
       tc.duration,
       tc.loop ? 1 : 0,

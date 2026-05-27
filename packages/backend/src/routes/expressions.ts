@@ -36,9 +36,7 @@ const router: ReturnType<typeof Router> = Router();
 router.get('/projects/:projectId/nodes/:nodeId/expressions', (req, res) => {
   const { projectId, nodeId } = req.params;
   const owns = getDb().prepare(`
-    SELECT n.id FROM scene_nodes n
-    INNER JOIN scenes s ON s.id = n.scene_id
-    WHERE n.id = ? AND s.project_id = ?
+    SELECT id FROM scene_nodes WHERE id = ? AND project_id = ?
   `).get(nodeId, projectId) as { id: string } | undefined;
   if (!owns) return res.status(404).json({ ok: false, error: { status: 404, message: 'node not found in project', code: 'NOT_FOUND' } });
   if (!_apiController) return res.status(503).json({ ok: false, error: { status: 503, message: 'API controller manager not ready', code: 'NOT_READY' } });
@@ -83,9 +81,7 @@ router.get('/projects/:projectId/nodes/:nodeId/expressions', (req, res) => {
 router.get('/projects/:projectId/nodes/:nodeId/animations', (req, res) => {
   const { projectId, nodeId } = req.params;
   const owns = getDb().prepare(`
-    SELECT n.id FROM scene_nodes n
-    INNER JOIN scenes s ON s.id = n.scene_id
-    WHERE n.id = ? AND s.project_id = ?
+    SELECT id FROM scene_nodes WHERE id = ? AND project_id = ?
   `).get(nodeId, projectId) as { id: string } | undefined;
   if (!owns) return res.status(404).json({ ok: false, error: { status: 404, message: 'node not found in project', code: 'NOT_FOUND' } });
   const rows = getDb().prepare(

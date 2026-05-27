@@ -175,15 +175,16 @@ router.post('/presets/serialize', (req, res) => {
 });
 
 router.post('/presets/instantiate', (req, res) => {
-  const { payload, projectId, sceneId, parentId } = req.body ?? {};
-  if (!payload || !projectId || !sceneId) {
+  const { payload, projectId, rootSceneNodeId, rootComposeSceneId, parentId } =
+    req.body ?? {};
+  if (!payload || !projectId) {
     return res
       .status(400)
       .json({
         ok: false,
         error: {
           status: 400,
-          message: 'payload, projectId, sceneId required',
+          message: 'payload and projectId required',
           code: 'VALIDATION_ERROR',
         },
       });
@@ -204,14 +205,15 @@ router.post('/presets/instantiate', (req, res) => {
   try {
     const result = instantiatePreset(payload, {
       projectId,
-      sceneId,
+      rootSceneNodeId: rootSceneNodeId ?? undefined,
+      rootComposeSceneId: rootComposeSceneId ?? undefined,
       parentId: parentId ?? null,
     });
 
-    if (payload.rootKind === 'scene_node') {
+    if (payload.rootKind === 'scene_node' && rootSceneNodeId) {
       const nodes = getDb()
-        .prepare('SELECT * FROM scene_nodes WHERE scene_id = ?')
-        .all(sceneId);
+        .prepare('SELECT * FROM scene_nodes WHERE root_scene_node_id = ?')
+        .all(rootSceneNodeId);
       for (const node of nodes) {
         if (
           result.idMap[

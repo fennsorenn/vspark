@@ -165,9 +165,7 @@ export function discoverAssets(projectId: string): void {
 export function _resolveApiController(projectId: string, nodeId: string): { componentId: string } | { error: { status: number; message: string; code: string } } {
   if (!_apiController) return { error: { status: 503, message: 'API controller manager not ready', code: 'NOT_READY' } };
   const row = getDb().prepare(`
-    SELECT n.id FROM scene_nodes n
-    INNER JOIN scenes s ON s.id = n.scene_id
-    WHERE n.id = ? AND s.project_id = ?
+    SELECT id FROM scene_nodes WHERE id = ? AND project_id = ?
   `).get(nodeId, projectId) as { id: string } | undefined;
   if (!row) return { error: { status: 404, message: 'node not found in project', code: 'NOT_FOUND' } };
   const found = _apiController.findByNode(nodeId);
