@@ -1,12 +1,12 @@
-import type * as THREE from 'three'
+import type * as THREE from 'three';
 
 export interface AnimEntry {
-  action: THREE.AnimationAction
-  mixer: THREE.AnimationMixer
-  fbxAction: THREE.AnimationAction
-  fbxMixer: THREE.AnimationMixer
-  fbxScene: THREE.Group
-  duration: number
+  action: THREE.AnimationAction;
+  mixer: THREE.AnimationMixer;
+  fbxAction: THREE.AnimationAction;
+  fbxMixer: THREE.AnimationMixer;
+  fbxScene: THREE.Group;
+  duration: number;
 }
 
-export const animRegistry = new Map<string, AnimEntry>()
+export const animRegistry = new Map<string, AnimEntry>();

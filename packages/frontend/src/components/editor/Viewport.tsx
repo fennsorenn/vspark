@@ -3120,7 +3120,7 @@ export function SceneNodes({
   const { nodes, activeSceneId } = useEditorStore();
   const sceneNodes = nodes.filter(
     (n) =>
-      n.sceneId === activeSceneId &&
+      n.rootSceneNodeId === activeSceneId &&
       n.id !== omitNodeId &&
       !omitKinds?.includes(n.kind)
   );
@@ -3477,13 +3477,13 @@ export function CameraEffects({ forceNodeId }: { forceNodeId?: string } = {}) {
   const [sunMesh, setSunMesh] = useState<THREE.Mesh | null>(null);
   useFrame(() => {
     const caster = nodes.find(
-      (n) => n.sceneId === activeSceneId && n.kind === 'godray_caster'
+      (n) => n.rootSceneNodeId === activeSceneId && n.kind === 'godray_caster'
     );
     const mesh = caster ? (godrayCasterRegistry.get(caster.id) ?? null) : null;
     if (mesh !== sunMesh) setSunMesh(mesh);
   });
   const godrayCaster = nodes.find(
-    (n) => n.sceneId === activeSceneId && n.kind === 'godray_caster'
+    (n) => n.rootSceneNodeId === activeSceneId && n.kind === 'godray_caster'
   );
   const gr = (godrayCaster?.components.godray as Record<string, number>) ?? {};
 

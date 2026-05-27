@@ -61,16 +61,14 @@ router.get('/projects/:projectId/presets', (req, res) => {
 router.post('/projects/:projectId/presets', (req, res) => {
   const { name, description, rootKind, rootId, embedAssets } = req.body ?? {};
   if (!name || !rootKind || !rootId) {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'name, rootKind, rootId required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'name, rootKind, rootId required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
 
   let payload: unknown;
@@ -83,16 +81,14 @@ router.post('/projects/:projectId/presets', (req, res) => {
       embedAssets: embedAssets ?? false,
     });
   } else {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'rootKind must be scene_node or compose_layer',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'rootKind must be scene_node or compose_layer',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
 
   const id = randomUUID();
@@ -120,12 +116,10 @@ router.get('/presets/:id', (req, res) => {
     .prepare('SELECT * FROM presets WHERE id = ?')
     .get(req.params.id) as unknown as PresetRow | undefined;
   if (!row)
-    return res
-      .status(404)
-      .json({
-        ok: false,
-        error: { status: 404, message: 'preset not found', code: 'NOT_FOUND' },
-      });
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'preset not found', code: 'NOT_FOUND' },
+    });
   res.json({ ok: true, data: mapPresetRow(row) });
 });
 
@@ -137,16 +131,14 @@ router.delete('/presets/:id', (req, res) => {
 router.post('/presets/serialize', (req, res) => {
   const { rootKind, rootId, embedAssets } = req.body ?? {};
   if (!rootKind || !rootId) {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'rootKind, rootId required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'rootKind, rootId required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
 
   let payload: unknown;
@@ -159,16 +151,14 @@ router.post('/presets/serialize', (req, res) => {
       embedAssets: embedAssets ?? false,
     });
   } else {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'rootKind must be scene_node or compose_layer',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'rootKind must be scene_node or compose_layer',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
 
   res.json({ ok: true, data: payload });
@@ -178,28 +168,24 @@ router.post('/presets/instantiate', (req, res) => {
   const { payload, projectId, rootSceneNodeId, rootComposeSceneId, parentId } =
     req.body ?? {};
   if (!payload || !projectId) {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'payload and projectId required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'payload and projectId required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
   if (payload.format !== 'vspark.preset.v1') {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'unsupported preset format',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'unsupported preset format',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
 
   try {
@@ -229,16 +215,14 @@ router.post('/presets/instantiate', (req, res) => {
 
     res.json({ ok: true, data: result });
   } catch (e) {
-    res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: e instanceof Error ? e.message : String(e),
-          code: 'INSTANTIATE_ERROR',
-        },
-      });
+    res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: e instanceof Error ? e.message : String(e),
+        code: 'INSTANTIATE_ERROR',
+      },
+    });
   }
 });
 

@@ -16,8 +16,8 @@
  * route correctly. The node itself doesn't need to evaluate them at
  * execute time — the manager has already done that filtering.
  */
-import { mkEvent } from '@vspark/shared/signal'
-import type { Event, NodeExecutionContext } from '@vspark/shared/signal'
+import { mkEvent } from '@vspark/shared/signal';
+import type { Event, NodeExecutionContext } from '@vspark/shared/signal';
 
 /**
  * Standard wrapper for an overlive node's execute(). Pass:
@@ -32,27 +32,27 @@ import type { Event, NodeExecutionContext } from '@vspark/shared/signal'
  *    falls back to the last-known state.
  */
 export function handleOverliveEvent<Evt, Out extends Record<string, unknown>>(
-  inputs:        { event?: Event<unknown> },
-  ctx:           NodeExecutionContext,
-  project:       (e: Evt) => Out,
-  emptyOutputs:  Out,
-  matches?:      (e: Evt) => boolean,
+  inputs: { event?: Event<unknown> },
+  ctx: NodeExecutionContext,
+  project: (e: Evt) => Out,
+  emptyOutputs: Out,
+  matches?: (e: Evt) => boolean
 ): { event: Event<void> } & Out {
   if (ctx.triggeredPort === 'event') {
-    const evt = inputs.event
-    const payload = evt?.payload as Evt | undefined
+    const evt = inputs.event;
+    const payload = evt?.payload as Evt | undefined;
     if (payload === undefined) {
-      return { event: mkEvent(undefined), ...emptyOutputs }
+      return { event: mkEvent(undefined), ...emptyOutputs };
     }
     if (matches && !matches(payload)) {
       // Filtered out — keep state as-is and don't emit.
-      const prev = (ctx.getState<Out>() ?? emptyOutputs)
-      return { event: mkEvent(undefined), ...prev }
+      const prev = ctx.getState<Out>() ?? emptyOutputs;
+      return { event: mkEvent(undefined), ...prev };
     }
-    const out = project(payload)
-    ctx.setState(out)
-    return { event: mkEvent(undefined, evt?.timestamp), ...out }
+    const out = project(payload);
+    ctx.setState(out);
+    return { event: mkEvent(undefined, evt?.timestamp), ...out };
   }
-  const prev = (ctx.getState<Out>() ?? emptyOutputs)
-  return { event: mkEvent(undefined), ...prev }
+  const prev = ctx.getState<Out>() ?? emptyOutputs;
+  return { event: mkEvent(undefined), ...prev };
 }

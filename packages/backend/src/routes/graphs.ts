@@ -109,12 +109,10 @@ router.put('/graphs/:id', (req, res) => {
           .json({ ok: false, error: { message: 'project graph not found' } });
       res.json({ ok: true, data: mapGraphRow(row) });
     } catch (e) {
-      res
-        .status(400)
-        .json({
-          ok: false,
-          error: { message: e instanceof Error ? e.message : String(e) },
-        });
+      res.status(400).json({
+        ok: false,
+        error: { message: e instanceof Error ? e.message : String(e) },
+      });
     }
     return;
   }

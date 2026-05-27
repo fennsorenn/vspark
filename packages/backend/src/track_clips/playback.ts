@@ -42,14 +42,25 @@ export class TrackClipPlaybackManager {
 
   /** Restore loop+autoplay clips on boot. */
   hydrateAutoplay(): void {
-    const rows = getDb().prepare(
-      "SELECT id, root_scene_node_id, duration, loop, autoplay, started_at FROM track_clips WHERE loop = 1 AND autoplay = 1"
-    ).all() as { id: string; root_scene_node_id: string; duration: number; loop: number; autoplay: number; started_at: number | null }[];
+    const rows = getDb()
+      .prepare(
+        'SELECT id, root_scene_node_id, duration, loop, autoplay, started_at FROM track_clips WHERE loop = 1 AND autoplay = 1'
+      )
+      .all() as {
+      id: string;
+      root_scene_node_id: string;
+      duration: number;
+      loop: number;
+      autoplay: number;
+      started_at: number | null;
+    }[];
 
     for (const r of rows) {
       const startedAt = r.started_at ?? Date.now();
       if (r.started_at == null) {
-        getDb().prepare('UPDATE track_clips SET started_at = ? WHERE id = ?').run(startedAt, r.id);
+        getDb()
+          .prepare('UPDATE track_clips SET started_at = ? WHERE id = ?')
+          .run(startedAt, r.id);
       }
       this.active.set(r.id, {
         kind: 'playing',
@@ -63,7 +74,9 @@ export class TrackClipPlaybackManager {
   }
 
   /** Send the current playback snapshot to a freshly-connected WS client. */
-  sendSnapshotTo(send: (kind: string, payload: Record<string, unknown>) => void): void {
+  sendSnapshotTo(
+    send: (kind: string, payload: Record<string, unknown>) => void
+  ): void {
     send('track_clip_playback_snapshot', {
       entries: this.snapshotEntries(),
       serverNow: Date.now(),
@@ -71,11 +84,11 @@ export class TrackClipPlaybackManager {
   }
 
   private snapshotEntries(): BroadcastEntry[] {
-    return Array.from(this.active.entries()).map(([clipId, e]) => (
+    return Array.from(this.active.entries()).map(([clipId, e]) =>
       e.kind === 'playing'
         ? { clipId, loop: e.loop, startedAt: e.startedAt }
         : { clipId, loop: e.loop, pausedAtT: e.pausedAtT }
-    ));
+    );
   }
 
   /** Begin playback for a clip. Stops any prior playback for the same clip first. */
@@ -89,13 +102,17 @@ export class TrackClipPlaybackManager {
     const loop = row.loop === 1;
     const entry: PlaybackEntry = {
       kind: 'playing',
-      startedAt, loop,
+      startedAt,
+      loop,
       rootSceneNodeId: row.root_scene_node_id,
       duration: row.duration,
       stopTimer: null,
     };
     if (!loop) {
-      entry.stopTimer = setTimeout(() => this.stop(clipId), Math.max(0, row.duration * 1000));
+      entry.stopTimer = setTimeout(
+        () => this.stop(clipId),
+        Math.max(0, row.duration * 1000)
+      );
     }
     this.active.set(clipId, entry);
 
@@ -127,7 +144,9 @@ export class TrackClipPlaybackManager {
     });
     // Stop persisting an anchor while paused — restart-after-pause is undefined
     // behaviour for v1 (treat paused state as ephemeral).
-    getDb().prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?').run(clipId);
+    getDb()
+      .prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?')
+      .run(clipId);
     this.broadcastPaused(clipId, pausedAtT);
   }
 
@@ -145,13 +164,17 @@ export class TrackClipPlaybackManager {
     const loop = entry.loop;
     const next: PlaybackEntry = {
       kind: 'playing',
-      startedAt, loop,
+      startedAt,
+      loop,
       rootSceneNodeId: entry.rootSceneNodeId,
       duration: entry.duration,
       stopTimer: null,
     };
     if (!loop) {
-      const remainingMs = Math.max(0, (entry.duration - entry.pausedAtT) * 1000);
+      const remainingMs = Math.max(
+        0,
+        (entry.duration - entry.pausedAtT) * 1000
+      );
       next.stopTimer = setTimeout(() => this.stop(clipId), remainingMs);
     }
     this.active.set(clipId, next);
@@ -180,7 +203,9 @@ export class TrackClipPlaybackManager {
         rootSceneNodeId: row.root_scene_node_id,
         duration,
       });
-      getDb().prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?').run(clipId);
+      getDb()
+        .prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?')
+        .run(clipId);
       this.broadcastPaused(clipId, t);
       return;
     }
@@ -190,7 +215,8 @@ export class TrackClipPlaybackManager {
     const startedAt = Date.now() - t * 1000;
     const next: PlaybackEntry = {
       kind: 'playing',
-      startedAt, loop,
+      startedAt,
+      loop,
       rootSceneNodeId: entry.rootSceneNodeId,
       duration,
       stopTimer: null,
@@ -205,67 +231,109 @@ export class TrackClipPlaybackManager {
   }
 
   stop(clipId: string): void {
-    this.stopInternal(clipId, /*broadcast=*/true);
+    this.stopInternal(clipId, /*broadcast=*/ true);
   }
 
   private stopInternal(clipId: string, broadcast: boolean): void {
     this.clearAutoStopTimer(clipId);
     if (!this.active.delete(clipId)) return;
-    getDb().prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?').run(clipId);
+    getDb()
+      .prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?')
+      .run(clipId);
     if (broadcast) this.ws.broadcast('track_clip_stopped', { clipId });
   }
 
   private clearAutoStopTimer(clipId: string): void {
     const entry = this.active.get(clipId);
-    if (entry?.kind === 'playing' && entry.stopTimer) clearTimeout(entry.stopTimer);
+    if (entry?.kind === 'playing' && entry.stopTimer)
+      clearTimeout(entry.stopTimer);
   }
 
   /** Called when a clip's settings change. If autoplay was turned off, clear the
    *  persisted anchor. If autoplay+loop turned on while a clip is currently playing,
    *  persist the active anchor. (Paused clips do not persist.) */
   onClipUpdated(clipId: string): void {
-    const row = getDb().prepare('SELECT loop, autoplay FROM track_clips WHERE id = ?').get(clipId) as
-      { loop: number; autoplay: number } | undefined;
+    const row = getDb()
+      .prepare('SELECT loop, autoplay FROM track_clips WHERE id = ?')
+      .get(clipId) as { loop: number; autoplay: number } | undefined;
     if (!row) return;
     const entry = this.active.get(clipId);
     if (!entry) return;
 
     if (entry.kind === 'playing' && row.loop === 1 && row.autoplay === 1) {
-      getDb().prepare('UPDATE track_clips SET started_at = ? WHERE id = ?').run(entry.startedAt, clipId);
+      getDb()
+        .prepare('UPDATE track_clips SET started_at = ? WHERE id = ?')
+        .run(entry.startedAt, clipId);
     } else {
-      getDb().prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?').run(clipId);
+      getDb()
+        .prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?')
+        .run(clipId);
     }
   }
 
   onClipDeleted(clipId: string): void {
-    this.stopInternal(clipId, /*broadcast=*/true);
+    this.stopInternal(clipId, /*broadcast=*/ true);
   }
 
   // ── helpers ─────────────────────────────────────────────────────────────
 
-  private loadClipRow(clipId: string): { root_scene_node_id: string; duration: number; loop: number; autoplay: number } | null {
-    const r = getDb().prepare('SELECT root_scene_node_id, duration, loop, autoplay FROM track_clips WHERE id = ?').get(clipId) as
-      { root_scene_node_id: string; duration: number; loop: number; autoplay: number } | undefined;
+  private loadClipRow(
+    clipId: string
+  ): {
+    root_scene_node_id: string;
+    duration: number;
+    loop: number;
+    autoplay: number;
+  } | null {
+    const r = getDb()
+      .prepare(
+        'SELECT root_scene_node_id, duration, loop, autoplay FROM track_clips WHERE id = ?'
+      )
+      .get(clipId) as
+      | {
+          root_scene_node_id: string;
+          duration: number;
+          loop: number;
+          autoplay: number;
+        }
+      | undefined;
     return r ?? null;
   }
 
-  private persistAnchorIfAutoplay(clipId: string, row: { loop: number; autoplay: number }, startedAt: number): void {
+  private persistAnchorIfAutoplay(
+    clipId: string,
+    row: { loop: number; autoplay: number },
+    startedAt: number
+  ): void {
     if (row.loop === 1 && row.autoplay === 1) {
-      getDb().prepare('UPDATE track_clips SET started_at = ? WHERE id = ?').run(startedAt, clipId);
+      getDb()
+        .prepare('UPDATE track_clips SET started_at = ? WHERE id = ?')
+        .run(startedAt, clipId);
     } else {
-      getDb().prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?').run(clipId);
+      getDb()
+        .prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?')
+        .run(clipId);
     }
   }
 
-  private broadcastStarted(clipId: string, startedAt: number, loop: boolean): void {
+  private broadcastStarted(
+    clipId: string,
+    startedAt: number,
+    loop: boolean
+  ): void {
     this.ws.broadcast('track_clip_started', {
-      clipId, startedAt, loop, serverNow: Date.now(),
+      clipId,
+      startedAt,
+      loop,
+      serverNow: Date.now(),
     });
   }
 
   private broadcastPaused(clipId: string, pausedAtT: number): void {
     this.ws.broadcast('track_clip_paused', {
-      clipId, pausedAtT, serverNow: Date.now(),
+      clipId,
+      pausedAtT,
+      serverNow: Date.now(),
     });
   }
 }

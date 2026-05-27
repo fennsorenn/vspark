@@ -99,12 +99,10 @@ router.put('/project-graphs/:id', (req, res) => {
       },
     });
   } catch (e) {
-    res
-      .status(400)
-      .json({
-        ok: false,
-        error: { message: e instanceof Error ? e.message : String(e) },
-      });
+    res.status(400).json({
+      ok: false,
+      error: { message: e instanceof Error ? e.message : String(e) },
+    });
   }
 });
 

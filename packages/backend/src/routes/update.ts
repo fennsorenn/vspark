@@ -32,7 +32,9 @@ export function getInstallDir(): string {
   return existsSync(join(execDir, 'version.json')) ? execDir : process.cwd();
 }
 
-async function readVersionJson(installDir: string): Promise<{ version: string; channel: UpdateChannel }> {
+async function readVersionJson(
+  installDir: string
+): Promise<{ version: string; channel: UpdateChannel }> {
   try {
     const raw = await readFile(join(installDir, 'version.json'), 'utf-8');
     return JSON.parse(raw) as { version: string; channel: UpdateChannel };
@@ -45,9 +47,15 @@ function compareSemver(a: string, b: string): number {
   const parse = (v: string) => {
     const [main, pre] = v.replace(/^v/, '').split('-');
     const [major, minor, patch] = (main ?? '0').split('.').map(Number);
-    return { major: major ?? 0, minor: minor ?? 0, patch: patch ?? 0, pre: pre ?? null };
+    return {
+      major: major ?? 0,
+      minor: minor ?? 0,
+      patch: patch ?? 0,
+      pre: pre ?? null,
+    };
   };
-  const pa = parse(a), pb = parse(b);
+  const pa = parse(a),
+    pb = parse(b);
   for (const k of ['major', 'minor', 'patch'] as const) {
     if (pa[k] !== pb[k]) return pa[k] > pb[k] ? 1 : -1;
   }
@@ -58,27 +66,46 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-function httpsGet(url: string, headers: Record<string, string>): Promise<import('http').IncomingMessage> {
+function httpsGet(
+  url: string,
+  headers: Record<string, string>
+): Promise<import('http').IncomingMessage> {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https') ? https : http;
-    mod.get(url, { headers }, (res) => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        resolve(httpsGet(res.headers.location, headers));
-      } else {
-        resolve(res);
-      }
-    }).on('error', reject);
+    mod
+      .get(url, { headers }, (res) => {
+        if (
+          res.statusCode &&
+          res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          res.headers.location
+        ) {
+          resolve(httpsGet(res.headers.location, headers));
+        } else {
+          resolve(res);
+        }
+      })
+      .on('error', reject);
   });
 }
 
 function fetchJson(url: string, userAgent: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    httpsGet(url, { 'User-Agent': userAgent, Accept: 'application/vnd.github+json' })
+    httpsGet(url, {
+      'User-Agent': userAgent,
+      Accept: 'application/vnd.github+json',
+    })
       .then((res) => {
         let data = '';
-        res.on('data', (c: Buffer) => { data += c.toString(); });
+        res.on('data', (c: Buffer) => {
+          data += c.toString();
+        });
         res.on('end', () => {
-          try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(e);
+          }
         });
       })
       .catch(reject);
@@ -93,14 +120,27 @@ type GhRelease = {
   assets: { name: string; browser_download_url: string }[];
 };
 
-function pickRelease(releases: GhRelease[], channel: UpdateChannel): GhRelease | null {
+function pickRelease(
+  releases: GhRelease[],
+  channel: UpdateChannel
+): GhRelease | null {
   if (channel === 'stable') {
-    return releases.find((r) => !r.prerelease && /^v\d+\.\d+\.\d+$/.test(r.tag_name)) ?? null;
+    return (
+      releases.find(
+        (r) => !r.prerelease && /^v\d+\.\d+\.\d+$/.test(r.tag_name)
+      ) ?? null
+    );
   }
   if (channel === 'recent') {
-    const beta = releases.find((r) => r.prerelease && /^v\d+\.\d+\.\d+-beta\.\d+$/.test(r.tag_name));
+    const beta = releases.find(
+      (r) => r.prerelease && /^v\d+\.\d+\.\d+-beta\.\d+$/.test(r.tag_name)
+    );
     if (beta) return beta;
-    return releases.find((r) => !r.prerelease && /^v\d+\.\d+\.\d+$/.test(r.tag_name)) ?? null;
+    return (
+      releases.find(
+        (r) => !r.prerelease && /^v\d+\.\d+\.\d+$/.test(r.tag_name)
+      ) ?? null
+    );
   }
   // experimental — latest by published_at (releases are already sorted newest-first from GitHub)
   return releases[0] ?? null;
@@ -113,10 +153,10 @@ export async function checkForUpdates(): Promise<void> {
     _status.currentVersion = config.version;
     _status.channel = channel;
 
-    const releases = await fetchJson(
+    const releases = (await fetchJson(
       `https://api.github.com/repos/${GITHUB_REPO}/releases`,
       `vspark/${config.version}`
-    ) as GhRelease[];
+    )) as GhRelease[];
 
     if (!Array.isArray(releases)) return;
 
@@ -127,7 +167,9 @@ export async function checkForUpdates(): Promise<void> {
     const isNewer = compareSemver(candidateVersion, config.version) > 0;
 
     const platform = process.platform === 'win32' ? 'win-x64' : 'linux-x64';
-    const asset = candidate.assets.find((a) => a.name === `vspark-${platform}.zip`);
+    const asset = candidate.assets.find(
+      (a) => a.name === `vspark-${platform}.zip`
+    );
 
     _status.updateAvailable = isNewer;
     _status.latestVersion = candidateVersion;
@@ -156,18 +198,27 @@ updateRoutes.get('/update-status', (_req, res) => {
 
 updateRoutes.post('/update/download', (_req, res) => {
   if (!_status.updateAvailable) {
-    res.status(400).json({ ok: false, error: { message: 'No update available' } });
+    res
+      .status(400)
+      .json({ ok: false, error: { message: 'No update available' } });
     return;
   }
   if (!_latestAssetUrl) {
-    res.status(400).json({ ok: false, error: { message: 'No asset URL for this platform' } });
+    res
+      .status(400)
+      .json({
+        ok: false,
+        error: { message: 'No asset URL for this platform' },
+      });
     return;
   }
 
   res.json({ ok: true, data: { started: true } });
 
   // Stream download in background (follows redirects — GitHub asset URLs redirect to S3)
-  httpsGet(_latestAssetUrl, { 'User-Agent': `vspark/${_status.currentVersion}` })
+  httpsGet(_latestAssetUrl, {
+    'User-Agent': `vspark/${_status.currentVersion}`,
+  })
     .then((fileRes) => {
       const dest = createWriteStream(DOWNLOAD_PATH);
       fileRes.pipe(dest);
@@ -175,14 +226,18 @@ updateRoutes.post('/update/download', (_req, res) => {
         _downloadPath = DOWNLOAD_PATH;
         _status.downloadReady = true;
       });
-      dest.on('error', (e) => console.error('[update] download write error:', e));
+      dest.on('error', (e) =>
+        console.error('[update] download write error:', e)
+      );
     })
     .catch((e) => console.error('[update] download fetch error:', e));
 });
 
 updateRoutes.post('/update/apply', (_req, res) => {
   if (!_downloadPath || !_status.downloadReady) {
-    res.status(400).json({ ok: false, error: { message: 'Download not ready' } });
+    res
+      .status(400)
+      .json({ ok: false, error: { message: 'Download not ready' } });
     return;
   }
 
@@ -195,11 +250,15 @@ updateRoutes.post('/update/apply', (_req, res) => {
   const parentDir = dirname(_installDir);
 
   setTimeout(() => {
-    const child = spawn(updaterPath, [String(process.pid), _downloadPath!, parentDir], {
-      detached: true,
-      stdio: 'ignore',
-      shell: isWin,
-    });
+    const child = spawn(
+      updaterPath,
+      [String(process.pid), _downloadPath!, parentDir],
+      {
+        detached: true,
+        stdio: 'ignore',
+        shell: isWin,
+      }
+    );
     child.unref();
     process.exit(0);
   }, 500);

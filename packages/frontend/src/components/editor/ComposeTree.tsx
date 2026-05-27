@@ -11,6 +11,8 @@ const KIND_ICONS: Record<ComposeLayerKind, string> = {
   video: '🎞',
   browser: '🌐',
   group: '📁',
+  compose_scene: '🎬',
+  camera_view: '📷',
 };
 
 const SCENE_RENDER_SLOT = 0;
@@ -99,11 +101,12 @@ function buildSequence(
   cameraNodeId: string | null
 ): Slot[] {
   const sceneWide = layers.filter(
-    (l) => l.sceneId === sceneId && l.cameraNodeId == null
+    (l) => l.rootComposeSceneId === sceneId && l.cameraNodeId == null
   );
   const camOwn = cameraNodeId
     ? layers.filter(
-        (l) => l.sceneId === sceneId && l.cameraNodeId === cameraNodeId
+        (l) =>
+          l.rootComposeSceneId === sceneId && l.cameraNodeId === cameraNodeId
       )
     : [];
 
@@ -570,7 +573,7 @@ export function ComposeTree() {
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
   const composeLayers = useEditorStore((s) => s.composeLayers);
   const cameras = nodes.filter(
-    (n) => n.kind === 'camera' && n.sceneId === activeSceneId
+    (n) => n.kind === 'camera' && n.rootSceneNodeId === activeSceneId
   );
 
   if (!activeSceneId) {

@@ -1,21 +1,21 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal'
-import type { NodeDisplay, NodePortMeta } from '@vspark/shared/signal'
-import { useEditorStore } from '../../../store/editorStore'
-import { api } from '../../../api/client'
+import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
+import type { NodeDisplay, NodePortMeta } from '@vspark/shared/signal';
+import { useEditorStore } from '../../../store/editorStore';
+import { api } from '../../../api/client';
 
 export interface SignalNodeData extends Record<string, unknown> {
-  nodeId:              string
-  graphId:             string
-  kind:                string
-  display:             NodeDisplay | undefined
-  inputPorts:          NodePortMeta[]
-  outputPorts:         NodePortMeta[]
-  connectedInputPorts: string[]
-  readonly:            boolean
-  lastExecutedAt:      number | null
-  portValues:          Record<string, unknown>
-  config:              unknown
+  nodeId: string;
+  graphId: string;
+  kind: string;
+  display: NodeDisplay | undefined;
+  inputPorts: NodePortMeta[];
+  outputPorts: NodePortMeta[];
+  connectedInputPorts: string[];
+  readonly: boolean;
+  lastExecutedAt: number | null;
+  portValues: Record<string, unknown>;
+  config: unknown;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -23,40 +23,74 @@ export interface SignalNodeData extends Record<string, unknown> {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function typeColor(type: string): string {
-  return SIGNAL_TYPE_COLORS[type as keyof typeof SIGNAL_TYPE_COLORS] ?? '#888'
+  return SIGNAL_TYPE_COLORS[type as keyof typeof SIGNAL_TYPE_COLORS] ?? '#888';
 }
 
 function RelativeTime({ ts }: { ts: number | null }) {
-  if (!ts) return <span style={{ color: '#444', fontSize: 9 }}>never</span>
-  const age = Date.now() - ts
-  const text = age < 1000 ? `${age}ms ago` : age < 60000 ? `${(age / 1000).toFixed(1)}s ago` : 'idle'
-  const fresh = age < 500
+  if (!ts) return <span style={{ color: '#444', fontSize: 9 }}>never</span>;
+  const age = Date.now() - ts;
+  const text =
+    age < 1000
+      ? `${age}ms ago`
+      : age < 60000
+        ? `${(age / 1000).toFixed(1)}s ago`
+        : 'idle';
+  const fresh = age < 500;
   return (
     <span style={{ fontSize: 9, color: fresh ? '#4ade80' : '#666' }}>
-      {fresh && <span style={{ marginRight: 3 }}>●</span>}{text}
+      {fresh && <span style={{ marginRight: 3 }}>●</span>}
+      {text}
     </span>
-  )
+  );
 }
 
 function ConfigRow({ label, value }: { label: string; value: unknown }) {
-  const display = value === null || value === undefined ? '—'
-    : typeof value === 'object' ? JSON.stringify(value).slice(0, 40)
-    : String(value)
+  const display =
+    value === null || value === undefined
+      ? '—'
+      : typeof value === 'object'
+        ? JSON.stringify(value).slice(0, 40)
+        : String(value);
   return (
-    <div style={{ display: 'flex', gap: 4, alignItems: 'baseline', padding: '1px 10px' }}>
-      <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace', flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 9, color: '#888', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+    <div
+      style={{
+        display: 'flex',
+        gap: 4,
+        alignItems: 'baseline',
+        padding: '1px 10px',
+      }}
+    >
+      <span
+        style={{
+          fontSize: 9,
+          color: '#555',
+          fontFamily: 'monospace',
+          flexShrink: 0,
+        }}
+      >
+        {label}
+      </span>
+      <span
+        style={{
+          fontSize: 9,
+          color: '#888',
+          fontFamily: 'monospace',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
         {display}
       </span>
     </div>
-  )
+  );
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Inline static input — shown on unconnected value input ports
 // ──────────────────────────────────────────────────────────────────────────────
 
-const STATIC_INPUT_TYPES = new Set(['String', 'Float', 'Bool', 'Account'])
+const STATIC_INPUT_TYPES = new Set(['String', 'Float', 'Bool', 'Account']);
 
 const staticInputStyle: React.CSSProperties = {
   background: '#0e0e1a',
@@ -68,19 +102,30 @@ const staticInputStyle: React.CSSProperties = {
   fontFamily: 'monospace',
   outline: 'none',
   minWidth: 0,
-}
+};
 
-function StaticInput({ port, configValue, onChange }: {
-  port:        NodePortMeta
-  configValue: unknown
-  onChange:    (value: unknown) => void
+function StaticInput({
+  port,
+  configValue,
+  onChange,
+}: {
+  port: NodePortMeta;
+  configValue: unknown;
+  onChange: (value: unknown) => void;
 }) {
   if (port.type === 'Account') {
-    return <AccountSelect configValue={configValue} onChange={onChange} />
+    return <AccountSelect configValue={configValue} onChange={onChange} />;
   }
   if (port.type === 'Bool') {
     return (
-      <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          cursor: 'pointer',
+        }}
+      >
         <input
           type="checkbox"
           defaultChecked={!!configValue}
@@ -88,9 +133,11 @@ function StaticInput({ port, configValue, onChange }: {
           onChange={(e) => onChange(e.target.checked)}
           style={{ cursor: 'pointer' }}
         />
-        <span style={{ fontSize: 9, color: '#666' }}>{configValue ? 'true' : 'false'}</span>
+        <span style={{ fontSize: 9, color: '#666' }}>
+          {configValue ? 'true' : 'false'}
+        </span>
       </label>
-    )
+    );
   }
   return (
     <input
@@ -100,14 +147,14 @@ function StaticInput({ port, configValue, onChange }: {
       placeholder={port.type === 'Float' ? '0' : port.name}
       style={{ ...staticInputStyle, width: port.type === 'Float' ? 70 : 140 }}
       onBlur={(e) => {
-        const raw = e.target.value
-        onChange(port.type === 'Float' ? (parseFloat(raw) || 0) : raw)
+        const raw = e.target.value;
+        onChange(port.type === 'Float' ? parseFloat(raw) || 0 : raw);
       }}
       // Prevent ReactFlow from stealing keyboard events
       onKeyDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     />
-  )
+  );
 }
 
 /**
@@ -116,12 +163,15 @@ function StaticInput({ port, configValue, onChange }: {
  * Editor mount and refreshed by the Accounts modal). Value persisted is
  * the account id string; an empty string clears the selection.
  */
-function AccountSelect({ configValue, onChange }: {
-  configValue: unknown
-  onChange:    (value: unknown) => void
+function AccountSelect({
+  configValue,
+  onChange,
+}: {
+  configValue: unknown;
+  onChange: (value: unknown) => void;
 }) {
-  const accounts = useEditorStore((s) => s.overliveAccounts)
-  const current  = typeof configValue === 'string' ? configValue : ''
+  const accounts = useEditorStore((s) => s.overliveAccounts);
+  const current = typeof configValue === 'string' ? configValue : '';
   return (
     <select
       value={current}
@@ -137,59 +187,90 @@ function AccountSelect({ configValue, onChange }: {
         </option>
       ))}
     </select>
-  )
+  );
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Port handle row
 // ──────────────────────────────────────────────────────────────────────────────
 
-function PortRow({ port, side, portValue, connected, configValue, onStaticChange }: {
-  port:           NodePortMeta
-  side:           'input' | 'output'
-  portValue:      unknown
-  connected:      boolean
-  configValue:    unknown
-  onStaticChange: (portName: string, value: unknown) => void
+function PortRow({
+  port,
+  side,
+  portValue,
+  connected,
+  configValue,
+  onStaticChange,
+}: {
+  port: NodePortMeta;
+  side: 'input' | 'output';
+  portValue: unknown;
+  connected: boolean;
+  configValue: unknown;
+  onStaticChange: (portName: string, value: unknown) => void;
 }) {
-  const color    = typeColor(port.type)
-  const id       = side === 'input' ? `in-${port.name}` : `out-${port.name}`
-  const isValue  = port.portKind === 'value'
-  const hasEvent = Boolean(portValue && typeof portValue === 'object' && '_event' in (portValue as object))
-  const isRight  = side === 'output'
-  const showStatic = side === 'input' && isValue && !connected && STATIC_INPUT_TYPES.has(port.type)
+  const color = typeColor(port.type);
+  const id = side === 'input' ? `in-${port.name}` : `out-${port.name}`;
+  const isValue = port.portKind === 'value';
+  const hasEvent = Boolean(
+    portValue &&
+    typeof portValue === 'object' &&
+    '_event' in (portValue as object)
+  );
+  const isRight = side === 'output';
+  const showStatic =
+    side === 'input' &&
+    isValue &&
+    !connected &&
+    STATIC_INPUT_TYPES.has(port.type);
 
   return (
     <div style={{ position: 'relative' }}>
-      <div style={{
-        display:  'flex',
-        alignItems: 'center',
-        justifyContent: isRight ? 'flex-end' : 'flex-start',
-        padding: '2px 10px',
-        gap: 4,
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: isRight ? 'flex-end' : 'flex-start',
+          padding: '2px 10px',
+          gap: 4,
+        }}
+      >
         <Handle
           type={side === 'input' ? 'target' : 'source'}
           position={side === 'input' ? Position.Left : Position.Right}
           id={id}
           style={{
-            background:      color,
-            border:          isValue ? `2px solid ${color}` : 'none',
+            background: color,
+            border: isValue ? `2px solid ${color}` : 'none',
             backgroundColor: isValue ? 'transparent' : color,
-            width:  9,
+            width: 9,
             height: 9,
             borderRadius: isValue ? 0 : 2,
-            transform:    isValue ? 'rotate(45deg)' : undefined,
+            transform: isValue ? 'rotate(45deg)' : undefined,
           }}
         />
-        <span style={{ fontSize: 10, color: '#aaa', fontFamily: 'monospace', order: isRight ? -1 : 0 }}>
+        <span
+          style={{
+            fontSize: 10,
+            color: '#aaa',
+            fontFamily: 'monospace',
+            order: isRight ? -1 : 0,
+          }}
+        >
           {port.name}
         </span>
-        <span style={{ fontSize: 8, color, opacity: 0.7, fontFamily: 'monospace' }}>
+        <span
+          style={{ fontSize: 8, color, opacity: 0.7, fontFamily: 'monospace' }}
+        >
           {isValue ? '◆' : '▶'} {port.type}
         </span>
         {hasEvent && (
-          <span style={{ fontSize: 8, color: '#4ade80', marginLeft: 2 }} aria-hidden>●</span>
+          <span
+            style={{ fontSize: 8, color: '#4ade80', marginLeft: 2 }}
+            aria-hidden
+          >
+            ●
+          </span>
         )}
       </div>
       {showStatic && (
@@ -202,23 +283,39 @@ function PortRow({ port, side, portValue, connected, configValue, onStaticChange
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Node card
 // ──────────────────────────────────────────────────────────────────────────────
 
-export function SignalNodeCard({ data, selected }: NodeProps & { data: SignalNodeData }) {
-  const { nodeId, graphId, display, kind, inputPorts, outputPorts,
-          connectedInputPorts, lastExecutedAt, portValues, config } = data
-  const headerColor   = display?.color ?? '#2a2a3a'
-  const label         = display?.label ?? kind
-  const maxPorts      = Math.max(inputPorts.length, outputPorts.length)
-  const connectedSet  = new Set(connectedInputPorts)
-  const configRecord  = config && typeof config === 'object' ? config as Record<string, unknown> : {}
+export function SignalNodeCard({
+  data,
+  selected,
+}: NodeProps & { data: SignalNodeData }) {
+  const {
+    nodeId,
+    graphId,
+    display,
+    kind,
+    inputPorts,
+    outputPorts,
+    connectedInputPorts,
+    lastExecutedAt,
+    portValues,
+    config,
+  } = data;
+  const headerColor = display?.color ?? '#2a2a3a';
+  const label = display?.label ?? kind;
+  const maxPorts = Math.max(inputPorts.length, outputPorts.length);
+  const connectedSet = new Set(connectedInputPorts);
+  const configRecord =
+    config && typeof config === 'object'
+      ? (config as Record<string, unknown>)
+      : {};
 
-  const { nodeComponents, updateNodeComponent } = useEditorStore()
+  const { nodeComponents, updateNodeComponent } = useEditorStore();
 
   const handleStaticChange = (portName: string, value: unknown) => {
     // Component-owned graphs use the "kind:componentId" id shape. Standalone
@@ -226,54 +323,82 @@ export function SignalNodeCard({ data, selected }: NodeProps & { data: SignalNod
     // to update, so we delegate to the canvas via a custom event which mutates
     // the descriptor's defaultConfig and persists via PUT.
     if (!graphId.includes(':')) {
-      window.dispatchEvent(new CustomEvent('vspark:project-graph-literal', {
-        detail: { graphId, nodeId, portName, value },
-      }))
-      return
+      window.dispatchEvent(
+        new CustomEvent('vspark:project-graph-literal', {
+          detail: { graphId, nodeId, portName, value },
+        })
+      );
+      return;
     }
-    const componentId   = graphId.split(':').slice(1).join(':')
-    const comp = nodeComponents.find((c) => c.id === componentId)
-    if (!comp) return
-    const prevConfig    = comp.config as Record<string, unknown>
-    const prevNodeConf  = (prevConfig.nodeConfig ?? {}) as Record<string, unknown>
-    const prevNodeEntry = (prevNodeConf[nodeId] ?? {}) as Record<string, unknown>
+    const componentId = graphId.split(':').slice(1).join(':');
+    const comp = nodeComponents.find((c) => c.id === componentId);
+    if (!comp) return;
+    const prevConfig = comp.config as Record<string, unknown>;
+    const prevNodeConf = (prevConfig.nodeConfig ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const prevNodeEntry = (prevNodeConf[nodeId] ?? {}) as Record<
+      string,
+      unknown
+    >;
     const newConfig = {
       ...prevConfig,
-      nodeConfig: { ...prevNodeConf, [nodeId]: { ...prevNodeEntry, [portName]: value } },
-    }
-    updateNodeComponent(componentId, { config: newConfig })
-    api.updateNodeComponent(componentId, { config: newConfig }).catch(() => {})
-  }
+      nodeConfig: {
+        ...prevNodeConf,
+        [nodeId]: { ...prevNodeEntry, [portName]: value },
+      },
+    };
+    updateNodeComponent(componentId, { config: newConfig });
+    api.updateNodeComponent(componentId, { config: newConfig }).catch(() => {});
+  };
 
   // Config display: skip null/undefined and internal _ keys.
-  const configEntries = Object.entries(configRecord)
-    .filter(([k, v]) => !k.startsWith('_') && v !== null && v !== undefined)
+  const configEntries = Object.entries(configRecord).filter(
+    ([k, v]) => !k.startsWith('_') && v !== null && v !== undefined
+  );
 
   return (
-    <div style={{
-      minWidth: 200,
-      background: '#1a1a2a',
-      border:  `1px solid ${selected ? '#4a90d9' : '#2a2a4a'}`,
-      borderRadius: 6,
-      boxShadow: selected ? '0 0 0 2px #4a90d944' : '0 2px 8px rgba(0,0,0,0.4)',
-      fontFamily: 'system-ui, sans-serif',
-    }}>
+    <div
+      style={{
+        minWidth: 200,
+        background: '#1a1a2a',
+        border: `1px solid ${selected ? '#4a90d9' : '#2a2a4a'}`,
+        borderRadius: 6,
+        boxShadow: selected
+          ? '0 0 0 2px #4a90d944'
+          : '0 2px 8px rgba(0,0,0,0.4)',
+        fontFamily: 'system-ui, sans-serif',
+      }}
+    >
       {/* Header */}
-      <div style={{
-        background:   headerColor,
-        borderRadius: '5px 5px 0 0',
-        padding: '5px 10px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-      }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: '#fff', flex: 1 }}>{label}</span>
+      <div
+        style={{
+          background: headerColor,
+          borderRadius: '5px 5px 0 0',
+          padding: '5px 10px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#fff', flex: 1 }}>
+          {label}
+        </span>
         <RelativeTime ts={lastExecutedAt} />
         {display?.tags.map((tag) => (
-          <span key={tag} style={{
-            fontSize: 9, color: '#ffffff99', background: '#ffffff22',
-            borderRadius: 3, padding: '1px 4px', textTransform: 'uppercase', letterSpacing: 0.3,
-          }}>
+          <span
+            key={tag}
+            style={{
+              fontSize: 9,
+              color: '#ffffff99',
+              background: '#ffffff22',
+              borderRadius: 3,
+              padding: '1px 4px',
+              textTransform: 'uppercase',
+              letterSpacing: 0.3,
+            }}
+          >
             {tag}
           </span>
         ))}
@@ -328,13 +453,18 @@ export function SignalNodeCard({ data, selected }: NodeProps & { data: SignalNod
       )}
 
       {/* Kind chip */}
-      <div style={{
-        borderTop: '1px solid #1e1e3a',
-        padding: '2px 10px',
-        fontSize: 9, color: '#333', fontFamily: 'monospace', letterSpacing: 0.3,
-      }}>
+      <div
+        style={{
+          borderTop: '1px solid #1e1e3a',
+          padding: '2px 10px',
+          fontSize: 9,
+          color: '#333',
+          fontFamily: 'monospace',
+          letterSpacing: 0.3,
+        }}
+      >
         {kind}
       </div>
     </div>
-  )
+  );
 }

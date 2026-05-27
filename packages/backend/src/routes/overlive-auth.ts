@@ -22,52 +22,55 @@
  * process, so a multi-instance backend would need a shared store
  * (tracked in ARCHITECTURE.md → Future Features).
  */
-import { Router } from 'express'
-import { randomUUID } from 'crypto'
-import { getDb } from '../db/index.js'
-import { getOverliveManager } from '../overlive/manager.js'
+import { Router } from 'express';
+import { randomUUID } from 'crypto';
+import { getDb } from '../db/index.js';
+import { getOverliveManager } from '../overlive/manager.js';
 import {
   buildAuthorizeUrl,
   exchangeCode,
   fetchAuthorizedUser,
   DEFAULT_SCOPES,
   type TwitchScope,
-} from '@overlive/twitch-oauth'
+} from '@overlive/twitch-oauth';
 
-const router: ReturnType<typeof Router> = Router()
+const router: ReturnType<typeof Router> = Router();
 
 // ─── In-memory CSRF state store ───────────────────────────────────────────────
 
 interface PendingState {
-  projectId:       string
-  appCredentialId: string
-  accountId:       string | null   // present iff reconnecting
-  createdAt:       number
+  projectId: string;
+  appCredentialId: string;
+  accountId: string | null; // present iff reconnecting
+  createdAt: number;
 }
 
-const STATE_TTL_MS = 10 * 60 * 1000   // 10 minutes
-const pendingStates = new Map<string, PendingState>()
+const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const pendingStates = new Map<string, PendingState>();
 
 function gcStates(): void {
-  const now = Date.now()
+  const now = Date.now();
   for (const [k, v] of pendingStates) {
-    if (now - v.createdAt > STATE_TTL_MS) pendingStates.delete(k)
+    if (now - v.createdAt > STATE_TTL_MS) pendingStates.delete(k);
   }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 interface AppCredentialRow {
-  id:            string
-  project_id:    string
-  client_id:     string
-  client_secret: string
-  redirect_uri:  string
+  id: string;
+  project_id: string;
+  client_id: string;
+  client_secret: string;
+  redirect_uri: string;
 }
 
 function getAppCredential(id: string): AppCredentialRow | undefined {
-  return getDb().prepare('SELECT id, project_id, client_id, client_secret, redirect_uri FROM overlive_app_credentials WHERE id = ?')
-    .get(id) as unknown as AppCredentialRow | undefined
+  return getDb()
+    .prepare(
+      'SELECT id, project_id, client_id, client_secret, redirect_uri FROM overlive_app_credentials WHERE id = ?'
+    )
+    .get(id) as unknown as AppCredentialRow | undefined;
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -94,33 +97,48 @@ function getAppCredential(id: string): AppCredentialRow | undefined {
  *         schema: { type: string }
  */
 router.get('/auth/twitch/start', (req, res) => {
-  gcStates()
-  const projectId = String(req.query.projectId ?? '')
-  const appCredentialId = String(req.query.appCredentialId ?? '')
-  const accountId = req.query.accountId ? String(req.query.accountId) : null
+  gcStates();
+  const projectId = String(req.query.projectId ?? '');
+  const appCredentialId = String(req.query.appCredentialId ?? '');
+  const accountId = req.query.accountId ? String(req.query.accountId) : null;
   if (!projectId || !appCredentialId) {
-    return res.status(400).json({ ok: false, error: { message: 'projectId and appCredentialId are required' } })
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        error: { message: 'projectId and appCredentialId are required' },
+      });
   }
-  const app = getAppCredential(appCredentialId)
+  const app = getAppCredential(appCredentialId);
   if (!app || app.project_id !== projectId) {
-    return res.status(404).json({ ok: false, error: { message: 'app credential not found for project' } })
+    return res
+      .status(404)
+      .json({
+        ok: false,
+        error: { message: 'app credential not found for project' },
+      });
   }
 
-  const state = randomUUID()
-  pendingStates.set(state, { projectId, appCredentialId, accountId, createdAt: Date.now() })
+  const state = randomUUID();
+  pendingStates.set(state, {
+    projectId,
+    appCredentialId,
+    accountId,
+    createdAt: Date.now(),
+  });
 
   const url = buildAuthorizeUrl({
-    clientId:    app.client_id,
+    clientId: app.client_id,
     redirectUri: app.redirect_uri,
-    scopes:      DEFAULT_SCOPES,
+    scopes: DEFAULT_SCOPES,
     state,
     // Force consent only on explicit reconnect, so a fresh OAuth doesn't
     // re-prompt a user who's already authorized this app.
     ...(accountId ? { forceVerify: true } : {}),
-  })
+  });
 
-  res.json({ ok: true, data: { authorizeUrl: url } })
-})
+  res.json({ ok: true, data: { authorizeUrl: url } });
+});
 
 /**
  * @openapi
@@ -130,57 +148,90 @@ router.get('/auth/twitch/start', (req, res) => {
  *     summary: Twitch OAuth redirect target. Exchanges code, upserts account, posts result to opener and closes.
  */
 router.get('/auth/twitch/callback', async (req, res) => {
-  gcStates()
-  const code  = req.query.code  ? String(req.query.code)  : null
-  const state = req.query.state ? String(req.query.state) : null
-  const errParam = req.query.error ? String(req.query.error) : null
-  const errDesc  = req.query.error_description ? String(req.query.error_description) : null
+  gcStates();
+  const code = req.query.code ? String(req.query.code) : null;
+  const state = req.query.state ? String(req.query.state) : null;
+  const errParam = req.query.error ? String(req.query.error) : null;
+  const errDesc = req.query.error_description
+    ? String(req.query.error_description)
+    : null;
 
   if (errParam) {
-    return res.send(renderCallbackPage({ ok: false, message: `Twitch returned ${errParam}: ${errDesc ?? ''}` }))
+    return res.send(
+      renderCallbackPage({
+        ok: false,
+        message: `Twitch returned ${errParam}: ${errDesc ?? ''}`,
+      })
+    );
   }
   if (!code || !state) {
-    return res.send(renderCallbackPage({ ok: false, message: 'Missing code or state from Twitch' }))
+    return res.send(
+      renderCallbackPage({
+        ok: false,
+        message: 'Missing code or state from Twitch',
+      })
+    );
   }
-  const pending = pendingStates.get(state)
+  const pending = pendingStates.get(state);
   if (!pending) {
-    return res.send(renderCallbackPage({ ok: false, message: 'Unknown or expired state — please retry from the Accounts modal' }))
+    return res.send(
+      renderCallbackPage({
+        ok: false,
+        message:
+          'Unknown or expired state — please retry from the Accounts modal',
+      })
+    );
   }
-  pendingStates.delete(state)
+  pendingStates.delete(state);
 
-  const app = getAppCredential(pending.appCredentialId)
+  const app = getAppCredential(pending.appCredentialId);
   if (!app) {
-    return res.send(renderCallbackPage({ ok: false, message: 'App credential disappeared between start and callback' }))
+    return res.send(
+      renderCallbackPage({
+        ok: false,
+        message: 'App credential disappeared between start and callback',
+      })
+    );
   }
 
-  let tokens
+  let tokens;
   try {
     tokens = await exchangeCode({
-      clientId:     app.client_id,
+      clientId: app.client_id,
       clientSecret: app.client_secret,
       code,
-      redirectUri:  app.redirect_uri,
-    })
+      redirectUri: app.redirect_uri,
+    });
   } catch (e) {
-    return res.send(renderCallbackPage({ ok: false, message: e instanceof Error ? e.message : String(e) }))
+    return res.send(
+      renderCallbackPage({
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+      })
+    );
   }
 
-  let user
+  let user;
   try {
-    user = await fetchAuthorizedUser(tokens.accessToken, app.client_id)
+    user = await fetchAuthorizedUser(tokens.accessToken, app.client_id);
   } catch (e) {
-    return res.send(renderCallbackPage({ ok: false, message: `Failed to fetch user info: ${e instanceof Error ? e.message : String(e)}` }))
+    return res.send(
+      renderCallbackPage({
+        ok: false,
+        message: `Failed to fetch user info: ${e instanceof Error ? e.message : String(e)}`,
+      })
+    );
   }
 
   const credentials = {
-    accessToken:  tokens.accessToken,
+    accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
-    scopes:       tokens.scope as TwitchScope[],
-    expiresAt:    Date.now() + tokens.expiresIn * 1000,
-  }
+    scopes: tokens.scope as TwitchScope[],
+    expiresAt: Date.now() + tokens.expiresIn * 1000,
+  };
 
-  const db = getDb()
-  const accountId = pending.accountId ?? randomUUID()
+  const db = getDb();
+  const accountId = pending.accountId ?? randomUUID();
   if (pending.accountId) {
     // Reconnect: refresh credentials + status, keep id stable so signal graphs
     // referencing the account continue to work.
@@ -194,14 +245,20 @@ router.get('/auth/twitch/callback', async (req, res) => {
          status_reason     = NULL,
          status_message    = NULL,
          updated_at        = datetime('now')
-       WHERE id = ?`,
-    ).run(JSON.stringify(credentials), user.id, user.login, user.displayName, accountId)
+       WHERE id = ?`
+    ).run(
+      JSON.stringify(credentials),
+      user.id,
+      user.login,
+      user.displayName,
+      accountId
+    );
   } else {
     db.prepare(
       `INSERT INTO overlive_accounts
          (id, project_id, platform, label, app_credential_id, credentials,
           broadcaster_id, broadcaster_login, status)
-       VALUES (?, ?, 'twitch', ?, ?, ?, ?, ?, 'disconnected')`,
+       VALUES (?, ?, 'twitch', ?, ?, ?, ?, ?, 'disconnected')`
     ).run(
       accountId,
       pending.projectId,
@@ -209,27 +266,36 @@ router.get('/auth/twitch/callback', async (req, res) => {
       pending.appCredentialId,
       JSON.stringify(credentials),
       user.id,
-      user.login,
-    )
+      user.login
+    );
   }
 
-  res.send(renderCallbackPage({ ok: true, accountId, login: user.login, displayName: user.displayName }))
+  res.send(
+    renderCallbackPage({
+      ok: true,
+      accountId,
+      login: user.login,
+      displayName: user.displayName,
+    })
+  );
 
   // Spin up (or update) the project's kit with the new credentials.
-  void getOverliveManager().refreshProject(pending.projectId).catch(() => {})
-})
+  void getOverliveManager()
+    .refreshProject(pending.projectId)
+    .catch(() => {});
+});
 
 // ─── Callback HTML ────────────────────────────────────────────────────────────
 
 interface CallbackResultOk {
-  ok: true
-  accountId: string
-  login: string
-  displayName: string
+  ok: true;
+  accountId: string;
+  login: string;
+  displayName: string;
 }
 interface CallbackResultErr {
-  ok: false
-  message: string
+  ok: false;
+  message: string;
 }
 
 /**
@@ -238,12 +304,14 @@ interface CallbackResultErr {
  * doesn't reach the opener (e.g. it was closed manually), the user sees
  * the success/error message inline.
  */
-function renderCallbackPage(result: CallbackResultOk | CallbackResultErr): string {
-  const json = JSON.stringify(result).replace(/</g, '\\u003c')
-  const title = result.ok ? 'Account connected' : 'Connection failed'
+function renderCallbackPage(
+  result: CallbackResultOk | CallbackResultErr
+): string {
+  const json = JSON.stringify(result).replace(/</g, '\\u003c');
+  const title = result.ok ? 'Account connected' : 'Connection failed';
   const body = result.ok
     ? `Connected Twitch account <strong>${escapeHtml(result.displayName)}</strong> (${escapeHtml(result.login)}). You can close this window.`
-    : `<strong>Failed:</strong> ${escapeHtml(result.message)}`
+    : `<strong>Failed:</strong> ${escapeHtml(result.message)}`;
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title}</title>
 <style>
@@ -267,11 +335,17 @@ function renderCallbackPage(result: CallbackResultOk | CallbackResultErr): strin
     if (data.ok) setTimeout(function () { try { window.close(); } catch (e) {} }, 500);
   })();
 </script>
-</body></html>`
+</body></html>`;
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+  return s.replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[
+        c
+      ]!
+  );
 }
 
-export default router
+export default router;

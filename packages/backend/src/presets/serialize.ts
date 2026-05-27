@@ -224,7 +224,9 @@ export function serializeSceneNodeSubtree(
   });
 
   const rootNode = db
-    .prepare('SELECT project_id, root_scene_node_id FROM scene_nodes WHERE id = ?')
+    .prepare(
+      'SELECT project_id, root_scene_node_id FROM scene_nodes WHERE id = ?'
+    )
     .get(rootId) as
     | { project_id: string; root_scene_node_id: string }
     | undefined;
@@ -387,7 +389,9 @@ export function serializeComposeLayerSubtree(
   });
 
   const rootLayer = db
-    .prepare('SELECT project_id, root_compose_scene_id FROM compose_layers WHERE id = ?')
+    .prepare(
+      'SELECT project_id, root_compose_scene_id FROM compose_layers WHERE id = ?'
+    )
     .get(rootId) as
     | { project_id: string; root_compose_scene_id: string | null }
     | undefined;

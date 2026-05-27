@@ -1,83 +1,167 @@
-import { useEffect } from 'react'
-import { useParams } from 'react-router-dom'
-import { Canvas } from '@react-three/fiber'
-import { PerspectiveCamera, Environment } from '@react-three/drei'
-import { FittedOrthoCamera } from '../components/editor/FittedOrthoCamera'
-import * as THREE from 'three'
-import { useEditorStore } from '../store/editorStore'
-import { api } from '../api/client'
-import { useWsSync } from '../hooks/useWsSync'
-import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator'
-import { SceneNodes, CameraEffects } from '../components/editor/Viewport'
-import { ComposeLayerStack } from '../components/editor/ComposeLayerStack'
+import { useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { Canvas } from '@react-three/fiber';
+import { PerspectiveCamera, Environment } from '@react-three/drei';
+import { FittedOrthoCamera } from '../components/editor/FittedOrthoCamera';
+import * as THREE from 'three';
+import { useEditorStore } from '../store/editorStore';
+import { api } from '../api/client';
+import { useWsSync } from '../hooks/useWsSync';
+import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
+import { SceneNodes, CameraEffects } from '../components/editor/Viewport';
+import { ComposeLayerStack } from '../components/editor/ComposeLayerStack';
 
 function getT(components: Record<string, unknown> | undefined) {
-  const t = components?.transform as Partial<{ x: number; y: number; z: number; rx: number; ry: number; rz: number }> | undefined
+  const t = components?.transform as
+    | Partial<{
+        x: number;
+        y: number;
+        z: number;
+        rx: number;
+        ry: number;
+        rz: number;
+      }>
+    | undefined;
   return {
-    x: t?.x ?? 0, y: t?.y ?? 0, z: t?.z ?? 0,
-    rx: t?.rx ?? 0, ry: t?.ry ?? 0, rz: t?.rz ?? 0,
-  }
+    x: t?.x ?? 0,
+    y: t?.y ?? 0,
+    z: t?.z ?? 0,
+    rx: t?.rx ?? 0,
+    ry: t?.ry ?? 0,
+    rz: t?.rz ?? 0,
+  };
 }
 
 export function ViewerPage() {
-  useWsSync()
-  useTrackClipEvaluator()
-  const { projectId, nodeId } = useParams<{ projectId: string; nodeId: string }>()
-  const { setProject, setScenes, setActiveScene, setNodes, setNodeComponents, setCameraEffects, setComposeLayers, setTrackClips, nodes, composeLayers, assets, activeSceneId } = useEditorStore()
+  useWsSync();
+  useTrackClipEvaluator();
+  const { projectId, nodeId } = useParams<{
+    projectId: string;
+    nodeId: string;
+  }>();
+  const {
+    setProject,
+    setScenes,
+    setActiveScene,
+    setNodes,
+    setNodeComponents,
+    setCameraEffects,
+    setComposeLayers,
+    setTrackClips,
+    nodes,
+    composeLayers,
+    assets,
+    activeSceneId,
+  } = useEditorStore();
 
   useEffect(() => {
-    document.documentElement.style.background = 'transparent'
-    document.body.style.background = 'transparent'
+    document.documentElement.style.background = 'transparent';
+    document.body.style.background = 'transparent';
     return () => {
-      document.documentElement.style.background = ''
-      document.body.style.background = ''
-    }
-  }, [])
+      document.documentElement.style.background = '';
+      document.body.style.background = '';
+    };
+  }, []);
 
   useEffect(() => {
-    if (!projectId) return
+    if (!projectId) return;
 
-    api.getProjects().then((projects) => {
-      const project = projects.find((p) => p.id === projectId)
-      if (project) setProject(project.id, project.name)
-    }).catch(() => {})
+    api
+      .getProjects()
+      .then((projects) => {
+        const project = projects.find((p) => p.id === projectId);
+        if (project) setProject(project.id, project.name);
+      })
+      .catch(() => {});
 
-    api.getScenes(projectId).then(async ({ scenes, nodes: sceneNodes, nodeComponents, cameraEffects, composeLayers, trackClips }) => {
-      setScenes(scenes)
-      setNodeComponents(nodeComponents)
-      setCameraEffects(cameraEffects)
-      setComposeLayers(composeLayers)
-      setTrackClips(trackClips)
-      if (scenes.length === 0) return
-      const firstId = scenes[0].id
-      setActiveScene(firstId)
-      const filtered = sceneNodes.filter((n) => n.sceneId === firstId)
-      setNodes(filtered.length > 0 ? filtered : await api.getNodes(firstId))
-    }).catch(() => {})
-    api.getAssets(projectId).then((rows) => useEditorStore.getState().setAssets(rows)).catch(() => {})
-  }, [projectId, setProject, setScenes, setActiveScene, setNodes, setNodeComponents, setCameraEffects, setComposeLayers, setTrackClips])
+    api
+      .getScenes(projectId)
+      .then(
+        async ({
+          scenes,
+          nodes: sceneNodes,
+          nodeComponents,
+          cameraEffects,
+          composeLayers,
+          trackClips,
+        }) => {
+          setScenes(scenes);
+          setNodeComponents(nodeComponents);
+          setCameraEffects(cameraEffects);
+          setComposeLayers(composeLayers);
+          setTrackClips(trackClips);
+          if (scenes.length === 0) return;
+          const firstId = scenes[0].id;
+          setActiveScene(firstId);
+          const filtered = sceneNodes.filter(
+            (n) => n.rootSceneNodeId === firstId
+          );
+          setNodes(
+            filtered.length > 0 ? filtered : await api.getNodes(firstId)
+          );
+        }
+      )
+      .catch(() => {});
+    api
+      .getAssets(projectId)
+      .then((rows) => useEditorStore.getState().setAssets(rows))
+      .catch(() => {});
+  }, [
+    projectId,
+    setProject,
+    setScenes,
+    setActiveScene,
+    setNodes,
+    setNodeComponents,
+    setCameraEffects,
+    setComposeLayers,
+    setTrackClips,
+  ]);
 
-  const camNode = nodes.find((n) => n.id === nodeId)
-  const cc = camNode?.components?.camera as { projection?: 'perspective' | 'orthographic'; fov?: number; near?: number; far?: number; orthoSize?: number; backgroundImage?: string } | undefined
-  const projection = cc?.projection ?? 'perspective'
-  const orthoSize = cc?.orthoSize ?? 2
-  const t = getT(camNode?.components as Record<string, unknown> | undefined)
-  const bgImage = cc?.backgroundImage ?? null
+  const camNode = nodes.find((n) => n.id === nodeId);
+  const cc = camNode?.components?.camera as
+    | {
+        projection?: 'perspective' | 'orthographic';
+        fov?: number;
+        near?: number;
+        far?: number;
+        orthoSize?: number;
+        backgroundImage?: string;
+      }
+    | undefined;
+  const projection = cc?.projection ?? 'perspective';
+  const orthoSize = cc?.orthoSize ?? 2;
+  const t = getT(camNode?.components as Record<string, unknown> | undefined);
+  const bgImage = cc?.backgroundImage ?? null;
 
-  const isHidden = camNode?.hidden ?? false
+  const isHidden = camNode?.hidden ?? false;
 
   const stackLayers = composeLayers.filter(
-    (l) => l.sceneId === activeSceneId && (l.cameraNodeId == null || l.cameraNodeId === nodeId),
-  )
+    (l) =>
+      l.rootComposeSceneId === activeSceneId &&
+      (l.cameraNodeId == null || l.cameraNodeId === nodeId)
+  );
 
   return (
-    <div style={{ width: '100vw', height: '100vh', background: 'transparent', position: 'relative' }}>
+    <div
+      style={{
+        width: '100vw',
+        height: '100vh',
+        background: 'transparent',
+        position: 'relative',
+      }}
+    >
       {bgImage && (
         <img
           src={bgImage}
           style={{
-            position: 'absolute', inset: 0, width: '100%', height: '100%',
-            objectFit: 'cover', pointerEvents: 'none', zIndex: 0,
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            pointerEvents: 'none',
+            zIndex: 0,
           }}
           alt=""
         />
@@ -85,7 +169,13 @@ export function ViewerPage() {
       <ComposeLayerStack layers={stackLayers} assets={assets} mode="viewer" />
       <Canvas
         gl={{ alpha: true, antialias: true, toneMapping: THREE.NoToneMapping }}
-        style={{ background: 'transparent', position: 'relative', zIndex: 1, visibility: isHidden ? 'hidden' : 'visible', pointerEvents: 'none' }}
+        style={{
+          background: 'transparent',
+          position: 'relative',
+          zIndex: 1,
+          visibility: isHidden ? 'hidden' : 'visible',
+          pointerEvents: 'none',
+        }}
         onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
         frameloop={isHidden ? 'never' : 'always'}
       >
@@ -112,5 +202,5 @@ export function ViewerPage() {
         {nodeId && <CameraEffects forceNodeId={nodeId} />}
       </Canvas>
     </div>
-  )
+  );
 }

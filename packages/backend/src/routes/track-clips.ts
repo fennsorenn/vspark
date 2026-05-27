@@ -116,7 +116,9 @@ function loadClip(clipId: string) {
 router.get('/scenes/:sceneId/track-clips', (req, res) => {
   const db = getDb();
   const clips = db
-    .prepare('SELECT * FROM track_clips WHERE root_scene_node_id = ? ORDER BY created_at')
+    .prepare(
+      'SELECT * FROM track_clips WHERE root_scene_node_id = ? ORDER BY created_at'
+    )
     .all(req.params.sceneId) as ClipRow[];
   const data = clips.map((c) => loadClip(c.id)).filter((c) => c != null);
   res.json({ ok: true, data });
@@ -167,16 +169,14 @@ router.post('/scenes/:sceneId/track-clips', (req, res) => {
   const { id, name, duration, loop, mode, autoplay, ownerKind, ownerId } =
     req.body ?? {};
   if (!name) {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'name is required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'name is required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
   const clipId = id ?? randomUUID();
   const resolvedOwnerKind = ownerKind ?? 'scene';
@@ -252,16 +252,14 @@ router.put('/track-clips/:id', (req, res) => {
   }
   const data = loadClip(id);
   if (!data)
-    return res
-      .status(404)
-      .json({
-        ok: false,
-        error: {
-          status: 404,
-          message: 'track clip not found',
-          code: 'NOT_FOUND',
-        },
-      });
+    return res.status(404).json({
+      ok: false,
+      error: {
+        status: 404,
+        message: 'track clip not found',
+        code: 'NOT_FOUND',
+      },
+    });
   _ws?.broadcast('track_clip_updated', data as Record<string, unknown>);
   res.json({ ok: true, data });
 });
@@ -305,16 +303,14 @@ router.post('/track-clips/:clipId/lanes', (req, res) => {
   const clipId = req.params.clipId;
   const { id, targetKind, targetId, paramPath, defaultValue } = req.body ?? {};
   if (!targetKind || !targetId || !paramPath) {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'targetKind, targetId, paramPath required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'targetKind, targetId, paramPath required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
   const laneId = id ?? randomUUID();
   getDb()
@@ -381,12 +377,10 @@ router.put('/track-clip-lanes/:id', (req, res) => {
     .prepare('SELECT * FROM track_clip_lanes WHERE id = ?')
     .get(id) as LaneRow | undefined;
   if (!row)
-    return res
-      .status(404)
-      .json({
-        ok: false,
-        error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' },
-      });
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' },
+    });
   const kfs = getDb()
     .prepare('SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t')
     .all(id) as KeyframeRow[];
@@ -459,12 +453,10 @@ router.put('/track-clip-lanes/:id/keyframes', (req, res) => {
     .prepare('SELECT id FROM track_clip_lanes WHERE id = ?')
     .get(laneId) as { id: string } | undefined;
   if (!laneRow) {
-    return res
-      .status(404)
-      .json({
-        ok: false,
-        error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' },
-      });
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' },
+    });
   }
 
   db.prepare('DELETE FROM track_clip_keyframes WHERE lane_id = ?').run(laneId);
@@ -512,16 +504,14 @@ router.put('/track-clip-lanes/:id/keyframes', (req, res) => {
  */
 router.post('/track-clips/:id/trigger', (req, res) => {
   if (!_trackClipPlayback) {
-    return res
-      .status(503)
-      .json({
-        ok: false,
-        error: {
-          status: 503,
-          message: 'playback manager not ready',
-          code: 'NOT_READY',
-        },
-      });
+    return res.status(503).json({
+      ok: false,
+      error: {
+        status: 503,
+        message: 'playback manager not ready',
+        code: 'NOT_READY',
+      },
+    });
   }
   _trackClipPlayback.trigger(req.params.id);
   res.json({ ok: true, data: { id: req.params.id } });
@@ -540,16 +530,14 @@ router.post('/track-clips/:id/trigger', (req, res) => {
  */
 router.post('/track-clips/:id/stop', (req, res) => {
   if (!_trackClipPlayback) {
-    return res
-      .status(503)
-      .json({
-        ok: false,
-        error: {
-          status: 503,
-          message: 'playback manager not ready',
-          code: 'NOT_READY',
-        },
-      });
+    return res.status(503).json({
+      ok: false,
+      error: {
+        status: 503,
+        message: 'playback manager not ready',
+        code: 'NOT_READY',
+      },
+    });
   }
   _trackClipPlayback.stop(req.params.id);
   res.json({ ok: true, data: { id: req.params.id } });
@@ -568,16 +556,14 @@ router.post('/track-clips/:id/stop', (req, res) => {
  */
 router.post('/track-clips/:id/pause', (req, res) => {
   if (!_trackClipPlayback) {
-    return res
-      .status(503)
-      .json({
-        ok: false,
-        error: {
-          status: 503,
-          message: 'playback manager not ready',
-          code: 'NOT_READY',
-        },
-      });
+    return res.status(503).json({
+      ok: false,
+      error: {
+        status: 503,
+        message: 'playback manager not ready',
+        code: 'NOT_READY',
+      },
+    });
   }
   _trackClipPlayback.pause(req.params.id);
   res.json({ ok: true, data: { id: req.params.id } });
@@ -596,16 +582,14 @@ router.post('/track-clips/:id/pause', (req, res) => {
  */
 router.post('/track-clips/:id/resume', (req, res) => {
   if (!_trackClipPlayback) {
-    return res
-      .status(503)
-      .json({
-        ok: false,
-        error: {
-          status: 503,
-          message: 'playback manager not ready',
-          code: 'NOT_READY',
-        },
-      });
+    return res.status(503).json({
+      ok: false,
+      error: {
+        status: 503,
+        message: 'playback manager not ready',
+        code: 'NOT_READY',
+      },
+    });
   }
   _trackClipPlayback.resume(req.params.id);
   res.json({ ok: true, data: { id: req.params.id } });
@@ -632,29 +616,25 @@ router.post('/track-clips/:id/resume', (req, res) => {
  */
 router.post('/track-clips/:id/seek', (req, res) => {
   if (!_trackClipPlayback) {
-    return res
-      .status(503)
-      .json({
-        ok: false,
-        error: {
-          status: 503,
-          message: 'playback manager not ready',
-          code: 'NOT_READY',
-        },
-      });
+    return res.status(503).json({
+      ok: false,
+      error: {
+        status: 503,
+        message: 'playback manager not ready',
+        code: 'NOT_READY',
+      },
+    });
   }
   const t = Number(req.body?.t);
   if (!Number.isFinite(t)) {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 't (number) is required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 't (number) is required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
   _trackClipPlayback.seek(req.params.id, t);
   res.json({ ok: true, data: { id: req.params.id, t } });

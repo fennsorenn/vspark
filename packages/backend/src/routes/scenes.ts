@@ -40,7 +40,9 @@ router.get('/projects/:projectId/scenes', (req, res) => {
 
   // Scenes are now scene_nodes with kind='scene'
   const sceneRows = db
-    .prepare("SELECT * FROM scene_nodes WHERE project_id = ? AND kind = 'scene'")
+    .prepare(
+      "SELECT * FROM scene_nodes WHERE project_id = ? AND kind = 'scene'"
+    )
     .all(projectId) as { id: string; name: string; properties: string }[];
 
   // Map scene_node rows to the shape the frontend expects (id, name, runtime_settings)
@@ -58,26 +60,42 @@ router.get('/projects/:projectId/scenes', (req, res) => {
   for (const s of sceneRows) {
     // Child nodes belong to this scene via root_scene_node_id (excludes the scene node itself)
     const sceneNodes = db
-      .prepare("SELECT * FROM scene_nodes WHERE root_scene_node_id = ? AND kind != 'scene'")
+      .prepare(
+        "SELECT * FROM scene_nodes WHERE root_scene_node_id = ? AND kind != 'scene'"
+      )
       .all(s.id);
     nodes.push(...sceneNodes);
 
     for (const n of sceneNodes as { id: string }[]) {
-      const comps = db.prepare('SELECT * FROM node_components WHERE node_id = ? ORDER BY sort_order').all(n.id);
+      const comps = db
+        .prepare(
+          'SELECT * FROM node_components WHERE node_id = ? ORDER BY sort_order'
+        )
+        .all(n.id);
       nodeComponents.push(...comps);
-      const effects = db.prepare('SELECT * FROM camera_effects WHERE node_id = ?').all(n.id);
+      const effects = db
+        .prepare('SELECT * FROM camera_effects WHERE node_id = ?')
+        .all(n.id);
       cameraEffects.push(...effects);
     }
 
     // Track clips: include nested lanes + keyframes so the frontend gets a complete tree
     const clips = db
-      .prepare('SELECT * FROM track_clips WHERE root_scene_node_id = ? ORDER BY created_at')
+      .prepare(
+        'SELECT * FROM track_clips WHERE root_scene_node_id = ? ORDER BY created_at'
+      )
       .all(s.id) as { id: string }[];
     for (const c of clips) {
-      const lanes = db.prepare('SELECT * FROM track_clip_lanes WHERE clip_id = ?').all(c.id) as { id: string }[];
+      const lanes = db
+        .prepare('SELECT * FROM track_clip_lanes WHERE clip_id = ?')
+        .all(c.id) as { id: string }[];
       const lanesWithKfs = lanes.map((lane) => ({
         ...lane,
-        keyframes: db.prepare('SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t').all(lane.id),
+        keyframes: db
+          .prepare(
+            'SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t'
+          )
+          .all(lane.id),
       }));
       trackClips.push({ ...c, lanes: lanesWithKfs });
     }
@@ -85,10 +103,22 @@ router.get('/projects/:projectId/scenes', (req, res) => {
 
   // Compose layers are now project-scoped, not scene-scoped
   const composeLayers = db
-    .prepare('SELECT * FROM compose_layers WHERE project_id = ? ORDER BY scene_order DESC, camera_order ASC')
+    .prepare(
+      'SELECT * FROM compose_layers WHERE project_id = ? ORDER BY scene_order DESC, camera_order ASC'
+    )
     .all(projectId);
 
-  res.json({ ok: true, data: { scenes, nodes, nodeComponents, cameraEffects, composeLayers, trackClips } });
+  res.json({
+    ok: true,
+    data: {
+      scenes,
+      nodes,
+      nodeComponents,
+      cameraEffects,
+      composeLayers,
+      trackClips,
+    },
+  });
 });
 
 /**
@@ -113,7 +143,17 @@ router.get('/projects/:projectId/scenes', (req, res) => {
  */
 router.post('/projects/:projectId/scenes', (req, res) => {
   const { name } = req.body;
-  if (!name) return res.status(400).json({ ok: false, error: { status: 400, message: 'name is required', code: 'VALIDATION_ERROR' } });
+  if (!name)
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        error: {
+          status: 400,
+          message: 'name is required',
+          code: 'VALIDATION_ERROR',
+        },
+      });
 
   const id = randomUUID();
   const projectId = req.params.projectId;
@@ -126,7 +166,9 @@ router.post('/projects/:projectId/scenes', (req, res) => {
     )
     .run(id, id, projectId, name);
 
-  res.status(201).json({ ok: true, data: { id, name, runtime_settings: '{}' } });
+  res
+    .status(201)
+    .json({ ok: true, data: { id, name, runtime_settings: '{}' } });
 });
 
 /**
@@ -155,26 +197,42 @@ router.put('/scenes/:sceneId', (req, res) => {
 
   // The sceneId is now a scene_node ID with kind='scene'
   const row = db
-    .prepare("SELECT id, properties FROM scene_nodes WHERE id = ? AND kind = 'scene'")
+    .prepare(
+      "SELECT id, properties FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+    )
     .get(sceneId) as { id: string; properties: string } | undefined;
 
   if (!row) {
-    return res.status(404).json({ ok: false, error: { status: 404, message: 'scene not found', code: 'NOT_FOUND' } });
+    return res
+      .status(404)
+      .json({
+        ok: false,
+        error: { status: 404, message: 'scene not found', code: 'NOT_FOUND' },
+      });
   }
 
-  const { name, runtimeSettings } = req.body as { name?: string; runtimeSettings?: Record<string, unknown> };
+  const { name, runtimeSettings } = req.body as {
+    name?: string;
+    runtimeSettings?: Record<string, unknown>;
+  };
 
   if (name != null) {
-    db.prepare(`UPDATE scene_nodes SET name = ?, updated_at = datetime('now') WHERE id = ?`).run(name, sceneId);
+    db.prepare(
+      `UPDATE scene_nodes SET name = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(name, sceneId);
   }
 
   let settingsChanged = false;
   if (runtimeSettings && typeof runtimeSettings === 'object') {
     // Merge runtimeSettings into the node's properties JSON
-    const currentProps = JSON.parse(row.properties || '{}') as Record<string, unknown>;
+    const currentProps = JSON.parse(row.properties || '{}') as Record<
+      string,
+      unknown
+    >;
     const merged = { ...currentProps, ...runtimeSettings };
-    db.prepare(`UPDATE scene_nodes SET properties = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(JSON.stringify(merged), sceneId);
+    db.prepare(
+      `UPDATE scene_nodes SET properties = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(JSON.stringify(merged), sceneId);
     settingsChanged = true;
   }
 
@@ -183,7 +241,9 @@ router.put('/scenes/:sceneId', (req, res) => {
   const patch: Record<string, unknown> = { id: sceneId };
   if (name != null) patch.name = name;
   if (settingsChanged) {
-    const updated = db.prepare('SELECT properties FROM scene_nodes WHERE id = ?').get(sceneId) as { properties: string };
+    const updated = db
+      .prepare('SELECT properties FROM scene_nodes WHERE id = ?')
+      .get(sceneId) as { properties: string };
     patch.runtimeSettings = JSON.parse(updated.properties || '{}');
   }
   _ws?.broadcast('scene_updated', patch);

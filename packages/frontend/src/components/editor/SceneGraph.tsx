@@ -1099,7 +1099,7 @@ export function SceneGraph() {
   const toggleBones = (id: string) =>
     setBoneListExpanded(id, !(boneListExpanded[id] ?? false));
 
-  const sceneNodes = nodes.filter((n) => n.sceneId === activeSceneId);
+  const sceneNodes = nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
   const composeEnabled = sceneNodes.some((n) => n.kind === 'camera');
 
   // Auto-fall back to Scene tab if the Compose tab gets disabled (last camera deleted).

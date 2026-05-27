@@ -18,7 +18,9 @@ const router: ReturnType<typeof Router> = Router();
  */
 router.get('/scenes/:sceneId/nodes', (req, res) => {
   const data = getDb()
-    .prepare("SELECT * FROM scene_nodes WHERE root_scene_node_id = ? AND kind != 'scene'")
+    .prepare(
+      "SELECT * FROM scene_nodes WHERE root_scene_node_id = ? AND kind != 'scene'"
+    )
     .all(req.params.sceneId);
   res.json({ ok: true, data });
 });
@@ -51,29 +53,27 @@ router.post('/scenes/:sceneId/nodes', (req, res) => {
     properties,
   } = req.body;
   if (!name || !kind)
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'name and kind are required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'name and kind are required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   const id = randomUUID();
   const rootSceneNodeId = req.params.sceneId;
   const db = getDb();
   const sceneRow = db
-    .prepare("SELECT project_id FROM scene_nodes WHERE id = ? AND kind = 'scene'")
+    .prepare(
+      "SELECT project_id FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+    )
     .get(rootSceneNodeId) as { project_id: string } | undefined;
   if (!sceneRow)
-    return res
-      .status(404)
-      .json({
-        ok: false,
-        error: { status: 404, message: 'scene not found', code: 'NOT_FOUND' },
-      });
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'scene not found', code: 'NOT_FOUND' },
+    });
   db.prepare(
     'INSERT INTO scene_nodes (id, project_id, root_scene_node_id, parent_id, bone_attachment, name, kind, file_path, components, properties) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(

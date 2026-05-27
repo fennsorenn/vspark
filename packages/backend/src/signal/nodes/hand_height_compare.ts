@@ -1,12 +1,16 @@
-import { SignalNode, valuePort } from '@vspark/shared/signal'
-import type { InputsOf, OutputsOf, NodeExecutionContext } from '@vspark/shared/signal'
+import { SignalNode, valuePort } from '@vspark/shared/signal';
+import type {
+  InputsOf,
+  OutputsOf,
+  NodeExecutionContext,
+} from '@vspark/shared/signal';
 
-type Landmark = { x: number; y: number; z: number; visibility?: number }
+type Landmark = { x: number; y: number; z: number; visibility?: number };
 
 // BlazePose wrist indices.
-const LEFT_WRIST  = 15
-const RIGHT_WRIST = 16
-const MIN_VIS     = 0.5
+const LEFT_WRIST = 15;
+const RIGHT_WRIST = 16;
+const MIN_VIS = 0.5;
 
 /**
  * Compares the vertical positions of the left and right wrist landmarks and outputs
@@ -19,33 +23,34 @@ const MIN_VIS     = 0.5
  * Returns 'left', 'right', or null (when neither wrist is reliably visible).
  */
 @SignalNode({
-  label:       'Hand Height Compare',
-  description: 'Outputs which wrist (left/right) is currently higher in the pose landmarks. Useful for one-hand calibration where the higher hand is the user-chosen reference.',
-  tags:        ['tracking'],
-  color:       '#2a4a6a',
+  label: 'Hand Height Compare',
+  description:
+    'Outputs which wrist (left/right) is currently higher in the pose landmarks. Useful for one-hand calibration where the higher hand is the user-chosen reference.',
+  tags: ['tracking'],
+  color: '#2a4a6a',
 })
 export class HandHeightCompare {
-  static readonly kind        = 'hand_height_compare'
-  static readonly inputPorts  = [valuePort('pose', 'LandmarkList')] as const
-  static readonly outputPorts = [valuePort('side', 'String')] as const
+  static readonly kind = 'hand_height_compare';
+  static readonly inputPorts = [valuePort('pose', 'LandmarkList')] as const;
+  static readonly outputPorts = [valuePort('side', 'String')] as const;
 
   static execute(
     inputs: InputsOf<typeof HandHeightCompare>,
     _config: unknown,
-    _ctx: NodeExecutionContext,
+    _ctx: NodeExecutionContext
   ): OutputsOf<typeof HandHeightCompare> {
-    const pts = inputs.pose as Landmark[] | undefined
-    if (!pts || pts.length < 17) return { side: null as unknown as string }
+    const pts = inputs.pose as Landmark[] | undefined;
+    if (!pts || pts.length < 17) return { side: null as unknown as string };
 
-    const lw = pts[LEFT_WRIST]
-    const rw = pts[RIGHT_WRIST]
-    const lOk = (lw.visibility ?? 1) >= MIN_VIS
-    const rOk = (rw.visibility ?? 1) >= MIN_VIS
+    const lw = pts[LEFT_WRIST];
+    const rw = pts[RIGHT_WRIST];
+    const lOk = (lw.visibility ?? 1) >= MIN_VIS;
+    const rOk = (rw.visibility ?? 1) >= MIN_VIS;
 
-    if (!lOk && !rOk) return { side: null as unknown as string }
-    if (lOk && !rOk)  return { side: 'left' }
-    if (rOk && !lOk)  return { side: 'right' }
+    if (!lOk && !rOk) return { side: null as unknown as string };
+    if (lOk && !rOk) return { side: 'left' };
+    if (rOk && !lOk) return { side: 'right' };
     // Both visible — smaller raw Y means higher in image space.
-    return { side: lw.y < rw.y ? 'left' : 'right' }
+    return { side: lw.y < rw.y ? 'left' : 'right' };
   }
 }

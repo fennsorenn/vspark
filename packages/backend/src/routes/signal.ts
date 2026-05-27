@@ -7,16 +7,22 @@ const router: ReturnType<typeof Router> = Router();
 
 function _allGraphDescriptors() {
   return [
-    ...(_vmc?.getAllGraphDescriptors()       ?? []),
+    ...(_vmc?.getAllGraphDescriptors() ?? []),
     ...(_breathing?.getAllGraphDescriptors() ?? []),
-    ...(_lipsync?.getAllGraphDescriptors()   ?? []),
-    ...(_tracking?.getAllGraphDescriptors()  ?? []),
+    ...(_lipsync?.getAllGraphDescriptors() ?? []),
+    ...(_tracking?.getAllGraphDescriptors() ?? []),
   ];
 }
 
 function _stripPrefix(graphId: string): string {
-  const prefixes = ['vmc-pipeline:', 'breathing:', 'lipsync:', 'mediapipe_tracker:'];
-  for (const p of prefixes) if (graphId.startsWith(p)) return graphId.slice(p.length);
+  const prefixes = [
+    'vmc-pipeline:',
+    'breathing:',
+    'lipsync:',
+    'mediapipe_tracker:',
+  ];
+  for (const p of prefixes)
+    if (graphId.startsWith(p)) return graphId.slice(p.length);
   return graphId;
 }
 
@@ -47,7 +53,13 @@ router.get('/signal/graphs', (_req, res) => {
  */
 router.get('/signal/graphs/:id', (req, res) => {
   const graph = _allGraphDescriptors().find((g) => g.id === req.params.id);
-  if (!graph) return res.status(404).json({ ok: false, error: { status: 404, message: 'not found', code: 'NOT_FOUND' } });
+  if (!graph)
+    return res
+      .status(404)
+      .json({
+        ok: false,
+        error: { status: 404, message: 'not found', code: 'NOT_FOUND' },
+      });
   res.json({ ok: true, data: graph });
 });
 
@@ -64,19 +76,27 @@ router.get('/signal/graphs/:id', (req, res) => {
  *       404: { description: Graph not active, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
 router.get('/signal/graphs/:id/node-states', (req, res) => {
-  const graphId     = req.params.id;
+  const graphId = req.params.id;
   // Standalone project graphs use bare UUIDs (no prefix). Try those first.
   if (!graphId.includes(':')) {
     const pgStates = projectGraphManager.getStates(graphId);
     if (pgStates) return res.json({ ok: true, data: pgStates });
   }
   const componentId = _stripPrefix(graphId);
-  const states =
-    graphId.startsWith('breathing:')         ? _breathing?.getStates(componentId) :
-    graphId.startsWith('lipsync:')           ? _lipsync?.getStates(componentId) :
-    graphId.startsWith('mediapipe_tracker:') ? _tracking?.getStates(componentId) :
-    _vmc?.getStates(componentId);
-  if (!states) return res.status(404).json({ ok: false, error: { status: 404, message: 'not found', code: 'NOT_FOUND' } });
+  const states = graphId.startsWith('breathing:')
+    ? _breathing?.getStates(componentId)
+    : graphId.startsWith('lipsync:')
+      ? _lipsync?.getStates(componentId)
+      : graphId.startsWith('mediapipe_tracker:')
+        ? _tracking?.getStates(componentId)
+        : _vmc?.getStates(componentId);
+  if (!states)
+    return res
+      .status(404)
+      .json({
+        ok: false,
+        error: { status: 404, message: 'not found', code: 'NOT_FOUND' },
+      });
   res.json({ ok: true, data: states });
 });
 
@@ -99,10 +119,19 @@ router.get('/signal/graphs/:id/node-states', (req, res) => {
  *       503: { description: Target manager not ready, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
 router.post('/signal/graphs/:id/fire', (req, res) => {
-  const graphId     = req.params.id;
+  const graphId = req.params.id;
   const { nodeId, port } = req.body as { nodeId?: string; port?: string };
   if (!nodeId || !port) {
-    return res.status(400).json({ ok: false, error: { status: 400, message: 'nodeId and port are required', code: 'VALIDATION_ERROR' } });
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        error: {
+          status: 400,
+          message: 'nodeId and port are required',
+          code: 'VALIDATION_ERROR',
+        },
+      });
   }
   // Standalone project graphs fire through the ProjectGraphManager.
   if (!graphId.includes(':')) {
@@ -111,11 +140,31 @@ router.post('/signal/graphs/:id/fire', (req, res) => {
   }
   const componentId = _stripPrefix(graphId);
   if (graphId.startsWith('mediapipe_tracker:')) {
-    if (!_tracking) return res.status(503).json({ ok: false, error: { status: 503, message: 'Tracking manager not ready', code: 'NOT_READY' } });
+    if (!_tracking)
+      return res
+        .status(503)
+        .json({
+          ok: false,
+          error: {
+            status: 503,
+            message: 'Tracking manager not ready',
+            code: 'NOT_READY',
+          },
+        });
     _tracking.fireGraphEvent(componentId, nodeId, port);
     return res.json({ ok: true });
   }
-  if (!_vmc) return res.status(503).json({ ok: false, error: { status: 503, message: 'VMC manager not ready', code: 'NOT_READY' } });
+  if (!_vmc)
+    return res
+      .status(503)
+      .json({
+        ok: false,
+        error: {
+          status: 503,
+          message: 'VMC manager not ready',
+          code: 'NOT_READY',
+        },
+      });
   _vmc.fireGraphEvent(componentId, nodeId, port);
   res.json({ ok: true });
 });

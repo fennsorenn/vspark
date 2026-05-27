@@ -99,25 +99,16 @@ router.get('/projects/:projectId/compose-scenes', (req, res) => {
  */
 router.post('/projects/:projectId/compose-scenes', (req, res) => {
   const projectId = req.params.projectId;
-  const {
-    id,
-    name,
-    config,
-    width,
-    height,
-    visible,
-  } = req.body ?? {};
+  const { id, name, config, width, height, visible } = req.body ?? {};
   if (!name) {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'name is required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'name is required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
   const layerId = id ?? randomUUID();
   const db = getDb();
@@ -203,16 +194,14 @@ router.post('/compose-scenes/:composeSceneId/layers', (req, res) => {
     .prepare('SELECT * FROM compose_layers WHERE id = ?')
     .get(composeSceneId) as LayerRow | undefined;
   if (!composeScene) {
-    return res
-      .status(404)
-      .json({
-        ok: false,
-        error: {
-          status: 404,
-          message: 'compose scene not found',
-          code: 'NOT_FOUND',
-        },
-      });
+    return res.status(404).json({
+      ok: false,
+      error: {
+        status: 404,
+        message: 'compose scene not found',
+        code: 'NOT_FOUND',
+      },
+    });
   }
 
   const {
@@ -235,16 +224,14 @@ router.post('/compose-scenes/:composeSceneId/layers', (req, res) => {
     visible,
   } = req.body ?? {};
   if (!kind || !name) {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'name and kind are required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'name and kind are required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
   const layerId = id ?? randomUUID();
 
@@ -379,16 +366,14 @@ router.put('/compose-layers/:id', (req, res) => {
     .prepare('SELECT * FROM compose_layers WHERE id = ?')
     .get(id) as LayerRow | undefined;
   if (!row)
-    return res
-      .status(404)
-      .json({
-        ok: false,
-        error: {
-          status: 404,
-          message: 'compose layer not found',
-          code: 'NOT_FOUND',
-        },
-      });
+    return res.status(404).json({
+      ok: false,
+      error: {
+        status: 404,
+        message: 'compose layer not found',
+        code: 'NOT_FOUND',
+      },
+    });
   const data = rowToLayer(row);
   _ws?.broadcast('compose_layer_updated', data);
   res.json({ ok: true, data });
@@ -435,13 +420,17 @@ router.delete('/compose-layers/:id', (req, res) => {
           `SELECT MAX(scene_order) AS s FROM compose_layers
          WHERE root_compose_scene_id = ? AND camera_node_id IS NULL AND scene_order < ?`
         )
-        .get(row.root_compose_scene_id, row.scene_order) as { s: number | null };
+        .get(row.root_compose_scene_id, row.scene_order) as {
+        s: number | null;
+      };
       const higher = db
         .prepare(
           `SELECT MIN(scene_order) AS s FROM compose_layers
          WHERE root_compose_scene_id = ? AND camera_node_id IS NULL AND scene_order > ?`
         )
-        .get(row.root_compose_scene_id, row.scene_order) as { s: number | null };
+        .get(row.root_compose_scene_id, row.scene_order) as {
+        s: number | null;
+      };
       const newSceneOrder = lower?.s ?? higher?.s ?? 0; // 0 = SCENE_RENDER_SLOT fallback
       for (const cr of camRows) {
         db.prepare(
@@ -484,16 +473,14 @@ router.post('/compose-layers/reorder', (req, res) => {
     cameraOrder: number;
   }[];
   if (!Array.isArray(updates) || updates.length === 0) {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'updates required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'updates required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
   const db = getDb();
   for (const u of updates) {

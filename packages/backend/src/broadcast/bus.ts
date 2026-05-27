@@ -1,30 +1,30 @@
-import type { AnimationBlendMode } from '@vspark/shared'
-import { Blendshapes, NormalizedPose, Quaternion } from '@vspark/shared/signal'
-import type { VRMBoneName } from '@vspark/shared/signal'
-import { getDb } from '../db/index.js'
-import type { WSSync } from '../ws/index.js'
-import { poseInterceptorRegistry } from '../signal/pose_interceptor_registry.js'
+import type { AnimationBlendMode } from '@vspark/shared';
+import { Blendshapes, NormalizedPose, Quaternion } from '@vspark/shared/signal';
+import type { VRMBoneName } from '@vspark/shared/signal';
+import { getDb } from '../db/index.js';
+import type { WSSync } from '../ws/index.js';
+import { poseInterceptorRegistry } from '../signal/pose_interceptor_registry.js';
 
-const DEFAULT_TICK_HZ = 60
-const MIN_TICK_HZ = 1
-const MAX_TICK_HZ = 240
+const DEFAULT_TICK_HZ = 60;
+const MIN_TICK_HZ = 1;
+const MAX_TICK_HZ = 240;
 
 interface BoneSlot {
-  pose: NormalizedPose
-  priority: number
-  animationBlendMode: AnimationBlendMode
+  pose: NormalizedPose;
+  priority: number;
+  animationBlendMode: AnimationBlendMode;
 }
 
 interface BlendshapeSlot {
-  blendshapes: Blendshapes
+  blendshapes: Blendshapes;
 }
 
 /** Per-(sceneNodeId, componentId) slot state held by the bus. */
 interface ProducerSlots {
   /** Most recent bone publication, if any. */
-  bones?: BoneSlot
+  bones?: BoneSlot;
   /** Most recent blendshapes publication, if any. */
-  blendshapes?: BlendshapeSlot
+  blendshapes?: BlendshapeSlot;
 }
 
 /**
@@ -40,37 +40,46 @@ interface ProducerSlots {
  * tracking source is firing.
  */
 export class BroadcastBus {
-  private _ws: WSSync | null = null
+  private _ws: WSSync | null = null;
 
   /** sceneId → setInterval handle */
-  private readonly _timers     = new Map<string, NodeJS.Timeout>()
+  private readonly _timers = new Map<string, NodeJS.Timeout>();
   /** sceneId → current tick rate */
-  private readonly _tickRates  = new Map<string, number>()
+  private readonly _tickRates = new Map<string, number>();
   /** sceneId → sceneNodeId → componentId → slots */
-  private readonly _slots      = new Map<string, Map<string, Map<string, ProducerSlots>>>()
+  private readonly _slots = new Map<
+    string,
+    Map<string, Map<string, ProducerSlots>>
+  >();
   /** sceneNodeId → sceneId (lookup cache; populated on first publish) */
-  private readonly _nodeScene  = new Map<string, string>()
+  private readonly _nodeScene = new Map<string, string>();
 
-  init(ws: WSSync): void { this._ws = ws }
+  init(ws: WSSync): void {
+    this._ws = ws;
+  }
 
   /** Publish bone pose for (sceneNodeId, componentId). Slot is fully replaced. */
   publishBones(
-    sceneNodeId:        string,
-    componentId:        string,
-    pose:               NormalizedPose,
-    priority:           number,
-    animationBlendMode: AnimationBlendMode,
+    sceneNodeId: string,
+    componentId: string,
+    pose: NormalizedPose,
+    priority: number,
+    animationBlendMode: AnimationBlendMode
   ): void {
-    const slot = this._slot(sceneNodeId, componentId)
-    if (!slot) return
-    slot.bones = { pose, priority, animationBlendMode }
+    const slot = this._slot(sceneNodeId, componentId);
+    if (!slot) return;
+    slot.bones = { pose, priority, animationBlendMode };
   }
 
   /** Publish blendshapes for (sceneNodeId, componentId). Slot is fully replaced. */
-  publishBlendshapes(sceneNodeId: string, componentId: string, blendshapes: Blendshapes): void {
-    const slot = this._slot(sceneNodeId, componentId)
-    if (!slot) return
-    slot.blendshapes = { blendshapes }
+  publishBlendshapes(
+    sceneNodeId: string,
+    componentId: string,
+    blendshapes: Blendshapes
+  ): void {
+    const slot = this._slot(sceneNodeId, componentId);
+    if (!slot) return;
+    slot.blendshapes = { blendshapes };
   }
 
   /** Drop all slots belonging to a component (call when the component is deleted/recreated,
@@ -83,12 +92,12 @@ export class BroadcastBus {
   removeComponent(componentId: string): void {
     for (const sceneMap of this._slots.values()) {
       for (const [sceneNodeId, nodeMap] of sceneMap) {
-        if (!nodeMap.has(componentId)) continue
-        nodeMap.delete(componentId)
+        if (!nodeMap.has(componentId)) continue;
+        nodeMap.delete(componentId);
         if (nodeMap.size === 0) {
-          this._emitFallback(sceneNodeId)
-          sceneMap.delete(sceneNodeId)
-          this._pendingModes.delete(sceneNodeId)
+          this._emitFallback(sceneNodeId);
+          sceneMap.delete(sceneNodeId);
+          this._pendingModes.delete(sceneNodeId);
         }
       }
     }
@@ -96,14 +105,14 @@ export class BroadcastBus {
 
   private _emitFallback(sceneNodeId: string): void {
     this._ws?.broadcast('vmc_pose', {
-      nodeId:             sceneNodeId,
-      bones:              {},
+      nodeId: sceneNodeId,
+      bones: {},
       animationBlendMode: 'additive' as AnimationBlendMode,
-    })
+    });
     this._ws?.broadcast('vmc_blendshapes', {
-      nodeId:      sceneNodeId,
+      nodeId: sceneNodeId,
       blendshapes: {},
-    })
+    });
   }
 
   /**
@@ -111,138 +120,160 @@ export class BroadcastBus {
    * Pass `undefined` to use the default rate.
    */
   setSceneTickRate(sceneId: string, hz: number | undefined): void {
-    const clamped = _clampHz(hz ?? DEFAULT_TICK_HZ)
-    const current = this._tickRates.get(sceneId)
-    if (current === clamped && this._timers.has(sceneId)) return
-    this._stopScene(sceneId)
-    this._tickRates.set(sceneId, clamped)
-    this._startScene(sceneId, clamped)
+    const clamped = _clampHz(hz ?? DEFAULT_TICK_HZ);
+    const current = this._tickRates.get(sceneId);
+    if (current === clamped && this._timers.has(sceneId)) return;
+    this._stopScene(sceneId);
+    this._tickRates.set(sceneId, clamped);
+    this._startScene(sceneId, clamped);
   }
 
   /** Stop all per-scene timers (used at shutdown). */
   stop(): void {
-    for (const sceneId of Array.from(this._timers.keys())) this._stopScene(sceneId)
+    for (const sceneId of Array.from(this._timers.keys()))
+      this._stopScene(sceneId);
   }
 
-  private _slot(sceneNodeId: string, componentId: string): ProducerSlots | null {
-    const sceneId = this._resolveSceneId(sceneNodeId)
-    if (!sceneId) return null
-    let sceneMap = this._slots.get(sceneId)
-    if (!sceneMap) { sceneMap = new Map(); this._slots.set(sceneId, sceneMap) }
-    let nodeMap = sceneMap.get(sceneNodeId)
-    if (!nodeMap) { nodeMap = new Map(); sceneMap.set(sceneNodeId, nodeMap) }
-    let slot = nodeMap.get(componentId)
-    if (!slot) { slot = {}; nodeMap.set(componentId, slot) }
+  private _slot(
+    sceneNodeId: string,
+    componentId: string
+  ): ProducerSlots | null {
+    const sceneId = this._resolveSceneId(sceneNodeId);
+    if (!sceneId) return null;
+    let sceneMap = this._slots.get(sceneId);
+    if (!sceneMap) {
+      sceneMap = new Map();
+      this._slots.set(sceneId, sceneMap);
+    }
+    let nodeMap = sceneMap.get(sceneNodeId);
+    if (!nodeMap) {
+      nodeMap = new Map();
+      sceneMap.set(sceneNodeId, nodeMap);
+    }
+    let slot = nodeMap.get(componentId);
+    if (!slot) {
+      slot = {};
+      nodeMap.set(componentId, slot);
+    }
     // Lazily start the scene ticker the first time it sees activity.
     if (!this._timers.has(sceneId)) {
-      const hz = this._tickRates.get(sceneId) ?? this._loadSceneTickHz(sceneId)
-      this._tickRates.set(sceneId, hz)
-      this._startScene(sceneId, hz)
+      const hz = this._tickRates.get(sceneId) ?? this._loadSceneTickHz(sceneId);
+      this._tickRates.set(sceneId, hz);
+      this._startScene(sceneId, hz);
     }
-    return slot
+    return slot;
   }
 
   private _resolveSceneId(sceneNodeId: string): string | null {
-    const cached = this._nodeScene.get(sceneNodeId)
-    if (cached) return cached
-    const row = getDb().prepare('SELECT root_scene_node_id FROM scene_nodes WHERE id = ?').get(sceneNodeId) as
-      | { root_scene_node_id: string }
-      | undefined
-    if (!row?.root_scene_node_id) return null
-    this._nodeScene.set(sceneNodeId, row.root_scene_node_id)
-    return row.root_scene_node_id
+    const cached = this._nodeScene.get(sceneNodeId);
+    if (cached) return cached;
+    const row = getDb()
+      .prepare('SELECT root_scene_node_id FROM scene_nodes WHERE id = ?')
+      .get(sceneNodeId) as { root_scene_node_id: string } | undefined;
+    if (!row?.root_scene_node_id) return null;
+    this._nodeScene.set(sceneNodeId, row.root_scene_node_id);
+    return row.root_scene_node_id;
   }
 
   private _loadSceneTickHz(sceneId: string): number {
-    const row = getDb().prepare("SELECT properties FROM scene_nodes WHERE id = ? AND kind = 'scene'").get(sceneId) as
-      | { properties: string }
-      | undefined
-    if (!row?.properties) return DEFAULT_TICK_HZ
+    const row = getDb()
+      .prepare(
+        "SELECT properties FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+      )
+      .get(sceneId) as { properties: string } | undefined;
+    if (!row?.properties) return DEFAULT_TICK_HZ;
     try {
-      const parsed = JSON.parse(row.properties) as { broadcastTickHz?: number }
-      return _clampHz(parsed.broadcastTickHz ?? DEFAULT_TICK_HZ)
+      const parsed = JSON.parse(row.properties) as { broadcastTickHz?: number };
+      return _clampHz(parsed.broadcastTickHz ?? DEFAULT_TICK_HZ);
     } catch {
-      return DEFAULT_TICK_HZ
+      return DEFAULT_TICK_HZ;
     }
   }
 
   private _startScene(sceneId: string, hz: number): void {
-    const intervalMs = 1000 / hz
-    const handle = setInterval(() => this._tick(sceneId), intervalMs)
-    this._timers.set(sceneId, handle)
+    const intervalMs = 1000 / hz;
+    const handle = setInterval(() => this._tick(sceneId), intervalMs);
+    this._timers.set(sceneId, handle);
   }
 
   private _stopScene(sceneId: string): void {
-    const h = this._timers.get(sceneId)
-    if (h) clearInterval(h)
-    this._timers.delete(sceneId)
+    const h = this._timers.get(sceneId);
+    if (h) clearInterval(h);
+    this._timers.delete(sceneId);
   }
 
   private _tick(sceneId: string): void {
-    const sceneMap = this._slots.get(sceneId)
-    if (!sceneMap || sceneMap.size === 0) return
+    const sceneMap = this._slots.get(sceneId);
+    if (!sceneMap || sceneMap.size === 0) return;
     for (const [sceneNodeId, nodeMap] of sceneMap) {
-      if (nodeMap.size === 0) continue
-      this._composeAndEmit(sceneNodeId, nodeMap)
+      if (nodeMap.size === 0) continue;
+      this._composeAndEmit(sceneNodeId, nodeMap);
     }
   }
 
-  private _composeAndEmit(sceneNodeId: string, nodeMap: Map<string, ProducerSlots>): void {
+  private _composeAndEmit(
+    sceneNodeId: string,
+    nodeMap: Map<string, ProducerSlots>
+  ): void {
     // Compose bones.
-    const boneSlots: BoneSlot[] = []
-    const bsSlots:   BlendshapeSlot[] = []
+    const boneSlots: BoneSlot[] = [];
+    const bsSlots: BlendshapeSlot[] = [];
     for (const slots of nodeMap.values()) {
-      if (slots.bones)       boneSlots.push(slots.bones)
-      if (slots.blendshapes) bsSlots.push(slots.blendshapes)
+      if (slots.bones) boneSlots.push(slots.bones);
+      if (slots.blendshapes) bsSlots.push(slots.blendshapes);
     }
 
     if (boneSlots.length > 0) {
-      const composed = _composeBones(boneSlots)
-      const mode = _resolveAnimationBlendMode(boneSlots)
+      const composed = _composeBones(boneSlots);
+      const mode = _resolveAnimationBlendMode(boneSlots);
       if (!poseInterceptorRegistry.start(sceneNodeId, composed)) {
-        this._emitPose(sceneNodeId, composed, mode)
+        this._emitPose(sceneNodeId, composed, mode);
       }
       // If interceptors handle it, they call broadcastMergedPose to finalize.
       // We store the resolved mode for the interceptor terminal to read.
-      this._pendingModes.set(sceneNodeId, mode)
+      this._pendingModes.set(sceneNodeId, mode);
     }
 
     if (bsSlots.length > 0) {
-      const merged = _composeBlendshapes(bsSlots)
+      const merged = _composeBlendshapes(bsSlots);
       this._ws?.broadcast('vmc_blendshapes', {
-        nodeId:      sceneNodeId,
+        nodeId: sceneNodeId,
         blendshapes: merged.toRecord(),
-      })
+      });
     }
   }
 
   /** Cached blend-mode-per-scene-node so interceptor terminals can include it on emit. */
-  private readonly _pendingModes = new Map<string, AnimationBlendMode>()
+  private readonly _pendingModes = new Map<string, AnimationBlendMode>();
 
   /** Called by interceptor terminal (pose_interceptor_broadcast) after the chain runs. */
   emitMergedPose(sceneNodeId: string, pose: NormalizedPose): void {
-    const mode = this._pendingModes.get(sceneNodeId) ?? 'override'
-    this._emitPose(sceneNodeId, pose, mode)
+    const mode = this._pendingModes.get(sceneNodeId) ?? 'override';
+    this._emitPose(sceneNodeId, pose, mode);
   }
 
-  private _emitPose(sceneNodeId: string, pose: NormalizedPose, mode: AnimationBlendMode): void {
+  private _emitPose(
+    sceneNodeId: string,
+    pose: NormalizedPose,
+    mode: AnimationBlendMode
+  ): void {
     this._ws?.broadcast('vmc_pose', {
-      nodeId:             sceneNodeId,
-      bones:              pose.toRecord(),
+      nodeId: sceneNodeId,
+      bones: pose.toRecord(),
       animationBlendMode: mode,
-    })
+    });
   }
 
   /** Notify the bus that a scene's runtime settings changed (e.g. via PUT /scenes/:id). */
   reloadSceneSettings(sceneId: string): void {
-    const hz = this._loadSceneTickHz(sceneId)
-    this.setSceneTickRate(sceneId, hz)
+    const hz = this._loadSceneTickHz(sceneId);
+    this.setSceneTickRate(sceneId, hz);
   }
 }
 
 function _clampHz(hz: number): number {
-  if (!Number.isFinite(hz)) return DEFAULT_TICK_HZ
-  return Math.max(MIN_TICK_HZ, Math.min(MAX_TICK_HZ, hz))
+  if (!Number.isFinite(hz)) return DEFAULT_TICK_HZ;
+  return Math.max(MIN_TICK_HZ, Math.min(MAX_TICK_HZ, hz));
 }
 
 /**
@@ -251,33 +282,35 @@ function _clampHz(hz: number): number {
  * Within a single slot, a bone's quaternion is taken as-is at that slot's step.
  */
 function _composeBones(slots: BoneSlot[]): NormalizedPose {
-  const sorted = [...slots].sort((a, b) => a.priority - b.priority)
-  const acc = new Map<VRMBoneName, Quaternion>()
+  const sorted = [...slots].sort((a, b) => a.priority - b.priority);
+  const acc = new Map<VRMBoneName, Quaternion>();
   for (const slot of sorted) {
     for (const [bone, q] of slot.pose.entries()) {
-      const existing = acc.get(bone)
-      acc.set(bone, existing ? q.multiply(existing) : q)
+      const existing = acc.get(bone);
+      acc.set(bone, existing ? q.multiply(existing) : q);
     }
   }
-  return new NormalizedPose(acc.entries())
+  return new NormalizedPose(acc.entries());
 }
 
 /** Compose blendshapes additively across slots, clamped to [0, 1]. */
 function _composeBlendshapes(slots: BlendshapeSlot[]): Blendshapes {
-  const sums = new Map<string, number>()
+  const sums = new Map<string, number>();
   for (const slot of slots) {
     for (const [name, value] of slot.blendshapes.entries()) {
-      sums.set(name, (sums.get(name) ?? 0) + value)
+      sums.set(name, (sums.get(name) ?? 0) + value);
     }
   }
-  for (const [name, total] of sums) sums.set(name, Math.max(0, Math.min(1, total)))
-  return new Blendshapes(sums.entries())
+  for (const [name, total] of sums)
+    sums.set(name, Math.max(0, Math.min(1, total)));
+  return new Blendshapes(sums.entries());
 }
 
 /** If any slot is `override`, the resolved per-node mode is `override`; else `additive`. */
 function _resolveAnimationBlendMode(slots: BoneSlot[]): AnimationBlendMode {
-  for (const s of slots) if (s.animationBlendMode === 'override') return 'override'
-  return 'additive'
+  for (const s of slots)
+    if (s.animationBlendMode === 'override') return 'override';
+  return 'additive';
 }
 
-export const broadcastBus = new BroadcastBus()
+export const broadcastBus = new BroadcastBus();

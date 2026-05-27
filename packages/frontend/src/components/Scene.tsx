@@ -1,4 +1,4 @@
-import { Environment, ContactShadows } from '@react-three/drei'
+import { Environment, ContactShadows } from '@react-three/drei';
 
 export function Scene() {
   return (
@@ -15,7 +15,10 @@ export function Scene() {
         blur={1.5}
         far={4}
       />
-      <gridHelper args={[10, 10, 0x444444, 0x333333]} position={[0, -0.99, 0]} />
+      <gridHelper
+        args={[10, 10, 0x444444, 0x333333]}
+        position={[0, -0.99, 0]}
+      />
     </>
-  )
+  );
 }

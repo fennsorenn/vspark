@@ -1,16 +1,26 @@
-import { Effect, EffectAttribute, BlendFunction } from 'postprocessing'
-import { Uniform, Color, Texture } from 'three'
+import { Effect, EffectAttribute, BlendFunction } from 'postprocessing';
+import { Uniform, Color, Texture } from 'three';
 
 // Blend mode indices must match BLEND_MODES order below.
 export const EDGE_BLEND_MODES = [
-  'NORMAL', 'MULTIPLY', 'SCREEN', 'OVERLAY',
-  'DARKEN', 'LIGHTEN', 'ADD', 'DIFFERENCE',
-  'EXCLUSION', 'SOFT_LIGHT', 'HARD_LIGHT',
-  'COLOR_BURN', 'COLOR_DODGE', 'SUBTRACT',
-] as const
-export type EdgeBlendMode = typeof EDGE_BLEND_MODES[number]
+  'NORMAL',
+  'MULTIPLY',
+  'SCREEN',
+  'OVERLAY',
+  'DARKEN',
+  'LIGHTEN',
+  'ADD',
+  'DIFFERENCE',
+  'EXCLUSION',
+  'SOFT_LIGHT',
+  'HARD_LIGHT',
+  'COLOR_BURN',
+  'COLOR_DODGE',
+  'SUBTRACT',
+] as const;
+export type EdgeBlendMode = (typeof EDGE_BLEND_MODES)[number];
 
-const fragmentShader = /* glsl */`
+const fragmentShader = /* glsl */ `
 uniform vec3    edgeColor;
 uniform float   threshold;
 uniform float   thickness;
@@ -66,7 +76,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   vec3 blended = blendEdge(inputColor.rgb, edgeColor, blendMode);
   outputColor = vec4(mix(inputColor.rgb, blended, mask), inputColor.a);
 }
-`
+`;
 
 export class DepthEdgeEffect extends Effect {
   constructor() {
@@ -74,24 +84,36 @@ export class DepthEdgeEffect extends Effect {
       attributes: EffectAttribute.DEPTH,
       blendFunction: BlendFunction.SRC,
       uniforms: new Map<string, Uniform>([
-        ['edgeColor',      new Uniform(new Color('#000000'))],
-        ['threshold',      new Uniform(0.001)],
-        ['thickness',      new Uniform(1.0)],
-        ['edgeAlpha',      new Uniform(1.0)],
+        ['edgeColor', new Uniform(new Color('#000000'))],
+        ['threshold', new Uniform(0.001)],
+        ['thickness', new Uniform(1.0)],
+        ['edgeAlpha', new Uniform(1.0)],
         ['normalStrength', new Uniform(1.0)],
-        ['blendMode',      new Uniform(0)],
-        ['normalBuffer',   new Uniform(null)],
+        ['blendMode', new Uniform(0)],
+        ['normalBuffer', new Uniform(null)],
       ]),
-    })
+    });
   }
 
-  setColor(hex: string) { (this.uniforms.get('edgeColor')!.value as Color).set(hex) }
-  setThreshold(v: number) { this.uniforms.get('threshold')!.value = v }
-  setThickness(v: number) { this.uniforms.get('thickness')!.value = v }
-  setAlpha(v: number) { this.uniforms.get('edgeAlpha')!.value = v }
-  setNormalStrength(v: number) { this.uniforms.get('normalStrength')!.value = v }
-  setNormalBuffer(t: Texture | null) { this.uniforms.get('normalBuffer')!.value = t }
+  setColor(hex: string) {
+    (this.uniforms.get('edgeColor')!.value as Color).set(hex);
+  }
+  setThreshold(v: number) {
+    this.uniforms.get('threshold')!.value = v;
+  }
+  setThickness(v: number) {
+    this.uniforms.get('thickness')!.value = v;
+  }
+  setAlpha(v: number) {
+    this.uniforms.get('edgeAlpha')!.value = v;
+  }
+  setNormalStrength(v: number) {
+    this.uniforms.get('normalStrength')!.value = v;
+  }
+  setNormalBuffer(t: Texture | null) {
+    this.uniforms.get('normalBuffer')!.value = t;
+  }
   setBlendMode(name: EdgeBlendMode) {
-    this.uniforms.get('blendMode')!.value = EDGE_BLEND_MODES.indexOf(name)
+    this.uniforms.get('blendMode')!.value = EDGE_BLEND_MODES.indexOf(name);
   }
 }

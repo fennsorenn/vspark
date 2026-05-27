@@ -1,9 +1,12 @@
-import { type CSSProperties } from 'react'
-import { useEditorStore, type ComposeLayerRecord } from '../../store/editorStore'
-import { api } from '../../api/client'
-import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client'
-import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder'
-import { NumInput, VecInput, SliderInput } from './numericInputs'
+import { type CSSProperties } from 'react';
+import {
+  useEditorStore,
+  type ComposeLayerRecord,
+} from '../../store/editorStore';
+import { api } from '../../api/client';
+import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client';
+import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
+import { NumInput, VecInput, SliderInput } from './numericInputs';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -18,7 +21,7 @@ const textInput: CSSProperties = {
   fontSize: 13,
   outline: 'none',
   boxSizing: 'border-box',
-}
+};
 
 const sectionHeader: CSSProperties = {
   fontSize: 11,
@@ -28,21 +31,21 @@ const sectionHeader: CSSProperties = {
   letterSpacing: 0.5,
   marginBottom: 8,
   marginTop: 16,
-}
+};
 
 const row: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 8,
   marginBottom: 6,
-}
+};
 
 const label: CSSProperties = {
   fontSize: 12,
   color: '#bbb',
   width: 56,
   flexShrink: 0,
-}
+};
 
 const select: CSSProperties = {
   background: '#2a2a2a',
@@ -52,37 +55,54 @@ const select: CSSProperties = {
   padding: '3px 6px',
   fontSize: 12,
   outline: 'none',
-}
+};
 
-export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord }) {
-  const assets = useEditorStore((s) => s.assets)
-  const updateLayerLocal = useEditorStore((s) => s.updateComposeLayerLocal)
-  const nodes = useEditorStore((s) => s.nodes)
-  const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder()
+export function ComposeLayerProperties({
+  layer,
+}: {
+  layer: ComposeLayerRecord;
+}) {
+  const assets = useEditorStore((s) => s.assets);
+  const updateLayerLocal = useEditorStore((s) => s.updateComposeLayerLocal);
+  const nodes = useEditorStore((s) => s.nodes);
+  const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
 
-  const cameraNode = layer.cameraNodeId ? nodes.find((n) => n.id === layer.cameraNodeId) : null
+  const cameraNode = layer.cameraNodeId
+    ? nodes.find((n) => n.id === layer.cameraNodeId)
+    : null;
   const scopeLabel = layer.cameraNodeId
     ? `Camera · ${cameraNode?.name ?? 'unknown'}`
-    : 'Scene-wide (all cameras)'
+    : 'Scene-wide (all cameras)';
 
   const commit = (patch: Partial<ComposeLayerRecord>) => {
-    updateLayerLocal(layer.id, patch)
-    api.updateComposeLayer(layer.id, patch).catch(() => {})
-  }
+    updateLayerLocal(layer.id, patch);
+    api.updateComposeLayer(layer.id, patch).catch(() => {});
+  };
 
   const compatibleAssets = assets.filter((a) => {
-    if (layer.kind === 'image') return a.kind === 'image'
-    if (layer.kind === 'video') return a.mimeType.startsWith('video/')
-    return false
-  })
+    if (layer.kind === 'image') return a.kind === 'image';
+    if (layer.kind === 'video') return a.mimeType.startsWith('video/');
+    return false;
+  });
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <span style={{ fontSize: 18 }}>{layer.kind === 'image' ? '🖼' : layer.kind === 'video' ? '🎞' : '🌐'}</span>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 14,
+        }}
+      >
+        <span style={{ fontSize: 18 }}>
+          {layer.kind === 'image' ? '🖼' : layer.kind === 'video' ? '🎞' : '🌐'}
+        </span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{layer.name}</div>
-          <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{scopeLabel}</div>
+          <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
+            {scopeLabel}
+          </div>
         </div>
       </div>
 
@@ -91,7 +111,11 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
         type="text"
         value={layer.name}
         onChange={(e) => updateLayerLocal(layer.id, { name: e.target.value })}
-        onBlur={(e) => api.updateComposeLayer(layer.id, { name: e.target.value }).catch(() => {})}
+        onBlur={(e) =>
+          api
+            .updateComposeLayer(layer.id, { name: e.target.value })
+            .catch(() => {})
+        }
         style={textInput}
       />
 
@@ -102,25 +126,48 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
         step={1}
         onChange={(_next, axis) => {
           // Suppress any active clip override so the typed value isn't masked.
-          const paramPath = axis === 0 ? 'x' : 'y'
-          useEditorStore.getState().suppressOverride('compose_layer', layer.id, paramPath)
+          const paramPath = axis === 0 ? 'x' : 'y';
+          useEditorStore
+            .getState()
+            .suppressOverride('compose_layer', layer.id, paramPath);
         }}
-        onCommit={(next, axis) => commit(axis === 0 ? { x: next[0] } : { y: next[1] })}
+        onCommit={(next, axis) =>
+          commit(axis === 0 ? { x: next[0] } : { y: next[1] })
+        }
         canRecord={canRecord}
         onSetAxisKeyframe={(axis, value) => {
-          const paramPath = axis === 0 ? 'x' : 'y'
-          return recordKeyframe({ targetKind: 'compose_layer', targetId: layer.id, paramPath, value })
+          const paramPath = axis === 0 ? 'x' : 'y';
+          return recordKeyframe({
+            targetKind: 'compose_layer',
+            targetId: layer.id,
+            paramPath,
+            value,
+          });
         }}
-        onSetGroupKeyframe={() => recordKeyframes([
-          { targetKind: 'compose_layer', targetId: layer.id, paramPath: 'x', value: layer.x },
-          { targetKind: 'compose_layer', targetId: layer.id, paramPath: 'y', value: layer.y },
-        ])}
+        onSetGroupKeyframe={() =>
+          recordKeyframes([
+            {
+              targetKind: 'compose_layer',
+              targetId: layer.id,
+              paramPath: 'x',
+              value: layer.x,
+            },
+            {
+              targetKind: 'compose_layer',
+              targetId: layer.id,
+              paramPath: 'y',
+              value: layer.y,
+            },
+          ])
+        }
       />
       <div style={row}>
         <span style={label}>Anchor</span>
         <select
           value={layer.anchorH}
-          onChange={(e) => commit({ anchorH: e.target.value as ComposeAnchorH })}
+          onChange={(e) =>
+            commit({ anchorH: e.target.value as ComposeAnchorH })
+          }
           style={select}
         >
           <option value="left">Left</option>
@@ -128,7 +175,9 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
         </select>
         <select
           value={layer.anchorV}
-          onChange={(e) => commit({ anchorV: e.target.value as ComposeAnchorV })}
+          onChange={(e) =>
+            commit({ anchorV: e.target.value as ComposeAnchorV })
+          }
           style={select}
         >
           <option value="top">Top</option>
@@ -142,7 +191,9 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
         labels={['W', 'H']}
         step={1}
         min={[8, 8]}
-        onCommit={(next, axis) => commit(axis === 0 ? { width: next[0] } : { height: next[1] })}
+        onCommit={(next, axis) =>
+          commit(axis === 0 ? { width: next[0] } : { height: next[1] })
+        }
       />
 
       <div style={sectionHeader}>Rotation</div>
@@ -151,16 +202,35 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
         step={1}
         prefix="∠"
         suffix="°"
-        onChange={() => useEditorStore.getState().suppressOverride('compose_layer', layer.id, 'rotation')}
+        onChange={() =>
+          useEditorStore
+            .getState()
+            .suppressOverride('compose_layer', layer.id, 'rotation')
+        }
         onCommit={(v) => commit({ rotation: v })}
         canRecord={canRecord}
-        onSetKeyframe={(value) => recordKeyframe({ targetKind: 'compose_layer', targetId: layer.id, paramPath: 'rotation', value })}
+        onSetKeyframe={(value) =>
+          recordKeyframe({
+            targetKind: 'compose_layer',
+            targetId: layer.id,
+            paramPath: 'rotation',
+            value,
+          })
+        }
         style={{ width: 110 }}
       />
 
       <div style={sectionHeader}>Visibility</div>
       <div style={row}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#bbb' }}>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 12,
+            color: '#bbb',
+          }}
+        >
           <input
             type="checkbox"
             checked={layer.visible}
@@ -172,8 +242,12 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
       <div style={row}>
         <span style={label}>Opacity</span>
         <SliderInput
-          value={typeof layer.config.opacity === 'number' ? layer.config.opacity : 1}
-          min={0} max={1} step={0.01}
+          value={
+            typeof layer.config.opacity === 'number' ? layer.config.opacity : 1
+          }
+          min={0}
+          max={1}
+          step={0.01}
           precision={2}
           onChange={(o) => commit({ config: { ...layer.config, opacity: o } })}
           style={{ flex: 1 }}
@@ -182,7 +256,9 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
 
       {(layer.kind === 'image' || layer.kind === 'video') && (
         <>
-          <div style={sectionHeader}>{layer.kind === 'image' ? 'Image asset' : 'Video asset'}</div>
+          <div style={sectionHeader}>
+            {layer.kind === 'image' ? 'Image asset' : 'Video asset'}
+          </div>
           <select
             value={layer.assetId ?? ''}
             onChange={(e) => commit({ assetId: e.target.value || null })}
@@ -190,14 +266,20 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
           >
             <option value="">— none —</option>
             {compatibleAssets.map((a) => (
-              <option key={a.id} value={a.id}>{a.name}</option>
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
             ))}
           </select>
           <div style={{ ...row, marginTop: 6 }}>
             <span style={label}>Fit</span>
             <select
               value={(layer.config.objectFit as string | undefined) ?? 'cover'}
-              onChange={(e) => commit({ config: { ...layer.config, objectFit: e.target.value } })}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, objectFit: e.target.value },
+                })
+              }
               style={select}
             >
               <option value="cover">cover</option>
@@ -214,8 +296,18 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
           <input
             type="text"
             value={(layer.config.url as string | undefined) ?? ''}
-            onChange={(e) => updateLayerLocal(layer.id, { config: { ...layer.config, url: e.target.value } })}
-            onBlur={(e) => api.updateComposeLayer(layer.id, { config: { ...layer.config, url: e.target.value } }).catch(() => {})}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, url: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, url: e.target.value },
+                })
+                .catch(() => {})
+            }
             placeholder="https://…"
             style={textInput}
           />
@@ -241,9 +333,11 @@ export function ComposeLayerProperties({ layer }: { layer: ComposeLayerRecord })
           style={{ flex: 1 }}
         />
       </div>
-      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4, marginTop: -2 }}>
+      <div
+        style={{ fontSize: 10, color: '#555', lineHeight: 1.4, marginTop: -2 }}
+      >
         scene_order &lt; 0 = in front of 3D · 0 = at 3D · &gt; 0 = behind 3D
       </div>
     </>
-  )
+  );
 }

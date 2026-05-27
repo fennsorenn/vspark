@@ -31,9 +31,29 @@ const router: ReturnType<typeof Router> = Router();
  *       503: { description: VMC manager not ready,             content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
 router.get('/node-components/:id/body-calib-state', (req, res) => {
-  if (!_vmc) return res.status(503).json({ ok: false, error: { status: 503, message: 'VMC manager not ready', code: 'NOT_READY' } });
+  if (!_vmc)
+    return res
+      .status(503)
+      .json({
+        ok: false,
+        error: {
+          status: 503,
+          message: 'VMC manager not ready',
+          code: 'NOT_READY',
+        },
+      });
   const pose = _vmc.peekBodyCalibInput(req.params.id);
-  if (!pose) return res.status(404).json({ ok: false, error: { status: 404, message: 'No active receiver or no data yet', code: 'NOT_FOUND' } });
+  if (!pose)
+    return res
+      .status(404)
+      .json({
+        ok: false,
+        error: {
+          status: 404,
+          message: 'No active receiver or no data yet',
+          code: 'NOT_FOUND',
+        },
+      });
   res.json({ ok: true, data: { bones: pose.toRecord() } });
 });
 
@@ -75,7 +95,8 @@ router.get('/system/local-ips', (_req, res) => {
   const ips: string[] = [];
   for (const addrs of Object.values(ifaces)) {
     for (const addr of addrs ?? []) {
-      if (addr.family === 'IPv4' || (addr.family as unknown) === 4) ips.push(addr.address);
+      if (addr.family === 'IPv4' || (addr.family as unknown) === 4)
+        ips.push(addr.address);
     }
   }
   res.json({ ok: true, data: { ips } });

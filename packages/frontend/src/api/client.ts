@@ -44,7 +44,10 @@ function normalizeFilePath(raw: unknown): string | null {
 }
 
 // snake_case → camelCase for rows coming out of SQLite
-function mapNode(r: Record<string, unknown>, sceneId?: string): NodeRecord {
+function mapNode(
+  r: Record<string, unknown>,
+  rootSceneNodeId?: string
+): NodeRecord {
   const components =
     typeof r.components === 'string'
       ? JSON.parse(r.components as string)
@@ -67,7 +70,11 @@ function mapNode(r: Record<string, unknown>, sceneId?: string): NodeRecord {
   return {
     id: r.id as string,
     // backend may return snake_case (from SQLite rows) or camelCase (from INSERT response)
-    sceneId: (r.scene_id ?? r.sceneId ?? sceneId ?? '') as string,
+    rootSceneNodeId: (r.root_scene_node_id ??
+      r.rootSceneNodeId ??
+      rootSceneNodeId ??
+      '') as string,
+    projectId: (r.project_id ?? r.projectId ?? '') as string,
     parentId: (r.parent_id ?? r.parentId ?? null) as string | null,
     boneAttachment: (r.bone_attachment ?? r.boneAttachment ?? null) as
       | string
@@ -161,7 +168,8 @@ export interface NodeProperties {
 
 export interface NodeRecord {
   id: string;
-  sceneId: string;
+  rootSceneNodeId: string;
+  projectId: string;
   parentId: string | null;
   boneAttachment?: string | null;
   name: string;
@@ -198,13 +206,20 @@ export interface CameraEffectRecord {
   config: Record<string, unknown>;
 }
 
-export type ComposeLayerKind = 'image' | 'video' | 'browser' | 'group';
+export type ComposeLayerKind =
+  | 'image'
+  | 'video'
+  | 'browser'
+  | 'group'
+  | 'compose_scene'
+  | 'camera_view';
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
 
 export interface ComposeLayerRecord {
   id: string;
-  sceneId: string;
+  projectId: string;
+  rootComposeSceneId: string | null;
   cameraNodeId: string | null;
   parentId: string | null;
   name: string;
@@ -254,7 +269,7 @@ export interface TrackClipLaneRecord {
 
 export interface TrackClipRecord {
   id: string;
-  sceneId: string;
+  rootSceneNodeId: string;
   ownerKind: string;
   ownerId: string;
   name: string;
@@ -369,7 +384,9 @@ export function mapTrackClip(r: Record<string, unknown>): TrackClipRecord {
   const rawLanes = (r.lanes as Record<string, unknown>[] | undefined) ?? [];
   return {
     id: r.id as string,
-    sceneId: (r.scene_id ?? r.sceneId ?? '') as string,
+    rootSceneNodeId: (r.root_scene_node_id ??
+      r.rootSceneNodeId ??
+      '') as string,
     ownerKind: (r.owner_kind ?? r.ownerKind ?? 'scene') as string,
     ownerId: (r.owner_id ?? r.ownerId ?? '') as string,
     name: r.name as string,
@@ -392,7 +409,10 @@ export function mapComposeLayer(
 ): ComposeLayerRecord {
   return {
     id: r.id as string,
-    sceneId: (r.scene_id ?? r.sceneId ?? '') as string,
+    projectId: (r.project_id ?? r.projectId ?? '') as string,
+    rootComposeSceneId: (r.root_compose_scene_id ??
+      r.rootComposeSceneId ??
+      null) as string | null,
     cameraNodeId: (r.camera_node_id ?? r.cameraNodeId ?? null) as string | null,
     parentId: (r.parent_id ?? r.parentId ?? null) as string | null,
     name: r.name as string,
@@ -465,7 +485,7 @@ export const getNodes = (sceneId: string) =>
 
 export const createNode = (
   sceneId: string,
-  data: Omit<NodeRecord, 'id' | 'sceneId'>
+  data: Omit<NodeRecord, 'id' | 'rootSceneNodeId' | 'projectId'>
 ) =>
   request<Record<string, unknown>>(`/scenes/${sceneId}/nodes`, {
     method: 'POST',
@@ -482,7 +502,7 @@ export const createNode = (
 
 export const updateNode = (
   id: string,
-  data: Partial<Omit<NodeRecord, 'id' | 'sceneId'>>
+  data: Partial<Omit<NodeRecord, 'id' | 'rootSceneNodeId' | 'projectId'>>
 ) => {
   const body: Record<string, unknown> = {};
   if (data.name !== undefined) body.name = data.name;
@@ -611,7 +631,10 @@ export const createComposeLayer = (
 export const updateComposeLayer = (
   id: string,
   patch: Partial<
-    Omit<ComposeLayerRecord, 'id' | 'sceneId' | 'cameraNodeId' | 'kind'>
+    Omit<
+      ComposeLayerRecord,
+      'id' | 'projectId' | 'rootComposeSceneId' | 'cameraNodeId' | 'kind'
+    >
   >
 ) =>
   request<Record<string, unknown>>(`/compose-layers/${id}`, {
@@ -632,6 +655,35 @@ export const reorderComposeLayers = (
     method: 'POST',
     body: JSON.stringify({ updates }),
   });
+
+// Compose Scenes
+export const getComposeScenes = (projectId: string) =>
+  request<Record<string, unknown>[]>(
+    `/projects/${projectId}/compose-scenes`
+  ).then((rows) => rows.map(mapComposeLayer));
+
+export const createComposeScene = (
+  projectId: string,
+  body: { name: string; [key: string]: unknown }
+) =>
+  request<Record<string, unknown>>(`/projects/${projectId}/compose-scenes`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }).then(mapComposeLayer);
+
+export const getComposeSceneLayers = (composeSceneId: string) =>
+  request<Record<string, unknown>[]>(
+    `/compose-scenes/${composeSceneId}/layers`
+  ).then((rows) => rows.map(mapComposeLayer));
+
+export const createComposeSceneLayer = (
+  composeSceneId: string,
+  layer: Partial<ComposeLayerRecord> & { name: string; kind: ComposeLayerKind }
+) =>
+  request<Record<string, unknown>>(`/compose-scenes/${composeSceneId}/layers`, {
+    method: 'POST',
+    body: JSON.stringify(layer),
+  }).then(mapComposeLayer);
 
 // Track clips
 export const getTrackClips = (sceneId: string) =>
@@ -1060,7 +1112,8 @@ export const serializePreset = (
 export const instantiatePreset = (
   payload: unknown,
   projectId: string,
-  sceneId: string,
+  rootSceneNodeId: string,
+  rootComposeSceneId?: string | null,
   parentId?: string | null
 ) =>
   request<{
@@ -1069,7 +1122,13 @@ export const instantiatePreset = (
     missingAssets: string[];
   }>(`/presets/instantiate`, {
     method: 'POST',
-    body: JSON.stringify({ payload, projectId, sceneId, parentId }),
+    body: JSON.stringify({
+      payload,
+      projectId,
+      rootSceneNodeId,
+      rootComposeSceneId,
+      parentId,
+    }),
   });
 
 // ─── Graphs (node/layer scoped) ─────────────────────────────────────────────
@@ -1138,6 +1197,10 @@ export const api = {
   updateComposeLayer,
   deleteComposeLayer,
   reorderComposeLayers,
+  getComposeScenes,
+  createComposeScene,
+  getComposeSceneLayers,
+  createComposeSceneLayer,
   getTrackClips,
   createTrackClip,
   updateTrackClip,

@@ -141,7 +141,9 @@ export function Editor() {
           if (scenes.length > 0) {
             const firstId = scenes[0].id;
             setActiveScene(firstId);
-            const sceneNodes = nodes.filter((n) => n.sceneId === firstId);
+            const sceneNodes = nodes.filter(
+              (n) => n.rootSceneNodeId === firstId
+            );
             if (sceneNodes.length > 0) {
               setNodes(sceneNodes);
             } else {

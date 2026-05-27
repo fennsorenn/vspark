@@ -81,7 +81,8 @@ export interface NodeProperties {
 
 export interface NodeRecord {
   id: string;
-  sceneId: string;
+  rootSceneNodeId: string;
+  projectId: string;
   parentId: string | null;
   boneAttachment?: string | null;
   name: string;
@@ -348,6 +349,8 @@ interface EditorState {
   selectedEffect: { nodeId: string; kind: string } | null;
 
   // Compose view
+  composeScenes: ComposeLayerRecord[];
+  activeComposeSceneId: string | null;
   composeLayers: ComposeLayerRecord[];
   leftTab: LeftDockTab;
   bottomTab: BottomDockTab;
@@ -434,6 +437,9 @@ interface EditorState {
   selectEffect: (nodeId: string, kind: string) => void;
   clearSelectedEffect: () => void;
 
+  setComposeScenes: (scenes: ComposeLayerRecord[]) => void;
+  addComposeScene: (scene: ComposeLayerRecord) => void;
+  selectComposeScene: (id: string | null) => void;
   setComposeLayers: (layers: ComposeLayerRecord[]) => void;
   addComposeLayer: (layer: ComposeLayerRecord) => void;
   updateComposeLayerLocal: (
@@ -537,6 +543,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   previewEffectsCamera: null,
   selectedEffect: null,
 
+  composeScenes: [],
+  activeComposeSceneId: null,
   composeLayers: [],
   leftTab: 'scene',
   bottomTab: 'models',
@@ -597,7 +605,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({ assets: s.assets.filter((a) => a.id !== id) })),
   activeSceneNodes: () => {
     const { nodes, activeSceneId } = get();
-    return nodes.filter((n) => n.sceneId === activeSceneId);
+    return nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
   },
   setNodeComponents: (comps) => set({ nodeComponents: comps }),
   addNodeComponent: (comp) =>
@@ -706,6 +714,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ selectedEffect: { nodeId, kind }, selectedComponentId: null }),
   clearSelectedEffect: () => set({ selectedEffect: null }),
 
+  setComposeScenes: (scenes) => set({ composeScenes: scenes }),
+  addComposeScene: (scene) =>
+    set((s) =>
+      s.composeScenes.some((cs) => cs.id === scene.id)
+        ? {}
+        : { composeScenes: [...s.composeScenes, scene] }
+    ),
+  selectComposeScene: (id) => set({ activeComposeSceneId: id }),
   setComposeLayers: (layers) => set({ composeLayers: layers }),
   addComposeLayer: (layer) =>
     set((s) =>
