@@ -114,41 +114,45 @@ export class ProjectGraphManager {
     if (this.running.has(id)) return
     const row = this.get(id)
     if (!row || row.enabled !== 1) return
-    const descriptor = JSON.parse(row.descriptor) as GraphDescriptor
-    validateDescriptor(descriptor)
+    try {
+      const descriptor = JSON.parse(row.descriptor) as GraphDescriptor
+      validateDescriptor(descriptor)
 
-    const nodeStates = parseNodeStateMap(row.node_state)
+      const nodeStates = parseNodeStateMap(row.node_state)
 
-    const graph = SignalGraph.fromDescriptor(
-      descriptor,
-      NODE_REGISTRY,
-      (nodeId) => this._getNodeConfig(descriptor, nodeId),
-      (nodeId) => nodeStates.get(nodeId) ?? {},
-      (nodeId, state) => {
-        nodeStates.set(nodeId, state)
-        this._persistNodeState(id, nodeId, state)
-      },
-    )
+      const graph = SignalGraph.fromDescriptor(
+        descriptor,
+        NODE_REGISTRY,
+        (nodeId) => this._getNodeConfig(descriptor, nodeId),
+        (nodeId) => nodeStates.get(nodeId) ?? {},
+        (nodeId, state) => {
+          nodeStates.set(nodeId, state)
+          this._persistNodeState(id, nodeId, state)
+        },
+      )
 
-    // Clock nodes self-tick.
-    const cleanups: Array<() => void> = []
-    for (const nodeDef of descriptor.nodes) {
-      if (nodeDef.kind === 'clock') {
-        const defaultHz = (nodeDef.defaultConfig?.hz as number | undefined) ?? 30
-        cleanups.push(Clock.attach(
-          nodeDef.id,
-          defaultHz,
-          (gId) => {
-            const state = nodeStates.get(gId) as { hz?: number } | undefined
-            return state?.hz ?? defaultHz
-          },
-          (gId, port, value) => graph.fire(gId, port, value),
-        ))
+      // Clock nodes self-tick.
+      const cleanups: Array<() => void> = []
+      for (const nodeDef of descriptor.nodes) {
+        if (nodeDef.kind === 'clock') {
+          const defaultHz = (nodeDef.defaultConfig?.hz as number | undefined) ?? 30
+          cleanups.push(Clock.attach(
+            nodeDef.id,
+            defaultHz,
+            (gId) => {
+              const state = nodeStates.get(gId) as { hz?: number } | undefined
+              return state?.hz ?? defaultHz
+            },
+            (gId, port, value) => graph.fire(gId, port, value),
+          ))
+        }
       }
-    }
 
-    this.running.set(id, { graph, descriptor, nodeStates, cleanups })
-    console.log(`[ProjectGraph] Started ${row.name} (${id})`)
+      this.running.set(id, { graph, descriptor, nodeStates, cleanups })
+      console.log(`[ProjectGraph] Started ${row.name} (${id}) — ${descriptor.nodes.length} nodes, ${descriptor.edges.length} edges`)
+    } catch (e) {
+      console.error(`[ProjectGraph] Failed to start ${row.name} (${id}):`, e)
+    }
   }
 
   private stop(id: string): void {
@@ -160,14 +164,16 @@ export class ProjectGraphManager {
   }
 
   /**
-   * Fire an external event into a node's input port on the running graph.
-   * Used by OverliveManager to deliver Twitch/SE events to overlive_* nodes.
-   * No-op if the graph is not running.
+   * Deliver an external event into a node's input port on the running graph.
+   * Used by OverliveManager to inject Twitch/SE events into overlive_* nodes,
+   * which have no upstream edges (they're sources, but driven from outside
+   * the graph rather than from a clock/timer). No-op if the graph isn't
+   * running.
    */
   fire(graphId: string, nodeId: string, portName: string, value: unknown): void {
     const r = this.running.get(graphId)
     if (!r) return
-    r.graph.fire(nodeId, portName, value)
+    r.graph.deliverExternal(nodeId, portName, value)
   }
 
   /** All currently running graph descriptors, for WS-driven editors. */
@@ -176,7 +182,14 @@ export class ProjectGraphManager {
   }
 
   getStates(graphId: string): GraphStateSnapshot | null {
-    return this.running.get(graphId)?.graph.getStates() ?? null
+    const r = this.running.get(graphId)
+    if (r) return r.graph.getStates()
+    // Graph exists in DB but isn't running (e.g. disabled, or just-created
+    // and reconcile hasn't been called yet, or start() threw). Return an empty
+    // snapshot rather than null so the canvas polling doesn't 404 every 500ms.
+    const row = this.get(graphId)
+    if (!row) return null
+    return { nodes: {}, edges: {} }
   }
 
   /**

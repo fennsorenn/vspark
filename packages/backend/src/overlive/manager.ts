@@ -229,11 +229,14 @@ export class OverliveManager {
     // accountId matches the source. Per-node filters (channel, kind-specific)
     // are evaluated inside the node's execute() — here we just deliver into
     // the `event` input port.
+    const expectedKind = OVERLIVE_KIND_BY_EVENT[event.type]
+    if (!expectedKind) return
+    let delivered = 0
+    let candidates = 0
     for (const { graphId, node, projectId: gpId } of projectGraphManager.iterateNodes()) {
       if (gpId !== projectId) continue
-      if (!node.kind.startsWith('overlive_')) continue
-      const expectedKind = OVERLIVE_KIND_BY_EVENT[event.type]
       if (node.kind !== expectedKind) continue
+      candidates++
       // The node's "account" config (inline literal stored in defaultConfig
       // when unconnected, or carried via a connected Account value source —
       // but in pull-based execution the engine would resolve it). We use the
@@ -246,6 +249,10 @@ export class OverliveManager {
       if (wantChannel && wantChannel !== event.channel) continue
       // Fire as an event on the node's `event` input port.
       projectGraphManager.fire(graphId, node.id, 'event', event)
+      delivered++
+    }
+    if (candidates > 0 && delivered === 0) {
+      console.log(`[Overlive] ${event.type} matched ${candidates} ${expectedKind} node(s) but none accepted (account/channel filters). source=${event.sourceInstanceId} channel=${event.channel}`)
     }
   }
 
