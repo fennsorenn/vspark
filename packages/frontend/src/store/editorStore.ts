@@ -269,6 +269,10 @@ interface EditorState {
    *  consumed by signal-graph Account port dropdowns. */
   overliveAccounts: import('../api/client').OverliveAccountRecord[]
   activeGraphId: string | null
+  /** True when the active graph is a writable standalone project graph;
+   *  false when it's a component-owned (read-only) graph or no graph is active.
+   *  Set by SignalGraphCanvas after it resolves the descriptor source. */
+  activeGraphWritable: boolean
   selectedSignalNodeId: string | null
   boneListExpanded: Record<string, boolean>   // nodeId → bone list open in SceneGraph
   fbxDebugVisible: Record<string, boolean>    // nodeId → FBX debug model shown
@@ -338,6 +342,7 @@ interface EditorState {
   setComponentKinds: (kinds: ComponentKindMeta[]) => void
   setOverliveAccounts: (accounts: import('../api/client').OverliveAccountRecord[]) => void
   setActiveGraph: (id: string | null) => void
+  setActiveGraphWritable: (writable: boolean) => void
   setSelectedSignalNode: (id: string | null) => void
   setBoneListExpanded: (nodeId: string, expanded: boolean) => void
   setFbxDebugVisible: (nodeId: string, visible: boolean) => void
@@ -410,6 +415,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   hoveredBoneName: null,
   componentKinds: [],
   overliveAccounts: [],
+  activeGraphWritable: false,
   activeGraphId: null,
   selectedSignalNodeId: null,
   boneListExpanded: {},
@@ -520,7 +526,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
   setComponentKinds: (kinds) => set({ componentKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
-  setActiveGraph: (id) => set({ activeGraphId: id, selectedSignalNodeId: null }),
+  setActiveGraphWritable: (writable) => set({ activeGraphWritable: writable }),
+  setActiveGraph: (id) => set({ activeGraphId: id, selectedSignalNodeId: null, activeGraphWritable: false }),
   setSelectedSignalNode: (id) => set({ selectedSignalNodeId: id }),
   setBoneListExpanded: (nodeId, expanded) =>
     set((s) => ({ boneListExpanded: { ...s.boneListExpanded, [nodeId]: expanded } })),

@@ -221,8 +221,17 @@ export function SignalNodeCard({ data, selected }: NodeProps & { data: SignalNod
   const { nodeComponents, updateNodeComponent } = useEditorStore()
 
   const handleStaticChange = (portName: string, value: unknown) => {
-    // graphId format: "<type>:<componentId>", e.g. "vmc-pipeline:abc123"
-    const componentId = graphId.includes(':') ? graphId.split(':').slice(1).join(':') : graphId
+    // Component-owned graphs use the "kind:componentId" id shape. Standalone
+    // project graphs use a bare UUID — they don't have a node_components row
+    // to update, so we delegate to the canvas via a custom event which mutates
+    // the descriptor's defaultConfig and persists via PUT.
+    if (!graphId.includes(':')) {
+      window.dispatchEvent(new CustomEvent('vspark:project-graph-literal', {
+        detail: { graphId, nodeId, portName, value },
+      }))
+      return
+    }
+    const componentId   = graphId.split(':').slice(1).join(':')
     const comp = nodeComponents.find((c) => c.id === componentId)
     if (!comp) return
     const prevConfig    = comp.config as Record<string, unknown>

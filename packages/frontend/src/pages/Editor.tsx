@@ -18,7 +18,7 @@ export function Editor() {
   useWsSync()
   useTrackClipEvaluator()
   const { projectId } = useParams<{ projectId: string }>()
-  const { setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setComponentKinds, setCameraEffects, setComposeLayers, setTrackClips, setOverliveAccounts, activeGraphId, leftTab } = useEditorStore()
+  const { setProject, setScenes, setActiveScene, setNodes, setAssets, setNodeComponents, setComponentKinds, setCameraEffects, setComposeLayers, setTrackClips, setOverliveAccounts, activeGraphId, leftTab, activeGraphWritable } = useEditorStore()
   const [kindMeta, setKindMeta] = useState<NodeKindMeta[]>([])
 
   useEffect(() => {
@@ -79,7 +79,7 @@ export function Editor() {
         <PropertiesPanel />
       </div>
       {activeGraphId
-        ? <NodePalette kindMeta={kindMeta} graphReadonly={true} />
+        ? <NodePalette kindMeta={kindMeta} graphReadonly={!activeGraphWritable} />
         : <AssetManager />
       }
     </div>
