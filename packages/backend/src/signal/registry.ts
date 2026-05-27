@@ -36,6 +36,7 @@ import { IkBroadcast }                  from './nodes/ik_broadcast.js'
 import { NotBool }                      from './nodes/not_bool.js'
 import { HandHeightCompare }            from './nodes/hand_height_compare.js'
 import { TrackClipTrigger }             from './nodes/track_clip_trigger.js'
+import { LogNode }                       from './nodes/log.js'
 // Overlive event nodes
 import { OverliveRedemption }    from './nodes/overlive/redemption.js'
 import { OverliveSubscription }  from './nodes/overlive/subscription.js'
@@ -99,6 +100,8 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   HandHeightCompare,
   // Track clips
   TrackClipTrigger,
+  // Debug
+  LogNode,
   // Overlive event nodes
   OverliveRedemption,
   OverliveSubscription,
