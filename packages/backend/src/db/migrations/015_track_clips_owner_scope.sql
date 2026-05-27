@@ -1,0 +1,11 @@
+-- 015_track_clips_owner_scope: Add owner_kind/owner_id to track_clips.
+-- Existing clips keep owner_kind='scene', owner_id=scene_id.
+-- The scene_id column is retained for backwards compat in queries but
+-- new clips should use owner_kind/owner_id.
+
+ALTER TABLE track_clips ADD COLUMN owner_kind TEXT NOT NULL DEFAULT 'scene';
+ALTER TABLE track_clips ADD COLUMN owner_id TEXT NOT NULL DEFAULT '';
+
+UPDATE track_clips SET owner_id = scene_id WHERE owner_id = '';
+
+CREATE INDEX IF NOT EXISTS idx_track_clips_owner ON track_clips(owner_kind, owner_id);

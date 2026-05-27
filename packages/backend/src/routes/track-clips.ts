@@ -8,6 +8,8 @@ const router: ReturnType<typeof Router> = Router();
 type ClipRow = {
   id: string;
   scene_id: string;
+  owner_kind: string;
+  owner_id: string;
   name: string;
   duration: number;
   loop: number;
@@ -32,8 +34,8 @@ type KeyframeRow = {
   t: number;
   value: number;
   easing: string;
-  in_handle_t_fraction:  number | null;
-  in_handle_v_fraction:  number | null;
+  in_handle_t_fraction: number | null;
+  in_handle_v_fraction: number | null;
   out_handle_t_fraction: number | null;
   out_handle_v_fraction: number | null;
 };
@@ -44,8 +46,8 @@ function mapKeyframe(r: KeyframeRow) {
     t: r.t,
     value: r.value,
     easing: r.easing,
-    inHandleTFraction:  r.in_handle_t_fraction,
-    inHandleVFraction:  r.in_handle_v_fraction,
+    inHandleTFraction: r.in_handle_t_fraction,
+    inHandleVFraction: r.in_handle_v_fraction,
     outHandleTFraction: r.out_handle_t_fraction,
     outHandleVFraction: r.out_handle_v_fraction,
   };
@@ -67,6 +69,8 @@ function mapClip(r: ClipRow, lanes: { lane: LaneRow; kfs: KeyframeRow[] }[]) {
   return {
     id: r.id,
     sceneId: r.scene_id,
+    ownerKind: r.owner_kind,
+    ownerId: r.owner_id,
     name: r.name,
     duration: r.duration,
     loop: r.loop === 1,
@@ -80,12 +84,20 @@ function mapClip(r: ClipRow, lanes: { lane: LaneRow; kfs: KeyframeRow[] }[]) {
 
 function loadClip(clipId: string) {
   const db = getDb();
-  const row = db.prepare('SELECT * FROM track_clips WHERE id = ?').get(clipId) as ClipRow | undefined;
+  const row = db
+    .prepare('SELECT * FROM track_clips WHERE id = ?')
+    .get(clipId) as ClipRow | undefined;
   if (!row) return null;
-  const lanes = db.prepare('SELECT * FROM track_clip_lanes WHERE clip_id = ?').all(clipId) as LaneRow[];
+  const lanes = db
+    .prepare('SELECT * FROM track_clip_lanes WHERE clip_id = ?')
+    .all(clipId) as LaneRow[];
   const laneBundles = lanes.map((lane) => ({
     lane,
-    kfs: db.prepare('SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t').all(lane.id) as KeyframeRow[],
+    kfs: db
+      .prepare(
+        'SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t'
+      )
+      .all(lane.id) as KeyframeRow[],
   }));
   return mapClip(row, laneBundles);
 }
@@ -103,7 +115,33 @@ function loadClip(clipId: string) {
  */
 router.get('/scenes/:sceneId/track-clips', (req, res) => {
   const db = getDb();
-  const clips = db.prepare('SELECT * FROM track_clips WHERE scene_id = ? ORDER BY created_at').all(req.params.sceneId) as ClipRow[];
+  const clips = db
+    .prepare('SELECT * FROM track_clips WHERE scene_id = ? ORDER BY created_at')
+    .all(req.params.sceneId) as ClipRow[];
+  const data = clips.map((c) => loadClip(c.id)).filter((c) => c != null);
+  res.json({ ok: true, data });
+});
+
+/** GET track clips scoped to a specific scene node */
+router.get('/scene-nodes/:nodeId/track-clips', (req, res) => {
+  const db = getDb();
+  const clips = db
+    .prepare(
+      "SELECT * FROM track_clips WHERE owner_kind = 'scene_node' AND owner_id = ? ORDER BY created_at"
+    )
+    .all(req.params.nodeId) as ClipRow[];
+  const data = clips.map((c) => loadClip(c.id)).filter((c) => c != null);
+  res.json({ ok: true, data });
+});
+
+/** GET track clips scoped to a specific compose layer */
+router.get('/compose-layers/:layerId/track-clips', (req, res) => {
+  const db = getDb();
+  const clips = db
+    .prepare(
+      "SELECT * FROM track_clips WHERE owner_kind = 'compose_layer' AND owner_id = ? ORDER BY created_at"
+    )
+    .all(req.params.layerId) as ClipRow[];
   const data = clips.map((c) => loadClip(c.id)).filter((c) => c != null);
   res.json({ ok: true, data });
 });
@@ -126,21 +164,39 @@ router.get('/scenes/:sceneId/track-clips', (req, res) => {
  */
 router.post('/scenes/:sceneId/track-clips', (req, res) => {
   const sceneId = req.params.sceneId;
-  const { id, name, duration, loop, mode, autoplay } = req.body ?? {};
+  const { id, name, duration, loop, mode, autoplay, ownerKind, ownerId } =
+    req.body ?? {};
   if (!name) {
-    return res.status(400).json({ ok: false, error: { status: 400, message: 'name is required', code: 'VALIDATION_ERROR' } });
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        error: {
+          status: 400,
+          message: 'name is required',
+          code: 'VALIDATION_ERROR',
+        },
+      });
   }
   const clipId = id ?? randomUUID();
-  getDb().prepare(
-    `INSERT INTO track_clips (id, scene_id, name, duration, loop, mode, autoplay)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    clipId, sceneId, name,
-    duration ?? 2,
-    loop ? 1 : 0,
-    mode ?? 'override',
-    autoplay ? 1 : 0,
-  );
+  const resolvedOwnerKind = ownerKind ?? 'scene';
+  const resolvedOwnerId = ownerId ?? sceneId;
+  getDb()
+    .prepare(
+      `INSERT INTO track_clips (id, scene_id, name, duration, loop, mode, autoplay, owner_kind, owner_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      clipId,
+      sceneId,
+      name,
+      duration ?? 2,
+      loop ? 1 : 0,
+      mode ?? 'override',
+      autoplay ? 1 : 0,
+      resolvedOwnerKind,
+      resolvedOwnerId
+    );
   const data = loadClip(clipId);
   _ws?.broadcast('track_clip_added', data as Record<string, unknown>);
   res.status(201).json({ ok: true, data });
@@ -167,18 +223,45 @@ router.put('/track-clips/:id', (req, res) => {
   const patch = req.body ?? {};
   const cols: string[] = [];
   const vals: unknown[] = [];
-  if (patch.name     !== undefined) { cols.push('name = ?');     vals.push(patch.name); }
-  if (patch.duration !== undefined) { cols.push('duration = ?'); vals.push(patch.duration); }
-  if (patch.loop     !== undefined) { cols.push('loop = ?');     vals.push(patch.loop ? 1 : 0); }
-  if (patch.mode     !== undefined) { cols.push('mode = ?');     vals.push(patch.mode); }
-  if (patch.autoplay !== undefined) { cols.push('autoplay = ?'); vals.push(patch.autoplay ? 1 : 0); }
+  if (patch.name !== undefined) {
+    cols.push('name = ?');
+    vals.push(patch.name);
+  }
+  if (patch.duration !== undefined) {
+    cols.push('duration = ?');
+    vals.push(patch.duration);
+  }
+  if (patch.loop !== undefined) {
+    cols.push('loop = ?');
+    vals.push(patch.loop ? 1 : 0);
+  }
+  if (patch.mode !== undefined) {
+    cols.push('mode = ?');
+    vals.push(patch.mode);
+  }
+  if (patch.autoplay !== undefined) {
+    cols.push('autoplay = ?');
+    vals.push(patch.autoplay ? 1 : 0);
+  }
   if (cols.length > 0) {
     vals.push(id);
-    getDb().prepare(`UPDATE track_clips SET ${cols.join(', ')} WHERE id = ?`).run(...vals);
+    getDb()
+      .prepare(`UPDATE track_clips SET ${cols.join(', ')} WHERE id = ?`)
+      .run(...vals);
     _trackClipPlayback?.onClipUpdated(id);
   }
   const data = loadClip(id);
-  if (!data) return res.status(404).json({ ok: false, error: { status: 404, message: 'track clip not found', code: 'NOT_FOUND' } });
+  if (!data)
+    return res
+      .status(404)
+      .json({
+        ok: false,
+        error: {
+          status: 404,
+          message: 'track clip not found',
+          code: 'NOT_FOUND',
+        },
+      });
   _ws?.broadcast('track_clip_updated', data as Record<string, unknown>);
   res.json({ ok: true, data });
 });
@@ -222,16 +305,32 @@ router.post('/track-clips/:clipId/lanes', (req, res) => {
   const clipId = req.params.clipId;
   const { id, targetKind, targetId, paramPath, defaultValue } = req.body ?? {};
   if (!targetKind || !targetId || !paramPath) {
-    return res.status(400).json({ ok: false, error: { status: 400, message: 'targetKind, targetId, paramPath required', code: 'VALIDATION_ERROR' } });
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        error: {
+          status: 400,
+          message: 'targetKind, targetId, paramPath required',
+          code: 'VALIDATION_ERROR',
+        },
+      });
   }
   const laneId = id ?? randomUUID();
-  getDb().prepare(
-    `INSERT INTO track_clip_lanes (id, clip_id, target_kind, target_id, param_path, default_value)
+  getDb()
+    .prepare(
+      `INSERT INTO track_clip_lanes (id, clip_id, target_kind, target_id, param_path, default_value)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(laneId, clipId, targetKind, targetId, paramPath, defaultValue ?? 0);
-  const row = getDb().prepare('SELECT * FROM track_clip_lanes WHERE id = ?').get(laneId) as LaneRow;
+    )
+    .run(laneId, clipId, targetKind, targetId, paramPath, defaultValue ?? 0);
+  const row = getDb()
+    .prepare('SELECT * FROM track_clip_lanes WHERE id = ?')
+    .get(laneId) as LaneRow;
   const data = mapLane(row, []);
-  _ws?.broadcast('track_clip_lane_added', data as unknown as Record<string, unknown>);
+  _ws?.broadcast(
+    'track_clip_lane_added',
+    data as unknown as Record<string, unknown>
+  );
   res.status(201).json({ ok: true, data });
 });
 
@@ -256,19 +355,46 @@ router.put('/track-clip-lanes/:id', (req, res) => {
   const patch = req.body ?? {};
   const cols: string[] = [];
   const vals: unknown[] = [];
-  if (patch.targetKind   !== undefined) { cols.push('target_kind = ?');   vals.push(patch.targetKind); }
-  if (patch.targetId     !== undefined) { cols.push('target_id = ?');     vals.push(patch.targetId); }
-  if (patch.paramPath    !== undefined) { cols.push('param_path = ?');    vals.push(patch.paramPath); }
-  if (patch.defaultValue !== undefined) { cols.push('default_value = ?'); vals.push(patch.defaultValue); }
+  if (patch.targetKind !== undefined) {
+    cols.push('target_kind = ?');
+    vals.push(patch.targetKind);
+  }
+  if (patch.targetId !== undefined) {
+    cols.push('target_id = ?');
+    vals.push(patch.targetId);
+  }
+  if (patch.paramPath !== undefined) {
+    cols.push('param_path = ?');
+    vals.push(patch.paramPath);
+  }
+  if (patch.defaultValue !== undefined) {
+    cols.push('default_value = ?');
+    vals.push(patch.defaultValue);
+  }
   if (cols.length > 0) {
     vals.push(id);
-    getDb().prepare(`UPDATE track_clip_lanes SET ${cols.join(', ')} WHERE id = ?`).run(...vals);
+    getDb()
+      .prepare(`UPDATE track_clip_lanes SET ${cols.join(', ')} WHERE id = ?`)
+      .run(...vals);
   }
-  const row = getDb().prepare('SELECT * FROM track_clip_lanes WHERE id = ?').get(id) as LaneRow | undefined;
-  if (!row) return res.status(404).json({ ok: false, error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' } });
-  const kfs = getDb().prepare('SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t').all(id) as KeyframeRow[];
+  const row = getDb()
+    .prepare('SELECT * FROM track_clip_lanes WHERE id = ?')
+    .get(id) as LaneRow | undefined;
+  if (!row)
+    return res
+      .status(404)
+      .json({
+        ok: false,
+        error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' },
+      });
+  const kfs = getDb()
+    .prepare('SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t')
+    .all(id) as KeyframeRow[];
   const data = mapLane(row, kfs);
-  _ws?.broadcast('track_clip_lane_updated', data as unknown as Record<string, unknown>);
+  _ws?.broadcast(
+    'track_clip_lane_updated',
+    data as unknown as Record<string, unknown>
+  );
   res.json({ ok: true, data });
 });
 
@@ -285,9 +411,14 @@ router.put('/track-clip-lanes/:id', (req, res) => {
  */
 router.delete('/track-clip-lanes/:id', (req, res) => {
   const id = req.params.id;
-  const row = getDb().prepare('SELECT clip_id FROM track_clip_lanes WHERE id = ?').get(id) as { clip_id: string } | undefined;
+  const row = getDb()
+    .prepare('SELECT clip_id FROM track_clip_lanes WHERE id = ?')
+    .get(id) as { clip_id: string } | undefined;
   getDb().prepare('DELETE FROM track_clip_lanes WHERE id = ?').run(id);
-  _ws?.broadcast('track_clip_lane_removed', { id, clipId: row?.clip_id ?? null });
+  _ws?.broadcast('track_clip_lane_removed', {
+    id,
+    clipId: row?.clip_id ?? null,
+  });
   res.json({ ok: true, data: { id } });
 });
 
@@ -310,18 +441,30 @@ router.delete('/track-clip-lanes/:id', (req, res) => {
 router.put('/track-clip-lanes/:id/keyframes', (req, res) => {
   const laneId = req.params.id;
   const keyframes = (req.body?.keyframes ?? []) as Array<{
-    id?: string; t: number; value: number; easing?: string;
-    inHandleTFraction?:  number | null; inHandleVFraction?:  number | null;
-    outHandleTFraction?: number | null; outHandleVFraction?: number | null;
+    id?: string;
+    t: number;
+    value: number;
+    easing?: string;
+    inHandleTFraction?: number | null;
+    inHandleVFraction?: number | null;
+    outHandleTFraction?: number | null;
+    outHandleVFraction?: number | null;
   }>;
   const db = getDb();
 
   // Validate the lane exists up-front: otherwise the DELETE silently no-ops and
   // the INSERTs blow up with a FOREIGN KEY violation (500). Returning 404 lets
   // the frontend drop the stale lane from its state cleanly.
-  const laneRow = db.prepare('SELECT id FROM track_clip_lanes WHERE id = ?').get(laneId) as { id: string } | undefined;
+  const laneRow = db
+    .prepare('SELECT id FROM track_clip_lanes WHERE id = ?')
+    .get(laneId) as { id: string } | undefined;
   if (!laneRow) {
-    return res.status(404).json({ ok: false, error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' } });
+    return res
+      .status(404)
+      .json({
+        ok: false,
+        error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' },
+      });
   }
 
   db.prepare('DELETE FROM track_clip_keyframes WHERE lane_id = ?').run(laneId);
@@ -337,14 +480,20 @@ router.put('/track-clip-lanes/:id/keyframes', (req, res) => {
           out_handle_t_fraction, out_handle_v_fraction)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      k.id ?? randomUUID(), laneId,
-      k.t, k.value,
+      k.id ?? randomUUID(),
+      laneId,
+      k.t,
+      k.value,
       k.easing ?? 'linear',
-      k.inHandleTFraction  ?? null, k.inHandleVFraction  ?? null,
-      k.outHandleTFraction ?? null, k.outHandleVFraction ?? null,
+      k.inHandleTFraction ?? null,
+      k.inHandleVFraction ?? null,
+      k.outHandleTFraction ?? null,
+      k.outHandleVFraction ?? null
     );
   }
-  const rows = db.prepare('SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t').all(laneId) as KeyframeRow[];
+  const rows = db
+    .prepare('SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t')
+    .all(laneId) as KeyframeRow[];
   const data = { laneId, keyframes: rows.map(mapKeyframe) };
   _ws?.broadcast('track_clip_keyframes_replaced', data);
   res.json({ ok: true, data });
@@ -363,7 +512,16 @@ router.put('/track-clip-lanes/:id/keyframes', (req, res) => {
  */
 router.post('/track-clips/:id/trigger', (req, res) => {
   if (!_trackClipPlayback) {
-    return res.status(503).json({ ok: false, error: { status: 503, message: 'playback manager not ready', code: 'NOT_READY' } });
+    return res
+      .status(503)
+      .json({
+        ok: false,
+        error: {
+          status: 503,
+          message: 'playback manager not ready',
+          code: 'NOT_READY',
+        },
+      });
   }
   _trackClipPlayback.trigger(req.params.id);
   res.json({ ok: true, data: { id: req.params.id } });
@@ -382,7 +540,16 @@ router.post('/track-clips/:id/trigger', (req, res) => {
  */
 router.post('/track-clips/:id/stop', (req, res) => {
   if (!_trackClipPlayback) {
-    return res.status(503).json({ ok: false, error: { status: 503, message: 'playback manager not ready', code: 'NOT_READY' } });
+    return res
+      .status(503)
+      .json({
+        ok: false,
+        error: {
+          status: 503,
+          message: 'playback manager not ready',
+          code: 'NOT_READY',
+        },
+      });
   }
   _trackClipPlayback.stop(req.params.id);
   res.json({ ok: true, data: { id: req.params.id } });
@@ -401,7 +568,16 @@ router.post('/track-clips/:id/stop', (req, res) => {
  */
 router.post('/track-clips/:id/pause', (req, res) => {
   if (!_trackClipPlayback) {
-    return res.status(503).json({ ok: false, error: { status: 503, message: 'playback manager not ready', code: 'NOT_READY' } });
+    return res
+      .status(503)
+      .json({
+        ok: false,
+        error: {
+          status: 503,
+          message: 'playback manager not ready',
+          code: 'NOT_READY',
+        },
+      });
   }
   _trackClipPlayback.pause(req.params.id);
   res.json({ ok: true, data: { id: req.params.id } });
@@ -420,7 +596,16 @@ router.post('/track-clips/:id/pause', (req, res) => {
  */
 router.post('/track-clips/:id/resume', (req, res) => {
   if (!_trackClipPlayback) {
-    return res.status(503).json({ ok: false, error: { status: 503, message: 'playback manager not ready', code: 'NOT_READY' } });
+    return res
+      .status(503)
+      .json({
+        ok: false,
+        error: {
+          status: 503,
+          message: 'playback manager not ready',
+          code: 'NOT_READY',
+        },
+      });
   }
   _trackClipPlayback.resume(req.params.id);
   res.json({ ok: true, data: { id: req.params.id } });
@@ -447,11 +632,29 @@ router.post('/track-clips/:id/resume', (req, res) => {
  */
 router.post('/track-clips/:id/seek', (req, res) => {
   if (!_trackClipPlayback) {
-    return res.status(503).json({ ok: false, error: { status: 503, message: 'playback manager not ready', code: 'NOT_READY' } });
+    return res
+      .status(503)
+      .json({
+        ok: false,
+        error: {
+          status: 503,
+          message: 'playback manager not ready',
+          code: 'NOT_READY',
+        },
+      });
   }
   const t = Number(req.body?.t);
   if (!Number.isFinite(t)) {
-    return res.status(400).json({ ok: false, error: { status: 400, message: 't (number) is required', code: 'VALIDATION_ERROR' } });
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        error: {
+          status: 400,
+          message: 't (number) is required',
+          code: 'VALIDATION_ERROR',
+        },
+      });
   }
   _trackClipPlayback.seek(req.params.id, t);
   res.json({ ok: true, data: { id: req.params.id, t } });

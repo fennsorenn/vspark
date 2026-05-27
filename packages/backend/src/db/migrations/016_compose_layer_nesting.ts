@@ -1,0 +1,1 @@
+export default '-- 016_compose_layer_nesting: Add parent_id for nested compose layers.\n\nALTER TABLE compose_layers ADD COLUMN parent_id TEXT REFERENCES compose_layers(id) ON DELETE CASCADE;\n\nCREATE INDEX IF NOT EXISTS idx_compose_layers_parent_id ON compose_layers(parent_id);\n';
