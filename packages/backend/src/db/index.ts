@@ -13,6 +13,9 @@ import m007 from './migrations/007_scene_node_properties.js';
 import m008 from './migrations/008_compose_layers.js';
 import m009 from './migrations/009_track_clips.js';
 import m010 from './migrations/010_track_clip_handle_fractions.js';
+import m011 from './migrations/011_project_graphs.js';
+import m012 from './migrations/012_overlive_app_credentials.js';
+import m013 from './migrations/013_overlive_accounts.js';
 
 const { Database } = nodeSqliteWasm as unknown as { Database: typeof DatabaseType };
 
@@ -36,6 +39,9 @@ const MIGRATIONS = [
   { name: '008_compose_layers.sql', sql: m008 },
   { name: '009_track_clips.sql', sql: m009 },
   { name: '010_track_clip_handle_fractions.sql', sql: m010 },
+  { name: '011_project_graphs.sql', sql: m011 },
+  { name: '012_overlive_app_credentials.sql', sql: m012 },
+  { name: '013_overlive_accounts.sql', sql: m013 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

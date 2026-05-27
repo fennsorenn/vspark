@@ -607,6 +607,167 @@ export const fireSignalEvent = (graphId: string, nodeId: string, port: string) =
     body: JSON.stringify({ nodeId, port }),
   })
 
+// ─── Project graphs ──────────────────────────────────────────────────────────
+
+export interface ProjectGraphRecord {
+  id:         string
+  projectId:  string
+  name:       string
+  enabled:    boolean
+  descriptor: import('@vspark/shared/signal').GraphDescriptor
+  createdAt?: string
+  updatedAt?: string
+}
+
+export const getProjectGraphs = (projectId: string) =>
+  request<ProjectGraphRecord[]>(`/projects/${projectId}/graphs`)
+
+export const createProjectGraph = (projectId: string, name: string) =>
+  request<ProjectGraphRecord>(`/projects/${projectId}/graphs`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+
+export const updateProjectGraph = (
+  id: string,
+  patch: Partial<{ name: string; enabled: boolean; descriptor: import('@vspark/shared/signal').GraphDescriptor }>,
+) =>
+  request<ProjectGraphRecord>(`/project-graphs/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  })
+
+export const deleteProjectGraph = (id: string) =>
+  request<Record<string, never>>(`/project-graphs/${id}`, { method: 'DELETE' })
+
+// ─── Overlive: app credentials ───────────────────────────────────────────────
+
+export interface OverliveAppCredentialRecord {
+  id:           string
+  projectId:    string
+  label:        string
+  clientId:     string
+  clientSecret: string
+  redirectUri:  string
+  createdAt?:   string
+  updatedAt?:   string
+}
+
+export const getOverliveAppCredentials = (projectId: string) =>
+  request<OverliveAppCredentialRecord[]>(`/projects/${projectId}/overlive-app-credentials`)
+
+export const createOverliveAppCredential = (
+  projectId: string,
+  body: { label: string; clientId: string; clientSecret: string; redirectUri: string },
+) =>
+  request<OverliveAppCredentialRecord>(`/projects/${projectId}/overlive-app-credentials`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const updateOverliveAppCredential = (
+  id: string,
+  patch: Partial<{ label: string; clientId: string; clientSecret: string; redirectUri: string }>,
+) =>
+  request<OverliveAppCredentialRecord>(`/overlive-app-credentials/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  })
+
+export const deleteOverliveAppCredential = (id: string) =>
+  request<Record<string, never>>(`/overlive-app-credentials/${id}`, { method: 'DELETE' })
+
+export const copyOverliveAppCredentialsFromProject = (projectId: string, sourceProjectId: string) =>
+  request<OverliveAppCredentialRecord[]>(
+    `/projects/${projectId}/overlive-app-credentials/copy-from/${sourceProjectId}`,
+    { method: 'POST' },
+  )
+
+// ─── Overlive: login accounts ────────────────────────────────────────────────
+
+export type OverlivePlatform = 'twitch' | 'streamelements'
+export type OverliveAccountStatus =
+  | 'connected' | 'connecting' | 'disconnected' | 'reconnecting' | 'error' | 'needs_reauth'
+
+export interface OverliveAccountRecord {
+  id:                 string
+  projectId:          string
+  platform:           OverlivePlatform
+  label:              string
+  appCredentialId:    string | null
+  credentials:        Record<string, unknown>
+  broadcasterId:      string | null
+  broadcasterLogin:   string | null
+  status:             OverliveAccountStatus
+  statusReason:       string | null
+  statusMessage:      string | null
+  createdAt?:         string
+  updatedAt?:         string
+}
+
+export const getOverliveAccounts = (projectId: string) =>
+  request<OverliveAccountRecord[]>(`/projects/${projectId}/overlive-accounts`)
+
+export const createOverliveAccount = (
+  projectId: string,
+  body: {
+    platform: OverlivePlatform
+    label: string
+    appCredentialId?: string | null
+    credentials?: Record<string, unknown>
+    broadcasterId?: string
+    broadcasterLogin?: string
+  },
+) =>
+  request<OverliveAccountRecord>(`/projects/${projectId}/overlive-accounts`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const updateOverliveAccount = (
+  id: string,
+  patch: Partial<{
+    label: string
+    credentials: Record<string, unknown>
+    broadcasterId: string | null
+    broadcasterLogin: string | null
+    status: OverliveAccountStatus
+    statusReason: string | null
+    statusMessage: string | null
+  }>,
+) =>
+  request<OverliveAccountRecord>(`/overlive-accounts/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  })
+
+export const deleteOverliveAccount = (id: string) =>
+  request<Record<string, never>>(`/overlive-accounts/${id}`, { method: 'DELETE' })
+
+// ─── Overlive: OAuth (Twitch) ────────────────────────────────────────────────
+
+/**
+ * Fetch the Twitch authorize URL the user's browser should navigate to.
+ * The caller is expected to open the URL in a popup; the OAuth callback
+ * server-side renders an HTML page that posts a message back to
+ * `window.opener` and closes the popup.
+ *
+ * Pass `accountId` to enter the reconnect flow (updates an existing row
+ * in place instead of inserting). Otherwise a new account row is created.
+ */
+export const startTwitchOAuth = (params: {
+  projectId: string
+  appCredentialId: string
+  accountId?: string
+}) => {
+  const qs = new URLSearchParams({
+    projectId:       params.projectId,
+    appCredentialId: params.appCredentialId,
+    ...(params.accountId ? { accountId: params.accountId } : {}),
+  })
+  return request<{ authorizeUrl: string }>(`/auth/twitch/start?${qs.toString()}`)
+}
+
 export const api = {
   getUpdateStatus,
   startUpdateDownload,
@@ -657,4 +818,18 @@ export const api = {
   getSignalGraphStates,
   fireSignalEvent,
   getComponentKinds,
+  getProjectGraphs,
+  createProjectGraph,
+  updateProjectGraph,
+  deleteProjectGraph,
+  getOverliveAppCredentials,
+  createOverliveAppCredential,
+  updateOverliveAppCredential,
+  deleteOverliveAppCredential,
+  copyOverliveAppCredentialsFromProject,
+  getOverliveAccounts,
+  createOverliveAccount,
+  updateOverliveAccount,
+  deleteOverliveAccount,
+  startTwitchOAuth,
 }

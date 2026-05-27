@@ -556,16 +556,26 @@ const formatBoneName = (name: string) =>
 
 // ---------- Graph list panel ----------
 import type { GraphDescriptor } from '@vspark/shared/signal'
+import type { ProjectGraphRecord } from '../../api/client'
 
 function GraphListPanel() {
+  const { projectId } = useParams<{ projectId: string }>()
   const { activeGraphId, setActiveGraph } = useEditorStore()
-  const [graphs, setGraphs] = useState<GraphDescriptor[]>([])
+  const [componentGraphs, setComponentGraphs] = useState<GraphDescriptor[]>([])
+  const [projectGraphs, setProjectGraphs] = useState<ProjectGraphRecord[]>([])
+  const [componentGraphsOpen, setComponentGraphsOpen] = useState(false)
+
+  const refresh = () => {
+    api.getSignalGraphs().then(setComponentGraphs).catch(() => {})
+    if (projectId) api.getProjectGraphs(projectId).then(setProjectGraphs).catch(() => {})
+  }
 
   useEffect(() => {
-    api.getSignalGraphs().then(setGraphs).catch(() => {})
-    const iv = setInterval(() => api.getSignalGraphs().then(setGraphs).catch(() => {}), 3000)
+    refresh()
+    const iv = setInterval(refresh, 3000)
     return () => clearInterval(iv)
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
 
   const rowStyle = (active: boolean): React.CSSProperties => ({
     padding: '7px 12px',
@@ -580,31 +590,133 @@ function GraphListPanel() {
     borderLeft: active ? '2px solid #4a90d9' : '2px solid transparent',
   })
 
-  if (graphs.length === 0) {
-    return (
-      <div style={{ color: '#555', fontSize: 12, padding: 16, textAlign: 'center' }}>
-        No active signal graphs.<br />Add a VMC Receiver component to a node.
-      </div>
-    )
+  const handleCreate = async () => {
+    if (!projectId) return
+    const name = window.prompt('New graph name:', 'Untitled Graph')
+    if (!name?.trim()) return
+    try {
+      const created = await api.createProjectGraph(projectId, name.trim())
+      setProjectGraphs((prev) => [...prev, created])
+      setActiveGraph(created.id)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to create graph')
+    }
+  }
+
+  const handleRename = async (g: ProjectGraphRecord) => {
+    const name = window.prompt('Rename graph:', g.name)
+    if (!name?.trim() || name.trim() === g.name) return
+    try {
+      const updated = await api.updateProjectGraph(g.id, { name: name.trim() })
+      setProjectGraphs((prev) => prev.map((x) => (x.id === g.id ? updated : x)))
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to rename graph')
+    }
+  }
+
+  const handleToggleEnabled = async (g: ProjectGraphRecord) => {
+    try {
+      const updated = await api.updateProjectGraph(g.id, { enabled: !g.enabled })
+      setProjectGraphs((prev) => prev.map((x) => (x.id === g.id ? updated : x)))
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to toggle graph')
+    }
+  }
+
+  const handleDelete = async (g: ProjectGraphRecord) => {
+    if (!window.confirm(`Delete graph "${g.name}"?`)) return
+    try {
+      await api.deleteProjectGraph(g.id)
+      setProjectGraphs((prev) => prev.filter((x) => x.id !== g.id))
+      if (activeGraphId === g.id) setActiveGraph(null)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to delete graph')
+    }
   }
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
-      {graphs.map((g) => (
-        <div
-          key={g.id}
-          style={rowStyle(g.id === activeGraphId)}
-          onClick={() => setActiveGraph(g.id === activeGraphId ? null : g.id)}
-        >
-          <span style={{ opacity: 0.6 }}>⬡</span>
-          <div>
-            <div style={{ fontWeight: 500 }}>{g.label}</div>
-            <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
-              {g.nodes.length} nodes · {g.readonly ? 'read-only' : 'editable'}
-            </div>
-          </div>
+      {/* Standalone (project) graphs */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px 4px', fontSize: 10, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        <span>Project Graphs</span>
+        <button
+          title="New graph"
+          onClick={handleCreate}
+          style={{ background: '#2563eb', border: 'none', color: '#fff', borderRadius: 4, padding: '2px 7px', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}
+        >+</button>
+      </div>
+      {projectGraphs.length === 0 ? (
+        <div style={{ color: '#444', fontSize: 11, padding: '4px 12px 8px', fontStyle: 'italic' }}>
+          No project graphs yet.
         </div>
-      ))}
+      ) : (
+        projectGraphs.map((g) => {
+          const active = g.id === activeGraphId
+          return (
+            <div
+              key={g.id}
+              style={rowStyle(active)}
+              onClick={() => setActiveGraph(active ? null : g.id)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                // Simple action via prompt — keep this section unobtrusive.
+                const action = window.prompt(`Action on "${g.name}":\n  r = rename\n  t = toggle ${g.enabled ? 'disable' : 'enable'}\n  d = delete`, '')
+                if (action === 'r') handleRename(g)
+                else if (action === 't') handleToggleEnabled(g)
+                else if (action === 'd') handleDelete(g)
+              }}
+            >
+              <span style={{ opacity: g.enabled ? 0.9 : 0.35 }}>⬡</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
+                <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
+                  {g.descriptor.nodes.length} nodes {g.enabled ? '' : '· disabled'}
+                </div>
+              </div>
+              <button
+                title={g.enabled ? 'Disable' : 'Enable'}
+                onClick={(e) => { e.stopPropagation(); handleToggleEnabled(g) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: g.enabled ? '#4a9' : '#555', fontSize: 13, padding: '0 2px', lineHeight: 1 }}
+              >
+                {g.enabled ? '●' : '○'}
+              </button>
+            </div>
+          )
+        })
+      )}
+
+      {/* Component-owned graphs (read-only) */}
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px 4px', fontSize: 10, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5, cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => setComponentGraphsOpen((v) => !v)}
+      >
+        <span style={{ color: '#555' }}>{componentGraphsOpen ? '▼' : '▶'}</span>
+        <span>Component Graphs</span>
+        <span style={{ color: '#444', fontWeight: 400 }}>({componentGraphs.length})</span>
+      </div>
+      {componentGraphsOpen && (
+        componentGraphs.length === 0 ? (
+          <div style={{ color: '#444', fontSize: 11, padding: '4px 12px', fontStyle: 'italic' }}>
+            No active component graphs.
+          </div>
+        ) : (
+          componentGraphs.map((g) => (
+            <div
+              key={g.id}
+              style={rowStyle(g.id === activeGraphId)}
+              onClick={() => setActiveGraph(g.id === activeGraphId ? null : g.id)}
+            >
+              <span style={{ opacity: 0.6 }}>⬡</span>
+              <div>
+                <div style={{ fontWeight: 500 }}>{g.label}</div>
+                <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
+                  {g.nodes.length} nodes · read-only
+                </div>
+              </div>
+            </div>
+          ))
+        )
+      )}
     </div>
   )
 }

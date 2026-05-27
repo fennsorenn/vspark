@@ -106,6 +106,15 @@ export class SignalGraph {
     }
   }
 
+  /**
+   * Deliver a value directly to a node's input port from outside the graph
+   * topology. Used by external event sources (e.g. OverliveManager) that
+   * have no upstream edge but need to wake an event-receiving node.
+   */
+  deliverExternal(nodeId: string, portName: string, value: unknown): void {
+    this._deliver(nodeId, portName, value)
+  }
+
   // ── state access ──────────────────────────────────────────────────────────
 
   /** Set a node's persistent state from outside the graph (e.g. to inject source data). */

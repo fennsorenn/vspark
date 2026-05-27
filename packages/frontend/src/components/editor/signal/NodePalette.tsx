@@ -3,6 +3,7 @@ import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal'
 import type { NodeKindMeta, NodePortMeta } from '@vspark/shared/signal'
 import { useEditorStore } from '../../../store/editorStore'
 import { BottomDockResizeHandle } from '../AssetManager'
+import { PALETTE_DRAG_KIND } from './SignalGraphCanvas'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Port chip
@@ -33,9 +34,16 @@ function PaletteCard({ meta, readonly }: { meta: NodeKindMeta; readonly: boolean
   const { display, kind, inputPorts, outputPorts } = meta
   const headerColor = display?.color ?? '#2a2a3a'
 
+  const handleDragStart = (e: React.DragEvent) => {
+    if (readonly) return
+    e.dataTransfer.setData(PALETTE_DRAG_KIND, kind)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
   return (
     <div
       draggable={!readonly}
+      onDragStart={handleDragStart}
       title={display?.description ?? kind}
       style={{
         background: '#1a1a2a',

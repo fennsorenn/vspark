@@ -56,7 +56,7 @@ function ConfigRow({ label, value }: { label: string; value: unknown }) {
 // Inline static input — shown on unconnected value input ports
 // ──────────────────────────────────────────────────────────────────────────────
 
-const STATIC_INPUT_TYPES = new Set(['String', 'Float', 'Bool'])
+const STATIC_INPUT_TYPES = new Set(['String', 'Float', 'Bool', 'Account'])
 
 const staticInputStyle: React.CSSProperties = {
   background: '#0e0e1a',
@@ -75,6 +75,9 @@ function StaticInput({ port, configValue, onChange }: {
   configValue: unknown
   onChange:    (value: unknown) => void
 }) {
+  if (port.type === 'Account') {
+    return <AccountSelect configValue={configValue} onChange={onChange} />
+  }
   if (port.type === 'Bool') {
     return (
       <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
@@ -104,6 +107,36 @@ function StaticInput({ port, configValue, onChange }: {
       onKeyDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     />
+  )
+}
+
+/**
+ * Account dropdown rendered for unconnected `Account` value ports. Pulls
+ * the project's overlive accounts from the editor store (loaded once on
+ * Editor mount and refreshed by the Accounts modal). Value persisted is
+ * the account id string; an empty string clears the selection.
+ */
+function AccountSelect({ configValue, onChange }: {
+  configValue: unknown
+  onChange:    (value: unknown) => void
+}) {
+  const accounts = useEditorStore((s) => s.overliveAccounts)
+  const current  = typeof configValue === 'string' ? configValue : ''
+  return (
+    <select
+      value={current}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      style={{ ...staticInputStyle, width: 180 }}
+    >
+      <option value="">— select account —</option>
+      {accounts.map((a) => (
+        <option key={a.id} value={a.id}>
+          {a.platform === 'twitch' ? '🟣' : '🟢'} {a.label}
+        </option>
+      ))}
+    </select>
   )
 }
 
@@ -188,8 +221,17 @@ export function SignalNodeCard({ data, selected }: NodeProps & { data: SignalNod
   const { nodeComponents, updateNodeComponent } = useEditorStore()
 
   const handleStaticChange = (portName: string, value: unknown) => {
-    // graphId format: "<type>:<componentId>", e.g. "vmc-pipeline:abc123"
-    const componentId = graphId.includes(':') ? graphId.split(':').slice(1).join(':') : graphId
+    // Component-owned graphs use the "kind:componentId" id shape. Standalone
+    // project graphs use a bare UUID — they don't have a node_components row
+    // to update, so we delegate to the canvas via a custom event which mutates
+    // the descriptor's defaultConfig and persists via PUT.
+    if (!graphId.includes(':')) {
+      window.dispatchEvent(new CustomEvent('vspark:project-graph-literal', {
+        detail: { graphId, nodeId, portName, value },
+      }))
+      return
+    }
+    const componentId   = graphId.split(':').slice(1).join(':')
     const comp = nodeComponents.find((c) => c.id === componentId)
     if (!comp) return
     const prevConfig    = comp.config as Record<string, unknown>

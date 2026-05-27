@@ -36,6 +36,21 @@ import { IkBroadcast }                  from './nodes/ik_broadcast.js'
 import { NotBool }                      from './nodes/not_bool.js'
 import { HandHeightCompare }            from './nodes/hand_height_compare.js'
 import { TrackClipTrigger }             from './nodes/track_clip_trigger.js'
+import { LogNode }                       from './nodes/log.js'
+// Overlive event nodes
+import { OverliveRedemption }    from './nodes/overlive/redemption.js'
+import { OverliveSubscription }  from './nodes/overlive/subscription.js'
+import { OverliveGiftBomb }      from './nodes/overlive/gift_bomb.js'
+import { OverliveRaid }          from './nodes/overlive/raid.js'
+import { OverliveFollow }        from './nodes/overlive/follow.js'
+import { OverliveChatMessage }   from './nodes/overlive/chat_message.js'
+import { OverliveChatCommand }   from './nodes/overlive/chat_command.js'
+import { OverliveChatDelete }    from './nodes/overlive/chat_delete.js'
+import { OverliveAdStart }       from './nodes/overlive/ad_start.js'
+import { OverliveAdEnd }         from './nodes/overlive/ad_end.js'
+import { OverliveBan }           from './nodes/overlive/ban.js'
+import { OverliveStreamOnline }  from './nodes/overlive/stream_online.js'
+import { OverliveStreamOffline } from './nodes/overlive/stream_offline.js'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -85,6 +100,22 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   HandHeightCompare,
   // Track clips
   TrackClipTrigger,
+  // Debug
+  LogNode,
+  // Overlive event nodes
+  OverliveRedemption,
+  OverliveSubscription,
+  OverliveGiftBomb,
+  OverliveRaid,
+  OverliveFollow,
+  OverliveChatMessage,
+  OverliveChatCommand,
+  OverliveChatDelete,
+  OverliveAdStart,
+  OverliveAdEnd,
+  OverliveBan,
+  OverliveStreamOnline,
+  OverliveStreamOffline,
 ]
 
 export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> =
