@@ -74,6 +74,72 @@ router.post('/scenes/:sceneId/nodes', (req, res) => {
       ok: false,
       error: { status: 404, message: 'scene not found', code: 'NOT_FOUND' },
     });
+
+  // Validate scene_instance: sourceSceneId must exist and not create a cycle
+  if (kind === 'scene_instance') {
+    const sourceSceneId = (properties as Record<string, unknown>)
+      ?.sourceSceneId as string | undefined;
+    if (!sourceSceneId)
+      return res.status(400).json({
+        ok: false,
+        error: {
+          status: 400,
+          message: 'scene_instance requires properties.sourceSceneId',
+          code: 'VALIDATION_ERROR',
+        },
+      });
+    const source = db
+      .prepare(
+        "SELECT id, project_id FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+      )
+      .get(sourceSceneId) as { id: string; project_id: string } | undefined;
+    if (!source || source.project_id !== sceneRow.project_id)
+      return res.status(400).json({
+        ok: false,
+        error: {
+          status: 400,
+          message: 'sourceSceneId must reference a scene in the same project',
+          code: 'VALIDATION_ERROR',
+        },
+      });
+    if (sourceSceneId === rootSceneNodeId)
+      return res.status(400).json({
+        ok: false,
+        error: {
+          status: 400,
+          message: 'a scene cannot instance itself',
+          code: 'VALIDATION_ERROR',
+        },
+      });
+    // Cycle detection: walk instances in sourceScene to check they don't reference rootSceneNodeId
+    const visited = new Set<string>([rootSceneNodeId]);
+    const queue = [sourceSceneId];
+    while (queue.length > 0) {
+      const sid = queue.shift()!;
+      if (visited.has(sid))
+        return res.status(400).json({
+          ok: false,
+          error: {
+            status: 400,
+            message: 'circular scene instance detected',
+            code: 'VALIDATION_ERROR',
+          },
+        });
+      visited.add(sid);
+      const instances = db
+        .prepare(
+          "SELECT properties FROM scene_nodes WHERE root_scene_node_id = ? AND kind = 'scene_instance'"
+        )
+        .all(sid) as { properties: string }[];
+      for (const inst of instances) {
+        const props = JSON.parse(inst.properties || '{}') as {
+          sourceSceneId?: string;
+        };
+        if (props.sourceSceneId) queue.push(props.sourceSceneId);
+      }
+    }
+  }
+
   db.prepare(
     'INSERT INTO scene_nodes (id, project_id, root_scene_node_id, parent_id, bone_attachment, name, kind, file_path, components, properties) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(

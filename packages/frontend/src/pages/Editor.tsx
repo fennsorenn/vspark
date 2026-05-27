@@ -32,6 +32,8 @@ export function Editor() {
     setComponentKinds,
     setCameraEffects,
     setComposeLayers,
+    setComposeScenes,
+    selectComposeScene,
     setTrackClips,
     setOverliveAccounts,
     setPresets,
@@ -136,7 +138,18 @@ export function Editor() {
           setScenes(scenes);
           setNodeComponents(nodeComponents);
           setCameraEffects(cameraEffects);
-          setComposeLayers(composeLayers);
+          // Separate compose_scene layers from regular layers
+          const composeSceneItems = composeLayers.filter(
+            (l) => l.kind === 'compose_scene'
+          );
+          const regularLayers = composeLayers.filter(
+            (l) => l.kind !== 'compose_scene'
+          );
+          setComposeScenes(composeSceneItems);
+          setComposeLayers(regularLayers);
+          if (composeSceneItems.length > 0) {
+            selectComposeScene(composeSceneItems[0].id);
+          }
           setTrackClips(trackClips);
           if (scenes.length > 0) {
             const firstId = scenes[0].id;

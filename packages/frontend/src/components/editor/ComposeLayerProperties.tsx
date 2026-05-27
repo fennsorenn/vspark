@@ -96,7 +96,15 @@ export function ComposeLayerProperties({
         }}
       >
         <span style={{ fontSize: 18 }}>
-          {layer.kind === 'image' ? '🖼' : layer.kind === 'video' ? '🎞' : '🌐'}
+          {layer.kind === 'image'
+            ? '🖼'
+            : layer.kind === 'video'
+              ? '🎞'
+              : layer.kind === 'camera_view'
+                ? '📷'
+                : layer.kind === 'group'
+                  ? '📁'
+                  : '🌐'}
         </span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{layer.name}</div>
@@ -118,6 +126,35 @@ export function ComposeLayerProperties({
         }
         style={textInput}
       />
+
+      {layer.kind === 'camera_view' && (
+        <>
+          <div style={sectionHeader}>Camera</div>
+          <select
+            value={layer.cameraNodeId ?? ''}
+            onChange={(e) =>
+              commit({
+                cameraNodeId: e.target.value || null,
+              } as Partial<ComposeLayerRecord>)
+            }
+            style={{
+              ...textInput,
+              background: '#1a1a1a',
+              color: '#ccc',
+              cursor: 'pointer',
+            }}
+          >
+            <option value="">None</option>
+            {nodes
+              .filter((n) => n.kind === 'camera')
+              .map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.name}
+                </option>
+              ))}
+          </select>
+        </>
+      )}
 
       <div style={sectionHeader}>Position</div>
       <VecInput

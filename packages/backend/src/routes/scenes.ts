@@ -144,27 +144,117 @@ router.get('/projects/:projectId/scenes', (req, res) => {
 router.post('/projects/:projectId/scenes', (req, res) => {
   const { name } = req.body;
   if (!name)
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'name is required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'name is required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
 
   const id = randomUUID();
   const projectId = req.params.projectId;
+  const db = getDb();
+  const populate = req.body.populate !== false;
 
   // Create a kind='scene' node with root_scene_node_id pointing to itself
-  getDb()
-    .prepare(
-      `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, properties)
-       VALUES (?, ?, ?, NULL, ?, 'scene', '{}')`
-    )
-    .run(id, id, projectId, name);
+  db.prepare(
+    `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, properties)
+     VALUES (?, ?, ?, NULL, ?, 'scene', '{}')`
+  ).run(id, id, projectId, name);
+
+  if (populate) {
+    // Default camera
+    const camId = randomUUID();
+    db.prepare(
+      `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
+       VALUES (?, ?, ?, NULL, 'Camera', 'camera', ?, '{}')`
+    ).run(
+      camId,
+      id,
+      projectId,
+      JSON.stringify({
+        transform: {
+          type: 'transform',
+          x: 0,
+          y: 1.3,
+          z: 2,
+          rx: 0,
+          ry: 0,
+          rz: 0,
+          sx: 1,
+          sy: 1,
+          sz: 1,
+        },
+      })
+    );
+
+    // Default key light
+    db.prepare(
+      `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
+       VALUES (?, ?, ?, NULL, 'Key Light', 'light', ?, ?)`
+    ).run(
+      randomUUID(),
+      id,
+      projectId,
+      JSON.stringify({
+        transform: {
+          type: 'transform',
+          x: 2,
+          y: 3,
+          z: 1,
+          rx: 0,
+          ry: 0,
+          rz: 0,
+          sx: 1,
+          sy: 1,
+          sz: 1,
+        },
+      }),
+      JSON.stringify({ lightType: 'directional' })
+    );
+
+    // Default fill light
+    db.prepare(
+      `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
+       VALUES (?, ?, ?, NULL, 'Fill Light', 'light', ?, ?)`
+    ).run(
+      randomUUID(),
+      id,
+      projectId,
+      JSON.stringify({
+        transform: {
+          type: 'transform',
+          x: -2,
+          y: 2,
+          z: 1,
+          rx: 0,
+          ry: 0,
+          rz: 0,
+          sx: 1,
+          sy: 1,
+          sz: 1,
+        },
+      }),
+      JSON.stringify({ lightType: 'directional' })
+    );
+
+    // Default compose scene
+    const composeSceneId = randomUUID();
+    db.prepare(
+      `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
+         x, y, width, height, rotation, anchor_h, anchor_v, scene_order, camera_order, visible)
+       VALUES (?, ?, NULL, NULL, NULL, ?, 'compose_scene', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', 0, 0, 1)`
+    ).run(composeSceneId, projectId, name + ' Output');
+
+    // Default camera_view layer inside the compose scene
+    db.prepare(
+      `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
+         x, y, width, height, rotation, anchor_h, anchor_v, scene_order, camera_order, visible)
+       VALUES (?, ?, ?, ?, NULL, 'Camera View', 'camera_view', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', 0, 0, 1)`
+    ).run(randomUUID(), projectId, composeSceneId, camId);
+  }
 
   res
     .status(201)
@@ -203,12 +293,10 @@ router.put('/scenes/:sceneId', (req, res) => {
     .get(sceneId) as { id: string; properties: string } | undefined;
 
   if (!row) {
-    return res
-      .status(404)
-      .json({
-        ok: false,
-        error: { status: 404, message: 'scene not found', code: 'NOT_FOUND' },
-      });
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'scene not found', code: 'NOT_FOUND' },
+    });
   }
 
   const { name, runtimeSettings } = req.body as {

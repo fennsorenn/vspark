@@ -3038,6 +3038,19 @@ function ModelNode({
   );
 }
 
+function SceneInstanceContent({ sourceSceneId }: { sourceSceneId: string }) {
+  const nodes = useEditorStore((s) => s.nodes);
+  const sourceNodes = nodes.filter(
+    (n) => n.rootSceneNodeId === sourceSceneId && n.kind !== 'scene'
+  );
+  const rootNodes = sourceNodes.filter((n) => !n.parentId);
+  return (
+    <group>
+      {rootNodes.map((node) => renderNodeElement(node, sourceNodes, true))}
+    </group>
+  );
+}
+
 function renderNodeElement(
   node: NodeRecord,
   allNodes?: NodeRecord[],
@@ -3098,6 +3111,20 @@ function renderNodeElement(
         <ModelNode node={node}>{childElements}</ModelNode>
       </group>
     );
+  // Scene instance: render the source scene's nodes inside this node's transform (read-only)
+  if (node.kind === 'scene_instance') {
+    const sourceSceneId = (
+      node.properties as Record<string, unknown> | undefined
+    )?.sourceSceneId as string | undefined;
+    if (!sourceSceneId) return null;
+    return (
+      <group key={node.id} visible={visible}>
+        <ModelNode node={node}>
+          <SceneInstanceContent sourceSceneId={sourceSceneId} />
+        </ModelNode>
+      </group>
+    );
+  }
   // particle and billboard are rendered flat in SceneNodes to keep their React position stable across reparents
   if (node.kind === 'particle') return null;
   if (node.kind === 'billboard') return null;

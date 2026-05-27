@@ -10,6 +10,8 @@ import { PresetLibrary } from './PresetLibrary';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 
 const KIND_ICONS: Record<string, string> = {
+  scene: '🎬',
+  scene_instance: '🔗',
   avatar: '🧍',
   model: '📦',
   light: '💡',

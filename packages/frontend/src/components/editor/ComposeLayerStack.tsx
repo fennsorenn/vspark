@@ -48,6 +48,31 @@ function layerStyle(
   return style;
 }
 
+function CameraViewPlaceholder({ layer }: { layer: ComposeLayerRecord }) {
+  const nodes = useEditorStore((s) => s.nodes);
+  const cam = layer.cameraNodeId
+    ? nodes.find((n) => n.id === layer.cameraNodeId)
+    : null;
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        background: '#111',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#666',
+        fontSize: 12,
+        pointerEvents: 'none',
+        border: '1px dashed #333',
+      }}
+    >
+      {cam ? `📷 ${cam.name}` : '📷 No camera'}
+    </div>
+  );
+}
+
 function LayerContent({
   layer,
   assets,
@@ -55,6 +80,12 @@ function LayerContent({
   layer: ComposeLayerRecord;
   assets: AssetFile[];
 }) {
+  if (layer.kind === 'camera_view') {
+    return <CameraViewPlaceholder layer={layer} />;
+  }
+  if (layer.kind === 'group' || layer.kind === 'compose_scene') {
+    return null;
+  }
   const objectFit =
     (layer.config.objectFit as CSSProperties['objectFit']) ?? 'cover';
   if (layer.kind === 'image') {
