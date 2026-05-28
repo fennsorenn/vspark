@@ -146,6 +146,8 @@ export function useWsSync() {
             }
           } else if (msg.kind === 'node_removed') {
             useEditorStore.getState().deleteNode(msg.payload.id as string);
+          } else if (msg.kind === 'scene_removed') {
+            useEditorStore.getState().removeScene(msg.payload.id as string);
           } else if (msg.kind === 'scene_updated') {
             const p = msg.payload as {
               id: string;

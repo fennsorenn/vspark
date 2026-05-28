@@ -477,6 +477,11 @@ export const updateScene = (
     body: JSON.stringify(patch),
   });
 
+export const deleteScene = (sceneId: string) =>
+  request<Record<string, unknown>>(`/scenes/${sceneId}`, {
+    method: 'DELETE',
+  });
+
 // Nodes
 export const getNodes = (sceneId: string) =>
   request<Record<string, unknown>[]>(`/scenes/${sceneId}/nodes`).then((rows) =>
@@ -1179,6 +1184,8 @@ export const api = {
   updateProject,
   getScenes,
   createScene,
+  updateScene,
+  deleteScene,
   getNodes,
   createNode,
   updateNode,

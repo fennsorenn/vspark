@@ -5,6 +5,7 @@ import type { AssetFile } from '../../api/client';
 import type { NodeComponent } from '../../store/editorStore';
 import { newComponentId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { TrackClipTimeline } from './TrackClipTimeline';
+import { PresetLibrary } from './PresetLibrary';
 
 export function AssetManager() {
   const {
@@ -232,7 +233,14 @@ export function AssetManager() {
   };
 
   const tabBtn = (
-    t: 'models' | 'animations' | 'images' | 'components' | 'effects' | 'clips'
+    t:
+      | 'models'
+      | 'animations'
+      | 'images'
+      | 'components'
+      | 'effects'
+      | 'clips'
+      | 'presets'
   ): React.CSSProperties => ({
     background: tab === t ? '#2a2a2a' : 'none',
     border: 'none',
@@ -304,10 +312,14 @@ export function AssetManager() {
         <button style={tabBtn('clips')} onClick={() => setTab('clips')}>
           Clips
         </button>
+        <button style={tabBtn('presets')} onClick={() => setTab('presets')}>
+          Presets
+        </button>
         <div style={{ flex: 1 }} />
         {tab === 'components' ||
         tab === 'effects' ||
-        tab === 'clips' ? null : tab === 'models' ? (
+        tab === 'clips' ||
+        tab === 'presets' ? null : tab === 'models' ? (
           <>
             <button
               style={uploadBtn}
@@ -376,6 +388,10 @@ export function AssetManager() {
       {tab === 'clips' ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
           <TrackClipTimeline />
+        </div>
+      ) : tab === 'presets' ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+          <PresetLibrary />
         </div>
       ) : (
         <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>

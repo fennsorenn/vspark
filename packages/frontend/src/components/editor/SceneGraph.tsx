@@ -6,7 +6,6 @@ import type { NodeRecord, NodeComponent } from '../../store/editorStore';
 import { newComponentId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
-import { PresetLibrary } from './PresetLibrary';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 
 const KIND_ICONS: Record<string, string> = {
@@ -1082,7 +1081,14 @@ export function SceneGraph() {
 
   const dockTab = useEditorStore((s) => s.leftTab);
   const setDockTab = useEditorStore((s) => s.setLeftTab);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const setActiveScene = useEditorStore((s) => s.setActiveScene);
+  const setScenes = useEditorStore((s) => s.setScenes);
+  // Which scene's add-node menu is open (scene id), or null.
+  const [dropdownOpen, setDropdownOpen] = useState<string | null>(null);
+  // Collapsed scene roots (scene id set).
+  const [collapsedScenes, setCollapsedScenes] = useState<Set<string>>(
+    new Set()
+  );
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [collapsedBones, setCollapsedBones] = useState<Set<string>>(new Set()); // key: `${nodeId}:${boneName}`
   const [expandedComponents, setExpandedComponents] = useState<Set<string>>(
@@ -1095,8 +1101,6 @@ export function SceneGraph() {
     bone: string;
   } | null>(null);
   const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
-
-  const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
 
   const toggleBones = (id: string) =>
     setBoneListExpanded(id, !(boneListExpanded[id] ?? false));
@@ -1130,12 +1134,52 @@ export function SceneGraph() {
       return n;
     });
 
+  const toggleSceneCollapse = (id: string) =>
+    setCollapsedScenes((s) => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
+  const handleNewScene = async () => {
+    if (!projectId) return;
+    const name = window.prompt('Scene name:', 'New Scene');
+    if (!name?.trim()) return;
+    try {
+      const scene = await api.createScene(projectId, name.trim());
+      // Reload the full project so the auto-populated nodes (camera, lights,
+      // compose scene) land in the store alongside the new scene row.
+      const data = await api.getScenes(projectId);
+      setScenes(data.scenes);
+      useEditorStore.getState().setNodes(data.nodes);
+      setActiveScene(scene.id);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to create scene');
+    }
+  };
+
+  const handleDeleteScene = async (scene: (typeof scenes)[number]) => {
+    if (
+      !window.confirm(
+        `Delete scene "${scene.name}" and all its nodes? This cannot be undone.`
+      )
+    )
+      return;
+    try {
+      await api.deleteScene(scene.id);
+      useEditorStore.getState().removeScene(scene.id);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to delete scene');
+    }
+  };
+
   const handleAdd = async (
     type: (typeof NODE_TYPES)[number],
-    parentId: string | null = null
+    parentId: string | null = null,
+    sceneId: string | null = activeSceneId
   ) => {
-    setDropdownOpen(false);
-    if (!activeSceneId) return;
+    setDropdownOpen(null);
+    if (!sceneId) return;
     const name = window.prompt(`Name for ${type.label}:`, type.label);
     if (!name?.trim()) return;
 
@@ -1154,7 +1198,7 @@ export function SceneGraph() {
     }
 
     try {
-      const node = await api.createNode(activeSceneId, {
+      const node = await api.createNode(sceneId, {
         parentId,
         name: name.trim(),
         kind: type.kind,
@@ -1254,7 +1298,7 @@ export function SceneGraph() {
   const renderNode = (node: NodeRecord, depth = 0) => {
     const isSelected = selectedNodeId === node.id;
     const isHidden = node.hidden ?? false;
-    const allChildren = sceneNodes.filter((n) => n.parentId === node.id);
+    const allChildren = nodes.filter((n) => n.parentId === node.id);
     const bones =
       node.kind === 'avatar' || node.kind === 'model'
         ? (vrmBonesByNode[node.id] ?? null)
@@ -1316,6 +1360,8 @@ export function SceneGraph() {
             outline: isDragOver ? '1px solid #4a8' : 'none',
           }}
           onClick={() => {
+            if (node.rootSceneNodeId !== activeSceneId)
+              setActiveScene(node.rootSceneNodeId);
             selectNode(isSelected ? null : node.id);
             setSceneSelected(false);
           }}
@@ -1606,7 +1652,180 @@ export function SceneGraph() {
     );
   };
 
-  const rootNodes = sceneNodes.filter((n) => !n.parentId);
+  const renderSceneRoot = (scene: (typeof scenes)[number]) => {
+    const isActive = scene.id === activeSceneId;
+    const isSelected = isActive && sceneSelected;
+    const isCollapsed = collapsedScenes.has(scene.id);
+    const rootNodes = nodes.filter(
+      (n) => n.rootSceneNodeId === scene.id && !n.parentId && n.kind !== 'scene'
+    );
+    const menuOpen = dropdownOpen === scene.id;
+
+    return (
+      <div key={scene.id}>
+        {/* Scene row */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            padding: '5px 8px',
+            cursor: 'pointer',
+            background: isSelected
+              ? '#2a1a4a'
+              : isActive
+                ? '#1c1c28'
+                : 'transparent',
+            borderRadius: 4,
+            margin: '1px 4px',
+            fontSize: 13,
+            color: isActive ? '#e0e0e0' : '#999',
+            userSelect: 'none',
+            gap: 2,
+            borderLeft: isActive
+              ? '2px solid #7a5af0'
+              : '2px solid transparent',
+          }}
+          onClick={() => {
+            setActiveScene(scene.id);
+            setSceneSelected(true);
+            selectNode(null);
+          }}
+        >
+          <span
+            style={{
+              width: 16,
+              flexShrink: 0,
+              color: '#555',
+              fontSize: 10,
+              textAlign: 'center',
+              visibility: rootNodes.length > 0 ? 'visible' : 'hidden',
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSceneCollapse(scene.id);
+            }}
+          >
+            {isCollapsed ? '▶' : '▼'}
+          </span>
+          <span style={{ fontSize: 14, flexShrink: 0 }}>🎬</span>
+          <span
+            style={{
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontWeight: 600,
+              marginLeft: 4,
+            }}
+          >
+            {scene.name}
+          </span>
+          {/* Per-scene add-node button */}
+          <div style={{ position: 'relative' }}>
+            <button
+              style={{
+                background: '#2563eb',
+                border: 'none',
+                color: '#fff',
+                borderRadius: 4,
+                padding: '2px 7px',
+                cursor: 'pointer',
+                fontSize: 11,
+                fontWeight: 500,
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveScene(scene.id);
+                setDropdownOpen(menuOpen ? null : scene.id);
+              }}
+            >
+              + ▾
+            </button>
+            {menuOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: 4,
+                  background: '#1e1e1e',
+                  border: '1px solid #3a3a3a',
+                  borderRadius: 6,
+                  overflow: 'hidden',
+                  zIndex: 100,
+                  minWidth: 160,
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+                }}
+              >
+                {NODE_TYPES.map((type) => (
+                  <button
+                    key={type.label}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      background: 'none',
+                      border: 'none',
+                      color: '#e0e0e0',
+                      padding: '8px 14px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background = '#2a2a2a')
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.background = 'none')
+                    }
+                    onClick={() => handleAdd(type, null, scene.id)}
+                  >
+                    {KIND_ICONS[type.kind] ?? '🔹'} {type.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* Delete scene */}
+          <button
+            title="Delete scene"
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#555',
+              cursor: 'pointer',
+              padding: '0 2px',
+              fontSize: 14,
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDeleteScene(scene);
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Scene's root nodes */}
+        {!isCollapsed &&
+          (rootNodes.length === 0 ? (
+            <div
+              style={{
+                color: '#444',
+                fontSize: 11,
+                padding: '4px 0 4px 30px',
+                fontStyle: 'italic',
+              }}
+            >
+              Empty scene
+            </div>
+          ) : (
+            rootNodes.map((n) => renderNode(n, 1))
+          ))}
+      </div>
+    );
+  };
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     flex: 1,
@@ -1667,28 +1886,61 @@ export function SceneGraph() {
         >
           Graphs
         </button>
-        <button
-          style={tabStyle(dockTab === 'presets')}
-          onClick={() => setDockTab('presets')}
-        >
-          Presets
-        </button>
       </div>
 
-      {dockTab === 'presets' && <PresetLibrary />}
       {dockTab === 'graphs' && <GraphListPanel />}
       {dockTab === 'compose' && <ComposeTree />}
 
       {dockTab === 'scene' && (
         <>
-          {/* Node list */}
+          {/* Scenes header */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '6px 10px',
+              borderBottom: '1px solid #1e1e1e',
+              flexShrink: 0,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: '#666',
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+              }}
+            >
+              Scenes
+            </span>
+            <button
+              style={{
+                background: '#2563eb',
+                border: 'none',
+                color: '#fff',
+                borderRadius: 4,
+                padding: '2px 8px',
+                cursor: 'pointer',
+                fontSize: 11,
+                fontWeight: 500,
+              }}
+              onClick={handleNewScene}
+              title="New scene"
+            >
+              + Scene
+            </button>
+          </div>
+
+          {/* Scene roots */}
           <div
             style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}
-            onClick={() => dropdownOpen && setDropdownOpen(false)}
+            onClick={() => dropdownOpen && setDropdownOpen(null)}
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDropOnRoot}
           >
-            {!activeSceneId ? (
+            {scenes.length === 0 ? (
               <div
                 style={{
                   color: '#555',
@@ -1697,125 +1949,10 @@ export function SceneGraph() {
                   textAlign: 'center',
                 }}
               >
-                No scene selected
+                No scenes yet. Click + Scene
               </div>
             ) : (
-              <>
-                {/* Scene entity row */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '5px 8px',
-                    cursor: 'pointer',
-                    background: sceneSelected ? '#2a1a4a' : 'transparent',
-                    borderRadius: 4,
-                    margin: '1px 4px',
-                    fontSize: 13,
-                    color: sceneSelected ? '#e0e0e0' : '#aaa',
-                    userSelect: 'none',
-                    gap: 4,
-                    borderBottom: '1px solid #1e1e1e',
-                    marginBottom: 4,
-                  }}
-                  onClick={() => {
-                    setSceneSelected(!sceneSelected);
-                    selectNode(null);
-                  }}
-                >
-                  <span style={{ fontSize: 14 }}>🎬</span>
-                  <span
-                    style={{
-                      flex: 1,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {activeScene?.name ?? 'Scene'}
-                  </span>
-                  {/* Add button on scene row */}
-                  <div style={{ position: 'relative' }}>
-                    <button
-                      style={{
-                        background: '#2563eb',
-                        border: 'none',
-                        color: '#fff',
-                        borderRadius: 4,
-                        padding: '2px 7px',
-                        cursor: 'pointer',
-                        fontSize: 11,
-                        fontWeight: 500,
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDropdownOpen((v) => !v);
-                      }}
-                    >
-                      + ▾
-                    </button>
-                    {dropdownOpen && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: '100%',
-                          right: 0,
-                          marginTop: 4,
-                          background: '#1e1e1e',
-                          border: '1px solid #3a3a3a',
-                          borderRadius: 6,
-                          overflow: 'hidden',
-                          zIndex: 100,
-                          minWidth: 160,
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-                        }}
-                      >
-                        {NODE_TYPES.map((type) => (
-                          <button
-                            key={type.label}
-                            style={{
-                              display: 'block',
-                              width: '100%',
-                              background: 'none',
-                              border: 'none',
-                              color: '#e0e0e0',
-                              padding: '8px 14px',
-                              textAlign: 'left',
-                              cursor: 'pointer',
-                              fontSize: 13,
-                            }}
-                            onMouseEnter={(e) =>
-                              (e.currentTarget.style.background = '#2a2a2a')
-                            }
-                            onMouseLeave={(e) =>
-                              (e.currentTarget.style.background = 'none')
-                            }
-                            onClick={() => handleAdd(type, null)}
-                          >
-                            {KIND_ICONS[type.kind] ?? '🔹'} {type.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {rootNodes.length === 0 ? (
-                  <div
-                    style={{
-                      color: '#555',
-                      fontSize: 12,
-                      padding: '12px',
-                      textAlign: 'center',
-                    }}
-                  >
-                    No nodes yet. Click +
-                  </div>
-                ) : (
-                  rootNodes.map((n) => renderNode(n, 0))
-                )}
-              </>
+              scenes.map((scene) => renderSceneRoot(scene))
             )}
           </div>
 
@@ -1823,7 +1960,7 @@ export function SceneGraph() {
           {ctxMenu && (
             <ContextMenu
               menu={ctxMenu}
-              nodes={sceneNodes}
+              nodes={nodes}
               onClose={() => setCtxMenu(null)}
               onAddChild={(parentId, type) => handleAdd(type, parentId)}
               onReparent={(id, newParentId) => handleReparent(id, newParentId)}

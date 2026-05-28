@@ -211,8 +211,14 @@ router.post('/projects/:projectId/scenes', (req, res) => {
           sy: 1,
           sz: 1,
         },
+        light: {
+          type: 'light',
+          lightType: 'directional',
+          color: '#ffffff',
+          intensity: 1,
+        },
       }),
-      JSON.stringify({ lightType: 'directional' })
+      '{}'
     );
 
     // Default fill light
@@ -236,8 +242,14 @@ router.post('/projects/:projectId/scenes', (req, res) => {
           sy: 1,
           sz: 1,
         },
+        light: {
+          type: 'light',
+          lightType: 'directional',
+          color: '#ffffff',
+          intensity: 0.5,
+        },
       }),
-      JSON.stringify({ lightType: 'directional' })
+      '{}'
     );
 
     // Default compose scene
@@ -337,6 +349,72 @@ router.put('/scenes/:sceneId', (req, res) => {
   _ws?.broadcast('scene_updated', patch);
 
   res.json({ ok: true, data: patch });
+});
+
+/**
+ * @openapi
+ * /api/scenes/{sceneId}:
+ *   delete:
+ *     tags: [scenes]
+ *     summary: Delete a scene and everything scoped to it (nodes, components, effects, clips, its compose scene + layers)
+ *     parameters:
+ *       - in: path
+ *         name: sceneId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Deleted }
+ *       404: { description: Scene not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+ */
+router.delete('/scenes/:sceneId', (req, res) => {
+  const db = getDb();
+  const sceneId = req.params.sceneId;
+
+  const scene = db
+    .prepare("SELECT id FROM scene_nodes WHERE id = ? AND kind = 'scene'")
+    .get(sceneId) as { id: string } | undefined;
+  if (!scene) {
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'scene not found', code: 'NOT_FOUND' },
+    });
+  }
+
+  // Every node in the scene (the scene node itself + its descendants) shares
+  // root_scene_node_id = sceneId. Collect them so we can clean up the rows that
+  // reference them (components, effects, camera_view compose layers).
+  const nodeIds = (
+    db
+      .prepare('SELECT id FROM scene_nodes WHERE root_scene_node_id = ?')
+      .all(sceneId) as { id: string }[]
+  ).map((r) => r.id);
+
+  // FKs are stripped of ON DELETE CASCADE for root_scene_node_id (see the
+  // 018 migration rebuild), so delete explicitly with enforcement off.
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    for (const nid of nodeIds) {
+      db.prepare('DELETE FROM node_components WHERE node_id = ?').run(nid);
+      db.prepare('DELETE FROM camera_effects WHERE node_id = ?').run(nid);
+      // Drop camera_view compose layers that targeted this scene's cameras.
+      db.prepare('DELETE FROM compose_layers WHERE camera_node_id = ?').run(
+        nid
+      );
+    }
+    // Track clips scoped to this scene.
+    db.prepare('DELETE FROM track_clips WHERE root_scene_node_id = ?').run(
+      sceneId
+    );
+    // All nodes belonging to this scene (descendants + the scene node itself).
+    db.prepare('DELETE FROM scene_nodes WHERE root_scene_node_id = ?').run(
+      sceneId
+    );
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+
+  _ws?.broadcast('scene_removed', { id: sceneId });
+  res.json({ ok: true, data: {} });
 });
 
 export default router;

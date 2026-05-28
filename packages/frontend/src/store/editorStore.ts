@@ -64,14 +64,15 @@ export interface ComposeLayerOverride {
   rotation?: number;
 }
 
-export type LeftDockTab = 'scene' | 'compose' | 'graphs' | 'presets';
+export type LeftDockTab = 'scene' | 'compose' | 'graphs';
 export type BottomDockTab =
   | 'models'
   | 'animations'
   | 'images'
   | 'components'
   | 'effects'
-  | 'clips';
+  | 'clips'
+  | 'presets';
 
 /** Per-node free-form properties (mirror of backend `scene_nodes.properties`). */
 export interface NodeProperties {
@@ -385,6 +386,7 @@ interface EditorState {
     sceneId: string,
     updates: Partial<Omit<SceneItem, 'id'>>
   ) => void;
+  removeScene: (sceneId: string) => void;
   setActiveScene: (id: string | null) => void;
   setSceneSelected: (selected: boolean) => void;
   setNodes: (nodes: NodeRecord[]) => void;
@@ -567,6 +569,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         sc.id === sceneId ? { ...sc, ...updates } : sc
       ),
     })),
+  removeScene: (sceneId) =>
+    set((s) => {
+      const remainingScenes = s.scenes.filter((sc) => sc.id !== sceneId);
+      const removedNodeIds = new Set(
+        s.nodes.filter((n) => n.rootSceneNodeId === sceneId).map((n) => n.id)
+      );
+      const wasActive = s.activeSceneId === sceneId;
+      return {
+        scenes: remainingScenes,
+        nodes: s.nodes.filter((n) => n.rootSceneNodeId !== sceneId),
+        nodeComponents: s.nodeComponents.filter(
+          (c) => !removedNodeIds.has(c.nodeId)
+        ),
+        cameraEffects: s.cameraEffects.filter(
+          (e) => !removedNodeIds.has(e.nodeId)
+        ),
+        trackClips: s.trackClips.filter((t) => t.rootSceneNodeId !== sceneId),
+        activeSceneId: wasActive
+          ? (remainingScenes[0]?.id ?? null)
+          : s.activeSceneId,
+        selectedNodeId: removedNodeIds.has(s.selectedNodeId ?? '')
+          ? null
+          : s.selectedNodeId,
+        sceneSelected: wasActive ? false : s.sceneSelected,
+      };
+    }),
   setActiveScene: (id) => set({ activeSceneId: id }),
   setSceneSelected: (selected) => set({ sceneSelected: selected }),
   setNodes: (nodes) => set({ nodes }),

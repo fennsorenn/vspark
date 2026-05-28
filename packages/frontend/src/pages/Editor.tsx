@@ -127,7 +127,7 @@ export function Editor() {
     api
       .getScenes(projectId)
       .then(
-        async ({
+        ({
           scenes,
           nodes,
           nodeComponents,
@@ -151,18 +151,11 @@ export function Editor() {
             selectComposeScene(composeSceneItems[0].id);
           }
           setTrackClips(trackClips);
+          // Load every scene's nodes so the dock can render all scenes as
+          // collapsible roots; the viewport still renders only the active scene.
+          setNodes(nodes);
           if (scenes.length > 0) {
-            const firstId = scenes[0].id;
-            setActiveScene(firstId);
-            const sceneNodes = nodes.filter(
-              (n) => n.rootSceneNodeId === firstId
-            );
-            if (sceneNodes.length > 0) {
-              setNodes(sceneNodes);
-            } else {
-              const fetched = await api.getNodes(firstId);
-              setNodes(fetched);
-            }
+            setActiveScene(scenes[0].id);
           }
         }
       );

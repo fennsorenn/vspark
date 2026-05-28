@@ -12,6 +12,7 @@ import {
 export function PresetLibrary() {
   const projectId = useEditorStore((s) => s.projectId);
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
+  const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
   const selectedNodeId = useEditorStore((s) => s.selectedNodeId);
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
@@ -36,6 +37,51 @@ export function PresetLibrary() {
     } catch {
       /* ignore */
     }
+  };
+
+  /** Instantiate a preset payload, routing it to the 3D scene or the compose
+   *  scene depending on the preset's rootKind, then reload affected state. */
+  const instantiatePayload = async (
+    rawPayload: unknown
+  ): Promise<{ missingAssets: string[] } | null> => {
+    if (!projectId) return null;
+    const payload = rawPayload as { format?: string; rootKind?: string };
+    if (payload.format !== 'vspark.preset.v1') return null;
+    const isCompose = payload.rootKind === 'compose_layer';
+    if (isCompose) {
+      if (!activeComposeSceneId) return null;
+      const result = await instantiatePreset(
+        payload,
+        projectId,
+        // No 3D scene root for compose presets.
+        '',
+        activeComposeSceneId,
+        selectedComposeLayerId
+      );
+      const { api: apiClient } = await import('../../api/client');
+      const data = await apiClient.getScenes(projectId);
+      const store = useEditorStore.getState();
+      store.setComposeScenes(
+        data.composeLayers.filter((l) => l.kind === 'compose_scene')
+      );
+      store.setComposeLayers(
+        data.composeLayers.filter((l) => l.kind !== 'compose_scene')
+      );
+      return result;
+    }
+    if (!activeSceneId) return null;
+    const result = await instantiatePreset(
+      payload,
+      projectId,
+      activeSceneId,
+      null,
+      selectedNodeId
+    );
+    const { api: apiClient } = await import('../../api/client');
+    const data = await apiClient.getScenes(projectId);
+    useEditorStore.getState().setNodes(data.nodes);
+    useEditorStore.getState().setTrackClips(data.trackClips);
+    return result;
   };
 
   const handleSave = async () => {
@@ -64,25 +110,14 @@ export function PresetLibrary() {
   };
 
   const handleInstantiate = async (presetId: string) => {
-    if (!projectId || !activeSceneId) return;
+    if (!projectId) return;
     setInstantiating(presetId);
     try {
       const presetData = await getPreset(presetId);
-      const result = await instantiatePreset(
-        presetData.payload,
-        projectId,
-        activeSceneId,
-        selectedNodeId
-      );
-      if (result.missingAssets.length > 0) {
+      const result = await instantiatePayload(presetData.payload);
+      if (result && result.missingAssets.length > 0) {
         console.warn('Missing assets:', result.missingAssets);
       }
-      // Reload scene nodes
-      const { api: apiClient } = await import('../../api/client');
-      const data = await apiClient.getScenes(projectId);
-      useEditorStore.getState().setNodes(data.nodes);
-      useEditorStore.getState().setComposeLayers(data.composeLayers);
-      useEditorStore.getState().setTrackClips(data.trackClips);
     } catch (e) {
       console.error('Failed to instantiate preset:', e);
     } finally {
@@ -117,29 +152,18 @@ export function PresetLibrary() {
   };
 
   const handleImport = async (file: File) => {
-    if (!projectId || !activeSceneId) return;
+    if (!projectId) return;
     try {
       const text = await file.text();
       const payload = JSON.parse(text);
-      if (payload.format !== 'vspark.preset.v1') {
-        console.error('Invalid preset format');
+      const result = await instantiatePayload(payload);
+      if (!result) {
+        console.error('Invalid or non-instantiable preset');
         return;
       }
-      const result = await instantiatePreset(
-        payload,
-        projectId,
-        activeSceneId,
-        selectedNodeId
-      );
       if (result.missingAssets.length > 0) {
         console.warn('Missing assets:', result.missingAssets);
       }
-      const data = await (
-        await import('../../api/client')
-      ).api.getScenes(projectId);
-      useEditorStore.getState().setNodes(data.nodes);
-      useEditorStore.getState().setComposeLayers(data.composeLayers);
-      useEditorStore.getState().setTrackClips(data.trackClips);
     } catch (e) {
       console.error('Failed to import preset:', e);
     }
@@ -158,23 +182,11 @@ export function PresetLibrary() {
   };
 
   const handlePaste = async () => {
-    if (!projectId || !activeSceneId) return;
+    if (!projectId) return;
     try {
       const text = await navigator.clipboard.readText();
       const payload = JSON.parse(text);
-      if (payload.format !== 'vspark.preset.v1') return;
-      await instantiatePreset(
-        payload,
-        projectId,
-        activeSceneId,
-        selectedNodeId
-      );
-      const data = await (
-        await import('../../api/client')
-      ).api.getScenes(projectId);
-      useEditorStore.getState().setNodes(data.nodes);
-      useEditorStore.getState().setComposeLayers(data.composeLayers);
-      useEditorStore.getState().setTrackClips(data.trackClips);
+      await instantiatePayload(payload);
     } catch {
       /* not a preset on clipboard, ignore */
     }
@@ -393,19 +405,31 @@ export function PresetLibrary() {
             <div
               style={{ display: 'flex', gap: 2, marginLeft: 4, flexShrink: 0 }}
             >
-              <button
-                style={{
-                  ...btnStyle,
-                  fontSize: 10,
-                  padding: '2px 5px',
-                  opacity: instantiating === p.id ? 0.5 : 1,
-                }}
-                onClick={() => handleInstantiate(p.id)}
-                disabled={instantiating === p.id || !activeSceneId}
-                title="Instantiate into current scene"
-              >
-                Use
-              </button>
+              {(() => {
+                const target =
+                  p.rootKind === 'compose_layer'
+                    ? activeComposeSceneId
+                    : activeSceneId;
+                return (
+                  <button
+                    style={{
+                      ...btnStyle,
+                      fontSize: 10,
+                      padding: '2px 5px',
+                      opacity: instantiating === p.id ? 0.5 : 1,
+                    }}
+                    onClick={() => handleInstantiate(p.id)}
+                    disabled={instantiating === p.id || !target}
+                    title={
+                      p.rootKind === 'compose_layer'
+                        ? 'Instantiate into current compose scene'
+                        : 'Instantiate into current 3D scene'
+                    }
+                  >
+                    Use
+                  </button>
+                );
+              })()}
               <button
                 style={{ ...btnStyle, fontSize: 10, padding: '2px 5px' }}
                 onClick={() => handleExport(p.id)}

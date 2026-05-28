@@ -11,11 +11,6 @@ export function TopBar() {
   const {
     projectId,
     projectName,
-    scenes,
-    activeSceneId,
-    setScenes,
-    setActiveScene,
-    setNodes,
     updateAvailable,
     setUpdateAvailable,
   } = useEditorStore();
@@ -50,38 +45,6 @@ export function TopBar() {
       .catch(() => {});
   }, []);
 
-  const handleSceneChange = async (sceneId: string) => {
-    setActiveScene(sceneId);
-    try {
-      const nodes = await api.getNodes(sceneId);
-      setNodes(nodes);
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleNewScene = async () => {
-    if (!projectId) return;
-    const name = window.prompt('Scene name:');
-    if (!name?.trim()) return;
-    try {
-      const scene = await api.createScene(projectId, name.trim());
-      const updated = [
-        ...scenes,
-        {
-          id: scene.id,
-          name: scene.name,
-          runtimeSettings: scene.runtimeSettings,
-        },
-      ];
-      setScenes(updated);
-      setActiveScene(scene.id);
-      setNodes([]);
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to create scene');
-    }
-  };
-
   const barStyle: React.CSSProperties = {
     height: 48,
     background: '#1a1a1a',
@@ -94,28 +57,6 @@ export function TopBar() {
     fontFamily: 'system-ui, sans-serif',
     fontSize: 13,
     color: '#ccc',
-  };
-
-  const selectStyle: React.CSSProperties = {
-    background: '#2a2a2a',
-    border: '1px solid #3a3a3a',
-    color: '#e0e0e0',
-    borderRadius: 5,
-    padding: '3px 8px',
-    fontSize: 13,
-    cursor: 'pointer',
-    outline: 'none',
-  };
-
-  const iconBtnStyle: React.CSSProperties = {
-    background: '#2a2a2a',
-    border: '1px solid #3a3a3a',
-    color: '#e0e0e0',
-    borderRadius: 5,
-    padding: '3px 8px',
-    cursor: 'pointer',
-    fontSize: 13,
-    lineHeight: 1,
   };
 
   return (
@@ -142,33 +83,6 @@ export function TopBar() {
         <span style={{ color: '#e0e0e0', fontWeight: 500 }}>
           {projectName || 'Loading…'}
         </span>
-
-        {/* Spacer */}
-        <div style={{ flex: 1 }} />
-
-        {/* Center - scenes */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ color: '#888' }}>Scene:</span>
-          <select
-            style={selectStyle}
-            value={activeSceneId ?? ''}
-            onChange={(e) => handleSceneChange(e.target.value)}
-          >
-            {scenes.length === 0 && <option value="">No scenes</option>}
-            {scenes.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <button
-            style={iconBtnStyle}
-            onClick={handleNewScene}
-            title="New scene"
-          >
-            +
-          </button>
-        </div>
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />
