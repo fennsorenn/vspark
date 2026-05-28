@@ -1,4 +1,11 @@
 import { dirname, join } from 'path';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  unlinkSync,
+} from 'fs';
 import { fileURLToPath } from 'url';
 // esbuild handles CJS→ESM interop; this import gets bundled into bundle.cjs
 import nodeSqliteWasm from 'node-sqlite3-wasm';
@@ -35,7 +42,11 @@ const DB_PATH = IS_BUNDLED
   ? join(__dirname, 'vspark.db')
   : join(__dirname, '..', 'vspark.db');
 
-const MIGRATIONS = [
+type Migration =
+  | { name: string; sql: string }
+  | { name: string; run: (db: WasmDb) => void };
+
+const MIGRATIONS: Migration[] = [
   { name: '001_initial.sql', sql: m001 },
   { name: '002_node_components.sql', sql: m002 },
   { name: '003_camera_effects.sql', sql: m003 },
@@ -53,7 +64,7 @@ const MIGRATIONS = [
   { name: '015_track_clips_owner_scope.sql', sql: m015 },
   { name: '016_compose_layer_nesting.sql', sql: m016 },
   { name: '017_presets_table.sql', sql: m017 },
-  { name: '018_refactor_scenes_to_nodes.sql', sql: m018 },
+  { name: '018_refactor_scenes_to_nodes.sql', run: m018 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.
@@ -133,13 +144,23 @@ export async function runMigrations(): Promise<void> {
     ).map((r) => r.name)
   );
 
-  for (const { name, sql } of MIGRATIONS) {
-    if (applied.has(name)) continue;
+  const pending = MIGRATIONS.filter((m) => !applied.has(m.name));
+  if (pending.length > 0) {
+    backupBeforeMigration(pending.map((m) => m.name));
+  }
+
+  for (const migration of pending) {
     try {
-      db.exec(sql);
-      db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(name);
+      if ('sql' in migration) {
+        db.exec(migration.sql);
+      } else {
+        migration.run(db);
+      }
+      db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(
+        migration.name
+      );
     } catch (error) {
-      console.error(`Failed to run migration ${name}:`, error);
+      console.error(`Failed to run migration ${migration.name}:`, error);
       throw error;
     }
   }
@@ -151,5 +172,34 @@ export function closeDb(): void {
   if (_db) {
     _db.close();
     _db = null;
+  }
+}
+
+// ─── Pre-migration backup ──────────────────────────────────────────────────
+
+const MAX_BACKUPS = 5;
+
+function backupBeforeMigration(pendingNames: string[]): void {
+  if (!existsSync(DB_PATH)) return;
+
+  const backupDir = join(dirname(DB_PATH), 'backups');
+  mkdirSync(backupDir, { recursive: true });
+
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const label = pendingNames[0].replace(/\.sql$/, '');
+  const backupPath = join(backupDir, `vspark-pre-${label}-${ts}.db`);
+  copyFileSync(DB_PATH, backupPath);
+  console.log(`[db] Backup created: ${backupPath}`);
+
+  const files = readdirSync(backupDir)
+    .filter((f) => f.startsWith('vspark-') && f.endsWith('.db'))
+    .sort();
+  while (files.length > MAX_BACKUPS) {
+    const old = files.shift()!;
+    try {
+      unlinkSync(join(backupDir, old));
+    } catch {
+      /* best-effort */
+    }
   }
 }

@@ -29,6 +29,8 @@ for (const sqlFile of sqlFiles) {
 
   let existing = ''
   try { existing = readFileSync(tsPath, 'utf8') } catch { /* fresh file */ }
+  // Skip .ts files that export a function (hand-written migration logic)
+  if (existing && !existing.startsWith('export default "')) { skipped++; continue }
   if (existing === tsBody) { skipped++; continue }
   writeFileSync(tsPath, tsBody)
   wrote++
