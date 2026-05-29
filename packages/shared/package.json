@@ -7,7 +7,8 @@
     ".": "./src/types.ts",
     "./schema": "./src/schema.ts",
     "./signal": "./src/signal.ts",
-    "./arkit": "./src/arkit_tables.ts"
+    "./arkit": "./src/arkit_tables.ts",
+    "./paramPaths": "./src/paramPaths.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",
