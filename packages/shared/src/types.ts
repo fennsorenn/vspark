@@ -13,7 +13,9 @@ export type NodeKind =
   | 'prop'
   | 'godray_caster'
   | 'billboard'
-  | 'group';
+  | 'group'
+  | 'text_troika'
+  | 'text_canvas';
 
 // Animation tracking: tracks which clip is playing and when it started
 export interface AnimationState {

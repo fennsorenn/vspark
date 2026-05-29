@@ -213,7 +213,8 @@ export type ComposeLayerKind =
   | 'group'
   | 'compose_scene'
   | 'scene_include'
-  | 'camera_view';
+  | 'camera_view'
+  | 'text';
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
 

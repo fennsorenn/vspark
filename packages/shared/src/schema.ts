@@ -40,6 +40,8 @@ export const sceneNodeKindSchema = z
     'prop',
     'godray_caster',
     'group',
+    'text_troika',
+    'text_canvas',
   ])
   .openapi('SceneNodeKind');
 
@@ -220,6 +222,7 @@ export const composeLayerKindSchema = z
     'video',
     'browser',
     'group',
+    'text',
   ])
   .openapi('ComposeLayerKind');
 export const composeAnchorHSchema = z

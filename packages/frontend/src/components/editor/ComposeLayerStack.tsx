@@ -5,6 +5,8 @@ import type {
   AssetFile,
   RuntimeOverrideMap,
 } from '../../store/editorStore';
+import DOMPurify from 'dompurify';
+import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
 import { CameraCanvas } from './CameraCanvas';
 
 interface ComposeLayerStackProps {
@@ -238,6 +240,9 @@ function LayerContent({
       />
     );
   }
+  if (layer.kind === 'text') {
+    return <TextLayer layer={layer} />;
+  }
   const url = (layer.config.url as string | undefined) ?? '';
   if (!url) return <Placeholder text="no URL" />;
   // Iframes always swallow events when active. We keep them pointer-events:none
@@ -257,6 +262,53 @@ function LayerContent({
       title={layer.name}
     />
   );
+}
+
+/** Text compose layer. Content is taken from `layer.config.content`, overridden
+ *  by the runtime override `text.content` when a graph node has written one.
+ *  When `config.allowHtml`, the content is DOMPurified and rendered as HTML
+ *  (curated allow-list: inline formatting + emote-friendly img tags); otherwise
+ *  it's rendered as plain text. */
+function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
+  const overrideContent = useEditorStore((s) => {
+    const v = s.runtimeLayerOverrides[layer.id]?.['text.content'];
+    return typeof v === 'string' ? v : undefined;
+  });
+  const cfg = layer.config as {
+    content?: string;
+    fontFamily?: string;
+    fontSize?: number;
+    color?: string;
+    weight?: number | string;
+    align?: 'left' | 'center' | 'right';
+    allowHtml?: boolean;
+  };
+  const content = overrideContent ?? cfg.content ?? '';
+  const style: CSSProperties = {
+    width: '100%',
+    height: '100%',
+    fontFamily: cfg.fontFamily ?? 'inherit',
+    fontSize: typeof cfg.fontSize === 'number' ? `${cfg.fontSize}px` : 16,
+    color: cfg.color ?? '#ffffff',
+    fontWeight: cfg.weight ?? 'normal',
+    textAlign: cfg.align ?? 'left',
+    pointerEvents: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent:
+      cfg.align === 'center'
+        ? 'center'
+        : cfg.align === 'right'
+          ? 'flex-end'
+          : 'flex-start',
+    wordBreak: 'break-word',
+    overflow: 'hidden',
+  };
+  if (cfg.allowHtml) {
+    const safe = DOMPurify.sanitize(content, TEXT_SANITIZE_OPTS);
+    return <div style={style} dangerouslySetInnerHTML={{ __html: safe }} />;
+  }
+  return <div style={style}>{content}</div>;
 }
 
 function Placeholder({ text }: { text: string }) {

@@ -35,6 +35,10 @@ import { GodRaysEffectFixed as GodRaysEffect } from './GodRaysEffectFixed';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { Text as TroikaText } from 'troika-three-text';
+import DOMPurify from 'dompurify';
+import html2canvas from 'html2canvas';
+import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
 import { VRMLoaderPlugin } from '@pixiv/three-vrm';
 import type { VRM, VRMHumanBoneName, VRMPose } from '@pixiv/three-vrm';
 import { useEditorStore } from '../../store/editorStore';
@@ -2788,6 +2792,237 @@ function makeInstancedParticleMaterial(
   });
 }
 
+// --- Text scene-node kinds ----------------------------------------------------
+
+/** Read the live text content for a text scene node, preferring the runtime
+ *  override on `text.content` over the persisted `components.text.content`. */
+function useTextContent(node: NodeRecord): string {
+  const override = useEditorStore((s) => {
+    const v = s.runtimeNodeOverrides[node.id]?.['text.content'];
+    return typeof v === 'string' ? v : undefined;
+  });
+  if (override !== undefined) return override;
+  const tc = (node.components?.text as { content?: string } | undefined)
+    ?.content;
+  return typeof tc === 'string' ? tc : '';
+}
+
+/** SDF text via troika-three-text. Crisp at any distance, no HTML. */
+function TextTroikaNode({ node }: { node: NodeRecord }) {
+  const outerRef = useRef<THREE.Group>(null);
+  const billboardRef = useRef<THREE.Group>(null);
+  const textRef = useRef<TroikaText | null>(null);
+  const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
+  const content = useTextContent(node);
+  const cfg = (node.components?.text ?? {}) as {
+    fontSize?: number;
+    color?: string;
+    anchorX?: 'left' | 'center' | 'right';
+    anchorY?: 'top' | 'middle' | 'bottom';
+    maxWidth?: number;
+    billboard?: boolean;
+  };
+  const camera = useThree((s) => s.camera);
+
+  // Create the troika Text mesh once and attach into the group.
+  useEffect(() => {
+    const inst = new TroikaText();
+    textRef.current = inst;
+    billboardRef.current?.add(inst);
+    return () => {
+      billboardRef.current?.remove(inst);
+      inst.dispose();
+      textRef.current = null;
+    };
+  }, []);
+
+  // Apply config + content; troika.sync() lazily updates the SDF.
+  useEffect(() => {
+    const inst = textRef.current;
+    if (!inst) return;
+    inst.text = content;
+    inst.fontSize = cfg.fontSize ?? 0.2;
+    inst.color = cfg.color ?? '#ffffff';
+    inst.anchorX = cfg.anchorX ?? 'center';
+    inst.anchorY = cfg.anchorY ?? 'middle';
+    inst.maxWidth = cfg.maxWidth ?? Infinity;
+    inst.sync();
+  }, [
+    content,
+    cfg.fontSize,
+    cfg.color,
+    cfg.anchorX,
+    cfg.anchorY,
+    cfg.maxWidth,
+  ]);
+
+  useFrame(() => {
+    if (cfg.billboard && billboardRef.current) {
+      billboardRef.current.quaternion.copy(camera.quaternion);
+    } else if (billboardRef.current) {
+      billboardRef.current.quaternion.identity();
+    }
+  });
+
+  return (
+    <group
+      ref={outerRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+      scale={[t.sx, t.sy, t.sz]}
+    >
+      <group ref={billboardRef} />
+    </group>
+  );
+}
+
+/** Text rendered into a CanvasTexture on a plane. Supports allowHtml via
+ *  html2canvas (for emote rendering); otherwise rasterises plain text directly
+ *  on a 2D canvas. */
+function TextCanvasNode({ node }: { node: NodeRecord }) {
+  const outerRef = useRef<THREE.Group>(null);
+  const billboardRef = useRef<THREE.Group>(null);
+  const meshRef = useRef<THREE.Mesh>(null);
+  const textureRef = useRef<THREE.CanvasTexture | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
+  const content = useTextContent(node);
+  const cfg = (node.components?.text ?? {}) as {
+    fontSize?: number;
+    color?: string;
+    padding?: number;
+    allowHtml?: boolean;
+    width?: number;
+    height?: number;
+    billboard?: boolean;
+  };
+  const planeW = cfg.width ?? 2;
+  const planeH = cfg.height ?? 0.5;
+  const camera = useThree((s) => s.camera);
+
+  // One-time canvas + texture setup. Subsequent renders mutate in place so
+  // the CanvasTexture object identity stays stable.
+  useEffect(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(planeW * 256));
+    canvas.height = Math.max(1, Math.round(planeH * 256));
+    canvasRef.current = canvas;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    textureRef.current = tex;
+    return () => {
+      tex.dispose();
+      textureRef.current = null;
+      canvasRef.current = null;
+    };
+  }, [planeW, planeH]);
+
+  // Re-rasterise whenever content or styling changes.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const tex = textureRef.current;
+    if (!canvas || !tex) return;
+    let cancelled = false;
+    const fontSize = cfg.fontSize ?? 48;
+    const color = cfg.color ?? '#ffffff';
+    const padding = cfg.padding ?? 16;
+    const draw = async () => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (cfg.allowHtml && content.trim() !== '') {
+        // Off-DOM render the sanitised HTML, then composite onto our canvas.
+        const safe = DOMPurify.sanitize(content, TEXT_SANITIZE_OPTS);
+        const host = document.createElement('div');
+        host.style.position = 'fixed';
+        host.style.left = '-99999px';
+        host.style.top = '0';
+        host.style.width = `${canvas.width}px`;
+        host.style.height = `${canvas.height}px`;
+        host.style.padding = `${padding}px`;
+        host.style.color = color;
+        host.style.fontSize = `${fontSize}px`;
+        host.style.lineHeight = '1.2';
+        host.style.wordBreak = 'break-word';
+        host.innerHTML = safe;
+        document.body.appendChild(host);
+        try {
+          const rendered = await html2canvas(host, {
+            backgroundColor: null,
+            width: canvas.width,
+            height: canvas.height,
+            scale: 1,
+            logging: false,
+          });
+          if (!cancelled) {
+            ctx.drawImage(rendered, 0, 0);
+            tex.needsUpdate = true;
+          }
+        } finally {
+          document.body.removeChild(host);
+        }
+      } else {
+        ctx.fillStyle = color;
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.textBaseline = 'top';
+        // Naive word-wrap; good enough for short overlay text.
+        const maxWidth = canvas.width - padding * 2;
+        const words = content.split(/\s+/);
+        const lines: string[] = [];
+        let line = '';
+        for (const w of words) {
+          const test = line ? `${line} ${w}` : w;
+          if (ctx.measureText(test).width > maxWidth && line) {
+            lines.push(line);
+            line = w;
+          } else line = test;
+        }
+        if (line) lines.push(line);
+        let y = padding;
+        for (const l of lines) {
+          ctx.fillText(l, padding, y);
+          y += fontSize * 1.2;
+        }
+        tex.needsUpdate = true;
+      }
+    };
+    void draw();
+    return () => {
+      cancelled = true;
+    };
+  }, [content, cfg.fontSize, cfg.color, cfg.padding, cfg.allowHtml]);
+
+  useFrame(() => {
+    if (cfg.billboard && billboardRef.current) {
+      billboardRef.current.quaternion.copy(camera.quaternion);
+    } else if (billboardRef.current) {
+      billboardRef.current.quaternion.identity();
+    }
+  });
+
+  return (
+    <group
+      ref={outerRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+      scale={[t.sx, t.sy, t.sz]}
+    >
+      <group ref={billboardRef}>
+        <mesh ref={meshRef}>
+          <planeGeometry args={[planeW, planeH]} />
+          <meshBasicMaterial
+            map={textureRef.current ?? undefined}
+            transparent
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
 function ParticleNode({ node }: { node: NodeRecord }) {
   const outerRef = useRef<THREE.Group>(null);
   // InstancedMesh for local-space; a scene-root InstancedMesh for world-space
@@ -3225,9 +3460,13 @@ function renderNodeElement(
       </group>
     );
   }
-  // particle and billboard are rendered flat in SceneNodes to keep their React position stable across reparents
+  // particle, billboard, and text nodes are rendered flat in SceneNodes to keep
+  // their React position stable across reparents (preserves particle pools,
+  // billboard textures, troika SDF caches, and html2canvas-backed textures).
   if (node.kind === 'particle') return null;
   if (node.kind === 'billboard') return null;
+  if (node.kind === 'text_troika') return null;
+  if (node.kind === 'text_canvas') return null;
   return (
     <group key={node.id} visible={visible}>
       <ModelNode node={node}>{childElements}</ModelNode>
@@ -3261,6 +3500,8 @@ export function SceneNodes({
   // otherwise unmount+remount them, destroying the particle pool).
   const flatParticles = sceneNodes.filter((n) => n.kind === 'particle');
   const flatBillboards = sceneNodes.filter((n) => n.kind === 'billboard');
+  const flatTextTroika = sceneNodes.filter((n) => n.kind === 'text_troika');
+  const flatTextCanvas = sceneNodes.filter((n) => n.kind === 'text_canvas');
 
   return (
     <>
@@ -3273,6 +3514,16 @@ export function SceneNodes({
       {flatBillboards.map((node) => (
         <group key={node.id} visible={!node.hidden}>
           <BillboardNode node={node} />
+        </group>
+      ))}
+      {flatTextTroika.map((node) => (
+        <group key={node.id} visible={!node.hidden}>
+          <TextTroikaNode node={node} />
+        </group>
+      ))}
+      {flatTextCanvas.map((node) => (
+        <group key={node.id} visible={!node.hidden}>
+          <TextCanvasNode node={node} />
         </group>
       ))}
     </>

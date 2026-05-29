@@ -16,6 +16,7 @@ const KIND_ICONS: Record<ComposeLayerKind, string> = {
   compose_scene: '🎬',
   scene_include: '🎬',
   camera_view: '📷',
+  text: '📝',
 };
 
 // Layer kinds the user can add inside a compose scene.
@@ -25,6 +26,7 @@ const ADDABLE_KINDS: ComposeLayerKind[] = [
   'image',
   'video',
   'browser',
+  'text',
   'group',
 ];
 
