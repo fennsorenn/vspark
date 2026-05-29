@@ -549,6 +549,9 @@ interface Transform {
   sx: number;
   sy: number;
   sz: number;
+  /** Uniform descendant-mesh opacity (1 = fully opaque). Persisted on
+   *  components.transform; applied per-frame by useApplyOpacity. */
+  opacity: number;
 }
 
 function getTransform(node: NodeRecord): Transform {
@@ -563,28 +566,120 @@ function getTransform(node: NodeRecord): Transform {
     sx: t?.sx ?? 1,
     sy: t?.sy ?? 1,
     sz: t?.sz ?? 1,
+    opacity: t?.opacity ?? 1,
   };
 }
 
-/** Hook: subscribe to this node's transform override (set per-frame by the
- *  track-clip evaluator) and return a transform with the override merged on top
- *  of the persisted base. Subscribing per-node keeps the re-render blast radius
- *  tight — only nodes with active overrides re-render. */
+/** Hook: subscribe to this node's track-clip and runtime overrides and return a
+ *  transform with both merged on top of the persisted base. Per-node
+ *  subscription keeps the re-render blast radius tight.
+ *
+ *  Resolution order per field: track-clip override > runtime override > base.
+ *  Track-clip wins so an in-progress clip isn't interrupted by a stale runtime
+ *  value. See dev-notes/modules/runtime-overrides.md. */
 function useTransformWithOverride(node: NodeRecord): Transform {
-  const override = useEditorStore((s) => s.nodeTransformOverrides[node.id]);
+  const clipOverride = useEditorStore(
+    (s) => s.nodeTransformOverrides[node.id]
+  );
+  const runtimeOverride = useEditorStore(
+    (s) => s.runtimeNodeOverrides[node.id]
+  );
   const base = getTransform(node);
-  if (!override) return base;
+  if (!clipOverride && !runtimeOverride) return base;
   const out: Transform = { ...base };
-  if (override.position?.x !== undefined) out.x = override.position.x;
-  if (override.position?.y !== undefined) out.y = override.position.y;
-  if (override.position?.z !== undefined) out.z = override.position.z;
-  if (override.rotation?.x !== undefined) out.rx = override.rotation.x;
-  if (override.rotation?.y !== undefined) out.ry = override.rotation.y;
-  if (override.rotation?.z !== undefined) out.rz = override.rotation.z;
-  if (override.scale?.x !== undefined) out.sx = override.scale.x;
-  if (override.scale?.y !== undefined) out.sy = override.scale.y;
-  if (override.scale?.z !== undefined) out.sz = override.scale.z;
+  // Track-clip override pass (winner).
+  if (clipOverride?.position?.x !== undefined) out.x = clipOverride.position.x;
+  if (clipOverride?.position?.y !== undefined) out.y = clipOverride.position.y;
+  if (clipOverride?.position?.z !== undefined) out.z = clipOverride.position.z;
+  if (clipOverride?.rotation?.x !== undefined)
+    out.rx = clipOverride.rotation.x;
+  if (clipOverride?.rotation?.y !== undefined)
+    out.ry = clipOverride.rotation.y;
+  if (clipOverride?.rotation?.z !== undefined)
+    out.rz = clipOverride.rotation.z;
+  if (clipOverride?.scale?.x !== undefined) out.sx = clipOverride.scale.x;
+  if (clipOverride?.scale?.y !== undefined) out.sy = clipOverride.scale.y;
+  if (clipOverride?.scale?.z !== undefined) out.sz = clipOverride.scale.z;
+  if (clipOverride?.opacity !== undefined) out.opacity = clipOverride.opacity;
+  // Runtime override pass (loser per-field, only fills what's still base).
+  if (runtimeOverride) {
+    const rx = runtimeOverride['position.x'];
+    if (typeof rx === 'number' && clipOverride?.position?.x === undefined)
+      out.x = rx;
+    const ry = runtimeOverride['position.y'];
+    if (typeof ry === 'number' && clipOverride?.position?.y === undefined)
+      out.y = ry;
+    const rz = runtimeOverride['position.z'];
+    if (typeof rz === 'number' && clipOverride?.position?.z === undefined)
+      out.z = rz;
+    const rrx = runtimeOverride['rotation.x'];
+    if (typeof rrx === 'number' && clipOverride?.rotation?.x === undefined)
+      out.rx = rrx;
+    const rry = runtimeOverride['rotation.y'];
+    if (typeof rry === 'number' && clipOverride?.rotation?.y === undefined)
+      out.ry = rry;
+    const rrz = runtimeOverride['rotation.z'];
+    if (typeof rrz === 'number' && clipOverride?.rotation?.z === undefined)
+      out.rz = rrz;
+    const rsx = runtimeOverride['scale.x'];
+    if (typeof rsx === 'number' && clipOverride?.scale?.x === undefined)
+      out.sx = rsx;
+    const rsy = runtimeOverride['scale.y'];
+    if (typeof rsy === 'number' && clipOverride?.scale?.y === undefined)
+      out.sy = rsy;
+    const rsz = runtimeOverride['scale.z'];
+    if (typeof rsz === 'number' && clipOverride?.scale?.z === undefined)
+      out.sz = rsz;
+    const ro = runtimeOverride['opacity'];
+    if (typeof ro === 'number' && clipOverride?.opacity === undefined)
+      out.opacity = ro;
+  }
   return out;
+}
+
+/** Per-frame mesh-material opacity walk. Sets `transparent` + `opacity` on
+ *  every descendant material, caching the last applied value per material so
+ *  we skip writes when unchanged. When `opacity >= 1` we restore the
+ *  material's original `transparent` flag (false), so opaque rendering stays
+ *  cheap when not animating. */
+function useApplyOpacity(
+  groupRef: React.RefObject<THREE.Object3D | null>,
+  opacity: number
+): void {
+  // Cache per-material: last opacity applied + the original `transparent` flag.
+  const cacheRef = useRef(
+    new WeakMap<THREE.Material, { lastOpacity: number; origTransparent: boolean }>()
+  );
+  useFrame(() => {
+    const root = groupRef.current;
+    if (!root) return;
+    const cache = cacheRef.current;
+    root.traverse((obj) => {
+      const m = (obj as THREE.Mesh).material as
+        | THREE.Material
+        | THREE.Material[]
+        | undefined;
+      if (!m) return;
+      const arr = Array.isArray(m) ? m : [m];
+      for (const mat of arr) {
+        let entry = cache.get(mat);
+        if (!entry) {
+          entry = { lastOpacity: 1, origTransparent: mat.transparent };
+          cache.set(mat, entry);
+        }
+        if (entry.lastOpacity === opacity) continue;
+        if (opacity >= 1) {
+          mat.opacity = 1;
+          mat.transparent = entry.origTransparent;
+        } else {
+          mat.opacity = Math.max(0, opacity);
+          mat.transparent = true;
+        }
+        mat.needsUpdate = true;
+        entry.lastOpacity = opacity;
+      }
+    });
+  });
 }
 
 /** Send the avatar's expression list to the backend so it can serve GET /expressions. */
@@ -675,6 +770,7 @@ function AvatarNode({
   const blendWeightRef = useRef(0); // 0 = animation, 1 = VMC
   const [vrmLoaded, setVrmLoaded] = useState(false);
   const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
 
   const showBoneHelper = useEditorStore(
     (s) => s.boneListExpanded[node.id] ?? false
@@ -2526,6 +2622,7 @@ function BillboardNode({ node }: { node: NodeRecord }) {
   const frontRef = useRef<THREE.Mesh>(null);
   const backRef = useRef<THREE.Mesh>(null);
   const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
   const bc: BillboardConfig = {
     ...BILLBOARD_DEFAULTS,
     ...((node.components?.billboard ?? {}) as Partial<BillboardConfig>),
@@ -2697,6 +2794,7 @@ function ParticleNode({ node }: { node: NodeRecord }) {
   const localMeshRef = useRef<THREE.InstancedMesh>(null);
   const worldMeshRef = useRef<THREE.InstancedMesh | null>(null);
   const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
   const pc = mergeParticleConfig(
     (node.components?.particle ?? {}) as Record<string, unknown>
   );
@@ -2956,6 +3054,7 @@ function GodrayCasterNode({ node }: { node: NodeRecord }) {
   const outerRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
   const color = (node.components.godray as any)?.color ?? '#ffffff';
   const scale = (node.components.godray as any)?.scale ?? 0.3;
 
@@ -2996,6 +3095,7 @@ function ModelNode({
   const outerRef = useRef<THREE.Group>(null);
   const innerRef = useRef<THREE.Group>(null);
   const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
   const ext = node.filePath?.split('.').pop()?.toLowerCase();
   const isGlb = Boolean(node.filePath && (ext === 'glb' || ext === 'gltf'));
 

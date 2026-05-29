@@ -18,6 +18,7 @@ interface NodeAccumulator {
   position?: Record<'x' | 'y' | 'z', number | undefined>;
   rotation?: Record<'x' | 'y' | 'z', number | undefined>;
   scale?: Record<'x' | 'y' | 'z', number | undefined>;
+  opacity?: number;
 }
 
 /** Per-frame evaluator. Reads `trackClipPlayback` + `trackClips`, computes scalar
@@ -104,6 +105,7 @@ export function useTrackClipEvaluator(): void {
         if (acc.position) override.position = pruneAxes(acc.position);
         if (acc.rotation) override.rotation = pruneAxes(acc.rotation);
         if (acc.scale) override.scale = pruneAxes(acc.scale);
+        if (acc.opacity !== undefined) override.opacity = acc.opacity;
         s.setNodeTransformOverride(nodeId, override);
       }
       for (const nodeId of prevNodeIds)
@@ -151,14 +153,64 @@ function applyLaneResult(
   if (lane.targetKind === 'compose_layer') {
     const layer = store.composeLayers.find((l) => l.id === lane.targetId);
     if (!layer) return;
-    const field = lane.paramPath as 'x' | 'y' | 'rotation';
-    if (field !== 'x' && field !== 'y' && field !== 'rotation') return;
-    const base = layer[field];
+    const base = readComposeParam(layer, lane.paramPath);
+    if (base == null) return;
     const absolute =
       mode === 'relative' ? base + (rawValue - lane.defaultValue) : rawValue;
     const acc = layerAcc.get(lane.targetId) ?? {};
-    acc[field] = absolute;
+    writeComposeParam(acc, lane.paramPath, absolute);
     layerAcc.set(lane.targetId, acc);
+  }
+}
+
+/** Read the persisted base for a compose-layer paramPath. Mirrors the
+ *  paramPath registry in shared (kept in sync with packages/shared/src/paramPaths.ts). */
+function readComposeParam(
+  layer: { x: number; y: number; rotation: number; width: number; height: number; config: Record<string, unknown> },
+  paramPath: string
+): number | null {
+  switch (paramPath) {
+    case 'x':
+      return layer.x;
+    case 'y':
+      return layer.y;
+    case 'rotation':
+      return layer.rotation;
+    case 'width':
+      return layer.width;
+    case 'height':
+      return layer.height;
+    case 'opacity':
+      return typeof layer.config.opacity === 'number' ? layer.config.opacity : 1;
+    default:
+      return null;
+  }
+}
+
+function writeComposeParam(
+  acc: ComposeLayerOverride,
+  paramPath: string,
+  value: number
+): void {
+  switch (paramPath) {
+    case 'x':
+      acc.x = value;
+      return;
+    case 'y':
+      acc.y = value;
+      return;
+    case 'rotation':
+      acc.rotation = value;
+      return;
+    case 'width':
+      acc.width = value;
+      return;
+    case 'height':
+      acc.height = value;
+      return;
+    case 'opacity':
+      acc.opacity = value;
+      return;
   }
 }
 
@@ -177,6 +229,7 @@ type FlatTransform = {
   sx?: number;
   sy?: number;
   sz?: number;
+  opacity?: number;
 };
 
 function flatKeyFor(paramPath: string): keyof FlatTransform | null {
@@ -193,6 +246,7 @@ function readNodeParam(
   paramPath: string
 ): number | null {
   const t = node.components?.transform as FlatTransform | undefined;
+  if (paramPath === 'opacity') return t?.opacity ?? 1;
   const key = flatKeyFor(paramPath);
   if (!key) return null;
   const v = t?.[key];
@@ -206,6 +260,10 @@ function writeNodeParam(
   paramPath: string,
   value: number
 ): void {
+  if (paramPath === 'opacity') {
+    acc.opacity = value;
+    return;
+  }
   const [group, axis] = paramPath.split('.');
   if (axis !== 'x' && axis !== 'y' && axis !== 'z') return;
   if (group === 'position') {

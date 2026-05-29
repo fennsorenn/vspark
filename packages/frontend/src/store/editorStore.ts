@@ -55,6 +55,9 @@ export interface NodeTransformOverride {
   position?: { x?: number; y?: number; z?: number };
   rotation?: { x?: number; y?: number; z?: number };
   scale?: { x?: number; y?: number; z?: number };
+  /** Uniform descendant-mesh opacity (applied by the viewport's per-frame
+   *  material walk). 1 = fully opaque; <1 forces material.transparent = true. */
+  opacity?: number;
 }
 
 /** Per-compose-layer ephemeral DOM-space overrides produced by the evaluator. */
@@ -62,6 +65,9 @@ export interface ComposeLayerOverride {
   x?: number;
   y?: number;
   rotation?: number;
+  width?: number;
+  height?: number;
+  opacity?: number;
 }
 
 /** Runtime overrides driven by signal-graph nodes (set_*_param, set_text, etc.).

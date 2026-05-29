@@ -1,6 +1,10 @@
 import type { CSSProperties } from 'react';
 import { useEditorStore } from '../../store/editorStore';
-import type { ComposeLayerRecord, AssetFile } from '../../store/editorStore';
+import type {
+  ComposeLayerRecord,
+  AssetFile,
+  RuntimeOverrideMap,
+} from '../../store/editorStore';
 import { CameraCanvas } from './CameraCanvas';
 
 interface ComposeLayerStackProps {
@@ -35,20 +39,53 @@ function cssLen(
   return config[unitKey] === '%' ? `${value}%` : `${value}px`;
 }
 
+/** Read a numeric runtime override for a paramPath, falling back to undefined
+ *  when absent or non-numeric. */
+function runtimeNum(
+  rt: RuntimeOverrideMap | undefined,
+  path: string
+): number | undefined {
+  const v = rt?.[path];
+  return typeof v === 'number' ? v : undefined;
+}
+
 function layerStyle(
   layer: ComposeLayerRecord,
-  override?: { x?: number; y?: number; rotation?: number }
+  clipOverride?: {
+    x?: number;
+    y?: number;
+    rotation?: number;
+    width?: number;
+    height?: number;
+    opacity?: number;
+  },
+  runtimeOverride?: RuntimeOverrideMap
 ): CSSProperties {
+  // Resolution order per paramPath: track-clip override > runtime override > base.
+  // Track-clip wins so an in-progress clip isn't interrupted by a stale runtime
+  // value. See dev-notes/modules/runtime-overrides.md.
+  const x = clipOverride?.x ?? runtimeNum(runtimeOverride, 'x') ?? layer.x;
+  const y = clipOverride?.y ?? runtimeNum(runtimeOverride, 'y') ?? layer.y;
+  const rotation =
+    clipOverride?.rotation ??
+    runtimeNum(runtimeOverride, 'rotation') ??
+    layer.rotation;
+  const width =
+    clipOverride?.width ?? runtimeNum(runtimeOverride, 'width') ?? layer.width;
+  const height =
+    clipOverride?.height ??
+    runtimeNum(runtimeOverride, 'height') ??
+    layer.height;
   const opacity =
-    typeof layer.config.opacity === 'number' ? layer.config.opacity : 1;
-  const x = override?.x ?? layer.x;
-  const y = override?.y ?? layer.y;
-  const rotation = override?.rotation ?? layer.rotation;
+    clipOverride?.opacity ??
+    runtimeNum(runtimeOverride, 'opacity') ??
+    (typeof layer.config.opacity === 'number' ? layer.config.opacity : 1);
+
   const cfg = layer.config;
   const style: CSSProperties = {
     position: 'absolute',
-    width: cssLen(layer.width, cfg, 'widthUnit'),
-    height: cssLen(layer.height, cfg, 'heightUnit'),
+    width: cssLen(width, cfg, 'widthUnit'),
+    height: cssLen(height, cfg, 'heightUnit'),
     transform: rotation ? `rotate(${rotation}deg)` : undefined,
     transformOrigin: 'center center',
     visibility: layer.visible ? 'visible' : 'hidden',
@@ -253,7 +290,10 @@ function LayerView({
 }) {
   // Per-layer subscription to its track-clip override: this keeps re-renders
   // localized to layers being animated; idle layers don't re-render each rAF.
-  const override = useEditorStore((s) => s.composeLayerOverrides[layer.id]);
+  const clipOverride = useEditorStore((s) => s.composeLayerOverrides[layer.id]);
+  const runtimeOverride = useEditorStore(
+    (s) => s.runtimeLayerOverrides[layer.id]
+  );
   // Layer wrappers are passive: pointer events go to the top-level capture
   // overlay (ComposeEventCapture), which uses document.elementsFromPoint to
   // find which layer is under the cursor via data-compose-layer-id. This
@@ -262,7 +302,10 @@ function LayerView({
   return (
     <div
       data-compose-layer-id={layer.id}
-      style={{ ...layerStyle(layer, override), pointerEvents: 'none' }}
+      style={{
+        ...layerStyle(layer, clipOverride, runtimeOverride),
+        pointerEvents: 'none',
+      }}
     >
       <LayerContent layer={layer} assets={assets} includeChain={includeChain} />
     </div>
