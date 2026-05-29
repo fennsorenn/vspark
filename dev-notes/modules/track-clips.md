@@ -38,17 +38,19 @@ track_clip_keyframes
 
 Each lane is a single scalar. The UI groups three sibling lanes (`position.x/y/z`, etc.) into a collapsible row.
 
-**Supported `param_path` values:**
-- Scene node: `position.x|y|z`, `rotation.x|y|z` (radians), `scale.x|y|z`
-- Compose layer: `layer.x`, `layer.y`, `layer.rotation`
+**Supported `param_path` values** (Phase 1 — sourced from the shared paramPath registry, scalar/animatable entries only; see [paramPaths.md](paramPaths.md)):
 
-(Compose `width`/`height`, opacity, and effect params come later.)
+- Scene node: `position.x|y|z`, `rotation.x|y|z` (radians), `scale.x|y|z`, `opacity`.
+- Compose layer: `x`, `y`, `rotation`, `width`, `height`, `opacity`.
 
-**WIP (Phase 1 — branch `feature/graph-runtime-overrides-spawn-text`):**
-- Lane validation moves to consult the shared paramPath registry — see [paramPaths.md](paramPaths.md). Track clips stay scalar-only (Float).
-- New animatable paths: `opacity` on both scene nodes and compose layers; `width`, `height` on compose layers.
-- `TrackClipPlaybackManager` (`playback.ts`) gains a `clipFinished` event emission used by the spawn manager to clean up tmp entities. See [spawn.md](spawn.md).
-- A canonical `start_clip` signal node is added as a generalisation of `track_clip_trigger`; the existing kind stays for back-compat.
+Non-scalar registry entries (e.g. `text.content`) are excluded from lane creation — they are runtime-override-only.
+
+**Phase 1 additions (signal-graph expansion) — implemented:**
+
+- New animatable paramPaths: `opacity` on both target kinds; `width`, `height` on compose layers. The evaluator's `NodeAccumulator` now carries `opacity`, and `readNodeParam`/`writeNodeParam` handle `opacity` for `scene_node`. The compose-layer write path was refactored from a hardcoded `x`/`y`/`rotation` switch into a `readComposeParam` / `writeComposeParam` table covering `x/y/rotation/width/height/opacity` — adding a future scalar compose paramPath is one table entry.
+- `TrackClipPlaybackManager.onClipFinished(listener)` listener registry; the spawn manager subscribes to it for tmp-entity cleanup.
+- `TrackClipPlaybackManager.triggerEphemeral(clipId, duration, loop)`: plays a clip without DB reads or `started_at` writes; the manager tracks an internal `ephemeral: Set<clipId>` so `stopInternal` skips persistence and fires the `onClipFinished` listeners for ephemeral entries. Used by `spawn_clip`. See [spawn.md](spawn.md).
+- New canonical `start_clip` signal node generalises `track_clip_trigger` (existing kind retained for back-compat).
 
 **Easing kinds:** `linear`, `step`, `bezier` (per-keyframe outgoing-segment easing; bezier uses the four handle fields).
 
@@ -67,7 +69,7 @@ Both states flow through `track_clip_playback_snapshot` so late-joining clients 
 
 ## Playback Authority
 
-`TrackClipPlaybackManager` (`packages/backend/src/track_clips/playback.ts`, wired in `index.ts` and exposed via `routes/shared.ts` as `_trackClipPlayback`) is the single source of truth for "what is playing/paused right now". It owns only the playhead anchor — **it does not evaluate keyframes**; clients do that locally. Public surface: `trigger / stop / pause / resume / seek / hydrateAutoplay / sendSnapshotTo / onClipUpdated / onClipDeleted`.
+`TrackClipPlaybackManager` (`packages/backend/src/track_clips/playback.ts`, wired in `index.ts` and exposed via `routes/shared.ts` as `_trackClipPlayback`) is the single source of truth for "what is playing/paused right now". It owns only the playhead anchor — **it does not evaluate keyframes**; clients do that locally. Public surface: `trigger / stop / pause / resume / seek / hydrateAutoplay / sendSnapshotTo / onClipUpdated / onClipDeleted / onClipFinished / triggerEphemeral`. The last two are Phase-1 additions for the spawn flow — see [spawn.md](spawn.md).
 
 In-memory map: `Map<clipId, PlaybackEntry>` where the entry is the discriminated union above (plus `loop`, `sceneId`).
 
@@ -146,8 +148,8 @@ Per rAF tick, for each entry in `trackClipPlayback`:
 
 **Override slots in the store** (both ephemeral, never persisted):
 
-- `nodeTransformOverrides: Record<nodeId, Partial<{ position:{x,y,z}, rotation:{x,y,z}, scale:{x,y,z} }>>`
-- `composeLayerOverrides: Record<layerId, Partial<{ x, y, rotation }>>`
+- `nodeTransformOverrides: Record<nodeId, Partial<{ position:{x,y,z}, rotation:{x,y,z}, scale:{x,y,z}, opacity:number }>>`
+- `composeLayerOverrides: Record<layerId, Partial<{ x, y, rotation, width, height, opacity }>>`
 
 **Application** (no direct Three.js mutation):
 

@@ -1,35 +1,50 @@
 # Param Path Registry
 
-**Status: WIP — Phase 1 of the signal-graph expansion (branch `feature/graph-runtime-overrides-spawn-text`).**
+**Status: Implemented (Phase 1 of the signal-graph expansion).**
 
-A shared enumeration of which `paramPath`s are valid per target kind, together with the value type of each (`Float | String | Bool`). Lives in `packages/shared/src/paramPaths.ts` (new) so both backend and frontend agree on what is animatable / overridable and what type a path's value carries.
+A shared enumeration of which `paramPath`s are valid per target kind, together with the value type of each (`Float | String | Bool`). Lives in `packages/shared/src/paramPaths.ts` and is re-exported via the `./paramPaths` subpath of the `@vspark/shared` package so both backend and frontend agree on what is animatable / overridable and what type a path's value carries.
+
+## Shape
+
+```ts
+type ParamPathEntry = {
+  type: 'Float' | 'String' | 'Bool'
+  defaultValue: number | string | boolean
+  animatable: boolean       // false → excluded from track-clip lane creation (e.g. text.content)
+  kinds?: readonly string[] // optional: restrict to specific scene-node / compose-layer kinds
+}
+
+// Registry keyed by (target_kind, paramPath) → ParamPathEntry
+```
+
+A `coerceParamValue(entry, raw)` helper is exported alongside the registry; it normalises an `Any` input into the declared type (used by the `set_*_param` and `set_text` signal nodes until Phase 2 inference replaces the `Any` value port).
 
 ## Why a registry
 
-Before this change, valid paramPaths were implicit: the track-clip evaluator hardcoded `position.{x,y,z}`, `rotation.{x,y,z}`, `scale.{x,y,z}` for scene nodes and `x`, `y`, `rotation` for compose layers. With Phase 1 adding non-scalar paths (`text.content`, `opacity` for both kinds; `width`, `height` for compose layers) and a runtime overrides bus that mutates them from the graph, three consumers now need to know the type of a path:
+Before this change, valid paramPaths were implicit: the track-clip evaluator hardcoded `position.{x,y,z}`, `rotation.{x,y,z}`, `scale.{x,y,z}` for scene nodes and `x`, `y`, `rotation` for compose layers. Phase 1 added non-scalar paths (`text.content`, `opacity` for both kinds; `width`, `height` for compose layers) plus a runtime-override bus that mutates them from the graph, so three consumers need to agree on the type of a path:
 
-1. **Track-clip evaluator** (`trackClipEvaluator.ts`) — to validate Float paths and reject animating a string field.
-2. **`set_scene_node_param` / `set_compose_layer_param` / `set_text` signal nodes** — to validate paths at fire time and coerce the `value: Any` input into the declared type (until Phase 2 inference replaces the Any port).
-3. **Runtime overrides bus** — to know whether a value is a transform / opacity / text / etc. for routing and serialisation.
+1. **Track-clip evaluator** (`trackClipEvaluator.ts`) — validates Float paths and rejects animating a String/Bool field.
+2. **`set_scene_node_param` / `set_compose_layer_param` / `set_text` signal nodes** — validate the path at fire time and coerce the `value: Any` input into the declared type via `coerceParamValue`.
+3. **Runtime overrides bus** — knows whether a value is transform / opacity / text / etc. for routing.
 
-A single shared registry removes the inconsistencies these three would otherwise drift into.
+## Entries
 
-## Initial entries
+**Scene node** (`target_kind: 'scene_node'`):
+- `position.x|y|z`, `rotation.x|y|z` (radians), `scale.x|y|z` — `Float`, animatable.
+- `opacity` — `Float`, default 1, animatable. Lives on `components.transform.opacity`.
+- `text.content` — `String`, default `''`, **not animatable**. Restricted to `kinds: ['text_troika', 'text_canvas']`.
 
-**Scene node:**
-- Existing: `position.{x,y,z}`, `rotation.{x,y,z}`, `scale.{x,y,z}` — all `Float`.
-- New: `opacity` (Float, default 1; added to `components.transform`), `text.content` (String, only valid on `text_troika` / `text_canvas` kinds).
-
-**Compose layer:**
-- Existing: `x`, `y`, `rotation` — `Float`.
-- New: `opacity` (Float), `width` (Float), `height` (Float), `text.content` (String, only valid on `text` kind).
+**Compose layer** (`target_kind: 'compose_layer'`):
+- `x`, `y`, `rotation` — `Float`, animatable.
+- `opacity`, `width`, `height` — `Float`, animatable.
+- `text.content` — `String`, default `''`, **not animatable**. Restricted to `kinds: ['text']`.
 
 ## Cross-references
 
-- [track-clips.md](track-clips.md) — track-clip lane validation consults this registry; the existing `param_path` enumeration in [data model](track-clips.md#data-model-migration-009) becomes a subset of the registry. Track clips remain scalar-only (Float), so non-scalar registry entries are excluded from lane creation.
-- [runtime-overrides.md](runtime-overrides.md) — override bus uses this registry to type each `(targetKind, targetId, paramPath)` slot.
-- [signal-graph.md](signal-graph.md) — `set_*_param` nodes consult this registry at fire time for coercion. Phase 2 inference will derive the `value` port's `ResolvedType` from the registry automatically.
-- [scene-graph.md](scene-graph.md) — `opacity` and the new `text_*` kinds drive new registry entries.
+- [track-clips.md](track-clips.md) — lane creation excludes entries with `animatable: false`; the evaluator's compose-layer write path now uses a `readComposeParam`/`writeComposeParam` table covering `x/y/rotation/width/height/opacity`.
+- [runtime-overrides.md](runtime-overrides.md) — override bus types each `(targetKind, targetId, paramPath)` slot via this registry.
+- [signal-graph.md](signal-graph.md) — `set_*_param` and `set_text` nodes consult the registry at fire time for coercion. Phase 2 inference will derive the `value` port's `ResolvedType` from the registry automatically.
+- [scene-graph.md](scene-graph.md) — `opacity` and the new `text_troika`/`text_canvas` kinds drive new registry entries.
 - [compose.md](compose.md) — `text` layer kind and the new compose paramPaths.
 
 ## Out of scope
@@ -37,7 +52,8 @@ A single shared registry removes the inconsistencies these three would otherwise
 - Animating non-scalar params (vector, color) — the registry stays scalar-only.
 - Persisting registry state — it is code, not data.
 
-## Files (planned/in-progress)
+## Files
 
-- `packages/shared/src/paramPaths.ts` (new)
-- Consumers: track-clip evaluator, signal `set_*_param` nodes, runtime overrides bus.
+- `packages/shared/src/paramPaths.ts` — registry + `coerceParamValue`
+- `packages/shared/package.json` — exposes the `./paramPaths` subpath export
+- Consumers: `packages/frontend/src/components/editor/trackClipEvaluator.ts`, `packages/backend/src/signal/nodes/{set_scene_node_param,set_compose_layer_param,set_text}.ts`, `packages/backend/src/runtime_overrides/manager.ts`

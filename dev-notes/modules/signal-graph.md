@@ -30,11 +30,11 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → `SignalNodeClass`. All 33 built-in node kinds are registered here. `getAllNodeKindMeta()` returns port declarations and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → `SignalNodeClass`. All built-in node kinds are registered here (33 from prior phases plus 6 added in Phase 1: `random`, `start_clip`, `spawn_clip`, `set_scene_node_param`, `set_compose_layer_param`, `set_text`). `getAllNodeKindMeta()` returns port declarations and display metadata for each kind — this drives the UI node palette.
 
 ## Node Kinds — `signal/nodes/`
 
-26 implementations. Organized by role:
+Organized by role:
 
 ### Input sources (fired externally by managers)
 | Kind | Description |
@@ -46,7 +46,10 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 | `clock` | Outputs elapsed time since graph start |
 | `time` | Outputs current time in seconds (pull) |
 | `sine_wave` | Time → sine wave (configurable freq/amplitude/phase) |
-| `track_clip_trigger` | Event input `fire`, value input `clipId` (scene-scoped). Calls `TrackClipPlaybackManager.trigger(clipId)` on the backend so any graph (VMC events, API controller, etc.) can drive a track clip. See [track-clips.md](track-clips.md). |
+| `track_clip_trigger` | Event input `fire`, value input `clipId` (scene-scoped). Calls `TrackClipPlaybackManager.trigger(clipId)` on the backend so any graph (VMC events, API controller, etc.) can drive a track clip. Retained for back-compat; new graphs should use `start_clip` (same shape). See [track-clips.md](track-clips.md). |
+| `start_clip` | Canonical generalisation of `track_clip_trigger`. Same surface: `fire` event + `clipId` value, calls `playbackManager.trigger(clipId)`. |
+| `spawn_clip` | Inputs `fire` + `clipId`; output `spawned: Event<SpawnRef>`. Clones the clip's owner + duplicates the clip with lanes remapped, plays it once ephemerally, despawns on completion. See [spawn.md](spawn.md). |
+| `random` | Inputs `fire`, `min`, `max`, `mode: 'float'\|'int'`. Outputs `fire` event + `value` (Float, pull-cached). Recomputes on fire. |
 
 ### Bone/blendshape mappers
 | Kind | Description |
@@ -84,6 +87,9 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 | `pose_broadcast` | NormalizedPose → WebSocket `vmc_pose` broadcast; respects interceptor chain |
 | `blendshapes_broadcast` | Blendshapes → WebSocket `vmc_blendshapes` broadcast |
 | `ik_broadcast` | IkTargetFrame → WebSocket `ik_targets` broadcast (consumed by frontend `ikTargetStore` + Viewport Step 2.5 solver) |
+| `set_scene_node_param` | Writes a scalar/coerced paramPath into the runtime override bus for a scene node. Optional `spawnRef` event input retargets the fire to a tmp id. See [runtime-overrides.md](runtime-overrides.md). |
+| `set_compose_layer_param` | Same shape, compose-layer target. |
+| `set_text` | Convenience over the set-param nodes for the `text.content` paramPath; `spawnRef.kind` overrides `targetKind` when triggered via that port. |
 
 ### Pose interceptor chain
 The interceptor chain lets components (e.g., breathing) modify poses in-flight before broadcast.
@@ -117,26 +123,26 @@ Each manager creates its own descriptor factory (e.g., `makeVmcGraphDescriptor(c
 
 ## In-Flight & Planned Work
 
-### WIP — Phase 1 (branch `feature/graph-runtime-overrides-spawn-text`)
+### Implemented — Phase 1
 
-A signal-graph expansion is in progress to support stream-overlay flows (chat billboards, queued alerts). Phase 1 adds capabilities that don't require generic type propagation; Phase 2 (planned, see below) adds the architecture change first and then the generic nodes.
+Phase 1 of the signal-graph expansion (stream-overlay flows: chat billboards, etc.) is shipped on `dev`. Phase 2 (planned, see below) is the architecture change that unlocks generic typed nodes (`pack_event`, `queue_events`, generic `unpack_event`).
 
-**New node kinds being added** (`signal/nodes/`, registered in `registry.ts`):
+**New node kinds shipped** (`signal/nodes/`, registered in `registry.ts`):
 
 | Kind | Purpose |
 |------|---------|
-| `set_scene_node_param` | Inputs: `fire` (Trigger), `targetId` (EntityId), `paramPath` (String), `value` (Any — coerced via paramPath registry), `persist` (Bool), optional `spawnRef` (Event<SpawnRef>) that overrides `targetId` for the fire. On fire: validates path against the paramPath registry, calls `runtimeOverrideManager.set(...)` and (when `persist`) writes through to REST. |
+| `set_scene_node_param` | Inputs: `fire` (Trigger), `targetId` (EntityId), `paramPath` (String), `value` (Any — coerced via the paramPath registry), `persist` (Bool), optional `spawnRef` (Event<SpawnRef>) that overrides `targetId` for the fire (detected via `ctx.triggeredPort === 'spawnRef'`). On fire: looks up the registry entry, coerces `value` via `coerceParamValue`, calls `runtimeOverrideManager.set(...)`. `persist: true` is best-effort (see [runtime-overrides.md](runtime-overrides.md)). |
 | `set_compose_layer_param` | Same shape, compose-layer target. |
-| `set_text` | Convenience over `set_*_param` for the `text.content` paramPath. |
-| `start_clip` | Canonical generalisation of `track_clip_trigger` (existing kind retained for back-compat). Calls `playbackManager.trigger(clipId)`. |
-| `spawn_clip` | Inputs: `fire`, `clipId`. Looks up the clip's owner, calls `spawnManager.spawn(clipId)`. Output: `spawned: Event<SpawnRef>`. See [spawn.md](spawn.md). |
+| `set_text` | Convenience over `set_*_param` for the `text.content` paramPath. Accepts `spawnRef`, and when triggered through that port the ref's `kind` overrides `targetKind`. Mismatched ref kinds are refused with a `console.warn`. |
+| `start_clip` | Canonical generalisation of `track_clip_trigger`. Calls `playbackManager.trigger(clipId)`. The original `track_clip_trigger` kind is retained for back-compat. |
+| `spawn_clip` | Inputs: `fire`, `clipId`. Resolves the clip's owner, calls `spawnManager.spawn(clipId)`. Output: `spawned: Event<SpawnRef>`. See [spawn.md](spawn.md). |
 | `random` | Inputs: `fire`, `min`, `max`, `mode: 'float'\|'int'`. Outputs: `fire` event, `value` (Float). Recomputes on fire; cached for pulls. |
 
-**New named type** in `SignalTypeMap`: `SpawnRef = { tmpNodeId: string; tmpClipId: string; kind: 'scene_node' | 'compose_layer' }`. Phase 1 ships this as a concrete primitive so `spawn_clip → set_*_param` works without generic propagation; Phase 2 leaves the type alone but adds pack/unpack for arbitrary payloads.
+**New named type** in `SignalTypeMap`: `SpawnRef = { tmpNodeId: string; tmpClipId: string; kind: 'scene_node' | 'compose_layer' }`, plus a colour entry in `SIGNAL_TYPE_COLORS`. Phase 1 ships this as a concrete primitive so `spawn_clip → set_*_param` works without generic propagation; Phase 2 leaves the type alone but adds pack/unpack for arbitrary payloads.
 
-**Value-port typing note (Phase 1):** `set_*_param`'s `value` input is `Any` and the runtime coerces per the paramPath registry's declared type for the chosen path. Phase 2's inference replaces this with a properly typed port driven from the registry.
+**Value-port typing note (Phase 1):** `set_*_param`'s `value` input is `Any` and the runtime coerces per the paramPath registry's declared type for the chosen path. Phase 2's inference will replace this with a properly typed port driven from the registry.
 
-**Demo graph (Phase 1):** Flow A — chat → flying billboard: `overlive_chat_message → random (x) → spawn_clip (chat-billboard clip on a hidden text_canvas template) → set_scene_node_param (uses spawned tmpNodeId + random x) → clip animates → auto-despawn`. A ready-to-import descriptor lives at [`dev-notes/samples/chat-billboard-demo.json`](../samples/chat-billboard-demo.json) with step-by-step setup instructions inside the file. The original plan considered a boot-time auto-seed behind `VSPARK_SEED_DEMO_GRAPH=1`; this was dropped in favour of the manual sample because the demo needs ids (overlive account, clip, template node) that only exist after the user has set them up, and a half-bound auto-seed would silently no-op. Flow B (sub/redemption → queued alert) is deferred to Phase 2 because proper queueing needs `queue_events`.
+**Demo graph (Phase 1):** Flow A — chat → flying billboard: `overlive_chat_message → random (x) → spawn_clip (chat-billboard clip on a hidden text_canvas template) → set_scene_node_param (uses spawned tmpNodeId + random x) → clip animates → auto-despawn`. Shipped as a sample JSON descriptor at [`dev-notes/samples/chat-billboard-demo.json`](../samples/chat-billboard-demo.json) with step-by-step setup instructions inside the file. The plan considered a boot-time auto-seed behind `VSPARK_SEED_DEMO_GRAPH=1`; this was deliberately not implemented because the demo needs ids (overlive account, clip, template node) that only exist after the user has set them up, and a half-bound auto-seed would silently no-op. Flow B (sub/redemption → queued alert) is deferred to Phase 2 because proper queueing needs `queue_events`.
 
 ### Planned — Phase 2: Edge-time structural type inference
 
