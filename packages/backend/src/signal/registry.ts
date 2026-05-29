@@ -36,6 +36,11 @@ import { IkBroadcast } from './nodes/ik_broadcast.js';
 import { NotBool } from './nodes/not_bool.js';
 import { HandHeightCompare } from './nodes/hand_height_compare.js';
 import { TrackClipTrigger } from './nodes/track_clip_trigger.js';
+import { StartClip } from './nodes/start_clip.js';
+import { Random } from './nodes/random.js';
+import { SetSceneNodeParam } from './nodes/set_scene_node_param.js';
+import { SetComposeLayerParam } from './nodes/set_compose_layer_param.js';
+import { SetText } from './nodes/set_text.js';
 import { LogNode } from './nodes/log.js';
 // Overlive event nodes
 import { OverliveRedemption } from './nodes/overlive/redemption.js';
@@ -100,6 +105,12 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   HandHeightCompare,
   // Track clips
   TrackClipTrigger,
+  StartClip,
+  // Runtime mutation / spawn primitives (Phase 1.5)
+  Random,
+  SetSceneNodeParam,
+  SetComposeLayerParam,
+  SetText,
   // Debug
   LogNode,
   // Overlive event nodes

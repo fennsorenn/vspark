@@ -33,6 +33,7 @@ import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
 import { initIkBroadcast } from './signal/nodes/ik_broadcast.js';
 import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
+import { initStartClip } from './signal/nodes/start_clip.js';
 import { runtimeOverrideManager } from './runtime_overrides/manager.js';
 import type {
   LipsyncInputMessage,
@@ -101,6 +102,7 @@ async function start() {
   trackClipPlayback.hydrateAutoplay();
   setTrackClipPlaybackManager(trackClipPlayback);
   initTrackClipTrigger(trackClipPlayback);
+  initStartClip(trackClipPlayback);
 
   // Runtime override bus — graph-driven, parallel to track-clip overrides.
   // The persist hook is left unset until set_*_param nodes land in Phase 1.5;
