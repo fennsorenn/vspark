@@ -802,13 +802,13 @@ const formatBoneName = (name: string) =>
 
 // ---------- Graph list panel ----------
 import type { GraphDescriptor } from '@vspark/shared/signal';
-import type { ProjectGraphRecord } from '../../api/client';
+import type { GraphRecord } from '../../api/client';
 
 function GraphListPanel() {
   const { projectId } = useParams<{ projectId: string }>();
   const { activeGraphId, setActiveGraph } = useEditorStore();
   const [componentGraphs, setComponentGraphs] = useState<GraphDescriptor[]>([]);
-  const [projectGraphs, setProjectGraphs] = useState<ProjectGraphRecord[]>([]);
+  const [projectGraphs, setProjectGraphs] = useState<GraphRecord[]>([]);
   const [componentGraphsOpen, setComponentGraphsOpen] = useState(false);
 
   const refresh = () => {
@@ -856,11 +856,11 @@ function GraphListPanel() {
     }
   };
 
-  const handleRename = async (g: ProjectGraphRecord) => {
+  const handleRename = async (g: GraphRecord) => {
     const name = window.prompt('Rename graph:', g.name);
     if (!name?.trim() || name.trim() === g.name) return;
     try {
-      const updated = await api.updateProjectGraph(g.id, { name: name.trim() });
+      const updated = await api.updateGraph(g.id, { name: name.trim() });
       setProjectGraphs((prev) =>
         prev.map((x) => (x.id === g.id ? updated : x))
       );
@@ -869,9 +869,9 @@ function GraphListPanel() {
     }
   };
 
-  const handleToggleEnabled = async (g: ProjectGraphRecord) => {
+  const handleToggleEnabled = async (g: GraphRecord) => {
     try {
-      const updated = await api.updateProjectGraph(g.id, {
+      const updated = await api.updateGraph(g.id, {
         enabled: !g.enabled,
       });
       setProjectGraphs((prev) =>
@@ -882,10 +882,10 @@ function GraphListPanel() {
     }
   };
 
-  const handleDelete = async (g: ProjectGraphRecord) => {
+  const handleDelete = async (g: GraphRecord) => {
     if (!window.confirm(`Delete graph "${g.name}"?`)) return;
     try {
-      await api.deleteProjectGraph(g.id);
+      await api.deleteGraph(g.id);
       setProjectGraphs((prev) => prev.filter((x) => x.id !== g.id));
       if (activeGraphId === g.id) setActiveGraph(null);
     } catch (e) {

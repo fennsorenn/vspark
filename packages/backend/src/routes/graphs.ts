@@ -21,6 +21,33 @@ function mapGraphRow(r: GraphRow) {
   };
 }
 
+router.get('/projects/:projectId/graphs', (req, res) => {
+  const rows = getDb()
+    .prepare(
+      "SELECT * FROM graphs WHERE owner_kind = 'project' AND owner_id = ? ORDER BY created_at"
+    )
+    .all(req.params.projectId) as unknown as GraphRow[];
+  res.json({ ok: true, data: rows.map(mapGraphRow) });
+});
+
+router.post('/projects/:projectId/graphs', (req, res) => {
+  const { name } = req.body as { name?: string };
+  if (!name)
+    return res
+      .status(400)
+      .json({ ok: false, error: { message: 'name is required' } });
+  const id = randomUUID();
+  // Route project graphs through the manager so the new graph starts
+  // immediately (and gets validated/reconciled) rather than only on next boot.
+  const row = projectGraphManager.create({
+    id,
+    projectId: req.params.projectId,
+    name,
+  });
+  projectGraphManager.reconcile(id);
+  res.status(201).json({ ok: true, data: mapGraphRow(row) });
+});
+
 router.get('/scene-nodes/:nodeId/graphs', (req, res) => {
   const rows = getDb()
     .prepare(

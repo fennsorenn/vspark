@@ -76,6 +76,7 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 | `not_bool` | Inverts a boolean value (used to gate arm vs IK branches from `useIk`) |
 | `hand_height_compare` | Compares left/right hand Y positions; outputs which hand is higher (mirror calibration helper) |
 | `multiply` | Scalar `a × b`. Used by breathing to derive the counter-rotated amplitude (`amp × -1`). |
+| `log` | Debug node: on the `trigger` event path, prints the event payload plus every value wired into its `inputs` **list** port (Any) to the backend console, in connection order. Optional `label` value port / `config.label` prefixes log lines. **Breaking change:** its value-input port was renamed from `input` (single Any) to `inputs` (Any list) — saved graphs wired into the old `input` port need re-wiring. |
 
 ### Output/broadcast
 | Kind | Description |
