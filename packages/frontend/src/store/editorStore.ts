@@ -64,6 +64,17 @@ export interface ComposeLayerOverride {
   rotation?: number;
 }
 
+/** Runtime overrides driven by signal-graph nodes (set_*_param, set_text, etc.).
+ *  Parallel to the track-clip override slices above; keyed by paramPath (e.g.
+ *  "position.x", "opacity", "text.content") with the value's scalar type.
+ *  Conflict policy with track-clip overrides on transform paths: track-clip
+ *  wins, so an in-progress clip is not interrupted by a stale runtime
+ *  override. Non-transform paths (opacity, text.content, width, height) have
+ *  no track-clip surface and read from here directly.
+ *  See dev-notes/modules/runtime-overrides.md. */
+export type RuntimeOverrideValue = number | string | boolean;
+export type RuntimeOverrideMap = Record<string, RuntimeOverrideValue>;
+
 export type LeftDockTab = 'scene' | 'compose' | 'graphs';
 export type BottomDockTab =
   | 'models'
@@ -369,6 +380,11 @@ interface EditorState {
   nodeTransformOverrides: Record<string, NodeTransformOverride>;
   /** composeLayerId → ephemeral DOM-space override produced by the evaluator */
   composeLayerOverrides: Record<string, ComposeLayerOverride>;
+  /** nodeId → paramPath → value, driven by signal-graph nodes via the runtime
+   *  override bus. Parallel to nodeTransformOverrides; see RuntimeOverrideMap. */
+  runtimeNodeOverrides: Record<string, RuntimeOverrideMap>;
+  /** composeLayerId → paramPath → value, same as above for compose layers. */
+  runtimeLayerOverrides: Record<string, RuntimeOverrideMap>;
   /** Per-(target, param) suppression set: while a key is present, the evaluator
    *  must NOT apply that lane's value as an override, and the existing override
    *  slot for it should be cleared. Set when the user edits a numeric input on
@@ -483,6 +499,29 @@ interface EditorState {
     layerId: string,
     override: ComposeLayerOverride | null
   ) => void;
+  /** Apply a single runtime override broadcast from the runtime-override bus. */
+  setRuntimeOverride: (
+    targetKind: 'scene_node' | 'compose_layer',
+    targetId: string,
+    paramPath: string,
+    value: RuntimeOverrideValue
+  ) => void;
+  /** Clear a single runtime override, or every override for the target when
+   *  paramPath is omitted. */
+  clearRuntimeOverride: (
+    targetKind: 'scene_node' | 'compose_layer',
+    targetId: string,
+    paramPath?: string
+  ) => void;
+  /** Bulk apply a snapshot (used on WS (re)connect). Replaces both maps. */
+  replaceRuntimeOverrides: (
+    entries: Array<{
+      targetKind: 'scene_node' | 'compose_layer';
+      targetId: string;
+      paramPath: string;
+      value: RuntimeOverrideValue;
+    }>
+  ) => void;
   /** Mark a (target, param) as user-edited so the evaluator stops overwriting it
    *  until the next clip event. `paramPath` matches the lane's param path. */
   suppressOverride: (
@@ -557,6 +596,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   trackClipPlayback: {},
   nodeTransformOverrides: {},
   composeLayerOverrides: {},
+  runtimeNodeOverrides: {},
+  runtimeLayerOverrides: {},
   suppressedOverrides: new Set<string>(),
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
@@ -906,6 +947,52 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (override == null) delete next[layerId];
       else next[layerId] = override;
       return { composeLayerOverrides: next };
+    }),
+  setRuntimeOverride: (targetKind, targetId, paramPath, value) =>
+    set((s) => {
+      const slice =
+        targetKind === 'scene_node'
+          ? s.runtimeNodeOverrides
+          : s.runtimeLayerOverrides;
+      const next = { ...slice };
+      const prev = next[targetId] ?? {};
+      if (prev[paramPath] === value) return {};
+      next[targetId] = { ...prev, [paramPath]: value };
+      return targetKind === 'scene_node'
+        ? { runtimeNodeOverrides: next }
+        : { runtimeLayerOverrides: next };
+    }),
+  clearRuntimeOverride: (targetKind, targetId, paramPath) =>
+    set((s) => {
+      const slice =
+        targetKind === 'scene_node'
+          ? s.runtimeNodeOverrides
+          : s.runtimeLayerOverrides;
+      const prev = slice[targetId];
+      if (!prev) return {};
+      const next = { ...slice };
+      if (paramPath === undefined) {
+        delete next[targetId];
+      } else {
+        if (!(paramPath in prev)) return {};
+        const { [paramPath]: _, ...rest } = prev;
+        if (Object.keys(rest).length === 0) delete next[targetId];
+        else next[targetId] = rest;
+      }
+      return targetKind === 'scene_node'
+        ? { runtimeNodeOverrides: next }
+        : { runtimeLayerOverrides: next };
+    }),
+  replaceRuntimeOverrides: (entries) =>
+    set(() => {
+      const nodes: Record<string, RuntimeOverrideMap> = {};
+      const layers: Record<string, RuntimeOverrideMap> = {};
+      for (const e of entries) {
+        const bucket = e.targetKind === 'scene_node' ? nodes : layers;
+        const prev = bucket[e.targetId] ?? {};
+        bucket[e.targetId] = { ...prev, [e.paramPath]: e.value };
+      }
+      return { runtimeNodeOverrides: nodes, runtimeLayerOverrides: layers };
     }),
 
   presets: [],

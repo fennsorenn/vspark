@@ -33,6 +33,7 @@ import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
 import { initIkBroadcast } from './signal/nodes/ik_broadcast.js';
 import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
+import { runtimeOverrideManager } from './runtime_overrides/manager.js';
 import type {
   LipsyncInputMessage,
   TrackingInputMessage,
@@ -101,6 +102,12 @@ async function start() {
   setTrackClipPlaybackManager(trackClipPlayback);
   initTrackClipTrigger(trackClipPlayback);
 
+  // Runtime override bus — graph-driven, parallel to track-clip overrides.
+  // The persist hook is left unset until set_*_param nodes land in Phase 1.5;
+  // until then, `persist: true` falls through to a log + no-op.
+  // See dev-notes/modules/runtime-overrides.md.
+  runtimeOverrideManager.init(wsSync, null);
+
   // Standalone project graphs — start every persisted-enabled graph on boot.
   // See dev-notes/modules/project-graphs.md.
   const { projectGraphManager } = await import('./project_graphs/manager.js');
@@ -118,6 +125,9 @@ async function start() {
       wsSync.sendTo(ws, kind, payload)
     );
     trackClipPlayback.sendSnapshotTo((kind, payload) =>
+      wsSync.sendTo(ws, kind, payload)
+    );
+    runtimeOverrideManager.sendSnapshotTo((kind, payload) =>
       wsSync.sendTo(ws, kind, payload)
     );
   });

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
+import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -445,6 +446,7 @@ router.delete('/compose-layers/:id', (req, res) => {
     }
   }
 
+  runtimeOverrideManager.clearAllForTarget('compose_layer', id);
   _ws?.broadcast('compose_layer_removed', { id });
   if (reanchored.length > 0) {
     _ws?.broadcast('compose_layer_reordered', { updates: reanchored });

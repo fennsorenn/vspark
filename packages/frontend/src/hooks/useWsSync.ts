@@ -339,6 +339,42 @@ export function useWsSync() {
             }
             useEditorStore.getState().clearOverrideSuppressions();
             useEditorStore.getState().replaceTrackClipPlayback(next);
+          } else if (msg.kind === 'runtime_override_set') {
+            const p = msg.payload as {
+              targetKind: 'scene_node' | 'compose_layer';
+              targetId: string;
+              paramPath: string;
+              value: number | string | boolean;
+            };
+            useEditorStore
+              .getState()
+              .setRuntimeOverride(
+                p.targetKind,
+                p.targetId,
+                p.paramPath,
+                p.value
+              );
+          } else if (msg.kind === 'runtime_override_clear') {
+            const p = msg.payload as {
+              targetKind: 'scene_node' | 'compose_layer';
+              targetId: string;
+              paramPath?: string;
+            };
+            useEditorStore
+              .getState()
+              .clearRuntimeOverride(p.targetKind, p.targetId, p.paramPath);
+          } else if (msg.kind === 'runtime_override_snapshot') {
+            const p = msg.payload as {
+              entries: Array<{
+                targetKind: 'scene_node' | 'compose_layer';
+                targetId: string;
+                paramPath: string;
+                value: number | string | boolean;
+              }>;
+            };
+            useEditorStore
+              .getState()
+              .replaceRuntimeOverrides(p.entries ?? []);
           } else if (msg.kind === 'server_update') {
             if (
               (msg.payload as { reloadOnReconnect?: boolean }).reloadOnReconnect

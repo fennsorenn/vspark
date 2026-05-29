@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
+import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -271,6 +272,7 @@ router.put('/scene-nodes/:id', (req, res) => {
  */
 router.delete('/scene-nodes/:id', (req, res) => {
   getDb().prepare('DELETE FROM scene_nodes WHERE id = ?').run(req.params.id);
+  runtimeOverrideManager.clearAllForTarget('scene_node', req.params.id);
   _ws?.broadcast('node_removed', { id: req.params.id });
   res.json({ ok: true, data: {} });
 });
