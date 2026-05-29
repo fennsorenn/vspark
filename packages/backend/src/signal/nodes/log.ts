@@ -1,4 +1,9 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
+import {
+  SignalNode,
+  eventPort,
+  valuePort,
+  listPort,
+} from '@vspark/shared/signal';
 import type {
   InputsOf,
   OutputsOf,
@@ -7,9 +12,10 @@ import type {
 } from '@vspark/shared/signal';
 
 /**
- * Prints whatever fires into `trigger` (and the current value of `input`)
- * to the backend console. Useful while authoring project graphs — drop one
- * after any node to confirm payloads flow as expected.
+ * Prints whatever fires into `trigger` (and the current values wired into
+ * `inputs`) to the backend console. Useful while authoring project graphs —
+ * drop one after any node to confirm payloads flow as expected. Multiple
+ * sources can be wired into `inputs`; each is logged in connection order.
  *
  * Set `label` to disambiguate multiple log nodes in the same graph; it
  * prefixes every log line.
@@ -26,7 +32,7 @@ export class LogNode {
   static readonly inputPorts = [
     valuePort('label', 'String'),
     eventPort('trigger', 'Any'),
-    valuePort('input', 'Any'),
+    listPort('inputs', 'Any'),
   ] as const;
   static readonly outputPorts = [] as const;
 
@@ -43,16 +49,10 @@ export class LogNode {
     ).trim();
     const evt = inputs.trigger as Event<unknown> | undefined;
     const prefix = label ? `[log:${label}]` : '[log]';
-    // Print the event payload and the current pull-resolved value-input.
-    // Both can be useful — the trigger payload is the thing that fired,
-    // and `input` is whatever the pull-side resolved to (often the same).
-    console.log(
-      prefix,
-      'event payload:',
-      evt?.payload,
-      '| input:',
-      inputs.input
-    );
+    // Print the event payload and every value wired into `inputs` (a list
+    // port, so multiple sources can be logged at once in connection order).
+    const values = (inputs.inputs as unknown[]) ?? [];
+    console.log(prefix, 'event payload:', evt?.payload, '| inputs:', ...values);
     return {} as OutputsOf<typeof LogNode>;
   }
 }

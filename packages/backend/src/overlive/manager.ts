@@ -26,6 +26,7 @@ import { TwitchAdapter } from '@overlive/twitch';
 import { SEAdapter } from '@overlive/se';
 import { revokeAccessToken } from '@overlive/twitch-oauth';
 import type { AdapterEmittedEvent } from '@overlive/core';
+import { mkEvent } from '@vspark/shared/signal';
 import { getDb } from '../db/index.js';
 import { projectGraphManager } from '../project_graphs/manager.js';
 import type { WSSync } from '../ws/index.js';
@@ -81,7 +82,7 @@ export class OverliveManager {
     ).map((r) => r.project_id);
     for (const id of projectIds) {
       try {
-        await this.ensureProject(id);
+        await this.refreshProject(id);
       } catch (e) {
         console.error(`[Overlive] Failed to start project ${id}:`, e);
       }
@@ -299,8 +300,10 @@ export class OverliveManager {
           ? cfg['channel'].trim().toLowerCase()
           : '';
       if (wantChannel && wantChannel !== event.channel) continue;
-      // Fire as an event on the node's `event` input port.
-      projectGraphManager.fire(graphId, node.id, 'event', event);
+      // Fire as an event on the node's `event` input port. The node helpers
+      // unwrap `inputs.event.payload`, so wrap the overlive event in the
+      // engine's Event envelope rather than passing it raw.
+      projectGraphManager.fire(graphId, node.id, 'event', mkEvent(event));
       delivered++;
     }
     if (candidates > 0 && delivered === 0) {

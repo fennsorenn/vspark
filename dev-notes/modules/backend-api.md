@@ -40,6 +40,7 @@ Response shape: `{ ok: true, data: ... }` or `{ ok: false, error: { status, mess
 | [routes/expressions.ts](../../packages/backend/src/routes/expressions.ts) | Read-only listings: VRM expressions + animation clips for an avatar node |
 | [routes/camera-effects.ts](../../packages/backend/src/routes/camera-effects.ts) | `/scene-nodes/:nodeId/effects`, `/effects/:id` — WS `camera_effect_*` broadcasts |
 | [routes/signal.ts](../../packages/backend/src/routes/signal.ts) | Signal graph inspection + `POST /signal/graphs/:graphId/fire` (dispatches by graph-id prefix to VMC or tracking) |
+| [routes/graphs.ts](../../packages/backend/src/routes/graphs.ts) | Standalone graphs over the unified `graphs` table — project, scene-node, and compose-layer GET/POST plus `PUT /graphs/:id` and `DELETE /graphs/:id`. Project rows route through `ProjectGraphManager`. See [project-graphs.md](project-graphs.md). |
 | [routes/meta.ts](../../packages/backend/src/routes/meta.ts) | `/signal/node-kinds`, `/component-kinds`, `/system/local-ips` |
 | [routes/openapi.ts](../../packages/backend/src/routes/openapi.ts) | OpenAPI base spec + Zod→OpenAPI component-schema build |
 

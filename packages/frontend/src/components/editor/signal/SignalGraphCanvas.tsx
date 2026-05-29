@@ -335,7 +335,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       persistTimer.current = setTimeout(() => {
         // Strip the wrapper fields the backend doesn't store on the row.
         void api
-          .updateProjectGraph(graphId, {
+          .updateGraph(graphId, {
             descriptor: {
               id: next.id,
               label: next.label,
@@ -361,7 +361,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       const next = editableRef.current;
       if (writableRef.current && next) {
         void api
-          .updateProjectGraph(graphId, {
+          .updateGraph(graphId, {
             descriptor: {
               id: next.id,
               label: next.label,

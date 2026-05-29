@@ -83,7 +83,7 @@ One `OverliveKit` per loaded project, lazily instantiated on first account or fi
 
 Lifecycle hooks:
 
-- `startAll()` — boot-time. Loads `DISTINCT project_id FROM overlive_accounts` and `ensureProject(id)` each.
+- `startAll()` — boot-time. Loads `DISTINCT project_id FROM overlive_accounts` and calls `refreshProject(id)` for each, so the adapters register and connect at boot. (It previously only called `ensureProject`, which creates the kit and wires the event listener but never registers/connects any adapter — so on a fresh boot no adapter ever connected, no EventSub subscriptions were made, and no events arrived. Fixed by routing through `refreshProject`.)
 - `refreshProject(projectId)` — reconciles registered adapters with the current account rows. Idempotent. Called after every account mutation. Tears down the kit if no accounts remain.
 - `beforeAccountDelete(accountId)` — removes adapter from the kit; for Twitch rows with an app credential, calls `revokeAccessToken({ clientId, accessToken })` from `@overlive/twitch-oauth` (best-effort) before the row is dropped.
 - `close()` — disconnects all kits.
@@ -96,7 +96,8 @@ State + token persistence:
 Event routing:
 
 - `kit.onAny(event => routeEvent(projectId, event))`.
-- `routeEvent` walks `projectGraphManager.iterateNodes()`, skips graphs from other projects, matches `node.kind` against the `OVERLIVE_KIND_BY_EVENT` table (e.g. `chat.message` → `overlive_chat_message`), then filters by the node's `defaultConfig.account` (must match `event.sourceInstanceId`) and optional `defaultConfig.channel` (lowercased, empty = any). Matching nodes get the event fired into their `event` input port via `projectGraphManager.fire(graphId, nodeId, 'event', event)`.
+- `routeEvent` walks `projectGraphManager.iterateNodes()`, skips graphs from other projects, matches `node.kind` against the `OVERLIVE_KIND_BY_EVENT` table (e.g. `chat.message` → `overlive_chat_message`), then filters by the node's `defaultConfig.account` (must match `event.sourceInstanceId`) and optional `defaultConfig.channel` (lowercased, empty = any). Matching nodes get the event fired into their `event` input port via `projectGraphManager.fire(graphId, nodeId, 'event', mkEvent(event))`.
+- The event MUST be wrapped with `mkEvent(event)` from `@vspark/shared/signal` before firing. The node helper `_helpers.ts handleOverliveEvent` reads `inputs.event.payload` (the signal engine's `Event<T>` envelope). Firing the raw overlive event (which has no `.payload`) made every node see `undefined` and emit empty outputs — the bug that `mkEvent` fixes.
 - Per-event filtering on top of this (command name, reward id, tier, etc.) happens inside the node's `execute()`.
 
 ## Signal node kinds (13)
