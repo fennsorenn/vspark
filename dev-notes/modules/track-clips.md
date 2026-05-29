@@ -44,6 +44,12 @@ Each lane is a single scalar. The UI groups three sibling lanes (`position.x/y/z
 
 (Compose `width`/`height`, opacity, and effect params come later.)
 
+**WIP (Phase 1 — branch `feature/graph-runtime-overrides-spawn-text`):**
+- Lane validation moves to consult the shared paramPath registry — see [paramPaths.md](paramPaths.md). Track clips stay scalar-only (Float).
+- New animatable paths: `opacity` on both scene nodes and compose layers; `width`, `height` on compose layers.
+- `TrackClipPlaybackManager` (`playback.ts`) gains a `clipFinished` event emission used by the spawn manager to clean up tmp entities. See [spawn.md](spawn.md).
+- A canonical `start_clip` signal node is added as a generalisation of `track_clip_trigger`; the existing kind stays for back-compat.
+
 **Easing kinds:** `linear`, `step`, `bezier` (per-keyframe outgoing-segment easing; bezier uses the four handle fields).
 
 Shared types (`TrackClip`, `TrackClipLane`, `TrackClipKeyframe`, `TrackClipMode`, `TargetKind`, `Easing`, `TrackClipPlaybackEntry`) live in `packages/shared/src/types.ts`; Zod schemas in `schema.ts`.

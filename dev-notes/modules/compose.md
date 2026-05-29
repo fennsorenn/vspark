@@ -9,13 +9,23 @@ Status: implemented.
 Table `compose_layers` (migration [008_compose_layers.sql](../../packages/backend/src/db/migrations/008_compose_layers.sql)). Each row is scene-scoped; `camera_node_id` is nullable — `NULL` means scene-wide (visible in every camera).
 
 Per-layer fields:
-- `kind`: `'image' | 'video' | 'browser'`
+- `kind`: `'image' | 'video' | 'browser'` (Phase 1 WIP adds `'text'`)
 - `asset_id` (image/video) or `url` (browser)
 - Layout: `x`, `y` (pixel offsets from anchor corner), `width`, `height`, `anchor` (`top|bottom × left|right`), `rotation` (degrees, CSS transform around centre)
 - Display: `visible`, `opacity`, `name`
 - Ordering: `scene_order` (signed int), `camera_order` (int)
 
 Shared types live in [packages/shared/src/types.ts](../../packages/shared/src/types.ts) (`ComposeLayer`, `ComposeLayerKind`, anchor enums, `SCENE_RENDER_SLOT` constant) and Zod schemas in [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) (`createComposeLayerSchema`, `updateComposeLayerSchema`, `reorderComposeLayersSchema`).
+
+## WIP additions (Phase 1 — signal-graph expansion)
+
+Branch `feature/graph-runtime-overrides-spawn-text`. Adds graph-driven param mutation and a text layer kind.
+
+- **New layer kind `'text'`.** Config `{ content, fontFamily?, fontSize?, color?, weight?, align?, allowHtml?: boolean }`. With `allowHtml`, the renderer sanitises via DOMPurify with a curated allow-list (`b, i, em, strong, span, br, img` with whitelisted `img` attrs for overlive emote HTML); otherwise renders as plain text. `ComposeLayerStack.LayerContent` gains a `text` branch.
+- **New paramPaths on `compose_layer`:** `opacity`, `width`, `height`, `text.content` — animatable via track clips (scalar ones) and writable via runtime overrides. See [paramPaths.md](paramPaths.md).
+- **Runtime override read path.** `ComposeLayerStack.LayerView` is extended to merge `runtimeLayerOverrides[layer.id]` into `layerStyle` alongside the existing `composeLayerOverrides` (track-clip) slot. Conflict policy: track-clip wins for scalar/transform overlap; for `text.content` the runtime override is the only override surface. See [runtime-overrides.md](runtime-overrides.md).
+- **Tmp compose layers** spawned by `spawn_clip` render through `LayerView` using the same code path as persistent layers. See [spawn.md](spawn.md).
+- **Migration:** `0XX_text_kinds_and_opacity.ts` extends the `kind` enum.
 
 ## REST + WS
 

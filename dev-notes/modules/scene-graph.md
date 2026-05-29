@@ -41,6 +41,16 @@ Self-referential FK with cascade: deleting a parent deletes all descendants.
 | `billboard` | 2D sprite always facing screen |
 | `prop` | Static mesh (alias of model, different semantic) |
 | `godray_caster` | Invisible sun mesh for the GodRays post-processing effect |
+| `text_troika` | **WIP (Phase 1)** — SDF text via `troika-three-text`. Config: `{ content, fontSize, color, anchorX, anchorY, maxWidth, billboard? }`. |
+| `text_canvas` | **WIP (Phase 1)** — `THREE.CanvasTexture` on a plane mesh. Config: `{ content, fontSize, color, padding, allowHtml?, width, height, billboard? }`. With `allowHtml`, rasterises a sanitised HTML fragment via `html2canvas` (the path that renders overlive emote HTML). |
+
+## WIP additions (Phase 1 — signal-graph expansion)
+
+- **`opacity` on `components.transform`** (default 1) for all node kinds. Applied in `Viewport.tsx` by walking descendant meshes once per frame to set `material.transparent = true; material.opacity = value`, caching to avoid per-frame mutation when unchanged. Animatable via track clips and runtime overrides.
+- **Runtime override read path:** `useTransformWithOverride` is extended to merge `runtimeNodeOverrides[node.id]` alongside the existing track-clip override slot. Conflict on transform/scalar paths: track-clip wins. For `opacity` and `text.content`, runtime overrides are the only override surface. See [runtime-overrides.md](runtime-overrides.md).
+- **Tmp scene nodes** rendered from the spawn channel use the same node-kind renderers as persistent nodes. See [spawn.md](spawn.md).
+- **Migration:** `0XX_text_kinds_and_opacity.ts` extends the kind enum and defaults `opacity: 1` on existing transform components.
+
 
 ### `components` JSON structure (per node)
 

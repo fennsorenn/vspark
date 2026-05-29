@@ -115,6 +115,56 @@ A `GraphDescriptor` (defined in `packages/shared/src/signal.ts`) is a static tem
 
 Each manager creates its own descriptor factory (e.g., `makeVmcGraphDescriptor(componentId)`). The descriptor is passed to `SignalGraph.fromDescriptor()` along with live config/state callbacks.
 
+## In-Flight & Planned Work
+
+### WIP — Phase 1 (branch `feature/graph-runtime-overrides-spawn-text`)
+
+A signal-graph expansion is in progress to support stream-overlay flows (chat billboards, queued alerts). Phase 1 adds capabilities that don't require generic type propagation; Phase 2 (planned, see below) adds the architecture change first and then the generic nodes.
+
+**New node kinds being added** (`signal/nodes/`, registered in `registry.ts`):
+
+| Kind | Purpose |
+|------|---------|
+| `set_scene_node_param` | Inputs: `fire` (Trigger), `targetId` (EntityId), `paramPath` (String), `value` (Any — coerced via paramPath registry), `persist` (Bool), optional `spawnRef` (Event<SpawnRef>) that overrides `targetId` for the fire. On fire: validates path against the paramPath registry, calls `runtimeOverrideManager.set(...)` and (when `persist`) writes through to REST. |
+| `set_compose_layer_param` | Same shape, compose-layer target. |
+| `set_text` | Convenience over `set_*_param` for the `text.content` paramPath. |
+| `start_clip` | Canonical generalisation of `track_clip_trigger` (existing kind retained for back-compat). Calls `playbackManager.trigger(clipId)`. |
+| `spawn_clip` | Inputs: `fire`, `clipId`. Looks up the clip's owner, calls `spawnManager.spawn(clipId)`. Output: `spawned: Event<SpawnRef>`. See [spawn.md](spawn.md). |
+| `random` | Inputs: `fire`, `min`, `max`, `mode: 'float'\|'int'`. Outputs: `fire` event, `value` (Float). Recomputes on fire; cached for pulls. |
+
+**New named type** in `SignalTypeMap`: `SpawnRef = { tmpNodeId: string; tmpClipId: string; kind: 'scene_node' | 'compose_layer' }`. Phase 1 ships this as a concrete primitive so `spawn_clip → set_*_param` works without generic propagation; Phase 2 leaves the type alone but adds pack/unpack for arbitrary payloads.
+
+**Value-port typing note (Phase 1):** `set_*_param`'s `value` input is `Any` and the runtime coerces per the paramPath registry's declared type for the chosen path. Phase 2's inference replaces this with a properly typed port driven from the registry.
+
+**Demo graph (Phase 1):** Flow A — chat → flying billboard: `overlive_chat_message → random (x) → spawn_clip (chat-billboard clip on a hidden text_canvas template) → set_scene_node_param (uses spawned tmpNodeId + random x) → clip animates → auto-despawn`. Flow B (sub/redemption → queued alert) is deferred to Phase 2 because proper queueing needs `queue_events`.
+
+### Planned — Phase 2: Edge-time structural type inference
+
+A graph-engine architecture change that adds **edge-time structural type inference**. Replaces the fixed-tag port-type system (`'Float'`, `'String'`, `'Any'`) with a structural `ResolvedType` AST. When an edge is created, the downstream node's port shape is recomputed from its currently-resolved inputs and propagated forward; incompatible connections are rejected.
+
+**Approach (summary; details in the plan, not yet implementation):**
+
+- New `packages/shared/src/signal_types.ts`: `ResolvedType` discriminated union (`primitive | record | event | list | unknown`), `isAssignable` with structural width subtyping on records, conversions to/from `PortDecl`.
+- New `packages/shared/src/inference.ts`: shared `tryAddEdge` / `removeEdge` logic with rollback on downstream invalidation. Used by both backend engine and frontend editor.
+- `SignalNodeClass` gains optional `inferPorts(ctx)` hook returning `{ inputPorts, outputPorts }` with resolved types. Default lifts the static declarations.
+- `SignalGraph` node entries gain `resolvedInputs` + `resolvedInputPorts` + `resolvedOutputPorts`; `fromDescriptor` becomes a replay over `tryAddEdge`, eliminating cycle handling as a special case.
+- Frontend editor uses the same shared inference for drag-time validation and dynamic port rendering (e.g. `unpack_event` visibly grows N typed outputs the moment a `pack_event` is wired into it).
+- Backwards compat: `'Any'` is repurposed as the surface for `{ kind: 'unknown' }`; existing nodes work unchanged.
+- Schema drift handling: descriptors with edges that no longer validate skip with a warning at load.
+
+**Phase 2 nodes (require inference):**
+
+| Kind | Purpose |
+|------|---------|
+| `pack_event` | Inputs: `fire` + N value ports `a, b, c, d` (each starts `unknown`). Output `event: Event<{a: T_a, b: T_b, ...}>` with field types resolved from connected inputs; unconnected fields omitted. |
+| `unpack_event` (rewrite) | Input `event: Event<{...fields}>`. Outputs are *generated*: one typed port per record field. Falls back to a single `value: unknown` output when input is unconnected/non-record (preserves current behaviour). |
+| `queue_events` | Inputs: `enqueue: Event<unknown>`, `pop: Event<Trigger>`. Outputs: `popped` (Event mirroring enqueue's payload), `size` (Float, pull). State: FIFO array in `setState`. |
+
+**Phase 2 also enables:**
+- `component_config` typing via `inferPorts` — reads `field` against the component-kind's Zod config schema, returns the field's `ResolvedType`.
+- Replacing `set_*_param`'s `Any` value input with a properly typed port (paramPath registry → ResolvedType via inference).
+- Wiring Flow B (sub/redemption → queued alert) end-to-end: `overlive_subscription/redemption → pack_event → queue_events ← pop:clock → unpack_event → spawn_clip + set_compose_layer_param`.
+
 ## Adding a new node kind
 
 1. Create `packages/backend/src/signal/nodes/my_node.ts` implementing `SignalNodeClass`
