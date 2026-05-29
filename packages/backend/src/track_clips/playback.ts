@@ -33,10 +33,51 @@ interface BroadcastEntry {
  *  paused, plus serverNow for clock-skew correction.
  *  Looping clips with autoplay=1 persist started_at so they resume in-phase
  *  after a backend restart. */
+export type ClipFinishedListener = (clipId: string) => void;
+
 export class TrackClipPlaybackManager {
   private active = new Map<string, PlaybackEntry>();
+  /** Clip ids whose playback entry was created via triggerEphemeral and
+   *  therefore must not touch the track_clips SQLite table on stop. */
+  private ephemeral = new Set<string>();
+  /** Subscribers notified whenever any clip's playback ends (manual stop or
+   *  auto-stop timer firing for a non-looping clip). Used by SpawnManager to
+   *  clean up tmp entities + tmp clips when their playback completes. */
+  private finishedListeners = new Set<ClipFinishedListener>();
 
   constructor(private ws: WSSync) {}
+
+  /** Subscribe to clip-finished events. Returns an unsubscribe function. */
+  onClipFinished(fn: ClipFinishedListener): () => void {
+    this.finishedListeners.add(fn);
+    return () => {
+      this.finishedListeners.delete(fn);
+    };
+  }
+
+  /** Start playback for a clip whose row never went to SQLite (an in-memory
+   *  duplicate spawned by SpawnManager). Skips DB reads/writes; the rest of
+   *  the broadcast / cleanup path is identical to trigger(). */
+  triggerEphemeral(clipId: string, duration: number, loop: boolean): void {
+    this.clearAutoStopTimer(clipId);
+    const startedAt = Date.now();
+    const entry: PlaybackEntry = {
+      kind: 'playing',
+      startedAt,
+      loop,
+      duration,
+      stopTimer: null,
+    };
+    if (!loop) {
+      entry.stopTimer = setTimeout(
+        () => this.stop(clipId),
+        Math.max(0, duration * 1000)
+      );
+    }
+    this.active.set(clipId, entry);
+    this.ephemeral.add(clipId);
+    this.broadcastStarted(clipId, startedAt, loop);
+  }
 
   /** Restore loop+autoplay clips on boot. */
   hydrateAutoplay(): void {
@@ -228,10 +269,23 @@ export class TrackClipPlaybackManager {
   private stopInternal(clipId: string, broadcast: boolean): void {
     this.clearAutoStopTimer(clipId);
     if (!this.active.delete(clipId)) return;
-    getDb()
-      .prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?')
-      .run(clipId);
+    const wasEphemeral = this.ephemeral.delete(clipId);
+    // Ephemeral clips never had a SQLite row, so skip the anchor write.
+    if (!wasEphemeral) {
+      getDb()
+        .prepare('UPDATE track_clips SET started_at = NULL WHERE id = ?')
+        .run(clipId);
+    }
     if (broadcast) this.ws.broadcast('track_clip_stopped', { clipId });
+    // Fan out to subscribers (e.g. SpawnManager). Each listener is run
+    // synchronously inside a try so one failure can't block the others.
+    for (const fn of this.finishedListeners) {
+      try {
+        fn(clipId);
+      } catch (err) {
+        console.error('[playback] clipFinished listener threw:', err);
+      }
+    }
   }
 
   private clearAutoStopTimer(clipId: string): void {

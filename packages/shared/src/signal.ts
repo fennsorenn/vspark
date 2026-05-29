@@ -367,6 +367,18 @@ export interface SignalTypeMap {
    * renders a dropdown of the project's accounts when nothing is wired in.
    */
   Account: string;
+  /**
+   * Payload emitted by `spawn_clip`. Carries the ids of the ephemeral entity
+   * that was cloned and the ephemeral clip duplicate now playing on it, plus
+   * which kind of entity was spawned. `set_*_param` nodes accept a
+   * `Event<SpawnRef>` on a `spawnRef` input to retarget the call to the
+   * tmp entity for that fire. See dev-notes/modules/spawn.md.
+   */
+  SpawnRef: {
+    tmpNodeId: string;
+    tmpClipId: string;
+    kind: 'scene_node' | 'compose_layer';
+  };
 }
 
 export type SignalTypeName = keyof SignalTypeMap;
@@ -504,6 +516,7 @@ export const SIGNAL_TYPE_COLORS: Record<SignalTypeName, string> = {
   LandmarkList: '#7a9a6a',
   IkTargets: '#a06a9a',
   Account: '#9146ff',
+  SpawnRef: '#c97a3a',
   Any: '#888888',
 };
 

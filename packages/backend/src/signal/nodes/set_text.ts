@@ -3,6 +3,8 @@ import type {
   InputsOf,
   OutputsOf,
   NodeExecutionContext,
+  Event,
+  SignalTypeMap,
 } from '@vspark/shared/signal';
 import { runtimeOverrideManager } from '../../runtime_overrides/manager.js';
 import type { ParamTargetKind } from '@vspark/shared/paramPaths';
@@ -28,6 +30,9 @@ export class SetText {
   static readonly kind = 'set_text';
   static readonly inputPorts = [
     eventPort('fire', 'Trigger'),
+    /** Optional alternative trigger: a SpawnRef event from spawn_clip. Its
+     *  tmpNodeId + kind override targetId / targetKind for that fire. */
+    eventPort('spawnRef', 'SpawnRef'),
     valuePort('targetId', 'EntityId'),
     valuePort('targetKind', 'String'),
     valuePort('text', 'String'),
@@ -40,22 +45,32 @@ export class SetText {
     config: SetTextConfig,
     ctx: NodeExecutionContext
   ): OutputsOf<typeof SetText> {
-    if (ctx.triggeredPort !== 'fire') return {} as OutputsOf<typeof SetText>;
-    const targetId =
-      (inputs.targetId as string | undefined) || config.targetId;
-    if (!targetId) return {} as OutputsOf<typeof SetText>;
-    const rawKind =
-      (inputs.targetKind as string | undefined) ??
-      config.targetKind ??
-      'scene_node';
-    const targetKind: ParamTargetKind =
-      rawKind === 'compose_layer' ? 'compose_layer' : 'scene_node';
+    const empty = {} as OutputsOf<typeof SetText>;
+    if (ctx.triggeredPort !== 'fire' && ctx.triggeredPort !== 'spawnRef')
+      return empty;
+
+    let targetId = (inputs.targetId as string | undefined) || config.targetId;
+    let targetKind: ParamTargetKind = (() => {
+      const raw =
+        (inputs.targetKind as string | undefined) ??
+        config.targetKind ??
+        'scene_node';
+      return raw === 'compose_layer' ? 'compose_layer' : 'scene_node';
+    })();
+    if (ctx.triggeredPort === 'spawnRef') {
+      const ev = inputs.spawnRef as Event<SignalTypeMap['SpawnRef']> | undefined;
+      const ref = ev?.payload;
+      if (!ref) return empty;
+      targetId = ref.tmpNodeId;
+      targetKind = ref.kind;
+    }
+    if (!targetId) return empty;
     const text = (inputs.text as string | undefined) ?? '';
     const persist =
       (inputs.persist as boolean | undefined) ?? config.persist ?? false;
     runtimeOverrideManager.set(targetKind, targetId, 'text.content', text, {
       persist,
     });
-    return {} as OutputsOf<typeof SetText>;
+    return empty;
   }
 }

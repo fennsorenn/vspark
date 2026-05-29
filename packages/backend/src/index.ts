@@ -35,6 +35,7 @@ import { initIkBroadcast } from './signal/nodes/ik_broadcast.js';
 import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
 import { initStartClip } from './signal/nodes/start_clip.js';
 import { runtimeOverrideManager } from './runtime_overrides/manager.js';
+import { spawnManager } from './spawn/manager.js';
 import type {
   LipsyncInputMessage,
   TrackingInputMessage,
@@ -109,6 +110,11 @@ async function start() {
   // until then, `persist: true` falls through to a log + no-op.
   // See dev-notes/modules/runtime-overrides.md.
   runtimeOverrideManager.init(wsSync, null);
+
+  // Spawn manager — ephemeral clip-clone spawning. Subscribes to playback
+  // completion events so it can tear down tmp entities on clip end.
+  // See dev-notes/modules/spawn.md.
+  spawnManager.init(wsSync, trackClipPlayback);
 
   // Standalone project graphs — start every persisted-enabled graph on boot.
   // See dev-notes/modules/project-graphs.md.

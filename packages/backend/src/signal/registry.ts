@@ -37,6 +37,7 @@ import { NotBool } from './nodes/not_bool.js';
 import { HandHeightCompare } from './nodes/hand_height_compare.js';
 import { TrackClipTrigger } from './nodes/track_clip_trigger.js';
 import { StartClip } from './nodes/start_clip.js';
+import { SpawnClip } from './nodes/spawn_clip.js';
 import { Random } from './nodes/random.js';
 import { SetSceneNodeParam } from './nodes/set_scene_node_param.js';
 import { SetComposeLayerParam } from './nodes/set_compose_layer_param.js';
@@ -106,6 +107,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   // Track clips
   TrackClipTrigger,
   StartClip,
+  SpawnClip,
   // Runtime mutation / spawn primitives (Phase 1.5)
   Random,
   SetSceneNodeParam,

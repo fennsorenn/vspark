@@ -3,6 +3,8 @@ import type {
   InputsOf,
   OutputsOf,
   NodeExecutionContext,
+  Event,
+  SignalTypeMap,
 } from '@vspark/shared/signal';
 import { runtimeOverrideManager } from '../../runtime_overrides/manager.js';
 
@@ -37,6 +39,9 @@ export class SetSceneNodeParam {
   static readonly kind = 'set_scene_node_param';
   static readonly inputPorts = [
     eventPort('fire', 'Trigger'),
+    /** Optional alternative trigger: a SpawnRef event from spawn_clip. Its
+     *  tmpNodeId overrides targetId for that fire. */
+    eventPort('spawnRef', 'SpawnRef'),
     valuePort('targetId', 'EntityId'),
     valuePort('paramPath', 'String'),
     valuePort('value', 'Any'),
@@ -49,14 +54,28 @@ export class SetSceneNodeParam {
     config: SetSceneNodeParamConfig,
     ctx: NodeExecutionContext
   ): OutputsOf<typeof SetSceneNodeParam> {
-    if (ctx.triggeredPort !== 'fire')
-      return {} as OutputsOf<typeof SetSceneNodeParam>;
-    const targetId =
+    const empty = {} as OutputsOf<typeof SetSceneNodeParam>;
+    if (ctx.triggeredPort !== 'fire' && ctx.triggeredPort !== 'spawnRef')
+      return empty;
+
+    let targetId =
       (inputs.targetId as string | undefined) || config.targetId;
+    if (ctx.triggeredPort === 'spawnRef') {
+      const ev = inputs.spawnRef as Event<SignalTypeMap['SpawnRef']> | undefined;
+      const ref = ev?.payload;
+      if (!ref) return empty;
+      if (ref.kind !== 'scene_node') {
+        console.warn(
+          `[set_scene_node_param] ignoring spawnRef of kind ${ref.kind}`
+        );
+        return empty;
+      }
+      targetId = ref.tmpNodeId;
+    }
+
     const paramPath =
       (inputs.paramPath as string | undefined) || config.paramPath;
-    if (!targetId || !paramPath)
-      return {} as OutputsOf<typeof SetSceneNodeParam>;
+    if (!targetId || !paramPath) return empty;
     const persist =
       (inputs.persist as boolean | undefined) ?? config.persist ?? false;
     runtimeOverrideManager.set(
@@ -66,6 +85,6 @@ export class SetSceneNodeParam {
       inputs.value,
       { persist }
     );
-    return {} as OutputsOf<typeof SetSceneNodeParam>;
+    return empty;
   }
 }

@@ -64,6 +64,13 @@ export class RuntimeOverrideManager {
     this._persist = persist ?? null;
   }
 
+  /** Pre-register a (target → scene) mapping so the bus doesn't have to look
+   *  it up in SQLite. Used by SpawnManager for tmp entities that have no
+   *  database row. Safe to call repeatedly with the same mapping. */
+  registerTarget(targetId: string, sceneId: string): void {
+    this._sceneByTarget.set(targetId, sceneId);
+  }
+
   /** Set or replace an override. Validates the path against the registry and
    *  coerces the value; rejects silently (with a log) for unknown paths or
    *  uncoercible values. */

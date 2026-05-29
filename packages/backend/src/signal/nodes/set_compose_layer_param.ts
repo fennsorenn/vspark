@@ -3,6 +3,8 @@ import type {
   InputsOf,
   OutputsOf,
   NodeExecutionContext,
+  Event,
+  SignalTypeMap,
 } from '@vspark/shared/signal';
 import { runtimeOverrideManager } from '../../runtime_overrides/manager.js';
 
@@ -24,6 +26,9 @@ export class SetComposeLayerParam {
   static readonly kind = 'set_compose_layer_param';
   static readonly inputPorts = [
     eventPort('fire', 'Trigger'),
+    /** Optional alternative trigger: a SpawnRef event from spawn_clip. Its
+     *  tmpNodeId overrides targetId for that fire. */
+    eventPort('spawnRef', 'SpawnRef'),
     valuePort('targetId', 'EntityId'),
     valuePort('paramPath', 'String'),
     valuePort('value', 'Any'),
@@ -36,14 +41,28 @@ export class SetComposeLayerParam {
     config: SetComposeLayerParamConfig,
     ctx: NodeExecutionContext
   ): OutputsOf<typeof SetComposeLayerParam> {
-    if (ctx.triggeredPort !== 'fire')
-      return {} as OutputsOf<typeof SetComposeLayerParam>;
-    const targetId =
+    const empty = {} as OutputsOf<typeof SetComposeLayerParam>;
+    if (ctx.triggeredPort !== 'fire' && ctx.triggeredPort !== 'spawnRef')
+      return empty;
+
+    let targetId =
       (inputs.targetId as string | undefined) || config.targetId;
+    if (ctx.triggeredPort === 'spawnRef') {
+      const ev = inputs.spawnRef as Event<SignalTypeMap['SpawnRef']> | undefined;
+      const ref = ev?.payload;
+      if (!ref) return empty;
+      if (ref.kind !== 'compose_layer') {
+        console.warn(
+          `[set_compose_layer_param] ignoring spawnRef of kind ${ref.kind}`
+        );
+        return empty;
+      }
+      targetId = ref.tmpNodeId;
+    }
+
     const paramPath =
       (inputs.paramPath as string | undefined) || config.paramPath;
-    if (!targetId || !paramPath)
-      return {} as OutputsOf<typeof SetComposeLayerParam>;
+    if (!targetId || !paramPath) return empty;
     const persist =
       (inputs.persist as boolean | undefined) ?? config.persist ?? false;
     runtimeOverrideManager.set(
@@ -53,6 +72,6 @@ export class SetComposeLayerParam {
       inputs.value,
       { persist }
     );
-    return {} as OutputsOf<typeof SetComposeLayerParam>;
+    return empty;
   }
 }
