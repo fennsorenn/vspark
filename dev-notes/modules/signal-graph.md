@@ -136,7 +136,7 @@ A signal-graph expansion is in progress to support stream-overlay flows (chat bi
 
 **Value-port typing note (Phase 1):** `set_*_param`'s `value` input is `Any` and the runtime coerces per the paramPath registry's declared type for the chosen path. Phase 2's inference replaces this with a properly typed port driven from the registry.
 
-**Demo graph (Phase 1):** Flow A — chat → flying billboard: `overlive_chat_message → random (x) → spawn_clip (chat-billboard clip on a hidden text_canvas template) → set_scene_node_param (uses spawned tmpNodeId + random x) → clip animates → auto-despawn`. Flow B (sub/redemption → queued alert) is deferred to Phase 2 because proper queueing needs `queue_events`.
+**Demo graph (Phase 1):** Flow A — chat → flying billboard: `overlive_chat_message → random (x) → spawn_clip (chat-billboard clip on a hidden text_canvas template) → set_scene_node_param (uses spawned tmpNodeId + random x) → clip animates → auto-despawn`. A ready-to-import descriptor lives at [`dev-notes/samples/chat-billboard-demo.json`](../samples/chat-billboard-demo.json) with step-by-step setup instructions inside the file. The original plan considered a boot-time auto-seed behind `VSPARK_SEED_DEMO_GRAPH=1`; this was dropped in favour of the manual sample because the demo needs ids (overlive account, clip, template node) that only exist after the user has set them up, and a half-bound auto-seed would silently no-op. Flow B (sub/redemption → queued alert) is deferred to Phase 2 because proper queueing needs `queue_events`.
 
 ### Planned — Phase 2: Edge-time structural type inference
 
