@@ -177,7 +177,10 @@ router.post('/presets/instantiate', (req, res) => {
       },
     });
   }
-  if (payload.format !== 'vspark.preset.v1') {
+  if (
+    payload.format !== 'vspark.preset.v1' &&
+    payload.format !== 'vspark.preset.v2'
+  ) {
     return res.status(400).json({
       ok: false,
       error: {

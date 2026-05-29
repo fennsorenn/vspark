@@ -189,9 +189,12 @@ export function useWsSync() {
               .getState()
               .removeCameraEffect(msg.payload.id as string);
           } else if (msg.kind === 'compose_layer_added') {
-            useEditorStore
-              .getState()
-              .addComposeLayer(mapComposeLayer(msg.payload));
+            const added = mapComposeLayer(msg.payload);
+            if (added.kind === 'compose_scene') {
+              useEditorStore.getState().addComposeScene(added);
+            } else {
+              useEditorStore.getState().addComposeLayer(added);
+            }
           } else if (msg.kind === 'compose_layer_updated') {
             // Final committed state from a PUT. Route through the smoother so
             // numeric fields (x/y/w/h/rotation) tween from the last preview
@@ -202,9 +205,13 @@ export function useWsSync() {
               layer as unknown as Record<string, unknown>
             );
           } else if (msg.kind === 'compose_layer_removed') {
-            useEditorStore
-              .getState()
-              .removeComposeLayer(msg.payload.id as string);
+            const removedId = msg.payload.id as string;
+            const st = useEditorStore.getState();
+            if (st.composeScenes.some((cs) => cs.id === removedId)) {
+              st.removeComposeScene(removedId);
+            } else {
+              st.removeComposeLayer(removedId);
+            }
           } else if (msg.kind === 'compose_layer_preview') {
             const p = msg.payload as {
               id: string;

@@ -105,6 +105,7 @@ export interface Project {
 
 export type ComposeLayerKind =
   | 'compose_scene'
+  | 'scene_include'
   | 'camera_view'
   | 'image'
   | 'video'
@@ -166,7 +167,6 @@ export interface Graph {
 
 export type TrackClipMode = 'override' | 'relative';
 export type TrackClipTargetKind = 'scene_node' | 'compose_layer';
-export type TrackClipOwnerKind = 'scene' | 'scene_node' | 'compose_layer';
 export type TrackClipEasing = 'linear' | 'step' | 'bezier';
 
 /** Scalar parameter paths supported in v1.
@@ -210,9 +210,10 @@ export interface TrackClipLane {
 
 export interface TrackClip {
   id: string;
-  rootSceneNodeId: string;
-  ownerKind: TrackClipOwnerKind;
-  ownerId: string;
+  /** Owner is exactly one of these: a scene node (scene roots included) or a
+   *  compose layer. The other is null. */
+  ownerNodeId: string | null;
+  ownerLayerId: string | null;
   name: string;
   duration: number; // seconds
   loop: boolean;

@@ -79,11 +79,65 @@ export function ComposeLayerProperties({
     api.updateComposeLayer(layer.id, patch).catch(() => {});
   };
 
+  // The compose scene this layer belongs to defines the % reference frame.
+  const composeScenes = useEditorStore((s) => s.composeScenes);
+  const parentScene = composeScenes.find(
+    (cs) => cs.id === layer.rootComposeSceneId
+  );
+  const frameW = parentScene?.width ?? 1920;
+  const frameH = parentScene?.height ?? 1080;
+
+  type UnitKey = 'xUnit' | 'yUnit' | 'widthUnit' | 'heightUnit';
+  const unitOf = (key: UnitKey): 'px' | '%' =>
+    layer.config[key] === '%' ? '%' : 'px';
+
+  /** Toggle a field's unit, converting the stored value so the on-screen size
+   *  stays the same (relative to the compose frame). */
+  const setUnit = (
+    field: 'x' | 'y' | 'width' | 'height',
+    unitKey: UnitKey,
+    unit: 'px' | '%'
+  ) => {
+    const current = unitOf(unitKey);
+    if (current === unit) return;
+    const basis =
+      field === 'x' || field === 'width' ? frameW : frameH;
+    const value = layer[field];
+    const converted =
+      unit === '%'
+        ? Math.round(((value / basis) * 100 + Number.EPSILON) * 100) / 100
+        : Math.round((value / 100) * basis);
+    commit({
+      [field]: converted,
+      config: { ...layer.config, [unitKey]: unit },
+    } as Partial<ComposeLayerRecord>);
+  };
+
+  const unitSelect = (
+    field: 'x' | 'y' | 'width' | 'height',
+    unitKey: UnitKey
+  ) => (
+    <select
+      value={unitOf(unitKey)}
+      onChange={(e) => setUnit(field, unitKey, e.target.value as 'px' | '%')}
+      style={{ ...select, width: 48 }}
+      title="Unit"
+    >
+      <option value="px">px</option>
+      <option value="%">%</option>
+    </select>
+  );
+
   const compatibleAssets = assets.filter((a) => {
     if (layer.kind === 'image') return a.kind === 'image';
     if (layer.kind === 'video') return a.mimeType.startsWith('video/');
     return false;
   });
+
+  const locked = layer.config.locked === true;
+  const locked3d = layer.config.locked3d === true;
+  const toggleLock = (key: 'locked' | 'locked3d') =>
+    commit({ config: { ...layer.config, [key]: !layer.config[key] } });
 
   return (
     <>
@@ -104,7 +158,9 @@ export function ComposeLayerProperties({
                 ? '📷'
                 : layer.kind === 'group'
                   ? '📁'
-                  : '🌐'}
+                  : layer.kind === 'scene_include'
+                    ? '🎬'
+                    : '🌐'}
         </span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{layer.name}</div>
@@ -112,6 +168,46 @@ export function ComposeLayerProperties({
             {scopeLabel}
           </div>
         </div>
+      </div>
+
+      <div style={sectionHeader}>Lock</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            fontSize: 12,
+            color: '#bbb',
+            cursor: 'pointer',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={locked}
+            onChange={() => toggleLock('locked')}
+          />
+          Lock layer (2D)
+        </label>
+        {layer.kind === 'camera_view' && (
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: 12,
+              color: '#bbb',
+              cursor: 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={locked3d}
+              onChange={() => toggleLock('locked3d')}
+            />
+            Lock 3D interaction
+          </label>
+        )}
       </div>
 
       <div style={sectionHeader}>Name</div>
@@ -150,6 +246,38 @@ export function ComposeLayerProperties({
               .map((n) => (
                 <option key={n.id} value={n.id}>
                   {n.name}
+                </option>
+              ))}
+          </select>
+        </>
+      )}
+
+      {layer.kind === 'scene_include' && (
+        <>
+          <div style={sectionHeader}>Included scene</div>
+          <select
+            value={(layer.config.includeSceneId as string | undefined) ?? ''}
+            onChange={(e) =>
+              commit({
+                config: {
+                  ...layer.config,
+                  includeSceneId: e.target.value || undefined,
+                },
+              })
+            }
+            style={{
+              ...textInput,
+              background: '#1a1a1a',
+              color: '#ccc',
+              cursor: 'pointer',
+            }}
+          >
+            <option value="">None</option>
+            {composeScenes
+              .filter((cs) => cs.id !== layer.rootComposeSceneId)
+              .map((cs) => (
+                <option key={cs.id} value={cs.id}>
+                  {cs.name}
                 </option>
               ))}
           </select>
@@ -198,6 +326,11 @@ export function ComposeLayerProperties({
           ])
         }
       />
+      <div style={{ ...row, marginTop: 6 }}>
+        <span style={label}>Units</span>
+        {unitSelect('x', 'xUnit')}
+        {unitSelect('y', 'yUnit')}
+      </div>
       <div style={row}>
         <span style={label}>Anchor</span>
         <select
@@ -227,11 +360,16 @@ export function ComposeLayerProperties({
         values={[layer.width, layer.height]}
         labels={['W', 'H']}
         step={1}
-        min={[8, 8]}
+        min={[0, 0]}
         onCommit={(next, axis) =>
           commit(axis === 0 ? { width: next[0] } : { height: next[1] })
         }
       />
+      <div style={{ ...row, marginTop: 6 }}>
+        <span style={label}>Units</span>
+        {unitSelect('width', 'widthUnit')}
+        {unitSelect('height', 'heightUnit')}
+      </div>
 
       <div style={sectionHeader}>Rotation</div>
       <NumInput

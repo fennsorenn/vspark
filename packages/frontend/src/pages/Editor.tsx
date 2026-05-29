@@ -94,7 +94,11 @@ export function Editor() {
       try {
         const text = await navigator.clipboard.readText();
         const payload = JSON.parse(text);
-        if (payload.format !== 'vspark.preset.v1') return;
+        if (
+          payload.format !== 'vspark.preset.v1' &&
+          payload.format !== 'vspark.preset.v2'
+        )
+          return;
         await instantiatePresetApi(
           payload,
           state.projectId!,

@@ -1,10 +1,12 @@
-import { useState, type CSSProperties, type DragEvent } from 'react';
+import { useState, type CSSProperties } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   useEditorStore,
   type ComposeLayerRecord,
 } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { ComposeLayerKind } from '../../api/client';
+import { ClipsSection } from './ClipsSection';
 
 const KIND_ICONS: Record<ComposeLayerKind, string> = {
   image: '🖼',
@@ -12,30 +14,32 @@ const KIND_ICONS: Record<ComposeLayerKind, string> = {
   browser: '🌐',
   group: '📁',
   compose_scene: '🎬',
+  scene_include: '🎬',
   camera_view: '📷',
 };
 
-const SCENE_RENDER_SLOT = 0;
+// Layer kinds the user can add inside a compose scene.
+const ADDABLE_KINDS: ComposeLayerKind[] = [
+  'camera_view',
+  'scene_include',
+  'image',
+  'video',
+  'browser',
+  'group',
+];
 
-type Section = 'scene' | 'camera';
-
-const sectionHeaderStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
-  padding: '6px 10px',
-  background: '#181818',
-  borderBottom: '1px solid #2a2a2a',
-  borderTop: '1px solid #2a2a2a',
-  color: '#aaa',
-  fontSize: 11,
-  textTransform: 'uppercase',
-  letterSpacing: 0.5,
+const addBtn: CSSProperties = {
+  background: '#2563eb',
+  border: 'none',
+  color: '#fff',
+  borderRadius: 4,
+  padding: '2px 7px',
   cursor: 'pointer',
-  userSelect: 'none',
+  fontSize: 11,
+  fontWeight: 500,
 };
 
-function rowStyle(selected: boolean, pinned: boolean): CSSProperties {
+function rowStyle(selected: boolean): CSSProperties {
   return {
     display: 'flex',
     alignItems: 'center',
@@ -43,7 +47,7 @@ function rowStyle(selected: boolean, pinned: boolean): CSSProperties {
     padding: '4px 8px',
     margin: '1px 4px',
     fontSize: 12,
-    color: pinned ? '#888' : selected ? '#fff' : '#ddd',
+    color: selected ? '#fff' : '#ddd',
     background: selected ? '#1a3a6a' : 'transparent',
     borderRadius: 3,
     cursor: 'pointer',
@@ -51,208 +55,72 @@ function rowStyle(selected: boolean, pinned: boolean): CSSProperties {
   };
 }
 
-const pinnedSceneRowStyle: CSSProperties = {
-  ...rowStyle(false, true),
-  background: '#161620',
-  fontStyle: 'italic',
-  cursor: 'default',
-};
+// ---- Add-layer menu ---------------------------------------------------------
 
-const smallBtn: CSSProperties = {
-  background: 'transparent',
-  border: '1px solid #3a3a3a',
-  color: '#888',
-  borderRadius: 3,
-  cursor: 'pointer',
-  fontSize: 10,
-  padding: '1px 5px',
-  lineHeight: 1.2,
-};
+async function createLayer(composeSceneId: string, kind: ComposeLayerKind) {
+  const name =
+    kind === 'camera_view'
+      ? 'Camera View'
+      : kind === 'scene_include'
+        ? 'Included Scene'
+        : kind[0].toUpperCase() + kind.slice(1) + ' Layer';
 
-const addBtn: CSSProperties = {
-  background: '#2563eb',
-  border: 'none',
-  color: '#fff',
-  borderRadius: 3,
-  padding: '2px 7px',
-  cursor: 'pointer',
-  fontSize: 11,
-  fontWeight: 500,
-};
-
-const dropIndicatorStyle: CSSProperties = {
-  height: 2,
-  background: '#4a9eff',
-  margin: '0 8px',
-  borderRadius: 1,
-};
-
-// ---- Sequence model ----------------------------------------------------------
-// A "slot" represents one row in a section's display.
-type Slot =
-  | { kind: 'pinned-3d' }
-  | { kind: 'layer'; layer: ComposeLayerRecord; pinned: boolean };
-
-/** Build the ordered list a section should render. Inserts the pinned 3D row
- *  between layers with negative sceneOrder (front) and >0 sceneOrder (back). */
-function buildSequence(
-  layers: ComposeLayerRecord[],
-  sceneId: string,
-  cameraNodeId: string | null
-): Slot[] {
-  const sceneWide = layers.filter(
-    (l) => l.rootComposeSceneId === sceneId && l.cameraNodeId == null
-  );
-  const camOwn = cameraNodeId
-    ? layers.filter(
-        (l) =>
-          l.rootComposeSceneId === sceneId && l.cameraNodeId === cameraNodeId
-      )
-    : [];
-
-  const all: { layer: ComposeLayerRecord; pinned: boolean }[] = [
-    ...sceneWide.map((l) => ({ layer: l, pinned: cameraNodeId != null })),
-    ...camOwn.map((l) => ({ layer: l, pinned: false })),
-  ];
-  // Painter order: larger sceneOrder is drawn first (further back), so the
-  // top of the visible list (front of the camera) is most-negative sceneOrder.
-  // Within the same sceneOrder slot, larger cameraOrder paints last (on top),
-  // so it also appears at the top of the list.
-  all.sort(
-    (a, b) =>
-      a.layer.sceneOrder - b.layer.sceneOrder ||
-      b.layer.cameraOrder - a.layer.cameraOrder
-  );
-
-  const slots: Slot[] = [];
-  let inserted = false;
-  for (const item of all) {
-    if (!inserted && item.layer.sceneOrder >= SCENE_RENDER_SLOT) {
-      // Insert the 3D marker before anything at or behind sceneOrder 0.
-      slots.push({ kind: 'pinned-3d' });
-      inserted = true;
+  // Camera views default to the first available camera; reassign in properties.
+  let cameraNodeId: string | null = null;
+  if (kind === 'camera_view') {
+    const cameras = useEditorStore
+      .getState()
+      .nodes.filter((n) => n.kind === 'camera');
+    if (cameras.length === 0) {
+      alert('No cameras exist yet. Add a camera node to a scene first.');
+      return;
     }
-    slots.push({ kind: 'layer', layer: item.layer, pinned: item.pinned });
-  }
-  if (!inserted) slots.push({ kind: 'pinned-3d' });
-  return slots;
-}
-
-/** Re-derive (sceneOrder, cameraOrder) for every layer in a section from the
- *  desired visual sequence, then return the diff of records that need updating. */
-function renumberFromSequence(
-  sequence: Slot[],
-  section: Section
-): { id: string; sceneOrder: number; cameraOrder: number }[] {
-  // Locate the 3D marker.
-  const marker = sequence.findIndex((s) => s.kind === 'pinned-3d');
-  if (marker < 0) return [];
-
-  const updates: { id: string; sceneOrder: number; cameraOrder: number }[] = [];
-
-  if (section === 'scene') {
-    // All non-pinned items are scene-wide layers. Renumber so front items get
-    // increasingly negative sceneOrder and back items increasingly positive.
-    const front: ComposeLayerRecord[] = [];
-    const back: ComposeLayerRecord[] = [];
-    for (let i = 0; i < sequence.length; i++) {
-      const s = sequence[i];
-      if (s.kind !== 'layer') continue;
-      if (i < marker) front.push(s.layer);
-      else back.push(s.layer);
-    }
-    // front: closest to top → most negative. Walk from top to marker.
-    for (let i = 0; i < front.length; i++) {
-      const desired = -(front.length - i);
-      updates.push({ id: front[i].id, sceneOrder: desired, cameraOrder: 0 });
-    }
-    for (let i = 0; i < back.length; i++) {
-      const desired = i + 1;
-      updates.push({ id: back[i].id, sceneOrder: desired, cameraOrder: 0 });
-    }
-    return updates;
+    cameraNodeId = cameras[0].id;
   }
 
-  // Camera section: pinned scene layers keep their sceneOrder. Camera-own layers
-  // get the sceneOrder of the nearest scene layer *below* them in the sequence
-  // (i.e. behind, painted earlier). If above all scene layers, use (minSceneOrder - 1).
-  // The 3D marker counts as a scene "layer" at sceneOrder = 0.
-  // cameraOrder distinguishes multiple camera-own layers sharing the same anchor.
-
-  // Collect anchors: pinned layers (and the 3D marker) ordered by position in sequence.
-  // For each camera-own layer index, find the nearest anchor whose position > index;
-  // adopt its sceneOrder.
-  type Anchor = { pos: number; sceneOrder: number };
-  const anchors: Anchor[] = [];
-  sequence.forEach((s, i) => {
-    if (s.kind === 'pinned-3d') anchors.push({ pos: i, sceneOrder: 0 });
-    else if (s.pinned) anchors.push({ pos: i, sceneOrder: s.layer.sceneOrder });
-  });
-
-  // Lowest sceneOrder among anchors (for "above all anchors" case).
-  const minAnchorSO = Math.min(...anchors.map((a) => a.sceneOrder));
-
-  // Build a map from anchor sceneOrder → camera-own layers that anchor to it, in order.
-  const buckets: Map<number, string[]> = new Map();
-  sequence.forEach((s, i) => {
-    if (s.kind !== 'layer' || s.pinned) return;
-    const below = anchors.find((a) => a.pos > i);
-    const so = below ? below.sceneOrder : minAnchorSO - 1;
-    if (!buckets.has(so)) buckets.set(so, []);
-    buckets.get(so)!.push(s.layer.id);
-  });
-
-  for (const [sceneOrder, ids] of buckets) {
-    // ids are ordered top-of-list (front) → bottom (back). Painter sorts cameraOrder
-    // ASC, so largest cameraOrder paints last (on top). Assign decreasing cameraOrder
-    // so the top-of-list ends up visually on top.
-    const n = ids.length;
-    ids.forEach((id, idx) => {
-      updates.push({ id, sceneOrder, cameraOrder: n - idx });
-    });
-  }
-  return updates;
-}
-
-/** Diff against current records and return only the rows whose order changed. */
-function pruneUnchanged(
-  desired: { id: string; sceneOrder: number; cameraOrder: number }[],
-  current: ComposeLayerRecord[]
-): typeof desired {
-  return desired.filter((d) => {
-    const cur = current.find((c) => c.id === d.id);
-    return (
-      !cur ||
-      cur.sceneOrder !== d.sceneOrder ||
-      cur.cameraOrder !== d.cameraOrder
-    );
-  });
-}
-
-// ---- Add menu ---------------------------------------------------------------
-
-async function createLayer(
-  sceneId: string,
-  cameraNodeId: string | null,
-  kind: ComposeLayerKind
-) {
-  const defaultName = kind[0].toUpperCase() + kind.slice(1) + ' Layer';
-  const name = window.prompt(`Name for new ${kind} layer:`, defaultName);
-  if (!name?.trim()) return;
   const config: Record<string, unknown> =
     kind === 'browser' ? { url: 'https://example.com' } : {};
-  await api.createComposeLayer(sceneId, {
-    name: name.trim(),
-    kind,
-    cameraNodeId,
-    config,
-  });
+
+  // Scene includes default to the first OTHER compose scene; reassign in
+  // properties. They mount that scene's whole layer stack.
+  if (kind === 'scene_include') {
+    const others = useEditorStore
+      .getState()
+      .composeScenes.filter((s) => s.id !== composeSceneId);
+    if (others.length === 0) {
+      alert('No other compose scene to include. Create another one first.');
+      return;
+    }
+    config.includeSceneId = others[0].id;
+  }
+
+  // Camera views and scene includes default to filling the whole compose frame
+  // (100% × 100%).
+  const fills = kind === 'camera_view' || kind === 'scene_include';
+  const sizeDefaults = fills
+    ? { width: 100, height: 100 }
+    : ({} as { width?: number; height?: number });
+  if (fills) {
+    config.widthUnit = '%';
+    config.heightUnit = '%';
+  }
+  try {
+    const created = await api.createComposeSceneLayer(composeSceneId, {
+      name,
+      kind,
+      cameraNodeId,
+      config,
+      ...sizeDefaults,
+    });
+    // Optimistic insert; the WS broadcast dedupes by id.
+    useEditorStore.getState().addComposeLayer(created);
+    useEditorStore.getState().selectComposeLayer(created.id);
+  } catch (e) {
+    alert(e instanceof Error ? e.message : 'Failed to add layer');
+  }
 }
 
-interface AddMenuProps {
-  onPick: (kind: ComposeLayerKind) => void;
-}
-function AddMenu({ onPick }: AddMenuProps) {
+function AddLayerMenu({ composeSceneId }: { composeSceneId: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ position: 'relative' }}>
@@ -262,6 +130,7 @@ function AddMenu({ onPick }: AddMenuProps) {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
+        title="Add layer"
       >
         + ▾
       </button>
@@ -275,360 +144,528 @@ function AddMenu({ onPick }: AddMenuProps) {
             background: '#1e1e1e',
             border: '1px solid #3a3a3a',
             borderRadius: 4,
-            minWidth: 140,
+            minWidth: 150,
             zIndex: 50,
             boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
           }}
         >
-          {(['image', 'video', 'browser', 'group'] as ComposeLayerKind[]).map(
-            (k) => (
-              <button
-                key={k}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setOpen(false);
-                  onPick(k);
-                }}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '6px 10px',
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#ddd',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                }}
-                onMouseEnter={(e) =>
-                  ((e.currentTarget as HTMLElement).style.background =
-                    '#2a2a2a')
-                }
-                onMouseLeave={(e) =>
-                  ((e.currentTarget as HTMLElement).style.background =
-                    'transparent')
-                }
-              >
-                <span style={{ marginRight: 6 }}>{KIND_ICONS[k]}</span>
-                {k}
-              </button>
-            )
-          )}
+          {ADDABLE_KINDS.map((k) => (
+            <button
+              key={k}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                createLayer(composeSceneId, k);
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                padding: '6px 10px',
+                background: 'transparent',
+                border: 'none',
+                color: '#ddd',
+                cursor: 'pointer',
+                fontSize: 12,
+              }}
+              onMouseEnter={(e) =>
+                ((e.currentTarget as HTMLElement).style.background = '#2a2a2a')
+              }
+              onMouseLeave={(e) =>
+                ((e.currentTarget as HTMLElement).style.background =
+                  'transparent')
+              }
+            >
+              <span style={{ marginRight: 6 }}>{KIND_ICONS[k]}</span>
+              {k === 'camera_view'
+                ? 'camera view'
+                : k === 'scene_include'
+                  ? 'include scene'
+                  : k}
+            </button>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-// ---- Section ----------------------------------------------------------------
+/** Reorder `draggedId` to sit just before `targetId` among their shared
+ *  siblings, then reassign sequential sceneOrder values (front-of-list = highest
+ *  sceneOrder, since the layer stack paints higher sceneOrder further back and
+ *  the tree lists front-first). Persists via the bulk reorder endpoint. */
+function reorderSibling(
+  siblings: ComposeLayerRecord[],
+  draggedId: string,
+  targetId: string,
+  placeAfter: boolean
+) {
+  if (draggedId === targetId) return;
+  // siblings are passed already in display order (front → back).
+  const order = siblings.map((l) => l.id).filter((id) => id !== draggedId);
+  let idx = order.indexOf(targetId);
+  if (idx < 0) return;
+  if (placeAfter) idx += 1;
+  order.splice(idx, 0, draggedId);
 
-interface LayerSectionProps {
-  title: string;
-  section: Section;
-  sceneId: string;
-  cameraNodeId: string | null;
-  layers: ComposeLayerRecord[];
+  // Assign descending sceneOrder so the top of the list paints in front.
+  const n = order.length;
+  const updates = order.map((id, i) => ({
+    id,
+    sceneOrder: n - i,
+    cameraOrder: 0,
+  }));
+  const store = useEditorStore.getState();
+  for (const u of updates) {
+    store.updateComposeLayerLocal(u.id, { sceneOrder: u.sceneOrder });
+  }
+  api.reorderComposeLayers(updates).catch(() => {});
 }
 
-function LayerSection({
-  title,
-  section,
-  sceneId,
-  cameraNodeId,
-  layers,
-}: LayerSectionProps) {
-  const [expanded, setExpanded] = useState(true);
+// ---- Layer row (recursive for parentId nesting) -----------------------------
+
+function LayerRow({
+  layer,
+  layersByParent,
+  depth,
+}: {
+  layer: ComposeLayerRecord;
+  layersByParent: Map<string | null, ComposeLayerRecord[]>;
+  depth: number;
+}) {
+  const nodes = useEditorStore((s) => s.nodes);
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
   );
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
-  const setComposeLayers = useEditorStore((s) => s.setComposeLayers);
-  const composeLayers = useEditorStore((s) => s.composeLayers);
+  const selectNode = useEditorStore((s) => s.selectNode);
+  const updateComposeLayerLocal = useEditorStore(
+    (s) => s.updateComposeLayerLocal
+  );
+  const [dropPos, setDropPos] = useState<'before' | 'after' | null>(null);
 
-  const [dragId, setDragId] = useState<string | null>(null);
-  /** Index in the visible sequence where dropping would place the dragged item.
-   *  e.g. 0 means "drop before the first slot", sequence.length means "after the last." */
-  const [dropAt, setDropAt] = useState<number | null>(null);
+  // Siblings in display order (front-first), used for drag-reorder.
+  const siblings = (layersByParent.get(layer.parentId ?? null) ?? [])
+    .slice()
+    .sort((a, b) => b.sceneOrder - a.sceneOrder);
 
-  const sequence = buildSequence(layers, sceneId, cameraNodeId);
+  const selected = selectedComposeLayerId === layer.id;
+  const children = layersByParent.get(layer.id) ?? [];
+  const composeScenes = useEditorStore((s) => s.composeScenes);
+  const cam =
+    layer.kind === 'camera_view' && layer.cameraNodeId
+      ? nodes.find((n) => n.id === layer.cameraNodeId)
+      : null;
+  const includedScene =
+    layer.kind === 'scene_include' &&
+    typeof layer.config.includeSceneId === 'string'
+      ? composeScenes.find((s) => s.id === layer.config.includeSceneId)
+      : null;
+  const label =
+    layer.kind === 'camera_view'
+      ? `${layer.name}${cam ? ` · ${cam.name}` : ''}`
+      : layer.kind === 'scene_include'
+        ? `${layer.name}${includedScene ? ` · ${includedScene.name}` : ''}`
+        : layer.name;
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this layer?')) return;
-    await api.deleteComposeLayer(id);
+  const handleDelete = async () => {
+    if (!confirm(`Delete layer "${layer.name}"?`)) return;
+    useEditorStore.getState().removeComposeLayer(layer.id);
+    await api.deleteComposeLayer(layer.id).catch(() => {});
   };
 
-  /** Compute the new sequence after moving `id` to a drop position, then
-   *  renumber and persist. dropAt is the index in the current `sequence` where
-   *  the moved layer should be inserted (before that slot). */
-  const applyMove = async (id: string, targetDropAt: number) => {
-    const fromIdx = sequence.findIndex(
-      (s) => s.kind === 'layer' && s.layer.id === id
-    );
-    if (fromIdx < 0) return;
-    const item = sequence[fromIdx];
-    if (item.kind !== 'layer') return;
-    if (item.pinned) return;
-
-    // Build the next sequence: remove from fromIdx, insert at targetDropAt.
-    // If we remove first, the target index shifts when target > fromIdx.
-    let target = targetDropAt;
-    if (target > fromIdx) target -= 1;
-    if (target === fromIdx) return; // no-op
-
-    const next = sequence.slice();
-    next.splice(fromIdx, 1);
-    next.splice(target, 0, item);
-
-    const desired = renumberFromSequence(next, section);
-    const updates = pruneUnchanged(desired, composeLayers);
-    if (updates.length === 0) return;
-
-    // Optimistic local update so the UI reorders before the WS broadcast.
-    setComposeLayers(
-      composeLayers.map((l) => {
-        const u = updates.find((x) => x.id === l.id);
-        return u
-          ? { ...l, sceneOrder: u.sceneOrder, cameraOrder: u.cameraOrder }
-          : l;
-      })
-    );
-    await api.reorderComposeLayers(updates).catch(() => {});
+  const handleToggleVisible = async () => {
+    const next = !layer.visible;
+    updateComposeLayerLocal(layer.id, { visible: next });
+    await api.updateComposeLayer(layer.id, { visible: next }).catch(() => {});
   };
 
-  /** ↑/↓ buttons: move dragged layer by one position in the visible sequence,
-   *  treating the 3D scene marker as just another slot — so a layer can cross it. */
-  const handleMoveButton = async (id: string, dir: -1 | 1) => {
-    const idx = sequence.findIndex(
-      (s) => s.kind === 'layer' && s.layer.id === id
-    );
-    if (idx < 0) return;
-    let target = idx + dir;
-    if (target < 0 || target >= sequence.length) return;
-    // Skip past pinned items: nudge one further so we actually cross the marker
-    // (otherwise dropping "at" the pinned slot is a no-op after renumber).
-    // We use splice-style indexing: dropAt = target when moving up, target+1 when moving down.
-    const dropAt = dir < 0 ? target : target + 1;
-    await applyMove(id, dropAt);
-  };
+  const locked = layer.config.locked === true;
+  const locked3d = layer.config.locked3d === true;
 
-  // ---- DnD handlers --------------------------------------------------------
-  const onDragStart = (e: DragEvent<HTMLDivElement>, id: string) => {
-    setDragId(id);
-    e.dataTransfer.effectAllowed = 'move';
-    // Some browsers require setData to enable dragging.
-    e.dataTransfer.setData('text/plain', id);
-  };
-  const onDragEnd = () => {
-    setDragId(null);
-    setDropAt(null);
-  };
-
-  /** For each visible row, hovering over the top half = drop BEFORE it,
-   *  bottom half = drop AFTER it. */
-  const onDragOverRow = (e: DragEvent<HTMLDivElement>, slotIdx: number) => {
-    if (!dragId) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const after = e.clientY - rect.top > rect.height / 2;
-    const dropIdx = after ? slotIdx + 1 : slotIdx;
-    setDropAt(dropIdx);
-  };
-  const onDrop = async (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (dragId && dropAt != null) await applyMove(dragId, dropAt);
-    setDragId(null);
-    setDropAt(null);
+  const toggleLock = async (key: 'locked' | 'locked3d') => {
+    const nextConfig = { ...layer.config, [key]: !layer.config[key] };
+    updateComposeLayerLocal(layer.id, { config: nextConfig });
+    await api
+      .updateComposeLayer(layer.id, { config: nextConfig })
+      .catch(() => {});
   };
 
   return (
-    <div onDrop={onDrop} onDragLeave={() => setDropAt(null)}>
-      <div style={sectionHeaderStyle} onClick={() => setExpanded((v) => !v)}>
-        <span style={{ width: 12 }}>{expanded ? '▼' : '▶'}</span>
-        <span style={{ flex: 1 }}>{title}</span>
-        <span onClick={(e) => e.stopPropagation()}>
-          <AddMenu
-            onPick={(kind) => createLayer(sceneId, cameraNodeId, kind)}
-          />
+    <div>
+      <div
+        draggable
+        onDragStart={(e) => {
+          e.stopPropagation();
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/compose-layer', layer.id);
+        }}
+        onDragOver={(e) => {
+          const draggedId = e.dataTransfer.types.includes('text/compose-layer');
+          if (!draggedId) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          setDropPos(e.clientY - rect.top < rect.height / 2 ? 'before' : 'after');
+        }}
+        onDragLeave={() => setDropPos(null)}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const draggedId = e.dataTransfer.getData('text/compose-layer');
+          const pos = dropPos;
+          setDropPos(null);
+          if (!draggedId || !pos) return;
+          // Only reorder among the dragged layer's own siblings.
+          if (!siblings.some((s) => s.id === draggedId)) return;
+          reorderSibling(siblings, draggedId, layer.id, pos === 'after');
+        }}
+        style={{
+          ...rowStyle(selected),
+          paddingLeft: 8 + depth * 14,
+          borderTop:
+            dropPos === 'before'
+              ? '2px solid #4a9eff'
+              : '2px solid transparent',
+          borderBottom:
+            dropPos === 'after'
+              ? '2px solid #4a9eff'
+              : '2px solid transparent',
+        }}
+        onClick={() => {
+          selectComposeLayer(layer.id);
+          selectNode(null);
+        }}
+      >
+        <span style={{ width: 14 }}>{KIND_ICONS[layer.kind]}</span>
+        <span
+          style={{
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            opacity: layer.visible ? 1 : 0.5,
+          }}
+        >
+          {label}
         </span>
+        {layer.kind === 'camera_view' && (
+          <button
+            title={locked3d ? 'Unlock 3D interaction' : 'Lock 3D interaction'}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: locked3d ? '#e0a838' : '#555',
+              cursor: 'pointer',
+              fontSize: 11,
+              padding: '0 2px',
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleLock('locked3d');
+            }}
+          >
+            {locked3d ? '🔒3D' : '🔓3D'}
+          </button>
+        )}
+        <button
+          title={locked ? 'Unlock layer' : 'Lock layer (2D)'}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: locked ? '#e0a838' : '#555',
+            cursor: 'pointer',
+            fontSize: 12,
+            padding: '0 2px',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleLock('locked');
+          }}
+        >
+          {locked ? '🔒' : '🔓'}
+        </button>
+        <button
+          title={layer.visible ? 'Hide' : 'Show'}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: layer.visible ? '#888' : '#555',
+            cursor: 'pointer',
+            fontSize: 12,
+            padding: '0 2px',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleVisible();
+          }}
+        >
+          {layer.visible ? '👁' : '🙈'}
+        </button>
+        <button
+          title="Delete layer"
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#555',
+            cursor: 'pointer',
+            fontSize: 13,
+            padding: '0 2px',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleDelete();
+          }}
+        >
+          ×
+        </button>
       </div>
-      {expanded &&
-        sequence.map((slot, idx) => {
-          const showIndicatorBefore = dropAt === idx && dragId;
-          const node = (() => {
-            if (slot.kind === 'pinned-3d') {
-              return (
-                <div
-                  style={pinnedSceneRowStyle}
-                  onDragOver={(e) => onDragOverRow(e, idx)}
-                >
-                  <span style={{ width: 14 }}>🎬</span>
-                  <span style={{ flex: 1 }}>[3D Scene]</span>
-                </div>
-              );
-            }
-            const l = slot.layer;
-            const selected = selectedComposeLayerId === l.id;
-            const draggable = !slot.pinned;
-            return (
-              <div
-                key={l.id}
-                draggable={draggable}
-                onDragStart={
-                  draggable ? (e) => onDragStart(e, l.id) : undefined
-                }
-                onDragEnd={draggable ? onDragEnd : undefined}
-                onDragOver={(e) => onDragOverRow(e, idx)}
-                style={{
-                  ...rowStyle(selected, slot.pinned),
-                  opacity: dragId === l.id ? 0.4 : 1,
-                }}
-                onClick={() => selectComposeLayer(selected ? null : l.id)}
-                title={
-                  slot.pinned
-                    ? 'Scene layer (pinned in camera stack)'
-                    : 'Drag to reorder'
-                }
-              >
-                <span
-                  style={{
-                    width: 14,
-                    cursor: draggable ? 'grab' : 'default',
-                    color: '#555',
-                  }}
-                >
-                  ⋮⋮
-                </span>
-                <span style={{ width: 14 }}>{KIND_ICONS[l.kind]}</span>
-                <span
-                  style={{
-                    flex: 1,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {l.name}
-                </span>
-                {!slot.pinned && (
-                  <>
-                    <button
-                      title="Forward"
-                      style={smallBtn}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleMoveButton(l.id, -1);
-                      }}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      title="Back"
-                      style={smallBtn}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleMoveButton(l.id, +1);
-                      }}
-                    >
-                      ↓
-                    </button>
-                    <button
-                      title="Delete"
-                      style={smallBtn}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(l.id);
-                      }}
-                    >
-                      ×
-                    </button>
-                  </>
-                )}
-              </div>
-            );
-          })();
-          return (
-            <div
-              key={
-                slot.kind === 'pinned-3d'
-                  ? `pinned-3d-${section}-${idx}`
-                  : slot.layer.id
-              }
-            >
-              {showIndicatorBefore && <div style={dropIndicatorStyle} />}
-              {node}
-              {/* Bottom drop indicator: only on the last row when dropAt == sequence.length */}
-              {idx === sequence.length - 1 &&
-                dropAt === sequence.length &&
-                dragId && <div style={dropIndicatorStyle} />}
-            </div>
-          );
-        })}
+      {selected && <ClipsSection owner={{ kind: 'layer', id: layer.id }} />}
+      {children
+        .slice()
+        .sort((a, b) => b.sceneOrder - a.sceneOrder)
+        .map((child) => (
+          <LayerRow
+            key={child.id}
+            layer={child}
+            layersByParent={layersByParent}
+            depth={depth + 1}
+          />
+        ))}
     </div>
   );
 }
 
-export function ComposeTree() {
-  const nodes = useEditorStore((s) => s.nodes);
-  const activeSceneId = useEditorStore((s) => s.activeSceneId);
-  const composeLayers = useEditorStore((s) => s.composeLayers);
-  const cameras = nodes.filter(
-    (n) => n.kind === 'camera' && n.rootSceneNodeId === activeSceneId
-  );
+// ---- Compose-scene root -----------------------------------------------------
 
-  if (!activeSceneId) {
-    return (
-      <div
-        style={{
-          color: '#666',
-          fontSize: 12,
-          padding: 16,
-          textAlign: 'center',
-        }}
-      >
-        No scene selected.
-      </div>
-    );
+function ComposeSceneRoot({
+  scene,
+  projectId,
+}: {
+  scene: ComposeLayerRecord;
+  projectId?: string;
+}) {
+  const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
+  const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
+  const composeLayers = useEditorStore((s) => s.composeLayers);
+  const [collapsed, setCollapsed] = useState(false);
+
+  const isActive = scene.id === activeComposeSceneId;
+  const sceneLayers = composeLayers.filter(
+    (l) => l.rootComposeSceneId === scene.id
+  );
+  const sceneLayerIds = new Set(sceneLayers.map((l) => l.id));
+  const layersByParent = new Map<string | null, ComposeLayerRecord[]>();
+  for (const l of sceneLayers) {
+    // Treat a layer as a root if it has no parent OR its parent isn't part of
+    // this scene (dangling/cross-scene parent), so it can never be orphaned out
+    // of the tree and rendered invisibly.
+    const key =
+      l.parentId && sceneLayerIds.has(l.parentId) ? l.parentId : null;
+    if (!layersByParent.has(key)) layersByParent.set(key, []);
+    layersByParent.get(key)!.push(l);
   }
-  if (cameras.length === 0) {
-    return (
-      <div
-        style={{
-          color: '#666',
-          fontSize: 12,
-          padding: 16,
-          textAlign: 'center',
-          lineHeight: 1.5,
-        }}
-      >
-        Add a camera node to start composing.
-        <br />
-        The Compose view shows what each
-        <br />
-        camera will broadcast.
-      </div>
-    );
-  }
+  const roots = (layersByParent.get(null) ?? [])
+    .slice()
+    .sort((a, b) => b.sceneOrder - a.sceneOrder);
+
+  const handleDeleteScene = async () => {
+    if (
+      !confirm(`Delete compose scene "${scene.name}" and all its layers?`)
+    )
+      return;
+    useEditorStore.getState().removeComposeScene(scene.id);
+    await api.deleteComposeLayer(scene.id).catch(() => {});
+  };
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 8 }}>
-      <LayerSection
-        title="Scene"
-        section="scene"
-        sceneId={activeSceneId}
-        cameraNodeId={null}
-        layers={composeLayers}
-      />
-      {cameras.map((cam) => (
-        <LayerSection
-          key={cam.id}
-          title={`Camera · ${cam.name}`}
-          section="camera"
-          sceneId={activeSceneId}
-          cameraNodeId={cam.id}
-          layers={composeLayers}
-        />
-      ))}
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '5px 8px',
+          cursor: 'pointer',
+          background: isActive ? '#1c1c28' : 'transparent',
+          borderRadius: 4,
+          margin: '1px 4px',
+          fontSize: 13,
+          color: isActive ? '#e0e0e0' : '#999',
+          userSelect: 'none',
+          gap: 2,
+          borderLeft: isActive
+            ? '2px solid #7a5af0'
+            : '2px solid transparent',
+        }}
+        onClick={() => selectComposeScene(scene.id)}
+      >
+        <span
+          style={{
+            width: 16,
+            flexShrink: 0,
+            color: '#555',
+            fontSize: 10,
+            textAlign: 'center',
+            visibility: roots.length > 0 ? 'visible' : 'hidden',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setCollapsed((v) => !v);
+          }}
+        >
+          {collapsed ? '▶' : '▼'}
+        </span>
+        <span style={{ fontSize: 14, flexShrink: 0 }}>🎬</span>
+        <span
+          style={{
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            fontWeight: 600,
+            marginLeft: 4,
+          }}
+        >
+          {scene.name}
+        </span>
+        <AddLayerMenu composeSceneId={scene.id} />
+        {projectId && (
+          <a
+            href={`/viewer/${projectId}/compose/${scene.id}`}
+            target="_blank"
+            rel="noreferrer"
+            title="Open broadcast viewer"
+            style={{
+              color: '#555',
+              fontSize: 12,
+              padding: '0 2px',
+              flexShrink: 0,
+              lineHeight: 1,
+              textDecoration: 'none',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            ↗
+          </a>
+        )}
+        <button
+          title="Delete compose scene"
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#555',
+            cursor: 'pointer',
+            fontSize: 13,
+            padding: '0 2px',
+            flexShrink: 0,
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleDeleteScene();
+          }}
+        >
+          ×
+        </button>
+      </div>
+      {!collapsed &&
+        (roots.length === 0 ? (
+          <div
+            style={{
+              color: '#444',
+              fontSize: 11,
+              padding: '4px 0 4px 30px',
+              fontStyle: 'italic',
+            }}
+          >
+            No layers
+          </div>
+        ) : (
+          roots.map((l) => (
+            <LayerRow
+              key={l.id}
+              layer={l}
+              layersByParent={layersByParent}
+              depth={1}
+            />
+          ))
+        ))}
+    </div>
+  );
+}
+
+// ---- Main -------------------------------------------------------------------
+
+export function ComposeTree() {
+  const { projectId } = useParams<{ projectId: string }>();
+  const composeScenes = useEditorStore((s) => s.composeScenes);
+  const addComposeScene = useEditorStore((s) => s.addComposeScene);
+  const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
+
+  const handleNewComposeScene = async () => {
+    if (!projectId) return;
+    const name = window.prompt('Compose scene name:', 'Output');
+    if (!name?.trim()) return;
+    try {
+      const created = await api.createComposeScene(projectId, {
+        name: name.trim(),
+      });
+      addComposeScene(created);
+      selectComposeScene(created.id);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to create compose scene');
+    }
+  };
+
+  return (
+    <div
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '6px 10px',
+          borderBottom: '1px solid #1e1e1e',
+          flexShrink: 0,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            color: '#666',
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+          }}
+        >
+          Compose Scenes
+        </span>
+        <button style={addBtn} onClick={handleNewComposeScene} title="New compose scene">
+          + Scene
+        </button>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+        {composeScenes.length === 0 ? (
+          <div
+            style={{
+              color: '#555',
+              fontSize: 12,
+              padding: 16,
+              textAlign: 'center',
+              lineHeight: 1.5,
+            }}
+          >
+            No compose scenes yet.
+            <br />
+            Click + Scene to create one.
+          </div>
+        ) : (
+          composeScenes.map((scene) => (
+            <ComposeSceneRoot key={scene.id} scene={scene} projectId={projectId} />
+          ))
+        )}
+      </div>
     </div>
   );
 }

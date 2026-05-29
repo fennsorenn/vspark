@@ -7,9 +7,8 @@ const router: ReturnType<typeof Router> = Router();
 
 type ClipRow = {
   id: string;
-  root_scene_node_id: string;
-  owner_kind: string;
-  owner_id: string;
+  owner_node_id: string | null;
+  owner_layer_id: string | null;
   name: string;
   duration: number;
   loop: number;
@@ -68,9 +67,8 @@ function mapLane(r: LaneRow, keyframes: KeyframeRow[]) {
 function mapClip(r: ClipRow, lanes: { lane: LaneRow; kfs: KeyframeRow[] }[]) {
   return {
     id: r.id,
-    rootSceneNodeId: r.root_scene_node_id,
-    ownerKind: r.owner_kind,
-    ownerId: r.owner_id,
+    ownerNodeId: r.owner_node_id,
+    ownerLayerId: r.owner_layer_id,
     name: r.name,
     duration: r.duration,
     loop: r.loop === 1,
@@ -102,102 +100,78 @@ function loadClip(clipId: string) {
   return mapClip(row, laneBundles);
 }
 
-/**
- * @openapi
- * /api/scenes/{sceneId}/track-clips:
- *   get:
- *     tags: [track_clips]
- *     summary: List all track clips (with lanes + keyframes) for a scene
- *     parameters:
- *       - { in: path, name: sceneId, required: true, schema: { type: string } }
- *     responses:
- *       200: { description: Array of track clip bundles }
- */
-router.get('/scenes/:sceneId/track-clips', (req, res) => {
-  const db = getDb();
-  const clips = db
-    .prepare(
-      'SELECT * FROM track_clips WHERE root_scene_node_id = ? ORDER BY created_at'
-    )
-    .all(req.params.sceneId) as ClipRow[];
-  const data = clips.map((c) => loadClip(c.id)).filter((c) => c != null);
-  res.json({ ok: true, data });
-});
-
-/** GET track clips scoped to a specific scene node */
+/** GET track clips owned by a specific scene node (scene roots included). */
 router.get('/scene-nodes/:nodeId/track-clips', (req, res) => {
   const db = getDb();
   const clips = db
     .prepare(
-      "SELECT * FROM track_clips WHERE owner_kind = 'scene_node' AND owner_id = ? ORDER BY created_at"
+      'SELECT * FROM track_clips WHERE owner_node_id = ? ORDER BY created_at'
     )
     .all(req.params.nodeId) as ClipRow[];
   const data = clips.map((c) => loadClip(c.id)).filter((c) => c != null);
   res.json({ ok: true, data });
 });
 
-/** GET track clips scoped to a specific compose layer */
+/** GET track clips owned by a specific compose layer. */
 router.get('/compose-layers/:layerId/track-clips', (req, res) => {
   const db = getDb();
   const clips = db
     .prepare(
-      "SELECT * FROM track_clips WHERE owner_kind = 'compose_layer' AND owner_id = ? ORDER BY created_at"
+      'SELECT * FROM track_clips WHERE owner_layer_id = ? ORDER BY created_at'
     )
     .all(req.params.layerId) as ClipRow[];
   const data = clips.map((c) => loadClip(c.id)).filter((c) => c != null);
   res.json({ ok: true, data });
 });
 
-/**
- * @openapi
- * /api/scenes/{sceneId}/track-clips:
- *   post:
- *     tags: [track_clips]
- *     summary: Create a new track clip
- *     parameters:
- *       - { in: path, name: sceneId, required: true, schema: { type: string } }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema: { $ref: '#/components/schemas/CreateTrackClip' }
- *     responses:
- *       201: { description: Created; broadcast as track_clip_added }
- */
-router.post('/scenes/:sceneId/track-clips', (req, res) => {
-  const sceneId = req.params.sceneId;
-  const { id, name, duration, loop, mode, autoplay, ownerKind, ownerId } =
-    req.body ?? {};
-  if (!name) {
-    return res.status(400).json({
-      ok: false,
-      error: {
-        status: 400,
-        message: 'name is required',
-        code: 'VALIDATION_ERROR',
-      },
-    });
-  }
-  const clipId = id ?? randomUUID();
-  const resolvedOwnerKind = ownerKind ?? 'scene';
-  const resolvedOwnerId = ownerId ?? sceneId;
+/** Insert a clip owned by either a scene node or a compose layer (exactly one).
+ *  Returns the loaded clip bundle, or null on validation failure. */
+function insertClip(
+  body: Record<string, unknown>,
+  owner: { ownerNodeId: string } | { ownerLayerId: string }
+) {
+  const { id, name, duration, loop, mode, autoplay } = body;
+  if (typeof name !== 'string' || !name) return null;
+  const clipId = (id as string) ?? randomUUID();
+  const ownerNodeId = 'ownerNodeId' in owner ? owner.ownerNodeId : null;
+  const ownerLayerId = 'ownerLayerId' in owner ? owner.ownerLayerId : null;
   getDb()
     .prepare(
-      `INSERT INTO track_clips (id, root_scene_node_id, name, duration, loop, mode, autoplay, owner_kind, owner_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO track_clips (id, owner_node_id, owner_layer_id, name, duration, loop, mode, autoplay)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       clipId,
-      sceneId,
+      ownerNodeId,
+      ownerLayerId,
       name,
-      duration ?? 2,
+      (duration as number) ?? 2,
       loop ? 1 : 0,
-      mode ?? 'override',
-      autoplay ? 1 : 0,
-      resolvedOwnerKind,
-      resolvedOwnerId
+      (mode as string) ?? 'override',
+      autoplay ? 1 : 0
     );
-  const data = loadClip(clipId);
+  return loadClip(clipId);
+}
+
+function nameRequired(res: import('express').Response) {
+  res.status(400).json({
+    ok: false,
+    error: { status: 400, message: 'name is required', code: 'VALIDATION_ERROR' },
+  });
+}
+
+/** Create a track clip owned by a scene node. */
+router.post('/scene-nodes/:nodeId/track-clips', (req, res) => {
+  const data = insertClip(req.body ?? {}, { ownerNodeId: req.params.nodeId });
+  if (!data) return nameRequired(res);
+  _ws?.broadcast('track_clip_added', data as Record<string, unknown>);
+  res.status(201).json({ ok: true, data });
+});
+
+/** Create a track clip owned by a compose layer. */
+router.post('/compose-layers/:layerId/track-clips', (req, res) => {
+  const data = insertClip(req.body ?? {}, { ownerLayerId: req.params.layerId });
+  if (!data) return nameRequired(res);
   _ws?.broadcast('track_clip_added', data as Record<string, unknown>);
   res.status(201).json({ ok: true, data });
 });

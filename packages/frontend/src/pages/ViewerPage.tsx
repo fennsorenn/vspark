@@ -35,9 +35,10 @@ function getT(components: Record<string, unknown> | undefined) {
 export function ViewerPage() {
   useWsSync();
   useTrackClipEvaluator();
-  const { projectId, nodeId } = useParams<{
+  const { projectId, nodeId, composeSceneId } = useParams<{
     projectId: string;
-    nodeId: string;
+    nodeId?: string;
+    composeSceneId?: string;
   }>();
   const {
     setProject,
@@ -47,11 +48,12 @@ export function ViewerPage() {
     setNodeComponents,
     setCameraEffects,
     setComposeLayers,
+    setComposeScenes,
+    selectComposeScene,
     setTrackClips,
     nodes,
     composeLayers,
     assets,
-    activeSceneId,
   } = useEditorStore();
 
   useEffect(() => {
@@ -77,7 +79,7 @@ export function ViewerPage() {
     api
       .getScenes(projectId)
       .then(
-        async ({
+        ({
           scenes,
           nodes: sceneNodes,
           nodeComponents,
@@ -88,17 +90,18 @@ export function ViewerPage() {
           setScenes(scenes);
           setNodeComponents(nodeComponents);
           setCameraEffects(cameraEffects);
-          setComposeLayers(composeLayers);
+          // Split compose_scene containers from regular layers (mirrors Editor).
+          setComposeScenes(
+            composeLayers.filter((l) => l.kind === 'compose_scene')
+          );
+          setComposeLayers(
+            composeLayers.filter((l) => l.kind !== 'compose_scene')
+          );
           setTrackClips(trackClips);
-          if (scenes.length === 0) return;
-          const firstId = scenes[0].id;
-          setActiveScene(firstId);
-          const filtered = sceneNodes.filter(
-            (n) => n.rootSceneNodeId === firstId
-          );
-          setNodes(
-            filtered.length > 0 ? filtered : await api.getNodes(firstId)
-          );
+          // Load every scene's nodes so cross-scene camera_views resolve.
+          setNodes(sceneNodes);
+          if (composeSceneId) selectComposeScene(composeSceneId);
+          if (scenes.length > 0) setActiveScene(scenes[0].id);
         }
       )
       .catch(() => {});
@@ -108,6 +111,7 @@ export function ViewerPage() {
       .catch(() => {});
   }, [
     projectId,
+    composeSceneId,
     setProject,
     setScenes,
     setActiveScene,
@@ -115,9 +119,32 @@ export function ViewerPage() {
     setNodeComponents,
     setCameraEffects,
     setComposeLayers,
+    setComposeScenes,
+    selectComposeScene,
     setTrackClips,
   ]);
 
+  // ── Compose-scene mode: stream a whole compose scene (its layer stack,
+  //    including camera_view 3D). The broadcast IS the compose output. ──
+  if (composeSceneId) {
+    const stackLayers = composeLayers.filter(
+      (l) => l.rootComposeSceneId === composeSceneId
+    );
+    return (
+      <div
+        style={{
+          width: '100vw',
+          height: '100vh',
+          background: 'transparent',
+          position: 'relative',
+        }}
+      >
+        <ComposeLayerStack layers={stackLayers} assets={assets} mode="viewer" />
+      </div>
+    );
+  }
+
+  // ── Single-camera mode (legacy /viewer/:projectId/:nodeId) ──
   const camNode = nodes.find((n) => n.id === nodeId);
   const cc = camNode?.components?.camera as
     | {
@@ -133,12 +160,14 @@ export function ViewerPage() {
   const orthoSize = cc?.orthoSize ?? 2;
   const t = getT(camNode?.components as Record<string, unknown> | undefined);
   const bgImage = cc?.backgroundImage ?? null;
+  const camSceneId = camNode?.rootSceneNodeId;
 
   const isHidden = camNode?.hidden ?? false;
 
+  // Scene-wide + this camera's own layers, across all compose scenes.
   const stackLayers = composeLayers.filter(
     (l) =>
-      l.rootComposeSceneId === activeSceneId &&
+      l.kind !== 'camera_view' &&
       (l.cameraNodeId == null || l.cameraNodeId === nodeId)
   );
 
@@ -197,9 +226,9 @@ export function ViewerPage() {
             rotation={[t.rx, t.ry, t.rz]}
           />
         )}
-        <SceneNodes omitKinds={['camera']} viewerMode />
+        <SceneNodes omitKinds={['camera']} viewerMode sceneId={camSceneId} />
         <Environment preset="city" />
-        {nodeId && <CameraEffects forceNodeId={nodeId} />}
+        {nodeId && <CameraEffects forceNodeId={nodeId} sceneId={camSceneId} />}
       </Canvas>
     </div>
   );

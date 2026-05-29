@@ -212,6 +212,7 @@ export type ComposeLayerKind =
   | 'browser'
   | 'group'
   | 'compose_scene'
+  | 'scene_include'
   | 'camera_view';
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
@@ -269,9 +270,9 @@ export interface TrackClipLaneRecord {
 
 export interface TrackClipRecord {
   id: string;
-  rootSceneNodeId: string;
-  ownerKind: string;
-  ownerId: string;
+  /** Owner is exactly one of these (the other is null). */
+  ownerNodeId: string | null;
+  ownerLayerId: string | null;
   name: string;
   duration: number;
   loop: boolean;
@@ -384,11 +385,8 @@ export function mapTrackClip(r: Record<string, unknown>): TrackClipRecord {
   const rawLanes = (r.lanes as Record<string, unknown>[] | undefined) ?? [];
   return {
     id: r.id as string,
-    rootSceneNodeId: (r.root_scene_node_id ??
-      r.rootSceneNodeId ??
-      '') as string,
-    ownerKind: (r.owner_kind ?? r.ownerKind ?? 'scene') as string,
-    ownerId: (r.owner_id ?? r.ownerId ?? '') as string,
+    ownerNodeId: (r.owner_node_id ?? r.ownerNodeId ?? null) as string | null,
+    ownerLayerId: (r.owner_layer_id ?? r.ownerLayerId ?? null) as string | null,
     name: r.name as string,
     duration: Number(r.duration ?? 2),
     loop: r.loop === undefined ? false : Boolean(r.loop),
@@ -619,20 +617,6 @@ export const deleteCameraEffect = (id: string) =>
   request<void>(`/camera-effects/${id}`, { method: 'DELETE' });
 
 // Compose Layers
-export const getComposeLayers = (sceneId: string) =>
-  request<Record<string, unknown>[]>(`/scenes/${sceneId}/compose-layers`).then(
-    (rows) => rows.map(mapComposeLayer)
-  );
-
-export const createComposeLayer = (
-  sceneId: string,
-  layer: Partial<ComposeLayerRecord> & { name: string; kind: ComposeLayerKind }
-) =>
-  request<Record<string, unknown>>(`/scenes/${sceneId}/compose-layers`, {
-    method: 'POST',
-    body: JSON.stringify(layer),
-  }).then(mapComposeLayer);
-
 export const updateComposeLayer = (
   id: string,
   patch: Partial<
@@ -691,22 +675,30 @@ export const createComposeSceneLayer = (
   }).then(mapComposeLayer);
 
 // Track clips
-export const getTrackClips = (sceneId: string) =>
-  request<Record<string, unknown>[]>(`/scenes/${sceneId}/track-clips`).then(
-    (rows) => rows.map(mapTrackClip)
-  );
+type CreateTrackClipBody = {
+  name: string;
+  duration?: number;
+  loop?: boolean;
+  mode?: TrackClipMode;
+  autoplay?: boolean;
+};
 
-export const createTrackClip = (
-  sceneId: string,
-  body: {
-    name: string;
-    duration?: number;
-    loop?: boolean;
-    mode?: TrackClipMode;
-    autoplay?: boolean;
-  }
+/** Create a clip owned by a scene node (scene roots included). */
+export const createTrackClipForNode = (
+  nodeId: string,
+  body: CreateTrackClipBody
 ) =>
-  request<Record<string, unknown>>(`/scenes/${sceneId}/track-clips`, {
+  request<Record<string, unknown>>(`/scene-nodes/${nodeId}/track-clips`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }).then(mapTrackClip);
+
+/** Create a clip owned by a compose layer. */
+export const createTrackClipForLayer = (
+  layerId: string,
+  body: CreateTrackClipBody
+) =>
+  request<Record<string, unknown>>(`/compose-layers/${layerId}/track-clips`, {
     method: 'POST',
     body: JSON.stringify(body),
   }).then(mapTrackClip);
@@ -1199,8 +1191,6 @@ export const api = {
   createCameraEffect,
   updateCameraEffect,
   deleteCameraEffect,
-  getComposeLayers,
-  createComposeLayer,
   updateComposeLayer,
   deleteComposeLayer,
   reorderComposeLayers,
@@ -1208,8 +1198,8 @@ export const api = {
   createComposeScene,
   getComposeSceneLayers,
   createComposeSceneLayer,
-  getTrackClips,
-  createTrackClip,
+  createTrackClipForNode,
+  createTrackClipForLayer,
   updateTrackClip,
   deleteTrackClip,
   createTrackClipLane,

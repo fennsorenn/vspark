@@ -6,6 +6,7 @@ import type { NodeRecord, NodeComponent } from '../../store/editorStore';
 import { newComponentId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
+import { ClipsSection } from './ClipsSection';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 
 const KIND_ICONS: Record<string, string> = {
@@ -1106,12 +1107,6 @@ export function SceneGraph() {
     setBoneListExpanded(id, !(boneListExpanded[id] ?? false));
 
   const sceneNodes = nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
-  const composeEnabled = sceneNodes.some((n) => n.kind === 'camera');
-
-  // Auto-fall back to Scene tab if the Compose tab gets disabled (last camera deleted).
-  useEffect(() => {
-    if (dockTab === 'compose' && !composeEnabled) setDockTab('scene');
-  }, [dockTab, composeEnabled, setDockTab]);
 
   const toggleCollapse = (id: string) =>
     setCollapsedNodes((s) => {
@@ -1547,6 +1542,7 @@ export function SceneGraph() {
             {node.kind === 'camera' && (
               <CameraEffectsSection nodeId={node.id} />
             )}
+            <ClipsSection owner={{ kind: 'node', id: node.id }} />
           </div>
         )}
 
@@ -1807,6 +1803,9 @@ export function SceneGraph() {
           </button>
         </div>
 
+        {/* Scene-level clips (owned by the scene node itself) */}
+        {isSelected && <ClipsSection owner={{ kind: 'node', id: scene.id }} />}
+
         {/* Scene's root nodes */}
         {!isCollapsed &&
           (rootNodes.length === 0 ? (
@@ -1870,13 +1869,8 @@ export function SceneGraph() {
         </button>
         <button
           style={tabStyle(dockTab === 'compose')}
-          onClick={() => {
-            if (composeEnabled) setDockTab('compose');
-          }}
-          disabled={!composeEnabled}
-          title={
-            composeEnabled ? 'Compose' : 'Add a camera node to enable Compose'
-          }
+          onClick={() => setDockTab('compose')}
+          title="Compose"
         >
           Compose
         </button>

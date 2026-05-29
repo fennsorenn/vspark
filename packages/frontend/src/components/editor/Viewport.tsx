@@ -3139,15 +3139,19 @@ export function SceneNodes({
   omitNodeId,
   omitKinds,
   viewerMode,
+  sceneId,
 }: {
   omitNodeId?: string;
   omitKinds?: string[];
   viewerMode?: boolean;
+  /** Scene whose nodes to render. Defaults to the store's active scene. */
+  sceneId?: string;
 } = {}) {
   const { nodes, activeSceneId } = useEditorStore();
+  const effectiveSceneId = sceneId ?? activeSceneId;
   const sceneNodes = nodes.filter(
     (n) =>
-      n.rootSceneNodeId === activeSceneId &&
+      n.rootSceneNodeId === effectiveSceneId &&
       n.id !== omitNodeId &&
       !omitKinds?.includes(n.kind)
   );
@@ -3486,9 +3490,13 @@ function SSAOEffectPrimitive({ params }: { params: SSAOParams }) {
   return <primitive object={effect} dispose={null} />;
 }
 
-export function CameraEffects({ forceNodeId }: { forceNodeId?: string } = {}) {
+export function CameraEffects({
+  forceNodeId,
+  sceneId,
+}: { forceNodeId?: string; sceneId?: string } = {}) {
   const { previewEffectsCamera, cameraEffects, nodes, activeSceneId } =
     useEditorStore();
+  const effectiveSceneId = sceneId ?? activeSceneId;
 
   const effectsNodeId = forceNodeId ?? previewEffectsCamera;
   const activeEffects = effectsNodeId
@@ -3504,13 +3512,14 @@ export function CameraEffects({ forceNodeId }: { forceNodeId?: string } = {}) {
   const [sunMesh, setSunMesh] = useState<THREE.Mesh | null>(null);
   useFrame(() => {
     const caster = nodes.find(
-      (n) => n.rootSceneNodeId === activeSceneId && n.kind === 'godray_caster'
+      (n) =>
+        n.rootSceneNodeId === effectiveSceneId && n.kind === 'godray_caster'
     );
     const mesh = caster ? (godrayCasterRegistry.get(caster.id) ?? null) : null;
     if (mesh !== sunMesh) setSunMesh(mesh);
   });
   const godrayCaster = nodes.find(
-    (n) => n.rootSceneNodeId === activeSceneId && n.kind === 'godray_caster'
+    (n) => n.rootSceneNodeId === effectiveSceneId && n.kind === 'godray_caster'
   );
   const gr = (godrayCaster?.components.godray as Record<string, number>) ?? {};
 

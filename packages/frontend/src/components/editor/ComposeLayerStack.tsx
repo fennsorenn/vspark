@@ -1,8 +1,7 @@
 import type { CSSProperties } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import type { ComposeLayerRecord, AssetFile } from '../../store/editorStore';
-
-const SCENE_RENDER_SLOT = 0;
+import { CameraCanvas } from './CameraCanvas';
 
 interface ComposeLayerStackProps {
   layers: ComposeLayerRecord[];
@@ -11,6 +10,10 @@ interface ComposeLayerStackProps {
    *  passive DOM; the editor's input goes through ComposeEventCapture. Kept
    *  in the signature so ViewerPage's call site doesn't need to change. */
   mode?: 'editor' | 'viewer';
+  /** Chain of compose-scene ids currently being rendered (outermost first).
+   *  Used by scene_include layers to refuse rendering a scene that's already an
+   *  ancestor, preventing infinite recursion. */
+  includeChain?: string[];
 }
 
 function resolveAssetUrl(
@@ -22,6 +25,16 @@ function resolveAssetUrl(
   return a?.url ?? null;
 }
 
+/** Resolve a numeric layer field to a CSS length string, honoring a per-field
+ *  unit flag in config ('%' → percentage of the compose container, else px). */
+function cssLen(
+  value: number,
+  config: Record<string, unknown>,
+  unitKey: string
+): string {
+  return config[unitKey] === '%' ? `${value}%` : `${value}px`;
+}
+
 function layerStyle(
   layer: ComposeLayerRecord,
   override?: { x?: number; y?: number; rotation?: number }
@@ -31,44 +44,95 @@ function layerStyle(
   const x = override?.x ?? layer.x;
   const y = override?.y ?? layer.y;
   const rotation = override?.rotation ?? layer.rotation;
+  const cfg = layer.config;
   const style: CSSProperties = {
     position: 'absolute',
-    width: layer.width,
-    height: layer.height,
+    width: cssLen(layer.width, cfg, 'widthUnit'),
+    height: cssLen(layer.height, cfg, 'heightUnit'),
     transform: rotation ? `rotate(${rotation}deg)` : undefined,
     transformOrigin: 'center center',
     visibility: layer.visible ? 'visible' : 'hidden',
     opacity,
     overflow: 'hidden',
   };
-  if (layer.anchorH === 'left') style.left = x;
-  if (layer.anchorH === 'right') style.right = x;
-  if (layer.anchorV === 'top') style.top = y;
-  if (layer.anchorV === 'bottom') style.bottom = y;
+  const xLen = cssLen(x, cfg, 'xUnit');
+  const yLen = cssLen(y, cfg, 'yUnit');
+  if (layer.anchorH === 'left') style.left = xLen;
+  if (layer.anchorH === 'right') style.right = xLen;
+  if (layer.anchorV === 'top') style.top = yLen;
+  if (layer.anchorV === 'bottom') style.bottom = yLen;
   return style;
 }
 
-function CameraViewPlaceholder({ layer }: { layer: ComposeLayerRecord }) {
+function CameraViewLayer({ layer }: { layer: ComposeLayerRecord }) {
   const nodes = useEditorStore((s) => s.nodes);
   const cam = layer.cameraNodeId
     ? nodes.find((n) => n.id === layer.cameraNodeId)
     : null;
+  if (!cam) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          background: '#111',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#666',
+          fontSize: 12,
+          pointerEvents: 'none',
+          border: '1px dashed #333',
+        }}
+      >
+        📷 No camera
+      </div>
+    );
+  }
   return (
-    <div
-      style={{
-        width: '100%',
-        height: '100%',
-        background: '#111',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#666',
-        fontSize: 12,
-        pointerEvents: 'none',
-        border: '1px dashed #333',
-      }}
-    >
-      {cam ? `📷 ${cam.name}` : '📷 No camera'}
+    <div style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
+      <CameraCanvas
+        cameraNode={cam}
+        sceneId={cam.rootSceneNodeId}
+        composeLayerId={layer.id}
+        active={layer.visible}
+      />
+    </div>
+  );
+}
+
+/** Mount another compose scene's full layer stack inside this layer's frame.
+ *  Refuses to render if the target scene is already an ancestor in the include
+ *  chain (cycle), showing a placeholder instead. */
+function SceneIncludeLayer({
+  layer,
+  assets,
+  includeChain,
+}: {
+  layer: ComposeLayerRecord;
+  assets: AssetFile[];
+  includeChain: string[];
+}) {
+  const targetId =
+    typeof layer.config.includeSceneId === 'string'
+      ? layer.config.includeSceneId
+      : null;
+  const targetLayers = useEditorStore((s) =>
+    targetId
+      ? s.composeLayers.filter((l) => l.rootComposeSceneId === targetId)
+      : null
+  );
+  if (!targetId) return <Placeholder text="no scene" />;
+  if (includeChain.includes(targetId)) {
+    return <Placeholder text="⟳ recursive include" />;
+  }
+  return (
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+      <ComposeLayerStack
+        layers={targetLayers ?? []}
+        assets={assets}
+        includeChain={[...includeChain, targetId]}
+      />
     </div>
   );
 }
@@ -76,12 +140,23 @@ function CameraViewPlaceholder({ layer }: { layer: ComposeLayerRecord }) {
 function LayerContent({
   layer,
   assets,
+  includeChain,
 }: {
   layer: ComposeLayerRecord;
   assets: AssetFile[];
+  includeChain: string[];
 }) {
   if (layer.kind === 'camera_view') {
-    return <CameraViewPlaceholder layer={layer} />;
+    return <CameraViewLayer layer={layer} />;
+  }
+  if (layer.kind === 'scene_include') {
+    return (
+      <SceneIncludeLayer
+        layer={layer}
+        assets={assets}
+        includeChain={includeChain}
+      />
+    );
   }
   if (layer.kind === 'group' || layer.kind === 'compose_scene') {
     return null;
@@ -170,9 +245,11 @@ function Placeholder({ text }: { text: string }) {
 function LayerView({
   layer,
   assets,
+  includeChain,
 }: {
   layer: ComposeLayerRecord;
   assets: AssetFile[];
+  includeChain: string[];
 }) {
   // Per-layer subscription to its track-clip override: this keeps re-renders
   // localized to layers being animated; idle layers don't re-render each rAF.
@@ -187,54 +264,48 @@ function LayerView({
       data-compose-layer-id={layer.id}
       style={{ ...layerStyle(layer, override), pointerEvents: 'none' }}
     >
-      <LayerContent layer={layer} assets={assets} />
+      <LayerContent layer={layer} assets={assets} includeChain={includeChain} />
     </div>
   );
 }
 
-export function ComposeLayerStack({ layers, assets }: ComposeLayerStackProps) {
-  const behind = layers
-    .filter((l) => l.sceneOrder > SCENE_RENDER_SLOT)
+export function ComposeLayerStack({
+  layers,
+  assets,
+  includeChain = [],
+}: ComposeLayerStackProps) {
+  // Single z-ordered pass. Convention: higher sceneOrder = more in front (top
+  // of the layer tree). Absolutely-positioned siblings with no zIndex stack by
+  // DOM order (later = on top), so we sort ASCENDING here: lowest sceneOrder
+  // first in the DOM (back), highest last (front). This makes the rendered
+  // stacking match the tree, where the top row is the front-most layer.
+  const ordered = [...layers]
+    .filter((l) => l.kind !== 'compose_scene' && l.kind !== 'group')
     .sort(
-      (a, b) => b.sceneOrder - a.sceneOrder || a.cameraOrder - b.cameraOrder
-    );
-  const front = layers
-    .filter((l) => l.sceneOrder <= SCENE_RENDER_SLOT)
-    .sort(
-      (a, b) => b.sceneOrder - a.sceneOrder || a.cameraOrder - b.cameraOrder
+      (a, b) => a.sceneOrder - b.sceneOrder || a.cameraOrder - b.cameraOrder
     );
 
-  const renderLayer = (l: ComposeLayerRecord) => (
-    <LayerView key={l.id} layer={l} assets={assets} />
-  );
-
-  // Both containers stay pointer-transparent so empty space falls through to the
-  // parent viewport (which handles click-to-deselect). Individual layer wrappers
-  // re-enable pointer events on their own bounds. Selection chrome (handles,
-  // outline, drag body) lives on a separate ComposeSelectionOverlay above both
-  // layer groups and the 3D canvas, so it never gets occluded.
+  // The container stays pointer-transparent so empty space falls through to the
+  // parent viewport (click-to-deselect). Individual layer wrappers re-enable
+  // pointer events on their own bounds. Selection chrome lives on a separate
+  // ComposeSelectionOverlay above this stack.
   return (
-    <>
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          zIndex: 0,
-          pointerEvents: 'none',
-        }}
-      >
-        {behind.map(renderLayer)}
-      </div>
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          zIndex: 2,
-          pointerEvents: 'none',
-        }}
-      >
-        {front.map(renderLayer)}
-      </div>
-    </>
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        zIndex: 0,
+        pointerEvents: 'none',
+      }}
+    >
+      {ordered.map((l) => (
+        <LayerView
+          key={l.id}
+          layer={l}
+          assets={assets}
+          includeChain={includeChain}
+        />
+      ))}
+    </div>
   );
 }

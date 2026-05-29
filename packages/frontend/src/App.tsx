@@ -11,6 +11,10 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/editor/:projectId" element={<Editor />} />
+        <Route
+          path="/viewer/:projectId/compose/:composeSceneId"
+          element={<ViewerPage />}
+        />
         <Route path="/viewer/:projectId/:nodeId" element={<ViewerPage />} />
         <Route path="/media-input/:projectId" element={<MediaInputPage />} />
       </Routes>

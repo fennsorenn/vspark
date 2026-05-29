@@ -79,12 +79,20 @@ router.get('/projects/:projectId/scenes', (req, res) => {
       cameraEffects.push(...effects);
     }
 
-    // Track clips: include nested lanes + keyframes so the frontend gets a complete tree
+  }
+
+  // Track clips are owned by a scene node or a compose layer (project-wide, no
+  // longer scene-scoped). Gather all clips whose owner belongs to this project.
+  {
     const clips = db
       .prepare(
-        'SELECT * FROM track_clips WHERE root_scene_node_id = ? ORDER BY created_at'
+        `SELECT tc.* FROM track_clips tc
+         LEFT JOIN scene_nodes sn ON sn.id = tc.owner_node_id
+         LEFT JOIN compose_layers cl ON cl.id = tc.owner_layer_id
+         WHERE sn.project_id = ? OR cl.project_id = ?
+         ORDER BY tc.created_at`
       )
-      .all(s.id) as { id: string }[];
+      .all(projectId, projectId) as { id: string }[];
     for (const c of clips) {
       const lanes = db
         .prepare('SELECT * FROM track_clip_lanes WHERE clip_id = ?')
@@ -400,11 +408,9 @@ router.delete('/scenes/:sceneId', (req, res) => {
       db.prepare('DELETE FROM compose_layers WHERE camera_node_id = ?').run(
         nid
       );
+      // Track clips owned by this node (scene root included).
+      db.prepare('DELETE FROM track_clips WHERE owner_node_id = ?').run(nid);
     }
-    // Track clips scoped to this scene.
-    db.prepare('DELETE FROM track_clips WHERE root_scene_node_id = ?').run(
-      sceneId
-    );
     // All nodes belonging to this scene (descendants + the scene node itself).
     db.prepare('DELETE FROM scene_nodes WHERE root_scene_node_id = ?').run(
       sceneId

@@ -28,6 +28,7 @@ import m015 from './migrations/015_track_clips_owner_scope.js';
 import m016 from './migrations/016_compose_layer_nesting.js';
 import m017 from './migrations/017_presets_table.js';
 import m018 from './migrations/018_refactor_scenes_to_nodes.js';
+import m019 from './migrations/019_track_clips_owner_columns.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -65,6 +66,7 @@ const MIGRATIONS: Migration[] = [
   { name: '016_compose_layer_nesting.sql', sql: m016 },
   { name: '017_presets_table.sql', sql: m017 },
   { name: '018_refactor_scenes_to_nodes.sql', run: m018 },
+  { name: '019_track_clips_owner_columns.sql', run: m019 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

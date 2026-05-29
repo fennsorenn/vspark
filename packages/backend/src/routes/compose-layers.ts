@@ -257,7 +257,7 @@ router.post('/compose-scenes/:composeSceneId/layers', (req, res) => {
         name, kind, asset_id, config,
         x, y, width, height, rotation, anchor_h, anchor_v,
         scene_order, camera_order, visible)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     layerId,
     composeScene.project_id,

@@ -6,6 +6,31 @@ export const composeViewportRect: { current: (() => DOMRect | null) | null } = {
   current: null,
 };
 
+/** Resolve a layer field to pixels, honoring a per-field '%' unit flag in
+ *  config (percentage of the given viewport dimension). */
+function toPx(
+  value: number,
+  config: Record<string, unknown>,
+  unitKey: string,
+  basis: number
+): number {
+  return config[unitKey] === '%' ? (value / 100) * basis : value;
+}
+
+/** A layer's px geometry within the viewport, resolving %/px units. */
+export function layerPxGeometry(
+  viewport: { width: number; height: number },
+  layer: ComposeLayerRecord
+) {
+  const cfg = layer.config;
+  return {
+    x: toPx(layer.x, cfg, 'xUnit', viewport.width),
+    y: toPx(layer.y, cfg, 'yUnit', viewport.height),
+    width: toPx(layer.width, cfg, 'widthUnit', viewport.width),
+    height: toPx(layer.height, cfg, 'heightUnit', viewport.height),
+  };
+}
+
 /** Project a layer's CSS-anchored rect into viewport-local coords. Returns the
  *  centre, half-extents, and the layer's local axes (rotation-aware) in
  *  viewport space. Shared by ComposeSelectionOverlay (which draws handles) and
@@ -14,26 +39,27 @@ export function layerFrame(
   viewport: { width: number; height: number },
   layer: ComposeLayerRecord
 ) {
+  const g = layerPxGeometry(viewport, layer);
   const left =
-    layer.anchorH === 'left' ? layer.x : viewport.width - layer.x - layer.width;
-  const top =
-    layer.anchorV === 'top'
-      ? layer.y
-      : viewport.height - layer.y - layer.height;
-  const cx = left + layer.width / 2;
-  const cy = top + layer.height / 2;
+    layer.anchorH === 'left' ? g.x : viewport.width - g.x - g.width;
+  const top = layer.anchorV === 'top' ? g.y : viewport.height - g.y - g.height;
+  const cx = left + g.width / 2;
+  const cy = top + g.height / 2;
   const rad = (layer.rotation * Math.PI) / 180;
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
   // layer +x and +y axes expressed in viewport space
   const ux = { x: cos, y: sin };
   const uy = { x: -sin, y: cos };
-  const hx = layer.width / 2;
-  const hy = layer.height / 2;
+  const hx = g.width / 2;
+  const hy = g.height / 2;
   return { cx, cy, ux, uy, hx, hy };
 }
 
-/** Test whether a viewport-local point lies inside a layer's rotated rect. */
+/** Test whether a viewport-local point lies inside a layer's rotated rect.
+ *  Hidden layers are never pickable. Note: 2D-locked layers ARE still reported
+ *  here so that 3D picking inside a locked camera_view keeps working; the 2D
+ *  lock is enforced at the layer-selection / drag sites instead. */
 export function pointInLayer(
   viewport: { width: number; height: number },
   layer: ComposeLayerRecord,

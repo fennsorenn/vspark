@@ -359,7 +359,6 @@ interface EditorState {
    *  Persisted in-session only; clamped at the call site. */
   bottomDockHeight: number;
   selectedComposeLayerId: string | null;
-  composeCameraId: string | null; // camera node id the Compose view renders through
 
   // Track clips
   trackClips: TrackClipRecord[];
@@ -449,11 +448,11 @@ interface EditorState {
     patch: Partial<ComposeLayerRecord>
   ) => void;
   removeComposeLayer: (id: string) => void;
+  removeComposeScene: (id: string) => void;
   setLeftTab: (tab: LeftDockTab) => void;
   setBottomTab: (tab: BottomDockTab) => void;
   setBottomDockHeight: (h: number) => void;
   selectComposeLayer: (id: string | null) => void;
-  setComposeCameraId: (id: string | null) => void;
 
   // Track clip actions
   setTrackClips: (clips: TrackClipRecord[]) => void;
@@ -552,7 +551,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   bottomTab: 'models',
   bottomDockHeight: 200,
   selectedComposeLayerId: null,
-  composeCameraId: null,
 
   trackClips: [],
   selectedTrackClipId: null,
@@ -575,6 +573,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const removedNodeIds = new Set(
         s.nodes.filter((n) => n.rootSceneNodeId === sceneId).map((n) => n.id)
       );
+      // The scene node owns itself by id; clips can be owned by it or any child.
+      removedNodeIds.add(sceneId);
       const wasActive = s.activeSceneId === sceneId;
       return {
         scenes: remainingScenes,
@@ -585,7 +585,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         cameraEffects: s.cameraEffects.filter(
           (e) => !removedNodeIds.has(e.nodeId)
         ),
-        trackClips: s.trackClips.filter((t) => t.rootSceneNodeId !== sceneId),
+        trackClips: s.trackClips.filter(
+          (t) => !(t.ownerNodeId != null && removedNodeIds.has(t.ownerNodeId))
+        ),
         activeSceneId: wasActive
           ? (remainingScenes[0]?.id ?? null)
           : s.activeSceneId,
@@ -769,12 +771,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedComposeLayerId:
         s.selectedComposeLayerId === id ? null : s.selectedComposeLayerId,
     })),
+  removeComposeScene: (id) =>
+    set((s) => {
+      const remaining = s.composeScenes.filter((cs) => cs.id !== id);
+      return {
+        composeScenes: remaining,
+        // Drop layers that belonged to the removed compose scene.
+        composeLayers: s.composeLayers.filter(
+          (l) => l.rootComposeSceneId !== id
+        ),
+        activeComposeSceneId:
+          s.activeComposeSceneId === id
+            ? (remaining[0]?.id ?? null)
+            : s.activeComposeSceneId,
+      };
+    }),
   setLeftTab: (tab) => set({ leftTab: tab }),
   setBottomTab: (tab) => set({ bottomTab: tab }),
   setBottomDockHeight: (h) =>
     set({ bottomDockHeight: Math.max(120, Math.min(800, Math.round(h))) }),
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
-  setComposeCameraId: (id) => set({ composeCameraId: id }),
 
   setTrackClips: (clips) => set({ trackClips: clips }),
   addTrackClip: (clip) =>
@@ -791,11 +807,31 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => {
       const nextPlayback = { ...s.trackClipPlayback };
       delete nextPlayback[id];
+
+      // Drop any overrides/suppressions this clip's lanes left behind so the
+      // deleted clip can't keep governing a layer/node's position.
+      const clip = s.trackClips.find((c) => c.id === id);
+      const nextLayerOverrides = { ...s.composeLayerOverrides };
+      const nextNodeOverrides = { ...s.nodeTransformOverrides };
+      let suppressionsTouched = false;
+      const nextSuppressed = new Set(s.suppressedOverrides);
+      for (const lane of clip?.lanes ?? []) {
+        if (lane.targetKind === 'compose_layer')
+          delete nextLayerOverrides[lane.targetId];
+        else if (lane.targetKind === 'scene_node')
+          delete nextNodeOverrides[lane.targetId];
+        const key = `${lane.targetKind}:${lane.targetId}:${lane.paramPath}`;
+        if (nextSuppressed.delete(key)) suppressionsTouched = true;
+      }
+
       return {
         trackClips: s.trackClips.filter((c) => c.id !== id),
         selectedTrackClipId:
           s.selectedTrackClipId === id ? null : s.selectedTrackClipId,
         trackClipPlayback: nextPlayback,
+        composeLayerOverrides: nextLayerOverrides,
+        nodeTransformOverrides: nextNodeOverrides,
+        ...(suppressionsTouched ? { suppressedOverrides: nextSuppressed } : {}),
       };
     }),
   selectTrackClip: (id) => set({ selectedTrackClipId: id }),

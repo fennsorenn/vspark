@@ -212,7 +212,15 @@ export const updateCameraEffectSchema = z
 // --- Compose layers ---
 
 export const composeLayerKindSchema = z
-  .enum(['compose_scene', 'camera_view', 'image', 'video', 'browser', 'group'])
+  .enum([
+    'compose_scene',
+    'scene_include',
+    'camera_view',
+    'image',
+    'video',
+    'browser',
+    'group',
+  ])
   .openapi('ComposeLayerKind');
 export const composeAnchorHSchema = z
   .enum(['left', 'right'])
@@ -369,12 +377,6 @@ export const updateGraphSchema = z
   })
   .openapi('UpdateGraph');
 
-// --- Track clip owner scoping ---
-
-export const trackClipOwnerKindSchema = z
-  .enum(['scene', 'scene_node', 'compose_layer'])
-  .openapi('TrackClipOwnerKind');
-
 // --- Presets ---
 
 export const presetRootKindSchema = z
@@ -404,6 +406,15 @@ export const presetComponentSchema = z
   })
   .openapi('PresetComponent');
 
+export const presetCameraEffectSchema = z
+  .object({
+    presetId: z.string(),
+    kind: z.string(),
+    enabled: z.boolean(),
+    config: z.record(z.string(), z.unknown()),
+  })
+  .openapi('PresetCameraEffect');
+
 export const presetSceneNodeSchema = z
   .object({
     presetId: z.string(),
@@ -415,6 +426,7 @@ export const presetSceneNodeSchema = z
     hidden: z.boolean(),
     properties: z.record(z.string(), z.unknown()),
     components: z.array(presetComponentSchema),
+    cameraEffects: z.array(presetCameraEffectSchema).optional(),
   })
   .openapi('PresetSceneNode');
 
@@ -506,12 +518,15 @@ export const presetTrackClipSchema = z
 
 export const presetPayloadSchema = z
   .object({
-    format: z.literal('vspark.preset.v1'),
+    // v1 = pre-scenes-as-nodes; v2 = scenes-as-nodes (only exportedFrom metadata
+    // changed — the instantiable structure is identical, so both are accepted).
+    format: z.enum(['vspark.preset.v1', 'vspark.preset.v2']),
     rootKind: presetRootKindSchema,
     exportedAt: z.string(),
     exportedFrom: z.object({
       projectId: z.string(),
       sceneId: z.string().optional(),
+      rootSceneNodeId: z.string().optional(),
       rootId: z.string(),
     }),
     assets: z.array(presetAssetSchema),

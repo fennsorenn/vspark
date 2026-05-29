@@ -6,8 +6,8 @@ import {
 import { startDrag } from './composeLayerInteractions';
 import { cyclePickAt } from './composePickCycle';
 import {
-  composeSceneDragStarter,
-  composeSceneWheel,
+  composeSceneStartDrag,
+  composeSceneApplyWheel,
 } from './ComposeSceneInteractions';
 import { composeViewportRect, layersAtClientPoint } from './composeHitTest';
 
@@ -27,9 +27,10 @@ interface ComposeEventCaptureProps {
  *    - Drag → routes to the currently-selected target: a compose layer's drag/
  *      resize/rotate (handled by the selection chrome's gestures, started here
  *      by calling the same startDrag function), or a 3D node's viewport-plane
- *      drag via composeSceneDragStarter. If nothing's selected, the cycle picks
- *      the topmost slot and that becomes the drag target.
- *  - On wheel: forwards to composeSceneWheel (3D dolly along cursor ray).
+ *      drag via composeSceneStartDrag (dispatched across the per-camera_view
+ *      interaction registry). If nothing's selected, the cycle picks the
+ *      topmost slot and that becomes the drag target.
+ *  - On wheel: forwards to composeSceneApplyWheel (3D dolly along cursor ray).
  *
  *  Lives above the canvas and layer DOM (which are all pointer-events:none) but
  *  below the selection chrome (which has its own precise handles for resize/
@@ -75,8 +76,15 @@ export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
     const onWheel = (ev: WheelEvent) => {
       const store = useEditorStore.getState();
       if (!store.selectedNodeId) return;
+      // Don't dolly through a camera_view whose 3D interaction is locked.
+      const topId = layerUnderCursor(ev.clientX, ev.clientY);
+      const topLayer = topId
+        ? store.composeLayers.find((l) => l.id === topId)
+        : null;
+      if (topLayer?.kind === 'camera_view' && topLayer.config.locked3d === true)
+        return;
       ev.preventDefault();
-      composeSceneWheel.current?.(ev.deltaY, ev.clientX, ev.clientY);
+      composeSceneApplyWheel(ev.deltaY, ev.clientX, ev.clientY);
     };
 
     el.addEventListener('pointerdown', onPointerDown);
@@ -101,42 +109,62 @@ export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
   );
 }
 
+/** The current compose viewport pixel dimensions (for %↔px drag conversion). */
+function viewportFrame(): { width: number; height: number } | undefined {
+  const rect = composeViewportRect.current?.();
+  return rect ? { width: rect.width, height: rect.height } : undefined;
+}
+
 /** Drag routing on the *current* selection at the moment the drag is detected.
- *  If a 2D layer is selected and the cursor is over it, drag the layer.
- *  Otherwise drag the selected 3D node. If neither is selected, cycle to pick
- *  the topmost slot under the cursor and use that as the new selection + drag
- *  target — same model as the click path. */
+ *
+ *  Priority:
+ *  1. If the cursor is over a camera_view layer AND a 3D node is selected,
+ *     the drag manipulates that 3D node (in-border 3D editing).
+ *  2. Else if a compose layer is selected, MOVE it — from anywhere in the
+ *     viewport, including outside its own border or over empty space. This is
+ *     what lets a camera_view layer be repositioned without its 3D interaction
+ *     swallowing the drag: grab outside the 3D area and drag.
+ *  3. Else if a 3D node is selected, drag it.
+ *  4. Else cycle-pick the topmost slot under the cursor and drag that. */
 function startDragOnCurrentTarget(x: number, y: number, pointerId: number) {
   const store = useEditorStore.getState();
+  const topId = layerUnderCursor(x, y);
+  const topLayer = topId
+    ? store.composeLayers.find((l) => l.id === topId)
+    : null;
+  const overCameraView = topLayer?.kind === 'camera_view';
+  const cameraView3dLocked =
+    overCameraView && topLayer?.config.locked3d === true;
 
-  // Compose layer drag — uses the existing startDrag (move-only) flow.
+  // 1. 3D editing inside a camera_view (unless its 3D interaction is locked).
+  if (overCameraView && !cameraView3dLocked && store.selectedNodeId) {
+    if (composeSceneStartDrag(store.selectedNodeId, x, y, pointerId)) return;
+  }
+
+  // 2. Move the selected compose layer from anywhere.
   if (store.selectedComposeLayerId) {
     const layer = store.composeLayers.find(
       (l) => l.id === store.selectedComposeLayerId
     );
-    if (layer && layerUnderCursor(x, y) === layer.id) {
+    if (layer) {
       const apply = (patch: Partial<ComposeLayerRecord>) =>
         store.updateComposeLayerLocal(layer.id, patch);
-      startDrag({ clientX: x, clientY: y, pointerId }, layer, apply);
+      startDrag(
+        { clientX: x, clientY: y, pointerId },
+        layer,
+        apply,
+        viewportFrame()
+      );
       return;
     }
   }
 
-  // 3D node drag.
+  // 3. Drag the selected 3D node.
   if (store.selectedNodeId) {
-    const started =
-      composeSceneDragStarter.current?.(
-        store.selectedNodeId,
-        x,
-        y,
-        pointerId
-      ) ?? false;
-    if (started) return;
+    if (composeSceneStartDrag(store.selectedNodeId, x, y, pointerId)) return;
   }
 
-  // No useful selection: cycle (which selects the topmost slot under the
-  // cursor), then drag that newly-selected target. We call cycle synchronously,
-  // then re-evaluate via getState.
+  // 4. Nothing useful selected: cycle to pick the topmost slot, then drag it.
   cyclePickAt(x, y);
   const s2 = useEditorStore.getState();
   if (s2.selectedComposeLayerId) {
@@ -146,10 +174,15 @@ function startDragOnCurrentTarget(x: number, y: number, pointerId: number) {
     if (layer) {
       const apply = (patch: Partial<ComposeLayerRecord>) =>
         s2.updateComposeLayerLocal(layer.id, patch);
-      startDrag({ clientX: x, clientY: y, pointerId }, layer, apply);
+      startDrag(
+        { clientX: x, clientY: y, pointerId },
+        layer,
+        apply,
+        viewportFrame()
+      );
     }
   } else if (s2.selectedNodeId) {
-    composeSceneDragStarter.current?.(s2.selectedNodeId, x, y, pointerId);
+    composeSceneStartDrag(s2.selectedNodeId, x, y, pointerId);
   }
 }
 
@@ -159,9 +192,7 @@ function layerUnderCursor(x: number, y: number): string | null {
   if (!rect) return null;
   const store = useEditorStore.getState();
   const visible = store.composeLayers.filter(
-    (l) =>
-      l.rootComposeSceneId === store.activeComposeSceneId &&
-      (l.cameraNodeId == null || l.cameraNodeId === store.composeCameraId)
+    (l) => l.rootComposeSceneId === store.activeComposeSceneId
   );
   const ids = layersAtClientPoint(rect, visible, x, y);
   return ids[0] ?? null;

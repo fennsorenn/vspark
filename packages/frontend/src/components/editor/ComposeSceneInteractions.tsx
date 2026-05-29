@@ -23,34 +23,79 @@ const MIN_CAM_DISTANCE = 0.05; // never push the object closer than this
 const wheelRay = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 
-/** Module-level picker installed by ComposeSceneInteractions while it's mounted.
- *  Returns the nodeId of the closest scene node whose precise OBB envelope is
- *  hit by the cursor ray at the given client coords, or null if nothing is hit.
- *  Lets the layer-selection cycle treat the 3D scene as one more "layer". */
-export const composeScenePicker: {
-  current: ((clientX: number, clientY: number) => string | null) | null;
-} = { current: null };
+/** Per-camera_view interaction registry. Each mounted ComposeSceneInteractions
+ *  (one per camera_view layer's CameraCanvas) registers its handlers under its
+ *  composeLayerId, so the capture overlay can dispatch to whichever camera_view
+ *  is under the cursor. A `default` key (empty string) is used when no
+ *  composeLayerId is supplied (e.g. a lone canvas), preserving single-canvas
+ *  behaviour. */
+type ScenePicker = (clientX: number, clientY: number) => string | null;
+type SceneDragStarter = (
+  nodeId: string,
+  clientX: number,
+  clientY: number,
+  pointerId: number
+) => boolean;
+type SceneWheel = (deltaY: number, clientX: number, clientY: number) => void;
 
-/** Module-level handle for starting a 3D drag on the currently-selected scene
- *  node from outside the Canvas (e.g. from ComposeEventCapture, which owns all
- *  pointer events and dispatches them). Returns true if a drag was started. */
-export const composeSceneDragStarter: {
-  current:
-    | ((
-        nodeId: string,
-        clientX: number,
-        clientY: number,
-        pointerId: number
-      ) => boolean)
-    | null;
-} = { current: null };
+const scenePickers = new Map<string, ScenePicker>();
+const sceneDragStarters = new Map<string, SceneDragStarter>();
+const sceneWheels = new Map<string, SceneWheel>();
 
-/** Module-level handle for the wheel impulse on the currently-selected 3D
- *  node. Lives here because the integration loop runs inside the Canvas via
- *  useFrame, but the wheel listener is attached at the capture-overlay level. */
-export const composeSceneWheel: {
-  current: ((deltaY: number, clientX: number, clientY: number) => void) | null;
-} = { current: null };
+/** Pick a 3D node under the cursor by trying each registered camera_view's
+ *  picker. Each picker already returns null when the cursor is outside its own
+ *  canvas rect, so the first non-null hit wins. Returns the nodeId or null. */
+export function composeScenePick(
+  clientX: number,
+  clientY: number
+): string | null {
+  for (const pick of scenePickers.values()) {
+    const id = pick(clientX, clientY);
+    if (id) return id;
+  }
+  return null;
+}
+
+/** Start a 3D drag on `nodeId`. `composeLayerId` selects which camera_view's
+ *  canvas/camera the drag is relative to; when omitted, tries all. */
+export function composeSceneStartDrag(
+  nodeId: string,
+  clientX: number,
+  clientY: number,
+  pointerId: number,
+  composeLayerId?: string
+): boolean {
+  if (composeLayerId != null) {
+    return (
+      sceneDragStarters.get(composeLayerId)?.(
+        nodeId,
+        clientX,
+        clientY,
+        pointerId
+      ) ?? false
+    );
+  }
+  for (const start of sceneDragStarters.values()) {
+    if (start(nodeId, clientX, clientY, pointerId)) return true;
+  }
+  return false;
+}
+
+/** Apply a wheel impulse. `composeLayerId` selects the camera_view under the
+ *  cursor; when omitted, dispatches to all (only the one owning the selected
+ *  node will act). */
+export function composeSceneApplyWheel(
+  deltaY: number,
+  clientX: number,
+  clientY: number,
+  composeLayerId?: string
+): void {
+  if (composeLayerId != null) {
+    sceneWheels.get(composeLayerId)?.(deltaY, clientX, clientY);
+    return;
+  }
+  for (const wheel of sceneWheels.values()) wheel(deltaY, clientX, clientY);
+}
 
 /** Inside-canvas component that turns mesh clicks into scene-node selection
  *  and drags the selected node along the viewport-aligned plane through its
@@ -83,8 +128,12 @@ function transformPayload(
 
 export function ComposeSceneInteractions({
   children,
+  composeLayerId,
 }: {
   children: React.ReactNode;
+  /** Identifies which camera_view this interaction scope belongs to; keys this
+   *  scope's handlers in the per-layer interaction registry. */
+  composeLayerId?: string;
 }) {
   const { camera, gl } = useThree();
   // Per-gesture throttle: only emit when at least PREVIEW_INTERVAL_MS has passed
@@ -239,11 +288,8 @@ export function ComposeSceneInteractions({
   // input events). It applies an impulse to the selected node's velocity; the
   // useFrame loop below integrates and persists.
   useEffect(() => {
-    composeSceneWheel.current = (
-      deltaY: number,
-      clientX: number,
-      clientY: number
-    ) => {
+    const key = composeLayerId ?? '';
+    sceneWheels.set(key, (deltaY: number, clientX: number, clientY: number) => {
       const store = useEditorStore.getState();
       const nodeId = store.selectedNodeId;
       if (!nodeId) return;
@@ -270,9 +316,9 @@ export function ComposeSceneInteractions({
       const cur = wheelStateRef.current;
       if (cur && cur.nodeId === nodeId) cur.velocity.add(impulse);
       else wheelStateRef.current = { nodeId, velocity: impulse };
-    };
+    });
     return () => {
-      composeSceneWheel.current = null;
+      sceneWheels.delete(key);
     };
   });
 
@@ -623,10 +669,12 @@ export function ComposeSceneInteractions({
     }
   };
 
-  // Expose a screen-space picker so the layer-selection cycle in
-  // ComposeSelectionOverlay can include 3D nodes as another "layer".
+  // Register this camera_view's screen-space picker + drag starter under its
+  // composeLayerId so the capture overlay can dispatch to whichever camera_view
+  // is under the cursor.
   useEffect(() => {
-    composeScenePicker.current = (clientX: number, clientY: number) => {
+    const key = composeLayerId ?? '';
+    scenePickers.set(key, (clientX: number, clientY: number) => {
       const canvas = gl.domElement;
       const rect = canvas.getBoundingClientRect();
       if (
@@ -640,8 +688,8 @@ export function ComposeSceneInteractions({
       ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
       wheelRay.setFromCamera(ndc, camera);
       return pickNodes(wheelRay.ray)?.nodeId ?? null;
-    };
-    composeSceneDragStarter.current = (nodeId, clientX, clientY, pointerId) => {
+    });
+    sceneDragStarters.set(key, (nodeId, clientX, clientY, pointerId) => {
       const group = getNodeGroup(nodeId);
       if (!group) return false;
       const canvas = gl.domElement;
@@ -651,10 +699,10 @@ export function ComposeSceneInteractions({
       wheelRay.setFromCamera(ndc, camera);
       beginDrag(nodeId, group, wheelRay.ray.clone(), pointerId);
       return true;
-    };
+    });
     return () => {
-      composeScenePicker.current = null;
-      composeSceneDragStarter.current = null;
+      scenePickers.delete(key);
+      sceneDragStarters.delete(key);
     };
   });
 

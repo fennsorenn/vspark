@@ -46,17 +46,33 @@ export function PresetLibrary() {
   ): Promise<{ missingAssets: string[] } | null> => {
     if (!projectId) return null;
     const payload = rawPayload as { format?: string; rootKind?: string };
-    if (payload.format !== 'vspark.preset.v1') return null;
+    if (
+      payload.format !== 'vspark.preset.v1' &&
+      payload.format !== 'vspark.preset.v2'
+    )
+      return null;
     const isCompose = payload.rootKind === 'compose_layer';
     if (isCompose) {
       if (!activeComposeSceneId) return null;
+      // Only nest under the selected layer if it actually lives in the active
+      // compose scene; otherwise the new layer would get a parent from another
+      // scene and never render (orphaned in the tree). Fall back to a root layer.
+      const selected = selectedComposeLayerId
+        ? useEditorStore
+            .getState()
+            .composeLayers.find((l) => l.id === selectedComposeLayerId)
+        : null;
+      const parentId =
+        selected && selected.rootComposeSceneId === activeComposeSceneId
+          ? selectedComposeLayerId
+          : null;
       const result = await instantiatePreset(
         payload,
         projectId,
         // No 3D scene root for compose presets.
         '',
         activeComposeSceneId,
-        selectedComposeLayerId
+        parentId
       );
       const { api: apiClient } = await import('../../api/client');
       const data = await apiClient.getScenes(projectId);
@@ -67,6 +83,9 @@ export function PresetLibrary() {
       store.setComposeLayers(
         data.composeLayers.filter((l) => l.kind !== 'compose_scene')
       );
+      // Compose presets can carry track clips owned by their layers; refresh
+      // them too so the pasted clips show up in the layer's Clips section.
+      store.setTrackClips(data.trackClips);
       return result;
     }
     if (!activeSceneId) return null;
@@ -79,8 +98,11 @@ export function PresetLibrary() {
     );
     const { api: apiClient } = await import('../../api/client');
     const data = await apiClient.getScenes(projectId);
-    useEditorStore.getState().setNodes(data.nodes);
-    useEditorStore.getState().setTrackClips(data.trackClips);
+    const store = useEditorStore.getState();
+    store.setNodes(data.nodes);
+    store.setNodeComponents(data.nodeComponents);
+    store.setCameraEffects(data.cameraEffects);
+    store.setTrackClips(data.trackClips);
     return result;
   };
 

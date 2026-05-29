@@ -31,6 +31,12 @@ interface PresetPayload {
       sortOrder: number;
       config: Record<string, unknown>;
     }>;
+    cameraEffects?: Array<{
+      presetId: string;
+      kind: string;
+      enabled: boolean;
+      config: Record<string, unknown>;
+    }>;
   }>;
   composeLayers?: Array<{
     presetId: string;
@@ -208,6 +214,21 @@ export function instantiatePreset(
           comp.sortOrder
         );
       }
+
+      // Insert camera effects
+      for (const eff of node.cameraEffects ?? []) {
+        const effId = mintId(eff.presetId);
+        db.prepare(
+          `INSERT INTO camera_effects (id, node_id, kind, enabled, config)
+           VALUES (?, ?, ?, ?, ?)`
+        ).run(
+          effId,
+          realId,
+          eff.kind,
+          eff.enabled ? 1 : 0,
+          JSON.stringify(eff.config)
+        );
+      }
     }
 
     // Insert animation clips
@@ -298,19 +319,20 @@ export function instantiatePreset(
   for (const tc of payload.trackClips ?? []) {
     const clipId = mintId(tc.presetId);
     const ownerId = resolveId(tc.ownerPresetId);
+    const ownerNodeId = tc.ownerKind === 'scene_node' ? ownerId : null;
+    const ownerLayerId = tc.ownerKind === 'compose_layer' ? ownerId : null;
     db.prepare(
-      `INSERT INTO track_clips (id, root_scene_node_id, name, duration, loop, mode, autoplay, owner_kind, owner_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO track_clips (id, owner_node_id, owner_layer_id, name, duration, loop, mode, autoplay)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       clipId,
-      target.rootSceneNodeId ?? '',
+      ownerNodeId,
+      ownerLayerId,
       tc.name,
       tc.duration,
       tc.loop ? 1 : 0,
       tc.mode,
-      tc.autoplay ? 1 : 0,
-      tc.ownerKind,
-      ownerId
+      tc.autoplay ? 1 : 0
     );
 
     for (const lane of tc.lanes) {

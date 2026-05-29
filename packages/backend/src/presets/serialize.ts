@@ -103,6 +103,10 @@ export function serializeSceneNodeSubtree(
       )
       .all(nid) as Record<string, unknown>[];
 
+    const cameraEffects = db
+      .prepare('SELECT * FROM camera_effects WHERE node_id = ?')
+      .all(nid) as Record<string, unknown>[];
+
     sceneNodes.push({
       presetId,
       parentPresetId: row.parent_id
@@ -120,6 +124,12 @@ export function serializeSceneNodeSubtree(
         enabled: (c.enabled as number) === 1,
         sortOrder: c.sort_order ?? 0,
         config: JSON.parse((c.config as string) || '{}'),
+      })),
+      cameraEffects: cameraEffects.map((e) => ({
+        presetId: nextPresetId('ce'),
+        kind: e.kind,
+        enabled: (e.enabled as number) === 1,
+        config: JSON.parse((e.config as string) || '{}'),
       })),
     });
   }
@@ -176,7 +186,7 @@ export function serializeSceneNodeSubtree(
   // Track clips owned by nodes in the subtree
   const trackClipRows = db
     .prepare(
-      `SELECT * FROM track_clips WHERE owner_kind = 'scene_node' AND owner_id IN (${placeholders}) ORDER BY created_at`
+      `SELECT * FROM track_clips WHERE owner_node_id IN (${placeholders}) ORDER BY created_at`
     )
     .all(...nodeIds) as Record<string, unknown>[];
 
@@ -187,7 +197,7 @@ export function serializeSceneNodeSubtree(
     return {
       presetId: nextPresetId('tc'),
       ownerKind: 'scene_node' as const,
-      ownerPresetId: realToPreset.get(tc.owner_id as string) ?? '',
+      ownerPresetId: realToPreset.get(tc.owner_node_id as string) ?? '',
       name: tc.name,
       duration: tc.duration,
       loop: (tc.loop as number) === 1,
@@ -342,7 +352,7 @@ export function serializeComposeLayerSubtree(
   // Track clips owned by layers
   const trackClipRows = db
     .prepare(
-      `SELECT * FROM track_clips WHERE owner_kind = 'compose_layer' AND owner_id IN (${placeholders}) ORDER BY created_at`
+      `SELECT * FROM track_clips WHERE owner_layer_id IN (${placeholders}) ORDER BY created_at`
     )
     .all(...layerIds) as Record<string, unknown>[];
 
@@ -353,7 +363,7 @@ export function serializeComposeLayerSubtree(
     return {
       presetId: nextPresetId('tc'),
       ownerKind: 'compose_layer' as const,
-      ownerPresetId: realToPreset.get(tc.owner_id as string) ?? '',
+      ownerPresetId: realToPreset.get(tc.owner_layer_id as string) ?? '',
       name: tc.name,
       duration: tc.duration,
       loop: (tc.loop as number) === 1,

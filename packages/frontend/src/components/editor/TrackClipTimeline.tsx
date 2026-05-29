@@ -25,142 +25,35 @@ const COMPOSE_LAYER_PARAMS = ['x', 'y', 'rotation'] as const;
 export function TrackClipTimeline() {
   const trackClips = useEditorStore((s) => s.trackClips);
   const selectedTrackClipId = useEditorStore((s) => s.selectedTrackClipId);
-  const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
-  const activeSceneId = useEditorStore((s) => s.activeSceneId);
-  const addTrackClip = useEditorStore((s) => s.addTrackClip);
   const updateTrackClipLocal = useEditorStore((s) => s.updateTrackClipLocal);
-  const removeTrackClip = useEditorStore((s) => s.removeTrackClip);
-  const playback = useEditorStore((s) => s.trackClipPlayback);
 
-  const sceneClips = useMemo(
-    () => trackClips.filter((c) => c.rootSceneNodeId === activeSceneId),
-    [trackClips, activeSceneId]
-  );
   const selectedClip =
-    sceneClips.find((c) => c.id === selectedTrackClipId) ?? null;
+    trackClips.find((c) => c.id === selectedTrackClipId) ?? null;
 
-  const handleCreate = async () => {
-    if (!activeSceneId) return;
-    const clip = await api.createTrackClip(activeSceneId, {
-      name: 'Clip',
-      duration: 2,
-      loop: false,
-      mode: 'override',
-      autoplay: false,
-    });
-    addTrackClip(clip);
-    selectTrackClip(clip.id);
-  };
-
-  const handleDelete = async (id: string) => {
-    await api.deleteTrackClip(id);
-    removeTrackClip(id);
-  };
-
-  if (!activeSceneId) {
-    return (
-      <div style={{ color: '#555', fontSize: 12, padding: 12 }}>
-        Select a scene first.
-      </div>
-    );
-  }
-
+  // Clips are created and selected from the per-node/per-layer Clips sections in
+  // the left dock; this panel is purely the lane/keyframe editor for whatever
+  // clip is currently selected.
   return (
-    <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-      {/* Clip list */}
-      <div
-        style={{
-          width: 220,
-          flexShrink: 0,
-          borderRight: '1px solid #2a2a2a',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        <div style={{ padding: 8, borderBottom: '1px solid #2a2a2a' }}>
-          <button onClick={handleCreate} style={btnPrimary}>
-            + New Clip
-          </button>
+    <div
+      style={{
+        flex: 1,
+        minWidth: 0,
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      {selectedClip ? (
+        <TimelineEditor
+          key={selectedClip.id}
+          clip={selectedClip}
+          onUpdate={updateTrackClipLocal}
+        />
+      ) : (
+        <div style={{ color: '#555', fontSize: 12, padding: 12 }}>
+          Select a clip from a node or layer in the left dock to edit it here.
         </div>
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {sceneClips.length === 0 && (
-            <div
-              style={{
-                color: '#555',
-                fontSize: 11,
-                padding: 12,
-                textAlign: 'center',
-              }}
-            >
-              No clips. Click + New Clip to start.
-            </div>
-          )}
-          {sceneClips.map((clip) => {
-            const playing = !!playback[clip.id];
-            return (
-              <div
-                key={clip.id}
-                onClick={() => selectTrackClip(clip.id)}
-                style={{
-                  padding: '6px 8px',
-                  borderBottom: '1px solid #1f1f1f',
-                  cursor: 'pointer',
-                  background:
-                    clip.id === selectedTrackClipId ? '#2a3a4a' : 'transparent',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <span
-                  style={{
-                    color: '#ddd',
-                    fontSize: 12,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {playing ? '▶ ' : ''}
-                  {clip.name}
-                </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(clip.id);
-                  }}
-                  style={btnDanger}
-                  title="Delete clip"
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Timeline editor */}
-      <div
-        style={{
-          flex: 1,
-          minWidth: 0,
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        {selectedClip ? (
-          <TimelineEditor
-            key={selectedClip.id}
-            clip={selectedClip}
-            onUpdate={updateTrackClipLocal}
-          />
-        ) : (
-          <div style={{ color: '#555', fontSize: 12, padding: 12 }}>
-            Select a clip from the list, or create a new one.
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
