@@ -48,6 +48,9 @@ const NODE_TYPES = [
   { label: 'Camera', kind: 'camera' },
   { label: 'Godray Caster', kind: 'godray_caster' },
   { label: 'Particle', kind: 'particle' },
+  { label: 'Billboard', kind: 'billboard' },
+  { label: 'Text (SDF / troika)', kind: 'text_troika' },
+  { label: 'Text (canvas, HTML-capable)', kind: 'text_canvas' },
 ];
 
 // ---------- Context menu ----------
@@ -1195,6 +1198,43 @@ export function SceneGraph() {
       components.camera = { type: 'camera', fov: 50, near: 0.1, far: 1000 };
     } else if (type.kind === 'particle') {
       components.particle = { ...PARTICLE_DEFAULTS };
+    } else if (type.kind === 'billboard') {
+      components.billboard = {
+        type: 'billboard',
+        facing: 'screen',
+        backface: 'none',
+        width: 1,
+        height: 1,
+        alpha: 1,
+        textureUrl: null,
+      };
+    } else if (type.kind === 'text_troika') {
+      components.text = {
+        type: 'text',
+        content: 'Text',
+        fontSize: 0.2,
+        color: '#ffffff',
+        anchorX: 'center',
+        anchorY: 'middle',
+        maxWidth: 0,
+        billboard: true,
+        // Match the BillboardNode facing controls so the user gets one
+        // consistent set of options for "what direction is this thing looking".
+        facing: 'screen' as 'screen' | 'world',
+      };
+    } else if (type.kind === 'text_canvas') {
+      components.text = {
+        type: 'text',
+        content: 'Text',
+        fontSize: 48,
+        color: '#ffffff',
+        padding: 16,
+        width: 2,
+        height: 0.5,
+        allowHtml: false,
+        billboard: true,
+        facing: 'screen' as 'screen' | 'world',
+      };
     }
 
     try {

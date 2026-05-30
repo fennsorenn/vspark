@@ -2846,7 +2846,9 @@ function TextTroikaNode({ node }: { node: NodeRecord }) {
     inst.color = cfg.color ?? '#ffffff';
     inst.anchorX = cfg.anchorX ?? 'center';
     inst.anchorY = cfg.anchorY ?? 'middle';
-    inst.maxWidth = cfg.maxWidth ?? Infinity;
+    // 0 (or missing) = no wrap. The property panel uses 0 to mean "infinite"
+    // so users can clear the field without typing a sentinel.
+    inst.maxWidth = cfg.maxWidth && cfg.maxWidth > 0 ? cfg.maxWidth : Infinity;
     inst.sync();
   }, [
     content,
@@ -3503,26 +3505,47 @@ export function SceneNodes({
   const flatTextTroika = sceneNodes.filter((n) => n.kind === 'text_troika');
   const flatTextCanvas = sceneNodes.filter((n) => n.kind === 'text_canvas');
 
+  // Hidden cascade for flat-mounted nodes: hierarchical kinds already inherit
+  // `visible: false` from a hidden ancestor via R3F's <group> nesting, but
+  // flat mounts (particles/billboards/text) are pulled out to the top level
+  // so they break the chain. Recompute effective visibility by walking the
+  // parentId chain in `nodes` (cycles guarded by a visited set).
+  const byId = new Map(nodes.map((n) => [n.id, n] as const));
+  const isAncestorHidden = (n: NodeRecord): boolean => {
+    const seen = new Set<string>();
+    let cur: NodeRecord | undefined = n.parentId
+      ? byId.get(n.parentId)
+      : undefined;
+    while (cur && !seen.has(cur.id)) {
+      if (cur.hidden) return true;
+      seen.add(cur.id);
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    return false;
+  };
+  const effectiveVisible = (n: NodeRecord) =>
+    !n.hidden && !isAncestorHidden(n);
+
   return (
     <>
       {rootNodes.map((node) => renderNodeElement(node, sceneNodes, viewerMode))}
       {flatParticles.map((node) => (
-        <group key={node.id} visible={!node.hidden}>
+        <group key={node.id} visible={effectiveVisible(node)}>
           <ParticleNode node={node} />
         </group>
       ))}
       {flatBillboards.map((node) => (
-        <group key={node.id} visible={!node.hidden}>
+        <group key={node.id} visible={effectiveVisible(node)}>
           <BillboardNode node={node} />
         </group>
       ))}
       {flatTextTroika.map((node) => (
-        <group key={node.id} visible={!node.hidden}>
+        <group key={node.id} visible={effectiveVisible(node)}>
           <TextTroikaNode node={node} />
         </group>
       ))}
       {flatTextCanvas.map((node) => (
-        <group key={node.id} visible={!node.hidden}>
+        <group key={node.id} visible={effectiveVisible(node)}>
           <TextCanvasNode node={node} />
         </group>
       ))}

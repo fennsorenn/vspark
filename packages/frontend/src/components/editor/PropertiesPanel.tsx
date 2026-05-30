@@ -24,6 +24,9 @@ interface Transform {
   sx: number;
   sy: number;
   sz: number;
+  /** Uniform descendant-mesh opacity. Persisted on components.transform; the
+   *  viewport's per-frame material walk reads it and adjusts material.opacity. */
+  opacity: number;
 }
 
 interface LightProps {
@@ -56,6 +59,7 @@ function getTransform(node: NodeRecord): Transform {
     sx: t?.sx ?? 1,
     sy: t?.sy ?? 1,
     sz: t?.sz ?? 1,
+    opacity: t?.opacity ?? 1,
   };
 }
 
@@ -2830,6 +2834,7 @@ export function PropertiesPanel() {
     sx: 1,
     sy: 1,
     sz: 1,
+    opacity: 1,
   });
   // Ref always holds the latest transform — avoids stale closures in onBlur handlers
   const transformRef = useRef<Transform>({
@@ -2842,6 +2847,7 @@ export function PropertiesPanel() {
     sx: 1,
     sy: 1,
     sz: 1,
+    opacity: 1,
   });
   const isEditingTransform = useRef(false);
   const [light, setLight] = useState<LightProps>({
@@ -3335,6 +3341,37 @@ export function PropertiesPanel() {
                 value: transformRef.current.sz,
               },
             ])
+          }
+        />
+
+        {/* Opacity — walked across descendant materials by the viewport. */}
+        <SliderInput
+          label="Opacity"
+          value={transform.opacity}
+          min={0}
+          max={1}
+          step={0.01}
+          onChange={(next) => {
+            isEditingTransform.current = true;
+            const t = { ...transformRef.current, opacity: next };
+            transformRef.current = t;
+            setTransform(t);
+            useEditorStore
+              .getState()
+              .suppressOverride('scene_node', node.id, 'opacity');
+          }}
+          onCommit={() => {
+            isEditingTransform.current = false;
+            saveTransform();
+          }}
+          canRecord={canRecord}
+          onSetKeyframe={(value) =>
+            recordKeyframe({
+              targetKind: 'scene_node',
+              targetId: node.id,
+              paramPath: 'opacity',
+              value,
+            })
           }
         />
 
@@ -3882,6 +3919,191 @@ export function PropertiesPanel() {
                       }}
                     />
                   ) : null}
+                </div>
+              </>
+            );
+          })()}
+
+        {(node.kind === 'text_troika' || node.kind === 'text_canvas') &&
+          (() => {
+            const isCanvas = node.kind === 'text_canvas';
+            const tc: Record<string, unknown> = {
+              content: 'Text',
+              fontSize: isCanvas ? 48 : 0.2,
+              color: '#ffffff',
+              // troika-specific
+              anchorX: 'center',
+              anchorY: 'middle',
+              maxWidth: 0,
+              // canvas-specific
+              padding: 16,
+              width: 2,
+              height: 0.5,
+              allowHtml: false,
+              // shared
+              billboard: true,
+              facing: 'screen' as 'screen' | 'world',
+              ...((node.components?.text ?? {}) as Record<string, unknown>),
+            };
+            const saveTc = (patch: Record<string, unknown>) => {
+              // Keep facing + billboard in sync so the renderer (which reads
+              // `billboard`) and the UI (which shows `facing`) never drift.
+              const merged: Record<string, unknown> = { ...tc, ...patch };
+              if ('facing' in patch) {
+                merged.billboard = patch.facing === 'screen';
+              } else if ('billboard' in patch) {
+                merged.facing = patch.billboard ? 'screen' : 'world';
+              }
+              const components = {
+                ...node.components,
+                text: { type: 'text', ...merged },
+              };
+              api.updateNode(node.id, { components }).catch(() => {});
+              storeUpdateNode(node.id, { components });
+            };
+            const sel: React.CSSProperties = {
+              background: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              color: '#e0e0e0',
+              borderRadius: 4,
+              padding: '3px 6px',
+              fontSize: 12,
+              outline: 'none',
+            };
+            const row = (label: string, children: React.ReactNode) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                  {label}
+                </span>
+                {children}
+              </div>
+            );
+            return (
+              <>
+                <div style={sectionHeader}>Text</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {row(
+                    'Content',
+                    <input
+                      style={{ ...textInput, width: 160 }}
+                      defaultValue={(tc.content as string) ?? ''}
+                      key={node.id + '-tc-content'}
+                      onBlur={(e) => saveTc({ content: e.target.value })}
+                    />
+                  )}
+                  {row(
+                    'Facing',
+                    <select
+                      style={sel}
+                      value={(tc.facing as string) ?? 'screen'}
+                      onChange={(e) => saveTc({ facing: e.target.value })}
+                    >
+                      <option value="screen">
+                        Screen (always faces camera)
+                      </option>
+                      <option value="world">World (fixed rotation)</option>
+                    </select>
+                  )}
+                  {row(
+                    'Color',
+                    <input
+                      type="color"
+                      value={(tc.color as string) ?? '#ffffff'}
+                      onChange={(e) => saveTc({ color: e.target.value })}
+                      style={{
+                        width: 40,
+                        height: 24,
+                        background: '#2a2a2a',
+                        border: '1px solid #3a3a3a',
+                        borderRadius: 4,
+                        padding: 0,
+                      }}
+                    />
+                  )}
+                  <EffectRow
+                    label="Font Size"
+                    cfg={tc}
+                    field="fontSize"
+                    step={isCanvas ? 1 : 0.01}
+                    min={0.001}
+                    onSave={saveTc}
+                  />
+                  {isCanvas && (
+                    <>
+                      <EffectRow
+                        label="Padding"
+                        cfg={tc}
+                        field="padding"
+                        step={1}
+                        min={0}
+                        onSave={saveTc}
+                      />
+                      <EffectRow
+                        label="Width"
+                        cfg={tc}
+                        field="width"
+                        step={0.1}
+                        min={0.01}
+                        onSave={saveTc}
+                      />
+                      <EffectRow
+                        label="Height"
+                        cfg={tc}
+                        field="height"
+                        step={0.1}
+                        min={0.01}
+                        onSave={saveTc}
+                      />
+                      {row(
+                        'Allow HTML',
+                        <input
+                          type="checkbox"
+                          checked={Boolean(tc.allowHtml)}
+                          onChange={(e) =>
+                            saveTc({ allowHtml: e.target.checked })
+                          }
+                        />
+                      )}
+                    </>
+                  )}
+                  {!isCanvas && (
+                    <>
+                      {row(
+                        'Anchor X',
+                        <select
+                          style={sel}
+                          value={(tc.anchorX as string) ?? 'center'}
+                          onChange={(e) => saveTc({ anchorX: e.target.value })}
+                        >
+                          <option value="left">left</option>
+                          <option value="center">center</option>
+                          <option value="right">right</option>
+                        </select>
+                      )}
+                      {row(
+                        'Anchor Y',
+                        <select
+                          style={sel}
+                          value={(tc.anchorY as string) ?? 'middle'}
+                          onChange={(e) => saveTc({ anchorY: e.target.value })}
+                        >
+                          <option value="top">top</option>
+                          <option value="middle">middle</option>
+                          <option value="bottom">bottom</option>
+                        </select>
+                      )}
+                      <EffectRow
+                        label="Max Width (0 = ∞)"
+                        cfg={tc}
+                        field="maxWidth"
+                        step={0.1}
+                        min={0}
+                        onSave={saveTc}
+                      />
+                    </>
+                  )}
                 </div>
               </>
             );
