@@ -1062,7 +1062,7 @@ export function SceneGraph() {
   const {
     activeSceneId,
     scenes,
-    nodes,
+    nodes: allNodes,
     selectedNodeId,
     selectNode,
     addNode,
@@ -1105,6 +1105,11 @@ export function SceneGraph() {
 
   const toggleBones = (id: string) =>
     setBoneListExpanded(id, !(boneListExpanded[id] ?? false));
+
+  // Hide spawn-manager tmp clones (`__spawn:UUID` ids) from the scene tree —
+  // they live only for the duration of a tmp clip and would churn the tree.
+  // The renderer still picks them up from the store; this filter is UI-only.
+  const nodes = allNodes.filter((n) => !n.id.startsWith('__spawn:'));
 
   const sceneNodes = nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
 

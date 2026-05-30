@@ -227,6 +227,13 @@ async function main() {
     }
   );
 
+  // Per-chat-message flow:
+  //   chat → randomY → randomZ → spawn → (setY, setZ, setText)
+  //
+  // randomY/Z chain in series on the event path so both have computed
+  // fresh values *before* spawn fires; spawn's `spawned` event then
+  // arrives at each set_*_param node, which pulls its `value` from the
+  // appropriate random (the cached lastValue from that event).
   const descriptor = {
     id: graph.id,
     label: `${NAME_PREFIX} chat-billboard`,
@@ -239,15 +246,41 @@ async function main() {
         defaultConfig: { account: accountId, channel: '' },
       },
       {
+        id: 'randomY',
+        kind: 'random',
+        position: { x: 280, y: -80 },
+        // Vertical placement around eye level.
+        defaultConfig: { min: 0.8, max: 2.0, mode: 'float' },
+      },
+      {
+        id: 'randomZ',
+        kind: 'random',
+        position: { x: 280, y: 80 },
+        // Depth jitter — small range so text stays readable.
+        defaultConfig: { min: 0.5, max: 1.5, mode: 'float' },
+      },
+      {
         id: 'spawn',
         kind: 'spawn_clip',
-        position: { x: 320, y: 0 },
+        position: { x: 560, y: 0 },
         defaultConfig: { clipId: clip.id },
+      },
+      {
+        id: 'setY',
+        kind: 'set_scene_node_param',
+        position: { x: 840, y: -120 },
+        defaultConfig: { paramPath: 'position.y' },
+      },
+      {
+        id: 'setZ',
+        kind: 'set_scene_node_param',
+        position: { x: 840, y: 0 },
+        defaultConfig: { paramPath: 'position.z' },
       },
       {
         id: 'setText',
         kind: 'set_text',
-        position: { x: 640, y: 0 },
+        position: { x: 840, y: 120 },
         // No targetId — relies on spawnRef. spawn_clip clones the
         // text_canvas (the clip's owner), and `text.content` is a
         // registered paramPath for text_canvas, so the write lands.
@@ -255,11 +288,42 @@ async function main() {
       },
     ],
     edges: [
+      // Event chain: chat → randomY → randomZ → spawn.
       {
         fromNodeId: 'chat',
         fromPort: 'event',
+        toNodeId: 'randomY',
+        toPort: 'fire',
+        kind: 'event',
+      },
+      {
+        fromNodeId: 'randomY',
+        fromPort: 'fire',
+        toNodeId: 'randomZ',
+        toPort: 'fire',
+        kind: 'event',
+      },
+      {
+        fromNodeId: 'randomZ',
+        fromPort: 'fire',
         toNodeId: 'spawn',
         toPort: 'fire',
+        kind: 'event',
+      },
+      // Spawn fan-out: every set_* node receives the SpawnRef event so its
+      // tmpNodeId retargets the write to the just-spawned tmp text_canvas.
+      {
+        fromNodeId: 'spawn',
+        fromPort: 'spawned',
+        toNodeId: 'setY',
+        toPort: 'spawnRef',
+        kind: 'event',
+      },
+      {
+        fromNodeId: 'spawn',
+        fromPort: 'spawned',
+        toNodeId: 'setZ',
+        toPort: 'spawnRef',
         kind: 'event',
       },
       {
@@ -268,6 +332,22 @@ async function main() {
         toNodeId: 'setText',
         toPort: 'spawnRef',
         kind: 'event',
+      },
+      // Value pulls: each set_* node pulls its `value` from the matching
+      // random (cached lastValue for this fire) or from the chat event text.
+      {
+        fromNodeId: 'randomY',
+        fromPort: 'value',
+        toNodeId: 'setY',
+        toPort: 'value',
+        kind: 'value',
+      },
+      {
+        fromNodeId: 'randomZ',
+        fromPort: 'value',
+        toNodeId: 'setZ',
+        toPort: 'value',
+        kind: 'value',
       },
       {
         fromNodeId: 'chat',
