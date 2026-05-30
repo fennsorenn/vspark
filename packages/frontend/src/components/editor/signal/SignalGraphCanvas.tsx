@@ -92,6 +92,104 @@ function buildNodes(
   });
 }
 
+/** Merge a freshly-built node list into the existing React Flow node list,
+ *  preserving the prior node object (and therefore React Flow's internal
+ *  `selected` / `dragging` / measured `width|height` flags) when no
+ *  user-visible field changed. New ids append at the end of `prev`'s order
+ *  for stability; removed ids drop out. */
+function mergeNodes<T extends Node>(prev: T[], next: T[]): T[] {
+  const nextById = new Map(next.map((n) => [n.id, n] as const));
+  const out: T[] = [];
+  const seen = new Set<string>();
+  for (const p of prev) {
+    const n = nextById.get(p.id);
+    if (!n) continue; // removed
+    seen.add(p.id);
+    // Reuse the prior object unless data / position / type changed.
+    const dataSame = shallowEqual(
+      p.data as Record<string, unknown>,
+      n.data as Record<string, unknown>
+    );
+    const posSame =
+      p.position?.x === n.position?.x && p.position?.y === n.position?.y;
+    if (dataSame && posSame && p.type === n.type) {
+      out.push(p);
+    } else {
+      // Preserve selected/dragging by spreading prev first, then overwriting
+      // the changed fields.
+      out.push({
+        ...p,
+        ...n,
+        // selected lives on the React Flow side; explicitly carry it.
+        selected: p.selected,
+      } as T);
+    }
+  }
+  for (const n of next) {
+    if (!seen.has(n.id)) out.push(n);
+  }
+  return out;
+}
+
+/** Edge counterpart of mergeNodes. Same selection-preservation goal. */
+function mergeEdges<T extends Edge>(prev: T[], next: T[]): T[] {
+  const nextById = new Map(next.map((e) => [e.id, e] as const));
+  const out: T[] = [];
+  const seen = new Set<string>();
+  for (const p of prev) {
+    const n = nextById.get(p.id);
+    if (!n) continue;
+    seen.add(p.id);
+    const dataSame = shallowEqual(
+      p.data as Record<string, unknown>,
+      n.data as Record<string, unknown>
+    );
+    if (
+      dataSame &&
+      p.source === n.source &&
+      p.target === n.target &&
+      p.sourceHandle === n.sourceHandle &&
+      p.targetHandle === n.targetHandle &&
+      p.type === n.type
+    ) {
+      out.push(p);
+    } else {
+      out.push({ ...p, ...n, selected: p.selected } as T);
+    }
+  }
+  for (const e of next) {
+    if (!seen.has(e.id)) out.push(e);
+  }
+  return out;
+}
+
+/** Single-level value compare. Good enough for the data objects in
+ *  buildNodes/buildEdges, which are flat records of scalars + small arrays. */
+function shallowEqual(
+  a: Record<string, unknown> | undefined,
+  b: Record<string, unknown> | undefined
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) {
+    const av = a[k];
+    const bv = b[k];
+    if (av === bv) continue;
+    // Arrays of scalars and tiny objects: compare via JSON. Worst-case the
+    // node carries portValues (could be big); accept the cost — these are
+    // single-graph rates, not per-frame.
+    if (typeof av === 'object' || typeof bv === 'object') {
+      if (JSON.stringify(av) !== JSON.stringify(bv)) return false;
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
 function buildEdges(
   descriptor: GraphDescriptor,
   kindMap: Map<string, NodeKindMeta>,
@@ -306,16 +404,33 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   }, [graphId]);
 
   // Rebuild React Flow nodes whenever descriptor or states change.
+  //
+  // Naïve setNodes(buildNodes(...)) here clobbers React Flow's internal
+  // per-node `selected` / `dragging` flags every time the 500ms poll
+  // updates nodeStates — selecting a noodle then mousing away would clear
+  // the selection on the next tick. Instead merge by id: keep the existing
+  // node object (preserving selected/etc.) and only replace `data` /
+  // `position` when those actually changed.
   useEffect(() => {
     if (!descriptor) return;
-    setNodes(buildNodes(descriptor, kindMap, nodeStates, graphId) as Node[]);
+    setNodes((prev) =>
+      mergeNodes(
+        prev,
+        buildNodes(descriptor, kindMap, nodeStates, graphId) as Node[]
+      )
+    );
   }, [descriptor, kindMap, nodeStates, setNodes, graphId]);
 
   // Rebuild edges whenever flashing or values change (separate from nodes for perf).
+  // Same selection-preservation rationale as nodes above: merge by id rather
+  // than rebuild, so React Flow's per-edge selected flag survives the poll.
   useEffect(() => {
     if (!descriptor) return;
-    setEdges(
-      buildEdges(descriptor, kindMap, flashingEdges, edgeValues) as Edge[]
+    setEdges((prev) =>
+      mergeEdges(
+        prev,
+        buildEdges(descriptor, kindMap, flashingEdges, edgeValues) as Edge[]
+      )
     );
   }, [descriptor, kindMap, flashingEdges, edgeValues, setEdges]);
 
