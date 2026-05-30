@@ -7,6 +7,7 @@ import {
 import { api } from '../../api/client';
 import type { ComposeLayerKind } from '../../api/client';
 import { ClipsSection } from './ClipsSection';
+import { GraphsSection } from './GraphsSection';
 
 const KIND_ICONS: Record<ComposeLayerKind, string> = {
   image: '🖼',
@@ -422,7 +423,12 @@ function LayerRow({
           ×
         </button>
       </div>
-      {selected && <ClipsSection owner={{ kind: 'layer', id: layer.id }} />}
+      {selected && (
+        <>
+          <ClipsSection owner={{ kind: 'layer', id: layer.id }} />
+          <GraphsSection owner={{ kind: 'layer', id: layer.id }} />
+        </>
+      )}
       {children
         .slice()
         .sort((a, b) => b.sceneOrder - a.sceneOrder)

@@ -1115,6 +1115,11 @@ export const instantiatePreset = (
 
 // ─── Graphs (node/layer scoped) ─────────────────────────────────────────────
 
+/** Generic graph fetch by id — works for any owner kind. Used by the canvas
+ *  so it can open a graph without first knowing its scope. */
+export const getGraph = (id: string) =>
+  request<GraphRecord>(`/graphs/${id}`);
+
 export const getNodeGraphs = (nodeId: string) =>
   request<GraphRecord[]>(`/scene-nodes/${nodeId}/graphs`);
 
@@ -1222,6 +1227,7 @@ export const api = {
   deletePreset,
   serializePreset,
   instantiatePreset,
+  getGraph,
   getNodeGraphs,
   createNodeGraph,
   getLayerGraphs,

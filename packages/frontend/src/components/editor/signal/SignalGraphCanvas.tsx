@@ -33,7 +33,6 @@ import { FlashEdge } from './FlashEdge';
 import type { FlashEdgeData } from './FlashEdge';
 import { useEditorStore } from '../../../store/editorStore';
 import { api, getSignalGraphStates } from '../../../api/client';
-import { useParams } from 'react-router-dom';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Stable type registries (must be outside component to avoid identity changes)
@@ -185,7 +184,6 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     [kindMeta]
   );
 
-  const { projectId } = useParams<{ projectId: string }>();
 
   // Load descriptor — first check component-owned graphs (read-only), then
   // fall back to standalone project graphs (writable).
@@ -208,15 +206,16 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       } catch {
         /* ignore */
       }
-      if (!projectId) return;
+      // Fall back to standalone graphs (project / scene_node / compose_layer)
+      // via the generic getGraph endpoint. All three owner kinds are writable
+      // via the same PUT /graphs/:id route.
       try {
-        const projectGraphs = await api.getProjectGraphs(projectId);
-        const pg = projectGraphs.find((g) => g.id === graphId);
-        if (pg && !cancelled) {
+        const g = await api.getGraph(graphId);
+        if (g && !cancelled) {
           const d: GraphDescriptor = {
-            ...pg.descriptor,
-            id: pg.id,
-            label: pg.name,
+            ...g.descriptor,
+            id: g.id,
+            label: g.name,
             readonly: false,
           };
           writableRef.current = true;
@@ -232,7 +231,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [graphId, projectId, setActiveGraphWritable]);
+  }, [graphId, setActiveGraphWritable]);
 
   // Clear writable flag on unmount (so leaving the graph view also clears).
   useEffect(

@@ -69,6 +69,11 @@ router.post('/scene-nodes/:nodeId/graphs', (req, res) => {
       "INSERT INTO graphs (id, owner_kind, owner_id, name) VALUES (?, 'scene_node', ?, ?)"
     )
     .run(id, req.params.nodeId, name);
+  // Route through the manager so the new graph starts immediately (it boots
+  // empty-descriptor + enabled by default — nothing fires until the user
+  // wires nodes via PUT, but having it `running` means subsequent PUTs
+  // reconcile cleanly without a server restart).
+  projectGraphManager.reconcile(id);
   const row = getDb()
     .prepare('SELECT * FROM graphs WHERE id = ?')
     .get(id) as unknown as GraphRow;
@@ -96,6 +101,7 @@ router.post('/compose-layers/:layerId/graphs', (req, res) => {
       "INSERT INTO graphs (id, owner_kind, owner_id, name) VALUES (?, 'compose_layer', ?, ?)"
     )
     .run(id, req.params.layerId, name);
+  projectGraphManager.reconcile(id);
   const row = getDb()
     .prepare('SELECT * FROM graphs WHERE id = ?')
     .get(id) as unknown as GraphRow;
@@ -117,70 +123,54 @@ router.put('/graphs/:id', (req, res) => {
       .status(404)
       .json({ ok: false, error: { message: 'graph not found' } });
 
-  if (existing.owner_kind === 'project') {
-    try {
-      const row = projectGraphManager.update(req.params.id, {
-        ...(name !== undefined ? { name } : {}),
-        ...(enabled !== undefined ? { enabled } : {}),
-        ...(descriptor !== undefined
-          ? {
-              descriptor: descriptor as Parameters<
-                typeof projectGraphManager.update
-              >[1]['descriptor'],
-            }
-          : {}),
-      });
-      if (!row)
-        return res
-          .status(404)
-          .json({ ok: false, error: { message: 'project graph not found' } });
-      res.json({ ok: true, data: mapGraphRow(row) });
-    } catch (e) {
-      res.status(400).json({
-        ok: false,
-        error: { message: e instanceof Error ? e.message : String(e) },
-      });
-    }
-    return;
+  // All standalone graphs (project / scene_node / compose_layer) go through
+  // the manager so the underlying SignalGraph is reconciled (validated,
+  // restarted) after every edit. Component-owned graphs aren't reachable
+  // via this route — they have no graphs row.
+  try {
+    const row = projectGraphManager.update(req.params.id, {
+      ...(name !== undefined ? { name } : {}),
+      ...(enabled !== undefined ? { enabled } : {}),
+      ...(descriptor !== undefined
+        ? {
+            descriptor: descriptor as Parameters<
+              typeof projectGraphManager.update
+            >[1]['descriptor'],
+          }
+        : {}),
+    });
+    if (!row)
+      return res
+        .status(404)
+        .json({ ok: false, error: { message: 'graph not found' } });
+    res.json({ ok: true, data: mapGraphRow(row) });
+  } catch (e) {
+    res.status(400).json({
+      ok: false,
+      error: { message: e instanceof Error ? e.message : String(e) },
+    });
   }
+});
 
-  const cols: string[] = [];
-  const vals: unknown[] = [];
-  if (name !== undefined) {
-    cols.push('name = ?');
-    vals.push(name);
-  }
-  if (enabled !== undefined) {
-    cols.push('enabled = ?');
-    vals.push(enabled ? 1 : 0);
-  }
-  if (descriptor !== undefined) {
-    cols.push('descriptor = ?');
-    vals.push(JSON.stringify(descriptor));
-  }
-  if (cols.length > 0) {
-    cols.push("updated_at = datetime('now')");
-    vals.push(req.params.id);
-    db.prepare(`UPDATE graphs SET ${cols.join(', ')} WHERE id = ?`).run(
-      ...vals
-    );
-  }
-  const row = db
+/** Generic GET /graphs/:id for any owner kind. Used by the canvas to
+ *  open a graph by id without first knowing whether it's project,
+ *  scene_node, or compose_layer scoped. */
+router.get('/graphs/:id', (req, res) => {
+  const row = getDb()
     .prepare('SELECT * FROM graphs WHERE id = ?')
-    .get(req.params.id) as unknown as GraphRow;
+    .get(req.params.id) as unknown as GraphRow | undefined;
+  if (!row)
+    return res
+      .status(404)
+      .json({ ok: false, error: { message: 'graph not found' } });
   res.json({ ok: true, data: mapGraphRow(row) });
 });
 
 router.delete('/graphs/:id', (req, res) => {
-  const db = getDb();
-  const existing = db
-    .prepare('SELECT owner_kind FROM graphs WHERE id = ?')
-    .get(req.params.id) as { owner_kind: string } | undefined;
-  if (existing?.owner_kind === 'project') {
-    projectGraphManager.remove(req.params.id);
-  } else {
-    db.prepare('DELETE FROM graphs WHERE id = ?').run(req.params.id);
-  }
+  // The manager stops the running instance (if any) and deletes the row.
+  // Safe to call for any owner kind — non-running graphs become a no-op stop
+  // before the DELETE runs.
+  projectGraphManager.remove(req.params.id);
   res.json({ ok: true, data: {} });
 });
 

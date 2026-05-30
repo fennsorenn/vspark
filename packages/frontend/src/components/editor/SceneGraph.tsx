@@ -7,6 +7,7 @@ import { newComponentId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
+import { GraphsSection } from './GraphsSection';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 
 const KIND_ICONS: Record<string, string> = {
@@ -1588,6 +1589,7 @@ export function SceneGraph() {
               <CameraEffectsSection nodeId={node.id} />
             )}
             <ClipsSection owner={{ kind: 'node', id: node.id }} />
+            <GraphsSection owner={{ kind: 'node', id: node.id }} />
           </div>
         )}
 
@@ -1848,8 +1850,13 @@ export function SceneGraph() {
           </button>
         </div>
 
-        {/* Scene-level clips (owned by the scene node itself) */}
-        {isSelected && <ClipsSection owner={{ kind: 'node', id: scene.id }} />}
+        {/* Scene-level clips + graphs (owned by the scene node itself) */}
+        {isSelected && (
+          <>
+            <ClipsSection owner={{ kind: 'node', id: scene.id }} />
+            <GraphsSection owner={{ kind: 'node', id: scene.id }} />
+          </>
+        )}
 
         {/* Scene's root nodes */}
         {!isCollapsed &&
