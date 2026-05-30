@@ -264,7 +264,19 @@ export function serializeSceneNodeSubtree(
     | { project_id: string; root_scene_node_id: string }
     | undefined;
 
-  const payload = {
+  // Final pass: rewrite any literal occurrence of a real id (anywhere in
+  // nested JSON: descriptor body, layer.config, components[*].config,
+  // properties, etc.) to its __preset:<tag> placeholder. Internal refs
+  // round-trip cleanly; refs to entities outside the subtree (e.g. an
+  // overlive account id) survive unchanged in the payload and get caught
+  // by the runtime fallback / future external-ref picker on import. See
+  // packages/backend/src/presets/substitute.ts.
+  //
+  // exportedFrom is excluded from substitution — it's audit-trail metadata
+  // (never read on import) and replacing the source rootId with a
+  // placeholder would be misleading.
+  const substitute = makeExportSubstituter(realToPreset);
+  return {
     format: 'vspark.preset.v2' as const,
     rootKind: 'scene_node' as const,
     exportedAt: new Date().toISOString(),
@@ -273,21 +285,13 @@ export function serializeSceneNodeSubtree(
       rootSceneNodeId: rootNode?.root_scene_node_id ?? '',
       rootId,
     },
-    assets,
-    sceneNodes,
-    graphs: graphs.length > 0 ? graphs : undefined,
-    animationClips: animationClips.length > 0 ? animationClips : undefined,
-    trackClips: trackClips.length > 0 ? trackClips : undefined,
+    assets: substitute(assets),
+    sceneNodes: substitute(sceneNodes),
+    graphs: graphs.length > 0 ? substitute(graphs) : undefined,
+    animationClips:
+      animationClips.length > 0 ? substitute(animationClips) : undefined,
+    trackClips: trackClips.length > 0 ? substitute(trackClips) : undefined,
   };
-
-  // Final pass: rewrite any literal occurrence of a real id (anywhere in
-  // nested JSON: descriptor body, layer.config, components[*].config,
-  // properties, etc.) to its __preset:<tag> placeholder. Internal refs
-  // round-trip cleanly; refs to entities outside the subtree (e.g. an
-  // overlive account id) survive unchanged in the payload and get caught
-  // by the runtime fallback / future external-ref picker on import. See
-  // packages/backend/src/presets/substitute.ts.
-  return makeExportSubstituter(realToPreset)(payload);
 }
 
 export function serializeComposeLayerSubtree(
@@ -450,7 +454,8 @@ export function serializeComposeLayerSubtree(
     | { project_id: string; root_compose_scene_id: string | null }
     | undefined;
 
-  const payload = {
+  const substitute = makeExportSubstituter(realToPreset);
+  return {
     format: 'vspark.preset.v2' as const,
     rootKind: 'compose_layer' as const,
     exportedAt: new Date().toISOString(),
@@ -459,11 +464,9 @@ export function serializeComposeLayerSubtree(
       rootComposeSceneId: rootLayer?.root_compose_scene_id ?? '',
       rootId,
     },
-    assets,
-    composeLayers,
-    graphs: graphs.length > 0 ? graphs : undefined,
-    trackClips: trackClips.length > 0 ? trackClips : undefined,
+    assets: substitute(assets),
+    composeLayers: substitute(composeLayers),
+    graphs: graphs.length > 0 ? substitute(graphs) : undefined,
+    trackClips: trackClips.length > 0 ? substitute(trackClips) : undefined,
   };
-
-  return makeExportSubstituter(realToPreset)(payload);
 }
