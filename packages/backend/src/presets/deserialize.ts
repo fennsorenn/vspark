@@ -121,6 +121,12 @@ export function instantiatePreset(
     rootSceneNodeId?: string;
     rootComposeSceneId?: string;
     parentId?: string | null;
+    /** When set, the inserted root scene node gets bone_attachment = this
+     *  bone name. Used for the "Paste scene node onto a bone" UX, where
+     *  the user right-clicks a bone in the avatar tree to attach the
+     *  pasted node to that bone on the host avatar. Only meaningful when
+     *  rootKind = 'scene_node' and parentId is the avatar node's id. */
+    boneAttachment?: string | null;
   }
 ): InstantiateResult {
   const db = getDb();
@@ -222,11 +228,19 @@ export function instantiatePreset(
     // Insert scene nodes parents-first (they're subtree-ordered)
     for (const node of payload.sceneNodes) {
       const realId = mintId(node.presetId);
-      if (!rootId) rootId = realId;
+      const isRoot = !rootId;
+      if (isRoot) rootId = realId;
 
       const parentId = node.parentPresetId
         ? resolveId(node.parentPresetId)
         : (target.parentId ?? null);
+
+      // For the root scene node, target.boneAttachment overrides the
+      // per-node value — that's the "paste this node onto this bone"
+      // path. Descendants keep their own bone_attachment values intact.
+      const boneAttachment = isRoot
+        ? (target.boneAttachment ?? node.boneAttachment)
+        : node.boneAttachment;
 
       const filePath = node.filePresetAssetId
         ? (assetMap.get(node.filePresetAssetId)?.filePath ?? null)
@@ -240,7 +254,7 @@ export function instantiatePreset(
         target.projectId,
         target.rootSceneNodeId ?? '',
         parentId,
-        node.boneAttachment,
+        boneAttachment,
         node.name,
         node.kind,
         filePath,

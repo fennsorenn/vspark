@@ -8,6 +8,7 @@ import { api } from '../../api/client';
 import type { ComposeLayerKind } from '../../api/client';
 import { ClipsSection } from './ClipsSection';
 import { GraphsSection } from './GraphsSection';
+import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 
 const KIND_ICONS: Record<ComposeLayerKind, string> = {
   image: '🖼',
@@ -277,6 +278,83 @@ function LayerRow({
     await api.deleteComposeLayer(layer.id).catch(() => {});
   };
 
+  const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
+  const setClipboard = useEditorStore((s) => s.setClipboard);
+  const projectId = useEditorStore((s) => s.projectId);
+  const activeSceneId = useEditorStore((s) => s.activeSceneId);
+
+  const handleCopyLayer = async () => {
+    try {
+      const preset = await api.serializePreset('compose_layer', layer.id, true);
+      await copyToClipboard(
+        { kind: 'compose-layer', preset: preset as never },
+        setClipboard
+      );
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to copy layer');
+    }
+  };
+
+  const handlePasteLayer = async () => {
+    if (!projectId || !activeSceneId) return;
+    const payload = await pasteFromClipboard(clipboardPayload);
+    if (!payload || payload.kind !== 'compose-layer') return;
+    // Layer paste: the destination root_compose_scene_id is the same
+    // compose scene that owns the row we right-clicked (the layer's
+    // rootComposeSceneId); the new parent is the right-clicked layer.
+    const targetSceneId =
+      layer.rootComposeSceneId ?? layer.id; /* layer is itself a compose_scene */
+    try {
+      await api.instantiatePreset(
+        payload.preset,
+        projectId,
+        activeSceneId, // rootSceneNodeId required by the route but unused for layer roots
+        targetSceneId,
+        layer.id // parent the new layer under the right-clicked one
+      );
+      // Refresh the project's compose layers from the scenes bundle —
+      // deserialize.ts inserts compose-layer rows via raw INSERT and
+      // doesn't broadcast compose_layer_added, so the WS sync wouldn't
+      // pick up the paste otherwise.
+      const bundle = await api.getScenes(projectId);
+      useEditorStore.setState({ composeLayers: bundle.composeLayers });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to paste layer');
+    }
+  };
+
+  const handlePasteGraphAtLayer = async () => {
+    const payload = await pasteFromClipboard(clipboardPayload);
+    if (!payload || payload.kind !== 'graph') return;
+    try {
+      const created = await api.createLayerGraph(layer.id, payload.name);
+      await api.updateGraph(created.id, {
+        descriptor: payload.descriptor,
+        enabled: true,
+      });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const canPasteLayer = clipboardPayload?.kind === 'compose-layer';
+    const canPasteGraph = clipboardPayload?.kind === 'graph';
+    const lines = [
+      `Actions on "${layer.name}":`,
+      '  c = copy layer',
+      canPasteLayer ? '  l = paste layer as child' : null,
+      canPasteGraph ? '  g = paste graph here' : null,
+      '  d = delete',
+    ].filter(Boolean);
+    const action = window.prompt(lines.join('\n'), '');
+    if (action === 'c') void handleCopyLayer();
+    else if (action === 'l' && canPasteLayer) void handlePasteLayer();
+    else if (action === 'g' && canPasteGraph) void handlePasteGraphAtLayer();
+    else if (action === 'd') void handleDelete();
+  };
+
   const handleToggleVisible = async () => {
     const next = !layer.visible;
     updateComposeLayerLocal(layer.id, { visible: next });
@@ -298,6 +376,7 @@ function LayerRow({
     <div>
       <div
         draggable
+        onContextMenu={handleContextMenu}
         onDragStart={(e) => {
           e.stopPropagation();
           e.dataTransfer.effectAllowed = 'move';

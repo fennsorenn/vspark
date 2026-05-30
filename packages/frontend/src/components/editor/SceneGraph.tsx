@@ -70,6 +70,11 @@ function ContextMenu({
   onReparent,
   onUnparent,
   onDelete,
+  onCopy,
+  onPasteNode,
+  onPasteGraph,
+  canPasteNode,
+  canPasteGraph,
 }: {
   menu: CtxMenu;
   nodes: NodeRecord[];
@@ -78,6 +83,11 @@ function ContextMenu({
   onReparent: (nodeId: string, newParentId: string) => void;
   onUnparent: (nodeId: string) => void;
   onDelete: (nodeId: string) => void;
+  onCopy: (nodeId: string) => void;
+  onPasteNode: (parentNodeId: string) => void;
+  onPasteGraph: (nodeId: string) => void;
+  canPasteNode: boolean;
+  canPasteGraph: boolean;
 }) {
   const node = nodes.find((n) => n.id === menu.nodeId)!;
   const [showAddChild, setShowAddChild] = useState(false);
@@ -255,6 +265,62 @@ function ContextMenu({
       <div style={dividerStyle} />
 
       <div
+        style={itemStyle}
+        onMouseEnter={(e) =>
+          ((e.currentTarget as HTMLDivElement).style.background = '#2a2a2a')
+        }
+        onMouseLeave={(e) =>
+          ((e.currentTarget as HTMLDivElement).style.background = 'transparent')
+        }
+        onClick={() => {
+          onCopy(menu.nodeId);
+          onClose();
+        }}
+      >
+        Copy node
+      </div>
+
+      {canPasteNode && (
+        <div
+          style={itemStyle}
+          onMouseEnter={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background = '#2a2a2a')
+          }
+          onMouseLeave={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background =
+              'transparent')
+          }
+          onClick={() => {
+            onPasteNode(menu.nodeId);
+            onClose();
+          }}
+        >
+          Paste node as child
+        </div>
+      )}
+
+      {canPasteGraph && (
+        <div
+          style={itemStyle}
+          onMouseEnter={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background = '#2a2a2a')
+          }
+          onMouseLeave={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background =
+              'transparent')
+          }
+          onClick={() => {
+            onPasteGraph(menu.nodeId);
+            onClose();
+          }}
+        >
+          Paste graph here
+        </div>
+      )}
+
+      <div style={dividerStyle} />
+
+      <div
         style={{ ...itemStyle, color: '#e05555' }}
         onMouseEnter={(e) =>
           ((e.currentTarget as HTMLDivElement).style.background = '#2a2a2a')
@@ -284,9 +350,40 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
   const vmcStatus = useEditorStore((s) => s.vmcStatus);
   const vmcTracking = useEditorStore((s) => s.vmcTracking);
   const componentKinds = useEditorStore((s) => s.componentKinds);
+  const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
+  const setClipboard = useEditorStore((s) => s.setClipboard);
+  const canPasteComponent = clipboardPayload?.kind === 'node-component';
   const components = nodeComponentsFor(nodeId).filter(
     (c) => !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
   );
+
+  const handleCopyComponent = async (comp: NodeComponent) => {
+    await copyToClipboard(
+      {
+        kind: 'node-component',
+        component: { kind: comp.kind, enabled: comp.enabled, config: comp.config },
+      },
+      setClipboard
+    );
+  };
+
+  const handlePasteComponent = async () => {
+    const payload = await pasteFromClipboard(clipboardPayload);
+    if (!payload || payload.kind !== 'node-component') return;
+    const comp: NodeComponent = {
+      id: newComponentId(),
+      nodeId,
+      kind: payload.component.kind,
+      enabled: payload.component.enabled,
+      config: { ...payload.component.config },
+    };
+    addNodeComponent(comp);
+    try {
+      await api.createNodeComponent(nodeId, comp);
+    } catch {
+      /* non-fatal */
+    }
+  };
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -445,6 +542,24 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               {comp.enabled ? '●' : '○'}
             </button>
             <button
+              title="Copy component"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#666',
+                fontSize: 11,
+                padding: '0 4px',
+                lineHeight: 1,
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleCopyComponent(comp);
+              }}
+            >
+              ⧉
+            </button>
+            <button
               title="Remove component"
               style={{
                 background: 'none',
@@ -466,8 +581,10 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
         );
       })}
 
-      {/* Add component button */}
-      <div style={{ position: 'relative', padding: '3px 6px' }}>
+      {/* Add / paste component buttons */}
+      <div
+        style={{ position: 'relative', padding: '3px 6px', display: 'flex', gap: 6 }}
+      >
         <button
           style={{
             background: 'none',
@@ -477,13 +594,30 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
             cursor: 'pointer',
             fontSize: 11,
             padding: '2px 8px',
-            width: '100%',
+            flex: 1,
             textAlign: 'left',
           }}
           onClick={() => setShowAddMenu((v) => !v)}
         >
           + Add Component
         </button>
+        {canPasteComponent && (
+          <button
+            title="Paste component from clipboard onto this node"
+            onClick={handlePasteComponent}
+            style={{
+              background: 'none',
+              border: '1px dashed #3a5a4a',
+              borderRadius: 4,
+              color: '#9bc090',
+              cursor: 'pointer',
+              fontSize: 11,
+              padding: '2px 8px',
+            }}
+          >
+            ⧉ Paste
+          </button>
+        )}
         {showAddMenu && (
           <div
             ref={menuRef}
@@ -554,8 +688,43 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
   const selectedEffect = useEditorStore((s) => s.selectedEffect);
   const selectEffect = useEditorStore((s) => s.selectEffect);
   const clearSelectedEffect = useEditorStore((s) => s.clearSelectedEffect);
+  const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
+  const setClipboard = useEditorStore((s) => s.setClipboard);
+  const canPasteEffect = clipboardPayload?.kind === 'camera-effect';
 
   const effects = cameraEffectsFor(nodeId);
+
+  const handleCopyEffect = async (
+    effect: import('../../store/editorStore').CameraEffectRecord
+  ) => {
+    await copyToClipboard(
+      {
+        kind: 'camera-effect',
+        effect: { kind: effect.kind, enabled: effect.enabled, config: effect.config },
+      },
+      setClipboard
+    );
+  };
+
+  const handlePasteEffect = async () => {
+    const payload = await pasteFromClipboard(clipboardPayload);
+    if (!payload || payload.kind !== 'camera-effect') return;
+    // Refuse silently if this kind is already present (mirrors handleAdd).
+    if (effects.some((e) => e.kind === payload.effect.kind)) return;
+    const effect = {
+      id: newComponentId(),
+      nodeId,
+      kind: payload.effect.kind,
+      enabled: payload.effect.enabled,
+      config: { ...payload.effect.config },
+    };
+    addCameraEffect(effect);
+    try {
+      await api.createCameraEffect(nodeId, effect);
+    } catch {
+      /* non-fatal */
+    }
+  };
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -704,6 +873,24 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
               {effect.enabled ? '●' : '○'}
             </button>
             <button
+              title="Copy effect"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#666',
+                fontSize: 11,
+                padding: '0 4px',
+                lineHeight: 1,
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleCopyEffect(effect);
+              }}
+            >
+              ⧉
+            </button>
+            <button
               title="Remove effect"
               style={{
                 background: 'none',
@@ -724,7 +911,9 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
           </div>
         );
       })}
-      <div style={{ position: 'relative', padding: '3px 6px' }}>
+      <div
+        style={{ position: 'relative', padding: '3px 6px', display: 'flex', gap: 6 }}
+      >
         <button
           style={{
             background: 'none',
@@ -734,13 +923,30 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
             cursor: 'pointer',
             fontSize: 11,
             padding: '2px 8px',
-            width: '100%',
+            flex: 1,
             textAlign: 'left',
           }}
           onClick={() => setShowAddMenu((v) => !v)}
         >
           + Add Effect
         </button>
+        {canPasteEffect && (
+          <button
+            title="Paste effect from clipboard onto this camera"
+            onClick={handlePasteEffect}
+            style={{
+              background: 'none',
+              border: '1px dashed #3a5a4a',
+              borderRadius: 4,
+              color: '#9bc090',
+              cursor: 'pointer',
+              fontSize: 11,
+              padding: '2px 8px',
+            }}
+          >
+            ⧉ Paste
+          </button>
+        )}
         {showAddMenu && (
           <div
             ref={menuRef}
@@ -1141,6 +1347,10 @@ export function SceneGraph() {
   const setDockTab = useEditorStore((s) => s.setLeftTab);
   const setActiveScene = useEditorStore((s) => s.setActiveScene);
   const setScenes = useEditorStore((s) => s.setScenes);
+  const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
+  const setClipboard = useEditorStore((s) => s.setClipboard);
+  const canPasteSceneNodeClipboard = clipboardPayload?.kind === 'scene-node';
+  const canPasteGraphClipboard = clipboardPayload?.kind === 'graph';
   // Which scene's add-node menu is open (scene id), or null.
   const [dropdownOpen, setDropdownOpen] = useState<string | null>(null);
   // Collapsed scene roots (scene id set).
@@ -1321,6 +1531,80 @@ export function SceneGraph() {
       storeDeleteNode(nodeId);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Failed to delete node');
+    }
+  };
+
+  // ── copy / paste (scene node, bone, scoped graph) ──────────────────────
+  //
+  // Copy serialises the whole subtree as a preset payload — same code path
+  // as the existing Save-Preset feature, so any cross-project portability
+  // (asset rematching, internal id substitution, attached graph + clip
+  // round-trip) carries through. Paste calls instantiatePreset with the
+  // right parentId / boneAttachment combo, then refreshes the local scene
+  // node list. Errors surface via alert() so silent failures don't get
+  // swallowed.
+  const handleCopyNode = async (nodeId: string) => {
+    try {
+      const preset = await api.serializePreset('scene_node', nodeId, true);
+      await copyToClipboard(
+        { kind: 'scene-node', preset: preset as never },
+        setClipboard
+      );
+    } catch (e) {
+      alert(
+        e instanceof Error ? e.message : 'Failed to copy node (serialize)'
+      );
+    }
+  };
+
+  const refreshSceneNodes = async () => {
+    if (!activeSceneId) return;
+    try {
+      const fetched = await api.getNodes(activeSceneId);
+      // Replace the active scene's nodes in the store.
+      const store = useEditorStore.getState();
+      const others = store.nodes.filter(
+        (n) => n.rootSceneNodeId !== activeSceneId
+      );
+      useEditorStore.setState({ nodes: [...others, ...fetched] });
+    } catch {
+      /* non-fatal */
+    }
+  };
+
+  const handlePasteNodeAsChild = async (
+    parentNodeId: string | null,
+    bone: string | null = null
+  ) => {
+    if (!activeSceneId || !projectId) return;
+    const payload = await pasteFromClipboard(clipboardPayload);
+    if (!payload || payload.kind !== 'scene-node') return;
+    try {
+      await api.instantiatePreset(
+        payload.preset,
+        projectId,
+        activeSceneId,
+        null,
+        parentNodeId,
+        bone
+      );
+      await refreshSceneNodes();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to paste node');
+    }
+  };
+
+  const handlePasteGraphAtNode = async (nodeId: string) => {
+    const payload = await pasteFromClipboard(clipboardPayload);
+    if (!payload || payload.kind !== 'graph') return;
+    try {
+      const created = await api.createNodeGraph(nodeId, payload.name);
+      await api.updateGraph(created.id, {
+        descriptor: payload.descriptor,
+        enabled: true,
+      });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to paste graph');
     }
   };
 
@@ -1678,6 +1962,19 @@ export function SceneGraph() {
                     <div key={boneKey}>
                       {/* Bone row */}
                       <div
+                        onContextMenu={(e) => {
+                          if (!canPasteSceneNodeClipboard) return;
+                          e.preventDefault();
+                          // Single-action prompt — full menu is overkill
+                          // when "paste here" is the only meaningful action
+                          // a bone can host.
+                          const yes = window.confirm(
+                            `Paste node onto bone "${formatBoneName(boneName)}"?`
+                          );
+                          if (yes) {
+                            void handlePasteNodeAsChild(node.id, boneName);
+                          }
+                        }}
                         onDragOver={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -2065,6 +2362,13 @@ export function SceneGraph() {
               onReparent={(id, newParentId) => handleReparent(id, newParentId)}
               onUnparent={(id) => handleReparent(id, null, null)}
               onDelete={handleDelete}
+              onCopy={(id) => void handleCopyNode(id)}
+              onPasteNode={(parentId) =>
+                void handlePasteNodeAsChild(parentId, null)
+              }
+              onPasteGraph={(id) => void handlePasteGraphAtNode(id)}
+              canPasteNode={canPasteSceneNodeClipboard}
+              canPasteGraph={canPasteGraphClipboard}
             />
           )}
         </>

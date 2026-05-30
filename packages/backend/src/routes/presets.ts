@@ -165,8 +165,14 @@ router.post('/presets/serialize', (req, res) => {
 });
 
 router.post('/presets/instantiate', (req, res) => {
-  const { payload, projectId, rootSceneNodeId, rootComposeSceneId, parentId } =
-    req.body ?? {};
+  const {
+    payload,
+    projectId,
+    rootSceneNodeId,
+    rootComposeSceneId,
+    parentId,
+    boneAttachment,
+  } = req.body ?? {};
   if (!payload || !projectId) {
     return res.status(400).json({
       ok: false,
@@ -197,6 +203,8 @@ router.post('/presets/instantiate', (req, res) => {
       rootSceneNodeId: rootSceneNodeId ?? undefined,
       rootComposeSceneId: rootComposeSceneId ?? undefined,
       parentId: parentId ?? null,
+      boneAttachment:
+        typeof boneAttachment === 'string' ? boneAttachment : null,
     });
 
     if (payload.rootKind === 'scene_node' && rootSceneNodeId) {

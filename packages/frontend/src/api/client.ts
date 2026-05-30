@@ -1096,7 +1096,11 @@ export const instantiatePreset = (
   projectId: string,
   rootSceneNodeId: string,
   rootComposeSceneId?: string | null,
-  parentId?: string | null
+  parentId?: string | null,
+  /** Optional: when set and rootKind = 'scene_node', the inserted root gets
+   *  bone_attachment = this bone name. Used by the editor's "paste node
+   *  onto bone" path. */
+  boneAttachment?: string | null
 ) =>
   request<{
     rootId: string;
@@ -1110,6 +1114,7 @@ export const instantiatePreset = (
       rootSceneNodeId,
       rootComposeSceneId,
       parentId,
+      boneAttachment,
     }),
   });
 

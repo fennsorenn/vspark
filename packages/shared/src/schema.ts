@@ -557,6 +557,10 @@ export const instantiatePresetSchema = z
     projectId: z.string(),
     sceneId: z.string(),
     parentId: z.string().nullable().optional(),
+    /** Override the root scene node's bone_attachment on insert. Used by
+     *  the "paste onto bone" path in the editor. Only meaningful when
+     *  rootKind = 'scene_node'. */
+    boneAttachment: z.string().nullable().optional(),
   })
   .openapi('InstantiatePreset');
 
