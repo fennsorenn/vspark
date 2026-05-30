@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { matchAssetByHash, materializeAsset } from './assets.js';
 import { makeImportSubstituter } from './substitute.js';
+import { projectGraphManager } from '../project_graphs/manager.js';
 
 interface PresetPayload {
   format: string;
@@ -346,7 +347,10 @@ export function instantiatePreset(
     }
   }
 
-  // Insert graphs
+  // Insert graphs + reconcile so enabled standalone graphs start running
+  // immediately (parity with POST /scene-nodes/:nodeId/graphs and
+  // POST /compose-layers/:layerId/graphs).
+  const insertedGraphIds: string[] = [];
   for (const graph of payload.graphs ?? []) {
     const graphId = mintId(graph.presetId);
     const ownerId = resolveId(graph.ownerPresetId);
@@ -362,6 +366,7 @@ export function instantiatePreset(
       JSON.stringify(graph.descriptor),
       JSON.stringify(graph.nodeState)
     );
+    insertedGraphIds.push(graphId);
   }
 
   // Insert track clips
@@ -416,6 +421,17 @@ export function instantiatePreset(
           kf.outHandleVFraction
         );
       }
+    }
+  }
+
+  // Start any enabled standalone graphs we just inserted. Without this they
+  // sit in the DB but never instantiate (their nodes don't fire) until the
+  // next server restart, which would silently break preset-bundled graphs.
+  for (const gid of insertedGraphIds) {
+    try {
+      projectGraphManager.reconcile(gid);
+    } catch (e) {
+      console.warn(`[preset] failed to start imported graph ${gid}:`, e);
     }
   }
 
