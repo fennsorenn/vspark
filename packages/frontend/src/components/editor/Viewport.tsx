@@ -2951,12 +2951,38 @@ function TextCanvasNode({ node }: { node: NodeRecord }) {
         host.innerHTML = safe;
         document.body.appendChild(host);
         try {
+          // DOMPurify doesn't carry the `crossorigin` attribute through
+          // (it's not in our allow-list and most servers don't accept it
+          // anyway), so set it imperatively on every <img> before
+          // html2canvas tries to read them. Also wait for each image to
+          // finish loading — html2canvas captures synchronously and would
+          // otherwise rasterise a blank where the emote should be.
+          const imgs = Array.from(host.querySelectorAll('img'));
+          for (const img of imgs) img.crossOrigin = 'anonymous';
+          await Promise.all(
+            imgs.map((img) => {
+              if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+              return new Promise<void>((resolve) => {
+                // Resolve on success OR failure — a single broken image
+                // shouldn't block the whole render.
+                img.addEventListener('load', () => resolve(), { once: true });
+                img.addEventListener('error', () => resolve(), { once: true });
+              });
+            })
+          );
+          if (cancelled) return;
           const rendered = await html2canvas(host, {
             backgroundColor: null,
             width: canvas.width,
             height: canvas.height,
             scale: 1,
             logging: false,
+            // useCORS asks images with crossorigin=anonymous so the
+            // resulting canvas isn't tainted; allowTaint stays false so
+            // we surface CORS failures explicitly instead of silently
+            // producing a tainted (un-rasterisable) canvas.
+            useCORS: true,
+            allowTaint: false,
           });
           if (!cancelled) {
             ctx.drawImage(rendered, 0, 0);
