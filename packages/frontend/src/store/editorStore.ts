@@ -372,6 +372,12 @@ interface EditorState {
   composeLayers: ComposeLayerRecord[];
   leftTab: LeftDockTab;
   bottomTab: BottomDockTab;
+  /** In-memory mirror of the OS clipboard. Written on every editor copy;
+   *  read synchronously by context menus to decide which Paste items are
+   *  applicable. Null when the editor hasn't seen a copy in this session
+   *  (a paste can still succeed via async OS-clipboard read). See
+   *  packages/frontend/src/clipboard.ts. */
+  clipboardPayload: import('../clipboard').ClipboardPayload | null;
   /** Height of the bottom dock (AssetManager / NodePalette) in pixels.
    *  Persisted in-session only; clamped at the call site. */
   bottomDockHeight: number;
@@ -474,6 +480,9 @@ interface EditorState {
   setLeftTab: (tab: LeftDockTab) => void;
   setBottomTab: (tab: BottomDockTab) => void;
   setBottomDockHeight: (h: number) => void;
+  setClipboard: (
+    payload: import('../clipboard').ClipboardPayload | null
+  ) => void;
   selectComposeLayer: (id: string | null) => void;
 
   // Track clip actions
@@ -595,6 +604,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   leftTab: 'scene',
   bottomTab: 'models',
   bottomDockHeight: 200,
+  clipboardPayload: null,
   selectedComposeLayerId: null,
 
   trackClips: [],
@@ -835,6 +845,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }),
   setLeftTab: (tab) => set({ leftTab: tab }),
   setBottomTab: (tab) => set({ bottomTab: tab }),
+  setClipboard: (payload) => set({ clipboardPayload: payload }),
   setBottomDockHeight: (h) =>
     set({ bottomDockHeight: Math.max(120, Math.min(800, Math.round(h))) }),
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),

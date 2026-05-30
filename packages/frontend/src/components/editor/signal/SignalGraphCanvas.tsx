@@ -33,6 +33,14 @@ import { FlashEdge } from './FlashEdge';
 import type { FlashEdgeData } from './FlashEdge';
 import { useEditorStore } from '../../../store/editorStore';
 import { api, getSignalGraphStates } from '../../../api/client';
+import { copyToClipboard, pasteFromClipboard } from '../../../clipboard';
+
+/** Mint a short, unique-enough node id for pasted nodes. Graph descriptor
+ *  node ids are arbitrary strings (not constrained to UUIDs); using a
+ *  short random keeps the canvas readable when inspecting via dev tools. */
+function randomNodeId(): string {
+  return `n_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Stable type registries (must be outside component to avoid identity changes)
@@ -690,6 +698,103 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     [setSelectedSignalNode]
   );
 
+  // ── copy / paste ────────────────────────────────────────────────────────
+  //
+  // Cmd/Ctrl+C copies the React Flow selection (nodes + edges-between-them)
+  // to the clipboard. Cmd/Ctrl+V mints fresh ids, offsets positions by
+  // +(40, 40), appends to the active descriptor, and re-selects the pasted
+  // nodes. Listens on window so the user doesn't need to focus the canvas
+  // div first, but guards on the active element being inside the wrapper
+  // (and not a text input) so the shortcut doesn't fire while editing
+  // a property panel field.
+  const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
+  const setClipboard = useEditorStore((s) => s.setClipboard);
+  useEffect(() => {
+    const isEditableTarget = (el: EventTarget | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (el.isContentEditable) return true;
+      return false;
+    };
+
+    const onKey = (ev: KeyboardEvent) => {
+      if (!writable) return;
+      const meta = ev.metaKey || ev.ctrlKey;
+      if (!meta) return;
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+      // Active element must be inside the canvas wrapper, and must NOT be a
+      // text input (so editing a literal field with Ctrl+V still pastes
+      // text into the input).
+      const active = document.activeElement;
+      if (!active || !wrapper.contains(active)) return;
+      if (isEditableTarget(active)) return;
+
+      const key = ev.key.toLowerCase();
+      if (key === 'c') {
+        const selectedNodes = nodes.filter((n) => n.selected);
+        if (selectedNodes.length === 0) return;
+        const selectedIds = new Set(selectedNodes.map((n) => n.id));
+        const d = editableRef.current;
+        if (!d) return;
+        const copiedNodes = d.nodes.filter((n) => selectedIds.has(n.id));
+        const copiedEdges = d.edges.filter(
+          (e) => selectedIds.has(e.fromNodeId) && selectedIds.has(e.toNodeId)
+        );
+        ev.preventDefault();
+        void copyToClipboard(
+          { kind: 'graph-nodes', nodes: copiedNodes, edges: copiedEdges },
+          setClipboard
+        );
+        return;
+      }
+      if (key === 'v') {
+        ev.preventDefault();
+        void pasteFromClipboard(clipboardPayload).then((payload) => {
+          if (!payload || payload.kind !== 'graph-nodes') return;
+          // Mint a fresh id for every pasted node; rewrite edge endpoints
+          // to the new ids. Offset positions by a fixed delta so the paste
+          // doesn't overlap the source. Existing ids in the descriptor are
+          // never touched.
+          const idMap = new Map<string, string>();
+          for (const n of payload.nodes) idMap.set(n.id, randomNodeId());
+          const newNodes = payload.nodes.map((n) => ({
+            ...n,
+            id: idMap.get(n.id)!,
+            position: { x: (n.position?.x ?? 0) + 40, y: (n.position?.y ?? 0) + 40 },
+          }));
+          const newEdges = payload.edges.map((e) => ({
+            ...e,
+            fromNodeId: idMap.get(e.fromNodeId) ?? e.fromNodeId,
+            toNodeId: idMap.get(e.toNodeId) ?? e.toNodeId,
+          }));
+          mutateDescriptor((d) => ({
+            ...d,
+            nodes: [...d.nodes, ...newNodes],
+            edges: [...d.edges, ...newEdges],
+          }));
+          // Re-select the pasted nodes (and only those). The next build
+          // pass picks this up via mergeNodes' selected pass-through.
+          const newIds = new Set(idMap.values());
+          setNodes((ns) =>
+            ns.map((n) => ({ ...n, selected: newIds.has(n.id) }))
+          );
+        });
+        return;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [
+    writable,
+    nodes,
+    clipboardPayload,
+    setClipboard,
+    mutateDescriptor,
+    setNodes,
+  ]);
+
   // Suppress noisy React Flow change-application when the graph is read-only,
   // so accidental keypresses or drags don't update visual state we can't persist.
   const handleReadonlyNodesChange = useCallback(
@@ -704,9 +809,20 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   return (
     <div
       ref={wrapperRef}
-      style={{ width: '100%', height: '100%', background: '#0d0d0d' }}
+      // tabIndex makes the wrapper focusable so Cmd/Ctrl+C/V land inside
+      // it (the window-level keydown handler requires document.activeElement
+      // to be within the wrapper). outline:none so the focus ring doesn't
+      // show — the React Flow background is the visual focus indicator.
+      tabIndex={-1}
+      style={{
+        width: '100%',
+        height: '100%',
+        background: '#0d0d0d',
+        outline: 'none',
+      }}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
+      onMouseEnter={() => wrapperRef.current?.focus()}
     >
       <ReactFlow
         nodes={nodes}
