@@ -65,8 +65,40 @@ interface ProjectEntry {
 
 export class OverliveManager {
   private readonly projects = new Map<string, ProjectEntry>();
+  /** projectId -> account id currently marked is_default = 1. Cached lookup,
+   *  read on every overlive event for projects where some node has an empty
+   *  `account` config; invalidated on every refreshProject (called by REST
+   *  account mutations including set-default). */
+  private readonly defaultAccountByProject = new Map<string, string | null>();
+  /** Set of project ids we've already warned "no default account" for; avoids
+   *  spamming the log when a project has overlive nodes but no accounts. */
+  private readonly warnedNoDefault = new Set<string>();
 
   constructor(private readonly ws?: WSSync) {}
+
+  /** Look up the project's default account id (the row with is_default = 1).
+   *  Cached; invalidated on `refreshProject`. */
+  getDefaultAccountId(projectId: string): string | null {
+    if (this.defaultAccountByProject.has(projectId))
+      return this.defaultAccountByProject.get(projectId) ?? null;
+    const row = getDb()
+      .prepare(
+        'SELECT id FROM overlive_accounts WHERE project_id = ? AND is_default = 1 LIMIT 1'
+      )
+      .get(projectId) as { id: string } | undefined;
+    const id = row?.id ?? null;
+    this.defaultAccountByProject.set(projectId, id);
+    return id;
+  }
+
+  /** Per-project one-shot warn so a misconfigured graph doesn't spam logs. */
+  warnNoDefaultOnce(projectId: string): void {
+    if (this.warnedNoDefault.has(projectId)) return;
+    this.warnedNoDefault.add(projectId);
+    console.warn(
+      `[Overlive] project ${projectId} has an overlive node with no \`account\` set, and no default account is marked. Set a default in the Accounts modal or pick an explicit account on the node.`
+    );
+  }
 
   // ─── Public lifecycle ─────────────────────────────────────────────────────
 
@@ -94,6 +126,9 @@ export class OverliveManager {
    * Idempotent — call after any account row mutation.
    */
   async refreshProject(projectId: string): Promise<void> {
+    // Drop the cached default and warn state so subsequent events re-query.
+    this.defaultAccountByProject.delete(projectId);
+    this.warnedNoDefault.delete(projectId);
     const rows = this.loadAccounts(projectId);
     if (rows.length === 0) {
       // No accounts → tear down kit if it exists.
@@ -292,9 +327,23 @@ export class OverliveManager {
       // inline literal directly since events arrive externally and the node
       // doesn't get a chance to pull its inputs first.
       const cfg = (node.defaultConfig ?? {}) as Record<string, unknown>;
-      const wantAccount =
+      const rawAccount =
         typeof cfg['account'] === 'string' ? cfg['account'] : '';
-      if (wantAccount && wantAccount !== event.sourceInstanceId) continue;
+      // Empty config or an unresolved __preset:* placeholder both fall back
+      // to the project's default account (set in the accounts modal,
+      // defaults to the first-created account). If the project has no
+      // default, drop with a one-time warn rather than fan out to every
+      // account (the pre-default-flag behaviour).
+      const isUnresolved =
+        rawAccount === '' || rawAccount.startsWith('__preset:');
+      const wantAccount = isUnresolved
+        ? this.getDefaultAccountId(projectId)
+        : rawAccount;
+      if (!wantAccount) {
+        this.warnNoDefaultOnce(projectId);
+        continue;
+      }
+      if (wantAccount !== event.sourceInstanceId) continue;
       const wantChannel =
         typeof cfg['channel'] === 'string'
           ? cfg['channel'].trim().toLowerCase()

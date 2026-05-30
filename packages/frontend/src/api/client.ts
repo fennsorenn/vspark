@@ -948,6 +948,9 @@ export interface OverliveAccountRecord {
   status: OverliveAccountStatus;
   statusReason: string | null;
   statusMessage: string | null;
+  /** Exactly one account per project is the default. Overlive signal nodes
+   *  with an empty `account` config fall back to this. */
+  isDefault?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -991,6 +994,13 @@ export const updateOverliveAccount = (
 export const deleteOverliveAccount = (id: string) =>
   request<Record<string, never>>(`/overlive-accounts/${id}`, {
     method: 'DELETE',
+  });
+
+/** Mark this account as the project's default. Clears the flag on every
+ *  other account in the same project atomically. */
+export const setDefaultOverliveAccount = (id: string) =>
+  request<OverliveAccountRecord>(`/overlive-accounts/${id}/set-default`, {
+    method: 'POST',
   });
 
 // ─── Overlive: OAuth (Twitch) ────────────────────────────────────────────────
@@ -1204,6 +1214,7 @@ export const api = {
   createOverliveAccount,
   updateOverliveAccount,
   deleteOverliveAccount,
+  setDefaultOverliveAccount,
   startTwitchOAuth,
   getPresets,
   createPreset,

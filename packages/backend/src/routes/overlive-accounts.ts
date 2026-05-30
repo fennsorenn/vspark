@@ -39,6 +39,7 @@ interface AccountRow {
   status: string;
   status_reason: string | null;
   status_message: string | null;
+  is_default: number;
   created_at: string;
   updated_at: string;
 }
@@ -324,6 +325,47 @@ router.put('/overlive-accounts/:id', (req, res) => {
 
 /**
  * @openapi
+ * /api/overlive-accounts/{id}/set-default:
+ *   post:
+ *     tags: [overlive]
+ *     summary: Mark this account as the project's default.
+ *     description: |
+ *       Clears is_default = 1 on every other account in the same project,
+ *       then sets it on this one. Used by overlive signal nodes when their
+ *       `account` config is empty (fall back to the project default).
+ */
+router.post('/overlive-accounts/:id/set-default', (req, res) => {
+  const db = getDb();
+  const row = db
+    .prepare('SELECT project_id FROM overlive_accounts WHERE id = ?')
+    .get(req.params.id) as { project_id: string } | undefined;
+  if (!row)
+    return res
+      .status(404)
+      .json({ ok: false, error: { message: 'account not found' } });
+  // Atomic swap: clear all others in the project, then set this one.
+  db.exec('BEGIN');
+  try {
+    db.prepare(
+      'UPDATE overlive_accounts SET is_default = 0 WHERE project_id = ?'
+    ).run(row.project_id);
+    db.prepare(
+      'UPDATE overlive_accounts SET is_default = 1 WHERE id = ?'
+    ).run(req.params.id);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  res.json({ ok: true, data: getAccount(req.params.id) });
+  // Invalidate the manager's cached default for this project.
+  void getOverliveManager()
+    .refreshProject(row.project_id)
+    .catch(() => {});
+});
+
+/**
+ * @openapi
  * /api/overlive-accounts/{id}:
  *   delete:
  *     tags: [overlive]
@@ -396,6 +438,7 @@ function mapAccount(r: AccountRow) {
     status: r.status,
     statusReason: r.status_reason,
     statusMessage: r.status_message,
+    isDefault: r.is_default === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

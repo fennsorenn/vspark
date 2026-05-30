@@ -174,6 +174,20 @@ export function OverliveAccountsModal({ onClose }: Props) {
     }
   };
 
+  const handleSetDefault = async (acc: OverliveAccountRecord) => {
+    if (acc.isDefault) return;
+    try {
+      await api.setDefaultOverliveAccount(acc.id);
+      // Local state: flip the radio. The backend already did the atomic
+      // swap; we mirror it so the UI updates immediately without a refetch.
+      setAccounts((prev) =>
+        prev.map((x) => ({ ...x, isDefault: x.id === acc.id }))
+      );
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to set default account');
+    }
+  };
+
   const handleDeleteApp = async (app: OverliveAppCredentialRecord) => {
     const usingCount = accounts.filter(
       (a) => a.appCredentialId === app.id
@@ -349,6 +363,27 @@ export function OverliveAccountsModal({ onClose }: Props) {
                       Reconnect
                     </button>
                   )}
+                  <label
+                    title="Default account — overlive nodes with no account picked fall back to this one"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      fontSize: 11,
+                      color: acc.isDefault ? '#9146ff' : '#777',
+                      cursor: 'pointer',
+                      marginRight: 4,
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="overlive-default-account"
+                      checked={Boolean(acc.isDefault)}
+                      onChange={() => handleSetDefault(acc)}
+                      style={{ accentColor: '#9146ff', cursor: 'pointer' }}
+                    />
+                    default
+                  </label>
                   <button
                     style={dangerBtnStyle}
                     onClick={() => handleDeleteAccount(acc)}
