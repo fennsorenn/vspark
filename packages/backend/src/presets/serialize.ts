@@ -4,6 +4,7 @@ import {
   getComposeLayerDescendants,
 } from './subtree.js';
 import { hashFile, resolveAbsPath, fileToBase64 } from './assets.js';
+import { makeExportSubstituter } from './substitute.js';
 
 interface SerializeOpts {
   embedAssets?: boolean;
@@ -118,19 +119,27 @@ export function serializeSceneNodeSubtree(
       boneAttachment: row.bone_attachment ?? null,
       hidden: (row.hidden as number) === 1,
       properties: JSON.parse((row.properties as string) || '{}'),
-      components: components.map((c) => ({
-        presetId: nextPresetId('c'),
-        kind: c.kind,
-        enabled: (c.enabled as number) === 1,
-        sortOrder: c.sort_order ?? 0,
-        config: JSON.parse((c.config as string) || '{}'),
-      })),
-      cameraEffects: cameraEffects.map((e) => ({
-        presetId: nextPresetId('ce'),
-        kind: e.kind,
-        enabled: (e.enabled as number) === 1,
-        config: JSON.parse((e.config as string) || '{}'),
-      })),
+      components: components.map((c) => {
+        const compPresetId = nextPresetId('c');
+        realToPreset.set(c.id as string, compPresetId);
+        return {
+          presetId: compPresetId,
+          kind: c.kind,
+          enabled: (c.enabled as number) === 1,
+          sortOrder: c.sort_order ?? 0,
+          config: JSON.parse((c.config as string) || '{}'),
+        };
+      }),
+      cameraEffects: cameraEffects.map((e) => {
+        const effPresetId = nextPresetId('ce');
+        realToPreset.set(e.id as string, effPresetId);
+        return {
+          presetId: effPresetId,
+          kind: e.kind,
+          enabled: (e.enabled as number) === 1,
+          config: JSON.parse((e.config as string) || '{}'),
+        };
+      }),
     });
   }
 
@@ -142,15 +151,19 @@ export function serializeSceneNodeSubtree(
     )
     .all(...nodeIds) as Record<string, unknown>[];
 
-  const graphs = graphRows.map((g) => ({
-    presetId: nextPresetId('g'),
-    ownerKind: 'scene_node' as const,
-    ownerPresetId: realToPreset.get(g.owner_id as string) ?? '',
-    name: g.name,
-    enabled: (g.enabled as number) === 1,
-    descriptor: JSON.parse((g.descriptor as string) || '{}'),
-    nodeState: JSON.parse((g.node_state as string) || '{}'),
-  }));
+  const graphs = graphRows.map((g) => {
+    const graphPresetId = nextPresetId('g');
+    realToPreset.set(g.id as string, graphPresetId);
+    return {
+      presetId: graphPresetId,
+      ownerKind: 'scene_node' as const,
+      ownerPresetId: realToPreset.get(g.owner_id as string) ?? '',
+      name: g.name,
+      enabled: (g.enabled as number) === 1,
+      descriptor: JSON.parse((g.descriptor as string) || '{}'),
+      nodeState: JSON.parse((g.node_state as string) || '{}'),
+    };
+  });
 
   // Animation clips
   const clipRows = db
@@ -170,8 +183,10 @@ export function serializeSceneNodeSubtree(
         'scene_node_file'
       );
     }
+    const acPresetId = nextPresetId('ac');
+    realToPreset.set(c.id as string, acPresetId);
     return {
-      presetId: nextPresetId('ac'),
+      presetId: acPresetId,
       sourceNodePresetId: realToPreset.get(c.source_node_id as string) ?? '',
       sourceFilePresetAssetId,
       clipIndex: c.clip_index,
@@ -194,8 +209,10 @@ export function serializeSceneNodeSubtree(
     const lanes = db
       .prepare('SELECT * FROM track_clip_lanes WHERE clip_id = ?')
       .all(tc.id as string) as Record<string, unknown>[];
+    const tcPresetId = nextPresetId('tc');
+    realToPreset.set(tc.id as string, tcPresetId);
     return {
-      presetId: nextPresetId('tc'),
+      presetId: tcPresetId,
       ownerKind: 'scene_node' as const,
       ownerPresetId: realToPreset.get(tc.owner_node_id as string) ?? '',
       name: tc.name,
@@ -212,22 +229,28 @@ export function serializeSceneNodeSubtree(
         const targetPresetId =
           realToPreset.get(lane.target_id as string) ??
           (lane.target_id as string);
+        const lnPresetId = nextPresetId('ln');
+        realToPreset.set(lane.id as string, lnPresetId);
         return {
-          presetId: nextPresetId('ln'),
+          presetId: lnPresetId,
           targetKind: lane.target_kind,
           targetPresetId,
           paramPath: lane.param_path,
           defaultValue: lane.default_value ?? 0,
-          keyframes: kfs.map((k) => ({
-            presetId: nextPresetId('k'),
-            t: k.t,
-            value: k.value,
-            easing: k.easing ?? 'linear',
-            inHandleTFraction: k.in_handle_t_fraction ?? null,
-            inHandleVFraction: k.in_handle_v_fraction ?? null,
-            outHandleTFraction: k.out_handle_t_fraction ?? null,
-            outHandleVFraction: k.out_handle_v_fraction ?? null,
-          })),
+          keyframes: kfs.map((k) => {
+            const kPresetId = nextPresetId('k');
+            realToPreset.set(k.id as string, kPresetId);
+            return {
+              presetId: kPresetId,
+              t: k.t,
+              value: k.value,
+              easing: k.easing ?? 'linear',
+              inHandleTFraction: k.in_handle_t_fraction ?? null,
+              inHandleVFraction: k.in_handle_v_fraction ?? null,
+              outHandleTFraction: k.out_handle_t_fraction ?? null,
+              outHandleVFraction: k.out_handle_v_fraction ?? null,
+            };
+          }),
         };
       }),
     };
@@ -241,7 +264,7 @@ export function serializeSceneNodeSubtree(
     | { project_id: string; root_scene_node_id: string }
     | undefined;
 
-  return {
+  const payload = {
     format: 'vspark.preset.v2' as const,
     rootKind: 'scene_node' as const,
     exportedAt: new Date().toISOString(),
@@ -256,6 +279,15 @@ export function serializeSceneNodeSubtree(
     animationClips: animationClips.length > 0 ? animationClips : undefined,
     trackClips: trackClips.length > 0 ? trackClips : undefined,
   };
+
+  // Final pass: rewrite any literal occurrence of a real id (anywhere in
+  // nested JSON: descriptor body, layer.config, components[*].config,
+  // properties, etc.) to its __preset:<tag> placeholder. Internal refs
+  // round-trip cleanly; refs to entities outside the subtree (e.g. an
+  // overlive account id) survive unchanged in the payload and get caught
+  // by the runtime fallback / future external-ref picker on import. See
+  // packages/backend/src/presets/substitute.ts.
+  return makeExportSubstituter(realToPreset)(payload);
 }
 
 export function serializeComposeLayerSubtree(
@@ -339,15 +371,19 @@ export function serializeComposeLayerSubtree(
     )
     .all(...layerIds) as Record<string, unknown>[];
 
-  const graphs = graphRows.map((g) => ({
-    presetId: nextPresetId('g'),
-    ownerKind: 'compose_layer' as const,
-    ownerPresetId: realToPreset.get(g.owner_id as string) ?? '',
-    name: g.name,
-    enabled: (g.enabled as number) === 1,
-    descriptor: JSON.parse((g.descriptor as string) || '{}'),
-    nodeState: JSON.parse((g.node_state as string) || '{}'),
-  }));
+  const graphs = graphRows.map((g) => {
+    const graphPresetId = nextPresetId('g');
+    realToPreset.set(g.id as string, graphPresetId);
+    return {
+      presetId: graphPresetId,
+      ownerKind: 'compose_layer' as const,
+      ownerPresetId: realToPreset.get(g.owner_id as string) ?? '',
+      name: g.name,
+      enabled: (g.enabled as number) === 1,
+      descriptor: JSON.parse((g.descriptor as string) || '{}'),
+      nodeState: JSON.parse((g.node_state as string) || '{}'),
+    };
+  });
 
   // Track clips owned by layers
   const trackClipRows = db
@@ -360,8 +396,10 @@ export function serializeComposeLayerSubtree(
     const lanes = db
       .prepare('SELECT * FROM track_clip_lanes WHERE clip_id = ?')
       .all(tc.id as string) as Record<string, unknown>[];
+    const tcPresetId = nextPresetId('tc');
+    realToPreset.set(tc.id as string, tcPresetId);
     return {
-      presetId: nextPresetId('tc'),
+      presetId: tcPresetId,
       ownerKind: 'compose_layer' as const,
       ownerPresetId: realToPreset.get(tc.owner_layer_id as string) ?? '',
       name: tc.name,
@@ -375,24 +413,30 @@ export function serializeComposeLayerSubtree(
             'SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t'
           )
           .all(lane.id as string) as Record<string, unknown>[];
+        const lnPresetId = nextPresetId('ln');
+        realToPreset.set(lane.id as string, lnPresetId);
         return {
-          presetId: nextPresetId('ln'),
+          presetId: lnPresetId,
           targetKind: lane.target_kind,
           targetPresetId:
             realToPreset.get(lane.target_id as string) ??
             (lane.target_id as string),
           paramPath: lane.param_path,
           defaultValue: lane.default_value ?? 0,
-          keyframes: kfs.map((k) => ({
-            presetId: nextPresetId('k'),
-            t: k.t,
-            value: k.value,
-            easing: k.easing ?? 'linear',
-            inHandleTFraction: k.in_handle_t_fraction ?? null,
-            inHandleVFraction: k.in_handle_v_fraction ?? null,
-            outHandleTFraction: k.out_handle_t_fraction ?? null,
-            outHandleVFraction: k.out_handle_v_fraction ?? null,
-          })),
+          keyframes: kfs.map((k) => {
+            const kPresetId = nextPresetId('k');
+            realToPreset.set(k.id as string, kPresetId);
+            return {
+              presetId: kPresetId,
+              t: k.t,
+              value: k.value,
+              easing: k.easing ?? 'linear',
+              inHandleTFraction: k.in_handle_t_fraction ?? null,
+              inHandleVFraction: k.in_handle_v_fraction ?? null,
+              outHandleTFraction: k.out_handle_t_fraction ?? null,
+              outHandleVFraction: k.out_handle_v_fraction ?? null,
+            };
+          }),
         };
       }),
     };
@@ -406,7 +450,7 @@ export function serializeComposeLayerSubtree(
     | { project_id: string; root_compose_scene_id: string | null }
     | undefined;
 
-  return {
+  const payload = {
     format: 'vspark.preset.v2' as const,
     rootKind: 'compose_layer' as const,
     exportedAt: new Date().toISOString(),
@@ -420,4 +464,6 @@ export function serializeComposeLayerSubtree(
     graphs: graphs.length > 0 ? graphs : undefined,
     trackClips: trackClips.length > 0 ? trackClips : undefined,
   };
+
+  return makeExportSubstituter(realToPreset)(payload);
 }

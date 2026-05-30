@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { matchAssetByHash, materializeAsset } from './assets.js';
+import { makeImportSubstituter } from './substitute.js';
 
 interface PresetPayload {
   format: string;
@@ -113,7 +114,7 @@ export interface InstantiateResult {
 }
 
 export function instantiatePreset(
-  payload: PresetPayload,
+  payloadInput: PresetPayload,
   target: {
     projectId: string;
     rootSceneNodeId?: string;
@@ -125,10 +126,58 @@ export function instantiatePreset(
   const idMap: Record<string, string> = {};
   const missingAssets: string[] = [];
 
+  // Pre-mint a real id for every entity in the payload, then substitute
+  // `__preset:<tag>` tokens inside any nested JSON blob (descriptors,
+  // configs, properties) with the corresponding real id BEFORE inserting.
+  // This is what makes graph descriptors with embedded clip/node ids
+  // round-trip across projects. See packages/backend/src/presets/substitute.ts.
+  const presetToReal = new Map<string, string>();
+  function premint(presetId: string): void {
+    if (!presetToReal.has(presetId)) {
+      const real = randomUUID();
+      presetToReal.set(presetId, real);
+      idMap[presetId] = real;
+    }
+  }
+  for (const n of payloadInput.sceneNodes ?? []) {
+    premint(n.presetId);
+    for (const c of n.components) premint(c.presetId);
+    for (const e of n.cameraEffects ?? []) premint(e.presetId);
+  }
+  for (const l of payloadInput.composeLayers ?? []) {
+    premint(l.presetId);
+  }
+  for (const g of payloadInput.graphs ?? []) {
+    premint(g.presetId);
+  }
+  for (const ac of payloadInput.animationClips ?? []) {
+    premint(ac.presetId);
+  }
+  for (const tc of payloadInput.trackClips ?? []) {
+    premint(tc.presetId);
+    for (const lane of tc.lanes) {
+      premint(lane.presetId);
+      for (const kf of lane.keyframes) premint(kf.presetId);
+    }
+  }
+
+  // Now rewrite every `__preset:<tag>` token in nested JSON to its real id.
+  const substituted = makeImportSubstituter(presetToReal)(payloadInput);
+  const payload = substituted as PresetPayload;
+
+  // Existing helpers now just read from the pre-built map. We keep them
+  // around so the existing insert code (which calls resolveId for parent /
+  // owner / target refs in top-level fields) keeps working unchanged.
   function mintId(presetId: string): string {
-    const real = randomUUID();
-    idMap[presetId] = real;
-    return real;
+    // Idempotent: returns the pre-minted id if present, else a fresh one
+    // (defensive — every preset id we encounter should have been pre-minted
+    // already given the loops above).
+    if (!idMap[presetId]) {
+      const real = randomUUID();
+      idMap[presetId] = real;
+      presetToReal.set(presetId, real);
+    }
+    return idMap[presetId];
   }
 
   function resolveId(presetId: string): string {
