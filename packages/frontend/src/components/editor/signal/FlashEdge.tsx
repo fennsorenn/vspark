@@ -101,30 +101,31 @@ export function FlashEdge({
 
   return (
     <>
-      {/* Wide invisible hit area for hover */}
-      <path
-        d={edgePath}
-        fill="none"
-        stroke="transparent"
-        strokeWidth={18}
+      {/* Wrap in a <g> so hover events fire when the cursor enters either the
+       *  visible stroke OR the wide interaction path that BaseEdge draws via
+       *  `interactionWidth`. interactionWidth gives a 20px-wide invisible
+       *  hit target that React Flow listens on for click / selection /
+       *  delete-key — without it (and without re-enabling pointer events on
+       *  the visible path) the noodle wasn't selectable at all. */}
+      <g
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
         style={{ cursor: 'crosshair' }}
-      />
-
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        markerEnd={markerEnd}
-        style={{
-          stroke: d.color,
-          strokeWidth,
-          strokeDasharray: d.isValue ? '4 3' : undefined,
-          filter: glow,
-          transition: 'filter 0.5s ease-out, stroke-width 0.3s ease-out',
-          pointerEvents: 'none',
-        }}
-      />
+      >
+        <BaseEdge
+          id={id}
+          path={edgePath}
+          markerEnd={markerEnd}
+          interactionWidth={20}
+          style={{
+            stroke: d.color,
+            strokeWidth,
+            strokeDasharray: d.isValue ? '4 3' : undefined,
+            filter: glow,
+            transition: 'filter 0.5s ease-out, stroke-width 0.3s ease-out',
+          }}
+        />
+      </g>
 
       {d.label && (
         <EdgeLabelRenderer>
