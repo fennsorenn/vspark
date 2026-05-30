@@ -8,6 +8,7 @@ import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
 import { GraphsSection } from './GraphsSection';
+import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 
 const KIND_ICONS: Record<string, string> = {
@@ -814,6 +815,9 @@ function GraphListPanel() {
   const [componentGraphs, setComponentGraphs] = useState<GraphDescriptor[]>([]);
   const [projectGraphs, setProjectGraphs] = useState<GraphRecord[]>([]);
   const [componentGraphsOpen, setComponentGraphsOpen] = useState(false);
+  const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
+  const setClipboard = useEditorStore((s) => s.setClipboard);
+  const canPasteGraph = clipboardPayload?.kind === 'graph';
 
   const refresh = () => {
     api
@@ -897,6 +901,35 @@ function GraphListPanel() {
     }
   };
 
+  const handleCopy = async (g: GraphRecord) => {
+    await copyToClipboard(
+      {
+        kind: 'graph',
+        name: g.name,
+        descriptor: g.descriptor,
+        sourceOwnerKind: 'project',
+      },
+      setClipboard
+    );
+  };
+
+  const handlePaste = async () => {
+    if (!projectId) return;
+    const payload = await pasteFromClipboard(clipboardPayload);
+    if (!payload || payload.kind !== 'graph') return;
+    try {
+      const created = await api.createProjectGraph(projectId, payload.name);
+      const updated = await api.updateGraph(created.id, {
+        descriptor: payload.descriptor,
+        enabled: true,
+      });
+      setProjectGraphs((prev) => [...prev, updated]);
+      setActiveGraph(updated.id);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+    }
+  };
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
       {/* Standalone (project) graphs */}
@@ -914,22 +947,41 @@ function GraphListPanel() {
         }}
       >
         <span>Project Graphs</span>
-        <button
-          title="New graph"
-          onClick={handleCreate}
-          style={{
-            background: '#2563eb',
-            border: 'none',
-            color: '#fff',
-            borderRadius: 4,
-            padding: '2px 7px',
-            cursor: 'pointer',
-            fontSize: 11,
-            fontWeight: 500,
-          }}
-        >
-          +
-        </button>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {canPasteGraph && (
+            <button
+              title="Paste graph from clipboard as a project graph"
+              onClick={handlePaste}
+              style={{
+                background: 'none',
+                border: '1px dashed #3a5a4a',
+                color: '#9bc090',
+                borderRadius: 4,
+                padding: '1px 6px',
+                cursor: 'pointer',
+                fontSize: 11,
+              }}
+            >
+              ⧉
+            </button>
+          )}
+          <button
+            title="New graph"
+            onClick={handleCreate}
+            style={{
+              background: '#2563eb',
+              border: 'none',
+              color: '#fff',
+              borderRadius: 4,
+              padding: '2px 7px',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 500,
+            }}
+          >
+            +
+          </button>
+        </div>
       </div>
       {projectGraphs.length === 0 ? (
         <div
@@ -954,11 +1006,12 @@ function GraphListPanel() {
                 e.preventDefault();
                 // Simple action via prompt — keep this section unobtrusive.
                 const action = window.prompt(
-                  `Action on "${g.name}":\n  r = rename\n  t = toggle ${g.enabled ? 'disable' : 'enable'}\n  d = delete`,
+                  `Action on "${g.name}":\n  r = rename\n  t = toggle ${g.enabled ? 'disable' : 'enable'}\n  c = copy\n  d = delete`,
                   ''
                 );
                 if (action === 'r') handleRename(g);
                 else if (action === 't') handleToggleEnabled(g);
+                else if (action === 'c') void handleCopy(g);
                 else if (action === 'd') handleDelete(g);
               }}
             >

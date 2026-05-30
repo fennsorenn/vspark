@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import { api, type GraphRecord } from '../../api/client';
+import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 
 /** Inline, expandable list of standalone graphs attached to a single scene
  *  node or compose layer — mirrors ClipsSection. Selecting a graph opens it
@@ -12,6 +13,9 @@ export function GraphsSection({
 }) {
   const setActiveGraph = useEditorStore((s) => s.setActiveGraph);
   const activeGraphId = useEditorStore((s) => s.activeGraphId);
+  const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
+  const setClipboard = useEditorStore((s) => s.setClipboard);
+  const canPasteGraph = clipboardPayload?.kind === 'graph';
 
   const [graphs, setGraphs] = useState<GraphRecord[]>([]);
 
@@ -71,6 +75,42 @@ export function GraphsSection({
   // editor's main pane). Clearing activeGraph (e.g. selecting a non-graph
   // tab in the left dock) returns to the viewport.
   const openGraph = (id: string) => setActiveGraph(id);
+
+  const handleCopy = async (g: GraphRecord) => {
+    // GraphRecord.descriptor lacks the wrapper fields (id, label, readonly)
+    // that the canvas expects internally, but those are reconstructed on
+    // paste — we only need the nodes + edges + name.
+    await copyToClipboard(
+      {
+        kind: 'graph',
+        name: g.name,
+        descriptor: g.descriptor,
+        sourceOwnerKind: owner.kind === 'node' ? 'scene_node' : 'compose_layer',
+      },
+      setClipboard
+    );
+  };
+
+  const handlePaste = async () => {
+    const payload = await pasteFromClipboard(clipboardPayload);
+    if (!payload || payload.kind !== 'graph') return;
+    try {
+      const created =
+        owner.kind === 'node'
+          ? await api.createNodeGraph(owner.id, payload.name)
+          : await api.createLayerGraph(owner.id, payload.name);
+      // Push the descriptor onto the new graph in a follow-up PUT — the
+      // create endpoint only takes a name.
+      const updated = await api.updateGraph(created.id, {
+        descriptor: payload.descriptor,
+        enabled: true,
+      });
+      setGraphs((prev) => [...prev, updated]);
+      openGraph(updated.id);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+    }
+  };
 
   return (
     <div
@@ -152,6 +192,24 @@ export function GraphsSection({
               {g.enabled ? '●' : '○'}
             </button>
             <button
+              title="Copy graph (paste anywhere with Paste Graph)"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#666',
+                fontSize: 11,
+                padding: '0 4px',
+                lineHeight: 1,
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleCopy(g);
+              }}
+            >
+              ⧉
+            </button>
+            <button
               title="Delete graph"
               style={{
                 background: 'none',
@@ -172,7 +230,7 @@ export function GraphsSection({
           </div>
         );
       })}
-      <div style={{ padding: '3px 6px' }}>
+      <div style={{ padding: '3px 6px', display: 'flex', gap: 6 }}>
         <button
           onClick={handleAdd}
           style={{
@@ -183,12 +241,30 @@ export function GraphsSection({
             cursor: 'pointer',
             fontSize: 11,
             padding: '3px 8px',
-            width: '100%',
+            flex: 1,
             textAlign: 'left',
           }}
         >
           + Add Graph
         </button>
+        {canPasteGraph && (
+          <button
+            onClick={handlePaste}
+            title="Paste the graph from clipboard onto this owner"
+            style={{
+              background: 'none',
+              border: '1px dashed #3a5a4a',
+              borderRadius: 4,
+              color: '#9bc090',
+              cursor: 'pointer',
+              fontSize: 11,
+              padding: '3px 8px',
+              textAlign: 'left',
+            }}
+          >
+            ⧉ Paste Graph
+          </button>
+        )}
       </div>
     </div>
   );
