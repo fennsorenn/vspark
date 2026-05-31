@@ -685,6 +685,20 @@ type CreateTrackClipBody = {
 };
 
 /** Create a clip owned by a scene node (scene roots included). */
+/** Fetch the full list of track clips owned by a scene node, each with its
+ *  lanes + keyframes hydrated. Useful when a bulk paste did many inserts
+ *  via lane / keyframe endpoints and the caller needs a consistent local
+ *  snapshot rather than reconstructing from WS broadcasts. */
+export const getTrackClipsForNode = (nodeId: string) =>
+  request<Record<string, unknown>[]>(
+    `/scene-nodes/${nodeId}/track-clips`
+  ).then((rows) => rows.map(mapTrackClip));
+
+export const getTrackClipsForLayer = (layerId: string) =>
+  request<Record<string, unknown>[]>(
+    `/compose-layers/${layerId}/track-clips`
+  ).then((rows) => rows.map(mapTrackClip));
+
 export const createTrackClipForNode = (
   nodeId: string,
   body: CreateTrackClipBody
@@ -1193,6 +1207,8 @@ export const api = {
   createComposeScene,
   getComposeSceneLayers,
   createComposeSceneLayer,
+  getTrackClipsForNode,
+  getTrackClipsForLayer,
   createTrackClipForNode,
   createTrackClipForLayer,
   updateTrackClip,

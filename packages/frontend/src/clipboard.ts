@@ -20,6 +20,7 @@ import type { PresetPayloadInput } from '@vspark/shared/schema';
 import type {
   CameraEffectRecord,
   NodeComponentRecord,
+  TrackClipRecord,
 } from './api/client';
 
 export type OwnerKind = 'project' | 'scene_node' | 'compose_layer';
@@ -45,6 +46,18 @@ export type ClipboardPayload =
   | {
       kind: 'node-component';
       component: Omit<NodeComponentRecord, 'id' | 'nodeId'>;
+    }
+  | {
+      kind: 'track-clip';
+      /** Snapshot of the source clip's top-level fields + lanes + keyframes.
+       *  Ids inside (lane.id, kf.id, lane.clipId) are NOT carried — paste
+       *  re-mints them. lane.targetId is preserved so the paste-side can
+       *  rewrite it conditionally (see ClipsSection.handlePasteClip). */
+      clip: Omit<TrackClipRecord, 'id' | 'ownerNodeId' | 'ownerLayerId' | 'startedAt'>;
+      /** Owner id at the time of copy. Used by paste to decide which lane
+       *  targets to retarget to the destination owner. */
+      sourceOwnerId: string;
+      sourceOwnerKind: 'scene_node' | 'compose_layer';
     };
 
 export type ClipboardKind = ClipboardPayload['kind'];

@@ -346,6 +346,12 @@ function SceneNodeContextMenu({
 
 // ---------- Inline components section ----------
 function NodeComponentsSection({ nodeId }: { nodeId: string }) {
+  /** Open context menu state. Null when no menu is currently up. */
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    comp: NodeComponent;
+  } | null>(null);
   const nodeComponentsFor = useEditorStore((s) => s.nodeComponentsFor);
   const addNodeComponent = useEditorStore((s) => s.addNodeComponent);
   const updateNodeComponent = useEditorStore((s) => s.updateNodeComponent);
@@ -482,6 +488,10 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               background: isSelected ? '#1a3a5a' : 'transparent',
             }}
             onClick={() => selectComponent(isSelected ? null : comp.id)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setCtxMenu({ x: e.clientX, y: e.clientY, comp });
+            }}
           >
             <span style={{ fontSize: 14 }}>{ct?.icon ?? '⚙️'}</span>
             <span
@@ -545,42 +555,6 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               }}
             >
               {comp.enabled ? '●' : '○'}
-            </button>
-            <button
-              title="Copy component"
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#666',
-                fontSize: 11,
-                padding: '0 4px',
-                lineHeight: 1,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleCopyComponent(comp);
-              }}
-            >
-              ⧉
-            </button>
-            <button
-              title="Remove component"
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#555',
-                fontSize: 14,
-                padding: '0 2px',
-                lineHeight: 1,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRemove(comp);
-              }}
-            >
-              ×
             </button>
           </div>
         );
@@ -680,6 +654,32 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
           </div>
         )}
       </div>
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          items={[
+            {
+              kind: 'item',
+              label: 'Copy component',
+              onClick: () => void handleCopyComponent(ctxMenu.comp),
+            },
+            {
+              kind: 'item',
+              label: ctxMenu.comp.enabled ? 'Disable' : 'Enable',
+              onClick: () => handleToggleEnabled(ctxMenu.comp),
+            },
+            { kind: 'divider' },
+            {
+              kind: 'item',
+              label: 'Remove component',
+              onClick: () => handleRemove(ctxMenu.comp),
+              danger: true,
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }
@@ -696,6 +696,11 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteEffect = clipboardPayload?.kind === 'camera-effect';
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    effect: import('../../store/editorStore').CameraEffectRecord;
+  } | null>(null);
 
   const effects = cameraEffectsFor(nodeId);
 
@@ -849,6 +854,10 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
                 ? clearSelectedEffect()
                 : selectEffect(nodeId, effect.kind)
             }
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setCtxMenu({ x: e.clientX, y: e.clientY, effect });
+            }}
           >
             <span style={{ fontSize: 13 }}>{ek?.icon ?? '✦'}</span>
             <span
@@ -876,42 +885,6 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
               }}
             >
               {effect.enabled ? '●' : '○'}
-            </button>
-            <button
-              title="Copy effect"
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#666',
-                fontSize: 11,
-                padding: '0 4px',
-                lineHeight: 1,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleCopyEffect(effect);
-              }}
-            >
-              ⧉
-            </button>
-            <button
-              title="Remove effect"
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#555',
-                fontSize: 14,
-                padding: '0 2px',
-                lineHeight: 1,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRemove(effect);
-              }}
-            >
-              ×
             </button>
           </div>
         );
@@ -1009,6 +982,32 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
           </div>
         )}
       </div>
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          items={[
+            {
+              kind: 'item',
+              label: 'Copy effect',
+              onClick: () => void handleCopyEffect(ctxMenu.effect),
+            },
+            {
+              kind: 'item',
+              label: ctxMenu.effect.enabled ? 'Disable' : 'Enable',
+              onClick: () => handleToggleEnabled(ctxMenu.effect),
+            },
+            { kind: 'divider' },
+            {
+              kind: 'item',
+              label: 'Remove effect',
+              onClick: () => handleRemove(ctxMenu.effect),
+              danger: true,
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }
