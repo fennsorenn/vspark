@@ -8,6 +8,7 @@ import { api } from '../../api/client';
 import type { ComposeLayerKind } from '../../api/client';
 import { ClipsSection } from './ClipsSection';
 import { GraphsSection } from './GraphsSection';
+import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 
 const KIND_ICONS: Record<ComposeLayerKind, string> = {
@@ -337,22 +338,43 @@ function LayerRow({
     }
   };
 
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(
+    null
+  );
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY });
+  };
+  const buildContextMenuItems = (): ContextMenuItem[] => {
     const canPasteLayer = clipboardPayload?.kind === 'compose-layer';
     const canPasteGraph = clipboardPayload?.kind === 'graph';
-    const lines = [
-      `Actions on "${layer.name}":`,
-      '  c = copy layer',
-      canPasteLayer ? '  l = paste layer as child' : null,
-      canPasteGraph ? '  g = paste graph here' : null,
-      '  d = delete',
-    ].filter(Boolean);
-    const action = window.prompt(lines.join('\n'), '');
-    if (action === 'c') void handleCopyLayer();
-    else if (action === 'l' && canPasteLayer) void handlePasteLayer();
-    else if (action === 'g' && canPasteGraph) void handlePasteGraphAtLayer();
-    else if (action === 'd') void handleDelete();
+    const items: ContextMenuItem[] = [
+      { kind: 'item', label: 'Copy layer', onClick: () => void handleCopyLayer() },
+    ];
+    if (canPasteLayer) {
+      items.push({
+        kind: 'item',
+        label: 'Paste layer as child',
+        onClick: () => void handlePasteLayer(),
+      });
+    }
+    if (canPasteGraph) {
+      items.push({
+        kind: 'item',
+        label: 'Paste graph here',
+        onClick: () => void handlePasteGraphAtLayer(),
+      });
+    }
+    items.push(
+      { kind: 'divider' },
+      {
+        kind: 'item',
+        label: 'Delete',
+        onClick: () => void handleDelete(),
+        danger: true,
+      }
+    );
+    return items;
   };
 
   const handleToggleVisible = async () => {
@@ -519,6 +541,14 @@ function LayerRow({
             depth={depth + 1}
           />
         ))}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          items={buildContextMenuItems()}
+        />
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import { api, type GraphRecord } from '../../api/client';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
+import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 
 /** Inline, expandable list of standalone graphs attached to a single scene
  *  node or compose layer — mirrors ClipsSection. Selecting a graph opens it
@@ -18,6 +19,12 @@ export function GraphsSection({
   const canPasteGraph = clipboardPayload?.kind === 'graph';
 
   const [graphs, setGraphs] = useState<GraphRecord[]>([]);
+  /** Open context menu state. Null when no menu is currently up. */
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    graph: GraphRecord;
+  } | null>(null);
 
   const fetch = () => {
     const call =
@@ -152,6 +159,10 @@ export function GraphsSection({
               background: isActive ? '#1a3a5a' : 'transparent',
             }}
             onClick={() => openGraph(g.id)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setCtxMenu({ x: e.clientX, y: e.clientY, graph: g });
+            }}
           >
             <span
               style={{
@@ -190,42 +201,6 @@ export function GraphsSection({
               }}
             >
               {g.enabled ? '●' : '○'}
-            </button>
-            <button
-              title="Copy graph (paste anywhere with Paste Graph)"
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#666',
-                fontSize: 11,
-                padding: '0 4px',
-                lineHeight: 1,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleCopy(g);
-              }}
-            >
-              ⧉
-            </button>
-            <button
-              title="Delete graph"
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#555',
-                fontSize: 14,
-                padding: '0 2px',
-                lineHeight: 1,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDelete(g);
-              }}
-            >
-              ×
             </button>
           </div>
         );
@@ -266,6 +241,45 @@ export function GraphsSection({
           </button>
         )}
       </div>
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          items={buildGraphRowMenu({
+            graph: ctxMenu.graph,
+            onCopy: () => void handleCopy(ctxMenu.graph),
+            onToggleEnabled: () => handleToggleEnabled(ctxMenu.graph),
+            onDelete: () => handleDelete(ctxMenu.graph),
+          })}
+        />
+      )}
     </div>
   );
+}
+
+/** Build the per-graph-row menu. Pulled out so the same shape is reused
+ *  (and trivially extended) without inlining a 30-line array literal at the
+ *  call site. */
+function buildGraphRowMenu(args: {
+  graph: GraphRecord;
+  onCopy: () => void;
+  onToggleEnabled: () => void;
+  onDelete: () => void;
+}): ContextMenuItem[] {
+  return [
+    { kind: 'item', label: 'Copy graph', onClick: args.onCopy },
+    {
+      kind: 'item',
+      label: args.graph.enabled ? 'Disable' : 'Enable',
+      onClick: args.onToggleEnabled,
+    },
+    { kind: 'divider' },
+    {
+      kind: 'item',
+      label: 'Delete',
+      onClick: args.onDelete,
+      danger: true,
+    },
+  ];
 }

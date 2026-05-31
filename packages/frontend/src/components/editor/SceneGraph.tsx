@@ -8,6 +8,7 @@ import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
 import { GraphsSection } from './GraphsSection';
+import { ContextMenu } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 
@@ -62,7 +63,11 @@ interface CtxMenu {
   y: number;
 }
 
-function ContextMenu({
+/** Scene-tree-specific right-click menu. Older than the generic
+ *  ContextMenu in ./ContextMenu.tsx; renamed away from `ContextMenu` so
+ *  the two don't collide. Worth eventually rewriting on top of the
+ *  generic one once we settle the submenu-by-hover pattern there. */
+function SceneNodeContextMenu({
   menu,
   nodes,
   onClose,
@@ -1024,6 +1029,11 @@ function GraphListPanel() {
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteGraph = clipboardPayload?.kind === 'graph';
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    graph: GraphRecord;
+  } | null>(null);
 
   const refresh = () => {
     api
@@ -1210,15 +1220,7 @@ function GraphListPanel() {
               onClick={() => setActiveGraph(active ? null : g.id)}
               onContextMenu={(e) => {
                 e.preventDefault();
-                // Simple action via prompt — keep this section unobtrusive.
-                const action = window.prompt(
-                  `Action on "${g.name}":\n  r = rename\n  t = toggle ${g.enabled ? 'disable' : 'enable'}\n  c = copy\n  d = delete`,
-                  ''
-                );
-                if (action === 'r') handleRename(g);
-                else if (action === 't') handleToggleEnabled(g);
-                else if (action === 'c') void handleCopy(g);
-                else if (action === 'd') handleDelete(g);
+                setCtxMenu({ x: e.clientX, y: e.clientY, graph: g });
               }}
             >
               <span style={{ opacity: g.enabled ? 0.9 : 0.35 }}>⬡</span>
@@ -1315,6 +1317,29 @@ function GraphListPanel() {
             </div>
           ))
         ))}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          items={[
+            { kind: 'item', label: 'Copy graph', onClick: () => void handleCopy(ctxMenu.graph) },
+            { kind: 'item', label: 'Rename…', onClick: () => handleRename(ctxMenu.graph) },
+            {
+              kind: 'item',
+              label: ctxMenu.graph.enabled ? 'Disable' : 'Enable',
+              onClick: () => handleToggleEnabled(ctxMenu.graph),
+            },
+            { kind: 'divider' },
+            {
+              kind: 'item',
+              label: 'Delete',
+              onClick: () => handleDelete(ctxMenu.graph),
+              danger: true,
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }
@@ -2354,7 +2379,7 @@ export function SceneGraph() {
 
           {/* Context menu */}
           {ctxMenu && (
-            <ContextMenu
+            <SceneNodeContextMenu
               menu={ctxMenu}
               nodes={nodes}
               onClose={() => setCtxMenu(null)}
