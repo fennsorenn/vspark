@@ -14,11 +14,17 @@ await build({
   format: 'cjs',
   outfile: 'dist/bundle.cjs',
   tsconfig: 'tsconfig.json',
+  // Must mirror the exports map in ../shared/package.json one-for-one.
+  // esbuild's alias matching is prefix-based, so a missing subpath entry
+  // gets greedily caught by the bare `@vspark/shared` alias below and
+  // appended onto types.ts — esbuild then tries to read types.ts as a
+  // directory and the build fails.
   alias: {
-    '@vspark/shared/signal': '../shared/src/signal.ts',
-    '@vspark/shared/schema': '../shared/src/schema.ts',
-    '@vspark/shared/arkit':  '../shared/src/arkit_tables.ts',
-    '@vspark/shared':        '../shared/src/types.ts',
+    '@vspark/shared/signal':     '../shared/src/signal.ts',
+    '@vspark/shared/schema':     '../shared/src/schema.ts',
+    '@vspark/shared/arkit':      '../shared/src/arkit_tables.ts',
+    '@vspark/shared/paramPaths': '../shared/src/paramPaths.ts',
+    '@vspark/shared':            '../shared/src/types.ts',
   },
   define: { 'import.meta.url': '__importMetaUrl' },
   banner: {
