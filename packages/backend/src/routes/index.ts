@@ -8,6 +8,11 @@ import apiController from './api-controller.js';
 import expressions from './expressions.js';
 import cameraEffects from './camera-effects.js';
 import composeLayers from './compose-layers.js';
+import trackClips from './track-clips.js';
+import graphs from './graphs.js';
+import presets from './presets.js';
+import overliveAccounts from './overlive-accounts.js';
+import overliveAuth from './overlive-auth.js';
 import signal from './signal.js';
 import meta from './meta.js';
 
@@ -21,6 +26,11 @@ router.use(apiController);
 router.use(expressions);
 router.use(cameraEffects);
 router.use(composeLayers);
+router.use(trackClips);
+router.use(graphs);
+router.use(presets);
+router.use(overliveAccounts);
+router.use(overliveAuth);
 router.use(signal);
 router.use(meta);
 
@@ -32,4 +42,5 @@ export {
   setTrackingManager,
   setApiControllerManager,
   setWsSync,
+  setTrackClipPlaybackManager,
 } from './shared.js';

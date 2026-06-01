@@ -1,81 +1,107 @@
-import { useEffect, useState, type CSSProperties, type RefObject } from 'react'
-import { useEditorStore, type ComposeLayerRecord } from '../../store/editorStore'
-import { startResize, startRotate, type ResizeEdge } from './composeLayerInteractions'
+import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
+import {
+  useEditorStore,
+  type ComposeLayerRecord,
+} from '../../store/editorStore';
+import {
+  startResize,
+  startRotate,
+  type ResizeEdge,
+} from './composeLayerInteractions';
+import { layerFrame } from './composeHitTest';
 
 interface ComposeSelectionOverlayProps {
-  viewportRef: RefObject<HTMLElement>
-  layer: ComposeLayerRecord
+  viewportRef: RefObject<HTMLElement>;
+  layer: ComposeLayerRecord;
 }
 
-const HANDLE_SIZE = 10
-const ROTATE_OFFSET = 28
-
-/** Compute the layer's centre, axes, and half-extents in viewport-local pixel space.
- *  We project the layer's CSS-anchored rect onto the viewport rect so handles can
- *  follow rotation and arbitrary anchor corners without resorting to getBoundingClientRect. */
-function layerFrame(viewport: DOMRect, layer: ComposeLayerRecord) {
-  const left   = layer.anchorH === 'left'   ? layer.x : viewport.width  - layer.x - layer.width
-  const top    = layer.anchorV === 'top'    ? layer.y : viewport.height - layer.y - layer.height
-  const cx = left + layer.width / 2
-  const cy = top + layer.height / 2
-  const rad = (layer.rotation * Math.PI) / 180
-  const cos = Math.cos(rad)
-  const sin = Math.sin(rad)
-  // Local axes in viewport space
-  const ux = { x: cos,  y: sin }   // layer +x in viewport
-  const uy = { x: -sin, y: cos }   // layer +y in viewport
-  const hx = layer.width / 2
-  const hy = layer.height / 2
-  return { cx, cy, ux, uy, hx, hy }
-}
+const HANDLE_SIZE = 10;
+const ROTATE_OFFSET = 28;
 
 function pointAt(f: ReturnType<typeof layerFrame>, sx: number, sy: number) {
   // sx, sy ∈ {-1, 0, 1} pick a corner/edge offset in layer-local axes
   return {
     x: f.cx + f.ux.x * sx * f.hx + f.uy.x * sy * f.hy,
     y: f.cy + f.ux.y * sx * f.hx + f.uy.y * sy * f.hy,
-  }
+  };
 }
 
 const EDGE_OFFSETS: Record<ResizeEdge, [number, number]> = {
-  nw: [-1, -1], n: [0, -1], ne: [1, -1],
-  w:  [-1,  0],            e:  [1,  0],
-  sw: [-1,  1], s: [0,  1], se: [1,  1],
-}
+  nw: [-1, -1],
+  n: [0, -1],
+  ne: [1, -1],
+  w: [-1, 0],
+  e: [1, 0],
+  sw: [-1, 1],
+  s: [0, 1],
+  se: [1, 1],
+};
 
 function cursorFor(edge: ResizeEdge): string {
   switch (edge) {
-    case 'n': case 's': return 'ns-resize'
-    case 'e': case 'w': return 'ew-resize'
-    case 'ne': case 'sw': return 'nesw-resize'
-    case 'nw': case 'se': return 'nwse-resize'
+    case 'n':
+    case 's':
+      return 'ns-resize';
+    case 'e':
+    case 'w':
+      return 'ew-resize';
+    case 'ne':
+    case 'sw':
+      return 'nesw-resize';
+    case 'nw':
+    case 'se':
+      return 'nwse-resize';
   }
 }
 
-export function ComposeSelectionOverlay({ viewportRef, layer }: ComposeSelectionOverlayProps) {
-  const updateLayer = useEditorStore((s) => s.updateComposeLayerLocal)
-  const [viewportRect, setViewportRect] = useState<DOMRect | null>(null)
+export function ComposeSelectionOverlay({
+  viewportRef,
+  layer,
+}: ComposeSelectionOverlayProps) {
+  const updateLayer = useEditorStore((s) => s.updateComposeLayerLocal);
+  // Track this layer's active clip override so the chrome follows the same
+  // x/y/rotation the rendered layer uses (ComposeLayerStack applies it too).
+  const override = useEditorStore((s) => s.composeLayerOverrides[layer.id]);
+  const [viewportRect, setViewportRect] = useState<DOMRect | null>(null);
 
   // Track the viewport rect (it can change with window resize / panel resize).
   useEffect(() => {
-    const el = viewportRef.current
-    if (!el) return
-    const measure = () => setViewportRect(el.getBoundingClientRect())
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    window.addEventListener('scroll', measure, true)
-    return () => { ro.disconnect(); window.removeEventListener('scroll', measure, true) }
-  }, [viewportRef])
+    const el = viewportRef.current;
+    if (!el) return;
+    const measure = () => setViewportRect(el.getBoundingClientRect());
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, [viewportRef]);
 
-  if (!viewportRect) return null
+  if (!viewportRect) return null;
 
-  const f = layerFrame(viewportRect, layer)
-  const apply = (patch: Partial<ComposeLayerRecord>) => updateLayer(layer.id, patch)
-
+  // The clip override (if any) drives x/y/rotation of the rendered layer; merge
+  // it so the selection frame sits exactly on the visible layer.
+  const effectiveLayer: ComposeLayerRecord = override
+    ? {
+        ...layer,
+        x: override.x ?? layer.x,
+        y: override.y ?? layer.y,
+        rotation: override.rotation ?? layer.rotation,
+      }
+    : layer;
+  const f = layerFrame(viewportRect, effectiveLayer);
+  const apply = (patch: Partial<ComposeLayerRecord>) =>
+    updateLayer(layer.id, patch);
 
   // Outline path (4 corners) for a polygon outline so we get rotated borders.
-  const corners = [pointAt(f, -1, -1), pointAt(f, 1, -1), pointAt(f, 1, 1), pointAt(f, -1, 1)]
+  const corners = [
+    pointAt(f, -1, -1),
+    pointAt(f, 1, -1),
+    pointAt(f, 1, 1),
+    pointAt(f, -1, 1),
+  ];
 
   // Containing div fills the viewport and is pointer-events: none so it never
   // intercepts clicks meant for layers. Individual chrome elements opt in.
@@ -85,9 +111,13 @@ export function ComposeSelectionOverlay({ viewportRef, layer }: ComposeSelection
     zIndex: 100,
     pointerEvents: 'none',
     overflow: 'visible',
-  }
+  };
 
-  const handleStyleAt = (pt: { x: number; y: number }, cursor: string, extra: CSSProperties = {}): CSSProperties => ({
+  const handleStyleAt = (
+    pt: { x: number; y: number },
+    cursor: string,
+    extra: CSSProperties = {}
+  ): CSSProperties => ({
     position: 'absolute',
     left: pt.x - HANDLE_SIZE / 2,
     top: pt.y - HANDLE_SIZE / 2,
@@ -100,26 +130,42 @@ export function ComposeSelectionOverlay({ viewportRef, layer }: ComposeSelection
     pointerEvents: 'auto',
     boxSizing: 'border-box',
     ...extra,
-  })
+  });
 
   // Rotation handle sits ROTATE_OFFSET above the top edge midpoint, in layer-local space.
   const rotPos = {
     x: f.cx - f.uy.x * (f.hy + ROTATE_OFFSET),
     y: f.cy - f.uy.y * (f.hy + ROTATE_OFFSET),
-  }
-  const topMid = pointAt(f, 0, -1)
+  };
+  const topMid = pointAt(f, 0, -1);
 
   return (
     <div style={baseStyle}>
       {/* SVG outline so rotation comes for free. */}
-      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}>
+      <svg
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          overflow: 'visible',
+        }}
+      >
         <polygon
           points={corners.map((c) => `${c.x},${c.y}`).join(' ')}
           fill="none"
           stroke="#4a9eff"
           strokeWidth={1}
         />
-        <line x1={topMid.x} y1={topMid.y} x2={rotPos.x} y2={rotPos.y} stroke="#4a9eff" strokeWidth={1} />
+        <line
+          x1={topMid.x}
+          y1={topMid.y}
+          x2={rotPos.x}
+          y2={rotPos.y}
+          stroke="#4a9eff"
+          strokeWidth={1}
+        />
       </svg>
 
       {/* Drag-move is handled by the capture overlay underneath this chrome.
@@ -128,40 +174,50 @@ export function ComposeSelectionOverlay({ viewportRef, layer }: ComposeSelection
 
       {/* Resize handles */}
       {(Object.keys(EDGE_OFFSETS) as ResizeEdge[]).map((edge) => {
-        const [sx, sy] = EDGE_OFFSETS[edge]
-        const pt = pointAt(f, sx, sy)
+        const [sx, sy] = EDGE_OFFSETS[edge];
+        const pt = pointAt(f, sx, sy);
         return (
           <div
             key={edge}
             style={handleStyleAt(pt, cursorFor(edge))}
             onPointerDown={(e) => {
-              if (e.button !== 0) return
-              e.preventDefault()
-              e.stopPropagation()
+              if (e.button !== 0) return;
+              e.preventDefault();
+              e.stopPropagation();
               // startResize uses screen-space deltas and writes into width/height/x/y.
               // Pass a synthetic element representing the (non-rotated) layer rect so the
               // rotate-aware math in composeLayerInteractions can later upgrade if needed.
-              startResize({ clientX: e.clientX, clientY: e.clientY }, layer, edge, apply)
+              startResize(
+                { clientX: e.clientX, clientY: e.clientY },
+                layer,
+                edge,
+                apply,
+                { width: viewportRect.width, height: viewportRect.height }
+              );
             }}
           />
-        )
+        );
       })}
 
       {/* Rotation handle (white circle) */}
       <div
-        style={handleStyleAt(rotPos, 'grab', { background: '#fff', borderColor: '#4a9eff', borderRadius: '50%' })}
+        style={handleStyleAt(rotPos, 'grab', {
+          background: '#fff',
+          borderColor: '#4a9eff',
+          borderRadius: '50%',
+        })}
         onPointerDown={(e) => {
-          if (e.button !== 0) return
-          e.preventDefault()
-          e.stopPropagation()
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
           startRotate(
             { clientX: e.clientX, clientY: e.clientY },
             layer,
             { x: viewportRect.left + f.cx, y: viewportRect.top + f.cy },
-            apply,
-          )
+            apply
+          );
         }}
       />
     </div>
-  )
+  );
 }

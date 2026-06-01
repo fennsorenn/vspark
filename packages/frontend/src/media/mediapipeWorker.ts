@@ -25,63 +25,76 @@
  *        { kind: 'error', message: string }
  *        { kind: 'result', result: HolisticLandmarkerResult, timestamp: number }
  */
-import { FilesetResolver, HolisticLandmarker } from '@mediapipe/tasks-vision'
-import type { HolisticLandmarkerResult } from '@mediapipe/tasks-vision'
+import { FilesetResolver, HolisticLandmarker } from '@mediapipe/tasks-vision';
+import type { HolisticLandmarkerResult } from '@mediapipe/tasks-vision';
 
-const WASM_CDN  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm'
-const MODEL_CDN = 'https://storage.googleapis.com/mediapipe-models/holistic_landmarker/holistic_landmarker/float16/latest/holistic_landmarker.task'
+const WASM_CDN =
+  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm';
+const MODEL_CDN =
+  'https://storage.googleapis.com/mediapipe-models/holistic_landmarker/holistic_landmarker/float16/latest/holistic_landmarker.task';
 
 type InMsg =
   | { kind: 'init' }
   | { kind: 'frame'; bitmap: ImageBitmap; timestamp: number }
-  | { kind: 'close' }
+  | { kind: 'close' };
 
 type OutMsg =
   | { kind: 'ready' }
   | { kind: 'error'; message: string }
-  | { kind: 'result'; result: HolisticLandmarkerResult; timestamp: number }
+  | { kind: 'result'; result: HolisticLandmarkerResult; timestamp: number };
 
-let landmarker: HolisticLandmarker | null = null
+let landmarker: HolisticLandmarker | null = null;
 
 async function init(): Promise<void> {
-  const vision = await FilesetResolver.forVisionTasks(WASM_CDN)
-  landmarker   = await HolisticLandmarker.createFromModelPath(vision, MODEL_CDN)
+  const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
+  landmarker = await HolisticLandmarker.createFromModelPath(vision, MODEL_CDN);
   await landmarker.setOptions({
-    runningMode:                'VIDEO',
+    runningMode: 'VIDEO',
     minFaceDetectionConfidence: 0.5,
-    minFacePresenceConfidence:  0.5,
+    minFacePresenceConfidence: 0.5,
     minPoseDetectionConfidence: 0.5,
-    minPosePresenceConfidence:  0.5,
+    minPosePresenceConfidence: 0.5,
     minHandLandmarksConfidence: 0.5,
-  })
-  ;(self as DedicatedWorkerGlobalScope).postMessage({ kind: 'ready' } satisfies OutMsg)
+  });
+  (self as DedicatedWorkerGlobalScope).postMessage({
+    kind: 'ready',
+  } satisfies OutMsg);
 }
 
 self.onmessage = async (e: MessageEvent<InMsg>) => {
-  const msg = e.data
+  const msg = e.data;
   try {
     if (msg.kind === 'init') {
-      await init()
-      return
+      await init();
+      return;
     }
     if (msg.kind === 'frame') {
-      if (!landmarker) { msg.bitmap.close(); return }
-      const result = landmarker.detectForVideo(msg.bitmap, msg.timestamp)
-      msg.bitmap.close()
-      ;(self as DedicatedWorkerGlobalScope).postMessage({
-        kind: 'result', result, timestamp: msg.timestamp,
-      } satisfies OutMsg)
-      return
+      if (!landmarker) {
+        msg.bitmap.close();
+        return;
+      }
+      const result = landmarker.detectForVideo(msg.bitmap, msg.timestamp);
+      msg.bitmap.close();
+      (self as DedicatedWorkerGlobalScope).postMessage({
+        kind: 'result',
+        result,
+        timestamp: msg.timestamp,
+      } satisfies OutMsg);
+      return;
     }
     if (msg.kind === 'close') {
-      await landmarker?.close()
-      landmarker = null
-      return
+      await landmarker?.close();
+      landmarker = null;
+      return;
     }
   } catch (err) {
-    console.error('[mediapipeWorker] error:', err)
-    ;(self as DedicatedWorkerGlobalScope).postMessage({
-      kind: 'error', message: err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err),
-    } satisfies OutMsg)
+    console.error('[mediapipeWorker] error:', err);
+    (self as DedicatedWorkerGlobalScope).postMessage({
+      kind: 'error',
+      message:
+        err instanceof Error
+          ? `${err.message}\n${err.stack ?? ''}`
+          : String(err),
+    } satisfies OutMsg);
   }
-}
+};

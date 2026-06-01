@@ -1,0 +1,54 @@
+{
+  "_about": "Phase 1 demo graph for the Flow A chat-billboard pattern. See dev-notes/modules/signal-graph.md and dev-notes/modules/spawn.md. Before importing: fill in the four placeholder ids marked with TODO in defaultConfig (overlive account id, template clip id, optional account-channel filter). Import via PUT /api/graphs/:id with the descriptor field set to this JSON object minus the leading underscore-prefixed metadata keys.",
+  "_setup": [
+    "1. Create a scene_node of kind 'text_canvas' in the scene you want overlays in. Mark it hidden (it's a template; spawns will be auto-unhidden).",
+    "2. Author a track_clip owned by that node, mode='relative', loop=false, duration=4. Add one lane targeting position.x with keyframes that sweep the value across the viewport (e.g. -3 at t=0, +3 at t=4).",
+    "3. Hook up an overlive account in TopBar > Overlive Accounts so chat events flow.",
+    "4. Fill in the TODO defaultConfig values below: overliveAccountId on the overlive_chat_message node, clipId on the spawn_clip node.",
+    "5. Create a project-scoped graph (POST /api/projects/:projectId/graphs) and PUT this descriptor (minus the _* meta keys) into its descriptor field.",
+    "6. Send a chat message; you should see a tmp text_canvas spawn at a randomised x and animate across the screen."
+  ],
+  "id": "demo-chat-billboard",
+  "label": "Chat → Flying Billboard",
+  "readonly": false,
+  "nodes": [
+    {
+      "id": "chat",
+      "kind": "overlive_chat_message",
+      "position": { "x": 0, "y": 0 },
+      "defaultConfig": { "account": "TODO_overlive_account_id" }
+    },
+    {
+      "id": "randomX",
+      "kind": "random",
+      "position": { "x": 280, "y": 0 },
+      "defaultConfig": { "min": -3, "max": 3, "mode": "float" }
+    },
+    {
+      "id": "spawn",
+      "kind": "spawn_clip",
+      "position": { "x": 560, "y": 0 },
+      "defaultConfig": { "clipId": "TODO_template_clip_id" }
+    },
+    {
+      "id": "setX",
+      "kind": "set_scene_node_param",
+      "position": { "x": 840, "y": 0 },
+      "defaultConfig": { "paramPath": "position.x" }
+    },
+    {
+      "id": "setText",
+      "kind": "set_text",
+      "position": { "x": 840, "y": 140 },
+      "defaultConfig": { "targetKind": "scene_node" }
+    }
+  ],
+  "edges": [
+    { "fromNodeId": "chat", "fromPort": "event", "toNodeId": "randomX", "toPort": "fire", "kind": "event" },
+    { "fromNodeId": "randomX", "fromPort": "fire", "toNodeId": "spawn", "toPort": "fire", "kind": "event" },
+    { "fromNodeId": "spawn", "fromPort": "spawned", "toNodeId": "setX", "toPort": "spawnRef", "kind": "event" },
+    { "fromNodeId": "randomX", "fromPort": "value", "toNodeId": "setX", "toPort": "value", "kind": "value" },
+    { "fromNodeId": "spawn", "fromPort": "spawned", "toNodeId": "setText", "toPort": "spawnRef", "kind": "event" },
+    { "fromNodeId": "chat", "fromPort": "text", "toNodeId": "setText", "toPort": "text", "kind": "value" }
+  ]
+}

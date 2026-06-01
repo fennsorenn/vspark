@@ -41,6 +41,20 @@ Self-referential FK with cascade: deleting a parent deletes all descendants.
 | `billboard` | 2D sprite always facing screen |
 | `prop` | Static mesh (alias of model, different semantic) |
 | `godray_caster` | Invisible sun mesh for the GodRays post-processing effect |
+| `text_troika` | SDF text via `troika-three-text`. Config: `{ content, fontSize, color, anchorX, anchorY, maxWidth, billboard? }`. With `billboard: true` the rendered text quaternion-locks to the active camera. `renderNodeElement` returns `null` for this kind so it mounts flat at the top level (like billboards/particles); the per-scene mount happens via `SceneNodes` `flatTextTroika`. |
+| `text_canvas` | `THREE.CanvasTexture` on a plane mesh, flat-mounted like `billboard`. Config: `{ content, fontSize, color, padding, allowHtml?, width, height, billboard? }`. Plain-text path uses a 2D canvas context with word-wrap. With `allowHtml`, the content is sanitised via `DOMPurify` (curated allow-list, see `lib/textSanitize.ts` `TEXT_SANITIZE_OPTS`) and rasterised off-DOM via `html2canvas` — this is the path used to render overlive emote HTML. |
+
+## Implemented (Phase 1 — signal-graph expansion)
+
+- **`opacity` on `components.transform`** (default 1) for all node kinds. Read by `Viewport.useTransformWithOverride` and applied via a new `useApplyOpacity(groupRef, opacity)` hook, which walks descendant meshes once per frame:
+  - Sets `material.transparent = true; material.opacity = value` while `opacity < 1`.
+  - Caches the *original* `material.transparent` flag per material; when `opacity` returns to `≥ 1` the original flag is restored (so we don't permanently flip an opaque material into the transparent draw queue).
+  - Wired into `AvatarNode`, `ModelNode`, `BillboardNode`, `ParticleNode`, `GodrayCasterNode`. Lights and cameras are skipped.
+  - Animatable via track clips and runtime overrides.
+- **Runtime override read path:** `useTransformWithOverride` merges `runtimeNodeOverrides[node.id]` alongside the existing clip override slot. Conflict on transform/scalar paths: **clip wins**. For `opacity` and `text.content`, runtime overrides are the only surface. See [runtime-overrides.md](runtime-overrides.md).
+- **Tmp scene nodes** rendered from the spawn channel arrive via the normal `node_added` / `node_removed` WS messages and render through the same per-kind renderers as persistent nodes. See [spawn.md](spawn.md).
+- **Schema:** `sceneNodeKindSchema` and the `NodeKind` union (`packages/shared/src/types.ts`) extended with `text_troika` and `text_canvas`. New frontend deps: `dompurify`, `html2canvas`, `troika-three-text` (ambient `.d.ts` at `packages/frontend/src/types/troika-three-text.d.ts`).
+
 
 ### `components` JSON structure (per node)
 

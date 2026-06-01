@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
+import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -17,7 +18,11 @@ const router: ReturnType<typeof Router> = Router();
  *       200: { description: Array of scene_node rows }
  */
 router.get('/scenes/:sceneId/nodes', (req, res) => {
-  const data = getDb().prepare('SELECT * FROM scene_nodes WHERE scene_id = ?').all(req.params.sceneId);
+  const data = getDb()
+    .prepare(
+      "SELECT * FROM scene_nodes WHERE root_scene_node_id = ? AND kind != 'scene'"
+    )
+    .all(req.params.sceneId);
   res.json({ ok: true, data });
 });
 
@@ -39,13 +44,128 @@ router.get('/scenes/:sceneId/nodes', (req, res) => {
  *       400: { description: Missing name or kind, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
 router.post('/scenes/:sceneId/nodes', (req, res) => {
-  const { name, parentId, boneAttachment, kind, filePath, components, properties } = req.body;
-  if (!name || !kind) return res.status(400).json({ ok: false, error: { status: 400, message: 'name and kind are required', code: 'VALIDATION_ERROR' } });
+  const {
+    name,
+    parentId,
+    boneAttachment,
+    kind,
+    filePath,
+    components,
+    properties,
+  } = req.body;
+  if (!name || !kind)
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'name and kind are required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   const id = randomUUID();
-  const sceneId = req.params.sceneId;
-  getDb().prepare('INSERT INTO scene_nodes (id, scene_id, parent_id, bone_attachment, name, kind, file_path, components, properties) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, sceneId, parentId ?? null, boneAttachment ?? null, name, kind, filePath ?? null, JSON.stringify(components ?? {}), JSON.stringify(properties ?? {}));
-  const node = { id, sceneId, name, kind, parentId: parentId ?? null, boneAttachment: boneAttachment ?? null, filePath: filePath ?? null, components: components ?? {}, properties: properties ?? {} };
+  const rootSceneNodeId = req.params.sceneId;
+  const db = getDb();
+  const sceneRow = db
+    .prepare(
+      "SELECT project_id FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+    )
+    .get(rootSceneNodeId) as { project_id: string } | undefined;
+  if (!sceneRow)
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'scene not found', code: 'NOT_FOUND' },
+    });
+
+  // Validate scene_instance: sourceSceneId must exist and not create a cycle
+  if (kind === 'scene_instance') {
+    const sourceSceneId = (properties as Record<string, unknown>)
+      ?.sourceSceneId as string | undefined;
+    if (!sourceSceneId)
+      return res.status(400).json({
+        ok: false,
+        error: {
+          status: 400,
+          message: 'scene_instance requires properties.sourceSceneId',
+          code: 'VALIDATION_ERROR',
+        },
+      });
+    const source = db
+      .prepare(
+        "SELECT id, project_id FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+      )
+      .get(sourceSceneId) as { id: string; project_id: string } | undefined;
+    if (!source || source.project_id !== sceneRow.project_id)
+      return res.status(400).json({
+        ok: false,
+        error: {
+          status: 400,
+          message: 'sourceSceneId must reference a scene in the same project',
+          code: 'VALIDATION_ERROR',
+        },
+      });
+    if (sourceSceneId === rootSceneNodeId)
+      return res.status(400).json({
+        ok: false,
+        error: {
+          status: 400,
+          message: 'a scene cannot instance itself',
+          code: 'VALIDATION_ERROR',
+        },
+      });
+    // Cycle detection: walk instances in sourceScene to check they don't reference rootSceneNodeId
+    const visited = new Set<string>([rootSceneNodeId]);
+    const queue = [sourceSceneId];
+    while (queue.length > 0) {
+      const sid = queue.shift()!;
+      if (visited.has(sid))
+        return res.status(400).json({
+          ok: false,
+          error: {
+            status: 400,
+            message: 'circular scene instance detected',
+            code: 'VALIDATION_ERROR',
+          },
+        });
+      visited.add(sid);
+      const instances = db
+        .prepare(
+          "SELECT properties FROM scene_nodes WHERE root_scene_node_id = ? AND kind = 'scene_instance'"
+        )
+        .all(sid) as { properties: string }[];
+      for (const inst of instances) {
+        const props = JSON.parse(inst.properties || '{}') as {
+          sourceSceneId?: string;
+        };
+        if (props.sourceSceneId) queue.push(props.sourceSceneId);
+      }
+    }
+  }
+
+  db.prepare(
+    'INSERT INTO scene_nodes (id, project_id, root_scene_node_id, parent_id, bone_attachment, name, kind, file_path, components, properties) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    id,
+    sceneRow.project_id,
+    rootSceneNodeId,
+    parentId ?? null,
+    boneAttachment ?? null,
+    name,
+    kind,
+    filePath ?? null,
+    JSON.stringify(components ?? {}),
+    JSON.stringify(properties ?? {})
+  );
+  const node = {
+    id,
+    rootSceneNodeId,
+    name,
+    kind,
+    parentId: parentId ?? null,
+    boneAttachment: boneAttachment ?? null,
+    filePath: filePath ?? null,
+    components: components ?? {},
+    properties: properties ?? {},
+  };
   _ws?.broadcast('node_added', node);
   res.status(201).json({ ok: true, data: node });
 });
@@ -72,50 +192,66 @@ router.post('/scenes/:sceneId/nodes', (req, res) => {
 router.put('/scene-nodes/:id', (req, res) => {
   const { name, kind, filePath, components } = req.body;
   const db = getDb();
-  db.prepare(`UPDATE scene_nodes SET
+  db.prepare(
+    `UPDATE scene_nodes SET
       name = COALESCE(?, name),
       kind = COALESCE(?, kind),
       file_path = COALESCE(?, file_path),
       components = COALESCE(?, components),
       updated_at = datetime('now')
-    WHERE id = ?`)
-    .run(name ?? null, kind ?? null, filePath ?? null,
-      components != null ? JSON.stringify(components) : null, req.params.id);
+    WHERE id = ?`
+  ).run(
+    name ?? null,
+    kind ?? null,
+    filePath ?? null,
+    components != null ? JSON.stringify(components) : null,
+    req.params.id
+  );
 
   // parentId and bone_attachment both support explicit null, so handle separately
   if ('parentId' in req.body) {
-    db.prepare(`UPDATE scene_nodes SET parent_id = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(req.body.parentId ?? null, req.params.id);
+    db.prepare(
+      `UPDATE scene_nodes SET parent_id = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(req.body.parentId ?? null, req.params.id);
   }
   if ('boneAttachment' in req.body) {
-    db.prepare(`UPDATE scene_nodes SET bone_attachment = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(req.body.boneAttachment ?? null, req.params.id);
+    db.prepare(
+      `UPDATE scene_nodes SET bone_attachment = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(req.body.boneAttachment ?? null, req.params.id);
   }
   if ('hidden' in req.body) {
-    db.prepare(`UPDATE scene_nodes SET hidden = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(req.body.hidden ? 1 : 0, req.params.id);
+    db.prepare(
+      `UPDATE scene_nodes SET hidden = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(req.body.hidden ? 1 : 0, req.params.id);
   }
 
   // Properties: shallow-merged JSON column.
   let mergedProperties: Record<string, unknown> | undefined;
   if (req.body.properties != null && typeof req.body.properties === 'object') {
-    const row = db.prepare('SELECT properties FROM scene_nodes WHERE id = ?').get(req.params.id) as
-      | { properties: string }
-      | undefined;
-    const current = row ? (JSON.parse(row.properties || '{}') as Record<string, unknown>) : {};
-    mergedProperties = { ...current, ...(req.body.properties as Record<string, unknown>) };
-    db.prepare(`UPDATE scene_nodes SET properties = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(JSON.stringify(mergedProperties), req.params.id);
+    const row = db
+      .prepare('SELECT properties FROM scene_nodes WHERE id = ?')
+      .get(req.params.id) as { properties: string } | undefined;
+    const current = row
+      ? (JSON.parse(row.properties || '{}') as Record<string, unknown>)
+      : {};
+    mergedProperties = {
+      ...current,
+      ...(req.body.properties as Record<string, unknown>),
+    };
+    db.prepare(
+      `UPDATE scene_nodes SET properties = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(JSON.stringify(mergedProperties), req.params.id);
   }
 
   // Broadcast to all other connected clients (viewer pages, etc.)
   const patch: Record<string, unknown> = { id: req.params.id };
-  if (name      != null) patch.name       = name;
+  if (name != null) patch.name = name;
   if ('parentId' in req.body) patch.parentId = req.body.parentId ?? null;
-  if (kind      != null) patch.kind       = kind;
-  if (filePath  != null) patch.filePath   = filePath;
+  if (kind != null) patch.kind = kind;
+  if (filePath != null) patch.filePath = filePath;
   if (components != null) patch.components = components;
-  if ('boneAttachment' in req.body) patch.boneAttachment = req.body.boneAttachment ?? null;
+  if ('boneAttachment' in req.body)
+    patch.boneAttachment = req.body.boneAttachment ?? null;
   if ('hidden' in req.body) patch.hidden = Boolean(req.body.hidden);
   if (mergedProperties != null) patch.properties = mergedProperties;
   _ws?.broadcast('node_updated', patch);
@@ -136,6 +272,7 @@ router.put('/scene-nodes/:id', (req, res) => {
  */
 router.delete('/scene-nodes/:id', (req, res) => {
   getDb().prepare('DELETE FROM scene_nodes WHERE id = ?').run(req.params.id);
+  runtimeOverrideManager.clearAllForTarget('scene_node', req.params.id);
   _ws?.broadcast('node_removed', { id: req.params.id });
   res.json({ ok: true, data: {} });
 });
@@ -154,7 +291,9 @@ router.delete('/scene-nodes/:id', (req, res) => {
  *       200: { description: Array of animation_clip rows }
  */
 router.get('/scene-nodes/:nodeId/clips', (req, res) => {
-  const data = getDb().prepare('SELECT * FROM animation_clips WHERE source_node_id = ?').all(req.params.nodeId);
+  const data = getDb()
+    .prepare('SELECT * FROM animation_clips WHERE source_node_id = ?')
+    .all(req.params.nodeId);
   res.json({ ok: true, data });
 });
 
@@ -177,23 +316,58 @@ router.get('/scene-nodes/:nodeId/clips', (req, res) => {
  *       201: { description: New clip registered }
  */
 router.post('/scene-nodes/:nodeId/clips', (req, res) => {
-  const { name, sourceFilePath, clipIndex, label, startTime, endTime, duration, fps } = req.body;
+  const {
+    name,
+    sourceFilePath,
+    clipIndex,
+    label,
+    startTime,
+    endTime,
+    duration,
+    fps,
+  } = req.body;
   const nodeId = req.params.nodeId;
   const db = getDb();
   // Upsert by (source_node_id, source_file_path, clip_index): refresh duration on re-probe.
-  const existing = db.prepare(
-    'SELECT id FROM animation_clips WHERE source_node_id = ? AND source_file_path = ? AND clip_index = ?'
-  ).get(nodeId, sourceFilePath, clipIndex ?? 0) as { id: string } | undefined;
+  const existing = db
+    .prepare(
+      'SELECT id FROM animation_clips WHERE source_node_id = ? AND source_file_path = ? AND clip_index = ?'
+    )
+    .get(nodeId, sourceFilePath, clipIndex ?? 0) as { id: string } | undefined;
   if (existing) {
-    db.prepare(`UPDATE animation_clips SET
+    db.prepare(
+      `UPDATE animation_clips SET
         name = ?, label = ?, start_time = ?, end_time = ?, duration = ?, fps = ?
-      WHERE id = ?`)
-      .run(name, label ?? name, startTime ?? 0, endTime ?? duration, duration, fps ?? 30, existing.id);
-    return res.json({ ok: true, data: { id: existing.id, name, updated: true } });
+      WHERE id = ?`
+    ).run(
+      name,
+      label ?? name,
+      startTime ?? 0,
+      endTime ?? duration,
+      duration,
+      fps ?? 30,
+      existing.id
+    );
+    return res.json({
+      ok: true,
+      data: { id: existing.id, name, updated: true },
+    });
   }
   const id = randomUUID();
-  db.prepare('INSERT INTO animation_clips (id, name, source_node_id, source_file_path, clip_index, label, start_time, end_time, duration, fps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, name, nodeId, sourceFilePath, clipIndex ?? 0, label ?? name, startTime ?? 0, endTime ?? duration, duration, fps ?? 30);
+  db.prepare(
+    'INSERT INTO animation_clips (id, name, source_node_id, source_file_path, clip_index, label, start_time, end_time, duration, fps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    id,
+    name,
+    nodeId,
+    sourceFilePath,
+    clipIndex ?? 0,
+    label ?? name,
+    startTime ?? 0,
+    endTime ?? duration,
+    duration,
+    fps ?? 30
+  );
   res.status(201).json({ ok: true, data: { id, name } });
 });
 

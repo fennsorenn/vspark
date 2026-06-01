@@ -1,9 +1,9 @@
-import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
-import { fileURLToPath, URL } from 'url'
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
+import { fileURLToPath, URL } from 'url';
 
 function shared(file: string) {
-  return fileURLToPath(new URL(`../shared/src/${file}`, import.meta.url))
+  return fileURLToPath(new URL(`../shared/src/${file}`, import.meta.url));
 }
 
 export default defineConfig({
@@ -13,7 +13,7 @@ export default defineConfig({
     host: '0.0.0.0',
     proxy: {
       '/api': 'http://localhost:3001',
-      '/ws':  { target: 'ws://localhost:3001', ws: true },
+      '/ws': { target: 'ws://localhost:3001', ws: true },
       '/uploads': 'http://localhost:3001',
     },
   },
@@ -24,10 +24,10 @@ export default defineConfig({
   resolve: {
     // More-specific aliases must come before less-specific ones.
     alias: [
-      { find: '@vspark/shared/signal', replacement: shared('signal.ts')       },
-      { find: '@vspark/shared/schema', replacement: shared('schema.ts')       },
-      { find: '@vspark/shared/arkit',  replacement: shared('arkit_tables.ts') },
-      { find: '@vspark/shared',        replacement: shared('types.ts')        },
+      { find: '@vspark/shared/signal', replacement: shared('signal.ts') },
+      { find: '@vspark/shared/schema', replacement: shared('schema.ts') },
+      { find: '@vspark/shared/arkit', replacement: shared('arkit_tables.ts') },
+      { find: '@vspark/shared', replacement: shared('types.ts') },
     ],
   },
-})
+});

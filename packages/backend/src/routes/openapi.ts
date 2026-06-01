@@ -1,5 +1,8 @@
 import swaggerJSDoc from 'swagger-jsdoc';
-import { OpenAPIRegistry, OpenApiGeneratorV3 } from '@asteasolutions/zod-to-openapi';
+import {
+  OpenAPIRegistry,
+  OpenApiGeneratorV3,
+} from '@asteasolutions/zod-to-openapi';
 import {
   errorEnvelopeSchema,
   emptyOkSchema,
@@ -64,32 +67,34 @@ function buildZodComponentSchemas(): Record<string, unknown> {
   // Each schema carries its OpenAPI name via .openapi('Name') in schema.ts;
   // pass it explicitly here so the registry indexes it correctly.
   const named: Array<[string, (typeof schemas)[number]]> = [
-    ['Error',                       errorEnvelopeSchema],
-    ['EmptyOk',                     emptyOkSchema],
-    ['SceneNodeKind',               sceneNodeKindSchema],
-    ['CreateProject',               createProjectSchema],
-    ['UpdateProject',               updateProjectSchema],
-    ['CreateScene',                 createSceneSchema],
-    ['UpdateScene',                 updateSceneSchema],
-    ['CreateSceneNode',             createSceneNodeSchema],
-    ['UpdateSceneNode',             updateSceneNodeSchema],
-    ['SceneNodeProperties',         sceneNodePropertiesSchema],
-    ['CreateAnimationClip',         createAnimationClipSchema],
-    ['CreateAsset',                 createAssetSchema],
-    ['CreateNodeComponent',         createNodeComponentSchema],
-    ['UpdateNodeComponent',         updateNodeComponentSchema],
-    ['CreateCameraEffect',          createCameraEffectSchema],
-    ['UpdateCameraEffect',          updateCameraEffectSchema],
-    ['CreateComposeLayer',          createComposeLayerSchema],
-    ['UpdateComposeLayer',          updateComposeLayerSchema],
-    ['ReorderComposeLayers',        reorderComposeLayersSchema],
-    ['FireGraphEvent',              fireGraphEventSchema],
-    ['ApiControllerAnimation',      apiControllerAnimationSchema],
+    ['Error', errorEnvelopeSchema],
+    ['EmptyOk', emptyOkSchema],
+    ['SceneNodeKind', sceneNodeKindSchema],
+    ['CreateProject', createProjectSchema],
+    ['UpdateProject', updateProjectSchema],
+    ['CreateScene', createSceneSchema],
+    ['UpdateScene', updateSceneSchema],
+    ['CreateSceneNode', createSceneNodeSchema],
+    ['UpdateSceneNode', updateSceneNodeSchema],
+    ['SceneNodeProperties', sceneNodePropertiesSchema],
+    ['CreateAnimationClip', createAnimationClipSchema],
+    ['CreateAsset', createAssetSchema],
+    ['CreateNodeComponent', createNodeComponentSchema],
+    ['UpdateNodeComponent', updateNodeComponentSchema],
+    ['CreateCameraEffect', createCameraEffectSchema],
+    ['UpdateCameraEffect', updateCameraEffectSchema],
+    ['CreateComposeLayer', createComposeLayerSchema],
+    ['UpdateComposeLayer', updateComposeLayerSchema],
+    ['ReorderComposeLayers', reorderComposeLayersSchema],
+    ['FireGraphEvent', fireGraphEventSchema],
+    ['ApiControllerAnimation', apiControllerAnimationSchema],
     ['ApiControllerAnimationQueue', apiControllerAnimationQueueSchema],
-    ['ApiControllerBlendshapes',    apiControllerBlendshapesSchema],
+    ['ApiControllerBlendshapes', apiControllerBlendshapesSchema],
   ];
   for (const [name, s] of named) registry.register(name, s);
-  const generated = new OpenApiGeneratorV3(registry.definitions).generateComponents();
+  const generated = new OpenApiGeneratorV3(
+    registry.definitions
+  ).generateComponents();
   return (generated.components?.schemas ?? {}) as Record<string, unknown>;
 }
 
@@ -117,17 +122,41 @@ export const openApiDoc = swaggerJSDoc({
       schemas: buildZodComponentSchemas(),
     },
     tags: [
-      { name: 'projects',        description: 'Project CRUD' },
-      { name: 'scenes',          description: 'Scene CRUD within a project' },
-      { name: 'scene_nodes',     description: 'Scene node CRUD + animation clips' },
-      { name: 'assets',          description: 'Project asset uploads + listing' },
-      { name: 'node_components', description: 'Behavioural components attached to scene nodes' },
-      { name: 'api_controller',  description: 'REST control surface for api_controller components' },
-      { name: 'expressions',     description: 'Read-only listings of VRM expressions and animation clips' },
-      { name: 'camera_effects',  description: 'Post-processing effects bound to camera nodes' },
-      { name: 'compose_layers',  description: '2D overlay/underlay layers composited with the 3D scene render' },
-      { name: 'signal',          description: 'Signal graph introspection + event firing' },
-      { name: 'meta',            description: 'Component-kind metadata, system info, body-calibration state' },
+      { name: 'projects', description: 'Project CRUD' },
+      { name: 'scenes', description: 'Scene CRUD within a project' },
+      { name: 'scene_nodes', description: 'Scene node CRUD + animation clips' },
+      { name: 'assets', description: 'Project asset uploads + listing' },
+      {
+        name: 'node_components',
+        description: 'Behavioural components attached to scene nodes',
+      },
+      {
+        name: 'api_controller',
+        description: 'REST control surface for api_controller components',
+      },
+      {
+        name: 'expressions',
+        description:
+          'Read-only listings of VRM expressions and animation clips',
+      },
+      {
+        name: 'camera_effects',
+        description: 'Post-processing effects bound to camera nodes',
+      },
+      {
+        name: 'compose_layers',
+        description:
+          '2D overlay/underlay layers composited with the 3D scene render',
+      },
+      {
+        name: 'signal',
+        description: 'Signal graph introspection + event firing',
+      },
+      {
+        name: 'meta',
+        description:
+          'Component-kind metadata, system info, body-calibration state',
+      },
     ],
   },
   apis: ['./src/routes/*.ts'],

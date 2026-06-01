@@ -1,2 +1,4 @@
 packages:
   - 'packages/*'
+  - '../overlive/packages/*'
+  - '../overlive/tooling/*'

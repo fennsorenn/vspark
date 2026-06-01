@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { api } from '../api/client'
-import { MediaInputWindow } from '../components/MediaInputWindow'
-import { useEditorStore } from '../store/editorStore'
+import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { api } from '../api/client';
+import { MediaInputWindow } from '../components/MediaInputWindow';
+import { useEditorStore } from '../store/editorStore';
 
 /**
  * Standalone page for the Media Input window — can be opened in a separate tab
@@ -10,62 +10,78 @@ import { useEditorStore } from '../store/editorStore'
  * Route: /media-input/:projectId
  */
 export function MediaInputPage() {
-  const { projectId } = useParams<{ projectId: string }>()
-  const [ready, setReady] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const { setNodes, setActiveScene, setNodeComponents } = useEditorStore()
+  const { projectId } = useParams<{ projectId: string }>();
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { setNodes, setActiveScene, setNodeComponents } = useEditorStore();
 
   // Fetch the project/scene/nodes so MediaInputWindow can resolve component IDs
   useEffect(() => {
-    if (!projectId) return
-    let cancelled = false
+    if (!projectId) return;
+    let cancelled = false;
     async function load() {
       try {
-        const { scenes, nodes, nodeComponents } = await api.getScenes(projectId!)
-        if (cancelled) return
-        const firstScene = scenes[0]
-        if (firstScene) setActiveScene(firstScene.id)
-        setNodes(nodes)
-        setNodeComponents(nodeComponents)
-        setReady(true)
+        const { scenes, nodes, nodeComponents } = await api.getScenes(
+          projectId!
+        );
+        if (cancelled) return;
+        const firstScene = scenes[0];
+        if (firstScene) setActiveScene(firstScene.id);
+        setNodes(nodes);
+        setNodeComponents(nodeComponents);
+        setReady(true);
       } catch (e) {
-        if (!cancelled) setError((e as Error).message)
+        if (!cancelled) setError((e as Error).message);
       }
     }
-    load()
-    return () => { cancelled = true }
-  }, [projectId, setNodes, setActiveScene, setNodeComponents])
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, setNodes, setActiveScene, setNodeComponents]);
 
   const style: React.CSSProperties = {
     background: '#111',
-    minHeight:  '100vh',
-    display:    'flex',
+    minHeight: '100vh',
+    display: 'flex',
     alignItems: 'flex-start',
     justifyContent: 'center',
     paddingTop: 32,
     fontFamily: 'system-ui, sans-serif',
-    color:      '#ccc',
-  }
+    color: '#ccc',
+  };
 
-  if (error) return (
-    <div style={style}>
-      <div style={{ color: '#f87171', padding: 24 }}>Failed to load project: {error}</div>
-    </div>
-  )
+  if (error)
+    return (
+      <div style={style}>
+        <div style={{ color: '#f87171', padding: 24 }}>
+          Failed to load project: {error}
+        </div>
+      </div>
+    );
 
-  if (!ready) return (
-    <div style={style}>
-      <div style={{ padding: 24, color: '#666' }}>Loading…</div>
-    </div>
-  )
+  if (!ready)
+    return (
+      <div style={style}>
+        <div style={{ padding: 24, color: '#666' }}>Loading…</div>
+      </div>
+    );
 
   return (
     <div style={style}>
-      <div style={{ fontSize: 13, color: '#444', position: 'fixed', top: 8, left: 12 }}>
+      <div
+        style={{
+          fontSize: 13,
+          color: '#444',
+          position: 'fixed',
+          top: 8,
+          left: 12,
+        }}
+      >
         vspark · media input
       </div>
       {/* Window rendered in place (alwaysExpanded, no position dragging needed on this page) */}
       <MediaInputWindow alwaysExpanded={true} />
     </div>
-  )
+  );
 }

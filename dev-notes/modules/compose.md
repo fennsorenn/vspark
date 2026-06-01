@@ -9,13 +9,22 @@ Status: implemented.
 Table `compose_layers` (migration [008_compose_layers.sql](../../packages/backend/src/db/migrations/008_compose_layers.sql)). Each row is scene-scoped; `camera_node_id` is nullable — `NULL` means scene-wide (visible in every camera).
 
 Per-layer fields:
-- `kind`: `'image' | 'video' | 'browser'`
+- `kind`: `'image' | 'video' | 'browser' | 'text'`
 - `asset_id` (image/video) or `url` (browser)
 - Layout: `x`, `y` (pixel offsets from anchor corner), `width`, `height`, `anchor` (`top|bottom × left|right`), `rotation` (degrees, CSS transform around centre)
 - Display: `visible`, `opacity`, `name`
 - Ordering: `scene_order` (signed int), `camera_order` (int)
 
 Shared types live in [packages/shared/src/types.ts](../../packages/shared/src/types.ts) (`ComposeLayer`, `ComposeLayerKind`, anchor enums, `SCENE_RENDER_SLOT` constant) and Zod schemas in [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) (`createComposeLayerSchema`, `updateComposeLayerSchema`, `reorderComposeLayersSchema`).
+
+## Phase 1 additions (signal-graph expansion) — implemented
+
+Graph-driven param mutation and a text layer kind.
+
+- **Layer kind `'text'`.** `ComposeLayerStack.TextLayer` reads `content` from `layer.config.content`, with `runtimeLayerOverrides[layer.id]['text.content']` taking precedence at render time. When `layer.config.allowHtml` is true the content is sanitised via `DOMPurify` using the shared `TEXT_SANITIZE_OPTS` allow-list exported from `packages/frontend/src/lib/textSanitize.ts` (covers `b, i, em, strong, span, br, img` with whitelisted `img` attrs for overlive emote HTML); otherwise rendered as plain text. The `'text'` kind is registered in `ComposeTree`'s `KIND_ICONS` (📝) and `ADDABLE_KINDS`.
+- **New paramPaths on `compose_layer`:** `opacity`, `width`, `height`, `text.content`. `ComposeLayerOverride` gains `width`, `height`, `opacity` so clip-side animation matches the new paths; `ComposeLayerStack.LayerView` merges both `composeLayerOverrides` (clip) and `runtimeLayerOverrides[layer.id]` into `layerStyle`. Conflict: clip wins for scalar/transform overlap; `text.content` is runtime-only. See [paramPaths.md](paramPaths.md), [runtime-overrides.md](runtime-overrides.md).
+- **Tmp compose layers** spawned by `spawn_clip` arrive via standard `compose_layer_added` / `compose_layer_removed` WS messages and render through the same `LayerView` code path. See [spawn.md](spawn.md).
+- **Schema:** `composeLayerKindSchema` (shared/schema.ts) and the frontend `ComposeLayerKind` union (`api/client.ts`) both gain `'text'`.
 
 ## REST + WS
 
@@ -130,6 +139,7 @@ See also [frontend.md](frontend.md) for general editor structure and store conve
 - Backend route registration and the scenes bundle additions are also covered in [backend-api.md](backend-api.md).
 - The Compose viewport reuses the same `<CameraEffects>` pipeline as the main viewport; see [camera-effects.md](camera-effects.md).
 - Mouse-wheel inside the compose viewport never orbits/zooms the camera; instead the capture overlay forwards it to `composeSceneWheel`, which dollies the currently-selected 3D node along the cursor ray.
+- [track-clips.md](track-clips.md) — track clips can target compose-layer `layer.x`, `layer.y`, `layer.rotation`. `ComposeLayerStack.LayerView` subscribes per-layer to `composeLayerOverrides[layer.id]` in the Zustand store and merges over the base on render. Overrides are runtime-only (never persisted); for `relative`-mode clips the evaluator pre-folds the base in, so the merge is always a plain replace.
 
 ## Known Limitations / Future Work
 
