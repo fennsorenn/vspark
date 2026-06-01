@@ -13,6 +13,34 @@ Depends on [project-graphs.md](project-graphs.md): the 13 Overlive event nodes a
 - `@overlive/twitch-oauth` — OAuth code flow, refresh, `revokeAccessToken`, `buildAuthorizeUrl`, `exchangeCode`, `fetchAuthorizedUser`, `DEFAULT_SCOPES`
 - `@overlive/se` — StreamElements adapter (`SEAdapter`, JWT-authenticated)
 
+All four are published to npm and pinned via standard semver ranges in `packages/backend/package.json`. CI installs from the registry like any other dep.
+
+## Local development against a local overlive checkout
+
+When you want vspark to consume your local `~/projects/overlive/` working tree instead of the published packages — for cross-repo edits — use `pnpm link --global`. Do **not** edit `package.json` to point at the local path; it'll get committed and break CI.
+
+One-time per overlive package you want linked:
+
+```bash
+cd ~/projects/overlive/packages/core && pnpm link --global
+cd ~/projects/overlive/packages/twitch && pnpm link --global
+cd ~/projects/overlive/packages/twitch-oauth && pnpm link --global
+cd ~/projects/overlive/packages/se && pnpm link --global
+cd ~/projects/overlive/packages/emotes && pnpm link --global
+```
+
+Then in vspark:
+
+```bash
+cd ~/projects/vspark
+pnpm link --global @overlive/core @overlive/twitch @overlive/twitch-oauth @overlive/se @overlive/emotes
+```
+
+Gotchas:
+- `pnpm install` (any kind) wipes the links. You have to re-run the second command after every install.
+- Overlive's TS sources are linked directly; vspark will type-check against the local source, not the published `.d.ts`. Mismatches between published version and your local can mask compile errors until you publish.
+- To go back to the published versions: `pnpm unlink --global @overlive/core ...` then `pnpm install`.
+
 ## Concepts
 
 | Concept | Description |
