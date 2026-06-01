@@ -1,0 +1,57 @@
+name: CI
+
+# Runs on every PR targeting main. Two required checks:
+#   - build: mirrors the prep steps from release.yml (lint, build, backend
+#     bundle) so a PR that wouldn't ship a release can't merge. Catches
+#     regressions like missing esbuild alias entries before they reach main.
+#   - release-label: refuses merge unless the PR carries exactly one of
+#     release:patch / release:minor / release:major. tag.yml reads this
+#     label after merge to decide the semver bump.
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: Bundle backend
+        run: pnpm --filter @vspark/backend bundle
+
+  release-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Require exactly one release: label"
+        env:
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          count=$(echo "$LABELS" | jq '[.[] | select(. == "release:patch" or . == "release:minor" or . == "release:major")] | length')
+          if [ "$count" -eq 0 ]; then
+            echo "::error::PR must carry one of: release:patch, release:minor, release:major"
+            exit 1
+          fi
+          if [ "$count" -gt 1 ]; then
+            echo "::error::PR carries multiple release: labels — pick one"
+            exit 1
+          fi
+          echo "OK — exactly one release label present"
