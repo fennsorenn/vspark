@@ -1,0 +1,80 @@
+name: Auto-tag on merge to main
+
+# Fires after a PR merges to main. Reads the PR's release: label, bumps
+# the most recent v* tag accordingly, pushes the new tag. The tag push
+# triggers release.yml, which builds the cross-platform zips and creates
+# the GitHub Release with auto-generated notes.
+#
+# Why pull_request closed + merged check (not push to main):
+#   - We need the PR's labels, which aren't available on a bare push event.
+#   - "closed" fires for both merged and closed-without-merge PRs; the
+#     `if: github.event.pull_request.merged == true` filter handles that.
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+jobs:
+  tag:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need full history so `git describe` can find the last tag.
+          fetch-depth: 0
+
+      - name: Determine bump level from PR label
+        id: bump
+        env:
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          if echo "$LABELS" | jq -e 'any(. == "release:major")' >/dev/null; then
+            echo "level=major" >> "$GITHUB_OUTPUT"
+          elif echo "$LABELS" | jq -e 'any(. == "release:minor")' >/dev/null; then
+            echo "level=minor" >> "$GITHUB_OUTPUT"
+          elif echo "$LABELS" | jq -e 'any(. == "release:patch")' >/dev/null; then
+            echo "level=patch" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Merged PR has no release: label — ci.yml's release-label check should have blocked this"
+            exit 1
+          fi
+
+      - name: Compute next version
+        id: version
+        run: |
+          # Find the most recent v* tag. If none exists, start at v0.0.0
+          # so the first patch becomes v0.0.1, first minor v0.1.0, etc.
+          last=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
+          if [ -z "$last" ]; then
+            last="v0.0.0"
+          fi
+          echo "Last tag: $last"
+
+          # Strip leading v, split into major.minor.patch (ignore any -prerelease suffix).
+          ver="${last#v}"
+          ver="${ver%%-*}"
+          IFS='.' read -r major minor patch <<< "$ver"
+
+          case "${{ steps.bump.outputs.level }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+
+          next="v${major}.${minor}.${patch}"
+          echo "Next tag: $next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
