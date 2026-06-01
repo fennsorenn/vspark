@@ -41,7 +41,7 @@ jobs:
   release-label:
     runs-on: ubuntu-latest
     steps:
-      - name: Require exactly one release: label
+      - name: "Require exactly one release: label"
         env:
           LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
         run: |
