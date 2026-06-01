@@ -1,12 +1,93 @@
 name: Release
 
+# Fires after a PR merges to main. Two jobs:
+#   1. tag — reads the merged PR's release: label, bumps the latest v* tag
+#      accordingly, creates and pushes the tag.
+#   2. release — matrix build (linux + windows): bundle, package, attach
+#      to a GitHub Release named after the tag.
+#
+# This used to be split across tag.yml (push tag) and release.yml
+# (push: tags trigger). That split didn't work: tags created via GITHUB_TOKEN
+# from a workflow don't trigger downstream workflows, so the release never
+# fired automatically. Folding both into one workflow side-steps the
+# cross-workflow trigger entirely.
+#
+# Re-running on the same merged PR is safe-ish:
+#   - The tag step uses `git tag -a` which fails if the tag already exists.
+#     If you ever need to re-run, delete the tag first (locally and remote).
+#   - The release step uses softprops/action-gh-release which updates an
+#     existing release with the same tag.
+
 on:
-  push:
-    tags:
-      - 'v*'
+  pull_request:
+    types: [closed]
+    branches:
+      - main
 
 jobs:
+  tag:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so `git tag -l` finds prior tags.
+          fetch-depth: 0
+
+      - name: Determine bump level from PR label
+        id: bump
+        env:
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          if echo "$LABELS" | jq -e 'any(. == "release:major")' >/dev/null; then
+            echo "level=major" >> "$GITHUB_OUTPUT"
+          elif echo "$LABELS" | jq -e 'any(. == "release:minor")' >/dev/null; then
+            echo "level=minor" >> "$GITHUB_OUTPUT"
+          elif echo "$LABELS" | jq -e 'any(. == "release:patch")' >/dev/null; then
+            echo "level=patch" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Merged PR has no release: label — ci.yml's release-label check should have blocked this"
+            exit 1
+          fi
+
+      - name: Compute next version
+        id: version
+        run: |
+          last=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
+          if [ -z "$last" ]; then
+            last="v0.0.0"
+          fi
+          echo "Last tag: $last"
+
+          ver="${last#v}"
+          ver="${ver%%-*}"
+          IFS='.' read -r major minor patch <<< "$ver"
+
+          case "${{ steps.bump.outputs.level }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+
+          next="v${major}.${minor}.${patch}"
+          echo "Next tag: $next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
   release:
+    needs: tag
     strategy:
       matrix:
         include:
@@ -27,8 +108,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: '9'
 
       - uses: actions/setup-node@v4
         with:
@@ -36,7 +115,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build frontend
         run: pnpm --filter frontend build
@@ -47,8 +126,9 @@ jobs:
 
       - name: Write version.json
         shell: bash
+        env:
+          TAG: ${{ needs.tag.outputs.tag }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
           if [[ "$TAG" =~ -alpha ]]; then
             CHANNEL="experimental"
@@ -131,8 +211,9 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.tag.outputs.tag }}
           files: release/vspark-${{ matrix.platform }}.zip
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(needs.tag.outputs.tag, '-') }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
