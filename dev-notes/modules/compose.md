@@ -4,12 +4,24 @@
 
 Status: implemented.
 
+## Compose scenes (decoupled from 3D scenes — migration 018)
+
+Compose is now **independent** of the 3D `scene_nodes` tree. A compose hierarchy roots at a `compose_layers` row with `kind = 'compose_scene'`. Layers are **project-scoped** (the old per-3D-scene constraint is gone) and root back via `root_compose_scene_id`; nesting between layers goes through `parent_id` (migration 016).
+
+Migration 018 specifics:
+
+- Added `project_id` + `root_compose_scene_id` to `compose_layers` (backfilled from the prior `scene_id` join into `scene_nodes`).
+- Created one `compose_scene` row per pre-existing 3D scene (id is the old scene_id + `_compose`), wired the legacy layers to point at it as their root.
+- Dropped the `compose_layers.scene_id` column.
+
+The frontend exposes compose scenes as a separate top-level concept from 3D scenes; the same scene-instancing flow (`1afa49d`) seeds a default compose scene per new project alongside its default 3D scene.
+
 ## Data Model
 
-Table `compose_layers` (migration [008_compose_layers.sql](../../packages/backend/src/db/migrations/008_compose_layers.sql)). Each row is scene-scoped; `camera_node_id` is nullable — `NULL` means scene-wide (visible in every camera).
+Table `compose_layers` (migration [008_compose_layers.sql](../../packages/backend/src/db/migrations/008_compose_layers.sql) + later patches 016, 018). Layers are project-scoped (was scene-scoped). `camera_node_id` is nullable — `NULL` means visible in every camera. `parent_id` (migration 016) supports nesting (`compose_scene` → group layer → image, etc.). `root_compose_scene_id` (migration 018) points at the owning `compose_scene` row.
 
 Per-layer fields:
-- `kind`: `'image' | 'video' | 'browser' | 'text'`
+- `kind`: `'compose_scene' | 'image' | 'video' | 'browser' | 'text'`
 - `asset_id` (image/video) or `url` (browser)
 - Layout: `x`, `y` (pixel offsets from anchor corner), `width`, `height`, `anchor` (`top|bottom × left|right`), `rotation` (degrees, CSS transform around centre)
 - Display: `visible`, `opacity`, `name`
@@ -122,7 +134,7 @@ All three gestures patch the Zustand store optimistically during the drag for in
 ## Frontend Pieces
 
 - [store/editorStore.ts](../../packages/frontend/src/store/editorStore.ts) — adds `composeLayers`, `leftTab` (`'scene' | 'compose' | 'graphs'`), `selectedComposeLayerId`, `composeCameraId` and matching actions.
-- [components/editor/ComposeTree.tsx](../../packages/frontend/src/components/editor/ComposeTree.tsx) — left-dock tree. One Scene section + one section per camera. Pinned `[3D Scene]` row marks the render slot. ↑/↓ buttons nudge `sceneOrder`; × deletes. Add menu picks layer kind. Disabled until at least one camera node exists.
+- [components/editor/ComposeTree.tsx](../../packages/frontend/src/components/editor/ComposeTree.tsx) — left-dock tree. One Scene section + one section per camera. Pinned `[3D Scene]` row marks the render slot. ↑/↓ buttons nudge `sceneOrder`; × deletes. Add menu picks layer kind. Disabled until at least one camera node exists. Right-click context menu uses the generic `ContextMenu.tsx` (`13f0021`); supports Copy/Paste (compose-layer preset) — see [clipboard.md](clipboard.md).
 - [components/editor/ComposeView.tsx](../../packages/frontend/src/components/editor/ComposeView.tsx) — central viewport with camera picker.
 - [components/editor/ComposeLayerStack.tsx](../../packages/frontend/src/components/editor/ComposeLayerStack.tsx) — shared editor/viewer renderer (presentation only; no pointer handlers).
 - [components/editor/ComposeEventCapture.tsx](../../packages/frontend/src/components/editor/ComposeEventCapture.tsx) — full-viewport input overlay; owns pointer + wheel routing.

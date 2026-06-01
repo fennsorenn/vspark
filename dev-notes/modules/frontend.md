@@ -41,6 +41,9 @@ Actions: `setUpdateAvailable(info)`, `setPendingReload(value)`.
 - `activeGraphId`, `selectedSignalNodeId`
 - `componentKinds`
 
+**Clipboard**
+- `clipboardPayload: ClipboardPayload | null` — sync mirror of the OS clipboard for context-menu gating; see [clipboard.md](clipboard.md).
+
 **Camera effects**
 - `cameraEffects: CameraEffect[]`, `selectedEffect`
 - 16 effect kinds: ToneMapping, Bloom, Vignette, DOF, ChromaticAberration, SSAO, Outline, Noise, Scanline, Pixelation, ASCII, DotScreen, Glitch, SMAA, TiltShift, Water
