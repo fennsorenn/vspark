@@ -11,7 +11,7 @@ import { PALETTE_DRAG_KIND } from './SignalGraphCanvas';
 
 function PortChip({ port }: { port: NodePortMeta }) {
   const color =
-    SIGNAL_TYPE_COLORS[port.type as keyof typeof SIGNAL_TYPE_COLORS] ?? '#888';
+    SIGNAL_TYPE_COLORS[port.typeTag as keyof typeof SIGNAL_TYPE_COLORS] ?? '#888';
   return (
     <span
       style={{
@@ -24,7 +24,7 @@ function PortChip({ port }: { port: NodePortMeta }) {
         padding: '1px 4px',
       }}
     >
-      {port.name}: {port.type}
+      {port.name}: {port.typeTag}
     </span>
   );
 }
