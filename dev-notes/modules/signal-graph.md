@@ -144,32 +144,59 @@ Phase 1 of the signal-graph expansion (stream-overlay flows: chat billboards, et
 
 **Demo graph (Phase 1):** Flow A — chat → flying billboard: `overlive_chat_message → random (x) → spawn_clip (chat-billboard clip on a hidden text_canvas template) → set_scene_node_param (uses spawned tmpNodeId + random x) → clip animates → auto-despawn`. Shipped as a sample JSON descriptor at [`dev-notes/samples/chat-billboard-demo.json`](../samples/chat-billboard-demo.json) with step-by-step setup instructions inside the file. The plan considered a boot-time auto-seed behind `VSPARK_SEED_DEMO_GRAPH=1`; this was deliberately not implemented because the demo needs ids (overlive account, clip, template node) that only exist after the user has set them up, and a half-bound auto-seed would silently no-op. Flow B (sub/redemption → queued alert) is deferred to Phase 2 because proper queueing needs `queue_events`.
 
-### Planned — Phase 2: Edge-time structural type inference
+### WIP — Phase 2: node re-architecture + edge-time type inference
 
-A graph-engine architecture change that adds **edge-time structural type inference**. Replaces the fixed-tag port-type system (`'Float'`, `'String'`, `'Any'`) with a structural `ResolvedType` AST. When an edge is created, the downstream node's port shape is recomputed from its currently-resolved inputs and propagated forward; incompatible connections are rejected.
+> **Status: in progress** on branch `feature/signal-graph-nodes-v2`. Two coupled architecture changes (A + B below) plus three new/rewritten nodes and a ~51-node migration. Nothing here is implemented yet — this section records the intended shape; the class-instance/decorator model and structural inference are **incoming**. Treat the "Adding a new node kind" section above (static `execute` form) as describing the *outgoing* model.
 
-**Approach (summary; details in the plan, not yet implementation):**
+#### A. Node re-architecture — class-instance / decorator model
 
-- New `packages/shared/src/signal_types.ts`: `ResolvedType` discriminated union (`primitive | record | event | list | unknown`), `isAssignable` with structural width subtyping on records, conversions to/from `PortDecl`.
-- New `packages/shared/src/inference.ts`: shared `tryAddEdge` / `removeEdge` logic with rollback on downstream invalidation. Used by both backend engine and frontend editor.
-- `SignalNodeClass` gains optional `inferPorts(ctx)` hook returning `{ inputPorts, outputPorts }` with resolved types. Default lifts the static declarations.
-- `SignalGraph` node entries gain `resolvedInputs` + `resolvedInputPorts` + `resolvedOutputPorts`; `fromDescriptor` becomes a replay over `tryAddEdge`, eliminating cycle handling as a special case.
-- Frontend editor uses the same shared inference for drag-time validation and dynamic port rendering (e.g. `unpack_event` visibly grows N typed outputs the moment a `pack_event` is wired into it).
-- Backwards compat: `'Any'` is repurposed as the surface for `{ kind: 'unknown' }`; existing nodes work unchanged.
-- Schema drift handling: descriptors with edges that no longer validate skip with a warning at load.
+Signal nodes move from static pure classes (`static inputPorts/outputPorts: PortDecl[]` + `static execute(inputs, config, ctx)`) to **live class instances** whose decorated members ARE their ports:
 
-**Phase 2 nodes (require inference):**
+- `@eventIn('name', TypeTag)` on a **method** — the method body is the reaction; the engine subscribes it to the upstream emitter (push).
+- `@valueIn('name', TypeTag)` / `@listIn('name', TypeTag)` on a **field** holding a pull-thunk `() => T` / `() => T[]`.
+- `@eventOut('name', TypeTag)` field holding an engine-provided instrumented `Emitter<T>` (node calls `this.x.emit(v)`).
+- `@valueOut('name', TypeTag)` field holding a thunk the node defines; the engine calls it on downstream pull.
+- Base `abstract class Node` exposes `getState` / `setState` (DB-backed via engine injection). Nodes are mostly stateless; calibration + `queue_events` use these. `reconcile()` stays rebuild-from-scratch.
+
+The **engine** (`signal/engine.ts`) shrinks from a central dispatcher to **wiring + lifecycle** over Node instances. Instrumented Emitter/thunk wrappers preserve the existing `_edgeStates` flash/monitoring, the `enabled` check, and per-node try/catch error isolation.
+
+Toolchain: repo is on TC39 Stage-3 decorators (TS 5.9, **no** `experimentalDecorators`), verified working under `tsc --strict` + tsx + Vite/esbuild.
+
+#### B. Edge-time structural type inference
+
+Transport is folded **into** the type — clean break: `PortKind` / `PortDecl.kind` are **DELETED**. When an edge is created, the downstream node's port shape is recomputed from its currently-resolved inputs and propagated forward; incompatible connections are rejected.
+
+- New `packages/shared/src/signal_types.ts`: `ResolvedType` discriminated union (`primitive | record | event | list | unknown`; `unknown` is the former `'Any'`) + `isAssignable` — structural width subtyping on records, `unknown` wildcard, plus one documented special case: a `List<E>` target accepts source `E` or `List<E>`.
+- New `packages/shared/src/inference.ts`: `InferGraph` with `tryAddEdge` (forward propagation + transactional rollback on downstream invalidation), `removeEdge`, `portsOf`.
+- `SignalNodeClass` gains optional `inferPorts`. `fromDescriptor` becomes a replay over `tryAddEdge`, eliminating cycle handling as a special case.
+- Frontend recomputes the **same** shared inference (shared `INFER_BY_KIND` table) for dynamic typed ports + drag-time validation (e.g. `unpack_event` visibly grows N typed outputs the moment a `pack_event` is wired into it).
+- Backwards compat: `'Any'` is repurposed as the surface for `{ kind: 'unknown' }`.
+
+#### Dynamic ports (no new decorator machinery)
+
+Decorations are the static skeleton; `inferPorts` declares the **actual current ports** (a port may have no decorated member). Three additive base-class accessors route by-name through a per-node dynamic port table:
+
+- `this.input(name)` — pull a dynamic value-in.
+- `this.emitOn(name, v)` — push a dynamic event-out.
+- `this.output(name, fn)` — register a dynamic value-out thunk.
+
+#### New / rewritten nodes (prototype-gated, built first)
 
 | Kind | Purpose |
 |------|---------|
-| `pack_event` | Inputs: `fire` + N value ports `a, b, c, d` (each starts `unknown`). Output `event: Event<{a: T_a, b: T_b, ...}>` with field types resolved from connected inputs; unconnected fields omitted. |
-| `unpack_event` (rewrite) | Input `event: Event<{...fields}>`. Outputs are *generated*: one typed port per record field. Falls back to a single `value: unknown` output when input is unconnected/non-record (preserves current behaviour). |
-| `queue_events` | Inputs: `enqueue: Event<unknown>`, `pop: Event<Trigger>`. Outputs: `popped` (Event mirroring enqueue's payload), `size` (Float, pull). State: FIFO array in `setState`. |
+| `pack_event` | DYNAMIC user-named input fields — `config.fields` is names-only, each field's type inferred from its connection, with a trailing empty slot to add more. Output `event: Event<{...}>` with field types resolved from connected inputs. |
+| `queue_events` | FIFO via `setState`. Inputs `enqueue` + `pop`; `popped` mirrors `enqueue`'s payload type, `size` is a value-out. |
+| `unpack_event` (rewrite) | DYNAMIC outputs — one typed port per record field of the resolved event payload; falls back to a single `value: unknown` output when the input is unconnected / non-record (preserves current behaviour). |
 
-**Phase 2 also enables:**
-- `component_config` typing via `inferPorts` — reads `field` against the component-kind's Zod config schema, returns the field's `ResolvedType`.
-- Replacing `set_*_param`'s `Any` value input with a properly typed port (paramPath registry → ResolvedType via inference).
-- Wiring Flow B (sub/redemption → queued alert) end-to-end: `overlive_subscription/redemption → pack_event → queue_events ← pop:clock → unpack_event → spawn_clip + set_compose_layer_param`.
+Then the remaining ~51 nodes migrate to the new class-instance form.
+
+#### Deferred / out of scope (this branch)
+
+- **Typed `component_config`** — `inferPorts`-based typing is deferred: there is no config-schema registry, so writable graphs simply **reject** the node. Stays planned for a later phase.
+- Typed `set_*_param` value input (would replace the `Any` + runtime-coerce approach with a port typed from the paramPath registry).
+- Incremental `reconcile` (stays rebuild-from-scratch).
+
+Once landed, this also unblocks Flow B (sub/redemption → queued alert) end-to-end: `overlive_subscription/redemption → pack_event → queue_events ← pop:clock → unpack_event → spawn_clip + set_compose_layer_param`.
 
 ## Adding a new node kind
 
