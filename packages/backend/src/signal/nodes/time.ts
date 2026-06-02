@@ -1,9 +1,6 @@
-import { SignalNode, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueOut } from '@vspark/shared/node_decorators';
 
 @SignalNode({
   label: 'Time',
@@ -12,16 +9,9 @@ import type {
   tags: ['source', 'math'],
   color: '#4a7a5a',
 })
-export class Time {
+export class Time extends Node {
   static readonly kind = 'time';
-  static readonly inputPorts = [] as const;
-  static readonly outputPorts = [valuePort('seconds', 'Float')] as const;
 
-  static execute(
-    _inputs: InputsOf<typeof Time>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof Time> {
-    return { seconds: Date.now() / 1000 };
-  }
+  @valueOut('seconds', 'Float')
+  seconds = (): number => Date.now() / 1000;
 }

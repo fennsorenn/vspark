@@ -1,16 +1,7 @@
-import {
-  SignalNode,
-  eventPort,
-  valuePort,
-  NormalizedPose,
-  Quaternion,
-} from '@vspark/shared/signal';
-import type {
-  VRMBoneName,
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, NormalizedPose, Quaternion } from '@vspark/shared/signal';
+import type { VRMBoneName } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut, eventIn } from '@vspark/shared/node_decorators';
 
 interface CalibrationState {
   bodyOffsets: Record<string, [number, number, number, number]>;
@@ -42,7 +33,9 @@ export interface BodyCalibConfig {
  *   capture — snapshot the current incoming pose as the neutral reference
  *   reset   — clear all offsets, pass through pose unmodified
  *
- * Correction formula: q_out = offset⁻¹ × q_in
+ * Correction formula: q_out = offset⁻¹ × q_in. The corrected pose is a PULL output
+ * (`pose`) computed from the current input + stored offsets; capture/reset are event
+ * handlers that mutate the stored offsets.
  *
  * Multiple instances can be chained in the graph for independent per-region
  * calibration (e.g. head chain, left arm, right arm) by setting boneFilter.
@@ -54,93 +47,23 @@ export interface BodyCalibConfig {
   tags: ['calibration'],
   color: '#4a5a9f',
 })
-export class BodyCalibration {
+export class BodyCalibration extends Node {
   static readonly kind = 'body_calibration';
-  static readonly inputPorts = [
-    valuePort('pose', 'NormalizedPose'),
-    valuePort('mirrorSource', 'String'),
-    eventPort('capture', 'Trigger'),
-    eventPort('reset', 'Trigger'),
-  ] as const;
-  static readonly outputPorts = [valuePort('pose', 'NormalizedPose')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof BodyCalibration>,
-    config: BodyCalibConfig,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof BodyCalibration> {
-    const { triggeredPort } = ctx;
-    const filter = config.boneFilter ? new Set(config.boneFilter) : null;
-    const pose = inputs.pose as NormalizedPose | undefined;
+  @valueIn('pose', 'NormalizedPose') poseIn!: () => NormalizedPose | undefined;
+  @valueIn('mirrorSource', 'String') mirrorSource!: () =>
+    | string
+    | null
+    | undefined;
 
-    // ── Capture ────────────────────────────────────────────────────────────────
-    if (triggeredPort === 'capture') {
-      if (!pose) return {} as OutputsOf<typeof BodyCalibration>;
-      const bodyOffsets: Record<string, [number, number, number, number]> = {};
-      for (const [bone, q] of pose.entries()) {
-        if (filter && !filter.has(bone as string)) continue;
-        if (!q.isValid) continue;
-        bodyOffsets[bone as string] = q.toArray();
-      }
-      // Symmetric fill across left/right pairs. X-axis mirror for unit quaternions:
-      // (x, y, z, w) → (x, -y, -z, w).
-      //
-      // mirrorSource = 'left' or 'right'  → that side wins; the other is always written from it
-      //                                     (even if the other was also captured — useful when only
-      //                                     one hand is in a known-good pose and the other isn't).
-      // mirrorSource = anything else      → fallback: only fill side that wasn't captured.
-      if (config.mirrorPairs) {
-        const src = inputs.mirrorSource as 'left' | 'right' | null | undefined;
-        let mirrored = 0;
-        for (const [a, b] of config.mirrorPairs) {
-          // Convention in mirrorPairs: first is the left bone, second is the right.
-          const leftName = a;
-          const rightName = b;
-          const hasL = leftName in bodyOffsets;
-          const hasR = rightName in bodyOffsets;
+  @valueOut('pose', 'NormalizedPose')
+  pose = (): NormalizedPose | undefined => {
+    const pose = this.poseIn();
+    if (!pose) return undefined;
+    const { bodyOffsets } = this.getState<CalibrationState>() ?? EMPTY_STATE;
+    if (!bodyOffsets || Object.keys(bodyOffsets).length === 0) return pose;
 
-          if (src === 'left' && hasL) {
-            const [x, y, z, w] = bodyOffsets[leftName];
-            bodyOffsets[rightName] = [x, -y, -z, w];
-            mirrored++;
-          } else if (src === 'right' && hasR) {
-            const [x, y, z, w] = bodyOffsets[rightName];
-            bodyOffsets[leftName] = [x, -y, -z, w];
-            mirrored++;
-          } else if (hasL && !hasR) {
-            const [x, y, z, w] = bodyOffsets[leftName];
-            bodyOffsets[rightName] = [x, -y, -z, w];
-            mirrored++;
-          } else if (hasR && !hasL) {
-            const [x, y, z, w] = bodyOffsets[rightName];
-            bodyOffsets[leftName] = [x, -y, -z, w];
-            mirrored++;
-          }
-        }
-        if (mirrored > 0)
-          console.log(
-            `[BodyCalibration] Mirrored ${mirrored} offsets (source=${src ?? 'auto'})`
-          );
-      }
-      ctx.setState({ bodyOffsets });
-      console.log(
-        `[BodyCalibration] Captured ${Object.keys(bodyOffsets).length} bone offsets`
-      );
-      return {} as OutputsOf<typeof BodyCalibration>;
-    }
-
-    // ── Reset ──────────────────────────────────────────────────────────────────
-    if (triggeredPort === 'reset') {
-      ctx.setState(EMPTY_STATE);
-      return {} as OutputsOf<typeof BodyCalibration>;
-    }
-
-    // ── Normal pose (triggered or pulled) ────────────────────────────────────
-    if (!pose) return {} as OutputsOf<typeof BodyCalibration>;
-    const { bodyOffsets } = ctx.getState<CalibrationState>() ?? EMPTY_STATE;
-    if (!bodyOffsets || Object.keys(bodyOffsets).length === 0) return { pose };
-
-    const corrected = pose.map((q, bone: VRMBoneName) => {
+    return pose.map((q, bone: VRMBoneName) => {
       const raw = bodyOffsets[bone as string];
       if (!raw) return q;
       const offset = Quaternion.fromArray(
@@ -148,6 +71,63 @@ export class BodyCalibration {
       );
       return offset.isValid ? offset.invert().multiply(q) : q;
     });
-    return { pose: corrected };
+  };
+
+  @eventIn('capture', 'Trigger')
+  onCapture(): void {
+    const config = this.config as BodyCalibConfig;
+    const filter = config.boneFilter ? new Set(config.boneFilter) : null;
+    const pose = this.poseIn();
+    if (!pose) return;
+
+    const bodyOffsets: Record<string, [number, number, number, number]> = {};
+    for (const [bone, q] of pose.entries()) {
+      if (filter && !filter.has(bone as string)) continue;
+      if (!q.isValid) continue;
+      bodyOffsets[bone as string] = q.toArray();
+    }
+    // Symmetric fill across left/right pairs. X-axis mirror for unit quaternions:
+    // (x, y, z, w) → (x, -y, -z, w).
+    if (config.mirrorPairs) {
+      const src = this.mirrorSource() as 'left' | 'right' | null | undefined;
+      let mirrored = 0;
+      for (const [a, b] of config.mirrorPairs) {
+        const leftName = a;
+        const rightName = b;
+        const hasL = leftName in bodyOffsets;
+        const hasR = rightName in bodyOffsets;
+
+        if (src === 'left' && hasL) {
+          const [x, y, z, w] = bodyOffsets[leftName];
+          bodyOffsets[rightName] = [x, -y, -z, w];
+          mirrored++;
+        } else if (src === 'right' && hasR) {
+          const [x, y, z, w] = bodyOffsets[rightName];
+          bodyOffsets[leftName] = [x, -y, -z, w];
+          mirrored++;
+        } else if (hasL && !hasR) {
+          const [x, y, z, w] = bodyOffsets[leftName];
+          bodyOffsets[rightName] = [x, -y, -z, w];
+          mirrored++;
+        } else if (hasR && !hasL) {
+          const [x, y, z, w] = bodyOffsets[rightName];
+          bodyOffsets[leftName] = [x, -y, -z, w];
+          mirrored++;
+        }
+      }
+      if (mirrored > 0)
+        console.log(
+          `[BodyCalibration] Mirrored ${mirrored} offsets (source=${src ?? 'auto'})`
+        );
+    }
+    this.setState({ bodyOffsets } satisfies CalibrationState);
+    console.log(
+      `[BodyCalibration] Captured ${Object.keys(bodyOffsets).length} bone offsets`
+    );
+  }
+
+  @eventIn('reset', 'Trigger')
+  onReset(): void {
+    this.setState(EMPTY_STATE);
   }
 }

@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    "lib": ["ES2023", "ESNext.Decorators"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
@@ -13,7 +14,13 @@
       "@vspark/shared/types": ["../shared/src/types.ts"],
       "@vspark/shared/schema": ["../shared/src/schema.ts"],
       "@vspark/shared/signal": ["../shared/src/signal.ts"],
-      "@vspark/shared/arkit": ["../shared/src/arkit_tables.ts"]
+      "@vspark/shared/signal_types": ["../shared/src/signal_types.ts"],
+      "@vspark/shared/node": ["../shared/src/node.ts"],
+      "@vspark/shared/node_decorators": ["../shared/src/node_decorators.ts"],
+      "@vspark/shared/inference": ["../shared/src/inference.ts"],
+      "@vspark/shared/infer_nodes": ["../shared/src/infer_nodes.ts"],
+      "@vspark/shared/arkit": ["../shared/src/arkit_tables.ts"],
+      "@vspark/shared/paramPaths": ["../shared/src/paramPaths.ts"]
     }
   },
   "include": ["src/**/*"]

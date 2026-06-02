@@ -1,9 +1,6 @@
-import { SignalNode, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 type Landmark = { x: number; y: number; z: number; visibility?: number };
 
@@ -29,28 +26,25 @@ const MIN_VIS = 0.5;
   tags: ['tracking'],
   color: '#2a4a6a',
 })
-export class HandHeightCompare {
+export class HandHeightCompare extends Node {
   static readonly kind = 'hand_height_compare';
-  static readonly inputPorts = [valuePort('pose', 'LandmarkList')] as const;
-  static readonly outputPorts = [valuePort('side', 'String')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof HandHeightCompare>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof HandHeightCompare> {
-    const pts = inputs.pose as Landmark[] | undefined;
-    if (!pts || pts.length < 17) return { side: null as unknown as string };
+  @valueIn('pose', 'LandmarkList') pose!: () => Landmark[] | undefined;
+
+  @valueOut('side', 'String')
+  side = (): string => {
+    const pts = this.pose();
+    if (!pts || pts.length < 17) return null as unknown as string;
 
     const lw = pts[LEFT_WRIST];
     const rw = pts[RIGHT_WRIST];
     const lOk = (lw.visibility ?? 1) >= MIN_VIS;
     const rOk = (rw.visibility ?? 1) >= MIN_VIS;
 
-    if (!lOk && !rOk) return { side: null as unknown as string };
-    if (lOk && !rOk) return { side: 'left' };
-    if (rOk && !lOk) return { side: 'right' };
+    if (!lOk && !rOk) return null as unknown as string;
+    if (lOk && !rOk) return 'left';
+    if (rOk && !lOk) return 'right';
     // Both visible — smaller raw Y means higher in image space.
-    return { side: lw.y < rw.y ? 'left' : 'right' };
-  }
+    return lw.y < rw.y ? 'left' : 'right';
+  };
 }

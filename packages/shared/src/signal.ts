@@ -383,97 +383,27 @@ export interface SignalTypeMap {
 
 export type SignalTypeName = keyof SignalTypeMap;
 
-export type PortKind = 'event' | 'value' | 'list';
-
-export type PortDecl<
-  N extends string = string,
-  T extends SignalTypeName = SignalTypeName,
-  K extends PortKind = PortKind,
-> = { readonly name: N; readonly type: T; readonly kind: K };
-
-export function eventPort<N extends string, T extends SignalTypeName>(
-  name: N,
-  type: T
-): PortDecl<N, T, 'event'> {
-  return { name, type, kind: 'event' };
-}
-
-export function valuePort<N extends string, T extends SignalTypeName>(
-  name: N,
-  type: T
-): PortDecl<N, T, 'value'> {
-  return { name, type, kind: 'value' };
-}
-
-/** A list port accepts multiple incoming value connections and delivers them as an array. */
-export function listPort<N extends string, T extends SignalTypeName>(
-  name: N,
-  type: T
-): PortDecl<N, T, 'list'> {
-  return { name, type, kind: 'list' };
-}
-
-type PortRuntimeType<
-  T extends SignalTypeName,
-  K extends PortKind,
-> = K extends 'event'
-  ? Event<SignalTypeMap[T]>
-  : K extends 'list'
-    ? Array<SignalTypeMap[T]>
-    : SignalTypeMap[T];
-
-export type PortsToRecord<Ports extends ReadonlyArray<PortDecl>> = {
-  [P in Ports[number] as P['name']]: PortRuntimeType<P['type'], P['kind']>;
-};
-
 // ──────────────────────────────────────────────────────────────────────────────
-// SignalNode class helpers — InputsOf / OutputsOf
+// SignalNodeClass — structural interface expected by the engine (Phase 2)
 //
-// Used as execute() parameter annotations on class-based node definitions.
-//   InputsOf<typeof MyNode>  → { portName: Event<DataType>, ... }
-//   OutputsOf<typeof MyNode> → { portName: Event<DataType>, ... }
+// A node class is a constructor for a `Node` subclass (see node.ts), carrying a
+// static `kind`. Ports are declared as decorated members and harvested at
+// class-definition time by `@SignalNode` (no static inputPorts/outputPorts arrays).
+// An optional static `inferPorts` lets a node compute its resolved ports from its
+// connected inputs; ordinary nodes omit it and fall back to lifting their static
+// port declarations.
 // ──────────────────────────────────────────────────────────────────────────────
 
-export type InputsOf<
-  T extends { readonly inputPorts: ReadonlyArray<PortDecl> },
-> = PortsToRecord<T['inputPorts']>;
-
-export type OutputsOf<
-  T extends { readonly outputPorts: ReadonlyArray<PortDecl> },
-> = PortsToRecord<T['outputPorts']>;
-
-/**
- * Passed as the third argument to every node's execute().
- * Provides access to per-node persistent state and the port that triggered
- * this execution (useful for trigger-event branches).
- */
-export interface NodeExecutionContext {
-  /** Which input port name caused this execution. */
-  triggeredPort: string;
-  /** Load this node's persisted state (e.g. calibration offsets). */
-  getState<T = unknown>(): T;
-  /** Persist new state for this node. */
-  setState(state: unknown): void;
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// SignalNodeClass — structural interface expected by the engine
-//
-// Any class carrying static kind, inputPorts, outputPorts and execute satisfies
-// this type. The engine uses it as the erased boundary; individual nodes use
-// the stricter InputsOf/OutputsOf annotations for compile-time safety.
-// ──────────────────────────────────────────────────────────────────────────────
+import type { Node, InferCtx, InferResult } from './node.js';
+import { harvestPorts } from './node.js';
+import type { ResolvedType, Transport } from './signal_types.js';
 
 export interface SignalNodeClass {
   readonly kind: string;
-  readonly inputPorts: ReadonlyArray<PortDecl>;
-  readonly outputPorts: ReadonlyArray<PortDecl>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  execute(
-    inputs: any,
-    config: unknown,
-    ctx: NodeExecutionContext
-  ): Record<string, unknown>;
+  /** Construct a fresh node instance (the engine then calls `instance.bind(...)`). */
+  new (): Node;
+  /** Optional shape inference from connected inputs (pack/unpack/queue). */
+  inferPorts?(ctx: InferCtx): InferResult;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -523,16 +453,20 @@ export const SIGNAL_TYPE_COLORS: Record<SignalTypeName, string> = {
 const _displayMap = new WeakMap<object, NodeDisplay>();
 
 /**
- * Class decorator. Co-locate display metadata with the node definition:
+ * Class decorator. Co-locates display metadata with the node definition AND harvests
+ * the port declarations buffered by the member decorators (`@eventIn`/`@valueIn`/…).
+ * It must run after the member decorators (class decorators always do) and shares the
+ * same `ctx.metadata` buffer, so by the time it runs every port is registered.
  *
  * ```ts
  * @SignalNode({ label: 'Body Calibration', tags: ['calibration'], color: '#4a6a9f' })
- * export class BodyCalibration { ... }
+ * export class BodyCalibration extends Node { ... }
  * ```
  */
 export function SignalNode(display: NodeDisplay) {
-  return function (cls: object, _ctx: ClassDecoratorContext): void {
+  return function (cls: object, ctx: ClassDecoratorContext): void {
     _displayMap.set(cls, display);
+    harvestPorts(cls, ctx.metadata);
   };
 }
 
@@ -604,10 +538,20 @@ export interface GraphStateSnapshot {
   edges: Record<string, EdgeStateSnapshot>;
 }
 
+/**
+ * A node port as served to the frontend. Carries the port's STATIC declared shape:
+ * its resolved type (transport folded in) plus the leaf type tag + transport for
+ * rendering. The editor recomputes per-instance dynamic ports via shared inference;
+ * this is the per-kind baseline (what `defaultInfer` would produce).
+ */
 export interface NodePortMeta {
   name: string;
-  type: string; // SignalTypeName
-  portKind: string; // PortKind
+  /** Resolved structural type (transport folded into the constructor). */
+  resolved: ResolvedType;
+  /** Leaf data-type tag (for colour lookup in SIGNAL_TYPE_COLORS). */
+  typeTag: SignalTypeName;
+  /** Derived transport: 'event' | 'value' | 'list'. */
+  transport: Transport;
 }
 
 export interface NodeKindMeta {
@@ -615,34 +559,6 @@ export interface NodeKindMeta {
   inputPorts: NodePortMeta[];
   outputPorts: NodePortMeta[];
   display: NodeDisplay | undefined;
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// PortConnection — runtime edge with type information (for validation)
-// ──────────────────────────────────────────────────────────────────────────────
-
-export interface PortConnection {
-  fromNodeId: string;
-  fromPort: string;
-  fromType: SignalTypeName;
-  fromKind: PortKind;
-  toNodeId: string;
-  toPort: string;
-  toType: SignalTypeName;
-  toKind: PortKind;
-}
-
-export function portsCompatible(
-  from: Pick<PortConnection, 'fromType' | 'fromKind'>,
-  to: Pick<PortConnection, 'toType' | 'toKind'>
-): boolean {
-  // A value output can feed into a list input (many-to-one fan-in).
-  const effectiveFromKind =
-    from.fromKind === 'value' && to.toKind === 'list' ? 'list' : from.fromKind;
-  if (effectiveFromKind !== to.toKind) return false;
-  // ComponentConfig and Any are wildcard types — compatible with any value/list port.
-  if (from.fromType === 'ComponentConfig' || from.fromType === 'Any')
-    return true;
-  if (to.toType === 'Any') return true;
-  return from.fromType === to.toType;
+  /** True if the kind has a custom inferPorts (ports may grow/shrink at edit time). */
+  dynamic?: boolean;
 }

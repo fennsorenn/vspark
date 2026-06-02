@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
 import type { NodeDisplay, NodePortMeta } from '@vspark/shared/signal';
@@ -113,10 +114,10 @@ function StaticInput({
   configValue: unknown;
   onChange: (value: unknown) => void;
 }) {
-  if (port.type === 'Account') {
+  if (port.typeTag === 'Account') {
     return <AccountSelect configValue={configValue} onChange={onChange} />;
   }
-  if (port.type === 'Bool') {
+  if (port.typeTag === 'Bool') {
     return (
       <label
         style={{
@@ -141,14 +142,14 @@ function StaticInput({
   }
   return (
     <input
-      type={port.type === 'Float' ? 'number' : 'text'}
+      type={port.typeTag === 'Float' ? 'number' : 'text'}
       defaultValue={(configValue as string | number | undefined) ?? ''}
       key={JSON.stringify(configValue)}
-      placeholder={port.type === 'Float' ? '0' : port.name}
-      style={{ ...staticInputStyle, width: port.type === 'Float' ? 70 : 140 }}
+      placeholder={port.typeTag === 'Float' ? '0' : port.name}
+      style={{ ...staticInputStyle, width: port.typeTag === 'Float' ? 70 : 140 }}
       onBlur={(e) => {
         const raw = e.target.value;
-        onChange(port.type === 'Float' ? parseFloat(raw) || 0 : raw);
+        onChange(port.typeTag === 'Float' ? parseFloat(raw) || 0 : raw);
       }}
       // Prevent ReactFlow from stealing keyboard events
       onKeyDown={(e) => e.stopPropagation()}
@@ -209,9 +210,9 @@ function PortRow({
   configValue: unknown;
   onStaticChange: (portName: string, value: unknown) => void;
 }) {
-  const color = typeColor(port.type);
+  const color = typeColor(port.typeTag);
   const id = side === 'input' ? `in-${port.name}` : `out-${port.name}`;
-  const isValue = port.portKind === 'value';
+  const isValue = port.transport === 'value';
   const hasEvent = Boolean(
     portValue &&
     typeof portValue === 'object' &&
@@ -222,7 +223,7 @@ function PortRow({
     side === 'input' &&
     isValue &&
     !connected &&
-    STATIC_INPUT_TYPES.has(port.type);
+    STATIC_INPUT_TYPES.has(port.typeTag);
 
   return (
     <div style={{ position: 'relative' }}>
@@ -262,7 +263,7 @@ function PortRow({
         <span
           style={{ fontSize: 8, color, opacity: 0.7, fontFamily: 'monospace' }}
         >
-          {isValue ? '◆' : '▶'} {port.type}
+          {isValue ? '◆' : '▶'} {port.typeTag}
         </span>
         {hasEvent && (
           <span
@@ -282,6 +283,74 @@ function PortRow({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// pack_event named-field editor — names live in config.fields (types inferred
+// from what gets wired in). Each named field becomes an input port; the trailing
+// "add" input appends a new name.
+// ──────────────────────────────────────────────────────────────────────────────
+
+function PackFieldsEditor({
+  fields,
+  onChange,
+}: {
+  fields: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const add = () => {
+    const name = draft.trim();
+    if (!name || fields.includes(name)) return;
+    onChange([...fields, name]);
+    setDraft('');
+  };
+  return (
+    <div style={{ borderTop: '1px solid #2a2a4a', padding: '4px 10px' }}>
+      <div style={{ fontSize: 9, color: '#777', marginBottom: 3 }}>FIELDS</div>
+      {fields.map((f) => (
+        <div
+          key={f}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 10,
+            fontFamily: 'monospace',
+            color: '#aaa',
+          }}
+        >
+          <span style={{ flex: 1 }}>{f}</span>
+          <button
+            onClick={() => onChange(fields.filter((x) => x !== f))}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#c87070',
+              cursor: 'pointer',
+              fontSize: 11,
+              padding: 0,
+            }}
+            title="Remove field"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+      <input
+        value={draft}
+        placeholder="+ field name"
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') add();
+        }}
+        onBlur={add}
+        onClick={(e) => e.stopPropagation()}
+        style={{ ...staticInputStyle, width: '100%', marginTop: 2 }}
+      />
     </div>
   );
 }
@@ -353,9 +422,22 @@ export function SignalNodeCard({
     api.updateNodeComponent(componentId, { config: newConfig }).catch(() => {});
   };
 
-  // Config display: skip null/undefined and internal _ keys.
+  // pack_event: user-defined named input fields (config.fields: string[]).
+  const packFields: string[] =
+    kind === 'pack_event' && Array.isArray(configRecord.fields)
+      ? (configRecord.fields as string[])
+      : [];
+  const setPackFields = (next: string[]) =>
+    handleStaticChange('fields', next);
+
+  // Config display: skip null/undefined and internal _ keys. Hide `fields` on
+  // pack_event (it has its own editor below).
   const configEntries = Object.entries(configRecord).filter(
-    ([k, v]) => !k.startsWith('_') && v !== null && v !== undefined
+    ([k, v]) =>
+      !k.startsWith('_') &&
+      v !== null &&
+      v !== undefined &&
+      !(kind === 'pack_event' && k === 'fields')
   );
 
   return (
@@ -436,6 +518,11 @@ export function SignalNodeCard({
             </div>
           ))}
         </div>
+      )}
+
+      {/* pack_event named-field editor */}
+      {kind === 'pack_event' && (
+        <PackFieldsEditor fields={packFields} onChange={setPackFields} />
       )}
 
       {/* Config / parameter values */}

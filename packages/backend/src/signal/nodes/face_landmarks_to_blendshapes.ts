@@ -1,9 +1,6 @@
-import { SignalNode, valuePort, Blendshapes } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, Blendshapes } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 type Landmark = { x: number; y: number; z: number; visibility?: number };
 
@@ -117,20 +114,15 @@ function estimateBlendshapes(pts: Landmark[]): Blendshapes {
   tags: ['tracking', 'mapping'],
   color: '#4a5a8a',
 })
-export class FaceLandmarksToBlendshapes {
+export class FaceLandmarksToBlendshapes extends Node {
   static readonly kind = 'face_landmarks_to_blendshapes';
-  static readonly inputPorts = [valuePort('face', 'LandmarkList')] as const;
-  static readonly outputPorts = [
-    valuePort('blendshapes', 'Blendshapes'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof FaceLandmarksToBlendshapes>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof FaceLandmarksToBlendshapes> {
-    const pts = inputs.face as Landmark[] | undefined;
-    if (!pts?.length) return {} as OutputsOf<typeof FaceLandmarksToBlendshapes>;
-    return { blendshapes: estimateBlendshapes(pts) };
-  }
+  @valueIn('face', 'LandmarkList') face!: () => Landmark[] | undefined;
+
+  @valueOut('blendshapes', 'Blendshapes')
+  blendshapes = (): Blendshapes | undefined => {
+    const pts = this.face();
+    if (!pts?.length) return undefined;
+    return estimateBlendshapes(pts);
+  };
 }

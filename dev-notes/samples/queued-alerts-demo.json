@@ -1,0 +1,89 @@
+{
+  "_about": "Phase 2 demo graph for the Flow B queued-alert pattern (deferred from Phase 1, now possible with pack_event / queue_events / generic unpack_event). Subscription and redemption events are packed into a record, queued FIFO, and released one at a time on a clock tick so overlapping alerts don't stomp each other. Each released alert spawns an ephemeral overlay clip and sets its text. Before importing: fill in the TODO placeholder ids in defaultConfig (overlive account ids, template clip id). Import via PUT /api/graphs/:id with the descriptor field set to this JSON object minus the leading underscore-prefixed metadata keys.",
+  "_setup": [
+    "1. Create a compose_layer (or scene_node) to act as the alert overlay TEMPLATE. Mark it hidden — spawns are auto-unhidden. If using text, make it a text_canvas/text_troika node.",
+    "2. Author a track_clip owned by that template (mode='relative' or 'override', loop=false, a short duration e.g. 3s) that animates the alert in and out (opacity/position).",
+    "3. Hook up Twitch + StreamElements (or one) in TopBar > Overlive Accounts so subscription/redemption events flow.",
+    "4. Fill in the TODO defaultConfig values: account on the overlive_subscription and overlive_redemption nodes, clipId on spawn_clip, and tune the clock hz (default 0.5 = release one queued alert every 2s).",
+    "5. pack_event's input fields are defined by config.fields (already set to username + message below); wire each overlive output into the matching named input port. unpack_event will expose one output per packed field once the pack→queue→unpack chain is wired.",
+    "6. Create a project-scoped graph (POST /api/projects/:projectId/graphs) and PUT this descriptor (minus the _* meta keys) into its descriptor field.",
+    "7. Trigger a sub/redemption; alerts queue and pop one per clock tick, each spawning the template clip and setting its text."
+  ],
+  "id": "demo-queued-alerts",
+  "label": "Sub/Redemption → Queued Alerts",
+  "readonly": false,
+  "nodes": [
+    {
+      "id": "sub",
+      "kind": "overlive_subscription",
+      "position": { "x": 0, "y": 0 },
+      "defaultConfig": { "account": "TODO_overlive_account_id" }
+    },
+    {
+      "id": "redeem",
+      "kind": "overlive_redemption",
+      "position": { "x": 0, "y": 220 },
+      "defaultConfig": { "account": "TODO_overlive_account_id" }
+    },
+    {
+      "id": "packSub",
+      "kind": "pack_event",
+      "position": { "x": 300, "y": 0 },
+      "defaultConfig": { "fields": ["username", "message"] }
+    },
+    {
+      "id": "packRedeem",
+      "kind": "pack_event",
+      "position": { "x": 300, "y": 220 },
+      "defaultConfig": { "fields": ["username", "message"] }
+    },
+    {
+      "id": "queue",
+      "kind": "queue_events",
+      "position": { "x": 600, "y": 110 }
+    },
+    {
+      "id": "clock",
+      "kind": "clock",
+      "position": { "x": 600, "y": 320 },
+      "defaultConfig": { "hz": 0.5 }
+    },
+    {
+      "id": "unpack",
+      "kind": "unpack_event",
+      "position": { "x": 880, "y": 110 }
+    },
+    {
+      "id": "spawn",
+      "kind": "spawn_clip",
+      "position": { "x": 1160, "y": 60 },
+      "defaultConfig": { "clipId": "TODO_template_clip_id" }
+    },
+    {
+      "id": "setText",
+      "kind": "set_text",
+      "position": { "x": 1160, "y": 240 },
+      "defaultConfig": { "targetKind": "compose_layer" }
+    }
+  ],
+  "edges": [
+    { "fromNodeId": "sub", "fromPort": "username", "toNodeId": "packSub", "toPort": "username", "kind": "value" },
+    { "fromNodeId": "sub", "fromPort": "message", "toNodeId": "packSub", "toPort": "message", "kind": "value" },
+    { "fromNodeId": "sub", "fromPort": "event", "toNodeId": "packSub", "toPort": "fire", "kind": "event" },
+
+    { "fromNodeId": "redeem", "fromPort": "username", "toNodeId": "packRedeem", "toPort": "username", "kind": "value" },
+    { "fromNodeId": "redeem", "fromPort": "message", "toNodeId": "packRedeem", "toPort": "message", "kind": "value" },
+    { "fromNodeId": "redeem", "fromPort": "event", "toNodeId": "packRedeem", "toPort": "fire", "kind": "event" },
+
+    { "fromNodeId": "packSub", "fromPort": "event", "toNodeId": "queue", "toPort": "enqueue", "kind": "event" },
+    { "fromNodeId": "packRedeem", "fromPort": "event", "toNodeId": "queue", "toPort": "enqueue", "kind": "event" },
+
+    { "fromNodeId": "clock", "fromPort": "tick", "toNodeId": "queue", "toPort": "pop", "kind": "event" },
+
+    { "fromNodeId": "queue", "fromPort": "popped", "toNodeId": "unpack", "toPort": "event", "kind": "event" },
+
+    { "fromNodeId": "unpack", "fromPort": "trigger", "toNodeId": "spawn", "toPort": "fire", "kind": "event" },
+    { "fromNodeId": "spawn", "fromPort": "spawned", "toNodeId": "setText", "toPort": "spawnRef", "kind": "event" },
+    { "fromNodeId": "unpack", "fromPort": "message", "toNodeId": "setText", "toPort": "value", "kind": "value" }
+  ]
+}

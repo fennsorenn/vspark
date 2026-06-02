@@ -1,15 +1,7 @@
-import {
-  SignalNode,
-  valuePort,
-  Quaternion,
-  NormalizedPose,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  VRMBoneName,
-} from '@vspark/shared/signal';
+import { SignalNode, Quaternion, NormalizedPose } from '@vspark/shared/signal';
+import type { VRMBoneName } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 type Landmark = { x: number; y: number; z: number; visibility?: number };
 type V3 = [number, number, number];
@@ -364,36 +356,30 @@ interface HeadCalibration {
   tags: ['tracking', 'mapping'],
   color: '#4a5a8a',
 })
-export class PoseTorsoHeadToBones {
+export class PoseTorsoHeadToBones extends Node {
   static readonly kind = 'pose_torso_head_to_bones';
-  static readonly inputPorts = [
-    valuePort('pose', 'LandmarkList'),
-    valuePort('enabled', 'Bool'),
-    valuePort('pitchGain', 'Float'),
-    valuePort('yawGain', 'Float'),
-    valuePort('rollGain', 'Float'),
-    valuePort('restPitch', 'Float'),
-  ] as const;
-  static readonly outputPorts = [valuePort('pose', 'NormalizedPose')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof PoseTorsoHeadToBones>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof PoseTorsoHeadToBones> {
-    const enabledIn = inputs.enabled as boolean | null | undefined;
-    const enabled = enabledIn ?? true;
-    if (!enabled) return { pose: new NormalizedPose() };
-    const pts = inputs.pose as Landmark[] | undefined;
-    if (!pts?.length) return {} as OutputsOf<typeof PoseTorsoHeadToBones>;
+  @valueIn('pose', 'LandmarkList') poseIn!: () => Landmark[] | undefined;
+  @valueIn('enabled', 'Bool') enabledIn!: () => boolean | null | undefined;
+  @valueIn('pitchGain', 'Float') pitchGain!: () => number | undefined;
+  @valueIn('yawGain', 'Float') yawGain!: () => number | undefined;
+  @valueIn('rollGain', 'Float') rollGain!: () => number | undefined;
+  @valueIn('restPitch', 'Float') restPitch!: () => number | undefined;
+
+  @valueOut('pose', 'NormalizedPose')
+  poseOut = (): NormalizedPose | undefined => {
+    const enabled = this.enabledIn() ?? true;
+    if (!enabled) return new NormalizedPose();
+    const pts = this.poseIn();
+    if (!pts?.length) return undefined;
     const numIn = (v: unknown, d: number): number =>
       typeof v === 'number' && Number.isFinite(v) ? v : d;
     const calib: HeadCalibration = {
-      pitchGain: numIn(inputs.pitchGain, 2.0),
-      yawGain: numIn(inputs.yawGain, 1.0),
-      rollGain: numIn(inputs.rollGain, 1.0),
-      restPitch: numIn(inputs.restPitch, -0.43),
+      pitchGain: numIn(this.pitchGain(), 2.0),
+      yawGain: numIn(this.yawGain(), 1.0),
+      rollGain: numIn(this.rollGain(), 1.0),
+      restPitch: numIn(this.restPitch(), -0.43),
     };
-    return { pose: convertPose(pts, calib) };
-  }
+    return convertPose(pts, calib);
+  };
 }

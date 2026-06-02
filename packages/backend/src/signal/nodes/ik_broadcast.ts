@@ -1,10 +1,7 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
 import type { IkTargetFrame } from '@vspark/shared/types';
+import { Node } from '@vspark/shared/node';
+import { eventIn, valueIn } from '@vspark/shared/node_decorators';
 import { WSSync } from '../../ws/index.js';
 
 let _ws: WSSync | null = null;
@@ -19,27 +16,20 @@ export function initIkBroadcast(ws: WSSync): void {
   tags: ['output'],
   color: '#7a3a9a',
 })
-export class IkBroadcast {
+export class IkBroadcast extends Node {
   static readonly kind = 'ik_broadcast';
-  static readonly inputPorts = [
-    eventPort('trigger', 'Trigger'),
-    valuePort('targets', 'IkTargets'),
-    valuePort('nodeId', 'EntityId'),
-    valuePort('enabled', 'Bool'),
-  ] as const;
-  static readonly outputPorts = [] as const;
 
-  static execute(
-    inputs: InputsOf<typeof IkBroadcast>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof IkBroadcast> {
-    const enabled = (inputs.enabled as boolean | null | undefined) ?? true;
-    if (!enabled) return {};
-    const nodeId = inputs.nodeId as string | undefined;
-    const targets = inputs.targets as IkTargetFrame | undefined;
-    if (!nodeId || !targets) return {};
+  @valueIn('targets', 'IkTargets') targets!: () => IkTargetFrame | undefined;
+  @valueIn('nodeId', 'EntityId') nodeId!: () => string | undefined;
+  @valueIn('enabled', 'Bool') enabledIn!: () => boolean | null | undefined;
+
+  @eventIn('trigger', 'Trigger')
+  onTrigger(): void {
+    const enabled = this.enabledIn() ?? true;
+    if (!enabled) return;
+    const nodeId = this.nodeId();
+    const targets = this.targets();
+    if (!nodeId || !targets) return;
     _ws?.broadcast('pose_ik_targets', { ...targets, nodeId });
-    return {};
   }
 }

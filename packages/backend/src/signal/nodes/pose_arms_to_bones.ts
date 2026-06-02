@@ -1,15 +1,7 @@
-import {
-  SignalNode,
-  valuePort,
-  Quaternion,
-  NormalizedPose,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  VRMBoneName,
-} from '@vspark/shared/signal';
+import { SignalNode, Quaternion, NormalizedPose } from '@vspark/shared/signal';
+import type { VRMBoneName } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 type Landmark = { x: number; y: number; z: number; visibility?: number };
 type V3 = [number, number, number];
@@ -244,24 +236,18 @@ function convertArms(rawPts: Landmark[]): NormalizedPose {
   tags: ['tracking', 'mapping'],
   color: '#4a6a8a',
 })
-export class PoseArmsToBones {
+export class PoseArmsToBones extends Node {
   static readonly kind = 'pose_arms_to_bones';
-  static readonly inputPorts = [
-    valuePort('pose', 'LandmarkList'),
-    valuePort('enabled', 'Bool'),
-  ] as const;
-  static readonly outputPorts = [valuePort('pose', 'NormalizedPose')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof PoseArmsToBones>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof PoseArmsToBones> {
-    const enabledIn = inputs.enabled as boolean | null | undefined;
-    const enabled = enabledIn ?? true;
-    if (!enabled) return { pose: new NormalizedPose() };
-    const pts = inputs.pose as Landmark[] | undefined;
-    if (!pts?.length) return {} as OutputsOf<typeof PoseArmsToBones>;
-    return { pose: convertArms(pts) };
-  }
+  @valueIn('pose', 'LandmarkList') poseIn!: () => Landmark[] | undefined;
+  @valueIn('enabled', 'Bool') enabledIn!: () => boolean | null | undefined;
+
+  @valueOut('pose', 'NormalizedPose')
+  poseOut = (): NormalizedPose | undefined => {
+    const enabled = this.enabledIn() ?? true;
+    if (!enabled) return new NormalizedPose();
+    const pts = this.poseIn();
+    if (!pts?.length) return undefined;
+    return convertArms(pts);
+  };
 }

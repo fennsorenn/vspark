@@ -1,9 +1,6 @@
-import { SignalNode, valuePort, Quaternion } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, Quaternion } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 @SignalNode({
   label: 'Euler → Quaternion',
@@ -12,25 +9,18 @@ import type {
   tags: ['math'],
   color: '#4a7a5a',
 })
-export class EulerToQuaternion {
+export class EulerToQuaternion extends Node {
   static readonly kind = 'euler_to_quaternion';
-  static readonly inputPorts = [
-    valuePort('pitch', 'Float'), // X-axis rotation (forward/back tilt)
-    valuePort('yaw', 'Float'), // Y-axis rotation (left/right turn)
-    valuePort('roll', 'Float'), // Z-axis rotation (side tilt)
-  ] as const;
-  static readonly outputPorts = [
-    valuePort('quaternion', 'Quaternion'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof EulerToQuaternion>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof EulerToQuaternion> {
-    const pitch = (inputs.pitch as number | undefined) ?? 0;
-    const yaw = (inputs.yaw as number | undefined) ?? 0;
-    const roll = (inputs.roll as number | undefined) ?? 0;
+  @valueIn('pitch', 'Float') pitch!: () => number | undefined; // X-axis rotation (forward/back tilt)
+  @valueIn('yaw', 'Float') yaw!: () => number | undefined; // Y-axis rotation (left/right turn)
+  @valueIn('roll', 'Float') roll!: () => number | undefined; // Z-axis rotation (side tilt)
+
+  @valueOut('quaternion', 'Quaternion')
+  quaternion = (): Quaternion => {
+    const pitch = this.pitch() ?? 0;
+    const yaw = this.yaw() ?? 0;
+    const roll = this.roll() ?? 0;
 
     // ZYX intrinsic: Rz(roll) * Ry(yaw) * Rx(pitch)
     const cx = Math.cos(pitch / 2),
@@ -40,13 +30,11 @@ export class EulerToQuaternion {
     const cz = Math.cos(roll / 2),
       sz = Math.sin(roll / 2);
 
-    const quaternion = new Quaternion(
+    return new Quaternion(
       sx * cy * cz - cx * sy * sz,
       cx * sy * cz + sx * cy * sz,
       cx * cy * sz - sx * sy * cz,
       cx * cy * cz + sx * sy * sz
     ).normalize();
-
-    return { quaternion };
-  }
+  };
 }

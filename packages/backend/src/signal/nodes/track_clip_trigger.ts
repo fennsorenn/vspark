@@ -1,19 +1,11 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { eventIn, valueIn } from '@vspark/shared/node_decorators';
 import type { TrackClipPlaybackManager } from '../../track_clips/playback.js';
 
 let _playback: TrackClipPlaybackManager | null = null;
 export function initTrackClipTrigger(mgr: TrackClipPlaybackManager): void {
   _playback = mgr;
-}
-
-interface TrackClipTriggerConfig {
-  /** Scene-scoped id of the track clip to trigger. Set via the property panel. */
-  clipId?: string;
 }
 
 /**
@@ -28,25 +20,15 @@ interface TrackClipTriggerConfig {
   tags: ['output'],
   color: '#3a5a7a',
 })
-export class TrackClipTrigger {
+export class TrackClipTrigger extends Node {
   static readonly kind = 'track_clip_trigger';
-  static readonly inputPorts = [
-    eventPort('fire', 'Trigger'),
-    valuePort('clipId', 'String'),
-  ] as const;
-  static readonly outputPorts = [] as const;
 
-  static execute(
-    inputs: InputsOf<typeof TrackClipTrigger>,
-    config: TrackClipTriggerConfig,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof TrackClipTrigger> {
-    // Only act on the event delivery, not on stray value pulls.
-    if (ctx.triggeredPort !== 'fire')
-      return {} as OutputsOf<typeof TrackClipTrigger>;
-    const clipId = (inputs.clipId as string | undefined) || config.clipId;
-    if (!clipId || !_playback) return {} as OutputsOf<typeof TrackClipTrigger>;
+  @valueIn('clipId', 'String') clipId!: () => string | undefined;
+
+  @eventIn('fire', 'Trigger')
+  onFire(): void {
+    const clipId = this.clipId();
+    if (!clipId || !_playback) return;
     _playback.trigger(clipId);
-    return {} as OutputsOf<typeof TrackClipTrigger>;
   }
 }

@@ -1,49 +1,50 @@
-import {
-  SignalNode,
-  eventPort,
-  valuePort,
-  mkEvent,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  Event,
-} from '@vspark/shared/signal';
+import { SignalNode, type Event } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, eventOut } from '@vspark/shared/node_decorators';
 
+interface UnpackState {
+  /** Last received payload, keyed for per-field pulls. */
+  payload: unknown;
+}
+
+/**
+ * Splits an incoming event into a `trigger` event plus per-field PULL outputs.
+ *
+ * On each event: stores the payload and fires `trigger` (push). Downstream consumers
+ * react to `trigger` and then PULL the field outputs — this is the same push→pull bridge
+ * the VMC/lipsync/mediapipe pipelines rely on (a broadcast node fires on `trigger`, then
+ * pulls `value`/field chains). The field outputs are DYNAMIC (see inferUnpackEvent): when
+ * the wired event resolves to `Event<record>`, one pull output per record field; otherwise
+ * a single `value` pull output carrying the whole payload (pre-Phase-2 behaviour).
+ */
 @SignalNode({
   label: 'Unpack Event',
   description:
-    'Splits an event into a trigger and its payload value. Connect the trigger to broadcast nodes and pull the value from downstream processors.',
+    'Split an event into a trigger plus one pull output per payload field. Falls back to a single value output for non-record payloads.',
   tags: ['utility'],
   color: '#3a3a5a',
 })
-export class UnpackEvent {
+export class UnpackEvent extends Node {
   static readonly kind = 'unpack_event';
-  static readonly inputPorts = [eventPort('event', 'Any')] as const;
-  static readonly outputPorts = [
-    eventPort('trigger', 'Trigger'),
-    valuePort('value', 'Any'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof UnpackEvent>,
-    _config: unknown,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof UnpackEvent> {
-    if (ctx.triggeredPort === 'event') {
-      const evt = inputs.event as Event<unknown>;
-      const payload = evt?.payload ?? null;
-      ctx.setState(payload);
-      return {
-        trigger: mkEvent(undefined, evt?.timestamp),
-        value: payload,
-      } as OutputsOf<typeof UnpackEvent>;
-    }
-    // Pull path — return the last stored payload.
-    const payload = ctx.getState<unknown>() ?? null;
-    return { trigger: mkEvent(undefined), value: payload } as OutputsOf<
-      typeof UnpackEvent
-    >;
+  @eventOut('trigger', 'Trigger') trigger!: Emitter<void>;
+
+  protected override onBind(): void {
+    // Per-field pulls resolve from the last stored payload. For a record payload,
+    // `port` is a field name; otherwise the single `value` port returns the whole payload.
+    this.setDynamicOutputs((port) => {
+      const payload = this.getState<UnpackState>()?.payload ?? null;
+      if (port === 'value') return payload;
+      if (payload !== null && typeof payload === 'object') {
+        return (payload as Record<string, unknown>)[port];
+      }
+      return undefined;
+    });
+  }
+
+  @eventIn('event', 'Any')
+  onEvent(ev: Event<unknown>): void {
+    this.setState({ payload: ev?.payload ?? null } satisfies UnpackState);
+    this.trigger.emit(undefined);
   }
 }

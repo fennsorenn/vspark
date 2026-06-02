@@ -1,5 +1,6 @@
-import { SignalNode, valuePort } from '@vspark/shared/signal';
-import type { OutputsOf, NodeExecutionContext } from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueOut } from '@vspark/shared/node_decorators';
 
 export interface ComponentIdConfig {
   componentId: string;
@@ -11,16 +12,10 @@ export interface ComponentIdConfig {
   color: '#2a2a4a',
   internal: true,
 })
-export class ComponentId {
+export class ComponentId extends Node {
   static readonly kind = 'component_id';
-  static readonly inputPorts = [] as const;
-  static readonly outputPorts = [valuePort('id', 'String')] as const;
 
-  static execute(
-    _: Record<string, never>,
-    config: ComponentIdConfig,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof ComponentId> {
-    return { id: config.componentId };
-  }
+  @valueOut('id', 'String')
+  id = (): string =>
+    (this.config as unknown as ComponentIdConfig).componentId;
 }

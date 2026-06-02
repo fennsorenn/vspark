@@ -1,14 +1,6 @@
-import {
-  SignalNode,
-  listPort,
-  valuePort,
-  Blendshapes,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, Blendshapes } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { listIn, valueOut } from '@vspark/shared/node_decorators';
 
 /**
  * Additively merges any number of Blendshapes sources (clamped to [0,1]).
@@ -22,24 +14,19 @@ import type {
   tags: ['mapping', 'face'],
   color: '#5a4a2a',
 })
-export class BlendshapesSum {
+export class BlendshapesSum extends Node {
   static readonly kind = 'blendshapes_sum';
-  static readonly inputPorts = [listPort('sources', 'Blendshapes')] as const;
-  static readonly outputPorts = [
-    valuePort('blendshapes', 'Blendshapes'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof BlendshapesSum>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof BlendshapesSum> {
+  @listIn('sources', 'Blendshapes') sources!: () => Blendshapes[];
+
+  @valueOut('blendshapes', 'Blendshapes')
+  blendshapes = (): Blendshapes => {
     const accum: Record<string, number> = {};
-    for (const bs of inputs.sources as Blendshapes[]) {
+    for (const bs of this.sources()) {
       for (const [name, val] of bs.entries()) {
         accum[name as string] = Math.min(1, (accum[name as string] ?? 0) + val);
       }
     }
-    return { blendshapes: Blendshapes.fromRecord(accum) };
-  }
+    return Blendshapes.fromRecord(accum);
+  };
 }

@@ -1,6 +1,14 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type { OutputsOf } from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { valueIn, eventOut } from '@vspark/shared/node_decorators';
+import type { BoneRotations, Blendshapes } from '@vspark/shared/signal';
 
+/**
+ * Entry point for VMC/RhyLive UDP data. The VmcManager fires the `bones` and `arkit`
+ * outputs directly via `graph.fire(nodeId, port, mkEvent(...))` for each packet — there
+ * is no reaction here, the node just declares the output ports (and host/port value
+ * inputs the manager reads from config to bind its socket).
+ */
 @SignalNode({
   label: 'VMC Packet Source',
   description:
@@ -8,19 +16,12 @@ import type { OutputsOf } from '@vspark/shared/signal';
   tags: ['input', 'mocap'],
   color: '#1a3a5a',
 })
-export class VmcPacketSource {
+export class VmcPacketSource extends Node {
   static readonly kind = 'vmc_packet_source';
-  static readonly inputPorts = [
-    valuePort('host', 'String'),
-    valuePort('port', 'Float'),
-  ] as const;
-  static readonly outputPorts = [
-    eventPort('bones', 'BoneRotations'),
-    eventPort('arkit', 'ArkitBlendshapes'),
-  ] as const;
 
-  // Manager fires events directly via graph.fire(); execute is not called in normal operation.
-  static execute(): OutputsOf<typeof VmcPacketSource> {
-    return {} as OutputsOf<typeof VmcPacketSource>;
-  }
+  @valueIn('host', 'String') host!: () => string | undefined;
+  @valueIn('port', 'Float') port!: () => number | undefined;
+
+  @eventOut('bones', 'BoneRotations') bones!: Emitter<BoneRotations>;
+  @eventOut('arkit', 'ArkitBlendshapes') arkit!: Emitter<Blendshapes>;
 }

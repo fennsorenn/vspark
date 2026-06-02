@@ -1,20 +1,15 @@
-import {
-  SignalNode,
-  eventPort,
-  valuePort,
-  mkEvent,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  Blendshapes,
-  Event,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import type { Blendshapes, Event } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, eventOut, valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 interface VisemePassthroughConfig {
   sensitivity?: number;
   enabled?: boolean;
+}
+
+interface VisemeState {
+  scaled: Blendshapes;
 }
 
 @SignalNode({
@@ -24,32 +19,27 @@ interface VisemePassthroughConfig {
   tags: ['lipsync'],
   color: '#4a7a5a',
 })
-export class VisemePassthrough {
+export class VisemePassthrough extends Node {
   static readonly kind = 'viseme_passthrough';
-  static readonly inputPorts = [
-    eventPort('visemes', 'Blendshapes'),
-    valuePort('blendshapes', 'Blendshapes'),
-  ] as const;
-  static readonly outputPorts = [
-    eventPort('out', 'Blendshapes'),
-    valuePort('blendshapes', 'Blendshapes'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof VisemePassthrough>,
-    config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof VisemePassthrough> {
-    const cfg = (config ?? {}) as VisemePassthroughConfig;
+  @valueIn('blendshapes', 'Blendshapes')
+  blendshapesIn!: () => Blendshapes | undefined;
+
+  @eventOut('out', 'Blendshapes') out!: Emitter<Blendshapes>;
+
+  @valueOut('blendshapes', 'Blendshapes')
+  blendshapesOut = (): Blendshapes | undefined =>
+    this.getState<VisemeState>()?.scaled;
+
+  @eventIn('visemes', 'Blendshapes')
+  onVisemes(ev: Event<Blendshapes>): void {
+    const cfg = (this.config ?? {}) as VisemePassthroughConfig;
     const sensitivity = cfg.sensitivity ?? 1.0;
-    const evt = inputs.visemes as Event<Blendshapes> | undefined;
-    const bs = evt?.payload ?? (inputs.blendshapes as Blendshapes | undefined);
-    if (!bs) return {} as OutputsOf<typeof VisemePassthrough>;
+    const bs = ev?.payload ?? this.blendshapesIn();
+    if (!bs) return;
 
     const scaled = bs.map((w) => Math.min(1, Math.max(0, w * sensitivity)));
-    return {
-      out: mkEvent(scaled, evt?.timestamp),
-      blendshapes: scaled,
-    };
+    this.setState({ scaled } satisfies VisemeState);
+    this.out.emit(scaled);
   }
 }

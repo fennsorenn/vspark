@@ -1,11 +1,21 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, type Event } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, valueIn, valueOut, eventOut } from '@vspark/shared/node_decorators';
 import type { DeleteMessageEvent } from '@overlive/core';
-import { handleOverliveEvent } from './_helpers.js';
+
+interface ChatDeleteOut {
+  messageId: string;
+  username: string;
+  text: string;
+  moderatorName: string;
+}
+
+const EMPTY: ChatDeleteOut = {
+  messageId: '',
+  username: '',
+  text: '',
+  moderatorName: '',
+};
 
 @SignalNode({
   label: 'Overlive Chat Delete',
@@ -13,44 +23,36 @@ import { handleOverliveEvent } from './_helpers.js';
   tags: ['overlive', 'input'],
   color: '#9146ff',
 })
-export class OverliveChatDelete {
+export class OverliveChatDelete extends Node {
   static readonly kind = 'overlive_chat_delete';
-  static readonly inputPorts = [
-    valuePort('account', 'Account'),
-    valuePort('channel', 'String'),
-    eventPort('event', 'Any'),
-  ] as const;
-  static readonly outputPorts = [
-    eventPort('event', 'Trigger'),
-    valuePort('messageId', 'String'),
-    valuePort('username', 'String'),
-    valuePort('text', 'String'),
-    valuePort('moderatorName', 'String'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof OverliveChatDelete>,
-    _config: unknown,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof OverliveChatDelete> {
-    return handleOverliveEvent<
-      DeleteMessageEvent,
-      {
-        messageId: string;
-        username: string;
-        text: string;
-        moderatorName: string;
-      }
-    >(
-      inputs,
-      ctx,
-      (e) => ({
-        messageId: e.data.messageId,
-        username: e.data.username,
-        text: e.data.text ?? '',
-        moderatorName: e.data.moderator?.username ?? '',
-      }),
-      { messageId: '', username: '', text: '', moderatorName: '' }
-    ) as OutputsOf<typeof OverliveChatDelete>;
+  @valueIn('account', 'Account') account!: () => unknown;
+  @valueIn('channel', 'String') channel!: () => string | undefined;
+
+  @eventOut('event', 'Trigger') event!: Emitter<void>;
+
+  @valueOut('messageId', 'String') messageId = (): string => this._out().messageId;
+  @valueOut('username', 'String') username = (): string => this._out().username;
+  @valueOut('text', 'String') text = (): string => this._out().text;
+  @valueOut('moderatorName', 'String') moderatorName = (): string => this._out().moderatorName;
+
+  @eventIn('event', 'Any')
+  onEvent(ev: Event<unknown>): void {
+    const payload = ev?.payload as DeleteMessageEvent | undefined;
+    if (payload === undefined) {
+      this.event.emit(undefined);
+      return;
+    }
+    this.setState({
+      messageId: payload.data.messageId,
+      username: payload.data.username,
+      text: payload.data.text ?? '',
+      moderatorName: payload.data.moderator?.username ?? '',
+    } satisfies ChatDeleteOut);
+    this.event.emit(undefined);
+  }
+
+  private _out(): ChatDeleteOut {
+    return this.getState<ChatDeleteOut>() ?? EMPTY;
   }
 }
