@@ -1,21 +1,6 @@
-import {
-  SignalNode,
-  eventPort,
-  valuePort,
-  mkEvent,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
-
-interface RandomConfig {
-  min?: number;
-  max?: number;
-  /** 'float' (default) — uniform; 'int' — uniform integer in [min, max]. */
-  mode?: 'float' | 'int';
-}
+import { SignalNode } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, valueIn, eventOut, valueOut } from '@vspark/shared/node_decorators';
 
 interface RandomState {
   lastValue: number;
@@ -33,39 +18,29 @@ interface RandomState {
   tags: ['logic'],
   color: '#7f5fb0',
 })
-export class Random {
+export class Random extends Node {
   static readonly kind = 'random';
-  static readonly inputPorts = [
-    eventPort('fire', 'Trigger'),
-    valuePort('min', 'Float'),
-    valuePort('max', 'Float'),
-    valuePort('mode', 'String'),
-  ] as const;
-  static readonly outputPorts = [
-    eventPort('fire', 'Trigger'),
-    valuePort('value', 'Float'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof Random>,
-    config: RandomConfig,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof Random> {
-    const min = (inputs.min as number | undefined) ?? config.min ?? 0;
-    const max = (inputs.max as number | undefined) ?? config.max ?? 1;
-    const mode =
-      ((inputs.mode as string | undefined) ?? config.mode ?? 'float') === 'int'
-        ? 'int'
-        : 'float';
+  @valueIn('min', 'Float') min!: () => number | undefined;
+  @valueIn('max', 'Float') max!: () => number | undefined;
+  @valueIn('mode', 'String') mode!: () => string | undefined;
 
-    if (ctx.triggeredPort !== 'fire') {
-      // Pull path: return last cached value (or the midpoint if never fired).
-      const state = ctx.getState<RandomState | undefined>();
-      const cached = state?.lastValue ?? (min + max) / 2;
-      return { fire: mkEvent(undefined), value: cached } as OutputsOf<
-        typeof Random
-      >;
-    }
+  @eventOut('fire', 'Trigger') fireOut!: Emitter<void>;
+
+  @valueOut('value', 'Float')
+  value = (): number => {
+    const min = this.min() ?? 0;
+    const max = this.max() ?? 1;
+    // Pull path: return last cached value (or the midpoint if never fired).
+    const state = this.getState<RandomState | undefined>();
+    return state?.lastValue ?? (min + max) / 2;
+  };
+
+  @eventIn('fire', 'Trigger')
+  onFire(): void {
+    const min = this.min() ?? 0;
+    const max = this.max() ?? 1;
+    const mode = (this.mode() ?? 'float') === 'int' ? 'int' : 'float';
 
     const lo = Math.min(min, max);
     const hi = Math.max(min, max);
@@ -73,7 +48,7 @@ export class Random {
       mode === 'int'
         ? Math.floor(lo) + Math.floor(Math.random() * (Math.floor(hi) - Math.floor(lo) + 1))
         : lo + Math.random() * (hi - lo);
-    ctx.setState({ lastValue: v } satisfies RandomState);
-    return { fire: mkEvent(undefined), value: v } as OutputsOf<typeof Random>;
+    this.setState({ lastValue: v } satisfies RandomState);
+    this.fireOut.emit(undefined);
   }
 }

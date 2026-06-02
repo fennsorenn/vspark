@@ -1,5 +1,6 @@
-import { SignalNode, valuePort } from '@vspark/shared/signal';
-import type { OutputsOf, NodeExecutionContext } from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueOut } from '@vspark/shared/node_decorators';
 
 export interface SceneEntityConfig {
   nodeId: string;
@@ -13,16 +14,9 @@ export interface SceneEntityConfig {
   color: '#2a2a4a',
   internal: true,
 })
-export class SceneEntity {
+export class SceneEntity extends Node {
   static readonly kind = 'scene_entity';
-  static readonly inputPorts = [] as const;
-  static readonly outputPorts = [valuePort('nodeId', 'EntityId')] as const;
 
-  static execute(
-    _: Record<string, never>,
-    config: SceneEntityConfig,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof SceneEntity> {
-    return { nodeId: config.nodeId };
-  }
+  @valueOut('nodeId', 'EntityId')
+  nodeId = (): string => (this.config as unknown as SceneEntityConfig).nodeId;
 }

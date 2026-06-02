@@ -1,11 +1,14 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, type Event } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, valueIn, valueOut, eventOut } from '@vspark/shared/node_decorators';
 import type { FollowEvent } from '@overlive/core';
-import { handleOverliveEvent } from './_helpers.js';
+
+interface FollowOut {
+  username: string;
+  displayName: string;
+}
+
+const EMPTY: FollowOut = { username: '', displayName: '' };
 
 @SignalNode({
   label: 'Overlive Follow',
@@ -13,32 +16,32 @@ import { handleOverliveEvent } from './_helpers.js';
   tags: ['overlive', 'input'],
   color: '#9146ff',
 })
-export class OverliveFollow {
+export class OverliveFollow extends Node {
   static readonly kind = 'overlive_follow';
-  static readonly inputPorts = [
-    valuePort('account', 'Account'),
-    valuePort('channel', 'String'),
-    eventPort('event', 'Any'),
-  ] as const;
-  static readonly outputPorts = [
-    eventPort('event', 'Trigger'),
-    valuePort('username', 'String'),
-    valuePort('displayName', 'String'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof OverliveFollow>,
-    _config: unknown,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof OverliveFollow> {
-    return handleOverliveEvent<
-      FollowEvent,
-      { username: string; displayName: string }
-    >(
-      inputs,
-      ctx,
-      (e) => ({ username: e.data.username, displayName: e.data.displayName }),
-      { username: '', displayName: '' }
-    ) as OutputsOf<typeof OverliveFollow>;
+  @valueIn('account', 'Account') account!: () => unknown;
+  @valueIn('channel', 'String') channel!: () => string | undefined;
+
+  @eventOut('event', 'Trigger') event!: Emitter<void>;
+
+  @valueOut('username', 'String') username = (): string => this._out().username;
+  @valueOut('displayName', 'String') displayName = (): string => this._out().displayName;
+
+  @eventIn('event', 'Any')
+  onEvent(ev: Event<unknown>): void {
+    const payload = ev?.payload as FollowEvent | undefined;
+    if (payload === undefined) {
+      this.event.emit(undefined);
+      return;
+    }
+    this.setState({
+      username: payload.data.username,
+      displayName: payload.data.displayName,
+    } satisfies FollowOut);
+    this.event.emit(undefined);
+  }
+
+  private _out(): FollowOut {
+    return this.getState<FollowOut>() ?? EMPTY;
   }
 }

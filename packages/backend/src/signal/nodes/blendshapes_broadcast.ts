@@ -1,9 +1,7 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import type { Blendshapes } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { eventIn, valueIn } from '@vspark/shared/node_decorators';
 import type { WSSync } from '../../ws/index.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 
@@ -20,28 +18,20 @@ export function initBlendshapesBroadcast(ws: WSSync): void {
   tags: ['output'],
   color: '#7a3a6a',
 })
-export class BlendshapesBroadcast {
+export class BlendshapesBroadcast extends Node {
   static readonly kind = 'blendshapes_broadcast';
-  static readonly inputPorts = [
-    eventPort('trigger', 'Trigger'),
-    valuePort('blendshapes', 'Blendshapes'),
-    valuePort('nodeId', 'EntityId'),
-    valuePort('componentId', 'String'),
-  ] as const;
-  static readonly outputPorts = [] as const;
 
-  static execute(
-    inputs: InputsOf<typeof BlendshapesBroadcast>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof BlendshapesBroadcast> {
-    const nodeId = inputs.nodeId as string | undefined;
-    const componentId = inputs.componentId as string | undefined;
-    const blendshapes = inputs.blendshapes as
-      | import('@vspark/shared/signal').Blendshapes
-      | undefined;
-    if (!nodeId || !componentId || !blendshapes) return {};
+  @valueIn('blendshapes', 'Blendshapes')
+  blendshapes!: () => Blendshapes | undefined;
+  @valueIn('nodeId', 'EntityId') nodeId!: () => string | undefined;
+  @valueIn('componentId', 'String') componentId!: () => string | undefined;
+
+  @eventIn('trigger', 'Trigger')
+  onTrigger(): void {
+    const nodeId = this.nodeId();
+    const componentId = this.componentId();
+    const blendshapes = this.blendshapes();
+    if (!nodeId || !componentId || !blendshapes) return;
     broadcastBus.publishBlendshapes(nodeId, componentId, blendshapes);
-    return {};
   }
 }

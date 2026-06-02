@@ -1,59 +1,58 @@
-# Project Graphs (standalone signal graphs)
+# Standalone Graphs
 
-**Status: Implemented.** Caveat: `SignalGraphCanvas` currently renders project graphs **read-only**; the writable canvas (node create/move/connect/edit persisted via `PUT /api/project-graphs/:id`) is tracked as a follow-up. Everything backend-side (CRUD, lifecycle, descriptor validation, event-fire entry point) is shipped.
+**Status: Implemented.** Despite the filename, this module covers **all three** standalone graph scopes: project, scene-node, and compose-layer. They all share a single DB table, a single REST router, and a single backend manager (`ProjectGraphManager`).
 
-Project-scoped **standalone** signal graphs exist independently of any node component. Unlike component-owned graphs (one per `node_components` row, hardcoded shape, read-only in the UI), project graphs are user-authored at the project level — primarily to host [Overlive](overlive.md) event handlers, but usable for any cross-cutting reactive logic.
+Standalone graphs exist independently of any `node_components` row. The canonical use case is [Overlive](overlive.md) event handlers at the project scope, but any cross-cutting reactive logic can live here. See [signal-graph.md](signal-graph.md) for the underlying engine.
 
-See [signal-graph.md](signal-graph.md) for the underlying engine.
+## Scopes
 
-## Scope
-
-| | Component graphs | Project graphs |
+| Owner kind | Use case | Context node injected |
 |---|---|---|
-| Ownership | `node_components` row | `graphs` row with `owner_kind = 'project'` |
-| Lifecycle | Created/destroyed with component | `enabled` flag on the row |
-| Shape | Hardcoded per component kind | User-authored, persisted as `GraphDescriptor` |
-| Editor | Read-only canvas | Read-only canvas today; writable canvas is a follow-up |
-| Context nodes | `component_config`, `component_id`, `scene_entity` available | **Rejected** at runtime — descriptor validation throws |
-| External event entry | Manager `fire()` (VMC packet, mediapipe frame, etc.) | `OverliveManager` → `ProjectGraphManager.fire()` |
+| `project` | Project-wide event handlers (overlive, manual triggers). No spatial owner. | none |
+| `scene_node` | Logic attached to a scene node (e.g. drive that node's transform or trigger its clips). | synthetic `scene_entity` bound to the owner scene node id |
+| `compose_layer` | Logic attached to a compose layer (e.g. drive that layer's text content / opacity). | synthetic `scene_entity` bound to the owner compose layer id |
+
+Component graphs (one per `node_components` row, hardcoded shape) are a separate concept; they're owned by the component manager and not surfaced through the same routes.
 
 ## DB — unified `graphs` table (migration 014)
-
-Project graphs no longer have a dedicated table. They live in the shared `graphs` table (introduced by migration `014_graphs_table.sql`) alongside scene-node and compose-layer graphs, distinguished by `owner_kind`:
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT PK | |
 | `owner_kind` | TEXT | `'project'` \| `'scene_node'` \| `'compose_layer'` |
-| `owner_id` | TEXT | Owner's id (project id for `'project'` rows) |
+| `owner_id` | TEXT | Project / scene-node / compose-layer id |
 | `name` | TEXT | |
 | `enabled` | INTEGER 0/1, default 1 | |
 | `descriptor` | TEXT (JSON `GraphDescriptor`), default `{"nodes":[],"edges":[]}` | |
-| `node_state` | TEXT (JSON, keyed by node id), default `{}` | Per-node persisted state. Mirrors the `_nodeState` convention used by component managers, but lives on the graph row directly. |
+| `node_state` | TEXT (JSON, keyed by node id), default `{}` | Per-node persisted state. Mirrors the `_nodeState` convention used by component managers, but lives on the row directly. |
 | `created_at` / `updated_at` | TEXT | |
 
 ## REST surface — `routes/graphs.ts`
 
-Project graphs are served by the generic `routes/graphs.ts` (the standalone `routes/project-graphs.ts` was deleted in the convergence). The same router serves scene-node and compose-layer graphs; the project routes are the only ones that go through `ProjectGraphManager` (so the graph starts/validates immediately) — scene-node and compose-layer creates write the row directly.
+A single generic router serves all three owner kinds.
 
 | Method + path | Purpose |
 |---|---|
-| `GET  /api/projects/:projectId/graphs` | List `owner_kind = 'project'` graphs for a project. |
-| `POST /api/projects/:projectId/graphs` | Create empty graph (body: `{ name }`). Routes through `projectGraphManager.create` + `reconcile`. |
-| `PUT  /api/graphs/:id` | Patch `name` / `enabled` / `descriptor` (each optional). Project rows go through `projectGraphManager.update` (which validates + `reconcile`s); other owner kinds patch the row directly. |
-| `DELETE /api/graphs/:id` | Project rows → `projectGraphManager.remove` (stop runtime + delete); other owner kinds delete the row directly. |
+| `GET  /api/projects/:projectId/graphs` | List project-scope graphs. |
+| `POST /api/projects/:projectId/graphs` | Create project-scope graph (body: `{ name }`). Routes through `projectGraphManager.create` + `reconcile`. |
+| `GET  /api/scene-nodes/:nodeId/graphs` | List scene-node-scope graphs. |
+| `POST /api/scene-nodes/:nodeId/graphs` | Create scene-node-scope graph; manager auto-injects `scene_entity` bound to the node. |
+| `GET  /api/compose-layers/:layerId/graphs` | List compose-layer-scope graphs. |
+| `POST /api/compose-layers/:layerId/graphs` | Create compose-layer-scope graph; manager auto-injects `scene_entity` bound to the layer. |
+| `PUT  /api/graphs/:id` | Patch `name` / `enabled` / `descriptor`. Goes through `projectGraphManager.update` (validates + `reconcile`s). |
+| `DELETE /api/graphs/:id` | `projectGraphManager.remove` (stops runtime + deletes). |
 
 `mapGraphRow` returns the unified `GraphRecord` shape: `{ id, ownerKind, ownerId, name, enabled, descriptor, createdAt, updatedAt }`.
 
 ## Backend lifecycle — `project_graphs/manager.ts`
 
-`ProjectGraphManager` (singleton, mounted via `routes/shared.ts`) owns the runtime instances.
+`ProjectGraphManager` (singleton, mounted via `routes/shared.ts`) owns the runtime instances for all three scopes.
 
-- **`startAllEnabled()`** — called at server boot. Hydrates and starts every `enabled = 1` row.
-- **`reconcile(id)`** — called on every project-graph create/update. If row is `enabled` it stops then re-starts the instance (which picks up descriptor + node_state changes); if disabled, it just stops.
-- **Descriptor validation** — `validateDescriptor()` rejects any node whose kind is in `COMPONENT_CONTEXT_KINDS = { component_config, component_id, scene_entity }`. Thrown errors surface as `400` from the PUT handler.
+- **`startAllEnabled()`** — called at server boot. Hydrates and starts every `enabled = 1` row across all owner kinds.
+- **`reconcile(id)`** — called on every create/update. If `enabled` it stops then re-starts the instance (picks up descriptor + node_state changes); if disabled, stops only.
+- **Descriptor validation** — `validateDescriptor()` rejects any node whose kind is in `COMPONENT_CONTEXT_KINDS = { component_config, component_id, scene_entity }`. Thrown errors surface as `400` from the PUT handler. For scoped graphs the manager injects its own `scene_entity` node at start time, so users can still consume the entity id via normal port connections — they just can't author the context node directly.
 - **State persistence** — each `setState(nodeId, state)` writes the JSON map back to the row's `node_state` column.
-- **Clock self-tick** — for each `clock` node in the descriptor, the manager calls `Clock.attach(...)` and stashes the cleanup; defaults to 30Hz or `defaultConfig.hz`. State `hz` overrides at runtime.
+- **Clock self-tick** — for each `clock` node in the descriptor, the manager calls `Clock.attach(...)` and stashes the cleanup; defaults to 30Hz or `defaultConfig.hz`.
 
 External event entry point:
 
@@ -63,45 +62,40 @@ projectGraphManager.fire(graphId, nodeId, portName, value)
 
 No-op if the graph is not running. Used by `OverliveManager.routeEvent()` to deliver Twitch / SE events into matching `overlive_*` nodes — see [overlive.md](overlive.md).
 
-Iteration helper for managers that need to discover nodes across all running project graphs:
+Iteration helper for managers that need to discover nodes across all running standalone graphs:
 
 ```ts
 for (const { graphId, node, projectId } of projectGraphManager.iterateNodes()) { ... }
 ```
 
-## Frontend — `components/editor/SceneGraph.tsx`
+## Frontend
 
-Graphs panel restructure (now shipped):
+### `components/editor/GraphsSection.tsx`
 
-```
-Project Graphs                  ← top-level, with add/rename/toggle/delete
-  ├── <Standalone graph 1>
-  └── <Standalone graph 2>
-Component Graphs (collapsible, count badge)
-  ├── <component A> graph       ← read-only
-  └── <component B> graph
-```
+Inline expandable list of standalone graphs attached to a single scene node or compose layer. Polls `api.getNodeGraphs(ownerId)` / `api.getLayerGraphs(ownerId)` every 3s, supports add / rename / toggle / delete via right-click `ContextMenu`. Selecting a graph sets `activeGraphId` in the store, which opens the writable `SignalGraphCanvas`.
 
-Both sections currently open the same `SignalGraphCanvas` in read-only mode when selected. The writable variant for project graphs is the outstanding follow-up: when implemented, edits dispatch as `PUT /api/graphs/:id` with the new descriptor and the manager's `reconcile()` rehydrates the running instance.
+Project-scope graphs are surfaced in a sibling list in the editor sidebar (formerly two separate "Project Graphs" and "Component Graphs" sections — these were merged into a unified standalone-graphs list with grouping).
+
+### `SignalGraphCanvas` — writable
+
+The canvas is writable for all standalone graphs: node add / move / connect / disconnect / edit dispatches a `PUT /api/graphs/:id` with the updated descriptor, and the manager's `reconcile()` rehydrates the running instance. The 500ms state poll preserves React Flow selection across reloads (see `4a72b34`); noodles are independently selectable + deletable (`61af21c`).
 
 ### `api/client.ts` — unified `GraphRecord`
 
-The frontend converged onto a single `GraphRecord` type (`{ id, ownerKind, ownerId, name, enabled, descriptor, createdAt?, updatedAt? }`) covering all three owner kinds. The old `ProjectGraphRecord` type and `updateProjectGraph` / `deleteProjectGraph` functions were removed in favour of:
+Single `GraphRecord` type covers all owner kinds:
 
 - `getProjectGraphs` / `createProjectGraph`
 - `getNodeGraphs` / `createNodeGraph`
 - `getLayerGraphs` / `createLayerGraph`
 - `updateGraph` / `deleteGraph` (owner-kind-agnostic — hit `/graphs/:id`)
 
-`SceneGraph.tsx` and `SignalGraphCanvas.tsx` use these generic functions.
-
 ## Constraints
 
-- Standalone graphs cannot reference scene nodes or components directly. To drive scene state they must go through the same broadcast/manager surfaces REST does.
+- Standalone graphs can't reference scene nodes / components by literal id (they'd break across projects); use the injected `scene_entity` for scope-bound references or go through node-component REST surfaces.
 - All event-driven entry points are external (Overlive today; future webhooks). No automatic per-frame tick beyond the descriptor's own `clock` nodes.
 
-## Open follow-ups
+## Cross-references
 
-- Writable `SignalGraphCanvas` (node create/move/edit/connect → `PUT descriptor`).
-- WS broadcast shape for live edits coming from other clients (`project_graph_added/updated/removed`) — not strictly needed while single-user.
-- Decision on whether standalone graphs may target compose layers / track-clip triggers directly, or only via REST-equivalent nodes.
+- [overlive.md](overlive.md) — primary consumer of project-scope graphs.
+- [presets.md](presets.md) — preset payloads include nested standalone graphs at the appropriate owner scope; ids are placeholder-substituted so descriptors round-trip cleanly.
+- [signal-graph.md](signal-graph.md) — engine, port system, node kinds.

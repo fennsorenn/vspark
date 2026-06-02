@@ -1,11 +1,29 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, type Event } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, valueIn, valueOut, eventOut } from '@vspark/shared/node_decorators';
 import type { ChatCommandEvent } from '@overlive/core';
-import { handleOverliveEvent } from './_helpers.js';
+
+interface ChatCommandOut {
+  username: string;
+  displayName: string;
+  command: string;
+  args: string;
+  text: string;
+  isMod: boolean;
+  isSub: boolean;
+  isBroadcaster: boolean;
+}
+
+const EMPTY: ChatCommandOut = {
+  username: '',
+  displayName: '',
+  command: '',
+  args: '',
+  text: '',
+  isMod: false,
+  isSub: false,
+  isBroadcaster: false,
+};
 
 /**
  * Chat commands — messages starting with the configured prefix (default `!`).
@@ -20,68 +38,49 @@ import { handleOverliveEvent } from './_helpers.js';
   tags: ['overlive', 'input'],
   color: '#9146ff',
 })
-export class OverliveChatCommand {
+export class OverliveChatCommand extends Node {
   static readonly kind = 'overlive_chat_command';
-  static readonly inputPorts = [
-    valuePort('account', 'Account'),
-    valuePort('channel', 'String'),
-    valuePort('command', 'String'), // '' = any
-    eventPort('event', 'Any'),
-  ] as const;
-  static readonly outputPorts = [
-    eventPort('event', 'Trigger'),
-    valuePort('username', 'String'),
-    valuePort('displayName', 'String'),
-    valuePort('command', 'String'),
-    valuePort('args', 'String'), // space-joined
-    valuePort('text', 'String'),
-    valuePort('isMod', 'Bool'),
-    valuePort('isSub', 'Bool'),
-    valuePort('isBroadcaster', 'Bool'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof OverliveChatCommand>,
-    config: { command?: string } | null | undefined,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof OverliveChatCommand> {
-    const wantCommand = (config?.command ?? '').trim().toLowerCase();
-    return handleOverliveEvent<
-      ChatCommandEvent,
-      {
-        username: string;
-        displayName: string;
-        command: string;
-        args: string;
-        text: string;
-        isMod: boolean;
-        isSub: boolean;
-        isBroadcaster: boolean;
-      }
-    >(
-      inputs,
-      ctx,
-      (e) => ({
-        username: e.data.username,
-        displayName: e.data.displayName,
-        command: e.data.command,
-        args: e.data.args.join(' '),
-        text: e.data.text,
-        isMod: e.data.isMod,
-        isSub: e.data.isSub,
-        isBroadcaster: e.data.isBroadcaster,
-      }),
-      {
-        username: '',
-        displayName: '',
-        command: '',
-        args: '',
-        text: '',
-        isMod: false,
-        isSub: false,
-        isBroadcaster: false,
-      },
-      (e) => !wantCommand || e.data.command.toLowerCase() === wantCommand
-    ) as OutputsOf<typeof OverliveChatCommand>;
+  @valueIn('account', 'Account') account!: () => unknown;
+  @valueIn('channel', 'String') channel!: () => string | undefined;
+  @valueIn('command', 'String') command!: () => string | undefined; // '' = any
+
+  @eventOut('event', 'Trigger') event!: Emitter<void>;
+
+  @valueOut('username', 'String') username = (): string => this._out().username;
+  @valueOut('displayName', 'String') displayName = (): string => this._out().displayName;
+  @valueOut('command', 'String') commandOut = (): string => this._out().command;
+  @valueOut('args', 'String') args = (): string => this._out().args; // space-joined
+  @valueOut('text', 'String') text = (): string => this._out().text;
+  @valueOut('isMod', 'Bool') isMod = (): boolean => this._out().isMod;
+  @valueOut('isSub', 'Bool') isSub = (): boolean => this._out().isSub;
+  @valueOut('isBroadcaster', 'Bool') isBroadcaster = (): boolean => this._out().isBroadcaster;
+
+  @eventIn('event', 'Any')
+  onEvent(ev: Event<unknown>): void {
+    const cfg = (this.config ?? {}) as { command?: string };
+    const wantCommand = (cfg.command ?? '').trim().toLowerCase();
+    const payload = ev?.payload as ChatCommandEvent | undefined;
+    if (payload === undefined) {
+      this.event.emit(undefined);
+      return;
+    }
+    if (wantCommand && payload.data.command.toLowerCase() !== wantCommand) return;
+
+    this.setState({
+      username: payload.data.username,
+      displayName: payload.data.displayName,
+      command: payload.data.command,
+      args: payload.data.args.join(' '),
+      text: payload.data.text,
+      isMod: payload.data.isMod,
+      isSub: payload.data.isSub,
+      isBroadcaster: payload.data.isBroadcaster,
+    } satisfies ChatCommandOut);
+    this.event.emit(undefined);
+  }
+
+  private _out(): ChatCommandOut {
+    return this.getState<ChatCommandOut>() ?? EMPTY;
   }
 }

@@ -1,11 +1,13 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, type Event } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, valueIn, valueOut, eventOut } from '@vspark/shared/node_decorators';
 import type { AdEndEvent } from '@overlive/core';
-import { handleOverliveEvent } from './_helpers.js';
+
+interface AdEndOut {
+  durationSeconds: number;
+}
+
+const EMPTY: AdEndOut = { durationSeconds: 0 };
 
 @SignalNode({
   label: 'Overlive Ad End',
@@ -13,28 +15,30 @@ import { handleOverliveEvent } from './_helpers.js';
   tags: ['overlive', 'input'],
   color: '#9146ff',
 })
-export class OverliveAdEnd {
+export class OverliveAdEnd extends Node {
   static readonly kind = 'overlive_ad_end';
-  static readonly inputPorts = [
-    valuePort('account', 'Account'),
-    valuePort('channel', 'String'),
-    eventPort('event', 'Any'),
-  ] as const;
-  static readonly outputPorts = [
-    eventPort('event', 'Trigger'),
-    valuePort('durationSeconds', 'Float'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof OverliveAdEnd>,
-    _config: unknown,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof OverliveAdEnd> {
-    return handleOverliveEvent<AdEndEvent, { durationSeconds: number }>(
-      inputs,
-      ctx,
-      (e) => ({ durationSeconds: e.data.durationSeconds }),
-      { durationSeconds: 0 }
-    ) as OutputsOf<typeof OverliveAdEnd>;
+  @valueIn('account', 'Account') account!: () => unknown;
+  @valueIn('channel', 'String') channel!: () => string | undefined;
+
+  @eventOut('event', 'Trigger') event!: Emitter<void>;
+
+  @valueOut('durationSeconds', 'Float') durationSeconds = (): number => this._out().durationSeconds;
+
+  @eventIn('event', 'Any')
+  onEvent(ev: Event<unknown>): void {
+    const payload = ev?.payload as AdEndEvent | undefined;
+    if (payload === undefined) {
+      this.event.emit(undefined);
+      return;
+    }
+    this.setState({
+      durationSeconds: payload.data.durationSeconds,
+    } satisfies AdEndOut);
+    this.event.emit(undefined);
+  }
+
+  private _out(): AdEndOut {
+    return this.getState<AdEndOut>() ?? EMPTY;
   }
 }

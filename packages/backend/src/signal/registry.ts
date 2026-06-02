@@ -1,5 +1,12 @@
-import type { SignalNodeClass, NodeKindMeta } from '@vspark/shared/signal';
+import type {
+  SignalNodeClass,
+  NodeKindMeta,
+  NodePortMeta,
+} from '@vspark/shared/signal';
 import { getNodeDisplay } from '@vspark/shared/signal';
+import { getPortMeta, type PortMeta } from '@vspark/shared/node';
+import { typeTagToResolved } from '@vspark/shared/signal_types';
+import { INFER_BY_KIND } from '@vspark/shared/infer_nodes';
 import { ComponentId } from './nodes/component_id.js';
 import { ComponentConfigNode } from './nodes/component_config.js';
 import { SceneEntity } from './nodes/scene_entity.js';
@@ -13,6 +20,8 @@ import { PoseBroadcast } from './nodes/pose_broadcast.js';
 import { BlendshapesBroadcast } from './nodes/blendshapes_broadcast.js';
 import { BlendshapesSum } from './nodes/blendshapes_sum.js';
 import { UnpackEvent } from './nodes/unpack_event.js';
+import { PackEvent } from './nodes/pack_event.js';
+import { QueueEvents } from './nodes/queue_events.js';
 import { OnPoseBroadcast } from './nodes/on_pose_broadcast.js';
 import { PoseInterceptorBroadcast } from './nodes/pose_interceptor_broadcast.js';
 import { Clock } from './nodes/clock.js';
@@ -79,6 +88,8 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   BlendshapesBroadcast,
   BlendshapesSum,
   UnpackEvent,
+  PackEvent,
+  QueueEvents,
   // Interceptor nodes
   OnPoseBroadcast,
   PoseInterceptorBroadcast,
@@ -135,19 +146,24 @@ export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> = new Map(
   ALL_NODE_CLASSES.map((cls) => [cls.kind, cls])
 );
 
+function toPortMeta(p: PortMeta): NodePortMeta {
+  return {
+    name: p.name,
+    resolved: typeTagToResolved(p.typeTag, p.transport),
+    typeTag: p.typeTag,
+    transport: p.transport,
+  };
+}
+
 export function getAllNodeKindMeta(): NodeKindMeta[] {
-  return ALL_NODE_CLASSES.map((cls) => ({
-    kind: cls.kind,
-    inputPorts: cls.inputPorts.map((p) => ({
-      name: p.name,
-      type: p.type,
-      portKind: p.kind,
-    })),
-    outputPorts: cls.outputPorts.map((p) => ({
-      name: p.name,
-      type: p.type,
-      portKind: p.kind,
-    })),
-    display: getNodeDisplay(cls),
-  }));
+  return ALL_NODE_CLASSES.map((cls) => {
+    const ports = getPortMeta(cls);
+    return {
+      kind: cls.kind,
+      inputPorts: ports.filter((p) => p.direction === 'in').map(toPortMeta),
+      outputPorts: ports.filter((p) => p.direction === 'out').map(toPortMeta),
+      display: getNodeDisplay(cls),
+      dynamic: cls.kind in INFER_BY_KIND,
+    };
+  });
 }

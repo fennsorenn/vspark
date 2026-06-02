@@ -1,9 +1,6 @@
-import { SignalNode, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  NodeExecutionContext,
-  OutputsOf,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 export interface ComponentConfigNodeConfig {
   /** Dot-notation path into the component config, e.g. "host" or "nodeConfig.arkit_fcl_cfg.enabled" */
@@ -41,25 +38,20 @@ function resolvePath(obj: unknown, path: string): unknown {
   color: '#2a2a4a',
   internal: true,
 })
-export class ComponentConfigNode {
+export class ComponentConfigNode extends Node {
   static readonly kind = 'component_config';
-  static readonly inputPorts = [valuePort('field', 'String')] as const;
-  static readonly outputPorts = [
-    valuePort('value', 'ComponentConfig'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof ComponentConfigNode>,
-    config: ComponentConfigNodeConfig,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof ComponentConfigNode> {
-    // Wired `field` port takes precedence over the static config value.
-    const path =
-      (inputs.field as string | null | undefined) ?? config.field ?? '';
-    const data = config._componentConfig ?? {};
+  // Wired `field` port takes precedence; the engine falls back to config.field.
+  @valueIn('field', 'String') field!: () => string | null | undefined;
+
+  @valueOut('value', 'ComponentConfig')
+  value = (): Record<string, unknown> => {
+    const cfg = this.config as ComponentConfigNodeConfig;
+    const path = this.field() ?? '';
+    const data = cfg._componentConfig ?? {};
     const resolved = path ? resolvePath(data, path) : data;
     const value =
-      resolved !== undefined ? resolved : (config.defaultValue ?? null);
-    return { value: value as Record<string, unknown> };
-  }
+      resolved !== undefined ? resolved : (cfg.defaultValue ?? null);
+    return value as Record<string, unknown>;
+  };
 }

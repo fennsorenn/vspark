@@ -1,11 +1,15 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, type Event } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, valueIn, valueOut, eventOut } from '@vspark/shared/node_decorators';
 import type { StreamOnlineEvent } from '@overlive/core';
-import { handleOverliveEvent } from './_helpers.js';
+
+interface StreamOnlineOut {
+  title: string;
+  category: string;
+  language: string;
+}
+
+const EMPTY: StreamOnlineOut = { title: '', category: '', language: '' };
 
 @SignalNode({
   label: 'Overlive Stream Online',
@@ -14,37 +18,34 @@ import { handleOverliveEvent } from './_helpers.js';
   tags: ['overlive', 'input'],
   color: '#9146ff',
 })
-export class OverliveStreamOnline {
+export class OverliveStreamOnline extends Node {
   static readonly kind = 'overlive_stream_online';
-  static readonly inputPorts = [
-    valuePort('account', 'Account'),
-    valuePort('channel', 'String'),
-    eventPort('event', 'Any'),
-  ] as const;
-  static readonly outputPorts = [
-    eventPort('event', 'Trigger'),
-    valuePort('title', 'String'),
-    valuePort('category', 'String'),
-    valuePort('language', 'String'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof OverliveStreamOnline>,
-    _config: unknown,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof OverliveStreamOnline> {
-    return handleOverliveEvent<
-      StreamOnlineEvent,
-      { title: string; category: string; language: string }
-    >(
-      inputs,
-      ctx,
-      (e) => ({
-        title: e.data.title ?? '',
-        category: e.data.category ?? '',
-        language: e.data.language ?? '',
-      }),
-      { title: '', category: '', language: '' }
-    ) as OutputsOf<typeof OverliveStreamOnline>;
+  @valueIn('account', 'Account') account!: () => unknown;
+  @valueIn('channel', 'String') channel!: () => string | undefined;
+
+  @eventOut('event', 'Trigger') event!: Emitter<void>;
+
+  @valueOut('title', 'String') title = (): string => this._out().title;
+  @valueOut('category', 'String') category = (): string => this._out().category;
+  @valueOut('language', 'String') language = (): string => this._out().language;
+
+  @eventIn('event', 'Any')
+  onEvent(ev: Event<unknown>): void {
+    const payload = ev?.payload as StreamOnlineEvent | undefined;
+    if (payload === undefined) {
+      this.event.emit(undefined);
+      return;
+    }
+    this.setState({
+      title: payload.data.title ?? '',
+      category: payload.data.category ?? '',
+      language: payload.data.language ?? '',
+    } satisfies StreamOnlineOut);
+    this.event.emit(undefined);
+  }
+
+  private _out(): StreamOnlineOut {
+    return this.getState<StreamOnlineOut>() ?? EMPTY;
   }
 }

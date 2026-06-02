@@ -1,119 +1,99 @@
+/**
+ * Signal graph runtime (Phase 2 — class-instance node model).
+ *
+ * The engine no longer dispatches a central `execute()`. Instead it WIRES live `Node`
+ * instances: it provisions instrumented emitters for `@eventOut` ports, lazily-resolving
+ * pull-thunks for `@valueIn`/`@listIn` ports, registers `@valueOut` thunks and `@eventIn`
+ * handlers, and routes edges by their derived transport. The instrumented emitters/thunks
+ * carry all the cross-cutting behaviour the old dispatcher provided: per-edge fire history
+ * (`_edgeStates`) for the editor's live monitoring, the `enabled` gate, and per-node
+ * try/catch error isolation.
+ *
+ * Topology is built by replaying a `GraphDescriptor`'s edges through an embedded
+ * `InferGraph.tryAddEdge` (structural type validation). A rejected edge is skipped with a
+ * warning (schema drift / hand-edited JSON). Cycles need no special handling — the
+ * loop-closing edge is just another `tryAddEdge`, and runtime delivery is push/pull with
+ * a re-entrancy guard on pulls.
+ */
+
 import type {
   SignalNodeClass,
   GraphDescriptor,
-  PortDecl,
   NodeStateSnapshot,
   EdgeStateSnapshot,
   GraphStateSnapshot,
-  NodeExecutionContext,
+  Event,
 } from '@vspark/shared/signal';
-
-type ErasedNode = {
-  kind: string;
-  inputPorts: ReadonlyArray<Pick<PortDecl, 'name' | 'kind'>>;
-  execute(
-    inputs: Record<string, unknown>,
-    config: unknown,
-    ctx: NodeExecutionContext
-  ): Record<string, unknown>;
-};
+import { mkEvent } from '@vspark/shared/signal';
+import {
+  Node,
+  getPortMeta,
+  type NodeBindContext,
+  type Emitter,
+  type Thunk,
+  type PortMeta,
+} from '@vspark/shared/node';
+import { InferGraph } from '@vspark/shared/inference';
+import { INFER_BY_KIND } from '@vspark/shared/infer_nodes';
 
 interface RuntimeNode {
+  id: string;
   kind: string;
-  def: ErasedNode;
+  instance: Node;
+  staticPorts: PortMeta[];
+  /** @eventIn handlers by port name (set during bind). */
+  handlers: Map<string, (payload: unknown) => void>;
+  /** @valueOut thunks by port name (set during bind). */
+  outputThunks: Map<string, Thunk<unknown>>;
+  /** Resolver for dynamic value (pull) outputs (e.g. unpack_event fields), or null. */
+  dynamicOutputs: ((portName: string) => unknown) | null;
   lastInputs: Map<string, unknown>;
   lastOutputs: Map<string, unknown>;
   lastExecutedAt: number | null;
 }
 
 export class SignalGraph {
-  private readonly _defs = new Map<string, ErasedNode>();
+  private _registry: ReadonlyMap<string, SignalNodeClass> = new Map();
   private readonly _nodes = new Map<string, RuntimeNode>();
-  private readonly _fwdEdges = new Map<
+  private readonly _infer: InferGraph;
+
+  /** Event edges: `${fromId}\x00${fromPort}` → [{toNodeId, toPort}]. */
+  private readonly _eventEdges = new Map<
     string,
     Array<{ toNodeId: string; toPort: string }>
   >();
+  /** Value edges: `${toId}\x00${toPort}` → {fromId, fromPort} (single source). */
   private readonly _valueEdges = new Map<
     string,
     { fromId: string; fromPort: string }
   >();
+  /** List edges: `${toId}\x00${toPort}` → [{fromId, fromPort}] (fan-in). */
   private readonly _listEdges = new Map<
     string,
     Array<{ fromId: string; fromPort: string }>
   >();
   private readonly _edgeStates = new Map<string, EdgeStateSnapshot>();
 
+  /** Guard against infinite pull recursion (value cycles). */
+  private readonly _pulling = new Set<string>();
+
   constructor(
     private readonly _getConfig: (nodeId: string) => unknown,
     private readonly _getState: (nodeId: string) => unknown,
     private readonly _onSetState: (nodeId: string, state: unknown) => void
-  ) {}
+  ) {
+    this._infer = new InferGraph(
+      (kind) => INFER_BY_KIND[kind],
+      (kind) => this._portsForKind(kind)
+    );
+  }
+
+  private _portsForKind(kind: string): PortMeta[] {
+    const cls = this._registry.get(kind);
+    return cls ? getPortMeta(cls) : [];
+  }
 
   // ── construction ──────────────────────────────────────────────────────────
-
-  register(cls: SignalNodeClass): this {
-    this._defs.set(cls.kind, {
-      kind: cls.kind,
-      inputPorts: cls.inputPorts,
-      execute: (inputs, config, ctx) => cls.execute(inputs, config, ctx),
-    });
-    return this;
-  }
-
-  addNode(id: string, kind: string): this {
-    const def = this._defs.get(kind);
-    if (!def) throw new Error(`[SignalGraph] Unknown node kind: "${kind}"`);
-    this._nodes.set(id, {
-      kind,
-      def,
-      lastInputs: new Map(),
-      lastOutputs: new Map(),
-      lastExecutedAt: null,
-    });
-    return this;
-  }
-
-  connect(
-    fromId: string,
-    fromPort: string,
-    toId: string,
-    toPort: string
-  ): this {
-    const key = `${fromId}\x00${fromPort}`;
-    let targets = this._fwdEdges.get(key);
-    if (!targets) {
-      targets = [];
-      this._fwdEdges.set(key, targets);
-    }
-    targets.push({ toNodeId: toId, toPort });
-    return this;
-  }
-
-  connectValue(
-    fromId: string,
-    fromPort: string,
-    toId: string,
-    toPort: string
-  ): this {
-    this._valueEdges.set(`${toId}\x00${toPort}`, { fromId, fromPort });
-    return this;
-  }
-
-  connectList(
-    fromId: string,
-    fromPort: string,
-    toId: string,
-    toPort: string
-  ): this {
-    const key = `${toId}\x00${toPort}`;
-    let sources = this._listEdges.get(key);
-    if (!sources) {
-      sources = [];
-      this._listEdges.set(key, sources);
-    }
-    sources.push({ fromId, fromPort });
-    return this;
-  }
 
   static fromDescriptor(
     descriptor: GraphDescriptor,
@@ -123,52 +103,249 @@ export class SignalGraph {
     onSetState: (nodeId: string, state: unknown) => void
   ): SignalGraph {
     const graph = new SignalGraph(getConfig, getState, onSetState);
+    graph._registry = registry;
+
+    // 1. Instantiate + bind every node.
     for (const n of descriptor.nodes) {
       const cls = registry.get(n.kind);
       if (!cls) throw new Error(`[SignalGraph] Unknown kind: "${n.kind}"`);
-      graph.register(cls).addNode(n.id, n.kind);
+      graph._addNode(n.id, n.kind, cls);
     }
-    for (const e of descriptor.edges) {
-      if (e.kind === 'value')
-        graph.connectValue(e.fromNodeId, e.fromPort, e.toNodeId, e.toPort);
-      else if (e.kind === 'list')
-        graph.connectList(e.fromNodeId, e.fromPort, e.toNodeId, e.toPort);
-      else graph.connect(e.fromNodeId, e.fromPort, e.toNodeId, e.toPort);
+
+    // 2. Replay edges through inference; route accepted edges by derived transport.
+    //    Iterate to a FIXPOINT: adding an edge can materialise new ports on the
+    //    target (e.g. unpack_event grows per-field outputs once its event input
+    //    resolves to a record), which a previously-unaddable edge then needs. So we
+    //    retry the pending set until a full pass adds nothing. Edges still failing
+    //    after that are genuinely invalid (schema drift / type mismatch) and dropped.
+    let pending = descriptor.edges.slice();
+    let lastResult = new Map<string, string>();
+    for (;;) {
+      const stillPending: typeof pending = [];
+      let progressed = false;
+      for (const e of pending) {
+        const res = graph._infer.tryAddEdge({
+          fromNodeId: e.fromNodeId,
+          fromPort: e.fromPort,
+          toNodeId: e.toNodeId,
+          toPort: e.toPort,
+        });
+        if (res.ok) {
+          graph._routeEdge(e.fromNodeId, e.fromPort, e.toNodeId, e.toPort);
+          progressed = true;
+        } else {
+          lastResult.set(
+            `${e.fromNodeId}.${e.fromPort}→${e.toNodeId}.${e.toPort}`,
+            res.reason
+          );
+          stillPending.push(e);
+        }
+      }
+      pending = stillPending;
+      if (pending.length === 0 || !progressed) break;
+    }
+    for (const e of pending) {
+      const key = `${e.fromNodeId}.${e.fromPort}→${e.toNodeId}.${e.toPort}`;
+      console.warn(`[SignalGraph] dropped edge ${key}: ${lastResult.get(key)}`);
     }
     return graph;
   }
 
+  private _addNode(id: string, kind: string, cls: SignalNodeClass): void {
+    const instance = new cls();
+    const rt: RuntimeNode = {
+      id,
+      kind,
+      instance,
+      staticPorts: getPortMeta(cls),
+      handlers: new Map(),
+      outputThunks: new Map(),
+      dynamicOutputs: null,
+      lastInputs: new Map(),
+      lastOutputs: new Map(),
+      lastExecutedAt: null,
+    };
+    this._nodes.set(id, rt);
+    this._infer.addNode(id, kind, this._getConfig(id) ?? {});
+    instance.bind(this._makeBindContext(rt));
+  }
+
+  /** Record an accepted edge in the transport-specific routing map. */
+  private _routeEdge(
+    fromId: string,
+    fromPort: string,
+    toId: string,
+    toPort: string
+  ): void {
+    const transport = this._inputTransport(toId, toPort);
+    if (transport === 'event') {
+      const key = `${fromId}\x00${fromPort}`;
+      let arr = this._eventEdges.get(key);
+      if (!arr) this._eventEdges.set(key, (arr = []));
+      arr.push({ toNodeId: toId, toPort });
+    } else if (transport === 'list') {
+      const key = `${toId}\x00${toPort}`;
+      let arr = this._listEdges.get(key);
+      if (!arr) this._listEdges.set(key, (arr = []));
+      arr.push({ fromId, fromPort });
+    } else {
+      this._valueEdges.set(`${toId}\x00${toPort}`, { fromId, fromPort });
+    }
+  }
+
+  /** Transport of a target input port, from the resolved inference graph. */
+  private _inputTransport(nodeId: string, port: string): 'event' | 'value' | 'list' {
+    const t = this._infer.inputType(nodeId, port);
+    if (t?.kind === 'event') return 'event';
+    if (t?.kind === 'list') return 'list';
+    return 'value';
+  }
+
+  // ── bind context (per node) ──────────────────────────────────────────────
+
+  private _makeBindContext(rt: RuntimeNode): NodeBindContext {
+    const self = this;
+    return {
+      config: (self._getConfig(rt.id) ?? {}) as Record<string, unknown>,
+      getState: <T>() => self._getState(rt.id) as T,
+      setState: (s) => self._onSetState(rt.id, s),
+      isEnabled: () =>
+        (self._getConfig(rt.id) as Record<string, unknown> | null)?.enabled !==
+        false,
+      makeEmitter: (portName) => self._makeEmitter(rt, portName),
+      makeDynamicEmitter: (portName) => self._makeEmitter(rt, portName),
+      valueThunk: (portName) => self._valueThunk(rt.id, portName),
+      listThunk: (portName) => self._listThunk(rt.id, portName),
+      dynamicValueThunk: (portName) => self._valueThunk(rt.id, portName),
+      registerOutputThunk: (portName, fn) => {
+        rt.outputThunks.set(portName, fn);
+      },
+      registerHandler: (portName, fn) => {
+        rt.handlers.set(portName, fn);
+      },
+      registerDynamicOutputs: (resolve) => {
+        rt.dynamicOutputs = resolve;
+      },
+    };
+  }
+
+  /**
+   * Instrumented emitter for an @eventOut port. Wraps the raw payload in an
+   * `Event<T>` (the single wrapping point for node-produced events; external
+   * producers/managers pass a pre-wrapped Event straight to `fire`). Then records
+   * the output and pushes downstream. A node author writes `this.out.emit(payload)`;
+   * downstream @eventIn handlers receive the `Event<T>`.
+   */
+  private _makeEmitter(rt: RuntimeNode, portName: string): Emitter<unknown> {
+    return {
+      emit: (value: unknown) => {
+        const ev: Event<unknown> = _isEvent(value) ? value : mkEvent(value);
+        rt.lastOutputs.set(portName, ev);
+        this.fire(rt.id, portName, ev);
+      },
+    };
+  }
+
+  /** Pull thunk for a value input: lazily resolves the wired source (or config fallback). */
+  private _valueThunk(toId: string, toPort: string): Thunk<unknown> {
+    return () => {
+      const src = this._valueEdges.get(`${toId}\x00${toPort}`);
+      let v: unknown;
+      if (src) v = this._pullFrom(src.fromId, src.fromPort);
+      // Auto-fallback to config.<port> when unconnected or the source yields undefined.
+      if (v === undefined) {
+        const cfg = (this._getConfig(toId) ?? {}) as Record<string, unknown>;
+        v = cfg[toPort];
+      }
+      const rt = this._nodes.get(toId);
+      rt?.lastInputs.set(toPort, v);
+      return v;
+    };
+  }
+
+  /** Gather thunk for a list input: pulls every connected source into an array. */
+  private _listThunk(toId: string, toPort: string): Thunk<unknown[]> {
+    return () => {
+      const sources = this._listEdges.get(`${toId}\x00${toPort}`) ?? [];
+      const out = sources
+        .map((s) => this._pullFrom(s.fromId, s.fromPort))
+        .filter((v) => v !== undefined);
+      const rt = this._nodes.get(toId);
+      rt?.lastInputs.set(toPort, out);
+      return out;
+    };
+  }
+
+  /** Resolve one output value of a source node (its @valueOut thunk or dynamic resolver). */
+  private _pullFrom(fromId: string, fromPort: string): unknown {
+    const rt = this._nodes.get(fromId);
+    if (!rt) return undefined;
+    const thunk =
+      rt.outputThunks.get(fromPort) ??
+      (rt.dynamicOutputs ? () => rt.dynamicOutputs!(fromPort) : undefined);
+    if (!thunk) return undefined;
+    const guardKey = `${fromId}\x00${fromPort}`;
+    if (this._pulling.has(guardKey)) return rt.lastOutputs.get(fromPort);
+    this._pulling.add(guardKey);
+    try {
+      const v = thunk();
+      rt.lastOutputs.set(fromPort, v);
+      return v;
+    } catch (err) {
+      console.error(`[SignalGraph pull] ${fromId}.${fromPort} (${rt.kind}):`, err);
+      return undefined;
+    } finally {
+      this._pulling.delete(guardKey);
+    }
+  }
+
   // ── execution ─────────────────────────────────────────────────────────────
 
+  /** Push an event from `fromId.fromPort` to every subscribed @eventIn handler. */
   fire(fromId: string, fromPort: string, value: unknown): void {
     const key = `${fromId}\x00${fromPort}`;
-    for (const { toNodeId, toPort } of this._fwdEdges.get(key) ?? []) {
+    for (const { toNodeId, toPort } of this._eventEdges.get(key) ?? []) {
       const edgeKey = `${fromId}:${fromPort}:${toNodeId}:${toPort}`;
       this._edgeStates.set(edgeKey, {
         lastFiredAt: Date.now(),
         lastValue: _summarise(value),
       });
-      this._deliver(toNodeId, toPort, value);
+      this._deliverEvent(toNodeId, toPort, value);
     }
   }
 
   /**
-   * Deliver a value directly to a node's input port from outside the graph
-   * topology. Used by external event sources (e.g. OverliveManager) that
-   * have no upstream edge but need to wake an event-receiving node.
+   * Deliver a value directly to a node's event-input port from outside the topology
+   * (external sources like OverliveManager that have no upstream edge).
    */
   deliverExternal(nodeId: string, portName: string, value: unknown): void {
-    this._deliver(nodeId, portName, value);
+    this._deliverEvent(nodeId, portName, value);
+  }
+
+  private _deliverEvent(toNodeId: string, toPort: string, value: unknown): void {
+    const rt = this._nodes.get(toNodeId);
+    if (!rt) return;
+    // Enabled gate (mirrors the old dispatcher's skip).
+    const cfg = this._getConfig(toNodeId) as Record<string, unknown> | null;
+    if (cfg?.enabled === false) return;
+
+    rt.lastInputs.set(toPort, value);
+    const handler = rt.handlers.get(toPort);
+    if (!handler) return;
+    try {
+      handler(value);
+      rt.lastExecutedAt = Date.now();
+    } catch (err) {
+      console.error(`[SignalGraph] ${toNodeId}.${toPort} (${rt.kind}):`, err);
+    }
   }
 
   // ── state access ──────────────────────────────────────────────────────────
 
-  /** Set a node's persistent state from outside the graph (e.g. to inject source data). */
   setNodeState(nodeId: string, state: unknown): void {
     this._onSetState(nodeId, state);
   }
 
-  /** Read a node's current persistent state. */
   getNodeState(nodeId: string): unknown {
     return this._getState(nodeId);
   }
@@ -187,10 +364,8 @@ export class SignalGraph {
     const nodes: Record<string, NodeStateSnapshot> = {};
     for (const [id, node] of this._nodes) {
       const portValues: Record<string, unknown> = {};
-      for (const [k, v] of node.lastOutputs)
-        portValues[`out:${k}`] = _summarise(v);
-      for (const [k, v] of node.lastInputs)
-        portValues[`in:${k}`] = _summarise(v);
+      for (const [k, v] of node.lastOutputs) portValues[`out:${k}`] = _summarise(v);
+      for (const [k, v] of node.lastInputs) portValues[`in:${k}`] = _summarise(v);
       nodes[id] = {
         lastExecutedAt: node.lastExecutedAt,
         portValues,
@@ -202,100 +377,15 @@ export class SignalGraph {
     );
     return { nodes, edges };
   }
+}
 
-  // ── internal ──────────────────────────────────────────────────────────────
-
-  private _deliver(toNodeId: string, toPort: string, value: unknown): void {
-    const triggeredPort = toPort;
-    const node = this._nodes.get(toNodeId);
-    if (!node) return;
-
-    node.lastInputs.set(toPort, value);
-
-    // Fetch config once — used for the enabled check and passed to execute.
-    const config = this._getConfig(toNodeId);
-    // Nodes with enabled: false are silently skipped.
-    if ((config as Record<string, unknown> | null)?.enabled === false) return;
-
-    const inputs: Record<string, unknown> = {};
-    const cfgRec = (config ?? {}) as Record<string, unknown>;
-    for (const p of node.def.inputPorts) {
-      if (p.kind === 'value') {
-        const pulled = this._pullValue(toNodeId, p.name);
-        inputs[p.name] = pulled !== undefined ? pulled : cfgRec[p.name];
-      } else if (p.kind === 'list')
-        inputs[p.name] = this._pullList(toNodeId, p.name);
-      else inputs[p.name] = node.lastInputs.get(p.name);
-    }
-
-    const ctx: NodeExecutionContext = {
-      triggeredPort,
-      getState: <T>() => this._getState(toNodeId) as T,
-      setState: (s) => this._onSetState(toNodeId, s),
-    };
-
-    let outputs: Record<string, unknown>;
-    try {
-      outputs = node.def.execute(inputs, config, ctx);
-    } catch (err) {
-      console.error(`[SignalGraph] ${toNodeId} (${node.kind}):`, err);
-      return;
-    }
-
-    node.lastExecutedAt = Date.now();
-    for (const [portName, val] of Object.entries(outputs)) {
-      node.lastOutputs.set(portName, val);
-      this.fire(toNodeId, portName, val);
-    }
-  }
-
-  /** Recursively execute a node and return the value of one of its output ports. */
-  private _pullFrom(fromId: string, fromPort: string): unknown {
-    const srcNode = this._nodes.get(fromId);
-    if (!srcNode) return undefined;
-
-    const ctx: NodeExecutionContext = {
-      triggeredPort: '',
-      getState: <T>() => this._getState(fromId) as T,
-      setState: (s) => this._onSetState(fromId, s),
-    };
-
-    const inputs: Record<string, unknown> = {};
-    const srcCfg = (this._getConfig(fromId) ?? {}) as Record<string, unknown>;
-    for (const p of srcNode.def.inputPorts) {
-      if (p.kind === 'value') {
-        const pulled = this._pullValue(fromId, p.name);
-        inputs[p.name] = pulled !== undefined ? pulled : srcCfg[p.name];
-      } else if (p.kind === 'list')
-        inputs[p.name] = this._pullList(fromId, p.name);
-      else inputs[p.name] = srcNode.lastInputs.get(p.name);
-    }
-
-    let result: Record<string, unknown>;
-    try {
-      result = srcNode.def.execute(inputs, srcCfg, ctx);
-    } catch (err) {
-      console.error(`[SignalGraph pull] ${fromId} (${srcNode.kind}):`, err);
-      return undefined;
-    }
-
-    const val = result[fromPort];
-    srcNode.lastOutputs.set(fromPort, val);
-    return val;
-  }
-
-  private _pullValue(toNodeId: string, toPort: string): unknown {
-    const src = this._valueEdges.get(`${toNodeId}\x00${toPort}`);
-    if (!src) return undefined;
-    return this._pullFrom(src.fromId, src.fromPort);
-  }
-
-  private _pullList(toNodeId: string, toPort: string): unknown[] {
-    const sources = this._listEdges.get(`${toNodeId}\x00${toPort}`) ?? [];
-    return sources
-      .map((src) => this._pullFrom(src.fromId, src.fromPort))
-      .filter((v) => v !== undefined);
-  }
+function _isEvent(v: unknown): v is Event<unknown> {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'payload' in v &&
+    'timestamp' in v
+  );
 }
 
 function _summarise(v: unknown): unknown {
@@ -305,7 +395,7 @@ function _summarise(v: unknown): unknown {
     return {
       _event: true,
       timestamp: ev.timestamp,
-      kind: ev.payload?.constructor?.name ?? typeof ev.payload,
+      kind: (ev.payload as { constructor?: { name?: string } })?.constructor?.name ?? typeof ev.payload,
     };
   }
   if (typeof v === 'object')

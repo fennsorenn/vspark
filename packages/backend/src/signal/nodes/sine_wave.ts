@@ -1,18 +1,6 @@
-import { SignalNode, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
-
-interface SineWaveConfig {
-  /** Oscillations per second. Default 0.25 (one breath every 4 s). */
-  frequency?: number;
-  /** Peak output magnitude in radians. Default 0.05. */
-  amplitude?: number;
-  /** Phase offset in radians. Default 0. */
-  phase?: number;
-}
+import { SignalNode } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 @SignalNode({
   label: 'Sine Wave',
@@ -21,29 +9,20 @@ interface SineWaveConfig {
   tags: ['math'],
   color: '#4a7a5a',
 })
-export class SineWave {
+export class SineWave extends Node {
   static readonly kind = 'sine_wave';
-  static readonly inputPorts = [
-    valuePort('time', 'Float'),
-    valuePort('frequency', 'Float'),
-    valuePort('amplitude', 'Float'),
-    valuePort('phase', 'Float'),
-  ] as const;
-  static readonly outputPorts = [valuePort('value', 'Float')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof SineWave>,
-    config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof SineWave> {
-    const cfg = config as SineWaveConfig | null;
-    const time = (inputs.time as number | undefined) ?? 0;
-    const frequency =
-      (inputs.frequency as number | undefined) ?? cfg?.frequency ?? 0.25;
-    const amplitude =
-      (inputs.amplitude as number | undefined) ?? cfg?.amplitude ?? 0.05;
-    const phase = (inputs.phase as number | undefined) ?? cfg?.phase ?? 0;
-    const value = Math.sin(time * frequency * 2 * Math.PI + phase) * amplitude;
-    return { value };
-  }
+  @valueIn('time', 'Float') time!: () => number | undefined;
+  @valueIn('frequency', 'Float') frequency!: () => number | undefined;
+  @valueIn('amplitude', 'Float') amplitude!: () => number | undefined;
+  @valueIn('phase', 'Float') phase!: () => number | undefined;
+
+  @valueOut('value', 'Float')
+  value = (): number => {
+    const time = this.time() ?? 0;
+    const frequency = this.frequency() ?? 0.25;
+    const amplitude = this.amplitude() ?? 0.05;
+    const phase = this.phase() ?? 0;
+    return Math.sin(time * frequency * 2 * Math.PI + phase) * amplitude;
+  };
 }

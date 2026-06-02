@@ -1,6 +1,15 @@
-import { SignalNode, eventPort } from '@vspark/shared/signal';
-import type { OutputsOf, NodeExecutionContext } from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventOut } from '@vspark/shared/node_decorators';
+import type { SignalTypeMap } from '@vspark/shared/signal';
 
+type LandmarkList = SignalTypeMap['LandmarkList'];
+
+/**
+ * Entry point for MediaPipe Holistic landmark data pushed from the browser camera.
+ * TrackingManager fires each output directly via graph.fire() per frame; the node
+ * only declares the output ports.
+ */
 @SignalNode({
   label: 'MediaPipe Source',
   description:
@@ -9,22 +18,11 @@ import type { OutputsOf, NodeExecutionContext } from '@vspark/shared/signal';
   color: '#4a5a8a',
   internal: true,
 })
-export class MediapipeSource {
+export class MediapipeSource extends Node {
   static readonly kind = 'mediapipe_source';
-  static readonly inputPorts = [] as const;
-  static readonly outputPorts = [
-    eventPort('face', 'LandmarkList'),
-    eventPort('leftHand', 'LandmarkList'),
-    eventPort('rightHand', 'LandmarkList'),
-    eventPort('pose', 'LandmarkList'),
-  ] as const;
 
-  static execute(
-    _inputs: Record<string, unknown>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof MediapipeSource> {
-    // Fired externally by TrackingManager via graph.fire() — execute() is never called normally.
-    return {} as OutputsOf<typeof MediapipeSource>;
-  }
+  @eventOut('face', 'LandmarkList') face!: Emitter<LandmarkList>;
+  @eventOut('leftHand', 'LandmarkList') leftHand!: Emitter<LandmarkList>;
+  @eventOut('rightHand', 'LandmarkList') rightHand!: Emitter<LandmarkList>;
+  @eventOut('pose', 'LandmarkList') pose!: Emitter<LandmarkList>;
 }

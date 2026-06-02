@@ -1,9 +1,6 @@
-import { SignalNode, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 import type { IkTarget, IkTargetFrame } from '@vspark/shared/types';
 
 type Landmark = { x: number; y: number; z: number; visibility?: number };
@@ -25,7 +22,7 @@ const BP = {
   // Hand landmarks (within hand arrays, index 0 = wrist, 8 = index tip)
 };
 
-// Per-node EMA state stored via NodeExecutionContext.getState/setState.
+// Per-node EMA state stored via this.getState/this.setState.
 type SmoothedVec = { x: number; y: number; z: number; initialised: boolean };
 type EmaState = Map<string, SmoothedVec>;
 
@@ -98,38 +95,35 @@ interface PoseIkConfig {
   tags: ['tracking', 'mapping'],
   color: '#6a4a9a',
 })
-export class PoseIkTargets {
+export class PoseIkTargets extends Node {
   static readonly kind = 'pose_ik_targets';
-  static readonly inputPorts = [
-    valuePort('pose', 'LandmarkList'),
-    valuePort('leftHand', 'LandmarkList'),
-    valuePort('rightHand', 'LandmarkList'),
-    valuePort('enabled', 'Bool'),
-    valuePort('xScale', 'Float'),
-    valuePort('yScale', 'Float'),
-    valuePort('zScale', 'Float'),
-    valuePort('xOffset', 'Float'),
-    valuePort('yOffset', 'Float'),
-    valuePort('zOffset', 'Float'),
-    valuePort('invertX', 'Bool'),
-    valuePort('invertY', 'Bool'),
-    valuePort('invertZ', 'Bool'),
-  ] as const;
-  static readonly outputPorts = [valuePort('targets', 'IkTargets')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof PoseIkTargets>,
-    config: unknown,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof PoseIkTargets> {
-    const enabled = (inputs.enabled as boolean | null | undefined) ?? true;
-    if (!enabled) return {} as OutputsOf<typeof PoseIkTargets>;
+  @valueIn('pose', 'LandmarkList') poseIn!: () => Landmark[] | undefined;
+  @valueIn('leftHand', 'LandmarkList') leftHandIn!: () => Landmark[] | undefined;
+  @valueIn('rightHand', 'LandmarkList') rightHandIn!: () =>
+    | Landmark[]
+    | undefined;
+  @valueIn('enabled', 'Bool') enabledIn!: () => boolean | null | undefined;
+  @valueIn('xScale', 'Float') xScale!: () => number | undefined;
+  @valueIn('yScale', 'Float') yScale!: () => number | undefined;
+  @valueIn('zScale', 'Float') zScale!: () => number | undefined;
+  @valueIn('xOffset', 'Float') xOffset!: () => number | undefined;
+  @valueIn('yOffset', 'Float') yOffset!: () => number | undefined;
+  @valueIn('zOffset', 'Float') zOffset!: () => number | undefined;
+  @valueIn('invertX', 'Bool') invertX!: () => boolean | undefined;
+  @valueIn('invertY', 'Bool') invertY!: () => boolean | undefined;
+  @valueIn('invertZ', 'Bool') invertZ!: () => boolean | undefined;
 
-    const rawPose = inputs.pose as Landmark[] | undefined;
-    const rawLeftHand = inputs.leftHand as Landmark[] | undefined;
-    const rawRightHand = inputs.rightHand as Landmark[] | undefined;
+  @valueOut('targets', 'IkTargets')
+  targets = (): IkTargetFrame | undefined => {
+    const enabled = this.enabledIn() ?? true;
+    if (!enabled) return undefined;
 
-    if (!rawPose?.length) return {} as OutputsOf<typeof PoseIkTargets>;
+    const rawPose = this.poseIn();
+    const rawLeftHand = this.leftHandIn();
+    const rawRightHand = this.rightHandIn();
+
+    if (!rawPose?.length) return undefined;
 
     // MediaPipe world landmarks have +Y down; flip to +Y up so chest-relative offsets are in standard frame.
     const flipY = (lm: Landmark): Landmark => ({
@@ -142,7 +136,7 @@ export class PoseIkTargets {
     const leftHand = rawLeftHand?.map(flipY);
     const rightHand = rawRightHand?.map(flipY);
 
-    const cfg = (config ?? {}) as PoseIkConfig;
+    const cfg = (this.config ?? {}) as PoseIkConfig;
     const alpha = Math.max(0, Math.min(1, cfg.smoothing ?? 0.25));
     const refBone = cfg.referenceBone ?? 'chest';
 
@@ -151,15 +145,15 @@ export class PoseIkTargets {
     const numIn = (v: unknown, d: number): number =>
       typeof v === 'number' && Number.isFinite(v) ? v : d;
     const boolIn = (v: unknown): boolean => v === true;
-    const sx = numIn(inputs.xScale, 1) * (boolIn(inputs.invertX) ? -1 : 1);
-    const sy = numIn(inputs.yScale, 1) * (boolIn(inputs.invertY) ? -1 : 1);
-    const sz = numIn(inputs.zScale, 3) * (boolIn(inputs.invertZ) ? -1 : 1);
-    const ox = numIn(inputs.xOffset, 0);
-    const oy = numIn(inputs.yOffset, 0);
-    const oz = numIn(inputs.zOffset, 0);
-    const prev = ctx.getState<EmaState>();
+    const sx = numIn(this.xScale(), 1) * (boolIn(this.invertX()) ? -1 : 1);
+    const sy = numIn(this.yScale(), 1) * (boolIn(this.invertY()) ? -1 : 1);
+    const sz = numIn(this.zScale(), 3) * (boolIn(this.invertZ()) ? -1 : 1);
+    const ox = numIn(this.xOffset(), 0);
+    const oy = numIn(this.yOffset(), 0);
+    const oz = numIn(this.zOffset(), 0);
+    const prev = this.getState<EmaState>();
     const emaState: EmaState = prev instanceof Map ? prev : new Map();
-    ctx.setState(emaState);
+    this.setState(emaState);
 
     const targets: IkTarget[] = [];
 
@@ -428,7 +422,7 @@ export class PoseIkTargets {
       }
     }
 
-    if (targets.length === 0) return {} as OutputsOf<typeof PoseIkTargets>;
+    if (targets.length === 0) return undefined;
 
     // Source shoulder width: tracked subject's shoulder distance in the same units as target positions.
     // Lets consumers compute a uniform scale to fit different-sized target rigs.
@@ -454,6 +448,6 @@ export class PoseIkTargets {
       sourceRightShoulder,
       targets,
     };
-    return { targets: frame };
-  }
+    return frame;
+  };
 }

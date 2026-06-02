@@ -1,11 +1,7 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  Event,
-  SignalTypeMap,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import type { Event, SignalTypeMap } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { eventIn, valueIn } from '@vspark/shared/node_decorators';
 import { runtimeOverrideManager } from '../../runtime_overrides/manager.js';
 
 interface SetComposeLayerParamConfig {
@@ -22,56 +18,46 @@ interface SetComposeLayerParamConfig {
   tags: ['compose', 'output'],
   color: '#3a7a5a',
 })
-export class SetComposeLayerParam {
+export class SetComposeLayerParam extends Node {
   static readonly kind = 'set_compose_layer_param';
-  static readonly inputPorts = [
-    eventPort('fire', 'Trigger'),
-    /** Optional alternative trigger: a SpawnRef event from spawn_clip. Its
-     *  tmpNodeId overrides targetId for that fire. */
-    eventPort('spawnRef', 'SpawnRef'),
-    valuePort('targetId', 'EntityId'),
-    valuePort('paramPath', 'String'),
-    valuePort('value', 'Any'),
-    valuePort('persist', 'Bool'),
-  ] as const;
-  static readonly outputPorts = [] as const;
 
-  static execute(
-    inputs: InputsOf<typeof SetComposeLayerParam>,
-    config: SetComposeLayerParamConfig,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof SetComposeLayerParam> {
-    const empty = {} as OutputsOf<typeof SetComposeLayerParam>;
-    if (ctx.triggeredPort !== 'fire' && ctx.triggeredPort !== 'spawnRef')
-      return empty;
+  @valueIn('targetId', 'EntityId') targetId!: () => string | undefined;
+  @valueIn('paramPath', 'String') paramPath!: () => string | undefined;
+  @valueIn('value', 'Any') value!: () => unknown;
+  @valueIn('persist', 'Bool') persist!: () => boolean | undefined;
 
-    let targetId =
-      (inputs.targetId as string | undefined) || config.targetId;
-    if (ctx.triggeredPort === 'spawnRef') {
-      const ev = inputs.spawnRef as Event<SignalTypeMap['SpawnRef']> | undefined;
-      const ref = ev?.payload;
-      if (!ref) return empty;
-      if (ref.kind !== 'compose_layer') {
-        console.warn(
-          `[set_compose_layer_param] ignoring spawnRef of kind ${ref.kind}`
-        );
-        return empty;
-      }
-      targetId = ref.tmpNodeId;
+  @eventIn('fire', 'Trigger')
+  onFire(): void {
+    this._write(undefined);
+  }
+
+  /** Alternative trigger: a SpawnRef event from spawn_clip retargets the write
+   *  to the spawned instance (its `tmpNodeId`) for this fire. */
+  @eventIn('spawnRef', 'SpawnRef')
+  onSpawnRef(ev: Event<SignalTypeMap['SpawnRef']>): void {
+    const ref = ev?.payload;
+    if (!ref) return;
+    if (ref.kind !== 'compose_layer') {
+      console.warn(
+        `[set_compose_layer_param] ignoring spawnRef of kind ${ref.kind}`
+      );
+      return;
     }
+    this._write(ref.tmpNodeId);
+  }
 
-    const paramPath =
-      (inputs.paramPath as string | undefined) || config.paramPath;
-    if (!targetId || !paramPath) return empty;
-    const persist =
-      (inputs.persist as boolean | undefined) ?? config.persist ?? false;
+  private _write(retargetId: string | undefined): void {
+    const cfg = (this.config ?? {}) as SetComposeLayerParamConfig;
+    const targetId = retargetId ?? (this.targetId() || cfg.targetId);
+    const paramPath = this.paramPath() || cfg.paramPath;
+    if (!targetId || !paramPath) return;
+    const persist = this.persist() ?? cfg.persist ?? false;
     runtimeOverrideManager.set(
       'compose_layer',
       targetId,
       paramPath,
-      inputs.value,
+      this.value(),
       { persist }
     );
-    return empty;
   }
 }

@@ -1,20 +1,13 @@
-import {
-  SignalNode,
-  eventPort,
-  valuePort,
-  mkEvent,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, mkEvent } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { valueIn, eventOut } from '@vspark/shared/node_decorators';
 
-interface ClockConfig {
-  /** Tick rate in Hz. Default 60. */
-  hz?: number;
-}
-
+/**
+ * Fires a `tick` trigger at a configurable interval. The actual ticking is driven
+ * out-of-band by `Clock.attach(...)` (a self-scheduling interval set up by the
+ * component/graph manager); the node instance only declares the ports. `hz` is a
+ * value input (wire it or set `config.hz`) read by the manager's `getHz` callback.
+ */
 @SignalNode({
   label: 'Clock',
   description:
@@ -22,24 +15,17 @@ interface ClockConfig {
   tags: ['source'],
   color: '#4a7a5a',
 })
-export class Clock {
+export class Clock extends Node {
   static readonly kind = 'clock';
-  static readonly inputPorts = [valuePort('hz', 'Float')] as const;
-  static readonly outputPorts = [eventPort('tick', 'Trigger')] as const;
 
-  static execute(
-    _inputs: InputsOf<typeof Clock>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof Clock> {
-    return { tick: mkEvent(undefined) };
-  }
+  @valueIn('hz', 'Float') hz!: () => number | undefined;
+  @eventOut('tick', 'Trigger') tick!: Emitter<void>;
 
   /**
-   * Called by the component host after graph construction.
-   * Reads hz from node state (updated by the graph when the hz value port
-   * changes) or falls back to config default.
-   * Returns a cleanup function to call on graph teardown.
+   * Called by the component host after graph construction. Reads hz from a manager
+   * callback (updated when the hz value port changes) or falls back to the default.
+   * Returns a cleanup function to call on graph teardown. Unchanged from the
+   * pre-Phase-2 model — the ticking lives here, not in a node reaction.
    */
   static attach(
     graphNodeId: string,

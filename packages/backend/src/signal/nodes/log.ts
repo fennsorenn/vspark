@@ -1,15 +1,6 @@
-import {
-  SignalNode,
-  eventPort,
-  valuePort,
-  listPort,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  Event,
-} from '@vspark/shared/signal';
+import { SignalNode, type Event } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { eventIn, valueIn, listIn } from '@vspark/shared/node_decorators';
 
 /**
  * Prints whatever fires into `trigger` (and the current values wired into
@@ -27,32 +18,19 @@ import type {
   tags: ['utility', 'debug'],
   color: '#3a3a3a',
 })
-export class LogNode {
+export class LogNode extends Node {
   static readonly kind = 'log';
-  static readonly inputPorts = [
-    valuePort('label', 'String'),
-    eventPort('trigger', 'Any'),
-    listPort('inputs', 'Any'),
-  ] as const;
-  static readonly outputPorts = [] as const;
 
-  static execute(
-    inputs: InputsOf<typeof LogNode>,
-    config: { label?: string } | null | undefined,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof LogNode> {
-    if (ctx.triggeredPort !== 'trigger') return {} as OutputsOf<typeof LogNode>;
-    const label = (
-      typeof (inputs as { label?: unknown }).label === 'string'
-        ? (inputs as { label: string }).label
-        : (config?.label ?? '')
-    ).trim();
-    const evt = inputs.trigger as Event<unknown> | undefined;
+  @valueIn('label', 'String') label!: () => string | undefined;
+  @listIn('inputs', 'Any') inputs!: () => unknown[];
+
+  @eventIn('trigger', 'Any')
+  onTrigger(ev: Event<unknown>): void {
+    const label = (typeof this.label() === 'string' ? this.label()! : '').trim();
     const prefix = label ? `[log:${label}]` : '[log]';
     // Print the event payload and every value wired into `inputs` (a list
     // port, so multiple sources can be logged at once in connection order).
-    const values = (inputs.inputs as unknown[]) ?? [];
-    console.log(prefix, 'event payload:', evt?.payload, '| inputs:', ...values);
-    return {} as OutputsOf<typeof LogNode>;
+    const values = this.inputs() ?? [];
+    console.log(prefix, 'event payload:', ev?.payload, '| inputs:', ...values);
   }
 }

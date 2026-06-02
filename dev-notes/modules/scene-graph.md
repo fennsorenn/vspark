@@ -4,17 +4,29 @@ The hierarchy of spatial nodes in a scene. Covers both the DB/API layer and the 
 
 ## Data model
 
+### Scenes-as-nodes (migration 018)
+
+Migration 018 (`refactor_scenes_to_nodes`) collapsed the standalone `scenes` table into `scene_nodes` itself: a scene is now a `scene_nodes` row with `kind = 'scene'`. Scene ids are **reused** as the kind=scene node ids so existing FKs stay valid. The migration also:
+
+- Added `project_id` to `scene_nodes` (backfilled from the old `scenes.project_id` join).
+- Renamed `scene_nodes.scene_id` → `scene_nodes.root_scene_node_id` (every node points at the kind=scene row that roots its tree).
+- Renamed `track_clips.scene_id` → `track_clips.root_scene_node_id`.
+- Dropped the `scenes` table.
+
+The frontend "scenes" list in the editor's left dock (`310cbaa`) is now just a filtered view of kind=scene nodes for the active project; scene delete + scene rename are PUT/DELETE on the corresponding `scene_nodes` row. Pre-migration the DB is backed up to a sibling `.bak` file (`3330c0d`).
+
+Compose-layer roots followed the same pattern at the same time — see [compose.md](compose.md) for the `compose_scene` kind + project-scoped compose hierarchy.
+
 ### DB tables (migration 001 + later patches)
 
-**`scenes`**: id, project_id, name, timestamps. Project-scoped; FK cascade delete.
-
-**`scene_nodes`**: the scene tree.
+**`scene_nodes`**: the project's spatial entity tree, including scene-root rows (`kind = 'scene'`).
 
 | Column | Type | Notes |
 |--------|------|-------|
 | id | TEXT PK | |
-| scene_id | TEXT FK → scenes | cascade delete |
-| parent_id | TEXT FK → scene_nodes (self) | null = root node; cascade delete |
+| project_id | TEXT FK → projects | cascade delete; added in migration 018 |
+| root_scene_node_id | TEXT FK → scene_nodes(id) | The kind=`scene` row that roots this node's tree. For the scene-root itself this is its own id. Renamed from `scene_id` in migration 018. |
+| parent_id | TEXT FK → scene_nodes (self) | null = scene-root (kind=`scene`) or top-level under it; cascade delete |
 | name | TEXT | display name |
 | kind | TEXT | see node kinds below |
 | file_path | TEXT | asset path (avatars, models) |
@@ -32,6 +44,7 @@ Self-referential FK with cascade: deleting a parent deletes all descendants.
 
 | Kind | Purpose |
 |------|---------|
+| `scene` | Scene-root container (migration 018). One per scene; reuses the old `scenes.id`. Holds `properties` carrying the legacy `runtime_settings`. |
 | `avatar` | VRM character. Drives VMC/MediaPipe pipelines. |
 | `model` | GLTF/GLB static or animated mesh |
 | `light` | Point or directional light |
@@ -115,7 +128,7 @@ Tree panel on the left side of the editor. Renders the active scene's node hiera
 - **Visibility toggle** (eye icon) → `PUT /scene-nodes/:id` with `{ hidden: !current }`
 - **Camera preview** (✦, camera nodes only) → `setPreviewEffectsCamera(nodeId)` — enables post-processing in the viewport for this camera
 - **Viewer link** (↗, camera nodes only) → opens `/viewer/:projectId/:nodeId` in a new tab
-- **Context menu** (right-click): Add Child, Move Into (select target), Unparent, Delete
+- **Context menu** (right-click): real popup menu (was `window.prompt` based; refactored in `13f0021`) using the generic `components/editor/ContextMenu.tsx`. The legacy in-place ContextMenu was renamed to `SceneNodeContextMenu`. Items include Add Child, Move Into, Unparent, Delete, plus Copy / Paste entries that gate on the editor clipboard kind (`d26518a`, `47af189`) — see [clipboard.md](clipboard.md).
 
 ### Inline sections
 

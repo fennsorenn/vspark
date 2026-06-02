@@ -22,11 +22,16 @@ import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
 import type {
   GraphDescriptor,
   NodeKindMeta,
+  NodePortMeta,
   NodeStateSnapshot,
   GraphStateSnapshot,
   GraphNodeDescriptor,
   GraphEdgeDescriptor,
 } from '@vspark/shared/signal';
+import { InferGraph } from '@vspark/shared/inference';
+import { inferForKind } from '@vspark/shared/infer_nodes';
+import { transportOf, type ResolvedPort } from '@vspark/shared/signal_types';
+import type { PortMeta } from '@vspark/shared/node';
 import { SignalNodeCard } from './SignalNodeCard';
 import type { SignalNodeData } from './SignalNodeCard';
 import { FlashEdge } from './FlashEdge';
@@ -62,9 +67,73 @@ export const PALETTE_DRAG_KIND = 'application/x-vspark-signal-node-kind';
 // Descriptor → React Flow conversion
 // ──────────────────────────────────────────────────────────────────────────────
 
+/** Reconstruct a kind's static PortMeta list from its served NodeKindMeta. */
+function staticPortsOf(meta: NodeKindMeta | undefined): PortMeta[] {
+  if (!meta) return [];
+  const mk = (p: NodePortMeta, direction: 'in' | 'out'): PortMeta => ({
+    name: p.name,
+    direction,
+    transport: p.transport,
+    typeTag: p.typeTag,
+    member: p.name,
+  });
+  return [
+    ...meta.inputPorts.map((p) => mk(p, 'in')),
+    ...meta.outputPorts.map((p) => mk(p, 'out')),
+  ];
+}
+
+/**
+ * Build an inference mirror of the descriptor so the editor can render resolved
+ * (dynamic) ports and validate drags with the SAME shared logic the backend engine
+ * uses. Edges that fail validation are skipped (mirrors the backend's load behaviour).
+ */
+function buildMirror(
+  descriptor: GraphDescriptor,
+  kindMap: Map<string, NodeKindMeta>
+): InferGraph {
+  const g = new InferGraph(inferForKind, (kind) =>
+    staticPortsOf(kindMap.get(kind))
+  );
+  for (const n of descriptor.nodes) g.addNode(n.id, n.kind, n.defaultConfig ?? {});
+  // Fixpoint replay (see engine.fromDescriptor): adding an edge can materialise
+  // dynamic ports a later edge needs, so retry the pending set until no progress.
+  let pending = descriptor.edges.slice();
+  for (;;) {
+    const stillPending: typeof pending = [];
+    let progressed = false;
+    for (const e of pending) {
+      const res = g.tryAddEdge({
+        fromNodeId: e.fromNodeId,
+        fromPort: e.fromPort,
+        toNodeId: e.toNodeId,
+        toPort: e.toPort,
+      });
+      if (res.ok) progressed = true;
+      else stillPending.push(e);
+    }
+    pending = stillPending;
+    if (pending.length === 0 || !progressed) break;
+  }
+  return g;
+}
+
+/** Convert a resolved port into the NodePortMeta shape the card renders. */
+function resolvedToPortMeta(p: ResolvedPort): NodePortMeta {
+  const transport = transportOf(p.type);
+  // Leaf tag for colour: primitive name, or 'Any' for unknown/records/events.
+  let typeTag: NodePortMeta['typeTag'] = 'Any';
+  let t = p.type;
+  if (t.kind === 'event') t = t.payload;
+  if (t.kind === 'list') t = t.element;
+  if (t.kind === 'primitive') typeTag = t.name;
+  return { name: p.name, resolved: p.type, typeTag, transport };
+}
+
 function buildNodes(
   descriptor: GraphDescriptor,
   kindMap: Map<string, NodeKindMeta>,
+  mirror: InferGraph,
   nodeStates: Record<string, NodeStateSnapshot>,
   graphId: string
 ): Node<SignalNodeData>[] {
@@ -79,6 +148,9 @@ function buildNodes(
   return descriptor.nodes.map((n) => {
     const meta = kindMap.get(n.kind);
     const state = nodeStates[n.id];
+    // Resolved (dynamic) ports from the inference mirror — so pack_event grows
+    // named-field slots and unpack_event grows one output per record field live.
+    const resolved = mirror.portsOf(n.id);
     return {
       id: n.id,
       type: 'signalNode',
@@ -88,8 +160,8 @@ function buildNodes(
         graphId,
         kind: n.kind,
         display: meta?.display,
-        inputPorts: meta?.inputPorts ?? [],
-        outputPorts: meta?.outputPorts ?? [],
+        inputPorts: resolved.inputPorts.map(resolvedToPortMeta),
+        outputPorts: resolved.outputPorts.map(resolvedToPortMeta),
         connectedInputPorts: [...(connectedInputs.get(n.id) ?? [])],
         readonly: descriptor.readonly,
         lastExecutedAt: state?.lastExecutedAt ?? null,
@@ -200,19 +272,17 @@ function shallowEqual(
 
 function buildEdges(
   descriptor: GraphDescriptor,
-  kindMap: Map<string, NodeKindMeta>,
+  mirror: InferGraph,
   flashingEdges: ReadonlySet<string>,
   edgeValues: Record<string, unknown>
 ): Edge<FlashEdgeData>[] {
   return descriptor.edges.map((e) => {
-    const srcMeta = kindMap.get(
-      descriptor.nodes.find((n) => n.id === e.fromNodeId)?.kind ?? ''
-    );
-    const srcPort = srcMeta?.outputPorts.find((p) => p.name === e.fromPort);
+    const srcType = mirror.outputType(e.fromNodeId, e.fromPort);
+    const srcPort = srcType ? resolvedToPortMeta({ name: e.fromPort, type: srcType }) : undefined;
     const color = srcPort
-      ? SIGNAL_TYPE_COLORS[srcPort.type as keyof typeof SIGNAL_TYPE_COLORS]
+      ? SIGNAL_TYPE_COLORS[srcPort.typeTag as keyof typeof SIGNAL_TYPE_COLORS]
       : '#888';
-    const isValue = srcPort?.portKind !== 'event';
+    const isValue = srcPort?.transport !== 'event';
     const edgeKey = `${e.fromNodeId}:${e.fromPort}:${e.toNodeId}:${e.toPort}`;
     return {
       id: edgeKey,
@@ -270,6 +340,8 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   const [edgeValues, setEdgeValues] = useState<Record<string, unknown>>({});
   // Local mirror of writable so JSX re-renders when the descriptor source resolves.
   const [writable, setWritable] = useState(false);
+  // Transient banner shown when a drag connection is refused by type inference.
+  const [rejectMsg, setRejectMsg] = useState<string | null>(null);
 
   // For writable project graphs we keep our own mutable copy of the descriptor
   // and PUT it back debounced. `descriptor` above is the rendered baseline.
@@ -289,6 +361,30 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     () => new Map(kindMeta.map((m) => [m.kind, m])),
     [kindMeta]
   );
+
+  // Inference mirror — rebuilt whenever the descriptor changes. Drives dynamic
+  // port rendering (buildNodes/buildEdges) and drag-time validation (handleConnect),
+  // using the same shared inference the backend engine runs.
+  const mirror = useMemo(
+    () => (descriptor ? buildMirror(descriptor, kindMap) : null),
+    [descriptor, kindMap]
+  );
+
+  // Show + auto-dismiss the connection-rejected banner (fired by handleConnect).
+  useEffect(() => {
+    const onReject = (e: Event) => {
+      const reason = (e as CustomEvent<{ reason: string }>).detail?.reason;
+      if (reason) setRejectMsg(reason);
+    };
+    window.addEventListener('vspark:graph-connect-rejected', onReject);
+    return () =>
+      window.removeEventListener('vspark:graph-connect-rejected', onReject);
+  }, []);
+  useEffect(() => {
+    if (!rejectMsg) return;
+    const t = setTimeout(() => setRejectMsg(null), 3500);
+    return () => clearTimeout(t);
+  }, [rejectMsg]);
 
 
   // Load descriptor — first check component-owned graphs (read-only), then
@@ -420,27 +516,27 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   // node object (preserving selected/etc.) and only replace `data` /
   // `position` when those actually changed.
   useEffect(() => {
-    if (!descriptor) return;
+    if (!descriptor || !mirror) return;
     setNodes((prev) =>
       mergeNodes(
         prev,
-        buildNodes(descriptor, kindMap, nodeStates, graphId) as Node[]
+        buildNodes(descriptor, kindMap, mirror, nodeStates, graphId) as Node[]
       )
     );
-  }, [descriptor, kindMap, nodeStates, setNodes, graphId]);
+  }, [descriptor, kindMap, mirror, nodeStates, setNodes, graphId]);
 
   // Rebuild edges whenever flashing or values change (separate from nodes for perf).
   // Same selection-preservation rationale as nodes above: merge by id rather
   // than rebuild, so React Flow's per-edge selected flag survives the poll.
   useEffect(() => {
-    if (!descriptor) return;
+    if (!descriptor || !mirror) return;
     setEdges((prev) =>
       mergeEdges(
         prev,
-        buildEdges(descriptor, kindMap, flashingEdges, edgeValues) as Edge[]
+        buildEdges(descriptor, mirror, flashingEdges, edgeValues) as Edge[]
       )
     );
-  }, [descriptor, kindMap, flashingEdges, edgeValues, setEdges]);
+  }, [descriptor, mirror, flashingEdges, edgeValues, setEdges]);
 
   // ── persistence ─────────────────────────────────────────────────────────
 
@@ -574,8 +670,41 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       // sourceHandle looks like "out-portName", targetHandle "in-portName".
       const fromPort = conn.sourceHandle.replace(/^out-/, '');
       const toPort = conn.targetHandle.replace(/^in-/, '');
+
+      // Validate the connection through the same shared inference the backend uses.
+      // tryAddEdge on a throwaway clone so a rejection leaves no state behind; on
+      // success we still mutate the descriptor (the mirror is rebuilt from it).
+      if (mirror) {
+        const res = mirror.tryAddEdge({
+          fromNodeId: conn.source,
+          fromPort,
+          toNodeId: conn.target,
+          toPort,
+        });
+        if (!res.ok) {
+          // Surface the reason; reject the drop (no descriptor mutation).
+          window.dispatchEvent(
+            new CustomEvent('vspark:graph-connect-rejected', {
+              detail: { reason: res.reason },
+            })
+          );
+          console.warn(`[SignalGraphCanvas] connection refused: ${res.reason}`);
+          return;
+        }
+      }
+
+      // Edge transport derives from the target input port's resolved type
+      // (list target → 'list' fan-in), else the source output's transport.
+      const srcType = mirror?.outputType(conn.source, fromPort);
+      const dstType = mirror?.inputType(conn.target, toPort);
+      const edgeKind: GraphEdgeDescriptor['kind'] =
+        dstType && transportOf(dstType) === 'list'
+          ? 'list'
+          : srcType && transportOf(srcType) === 'event'
+            ? 'event'
+            : 'value';
+
       mutateDescriptor((d) => {
-        // De-dup — value/list ports shouldn't be wired twice from the same source.
         const key = `${conn.source}:${fromPort}:${conn.target}:${toPort}`;
         if (
           d.edges.some(
@@ -584,16 +713,6 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
           )
         )
           return d;
-        // Infer kind from the source port's portKind via the kindMap.
-        const srcNode = d.nodes.find((n) => n.id === conn.source);
-        const srcMeta = srcNode ? kindMap.get(srcNode.kind) : undefined;
-        const srcPort = srcMeta?.outputPorts.find((p) => p.name === fromPort);
-        const srcKind = narrowPortKind(srcPort?.portKind);
-        const dstNode = d.nodes.find((n) => n.id === conn.target);
-        const dstMeta = dstNode ? kindMap.get(dstNode.kind) : undefined;
-        const dstPort = dstMeta?.inputPorts.find((p) => p.name === toPort);
-        const edgeKind: GraphEdgeDescriptor['kind'] =
-          dstPort?.portKind === 'list' ? 'list' : srcKind;
         return {
           ...d,
           edges: [
@@ -609,7 +728,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
         };
       });
     },
-    [mutateDescriptor, kindMap]
+    [mutateDescriptor, mirror]
   );
 
   /**
@@ -824,6 +943,28 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       onDrop={handleDrop}
       onMouseEnter={() => wrapperRef.current?.focus()}
     >
+      {rejectMsg && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 10,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 10,
+            background: '#3a1a1a',
+            border: '1px solid #c87070',
+            color: '#f0b0b0',
+            borderRadius: 6,
+            padding: '6px 12px',
+            fontSize: 12,
+            fontFamily: 'monospace',
+            maxWidth: '80%',
+            pointerEvents: 'none',
+          }}
+        >
+          ⚠ Connection refused: {rejectMsg}
+        </div>
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -874,8 +1015,4 @@ function cryptoRandom(): string {
   } catch {
     return Math.random().toString(36).slice(2, 10);
   }
-}
-
-function narrowPortKind(k: string | undefined): GraphEdgeDescriptor['kind'] {
-  return k === 'value' || k === 'list' ? k : 'event';
 }

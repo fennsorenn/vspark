@@ -56,30 +56,18 @@ Request body validation for all REST routes. All schemas are strict (no extra ke
 
 `VRM_BONE_NAMES`: array of 54 strings covering the full VRM humanoid skeleton — hips through all finger distal bones. These are the canonical keys for `NormalizedPose`.
 
-### Port system
+### Port system (Phase 2 — transport folded into the type)
 
-```ts
-type PortKind = 'event' | 'value' | 'list'
-type PortDecl = { name: string, type: keyof SignalTypeMap, kind: PortKind }
-```
+The old `PortKind` / `PortDecl.kind` / `portsCompatible` machinery is **deleted**. Transport (event / value / list) is no longer a separate field — it is **derived from the resolved type**.
 
-`SignalTypeMap` maps type strings to runtime types:
-- `BoneRotations`, `NormalizedPose`, `Blendshapes`
-- `Float`, `Bool`, `String`
-- `InterceptorFrame`, `Landmark[]`
+`SignalTypeMap` still maps leaf type names (`SignalTypeName`, e.g. `BoneRotations`, `NormalizedPose`, `Blendshapes`, `Float`, `Bool`, `String`, `InterceptorFrame`, `Account`, `SpawnRef`, `Any`, `ComponentConfig`) to runtime types. The `Any` and `ComponentConfig` tags both map to the `unknown` wildcard.
 
-### Node class interface
+The structural type AST and inference live in dedicated shared files:
 
-```ts
-interface SignalNodeClass {
-  kind: string
-  inputPorts: PortDecl[]
-  outputPorts: PortDecl[]
-  execute(inputs: Record<string, any>): Record<string, any>
-}
-```
+- `signal_types.ts` — `ResolvedType` discriminated union (`primitive | record | event | list | unknown`). `transportOf(type)` derives transport (`event` → push, `list` → pull fan-in, else → pull). `isAssignable(source, target)` is structural width subtyping on records + `unknown` wildcard both directions + the `List<E>` accepts `E`-or-`List<E>` special case.
+- `inference.ts` — `InferGraph`: `tryAddEdge` (forward propagation + transactional rollback), `removeEdge`, `setConfig`, `portsOf`.
 
-The `@SignalNode({ label, description, tags, color })` decorator attaches display metadata and is read by `getAllNodeKindMeta()` for the UI.
+Ports are now declared as **decorated members** on a `Node` subclass (`node.ts` + `node_decorators.ts`), not as static `PortDecl[]` arrays. See [signal-graph.md](signal-graph.md) for the decorator model and `inferPorts`. `getAllNodeKindMeta()` returns per-port `{ name, resolved, typeTag, transport }` plus a `dynamic` flag; the `@SignalNode({ label, description, tags, color })` decorator still attaches display metadata.
 
 ### GraphDescriptor
 
@@ -90,8 +78,8 @@ interface GraphDescriptor {
   label: string
   readonly?: boolean
   nodes: Array<{ id: string, kind: string, position: {x,y}, defaultConfig: any }>
-  edges: Array<{ fromNodeId: string, fromPort: string, toNodeId: string, toPort: string, kind?: PortKind }>
+  edges: Array<{ fromNodeId: string, fromPort: string, toNodeId: string, toPort: string }>
 }
 ```
 
-Managers create these via factory functions and pass them to `SignalGraph.fromDescriptor()`.
+Edges no longer carry a `kind` — transport is inferred from the resolved port types at load time. Managers create these via factory functions and pass them to `SignalGraph.fromDescriptor()`, which replays the edges through `InferGraph.tryAddEdge`.
