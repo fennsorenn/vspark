@@ -1,9 +1,6 @@
-import { SignalNode, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 @SignalNode({
   label: 'Multiply',
@@ -12,21 +9,12 @@ import type {
   tags: ['math'],
   color: '#4a7a5a',
 })
-export class Multiply {
+export class Multiply extends Node {
   static readonly kind = 'multiply';
-  static readonly inputPorts = [
-    valuePort('a', 'Float'),
-    valuePort('b', 'Float'),
-  ] as const;
-  static readonly outputPorts = [valuePort('value', 'Float')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof Multiply>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof Multiply> {
-    const a = (inputs.a as number | undefined) ?? 0;
-    const b = (inputs.b as number | undefined) ?? 0;
-    return { value: a * b };
-  }
+  @valueIn('a', 'Float') a!: () => number | undefined;
+  @valueIn('b', 'Float') b!: () => number | undefined;
+
+  @valueOut('value', 'Float')
+  value = (): number => (this.a() ?? 0) * (this.b() ?? 0);
 }

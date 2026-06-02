@@ -1,49 +1,43 @@
-import {
-  SignalNode,
-  eventPort,
-  valuePort,
-  mkEvent,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  Event,
-} from '@vspark/shared/signal';
+import { SignalNode, type Event } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { eventIn } from '@vspark/shared/node_decorators';
 
+/**
+ * Splits an incoming event into per-field outputs plus a bare `trigger`.
+ *
+ * The output ports are DYNAMIC (see inferUnpackEvent in infer_nodes.ts): when the
+ * wired event resolves to `Event<record>`, one typed output port is generated per
+ * record field; otherwise a single `value` output carries the whole payload (the
+ * pre-Phase-2 behaviour). Because the outputs are generated, this node emits them
+ * by name via `this.emitOn(...)` rather than through decorated emitter fields.
+ */
 @SignalNode({
   label: 'Unpack Event',
   description:
-    'Splits an event into a trigger and its payload value. Connect the trigger to broadcast nodes and pull the value from downstream processors.',
+    'Split an event into a trigger plus one output per payload field. Falls back to a single value output for non-record payloads.',
   tags: ['utility'],
   color: '#3a3a5a',
 })
-export class UnpackEvent {
+export class UnpackEvent extends Node {
   static readonly kind = 'unpack_event';
-  static readonly inputPorts = [eventPort('event', 'Any')] as const;
-  static readonly outputPorts = [
-    eventPort('trigger', 'Trigger'),
-    valuePort('value', 'Any'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof UnpackEvent>,
-    _config: unknown,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof UnpackEvent> {
-    if (ctx.triggeredPort === 'event') {
-      const evt = inputs.event as Event<unknown>;
-      const payload = evt?.payload ?? null;
-      ctx.setState(payload);
-      return {
-        trigger: mkEvent(undefined, evt?.timestamp),
-        value: payload,
-      } as OutputsOf<typeof UnpackEvent>;
+  @eventIn('event', 'Any')
+  onEvent(ev: Event<unknown>): void {
+    const payload = ev?.payload ?? null;
+    if (
+      payload !== null &&
+      typeof payload === 'object' &&
+      !Array.isArray(payload)
+    ) {
+      for (const [name, value] of Object.entries(
+        payload as Record<string, unknown>
+      )) {
+        this.emitOn(name, value);
+      }
+    } else {
+      // Non-record payload → single `value` output (fallback shape).
+      this.emitOn('value', payload);
     }
-    // Pull path — return the last stored payload.
-    const payload = ctx.getState<unknown>() ?? null;
-    return { trigger: mkEvent(undefined), value: payload } as OutputsOf<
-      typeof UnpackEvent
-    >;
+    this.emitOn('trigger', undefined);
   }
 }

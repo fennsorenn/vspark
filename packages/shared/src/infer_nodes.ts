@@ -92,11 +92,14 @@ export const inferUnpackEvent: InferPortsFn = (ctx: InferCtx): InferResult => {
     { name: 'trigger', type: RT.event(RT.primitive('Trigger')) },
   ];
   if (inT && inT.kind === 'event' && inT.payload.kind === 'record') {
-    for (const [name, type] of Object.entries(inT.payload.fields)) {
-      outputPorts.push({ name, type });
+    for (const [name, fieldType] of Object.entries(inT.payload.fields)) {
+      // Each field is re-emitted as its own event output, so wrap in Event<…>.
+      // If the field is itself an event payload, don't double-wrap.
+      const out = fieldType.kind === 'event' ? fieldType : RT.event(fieldType);
+      outputPorts.push({ name, type: out });
     }
   } else {
-    outputPorts.push({ name: 'value', type: RT.unknown() });
+    outputPorts.push({ name: 'value', type: RT.event(RT.unknown()) });
   }
   return {
     inputPorts: [{ name: 'event', type: RT.event(RT.unknown()) }],
