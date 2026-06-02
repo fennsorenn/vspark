@@ -163,8 +163,14 @@ export function typeTagToResolved(
   typeTag: SignalTypeName,
   transport: Transport
 ): ResolvedType {
+  // `Any` and `ComponentConfig` are both wildcard escape hatches → `unknown`.
+  // ComponentConfig is the raw-config output of `component_config`, historically
+  // compatible with every typed value port (it carries an arbitrary config field);
+  // mapping it to `unknown` preserves that wildcard behaviour under structural typing.
   const leaf: ResolvedType =
-    typeTag === 'Any' ? RT.unknown() : RT.primitive(typeTag);
+    typeTag === 'Any' || typeTag === 'ComponentConfig'
+      ? RT.unknown()
+      : RT.primitive(typeTag);
   if (transport === 'event') return RT.event(leaf);
   if (transport === 'list') return RT.list(leaf);
   return leaf;
