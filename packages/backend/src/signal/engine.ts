@@ -113,20 +113,40 @@ export class SignalGraph {
     }
 
     // 2. Replay edges through inference; route accepted edges by derived transport.
-    for (const e of descriptor.edges) {
-      const res = graph._infer.tryAddEdge({
-        fromNodeId: e.fromNodeId,
-        fromPort: e.fromPort,
-        toNodeId: e.toNodeId,
-        toPort: e.toPort,
-      });
-      if (!res.ok) {
-        console.warn(
-          `[SignalGraph] dropped edge ${e.fromNodeId}.${e.fromPort} → ${e.toNodeId}.${e.toPort}: ${res.reason}`
-        );
-        continue;
+    //    Iterate to a FIXPOINT: adding an edge can materialise new ports on the
+    //    target (e.g. unpack_event grows per-field outputs once its event input
+    //    resolves to a record), which a previously-unaddable edge then needs. So we
+    //    retry the pending set until a full pass adds nothing. Edges still failing
+    //    after that are genuinely invalid (schema drift / type mismatch) and dropped.
+    let pending = descriptor.edges.slice();
+    let lastResult = new Map<string, string>();
+    for (;;) {
+      const stillPending: typeof pending = [];
+      let progressed = false;
+      for (const e of pending) {
+        const res = graph._infer.tryAddEdge({
+          fromNodeId: e.fromNodeId,
+          fromPort: e.fromPort,
+          toNodeId: e.toNodeId,
+          toPort: e.toPort,
+        });
+        if (res.ok) {
+          graph._routeEdge(e.fromNodeId, e.fromPort, e.toNodeId, e.toPort);
+          progressed = true;
+        } else {
+          lastResult.set(
+            `${e.fromNodeId}.${e.fromPort}→${e.toNodeId}.${e.toPort}`,
+            res.reason
+          );
+          stillPending.push(e);
+        }
       }
-      graph._routeEdge(e.fromNodeId, e.fromPort, e.toNodeId, e.toPort);
+      pending = stillPending;
+      if (pending.length === 0 || !progressed) break;
+    }
+    for (const e of pending) {
+      const key = `${e.fromNodeId}.${e.fromPort}→${e.toNodeId}.${e.toPort}`;
+      console.warn(`[SignalGraph] dropped edge ${key}: ${lastResult.get(key)}`);
     }
     return graph;
   }

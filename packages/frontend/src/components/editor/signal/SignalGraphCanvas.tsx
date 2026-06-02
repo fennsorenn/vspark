@@ -96,13 +96,25 @@ function buildMirror(
     staticPortsOf(kindMap.get(kind))
   );
   for (const n of descriptor.nodes) g.addNode(n.id, n.kind, n.defaultConfig ?? {});
-  for (const e of descriptor.edges)
-    g.tryAddEdge({
-      fromNodeId: e.fromNodeId,
-      fromPort: e.fromPort,
-      toNodeId: e.toNodeId,
-      toPort: e.toPort,
-    });
+  // Fixpoint replay (see engine.fromDescriptor): adding an edge can materialise
+  // dynamic ports a later edge needs, so retry the pending set until no progress.
+  let pending = descriptor.edges.slice();
+  for (;;) {
+    const stillPending: typeof pending = [];
+    let progressed = false;
+    for (const e of pending) {
+      const res = g.tryAddEdge({
+        fromNodeId: e.fromNodeId,
+        fromPort: e.fromPort,
+        toNodeId: e.toNodeId,
+        toPort: e.toPort,
+      });
+      if (res.ok) progressed = true;
+      else stillPending.push(e);
+    }
+    pending = stillPending;
+    if (pending.length === 0 || !progressed) break;
+  }
   return g;
 }
 
