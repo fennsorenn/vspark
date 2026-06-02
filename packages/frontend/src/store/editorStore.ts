@@ -397,6 +397,12 @@ interface EditorState {
   runtimeNodeOverrides: Record<string, RuntimeOverrideMap>;
   /** composeLayerId → paramPath → value, same as above for compose layers. */
   runtimeLayerOverrides: Record<string, RuntimeOverrideMap>;
+  /** channelName → last-published payload, fed by the data-channel bus
+   *  (`set_data` node → WS `data_channel_*`). Consumed by `feed` compose
+   *  layers, which render whatever shape the payload carries through a
+   *  user template. Addressed by name only; a feed layer only renders when
+   *  its compose scene is the one being shown. */
+  dataChannels: Record<string, unknown>;
   /** Per-(target, param) suppression set: while a key is present, the evaluator
    *  must NOT apply that lane's value as an override, and the existing override
    *  slot for it should be cleared. Set when the user edits a numeric input on
@@ -547,6 +553,16 @@ interface EditorState {
   /** Drop all suppressions — called when a clip is triggered / paused / scrubbed. */
   clearOverrideSuppressions: () => void;
 
+  // Data channels (generic graph → frontend publish surface)
+  /** Apply a single data-channel publish broadcast from the data-channel bus. */
+  setDataChannel: (channel: string, payload: unknown) => void;
+  /** Clear a single data channel. */
+  clearDataChannel: (channel: string) => void;
+  /** Bulk apply a snapshot (used on WS (re)connect). Replaces the whole map. */
+  replaceDataChannels: (
+    entries: Array<{ channel: string; payload: unknown }>
+  ) => void;
+
   // Presets
   presets: PresetSummary[];
   setPresets: (presets: PresetSummary[]) => void;
@@ -614,6 +630,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   composeLayerOverrides: {},
   runtimeNodeOverrides: {},
   runtimeLayerOverrides: {},
+  dataChannels: {},
   suppressedOverrides: new Set<string>(),
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
@@ -1010,6 +1027,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         bucket[e.targetId] = { ...prev, [e.paramPath]: e.value };
       }
       return { runtimeNodeOverrides: nodes, runtimeLayerOverrides: layers };
+    }),
+  setDataChannel: (channel, payload) =>
+    set((s) => ({ dataChannels: { ...s.dataChannels, [channel]: payload } })),
+  clearDataChannel: (channel) =>
+    set((s) => {
+      if (!(channel in s.dataChannels)) return {};
+      const { [channel]: _, ...rest } = s.dataChannels;
+      return { dataChannels: rest };
+    }),
+  replaceDataChannels: (entries) =>
+    set(() => {
+      const next: Record<string, unknown> = {};
+      for (const e of entries) next[e.channel] = e.payload;
+      return { dataChannels: next };
     }),
 
   presets: [],

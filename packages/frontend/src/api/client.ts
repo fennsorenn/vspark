@@ -214,7 +214,8 @@ export type ComposeLayerKind =
   | 'compose_scene'
   | 'scene_include'
   | 'camera_view'
-  | 'text';
+  | 'text'
+  | 'feed';
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
 
@@ -690,9 +691,9 @@ type CreateTrackClipBody = {
  *  via lane / keyframe endpoints and the caller needs a consistent local
  *  snapshot rather than reconstructing from WS broadcasts. */
 export const getTrackClipsForNode = (nodeId: string) =>
-  request<Record<string, unknown>[]>(
-    `/scene-nodes/${nodeId}/track-clips`
-  ).then((rows) => rows.map(mapTrackClip));
+  request<Record<string, unknown>[]>(`/scene-nodes/${nodeId}/track-clips`).then(
+    (rows) => rows.map(mapTrackClip)
+  );
 
 export const getTrackClipsForLayer = (layerId: string) =>
   request<Record<string, unknown>[]>(
@@ -1136,8 +1137,7 @@ export const instantiatePreset = (
 
 /** Generic graph fetch by id — works for any owner kind. Used by the canvas
  *  so it can open a graph without first knowing its scope. */
-export const getGraph = (id: string) =>
-  request<GraphRecord>(`/graphs/${id}`);
+export const getGraph = (id: string) => request<GraphRecord>(`/graphs/${id}`);
 
 export const getNodeGraphs = (nodeId: string) =>
   request<GraphRecord[]>(`/scene-nodes/${nodeId}/graphs`);

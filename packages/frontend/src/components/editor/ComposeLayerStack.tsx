@@ -243,6 +243,9 @@ function LayerContent({
   if (layer.kind === 'text') {
     return <TextLayer layer={layer} />;
   }
+  if (layer.kind === 'feed') {
+    return <FeedLayer layer={layer} />;
+  }
   const url = (layer.config.url as string | undefined) ?? '';
   if (!url) return <Placeholder text="no URL" />;
   // Iframes always swallow events when active. We keep them pointer-events:none
@@ -309,6 +312,107 @@ function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
     return <div style={style} dangerouslySetInnerHTML={{ __html: safe }} />;
   }
   return <div style={style}>{content}</div>;
+}
+
+/** Interpolate `{field}` tokens in a template with a record's field values.
+ *  Missing/null fields render as empty. The result is sanitised by the caller,
+ *  so a field carrying HTML (e.g. chat `html` with emote <img>s) renders while
+ *  XSS is stripped. */
+function interpolateTemplate(
+  template: string,
+  item: Record<string, unknown>
+): string {
+  return template.replace(/\{(\w+)\}/g, (_m, key: string) => {
+    const v = item[key];
+    return v == null ? '' : String(v);
+  });
+}
+
+/**
+ * Generic, data-shape-independent feed/template layer. Subscribes to a named
+ * data channel (fed by the `set_data` signal node over WS) and renders the
+ * payload through a user-supplied `itemTemplate`:
+ *   - array payload  → one render per element (stable keys → CSS can animate);
+ *   - record payload → a single render.
+ * The interpolated HTML is DOMPurified through the same allow-list as the text
+ * layer (`TEXT_SANITIZE_OPTS`), so emotes work and scripts don't. Per-item
+ * animation/scroll is owned by the user's template + CSS; this stays a thin
+ * renderer. `maxItems` caps how many array elements render (newest kept);
+ * `reverse` flips order (e.g. newest on top).
+ */
+function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
+  const cfg = layer.config as {
+    channel?: string;
+    itemTemplate?: string;
+    maxItems?: number;
+    reverse?: boolean;
+    gap?: number;
+    justify?: 'start' | 'end';
+  };
+  const channel = typeof cfg.channel === 'string' ? cfg.channel : '';
+  const payload = useEditorStore((s) =>
+    channel ? s.dataChannels[channel] : undefined
+  );
+
+  if (!channel) return <Placeholder text="no channel" />;
+  const template =
+    typeof cfg.itemTemplate === 'string' && cfg.itemTemplate.length > 0
+      ? cfg.itemTemplate
+      : '{html}';
+
+  // Normalise payload to a list of records to render.
+  let items: Array<Record<string, unknown>>;
+  if (Array.isArray(payload)) {
+    items = payload.filter(
+      (x): x is Record<string, unknown> => x != null && typeof x === 'object'
+    );
+  } else if (payload != null && typeof payload === 'object') {
+    items = [payload as Record<string, unknown>];
+  } else {
+    items = [];
+  }
+
+  const maxItems =
+    typeof cfg.maxItems === 'number' && cfg.maxItems > 0
+      ? cfg.maxItems
+      : undefined;
+  if (maxItems && items.length > maxItems) {
+    items = items.slice(items.length - maxItems);
+  }
+  const ordered = cfg.reverse ? [...items].reverse() : items;
+
+  const containerStyle: CSSProperties = {
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: cfg.justify === 'start' ? 'flex-start' : 'flex-end',
+    gap: typeof cfg.gap === 'number' ? `${cfg.gap}px` : undefined,
+    pointerEvents: 'none',
+  };
+
+  return (
+    <div style={containerStyle}>
+      {ordered.map((item, i) => {
+        const key =
+          typeof item.id === 'string' || typeof item.id === 'number'
+            ? String(item.id)
+            : i;
+        const safe = DOMPurify.sanitize(
+          interpolateTemplate(template, item),
+          TEXT_SANITIZE_OPTS
+        );
+        return (
+          <div
+            key={key}
+            data-feed-item
+            dangerouslySetInnerHTML={{ __html: safe }}
+          />
+        );
+      })}
+    </div>
+  );
 }
 
 function Placeholder({ text }: { text: string }) {

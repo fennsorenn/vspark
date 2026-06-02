@@ -20,6 +20,7 @@ const KIND_ICONS: Record<ComposeLayerKind, string> = {
   scene_include: '🎬',
   camera_view: '📷',
   text: '📝',
+  feed: '📜',
 };
 
 // Layer kinds the user can add inside a compose scene.
@@ -30,6 +31,7 @@ const ADDABLE_KINDS: ComposeLayerKind[] = [
   'video',
   'browser',
   'text',
+  'feed',
   'group',
 ];
 
@@ -84,7 +86,16 @@ async function createLayer(composeSceneId: string, kind: ComposeLayerKind) {
   }
 
   const config: Record<string, unknown> =
-    kind === 'browser' ? { url: 'https://example.com' } : {};
+    kind === 'browser'
+      ? { url: 'https://example.com' }
+      : kind === 'feed'
+        ? {
+            channel: 'chat',
+            itemTemplate:
+              '<div><span style="color:{color};font-weight:600">{displayName}</span>: {html}</div>',
+            reverse: false,
+          }
+        : {};
 
   // Scene includes default to the first OTHER compose scene; reassign in
   // properties. They mount that scene's whole layer stack.
@@ -304,7 +315,8 @@ function LayerRow({
     // compose scene that owns the row we right-clicked (the layer's
     // rootComposeSceneId); the new parent is the right-clicked layer.
     const targetSceneId =
-      layer.rootComposeSceneId ?? layer.id; /* layer is itself a compose_scene */
+      layer.rootComposeSceneId ??
+      layer.id; /* layer is itself a compose_scene */
     try {
       await api.instantiatePreset(
         payload.preset,
@@ -338,9 +350,7 @@ function LayerRow({
     }
   };
 
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(
-    null
-  );
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     setCtxMenu({ x: e.clientX, y: e.clientY });
@@ -349,7 +359,11 @@ function LayerRow({
     const canPasteLayer = clipboardPayload?.kind === 'compose-layer';
     const canPasteGraph = clipboardPayload?.kind === 'graph';
     const items: ContextMenuItem[] = [
-      { kind: 'item', label: 'Copy layer', onClick: () => void handleCopyLayer() },
+      {
+        kind: 'item',
+        label: 'Copy layer',
+        onClick: () => void handleCopyLayer(),
+      },
     ];
     if (canPasteLayer) {
       items.push({
@@ -410,7 +424,9 @@ function LayerRow({
           e.preventDefault();
           e.dataTransfer.dropEffect = 'move';
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          setDropPos(e.clientY - rect.top < rect.height / 2 ? 'before' : 'after');
+          setDropPos(
+            e.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
+          );
         }}
         onDragLeave={() => setDropPos(null)}
         onDrop={(e) => {
@@ -432,9 +448,7 @@ function LayerRow({
               ? '2px solid #4a9eff'
               : '2px solid transparent',
           borderBottom:
-            dropPos === 'after'
-              ? '2px solid #4a9eff'
-              : '2px solid transparent',
+            dropPos === 'after' ? '2px solid #4a9eff' : '2px solid transparent',
         }}
         onClick={() => {
           selectComposeLayer(layer.id);
@@ -577,8 +591,7 @@ function ComposeSceneRoot({
     // Treat a layer as a root if it has no parent OR its parent isn't part of
     // this scene (dangling/cross-scene parent), so it can never be orphaned out
     // of the tree and rendered invisibly.
-    const key =
-      l.parentId && sceneLayerIds.has(l.parentId) ? l.parentId : null;
+    const key = l.parentId && sceneLayerIds.has(l.parentId) ? l.parentId : null;
     if (!layersByParent.has(key)) layersByParent.set(key, []);
     layersByParent.get(key)!.push(l);
   }
@@ -587,9 +600,7 @@ function ComposeSceneRoot({
     .sort((a, b) => b.sceneOrder - a.sceneOrder);
 
   const handleDeleteScene = async () => {
-    if (
-      !confirm(`Delete compose scene "${scene.name}" and all its layers?`)
-    )
+    if (!confirm(`Delete compose scene "${scene.name}" and all its layers?`))
       return;
     useEditorStore.getState().removeComposeScene(scene.id);
     await api.deleteComposeLayer(scene.id).catch(() => {});
@@ -610,9 +621,7 @@ function ComposeSceneRoot({
           color: isActive ? '#e0e0e0' : '#999',
           userSelect: 'none',
           gap: 2,
-          borderLeft: isActive
-            ? '2px solid #7a5af0'
-            : '2px solid transparent',
+          borderLeft: isActive ? '2px solid #7a5af0' : '2px solid transparent',
         }}
         onClick={() => selectComposeScene(scene.id)}
       >
@@ -735,7 +744,12 @@ export function ComposeTree() {
 
   return (
     <div
-      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+      }}
     >
       <div
         style={{
@@ -758,7 +772,11 @@ export function ComposeTree() {
         >
           Compose Scenes
         </span>
-        <button style={addBtn} onClick={handleNewComposeScene} title="New compose scene">
+        <button
+          style={addBtn}
+          onClick={handleNewComposeScene}
+          title="New compose scene"
+        >
           + Scene
         </button>
       </div>
@@ -779,7 +797,11 @@ export function ComposeTree() {
           </div>
         ) : (
           composeScenes.map((scene) => (
-            <ComposeSceneRoot key={scene.id} scene={scene} projectId={projectId} />
+            <ComposeSceneRoot
+              key={scene.id}
+              scene={scene}
+              projectId={projectId}
+            />
           ))
         )}
       </div>

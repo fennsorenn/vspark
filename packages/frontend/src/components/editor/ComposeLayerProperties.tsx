@@ -100,8 +100,7 @@ export function ComposeLayerProperties({
   ) => {
     const current = unitOf(unitKey);
     if (current === unit) return;
-    const basis =
-      field === 'x' || field === 'width' ? frameW : frameH;
+    const basis = field === 'x' || field === 'width' ? frameW : frameH;
     const value = layer[field];
     const converted =
       unit === '%'
@@ -486,6 +485,110 @@ export function ComposeLayerProperties({
             placeholder="https://…"
             style={textInput}
           />
+        </>
+      )}
+
+      {layer.kind === 'feed' && (
+        <>
+          <div style={sectionHeader}>Data channel</div>
+          <input
+            type="text"
+            value={(layer.config.channel as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, channel: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, channel: e.target.value },
+                })
+                .catch(() => {})
+            }
+            placeholder="e.g. chat"
+            style={textInput}
+          />
+          <div
+            style={{
+              fontSize: 10,
+              color: '#555',
+              lineHeight: 1.4,
+              marginTop: 4,
+            }}
+          >
+            Name of the channel a `set_data` node publishes to.
+          </div>
+
+          <div style={sectionHeader}>Item template</div>
+          <textarea
+            value={(layer.config.itemTemplate as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, itemTemplate: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, itemTemplate: e.target.value },
+                })
+                .catch(() => {})
+            }
+            placeholder={
+              '<span style="color:{color}">{displayName}</span>: {html}'
+            }
+            rows={4}
+            style={{
+              ...textInput,
+              resize: 'vertical',
+              fontFamily: 'monospace',
+              fontSize: 12,
+            }}
+          />
+          <div
+            style={{
+              fontSize: 10,
+              color: '#555',
+              lineHeight: 1.4,
+              marginTop: 4,
+            }}
+          >
+            HTML rendered per item. Interpolate payload fields with{' '}
+            <code>{'{field}'}</code> (chat: displayName, html, text, color, …).
+            Sanitised on render.
+          </div>
+
+          <div style={sectionHeader}>Options</div>
+          <div style={row}>
+            <span style={label}>Max items</span>
+            <input
+              type="number"
+              min={0}
+              value={(layer.config.maxItems as number | undefined) ?? ''}
+              onChange={(e) => {
+                const n =
+                  e.target.value === '' ? undefined : Number(e.target.value);
+                const config = { ...layer.config, maxItems: n };
+                updateLayerLocal(layer.id, { config });
+                api.updateComposeLayer(layer.id, { config }).catch(() => {});
+              }}
+              placeholder="all"
+              style={{ ...textInput, width: 80 }}
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Newest top</span>
+            <input
+              type="checkbox"
+              checked={Boolean(layer.config.reverse)}
+              onChange={(e) => {
+                const config = { ...layer.config, reverse: e.target.checked };
+                updateLayerLocal(layer.id, { config });
+                api.updateComposeLayer(layer.id, { config }).catch(() => {});
+              }}
+            />
+          </div>
         </>
       )}
 

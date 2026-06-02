@@ -223,6 +223,7 @@ export const composeLayerKindSchema = z
     'browser',
     'group',
     'text',
+    'feed',
   ])
   .openapi('ComposeLayerKind');
 export const composeAnchorHSchema = z
