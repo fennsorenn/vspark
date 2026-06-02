@@ -156,6 +156,8 @@ The shared `handleOverliveEvent(...)` helper in `signal/nodes/overlive/_helpers.
 
 `overlive_*` event currency-kind / reward-id / command / tier / `isGift` filters are read from `config.<field>` on `execute()` and short-circuit before `setState`/emit. See `chat_command.ts` for the canonical pattern.
 
+`OverliveManager` also owns a bounded per-project **chat ring-buffer** pushed on every `chat.message` event; the `overlive_chat_feed` node is a thin accumulating view over it (the durable counterpart of the latest-message-only `overlive_chat_message`). Feed → `set_data` → `feed` compose layer is the chat-overlay pipeline — see [data-channels.md](data-channels.md).
+
 The `Account` port type is registered in `packages/shared/src/signal.ts` (`SignalTypeMap.Account: string`, colour `#9146ff` in `SIGNAL_TYPE_COLORS`). It is set today via the inline account dropdown in `SignalNodeCard` (the dropdown is data-bound to the editor store's `overliveAccounts`). The port type accepts a connected source, but there is no literal `account_value` node yet — connections from another node's `Account` output are the only non-inline source.
 
 ## Frontend — `components/editor/OverliveAccountsModal.tsx`

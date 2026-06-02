@@ -110,18 +110,16 @@ export function useWsSync() {
             );
           } else if (msg.kind === 'api_animation') {
             const p = msg.payload as unknown as ApiAnimationMessage;
-            useEditorStore
-              .getState()
-              .setApiAnimation(
-                p.nodeId,
-                p.queue.length > 0 && p.startedAt != null
-                  ? {
-                      queue: p.queue,
-                      loopMode: p.loopMode,
-                      startedAt: p.startedAt,
-                    }
-                  : null
-              );
+            useEditorStore.getState().setApiAnimation(
+              p.nodeId,
+              p.queue.length > 0 && p.startedAt != null
+                ? {
+                    queue: p.queue,
+                    loopMode: p.loopMode,
+                    startedAt: p.startedAt,
+                  }
+                : null
+            );
           } else if (msg.kind === 'node_updated') {
             const { id, ...updates } = msg.payload as { id: string } & Record<
               string,
@@ -372,9 +370,28 @@ export function useWsSync() {
                 value: number | string | boolean;
               }>;
             };
+            useEditorStore.getState().replaceRuntimeOverrides(p.entries ?? []);
+          } else if (msg.kind === 'data_channel_set') {
+            const p = msg.payload as {
+              sceneId: string;
+              channel: string;
+              payload: unknown;
+            };
             useEditorStore
               .getState()
-              .replaceRuntimeOverrides(p.entries ?? []);
+              .setDataChannel(p.sceneId, p.channel, p.payload);
+          } else if (msg.kind === 'data_channel_clear') {
+            const p = msg.payload as { sceneId: string; channel: string };
+            useEditorStore.getState().clearDataChannel(p.sceneId, p.channel);
+          } else if (msg.kind === 'data_channel_snapshot') {
+            const p = msg.payload as {
+              entries: Array<{
+                sceneId: string;
+                channel: string;
+                payload: unknown;
+              }>;
+            };
+            useEditorStore.getState().replaceDataChannels(p.entries ?? []);
           } else if (msg.kind === 'server_update') {
             if (
               (msg.payload as { reloadOnReconnect?: boolean }).reloadOnReconnect

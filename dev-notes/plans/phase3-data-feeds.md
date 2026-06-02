@@ -1,5 +1,14 @@
 # Phase 3 — Generic Data Channels + Template Feed Layer (chat overlay as first use)
 
+> **Status: Implemented.** See [../modules/data-channels.md](../modules/data-channels.md) for the
+> as-built module doc. All locked decisions (5–8) were followed. Two deviations worth noting:
+> (a) `messages` is typed `Any` carrying a `ChatFeedMessage[]` (the signal type map has no `List<T>`
+> tag); (b) scene-scoping uses an explicit `scene` on `set_data` with a global `'*'` fallback rather
+> than auto-resolving the owner scene — the feed layer reads its own scene then `'*'`. Buffer is
+> project-wide; `clearAllForScene` exists but is not auto-called on graph teardown (no Node unbind
+> hook). All three build gates pass (vite build + backend bundle + tsc) and a `tsx` runtime spike
+> confirmed `chat_feed → set_data → bus` end-to-end.
+
 ## Context
 
 vspark can react to chat events in the signal graph (`overlive_chat_message` emits an event +

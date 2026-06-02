@@ -81,6 +81,13 @@ export interface ComposeLayerOverride {
 export type RuntimeOverrideValue = number | string | boolean;
 export type RuntimeOverrideMap = Record<string, RuntimeOverrideValue>;
 
+/** Data-channel store key. The producer scopes a channel to a scene (or the
+ *  global `*` bucket); consumers read their scene first, then `*`. Keep in sync
+ *  with the `feed` layer lookup in ComposeLayerStack. */
+export function dataChannelKey(sceneId: string, channel: string): string {
+  return `${sceneId || '*'}::${channel}`;
+}
+
 export type LeftDockTab = 'scene' | 'compose' | 'graphs';
 export type BottomDockTab =
   | 'models'
@@ -397,6 +404,11 @@ interface EditorState {
   runtimeNodeOverrides: Record<string, RuntimeOverrideMap>;
   /** composeLayerId → paramPath → value, same as above for compose layers. */
   runtimeLayerOverrides: Record<string, RuntimeOverrideMap>;
+  /** Generic data-channel payloads from the data-channel bus, keyed by
+   *  `${sceneId}::${channel}`. Fed a whole payload per `data_channel_set`; read
+   *  by the `feed` compose layer (scene-specific key first, then the global
+   *  `*::${channel}` fallback). See dev-notes/modules/data-channels.md. */
+  dataChannels: Record<string, unknown>;
   /** Per-(target, param) suppression set: while a key is present, the evaluator
    *  must NOT apply that lane's value as an override, and the existing override
    *  slot for it should be cleared. Set when the user edits a numeric input on
@@ -546,6 +558,14 @@ interface EditorState {
   ) => void;
   /** Drop all suppressions — called when a clip is triggered / paused / scrubbed. */
   clearOverrideSuppressions: () => void;
+  /** Apply a single data-channel payload (from `data_channel_set`). */
+  setDataChannel: (sceneId: string, channel: string, payload: unknown) => void;
+  /** Drop a single data channel (from `data_channel_clear`). */
+  clearDataChannel: (sceneId: string, channel: string) => void;
+  /** Bulk-replace all data channels (from `data_channel_snapshot`, on connect). */
+  replaceDataChannels: (
+    entries: Array<{ sceneId: string; channel: string; payload: unknown }>
+  ) => void;
 
   // Presets
   presets: PresetSummary[];
@@ -614,6 +634,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   composeLayerOverrides: {},
   runtimeNodeOverrides: {},
   runtimeLayerOverrides: {},
+  dataChannels: {},
   suppressedOverrides: new Set<string>(),
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
@@ -1010,6 +1031,27 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         bucket[e.targetId] = { ...prev, [e.paramPath]: e.value };
       }
       return { runtimeNodeOverrides: nodes, runtimeLayerOverrides: layers };
+    }),
+  setDataChannel: (sceneId, channel, payload) =>
+    set((s) => ({
+      dataChannels: {
+        ...s.dataChannels,
+        [dataChannelKey(sceneId, channel)]: payload,
+      },
+    })),
+  clearDataChannel: (sceneId, channel) =>
+    set((s) => {
+      const key = dataChannelKey(sceneId, channel);
+      if (!(key in s.dataChannels)) return {};
+      const { [key]: _, ...rest } = s.dataChannels;
+      return { dataChannels: rest };
+    }),
+  replaceDataChannels: (entries) =>
+    set(() => {
+      const next: Record<string, unknown> = {};
+      for (const e of entries)
+        next[dataChannelKey(e.sceneId, e.channel)] = e.payload;
+      return { dataChannels: next };
     }),
 
   presets: [],

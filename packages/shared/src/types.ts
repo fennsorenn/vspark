@@ -112,7 +112,38 @@ export type ComposeLayerKind =
   | 'image'
   | 'video'
   | 'browser'
+  | 'text'
+  | 'feed'
   | 'group';
+
+/**
+ * A single chat line held in the OverliveManager ring-buffer and surfaced by the
+ * `overlive_chat_feed` node as a `List<ChatFeedMessage>`. Mirrors the per-message
+ * fields of `overlive_chat_message`, plus a stable `id` + `timestamp` so a
+ * template-driven feed layer can use them as React keys / for ordering.
+ *
+ * Chat is the first producer of the generic data-channel layer, but everything
+ * downstream of `set_data` is shape-agnostic — this type only matters to the
+ * chat-specific feed node + store buffer.
+ */
+export interface ChatFeedMessage {
+  /** Stable per-message id (the overlive BaseEvent.id). */
+  id: string;
+  /** Epoch milliseconds the message was received. */
+  timestamp: number;
+  username: string;
+  displayName: string;
+  text: string;
+  /** XSS-safe HTML rendering of the message tokens (inline emote <img>s). */
+  html: string;
+  color: string;
+  isMod: boolean;
+  isSub: boolean;
+  isBroadcaster: boolean;
+  isAction: boolean;
+  isHighlighted: boolean;
+  cheerAmount: number;
+}
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
 
@@ -412,7 +443,10 @@ export type WSMessageKind =
   | 'track_clip_started'
   | 'track_clip_paused'
   | 'track_clip_stopped'
-  | 'track_clip_playback_snapshot';
+  | 'track_clip_playback_snapshot'
+  | 'data_channel_set'
+  | 'data_channel_clear'
+  | 'data_channel_snapshot';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 

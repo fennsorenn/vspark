@@ -100,8 +100,7 @@ export function ComposeLayerProperties({
   ) => {
     const current = unitOf(unitKey);
     if (current === unit) return;
-    const basis =
-      field === 'x' || field === 'width' ? frameW : frameH;
+    const basis = field === 'x' || field === 'width' ? frameW : frameH;
     const value = layer[field];
     const converted =
       unit === '%'
@@ -486,6 +485,101 @@ export function ComposeLayerProperties({
             placeholder="https://…"
             style={textInput}
           />
+        </>
+      )}
+
+      {layer.kind === 'feed' && (
+        <>
+          <div style={sectionHeader}>Data channel</div>
+          <input
+            type="text"
+            value={(layer.config.channel as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, channel: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, channel: e.target.value },
+                })
+                .catch(() => {})
+            }
+            placeholder="chat"
+            style={textInput}
+          />
+          <div style={sectionHeader}>Item template</div>
+          <textarea
+            value={(layer.config.itemTemplate as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, itemTemplate: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, itemTemplate: e.target.value },
+                })
+                .catch(() => {})
+            }
+            placeholder="<div>{displayName}: {html}</div>"
+            rows={4}
+            style={{
+              ...textInput,
+              fontFamily: 'monospace',
+              resize: 'vertical',
+            }}
+          />
+          <div
+            style={{
+              fontSize: 10,
+              color: '#555',
+              lineHeight: 1.4,
+              marginTop: 4,
+            }}
+          >
+            {'{field}'} interpolates payload fields (HTML is sanitized). Array
+            payloads render one item each; records render once.
+          </div>
+          <div style={{ ...row, marginTop: 10 }}>
+            <NumInput
+              value={(layer.config.maxItems as number | undefined) ?? 0}
+              prefix="Max items"
+              step={1}
+              precision={0}
+              onCommit={(v) =>
+                commit({
+                  config: {
+                    ...layer.config,
+                    maxItems: Math.max(0, Math.round(v)),
+                  },
+                })
+              }
+              style={{ flex: 1 }}
+            />
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                fontSize: 12,
+                color: '#bbb',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={Boolean(layer.config.reverse)}
+                onChange={(e) =>
+                  commit({
+                    config: { ...layer.config, reverse: e.target.checked },
+                  })
+                }
+              />
+              Reverse
+            </label>
+          </div>
         </>
       )}
 

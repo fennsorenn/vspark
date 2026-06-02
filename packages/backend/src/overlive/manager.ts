@@ -25,8 +25,10 @@ import { OverliveKit, type AdapterStateSnapshot } from '@overlive/core';
 import { TwitchAdapter } from '@overlive/twitch';
 import { SEAdapter } from '@overlive/se';
 import { revokeAccessToken } from '@overlive/twitch-oauth';
-import type { AdapterEmittedEvent } from '@overlive/core';
+import type { AdapterEmittedEvent, ChatMessageEvent } from '@overlive/core';
+import { tokensToHtml } from '@overlive/emotes';
 import { mkEvent } from '@vspark/shared/signal';
+import type { ChatFeedMessage } from '@vspark/shared';
 import { getDb } from '../db/index.js';
 import { projectGraphManager } from '../project_graphs/manager.js';
 import type { WSSync } from '../ws/index.js';
@@ -73,6 +75,11 @@ export class OverliveManager {
   /** Set of project ids we've already warned "no default account" for; avoids
    *  spamming the log when a project has overlive nodes but no accounts. */
   private readonly warnedNoDefault = new Set<string>();
+  /** projectId -> bounded ring-buffer of recent chat messages (newest last).
+   *  The durable home for chat history (decision 1): the overlive_chat_feed node
+   *  is a thin view over this, refreshed via an `update` event on each message.
+   *  Project-wide (decision: bounded per-project); evicted past CHAT_BUFFER_MAX. */
+  private readonly chatBuffers = new Map<string, ChatFeedMessage[]>();
 
   constructor(private readonly ws?: WSSync) {}
 
@@ -137,6 +144,7 @@ export class OverliveManager {
         await entry.kit.disconnect();
         this.projects.delete(projectId);
       }
+      this.chatBuffers.delete(projectId);
       return;
     }
     const entry = await this.ensureProject(projectId);
@@ -222,6 +230,7 @@ export class OverliveManager {
       }
       this.projects.delete(id);
     }
+    this.chatBuffers.clear();
   }
 
   // ─── Internals ────────────────────────────────────────────────────────────
@@ -310,7 +319,16 @@ export class OverliveManager {
     // are evaluated inside the node's execute() — here we just deliver into
     // the `event` input port.
     const expectedKind = OVERLIVE_KIND_BY_EVENT[event.type];
-    if (!expectedKind) return;
+    // Chat messages also feed the per-project ring-buffer + chat_feed nodes.
+    // Push once here (before delivery) and snapshot for the feed nodes below.
+    const chatSnapshot =
+      event.type === 'chat.message'
+        ? this.pushChatToBuffer(
+            projectId,
+            event as ChatMessageEvent & { sourceInstanceId: string }
+          )
+        : null;
+    if (!expectedKind && !chatSnapshot) return;
     let delivered = 0;
     let candidates = 0;
     for (const {
@@ -319,6 +337,21 @@ export class OverliveManager {
       projectId: gpId,
     } of projectGraphManager.iterateNodes()) {
       if (gpId !== projectId) continue;
+      // overlive_chat_feed: deliver the whole buffer snapshot (only on
+      // chat.message), gated by the same account/channel filters.
+      if (chatSnapshot && node.kind === 'overlive_chat_feed') {
+        const cfg = (node.defaultConfig ?? {}) as Record<string, unknown>;
+        if (!this.nodeAccepts(projectId, cfg, event)) continue;
+        // Hand each node its own copy so node state (persisted) never aliases
+        // the live buffer we keep mutating.
+        projectGraphManager.fire(
+          graphId,
+          node.id,
+          'update',
+          mkEvent([...chatSnapshot])
+        );
+        continue;
+      }
       if (node.kind !== expectedKind) continue;
       candidates++;
       // The node's "account" config (inline literal stored in defaultConfig
@@ -327,28 +360,7 @@ export class OverliveManager {
       // inline literal directly since events arrive externally and the node
       // doesn't get a chance to pull its inputs first.
       const cfg = (node.defaultConfig ?? {}) as Record<string, unknown>;
-      const rawAccount =
-        typeof cfg['account'] === 'string' ? cfg['account'] : '';
-      // Empty config or an unresolved __preset:* placeholder both fall back
-      // to the project's default account (set in the accounts modal,
-      // defaults to the first-created account). If the project has no
-      // default, drop with a one-time warn rather than fan out to every
-      // account (the pre-default-flag behaviour).
-      const isUnresolved =
-        rawAccount === '' || rawAccount.startsWith('__preset:');
-      const wantAccount = isUnresolved
-        ? this.getDefaultAccountId(projectId)
-        : rawAccount;
-      if (!wantAccount) {
-        this.warnNoDefaultOnce(projectId);
-        continue;
-      }
-      if (wantAccount !== event.sourceInstanceId) continue;
-      const wantChannel =
-        typeof cfg['channel'] === 'string'
-          ? cfg['channel'].trim().toLowerCase()
-          : '';
-      if (wantChannel && wantChannel !== event.channel) continue;
+      if (!this.nodeAccepts(projectId, cfg, event)) continue;
       // Fire as an event on the node's `event` input port. The node helpers
       // unwrap `inputs.event.payload`, so wrap the overlive event in the
       // engine's Event envelope rather than passing it raw.
@@ -360,6 +372,83 @@ export class OverliveManager {
         `[Overlive] ${event.type} matched ${candidates} ${expectedKind} node(s) but none accepted (account/channel filters). source=${event.sourceInstanceId} channel=${event.channel}`
       );
     }
+  }
+
+  /**
+   * Whether an overlive node accepts an event, by account + channel filter.
+   * Shared by the per-event nodes and the chat_feed node. An empty/unresolved
+   * account config falls back to the project's default account (set in the
+   * accounts modal, defaults to the first-created account); if the project has
+   * no default we drop with a one-time warn rather than fan out to every
+   * account.
+   */
+  private nodeAccepts(
+    projectId: string,
+    cfg: Record<string, unknown>,
+    event: AdapterEmittedEvent & { sourceInstanceId: string }
+  ): boolean {
+    const rawAccount = typeof cfg['account'] === 'string' ? cfg['account'] : '';
+    const isUnresolved =
+      rawAccount === '' || rawAccount.startsWith('__preset:');
+    const wantAccount = isUnresolved
+      ? this.getDefaultAccountId(projectId)
+      : rawAccount;
+    if (!wantAccount) {
+      this.warnNoDefaultOnce(projectId);
+      return false;
+    }
+    if (wantAccount !== event.sourceInstanceId) return false;
+    const wantChannel =
+      typeof cfg['channel'] === 'string'
+        ? cfg['channel'].trim().toLowerCase()
+        : '';
+    if (wantChannel && wantChannel !== event.channel) return false;
+    return true;
+  }
+
+  /**
+   * Append a chat message to the project ring-buffer (evicting oldest past
+   * CHAT_BUFFER_MAX) and return the live buffer. The html rendering mirrors
+   * overlive_chat_message (XSS-safe tokens → emote <img>s).
+   */
+  private pushChatToBuffer(
+    projectId: string,
+    event: ChatMessageEvent & { sourceInstanceId: string }
+  ): ChatFeedMessage[] {
+    const d = event.data;
+    const msg: ChatFeedMessage = {
+      id: event.id,
+      timestamp:
+        event.timestamp instanceof Date
+          ? event.timestamp.getTime()
+          : Date.now(),
+      username: d.username,
+      displayName: d.displayName,
+      text: d.text,
+      html: tokensToHtml(d.tokens ?? [], d.text),
+      color: d.color ?? '',
+      isMod: d.isMod,
+      isSub: d.isSub,
+      isBroadcaster: d.isBroadcaster,
+      isAction: d.isAction,
+      isHighlighted: d.isHighlighted,
+      cheerAmount: d.cheerAmount ?? 0,
+    };
+    let buf = this.chatBuffers.get(projectId);
+    if (!buf) {
+      buf = [];
+      this.chatBuffers.set(projectId, buf);
+    }
+    buf.push(msg);
+    if (buf.length > CHAT_BUFFER_MAX) {
+      buf.splice(0, buf.length - CHAT_BUFFER_MAX);
+    }
+    return buf;
+  }
+
+  /** Current chat ring-buffer for a project (newest last). A defensive copy. */
+  getChatBuffer(projectId: string): ChatFeedMessage[] {
+    return [...(this.chatBuffers.get(projectId) ?? [])];
   }
 
   private persistStatus(
@@ -432,6 +521,9 @@ export class OverliveManager {
       .get(id) as unknown as AppCredentialRow | undefined;
   }
 }
+
+/** Max chat lines retained per project in the ring-buffer. */
+const CHAT_BUFFER_MAX = 200;
 
 // Event-type → node-kind table. Keep in sync with Phase H node implementations.
 const OVERLIVE_KIND_BY_EVENT: Record<string, string> = {

@@ -131,6 +131,8 @@ Organized by role:
 | `set_scene_node_param` | Writes a scalar/coerced paramPath into the runtime override bus for a scene node. Optional `spawnRef` event input retargets the fire to a tmp id. See [runtime-overrides.md](runtime-overrides.md). |
 | `set_compose_layer_param` | Same shape, compose-layer target. |
 | `set_text` | Convenience over the set-param nodes for the `text.content` paramPath; `spawnRef.kind` overrides `targetKind` when triggered via that port. |
+| `set_data` | Generic sibling of `set_text`: publishes an arbitrary `Any` payload to a named data channel via the data-channel bus, rendered by the frontend `feed` layer. Optional `scene` scopes the channel. See [data-channels.md](data-channels.md). |
+| `overlive_chat_feed` | Accumulating `List<ChatFeedMessage>` view over the OverliveManager chat ring-buffer + an `update` event — the durable counterpart of `overlive_chat_message`. Feed into `set_data` for a scrolling chat overlay. See [data-channels.md](data-channels.md). |
 
 ### Pose interceptor chain
 The interceptor chain lets components (e.g., breathing) modify poses in-flight before broadcast.

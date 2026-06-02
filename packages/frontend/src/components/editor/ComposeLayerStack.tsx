@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { useEditorStore } from '../../store/editorStore';
+import { useEditorStore, dataChannelKey } from '../../store/editorStore';
 import type {
   ComposeLayerRecord,
   AssetFile,
@@ -243,6 +243,9 @@ function LayerContent({
   if (layer.kind === 'text') {
     return <TextLayer layer={layer} />;
   }
+  if (layer.kind === 'feed') {
+    return <FeedLayer layer={layer} />;
+  }
   const url = (layer.config.url as string | undefined) ?? '';
   if (!url) return <Placeholder text="no URL" />;
   // Iframes always swallow events when active. We keep them pointer-events:none
@@ -309,6 +312,96 @@ function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
     return <div style={style} dangerouslySetInnerHTML={{ __html: safe }} />;
   }
   return <div style={style}>{content}</div>;
+}
+
+/** Resolve a `{dotted.path}` against an item (object). Missing → ''. */
+function resolvePath(item: unknown, path: string): unknown {
+  if (item == null) return undefined;
+  let cur: unknown = item;
+  for (const key of path.split('.')) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
+}
+
+/** Interpolate `{field}` / `{nested.path}` placeholders in a template with the
+ *  item's values. The result is sanitized by the caller, so values (which may
+ *  be user-controlled chat text) are XSS-safe even though `html`-style fields
+ *  carry intentional markup (emote <img>s). */
+function interpolate(template: string, item: unknown): string {
+  return template.replace(/\{([\w.]+)\}/g, (_m, path: string) => {
+    const v = resolvePath(item, path);
+    return v == null ? '' : String(v);
+  });
+}
+
+/**
+ * Generic, data-shape-independent template layer. Subscribes to a named data
+ * channel (scene-scoped, with a global `*` fallback) and renders whatever
+ * payload it carries through a user `itemTemplate`:
+ *   - array payload → one render per item (e.g. a scrolling chat list);
+ *   - record payload → a single render.
+ * Per-item animation/scroll is the template's job (CSS + stable keys); this
+ * stays a thin renderer. See dev-notes/modules/data-channels.md.
+ */
+function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
+  const cfg = layer.config as {
+    channel?: string;
+    itemTemplate?: string;
+    maxItems?: number;
+    reverse?: boolean;
+  };
+  const channel = (cfg.channel ?? '').trim();
+  const sceneId = layer.rootComposeSceneId ?? '*';
+  const payload = useEditorStore((s) => {
+    if (!channel) return undefined;
+    const scoped = s.dataChannels[dataChannelKey(sceneId, channel)];
+    return scoped !== undefined
+      ? scoped
+      : s.dataChannels[dataChannelKey('*', channel)];
+  });
+
+  if (!channel) return <Placeholder text="no channel" />;
+
+  const template = cfg.itemTemplate ?? '{text}';
+  const containerStyle: CSSProperties = {
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    pointerEvents: 'none',
+  };
+
+  let items: unknown[];
+  if (Array.isArray(payload)) {
+    items = payload;
+  } else if (payload != null) {
+    items = [payload];
+  } else {
+    items = [];
+  }
+  if (typeof cfg.maxItems === 'number' && cfg.maxItems >= 0) {
+    items = items.slice(-cfg.maxItems);
+  }
+  if (cfg.reverse) items = [...items].reverse();
+
+  return (
+    <div style={containerStyle}>
+      {items.map((item, i) => {
+        const key =
+          item != null &&
+          typeof item === 'object' &&
+          typeof (item as { id?: unknown }).id === 'string'
+            ? (item as { id: string }).id
+            : i;
+        const safe = DOMPurify.sanitize(
+          interpolate(template, item),
+          TEXT_SANITIZE_OPTS
+        );
+        return <div key={key} dangerouslySetInnerHTML={{ __html: safe }} />;
+      })}
+    </div>
+  );
 }
 
 function Placeholder({ text }: { text: string }) {
