@@ -151,3 +151,21 @@ export interface ResolvedPort {
   name: string;
   type: ResolvedType;
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// typeTagToResolved — lift a declared (typeTag, transport) into a ResolvedType
+//
+// The `'Any'` tag becomes `{ kind: 'unknown' }` (backwards-compatible surface for
+// the old wildcard). Transport wraps the leaf: event → Event<leaf>, list → List<leaf>.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export function typeTagToResolved(
+  typeTag: SignalTypeName,
+  transport: Transport
+): ResolvedType {
+  const leaf: ResolvedType =
+    typeTag === 'Any' ? RT.unknown() : RT.primitive(typeTag);
+  if (transport === 'event') return RT.event(leaf);
+  if (transport === 'list') return RT.list(leaf);
+  return leaf;
+}
