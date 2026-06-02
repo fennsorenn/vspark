@@ -88,18 +88,18 @@ export const inferQueueEvents: InferPortsFn = (ctx: InferCtx): InferResult => {
 
 export const inferUnpackEvent: InferPortsFn = (ctx: InferCtx): InferResult => {
   const inT = ctx.resolvedInputs['event'];
+  // `trigger` is the only EVENT (push) output; field outputs are VALUE (pull) outputs
+  // read from the stored payload — this preserves the push→pull bridge that the
+  // VMC/lipsync/mediapipe pipelines depend on.
   const outputPorts: ResolvedPort[] = [
     { name: 'trigger', type: RT.event(RT.primitive('Trigger')) },
   ];
   if (inT && inT.kind === 'event' && inT.payload.kind === 'record') {
     for (const [name, fieldType] of Object.entries(inT.payload.fields)) {
-      // Each field is re-emitted as its own event output, so wrap in Event<…>.
-      // If the field is itself an event payload, don't double-wrap.
-      const out = fieldType.kind === 'event' ? fieldType : RT.event(fieldType);
-      outputPorts.push({ name, type: out });
+      outputPorts.push({ name, type: fieldType });
     }
   } else {
-    outputPorts.push({ name: 'value', type: RT.event(RT.unknown()) });
+    outputPorts.push({ name: 'value', type: RT.unknown() });
   }
   return {
     inputPorts: [{ name: 'event', type: RT.event(RT.unknown()) }],

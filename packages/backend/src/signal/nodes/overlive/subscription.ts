@@ -1,11 +1,29 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, type Event } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, valueIn, valueOut, eventOut } from '@vspark/shared/node_decorators';
 import type { SubscriptionEvent } from '@overlive/core';
-import { handleOverliveEvent } from './_helpers.js';
+
+interface SubscriptionOut {
+  username: string;
+  displayName: string;
+  tier: string;
+  months: number;
+  isFirst: boolean;
+  isResub: boolean;
+  isGift: boolean;
+  message: string;
+}
+
+const EMPTY: SubscriptionOut = {
+  username: '',
+  displayName: '',
+  tier: '',
+  months: 0,
+  isFirst: false,
+  isResub: false,
+  isGift: false,
+  message: '',
+};
 
 /** Subscription event (new sub, resub message, or gifted sub recipient). */
 @SignalNode({
@@ -15,75 +33,53 @@ import { handleOverliveEvent } from './_helpers.js';
   tags: ['overlive', 'input'],
   color: '#9146ff',
 })
-export class OverliveSubscription {
+export class OverliveSubscription extends Node {
   static readonly kind = 'overlive_subscription';
-  static readonly inputPorts = [
-    valuePort('account', 'Account'),
-    valuePort('channel', 'String'),
-    valuePort('tier', 'String'), // '' | 'tier1' | 'tier2' | 'tier3' | 'prime'
-    valuePort('isGift', 'String'), // '' | 'true' | 'false'
-    eventPort('event', 'Any'),
-  ] as const;
-  static readonly outputPorts = [
-    eventPort('event', 'Trigger'),
-    valuePort('username', 'String'),
-    valuePort('displayName', 'String'),
-    valuePort('tier', 'String'),
-    valuePort('months', 'Float'),
-    valuePort('isFirst', 'Bool'),
-    valuePort('isResub', 'Bool'),
-    valuePort('isGift', 'Bool'),
-    valuePort('message', 'String'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof OverliveSubscription>,
-    config: { tier?: string; isGift?: string } | null | undefined,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof OverliveSubscription> {
-    const wantTier = (config?.tier ?? '').trim();
-    const wantIsGift = (config?.isGift ?? '').trim();
-    return handleOverliveEvent<
-      SubscriptionEvent,
-      {
-        username: string;
-        displayName: string;
-        tier: string;
-        months: number;
-        isFirst: boolean;
-        isResub: boolean;
-        isGift: boolean;
-        message: string;
-      }
-    >(
-      inputs,
-      ctx,
-      (e) => ({
-        username: e.data.username,
-        displayName: e.data.displayName,
-        tier: e.data.tier,
-        months: e.data.months,
-        isFirst: e.data.isFirst,
-        isResub: e.data.isResub,
-        isGift: e.data.isGift,
-        message: e.data.message ?? '',
-      }),
-      {
-        username: '',
-        displayName: '',
-        tier: '',
-        months: 0,
-        isFirst: false,
-        isResub: false,
-        isGift: false,
-        message: '',
-      },
-      (e) => {
-        if (wantTier && e.data.tier !== wantTier) return false;
-        if (wantIsGift === 'true' && !e.data.isGift) return false;
-        if (wantIsGift === 'false' && e.data.isGift) return false;
-        return true;
-      }
-    ) as OutputsOf<typeof OverliveSubscription>;
+  @valueIn('account', 'Account') account!: () => unknown;
+  @valueIn('channel', 'String') channel!: () => string | undefined;
+  @valueIn('tier', 'String') tier!: () => string | undefined; // '' | 'tier1' | 'tier2' | 'tier3' | 'prime'
+  @valueIn('isGift', 'String') isGift!: () => string | undefined; // '' | 'true' | 'false'
+
+  @eventOut('event', 'Trigger') event!: Emitter<void>;
+
+  @valueOut('username', 'String') usernameOut = (): string => this._out().username;
+  @valueOut('displayName', 'String') displayNameOut = (): string => this._out().displayName;
+  @valueOut('tier', 'String') tierOut = (): string => this._out().tier;
+  @valueOut('months', 'Float') monthsOut = (): number => this._out().months;
+  @valueOut('isFirst', 'Bool') isFirstOut = (): boolean => this._out().isFirst;
+  @valueOut('isResub', 'Bool') isResubOut = (): boolean => this._out().isResub;
+  @valueOut('isGift', 'Bool') isGiftOut = (): boolean => this._out().isGift;
+  @valueOut('message', 'String') messageOut = (): string => this._out().message;
+
+  @eventIn('event', 'Any')
+  onEvent(ev: Event<unknown>): void {
+    const cfg = (this.config ?? {}) as { tier?: string; isGift?: string };
+    const wantTier = (cfg.tier ?? '').trim();
+    const wantIsGift = (cfg.isGift ?? '').trim();
+    const payload = ev?.payload as SubscriptionEvent | undefined;
+    if (payload === undefined) {
+      this.event.emit(undefined);
+      return;
+    }
+    if (wantTier && payload.data.tier !== wantTier) return;
+    if (wantIsGift === 'true' && !payload.data.isGift) return;
+    if (wantIsGift === 'false' && payload.data.isGift) return;
+
+    this.setState({
+      username: payload.data.username,
+      displayName: payload.data.displayName,
+      tier: payload.data.tier,
+      months: payload.data.months,
+      isFirst: payload.data.isFirst,
+      isResub: payload.data.isResub,
+      isGift: payload.data.isGift,
+      message: payload.data.message ?? '',
+    } satisfies SubscriptionOut);
+    this.event.emit(undefined);
+  }
+
+  private _out(): SubscriptionOut {
+    return this.getState<SubscriptionOut>() ?? EMPTY;
   }
 }

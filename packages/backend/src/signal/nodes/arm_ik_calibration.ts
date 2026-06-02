@@ -1,16 +1,7 @@
-import {
-  SignalNode,
-  eventPort,
-  valuePort,
-  NormalizedPose,
-  Quaternion,
-} from '@vspark/shared/signal';
-import type {
-  VRMBoneName,
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, NormalizedPose, Quaternion } from '@vspark/shared/signal';
+import type { VRMBoneName } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut, eventIn } from '@vspark/shared/node_decorators';
 import type { VrmSkeletonData } from '../../vrm/skeleton.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -319,57 +310,20 @@ export interface ArmIkConfig {
   tags: ['calibration'],
   color: '#5a3a9f',
 })
-export class ArmIkCalibration {
+export class ArmIkCalibration extends Node {
   static readonly kind = 'arm_ik_calibration';
-  static readonly inputPorts = [
-    valuePort('pose', 'NormalizedPose'),
-    eventPort('capture_left', 'Trigger'),
-    eventPort('capture_right', 'Trigger'),
-    eventPort('reset', 'Trigger'),
-  ] as const;
-  static readonly outputPorts = [valuePort('pose', 'NormalizedPose')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof ArmIkCalibration>,
-    config: ArmIkConfig,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof ArmIkCalibration> {
-    const { triggeredPort } = ctx;
-    const skeleton = config.skeleton;
-    const pose = inputs.pose as NormalizedPose | undefined;
+  @valueIn('pose', 'NormalizedPose') poseIn!: () => NormalizedPose | undefined;
 
-    // ── Capture ───────────────────────────────────────────────────────────────
-    if (triggeredPort === 'capture_left' || triggeredPort === 'capture_right') {
-      const side: 'left' | 'right' =
-        triggeredPort === 'capture_left' ? 'left' : 'right';
-      if (!pose || !skeleton) return {} as OutputsOf<typeof ArmIkCalibration>;
-
-      const fk = computeFk(skeleton, poseToRotMap(pose));
-      const calib = fitCalib(fk, side);
-      if (!calib) {
-        console.warn('[ArmIkCalibration] Missing bones for capture');
-        return {} as OutputsOf<typeof ArmIkCalibration>;
-      }
-
-      const prev = ctx.getState<ArmIkState>() ?? {};
-      ctx.setState({ ...prev, [side]: calib });
-      console.log(
-        `[ArmIkCalibration] Captured ${side}: scale=${calib.scale.toFixed(3)} offset=[${calib.offset.map((v) => v.toFixed(3)).join(', ')}]`
-      );
-      return {} as OutputsOf<typeof ArmIkCalibration>;
-    }
-
-    // ── Reset ─────────────────────────────────────────────────────────────────
-    if (triggeredPort === 'reset') {
-      ctx.setState({});
-      return {} as OutputsOf<typeof ArmIkCalibration>;
-    }
-
-    // ── Normal pose (triggered or pulled) ────────────────────────────────────
-    if (!pose) return {} as OutputsOf<typeof ArmIkCalibration>;
-    const state = ctx.getState<ArmIkState>() ?? {};
+  /** Corrected pose — PULL output computed from the current input + stored calibration. */
+  @valueOut('pose', 'NormalizedPose')
+  pose = (): NormalizedPose | undefined => {
+    const skeleton = (this.config as ArmIkConfig).skeleton;
+    const pose = this.poseIn();
+    if (!pose) return undefined;
+    const state = this.getState<ArmIkState>() ?? {};
     const hasCalib = ARMS.some((s) => state[s]);
-    if (!hasCalib || !skeleton) return { pose };
+    if (!hasCalib || !skeleton) return pose;
 
     const fk = computeFk(skeleton, poseToRotMap(pose));
     const overrides: Record<string, Q4> = {};
@@ -381,12 +335,44 @@ export class ArmIkCalibration {
       overrides[result.upper] = result.upperRot;
       overrides[result.lower] = result.lowerRot;
     }
-    const corrected = pose.map((q, bone: VRMBoneName) => {
+    return pose.map((q, bone: VRMBoneName) => {
       const ov = overrides[bone as string];
       return ov
         ? Quaternion.fromArray(ov as [number, number, number, number])
         : q;
     });
-    return { pose: corrected };
+  };
+
+  @eventIn('capture_left', 'Trigger')
+  onCaptureLeft(): void {
+    this._capture('left');
+  }
+
+  @eventIn('capture_right', 'Trigger')
+  onCaptureRight(): void {
+    this._capture('right');
+  }
+
+  @eventIn('reset', 'Trigger')
+  onReset(): void {
+    this.setState({});
+  }
+
+  private _capture(side: 'left' | 'right'): void {
+    const skeleton = (this.config as ArmIkConfig).skeleton;
+    const pose = this.poseIn();
+    if (!pose || !skeleton) return;
+
+    const fk = computeFk(skeleton, poseToRotMap(pose));
+    const calib = fitCalib(fk, side);
+    if (!calib) {
+      console.warn('[ArmIkCalibration] Missing bones for capture');
+      return;
+    }
+    const prev = this.getState<ArmIkState>() ?? {};
+    this.setState({ ...prev, [side]: calib });
+    console.log(
+      `[ArmIkCalibration] Captured ${side}: scale=${calib.scale.toFixed(3)} offset=[${calib.offset.map((v) => v.toFixed(3)).join(', ')}]`
+    );
   }
 }

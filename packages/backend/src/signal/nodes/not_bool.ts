@@ -1,9 +1,6 @@
-import { SignalNode, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  NodeExecutionContext,
-  OutputsOf,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 @SignalNode({
   label: 'NOT',
@@ -12,17 +9,11 @@ import type {
   tags: ['logic'],
   color: '#3a3a3a',
 })
-export class NotBool {
+export class NotBool extends Node {
   static readonly kind = 'not_bool';
-  static readonly inputPorts = [valuePort('value', 'Bool')] as const;
-  static readonly outputPorts = [valuePort('result', 'Bool')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof NotBool>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof NotBool> {
-    const v = inputs.value as boolean | null | undefined;
-    return { result: !(v ?? false) };
-  }
+  @valueIn('value', 'Bool') value!: () => boolean | null | undefined;
+
+  @valueOut('result', 'Bool')
+  result = (): boolean => !(this.value() ?? false);
 }

@@ -1,14 +1,7 @@
-import {
-  SignalNode,
-  eventPort,
-  valuePort,
-  mkEvent,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, valueIn, eventOut } from '@vspark/shared/node_decorators';
+import type { SignalTypeMap } from '@vspark/shared/signal';
 import { spawnManager } from '../../spawn/manager.js';
 
 interface SpawnClipConfig {
@@ -36,25 +29,20 @@ interface SpawnClipConfig {
   tags: ['clips', 'spawn', 'output'],
   color: '#c97a3a',
 })
-export class SpawnClip {
+export class SpawnClip extends Node {
   static readonly kind = 'spawn_clip';
-  static readonly inputPorts = [
-    eventPort('fire', 'Trigger'),
-    valuePort('clipId', 'String'),
-  ] as const;
-  static readonly outputPorts = [eventPort('spawned', 'SpawnRef')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof SpawnClip>,
-    config: SpawnClipConfig,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof SpawnClip> {
-    if (ctx.triggeredPort !== 'fire')
-      return {} as OutputsOf<typeof SpawnClip>;
-    const clipId = (inputs.clipId as string | undefined) || config.clipId;
-    if (!clipId) return {} as OutputsOf<typeof SpawnClip>;
+  @valueIn('clipId', 'String') clipId!: () => string | undefined;
+
+  @eventOut('spawned', 'SpawnRef') spawned!: Emitter<SignalTypeMap['SpawnRef']>;
+
+  @eventIn('fire', 'Trigger')
+  onFire(): void {
+    const cfg = (this.config ?? {}) as SpawnClipConfig;
+    const clipId = this.clipId() || cfg.clipId;
+    if (!clipId) return;
     const ref = spawnManager.spawn(clipId);
-    if (!ref) return {} as OutputsOf<typeof SpawnClip>;
-    return { spawned: mkEvent(ref) } as OutputsOf<typeof SpawnClip>;
+    if (!ref) return;
+    this.spawned.emit(ref);
   }
 }

@@ -1,11 +1,8 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  NormalizedPose,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import type { NormalizedPose } from '@vspark/shared/signal';
 import type { AnimationBlendMode } from '@vspark/shared';
+import { Node } from '@vspark/shared/node';
+import { eventIn, valueIn } from '@vspark/shared/node_decorators';
 import type { WSSync } from '../../ws/index.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 
@@ -28,31 +25,25 @@ export function broadcastPose(nodeId: string, pose: NormalizedPose): void {
   tags: ['output'],
   color: '#7a3a6a',
 })
-export class PoseBroadcast {
+export class PoseBroadcast extends Node {
   static readonly kind = 'pose_broadcast';
-  static readonly inputPorts = [
-    eventPort('trigger', 'Trigger'),
-    valuePort('pose', 'NormalizedPose'),
-    valuePort('nodeId', 'EntityId'),
-    valuePort('componentId', 'String'),
-    valuePort('priority', 'Float'),
-    valuePort('animationBlendMode', 'String'),
-  ] as const;
-  static readonly outputPorts = [] as const;
 
-  static execute(
-    inputs: InputsOf<typeof PoseBroadcast>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof PoseBroadcast> {
-    const nodeId = inputs.nodeId as string | undefined;
-    const componentId = inputs.componentId as string | undefined;
-    const pose = inputs.pose as NormalizedPose | undefined;
-    if (!nodeId || !componentId || !pose) return {};
-    const priority = _asPriority(inputs.priority);
-    const mode = _asMode(inputs.animationBlendMode);
+  @valueIn('pose', 'NormalizedPose') pose!: () => NormalizedPose | undefined;
+  @valueIn('nodeId', 'EntityId') nodeId!: () => string | undefined;
+  @valueIn('componentId', 'String') componentId!: () => string | undefined;
+  @valueIn('priority', 'Float') priority!: () => number | undefined;
+  @valueIn('animationBlendMode', 'String')
+  animationBlendMode!: () => string | undefined;
+
+  @eventIn('trigger', 'Trigger')
+  onTrigger(): void {
+    const nodeId = this.nodeId();
+    const componentId = this.componentId();
+    const pose = this.pose();
+    if (!nodeId || !componentId || !pose) return;
+    const priority = _asPriority(this.priority());
+    const mode = _asMode(this.animationBlendMode());
     broadcastBus.publishBones(nodeId, componentId, pose, priority, mode);
-    return {};
   }
 }
 

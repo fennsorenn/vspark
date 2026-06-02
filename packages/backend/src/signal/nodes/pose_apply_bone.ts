@@ -1,15 +1,7 @@
-import {
-  SignalNode,
-  valuePort,
-  NormalizedPose,
-  Quaternion,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  VRMBoneName,
-} from '@vspark/shared/signal';
+import { SignalNode, NormalizedPose, Quaternion } from '@vspark/shared/signal';
+import type { VRMBoneName } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 @SignalNode({
   label: 'Pose Apply Bone',
@@ -18,34 +10,28 @@ import type {
   tags: ['pose'],
   color: '#5b7a3a',
 })
-export class PoseApplyBone {
+export class PoseApplyBone extends Node {
   static readonly kind = 'pose_apply_bone';
-  static readonly inputPorts = [
-    valuePort('pose', 'NormalizedPose'),
-    valuePort('quaternion', 'Quaternion'),
-    valuePort('bone', 'String'),
-    valuePort('mode', 'String'),
-  ] as const;
-  static readonly outputPorts = [valuePort('pose', 'NormalizedPose')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof PoseApplyBone>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof PoseApplyBone> {
-    const quaternion = inputs.quaternion as Quaternion | undefined;
-    const bone = ((inputs.bone as string | undefined) ?? '') as VRMBoneName;
-    const mode = (inputs.mode as string | undefined) ?? 'multiply';
+  @valueIn('pose', 'NormalizedPose') pose!: () => NormalizedPose | undefined;
+  @valueIn('quaternion', 'Quaternion') quaternion!: () => Quaternion | undefined;
+  @valueIn('bone', 'String') bone!: () => string | undefined;
+  @valueIn('mode', 'String') mode!: () => string | undefined;
+
+  @valueOut('pose', 'NormalizedPose')
+  poseOut = (): NormalizedPose => {
+    const quaternion = this.quaternion();
+    const bone = (this.bone() ?? '') as VRMBoneName;
+    const mode = this.mode() ?? 'multiply';
     // When upstream pose is absent (e.g. this node is a slot producer building a delta-only
     // pose from identity), start from an empty pose rather than bailing out.
-    const pose =
-      (inputs.pose as NormalizedPose | undefined) ?? new NormalizedPose();
+    const pose = this.pose() ?? new NormalizedPose();
 
-    if (!quaternion || !bone) return { pose };
+    if (!quaternion || !bone) return pose;
 
     const existing = pose.get(bone) ?? Quaternion.IDENTITY;
     const applied = mode === 'set' ? quaternion : existing.multiply(quaternion);
 
-    return { pose: pose.with(bone, applied) };
-  }
+    return pose.with(bone, applied);
+  };
 }

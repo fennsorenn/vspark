@@ -1,11 +1,7 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  NormalizedPose,
-  InterceptorFrame,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import type { NormalizedPose, InterceptorFrame } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { eventIn, valueIn } from '@vspark/shared/node_decorators';
 import { poseInterceptorRegistry } from '../pose_interceptor_registry.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 
@@ -16,23 +12,17 @@ import { broadcastBus } from '../../broadcast/bus.js';
   tags: ['interceptor', 'output'],
   color: '#4a6a9f',
 })
-export class PoseInterceptorBroadcast {
+export class PoseInterceptorBroadcast extends Node {
   static readonly kind = 'pose_interceptor_broadcast';
-  static readonly inputPorts = [
-    eventPort('trigger', 'Trigger'),
-    valuePort('frame', 'InterceptorFrame'),
-    valuePort('pose', 'NormalizedPose'),
-  ] as const;
-  static readonly outputPorts = [] as const;
 
-  static execute(
-    inputs: InputsOf<typeof PoseInterceptorBroadcast>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof PoseInterceptorBroadcast> {
-    const frame = inputs.frame as InterceptorFrame | undefined;
-    const pose = inputs.pose as NormalizedPose | undefined;
-    if (!frame || !pose) return {};
+  @valueIn('frame', 'InterceptorFrame') frame!: () => InterceptorFrame | undefined;
+  @valueIn('pose', 'NormalizedPose') pose!: () => NormalizedPose | undefined;
+
+  @eventIn('trigger', 'Trigger')
+  onTrigger(): void {
+    const frame = this.frame();
+    const pose = this.pose();
+    if (!frame || !pose) return;
     poseInterceptorRegistry.advance(
       frame.nodeId,
       frame.priority,
@@ -41,6 +31,5 @@ export class PoseInterceptorBroadcast {
         broadcastBus.emitMergedPose(nodeId, finalPose);
       }
     );
-    return {};
   }
 }

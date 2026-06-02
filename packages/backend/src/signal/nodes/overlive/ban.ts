@@ -1,11 +1,25 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, type Event } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, valueIn, valueOut, eventOut } from '@vspark/shared/node_decorators';
 import type { BanEvent } from '@overlive/core';
-import { handleOverliveEvent } from './_helpers.js';
+
+interface BanOut {
+  username: string;
+  displayName: string;
+  moderatorName: string;
+  reason: string;
+  timeoutSeconds: number;
+  isPermanent: boolean;
+}
+
+const EMPTY: BanOut = {
+  username: '',
+  displayName: '',
+  moderatorName: '',
+  reason: '',
+  timeoutSeconds: 0,
+  isPermanent: false,
+};
 
 @SignalNode({
   label: 'Overlive Ban',
@@ -13,57 +27,40 @@ import { handleOverliveEvent } from './_helpers.js';
   tags: ['overlive', 'input'],
   color: '#9146ff',
 })
-export class OverliveBan {
+export class OverliveBan extends Node {
   static readonly kind = 'overlive_ban';
-  static readonly inputPorts = [
-    valuePort('account', 'Account'),
-    valuePort('channel', 'String'),
-    eventPort('event', 'Any'),
-  ] as const;
-  static readonly outputPorts = [
-    eventPort('event', 'Trigger'),
-    valuePort('username', 'String'),
-    valuePort('displayName', 'String'),
-    valuePort('moderatorName', 'String'),
-    valuePort('reason', 'String'),
-    valuePort('timeoutSeconds', 'Float'),
-    valuePort('isPermanent', 'Bool'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof OverliveBan>,
-    _config: unknown,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof OverliveBan> {
-    return handleOverliveEvent<
-      BanEvent,
-      {
-        username: string;
-        displayName: string;
-        moderatorName: string;
-        reason: string;
-        timeoutSeconds: number;
-        isPermanent: boolean;
-      }
-    >(
-      inputs,
-      ctx,
-      (e) => ({
-        username: e.data.username,
-        displayName: e.data.displayName,
-        moderatorName: e.data.moderator?.username ?? '',
-        reason: e.data.reason ?? '',
-        timeoutSeconds: e.data.timeoutSeconds ?? 0,
-        isPermanent: e.data.isPermanent,
-      }),
-      {
-        username: '',
-        displayName: '',
-        moderatorName: '',
-        reason: '',
-        timeoutSeconds: 0,
-        isPermanent: false,
-      }
-    ) as OutputsOf<typeof OverliveBan>;
+  @valueIn('account', 'Account') account!: () => unknown;
+  @valueIn('channel', 'String') channel!: () => string | undefined;
+
+  @eventOut('event', 'Trigger') event!: Emitter<void>;
+
+  @valueOut('username', 'String') username = (): string => this._out().username;
+  @valueOut('displayName', 'String') displayName = (): string => this._out().displayName;
+  @valueOut('moderatorName', 'String') moderatorName = (): string => this._out().moderatorName;
+  @valueOut('reason', 'String') reason = (): string => this._out().reason;
+  @valueOut('timeoutSeconds', 'Float') timeoutSeconds = (): number => this._out().timeoutSeconds;
+  @valueOut('isPermanent', 'Bool') isPermanent = (): boolean => this._out().isPermanent;
+
+  @eventIn('event', 'Any')
+  onEvent(ev: Event<unknown>): void {
+    const payload = ev?.payload as BanEvent | undefined;
+    if (payload === undefined) {
+      this.event.emit(undefined);
+      return;
+    }
+    this.setState({
+      username: payload.data.username,
+      displayName: payload.data.displayName,
+      moderatorName: payload.data.moderator?.username ?? '',
+      reason: payload.data.reason ?? '',
+      timeoutSeconds: payload.data.timeoutSeconds ?? 0,
+      isPermanent: payload.data.isPermanent,
+    } satisfies BanOut);
+    this.event.emit(undefined);
+  }
+
+  private _out(): BanOut {
+    return this.getState<BanOut>() ?? EMPTY;
   }
 }

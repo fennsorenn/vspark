@@ -1,14 +1,6 @@
-import {
-  SignalNode,
-  listPort,
-  valuePort,
-  NormalizedPose,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, NormalizedPose } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { listIn, valueOut } from '@vspark/shared/node_decorators';
 
 @SignalNode({
   label: 'Pose Merge',
@@ -17,18 +9,15 @@ import type {
   tags: ['pose'],
   color: '#5b7a3a',
 })
-export class PoseMerge {
+export class PoseMerge extends Node {
   static readonly kind = 'pose_merge';
-  static readonly inputPorts = [listPort('poses', 'NormalizedPose')] as const;
-  static readonly outputPorts = [valuePort('pose', 'NormalizedPose')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof PoseMerge>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof PoseMerge> {
-    const poses = inputs.poses as NormalizedPose[];
-    if (!poses?.length) return { pose: new NormalizedPose() };
+  @listIn('poses', 'NormalizedPose') poses!: () => NormalizedPose[];
+
+  @valueOut('pose', 'NormalizedPose')
+  pose = (): NormalizedPose => {
+    const poses = this.poses();
+    if (!poses?.length) return new NormalizedPose();
 
     const merged = new Map(poses[0].entries());
     for (let i = 1; i < poses.length; i++) {
@@ -42,6 +31,6 @@ export class PoseMerge {
         }
       }
     }
-    return { pose: new NormalizedPose(merged) };
-  }
+    return new NormalizedPose(merged);
+  };
 }

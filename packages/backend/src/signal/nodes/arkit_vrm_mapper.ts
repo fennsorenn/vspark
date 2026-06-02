@@ -1,9 +1,6 @@
-import { SignalNode, valuePort, Blendshapes } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import { SignalNode, Blendshapes } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 import { ARKIT_SHAPES, ARKIT_TO_VRM, ARKIT_TO_FCL } from '@vspark/shared/arkit';
 
 export { ARKIT_SHAPES, ARKIT_TO_VRM, ARKIT_TO_FCL };
@@ -26,34 +23,28 @@ export interface ArkitVrmMapperConfig {
   tags: ['mapping', 'face'],
   color: '#5a3a2a',
 })
-export class ArkitVrmMapper {
+export class ArkitVrmMapper extends Node {
   static readonly kind = 'arkit_vrm_mapper';
-  static readonly inputPorts = [
-    valuePort('arkit', 'ArkitBlendshapes'),
-    valuePort('enabled', 'Bool'),
-    valuePort('mapping', 'MappingTable'),
-  ] as const;
-  static readonly outputPorts = [
-    valuePort('blendshapes', 'Blendshapes'),
-  ] as const;
 
-  static execute(
-    inputs: InputsOf<typeof ArkitVrmMapper>,
-    config: ArkitVrmMapperConfig,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof ArkitVrmMapper> {
-    if ((inputs.enabled as boolean | undefined) === false) {
-      return { blendshapes: Blendshapes.fromRecord({}) };
+  @valueIn('arkit', 'ArkitBlendshapes') arkit!: () => Blendshapes | undefined;
+  @valueIn('enabled', 'Bool') enabledIn!: () => boolean | undefined;
+  @valueIn('mapping', 'MappingTable') mapping!: () =>
+    | Record<string, [string, number][]>
+    | null
+    | undefined;
+
+  @valueOut('blendshapes', 'Blendshapes')
+  blendshapes = (): Blendshapes => {
+    if (this.enabledIn() === false) {
+      return Blendshapes.fromRecord({});
     }
 
-    const arkit = inputs.arkit as Blendshapes | undefined;
-    if (!arkit) return { blendshapes: Blendshapes.fromRecord({}) };
+    const arkit = this.arkit();
+    if (!arkit) return Blendshapes.fromRecord({});
 
+    const config = (this.config ?? {}) as ArkitVrmMapperConfig;
     const mode = config.mode ?? 'expressions';
-    const customMapping = inputs.mapping as
-      | Record<string, [string, number][]>
-      | null
-      | undefined;
+    const customMapping = this.mapping();
 
     const builtinTable: Partial<Record<string, [string, number][]>> =
       mode === 'fcl'
@@ -65,7 +56,7 @@ export class ArkitVrmMapper {
       ? { ...builtinTable, ...customMapping }
       : builtinTable;
 
-    if (mode === 'passthrough' && !customMapping) return { blendshapes: arkit };
+    if (mode === 'passthrough' && !customMapping) return arkit;
 
     const accum: Record<string, number> = {};
     for (const [arkitName, weight] of arkit.entries()) {
@@ -81,6 +72,6 @@ export class ArkitVrmMapper {
     const clamped: Record<string, number> = {};
     for (const [k, v] of Object.entries(accum))
       clamped[k] = Math.min(1, Math.max(0, v));
-    return { blendshapes: Blendshapes.fromRecord(clamped) };
-  }
+    return Blendshapes.fromRecord(clamped);
+  };
 }

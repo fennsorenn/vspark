@@ -1,43 +1,50 @@
 import { SignalNode, type Event } from '@vspark/shared/signal';
-import { Node } from '@vspark/shared/node';
-import { eventIn } from '@vspark/shared/node_decorators';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventIn, eventOut } from '@vspark/shared/node_decorators';
+
+interface UnpackState {
+  /** Last received payload, keyed for per-field pulls. */
+  payload: unknown;
+}
 
 /**
- * Splits an incoming event into per-field outputs plus a bare `trigger`.
+ * Splits an incoming event into a `trigger` event plus per-field PULL outputs.
  *
- * The output ports are DYNAMIC (see inferUnpackEvent in infer_nodes.ts): when the
- * wired event resolves to `Event<record>`, one typed output port is generated per
- * record field; otherwise a single `value` output carries the whole payload (the
- * pre-Phase-2 behaviour). Because the outputs are generated, this node emits them
- * by name via `this.emitOn(...)` rather than through decorated emitter fields.
+ * On each event: stores the payload and fires `trigger` (push). Downstream consumers
+ * react to `trigger` and then PULL the field outputs — this is the same push→pull bridge
+ * the VMC/lipsync/mediapipe pipelines rely on (a broadcast node fires on `trigger`, then
+ * pulls `value`/field chains). The field outputs are DYNAMIC (see inferUnpackEvent): when
+ * the wired event resolves to `Event<record>`, one pull output per record field; otherwise
+ * a single `value` pull output carrying the whole payload (pre-Phase-2 behaviour).
  */
 @SignalNode({
   label: 'Unpack Event',
   description:
-    'Split an event into a trigger plus one output per payload field. Falls back to a single value output for non-record payloads.',
+    'Split an event into a trigger plus one pull output per payload field. Falls back to a single value output for non-record payloads.',
   tags: ['utility'],
   color: '#3a3a5a',
 })
 export class UnpackEvent extends Node {
   static readonly kind = 'unpack_event';
 
+  @eventOut('trigger', 'Trigger') trigger!: Emitter<void>;
+
+  protected override onBind(): void {
+    // Per-field pulls resolve from the last stored payload. For a record payload,
+    // `port` is a field name; otherwise the single `value` port returns the whole payload.
+    this.setDynamicOutputs((port) => {
+      const payload = this.getState<UnpackState>()?.payload ?? null;
+      if (port === 'value') return payload;
+      if (payload !== null && typeof payload === 'object') {
+        return (payload as Record<string, unknown>)[port];
+      }
+      return undefined;
+    });
+  }
+
   @eventIn('event', 'Any')
   onEvent(ev: Event<unknown>): void {
-    const payload = ev?.payload ?? null;
-    if (
-      payload !== null &&
-      typeof payload === 'object' &&
-      !Array.isArray(payload)
-    ) {
-      for (const [name, value] of Object.entries(
-        payload as Record<string, unknown>
-      )) {
-        this.emitOn(name, value);
-      }
-    } else {
-      // Non-record payload → single `value` output (fallback shape).
-      this.emitOn('value', payload);
-    }
-    this.emitOn('trigger', undefined);
+    this.setState({ payload: ev?.payload ?? null } satisfies UnpackState);
+    this.trigger.emit(undefined);
   }
 }

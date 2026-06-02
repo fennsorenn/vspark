@@ -1,15 +1,7 @@
-import {
-  SignalNode,
-  valuePort,
-  Quaternion,
-  NormalizedPose,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  VRMBoneName,
-} from '@vspark/shared/signal';
+import { SignalNode, Quaternion, NormalizedPose } from '@vspark/shared/signal';
+import type { VRMBoneName } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 type Landmark = { x: number; y: number; z: number; visibility?: number };
 type V3 = [number, number, number];
@@ -358,10 +350,6 @@ function convertHand(pts: Landmark[], side: 'left' | 'right'): NormalizedPose {
   return new NormalizedPose(entries);
 }
 
-interface HandConfig {
-  side?: 'left' | 'right';
-}
-
 @SignalNode({
   label: 'Hand Landmarks → Bones',
   description:
@@ -369,23 +357,17 @@ interface HandConfig {
   tags: ['tracking', 'mapping'],
   color: '#4a5a8a',
 })
-export class HandLandmarksToBones {
+export class HandLandmarksToBones extends Node {
   static readonly kind = 'hand_landmarks_to_bones';
-  static readonly inputPorts = [
-    valuePort('landmarks', 'LandmarkList'),
-    valuePort('side', 'String'),
-  ] as const;
-  static readonly outputPorts = [valuePort('pose', 'NormalizedPose')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof HandLandmarksToBones>,
-    config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof HandLandmarksToBones> {
-    const pts = inputs.landmarks as Landmark[] | undefined;
-    if (!pts?.length) return {} as OutputsOf<typeof HandLandmarksToBones>;
-    const cfg = (config ?? {}) as HandConfig;
-    const side = (inputs.side as string | undefined) ?? cfg.side ?? 'left';
-    return { pose: convertHand(pts, side as 'left' | 'right') };
-  }
+  @valueIn('landmarks', 'LandmarkList') landmarks!: () => Landmark[] | undefined;
+  @valueIn('side', 'String') side!: () => string | undefined;
+
+  @valueOut('pose', 'NormalizedPose')
+  pose = (): NormalizedPose | undefined => {
+    const pts = this.landmarks();
+    if (!pts?.length) return undefined;
+    const side = this.side() ?? 'left';
+    return convertHand(pts, side as 'left' | 'right');
+  };
 }

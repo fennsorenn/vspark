@@ -1,22 +1,19 @@
-import {
-  SignalNode,
-  eventPort,
-  valuePort,
-  mkEvent,
-} from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  NormalizedPose,
-} from '@vspark/shared/signal';
-import type { InterceptorFrame } from '@vspark/shared/signal';
+import { SignalNode, mkEvent } from '@vspark/shared/signal';
+import { Node, type Emitter } from '@vspark/shared/node';
+import { eventOut, valueOut } from '@vspark/shared/node_decorators';
+import type { NormalizedPose, InterceptorFrame } from '@vspark/shared/signal';
 import { poseInterceptorRegistry } from '../pose_interceptor_registry.js';
 
 interface OnPoseBroadcastState {
   frame: InterceptorFrame | null;
 }
 
+/**
+ * Intercepts the pose before broadcast. The interceptor registry injects an
+ * InterceptorFrame into node state (via the manager's setNodeState) and fires `trigger`;
+ * downstream pulls `frame` / `pose` (value outputs read from that state). Wiring is set up
+ * out-of-band by `OnPoseBroadcast.register(...)`.
+ */
 @SignalNode({
   label: 'On Pose Broadcast',
   description:
@@ -24,33 +21,24 @@ interface OnPoseBroadcastState {
   tags: ['interceptor'],
   color: '#4a6a9f',
 })
-export class OnPoseBroadcast {
+export class OnPoseBroadcast extends Node {
   static readonly kind = 'on_pose_broadcast';
-  static readonly inputPorts = [] as const;
-  static readonly outputPorts = [
-    eventPort('trigger', 'Trigger'),
-    valuePort('frame', 'InterceptorFrame'),
-    valuePort('pose', 'NormalizedPose'),
-  ] as const;
 
-  static execute(
-    _inputs: InputsOf<typeof OnPoseBroadcast>,
-    _config: unknown,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof OnPoseBroadcast> {
-    const state = ctx.getState<OnPoseBroadcastState>();
-    const frame = state?.frame ?? null;
-    if (!frame) return {} as OutputsOf<typeof OnPoseBroadcast>;
-    return { trigger: mkEvent(undefined), frame, pose: frame.pose };
-  }
+  @eventOut('trigger', 'Trigger') trigger!: Emitter<void>;
+
+  @valueOut('frame', 'InterceptorFrame')
+  frame = (): InterceptorFrame | undefined =>
+    this.getState<OnPoseBroadcastState>()?.frame ?? undefined;
+
+  @valueOut('pose', 'NormalizedPose')
+  pose = (): NormalizedPose | undefined =>
+    this.getState<OnPoseBroadcastState>()?.frame?.pose ?? undefined;
 
   /**
-   * Called by the component host after the graph is built to wire this node
-   * into the interceptor registry for the given scene nodeId.
-   *
-   * The host must pass a `setNodeState` callback so the registry can inject
-   * the InterceptorFrame before firing the trigger event.
-   * Returns an unregister function that must be called on graph teardown.
+   * Wire this node into the interceptor registry for the given scene nodeId. The host
+   * passes setNodeState (to inject the InterceptorFrame before firing trigger) and
+   * fireEvent. Returns an unregister function for graph teardown. Unchanged from the
+   * pre-Phase-2 model.
    */
   static register(
     sceneNodeId: string,
@@ -67,8 +55,7 @@ export class OnPoseBroadcast {
           pose,
           priority: prio,
         };
-        // Write frame into node state first so execute() can read it when triggered.
-        setNodeState(graphNodeId, { frame });
+        setNodeState(graphNodeId, { frame } satisfies OnPoseBroadcastState);
         fireEvent(graphNodeId, 'trigger', mkEvent(undefined));
       },
     });

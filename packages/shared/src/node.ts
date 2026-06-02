@@ -125,6 +125,8 @@ export interface NodeBindContext {
   makeDynamicEmitter(portName: string): Emitter<unknown>;
   /** Resolve a DYNAMIC value-input pull-thunk by name (input()). */
   dynamicValueThunk(portName: string): Thunk<unknown>;
+  /** Register a resolver for DYNAMIC value (pull) outputs (setDynamicOutputs). */
+  registerDynamicOutputs(resolve: (portName: string) => unknown): void;
   /** Whether this node is currently enabled (config.enabled !== false). */
   isEnabled(): boolean;
 }
@@ -177,7 +179,17 @@ export abstract class Node {
         ctx.registerHandler(p.name, (payload) => method.call(this, payload));
       }
     }
+
+    // Post-bind hook (ctx is now available — safe for dynamic-output registration etc.).
+    this.onBind();
   }
+
+  /**
+   * Override for setup that needs `this.config`/state/dynamic accessors — runs once
+   * after `bind()` has wired all ports. (The constructor runs BEFORE bind, so dynamic
+   * registration must happen here, not in the constructor.) Default no-op.
+   */
+  protected onBind(): void {}
 
   // ── state (engine-injected, DB-backed) ───────────────────────────────────────
 
@@ -208,6 +220,17 @@ export abstract class Node {
       this._dynEmitters.set(portName, em);
     }
     em.emit(value);
+  }
+
+  /**
+   * Register a resolver for DYNAMIC value (pull) outputs — ports that don't exist as
+   * decorated members and whose set/types are computed by inferPorts. When a downstream
+   * pulls such a port, the engine calls this resolver with the port name. Used by the
+   * generic `unpack_event` whose per-field outputs are pulled (not pushed), so existing
+   * pull-based pipelines (VMC/lipsync/mediapipe) keep working unchanged.
+   */
+  protected setDynamicOutputs(resolve: (portName: string) => unknown): void {
+    this._ctx!.registerDynamicOutputs(resolve);
   }
 }
 

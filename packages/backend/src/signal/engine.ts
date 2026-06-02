@@ -43,8 +43,10 @@ interface RuntimeNode {
   staticPorts: PortMeta[];
   /** @eventIn handlers by port name (set during bind). */
   handlers: Map<string, (payload: unknown) => void>;
-  /** @valueOut / dynamic value-out thunks by port name (set during bind). */
+  /** @valueOut thunks by port name (set during bind). */
   outputThunks: Map<string, Thunk<unknown>>;
+  /** Resolver for dynamic value (pull) outputs (e.g. unpack_event fields), or null. */
+  dynamicOutputs: ((portName: string) => unknown) | null;
   lastInputs: Map<string, unknown>;
   lastOutputs: Map<string, unknown>;
   lastExecutedAt: number | null;
@@ -138,6 +140,7 @@ export class SignalGraph {
       staticPorts: getPortMeta(cls),
       handlers: new Map(),
       outputThunks: new Map(),
+      dynamicOutputs: null,
       lastInputs: new Map(),
       lastOutputs: new Map(),
       lastExecutedAt: null,
@@ -200,6 +203,9 @@ export class SignalGraph {
       registerHandler: (portName, fn) => {
         rt.handlers.set(portName, fn);
       },
+      registerDynamicOutputs: (resolve) => {
+        rt.dynamicOutputs = resolve;
+      },
     };
   }
 
@@ -250,11 +256,13 @@ export class SignalGraph {
     };
   }
 
-  /** Resolve one output value of a source node (its registered @valueOut thunk). */
+  /** Resolve one output value of a source node (its @valueOut thunk or dynamic resolver). */
   private _pullFrom(fromId: string, fromPort: string): unknown {
     const rt = this._nodes.get(fromId);
     if (!rt) return undefined;
-    const thunk = rt.outputThunks.get(fromPort);
+    const thunk =
+      rt.outputThunks.get(fromPort) ??
+      (rt.dynamicOutputs ? () => rt.dynamicOutputs!(fromPort) : undefined);
     if (!thunk) return undefined;
     const guardKey = `${fromId}\x00${fromPort}`;
     if (this._pulling.has(guardKey)) return rt.lastOutputs.get(fromPort);

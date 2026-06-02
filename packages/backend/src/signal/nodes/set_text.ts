@@ -1,11 +1,7 @@
-import { SignalNode, eventPort, valuePort } from '@vspark/shared/signal';
-import type {
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-  Event,
-  SignalTypeMap,
-} from '@vspark/shared/signal';
+import { SignalNode } from '@vspark/shared/signal';
+import type { Event, SignalTypeMap } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { eventIn, valueIn } from '@vspark/shared/node_decorators';
 import { runtimeOverrideManager } from '../../runtime_overrides/manager.js';
 import type { ParamTargetKind } from '@vspark/shared/paramPaths';
 
@@ -26,51 +22,45 @@ interface SetTextConfig {
   tags: ['scene', 'compose', 'output'],
   color: '#3a7a5a',
 })
-export class SetText {
+export class SetText extends Node {
   static readonly kind = 'set_text';
-  static readonly inputPorts = [
-    eventPort('fire', 'Trigger'),
-    /** Optional alternative trigger: a SpawnRef event from spawn_clip. Its
-     *  tmpNodeId + kind override targetId / targetKind for that fire. */
-    eventPort('spawnRef', 'SpawnRef'),
-    valuePort('targetId', 'EntityId'),
-    valuePort('targetKind', 'String'),
-    valuePort('text', 'String'),
-    valuePort('persist', 'Bool'),
-  ] as const;
-  static readonly outputPorts = [] as const;
 
-  static execute(
-    inputs: InputsOf<typeof SetText>,
-    config: SetTextConfig,
-    ctx: NodeExecutionContext
-  ): OutputsOf<typeof SetText> {
-    const empty = {} as OutputsOf<typeof SetText>;
-    if (ctx.triggeredPort !== 'fire' && ctx.triggeredPort !== 'spawnRef')
-      return empty;
+  @valueIn('targetId', 'EntityId') targetId!: () => string | undefined;
+  @valueIn('targetKind', 'String') targetKind!: () => string | undefined;
+  @valueIn('text', 'String') text!: () => string | undefined;
+  @valueIn('persist', 'Bool') persist!: () => boolean | undefined;
 
-    let targetId = (inputs.targetId as string | undefined) || config.targetId;
+  @eventIn('fire', 'Trigger')
+  onFire(): void {
+    this._write(undefined);
+  }
+
+  /** Alternative trigger: a SpawnRef event from spawn_clip retargets the write
+   *  to the spawned instance — its `tmpNodeId` + `kind` override targetId /
+   *  targetKind for this fire. */
+  @eventIn('spawnRef', 'SpawnRef')
+  onSpawnRef(ev: Event<SignalTypeMap['SpawnRef']>): void {
+    const ref = ev?.payload;
+    if (!ref) return;
+    this._write(ref);
+  }
+
+  private _write(ref: SignalTypeMap['SpawnRef'] | undefined): void {
+    const cfg = (this.config ?? {}) as SetTextConfig;
+    let targetId = this.targetId() || cfg.targetId;
     let targetKind: ParamTargetKind = (() => {
-      const raw =
-        (inputs.targetKind as string | undefined) ??
-        config.targetKind ??
-        'scene_node';
+      const raw = this.targetKind() ?? cfg.targetKind ?? 'scene_node';
       return raw === 'compose_layer' ? 'compose_layer' : 'scene_node';
     })();
-    if (ctx.triggeredPort === 'spawnRef') {
-      const ev = inputs.spawnRef as Event<SignalTypeMap['SpawnRef']> | undefined;
-      const ref = ev?.payload;
-      if (!ref) return empty;
+    if (ref) {
       targetId = ref.tmpNodeId;
       targetKind = ref.kind;
     }
-    if (!targetId) return empty;
-    const text = (inputs.text as string | undefined) ?? '';
-    const persist =
-      (inputs.persist as boolean | undefined) ?? config.persist ?? false;
+    if (!targetId) return;
+    const text = this.text() ?? '';
+    const persist = this.persist() ?? cfg.persist ?? false;
     runtimeOverrideManager.set(targetKind, targetId, 'text.content', text, {
       persist,
     });
-    return empty;
   }
 }

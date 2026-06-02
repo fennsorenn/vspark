@@ -1,16 +1,12 @@
 import {
   SignalNode,
-  valuePort,
   BoneRotations,
   NormalizedPose,
   Quaternion,
 } from '@vspark/shared/signal';
-import type {
-  VRMBoneName,
-  InputsOf,
-  OutputsOf,
-  NodeExecutionContext,
-} from '@vspark/shared/signal';
+import type { VRMBoneName } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Mapping tables
@@ -125,6 +121,22 @@ const MIRROR_VMC: Readonly<Record<string, string>> = {
 // Config
 // ──────────────────────────────────────────────────────────────────────────────
 
+export function applyBoneMapping(
+  bones: BoneRotations,
+  mirror = false
+): NormalizedPose {
+  const entries: Array<readonly [VRMBoneName, Quaternion]> = [];
+  for (const [vmcName] of bones.entries()) {
+    const vrmName = VMC_TO_VRM[vmcName];
+    if (!vrmName) continue;
+    const srcName = mirror ? (MIRROR_VMC[vmcName] ?? vmcName) : vmcName;
+    const q = bones.get(srcName);
+    if (!q || !q.isValid) continue;
+    entries.push([vrmName, new Quaternion(q.x, -q.y, -q.z, q.w)] as const);
+  }
+  return new NormalizedPose(entries);
+}
+
 @SignalNode({
   label: 'RhyLive Bone Mapper',
   description:
@@ -132,48 +144,16 @@ const MIRROR_VMC: Readonly<Record<string, string>> = {
   tags: ['input', 'mocap'],
   color: '#2a5a4a',
 })
-export class RhyliveBoneMapper {
+export class RhyliveBoneMapper extends Node {
   static readonly kind = 'rhylive_bone_mapper';
-  static readonly inputPorts = [
-    valuePort('bones', 'BoneRotations'),
-    valuePort('mirror', 'Bool'),
-  ] as const;
-  static readonly outputPorts = [valuePort('pose', 'NormalizedPose')] as const;
 
-  static execute(
-    inputs: InputsOf<typeof RhyliveBoneMapper>,
-    _config: unknown,
-    _ctx: NodeExecutionContext
-  ): OutputsOf<typeof RhyliveBoneMapper> {
-    const bones = inputs.bones as BoneRotations | undefined;
-    const mirror = (inputs.mirror as boolean | undefined) ?? false;
-    if (!bones) return {} as OutputsOf<typeof RhyliveBoneMapper>;
+  @valueIn('bones', 'BoneRotations') bones!: () => BoneRotations | undefined;
+  @valueIn('mirror', 'Bool') mirror!: () => boolean | undefined;
 
-    const entries: Array<readonly [VRMBoneName, Quaternion]> = [];
-    for (const [vmcName] of bones.entries()) {
-      const vrmName = VMC_TO_VRM[vmcName];
-      if (!vrmName) continue;
-      const srcName = mirror ? (MIRROR_VMC[vmcName] ?? vmcName) : vmcName;
-      const q = bones.get(srcName);
-      if (!q || !q.isValid) continue;
-      entries.push([vrmName, new Quaternion(q.x, -q.y, -q.z, q.w)] as const);
-    }
-    return { pose: new NormalizedPose(entries) };
-  }
-}
-
-export function applyBoneMapping(
-  bones: BoneRotations,
-  mirror = false
-): NormalizedPose {
-  const noopCtx: NodeExecutionContext = {
-    triggeredPort: '',
-    getState: () => ({}) as never,
-    setState: () => {},
+  @valueOut('pose', 'NormalizedPose')
+  pose = (): NormalizedPose | undefined => {
+    const bones = this.bones();
+    if (!bones) return undefined;
+    return applyBoneMapping(bones, this.mirror() ?? false);
   };
-  return RhyliveBoneMapper.execute(
-    { bones, mirror } as InputsOf<typeof RhyliveBoneMapper>,
-    {},
-    noopCtx
-  ).pose as NormalizedPose;
 }
