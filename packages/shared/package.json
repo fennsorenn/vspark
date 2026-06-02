@@ -7,6 +7,11 @@
     ".": "./src/types.ts",
     "./schema": "./src/schema.ts",
     "./signal": "./src/signal.ts",
+    "./signal_types": "./src/signal_types.ts",
+    "./node": "./src/node.ts",
+    "./node_decorators": "./src/node_decorators.ts",
+    "./inference": "./src/inference.ts",
+    "./infer_nodes": "./src/infer_nodes.ts",
     "./arkit": "./src/arkit_tables.ts",
     "./paramPaths": "./src/paramPaths.ts"
   },
