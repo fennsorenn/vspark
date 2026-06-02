@@ -111,13 +111,13 @@ Before starting any new feature branch — and before any non-trivial task — r
 
 ## Branches
 
-Work happens on feature branches, never directly on `dev` or `master`.
+Work happens on feature branches, never directly on `dev` or `main`.
 
 - Branch naming: `feature/<description>` or `bugfix/<description>`
 - Create a branch at the start of any non-trivial task if one doesn't exist yet
 - Feature branches merge into `dev` directly (no PR required)
-- Merges from `dev` into `master` always go via a PR
-- Every merge into `master` must be accompanied by a semver tag (e.g. `v1.2.0`), inferred from conventional commits since the last tag:
+- Merges from `dev` into `main` always go via a PR
+- Every merge into `main` must be accompanied by a semver tag (e.g. `v1.2.0`), inferred from conventional commits since the last tag:
   - `fix:` → patch bump
   - `feat:` → minor bump
   - Any breaking change (`BREAKING CHANGE` in footer or `!` suffix) → major bump
