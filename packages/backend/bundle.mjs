@@ -20,11 +20,16 @@ await build({
   // appended onto types.ts — esbuild then tries to read types.ts as a
   // directory and the build fails.
   alias: {
-    '@vspark/shared/signal':     '../shared/src/signal.ts',
-    '@vspark/shared/schema':     '../shared/src/schema.ts',
-    '@vspark/shared/arkit':      '../shared/src/arkit_tables.ts',
-    '@vspark/shared/paramPaths': '../shared/src/paramPaths.ts',
-    '@vspark/shared':            '../shared/src/types.ts',
+    '@vspark/shared/signal_types':    '../shared/src/signal_types.ts',
+    '@vspark/shared/signal':          '../shared/src/signal.ts',
+    '@vspark/shared/node_decorators': '../shared/src/node_decorators.ts',
+    '@vspark/shared/node':            '../shared/src/node.ts',
+    '@vspark/shared/inference':       '../shared/src/inference.ts',
+    '@vspark/shared/infer_nodes':     '../shared/src/infer_nodes.ts',
+    '@vspark/shared/schema':          '../shared/src/schema.ts',
+    '@vspark/shared/arkit':           '../shared/src/arkit_tables.ts',
+    '@vspark/shared/paramPaths':      '../shared/src/paramPaths.ts',
+    '@vspark/shared':                 '../shared/src/types.ts',
   },
   define: { 'import.meta.url': '__importMetaUrl' },
   banner: {
