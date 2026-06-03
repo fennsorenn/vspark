@@ -41,12 +41,15 @@ channel filter on the feed node means "all channels for this account", otherwise
 the delivered slice is filtered to the matching channel.
 
 ### `overlive_chat_feed` node — `signal/nodes/overlive/chat_feed.ts`
-- in:  `account` (Account), `channel` (String), `event` (Any — manager delivery)
+- in:  `account` (Account), `channel` (String), `maxLength` (Float),
+       `event` (Any — manager delivery)
 - out: `update` (Trigger event), `messages` (value — `ChatFeedItem[]`)
 
-`onEvent` stores the delivered snapshot in node state and emits `update`. The
-`messages` pull returns the stored snapshot. (The manager re-sends the full
-buffer on the next message, so a reconcile that wipes node state self-heals.)
+`onEvent` trims the delivered snapshot to `maxLength` (input → config →
+`DEFAULT_MAX_LENGTH` = 50; the manager `CHAT_BUFFER_MAX` = 500 is the hard
+ceiling above it), stores it in node state, and emits `update`. The `messages`
+pull returns the stored snapshot. (The manager re-sends the full buffer on the
+next message, so a reconcile that wipes node state self-heals.)
 
 ## Generic half (the reusable part)
 
@@ -88,18 +91,39 @@ New `ComposeLayerKind` `'feed'` (added to `shared/types.ts`,
 `api/client.ts`; icon + addable entry in `ComposeTree.tsx`; config editor in
 `ComposeLayerProperties.tsx`). Config:
 - `channel` — which data channel to subscribe to.
-- `itemTemplate` — HTML string with `{field}` interpolation (default `{html}`).
-- `maxItems` — cap rendered elements (newest kept); `reverse` — flip order.
-- `gap`, `justify` — container layout.
+- `template` — a **JSX-ish (htm) template** authored by the user.
+- `css` — static styles (injected scoped to this layer, see below).
 
-Subscribes to `dataChannels[channel]` in the store. Normalises the payload to a
-list of records (array → per-element; record → single render; scalar/empty →
-nothing), interpolates `{field}` tokens per item, and **sanitises the result
-through `TEXT_SANITIZE_OPTS` (DOMPurify)** — the same XSS-safe allow-list the
-`text` layer / `text_canvas` use, so emote `<img>`s render and scripts don't.
-Stable keys come from each item's `id`, so per-item CSS enter/exit + scrolling
-work; per-item animation is left to the user's template + CSS (the layer is a
-thin renderer).
+**Template engine = `htm`** (`htm.bind(React.createElement)`). The template is
+the body of an htm tagged-template literal; `compileTemplate` wraps it in a
+`new Function('html','data','Emote', 'return html`…`')` (memoised per source
+string) and re-renders are cheap. It produces **real React elements**, so
+reconciliation keys (`key=${m.id}`) handle per-item enter animation — no string
+diffing/morphdom. The channel payload is exposed to the template as `data`
+(array → loop with `${data.map(...)}`; record → reference fields directly), so
+the layer stays data-shape-independent.
+
+Engine choice (Phase 3): we evaluated safe-mdx (MDX→AST, no eval, ~10KB via a
+backend-parse split — even patched + measured working) but it **cannot render
+JSX produced inside an expression** (`{data.map(m => <div/>)}` throws "visitor
+JSXElement is not supported"), so it can't do the per-item loop. react-jsx-parser
+does it but is ~90KB and not splittable. htm wins on weight (~0.7KB) + JSX-ish
+syntax + the loop; its cost is that templates run via `new Function` (eval).
+
+**Safety:** templates execute as code. Acceptable under vspark's current
+local/single-user model — no worse than the `browser` compose layer, which
+already runs arbitrary web content. Revisit before any multi-user /
+untrusted-preset-import story. The only raw-HTML injection is the per-field
+`<Emote html=…>` helper, which DOMPurifies through `TEXT_SANITIZE_OPTS` (the
+emote allow-list); all structural markup is real React elements, never an HTML
+string. A `FeedErrorBoundary` (keyed on the template source) catches render-time
+throws so a bad template degrades to a placeholder instead of white-screening.
+
+**CSS scoping:** `css` is injected as `<style>@scope ([data-feed-scope="…"]) {
+… }</style>` with a per-layer `useId()` scope id, so two feed layers can't
+clobber each other's class names (requires the `@scope` at-rule — modern
+Chromium / OBS browser source). Dynamic styles go inline in the template
+(`style=${{ color: m.color }}`).
 
 ### Frontend store + WS — `store/editorStore.ts`, `hooks/useWsSync.ts`
 `dataChannels: Record<channel, payload>` slice with `setDataChannel`,
@@ -111,9 +135,10 @@ slice. `useWsSync` handles `data_channel_set` / `data_channel_clear` /
 ## Wiring a chat overlay
 1. In a project (or scoped) graph: `overlive_chat_feed` → `set_data`
    (`channel = 'chat'`): wire `update → fire` and `messages → data`.
-2. Add a `feed` compose layer, set its `channel` to `chat`, author an
-   `itemTemplate` (e.g. `<div><b style="color:{color}">{displayName}</b>: {html}</div>`).
-3. Chat arrives → messages append + render; emotes show via the `html` field.
+2. Add a `feed` compose layer (it ships a default chat `template` + `css`), set
+   its `channel` to `chat`. The default template loops the payload:
+   `${(data || []).map((m) => html`<div key=${m.id}>${m.displayName}: <${Emote} html=${m.html} /></div>`)}`.
+3. Chat arrives → messages append + render; emotes show via `<Emote>`.
 
 A non-chat payload (a `pack_event` record, a static list) published to a
 different channel and rendered through a different template confirms the layer is

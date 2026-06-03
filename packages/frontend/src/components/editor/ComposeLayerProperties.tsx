@@ -520,30 +520,32 @@ export function ComposeLayerProperties({
             Name of the channel a `set_data` node publishes to.
           </div>
 
-          <div style={sectionHeader}>Item template</div>
+          <div style={sectionHeader}>Template</div>
           <textarea
-            value={(layer.config.itemTemplate as string | undefined) ?? ''}
+            value={(layer.config.template as string | undefined) ?? ''}
             onChange={(e) =>
               updateLayerLocal(layer.id, {
-                config: { ...layer.config, itemTemplate: e.target.value },
+                config: { ...layer.config, template: e.target.value },
               })
             }
             onBlur={(e) =>
               api
                 .updateComposeLayer(layer.id, {
-                  config: { ...layer.config, itemTemplate: e.target.value },
+                  config: { ...layer.config, template: e.target.value },
                 })
                 .catch(() => {})
             }
             placeholder={
-              '<span style="color:{color}">{displayName}</span>: {html}'
+              '<div className="chat">\n  ${(data || []).map((m) => html`\n    <div key=${m.id}>${m.displayName}: <${Emote} html=${m.html} /></div>\n  `)}\n</div>'
             }
-            rows={4}
+            rows={8}
+            spellCheck={false}
             style={{
               ...textInput,
               resize: 'vertical',
               fontFamily: 'monospace',
               fontSize: 12,
+              whiteSpace: 'pre',
             }}
           />
           <div
@@ -554,40 +556,48 @@ export function ComposeLayerProperties({
               marginTop: 4,
             }}
           >
-            HTML rendered per item. Interpolate payload fields with{' '}
-            <code>{'{field}'}</code> (chat: displayName, html, text, color, …).
-            Sanitised on render.
+            JSX-ish (htm) markup. The channel payload is <code>data</code> (loop
+            an array with <code>{'${data.map(...)}'}</code>). Use{' '}
+            <code>{'<${Emote} html=${m.html} />'}</code> for emote HTML. Use{' '}
+            <code>className</code>, not <code>class</code>.
           </div>
 
-          <div style={sectionHeader}>Options</div>
-          <div style={row}>
-            <span style={label}>Max items</span>
-            <input
-              type="number"
-              min={0}
-              value={(layer.config.maxItems as number | undefined) ?? ''}
-              onChange={(e) => {
-                const n =
-                  e.target.value === '' ? undefined : Number(e.target.value);
-                const config = { ...layer.config, maxItems: n };
-                updateLayerLocal(layer.id, { config });
-                api.updateComposeLayer(layer.id, { config }).catch(() => {});
-              }}
-              placeholder="all"
-              style={{ ...textInput, width: 80 }}
-            />
-          </div>
-          <div style={row}>
-            <span style={label}>Newest top</span>
-            <input
-              type="checkbox"
-              checked={Boolean(layer.config.reverse)}
-              onChange={(e) => {
-                const config = { ...layer.config, reverse: e.target.checked };
-                updateLayerLocal(layer.id, { config });
-                api.updateComposeLayer(layer.id, { config }).catch(() => {});
-              }}
-            />
+          <div style={sectionHeader}>Styles (CSS)</div>
+          <textarea
+            value={(layer.config.css as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, css: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, css: e.target.value },
+                })
+                .catch(() => {})
+            }
+            placeholder={'.chat { display:flex; flex-direction:column; }'}
+            rows={6}
+            spellCheck={false}
+            style={{
+              ...textInput,
+              resize: 'vertical',
+              fontFamily: 'monospace',
+              fontSize: 12,
+              whiteSpace: 'pre',
+            }}
+          />
+          <div
+            style={{
+              fontSize: 10,
+              color: '#555',
+              lineHeight: 1.4,
+              marginTop: 4,
+            }}
+          >
+            Static styles, scoped to this layer. Dynamic styles can go inline in
+            the template (<code>{'style=${{ color: m.color }}'}</code>).
           </div>
         </>
       )}

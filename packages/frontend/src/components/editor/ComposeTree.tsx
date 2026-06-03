@@ -35,6 +35,23 @@ const ADDABLE_KINDS: ComposeLayerKind[] = [
   'group',
 ];
 
+// Default JSX-ish (htm) template + CSS for a new `feed` layer — a chat overlay
+// against the `chat` data channel. `\${`/`\`` are escaped so the stored string
+// carries literal `${`/backticks for htm. See ComposeLayerStack.FeedLayer.
+const FEED_DEFAULT_TEMPLATE = `<div className="chat">
+  \${(data || []).map((m) => html\`
+    <div className="msg" key=\${m.id}>
+      <span className="name" style=\${{ color: m.color || '#fff' }}>\${m.displayName}</span>: <\${Emote} html=\${m.html} />
+    </div>
+  \`)}
+</div>`;
+
+const FEED_DEFAULT_CSS = `.chat { display:flex; flex-direction:column; justify-content:flex-end; height:100%; gap:6px; padding:12px; box-sizing:border-box; overflow:hidden; font-family:system-ui,sans-serif; }
+.msg { background:rgba(0,0,0,.55); border-radius:8px; padding:6px 10px; color:#fff; line-height:1.35; animation:pop .25s ease-out; }
+.msg .name { font-weight:700; }
+.msg img { height:1.3em; vertical-align:-.25em; }
+@keyframes pop { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }`;
+
 const addBtn: CSSProperties = {
   background: '#2563eb',
   border: 'none',
@@ -91,9 +108,8 @@ async function createLayer(composeSceneId: string, kind: ComposeLayerKind) {
       : kind === 'feed'
         ? {
             channel: 'chat',
-            itemTemplate:
-              '<div><span style="color:{color};font-weight:600">{displayName}</span>: {html}</div>',
-            reverse: false,
+            template: FEED_DEFAULT_TEMPLATE,
+            css: FEED_DEFAULT_CSS,
           }
         : {};
 

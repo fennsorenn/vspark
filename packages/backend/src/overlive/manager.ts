@@ -60,9 +60,10 @@ export interface ChatFeedItem {
   cheerAmount: number;
 }
 
-/** Max retained messages per account ring-buffer. Bounded so a long-running
- *  session doesn't grow without limit; the feed layer caps render separately. */
-const CHAT_BUFFER_MAX = 200;
+/** Hard upper bound on retained messages per account ring-buffer. Bounded so a
+ *  long-running session doesn't grow without limit; each `overlive_chat_feed`
+ *  node trims this snapshot to its own (smaller) configured `maxLength`. */
+const CHAT_BUFFER_MAX = 500;
 
 // ─── Row shapes (mirror the routes/overlive-accounts.ts types) ────────────────
 

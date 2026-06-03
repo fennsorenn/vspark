@@ -12,6 +12,14 @@ interface FeedState {
   messages: ChatFeedItem[];
 }
 
+interface FeedConfig {
+  maxLength?: number;
+}
+
+/** Default cap on emitted messages when neither the `maxLength` input nor config
+ *  sets one. The manager ring-buffer is the hard upper bound above this. */
+const DEFAULT_MAX_LENGTH = 50;
+
 /**
  * Accumulating chat history view. Where `overlive_chat_message` is a thin view
  * over the *latest* message, this is a thin view over the OverliveManager's
@@ -38,6 +46,9 @@ export class OverliveChatFeed extends Node {
 
   @valueIn('account', 'Account') account!: () => unknown;
   @valueIn('channel', 'String') channel!: () => string | undefined;
+  /** Max messages to keep/emit (newest kept). Falls back to config.maxLength,
+   *  then DEFAULT_MAX_LENGTH. The manager buffer is the hard upper bound. */
+  @valueIn('maxLength', 'Float') maxLength!: () => number | undefined;
 
   @eventOut('update', 'Trigger') update!: Emitter<void>;
 
@@ -48,9 +59,12 @@ export class OverliveChatFeed extends Node {
   @eventIn('event', 'Any')
   onEvent(ev: Event<unknown>): void {
     const items = ev?.payload as ChatFeedItem[] | undefined;
-    this.setState({
-      messages: Array.isArray(items) ? items : [],
-    } satisfies FeedState);
+    const all = Array.isArray(items) ? items : [];
+    const cfg = (this.config ?? {}) as FeedConfig;
+    const max = this.maxLength() ?? cfg.maxLength ?? DEFAULT_MAX_LENGTH;
+    const trimmed =
+      max > 0 && all.length > max ? all.slice(all.length - max) : all;
+    this.setState({ messages: trimmed } satisfies FeedState);
     this.update.emit(undefined);
   }
 
