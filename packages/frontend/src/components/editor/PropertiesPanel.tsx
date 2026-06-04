@@ -37,6 +37,14 @@ function PickButton({ onClick }: { onClick: () => void }) {
   );
 }
 import { NumInput, VecInput, SliderInput } from './numericInputs';
+import { vrmRegistry } from '../../vrmRegistry';
+import {
+  getMaterialSlots,
+  type MaterialOverride,
+  type MaterialOverrides,
+  type ShaderKind,
+  type AlphaMode,
+} from './materialOverrides';
 
 interface Transform {
   x: number;
@@ -182,6 +190,462 @@ const sectionHeader: React.CSSProperties = {
 // The old `KfBtn`, local `NumInput`, and Vec3 row helpers (`row3`, `label`,
 // `cellWithBtn`, `groupHeaderRow`, `kfGroupBtnStyle`) were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
+
+// ---------- Collapsible section ----------
+
+/** A section header that toggles its children open/closed. Reuses the flat
+ *  `sectionHeader` look with a disclosure caret. Collapse state is ephemeral
+ *  (not persisted). */
+function CollapsibleSection({
+  title,
+  count,
+  defaultCollapsed = true,
+  children,
+}: {
+  title: string;
+  count?: number;
+  defaultCollapsed?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(!defaultCollapsed);
+  return (
+    <>
+      <div
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          ...sectionHeader,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            color: '#666',
+            display: 'inline-block',
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: 'transform 120ms',
+          }}
+        >
+          ▶
+        </span>
+        <span>
+          {title}
+          {count != null ? ` (${count})` : ''}
+        </span>
+      </div>
+      {open && children}
+    </>
+  );
+}
+
+// ---------- Material editor (MToon ⇄ PBR) ----------
+
+const matLabel: React.CSSProperties = {
+  fontSize: 11,
+  color: '#888',
+  width: 96,
+  flexShrink: 0,
+};
+const matRow: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+};
+const matColorInput: React.CSSProperties = {
+  width: 32,
+  height: 22,
+  border: 'none',
+  background: 'none',
+  cursor: 'pointer',
+  padding: 0,
+};
+
+/** One material's editor: shader toggle + collapsible param body + reset. */
+function MaterialRow({
+  node,
+  slot,
+}: {
+  node: NodeRecord;
+  slot: ReturnType<typeof getMaterialSlots>[number];
+}) {
+  const { updateNode: storeUpdateNode } = useEditorStore();
+  const [open, setOpen] = useState(false);
+  const overrides = (node.properties?.materialOverrides ??
+    {}) as MaterialOverrides;
+  const ov = overrides[slot.key] as MaterialOverride | undefined;
+  const d = slot.defaults;
+  const defaultShader: ShaderKind =
+    slot.nativeShader === 'pbr' ? 'pbr' : 'mtoon';
+  const shader: ShaderKind =
+    slot.nativeShader === 'pbr' ? 'pbr' : (ov?.shader ?? 'mtoon');
+
+  const writeOverrides = (next: MaterialOverrides, persist: boolean) => {
+    const properties = { ...node.properties, materialOverrides: next };
+    storeUpdateNode(node.id, { properties });
+    if (persist)
+      api
+        .updateNode(node.id, { properties: { materialOverrides: next } })
+        .catch(() => {});
+  };
+
+  const patch = (p: Partial<MaterialOverride>, persist: boolean) => {
+    const prev = (node.properties?.materialOverrides ??
+      {}) as MaterialOverrides;
+    const prevEntry: MaterialOverride = prev[slot.key] ?? {
+      shader: defaultShader,
+    };
+    const next = { ...prev, [slot.key]: { ...prevEntry, ...p } };
+    writeOverrides(next, persist);
+  };
+
+  const reset = () => {
+    const prev = (node.properties?.materialOverrides ??
+      {}) as MaterialOverrides;
+    const next = { ...prev };
+    delete next[slot.key];
+    writeOverrides(next, true);
+  };
+
+  const val = <K extends keyof MaterialOverride>(
+    key: K,
+    fallback: NonNullable<MaterialOverride[K]>
+  ): NonNullable<MaterialOverride[K]> =>
+    (ov?.[key] as NonNullable<MaterialOverride[K]> | undefined) ?? fallback;
+
+  const colorRow = (
+    label: string,
+    key: 'baseColor' | 'emissive' | 'shadeColor' | 'rimColor' | 'outlineColor',
+    fallback: string
+  ) => (
+    <div style={matRow}>
+      <span style={matLabel}>{label}</span>
+      <input
+        type="color"
+        value={val(key, fallback)}
+        style={matColorInput}
+        onChange={(e) => patch({ [key]: e.target.value }, false)}
+        onBlur={(e) => patch({ [key]: e.target.value }, true)}
+      />
+    </div>
+  );
+
+  const sliderRow = (
+    label: string,
+    key:
+      | 'emissiveIntensity'
+      | 'normalScale'
+      | 'alphaCutoff'
+      | 'shadingShiftFactor'
+      | 'shadingToonyFactor'
+      | 'rimLightingMix'
+      | 'outlineWidth'
+      | 'roughness'
+      | 'metalness',
+    fallback: number,
+    min: number,
+    max: number,
+    step: number,
+    precision: number
+  ) => (
+    <div style={matRow}>
+      <span style={matLabel}>{label}</span>
+      <SliderInput
+        value={val(key, fallback)}
+        min={min}
+        max={max}
+        step={step}
+        precision={precision}
+        style={{ flex: 1 }}
+        onChange={(v) => patch({ [key]: v }, false)}
+        onCommit={(v) => patch({ [key]: v }, true)}
+      />
+    </div>
+  );
+
+  const alphaMode = val('alphaMode', d.alphaMode);
+
+  return (
+    <div
+      style={{
+        border: '1px solid #222',
+        borderRadius: 4,
+        marginBottom: 6,
+        background: '#141414',
+      }}
+    >
+      <div
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '5px 8px',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            color: '#666',
+            display: 'inline-block',
+            transform: open ? 'rotate(90deg)' : 'none',
+          }}
+        >
+          ▶
+        </span>
+        <span
+          style={{
+            fontSize: 11,
+            color: '#bbb',
+            fontFamily: 'monospace',
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={slot.displayName}
+        >
+          {slot.displayName}
+        </span>
+        <span
+          style={{
+            fontSize: 9,
+            color: shader === 'pbr' ? '#7ab' : '#a8a',
+            border: '1px solid #333',
+            borderRadius: 3,
+            padding: '1px 5px',
+            textTransform: 'uppercase',
+          }}
+        >
+          {shader}
+        </span>
+      </div>
+      {open && (
+        <div
+          style={{
+            padding: '6px 8px 8px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            borderTop: '1px solid #222',
+          }}
+        >
+          {/* Shader toggle */}
+          <div style={matRow}>
+            <span style={matLabel}>Shader</span>
+            <div style={{ display: 'flex', gap: 0 }}>
+              {(['mtoon', 'pbr'] as ShaderKind[]).map((s) => {
+                const active = shader === s;
+                const disabled = s === 'mtoon' && !slot.supportsMToon;
+                return (
+                  <button
+                    key={s}
+                    disabled={disabled}
+                    onClick={() => patch({ shader: s }, true)}
+                    style={{
+                      background: active ? '#1a3a5a' : '#1e1e1e',
+                      border: '1px solid #3a3a3a',
+                      color: disabled ? '#555' : active ? '#cde' : '#aaa',
+                      padding: '3px 12px',
+                      fontSize: 11,
+                      cursor: disabled ? 'not-allowed' : 'pointer',
+                      textTransform: 'uppercase',
+                      borderRadius:
+                        s === 'mtoon' ? '4px 0 0 4px' : '0 4px 4px 0',
+                      marginLeft: s === 'pbr' ? -1 : 0,
+                    }}
+                  >
+                    {s}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Overlapping params */}
+          {colorRow('Base color', 'baseColor', d.baseColor)}
+          {colorRow('Emissive', 'emissive', d.emissive)}
+          {sliderRow(
+            'Emissive int.',
+            'emissiveIntensity',
+            d.emissiveIntensity,
+            0,
+            5,
+            0.01,
+            2
+          )}
+          {d.hasNormalMap &&
+            sliderRow(
+              'Normal scale',
+              'normalScale',
+              d.normalScale,
+              0,
+              2,
+              0.01,
+              2
+            )}
+          <div style={matRow}>
+            <span style={matLabel}>Double sided</span>
+            <input
+              type="checkbox"
+              checked={val('doubleSided', d.doubleSided)}
+              onChange={(e) => patch({ doubleSided: e.target.checked }, true)}
+            />
+          </div>
+          <div style={matRow}>
+            <span style={matLabel}>Alpha mode</span>
+            <select
+              value={alphaMode}
+              onChange={(e) =>
+                patch({ alphaMode: e.target.value as AlphaMode }, true)
+              }
+              style={{
+                background: '#2a2a2a',
+                border: '1px solid #3a3a3a',
+                color: '#e0e0e0',
+                borderRadius: 4,
+                padding: '3px 6px',
+                fontSize: 11,
+              }}
+            >
+              <option value="opaque">Opaque</option>
+              <option value="mask">Mask (cutout)</option>
+              <option value="blend">Blend</option>
+            </select>
+          </div>
+          {alphaMode === 'mask' &&
+            sliderRow(
+              'Alpha cutoff',
+              'alphaCutoff',
+              d.alphaCutoff,
+              0,
+              1,
+              0.01,
+              2
+            )}
+
+          {/* MToon-only */}
+          {shader === 'mtoon' && (
+            <>
+              {colorRow('Shade color', 'shadeColor', d.shadeColor)}
+              {sliderRow(
+                'Shading shift',
+                'shadingShiftFactor',
+                d.shadingShiftFactor,
+                -1,
+                1,
+                0.01,
+                2
+              )}
+              {sliderRow(
+                'Shading toony',
+                'shadingToonyFactor',
+                d.shadingToonyFactor,
+                0,
+                1,
+                0.01,
+                2
+              )}
+              {colorRow('Rim color', 'rimColor', d.rimColor)}
+              {sliderRow(
+                'Rim mix',
+                'rimLightingMix',
+                d.rimLightingMix,
+                0,
+                1,
+                0.01,
+                2
+              )}
+              {d.hasOutline && (
+                <>
+                  {sliderRow(
+                    'Outline width',
+                    'outlineWidth',
+                    d.outlineWidth,
+                    0,
+                    0.05,
+                    0.001,
+                    3
+                  )}
+                  {colorRow('Outline color', 'outlineColor', d.outlineColor)}
+                </>
+              )}
+            </>
+          )}
+
+          {/* PBR-only */}
+          {shader === 'pbr' && (
+            <>
+              {sliderRow('Roughness', 'roughness', d.roughness, 0, 1, 0.01, 2)}
+              {sliderRow('Metalness', 'metalness', d.metalness, 0, 1, 0.01, 2)}
+            </>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              onClick={reset}
+              disabled={!ov}
+              title="Drop overrides and rebuild this material from the VRM file"
+              style={{
+                background: 'none',
+                border: '1px solid #3a3a3a',
+                color: ov ? '#c88' : '#555',
+                borderRadius: 4,
+                padding: '2px 10px',
+                fontSize: 11,
+                cursor: ov ? 'pointer' : 'default',
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Lists every material on the loaded VRM with per-material shader controls. */
+function MaterialSection({ node }: { node: NodeRecord }) {
+  // Re-render when the VRM (re)loads — bones are set on load, cleared on unload.
+  const loadedBones = useEditorStore((s) => s.vrmBonesByNode[node.id]);
+  const vrm = vrmRegistry.get(node.id);
+  if (!vrm || !loadedBones) {
+    return (
+      <CollapsibleSection title="Material">
+        <div style={{ fontSize: 11, color: '#555' }}>
+          Load a model to edit its materials.
+        </div>
+      </CollapsibleSection>
+    );
+  }
+  const slots = getMaterialSlots(vrm);
+  if (slots.length === 0) return null;
+  return (
+    <CollapsibleSection title="Material" count={slots.length}>
+      <div
+        style={{
+          fontSize: 10,
+          color: '#555',
+          lineHeight: 1.4,
+          marginBottom: 6,
+        }}
+      >
+        MToon is the toon look (ignores environment light). PBR responds to
+        scene lights and the camera's environment intensity — switch to PBR for
+        full light falloff and darkness.
+      </div>
+      {slots.map((slot) => (
+        <MaterialRow key={slot.key} node={node} slot={slot} />
+      ))}
+    </CollapsibleSection>
+  );
+}
 
 // ---------- Calibration wizard ----------
 
@@ -5184,10 +5648,10 @@ export function PropertiesPanel() {
                   </>
                 )}
                 {exprs.length > 0 && (
-                  <>
-                    <div style={sectionHeader}>
-                      Default Expression ({exprs.length})
-                    </div>
+                  <CollapsibleSection
+                    title="Default Expression"
+                    count={exprs.length}
+                  >
                     <div
                       style={{
                         fontSize: 10,
@@ -5269,11 +5733,14 @@ export function PropertiesPanel() {
                         );
                       })}
                     </div>
-                  </>
+                  </CollapsibleSection>
                 )}
               </>
             );
           })()}
+
+        {/* Material editor — avatar only, lists materials once the VRM loads */}
+        {node.kind === 'avatar' && <MaterialSection node={node} />}
 
         {/* Avatar properties — broadcast pose blend, etc. */}
         {node.kind === 'avatar' && (

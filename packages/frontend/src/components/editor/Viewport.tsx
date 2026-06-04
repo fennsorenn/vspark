@@ -66,6 +66,11 @@ import {
 import { getIkTargets, getIkTargetsTime } from '../../ikTargetStore';
 import { vrmRegistry } from '../../vrmRegistry';
 import {
+  applyMaterialOverrides,
+  disposeMaterialOverrides,
+  type MaterialOverrides,
+} from './materialOverrides';
+import {
   applyArmCalib,
   upperArmNormRotFromTarget,
   DEFAULT_CALIBRATION,
@@ -1008,6 +1013,7 @@ function AvatarNode({
     return () => {
       cancelled = true;
       setVrmLoaded(false);
+      if (vrmRef.current) disposeMaterialOverrides(vrmRef.current);
       vrmMixerRef.current?.stopAllAction();
       vrmMixerRef.current = null;
       vrmRef.current = null;
@@ -1022,6 +1028,21 @@ function AvatarNode({
       vrmRegistry.delete(node.id);
     };
   }, [node.filePath]);
+
+  // --- Material overrides (MToon ⇄ PBR + per-material params) ---
+  // Re-apply whenever the override record changes or the VRM (re)loads. The
+  // apply layer is idempotent and caches per-VRM slots, so this is cheap.
+  const materialOverrides = node.properties?.materialOverrides as
+    | MaterialOverrides
+    | undefined;
+  const materialOverridesKey = JSON.stringify(materialOverrides ?? null);
+  useEffect(() => {
+    if (!vrmLoaded) return;
+    const vrm = vrmRef.current;
+    if (!vrm) return;
+    applyMaterialOverrides(vrm, materialOverrides);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vrmLoaded, materialOverridesKey]);
 
   // --- Animation clip auto-registration ---
   // Once the avatar VRM is loaded, probe each .fbx asset in the project for its real

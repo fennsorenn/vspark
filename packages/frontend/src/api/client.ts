@@ -167,6 +167,9 @@ export interface NodeProperties {
   /** VRM avatar: resting expression weights (expression name → 0..1) applied as a
    *  baseline each frame; live blendshape broadcasts override them per-key. */
   defaultExpressions?: Record<string, number>;
+  /** VRM avatar: per-material shader/param overrides (MToon ⇄ PBR), keyed by a
+   *  stable material identity. See components/editor/materialOverrides.ts. */
+  materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
 }
 
 export interface NodeRecord {
