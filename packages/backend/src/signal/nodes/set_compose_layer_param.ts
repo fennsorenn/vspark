@@ -21,7 +21,7 @@ interface SetComposeLayerParamConfig {
 export class SetComposeLayerParam extends Node {
   static readonly kind = 'set_compose_layer_param';
 
-  @valueIn('targetId', 'EntityId') targetId!: () => string | undefined;
+  @valueIn('targetId', 'ComposeLayer') targetId!: () => string | undefined;
   @valueIn('paramPath', 'String') paramPath!: () => string | undefined;
   @valueIn('value', 'Any') value!: () => unknown;
   @valueIn('persist', 'Bool') persist!: () => boolean | undefined;

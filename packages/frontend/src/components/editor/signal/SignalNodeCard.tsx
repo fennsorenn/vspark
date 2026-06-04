@@ -96,6 +96,8 @@ const STATIC_INPUT_TYPES = new Set([
   'Float',
   'Bool',
   'Account',
+  'SceneNode',
+  'ComposeLayer',
   'SceneEntity',
 ]);
 
@@ -123,8 +125,18 @@ function StaticInput({
   if (port.typeTag === 'Account') {
     return <AccountSelect configValue={configValue} onChange={onChange} />;
   }
-  if (port.typeTag === 'SceneEntity') {
-    return <SceneEntitySelect configValue={configValue} onChange={onChange} />;
+  if (
+    port.typeTag === 'SceneEntity' ||
+    port.typeTag === 'SceneNode' ||
+    port.typeTag === 'ComposeLayer'
+  ) {
+    return (
+      <SceneEntitySelect
+        typeTag={port.typeTag}
+        configValue={configValue}
+        onChange={onChange}
+      />
+    );
   }
   if (port.typeTag === 'Bool') {
     return (
@@ -204,52 +216,52 @@ function AccountSelect({
 }
 
 /**
- * Scene-entity dropdown for unconnected `SceneEntity` value ports (e.g. the
- * `scope` input on `set_data`). Lists the project's compose layers and scene
- * nodes; the stored value is `{kind, id}` (or null for "global"/unset). When a
- * `SceneEntity`-typed output is wired in instead, this editor is hidden.
+ * Entity-reference dropdown for unconnected `SceneNode` / `ComposeLayer` /
+ * `SceneEntity` value ports (e.g. `set_data`'s `scope`, the `targetId` of the
+ * `set_*_param` nodes). The stored value is the entity's bare **id string** (or
+ * null/empty for unset) — the same runtime shape these ports carry when wired.
+ * `SceneNode` lists scene nodes, `ComposeLayer` lists compose layers, and the
+ * generic `SceneEntity` lists both. When a compatible output is wired in, this
+ * editor is hidden.
  */
 function SceneEntitySelect({
+  typeTag,
   configValue,
   onChange,
 }: {
+  typeTag: string;
   configValue: unknown;
   onChange: (value: unknown) => void;
 }) {
   const layers = useEditorStore((s) => s.composeLayers);
   const nodes = useEditorStore((s) => s.nodes);
-  const cur =
-    configValue && typeof configValue === 'object'
-      ? (configValue as { kind?: string; id?: string })
-      : null;
-  const current = cur?.kind && cur?.id ? `${cur.kind}:${cur.id}` : '';
+  const showLayers = typeTag === 'ComposeLayer' || typeTag === 'SceneEntity';
+  const showNodes = typeTag === 'SceneNode' || typeTag === 'SceneEntity';
+  const current = typeof configValue === 'string' ? configValue : '';
+  const emptyLabel =
+    typeTag === 'SceneEntity' ? '— global (all) —' : '— none —';
   return (
     <select
       value={current}
-      onChange={(e) => {
-        const raw = e.target.value;
-        if (!raw) return onChange(null);
-        const sep = raw.indexOf(':');
-        onChange({ kind: raw.slice(0, sep), id: raw.slice(sep + 1) });
-      }}
+      onChange={(e) => onChange(e.target.value || null)}
       onKeyDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       style={{ ...staticInputStyle, width: 180 }}
     >
-      <option value="">— global (all) —</option>
-      {layers.length > 0 && (
+      <option value="">{emptyLabel}</option>
+      {showLayers && layers.length > 0 && (
         <optgroup label="Compose layers">
           {layers.map((l) => (
-            <option key={l.id} value={`compose_layer:${l.id}`}>
+            <option key={l.id} value={l.id}>
               {l.name || l.kind}
             </option>
           ))}
         </optgroup>
       )}
-      {nodes.length > 0 && (
+      {showNodes && nodes.length > 0 && (
         <optgroup label="Scene nodes">
           {nodes.map((n) => (
-            <option key={n.id} value={`scene_node:${n.id}`}>
+            <option key={n.id} value={n.id}>
               {n.name || n.kind}
             </option>
           ))}

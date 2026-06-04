@@ -17,6 +17,6 @@ export interface SceneEntityConfig {
 export class SceneEntity extends Node {
   static readonly kind = 'scene_entity';
 
-  @valueOut('nodeId', 'EntityId')
+  @valueOut('nodeId', 'SceneNode')
   nodeId = (): string => (this.config as unknown as SceneEntityConfig).nodeId;
 }

@@ -7,11 +7,10 @@ interface SetDataConfig {
   /** User-defined field NAMES (+ order). Each becomes a labeled value-in port and
    *  is published as a field of that name. Types are inferred from connections. */
   fields?: string[];
-  /** Config fallback for the `scope` port when unconnected: a scene entity ref. */
-  scope?: { kind: 'scene_node' | 'compose_layer'; id: string } | null;
+  /** Config fallback for the `scope` port when unconnected: a scene entity id
+   *  (a layer/node id), or null/empty for the global scope. */
+  scope?: string | null;
 }
-
-type SceneEntity = { kind: 'scene_node' | 'compose_layer'; id: string } | null;
 
 /**
  * Publishes a set of user-defined named FIELDS to the data-channel bus. Each
@@ -20,9 +19,10 @@ type SceneEntity = { kind: 'scene_node' | 'compose_layer'; id: string } | null;
  * current value is published; a template on the consuming side references each by
  * its bare name (`${chat.map(...)}`).
  *
- * The optional `scope` input (a `SceneEntity` — a compose layer or scene node)
- * targets which consumer the field-set is visible to: a consumer reads its own id
- * scope plus the global scope. Unwired → global (every consumer sees it).
+ * The optional `scope` input (a `SceneEntity` — a compose layer / scene node id;
+ * a `SceneNode` or `ComposeLayer` output widens into it) targets which consumer
+ * the field-set is visible to: a consumer reads its own id scope plus the global
+ * scope. Unwired → global (every consumer sees it).
  *
  * Whole-value republish per fire (no diffing); see DataChannelManager.
  */
@@ -36,13 +36,13 @@ type SceneEntity = { kind: 'scene_node' | 'compose_layer'; id: string } | null;
 export class SetData extends Node {
   static readonly kind = 'set_data';
 
-  @valueIn('scope', 'SceneEntity') scope!: () => SceneEntity;
+  @valueIn('scope', 'SceneEntity') scope!: () => string | undefined;
 
   /** Resolve the scope input/config to a bus scope key ('' = global). */
   private _scopeKey(): string {
     const cfg = (this.config ?? {}) as SetDataConfig;
-    const ent = (this.scope() ?? cfg.scope) as SceneEntity;
-    return ent && typeof ent.id === 'string' ? ent.id : '';
+    const id = this.scope() ?? cfg.scope;
+    return typeof id === 'string' ? id : '';
   }
 
   /** Pre-seed declared fields as null into the (config-resolved) scope so a
@@ -51,7 +51,7 @@ export class SetData extends Node {
     const cfg = (this.config ?? {}) as SetDataConfig;
     const fields = (cfg.fields ?? []).filter((f) => f.length > 0);
     if (fields.length === 0) return;
-    const scope = cfg.scope?.id ?? '';
+    const scope = typeof cfg.scope === 'string' ? cfg.scope : '';
     const seed: Record<string, unknown> = {};
     for (const name of fields) seed[name] = null;
     dataChannelManager.seed(scope, seed);

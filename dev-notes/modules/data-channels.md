@@ -102,13 +102,24 @@ the resolved scope (`scope().id`, else config fallback, else `''`/global) via
 `dataChannelManager.set`. `onBind` `seed`s the declared fields as `null` into the
 config-resolved scope (see bare-name note above).
 
-The `scope` input is a `SceneEntity` (`{kind:'scene_node'|'compose_layer', id}` —
-a new type tag in `shared/signal.ts` + `SIGNAL_TYPE_COLORS`). Unconnected, the
-node card renders a Nodes/Layers dropdown (`SceneEntitySelect` in
-`SignalNodeCard.tsx`, added to `STATIC_INPUT_TYPES`; the chosen `{kind,id}` lands
-in `config.scope`, read back via the engine's unconnected→config fallback). A
-node that outputs a `SceneEntity` can be wired in instead. The labeled-field
-editor (`PackFieldsEditor`) is now shown for both `pack_event` and `set_data`.
+The `scope` input is a `SceneEntity` — the generic supertype of the entity-ref
+types in `shared/signal.ts` (all three carry a **bare id string** at runtime;
+ids are unique across nodes/layers, so the kind isn't needed in the value):
+
+- `SceneNode` — a scene node id (e.g. `scene_entity.nodeId`, the `targetId` of
+  `set_scene_node_param` / the `nodeId` of the broadcast nodes).
+- `ComposeLayer` — a compose layer id (`set_compose_layer_param.targetId`).
+- `SceneEntity` — either; the supertype. `isAssignable` widens `SceneNode` and
+  `ComposeLayer` **into** a `SceneEntity` input (asymmetric, like list fan-in;
+  see `signal_types.ts`), so any entity output can drive `scope` / `set_text`.
+
+`EntityId` was retired in favour of these three (more precise producers, a
+permissive consumer). Unconnected, the node card renders a dropdown
+(`SceneEntitySelect` in `SignalNodeCard.tsx`, all three in `STATIC_INPUT_TYPES`)
+filtered to the port's type — nodes, layers, or both; the chosen **id string**
+lands in `config.scope`, read back via the engine's unconnected→config fallback.
+The labeled-field editor (`PackFieldsEditor`) is shown for both `pack_event` and
+`set_data`.
 
 ### `feed` compose layer — `ComposeLayerStack.tsx` (`FeedLayer`)
 New `ComposeLayerKind` `'feed'` (added to `shared/types.ts`,

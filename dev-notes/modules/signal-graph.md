@@ -173,7 +173,7 @@ Phase 1 of the signal-graph expansion (stream-overlay flows: chat billboards, et
 
 | Kind | Purpose |
 |------|---------|
-| `set_scene_node_param` | Inputs: `fire` (Trigger), `targetId` (EntityId), `paramPath` (String), `value` (Any — coerced via the paramPath registry), `persist` (Bool), optional `spawnRef` (Event<SpawnRef>) that overrides `targetId` for the fire (detected via `ctx.triggeredPort === 'spawnRef'`). On fire: looks up the registry entry, coerces `value` via `coerceParamValue`, calls `runtimeOverrideManager.set(...)`. `persist: true` is best-effort (see [runtime-overrides.md](runtime-overrides.md)). |
+| `set_scene_node_param` | Inputs: `fire` (Trigger), `targetId` (SceneNode), `paramPath` (String), `value` (Any — coerced via the paramPath registry), `persist` (Bool), optional `spawnRef` (Event<SpawnRef>) that overrides `targetId` for the fire (detected via `ctx.triggeredPort === 'spawnRef'`). On fire: looks up the registry entry, coerces `value` via `coerceParamValue`, calls `runtimeOverrideManager.set(...)`. `persist: true` is best-effort (see [runtime-overrides.md](runtime-overrides.md)). |
 | `set_compose_layer_param` | Same shape, compose-layer target. |
 | `set_text` | Convenience over `set_*_param` for the `text.content` paramPath. Accepts `spawnRef`, and when triggered through that port the ref's `kind` overrides `targetKind`. Mismatched ref kinds are refused with a `console.warn`. |
 | `start_clip` | Canonical generalisation of `track_clip_trigger`. Calls `playbackManager.trigger(clipId)`. The original `track_clip_trigger` kind is retained for back-compat. |

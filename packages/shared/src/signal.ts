@@ -347,8 +347,15 @@ export interface SignalTypeMap {
   String: string;
   /** A component's full config JSON, pulled as a value. */
   ComponentConfig: Record<string, unknown>;
-  /** A scene entity / node ID. */
-  EntityId: string;
+  /**
+   * Reference to a scene NODE — carried as the node's bare id string at runtime.
+   * The narrow counterpart of `SceneEntity` (a `SceneNode` is assignable to a
+   * `SceneEntity` input, but not vice versa). See `isAssignable`.
+   */
+  SceneNode: string;
+  /** Reference to a compose LAYER — its bare id string at runtime. Narrow
+   *  counterpart of `SceneEntity`, like `SceneNode`. */
+  ComposeLayer: string;
   /** ARKit→target mapping table: shape name → [(targetName, weight), ...] */
   MappingTable: Record<string, [string, number][]> | null;
   /** Opaque token passed through the pose interceptor chain. */
@@ -380,13 +387,16 @@ export interface SignalTypeMap {
     kind: 'scene_node' | 'compose_layer';
   };
   /**
-   * Reference to a scene entity — either a scene node or a compose layer —
-   * addressed by `{kind, id}`. Used as the `scope` input on `set_data` to target
+   * Reference to a scene entity — EITHER a scene node or a compose layer —
+   * carried as that entity's bare id string at runtime (ids are unique across
+   * both, so the kind isn't needed at runtime). The generic supertype: a
+   * `SceneNode` or `ComposeLayer` output is assignable into a `SceneEntity`
+   * input (see `isAssignable`). Used as the `scope` input on `set_data` to target
    * which consumer a published field-set is visible to (the consumer listens on
    * its own id). The port editor renders a node/layer dropdown when nothing is
-   * wired in; a node that outputs a `SceneEntity` can be wired in instead.
+   * wired in.
    */
-  SceneEntity: { kind: 'scene_node' | 'compose_layer'; id: string };
+  SceneEntity: string;
 }
 
 export type SignalTypeName = keyof SignalTypeMap;
@@ -447,7 +457,8 @@ export const SIGNAL_TYPE_COLORS: Record<SignalTypeName, string> = {
   Trigger: '#888888',
   String: '#7ab8c8',
   ComponentConfig: '#8a6aaf',
-  EntityId: '#6a8aaf',
+  SceneNode: '#6a8aaf',
+  ComposeLayer: '#6aaf9a',
   MappingTable: '#a07050',
   InterceptorFrame: '#9a5a8a',
   Quaternion: '#5a9a7a',
