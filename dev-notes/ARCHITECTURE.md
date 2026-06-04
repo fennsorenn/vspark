@@ -77,6 +77,7 @@ packages/
 | PropertiesPanel: avatar default expressions | Implemented | Avatar section drops the inline animation-asset grid (now picked via the bottom-dock Animations tab; Pick… just flashes it); read-only Expressions list becomes a **Default Expression** control (0..1 slider per VRM expression). Weights persist on `node.properties.defaultExpressions` (shared `SceneNodeProperties.defaultExpressions`, only non-zero kept; backend shallow-merge). `Viewport.tsx` applies them as a per-frame baseline under live broadcast blendshapes. See [frontend.md](modules/frontend.md) and [animation.md](modules/animation.md). |
 | Scene graph panel | Implemented | `components/editor/SceneGraph.tsx` |
 | Properties panel | Implemented | `components/editor/PropertiesPanel.tsx` |
+| Material editor (per-avatar MToon ⇄ PBR) | WIP | Per-VRM-node Material section: switch each material between MToon (NPR, ignores env/ambient) and PBR (`MeshStandardMaterial`, responds to scene lights + per-camera `envIntensity`), edit params, reset to as-authored. Frontend-only; overrides persist on `node.properties.materialOverrides` (no backend/schema change). Apply layer in `components/editor/materialOverrides.ts`; UI + collapsible-section primitive in `PropertiesPanel.tsx`; invoked from `Viewport.tsx`. See [material-overrides.md](modules/material-overrides.md). |
 | Asset manager | Implemented | `components/editor/AssetManager.tsx` |
 | TopBar update UI | Implemented | `components/editor/TopBar.tsx` + `components/editor/UpdateDialog.tsx` — update badge, channel selector, download/apply flow |
 | Signal graph editor | Implemented | `components/editor/signal/SignalGraphCanvas.tsx` |
@@ -193,6 +194,7 @@ REST write → SQLite → WS broadcast (node_added/updated/removed, camera_effec
 - [runtime-overrides.md](modules/runtime-overrides.md) — scene-scoped parallel-to-track-clip override bus for graph-driven runtime param mutation
 - [spawn.md](modules/spawn.md) — ephemeral clip-clone spawning; tmp scene-node / compose-layer instances driven by `spawn_clip`
 - [paramPaths.md](modules/paramPaths.md) — shared paramPath registry used by clips, runtime overrides, and `set_*_param` nodes
+- [material-overrides.md](modules/material-overrides.md) — per-avatar Material Editor: switch each VRM material between MToon and PBR, the apply/swap layer, and why MToon vs PBR matters for lighting
 
 ## Future Features / Planned
 
