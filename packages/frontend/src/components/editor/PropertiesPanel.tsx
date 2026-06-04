@@ -538,6 +538,15 @@ function MaterialRow({
               0.01,
               2
             )}
+          {sliderRow('Smooth normals', 'normalSmoothing', 0, 0, 1, 0.01, 2)}
+          <div style={matRow}>
+            <span style={matLabel}>Flat shading</span>
+            <input
+              type="checkbox"
+              checked={val('flatShading', d.flatShading)}
+              onChange={(e) => patch({ flatShading: e.target.checked }, true)}
+            />
+          </div>
           <div style={matRow}>
             <span style={matLabel}>Double sided</span>
             <input
@@ -577,6 +586,7 @@ function MaterialRow({
               0.01,
               2
             )}
+          {sliderRow('Opacity', 'opacity', d.opacity, 0, 1, 0.01, 2)}
 
           {/* MToon-only */}
           {shader === 'mtoon' && (
