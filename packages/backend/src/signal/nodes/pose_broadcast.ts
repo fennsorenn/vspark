@@ -29,7 +29,7 @@ export class PoseBroadcast extends Node {
   static readonly kind = 'pose_broadcast';
 
   @valueIn('pose', 'NormalizedPose') pose!: () => NormalizedPose | undefined;
-  @valueIn('nodeId', 'EntityId') nodeId!: () => string | undefined;
+  @valueIn('nodeId', 'SceneNode') nodeId!: () => string | undefined;
   @valueIn('componentId', 'String') componentId!: () => string | undefined;
   @valueIn('priority', 'Float') priority!: () => number | undefined;
   @valueIn('animationBlendMode', 'String')

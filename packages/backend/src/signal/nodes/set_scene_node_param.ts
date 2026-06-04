@@ -34,7 +34,7 @@ interface SetSceneNodeParamConfig {
 export class SetSceneNodeParam extends Node {
   static readonly kind = 'set_scene_node_param';
 
-  @valueIn('targetId', 'EntityId') targetId!: () => string | undefined;
+  @valueIn('targetId', 'SceneNode') targetId!: () => string | undefined;
   @valueIn('paramPath', 'String') paramPath!: () => string | undefined;
   @valueIn('value', 'Any') value!: () => unknown;
   @valueIn('persist', 'Bool') persist!: () => boolean | undefined;
@@ -65,8 +65,14 @@ export class SetSceneNodeParam extends Node {
     const paramPath = this.paramPath() || cfg.paramPath;
     if (!targetId || !paramPath) return;
     const persist = this.persist() ?? cfg.persist ?? false;
-    runtimeOverrideManager.set('scene_node', targetId, paramPath, this.value(), {
-      persist,
-    });
+    runtimeOverrideManager.set(
+      'scene_node',
+      targetId,
+      paramPath,
+      this.value(),
+      {
+        persist,
+      }
+    );
   }
 }

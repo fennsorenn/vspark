@@ -33,7 +33,7 @@ Toolchain: repo runs TC39 Stage-3 decorators (TS 5.9, **no** `experimentalDecora
 
 ## Runtime — `signal/engine.ts`
 
-`SignalGraph` is instantiated per component (one per VMC receiver, one per breathing component, etc.). Graphs can also be **project-scoped** rather than component-scoped — see [project-graphs.md](project-graphs.md) for standalone user-authored graphs owned by a `graphs` row. Project graphs have no component context: the `component_config`, `component_id`, and `scene_entity` node kinds are rejected at descriptor-validation time by `ProjectGraphManager` and would throw inside the engine even if smuggled in.
+`SignalGraph` is instantiated per component (one per VMC receiver, one per breathing component, etc.). Graphs can also be **standalone** (project / scene-node / compose-layer scoped) rather than component-scoped — see [project-graphs.md](project-graphs.md) for user-authored graphs owned by a `graphs` row. The component-context kinds `component_config` / `component_id` are rejected in all standalone graphs at descriptor-validation time by `ProjectGraphManager`. `scene_entity` is allowed in scene-node- and compose-layer-scoped graphs (rejected only in project scope); the graph's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
 
 After the Phase 2 re-architecture the engine is **wiring + lifecycle** over Node instances, not a central dispatcher:
 
@@ -146,7 +146,7 @@ The interceptor chain lets components (e.g., breathing) modify poses in-flight b
 |------|-------------|
 | `component_config` | Dot-notation extractor on component config JSON (e.g., `field: "myNode.param"`) |
 | `component_id` | Injects the owning componentId as a string value |
-| `scene_entity` | Injects the scene node ID for addressed broadcasts |
+| `scene_entity` | Outputs the id of the entity the graph is scoped to; output type follows scope (`SceneNode` / `ComposeLayer`) |
 | `viseme_passthrough` | Scales viseme weights by a sensitivity config value |
 
 ## Graph Descriptor
@@ -173,7 +173,7 @@ Phase 1 of the signal-graph expansion (stream-overlay flows: chat billboards, et
 
 | Kind | Purpose |
 |------|---------|
-| `set_scene_node_param` | Inputs: `fire` (Trigger), `targetId` (EntityId), `paramPath` (String), `value` (Any — coerced via the paramPath registry), `persist` (Bool), optional `spawnRef` (Event<SpawnRef>) that overrides `targetId` for the fire (detected via `ctx.triggeredPort === 'spawnRef'`). On fire: looks up the registry entry, coerces `value` via `coerceParamValue`, calls `runtimeOverrideManager.set(...)`. `persist: true` is best-effort (see [runtime-overrides.md](runtime-overrides.md)). |
+| `set_scene_node_param` | Inputs: `fire` (Trigger), `targetId` (SceneNode), `paramPath` (String), `value` (Any — coerced via the paramPath registry), `persist` (Bool), optional `spawnRef` (Event<SpawnRef>) that overrides `targetId` for the fire (detected via `ctx.triggeredPort === 'spawnRef'`). On fire: looks up the registry entry, coerces `value` via `coerceParamValue`, calls `runtimeOverrideManager.set(...)`. `persist: true` is best-effort (see [runtime-overrides.md](runtime-overrides.md)). |
 | `set_compose_layer_param` | Same shape, compose-layer target. |
 | `set_text` | Convenience over `set_*_param` for the `text.content` paramPath. Accepts `spawnRef`, and when triggered through that port the ref's `kind` overrides `targetKind`. Mismatched ref kinds are refused with a `console.warn`. |
 | `start_clip` | Canonical generalisation of `track_clip_trigger`. Calls `playbackManager.trigger(clipId)`. The original `track_clip_trigger` kind is retained for back-compat. |

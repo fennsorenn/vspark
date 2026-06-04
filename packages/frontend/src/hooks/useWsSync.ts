@@ -372,14 +372,22 @@ export function useWsSync() {
             };
             useEditorStore.getState().replaceRuntimeOverrides(p.entries ?? []);
           } else if (msg.kind === 'data_channel_set') {
-            const p = msg.payload as { channel: string; payload: unknown };
-            useEditorStore.getState().setDataChannel(p.channel, p.payload);
+            const p = msg.payload as {
+              scope: string;
+              fields: Record<string, unknown>;
+            };
+            useEditorStore
+              .getState()
+              .mergeDataChannels(p.scope ?? '', p.fields ?? {});
           } else if (msg.kind === 'data_channel_clear') {
-            const p = msg.payload as { channel: string };
-            useEditorStore.getState().clearDataChannel(p.channel);
+            const p = msg.payload as { scope: string; field?: string };
+            useEditorStore.getState().clearDataChannels(p.scope ?? '', p.field);
           } else if (msg.kind === 'data_channel_snapshot') {
             const p = msg.payload as {
-              entries: Array<{ channel: string; payload: unknown }>;
+              entries: Array<{
+                scope: string;
+                fields: Record<string, unknown>;
+              }>;
             };
             useEditorStore.getState().replaceDataChannels(p.entries ?? []);
           } else if (msg.kind === 'server_update') {

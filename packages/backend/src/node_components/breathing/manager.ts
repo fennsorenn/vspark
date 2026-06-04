@@ -43,7 +43,9 @@ export class BreathingManager {
       (nodeId, state) => {
         this.nodeStates.get(componentId)!.set(nodeId, state);
         this._persistNodeState(componentId, nodeId, state);
-      }
+      },
+      // Component graphs are always attached to a scene node.
+      'scene_node'
     );
 
     const fns: Array<() => void> = [];

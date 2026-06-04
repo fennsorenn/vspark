@@ -9,8 +9,8 @@ Standalone graphs exist independently of any `node_components` row. The canonica
 | Owner kind | Use case | Context node injected |
 |---|---|---|
 | `project` | Project-wide event handlers (overlive, manual triggers). No spatial owner. | none |
-| `scene_node` | Logic attached to a scene node (e.g. drive that node's transform or trigger its clips). | synthetic `scene_entity` bound to the owner scene node id |
-| `compose_layer` | Logic attached to a compose layer (e.g. drive that layer's text content / opacity). | synthetic `scene_entity` bound to the owner compose layer id |
+| `scene_node` | Logic attached to a scene node (e.g. drive that node's transform or trigger its clips). | `scene_entity` (output type `SceneNode`), fed the owner scene node id |
+| `compose_layer` | Logic attached to a compose layer (e.g. drive that layer's text content / opacity). | `scene_entity` (output type `ComposeLayer`), fed the owner compose layer id |
 
 Component graphs (one per `node_components` row, hardcoded shape) are a separate concept; they're owned by the component manager and not surfaced through the same routes.
 
@@ -50,7 +50,7 @@ A single generic router serves all three owner kinds.
 
 - **`startAllEnabled()`** — called at server boot. Hydrates and starts every `enabled = 1` row across all owner kinds.
 - **`reconcile(id)`** — called on every create/update. If `enabled` it stops then re-starts the instance (picks up descriptor + node_state changes); if disabled, stops only.
-- **Descriptor validation** — `validateDescriptor()` rejects any node whose kind is in `COMPONENT_CONTEXT_KINDS = { component_config, component_id, scene_entity }`. Thrown errors surface as `400` from the PUT handler. For scoped graphs the manager injects its own `scene_entity` node at start time, so users can still consume the entity id via normal port connections — they just can't author the context node directly.
+- **Descriptor validation** — `validateDescriptor()` always rejects the component-context kinds `{ component_config, component_id }` (no component to read from). `scene_entity` is allowed in **scene-node- and compose-layer-scoped** graphs and rejected only in **project**-scoped graphs (no owner entity). Thrown errors surface as `400` from the PUT handler. For the allowed scopes the user authors a `scene_entity` node directly; the manager feeds its `config.nodeId` = `owner_id` at start time, and the node's **output type follows the scope** — `SceneNode` for scene-node-scoped, `ComposeLayer` for compose-layer-scoped — via `inferSceneEntity` (the scope reaches inference through `SignalGraph.fromDescriptor(..., ownerKind)` → `InferGraph` → `InferCtx.ownerKind`).
 - **State persistence** — each `setState(nodeId, state)` writes the JSON map back to the row's `node_state` column.
 - **Clock self-tick** — for each `clock` node in the descriptor, the manager calls `Clock.attach(...)` and stashes the cleanup; defaults to 30Hz or `defaultConfig.hz`.
 
