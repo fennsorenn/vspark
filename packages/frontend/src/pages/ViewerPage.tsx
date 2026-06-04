@@ -8,7 +8,14 @@ import { useEditorStore } from '../store/editorStore';
 import { api } from '../api/client';
 import { useWsSync } from '../hooks/useWsSync';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
-import { SceneNodes, CameraEffects } from '../components/editor/Viewport';
+import {
+  SceneNodes,
+  CameraEffects,
+  ShadowCatcher,
+  ShadowMaterialSync,
+  canvasShadowsProp,
+  type ShadowQuality,
+} from '../components/editor/Viewport';
 import { ComposeLayerStack } from '../components/editor/ComposeLayerStack';
 
 function getT(components: Record<string, unknown> | undefined) {
@@ -154,10 +161,13 @@ export function ViewerPage() {
         far?: number;
         orthoSize?: number;
         backgroundImage?: string;
+        shadowsEnabled?: boolean;
+        shadowQuality?: ShadowQuality;
       }
     | undefined;
   const projection = cc?.projection ?? 'perspective';
   const orthoSize = cc?.orthoSize ?? 2;
+  const shadowsEnabled = cc?.shadowsEnabled ?? false;
   const t = getT(camNode?.components as Record<string, unknown> | undefined);
   const bgImage = cc?.backgroundImage ?? null;
   const camSceneId = camNode?.rootSceneNodeId;
@@ -198,6 +208,7 @@ export function ViewerPage() {
       <ComposeLayerStack layers={stackLayers} assets={assets} mode="viewer" />
       <Canvas
         gl={{ alpha: true, antialias: true, toneMapping: THREE.NoToneMapping }}
+        shadows={canvasShadowsProp(shadowsEnabled, cc?.shadowQuality)}
         style={{
           background: 'transparent',
           position: 'relative',
@@ -227,6 +238,8 @@ export function ViewerPage() {
           />
         )}
         <SceneNodes omitKinds={['camera']} viewerMode sceneId={camSceneId} />
+        {shadowsEnabled && <ShadowCatcher />}
+        <ShadowMaterialSync enabled={shadowsEnabled} />
         <Environment preset="city" />
         {nodeId && <CameraEffects forceNodeId={nodeId} sceneId={camSceneId} />}
       </Canvas>

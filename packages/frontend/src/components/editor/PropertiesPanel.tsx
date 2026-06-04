@@ -51,15 +51,32 @@ interface Transform {
   /** Uniform descendant-mesh opacity. Persisted on components.transform; the
    *  viewport's per-frame material walk reads it and adjusts material.opacity. */
   opacity: number;
+  /** Whether descendant meshes cast shadows (when the camera has shadows on). */
+  castShadow: boolean;
+  /** Whether descendant meshes receive shadows. */
+  receiveShadow: boolean;
 }
 
 interface LightProps {
   lightType: string;
   color: string;
   intensity: number;
+  /** Whether this light casts shadows. Inert unless the camera enables shadows. */
+  castShadow?: boolean;
+  /** Shadow-map resolution (px, square). Default 1024. */
+  shadowMapSize?: number;
+  /** Depth bias to combat shadow acne. Default -0.0005. */
+  shadowBias?: number;
+  /** Normal-offset bias to combat peter-panning. Default 0.02. */
+  shadowNormalBias?: number;
+  /** Directional-light ortho shadow-camera half-extent (world units). Default 10. */
+  shadowCameraSize?: number;
+  /** Shadow-camera far plane (world units). Default 50. */
+  shadowCameraFar?: number;
 }
 
 export type CameraProjection = 'perspective' | 'orthographic';
+export type ShadowQuality = 'low' | 'medium' | 'high';
 interface CameraProps {
   projection: CameraProjection;
   fov: number;
@@ -67,6 +84,10 @@ interface CameraProps {
   far: number;
   /** Half-height of the orthographic view frustum (world units). */
   orthoSize: number;
+  /** Enable shadow-map rendering for this camera's view. Default false. */
+  shadowsEnabled: boolean;
+  /** Shadow-map filter quality. low=hard, medium=PCF, high=PCF-soft. */
+  shadowQuality: ShadowQuality;
 }
 
 const RAD = Math.PI / 180;
@@ -84,6 +105,8 @@ function getTransform(node: NodeRecord): Transform {
     sy: t?.sy ?? 1,
     sz: t?.sz ?? 1,
     opacity: t?.opacity ?? 1,
+    castShadow: t?.castShadow ?? true,
+    receiveShadow: t?.receiveShadow ?? true,
   };
 }
 
@@ -93,6 +116,12 @@ function getLightProps(node: NodeRecord): LightProps {
     lightType: l?.lightType ?? 'point',
     color: l?.color ?? '#ffffff',
     intensity: l?.intensity ?? 1,
+    castShadow: l?.castShadow ?? false,
+    shadowMapSize: l?.shadowMapSize ?? 1024,
+    shadowBias: l?.shadowBias ?? -0.0005,
+    shadowNormalBias: l?.shadowNormalBias ?? 0.02,
+    shadowCameraSize: l?.shadowCameraSize ?? 10,
+    shadowCameraFar: l?.shadowCameraFar ?? 50,
   };
 }
 
@@ -104,6 +133,8 @@ function getCameraProps(node: NodeRecord): CameraProps {
     near: c?.near ?? 0.1,
     far: c?.far ?? 1000,
     orthoSize: c?.orthoSize ?? 2,
+    shadowsEnabled: c?.shadowsEnabled ?? false,
+    shadowQuality: c?.shadowQuality ?? 'medium',
   };
 }
 
@@ -2864,6 +2895,8 @@ export function PropertiesPanel() {
     sy: 1,
     sz: 1,
     opacity: 1,
+    castShadow: true,
+    receiveShadow: true,
   });
   // Ref always holds the latest transform — avoids stale closures in onBlur handlers
   const transformRef = useRef<Transform>({
@@ -2877,6 +2910,8 @@ export function PropertiesPanel() {
     sy: 1,
     sz: 1,
     opacity: 1,
+    castShadow: true,
+    receiveShadow: true,
   });
   const isEditingTransform = useRef(false);
   const [light, setLight] = useState<LightProps>({
@@ -2890,6 +2925,8 @@ export function PropertiesPanel() {
     near: 0.1,
     far: 1000,
     orthoSize: 2,
+    shadowsEnabled: false,
+    shadowQuality: 'medium',
   });
   const [animPlaying, setAnimPlaying] = useState(true);
   const [animTime, setAnimTime] = useState(0);
@@ -3124,7 +3161,12 @@ export function PropertiesPanel() {
   };
 
   const saveCamera = (c: CameraProps) => {
-    const components = { ...node.components, camera: { type: 'camera', ...c } };
+    // Merge over the existing camera component so fields not covered by
+    // CameraProps (e.g. backgroundImage) survive the write.
+    const components = {
+      ...node.components,
+      camera: { ...(node.components?.camera as object), type: 'camera', ...c },
+    };
     storeUpdateNode(node.id, { components });
     api.updateNode(node.id, { components }).catch(() => {});
   };
@@ -3419,6 +3461,51 @@ export function PropertiesPanel() {
           }
         />
 
+        {/* Shadow flags — only meaningful for mesh-bearing kinds. Visible only
+            when some camera has shadows enabled. */}
+        {(node.kind === 'avatar' ||
+          node.kind === 'model' ||
+          node.kind === 'prop' ||
+          node.kind === 'scene_instance' ||
+          node.kind === 'group') && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 16,
+              marginTop: 8,
+              fontSize: 12,
+              color: '#aaa',
+            }}
+          >
+            {(['castShadow', 'receiveShadow'] as const).map((key) => (
+              <label
+                key={key}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={transform[key]}
+                  onChange={(e) => {
+                    const t = {
+                      ...transformRef.current,
+                      [key]: e.target.checked,
+                    };
+                    transformRef.current = t;
+                    setTransform(t);
+                    saveTransform();
+                  }}
+                />
+                {key === 'castShadow' ? 'Cast shadows' : 'Receive shadows'}
+              </label>
+            ))}
+          </div>
+        )}
+
         {/* Light Properties */}
         {node.kind === 'light' && (
           <>
@@ -3481,6 +3568,125 @@ export function PropertiesPanel() {
                   }}
                 />
               </div>
+
+              {/* Shadows — ambient lights can't cast. Enabling requires the
+                  camera to also have shadows on (see Camera Properties). */}
+              {light.lightType !== 'ambient' && (
+                <>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 12,
+                      color: '#aaa',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={light.castShadow ?? false}
+                      onChange={(e) => {
+                        const next = { ...light, castShadow: e.target.checked };
+                        setLight(next);
+                        saveLight(next);
+                      }}
+                    />
+                    Cast shadows
+                  </label>
+                  {light.castShadow && (
+                    <>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                      >
+                        <span
+                          style={{ fontSize: 12, color: '#888', width: 60 }}
+                        >
+                          Map Size
+                        </span>
+                        <select
+                          style={{ ...textInput, width: 'auto', flex: 1 }}
+                          value={String(light.shadowMapSize ?? 1024)}
+                          onChange={(e) => {
+                            const next = {
+                              ...light,
+                              shadowMapSize: Number(e.target.value),
+                            };
+                            setLight(next);
+                            saveLight(next);
+                          }}
+                        >
+                          <option value="512">512 (fast)</option>
+                          <option value="1024">1024</option>
+                          <option value="2048">2048 (sharp)</option>
+                          <option value="4096">4096</option>
+                        </select>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                      >
+                        <span
+                          style={{ fontSize: 12, color: '#888', width: 60 }}
+                          title="Depth bias — increase (toward 0) if shadows detach, decrease if you see acne"
+                        >
+                          Bias
+                        </span>
+                        <NumInput
+                          value={light.shadowBias ?? -0.0005}
+                          step={0.0001}
+                          style={{ width: 96 }}
+                          onChange={(v) =>
+                            setLight({ ...light, shadowBias: v })
+                          }
+                          onCommit={(v) => {
+                            const next = { ...light, shadowBias: v };
+                            setLight(next);
+                            saveLight(next);
+                          }}
+                        />
+                      </div>
+                      {light.lightType === 'directional' && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                          }}
+                        >
+                          <span
+                            style={{ fontSize: 12, color: '#888', width: 60 }}
+                            title="Half-size of the area the shadow covers. Smaller = sharper shadows over a smaller region."
+                          >
+                            Area
+                          </span>
+                          <NumInput
+                            value={light.shadowCameraSize ?? 10}
+                            step={1}
+                            min={1}
+                            style={{ width: 96 }}
+                            onChange={(v) =>
+                              setLight({ ...light, shadowCameraSize: v })
+                            }
+                            onCommit={(v) => {
+                              const next = { ...light, shadowCameraSize: v };
+                              setLight(next);
+                              saveLight(next);
+                            }}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
             </div>
           </>
         )}
@@ -3575,6 +3781,67 @@ export function PropertiesPanel() {
                   />
                 </div>
               ))}
+            </div>
+
+            <div style={sectionHeader}>Shadows</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 12,
+                  color: '#aaa',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={camera.shadowsEnabled}
+                  onChange={(e) => {
+                    const next = {
+                      ...camera,
+                      shadowsEnabled: e.target.checked,
+                    };
+                    setCamera(next);
+                    saveCamera(next);
+                  }}
+                />
+                Enable shadows
+              </label>
+              {camera.shadowsEnabled && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: '#888', width: 60 }}>
+                    Quality
+                  </span>
+                  <select
+                    style={{ ...textInput, width: 'auto', flex: 1 }}
+                    value={camera.shadowQuality}
+                    onChange={(e) => {
+                      const next = {
+                        ...camera,
+                        shadowQuality: e.target.value as ShadowQuality,
+                      };
+                      setCamera(next);
+                      saveCamera(next);
+                    }}
+                  >
+                    <option value="low">Low (hard edges)</option>
+                    <option value="medium">Medium (PCF)</option>
+                    <option value="high">High (soft PCF)</option>
+                  </select>
+                </div>
+              )}
+              <div
+                style={{
+                  fontSize: 10,
+                  color: '#555',
+                  lineHeight: 1.4,
+                }}
+              >
+                Lights only cast shadows if their own "Cast shadows" is on.
+                Per-object cast/receive is set on each model's transform.
+              </div>
             </div>
 
             <div
