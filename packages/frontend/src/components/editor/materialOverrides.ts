@@ -39,7 +39,15 @@
 import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 
-export type ShaderKind = 'mtoon' | 'pbr';
+/**
+ * Shader modes:
+ *   - `mtoon` — the VRM toon/NPR default (`MToonMaterial`).
+ *   - `pbr`   — physically-based metalness/roughness (`MeshStandardMaterial`).
+ *   - `apbr`  — "advanced PBR": `MeshPhysicalMaterial`, a strict superset of PBR
+ *               that adds specular, clearcoat, sheen, transmission, iridescence,
+ *               anisotropy and IOR controls.
+ */
+export type ShaderKind = 'mtoon' | 'pbr' | 'apbr';
 export type AlphaMode = 'opaque' | 'mask' | 'blend';
 
 /** Stable per-material identity — see module header. */
@@ -56,17 +64,39 @@ export interface MaterialOverride {
   doubleSided?: boolean;
   alphaMode?: AlphaMode;
   alphaCutoff?: number;
-  // MToon-specific (kept even when shader === 'pbr'):
+  // MToon-specific (kept even when shader is pbr/apbr):
   shadeColor?: string;
   shadingShiftFactor?: number;
   shadingToonyFactor?: number;
+  giEqualization?: number;
+  matcapColor?: string;
   rimColor?: string;
   rimLightingMix?: number;
+  rimFresnelPower?: number;
+  rimLift?: number;
   outlineWidth?: number;
   outlineColor?: string;
-  // PBR-specific (kept even when shader === 'mtoon'):
+  outlineLightingMix?: number;
+  // PBR + APBR (kept even when shader === 'mtoon'):
   roughness?: number;
   metalness?: number;
+  envMapIntensity?: number;
+  // APBR-only (MeshPhysicalMaterial lobes):
+  specularIntensity?: number;
+  specularColor?: string;
+  clearcoat?: number;
+  clearcoatRoughness?: number;
+  sheen?: number;
+  sheenRoughness?: number;
+  sheenColor?: string;
+  transmission?: number;
+  thickness?: number;
+  ior?: number;
+  attenuationColor?: string;
+  attenuationDistance?: number; // 0 => disabled (Infinity)
+  iridescence?: number;
+  iridescenceIor?: number;
+  anisotropy?: number;
 }
 
 export type MaterialOverrides = Record<MaterialKey, MaterialOverride>;
@@ -85,14 +115,36 @@ export interface MaterialDefaults {
   shadeColor: string;
   shadingShiftFactor: number;
   shadingToonyFactor: number;
+  giEqualization: number;
+  matcapColor: string;
   rimColor: string;
   rimLightingMix: number;
+  rimFresnelPower: number;
+  rimLift: number;
   outlineWidth: number;
   outlineColor: string;
+  outlineLightingMix: number;
   hasOutline: boolean;
-  // PBR-only:
+  // PBR + APBR:
   roughness: number;
   metalness: number;
+  envMapIntensity: number;
+  // APBR-only:
+  specularIntensity: number;
+  specularColor: string;
+  clearcoat: number;
+  clearcoatRoughness: number;
+  sheen: number;
+  sheenRoughness: number;
+  sheenColor: string;
+  transmission: number;
+  thickness: number;
+  ior: number;
+  attenuationColor: string;
+  attenuationDistance: number;
+  iridescence: number;
+  iridescenceIor: number;
+  anisotropy: number;
 }
 
 /** Lightweight per-material info for the properties panel. */
@@ -110,6 +162,27 @@ export interface MaterialSlotInfo {
 const DEFAULT_PBR_ROUGHNESS = 0.9;
 const DEFAULT_PBR_METALNESS = 0;
 const DEFAULT_ALPHA_CUTOFF = 0.5;
+
+/** APBR (MeshPhysicalMaterial) lobe defaults — match three's own defaults so a
+ *  freshly-built advanced material renders identically to standard PBR until a
+ *  lobe is dialled up. */
+const APBR_DEFAULTS = {
+  specularIntensity: 1,
+  specularColor: '#ffffff',
+  clearcoat: 0,
+  clearcoatRoughness: 0,
+  sheen: 0,
+  sheenRoughness: 1,
+  sheenColor: '#000000',
+  transmission: 0,
+  thickness: 0,
+  ior: 1.5,
+  attenuationColor: '#ffffff',
+  attenuationDistance: 0, // 0 == disabled (mapped to Infinity on apply)
+  iridescence: 0,
+  iridescenceIor: 1.3,
+  anisotropy: 0,
+} as const;
 
 // ── internal registry ──────────────────────────────────────────────────────
 
@@ -133,8 +206,10 @@ interface Slot {
   source: THREE.Material;
   defaults: MaterialDefaults;
   meshes: MeshSlot[];
-  /** Lazily built PBR material; cached for reuse across switches. */
+  /** Lazily built standard-PBR material; cached for reuse across switches. */
   pbr: THREE.MeshStandardMaterial | null;
+  /** Lazily built advanced-PBR (physical) material; cached for reuse. */
+  apbr: THREE.MeshPhysicalMaterial | null;
   /** Shader currently applied to the scene for this slot. */
   current: ShaderKind;
 }
@@ -157,10 +232,15 @@ interface MToonLike extends THREE.Material {
   shadeColorFactor: THREE.Color;
   shadingShiftFactor: number;
   shadingToonyFactor: number;
+  giEqualizationFactor: number;
+  matcapFactor: THREE.Color;
   parametricRimColorFactor: THREE.Color;
   rimLightingMixFactor: number;
+  parametricRimFresnelPowerFactor: number;
+  parametricRimLiftFactor: number;
   outlineWidthFactor: number;
   outlineColorFactor: THREE.Color;
+  outlineLightingMixFactor: number;
 }
 
 const registries = new WeakMap<VRM, Registry>();
@@ -198,10 +278,15 @@ function readDefaults(source: THREE.Material): MaterialDefaults {
     shadeColor: mtoon ? hex(m.shadeColorFactor) : '#808080',
     shadingShiftFactor: mtoon ? m.shadingShiftFactor : 0,
     shadingToonyFactor: mtoon ? m.shadingToonyFactor : 0.9,
+    giEqualization: mtoon ? (m.giEqualizationFactor ?? 0.9) : 0.9,
+    matcapColor: mtoon ? hex(m.matcapFactor) : '#000000',
     rimColor: mtoon ? hex(m.parametricRimColorFactor) : '#000000',
     rimLightingMix: mtoon ? m.rimLightingMixFactor : 1,
+    rimFresnelPower: mtoon ? (m.parametricRimFresnelPowerFactor ?? 5) : 5,
+    rimLift: mtoon ? (m.parametricRimLiftFactor ?? 0) : 0,
     outlineWidth: mtoon ? m.outlineWidthFactor : 0,
     outlineColor: mtoon ? hex(m.outlineColorFactor) : '#000000',
+    outlineLightingMix: mtoon ? (m.outlineLightingMixFactor ?? 1) : 1,
     hasOutline: false, // patched in below once outline meshes are matched
     roughness: mtoon
       ? DEFAULT_PBR_ROUGHNESS
@@ -209,6 +294,8 @@ function readDefaults(source: THREE.Material): MaterialDefaults {
     metalness: mtoon
       ? DEFAULT_PBR_METALNESS
       : (m.metalness ?? DEFAULT_PBR_METALNESS),
+    envMapIntensity: mtoon ? 1 : (m.envMapIntensity ?? 1),
+    ...APBR_DEFAULTS,
   };
 }
 
@@ -249,6 +336,7 @@ function buildRegistry(vrm: VRM): Registry {
       defaults: readDefaults(mat),
       meshes: [],
       pbr: null,
+      apbr: null,
       current: isMToon(mat) ? 'mtoon' : 'pbr',
     });
   }
@@ -351,8 +439,12 @@ function applyMToon(slot: Slot, ov: MaterialOverride | undefined): void {
   m.shadeColorFactor.set(ov?.shadeColor ?? d.shadeColor);
   m.shadingShiftFactor = ov?.shadingShiftFactor ?? d.shadingShiftFactor;
   m.shadingToonyFactor = ov?.shadingToonyFactor ?? d.shadingToonyFactor;
+  m.giEqualizationFactor = ov?.giEqualization ?? d.giEqualization;
+  m.matcapFactor.set(ov?.matcapColor ?? d.matcapColor);
   m.parametricRimColorFactor.set(ov?.rimColor ?? d.rimColor);
   m.rimLightingMixFactor = ov?.rimLightingMix ?? d.rimLightingMix;
+  m.parametricRimFresnelPowerFactor = ov?.rimFresnelPower ?? d.rimFresnelPower;
+  m.parametricRimLiftFactor = ov?.rimLift ?? d.rimLift;
 
   let recompile = false;
   recompile = applySide(m, ov?.doubleSided ?? d.doubleSided) || recompile;
@@ -364,9 +456,10 @@ function applyMToon(slot: Slot, ov: MaterialOverride | undefined): void {
     ) || recompile;
   if (recompile) m.needsUpdate = true;
 
-  // Restore the surface material reference + outline widths on each mesh.
+  // Restore the surface material reference + outline params on each mesh.
   const width = ov?.outlineWidth ?? d.outlineWidth;
   const outlineColor = ov?.outlineColor ?? d.outlineColor;
+  const outlineMix = ov?.outlineLightingMix ?? d.outlineLightingMix;
   for (const ms of slot.meshes) {
     if (ms.isArray) {
       (ms.mesh.material as THREE.Material[])[ms.surfaceIndex] = slot.source;
@@ -376,40 +469,69 @@ function applyMToon(slot: Slot, ov: MaterialOverride | undefined): void {
     if (ms.outlineMat) {
       ms.outlineMat.outlineWidthFactor = width;
       ms.outlineMat.outlineColorFactor.set(outlineColor);
+      ms.outlineMat.outlineLightingMixFactor = outlineMix;
     }
   }
   slot.current = 'mtoon';
 }
 
-function buildPbr(source: THREE.Material): THREE.MeshStandardMaterial {
+/** Carry the authored base maps + render flags onto a standard/physical target.
+ *  Uses explicit field copies (not `Material.copy`) so it's safe across material
+ *  types — copying a non-physical source into a MeshPhysicalMaterial via `.copy`
+ *  would clobber its `defines` / read undefined physical-only fields. Roughness
+ *  and metalness are seeded to defaults here and then re-derived per authored
+ *  value in {@link applyStandardCommon}. */
+function populateStandardFrom(
+  target: THREE.MeshStandardMaterial,
+  source: THREE.Material
+): void {
+  const s = source as Partial<THREE.MeshStandardMaterial> & THREE.Material;
+  if (s.map) target.map = s.map;
+  if (s.color) target.color.copy(s.color);
+  if (s.normalMap) target.normalMap = s.normalMap;
+  if (s.normalScale) target.normalScale.copy(s.normalScale);
+  if (s.emissive) target.emissive.copy(s.emissive);
+  if (s.emissiveMap) target.emissiveMap = s.emissiveMap;
+  if (typeof s.emissiveIntensity === 'number')
+    target.emissiveIntensity = s.emissiveIntensity;
+  // Extra PBR maps — present on native MeshStandardMaterial sources, absent on MToon.
+  if (s.aoMap) {
+    target.aoMap = s.aoMap;
+    target.aoMapIntensity = s.aoMapIntensity ?? 1;
+  }
+  if (s.roughnessMap) target.roughnessMap = s.roughnessMap;
+  if (s.metalnessMap) target.metalnessMap = s.metalnessMap;
+
+  target.transparent = source.transparent;
+  target.opacity = source.opacity;
+  target.alphaTest = source.alphaTest;
+  target.depthWrite = source.depthWrite;
+  target.side = source.side;
+  target.toneMapped = source.toneMapped;
+  target.roughness = DEFAULT_PBR_ROUGHNESS;
+  target.metalness = DEFAULT_PBR_METALNESS;
+}
+
+function buildStandard(source: THREE.Material): THREE.MeshStandardMaterial {
   const std = new THREE.MeshStandardMaterial();
   std.name = `${source.name || 'material'} (PBR)`;
-  if (isMToon(source)) {
-    std.map = source.map;
-    std.color.copy(source.color);
-    std.normalMap = source.normalMap;
-    if (source.normalScale) std.normalScale.copy(source.normalScale);
-    std.emissive.copy(source.emissive);
-    std.emissiveMap = source.emissiveMap;
-    std.emissiveIntensity = source.emissiveIntensity;
-  } else {
-    std.copy(source as THREE.MeshStandardMaterial);
-  }
-  std.transparent = source.transparent;
-  std.opacity = source.opacity;
-  std.alphaTest = source.alphaTest;
-  std.depthWrite = source.depthWrite;
-  std.side = source.side;
-  std.toneMapped = source.toneMapped;
-  std.roughness = DEFAULT_PBR_ROUGHNESS;
-  std.metalness = DEFAULT_PBR_METALNESS;
+  populateStandardFrom(std, source);
   return std;
 }
 
-function applyPbr(slot: Slot, ov: MaterialOverride | undefined): void {
-  const d = slot.defaults;
-  if (!slot.pbr) slot.pbr = buildPbr(slot.source);
-  const p = slot.pbr;
+function buildPhysical(source: THREE.Material): THREE.MeshPhysicalMaterial {
+  const phys = new THREE.MeshPhysicalMaterial();
+  phys.name = `${source.name || 'material'} (APBR)`;
+  populateStandardFrom(phys, source);
+  return phys;
+}
+
+/** Apply the params shared by standard + physical materials. */
+function applyStandardCommon(
+  p: THREE.MeshStandardMaterial,
+  ov: MaterialOverride | undefined,
+  d: MaterialDefaults
+): void {
   p.color.set(ov?.baseColor ?? d.baseColor);
   p.emissive.set(ov?.emissive ?? d.emissive);
   p.emissiveIntensity = ov?.emissiveIntensity ?? d.emissiveIntensity;
@@ -419,6 +541,7 @@ function applyPbr(slot: Slot, ov: MaterialOverride | undefined): void {
   }
   p.roughness = ov?.roughness ?? d.roughness;
   p.metalness = ov?.metalness ?? d.metalness;
+  p.envMapIntensity = ov?.envMapIntensity ?? d.envMapIntensity;
 
   let recompile = false;
   recompile = applySide(p, ov?.doubleSided ?? d.doubleSided) || recompile;
@@ -429,8 +552,52 @@ function applyPbr(slot: Slot, ov: MaterialOverride | undefined): void {
       ov?.alphaCutoff ?? d.alphaCutoff
     ) || recompile;
   if (recompile) p.needsUpdate = true;
+}
 
-  // Point each mesh slot at the PBR material and collapse the toon outline.
+/** Apply the advanced MeshPhysicalMaterial lobes. */
+function applyAdvanced(
+  p: THREE.MeshPhysicalMaterial,
+  ov: MaterialOverride | undefined,
+  d: MaterialDefaults
+): void {
+  p.specularIntensity = ov?.specularIntensity ?? d.specularIntensity;
+  p.specularColor.set(ov?.specularColor ?? d.specularColor);
+  p.clearcoat = ov?.clearcoat ?? d.clearcoat;
+  p.clearcoatRoughness = ov?.clearcoatRoughness ?? d.clearcoatRoughness;
+  p.sheen = ov?.sheen ?? d.sheen;
+  p.sheenRoughness = ov?.sheenRoughness ?? d.sheenRoughness;
+  p.sheenColor.set(ov?.sheenColor ?? d.sheenColor);
+  p.transmission = ov?.transmission ?? d.transmission;
+  p.thickness = ov?.thickness ?? d.thickness;
+  p.ior = ov?.ior ?? d.ior;
+  p.attenuationColor.set(ov?.attenuationColor ?? d.attenuationColor);
+  const attDist = ov?.attenuationDistance ?? d.attenuationDistance;
+  p.attenuationDistance = attDist > 0 ? attDist : Infinity;
+  p.iridescence = ov?.iridescence ?? d.iridescence;
+  p.iridescenceIOR = ov?.iridescenceIor ?? d.iridescenceIor;
+  p.anisotropy = ov?.anisotropy ?? d.anisotropy;
+}
+
+/** Build (lazily) + apply a standard or physical material, then swap it onto
+ *  every mesh slot and collapse the toon outline. */
+function applyStandardLike(
+  slot: Slot,
+  ov: MaterialOverride | undefined,
+  mode: 'pbr' | 'apbr'
+): void {
+  const d = slot.defaults;
+  let p: THREE.MeshStandardMaterial;
+  if (mode === 'apbr') {
+    if (!slot.apbr) slot.apbr = buildPhysical(slot.source);
+    applyStandardCommon(slot.apbr, ov, d);
+    applyAdvanced(slot.apbr, ov, d);
+    p = slot.apbr;
+  } else {
+    if (!slot.pbr) slot.pbr = buildStandard(slot.source);
+    applyStandardCommon(slot.pbr, ov, d);
+    p = slot.pbr;
+  }
+
   for (const ms of slot.meshes) {
     if (ms.isArray) {
       (ms.mesh.material as THREE.Material[])[ms.surfaceIndex] = p;
@@ -439,7 +606,7 @@ function applyPbr(slot: Slot, ov: MaterialOverride | undefined): void {
     }
     if (ms.outlineMat) ms.outlineMat.outlineWidthFactor = 0;
   }
-  slot.current = 'pbr';
+  slot.current = mode;
 }
 
 /**
@@ -455,21 +622,24 @@ export function applyMaterialOverrides(
   const reg = getRegistry(vrm);
   for (const slot of reg.slots.values()) {
     const ov = overrides?.[slot.key];
-    // Native-PBR materials can't become MToon — keep them on PBR.
-    const shader: ShaderKind =
-      slot.nativeShader === 'pbr' ? 'pbr' : (ov?.shader ?? 'mtoon');
-    if (shader === 'pbr') applyPbr(slot, ov);
+    let shader: ShaderKind = ov?.shader ?? slot.nativeShader;
+    // Native-PBR materials can't become MToon (no MToon source to restore).
+    if (shader === 'mtoon' && !isMToon(slot.source)) shader = 'pbr';
+    if (shader === 'apbr') applyStandardLike(slot, ov, 'apbr');
+    else if (shader === 'pbr') applyStandardLike(slot, ov, 'pbr');
     else applyMToon(slot, ov);
   }
 }
 
-/** Dispose any PBR materials we created for this VRM. Call on VRM unload. */
+/** Dispose the PBR/APBR materials we created for this VRM. Call on VRM unload. */
 export function disposeMaterialOverrides(vrm: VRM): void {
   const reg = registries.get(vrm);
   if (!reg) return;
   for (const slot of reg.slots.values()) {
     slot.pbr?.dispose();
     slot.pbr = null;
+    slot.apbr?.dispose();
+    slot.apbr = null;
   }
   registries.delete(vrm);
 }
