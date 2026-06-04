@@ -251,6 +251,22 @@ export interface TrackClipLane {
   keyframes: TrackClipKeyframe[];
 }
 
+/** A discrete marker on a track clip that fires a fire-and-forget media command
+ *  when the playhead crosses time `t` (re-armed each loop). Unlike lanes (scalar
+ *  interpolation), events are one-shot. Evaluated client-side and dispatched to
+ *  the media registry. See dev-notes/modules/track-clips.md. */
+export interface TrackClipEvent {
+  id: string;
+  /** Seconds from clip start. */
+  t: number;
+  action: MediaAction;
+  targetKind: MediaTargetKind;
+  /** Scene-node or compose-layer id of the media entity to control. */
+  targetId: string;
+  /** Optional extra args (e.g. { t } for seek, { volume } for setVolume). */
+  payload: Record<string, unknown> | null;
+}
+
 export interface TrackClip {
   id: string;
   /** Owner is exactly one of these: a scene node (scene roots included) or a
@@ -267,6 +283,8 @@ export interface TrackClip {
   startedAt: number | null;
   createdAt: string;
   lanes: TrackClipLane[];
+  /** Timed media-command markers (event lane). */
+  events: TrackClipEvent[];
 }
 
 /** WS payload broadcast when a clip begins playback. Clients compute their own clock offset
@@ -450,6 +468,7 @@ export type WSMessageKind =
   | 'track_clip_lane_updated'
   | 'track_clip_lane_removed'
   | 'track_clip_keyframes_replaced'
+  | 'track_clip_events_replaced'
   | 'track_clip_started'
   | 'track_clip_paused'
   | 'track_clip_stopped'

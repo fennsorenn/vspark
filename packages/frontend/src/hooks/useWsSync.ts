@@ -7,6 +7,7 @@ import {
   mapTrackClip,
   mapTrackClipLane,
   mapTrackClipKeyframe,
+  mapTrackClipEvent,
 } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
 import { smoothNodeTransform, smoothComposeLayer } from '../previewSmoother';
@@ -265,6 +266,13 @@ export function useWsSync() {
                 laneId,
                 rows.map(mapTrackClipKeyframe)
               );
+          } else if (msg.kind === 'track_clip_events_replaced') {
+            const clipId = msg.payload.clipId as string;
+            const rows =
+              (msg.payload.events as Record<string, unknown>[]) ?? [];
+            useEditorStore
+              .getState()
+              .replaceTrackClipEvents(clipId, rows.map(mapTrackClipEvent));
           } else if (msg.kind === 'track_clip_started') {
             const p = msg.payload as {
               clipId: string;

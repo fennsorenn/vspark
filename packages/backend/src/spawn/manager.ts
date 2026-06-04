@@ -168,6 +168,39 @@ export class SpawnManager {
       };
     });
 
+    // Clone event markers, retargeting owner-pointed markers to the tmp id.
+    const eventRows = db
+      .prepare(
+        'SELECT id, t, action, target_kind, target_id, payload FROM track_clip_events WHERE clip_id = ? ORDER BY t'
+      )
+      .all(clipRow.id) as Array<{
+      id: string;
+      t: number;
+      action: string;
+      target_kind: string;
+      target_id: string;
+      payload: string | null;
+    }>;
+    const events = eventRows.map((e) => {
+      const remap = e.target_id === sourceId;
+      let payload: Record<string, unknown> | null = null;
+      if (e.payload) {
+        try {
+          payload = JSON.parse(e.payload) as Record<string, unknown>;
+        } catch {
+          payload = null;
+        }
+      }
+      return {
+        id: `__spawn:${randomUUID()}`,
+        t: e.t,
+        action: e.action,
+        targetKind: remap ? kind : e.target_kind,
+        targetId: remap ? tmpId : e.target_id,
+        payload,
+      };
+    });
+
     const tmpClip = {
       id: tmpClipId,
       ownerNodeId: kind === 'scene_node' ? tmpId : null,
@@ -179,6 +212,7 @@ export class SpawnManager {
       autoplay: false,
       startedAt: null,
       lanes,
+      events,
     };
 
     // Order matters: entity first (so the renderer can mount it), then clip

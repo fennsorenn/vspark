@@ -7,6 +7,7 @@ import type {
   TrackClipRecord,
   TrackClipLaneRecord,
   TrackClipKeyframeRecord,
+  TrackClipEventRecord,
 } from '../api/client';
 import type {
   UpdateChannel,
@@ -28,6 +29,7 @@ export type {
   TrackClipRecord,
   TrackClipLaneRecord,
   TrackClipKeyframeRecord,
+  TrackClipEventRecord,
 };
 
 /** Active playback for one track clip — either playing (wall clock advances from
@@ -580,6 +582,10 @@ interface EditorState {
     laneId: string,
     keyframes: TrackClipKeyframeRecord[]
   ) => void;
+  replaceTrackClipEvents: (
+    clipId: string,
+    events: TrackClipEventRecord[]
+  ) => void;
   setTrackClipPlayback: (
     clipId: string,
     entry: TrackClipPlayback | null
@@ -1040,6 +1046,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ...c,
         lanes: c.lanes.map((l) => (l.id === laneId ? { ...l, keyframes } : l)),
       })),
+    })),
+  replaceTrackClipEvents: (clipId, events) =>
+    set((s) => ({
+      trackClips: s.trackClips.map((c) =>
+        c.id === clipId ? { ...c, events } : c
+      ),
     })),
   setTrackClipPlayback: (clipId, entry) =>
     set((s) => {
