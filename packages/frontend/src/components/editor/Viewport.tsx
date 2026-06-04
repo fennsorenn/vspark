@@ -3102,6 +3102,219 @@ function VideoNode({
   );
 }
 
+// One shared AudioListener per camera (Web Audio allows a single listener).
+const _audioListeners = new WeakMap<THREE.Object3D, THREE.AudioListener>();
+function getAudioListener(camera: THREE.Object3D): THREE.AudioListener {
+  let l = _audioListeners.get(camera);
+  if (!l) {
+    l = new THREE.AudioListener();
+    camera.add(l);
+    _audioListeners.set(camera, l);
+  }
+  return l;
+}
+
+interface AudioCfg {
+  audioType: 'simple' | 'directional';
+  sourceUrl: string | null;
+  autoplay: boolean;
+  loop: boolean;
+  volume: number;
+  refDistance: number;
+  rolloffFactor: number;
+  maxDistance: number;
+  coneInnerAngle: number;
+  coneOuterAngle: number;
+  coneOuterGain: number;
+}
+
+const AUDIO_DEFAULTS: AudioCfg = {
+  audioType: 'simple',
+  sourceUrl: null,
+  autoplay: true,
+  loop: false,
+  volume: 1,
+  refDistance: 1,
+  rolloffFactor: 1,
+  maxDistance: 100,
+  coneInnerAngle: 360,
+  coneOuterAngle: 360,
+  coneOuterGain: 0,
+};
+
+/** A non-visual audio source. 'simple' = non-spatial THREE.Audio; 'directional'
+ *  = spatial THREE.PositionalAudio positioned by the node transform. Audible in
+ *  the viewer; in the editor only when audio preview is enabled. Registers a
+ *  MediaHandle for the command bus / clip event lane. Draws a gizmo in editor. */
+function AudioNode({
+  node,
+  viewerMode,
+}: {
+  node: NodeRecord;
+  viewerMode?: boolean;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const t = useTransformWithOverride(node);
+  const { camera } = useThree();
+  const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const ac: AudioCfg = {
+    ...AUDIO_DEFAULTS,
+    ...((node.components?.audio ?? {}) as Partial<AudioCfg>),
+  };
+
+  const soundRef = useRef<THREE.Audio | THREE.PositionalAudio | null>(null);
+  // Desired loudness inputs; the effective gain is their product gated on
+  // audibility, applied through applyVolume so play/mute/preview all compose.
+  const desiredVolRef = useRef(ac.volume);
+  const mutedRef = useRef(false);
+  const audibleRef = useRef(false);
+  desiredVolRef.current = ac.volume;
+  audibleRef.current = viewerMode === true || audioPreview;
+
+  const applyVolume = () => {
+    const s = soundRef.current;
+    if (!s) return;
+    const v = audibleRef.current && !mutedRef.current ? desiredVolRef.current : 0;
+    s.setVolume(Math.max(0, Math.min(1, v)));
+  };
+
+  useEffect(() => {
+    if (!groupRef.current) return;
+    return registerNodeGroup(node.id, groupRef.current);
+  }, [node.id]);
+
+  // (Re)create the sound when source / type changes.
+  useEffect(() => {
+    const group = groupRef.current;
+    const listener = getAudioListener(camera);
+    // Tear down any previous sound.
+    const prev = soundRef.current;
+    if (prev) {
+      if (prev.isPlaying) prev.stop();
+      prev.removeFromParent();
+      soundRef.current = null;
+    }
+    if (!ac.sourceUrl || !group) return;
+
+    const sound =
+      ac.audioType === 'directional'
+        ? new THREE.PositionalAudio(listener)
+        : new THREE.Audio(listener);
+    if (sound instanceof THREE.PositionalAudio) {
+      sound.setRefDistance(ac.refDistance);
+      sound.setRolloffFactor(ac.rolloffFactor);
+      sound.setMaxDistance(ac.maxDistance);
+      sound.setDirectionalCone(
+        ac.coneInnerAngle,
+        ac.coneOuterAngle,
+        ac.coneOuterGain
+      );
+    }
+    group.add(sound);
+    soundRef.current = sound;
+
+    let cancelled = false;
+    new THREE.AudioLoader().load(ac.sourceUrl, (buffer) => {
+      if (cancelled) return;
+      sound.setBuffer(buffer);
+      sound.setLoop(ac.loop);
+      applyVolume();
+      if (ac.autoplay) {
+        // Resume a suspended context (editor may be suspended pre-gesture).
+        void listener.context.resume?.().catch(() => {});
+        if (!sound.isPlaying) sound.play();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (sound.isPlaying) sound.stop();
+      sound.removeFromParent();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    ac.sourceUrl,
+    ac.audioType,
+    ac.loop,
+    ac.refDistance,
+    ac.rolloffFactor,
+    ac.maxDistance,
+    ac.coneInnerAngle,
+    ac.coneOuterAngle,
+    ac.coneOuterGain,
+    camera,
+  ]);
+
+  // React to audibility / volume changes.
+  useEffect(() => {
+    applyVolume();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewerMode, audioPreview, ac.volume]);
+
+  // Media handle for the command bus / clip event lane.
+  useEffect(() => {
+    return registerMedia(node.id, {
+      play: () => {
+        const s = soundRef.current;
+        if (!s || !s.buffer) return;
+        void (s as THREE.Audio).context.resume?.().catch(() => {});
+        if (!s.isPlaying) s.play();
+      },
+      pause: () => {
+        const s = soundRef.current;
+        if (s?.isPlaying) s.pause();
+      },
+      stop: () => {
+        const s = soundRef.current;
+        if (s?.isPlaying) s.stop();
+      },
+      restart: () => {
+        const s = soundRef.current;
+        if (!s || !s.buffer) return;
+        if (s.isPlaying) s.stop();
+        s.play();
+      },
+      seek: (sec: number) => {
+        const s = soundRef.current;
+        if (!s || !s.buffer) return;
+        const wasPlaying = s.isPlaying;
+        if (wasPlaying) s.stop();
+        s.offset = Math.max(0, sec);
+        if (wasPlaying) s.play();
+      },
+      setVolume: (v: number) => {
+        desiredVolRef.current = Math.max(0, Math.min(1, v));
+        applyVolume();
+      },
+      mute: () => {
+        mutedRef.current = true;
+        applyVolume();
+      },
+      unmute: () => {
+        mutedRef.current = false;
+        applyVolume();
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node.id]);
+
+  const iconColor = ac.audioType === 'directional' ? '#22dd88' : '#22bbdd';
+
+  return (
+    <group
+      ref={groupRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+    >
+      {!viewerMode && (
+        <Billboard>
+          <Line points={POINT_CIRCLE_PTS} color={iconColor} lineWidth={1.5} />
+        </Billboard>
+      )}
+    </group>
+  );
+}
+
 // Reusable scratch objects for InstancedMesh matrix composition
 const _particlePos = new THREE.Vector3();
 const _particleQuat = new THREE.Quaternion();
@@ -4054,6 +4267,12 @@ function renderNodeElement(
         <LightNode node={node} viewerMode={viewerMode} />
       </group>
     );
+  if (node.kind === 'audio')
+    return (
+      <group key={node.id} visible={visible}>
+        <AudioNode node={node} viewerMode={viewerMode} />
+      </group>
+    );
   if (node.kind === 'camera')
     return (
       <group key={node.id} visible={visible}>
@@ -4883,6 +5102,41 @@ export function Viewport() {
         <CameraEffects />
       </Canvas>
       <GizmoToolbar mode={gizmoMode} setMode={setGizmoMode} />
+      <AudioPreviewToggle />
     </div>
+  );
+}
+
+/** Editor-only toggle to preview audio (audio nodes + unmuted video) in the
+ *  viewport. Off by default so authoring stays quiet; the viewer/output always
+ *  plays audio regardless of this. */
+function AudioPreviewToggle() {
+  const on = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const setOn = useEditorStore((s) => s.setEditorAudioPreviewEnabled);
+  return (
+    <button
+      title={on ? 'Audio preview on (click to mute editor)' : 'Audio muted in editor (click to preview)'}
+      onClick={() => setOn(!on)}
+      style={{
+        position: 'absolute',
+        bottom: 16,
+        left: 120,
+        width: 30,
+        height: 30,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 15,
+        cursor: 'pointer',
+        background: on ? '#1e2e4a' : '#0e0e18',
+        border: `1px solid ${on ? '#3a5a9a' : '#2a2a3a'}`,
+        borderRadius: 6,
+        color: on ? '#7ab' : '#555',
+        lineHeight: 1,
+        zIndex: 10,
+      }}
+    >
+      {on ? '🔊' : '🔇'}
+    </button>
   );
 }

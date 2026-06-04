@@ -5179,6 +5179,197 @@ export function PropertiesPanel() {
             );
           })()}
 
+        {node.kind === 'audio' &&
+          (() => {
+            const ac: Record<string, unknown> = {
+              audioType: 'simple',
+              sourceUrl: null,
+              autoplay: true,
+              loop: false,
+              onEnd: 'stop',
+              volume: 1,
+              fadeTime: 0,
+              refDistance: 1,
+              rolloffFactor: 1,
+              maxDistance: 100,
+              coneInnerAngle: 360,
+              coneOuterAngle: 360,
+              coneOuterGain: 0,
+              ...((node.components?.audio ?? {}) as Record<string, unknown>),
+            };
+            const saveAc = (patch: Record<string, unknown>) => {
+              const next = { ...ac, ...patch };
+              const components = { ...node.components, audio: next };
+              const filePatch =
+                'sourceUrl' in patch
+                  ? { filePath: (patch.sourceUrl as string) ?? null }
+                  : {};
+              api
+                .updateNode(node.id, { components, ...filePatch })
+                .catch(() => {});
+              storeUpdateNode(node.id, { components, ...filePatch });
+            };
+            const audioAssets = assets.filter((a) => a.kind === 'audio');
+            const sel: React.CSSProperties = {
+              background: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              color: '#e0e0e0',
+              borderRadius: 4,
+              padding: '3px 6px',
+              fontSize: 12,
+              outline: 'none',
+            };
+            const row = (label: string, children: React.ReactNode) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                  {label}
+                </span>
+                {children}
+              </div>
+            );
+            const check = (
+              label: string,
+              field: string,
+              checked: boolean
+            ) =>
+              row(
+                label,
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => saveAc({ [field]: e.target.checked })}
+                />
+              );
+            const isDirectional = ac.audioType === 'directional';
+            return (
+              <>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Audio Source
+                  <PickButton onClick={() => flashBottomTab('audio')} />
+                </div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  <datalist id="audio-src-list">
+                    {audioAssets.map((a) => (
+                      <option key={a.id} value={a.url} label={a.name} />
+                    ))}
+                  </datalist>
+                  {row(
+                    'Source',
+                    <input
+                      list="audio-src-list"
+                      style={{ ...numInput, width: 120 }}
+                      placeholder="URL or pick asset…"
+                      defaultValue={(ac.sourceUrl as string) ?? ''}
+                      key={node.id + '-audsrc'}
+                      onBlur={(e) =>
+                        saveAc({ sourceUrl: e.target.value.trim() || null })
+                      }
+                    />
+                  )}
+                  {row(
+                    'Type',
+                    <select
+                      style={sel}
+                      value={ac.audioType as string}
+                      onChange={(e) => saveAc({ audioType: e.target.value })}
+                    >
+                      <option value="simple">Simple (non-spatial)</option>
+                      <option value="directional">Directional (spatial)</option>
+                    </select>
+                  )}
+                </div>
+                <div style={sectionHeader}>Playback</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {check('Autoplay', 'autoplay', ac.autoplay as boolean)}
+                  {check('Loop', 'loop', ac.loop as boolean)}
+                  <EffectRow
+                    label="Volume"
+                    cfg={ac}
+                    field="volume"
+                    step={0.05}
+                    min={0}
+                    max={1}
+                    onSave={saveAc}
+                  />
+                </div>
+                {isDirectional && (
+                  <>
+                    <div style={sectionHeader}>Spatial</div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      <EffectRow
+                        label="Ref distance"
+                        cfg={ac}
+                        field="refDistance"
+                        step={0.1}
+                        min={0}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Rolloff"
+                        cfg={ac}
+                        field="rolloffFactor"
+                        step={0.1}
+                        min={0}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Max distance"
+                        cfg={ac}
+                        field="maxDistance"
+                        step={1}
+                        min={0}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Cone inner°"
+                        cfg={ac}
+                        field="coneInnerAngle"
+                        step={1}
+                        min={0}
+                        max={360}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Cone outer°"
+                        cfg={ac}
+                        field="coneOuterAngle"
+                        step={1}
+                        min={0}
+                        max={360}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Cone outer gain"
+                        cfg={ac}
+                        field="coneOuterGain"
+                        step={0.05}
+                        min={0}
+                        max={1}
+                        onSave={saveAc}
+                      />
+                    </div>
+                  </>
+                )}
+              </>
+            );
+          })()}
+
         {(node.kind === 'text_troika' || node.kind === 'text_canvas') &&
           (() => {
             const isCanvas = node.kind === 'text_canvas';
