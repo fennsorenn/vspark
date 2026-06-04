@@ -18,10 +18,12 @@ A preset payload (`format: 'vspark.preset.v2'`) is rooted at either a scene node
 
 ## Built-in presets (shipped, read-only)
 
-`packages/backend/src/presets/builtins.ts` defines `BUILTIN_PRESETS` — presets
+`packages/backend/src/presets/builtins.ts` aggregates `BUILTIN_PRESETS` — presets
 bundled with the app, authored as plain `vspark.preset.v2` objects (the backend
-bundle has no JSON-module support). They are served read-only and never touch
-the `presets` table:
+bundle has no JSON-module support). The definitions are split across
+`presets/builtin_presets/`: `helpers.ts` (shared construction helpers),
+`particles.ts`, `chat.ts`, and `alerts.ts`, all re-exported and combined by
+`builtins.ts`. They are served read-only and never touch the `presets` table:
 
 | Method + path | Purpose |
 |---|---|
@@ -31,8 +33,23 @@ the `presets` table:
 These routes are registered **before** `/presets/:id` so the literal `builtin`
 segment isn't captured as an id. The frontend (`PresetLibrary.tsx`) shows them
 in a separate **Built-in** section above project presets, with a Use button and
-no delete. Ships with a Three-Point Lighting rig and an Organizer Group
-scaffold; add more by appending objects to `BUILTIN_PRESETS`.
+no delete. Add more by appending objects to the relevant `builtin_presets/` file.
+
+Ships with a Three-Point Lighting rig and an Organizer Group scaffold, plus:
+
+- **Chat overlays** (`chat.ts`):
+  - Chat overlay as a 2D compose `feed` layer (graph: `overlive_chat_feed` →
+    `set_data` scoped to the layer).
+  - Chat overlay as a 3D `feed` scene node (same graph pattern, scoped to the node).
+  - Scrolling chat messages in 3D — a hidden `text_canvas` template + track clip
+    sweeping `position.x` right→left (graph: `overlive_chat_message` → random Y +
+    random Z → `spawn_clip` → `set_text` / `set_scene_node_param` via `spawnRef`).
+- **Particle generators** (`particles.ts`): Rain, Snow, Fire, Magic Sparkles,
+  Sparkler — each a `particle` scene node with a tuned `components.particle` config.
+- **Event alert overlays** (`alerts.ts`): Donations, Tips, Subs, Raids — each a
+  compose `group` containing an image + text layer at base opacity 0, a track clip
+  fading opacity 0→1→0, and a graph: `overlive` event → `pack_event` →
+  `queue_events` ← `clock` pop → `unpack_event` → `start_clip` + `set_text`.
 
 ### Scene-node component bag round-trip
 
