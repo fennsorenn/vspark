@@ -1,12 +1,15 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useEditorStore, type PresetSummary } from '../../store/editorStore';
 import {
   getPresets,
   createPreset,
   deletePreset,
   getPreset,
+  getBuiltinPresets,
+  getBuiltinPreset,
   serializePreset,
   instantiatePreset,
+  type BuiltinPresetSummary,
 } from '../../api/client';
 
 export function PresetLibrary() {
@@ -27,7 +30,27 @@ export function PresetLibrary() {
   const [description, setDescription] = useState('');
   const [embedAssets, setEmbedAssets] = useState(false);
   const [showSaveForm, setShowSaveForm] = useState(false);
+  const [builtins, setBuiltins] = useState<BuiltinPresetSummary[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Built-in presets are shipped with the app and don't depend on the project.
+  useEffect(() => {
+    getBuiltinPresets()
+      .then(setBuiltins)
+      .catch(() => {});
+  }, []);
+
+  const handleInstantiateBuiltin = async (id: string) => {
+    setInstantiating(id);
+    try {
+      const data = await getBuiltinPreset(id);
+      await instantiatePayload(data.payload);
+    } catch (e) {
+      console.error('Failed to instantiate builtin preset:', e);
+    } finally {
+      setInstantiating(null);
+    }
+  };
 
   const loadPresets = async () => {
     if (!projectId) return;
@@ -240,6 +263,15 @@ export function PresetLibrary() {
     cursor: 'pointer',
   };
 
+  const groupLabel: React.CSSProperties = {
+    fontSize: 10,
+    fontWeight: 700,
+    color: '#666',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    margin: '2px 2px 6px',
+  };
+
   return (
     <div
       style={{
@@ -369,6 +401,76 @@ export function PresetLibrary() {
 
       {/* Preset list */}
       <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
+        {/* Built-in (shipped, read-only) presets */}
+        {builtins.length > 0 && (
+          <>
+            <div style={groupLabel}>Built-in</div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                gap: 8,
+                marginBottom: 10,
+              }}
+            >
+              {builtins.map((b) => {
+                const target =
+                  b.rootKind === 'compose_layer'
+                    ? activeComposeSceneId
+                    : activeSceneId;
+                return (
+                  <div
+                    key={b.id}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      border: '1px solid #2a2a2a',
+                      background: '#181818',
+                      fontSize: 12,
+                      color: '#ccc',
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {b.rootKind === 'scene_node' ? '🧩' : '🎨'} {b.name}
+                      </div>
+                      {b.description && (
+                        <div style={{ fontSize: 10, color: '#666' }}>
+                          {b.description}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button
+                        style={{
+                          ...btnStyle,
+                          fontSize: 10,
+                          padding: '2px 5px',
+                          opacity: instantiating === b.id ? 0.5 : 1,
+                        }}
+                        onClick={() => handleInstantiateBuiltin(b.id)}
+                        disabled={instantiating === b.id || !target}
+                        title="Instantiate into the current scene"
+                      >
+                        Use
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={groupLabel}>Project</div>
+          </>
+        )}
         {presets.length === 0 && (
           <div
             style={{

@@ -26,6 +26,9 @@ interface PresetPayload {
     boneAttachment: string | null;
     hidden: boolean;
     properties: Record<string, unknown>;
+    /** Spatial/kind-specific bag (transform, light, camera, …). Optional for
+     *  backward compatibility with payloads serialized before this field. */
+    componentsBag?: Record<string, unknown>;
     components: Array<{
       presetId: string;
       kind: string;
@@ -258,7 +261,7 @@ export function instantiatePreset(
         node.name,
         node.kind,
         filePath,
-        JSON.stringify({}),
+        JSON.stringify(node.componentsBag ?? {}),
         JSON.stringify(node.properties),
         node.hidden ? 1 : 0
       );

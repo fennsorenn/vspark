@@ -119,6 +119,9 @@ export function serializeSceneNodeSubtree(
       boneAttachment: row.bone_attachment ?? null,
       hidden: (row.hidden as number) === 1,
       properties: JSON.parse((row.properties as string) || '{}'),
+      // Spatial/kind-specific bag (transform, light, camera, billboard, …)
+      // stored on the scene_nodes row. Previously dropped on round-trip.
+      componentsBag: JSON.parse((row.components as string) || '{}'),
       components: components.map((c) => {
         const compPresetId = nextPresetId('c');
         realToPreset.set(c.id as string, compPresetId);
