@@ -121,6 +121,7 @@ Work happens on feature branches, never directly on `dev` or `main`.
   - `fix:` → patch bump
   - `feat:` → minor bump
   - Any breaking change (`BREAKING CHANGE` in footer or `!` suffix) → major bump
+- The `dev` → `main` PR must carry a `release:patch` / `release:minor` / `release:major` label matching the bump above. Note: `gh pr edit --add-label` fails on this repo (classic-Projects GraphQL deprecation); apply the label via REST instead: `gh api repos/<owner>/<repo>/issues/<n>/labels -f "labels[]=release:minor"`
 
 ## Commits
 
