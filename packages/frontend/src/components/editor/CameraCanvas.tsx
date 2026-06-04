@@ -67,11 +67,13 @@ export function CameraCanvas({
         orthoSize?: number;
         shadowsEnabled?: boolean;
         shadowQuality?: ShadowQuality;
+        envIntensity?: number;
       }
     | undefined;
   const projection = cc?.projection ?? 'perspective';
   const orthoSize = cc?.orthoSize ?? 2;
   const shadowsEnabled = cc?.shadowsEnabled ?? false;
+  const envIntensity = cc?.envIntensity ?? 1;
   const t = getT(cameraNode.components as Record<string, unknown> | undefined);
 
   return (
@@ -105,7 +107,7 @@ export function CameraCanvas({
       </ComposeSceneInteractions>
       {shadowsEnabled && <ShadowCatcher />}
       <ShadowMaterialSync enabled={shadowsEnabled} />
-      <Environment preset="city" />
+      <Environment preset="city" environmentIntensity={envIntensity} />
       <CameraEffects forceNodeId={cameraNode.id} sceneId={sceneId} />
     </Canvas>
   );

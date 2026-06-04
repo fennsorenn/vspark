@@ -88,6 +88,8 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 - `vrmRegistry: Map<nodeId, VRM>` — avatar nodes → loaded VRM instance
 - `godrayCasterRegistry: Map<nodeId, THREE.Mesh>`
 
+**Material overrides (implemented)**: after VRM load and whenever `node.properties.materialOverrides` changes (effect keyed on `JSON.stringify` of the record; VRM-loaded signal is `vrmBonesByNode`), Viewport calls `applyMaterialOverrides(vrm, overrides)` from `components/editor/materialOverrides.ts` to switch each material between MToon and PBR and apply per-material param overrides. `disposeMaterialOverrides(vrm)` is called on VRM unload to free the lazily-built PBR materials. See [material-overrides.md](material-overrides.md).
+
 **Per-frame work** (`useFrame`):
 1. Read `vmc_pose` from store → apply quaternions to VRM bones
 2. Apply expressions/blendshapes (see below)
@@ -159,6 +161,9 @@ Inspector for the selected node. Sections:
 **Avatar section (implemented)**:
 - The inline animation-asset list (the grid of clickable animation buttons) was removed. Animations are picked via the bottom-dock **Animations** tab; the Avatar section's **Pick…** button only flashes that tab. The idle-animation URL input (with `<datalist>`), speed/offset inputs, and playback transport remain.
 - The previously read-only **Expressions** list is now a **Default Expression** control: one 0..1 `SliderInput` per VRM expression. Weights are stored on `node.properties.defaultExpressions` (only non-zero kept) and persisted via `api.updateNode({ properties: { defaultExpressions } })`, which the backend shallow-merges (same mechanism as `blendTransitionTime`). The read-only **Morph Targets** list is unchanged.
+
+**Material section (implemented)**:
+- New **Material** section on VRM avatar nodes plus a reusable `CollapsibleSection` primitive (default collapsed); the **Default Expression** section is collapsible too. One collapsible row per material with a MToon/PBR shader toggle, editable shader params (overlap + active-shader-only; normal scale only with a normal map, alpha cutoff only in mask mode, outline only when the material has one), and a per-material Reset. Overrides persist on `node.properties.materialOverrides` (same `node.properties` mechanism as `defaultExpressions`). The apply layer that mutates/swaps live three.js materials lives in `components/editor/materialOverrides.ts` and is invoked from `Viewport.tsx`. See [material-overrides.md](material-overrides.md).
 
 ### `AssetManager.tsx` (bottom dock)
 The bottom dock. Tabs (`BottomDockTab` in the store, persisted to localStorage
