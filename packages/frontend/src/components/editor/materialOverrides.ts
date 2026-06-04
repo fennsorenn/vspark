@@ -79,6 +79,8 @@ export interface MaterialOverride {
   doubleSided?: boolean;
   alphaMode?: AlphaMode;
   alphaCutoff?: number;
+  /** Material opacity (0..1); < 1 forces the material transparent. */
+  opacity?: number;
   // MToon-specific (kept even when shader is pbr/apbr):
   shadeColor?: string;
   shadingShiftFactor?: number;
@@ -128,6 +130,7 @@ export interface MaterialDefaults {
   doubleSided: boolean;
   alphaMode: AlphaMode;
   alphaCutoff: number;
+  opacity: number;
   // MToon-only (present even for PBR-native materials, with neutral fallbacks):
   shadeColor: string;
   shadingShiftFactor: number;
@@ -302,6 +305,7 @@ function readDefaults(source: THREE.Material): MaterialDefaults {
     doubleSided: source.side === THREE.DoubleSide,
     alphaMode: deriveAlphaMode(source),
     alphaCutoff: source.alphaTest > 0 ? source.alphaTest : DEFAULT_ALPHA_CUTOFF,
+    opacity: source.opacity ?? 1,
     shadeColor: mtoon ? hex(m.shadeColorFactor) : '#808080',
     shadingShiftFactor: mtoon ? m.shadingShiftFactor : 0,
     shadingToonyFactor: mtoon ? m.shadingToonyFactor : 0.9,
@@ -430,12 +434,13 @@ export function getMaterialSlots(vrm: VRM): MaterialSlotInfo[] {
 function applyAlpha(
   mat: THREE.Material,
   mode: AlphaMode,
-  cutoff: number
+  cutoff: number,
+  opacity: number
 ): boolean {
-  let transparent = false;
-  let alphaTest = 0;
-  if (mode === 'blend') transparent = true;
-  else if (mode === 'mask') alphaTest = cutoff;
+  // Opacity < 1 must force transparent on, else the value is ignored (and MToon
+  // forces alpha to 1 via its OPAQUE define).
+  const transparent = mode === 'blend' || opacity < 1;
+  const alphaTest = mode === 'mask' ? cutoff : 0;
   let changed = false;
   if (mat.transparent !== transparent) {
     mat.transparent = transparent;
@@ -445,6 +450,7 @@ function applyAlpha(
     mat.alphaTest = alphaTest;
     changed = true;
   }
+  mat.opacity = opacity; // uniform/value change — no recompile needed
   return changed;
 }
 
@@ -549,7 +555,8 @@ function applyMToon(slot: Slot, ov: MaterialOverride | undefined): void {
     applyAlpha(
       m,
       ov?.alphaMode ?? d.alphaMode,
-      ov?.alphaCutoff ?? d.alphaCutoff
+      ov?.alphaCutoff ?? d.alphaCutoff,
+      ov?.opacity ?? d.opacity
     ) || recompile;
   recompile = applyEmissiveMap(m, slot, ov) || recompile;
   recompile =
@@ -650,7 +657,8 @@ function applyStandardCommon(
     applyAlpha(
       p,
       ov?.alphaMode ?? d.alphaMode,
-      ov?.alphaCutoff ?? d.alphaCutoff
+      ov?.alphaCutoff ?? d.alphaCutoff,
+      ov?.opacity ?? d.opacity
     ) || recompile;
   recompile = applyEmissiveMap(p, slot, ov) || recompile;
   recompile =

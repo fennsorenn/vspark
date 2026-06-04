@@ -586,6 +586,7 @@ function MaterialRow({
               0.01,
               2
             )}
+          {sliderRow('Opacity', 'opacity', d.opacity, 0, 1, 0.01, 2)}
 
           {/* MToon-only */}
           {shader === 'mtoon' && (
