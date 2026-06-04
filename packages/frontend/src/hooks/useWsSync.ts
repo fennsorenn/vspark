@@ -15,7 +15,9 @@ import type {
   IkTargetFrame,
   AnimationBlendMode,
   ApiAnimationMessage,
+  MediaCommand,
 } from '@vspark/shared/types';
+import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 const RECONNECT_MS = 3000;
@@ -371,6 +373,12 @@ export function useWsSync() {
               }>;
             };
             useEditorStore.getState().replaceRuntimeOverrides(p.entries ?? []);
+          } else if (msg.kind === 'media_control') {
+            const p = msg.payload as {
+              targetId: string;
+              command: MediaCommand;
+            };
+            dispatchMediaCommand(p.targetId, p.command);
           } else if (msg.kind === 'data_channel_set') {
             const p = msg.payload as {
               scope: string;

@@ -74,6 +74,13 @@ export interface MediaCommand {
   volume?: number;
 }
 
+/** Payload of the `media_control` WS message (graph → frontend). */
+export interface MediaControlMessage {
+  targetKind: MediaTargetKind;
+  targetId: string;
+  command: MediaCommand;
+}
+
 /** Per-node free-form properties stored in the `scene_nodes.properties` JSON column.
  *  Kind-specific fields are namespaced on this object; readers should treat unknown
  *  keys as opaque so different node kinds can carry their own settings. */
@@ -449,7 +456,8 @@ export type WSMessageKind =
   | 'track_clip_playback_snapshot'
   | 'data_channel_set'
   | 'data_channel_clear'
-  | 'data_channel_snapshot';
+  | 'data_channel_snapshot'
+  | 'media_control';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 
