@@ -25,11 +25,45 @@ import { OverliveKit, type AdapterStateSnapshot } from '@overlive/core';
 import { TwitchAdapter } from '@overlive/twitch';
 import { SEAdapter } from '@overlive/se';
 import { revokeAccessToken } from '@overlive/twitch-oauth';
-import type { AdapterEmittedEvent } from '@overlive/core';
+import type { AdapterEmittedEvent, ChatMessageEvent } from '@overlive/core';
+import { tokensToHtml } from '@overlive/emotes';
 import { mkEvent } from '@vspark/shared/signal';
 import { getDb } from '../db/index.js';
 import { projectGraphManager } from '../project_graphs/manager.js';
 import type { WSSync } from '../ws/index.js';
+
+/**
+ * One accumulated chat message in the overlive chat ring-buffer. Mirrors the
+ * `overlive_chat_message` node's per-message output, plus `id` (stable React
+ * key), `channel`, and `timestamp` for the feed/template layer. This shape is
+ * what `overlive_chat_feed.messages` emits and what `set_data` publishes when
+ * wired to a chat channel — the template interpolates whichever of these fields
+ * it references.
+ */
+export interface ChatFeedItem {
+  /** Platform message id — stable key for per-item CSS enter/exit + scroll. */
+  id: string;
+  channel: string;
+  /** Epoch ms the message was received. */
+  timestamp: number;
+  username: string;
+  displayName: string;
+  text: string;
+  /** XSS-safe HTML with inline emote <img>s (sanitised again on the frontend). */
+  html: string;
+  color: string;
+  isMod: boolean;
+  isSub: boolean;
+  isBroadcaster: boolean;
+  isAction: boolean;
+  isHighlighted: boolean;
+  cheerAmount: number;
+}
+
+/** Hard upper bound on retained messages per account ring-buffer. Bounded so a
+ *  long-running session doesn't grow without limit; each `overlive_chat_feed`
+ *  node trims this snapshot to its own (smaller) configured `maxLength`. */
+const CHAT_BUFFER_MAX = 500;
 
 // ─── Row shapes (mirror the routes/overlive-accounts.ts types) ────────────────
 
@@ -73,6 +107,10 @@ export class OverliveManager {
   /** Set of project ids we've already warned "no default account" for; avoids
    *  spamming the log when a project has overlive nodes but no accounts. */
   private readonly warnedNoDefault = new Set<string>();
+  /** accountId (sourceInstanceId) → bounded chat ring-buffer. Durable history
+   *  lives here (not in graph node state, which is per-instance + rebuilt on
+   *  reconcile); `overlive_chat_feed` is a thin view over this buffer. */
+  private readonly chatBuffers = new Map<string, ChatFeedItem[]>();
 
   constructor(private readonly ws?: WSSync) {}
 
@@ -309,6 +347,16 @@ export class OverliveManager {
     // accountId matches the source. Per-node filters (channel, kind-specific)
     // are evaluated inside the node's execute() — here we just deliver into
     // the `event` input port.
+    // Chat messages also accumulate into the durable ring-buffer that feeds
+    // overlive_chat_feed nodes — independent of whether any plain
+    // overlive_chat_message node exists.
+    if (event.type === 'chat.message') {
+      this.pushChatAndNotifyFeed(
+        projectId,
+        event as ChatMessageEvent & { sourceInstanceId: string }
+      );
+    }
+
     const expectedKind = OVERLIVE_KIND_BY_EVENT[event.type];
     if (!expectedKind) return;
     let delivered = 0;
@@ -321,34 +369,8 @@ export class OverliveManager {
       if (gpId !== projectId) continue;
       if (node.kind !== expectedKind) continue;
       candidates++;
-      // The node's "account" config (inline literal stored in defaultConfig
-      // when unconnected, or carried via a connected Account value source —
-      // but in pull-based execution the engine would resolve it). We use the
-      // inline literal directly since events arrive externally and the node
-      // doesn't get a chance to pull its inputs first.
       const cfg = (node.defaultConfig ?? {}) as Record<string, unknown>;
-      const rawAccount =
-        typeof cfg['account'] === 'string' ? cfg['account'] : '';
-      // Empty config or an unresolved __preset:* placeholder both fall back
-      // to the project's default account (set in the accounts modal,
-      // defaults to the first-created account). If the project has no
-      // default, drop with a one-time warn rather than fan out to every
-      // account (the pre-default-flag behaviour).
-      const isUnresolved =
-        rawAccount === '' || rawAccount.startsWith('__preset:');
-      const wantAccount = isUnresolved
-        ? this.getDefaultAccountId(projectId)
-        : rawAccount;
-      if (!wantAccount) {
-        this.warnNoDefaultOnce(projectId);
-        continue;
-      }
-      if (wantAccount !== event.sourceInstanceId) continue;
-      const wantChannel =
-        typeof cfg['channel'] === 'string'
-          ? cfg['channel'].trim().toLowerCase()
-          : '';
-      if (wantChannel && wantChannel !== event.channel) continue;
+      if (!this.nodeAcceptsEvent(projectId, cfg, event)) continue;
       // Fire as an event on the node's `event` input port. The node helpers
       // unwrap `inputs.event.payload`, so wrap the overlive event in the
       // engine's Event envelope rather than passing it raw.
@@ -359,6 +381,98 @@ export class OverliveManager {
       console.log(
         `[Overlive] ${event.type} matched ${candidates} ${expectedKind} node(s) but none accepted (account/channel filters). source=${event.sourceInstanceId} channel=${event.channel}`
       );
+    }
+  }
+
+  /**
+   * Resolve a node's `account` / `channel` config against an incoming event.
+   * The node's "account" config is the inline literal stored in defaultConfig
+   * (events arrive externally, so the node doesn't get to pull its inputs
+   * first). Empty config or an unresolved `__preset:*` placeholder both fall
+   * back to the project's default account; with no default we warn once and
+   * reject rather than fanning out to every account.
+   */
+  private nodeAcceptsEvent(
+    projectId: string,
+    cfg: Record<string, unknown>,
+    event: AdapterEmittedEvent & { sourceInstanceId: string }
+  ): boolean {
+    const rawAccount = typeof cfg['account'] === 'string' ? cfg['account'] : '';
+    const isUnresolved =
+      rawAccount === '' || rawAccount.startsWith('__preset:');
+    const wantAccount = isUnresolved
+      ? this.getDefaultAccountId(projectId)
+      : rawAccount;
+    if (!wantAccount) {
+      this.warnNoDefaultOnce(projectId);
+      return false;
+    }
+    if (wantAccount !== event.sourceInstanceId) return false;
+    const wantChannel =
+      typeof cfg['channel'] === 'string'
+        ? cfg['channel'].trim().toLowerCase()
+        : '';
+    if (wantChannel && wantChannel !== event.channel) return false;
+    return true;
+  }
+
+  /**
+   * Append a chat message to the per-account ring-buffer, then notify every
+   * matching `overlive_chat_feed` node with the current buffer snapshot (newest
+   * last). Channel filtering on the feed node restricts the delivered slice.
+   */
+  private pushChatAndNotifyFeed(
+    projectId: string,
+    event: ChatMessageEvent & { sourceInstanceId: string }
+  ): void {
+    const accountId = event.sourceInstanceId;
+    const item: ChatFeedItem = {
+      id: event.data.messageId,
+      channel: event.channel,
+      timestamp:
+        event.timestamp instanceof Date
+          ? event.timestamp.getTime()
+          : Date.now(),
+      username: event.data.username,
+      displayName: event.data.displayName,
+      text: event.data.text,
+      html: tokensToHtml(event.data.tokens ?? [], event.data.text),
+      color: event.data.color ?? '',
+      isMod: event.data.isMod,
+      isSub: event.data.isSub,
+      isBroadcaster: event.data.isBroadcaster,
+      isAction: event.data.isAction,
+      isHighlighted: event.data.isHighlighted,
+      cheerAmount: event.data.cheerAmount ?? 0,
+    };
+    let buf = this.chatBuffers.get(accountId);
+    if (!buf) {
+      buf = [];
+      this.chatBuffers.set(accountId, buf);
+    }
+    buf.push(item);
+    if (buf.length > CHAT_BUFFER_MAX)
+      buf.splice(0, buf.length - CHAT_BUFFER_MAX);
+
+    for (const {
+      graphId,
+      node,
+      projectId: gpId,
+    } of projectGraphManager.iterateNodes()) {
+      if (gpId !== projectId) continue;
+      if (node.kind !== 'overlive_chat_feed') continue;
+      const cfg = (node.defaultConfig ?? {}) as Record<string, unknown>;
+      if (!this.nodeAcceptsEvent(projectId, cfg, event)) continue;
+      // Deliver the buffer slice this node cares about. An empty channel filter
+      // means "all channels for this account"; otherwise restrict to the match.
+      const wantChannel =
+        typeof cfg['channel'] === 'string'
+          ? cfg['channel'].trim().toLowerCase()
+          : '';
+      const slice = wantChannel
+        ? buf.filter((m) => m.channel === wantChannel)
+        : buf.slice();
+      projectGraphManager.fire(graphId, node.id, 'event', mkEvent(slice));
     }
   }
 

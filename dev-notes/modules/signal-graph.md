@@ -67,7 +67,7 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → node class. All 54 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → node class. All 56 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
 
@@ -131,6 +131,7 @@ Organized by role:
 | `set_scene_node_param` | Writes a scalar/coerced paramPath into the runtime override bus for a scene node. Optional `spawnRef` event input retargets the fire to a tmp id. See [runtime-overrides.md](runtime-overrides.md). |
 | `set_compose_layer_param` | Same shape, compose-layer target. |
 | `set_text` | Convenience over the set-param nodes for the `text.content` paramPath; `spawnRef.kind` overrides `targetKind` when triggered via that port. |
+| `set_data` | Generic sibling of `set_text`: on `fire`, publishes the wired `data` (Any) payload to the named `channel` (String) on the data-channel bus → frontend `feed` layer. See [data-channels.md](data-channels.md). |
 
 ### Pose interceptor chain
 The interceptor chain lets components (e.g., breathing) modify poses in-flight before broadcast.

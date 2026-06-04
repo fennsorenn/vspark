@@ -1,4 +1,11 @@
-import type { CSSProperties } from 'react';
+import {
+  Component,
+  createElement,
+  useId,
+  useMemo,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import type {
   ComposeLayerRecord,
@@ -6,8 +13,12 @@ import type {
   RuntimeOverrideMap,
 } from '../../store/editorStore';
 import DOMPurify from 'dompurify';
+import htm from 'htm';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
 import { CameraCanvas } from './CameraCanvas';
+
+/** htm bound to React.createElement — JSX-ish templates with no build step. */
+const html = htm.bind(createElement);
 
 interface ComposeLayerStackProps {
   layers: ComposeLayerRecord[];
@@ -243,6 +254,9 @@ function LayerContent({
   if (layer.kind === 'text') {
     return <TextLayer layer={layer} />;
   }
+  if (layer.kind === 'feed') {
+    return <FeedLayer layer={layer} />;
+  }
   const url = (layer.config.url as string | undefined) ?? '';
   if (!url) return <Placeholder text="no URL" />;
   // Iframes always swallow events when active. We keep them pointer-events:none
@@ -309,6 +323,134 @@ function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
     return <div style={style} dangerouslySetInnerHTML={{ __html: safe }} />;
   }
   return <div style={style}>{content}</div>;
+}
+
+/** Host-provided component for feed templates: renders a per-field HTML blob
+ *  (e.g. the chat `html` field with emote <img>s) safely. Templates inject raw
+ *  HTML only through this; everything else is authored as JSX-ish markup and
+ *  produced as real React elements. */
+function Emote({ html: raw }: { html?: string }) {
+  return (
+    <span
+      dangerouslySetInnerHTML={{
+        __html: DOMPurify.sanitize(raw ?? '', TEXT_SANITIZE_OPTS),
+      }}
+    />
+  );
+}
+
+type FeedRender = (html: unknown, data: unknown, Emote: unknown) => ReactNode;
+
+interface CompiledTemplate {
+  render: FeedRender | null;
+  error: string | null;
+}
+
+// Compiled templates are cached by source string — `new Function` (the htm
+// "compile") runs once per distinct template, then re-renders are cheap.
+const _templateCache = new Map<string, CompiledTemplate>();
+
+/**
+ * Compile a feed template (JSX-ish htm body) into a render function. The body is
+ * interpolated into an htm tagged-template literal and evaluated as JS via
+ * `new Function` — htm has no build step. `data` (the channel payload) and the
+ * `Emote` helper are in scope.
+ *
+ * NOTE: templates execute as code. This is acceptable under vspark's local /
+ * single-user model — no worse than the `browser` compose layer, which already
+ * runs arbitrary web content. Revisit before any multi-user / untrusted-import
+ * story (see dev-notes/modules/data-channels.md).
+ */
+function compileTemplate(src: string): CompiledTemplate {
+  const hit = _templateCache.get(src);
+  if (hit) return hit;
+  let result: CompiledTemplate;
+  try {
+    const fn = new Function(
+      'html',
+      'data',
+      'Emote',
+      `return html\`${src}\`;`
+    ) as FeedRender;
+    result = { render: fn, error: null };
+  } catch (e) {
+    result = {
+      render: null,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+  _templateCache.set(src, result);
+  return result;
+}
+
+/** Renders the compiled template; isolated in its own component so a render-time
+ *  throw is caught by the surrounding error boundary. */
+function FeedContent({ render, data }: { render: FeedRender; data: unknown }) {
+  return <>{render(html, data, Emote)}</>;
+}
+
+/** Catches errors thrown while rendering a user template so a bad template
+ *  degrades to a placeholder instead of white-screening the viewport. Reset by
+ *  remounting (the parent keys it on the template source). */
+class FeedErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (this.state.failed) return <Placeholder text="template error" />;
+    return this.props.children;
+  }
+}
+
+/**
+ * Generic, data-shape-independent feed/template layer. Subscribes to a named
+ * data channel (fed by the `set_data` signal node over WS) and renders the
+ * channel payload through a user-authored JSX-ish (htm) template, exposed to the
+ * template as `data` (an array → loop with `${data.map(...)}`; a record →
+ * reference fields directly). Because the template produces real React elements
+ * with stable keys, reconciliation handles per-item enter animation. Static
+ * styles live in `config.css`, injected scoped to this layer via `@scope`.
+ * See dev-notes/modules/data-channels.md.
+ */
+function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
+  const cfg = layer.config as {
+    channel?: string;
+    template?: string;
+    css?: string;
+  };
+  const channel = typeof cfg.channel === 'string' ? cfg.channel : '';
+  const payload = useEditorStore((s) =>
+    channel ? s.dataChannels[channel] : undefined
+  );
+  const template = typeof cfg.template === 'string' ? cfg.template : '';
+  const compiled = useMemo(() => compileTemplate(template), [template]);
+  const rawScopeId = useId();
+  const scopeId = `feed-${rawScopeId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+
+  if (!channel) return <Placeholder text="no channel" />;
+  if (!template) return <Placeholder text="empty template" />;
+  if (!compiled.render) return <Placeholder text="template syntax error" />;
+
+  const css = typeof cfg.css === 'string' ? cfg.css : '';
+  const scopedCss = css
+    ? `@scope ([data-feed-scope="${scopeId}"]) {\n${css}\n}`
+    : '';
+
+  return (
+    <div
+      data-feed-scope={scopeId}
+      style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
+    >
+      {scopedCss && <style>{scopedCss}</style>}
+      <FeedErrorBoundary key={template}>
+        <FeedContent render={compiled.render} data={payload ?? null} />
+      </FeedErrorBoundary>
+    </div>
+  );
 }
 
 function Placeholder({ text }: { text: string }) {

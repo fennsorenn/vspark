@@ -100,8 +100,7 @@ export function ComposeLayerProperties({
   ) => {
     const current = unitOf(unitKey);
     if (current === unit) return;
-    const basis =
-      field === 'x' || field === 'width' ? frameW : frameH;
+    const basis = field === 'x' || field === 'width' ? frameW : frameH;
     const value = layer[field];
     const converted =
       unit === '%'
@@ -486,6 +485,120 @@ export function ComposeLayerProperties({
             placeholder="https://…"
             style={textInput}
           />
+        </>
+      )}
+
+      {layer.kind === 'feed' && (
+        <>
+          <div style={sectionHeader}>Data channel</div>
+          <input
+            type="text"
+            value={(layer.config.channel as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, channel: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, channel: e.target.value },
+                })
+                .catch(() => {})
+            }
+            placeholder="e.g. chat"
+            style={textInput}
+          />
+          <div
+            style={{
+              fontSize: 10,
+              color: '#555',
+              lineHeight: 1.4,
+              marginTop: 4,
+            }}
+          >
+            Name of the channel a `set_data` node publishes to.
+          </div>
+
+          <div style={sectionHeader}>Template</div>
+          <textarea
+            value={(layer.config.template as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, template: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, template: e.target.value },
+                })
+                .catch(() => {})
+            }
+            placeholder={
+              '<div className="chat">\n  ${(data || []).map((m) => html`\n    <div key=${m.id}>${m.displayName}: <${Emote} html=${m.html} /></div>\n  `)}\n</div>'
+            }
+            rows={8}
+            spellCheck={false}
+            style={{
+              ...textInput,
+              resize: 'vertical',
+              fontFamily: 'monospace',
+              fontSize: 12,
+              whiteSpace: 'pre',
+            }}
+          />
+          <div
+            style={{
+              fontSize: 10,
+              color: '#555',
+              lineHeight: 1.4,
+              marginTop: 4,
+            }}
+          >
+            JSX-ish (htm) markup. The channel payload is <code>data</code> (loop
+            an array with <code>{'${data.map(...)}'}</code>). Use{' '}
+            <code>{'<${Emote} html=${m.html} />'}</code> for emote HTML. Use{' '}
+            <code>className</code>, not <code>class</code>.
+          </div>
+
+          <div style={sectionHeader}>Styles (CSS)</div>
+          <textarea
+            value={(layer.config.css as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, css: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, css: e.target.value },
+                })
+                .catch(() => {})
+            }
+            placeholder={'.chat { display:flex; flex-direction:column; }'}
+            rows={6}
+            spellCheck={false}
+            style={{
+              ...textInput,
+              resize: 'vertical',
+              fontFamily: 'monospace',
+              fontSize: 12,
+              whiteSpace: 'pre',
+            }}
+          />
+          <div
+            style={{
+              fontSize: 10,
+              color: '#555',
+              lineHeight: 1.4,
+              marginTop: 4,
+            }}
+          >
+            Static styles, scoped to this layer. Dynamic styles can go inline in
+            the template (<code>{'style=${{ color: m.color }}'}</code>).
+          </div>
         </>
       )}
 
