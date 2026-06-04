@@ -4900,9 +4900,10 @@ export function PropertiesPanel() {
                         ) => {
                           const prev = (node.properties?.defaultExpressions ??
                             {}) as Record<string, number>;
-                          const next = { ...prev };
-                          if (v > 0) next[n] = v;
-                          else delete next[n];
+                          // Keep 0 entries (don't delete) so the viewport keeps
+                          // driving the expression back to 0 — dropping the key
+                          // would leave the last applied weight stuck on the VRM.
+                          const next = { ...prev, [n]: v };
                           const properties = {
                             ...node.properties,
                             defaultExpressions: next,
