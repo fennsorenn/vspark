@@ -53,6 +53,8 @@ import type {
   NodeRecord,
   NodeComponent,
   ApiAnimationState,
+  NodeTransformOverride,
+  RuntimeOverrideMap,
 } from '../../store/editorStore';
 import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync';
 
@@ -605,7 +607,22 @@ function useTransformWithOverride(node: NodeRecord): Transform {
   const runtimeOverride = useEditorStore(
     (s) => s.runtimeNodeOverrides[node.id]
   );
-  const base = getTransform(node);
+  return applyTransformOverrides(
+    getTransform(node),
+    clipOverride,
+    runtimeOverride
+  );
+}
+
+/** Merge a node's track-clip override (winner) and runtime override (fills only
+ *  fields the clip didn't set) on top of a base transform. Pure — shared by
+ *  `useTransformWithOverride` (store-subscribed) and the per-frame ancestor
+ *  walk used to propagate transforms onto flat-mounted child nodes. */
+function applyTransformOverrides(
+  base: Transform,
+  clipOverride: NodeTransformOverride | undefined,
+  runtimeOverride: RuntimeOverrideMap | undefined
+): Transform {
   if (!clipOverride && !runtimeOverride) return base;
   const out: Transform = { ...base };
   // Track-clip override pass (winner).
@@ -653,6 +670,91 @@ function useTransformWithOverride(node: NodeRecord): Transform {
       out.opacity = ro;
   }
   return out;
+}
+
+// Scratch objects for composing a flat-mounted node's accumulated ancestor
+// transform each frame (see FlatNodeWrapper) without per-frame allocation.
+const _inhMat = new THREE.Matrix4();
+const _inhLocal = new THREE.Matrix4();
+const _inhPos = new THREE.Vector3();
+const _inhQuat = new THREE.Quaternion();
+const _inhScale = new THREE.Vector3();
+const _inhEuler = new THREE.Euler();
+// Scratch for cancelling a billboard/text node's parent rotation so it keeps
+// facing the camera under a rotated ancestor.
+const _faceQuat = new THREE.Quaternion();
+
+/** Compose the accumulated LOCAL transform of a node's ancestors (root-most
+ *  first) into `out`, reading live transforms + overrides from the store. This
+ *  mirrors what Three.js does for hierarchically-nested nodes, so a flat-mounted
+ *  child (billboard/particle/text/feed) can inherit its parent's position,
+ *  rotation and scale. Cycles and missing parents terminate the walk. Returns
+ *  true if the node had at least one resolvable ancestor. */
+function composeAncestorMatrix(nodeId: string, out: THREE.Matrix4): boolean {
+  const state = useEditorStore.getState();
+  const nodes = state.nodes;
+  const self = nodes.find((n) => n.id === nodeId);
+  // Collect ancestors parent-first, then reverse to root-first.
+  const chain: NodeRecord[] = [];
+  const seen = new Set<string>([nodeId]);
+  let cur = self?.parentId
+    ? nodes.find((n) => n.id === self.parentId)
+    : undefined;
+  while (cur && !seen.has(cur.id)) {
+    chain.push(cur);
+    seen.add(cur.id);
+    const pid = cur.parentId;
+    cur = pid ? nodes.find((n) => n.id === pid) : undefined;
+  }
+  out.identity();
+  if (chain.length === 0) return false;
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const anc = chain[i];
+    const t = applyTransformOverrides(
+      getTransform(anc),
+      state.nodeTransformOverrides[anc.id],
+      state.runtimeNodeOverrides[anc.id]
+    );
+    _inhPos.set(t.x, t.y, t.z);
+    _inhEuler.set(t.rx, t.ry, t.rz, 'XYZ');
+    _inhQuat.setFromEuler(_inhEuler);
+    _inhScale.set(t.sx, t.sy, t.sz);
+    _inhLocal.compose(_inhPos, _inhQuat, _inhScale);
+    out.multiply(_inhLocal);
+  }
+  return true;
+}
+
+/** Top-level wrapper for flat-mounted scene nodes. They live at scene root (so
+ *  their React instance never unmounts on reparent — preserving particle pools,
+ *  textures and SDF caches), but should still inherit their parent's transform.
+ *  Each frame we recompute the accumulated ancestor matrix from the store and
+ *  apply it here, so the inner node's own transform composes on top — matching
+ *  how hierarchically-nested kinds inherit through the Three.js scene graph.
+ *  Bone-attached nodes are skipped: BoneAttacher reparents their inner group
+ *  onto the bone, which drives their world transform instead. */
+function FlatNodeWrapper({
+  node,
+  visible,
+  children,
+}: {
+  node: NodeRecord;
+  visible: boolean;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const boneAttached = !!node.boneAttachment;
+  useFrame(() => {
+    const g = ref.current;
+    if (!g || boneAttached) return;
+    composeAncestorMatrix(node.id, _inhMat);
+    _inhMat.decompose(g.position, g.quaternion, g.scale);
+  });
+  return (
+    <group ref={ref} visible={visible}>
+      {children}
+    </group>
+  );
 }
 
 /** Per-frame mesh-material opacity walk. Sets `transparent` + `opacity` on
@@ -2840,14 +2942,23 @@ function BillboardNode({ node }: { node: NodeRecord }) {
     return registerNodeGroup(node.id, outerRef.current);
   }, [node.id]);
 
-  // Copy camera quaternion onto the inner group each frame when in screen-facing mode,
-  // or reset to identity when in world mode so the node's own rotation applies cleanly.
+  // Face the camera each frame in screen mode, or reset to identity in world
+  // mode so the node's own rotation applies cleanly. In screen mode we cancel
+  // out any accumulated parent rotation (the node may sit under a rotated
+  // group), so the plane keeps facing the camera regardless of its ancestry
+  // while still inheriting the parent's position and scale.
   useFrame(({ camera }) => {
-    if (!billboardRef.current) return;
+    const g = billboardRef.current;
+    if (!g) return;
     if (bc.facing === 'screen') {
-      billboardRef.current.quaternion.copy(camera.quaternion);
+      if (g.parent) {
+        g.parent.getWorldQuaternion(_faceQuat).invert();
+        g.quaternion.copy(_faceQuat).multiply(camera.quaternion);
+      } else {
+        g.quaternion.copy(camera.quaternion);
+      }
     } else {
-      billboardRef.current.quaternion.identity();
+      g.quaternion.identity();
     }
   });
 
@@ -3018,10 +3129,19 @@ function TextTroikaNode({ node }: { node: NodeRecord }) {
   ]);
 
   useFrame(() => {
-    if (cfg.billboard && billboardRef.current) {
-      billboardRef.current.quaternion.copy(camera.quaternion);
-    } else if (billboardRef.current) {
-      billboardRef.current.quaternion.identity();
+    const g = billboardRef.current;
+    if (!g) return;
+    // Cancel accumulated parent rotation so the text keeps facing the camera
+    // even under a rotated ancestor, while still inheriting position + scale.
+    if (cfg.billboard) {
+      if (g.parent) {
+        g.parent.getWorldQuaternion(_faceQuat).invert();
+        g.quaternion.copy(_faceQuat).multiply(camera.quaternion);
+      } else {
+        g.quaternion.copy(camera.quaternion);
+      }
+    } else {
+      g.quaternion.identity();
     }
   });
 
@@ -3182,10 +3302,19 @@ function TextCanvasNode({ node }: { node: NodeRecord }) {
   }, [content, cfg.fontSize, cfg.color, cfg.padding, cfg.allowHtml]);
 
   useFrame(() => {
-    if (cfg.billboard && billboardRef.current) {
-      billboardRef.current.quaternion.copy(camera.quaternion);
-    } else if (billboardRef.current) {
-      billboardRef.current.quaternion.identity();
+    const g = billboardRef.current;
+    if (!g) return;
+    // Cancel accumulated parent rotation so the text keeps facing the camera
+    // even under a rotated ancestor, while still inheriting position + scale.
+    if (cfg.billboard) {
+      if (g.parent) {
+        g.parent.getWorldQuaternion(_faceQuat).invert();
+        g.quaternion.copy(_faceQuat).multiply(camera.quaternion);
+      } else {
+        g.quaternion.copy(camera.quaternion);
+      }
+    } else {
+      g.quaternion.identity();
     }
   });
 
@@ -3395,10 +3524,19 @@ function FeedCanvasNode({
   }, [node.id]);
 
   useFrame(() => {
-    if (cfg.billboard && billboardRef.current) {
-      billboardRef.current.quaternion.copy(camera.quaternion);
-    } else if (billboardRef.current) {
-      billboardRef.current.quaternion.identity();
+    const g = billboardRef.current;
+    if (!g) return;
+    // Cancel accumulated parent rotation so the text keeps facing the camera
+    // even under a rotated ancestor, while still inheriting position + scale.
+    if (cfg.billboard) {
+      if (g.parent) {
+        g.parent.getWorldQuaternion(_faceQuat).invert();
+        g.quaternion.copy(_faceQuat).multiply(camera.quaternion);
+      } else {
+        g.quaternion.copy(camera.quaternion);
+      }
+    } else {
+      g.quaternion.identity();
     }
   });
 
@@ -3947,29 +4085,49 @@ export function SceneNodes({
     <>
       {rootNodes.map((node) => renderNodeElement(node, sceneNodes, viewerMode))}
       {flatParticles.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
+        <FlatNodeWrapper
+          key={node.id}
+          node={node}
+          visible={effectiveVisible(node)}
+        >
           <ParticleNode node={node} />
-        </group>
+        </FlatNodeWrapper>
       ))}
       {flatBillboards.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
+        <FlatNodeWrapper
+          key={node.id}
+          node={node}
+          visible={effectiveVisible(node)}
+        >
           <BillboardNode node={node} />
-        </group>
+        </FlatNodeWrapper>
       ))}
       {flatTextTroika.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
+        <FlatNodeWrapper
+          key={node.id}
+          node={node}
+          visible={effectiveVisible(node)}
+        >
           <TextTroikaNode node={node} />
-        </group>
+        </FlatNodeWrapper>
       ))}
       {flatTextCanvas.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
+        <FlatNodeWrapper
+          key={node.id}
+          node={node}
+          visible={effectiveVisible(node)}
+        >
           <TextCanvasNode node={node} />
-        </group>
+        </FlatNodeWrapper>
       ))}
       {flatFeed.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
+        <FlatNodeWrapper
+          key={node.id}
+          node={node}
+          visible={effectiveVisible(node)}
+        >
           <FeedCanvasNode node={node} viewerMode={viewerMode} />
-        </group>
+        </FlatNodeWrapper>
       ))}
     </>
   );

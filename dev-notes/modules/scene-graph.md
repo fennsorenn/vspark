@@ -160,7 +160,9 @@ Filters nodes to the active scene and optional exclusions. Recursively renders t
 | `billboard` | `BillboardNode` | 2D sprite — see [nodes/particle.md](nodes/particle.md) |
 | `group` | `THREE.Group` | No geometry |
 
-**Particles and billboards are rendered at the top level** (not nested inside the React tree), even though they have a `parentId` in the DB. This preserves React component instance identity across reparenting and avoids destroying particle pools. See [nodes/particle.md](nodes/particle.md) for details.
+**Particles, billboards, text (`text_troika`/`text_canvas`) and `feed` nodes are rendered at the top level** (not nested inside the React tree), even though they have a `parentId` in the DB. This preserves React component instance identity across reparenting and avoids destroying particle pools / textures / SDF caches. See [nodes/particle.md](nodes/particle.md) for details.
+
+**Parent transform inheritance for flat-mounted nodes.** Because they're mounted at scene root, these kinds would otherwise ignore their parent's transform. `SceneNodes` wraps each one in a `FlatNodeWrapper`, whose top-level `<group>` re-derives the **accumulated ancestor transform** every frame (`composeAncestorMatrix` walks the `parentId` chain in the store, composing each ancestor's local TRS — overrides included via the shared `applyTransformOverrides` — exactly as Three.js would for a hierarchically-nested node). The inner node's own transform then composes on top, so a flat node inherits its parent's position, rotation and scale just like a nested kind. Bone-attached flat nodes are skipped (the `BoneAttacher` reparents their inner group onto the bone, which drives their world transform instead). Screen-facing billboards / billboard-locked text cancel the accumulated parent rotation each frame (via the inner group's parent world quaternion) so they keep facing the camera while still inheriting position + scale.
 
 ### Node registry
 
