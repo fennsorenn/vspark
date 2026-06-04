@@ -155,6 +155,8 @@ Three modes:
 
 **Accumulation**: multiple ARKit shapes can map to the same target with weights. They sum, then clamp to [0, 1].
 
+**Default-expression baseline (frontend)**: `Viewport.tsx` applies the avatar node's `properties.defaultExpressions` as a per-frame baseline (`expressionManager.setValue`) *before* overlaying the broadcast blendshapes, so live producers override defaults per-key and defaults re-assert when the bus emits an empty record. See [frontend.md](frontend.md).
+
 **Key mappings (expressions mode)**:
 - `eyeWideLeft/Right` → surprised (0.2 each)
 - `mouthSmileLeft/Right` → happy (0.3 each)

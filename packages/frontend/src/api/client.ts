@@ -164,6 +164,9 @@ export interface NodeProperties {
   /** VRM avatar: seconds to ramp between override and additive when the bus flips
    *  blend mode (e.g. on tracking loss). Default 0.5. */
   blendTransitionTime?: number;
+  /** VRM avatar: resting expression weights (expression name → 0..1) applied as a
+   *  baseline each frame; live blendshape broadcasts override them per-key. */
+  defaultExpressions?: Record<string, number>;
 }
 
 export interface NodeRecord {

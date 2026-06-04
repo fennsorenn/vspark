@@ -4871,14 +4871,88 @@ export function PropertiesPanel() {
                 {exprs.length > 0 && (
                   <>
                     <div style={sectionHeader}>
-                      Expressions ({exprs.length})
+                      Default Expression ({exprs.length})
                     </div>
-                    <div style={listStyle}>
-                      {exprs.map((n) => (
-                        <div key={n} style={itemStyle}>
-                          {n}
-                        </div>
-                      ))}
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: '#555',
+                        lineHeight: 1.4,
+                        marginBottom: 6,
+                      }}
+                    >
+                      Resting expression weights held until a blendshape
+                      broadcast (VMC, lipsync, tracking) overrides them.
+                    </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                      }}
+                    >
+                      {exprs.map((n) => {
+                        const defaults = (node.properties?.defaultExpressions ??
+                          {}) as Record<string, number>;
+                        const setDefaultExpr = (
+                          v: number,
+                          persist: boolean
+                        ) => {
+                          const prev = (node.properties?.defaultExpressions ??
+                            {}) as Record<string, number>;
+                          // Keep 0 entries (don't delete) so the viewport keeps
+                          // driving the expression back to 0 — dropping the key
+                          // would leave the last applied weight stuck on the VRM.
+                          const next = { ...prev, [n]: v };
+                          const properties = {
+                            ...node.properties,
+                            defaultExpressions: next,
+                          };
+                          storeUpdateNode(node.id, { properties });
+                          if (persist)
+                            api
+                              .updateNode(node.id, {
+                                properties: { defaultExpressions: next },
+                              })
+                              .catch(() => {});
+                        };
+                        return (
+                          <div
+                            key={n}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 11,
+                                color: '#aaa',
+                                fontFamily: 'monospace',
+                                width: 110,
+                                flexShrink: 0,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={n}
+                            >
+                              {n}
+                            </span>
+                            <SliderInput
+                              value={defaults[n] ?? 0}
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              precision={2}
+                              style={{ flex: 1 }}
+                              onChange={(v) => setDefaultExpr(v, false)}
+                              onCommit={(v) => setDefaultExpr(v, true)}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
                   </>
                 )}
@@ -5132,50 +5206,6 @@ export function PropertiesPanel() {
                 </button>
               )}
             </div>
-            {animAssets.length > 0 && (
-              <div
-                style={{
-                  marginTop: 6,
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 4,
-                }}
-              >
-                {animAssets.map((a) => (
-                  <button
-                    key={a.id}
-                    style={{
-                      background:
-                        (node.components?.animation as { idleUrl?: string })
-                          ?.idleUrl === a.url
-                          ? '#1a4a2a'
-                          : '#1e1e1e',
-                      border: '1px solid #3a3a3a',
-                      color: '#ccc',
-                      borderRadius: 4,
-                      padding: '2px 8px',
-                      cursor: 'pointer',
-                      fontSize: 11,
-                      maxWidth: 220,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                    title={a.name}
-                    onClick={() => {
-                      const components = {
-                        ...node.components,
-                        animation: { idleUrl: a.url },
-                      };
-                      api.updateNode(node.id, { components }).catch(() => {});
-                      storeUpdateNode(node.id, { components });
-                    }}
-                  >
-                    {a.name}
-                  </button>
-                ))}
-              </div>
-            )}
             {/* Speed and offset */}
             {(node.components?.animation as { idleUrl?: string })?.idleUrl && (
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>

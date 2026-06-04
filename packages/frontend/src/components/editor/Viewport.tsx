@@ -2134,11 +2134,25 @@ function AvatarNode({
       // safe no-op here.
       // Morph-target names (Fcl_*, etc.) are deferred to after update() so they
       // aren't overwritten when expressionManager applies its tracked clip values.
+      // Per-node default ("resting") expression weights are applied first as a
+      // baseline, then the latest broadcast blendshapes are overlaid on top so
+      // live capture overrides the defaults per-key. When the bus has no active
+      // producer it emits an empty record, leaving the defaults in effect.
+      const defaultExpr = node.properties?.defaultExpressions;
       const bs = getVmcBlendshapes(node.id) ?? null;
-      if (bs && vrm.expressionManager) {
+      if (vrm.expressionManager) {
         const morphMap = morphMapRef.current;
-        for (const [name, value] of Object.entries(bs)) {
-          if (!morphMap.has(name)) vrm.expressionManager.setValue(name, value);
+        if (defaultExpr) {
+          for (const [name, value] of Object.entries(defaultExpr)) {
+            if (!morphMap.has(name))
+              vrm.expressionManager.setValue(name, value);
+          }
+        }
+        if (bs) {
+          for (const [name, value] of Object.entries(bs)) {
+            if (!morphMap.has(name))
+              vrm.expressionManager.setValue(name, value);
+          }
         }
       }
 

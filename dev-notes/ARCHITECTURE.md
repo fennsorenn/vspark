@@ -74,6 +74,7 @@ packages/
 | 3D Viewport | Implemented | `components/editor/Viewport.tsx` — R3F, pose application, post-processing, particles |
 | Viewport pose-gate rewrite | Implemented | Drops `vmcCompRef`/tracking-lost gates; pose applied whenever `pose != null && Object.keys(pose).length > 0 && fresh`; `blendMode` now selects composition strategy (override = replace anim; additive = `animQ * (restRawQ⁻¹ * posedRawQ)`); ramps over per-avatar `blendTransitionTime` (default 0.5s) |
 | PropertiesPanel: blend-time relocation + breathing UI | Implemented | `blendTime` removed from vmc_receiver UI; `blendTransitionTime` lives on the VRM avatar node's `properties`; new `BreathingProps` panel (Chest amplitude + Shoulder lift) |
+| PropertiesPanel: avatar default expressions | Implemented | Avatar section drops the inline animation-asset grid (now picked via the bottom-dock Animations tab; Pick… just flashes it); read-only Expressions list becomes a **Default Expression** control (0..1 slider per VRM expression). Weights persist on `node.properties.defaultExpressions` (shared `SceneNodeProperties.defaultExpressions`, only non-zero kept; backend shallow-merge). `Viewport.tsx` applies them as a per-frame baseline under live broadcast blendshapes. See [frontend.md](modules/frontend.md) and [animation.md](modules/animation.md). |
 | Scene graph panel | Implemented | `components/editor/SceneGraph.tsx` |
 | Properties panel | Implemented | `components/editor/PropertiesPanel.tsx` |
 | Asset manager | Implemented | `components/editor/AssetManager.tsx` |
