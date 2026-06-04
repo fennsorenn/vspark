@@ -503,6 +503,12 @@ function MaterialRow({
             0.01,
             2
           )}
+          {d.hasEmissiveMap && ov?.emissive !== undefined && (
+            <div style={{ fontSize: 10, color: '#666', lineHeight: 1.4 }}>
+              Emissive color overrides this material's emissive texture (flat
+              glow). Reset to restore it.
+            </div>
+          )}
           {d.hasNormalMap &&
             sliderRow(
               'Normal scale',

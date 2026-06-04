@@ -106,6 +106,7 @@ export interface MaterialDefaults {
   baseColor: string;
   emissive: string;
   emissiveIntensity: number;
+  hasEmissiveMap: boolean;
   normalScale: number;
   hasNormalMap: boolean;
   doubleSided: boolean;
@@ -204,6 +205,9 @@ interface Slot {
   nativeShader: ShaderKind;
   /** The original authored material (never disposed by us). */
   source: THREE.Material;
+  /** The authored emissive texture, cached so we can detach it when the user
+   *  sets a flat emissive override and restore it on reset. */
+  sourceEmissiveMap: THREE.Texture | null;
   defaults: MaterialDefaults;
   meshes: MeshSlot[];
   /** Lazily built standard-PBR material; cached for reuse across switches. */
@@ -270,6 +274,7 @@ function readDefaults(source: THREE.Material): MaterialDefaults {
     baseColor: hex(m.color),
     emissive: hex(m.emissive),
     emissiveIntensity: m.emissiveIntensity ?? 1,
+    hasEmissiveMap: !!m.emissiveMap,
     normalScale: m.normalScale?.x ?? 1,
     hasNormalMap: !!m.normalMap,
     doubleSided: source.side === THREE.DoubleSide,
@@ -333,6 +338,8 @@ function buildRegistry(vrm: VRM): Registry {
       displayName: mat.name || key,
       nativeShader: isMToon(mat) ? 'mtoon' : 'pbr',
       source: mat,
+      sourceEmissiveMap:
+        (mat as Partial<THREE.MeshStandardMaterial>).emissiveMap ?? null,
       defaults: readDefaults(mat),
       meshes: [],
       pbr: null,
@@ -426,6 +433,27 @@ function applySide(mat: THREE.Material, doubleSided: boolean): boolean {
   return false;
 }
 
+/** Detach the emissive texture when the user sets a flat emissive override, so
+ *  the chosen color/intensity shows everywhere. glTF/MToon otherwise multiply
+ *  the emissive factor by the (frequently mostly-black) emissive texture, which
+ *  makes the color control look like a no-op. Restored on reset. Returns true
+ *  when the USE_EMISSIVEMAP define toggled (needs a recompile). */
+function applyEmissiveMap(
+  mat: { emissiveMap: THREE.Texture | null },
+  slot: Slot,
+  ov: MaterialOverride | undefined
+): boolean {
+  // Only a colour override goes flat — an intensity-only tweak should still
+  // scale an authored (textured) emissive, e.g. boosting glowing eyes.
+  const flat = ov?.emissive !== undefined;
+  const next = flat ? null : slot.sourceEmissiveMap;
+  if (mat.emissiveMap !== next) {
+    mat.emissiveMap = next;
+    return true;
+  }
+  return false;
+}
+
 function applyMToon(slot: Slot, ov: MaterialOverride | undefined): void {
   const d = slot.defaults;
   const m = slot.source as MToonLike;
@@ -454,6 +482,7 @@ function applyMToon(slot: Slot, ov: MaterialOverride | undefined): void {
       ov?.alphaMode ?? d.alphaMode,
       ov?.alphaCutoff ?? d.alphaCutoff
     ) || recompile;
+  recompile = applyEmissiveMap(m, slot, ov) || recompile;
   if (recompile) m.needsUpdate = true;
 
   // Restore the surface material reference + outline params on each mesh.
@@ -530,7 +559,8 @@ function buildPhysical(source: THREE.Material): THREE.MeshPhysicalMaterial {
 function applyStandardCommon(
   p: THREE.MeshStandardMaterial,
   ov: MaterialOverride | undefined,
-  d: MaterialDefaults
+  d: MaterialDefaults,
+  slot: Slot
 ): void {
   p.color.set(ov?.baseColor ?? d.baseColor);
   p.emissive.set(ov?.emissive ?? d.emissive);
@@ -551,6 +581,7 @@ function applyStandardCommon(
       ov?.alphaMode ?? d.alphaMode,
       ov?.alphaCutoff ?? d.alphaCutoff
     ) || recompile;
+  recompile = applyEmissiveMap(p, slot, ov) || recompile;
   if (recompile) p.needsUpdate = true;
 }
 
@@ -589,12 +620,12 @@ function applyStandardLike(
   let p: THREE.MeshStandardMaterial;
   if (mode === 'apbr') {
     if (!slot.apbr) slot.apbr = buildPhysical(slot.source);
-    applyStandardCommon(slot.apbr, ov, d);
+    applyStandardCommon(slot.apbr, ov, d, slot);
     applyAdvanced(slot.apbr, ov, d);
     p = slot.apbr;
   } else {
     if (!slot.pbr) slot.pbr = buildStandard(slot.source);
-    applyStandardCommon(slot.pbr, ov, d);
+    applyStandardCommon(slot.pbr, ov, d, slot);
     p = slot.pbr;
   }
 
