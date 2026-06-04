@@ -1,6 +1,6 @@
 import { useEditorStore, type NodeRecord } from '../../store/editorStore';
 import { api } from '../../api/client';
-import type { ComposeLayerKind } from '../../api/client';
+import type { AssetFile, ComposeLayerKind } from '../../api/client';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 
 // ---------------------------------------------------------------------------
@@ -141,6 +141,60 @@ export async function createSceneNode(
     components,
   });
   // The WS broadcast may also deliver this node; dedupe by id.
+  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
+    useEditorStore.getState().addNode(node);
+  }
+  return node;
+}
+
+// ---------------------------------------------------------------------------
+// Creating nodes from asset files (shared by the asset cards + drag-and-drop)
+// ---------------------------------------------------------------------------
+
+/** Add a model/avatar asset to a scene as an avatar (VRM) or model node. */
+export async function createNodeFromModelAsset(
+  asset: AssetFile,
+  sceneId: string,
+  parentId: string | null = null
+): Promise<NodeRecord> {
+  const ext = asset.name.split('.').pop()?.toLowerCase();
+  const kind = ext === 'vrm' ? 'avatar' : 'model';
+  const node = await api.createNode(sceneId, {
+    parentId,
+    name: asset.name,
+    kind,
+    filePath: asset.url,
+    components: { ...DEFAULT_COMPONENTS },
+  });
+  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
+    useEditorStore.getState().addNode(node);
+  }
+  return node;
+}
+
+/** Add an image asset to a scene as a billboard node textured with it. */
+export async function createBillboardFromImageAsset(
+  asset: AssetFile,
+  sceneId: string,
+  parentId: string | null = null
+): Promise<NodeRecord> {
+  const node = await api.createNode(sceneId, {
+    parentId,
+    name: asset.name,
+    kind: 'billboard',
+    filePath: asset.url,
+    components: {
+      ...DEFAULT_COMPONENTS,
+      billboard: {
+        facing: 'screen',
+        backface: 'none',
+        width: 1,
+        height: 1,
+        alpha: 1,
+        textureUrl: asset.url,
+      },
+    },
+  });
   if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
     useEditorStore.getState().addNode(node);
   }

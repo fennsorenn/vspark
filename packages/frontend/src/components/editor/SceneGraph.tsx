@@ -16,6 +16,7 @@ import {
   nextNodeName,
   type NodeKindDef,
 } from './createKinds';
+import { handleSceneNodeDrop } from './dnd';
 
 const KIND_ICONS: Record<string, string> = {
   scene: '🎬',
@@ -1629,6 +1630,15 @@ export function SceneGraph() {
     e.preventDefault();
     e.stopPropagation();
     setDragOverNodeId(null);
+    // Drag-create from the bottom dock: add the new node/asset as a child.
+    if (await handleSceneNodeDrop(e, activeSceneId, targetNodeId)) {
+      setCollapsedNodes((s) => {
+        const n = new Set(s);
+        n.delete(targetNodeId);
+        return n;
+      });
+      return;
+    }
     if (!dragNodeId || dragNodeId === targetNodeId) return;
     await handleReparent(dragNodeId, targetNodeId, null);
     setDragNodeId(null);
@@ -1636,6 +1646,8 @@ export function SceneGraph() {
 
   const handleDropOnRoot = async (e: React.DragEvent) => {
     e.preventDefault();
+    // Drag-create from the bottom dock: add at scene root.
+    if (await handleSceneNodeDrop(e, activeSceneId, null)) return;
     if (!dragNodeId) return;
     await handleReparent(dragNodeId, null, null);
     setDragNodeId(null);

@@ -92,6 +92,53 @@ export type BottomDockTab =
   | 'clips'
   | 'presets';
 
+// ── Dock-layout persistence ────────────────────────────────────────────────
+// The active tabs + dock height are session-spanning UI prefs, persisted to
+// localStorage so the editor reopens the way the user left it. Guarded so a
+// disabled/again unavailable storage never throws.
+const LS = {
+  leftTab: 'vspark.leftTab',
+  bottomTab: 'vspark.bottomTab',
+  bottomDockHeight: 'vspark.bottomDockHeight',
+};
+function lsGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function lsSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable — ignore */
+  }
+}
+const LEFT_TABS: LeftDockTab[] = ['scene', 'compose', 'graphs'];
+const BOTTOM_TABS: BottomDockTab[] = [
+  'create',
+  'models',
+  'animations',
+  'images',
+  'components',
+  'effects',
+  'clips',
+  'presets',
+];
+function initialLeftTab(): LeftDockTab {
+  const v = lsGet(LS.leftTab) as LeftDockTab | null;
+  return v && LEFT_TABS.includes(v) ? v : 'scene';
+}
+function initialBottomTab(): BottomDockTab {
+  const v = lsGet(LS.bottomTab) as BottomDockTab | null;
+  return v && BOTTOM_TABS.includes(v) ? v : 'models';
+}
+function initialBottomDockHeight(): number {
+  const n = Number(lsGet(LS.bottomDockHeight));
+  return Number.isFinite(n) && n >= 120 && n <= 800 ? n : 200;
+}
+
 /** Per-node free-form properties (mirror of backend `scene_nodes.properties`). */
 export interface NodeProperties {
   /** VRM avatar: seconds to ramp between override and additive on bus mode flip. */
@@ -615,11 +662,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   composeScenes: [],
   activeComposeSceneId: null,
   composeLayers: [],
-  leftTab: 'scene',
-  bottomTab: 'models',
+  leftTab: initialLeftTab(),
+  bottomTab: initialBottomTab(),
   bottomTabFlash: 0,
   focusNameNonce: 0,
-  bottomDockHeight: 200,
+  bottomDockHeight: initialBottomDockHeight(),
   clipboardPayload: null,
   selectedComposeLayerId: null,
 
@@ -859,14 +906,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             : s.activeComposeSceneId,
       };
     }),
-  setLeftTab: (tab) => set({ leftTab: tab }),
-  setBottomTab: (tab) => set({ bottomTab: tab }),
-  flashBottomTab: (tab) => set({ bottomTab: tab, bottomTabFlash: Date.now() }),
+  setLeftTab: (tab) => {
+    lsSet(LS.leftTab, tab);
+    set({ leftTab: tab });
+  },
+  setBottomTab: (tab) => {
+    lsSet(LS.bottomTab, tab);
+    set({ bottomTab: tab });
+  },
+  flashBottomTab: (tab) => {
+    lsSet(LS.bottomTab, tab);
+    set({ bottomTab: tab, bottomTabFlash: Date.now() });
+  },
   requestFocusName: () =>
     set((s) => ({ focusNameNonce: s.focusNameNonce + 1 })),
   setClipboard: (payload) => set({ clipboardPayload: payload }),
-  setBottomDockHeight: (h) =>
-    set({ bottomDockHeight: Math.max(120, Math.min(800, Math.round(h))) }),
+  setBottomDockHeight: (h) => {
+    const clamped = Math.max(120, Math.min(800, Math.round(h)));
+    lsSet(LS.bottomDockHeight, String(clamped));
+    set({ bottomDockHeight: clamped });
+  },
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
 
   setTrackClips: (clips) => set({ trackClips: clips }),

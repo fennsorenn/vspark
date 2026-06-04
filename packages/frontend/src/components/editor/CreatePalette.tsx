@@ -8,6 +8,7 @@ import {
   type NodeKindDef,
   type LayerKindDef,
 } from './createKinds';
+import { DND_CREATE_NODE, DND_CREATE_LAYER } from './dnd';
 
 const grid: React.CSSProperties = {
   display: 'grid',
@@ -40,15 +41,20 @@ function Tile({
   icon,
   label,
   onClick,
+  onDragStart,
 }: {
   icon: string;
   label: string;
   onClick: () => void;
+  onDragStart?: (e: React.DragEvent) => void;
 }) {
   return (
     <button
       style={tile}
+      draggable={!!onDragStart}
+      onDragStart={onDragStart}
       onClick={onClick}
+      title="Click to add, or drag onto the scene / viewport"
       onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#2563eb')}
       onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#2a2a2a')}
     >
@@ -113,6 +119,13 @@ export function CreatePalette() {
                   icon={def.icon}
                   label={def.label}
                   onClick={() => handleAddLayer(def)}
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'copy';
+                    e.dataTransfer.setData(
+                      DND_CREATE_LAYER,
+                      JSON.stringify({ kind: def.kind })
+                    );
+                  }}
                 />
               ))}
             </div>
@@ -142,6 +155,10 @@ export function CreatePalette() {
                 icon={def.icon}
                 label={def.label}
                 onClick={() => handleAddNode(def)}
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = 'copy';
+                  e.dataTransfer.setData(DND_CREATE_NODE, JSON.stringify(def));
+                }}
               />
             ))}
           </div>

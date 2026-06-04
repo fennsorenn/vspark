@@ -10,6 +10,8 @@ import { ClipsSection } from './ClipsSection';
 import { GraphsSection } from './GraphsSection';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
+import { createLayer } from './createKinds';
+import { DND_CREATE_LAYER } from './dnd';
 
 const KIND_ICONS: Record<ComposeLayerKind, string> = {
   image: '🖼',
@@ -473,7 +475,26 @@ function ComposeSceneRoot({
   };
 
   return (
-    <div>
+    <div
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(DND_CREATE_LAYER)) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      }}
+      onDrop={(e) => {
+        const data = e.dataTransfer.getData(DND_CREATE_LAYER);
+        if (!data) return;
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          const { kind } = JSON.parse(data) as { kind: ComposeLayerKind };
+          void createLayer(scene.id, kind);
+        } catch {
+          /* malformed payload — ignore */
+        }
+      }}
+    >
       <div
         style={{
           display: 'flex',

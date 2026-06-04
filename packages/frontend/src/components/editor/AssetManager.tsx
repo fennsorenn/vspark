@@ -7,6 +7,8 @@ import { newComponentId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { TrackClipTimeline } from './TrackClipTimeline';
 import { PresetLibrary } from './PresetLibrary';
 import { CreatePalette } from './CreatePalette';
+import { AssetThumb } from './AssetThumb';
+import { DND_ASSET } from './dnd';
 
 export function AssetManager() {
   const {
@@ -36,6 +38,7 @@ export function AssetManager() {
   const bottomDockHeight = useEditorStore((s) => s.bottomDockHeight);
   const bottomTabFlash = useEditorStore((s) => s.bottomTabFlash);
   const [uploading, setUploading] = useState(false);
+  const [assetQuery, setAssetQuery] = useState('');
 
   // Tabs worth highlighting for the current selection. Non-destructive — every
   // tab stays clickable; relevant ones just get an accent so the eye lands on
@@ -362,6 +365,23 @@ export function AssetManager() {
           Presets
         </button>
         <div style={{ flex: 1 }} />
+        {(tab === 'models' || tab === 'animations' || tab === 'images') && (
+          <input
+            value={assetQuery}
+            onChange={(e) => setAssetQuery(e.target.value)}
+            placeholder="Search…"
+            style={{
+              background: '#1a1a1a',
+              border: '1px solid #2a2a2a',
+              borderRadius: 5,
+              color: '#ccc',
+              padding: '4px 8px',
+              fontSize: 12,
+              width: 130,
+              marginRight: 4,
+            }}
+          />
+        )}
         {tab === 'create' ||
         tab === 'components' ||
         tab === 'effects' ||
@@ -629,13 +649,17 @@ export function AssetManager() {
           {/* Models / Animations / Images tabs */}
           {(tab === 'models' || tab === 'animations' || tab === 'images') &&
             (() => {
-              const list =
+              const all =
                 tab === 'models'
                   ? models
                   : tab === 'animations'
                     ? animations
                     : images;
-              if (list.length === 0)
+              const q = assetQuery.trim().toLowerCase();
+              const list = q
+                ? all.filter((a) => a.name.toLowerCase().includes(q))
+                : all;
+              if (all.length === 0)
                 return (
                   <div
                     style={{
@@ -646,6 +670,19 @@ export function AssetManager() {
                     }}
                   >
                     No {tab} yet. Upload one above.
+                  </div>
+                );
+              if (list.length === 0)
+                return (
+                  <div
+                    style={{
+                      color: '#555',
+                      fontSize: 12,
+                      textAlign: 'center',
+                      paddingTop: 20,
+                    }}
+                  >
+                    No {tab} match “{assetQuery}”.
                   </div>
                 );
               const cardStyle: React.CSSProperties = {
@@ -677,21 +714,18 @@ export function AssetManager() {
                   }}
                 >
                   {list.map((asset) => (
-                    <div key={asset.id} style={cardStyle}>
-                      {/* Thumbnail for images */}
-                      {asset.kind === 'image' && (
-                        <img
-                          src={asset.url}
-                          alt={asset.name}
-                          style={{
-                            width: '100%',
-                            height: 80,
-                            objectFit: 'contain',
-                            borderRadius: 3,
-                            background: '#111',
-                          }}
-                        />
-                      )}
+                    <div
+                      key={asset.id}
+                      style={{ ...cardStyle, cursor: 'grab' }}
+                      draggable
+                      title="Drag onto the scene tree or viewport to add"
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'copy';
+                        e.dataTransfer.setData(DND_ASSET, asset.id);
+                      }}
+                    >
+                      {/* Thumbnail (image preview, lazy 3D render for models) */}
+                      <AssetThumb asset={asset} />
                       <div
                         style={{
                           fontSize: 13,
