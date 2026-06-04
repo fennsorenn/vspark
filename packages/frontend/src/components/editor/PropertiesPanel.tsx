@@ -88,6 +88,12 @@ interface CameraProps {
   shadowsEnabled: boolean;
   /** Shadow-map filter quality. low=hard, medium=PCF, high=PCF-soft. */
   shadowQuality: ShadowQuality;
+  /**
+   * Multiplier for the environment-map (HDRI) lighting contribution in the
+   * output/viewer canvases. Lower values darken surfaces facing away from
+   * scene lights, increasing directional contrast. Default 1.
+   */
+  envIntensity: number;
 }
 
 const RAD = Math.PI / 180;
@@ -135,6 +141,7 @@ function getCameraProps(node: NodeRecord): CameraProps {
     orthoSize: c?.orthoSize ?? 2,
     shadowsEnabled: c?.shadowsEnabled ?? false,
     shadowQuality: c?.shadowQuality ?? 'medium',
+    envIntensity: c?.envIntensity ?? 1,
   };
 }
 
@@ -2927,6 +2934,7 @@ export function PropertiesPanel() {
     orthoSize: 2,
     shadowsEnabled: false,
     shadowQuality: 'medium',
+    envIntensity: 1,
   });
   const [animPlaying, setAnimPlaying] = useState(true);
   const [animTime, setAnimTime] = useState(0);
@@ -3841,6 +3849,46 @@ export function PropertiesPanel() {
               >
                 Lights only cast shadows if their own "Cast shadows" is on.
                 Per-object cast/receive is set on each model's transform.
+              </div>
+            </div>
+
+            <div style={sectionHeader}>Environment</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', width: 60 }}>
+                  Intensity
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={0.01}
+                  value={camera.envIntensity}
+                  style={{ flex: 1, accentColor: '#2563eb' }}
+                  onChange={(e) => {
+                    const next = {
+                      ...camera,
+                      envIntensity: parseFloat(e.target.value),
+                    };
+                    setCamera(next);
+                    saveCamera(next);
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: '#aaa',
+                    width: 32,
+                    textAlign: 'right',
+                  }}
+                >
+                  {camera.envIntensity.toFixed(2)}
+                </span>
+              </div>
+              <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+                Scales ambient light from the environment map in the output and
+                viewer. Lower for more directional contrast; 0 lights the model
+                with scene lights only.
               </div>
             </div>
 

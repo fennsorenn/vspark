@@ -163,11 +163,13 @@ export function ViewerPage() {
         backgroundImage?: string;
         shadowsEnabled?: boolean;
         shadowQuality?: ShadowQuality;
+        envIntensity?: number;
       }
     | undefined;
   const projection = cc?.projection ?? 'perspective';
   const orthoSize = cc?.orthoSize ?? 2;
   const shadowsEnabled = cc?.shadowsEnabled ?? false;
+  const envIntensity = cc?.envIntensity ?? 1;
   const t = getT(camNode?.components as Record<string, unknown> | undefined);
   const bgImage = cc?.backgroundImage ?? null;
   const camSceneId = camNode?.rootSceneNodeId;
@@ -240,7 +242,7 @@ export function ViewerPage() {
         <SceneNodes omitKinds={['camera']} viewerMode sceneId={camSceneId} />
         {shadowsEnabled && <ShadowCatcher />}
         <ShadowMaterialSync enabled={shadowsEnabled} />
-        <Environment preset="city" />
+        <Environment preset="city" environmentIntensity={envIntensity} />
         {nodeId && <CameraEffects forceNodeId={nodeId} sceneId={camSceneId} />}
       </Canvas>
     </div>
