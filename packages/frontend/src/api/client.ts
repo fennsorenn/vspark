@@ -214,7 +214,8 @@ export type ComposeLayerKind =
   | 'compose_scene'
   | 'scene_include'
   | 'camera_view'
-  | 'text';
+  | 'text'
+  | 'feed';
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
 

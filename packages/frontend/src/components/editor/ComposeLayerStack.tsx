@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useId, useMemo, type CSSProperties } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import type {
   ComposeLayerRecord,
@@ -8,6 +8,11 @@ import type {
 import DOMPurify from 'dompurify';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
 import { CameraCanvas } from './CameraCanvas';
+import {
+  compileTemplate,
+  FeedContent,
+  FeedErrorBoundary,
+} from '../../lib/feedTemplate';
 
 interface ComposeLayerStackProps {
   layers: ComposeLayerRecord[];
@@ -243,6 +248,9 @@ function LayerContent({
   if (layer.kind === 'text') {
     return <TextLayer layer={layer} />;
   }
+  if (layer.kind === 'feed') {
+    return <FeedLayer layer={layer} />;
+  }
   const url = (layer.config.url as string | undefined) ?? '';
   if (!url) return <Placeholder text="no URL" />;
   // Iframes always swallow events when active. We keep them pointer-events:none
@@ -309,6 +317,50 @@ function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
     return <div style={style} dangerouslySetInnerHTML={{ __html: safe }} />;
   }
   return <div style={style}>{content}</div>;
+}
+
+/**
+ * Generic, data-shape-independent feed/template layer. Renders the data-channel
+ * fields visible to this layer — the GLOBAL scope merged with this layer's own
+ * id scope (a `set_data` node optionally targets a layer/node id) — through a
+ * user-authored JSX-ish (htm) template. Every field is exposed to the template
+ * by its bare name (a field labeled `chat` → `${chat.map(...)}`). Because the
+ * template produces real React elements with stable keys, reconciliation handles
+ * per-item enter animation. Static styles live in `config.css`, injected scoped
+ * to this layer via `@scope`. See dev-notes/modules/data-channels.md.
+ */
+function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
+  const cfg = layer.config as { template?: string; css?: string };
+  const globalFields = useEditorStore((s) => s.dataChannels['']);
+  const ownFields = useEditorStore((s) => s.dataChannels[layer.id]);
+  const channels = useMemo(
+    () => ({ ...(globalFields ?? {}), ...(ownFields ?? {}) }),
+    [globalFields, ownFields]
+  );
+  const template = typeof cfg.template === 'string' ? cfg.template : '';
+  const compiled = useMemo(() => compileTemplate(template), [template]);
+  const rawScopeId = useId();
+  const scopeId = `feed-${rawScopeId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+
+  if (!template) return <Placeholder text="empty template" />;
+  if (!compiled.render) return <Placeholder text="template syntax error" />;
+
+  const css = typeof cfg.css === 'string' ? cfg.css : '';
+  const scopedCss = css
+    ? `@scope ([data-feed-scope="${scopeId}"]) {\n${css}\n}`
+    : '';
+
+  return (
+    <div
+      data-feed-scope={scopeId}
+      style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
+    >
+      {scopedCss && <style>{scopedCss}</style>}
+      <FeedErrorBoundary key={template}>
+        <FeedContent render={compiled.render} channels={channels} />
+      </FeedErrorBoundary>
+    </div>
+  );
 }
 
 function Placeholder({ text }: { text: string }) {

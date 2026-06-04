@@ -42,6 +42,7 @@ export const sceneNodeKindSchema = z
     'group',
     'text_troika',
     'text_canvas',
+    'feed',
   ])
   .openapi('SceneNodeKind');
 
@@ -223,6 +224,7 @@ export const composeLayerKindSchema = z
     'browser',
     'group',
     'text',
+    'feed',
   ])
   .openapi('ComposeLayerKind');
 export const composeAnchorHSchema = z

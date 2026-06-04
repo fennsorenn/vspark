@@ -15,7 +15,8 @@ export type NodeKind =
   | 'billboard'
   | 'group'
   | 'text_troika'
-  | 'text_canvas';
+  | 'text_canvas'
+  | 'feed';
 
 // Animation tracking: tracks which clip is playing and when it started
 export interface AnimationState {
@@ -112,6 +113,8 @@ export type ComposeLayerKind =
   | 'image'
   | 'video'
   | 'browser'
+  | 'text'
+  | 'feed'
   | 'group';
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
@@ -412,7 +415,10 @@ export type WSMessageKind =
   | 'track_clip_started'
   | 'track_clip_paused'
   | 'track_clip_stopped'
-  | 'track_clip_playback_snapshot';
+  | 'track_clip_playback_snapshot'
+  | 'data_channel_set'
+  | 'data_channel_clear'
+  | 'data_channel_snapshot';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 

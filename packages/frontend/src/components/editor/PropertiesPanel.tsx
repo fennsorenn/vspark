@@ -4171,6 +4171,137 @@ export function PropertiesPanel() {
             );
           })()}
 
+        {node.kind === 'feed' &&
+          (() => {
+            const fc: Record<string, unknown> = {
+              template: '',
+              css: '',
+              width: 2,
+              height: 1.2,
+              padding: 16,
+              fontSize: 28,
+              color: '#ffffff',
+              billboard: true,
+              ...((node.components?.feed ?? {}) as Record<string, unknown>),
+            };
+            const saveFc = (patch: Record<string, unknown>) => {
+              const merged: Record<string, unknown> = { ...fc, ...patch };
+              const components = {
+                ...node.components,
+                feed: { type: 'feed', ...merged },
+              };
+              api.updateNode(node.id, { components }).catch(() => {});
+              storeUpdateNode(node.id, { components });
+            };
+            const row = (label: string, children: React.ReactNode) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                  {label}
+                </span>
+                {children}
+              </div>
+            );
+            const area: React.CSSProperties = {
+              background: '#1e1e1e',
+              border: '1px solid #3a3a3a',
+              color: '#e0e0e0',
+              borderRadius: 4,
+              padding: 6,
+              fontSize: 11,
+              fontFamily: 'monospace',
+              outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
+              resize: 'vertical',
+            };
+            return (
+              <>
+                <div style={sectionHeader}>Feed</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  <span style={{ fontSize: 11, color: '#666' }}>
+                    Renders the data-channel fields visible to this node (global
+                    + this node as a <code>set_data</code> scope target) through
+                    the template below.
+                  </span>
+                  {row(
+                    'Billboard',
+                    <input
+                      type="checkbox"
+                      checked={Boolean(fc.billboard)}
+                      onChange={(e) => saveFc({ billboard: e.target.checked })}
+                    />
+                  )}
+                  {row(
+                    'Color',
+                    <input
+                      type="color"
+                      value={(fc.color as string) ?? '#ffffff'}
+                      onChange={(e) => saveFc({ color: e.target.value })}
+                      style={{
+                        width: 40,
+                        height: 24,
+                        background: '#2a2a2a',
+                        border: '1px solid #3a3a3a',
+                        borderRadius: 4,
+                        padding: 0,
+                      }}
+                    />
+                  )}
+                  <EffectRow
+                    label="Font Size (px)"
+                    cfg={fc}
+                    field="fontSize"
+                    step={1}
+                    min={1}
+                    onSave={saveFc}
+                  />
+                  <EffectRow
+                    label="Padding (px)"
+                    cfg={fc}
+                    field="padding"
+                    step={1}
+                    min={0}
+                    onSave={saveFc}
+                  />
+                  <EffectRow
+                    label="Width (m)"
+                    cfg={fc}
+                    field="width"
+                    step={0.1}
+                    min={0.01}
+                    onSave={saveFc}
+                  />
+                  <EffectRow
+                    label="Height (m)"
+                    cfg={fc}
+                    field="height"
+                    step={0.1}
+                    min={0.01}
+                    onSave={saveFc}
+                  />
+                  <span style={{ fontSize: 12, color: '#888' }}>Template</span>
+                  <textarea
+                    style={{ ...area, minHeight: 120 }}
+                    defaultValue={(fc.template as string) ?? ''}
+                    key={node.id + '-feed-template'}
+                    spellCheck={false}
+                    onBlur={(e) => saveFc({ template: e.target.value })}
+                  />
+                  <span style={{ fontSize: 12, color: '#888' }}>CSS</span>
+                  <textarea
+                    style={{ ...area, minHeight: 100 }}
+                    defaultValue={(fc.css as string) ?? ''}
+                    key={node.id + '-feed-css'}
+                    spellCheck={false}
+                    onBlur={(e) => saveFc({ css: e.target.value })}
+                  />
+                </div>
+              </>
+            );
+          })()}
+
         {node.kind === 'particle' &&
           (() => {
             const pc: Record<string, unknown> = {

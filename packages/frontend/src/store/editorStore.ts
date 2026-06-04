@@ -454,6 +454,12 @@ interface EditorState {
   runtimeNodeOverrides: Record<string, RuntimeOverrideMap>;
   /** composeLayerId → paramPath → value, same as above for compose layers. */
   runtimeLayerOverrides: Record<string, RuntimeOverrideMap>;
+  /** scope → (field → last-published value), fed by the data-channel bus
+   *  (`set_data` node → WS `data_channel_*`). Consumed by `feed` compose layers
+   *  (and the 3D billboard), which expose every in-scope field to a user template
+   *  by its bare name. scope `''` is GLOBAL; other scopes are a consumer's own id
+   *  (a layer/node id). A consumer reads `global ∪ its-own-id`. */
+  dataChannels: Record<string, Record<string, unknown>>;
   /** Per-(target, param) suppression set: while a key is present, the evaluator
    *  must NOT apply that lane's value as an override, and the existing override
    *  slot for it should be cleared. Set when the user edits a numeric input on
@@ -608,6 +614,16 @@ interface EditorState {
   /** Drop all suppressions — called when a clip is triggered / paused / scrubbed. */
   clearOverrideSuppressions: () => void;
 
+  // Data channels (generic graph → frontend publish surface)
+  /** Merge a published field-set into a scope (data-channel bus broadcast). */
+  mergeDataChannels: (scope: string, fields: Record<string, unknown>) => void;
+  /** Clear one field in a scope, or the whole scope when `field` is omitted. */
+  clearDataChannels: (scope: string, field?: string) => void;
+  /** Bulk apply a snapshot (used on WS (re)connect). Replaces the whole map. */
+  replaceDataChannels: (
+    entries: Array<{ scope: string; fields: Record<string, unknown> }>
+  ) => void;
+
   // Presets
   presets: PresetSummary[];
   setPresets: (presets: PresetSummary[]) => void;
@@ -677,6 +693,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   composeLayerOverrides: {},
   runtimeNodeOverrides: {},
   runtimeLayerOverrides: {},
+  dataChannels: {},
   suppressedOverrides: new Set<string>(),
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
@@ -1088,6 +1105,34 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         bucket[e.targetId] = { ...prev, [e.paramPath]: e.value };
       }
       return { runtimeNodeOverrides: nodes, runtimeLayerOverrides: layers };
+    }),
+  mergeDataChannels: (scope, fields) =>
+    set((s) => ({
+      dataChannels: {
+        ...s.dataChannels,
+        [scope]: { ...(s.dataChannels[scope] ?? {}), ...fields },
+      },
+    })),
+  clearDataChannels: (scope, field) =>
+    set((s) => {
+      const bucket = s.dataChannels[scope];
+      if (!bucket) return {};
+      if (field === undefined) {
+        const { [scope]: _, ...rest } = s.dataChannels;
+        return { dataChannels: rest };
+      }
+      if (!(field in bucket)) return {};
+      const { [field]: _, ...restFields } = bucket;
+      const next = { ...s.dataChannels };
+      if (Object.keys(restFields).length === 0) delete next[scope];
+      else next[scope] = restFields;
+      return { dataChannels: next };
+    }),
+  replaceDataChannels: (entries) =>
+    set(() => {
+      const next: Record<string, Record<string, unknown>> = {};
+      for (const e of entries) next[e.scope] = { ...e.fields };
+      return { dataChannels: next };
     }),
 
   presets: [],

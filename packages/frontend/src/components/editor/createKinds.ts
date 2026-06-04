@@ -2,6 +2,10 @@ import { useEditorStore, type NodeRecord } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { AssetFile, ComposeLayerKind } from '../../api/client';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
+import {
+  FEED_DEFAULT_TEMPLATE,
+  FEED_DEFAULT_CSS,
+} from '../../lib/feedTemplate';
 
 // ---------------------------------------------------------------------------
 // Shared registry of the node + compose-layer kinds the user can create, plus
@@ -36,6 +40,7 @@ export const NODE_KIND_DEFS: NodeKindDef[] = [
   { label: 'Billboard', kind: 'billboard', icon: '🖼️' },
   { label: 'Text (SDF / troika)', kind: 'text_troika', icon: '🔤' },
   { label: 'Text (canvas, HTML-capable)', kind: 'text_canvas', icon: '🔡' },
+  { label: 'Feed (3D data overlay)', kind: 'feed', icon: '📜' },
 ];
 
 const DEFAULT_COMPONENTS = {
@@ -144,6 +149,18 @@ export async function createSceneNode(
       billboard: true,
       facing: 'screen' as 'screen' | 'world',
     };
+  } else if (def.kind === 'feed') {
+    components.feed = {
+      type: 'feed',
+      template: FEED_DEFAULT_TEMPLATE,
+      css: FEED_DEFAULT_CSS,
+      width: 2,
+      height: 1.2,
+      padding: 16,
+      fontSize: 28,
+      color: '#ffffff',
+      billboard: true,
+    };
   }
 
   const node = await api.createNode(sceneId, {
@@ -232,6 +249,7 @@ export const LAYER_KIND_DEFS: LayerKindDef[] = [
   { kind: 'video', label: 'Video', icon: '🎞' },
   { kind: 'browser', label: 'Browser', icon: '🌐' },
   { kind: 'text', label: 'Text', icon: '📝' },
+  { kind: 'feed', label: 'Feed', icon: '📜' },
   { kind: 'group', label: 'Group', icon: '📁' },
 ];
 
@@ -263,7 +281,11 @@ export async function createLayer(
   }
 
   const config: Record<string, unknown> =
-    kind === 'browser' ? { url: 'https://example.com' } : {};
+    kind === 'browser'
+      ? { url: 'https://example.com' }
+      : kind === 'feed'
+        ? { template: FEED_DEFAULT_TEMPLATE, css: FEED_DEFAULT_CSS }
+        : {};
 
   // Scene includes default to the first OTHER compose scene; reassign in
   // properties. They mount that scene's whole layer stack.

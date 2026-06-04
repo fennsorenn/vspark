@@ -22,6 +22,7 @@ const KIND_ICONS: Record<ComposeLayerKind, string> = {
   scene_include: '🎬',
   camera_view: '📷',
   text: '📝',
+  feed: '📜',
 };
 
 const addBtn: CSSProperties = {

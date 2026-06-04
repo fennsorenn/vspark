@@ -31,6 +31,7 @@ const KIND_ICONS: Record<string, string> = {
   godray_caster: '☀️',
   particle: '✨',
   billboard: '🖼️',
+  feed: '📜',
 };
 
 // Node kinds the user can add. Sourced from the shared registry so the scene

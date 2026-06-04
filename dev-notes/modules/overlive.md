@@ -167,6 +167,14 @@ Opened from `TopBar`. Two sections:
 
 The modal mirrors its local `accounts` state into `editorStore.overliveAccounts` so the signal-graph `Account` port dropdowns refresh without waiting for the next Editor mount. It also listens for `window` `message` events from the OAuth popup (`source: 'overlive-oauth'`) and refreshes the account list immediately on success.
 
+## Chat history → feed overlay
+
+Beyond the per-event `overlive_chat_message` node (latest message only),
+`OverliveManager` keeps a bounded per-account **chat ring-buffer** and exposes it
+through the `overlive_chat_feed` node (`update` event + `messages` list). This is
+the chat-specific front of the generic data-channel / template-feed pipeline —
+see [data-channels.md](data-channels.md).
+
 ## Security note
 
 App secrets, OAuth refresh tokens, and SE JWTs are stored plaintext in SQLite under the current single-user assumption. See ARCHITECTURE.md "Future Features / Planned → Multi-user usage" — this MUST become encrypted-at-rest before any multi-user mode lands.

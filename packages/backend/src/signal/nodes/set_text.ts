@@ -25,7 +25,7 @@ interface SetTextConfig {
 export class SetText extends Node {
   static readonly kind = 'set_text';
 
-  @valueIn('targetId', 'EntityId') targetId!: () => string | undefined;
+  @valueIn('targetId', 'SceneEntity') targetId!: () => string | undefined;
   @valueIn('targetKind', 'String') targetKind!: () => string | undefined;
   @valueIn('text', 'String') text!: () => string | undefined;
   @valueIn('persist', 'Bool') persist!: () => boolean | undefined;

@@ -91,7 +91,15 @@ function ConfigRow({ label, value }: { label: string; value: unknown }) {
 // Inline static input — shown on unconnected value input ports
 // ──────────────────────────────────────────────────────────────────────────────
 
-const STATIC_INPUT_TYPES = new Set(['String', 'Float', 'Bool', 'Account']);
+const STATIC_INPUT_TYPES = new Set([
+  'String',
+  'Float',
+  'Bool',
+  'Account',
+  'SceneNode',
+  'ComposeLayer',
+  'SceneEntity',
+]);
 
 const staticInputStyle: React.CSSProperties = {
   background: '#0e0e1a',
@@ -116,6 +124,19 @@ function StaticInput({
 }) {
   if (port.typeTag === 'Account') {
     return <AccountSelect configValue={configValue} onChange={onChange} />;
+  }
+  if (
+    port.typeTag === 'SceneEntity' ||
+    port.typeTag === 'SceneNode' ||
+    port.typeTag === 'ComposeLayer'
+  ) {
+    return (
+      <SceneEntitySelect
+        typeTag={port.typeTag}
+        configValue={configValue}
+        onChange={onChange}
+      />
+    );
   }
   if (port.typeTag === 'Bool') {
     return (
@@ -146,7 +167,10 @@ function StaticInput({
       defaultValue={(configValue as string | number | undefined) ?? ''}
       key={JSON.stringify(configValue)}
       placeholder={port.typeTag === 'Float' ? '0' : port.name}
-      style={{ ...staticInputStyle, width: port.typeTag === 'Float' ? 70 : 140 }}
+      style={{
+        ...staticInputStyle,
+        width: port.typeTag === 'Float' ? 70 : 140,
+      }}
       onBlur={(e) => {
         const raw = e.target.value;
         onChange(port.typeTag === 'Float' ? parseFloat(raw) || 0 : raw);
@@ -187,6 +211,62 @@ function AccountSelect({
           {a.platform === 'twitch' ? '🟣' : '🟢'} {a.label}
         </option>
       ))}
+    </select>
+  );
+}
+
+/**
+ * Entity-reference dropdown for unconnected `SceneNode` / `ComposeLayer` /
+ * `SceneEntity` value ports (e.g. `set_data`'s `scope`, the `targetId` of the
+ * `set_*_param` nodes). The stored value is the entity's bare **id string** (or
+ * null/empty for unset) — the same runtime shape these ports carry when wired.
+ * `SceneNode` lists scene nodes, `ComposeLayer` lists compose layers, and the
+ * generic `SceneEntity` lists both. When a compatible output is wired in, this
+ * editor is hidden.
+ */
+function SceneEntitySelect({
+  typeTag,
+  configValue,
+  onChange,
+}: {
+  typeTag: string;
+  configValue: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const layers = useEditorStore((s) => s.composeLayers);
+  const nodes = useEditorStore((s) => s.nodes);
+  const showLayers = typeTag === 'ComposeLayer' || typeTag === 'SceneEntity';
+  const showNodes = typeTag === 'SceneNode' || typeTag === 'SceneEntity';
+  const current = typeof configValue === 'string' ? configValue : '';
+  const emptyLabel =
+    typeTag === 'SceneEntity' ? '— global (all) —' : '— none —';
+  return (
+    <select
+      value={current}
+      onChange={(e) => onChange(e.target.value || null)}
+      onKeyDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      style={{ ...staticInputStyle, width: 180 }}
+    >
+      <option value="">{emptyLabel}</option>
+      {showLayers && layers.length > 0 && (
+        <optgroup label="Compose layers">
+          {layers.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name || l.kind}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      {showNodes && nodes.length > 0 && (
+        <optgroup label="Scene nodes">
+          {nodes.map((n) => (
+            <option key={n.id} value={n.id}>
+              {n.name || n.kind}
+            </option>
+          ))}
+        </optgroup>
+      )}
     </select>
   );
 }
@@ -422,22 +502,24 @@ export function SignalNodeCard({
     api.updateNodeComponent(componentId, { config: newConfig }).catch(() => {});
   };
 
-  // pack_event: user-defined named input fields (config.fields: string[]).
+  // pack_event / set_data: user-defined named input fields (config.fields:
+  // string[]) — each becomes a labeled input port.
+  const hasFieldsEditor = kind === 'pack_event' || kind === 'set_data';
   const packFields: string[] =
-    kind === 'pack_event' && Array.isArray(configRecord.fields)
+    hasFieldsEditor && Array.isArray(configRecord.fields)
       ? (configRecord.fields as string[])
       : [];
-  const setPackFields = (next: string[]) =>
-    handleStaticChange('fields', next);
+  const setPackFields = (next: string[]) => handleStaticChange('fields', next);
 
-  // Config display: skip null/undefined and internal _ keys. Hide `fields` on
-  // pack_event (it has its own editor below).
+  // Config display: skip null/undefined and internal _ keys. Hide `fields` (it
+  // has its own editor below) and set_data's `scope` (edited on the port).
   const configEntries = Object.entries(configRecord).filter(
     ([k, v]) =>
       !k.startsWith('_') &&
       v !== null &&
       v !== undefined &&
-      !(kind === 'pack_event' && k === 'fields')
+      !(hasFieldsEditor && k === 'fields') &&
+      !(kind === 'set_data' && k === 'scope')
   );
 
   return (
@@ -520,8 +602,8 @@ export function SignalNodeCard({
         </div>
       )}
 
-      {/* pack_event named-field editor */}
-      {kind === 'pack_event' && (
+      {/* pack_event / set_data named-field editor */}
+      {hasFieldsEditor && (
         <PackFieldsEditor fields={packFields} onChange={setPackFields} />
       )}
 

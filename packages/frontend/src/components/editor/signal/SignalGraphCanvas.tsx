@@ -32,6 +32,7 @@ import { InferGraph } from '@vspark/shared/inference';
 import { inferForKind } from '@vspark/shared/infer_nodes';
 import { transportOf, type ResolvedPort } from '@vspark/shared/signal_types';
 import type { PortMeta } from '@vspark/shared/node';
+import type { GraphOwnerKind } from '@vspark/shared/types';
 import { SignalNodeCard } from './SignalNodeCard';
 import type { SignalNodeData } from './SignalNodeCard';
 import { FlashEdge } from './FlashEdge';
@@ -90,12 +91,16 @@ function staticPortsOf(meta: NodeKindMeta | undefined): PortMeta[] {
  */
 function buildMirror(
   descriptor: GraphDescriptor,
-  kindMap: Map<string, NodeKindMeta>
+  kindMap: Map<string, NodeKindMeta>,
+  ownerKind?: GraphOwnerKind
 ): InferGraph {
-  const g = new InferGraph(inferForKind, (kind) =>
-    staticPortsOf(kindMap.get(kind))
+  const g = new InferGraph(
+    inferForKind,
+    (kind) => staticPortsOf(kindMap.get(kind)),
+    ownerKind
   );
-  for (const n of descriptor.nodes) g.addNode(n.id, n.kind, n.defaultConfig ?? {});
+  for (const n of descriptor.nodes)
+    g.addNode(n.id, n.kind, n.defaultConfig ?? {});
   // Fixpoint replay (see engine.fromDescriptor): adding an edge can materialise
   // dynamic ports a later edge needs, so retry the pending set until no progress.
   let pending = descriptor.edges.slice();
@@ -278,7 +283,9 @@ function buildEdges(
 ): Edge<FlashEdgeData>[] {
   return descriptor.edges.map((e) => {
     const srcType = mirror.outputType(e.fromNodeId, e.fromPort);
-    const srcPort = srcType ? resolvedToPortMeta({ name: e.fromPort, type: srcType }) : undefined;
+    const srcPort = srcType
+      ? resolvedToPortMeta({ name: e.fromPort, type: srcType })
+      : undefined;
     const color = srcPort
       ? SIGNAL_TYPE_COLORS[srcPort.typeTag as keyof typeof SIGNAL_TYPE_COLORS]
       : '#888';
@@ -340,6 +347,11 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   const [edgeValues, setEdgeValues] = useState<Record<string, unknown>>({});
   // Local mirror of writable so JSX re-renders when the descriptor source resolves.
   const [writable, setWritable] = useState(false);
+  // Owner scope of the loaded graph — threaded into inference so scope-aware
+  // nodes (scene_entity) resolve the right port types in the editor.
+  const [ownerKind, setOwnerKind] = useState<GraphOwnerKind | undefined>(
+    undefined
+  );
   // Transient banner shown when a drag connection is refused by type inference.
   const [rejectMsg, setRejectMsg] = useState<string | null>(null);
 
@@ -366,8 +378,8 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   // port rendering (buildNodes/buildEdges) and drag-time validation (handleConnect),
   // using the same shared inference the backend engine runs.
   const mirror = useMemo(
-    () => (descriptor ? buildMirror(descriptor, kindMap) : null),
-    [descriptor, kindMap]
+    () => (descriptor ? buildMirror(descriptor, kindMap, ownerKind) : null),
+    [descriptor, kindMap, ownerKind]
   );
 
   // Show + auto-dismiss the connection-rejected banner (fired by handleConnect).
@@ -386,7 +398,6 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     return () => clearTimeout(t);
   }, [rejectMsg]);
 
-
   // Load descriptor — first check component-owned graphs (read-only), then
   // fall back to standalone project graphs (writable).
   useEffect(() => {
@@ -401,6 +412,8 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
             writableRef.current = false;
             setWritable(false);
             setActiveGraphWritable(false);
+            // Component-owned graphs are always attached to a scene node.
+            setOwnerKind('scene_node');
             setDescriptor(match);
           }
           return;
@@ -424,6 +437,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
           editableRef.current = d;
           setWritable(true);
           setActiveGraphWritable(true);
+          setOwnerKind((g.ownerKind as GraphOwnerKind) || undefined);
           setDescriptor(d);
         }
       } catch {
@@ -832,7 +846,8 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     const isEditableTarget = (el: EventTarget | null): boolean => {
       if (!(el instanceof HTMLElement)) return false;
       const tag = el.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT')
+        return true;
       if (el.isContentEditable) return true;
       return false;
     };
@@ -881,7 +896,10 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
           const newNodes = payload.nodes.map((n) => ({
             ...n,
             id: idMap.get(n.id)!,
-            position: { x: (n.position?.x ?? 0) + 40, y: (n.position?.y ?? 0) + 40 },
+            position: {
+              x: (n.position?.x ?? 0) + 40,
+              y: (n.position?.y ?? 0) + 40,
+            },
           }));
           const newEdges = payload.edges.map((e) => ({
             ...e,

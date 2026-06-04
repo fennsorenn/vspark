@@ -252,7 +252,9 @@ export class VmcManager {
         this.nodeStates.get(componentId)!.set(nodeId, state);
         // Persist via DB so state survives restarts (stored alongside component).
         this.persistNodeState(componentId, nodeId, state);
-      }
+      },
+      // Component graphs are always attached to a scene node.
+      'scene_node'
     );
 
     // Register any on_pose_broadcast nodes into the interceptor chain.
