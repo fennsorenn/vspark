@@ -464,6 +464,86 @@ export function ComposeLayerProperties({
         </>
       )}
 
+      {layer.kind === 'video' && (
+        <>
+          <div style={sectionHeader}>Playback</div>
+          <div style={row}>
+            <span style={label}>Autoplay</span>
+            <input
+              type="checkbox"
+              checked={layer.config.autoplay !== false}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, autoplay: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Loop</span>
+            <input
+              type="checkbox"
+              checked={layer.config.loop !== false}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, loop: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>On end</span>
+            <select
+              value={(layer.config.onEnd as string | undefined) ?? 'freeze'}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, onEnd: e.target.value },
+                })
+              }
+              style={select}
+            >
+              <option value="freeze">Freeze on last frame</option>
+              <option value="hide">Hide</option>
+            </select>
+          </div>
+          <div style={row}>
+            <span style={label}>Muted</span>
+            <input
+              type="checkbox"
+              checked={layer.config.muted !== false}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, muted: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Volume</span>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={
+                typeof layer.config.volume === 'number'
+                  ? layer.config.volume
+                  : 1
+              }
+              onChange={(e) =>
+                commit({
+                  config: {
+                    ...layer.config,
+                    volume: parseFloat(e.target.value),
+                  },
+                })
+              }
+              style={textInput}
+            />
+          </div>
+        </>
+      )}
+
       {layer.kind === 'browser' && (
         <>
           <div style={sectionHeader}>URL</div>

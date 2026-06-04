@@ -77,6 +77,7 @@ import {
 } from '../../calibration';
 import type { VmcCalibration } from '../../calibration';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
+import { registerMedia } from './mediaRegistry';
 import { api } from '../../api/client';
 import { BoneFilterBank } from '../../oneEuroFilter';
 import {
@@ -2893,6 +2894,214 @@ function BillboardNode({ node }: { node: NodeRecord }) {
   );
 }
 
+interface VideoConfig {
+  facing: 'screen' | 'world';
+  backface: 'none' | 'mirror' | 'unmirrored';
+  width: number;
+  height: number;
+  alpha: number;
+  sourceUrl: string | null;
+  autoplay: boolean;
+  loop: boolean;
+  onEnd: 'freeze' | 'hide';
+  muted: boolean;
+  volume: number;
+}
+
+const VIDEO_DEFAULTS: VideoConfig = {
+  facing: 'world',
+  backface: 'none',
+  width: 1.6,
+  height: 0.9,
+  alpha: 1,
+  sourceUrl: null,
+  autoplay: true,
+  loop: true,
+  onEnd: 'freeze',
+  muted: true,
+  volume: 1,
+};
+
+/** A flat-mounted plane textured with a live <video> element. Mirrors
+ *  BillboardNode (facing / backface / size) but with playback config and a
+ *  MediaHandle so the command bus / clip event lane can drive play/pause/etc.
+ *  Flat-mounted (like billboards) so reparenting never remounts the element and
+ *  loses playback position. */
+function VideoNode({
+  node,
+  viewerMode,
+}: {
+  node: NodeRecord;
+  viewerMode?: boolean;
+}) {
+  const outerRef = useRef<THREE.Group>(null);
+  const billboardRef = useRef<THREE.Group>(null);
+  const frontRef = useRef<THREE.Mesh>(null);
+  const backRef = useRef<THREE.Mesh>(null);
+  const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
+  const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const vc: VideoConfig = {
+    ...VIDEO_DEFAULTS,
+    ...((node.components?.video ?? {}) as Partial<VideoConfig>),
+  };
+
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const textureRef = useRef<THREE.VideoTexture | null>(null);
+  const [hidden, setHidden] = useState(false);
+
+  // (Re)create the <video> element + texture when the source changes.
+  useEffect(() => {
+    setHidden(false);
+    const applyMap = (m: THREE.Mesh | null, map: THREE.Texture | null) => {
+      if (!m) return;
+      const mat = m.material as THREE.MeshBasicMaterial;
+      mat.map = map;
+      mat.needsUpdate = true;
+    };
+    if (!vc.sourceUrl) {
+      videoElRef.current?.pause();
+      videoElRef.current = null;
+      textureRef.current?.dispose();
+      textureRef.current = null;
+      applyMap(frontRef.current, null);
+      applyMap(backRef.current, null);
+      return;
+    }
+    const el = document.createElement('video');
+    el.src = vc.sourceUrl;
+    el.crossOrigin = 'anonymous';
+    el.playsInline = true;
+    el.loop = vc.loop;
+    el.preload = 'auto';
+    videoElRef.current = el;
+    const tex = new THREE.VideoTexture(el);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    textureRef.current = tex;
+    applyMap(frontRef.current, tex);
+    if (vc.backface !== 'none') applyMap(backRef.current, tex);
+
+    const onEnded = () => {
+      if (el.loop) return;
+      if (vc.onEnd === 'hide') setHidden(true);
+      // 'freeze' leaves the element paused on its last frame (default).
+    };
+    el.addEventListener('ended', onEnded);
+    return () => {
+      el.removeEventListener('ended', onEnded);
+      el.pause();
+      tex.dispose();
+    };
+  }, [vc.sourceUrl, vc.loop, vc.backface, vc.onEnd]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Apply audibility + volume. Video audio plays in the viewer, or in the
+  // editor only when preview is enabled; honours the per-node muted flag.
+  useEffect(() => {
+    const el = videoElRef.current;
+    if (!el) return;
+    const audible = (viewerMode || audioPreview) && !vc.muted;
+    el.muted = !audible;
+    el.volume = Math.max(0, Math.min(1, vc.volume));
+  }, [viewerMode, audioPreview, vc.muted, vc.volume, vc.sourceUrl]);
+
+  // Autoplay on (re)mount / source change.
+  useEffect(() => {
+    const el = videoElRef.current;
+    if (!el || !vc.autoplay) return;
+    void el.play().catch(() => {
+      /* autoplay may be blocked until a user gesture; ignore */
+    });
+  }, [vc.autoplay, vc.sourceUrl]);
+
+  // Imperative playback handle for the media-command bus + clip event lane.
+  useEffect(() => {
+    return registerMedia(node.id, {
+      play: () => void videoElRef.current?.play().catch(() => {}),
+      pause: () => videoElRef.current?.pause(),
+      stop: () => {
+        const el = videoElRef.current;
+        if (!el) return;
+        el.pause();
+        el.currentTime = 0;
+        if (vc.onEnd === 'hide') setHidden(true);
+      },
+      restart: () => {
+        const el = videoElRef.current;
+        if (!el) return;
+        setHidden(false);
+        el.currentTime = 0;
+        void el.play().catch(() => {});
+      },
+      seek: (sec: number) => {
+        const el = videoElRef.current;
+        if (el) el.currentTime = Math.max(0, sec);
+      },
+      setVolume: (v: number) => {
+        const el = videoElRef.current;
+        if (el) el.volume = Math.max(0, Math.min(1, v));
+      },
+      mute: () => {
+        if (videoElRef.current) videoElRef.current.muted = true;
+      },
+      unmute: () => {
+        if (videoElRef.current) videoElRef.current.muted = false;
+      },
+    });
+  }, [node.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!outerRef.current) return;
+    return registerNodeGroup(node.id, outerRef.current);
+  }, [node.id]);
+
+  useFrame(({ camera }) => {
+    if (!billboardRef.current) return;
+    if (vc.facing === 'screen') {
+      billboardRef.current.quaternion.copy(camera.quaternion);
+    } else {
+      billboardRef.current.quaternion.identity();
+    }
+  });
+
+  const w = vc.width;
+  const h = vc.height;
+
+  return (
+    <group
+      ref={outerRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+      scale={[t.sx, t.sy, t.sz]}
+      visible={!hidden}
+    >
+      <group ref={billboardRef}>
+        <mesh ref={frontRef}>
+          <planeGeometry args={[w, h]} />
+          <meshBasicMaterial
+            color="#ffffff"
+            transparent
+            opacity={vc.alpha}
+            side={THREE.FrontSide}
+            depthWrite={false}
+          />
+        </mesh>
+        {vc.backface !== 'none' && (
+          <mesh ref={backRef} rotation={[0, Math.PI, 0]}>
+            <planeGeometry args={[w, h]} />
+            <meshBasicMaterial
+              color="#ffffff"
+              transparent
+              opacity={vc.alpha}
+              side={THREE.FrontSide}
+              depthWrite={false}
+            />
+          </mesh>
+        )}
+      </group>
+    </group>
+  );
+}
+
 // Reusable scratch objects for InstancedMesh matrix composition
 const _particlePos = new THREE.Vector3();
 const _particleQuat = new THREE.Quaternion();
@@ -3883,6 +4092,7 @@ function renderNodeElement(
   // billboard textures, troika SDF caches, and html2canvas-backed textures).
   if (node.kind === 'particle') return null;
   if (node.kind === 'billboard') return null;
+  if (node.kind === 'video') return null;
   if (node.kind === 'text_troika') return null;
   if (node.kind === 'text_canvas') return null;
   if (node.kind === 'feed') return null;
@@ -3919,6 +4129,7 @@ export function SceneNodes({
   // otherwise unmount+remount them, destroying the particle pool).
   const flatParticles = sceneNodes.filter((n) => n.kind === 'particle');
   const flatBillboards = sceneNodes.filter((n) => n.kind === 'billboard');
+  const flatVideos = sceneNodes.filter((n) => n.kind === 'video');
   const flatTextTroika = sceneNodes.filter((n) => n.kind === 'text_troika');
   const flatTextCanvas = sceneNodes.filter((n) => n.kind === 'text_canvas');
   const flatFeed = sceneNodes.filter((n) => n.kind === 'feed');
@@ -3954,6 +4165,11 @@ export function SceneNodes({
       {flatBillboards.map((node) => (
         <group key={node.id} visible={effectiveVisible(node)}>
           <BillboardNode node={node} />
+        </group>
+      ))}
+      {flatVideos.map((node) => (
+        <group key={node.id} visible={effectiveVisible(node)}>
+          <VideoNode node={node} viewerMode={viewerMode} />
         </group>
       ))}
       {flatTextTroika.map((node) => (

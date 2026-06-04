@@ -1,5 +1,13 @@
-import { useId, useMemo, type CSSProperties } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import { useEditorStore } from '../../store/editorStore';
+import { registerMedia } from './mediaRegistry';
 import type {
   ComposeLayerRecord,
   AssetFile,
@@ -17,9 +25,10 @@ import {
 interface ComposeLayerStackProps {
   layers: ComposeLayerRecord[];
   assets: AssetFile[];
-  /** Render mode is currently ignored — both editor and viewer render the same
-   *  passive DOM; the editor's input goes through ComposeEventCapture. Kept
-   *  in the signature so ViewerPage's call site doesn't need to change. */
+  /** Editor vs viewer. Both render the same passive DOM (editor input goes
+   *  through ComposeEventCapture); the only behavioural difference is media
+   *  audibility — video layers are audible in the viewer, but muted in the
+   *  editor unless audio preview is enabled. Defaults to 'editor'. */
   mode?: 'editor' | 'viewer';
   /** Chain of compose-scene ids currently being rendered (outermost first).
    *  Used by scene_include layers to refuse rendering a scene that's already an
@@ -152,10 +161,12 @@ function SceneIncludeLayer({
   layer,
   assets,
   includeChain,
+  mode,
 }: {
   layer: ComposeLayerRecord;
   assets: AssetFile[];
   includeChain: string[];
+  mode: 'editor' | 'viewer';
 }) {
   const targetId =
     typeof layer.config.includeSceneId === 'string'
@@ -176,8 +187,106 @@ function SceneIncludeLayer({
         layers={targetLayers ?? []}
         assets={assets}
         includeChain={[...includeChain, targetId]}
+        mode={mode}
       />
     </div>
+  );
+}
+
+/** A compose-layer <video>, driven by config (autoplay/loop/onEnd/muted/volume)
+ *  and registered in the media registry so the command bus / clip event lane can
+ *  control it. Audio plays in the viewer; in the editor only when preview is on. */
+function VideoLayer({
+  layer,
+  url,
+  objectFit,
+  mode,
+}: {
+  layer: ComposeLayerRecord;
+  url: string;
+  objectFit: CSSProperties['objectFit'];
+  mode: 'editor' | 'viewer';
+}) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+  const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const cfg = layer.config as Record<string, unknown>;
+  const autoplay = cfg.autoplay !== false;
+  const loop = cfg.loop !== false;
+  const onEnd = (cfg.onEnd as string) ?? 'freeze';
+  const muted = cfg.muted !== false;
+  const volume = typeof cfg.volume === 'number' ? cfg.volume : 1;
+  const [hidden, setHidden] = useState(false);
+
+  // Reset hidden + apply autoplay when the source changes.
+  useEffect(() => {
+    setHidden(false);
+    const el = ref.current;
+    if (el && autoplay) void el.play().catch(() => {});
+  }, [url, autoplay]);
+
+  // Audibility + volume.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const audible = (mode === 'viewer' || audioPreview) && !muted;
+    el.muted = !audible;
+    el.volume = Math.max(0, Math.min(1, volume));
+  }, [mode, audioPreview, muted, volume, url]);
+
+  // Media handle for command bus / clip events.
+  useEffect(() => {
+    return registerMedia(layer.id, {
+      play: () => void ref.current?.play().catch(() => {}),
+      pause: () => ref.current?.pause(),
+      stop: () => {
+        const el = ref.current;
+        if (!el) return;
+        el.pause();
+        el.currentTime = 0;
+        if (onEnd === 'hide') setHidden(true);
+      },
+      restart: () => {
+        const el = ref.current;
+        if (!el) return;
+        setHidden(false);
+        el.currentTime = 0;
+        void el.play().catch(() => {});
+      },
+      seek: (t: number) => {
+        if (ref.current) ref.current.currentTime = Math.max(0, t);
+      },
+      setVolume: (v: number) => {
+        if (ref.current) ref.current.volume = Math.max(0, Math.min(1, v));
+      },
+      mute: () => {
+        if (ref.current) ref.current.muted = true;
+      },
+      unmute: () => {
+        if (ref.current) ref.current.muted = false;
+      },
+    });
+  }, [layer.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <video
+      ref={ref}
+      src={url}
+      autoPlay={autoplay}
+      loop={loop}
+      muted
+      playsInline
+      onEnded={() => {
+        if (!loop && onEnd === 'hide') setHidden(true);
+      }}
+      style={{
+        width: '100%',
+        height: '100%',
+        objectFit,
+        display: 'block',
+        visibility: hidden ? 'hidden' : 'visible',
+        pointerEvents: 'none',
+      }}
+    />
   );
 }
 
@@ -185,10 +294,12 @@ function LayerContent({
   layer,
   assets,
   includeChain,
+  mode,
 }: {
   layer: ComposeLayerRecord;
   assets: AssetFile[];
   includeChain: string[];
+  mode: 'editor' | 'viewer';
 }) {
   if (layer.kind === 'camera_view') {
     return <CameraViewLayer layer={layer} />;
@@ -199,6 +310,7 @@ function LayerContent({
         layer={layer}
         assets={assets}
         includeChain={includeChain}
+        mode={mode}
       />
     );
   }
@@ -228,22 +340,7 @@ function LayerContent({
   if (layer.kind === 'video') {
     const url = resolveAssetUrl(layer, assets);
     if (!url) return <Placeholder text="no video" />;
-    return (
-      <video
-        src={url}
-        autoPlay
-        muted
-        loop
-        playsInline
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit,
-          display: 'block',
-          pointerEvents: 'none',
-        }}
-      />
-    );
+    return <VideoLayer layer={layer} url={url} objectFit={objectFit} mode={mode} />;
   }
   if (layer.kind === 'text') {
     return <TextLayer layer={layer} />;
@@ -397,11 +494,13 @@ function LayerView({
   assets,
   includeChain,
   childrenByParent,
+  mode,
 }: {
   layer: ComposeLayerRecord;
   assets: AssetFile[];
   includeChain: string[];
   childrenByParent: Map<string | null, ComposeLayerRecord[]>;
+  mode: 'editor' | 'viewer';
 }) {
   // Per-layer subscription to its track-clip override: this keeps re-renders
   // localized to layers being animated; idle layers don't re-render each rAF.
@@ -426,7 +525,12 @@ function LayerView({
         pointerEvents: 'none',
       }}
     >
-      <LayerContent layer={layer} assets={assets} includeChain={includeChain} />
+      <LayerContent
+        layer={layer}
+        assets={assets}
+        includeChain={includeChain}
+        mode={mode}
+      />
       {kids.map((k) => (
         <LayerView
           key={k.id}
@@ -434,6 +538,7 @@ function LayerView({
           assets={assets}
           includeChain={includeChain}
           childrenByParent={childrenByParent}
+          mode={mode}
         />
       ))}
     </div>
@@ -444,6 +549,7 @@ export function ComposeLayerStack({
   layers,
   assets,
   includeChain = [],
+  mode = 'editor',
 }: ComposeLayerStackProps) {
   // Build the parent→children map for hierarchical rendering. A layer roots the
   // stack when it has no parent OR its parent isn't part of this layer set
@@ -481,6 +587,7 @@ export function ComposeLayerStack({
           assets={assets}
           includeChain={includeChain}
           childrenByParent={childrenByParent}
+          mode={mode}
         />
       ))}
     </div>

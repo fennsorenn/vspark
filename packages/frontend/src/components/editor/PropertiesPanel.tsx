@@ -4997,6 +4997,188 @@ export function PropertiesPanel() {
             );
           })()}
 
+        {node.kind === 'video' &&
+          (() => {
+            const vc: Record<string, unknown> = {
+              facing: 'world',
+              backface: 'none',
+              width: 1.6,
+              height: 0.9,
+              alpha: 1,
+              sourceUrl: null,
+              autoplay: true,
+              loop: true,
+              onEnd: 'freeze',
+              muted: true,
+              volume: 1,
+              ...((node.components?.video ?? {}) as Record<string, unknown>),
+            };
+            const saveVc = (patch: Record<string, unknown>) => {
+              const next = { ...vc, ...patch };
+              const components = { ...node.components, video: next };
+              const filePatch =
+                'sourceUrl' in patch
+                  ? { filePath: (patch.sourceUrl as string) ?? null }
+                  : {};
+              api
+                .updateNode(node.id, { components, ...filePatch })
+                .catch(() => {});
+              storeUpdateNode(node.id, { components, ...filePatch });
+            };
+            const videoAssets = assets.filter((a) => a.kind === 'video');
+            const sel: React.CSSProperties = {
+              background: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              color: '#e0e0e0',
+              borderRadius: 4,
+              padding: '3px 6px',
+              fontSize: 12,
+              outline: 'none',
+            };
+            const row = (label: string, children: React.ReactNode) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                  {label}
+                </span>
+                {children}
+              </div>
+            );
+            const check = (
+              label: string,
+              field: string,
+              checked: boolean
+            ) =>
+              row(
+                label,
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => saveVc({ [field]: e.target.checked })}
+                />
+              );
+            return (
+              <>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Video Source
+                  <PickButton onClick={() => flashBottomTab('videos')} />
+                </div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  <datalist id="video-src-list">
+                    {videoAssets.map((a) => (
+                      <option key={a.id} value={a.url} label={a.name} />
+                    ))}
+                  </datalist>
+                  {row(
+                    'Source',
+                    <input
+                      list="video-src-list"
+                      style={{ ...numInput, width: 120 }}
+                      placeholder="URL or pick asset…"
+                      defaultValue={(vc.sourceUrl as string) ?? ''}
+                      key={node.id + '-vidsrc'}
+                      onBlur={(e) =>
+                        saveVc({ sourceUrl: e.target.value.trim() || null })
+                      }
+                    />
+                  )}
+                </div>
+                <div style={sectionHeader}>Playback</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {check('Autoplay', 'autoplay', vc.autoplay as boolean)}
+                  {check('Loop', 'loop', vc.loop as boolean)}
+                  {row(
+                    'On end',
+                    <select
+                      style={sel}
+                      value={vc.onEnd as string}
+                      onChange={(e) => saveVc({ onEnd: e.target.value })}
+                    >
+                      <option value="freeze">Freeze on last frame</option>
+                      <option value="hide">Hide</option>
+                    </select>
+                  )}
+                  {check('Muted', 'muted', vc.muted as boolean)}
+                  <EffectRow
+                    label="Volume"
+                    cfg={vc}
+                    field="volume"
+                    step={0.05}
+                    min={0}
+                    max={1}
+                    onSave={saveVc}
+                  />
+                </div>
+                <div style={sectionHeader}>Plane</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {row(
+                    'Facing',
+                    <select
+                      style={sel}
+                      value={vc.facing as string}
+                      onChange={(e) => saveVc({ facing: e.target.value })}
+                    >
+                      <option value="screen">
+                        Screen (always faces camera)
+                      </option>
+                      <option value="world">World (fixed rotation)</option>
+                    </select>
+                  )}
+                  {row(
+                    'Backface',
+                    <select
+                      style={sel}
+                      value={vc.backface as string}
+                      onChange={(e) => saveVc({ backface: e.target.value })}
+                    >
+                      <option value="none">None (single-sided)</option>
+                      <option value="mirror">Mirror (flip X)</option>
+                      <option value="unmirrored">
+                        Unmirrored (double-sided)
+                      </option>
+                    </select>
+                  )}
+                  <EffectRow
+                    label="Width"
+                    cfg={vc}
+                    field="width"
+                    step={0.05}
+                    min={0.01}
+                    onSave={saveVc}
+                  />
+                  <EffectRow
+                    label="Height"
+                    cfg={vc}
+                    field="height"
+                    step={0.05}
+                    min={0.01}
+                    onSave={saveVc}
+                  />
+                  <EffectRow
+                    label="Alpha"
+                    cfg={vc}
+                    field="alpha"
+                    step={0.05}
+                    min={0}
+                    max={1}
+                    onSave={saveVc}
+                  />
+                </div>
+              </>
+            );
+          })()}
+
         {(node.kind === 'text_troika' || node.kind === 'text_canvas') &&
           (() => {
             const isCanvas = node.kind === 'text_canvas';

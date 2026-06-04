@@ -49,6 +49,31 @@ export type Component =
   | TransformComponent
   | VisibilityComponent;
 
+// --- Media playback control (video / audio entities) ---
+
+/** Target kinds a media command may address (scene-node entity or compose layer). */
+export type MediaTargetKind = 'scene_node' | 'compose_layer';
+
+/** Fire-and-forget media playback actions. Carried over the media-command bus
+ *  (graph → frontend) and fired directly by the track-clip event lane. */
+export type MediaAction =
+  | 'play'
+  | 'pause'
+  | 'stop'
+  | 'restart'
+  | 'seek'
+  | 'setVolume'
+  | 'mute'
+  | 'unmute';
+
+export interface MediaCommand {
+  action: MediaAction;
+  /** Seconds — only for `action: 'seek'`. */
+  t?: number;
+  /** 0..1 — only for `action: 'setVolume'`. */
+  volume?: number;
+}
+
 /** Per-node free-form properties stored in the `scene_nodes.properties` JSON column.
  *  Kind-specific fields are namespaced on this object; readers should treat unknown
  *  keys as opaque so different node kinds can carry their own settings. */

@@ -448,6 +448,10 @@ interface EditorState {
   /** Height of the bottom dock (AssetManager / NodePalette) in pixels.
    *  Persisted in-session only; clamped at the call site. */
   bottomDockHeight: number;
+  /** Whether audio (audio nodes + unmuted video) is audible in the EDITOR
+   *  viewport. Off by default so authoring isn't noisy; the viewer/output page
+   *  always plays audio regardless. Session-only, not persisted. */
+  editorAudioPreviewEnabled: boolean;
   selectedComposeLayerId: string | null;
 
   // Track clips
@@ -557,6 +561,7 @@ interface EditorState {
   /** Ask the Properties name field to focus + select-all. */
   requestFocusName: () => void;
   setBottomDockHeight: (h: number) => void;
+  setEditorAudioPreviewEnabled: (on: boolean) => void;
   setClipboard: (
     payload: import('../clipboard').ClipboardPayload | null
   ) => void;
@@ -693,6 +698,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   bottomTabFlash: 0,
   focusNameNonce: 0,
   bottomDockHeight: initialBottomDockHeight(),
+  editorAudioPreviewEnabled: false,
   clipboardPayload: null,
   selectedComposeLayerId: null,
 
@@ -953,6 +959,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     lsSet(LS.bottomDockHeight, String(clamped));
     set({ bottomDockHeight: clamped });
   },
+  setEditorAudioPreviewEnabled: (on) => set({ editorAudioPreviewEnabled: on }),
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
 
   setTrackClips: (clips) => set({ trackClips: clips }),

@@ -31,6 +31,8 @@ const KIND_ICONS: Record<string, string> = {
   godray_caster: '☀️',
   particle: '✨',
   billboard: '🖼️',
+  video: '🎞️',
+  audio: '🔊',
   feed: '📜',
 };
 
