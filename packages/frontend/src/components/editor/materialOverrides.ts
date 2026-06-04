@@ -72,6 +72,10 @@ export interface MaterialOverride {
    *  Default `original`. */
   emissiveMapMode?: EmissiveMapMode;
   normalScale?: number;
+  /** Blend authored vertex normals (0) toward fully smoothed normals (1). */
+  normalSmoothing?: number;
+  /** Faceted shading via per-fragment face normals (overrides smoothing). */
+  flatShading?: boolean;
   doubleSided?: boolean;
   alphaMode?: AlphaMode;
   alphaCutoff?: number;
@@ -120,6 +124,7 @@ export interface MaterialDefaults {
   hasEmissiveMap: boolean;
   normalScale: number;
   hasNormalMap: boolean;
+  flatShading: boolean;
   doubleSided: boolean;
   alphaMode: AlphaMode;
   alphaCutoff: number;
@@ -208,6 +213,8 @@ interface MeshSlot {
   outlineMat: MToonLike | null;
   /** Authored outline width, for restore after a PBR detour. */
   originalOutlineWidth: number;
+  /** Cached per-vertex normal arrays for the smoothing blend, built lazily. */
+  normalCache: { original: Float32Array; smooth: Float32Array } | null;
 }
 
 interface Slot {
@@ -239,6 +246,7 @@ interface Registry {
 interface MToonLike extends THREE.Material {
   isMToonMaterial?: true;
   isOutline?: boolean;
+  flatShading?: boolean;
   color: THREE.Color;
   normalMap: THREE.Texture | null;
   normalScale?: THREE.Vector2;
@@ -290,6 +298,7 @@ function readDefaults(source: THREE.Material): MaterialDefaults {
     hasEmissiveMap: !!m.emissiveMap,
     normalScale: m.normalScale?.x ?? 1,
     hasNormalMap: !!m.normalMap,
+    flatShading: (m as { flatShading?: boolean }).flatShading ?? false,
     doubleSided: source.side === THREE.DoubleSide,
     alphaMode: deriveAlphaMode(source),
     alphaCutoff: source.alphaTest > 0 ? source.alphaTest : DEFAULT_ALPHA_CUTOFF,
@@ -385,6 +394,7 @@ function buildRegistry(vrm: VRM): Registry {
         isArray,
         outlineMat,
         originalOutlineWidth: outlineMat?.outlineWidthFactor ?? 0,
+        normalCache: null,
       });
       if (outlineMat) slot.defaults.hasOutline = true;
     });
@@ -447,6 +457,49 @@ function applySide(mat: THREE.Material, doubleSided: boolean): boolean {
   return false;
 }
 
+function applyFlatShading(
+  mat: { flatShading?: boolean },
+  on: boolean
+): boolean {
+  if (!!mat.flatShading !== on) {
+    mat.flatShading = on;
+    return true;
+  }
+  return false;
+}
+
+/** Blend a mesh's authored vertex normals toward fully-smoothed normals.
+ *  `t` in [0,1]: 0 = authored, 1 = `computeVertexNormals()` (area-averaged).
+ *  Only the base `normal` attribute is rewritten — topology, skinning and morph
+ *  targets are untouched. Caches the authored + smoothed arrays on first use. */
+function applyNormalSmoothing(ms: MeshSlot, t: number): void {
+  const geo = ms.mesh.geometry as THREE.BufferGeometry;
+  const nAttr = geo.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  if (!nAttr) return;
+  const k = Math.max(0, Math.min(1, t));
+  // Never touched and no smoothing requested → leave authored normals as-is.
+  if (k === 0 && !ms.normalCache) return;
+  if (!ms.normalCache) {
+    const original = Float32Array.from(nAttr.array as ArrayLike<number>);
+    geo.computeVertexNormals(); // mutates `normal` in place → smoothed
+    const smoothAttr = geo.getAttribute('normal') as THREE.BufferAttribute;
+    const smooth = Float32Array.from(smoothAttr.array as ArrayLike<number>);
+    ms.normalCache = { original, smooth };
+  }
+  const { original, smooth } = ms.normalCache;
+  const arr = nAttr.array as Float32Array;
+  for (let i = 0; i < arr.length; i += 3) {
+    const x = original[i] + (smooth[i] - original[i]) * k;
+    const y = original[i + 1] + (smooth[i + 1] - original[i + 1]) * k;
+    const z = original[i + 2] + (smooth[i + 2] - original[i + 2]) * k;
+    const len = Math.hypot(x, y, z) || 1;
+    arr[i] = x / len;
+    arr[i + 1] = y / len;
+    arr[i + 2] = z / len;
+  }
+  nAttr.needsUpdate = true;
+}
+
 /** Pick the emissive texture per the emissive-map mode. glTF/MToon multiply the
  *  emissive factor by this texture, so `flat` (none) lets the emissive color
  *  show everywhere and `albedo` makes the material emit its own diffuse pattern.
@@ -499,6 +552,8 @@ function applyMToon(slot: Slot, ov: MaterialOverride | undefined): void {
       ov?.alphaCutoff ?? d.alphaCutoff
     ) || recompile;
   recompile = applyEmissiveMap(m, slot, ov) || recompile;
+  recompile =
+    applyFlatShading(m, ov?.flatShading ?? d.flatShading) || recompile;
   if (recompile) m.needsUpdate = true;
 
   // Restore the surface material reference + outline params on each mesh.
@@ -598,6 +653,8 @@ function applyStandardCommon(
       ov?.alphaCutoff ?? d.alphaCutoff
     ) || recompile;
   recompile = applyEmissiveMap(p, slot, ov) || recompile;
+  recompile =
+    applyFlatShading(p, ov?.flatShading ?? d.flatShading) || recompile;
   if (recompile) p.needsUpdate = true;
 }
 
@@ -675,6 +732,9 @@ export function applyMaterialOverrides(
     if (shader === 'apbr') applyStandardLike(slot, ov, 'apbr');
     else if (shader === 'pbr') applyStandardLike(slot, ov, 'pbr');
     else applyMToon(slot, ov);
+    // Per-mesh geometry tweak — independent of the active shader material.
+    for (const ms of slot.meshes)
+      applyNormalSmoothing(ms, ov?.normalSmoothing ?? 0);
   }
 }
 
