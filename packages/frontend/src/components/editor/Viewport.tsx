@@ -3063,7 +3063,13 @@ function TextCanvasNode({ node }: { node: NodeRecord }) {
  *  renders the htm template into an off-screen React root, and rasterises it via
  *  html2canvas so emotes + arbitrary template markup composite into WebGL and
  *  recordings (like text_canvas). See dev-notes/modules/data-channels.md. */
-function FeedCanvasNode({ node }: { node: NodeRecord }) {
+function FeedCanvasNode({
+  node,
+  viewerMode,
+}: {
+  node: NodeRecord;
+  viewerMode?: boolean;
+}) {
   const outerRef = useRef<THREE.Group>(null);
   const billboardRef = useRef<THREE.Group>(null);
   const textureRef = useRef<THREE.CanvasTexture | null>(null);
@@ -3228,6 +3234,13 @@ function FeedCanvasNode({ node }: { node: NodeRecord }) {
     cfg.padding,
   ]);
 
+  // Register the node's group so it's selectable and the transform gizmo can
+  // attach (like billboard/particle/model flat mounts).
+  useEffect(() => {
+    if (!outerRef.current) return;
+    return registerNodeGroup(node.id, outerRef.current);
+  }, [node.id]);
+
   useFrame(() => {
     if (cfg.billboard && billboardRef.current) {
       billboardRef.current.quaternion.copy(camera.quaternion);
@@ -3244,14 +3257,32 @@ function FeedCanvasNode({ node }: { node: NodeRecord }) {
       scale={[t.sx, t.sy, t.sz]}
     >
       <group ref={billboardRef}>
-        <mesh>
-          <planeGeometry args={[planeW, planeH]} />
-          <meshBasicMaterial
-            map={texture ?? undefined}
-            transparent
-            side={THREE.DoubleSide}
-          />
-        </mesh>
+        {/* Editor-only affordance: an empty feed (no data published yet)
+            rasterises to a transparent texture and would be invisible, so show
+            a faint outline + backing so it's visible and clickable while
+            editing. Hidden in the viewer/stream output. */}
+        {!viewerMode && (
+          <mesh position={[0, 0, -0.001]}>
+            <planeGeometry args={[planeW, planeH]} />
+            <meshBasicMaterial
+              color="#4488ff"
+              transparent
+              opacity={0.08}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+            />
+          </mesh>
+        )}
+        {texture && (
+          <mesh>
+            <planeGeometry args={[planeW, planeH]} />
+            <meshBasicMaterial
+              map={texture}
+              transparent
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        )}
       </group>
     </group>
   );
@@ -3784,7 +3815,7 @@ export function SceneNodes({
       ))}
       {flatFeed.map((node) => (
         <group key={node.id} visible={effectiveVisible(node)}>
-          <FeedCanvasNode node={node} />
+          <FeedCanvasNode node={node} viewerMode={viewerMode} />
         </group>
       ))}
     </>
