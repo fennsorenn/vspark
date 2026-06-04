@@ -174,6 +174,38 @@ clobber each other's class names (requires the `@scope` at-rule — modern
 Chromium / OBS browser source). Dynamic styles go inline in the template
 (`style=${{ color: m.color }}`).
 
+### `feed` scene node (3D) — `Viewport.tsx` (`FeedCanvasNode`)
+
+The in-scene (3D) analog of the 2D `feed` compose layer: a `feed` scene
+`NodeKind` (added to `shared/types.ts` + `sceneNodeKindSchema`) rendered as a
+`THREE.CanvasTexture` on a plane, flat-mounted alongside `text_canvas`. Config
+lives under `node.components.feed`: `{ template, css, width, height, padding,
+fontSize, color, billboard? }`. Like the 2D layer it's a **config-free
+consumer** of the bus by identity — it reads `global ∪ its own node id` (so a
+`set_data` node targets it by picking the feed node as its `scope`).
+
+Rendering reuses `text_canvas`'s rasterisation but sources content from the
+template, not a param: it renders the htm template into an **off-screen React
+root** (`createRoot` into a fixed/off-left host `div`, committed synchronously
+via `flushSync`), waits for emote `<img>`s, then `html2canvas` → `drawImage`
+onto the CanvasTexture canvas. Going through real React (not an HTML string)
+keeps the `<Emote>`/`with(channels)` semantics identical to the 2D layer; going
+through `html2canvas` (rather than drei `<Html>`) means it composites into WebGL
+and screen recordings. `css` is scoped to the host via `@scope
+([data-feed-scope="…"])`, same as the 2D layer. Transform/opacity overrides
+apply (`useTransformWithOverride`/`useApplyOpacity`), so it's positionable and
+animatable like any scene node. Re-renders on every bus update — fine for chat
+rates, like `text_canvas`.
+
+### Shared template engine — `lib/feedTemplate.tsx`
+
+The htm template machinery is shared by both feed surfaces (2D layer + 3D node):
+`html` (htm bound to `createElement`), the `Emote` helper, `compileTemplate`
+(cached `new Function` compile), `FeedContent` (the try/catch render wrapper),
+`FeedErrorBoundary`, and the `FEED_DEFAULT_TEMPLATE`/`FEED_DEFAULT_CSS` chat
+defaults. `ComposeLayerStack.FeedLayer`, `Viewport.FeedCanvasNode`,
+`ComposeTree`, and `SceneGraph` all import from here.
+
 ### Frontend store + WS — `store/editorStore.ts`, `hooks/useWsSync.ts`
 `dataChannels: Record<scope, Record<field, value>>` slice with
 `mergeDataChannels(scope, fields)`, `clearDataChannels(scope, field?)`,
