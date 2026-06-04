@@ -1,6 +1,11 @@
 // Built-in particle-generator presets. Each is a single `particle` scene node
 // whose tuned config lives in the `components.particle` bag (merged against
 // PARTICLE_DEFAULTS on the frontend, so only non-default fields are listed).
+//
+// `textureUrl` uses the `builtin-tex:<key>` reference scheme resolved by the
+// frontend (packages/frontend/src/particleTextures.ts) — naming a generated
+// sprite by key instead of inlining its non-portable data URI. Keys:
+// square, soft-square, circle, soft-circle, gaussian, wide-gaussian, star, ring.
 import {
   sceneNode,
   sceneNodePreset,
@@ -32,6 +37,7 @@ export const PARTICLE_PRESETS: BuiltinPreset[] = [
     'Rain',
     [0, 5, 0],
     {
+      textureUrl: 'builtin-tex:gaussian',
       blendMode: 'normal',
       colorStart: '#9bb8d8',
       colorEnd: '#7a98b8',
@@ -69,6 +75,7 @@ export const PARTICLE_PRESETS: BuiltinPreset[] = [
     'Snow',
     [0, 5, 0],
     {
+      textureUrl: 'builtin-tex:wide-gaussian',
       blendMode: 'normal',
       colorStart: '#ffffff',
       colorEnd: '#ffffff',
@@ -109,6 +116,7 @@ export const PARTICLE_PRESETS: BuiltinPreset[] = [
     'Fire',
     [0, 0, 0],
     {
+      textureUrl: 'builtin-tex:wide-gaussian',
       blendMode: 'additive',
       colorStart: '#ffd23a',
       colorEnd: '#ff2a00',
@@ -147,6 +155,7 @@ export const PARTICLE_PRESETS: BuiltinPreset[] = [
     'Magic Sparkles',
     [0, 1, 0],
     {
+      textureUrl: 'builtin-tex:soft-circle',
       blendMode: 'additive',
       colorStart: '#b98cff',
       colorEnd: '#52e0ff',
@@ -187,6 +196,7 @@ export const PARTICLE_PRESETS: BuiltinPreset[] = [
     'Sparkler',
     [0, 1, 0],
     {
+      textureUrl: 'builtin-tex:star',
       blendMode: 'additive',
       colorStart: '#fffbe0',
       colorEnd: '#ff7b00',
@@ -196,15 +206,15 @@ export const PARTICLE_PRESETS: BuiltinPreset[] = [
       emissionRate: 350,
       lifetime: 0.5,
       lifetimeRandom: 0.6,
-      sizeX: 0.015,
-      sizeY: 0.05,
+      sizeX: 0.1,
+      sizeY: 0.1,
       sizeRandomX: 0.6,
       sizeRandomY: 0.6,
       sizeOverLifetime: 'shrink',
       directionX: 0,
       directionY: 1,
       directionZ: 0,
-      spread: 180,
+      spread: 360,
       speed: 3,
       speedRandom: 0.7,
       originW: 0.02,

@@ -170,6 +170,10 @@ function makeRing(): string {
 }
 
 export interface BuiltinParticleTexture {
+  /** Stable identifier, referenced as `builtin-tex:<key>` in stored configs /
+   *  presets. The generated `dataUrl` is not stable across browsers, so the
+   *  key (not the data URI) is the canonical identity. */
+  key: string;
   label: string;
   dataUrl: string;
 }
@@ -180,14 +184,44 @@ let _cache: BuiltinParticleTexture[] | null = null;
 export function getBuiltinParticleTextures(): BuiltinParticleTexture[] {
   if (_cache) return _cache;
   _cache = [
-    { label: 'Square', dataUrl: makeSquare() },
-    { label: 'Soft Square', dataUrl: makeSoftSquare() },
-    { label: 'Circle', dataUrl: makeCircle() },
-    { label: 'Soft Circle', dataUrl: makeSoftCircle() },
-    { label: 'Gaussian', dataUrl: makeGaussian() },
-    { label: 'Wide Gaussian', dataUrl: makeWideGaussian() },
-    { label: 'Star', dataUrl: makeStar() },
-    { label: 'Ring', dataUrl: makeRing() },
+    { key: 'square', label: 'Square', dataUrl: makeSquare() },
+    { key: 'soft-square', label: 'Soft Square', dataUrl: makeSoftSquare() },
+    { key: 'circle', label: 'Circle', dataUrl: makeCircle() },
+    { key: 'soft-circle', label: 'Soft Circle', dataUrl: makeSoftCircle() },
+    { key: 'gaussian', label: 'Gaussian', dataUrl: makeGaussian() },
+    {
+      key: 'wide-gaussian',
+      label: 'Wide Gaussian',
+      dataUrl: makeWideGaussian(),
+    },
+    { key: 'star', label: 'Star', dataUrl: makeStar() },
+    { key: 'ring', label: 'Ring', dataUrl: makeRing() },
   ];
   return _cache;
+}
+
+/** Sentinel prefix for a built-in particle texture reference. A stored
+ *  `textureUrl` of `builtin-tex:<key>` names a generated texture by key
+ *  instead of inlining its (non-portable) data URI — used by built-in presets
+ *  and the texture picker. */
+export const BUILTIN_TEX_SCHEME = 'builtin-tex:';
+
+/** Canonical stored value for a built-in texture, e.g. `builtin-tex:gaussian`. */
+export function builtinParticleTextureUrl(key: string): string {
+  return `${BUILTIN_TEX_SCHEME}${key}`;
+}
+
+/** Resolve a stored `textureUrl` to something a THREE.TextureLoader can load.
+ *  A `builtin-tex:<key>` reference resolves to the generated data URI (or null
+ *  if the key is unknown); any other value (a real URL / data URI) passes
+ *  through unchanged. */
+export function resolveParticleTextureUrl(
+  url: string | null | undefined
+): string | null {
+  if (!url) return null;
+  if (!url.startsWith(BUILTIN_TEX_SCHEME)) return url;
+  const key = url.slice(BUILTIN_TEX_SCHEME.length);
+  return (
+    getBuiltinParticleTextures().find((t) => t.key === key)?.dataUrl ?? null
+  );
 }
