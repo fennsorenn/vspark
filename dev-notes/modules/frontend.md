@@ -37,6 +37,8 @@ Actions: `setUpdateAvailable(info)`, `setPendingReload(value)`.
 - `vrmExpressionsByNode: Record<nodeId, string[]>`
 - `vrmMorphTargetsByNode: Record<nodeId, string[]>`
 
+Default per-avatar expression weights are stored on the scene node itself, not in a dedicated slice: `node.properties.defaultExpressions` (`Record<expressionName, number>`, only non-zero weights kept). Mirrored on the store `NodeProperties` and the api-client `NodeProperties`; the shared field is `SceneNodeProperties.defaultExpressions`.
+
 **Signal graph**
 - `activeGraphId`, `selectedSignalNodeId`
 - `componentKinds`
@@ -88,9 +90,11 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 
 **Per-frame work** (`useFrame`):
 1. Read `vmc_pose` from store → apply quaternions to VRM bones
-2. Read `vmc_blendshapes` → apply weights to VRM morph targets
+2. Apply expressions/blendshapes (see below)
 3. Advance timeline animations
 4. Simulate particles
+
+**Expression/blendshape application** (pre-`expressionManager.update()` pass): default expression weights (`node.properties.defaultExpressions`) are applied first via `vrm.expressionManager.setValue` as a per-frame baseline, then the latest broadcast blendshapes (`getVmcBlendshapes`) are overlaid on top. So live broadcasts (VMC, lipsync, tracking) override the defaults per-key, and the defaults re-assert when the bus emits an empty record (no active producer). The morph-target-name guard (`!morphMap.has(name)`) is preserved.
 
 **Pose gate (current rules, implemented)**: the `vmcCompRef` and tracking-lost gates were dropped. The broadcast pose is applied whenever `pose != null && Object.keys(pose).length > 0 && fresh`. The bus's fallback frame (empty `bones`) trips application off — that is the sole "stop applying" signal.
 
@@ -141,6 +145,7 @@ Inspector for the selected node. Sections:
 - **Light**: type, color, intensity
 - **Camera**: fov, near, far
 - **Components**: per-kind config editors for VMC receiver, breathing, lipsync, tracking; calibration wizard (head neutral, arm reach captures)
+- **Avatar**: VRM-node controls — idle-animation URL (with `<datalist>`) + speed/offset + playback transport; **Default Expression** sliders; read-only **Morph Targets** list
 - **Animation clips**: clip selection and playback
 - **Camera effects**: add/configure post-processing per camera
 - **Particle emitter**: emitter config
@@ -150,6 +155,10 @@ Inspector for the selected node. Sections:
 - `blendTime` removed from the vmc_receiver component UI.
 - New **Blend transition** input on VRM avatar nodes writes to `node.properties.blendTransitionTime` (persisted via the `scene_nodes.properties` JSON column, migration 007). Default 0.5s. Controls the Viewport ramp between blend modes and between apply/don't-apply.
 - New `BreathingProps` panel for breathing components: **Chest amplitude** + **Shoulder lift** fields, writing to component config `chestAmplitude` / `shoulderAmplitude`. See [component-managers.md](component-managers.md) BreathingManager.
+
+**Avatar section (implemented)**:
+- The inline animation-asset list (the grid of clickable animation buttons) was removed. Animations are picked via the bottom-dock **Animations** tab; the Avatar section's **Pick…** button only flashes that tab. The idle-animation URL input (with `<datalist>`), speed/offset inputs, and playback transport remain.
+- The previously read-only **Expressions** list is now a **Default Expression** control: one 0..1 `SliderInput` per VRM expression. Weights are stored on `node.properties.defaultExpressions` (only non-zero kept) and persisted via `api.updateNode({ properties: { defaultExpressions } })`, which the backend shallow-merges (same mechanism as `blendTransitionTime`). The read-only **Morph Targets** list is unchanged.
 
 ### `AssetManager.tsx` (bottom dock)
 The bottom dock. Tabs (`BottomDockTab` in the store, persisted to localStorage
