@@ -561,8 +561,13 @@ interface Transform {
   sy: number;
   sz: number;
   /** Uniform descendant-mesh opacity (1 = fully opaque). Persisted on
-   *  components.transform; applied per-frame by useApplyOpacity. */
+   *  components.transform; applied per-frame by useApplyMeshFlags. */
   opacity: number;
+  /** Whether this node's descendant meshes cast shadows. Only has a visible
+   *  effect when the active camera has shadows enabled. Default true. */
+  castShadow: boolean;
+  /** Whether this node's descendant meshes receive shadows. Default true. */
+  receiveShadow: boolean;
 }
 
 function getTransform(node: NodeRecord): Transform {
@@ -578,6 +583,8 @@ function getTransform(node: NodeRecord): Transform {
     sy: t?.sy ?? 1,
     sz: t?.sz ?? 1,
     opacity: t?.opacity ?? 1,
+    castShadow: t?.castShadow ?? true,
+    receiveShadow: t?.receiveShadow ?? true,
   };
 }
 
@@ -647,12 +654,12 @@ function useTransformWithOverride(node: NodeRecord): Transform {
  *  every descendant material, caching the last applied value per material so
  *  we skip writes when unchanged. When `opacity >= 1` we restore the
  *  material's original `transparent` flag (false), so opaque rendering stays
- *  cheap when not animating. */
+ *  cheap when not animating. Used by nodes that don't participate in shadows
+ *  (text, billboards, particles); avatar/model nodes use useApplyMeshFlags. */
 function useApplyOpacity(
   groupRef: React.RefObject<THREE.Object3D | null>,
   opacity: number
 ): void {
-  // Cache per-material: last opacity applied + the original `transparent` flag.
   const cacheRef = useRef(
     new WeakMap<
       THREE.Material,
@@ -671,6 +678,64 @@ function useApplyOpacity(
       if (!m) return;
       const arr = Array.isArray(m) ? m : [m];
       for (const mat of arr) {
+        let entry = cache.get(mat);
+        if (!entry) {
+          entry = { lastOpacity: 1, origTransparent: mat.transparent };
+          cache.set(mat, entry);
+        }
+        if (entry.lastOpacity === opacity) continue;
+        if (opacity >= 1) {
+          mat.opacity = 1;
+          mat.transparent = entry.origTransparent;
+        } else {
+          mat.opacity = Math.max(0, opacity);
+          mat.transparent = true;
+        }
+        mat.needsUpdate = true;
+        entry.lastOpacity = opacity;
+      }
+    });
+  });
+}
+
+/** Per-frame mesh walk that applies descendant material opacity and the
+ *  node's shadow cast/receive flags. Caches the last applied opacity per
+ *  material so we skip writes when unchanged; for shadows we compare the
+ *  cheap booleans on each mesh directly. When `opacity >= 1` we restore the
+ *  material's original `transparent` flag (false), so opaque rendering stays
+ *  cheap when not animating. Toggling `receiveShadow` forces a material
+ *  recompile (shadow receiving is baked into the shader). */
+function useApplyMeshFlags(
+  groupRef: React.RefObject<THREE.Object3D | null>,
+  opacity: number,
+  castShadow: boolean,
+  receiveShadow: boolean
+): void {
+  // Cache per-material: last opacity applied + the original `transparent` flag.
+  const cacheRef = useRef(
+    new WeakMap<
+      THREE.Material,
+      { lastOpacity: number; origTransparent: boolean }
+    >()
+  );
+  useFrame(() => {
+    const root = groupRef.current;
+    if (!root) return;
+    const cache = cacheRef.current;
+    root.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      const m = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (!m) return;
+      const arr = Array.isArray(m) ? m : [m];
+
+      // Shadow flags live on the mesh (Object3D). castShadow is a no-op until
+      // the next shadow-map render; receiveShadow needs a shader recompile.
+      if (mesh.castShadow !== castShadow) mesh.castShadow = castShadow;
+      const recvChanged = mesh.receiveShadow !== receiveShadow;
+      if (recvChanged) mesh.receiveShadow = receiveShadow;
+
+      for (const mat of arr) {
+        if (recvChanged) mat.needsUpdate = true;
         let entry = cache.get(mat);
         if (!entry) {
           entry = { lastOpacity: 1, origTransparent: mat.transparent };
@@ -779,7 +844,7 @@ function AvatarNode({
   const blendWeightRef = useRef(0); // 0 = animation, 1 = VMC
   const [vrmLoaded, setVrmLoaded] = useState(false);
   const t = useTransformWithOverride(node);
-  useApplyOpacity(outerRef, t.opacity);
+  useApplyMeshFlags(outerRef, t.opacity, t.castShadow, t.receiveShadow);
 
   const showBoneHelper = useEditorStore(
     (s) => s.boneListExpanded[node.id] ?? false
@@ -2385,12 +2450,31 @@ function LightNode({
   const groupRef = useRef<THREE.Group>(null);
   const t = useTransformWithOverride(node);
   const lc = node.components?.light as
-    | { lightType?: string; color?: string; intensity?: number }
+    | {
+        lightType?: string;
+        color?: string;
+        intensity?: number;
+        castShadow?: boolean;
+        shadowMapSize?: number;
+        shadowBias?: number;
+        shadowNormalBias?: number;
+        shadowCameraSize?: number;
+        shadowCameraFar?: number;
+      }
     | undefined;
   const lightType = lc?.lightType ?? 'point';
   const color = lc?.color ?? '#ffffff';
   const intensity = lc?.intensity ?? 1;
   const iconColor = '#ffaa22';
+
+  // Shadow casting is opt-in per light. These props are inert unless the
+  // active camera (and thus the Canvas) has shadow maps enabled.
+  const castShadow = lc?.castShadow ?? false;
+  const shadowMapSize = lc?.shadowMapSize ?? 1024;
+  const shadowBias = lc?.shadowBias ?? -0.0005;
+  const shadowNormalBias = lc?.shadowNormalBias ?? 0.02;
+  const shadowCameraSize = lc?.shadowCameraSize ?? 10; // directional ortho half-extent
+  const shadowCameraFar = lc?.shadowCameraFar ?? 50;
 
   useEffect(() => {
     if (!groupRef.current) return;
@@ -2404,16 +2488,50 @@ function LightNode({
       rotation={[t.rx, t.ry, t.rz]}
     >
       {lightType === 'point' && (
-        <pointLight color={color} intensity={intensity} />
+        <pointLight
+          color={color}
+          intensity={intensity}
+          castShadow={castShadow}
+          shadow-mapSize-width={shadowMapSize}
+          shadow-mapSize-height={shadowMapSize}
+          shadow-bias={shadowBias}
+          shadow-normalBias={shadowNormalBias}
+          shadow-camera-near={0.1}
+          shadow-camera-far={shadowCameraFar}
+        />
       )}
       {lightType === 'directional' && (
-        <directionalLight color={color} intensity={intensity} />
+        <directionalLight
+          color={color}
+          intensity={intensity}
+          castShadow={castShadow}
+          shadow-mapSize-width={shadowMapSize}
+          shadow-mapSize-height={shadowMapSize}
+          shadow-bias={shadowBias}
+          shadow-normalBias={shadowNormalBias}
+          shadow-camera-near={0.1}
+          shadow-camera-far={shadowCameraFar}
+          shadow-camera-left={-shadowCameraSize}
+          shadow-camera-right={shadowCameraSize}
+          shadow-camera-top={shadowCameraSize}
+          shadow-camera-bottom={-shadowCameraSize}
+        />
       )}
       {lightType === 'ambient' && (
         <ambientLight color={color} intensity={intensity} />
       )}
       {lightType === 'spot' && (
-        <spotLight color={color} intensity={intensity} />
+        <spotLight
+          color={color}
+          intensity={intensity}
+          castShadow={castShadow}
+          shadow-mapSize-width={shadowMapSize}
+          shadow-mapSize-height={shadowMapSize}
+          shadow-bias={shadowBias}
+          shadow-normalBias={shadowNormalBias}
+          shadow-camera-near={0.1}
+          shadow-camera-far={shadowCameraFar}
+        />
       )}
 
       {!viewerMode && lightType === 'point' && (
@@ -3595,7 +3713,7 @@ function ModelNode({
   const outerRef = useRef<THREE.Group>(null);
   const innerRef = useRef<THREE.Group>(null);
   const t = useTransformWithOverride(node);
-  useApplyOpacity(outerRef, t.opacity);
+  useApplyMeshFlags(outerRef, t.opacity, t.castShadow, t.receiveShadow);
   const ext = node.filePath?.split('.').pop()?.toLowerCase();
   const isGlb = Boolean(node.filePath && (ext === 'glb' || ext === 'gltf'));
 
@@ -4389,9 +4507,89 @@ export function CameraEffects({
   );
 }
 
+// ── Shadows ───────────────────────────────────────────────────────────────
+// Shadows are enabled per-camera (each camera is its own composed view of the
+// scene). The camera's quality maps to the renderer's shadow-map filter; the
+// per-light `castShadow` flag and per-node cast/receive flags do the rest.
+
+export type ShadowQuality = 'low' | 'medium' | 'high';
+
+/** Maps a camera's shadow quality to the R3F `<Canvas shadows>` prop value
+ *  (the global shadow-map filtering type). Returns `false` when disabled. */
+export function canvasShadowsProp(
+  enabled: boolean,
+  quality: ShadowQuality | undefined
+): false | 'basic' | 'percentage' | 'soft' {
+  if (!enabled) return false;
+  if (quality === 'low') return 'basic';
+  if (quality === 'high') return 'soft';
+  return 'percentage'; // medium / default → PCF
+}
+
+/** Invisible ground plane at y=0 that only renders the shadows cast onto it,
+ *  leaving the rest of the floor (the Grid) untouched. Mount only when the
+ *  view has shadows enabled. */
+export function ShadowCatcher({
+  opacity = 0.4,
+  size = 100,
+}: {
+  opacity?: number;
+  size?: number;
+}) {
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+      <planeGeometry args={[size, size]} />
+      <shadowMaterial transparent opacity={opacity} />
+    </mesh>
+  );
+}
+
+/** Forces a material recompile + shadow-map refresh whenever the view's shadow
+ *  enablement flips, so toggling shadows takes effect immediately instead of
+ *  on the next unrelated material change. */
+export function ShadowMaterialSync({ enabled }: { enabled: boolean }) {
+  const { scene, gl } = useThree();
+  useEffect(() => {
+    gl.shadowMap.needsUpdate = true;
+    scene.traverse((obj) => {
+      const m = (obj as THREE.Mesh).material as
+        | THREE.Material
+        | THREE.Material[]
+        | undefined;
+      if (!m) return;
+      for (const mat of Array.isArray(m) ? m : [m]) mat.needsUpdate = true;
+    });
+  }, [enabled, scene, gl]);
+  return null;
+}
+
+/** Selector: returns the effective shadow quality for the editor viewport, or
+ *  null when no camera in the active scene has shadows enabled. The editor is a
+ *  free authoring view (not a camera), so it previews shadows whenever any
+ *  camera does, picking the highest requested quality. */
+function useEditorShadowQuality(): ShadowQuality | null {
+  return useEditorStore((s) => {
+    let best: ShadowQuality | null = null;
+    const rank = { low: 1, medium: 2, high: 3 } as const;
+    for (const n of s.nodes) {
+      if (n.kind !== 'camera' || n.rootSceneNodeId !== s.activeSceneId)
+        continue;
+      const cam = n.components?.camera as
+        | { shadowsEnabled?: boolean; shadowQuality?: ShadowQuality }
+        | undefined;
+      if (!cam?.shadowsEnabled) continue;
+      const q = cam.shadowQuality ?? 'medium';
+      if (!best || rank[q] > rank[best]) best = q;
+    }
+    return best;
+  });
+}
+
 export function Viewport() {
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
   const orbitRef = useRef<any>(null);
+  const shadowQuality = useEditorShadowQuality();
+  const shadowsEnabled = shadowQuality !== null;
 
   return (
     <div
@@ -4406,12 +4604,29 @@ export function Viewport() {
       <Canvas
         camera={{ position: [0, 1.5, 5], fov: 50 }}
         gl={{ toneMapping: THREE.NoToneMapping }}
+        shadows={canvasShadowsProp(shadowsEnabled, shadowQuality ?? undefined)}
       >
         <ambientLight intensity={0.4} />
-        <directionalLight position={[5, 10, 5]} intensity={0.8} />
+        <directionalLight
+          position={[5, 10, 5]}
+          intensity={0.8}
+          castShadow={shadowsEnabled}
+          shadow-mapSize-width={2048}
+          shadow-mapSize-height={2048}
+          shadow-bias={-0.0005}
+          shadow-normalBias={0.02}
+          shadow-camera-near={0.1}
+          shadow-camera-far={50}
+          shadow-camera-left={-10}
+          shadow-camera-right={10}
+          shadow-camera-top={10}
+          shadow-camera-bottom={-10}
+        />
         <SceneNodes />
         <TransformGizmo mode={gizmoMode} orbitRef={orbitRef} />
         <Grid infiniteGrid fadeDistance={30} fadeStrength={1} />
+        {shadowsEnabled && <ShadowCatcher />}
+        <ShadowMaterialSync enabled={shadowsEnabled} />
         <Environment preset="city" />
         <OrbitControls ref={orbitRef} makeDefault />
         <CameraEffects />
