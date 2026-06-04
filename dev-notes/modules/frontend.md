@@ -181,7 +181,11 @@ Components, Effects, Clips, Presets**. File upload sends base64 to
   cached 3D thumbnails for models via the shared offscreen renderer in
   `modelThumb.ts`. Animation assets render their skeleton (`THREE.SkeletonHelper`,
   meshes hidden) at the clip's mid-frame and play it on hover via a single
-  shared overlay canvas — see `animPreview.ts` (FBX + BVH).
+  shared overlay canvas — see `animPreview.ts` (FBX + BVH). Model + animation
+  thumbnails are persisted to the backend (`thumbCache.ts` → `PUT
+  /api/assets/:id/thumbnail`, served from `/uploads/<project>/thumbnails/`), so
+  the expensive WebGL render only happens once per asset rather than every
+  session.
 - **Pickers** — `PropertiesPanel` "Pick…" buttons (animation / texture /
   background) flash the relevant asset tab (flash-only; the tab's existing
   "Apply to <node>" buttons do the assignment).

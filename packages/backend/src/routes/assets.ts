@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { writeFileSync, unlinkSync } from 'fs';
+import { writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { join, extname } from 'path';
 import { getDb } from '../db/index.js';
 import {
@@ -56,16 +56,14 @@ router.get('/projects/:projectId/assets', (req, res) => {
 router.post('/projects/:projectId/assets', (req, res) => {
   const { name, mimeType, data } = req.body;
   if (!name || !data)
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'name and data are required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'name and data are required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   const buffer = Buffer.from(data, 'base64');
   const ext = extname(name).toLowerCase() || '.bin';
   const sub = assetSubfolder(ext);
@@ -87,19 +85,61 @@ router.post('/projects/:projectId/assets', (req, res) => {
       buffer.length,
       ''
     );
-  res
-    .status(201)
-    .json({
-      ok: true,
-      data: {
-        id,
-        project_id: req.params.projectId,
-        original_name: name,
-        stored_path: storedPath,
-        mime_type: mimeType,
-        size: buffer.length,
+  res.status(201).json({
+    ok: true,
+    data: {
+      id,
+      project_id: req.params.projectId,
+      original_name: name,
+      stored_path: storedPath,
+      mime_type: mimeType,
+      size: buffer.length,
+    },
+  });
+});
+
+/**
+ * @openapi
+ * /api/assets/{id}/thumbnail:
+ *   put:
+ *     tags: [assets]
+ *     summary: Store a generated preview thumbnail (base64 PNG) for an asset
+ *     description: |
+ *       Thumbnails are generated client-side (WebGL) and persisted here so they
+ *       only need to be rendered once. Served back as a static file at
+ *       /uploads/{projectId}/thumbnails/{id}.png.
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Stored; returns the thumbnail url }
+ *       404: { description: Asset not found }
+ */
+router.put('/assets/:id/thumbnail', (req, res) => {
+  const { data } = req.body ?? {};
+  if (!data)
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'data (base64 png) is required',
+        code: 'VALIDATION_ERROR',
       },
     });
+  const row = getDb()
+    .prepare('SELECT project_id FROM asset_files WHERE id = ?')
+    .get(req.params.id) as { project_id: string } | undefined;
+  if (!row)
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'asset not found', code: 'NOT_FOUND' },
+    });
+  const dir = join(UPLOADS_DIR, row.project_id, 'thumbnails');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${req.params.id}.png`), Buffer.from(data, 'base64'));
+  res.json({
+    ok: true,
+    data: { url: `/uploads/${row.project_id}/thumbnails/${req.params.id}.png` },
+  });
 });
 
 /**
@@ -116,13 +156,24 @@ router.post('/projects/:projectId/assets', (req, res) => {
 router.delete('/assets/:id', (req, res) => {
   const db = getDb();
   const row = db
-    .prepare('SELECT stored_path FROM asset_files WHERE id = ?')
-    .get(req.params.id) as { stored_path: string } | undefined;
+    .prepare('SELECT stored_path, project_id FROM asset_files WHERE id = ?')
+    .get(req.params.id) as
+    | { stored_path: string; project_id: string }
+    | undefined;
   if (row?.stored_path) {
     try {
       unlinkSync(join(process.cwd(), row.stored_path));
     } catch {
       /* file may not exist */
+    }
+  }
+  if (row?.project_id) {
+    try {
+      unlinkSync(
+        join(UPLOADS_DIR, row.project_id, 'thumbnails', `${req.params.id}.png`)
+      );
+    } catch {
+      /* no cached thumbnail */
     }
   }
   db.prepare('DELETE FROM asset_files WHERE id = ?').run(req.params.id);

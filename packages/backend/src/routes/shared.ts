@@ -190,6 +190,9 @@ export function discoverAssets(projectId: string): void {
   );
   for (const entry of readdirSync(projectDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
+    // `thumbnails/` holds generated asset previews keyed by asset id, not
+    // user assets — never register those as asset_files.
+    if (entry.name === 'thumbnails') continue;
     const subDir = join(projectDir, entry.name);
     for (const file of readdirSync(subDir)) {
       const storedPath = `/uploads/${projectId}/${entry.name}/${file}`;
