@@ -179,7 +179,9 @@ Components, Effects, Clips, Presets**. File upload sends base64 to
   scene-tree inline add-component menu's prior over-filter).
 - **Thumbnails** — `AssetThumb.tsx` previews images directly and lazily renders
   cached 3D thumbnails for models via the shared offscreen renderer in
-  `modelThumb.ts`; animations show an icon.
+  `modelThumb.ts`. Animation assets render their skeleton (`THREE.SkeletonHelper`,
+  meshes hidden) at the clip's mid-frame and play it on hover via a single
+  shared overlay canvas — see `animPreview.ts` (FBX + BVH).
 - **Pickers** — `PropertiesPanel` "Pick…" buttons (animation / texture /
   background) flash the relevant asset tab (flash-only; the tab's existing
   "Apply to <node>" buttons do the assignment).
