@@ -54,6 +54,10 @@ export interface SceneNodeProperties {
   /** Seconds to ramp between override and additive when the broadcast bus flips
    *  blend modes for this avatar. Applies to VRM avatar nodes. Default 0.5. */
   blendTransitionTime?: number;
+  /** Resting expression weights (VRM expression preset name → 0..1) applied to
+   *  the avatar every frame as a baseline. Live blendshape broadcasts (VMC,
+   *  lipsync, tracking) override them per-key. Applies to VRM avatar nodes. */
+  defaultExpressions?: Record<string, number>;
   /** Broadcast Bus tick rate in Hz. Applies to kind='scene' nodes. Default 60. */
   broadcastTickHz?: number;
   /** References another kind='scene' node. Applies to kind='scene_instance' nodes. */
