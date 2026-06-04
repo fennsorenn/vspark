@@ -53,6 +53,19 @@ const DEFAULT_COMPONENTS = {
   },
 };
 
+/** Whether a component kind (by its `applicableTo` list) can attach to a node
+ *  of the given kind. Empty / `'any'` means universally applicable. */
+export function componentCompatibleWith(
+  applicableTo: string[],
+  nodeKind: string
+): boolean {
+  return (
+    applicableTo.length === 0 ||
+    applicableTo.includes('any') ||
+    applicableTo.includes(nodeKind)
+  );
+}
+
 /** Return `base`, or `base 2` / `base 3` / … if `base` (or a lower number) is
  *  already present in `taken`. Used to give freshly created entities a unique
  *  default name without prompting. */

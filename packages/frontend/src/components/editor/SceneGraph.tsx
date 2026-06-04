@@ -14,6 +14,7 @@ import {
   NODE_KIND_DEFS,
   createSceneNode,
   nextNodeName,
+  componentCompatibleWith,
   type NodeKindDef,
 } from './createKinds';
 import { handleSceneNodeDrop } from './dnd';
@@ -333,6 +334,9 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
     comp: NodeComponent;
   } | null>(null);
   const nodeComponentsFor = useEditorStore((s) => s.nodeComponentsFor);
+  const nodeKind = useEditorStore(
+    (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
+  );
   const addNodeComponent = useEditorStore((s) => s.addNodeComponent);
   const updateNodeComponent = useEditorStore((s) => s.updateNodeComponent);
   const removeNodeComponent = useEditorStore((s) => s.removeNodeComponent);
@@ -603,13 +607,13 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               overflow: 'hidden',
             }}
           >
-            {componentKinds
-              .filter(
-                (ct) =>
-                  ct.applicableTo.length === 0 ||
-                  ct.applicableTo.includes('any')
-              )
-              .map((ct) => (
+            {(() => {
+              // Show components compatible with this node's kind first, then a
+              // separated "Other" group for the rest (still addable).
+              const item = (
+                ct: (typeof componentKinds)[number],
+                dimmed: boolean
+              ) => (
                 <div
                   key={ct.kind}
                   style={{
@@ -620,6 +624,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
                     cursor: 'pointer',
                     fontSize: 12,
                     color: '#e0e0e0',
+                    opacity: dimmed ? 0.5 : 1,
                   }}
                   onMouseEnter={(e) =>
                     ((e.currentTarget as HTMLDivElement).style.background =
@@ -639,7 +644,34 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
                     </div>
                   </div>
                 </div>
-              ))}
+              );
+              const compatible = componentKinds.filter((ct) =>
+                componentCompatibleWith(ct.applicableTo, nodeKind)
+              );
+              const incompatible = componentKinds.filter(
+                (ct) => !componentCompatibleWith(ct.applicableTo, nodeKind)
+              );
+              return (
+                <>
+                  {compatible.map((ct) => item(ct, false))}
+                  {incompatible.length > 0 && (
+                    <div
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: 9,
+                        color: '#555',
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                        borderTop: '1px solid #2a2a2a',
+                      }}
+                    >
+                      Other
+                    </div>
+                  )}
+                  {incompatible.map((ct) => item(ct, true))}
+                </>
+              );
+            })()}
           </div>
         )}
       </div>

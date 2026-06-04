@@ -9,6 +9,7 @@ import { PresetLibrary } from './PresetLibrary';
 import { CreatePalette } from './CreatePalette';
 import { AssetThumb } from './AssetThumb';
 import { DND_ASSET } from './dnd';
+import { componentCompatibleWith } from './createKinds';
 
 export function AssetManager() {
   const {
@@ -297,6 +298,80 @@ export function AssetManager() {
     gap: 8,
   };
 
+  const sectionLabel: React.CSSProperties = {
+    fontSize: 10,
+    fontWeight: 700,
+    color: '#666',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    margin: '12px 0 6px',
+  };
+
+  // One component card. `dimmed` is used for components that don't normally
+  // apply to the selected node's kind — still addable, just de-emphasised.
+  const renderComponentCard = (
+    ct: (typeof componentKinds)[number],
+    dimmed: boolean
+  ) => {
+    const alreadyAdded = nodeComponents.some(
+      (c) => c.nodeId === selectedNode!.id && c.kind === ct.kind
+    );
+    return (
+      <div
+        key={ct.kind}
+        style={{
+          background: '#1e1e1e',
+          border: '1px solid #2a2a2a',
+          borderRadius: 6,
+          padding: '10px 12px',
+          display: 'flex',
+          gap: 10,
+          alignItems: 'flex-start',
+          opacity: dimmed ? 0.55 : 1,
+        }}
+      >
+        <span style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}>
+          {ct.icon}
+        </span>
+        <div style={{ flex: 1 }}>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: '#e0e0e0',
+              marginBottom: 3,
+            }}
+          >
+            {ct.label}
+          </div>
+          <div style={{ fontSize: 11, color: '#666', lineHeight: 1.4 }}>
+            {ct.description}
+          </div>
+        </div>
+        <button
+          style={{
+            background: alreadyAdded ? '#1a2a1a' : '#1a3a1a',
+            border: 'none',
+            color: alreadyAdded ? '#4a7' : '#5b9',
+            borderRadius: 4,
+            padding: '3px 10px',
+            cursor: alreadyAdded ? 'default' : 'pointer',
+            fontSize: 11,
+            flexShrink: 0,
+            marginTop: 2,
+          }}
+          disabled={alreadyAdded}
+          onClick={() => handleAddComponent(ct.kind)}
+          title={
+            alreadyAdded ? 'Already added' : `Add to ${selectedNode!.name}`
+          }
+        >
+          {alreadyAdded ? '✓ Added' : '+ Add'}
+        </button>
+      </div>
+    );
+  };
+
   const uploadBtn: React.CSSProperties = {
     background: uploading ? '#1a3a5a' : '#2563eb',
     border: 'none',
@@ -481,78 +556,39 @@ export function AssetManager() {
                   Select a node in the scene to add components.
                 </div>
               )}
-              {selectedNode && (
-                <div style={cardGrid}>
-                  {componentKinds.map((ct) => {
-                    const alreadyAdded = nodeComponents.some(
-                      (c) => c.nodeId === selectedNode.id && c.kind === ct.kind
-                    );
-                    return (
-                      <div
-                        key={ct.kind}
-                        style={{
-                          background: '#1e1e1e',
-                          border: '1px solid #2a2a2a',
-                          borderRadius: 6,
-                          padding: '10px 12px',
-                          display: 'flex',
-                          gap: 10,
-                          alignItems: 'flex-start',
-                        }}
-                      >
-                        <span
-                          style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}
-                        >
-                          {ct.icon}
-                        </span>
-                        <div style={{ flex: 1 }}>
-                          <div
-                            style={{
-                              fontSize: 13,
-                              fontWeight: 500,
-                              color: '#e0e0e0',
-                              marginBottom: 3,
-                            }}
-                          >
-                            {ct.label}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: 11,
-                              color: '#666',
-                              lineHeight: 1.4,
-                            }}
-                          >
-                            {ct.description}
-                          </div>
-                        </div>
-                        <button
-                          style={{
-                            background: alreadyAdded ? '#1a2a1a' : '#1a3a1a',
-                            border: 'none',
-                            color: alreadyAdded ? '#4a7' : '#5b9',
-                            borderRadius: 4,
-                            padding: '3px 10px',
-                            cursor: alreadyAdded ? 'default' : 'pointer',
-                            fontSize: 11,
-                            flexShrink: 0,
-                            marginTop: 2,
-                          }}
-                          disabled={alreadyAdded}
-                          onClick={() => handleAddComponent(ct.kind)}
-                          title={
-                            alreadyAdded
-                              ? 'Already added'
-                              : `Add to ${selectedNode.name}`
-                          }
-                        >
-                          {alreadyAdded ? '✓ Added' : '+ Add'}
-                        </button>
+              {selectedNode &&
+                (() => {
+                  const compatible = componentKinds.filter((ct) =>
+                    componentCompatibleWith(ct.applicableTo, selectedNode.kind)
+                  );
+                  const incompatible = componentKinds.filter(
+                    (ct) =>
+                      !componentCompatibleWith(
+                        ct.applicableTo,
+                        selectedNode.kind
+                      )
+                  );
+                  return (
+                    <>
+                      <div style={cardGrid}>
+                        {compatible.map((ct) => renderComponentCard(ct, false))}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                      {incompatible.length > 0 && (
+                        <>
+                          <div style={sectionLabel}>
+                            Other components (not typical for{' '}
+                            {selectedNode.kind})
+                          </div>
+                          <div style={cardGrid}>
+                            {incompatible.map((ct) =>
+                              renderComponentCard(ct, true)
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
             </div>
           )}
 
