@@ -10,11 +10,14 @@ import { ClipsSection } from './ClipsSection';
 import { GraphsSection } from './GraphsSection';
 import { ContextMenu } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
-import { PARTICLE_DEFAULTS } from '../../particleUtils';
 import {
-  FEED_DEFAULT_TEMPLATE,
-  FEED_DEFAULT_CSS,
-} from '../../lib/feedTemplate';
+  NODE_KIND_DEFS,
+  createSceneNode,
+  nextNodeName,
+  componentCompatibleWith,
+  type NodeKindDef,
+} from './createKinds';
+import { handleSceneNodeDrop } from './dnd';
 
 const KIND_ICONS: Record<string, string> = {
   scene: '🎬',
@@ -28,38 +31,12 @@ const KIND_ICONS: Record<string, string> = {
   godray_caster: '☀️',
   particle: '✨',
   billboard: '🖼️',
+  feed: '📜',
 };
 
-const DEFAULT_COMPONENTS = {
-  transform: {
-    type: 'transform',
-    x: 0,
-    y: 0,
-    z: 0,
-    rx: 0,
-    ry: 0,
-    rz: 0,
-    sx: 1,
-    sy: 1,
-    sz: 1,
-  },
-};
-
-const NODE_TYPES = [
-  { label: 'Group', kind: 'group' },
-  { label: 'Avatar', kind: 'avatar' },
-  { label: 'Model', kind: 'model' },
-  { label: 'Prop', kind: 'prop' },
-  { label: 'Point Light', kind: 'light', lightType: 'point' },
-  { label: 'Directional Light', kind: 'light', lightType: 'directional' },
-  { label: 'Camera', kind: 'camera' },
-  { label: 'Godray Caster', kind: 'godray_caster' },
-  { label: 'Particle', kind: 'particle' },
-  { label: 'Billboard', kind: 'billboard' },
-  { label: 'Text (SDF / troika)', kind: 'text_troika' },
-  { label: 'Text (canvas, HTML-capable)', kind: 'text_canvas' },
-  { label: 'Feed (3D data overlay)', kind: 'feed' },
-];
+// Node kinds the user can add. Sourced from the shared registry so the scene
+// tree, compose tree, and bottom-dock Create palette stay in lockstep.
+const NODE_TYPES = NODE_KIND_DEFS;
 
 // ---------- Context menu ----------
 interface CtxMenu {
@@ -358,6 +335,9 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
     comp: NodeComponent;
   } | null>(null);
   const nodeComponentsFor = useEditorStore((s) => s.nodeComponentsFor);
+  const nodeKind = useEditorStore(
+    (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
+  );
   const addNodeComponent = useEditorStore((s) => s.addNodeComponent);
   const updateNodeComponent = useEditorStore((s) => s.updateNodeComponent);
   const removeNodeComponent = useEditorStore((s) => s.removeNodeComponent);
@@ -628,13 +608,13 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               overflow: 'hidden',
             }}
           >
-            {componentKinds
-              .filter(
-                (ct) =>
-                  ct.applicableTo.length === 0 ||
-                  ct.applicableTo.includes('any')
-              )
-              .map((ct) => (
+            {(() => {
+              // Show components compatible with this node's kind first, then a
+              // separated "Other" group for the rest (still addable).
+              const item = (
+                ct: (typeof componentKinds)[number],
+                dimmed: boolean
+              ) => (
                 <div
                   key={ct.kind}
                   style={{
@@ -645,6 +625,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
                     cursor: 'pointer',
                     fontSize: 12,
                     color: '#e0e0e0',
+                    opacity: dimmed ? 0.5 : 1,
                   }}
                   onMouseEnter={(e) =>
                     ((e.currentTarget as HTMLDivElement).style.background =
@@ -664,7 +645,34 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
                     </div>
                   </div>
                 </div>
-              ))}
+              );
+              const compatible = componentKinds.filter((ct) =>
+                componentCompatibleWith(ct.applicableTo, nodeKind)
+              );
+              const incompatible = componentKinds.filter(
+                (ct) => !componentCompatibleWith(ct.applicableTo, nodeKind)
+              );
+              return (
+                <>
+                  {compatible.map((ct) => item(ct, false))}
+                  {incompatible.length > 0 && (
+                    <div
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: 9,
+                        color: '#555',
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                        borderTop: '1px solid #2a2a2a',
+                      }}
+                    >
+                      Other
+                    </div>
+                  )}
+                  {incompatible.map((ct) => item(ct, true))}
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -1383,7 +1391,6 @@ export function SceneGraph() {
     nodes: allNodes,
     selectedNodeId,
     selectNode,
-    addNode,
     deleteNode: storeDeleteNode,
     updateNode: storeUpdateNode,
     nodeComponents,
@@ -1402,12 +1409,12 @@ export function SceneGraph() {
   const setDockTab = useEditorStore((s) => s.setLeftTab);
   const setActiveScene = useEditorStore((s) => s.setActiveScene);
   const setScenes = useEditorStore((s) => s.setScenes);
+  const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
+  const requestFocusName = useEditorStore((s) => s.requestFocusName);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteSceneNodeClipboard = clipboardPayload?.kind === 'scene-node';
   const canPasteGraphClipboard = clipboardPayload?.kind === 'graph';
-  // Which scene's add-node menu is open (scene id), or null.
-  const [dropdownOpen, setDropdownOpen] = useState<string | null>(null);
   // Collapsed scene roots (scene id set).
   const [collapsedScenes, setCollapsedScenes] = useState<Set<string>>(
     new Set()
@@ -1496,95 +1503,25 @@ export function SceneGraph() {
   };
 
   const handleAdd = async (
-    type: (typeof NODE_TYPES)[number],
+    type: NodeKindDef,
     parentId: string | null = null,
     sceneId: string | null = activeSceneId
   ) => {
-    setDropdownOpen(null);
     if (!sceneId) return;
-    const name = window.prompt(`Name for ${type.label}:`, type.label);
-    if (!name?.trim()) return;
-
-    const components: Record<string, unknown> = { ...DEFAULT_COMPONENTS };
-    if (type.kind === 'light') {
-      components.light = {
-        type: 'light',
-        lightType: type.lightType ?? 'point',
-        color: '#ffffff',
-        intensity: 1,
-      };
-    } else if (type.kind === 'camera') {
-      components.camera = { type: 'camera', fov: 50, near: 0.1, far: 1000 };
-    } else if (type.kind === 'particle') {
-      components.particle = { ...PARTICLE_DEFAULTS };
-    } else if (type.kind === 'billboard') {
-      components.billboard = {
-        type: 'billboard',
-        facing: 'screen',
-        backface: 'none',
-        width: 1,
-        height: 1,
-        alpha: 1,
-        textureUrl: null,
-      };
-    } else if (type.kind === 'text_troika') {
-      components.text = {
-        type: 'text',
-        content: 'Text',
-        fontSize: 0.2,
-        color: '#ffffff',
-        anchorX: 'center',
-        anchorY: 'middle',
-        maxWidth: 0,
-        billboard: true,
-        // Match the BillboardNode facing controls so the user gets one
-        // consistent set of options for "what direction is this thing looking".
-        facing: 'screen' as 'screen' | 'world',
-      };
-    } else if (type.kind === 'text_canvas') {
-      components.text = {
-        type: 'text',
-        content: 'Text',
-        fontSize: 48,
-        color: '#ffffff',
-        padding: 16,
-        width: 2,
-        height: 0.5,
-        allowHtml: false,
-        billboard: true,
-        facing: 'screen' as 'screen' | 'world',
-      };
-    } else if (type.kind === 'feed') {
-      components.feed = {
-        type: 'feed',
-        template: FEED_DEFAULT_TEMPLATE,
-        css: FEED_DEFAULT_CSS,
-        width: 2,
-        height: 1.2,
-        padding: 16,
-        fontSize: 28,
-        color: '#ffffff',
-        billboard: true,
-      };
-    }
-
+    // Create with a deduplicated default name, then select + focus the name
+    // field so the user can rename inline instead of being prompted up front.
+    const name = nextNodeName(type, sceneId);
     try {
-      const node = await api.createNode(sceneId, {
-        parentId,
-        name: name.trim(),
-        kind: type.kind,
-        filePath: null,
-        components,
-      });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-        addNode(node);
-      }
+      const node = await createSceneNode(sceneId, type, parentId, name);
       if (parentId)
         setCollapsedNodes((s) => {
           const n = new Set(s);
           n.delete(parentId);
           return n;
         });
+      selectNode(node.id);
+      setSceneSelected(false);
+      requestFocusName();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Failed to create node');
     }
@@ -1726,6 +1663,15 @@ export function SceneGraph() {
     e.preventDefault();
     e.stopPropagation();
     setDragOverNodeId(null);
+    // Drag-create from the bottom dock: add the new node/asset as a child.
+    if (await handleSceneNodeDrop(e, activeSceneId, targetNodeId)) {
+      setCollapsedNodes((s) => {
+        const n = new Set(s);
+        n.delete(targetNodeId);
+        return n;
+      });
+      return;
+    }
     if (!dragNodeId || dragNodeId === targetNodeId) return;
     await handleReparent(dragNodeId, targetNodeId, null);
     setDragNodeId(null);
@@ -1733,6 +1679,8 @@ export function SceneGraph() {
 
   const handleDropOnRoot = async (e: React.DragEvent) => {
     e.preventDefault();
+    // Drag-create from the bottom dock: add at scene root.
+    if (await handleSceneNodeDrop(e, activeSceneId, null)) return;
     if (!dragNodeId) return;
     await handleReparent(dragNodeId, null, null);
     setDragNodeId(null);
@@ -2117,7 +2065,6 @@ export function SceneGraph() {
     const rootNodes = nodes.filter(
       (n) => n.rootSceneNodeId === scene.id && !n.parentId && n.kind !== 'scene'
     );
-    const menuOpen = dropdownOpen === scene.id;
 
     return (
       <div key={scene.id}>
@@ -2178,71 +2125,32 @@ export function SceneGraph() {
           >
             {scene.name}
           </span>
-          {/* Per-scene add-node button */}
-          <div style={{ position: 'relative' }}>
-            <button
-              style={{
-                background: '#2563eb',
-                border: 'none',
-                color: '#fff',
-                borderRadius: 4,
-                padding: '2px 7px',
-                cursor: 'pointer',
-                fontSize: 11,
-                fontWeight: 500,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveScene(scene.id);
-                setDropdownOpen(menuOpen ? null : scene.id);
-              }}
-            >
-              + ▾
-            </button>
-            {menuOpen && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  right: 0,
-                  marginTop: 4,
-                  background: '#1e1e1e',
-                  border: '1px solid #3a3a3a',
-                  borderRadius: 6,
-                  overflow: 'hidden',
-                  zIndex: 100,
-                  minWidth: 160,
-                  boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-                }}
-              >
-                {NODE_TYPES.map((type) => (
-                  <button
-                    key={type.label}
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      background: 'none',
-                      border: 'none',
-                      color: '#e0e0e0',
-                      padding: '8px 14px',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: 13,
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = '#2a2a2a')
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = 'none')
-                    }
-                    onClick={() => handleAdd(type, null, scene.id)}
-                  >
-                    {KIND_ICONS[type.kind] ?? '🔹'} {type.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Per-scene add-node button — routes to the bottom-dock Create
+              palette and flashes it as a hint, rather than opening its own
+              menu. The palette adds to whichever scene is active. */}
+          <button
+            title="Add node — opens the Create palette"
+            style={{
+              background: '#2563eb',
+              border: 'none',
+              color: '#fff',
+              borderRadius: 4,
+              padding: '2px 7px',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 500,
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveScene(scene.id);
+              setSceneSelected(true);
+              selectNode(null);
+              setDockTab('scene');
+              flashBottomTab('create');
+            }}
+          >
+            +
+          </button>
           {/* Delete scene */}
           <button
             title="Delete scene"
@@ -2397,7 +2305,6 @@ export function SceneGraph() {
           {/* Scene roots */}
           <div
             style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}
-            onClick={() => dropdownOpen && setDropdownOpen(null)}
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDropOnRoot}
           >

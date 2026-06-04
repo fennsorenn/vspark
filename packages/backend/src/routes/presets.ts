@@ -6,6 +6,7 @@ import {
   serializeComposeLayerSubtree,
 } from '../presets/serialize.js';
 import { instantiatePreset } from '../presets/deserialize.js';
+import { BUILTIN_PRESETS, getBuiltinPreset } from '../presets/builtins.js';
 import { _ws } from './shared.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -109,6 +110,45 @@ router.post('/projects/:projectId/presets', (req, res) => {
     .prepare('SELECT * FROM presets WHERE id = ?')
     .get(id) as unknown as PresetRow;
   res.status(201).json({ ok: true, data: mapPresetRow(row) });
+});
+
+// Built-in (shipped, read-only) presets. Registered before /presets/:id so
+// the literal "builtin" segment isn't captured as an :id.
+router.get('/presets/builtin', (_req, res) => {
+  res.json({
+    ok: true,
+    data: BUILTIN_PRESETS.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      rootKind: p.rootKind,
+      builtin: true,
+    })),
+  });
+});
+
+router.get('/presets/builtin/:id', (req, res) => {
+  const p = getBuiltinPreset(req.params.id);
+  if (!p)
+    return res.status(404).json({
+      ok: false,
+      error: {
+        status: 404,
+        message: 'builtin preset not found',
+        code: 'NOT_FOUND',
+      },
+    });
+  res.json({
+    ok: true,
+    data: {
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      rootKind: p.rootKind,
+      payload: p.payload,
+      builtin: true,
+    },
+  });
 });
 
 router.get('/presets/:id', (req, res) => {

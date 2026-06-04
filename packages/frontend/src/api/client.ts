@@ -1093,6 +1093,22 @@ export const createPreset = (
 export const getPreset = (id: string) =>
   request<PresetRecord>(`/presets/${id}`);
 
+export interface BuiltinPresetSummary {
+  id: string;
+  name: string;
+  description: string;
+  rootKind: 'scene_node' | 'compose_layer';
+  builtin: true;
+}
+
+export const getBuiltinPresets = () =>
+  request<BuiltinPresetSummary[]>(`/presets/builtin`);
+
+export const getBuiltinPreset = (id: string) =>
+  request<BuiltinPresetSummary & { payload: unknown }>(
+    `/presets/builtin/${id}`
+  );
+
 export const deletePreset = (id: string) =>
   request<void>(`/presets/${id}`, { method: 'DELETE' });
 
@@ -1245,6 +1261,8 @@ export const api = {
   getPresets,
   createPreset,
   getPreset,
+  getBuiltinPresets,
+  getBuiltinPreset,
   deletePreset,
   serializePreset,
   instantiatePreset,

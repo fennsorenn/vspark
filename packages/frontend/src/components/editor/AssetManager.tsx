@@ -1,11 +1,15 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { AssetFile } from '../../api/client';
-import type { NodeComponent } from '../../store/editorStore';
+import type { BottomDockTab, NodeComponent } from '../../store/editorStore';
 import { newComponentId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { TrackClipTimeline } from './TrackClipTimeline';
 import { PresetLibrary } from './PresetLibrary';
+import { CreatePalette } from './CreatePalette';
+import { AssetThumb } from './AssetThumb';
+import { DND_ASSET } from './dnd';
+import { componentCompatibleWith } from './createKinds';
 
 export function AssetManager() {
   const {
@@ -27,13 +31,50 @@ export function AssetManager() {
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const canApplyAnim =
     selectedNode?.kind === 'avatar' || selectedNode?.kind === 'model';
+  const canApplyModel =
+    selectedNode?.kind === 'avatar' || selectedNode?.kind === 'model';
   const canApplyTexture =
     selectedNode?.kind === 'billboard' || selectedNode?.kind === 'particle';
   const canApplyCameraBg = selectedNode?.kind === 'camera';
   const tab = useEditorStore((s) => s.bottomTab);
   const setTab = useEditorStore((s) => s.setBottomTab);
   const bottomDockHeight = useEditorStore((s) => s.bottomDockHeight);
+  const bottomTabFlash = useEditorStore((s) => s.bottomTabFlash);
   const [uploading, setUploading] = useState(false);
+  const [assetQuery, setAssetQuery] = useState('');
+
+  // Tabs worth highlighting for the current selection. Non-destructive — every
+  // tab stays clickable; relevant ones just get an accent so the eye lands on
+  // them (e.g. select an avatar → Animations + Components light up).
+  const relevantTabs = new Set<BottomDockTab>();
+  if (selectedNode) {
+    relevantTabs.add('components');
+    if (selectedNode.kind === 'avatar' || selectedNode.kind === 'model') {
+      relevantTabs.add('models');
+      relevantTabs.add('animations');
+    }
+    if (selectedNode.kind === 'camera') {
+      relevantTabs.add('effects');
+      relevantTabs.add('images');
+    }
+    if (selectedNode.kind === 'billboard' || selectedNode.kind === 'particle')
+      relevantTabs.add('images');
+  }
+
+  // Brief pulse of the active tab when something flashes it (scene "+" button,
+  // Properties pickers). Toggling off→on restarts the CSS animation even when
+  // the same tab is flashed twice in a row.
+  const [flashing, setFlashing] = useState(false);
+  useEffect(() => {
+    if (!bottomTabFlash) return;
+    setFlashing(false);
+    const raf = requestAnimationFrame(() => setFlashing(true));
+    const timer = setTimeout(() => setFlashing(false), 900);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+  }, [bottomTabFlash]);
   const modelInputRef = useRef<HTMLInputElement>(null);
   const animInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -171,6 +212,16 @@ export function AssetManager() {
     }
   };
 
+  const handleApplyModel = async (asset: AssetFile) => {
+    if (!selectedNode) return;
+    try {
+      await api.updateNode(selectedNode.id, { filePath: asset.url });
+      storeUpdateNode(selectedNode.id, { filePath: asset.url });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to set model');
+    }
+  };
+
   const handleApplyAnimation = async (asset: AssetFile) => {
     if (!selectedNode) return;
     const components = {
@@ -232,25 +283,108 @@ export function AssetManager() {
     }
   };
 
-  const tabBtn = (
-    t:
-      | 'models'
-      | 'animations'
-      | 'images'
-      | 'components'
-      | 'effects'
-      | 'clips'
-      | 'presets'
-  ): React.CSSProperties => ({
-    background: tab === t ? '#2a2a2a' : 'none',
-    border: 'none',
-    borderBottom: tab === t ? '2px solid #2563eb' : '2px solid transparent',
-    color: tab === t ? '#e0e0e0' : '#666',
-    padding: '6px 14px',
-    cursor: 'pointer',
-    fontSize: 13,
-    fontFamily: 'system-ui, sans-serif',
-  });
+  const tabBtn = (t: BottomDockTab): React.CSSProperties => {
+    const active = tab === t;
+    const relevant = relevantTabs.has(t);
+    return {
+      background: active ? '#2a2a2a' : 'none',
+      border: 'none',
+      borderBottom: active
+        ? '2px solid #2563eb'
+        : relevant
+          ? '2px solid #3a5a8a'
+          : '2px solid transparent',
+      color: active ? '#e0e0e0' : relevant ? '#9bb4cc' : '#666',
+      padding: '6px 14px',
+      cursor: 'pointer',
+      fontSize: 13,
+      fontFamily: 'system-ui, sans-serif',
+      borderRadius: 3,
+      animation: active && flashing ? 'vsTabFlash 0.45s ease 2' : undefined,
+    };
+  };
+
+  // Responsive tile grid for the card-based tabs (Components, Effects, assets).
+  // Replaces the old one-card-per-row layout so a wide dock fills horizontally.
+  const cardGrid: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+    gap: 8,
+  };
+
+  const sectionLabel: React.CSSProperties = {
+    fontSize: 10,
+    fontWeight: 700,
+    color: '#666',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    margin: '12px 0 6px',
+  };
+
+  // One component card. `dimmed` is used for components that don't normally
+  // apply to the selected node's kind — still addable, just de-emphasised.
+  const renderComponentCard = (
+    ct: (typeof componentKinds)[number],
+    dimmed: boolean
+  ) => {
+    const alreadyAdded = nodeComponents.some(
+      (c) => c.nodeId === selectedNode!.id && c.kind === ct.kind
+    );
+    return (
+      <div
+        key={ct.kind}
+        style={{
+          background: '#1e1e1e',
+          border: '1px solid #2a2a2a',
+          borderRadius: 6,
+          padding: '10px 12px',
+          display: 'flex',
+          gap: 10,
+          alignItems: 'flex-start',
+          opacity: dimmed ? 0.55 : 1,
+        }}
+      >
+        <span style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}>
+          {ct.icon}
+        </span>
+        <div style={{ flex: 1 }}>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: '#e0e0e0',
+              marginBottom: 3,
+            }}
+          >
+            {ct.label}
+          </div>
+          <div style={{ fontSize: 11, color: '#666', lineHeight: 1.4 }}>
+            {ct.description}
+          </div>
+        </div>
+        <button
+          style={{
+            background: alreadyAdded ? '#1a2a1a' : '#1a3a1a',
+            border: 'none',
+            color: alreadyAdded ? '#4a7' : '#5b9',
+            borderRadius: 4,
+            padding: '3px 10px',
+            cursor: alreadyAdded ? 'default' : 'pointer',
+            fontSize: 11,
+            flexShrink: 0,
+            marginTop: 2,
+          }}
+          disabled={alreadyAdded}
+          onClick={() => handleAddComponent(ct.kind)}
+          title={
+            alreadyAdded ? 'Already added' : `Add to ${selectedNode!.name}`
+          }
+        >
+          {alreadyAdded ? '✓ Added' : '+ Add'}
+        </button>
+      </div>
+    );
+  };
 
   const uploadBtn: React.CSSProperties = {
     background: uploading ? '#1a3a5a' : '#2563eb',
@@ -278,6 +412,7 @@ export function AssetManager() {
       }}
     >
       <BottomDockResizeHandle />
+      <style>{`@keyframes vsTabFlash { 0%,100% { box-shadow: none } 50% { box-shadow: 0 0 0 2px #2563eb inset, 0 0 10px rgba(37,99,235,0.6) } }`}</style>
       <div
         style={{
           display: 'flex',
@@ -288,6 +423,9 @@ export function AssetManager() {
           flexShrink: 0,
         }}
       >
+        <button style={tabBtn('create')} onClick={() => setTab('create')}>
+          Create
+        </button>
         <button style={tabBtn('models')} onClick={() => setTab('models')}>
           Models
         </button>
@@ -316,7 +454,25 @@ export function AssetManager() {
           Presets
         </button>
         <div style={{ flex: 1 }} />
-        {tab === 'components' ||
+        {(tab === 'models' || tab === 'animations' || tab === 'images') && (
+          <input
+            value={assetQuery}
+            onChange={(e) => setAssetQuery(e.target.value)}
+            placeholder="Search…"
+            style={{
+              background: '#1a1a1a',
+              border: '1px solid #2a2a2a',
+              borderRadius: 5,
+              color: '#ccc',
+              padding: '4px 8px',
+              fontSize: 12,
+              width: 130,
+              marginRight: 4,
+            }}
+          />
+        )}
+        {tab === 'create' ||
+        tab === 'components' ||
         tab === 'effects' ||
         tab === 'clips' ||
         tab === 'presets' ? null : tab === 'models' ? (
@@ -385,7 +541,11 @@ export function AssetManager() {
         ) : null}
       </div>
 
-      {tab === 'clips' ? (
+      {tab === 'create' ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+          <CreatePalette />
+        </div>
+      ) : tab === 'clips' ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
           <TrackClipTimeline />
         </div>
@@ -411,74 +571,38 @@ export function AssetManager() {
                 </div>
               )}
               {selectedNode &&
-                componentKinds.map((ct) => {
-                  const alreadyAdded = nodeComponents.some(
-                    (c) => c.nodeId === selectedNode.id && c.kind === ct.kind
+                (() => {
+                  const compatible = componentKinds.filter((ct) =>
+                    componentCompatibleWith(ct.applicableTo, selectedNode.kind)
+                  );
+                  const incompatible = componentKinds.filter(
+                    (ct) =>
+                      !componentCompatibleWith(
+                        ct.applicableTo,
+                        selectedNode.kind
+                      )
                   );
                   return (
-                    <div
-                      key={ct.kind}
-                      style={{
-                        background: '#1e1e1e',
-                        border: '1px solid #2a2a2a',
-                        borderRadius: 6,
-                        padding: '10px 12px',
-                        display: 'flex',
-                        gap: 10,
-                        alignItems: 'flex-start',
-                      }}
-                    >
-                      <span
-                        style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}
-                      >
-                        {ct.icon}
-                      </span>
-                      <div style={{ flex: 1 }}>
-                        <div
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 500,
-                            color: '#e0e0e0',
-                            marginBottom: 3,
-                          }}
-                        >
-                          {ct.label}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: '#666',
-                            lineHeight: 1.4,
-                          }}
-                        >
-                          {ct.description}
-                        </div>
+                    <>
+                      <div style={cardGrid}>
+                        {compatible.map((ct) => renderComponentCard(ct, false))}
                       </div>
-                      <button
-                        style={{
-                          background: alreadyAdded ? '#1a2a1a' : '#1a3a1a',
-                          border: 'none',
-                          color: alreadyAdded ? '#4a7' : '#5b9',
-                          borderRadius: 4,
-                          padding: '3px 10px',
-                          cursor: alreadyAdded ? 'default' : 'pointer',
-                          fontSize: 11,
-                          flexShrink: 0,
-                          marginTop: 2,
-                        }}
-                        disabled={alreadyAdded}
-                        onClick={() => handleAddComponent(ct.kind)}
-                        title={
-                          alreadyAdded
-                            ? 'Already added'
-                            : `Add to ${selectedNode.name}`
-                        }
-                      >
-                        {alreadyAdded ? '✓ Added' : '+ Add'}
-                      </button>
-                    </div>
+                      {incompatible.length > 0 && (
+                        <>
+                          <div style={sectionLabel}>
+                            Other components (not typical for{' '}
+                            {selectedNode.kind})
+                          </div>
+                          <div style={cardGrid}>
+                            {incompatible.map((ct) =>
+                              renderComponentCard(ct, true)
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </>
                   );
-                })}
+                })()}
             </div>
           )}
 
@@ -497,89 +621,95 @@ export function AssetManager() {
                   Select a camera node to add effects.
                 </div>
               )}
-              {selectedNode &&
-                selectedNode.kind === 'camera' &&
-                CAMERA_EFFECT_KINDS.map((ek) => {
-                  const alreadyAdded = cameraEffects.some(
-                    (e) => e.nodeId === selectedNode.id && e.kind === ek.kind
-                  );
-                  return (
-                    <div
-                      key={ek.kind}
-                      style={{
-                        background: '#1e1e1e',
-                        border: '1px solid #2a2a2a',
-                        borderRadius: 6,
-                        padding: '10px 12px',
-                        display: 'flex',
-                        gap: 10,
-                        alignItems: 'flex-start',
-                      }}
-                    >
-                      <span
-                        style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}
-                      >
-                        {ek.icon}
-                      </span>
-                      <div style={{ flex: 1 }}>
-                        <div
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 500,
-                            color: '#e0e0e0',
-                            marginBottom: 3,
-                          }}
-                        >
-                          {ek.label}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: '#666',
-                            lineHeight: 1.4,
-                          }}
-                        >
-                          {ek.description}
-                        </div>
-                      </div>
-                      <button
+              {selectedNode && selectedNode.kind === 'camera' && (
+                <div style={cardGrid}>
+                  {CAMERA_EFFECT_KINDS.map((ek) => {
+                    const alreadyAdded = cameraEffects.some(
+                      (e) => e.nodeId === selectedNode.id && e.kind === ek.kind
+                    );
+                    return (
+                      <div
+                        key={ek.kind}
                         style={{
-                          background: alreadyAdded ? '#1a2a1a' : '#1a3a1a',
-                          border: 'none',
-                          color: alreadyAdded ? '#4a7' : '#5b9',
-                          borderRadius: 4,
-                          padding: '3px 10px',
-                          cursor: alreadyAdded ? 'default' : 'pointer',
-                          fontSize: 11,
-                          flexShrink: 0,
-                          marginTop: 2,
+                          background: '#1e1e1e',
+                          border: '1px solid #2a2a2a',
+                          borderRadius: 6,
+                          padding: '10px 12px',
+                          display: 'flex',
+                          gap: 10,
+                          alignItems: 'flex-start',
                         }}
-                        disabled={alreadyAdded}
-                        onClick={() => handleAddEffect(ek.kind)}
-                        title={
-                          alreadyAdded
-                            ? 'Already added'
-                            : `Add to ${selectedNode.name}`
-                        }
                       >
-                        {alreadyAdded ? '✓ Added' : '+ Add'}
-                      </button>
-                    </div>
-                  );
-                })}
+                        <span
+                          style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}
+                        >
+                          {ek.icon}
+                        </span>
+                        <div style={{ flex: 1 }}>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 500,
+                              color: '#e0e0e0',
+                              marginBottom: 3,
+                            }}
+                          >
+                            {ek.label}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: '#666',
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {ek.description}
+                          </div>
+                        </div>
+                        <button
+                          style={{
+                            background: alreadyAdded ? '#1a2a1a' : '#1a3a1a',
+                            border: 'none',
+                            color: alreadyAdded ? '#4a7' : '#5b9',
+                            borderRadius: 4,
+                            padding: '3px 10px',
+                            cursor: alreadyAdded ? 'default' : 'pointer',
+                            fontSize: 11,
+                            flexShrink: 0,
+                            marginTop: 2,
+                          }}
+                          disabled={alreadyAdded}
+                          onClick={() => handleAddEffect(ek.kind)}
+                          title={
+                            alreadyAdded
+                              ? 'Already added'
+                              : `Add to ${selectedNode.name}`
+                          }
+                        >
+                          {alreadyAdded ? '✓ Added' : '+ Add'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
           {/* Models / Animations / Images tabs */}
           {(tab === 'models' || tab === 'animations' || tab === 'images') &&
             (() => {
-              const list =
+              const all =
                 tab === 'models'
                   ? models
                   : tab === 'animations'
                     ? animations
                     : images;
-              if (list.length === 0)
+              const q = assetQuery.trim().toLowerCase();
+              const list = q
+                ? all.filter((a) => a.name.toLowerCase().includes(q))
+                : all;
+              if (all.length === 0)
                 return (
                   <div
                     style={{
@@ -592,6 +722,19 @@ export function AssetManager() {
                     No {tab} yet. Upload one above.
                   </div>
                 );
+              if (list.length === 0)
+                return (
+                  <div
+                    style={{
+                      color: '#555',
+                      fontSize: 12,
+                      textAlign: 'center',
+                      paddingTop: 20,
+                    }}
+                  >
+                    No {tab} match “{assetQuery}”.
+                  </div>
+                );
               const cardStyle: React.CSSProperties = {
                 background: '#1e1e1e',
                 border: '1px solid #2a2a2a',
@@ -600,8 +743,7 @@ export function AssetManager() {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 6,
-                minWidth: 140,
-                maxWidth: 200,
+                minWidth: 0,
               };
               const extBadge: React.CSSProperties = {
                 display: 'inline-block',
@@ -613,23 +755,27 @@ export function AssetManager() {
                 alignSelf: 'flex-start',
               };
               return (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns:
+                      'repeat(auto-fill, minmax(150px, 1fr))',
+                    gap: 10,
+                  }}
+                >
                   {list.map((asset) => (
-                    <div key={asset.id} style={cardStyle}>
-                      {/* Thumbnail for images */}
-                      {asset.kind === 'image' && (
-                        <img
-                          src={asset.url}
-                          alt={asset.name}
-                          style={{
-                            width: '100%',
-                            height: 80,
-                            objectFit: 'contain',
-                            borderRadius: 3,
-                            background: '#111',
-                          }}
-                        />
-                      )}
+                    <div
+                      key={asset.id}
+                      style={{ ...cardStyle, cursor: 'grab' }}
+                      draggable
+                      title="Drag onto the scene tree or viewport to add"
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'copy';
+                        e.dataTransfer.setData(DND_ASSET, asset.id);
+                      }}
+                    >
+                      {/* Thumbnail (image preview, lazy 3D render for models) */}
+                      <AssetThumb asset={asset} />
                       <div
                         style={{
                           fontSize: 13,
@@ -667,6 +813,23 @@ export function AssetManager() {
                             onClick={() => handleAddToScene(asset)}
                           >
                             Add to Scene
+                          </button>
+                        )}
+                        {asset.kind === 'model' && canApplyModel && (
+                          <button
+                            style={{
+                              background: '#1a3a2a',
+                              border: 'none',
+                              color: '#7c9',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={`Set as model for "${selectedNode!.name}"`}
+                            onClick={() => handleApplyModel(asset)}
+                          >
+                            Apply to {selectedNode!.name}
                           </button>
                         )}
                         {asset.kind === 'animation' && canApplyAnim && (

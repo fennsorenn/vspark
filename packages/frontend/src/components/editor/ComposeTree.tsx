@@ -10,10 +10,8 @@ import { ClipsSection } from './ClipsSection';
 import { GraphsSection } from './GraphsSection';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
-import {
-  FEED_DEFAULT_TEMPLATE,
-  FEED_DEFAULT_CSS,
-} from '../../lib/feedTemplate';
+import { createLayer } from './createKinds';
+import { DND_CREATE_LAYER } from './dnd';
 
 const KIND_ICONS: Record<ComposeLayerKind, string> = {
   image: '🖼',
@@ -26,18 +24,6 @@ const KIND_ICONS: Record<ComposeLayerKind, string> = {
   text: '📝',
   feed: '📜',
 };
-
-// Layer kinds the user can add inside a compose scene.
-const ADDABLE_KINDS: ComposeLayerKind[] = [
-  'camera_view',
-  'scene_include',
-  'image',
-  'video',
-  'browser',
-  'text',
-  'feed',
-  'group',
-];
 
 const addBtn: CSSProperties = {
   background: '#2563eb',
@@ -66,145 +52,26 @@ function rowStyle(selected: boolean): CSSProperties {
   };
 }
 
-// ---- Add-layer menu ---------------------------------------------------------
+// ---- Add-layer button -------------------------------------------------------
 
-async function createLayer(composeSceneId: string, kind: ComposeLayerKind) {
-  const name =
-    kind === 'camera_view'
-      ? 'Camera View'
-      : kind === 'scene_include'
-        ? 'Included Scene'
-        : kind[0].toUpperCase() + kind.slice(1) + ' Layer';
-
-  // Camera views default to the first available camera; reassign in properties.
-  let cameraNodeId: string | null = null;
-  if (kind === 'camera_view') {
-    const cameras = useEditorStore
-      .getState()
-      .nodes.filter((n) => n.kind === 'camera');
-    if (cameras.length === 0) {
-      alert('No cameras exist yet. Add a camera node to a scene first.');
-      return;
-    }
-    cameraNodeId = cameras[0].id;
-  }
-
-  const config: Record<string, unknown> =
-    kind === 'browser'
-      ? { url: 'https://example.com' }
-      : kind === 'feed'
-        ? {
-            template: FEED_DEFAULT_TEMPLATE,
-            css: FEED_DEFAULT_CSS,
-          }
-        : {};
-
-  // Scene includes default to the first OTHER compose scene; reassign in
-  // properties. They mount that scene's whole layer stack.
-  if (kind === 'scene_include') {
-    const others = useEditorStore
-      .getState()
-      .composeScenes.filter((s) => s.id !== composeSceneId);
-    if (others.length === 0) {
-      alert('No other compose scene to include. Create another one first.');
-      return;
-    }
-    config.includeSceneId = others[0].id;
-  }
-
-  // Camera views and scene includes default to filling the whole compose frame
-  // (100% × 100%).
-  const fills = kind === 'camera_view' || kind === 'scene_include';
-  const sizeDefaults = fills
-    ? { width: 100, height: 100 }
-    : ({} as { width?: number; height?: number });
-  if (fills) {
-    config.widthUnit = '%';
-    config.heightUnit = '%';
-  }
-  try {
-    const created = await api.createComposeSceneLayer(composeSceneId, {
-      name,
-      kind,
-      cameraNodeId,
-      config,
-      ...sizeDefaults,
-    });
-    // Optimistic insert; the WS broadcast dedupes by id.
-    useEditorStore.getState().addComposeLayer(created);
-    useEditorStore.getState().selectComposeLayer(created.id);
-  } catch (e) {
-    alert(e instanceof Error ? e.message : 'Failed to add layer');
-  }
-}
-
-function AddLayerMenu({ composeSceneId }: { composeSceneId: string }) {
-  const [open, setOpen] = useState(false);
+/** Routes the user to the bottom-dock Create palette (which shows layer kinds
+ *  while the Compose tab is active) and flashes it as a hint, after making this
+ *  compose scene the active one so the palette adds layers to it. */
+function AddLayerButton({ composeSceneId }: { composeSceneId: string }) {
+  const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
+  const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   return (
-    <div style={{ position: 'relative' }}>
-      <button
-        style={addBtn}
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        title="Add layer"
-      >
-        + ▾
-      </button>
-      {open && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '100%',
-            right: 0,
-            marginTop: 4,
-            background: '#1e1e1e',
-            border: '1px solid #3a3a3a',
-            borderRadius: 4,
-            minWidth: 150,
-            zIndex: 50,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-          }}
-        >
-          {ADDABLE_KINDS.map((k) => (
-            <button
-              key={k}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen(false);
-                createLayer(composeSceneId, k);
-              }}
-              style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
-                padding: '6px 10px',
-                background: 'transparent',
-                border: 'none',
-                color: '#ddd',
-                cursor: 'pointer',
-                fontSize: 12,
-              }}
-              onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = '#2a2a2a')
-              }
-              onMouseLeave={(e) =>
-                ((e.currentTarget as HTMLElement).style.background =
-                  'transparent')
-              }
-            >
-              <span style={{ marginRight: 6 }}>{KIND_ICONS[k]}</span>
-              {k === 'camera_view'
-                ? 'camera view'
-                : k === 'scene_include'
-                  ? 'include scene'
-                  : k}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <button
+      style={addBtn}
+      title="Add layer — opens the Create palette"
+      onClick={(e) => {
+        e.stopPropagation();
+        selectComposeScene(composeSceneId);
+        flashBottomTab('create');
+      }}
+    >
+      +
+    </button>
   );
 }
 
@@ -609,7 +476,26 @@ function ComposeSceneRoot({
   };
 
   return (
-    <div>
+    <div
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(DND_CREATE_LAYER)) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      }}
+      onDrop={(e) => {
+        const data = e.dataTransfer.getData(DND_CREATE_LAYER);
+        if (!data) return;
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          const { kind } = JSON.parse(data) as { kind: ComposeLayerKind };
+          void createLayer(scene.id, kind);
+        } catch {
+          /* malformed payload — ignore */
+        }
+      }}
+    >
       <div
         style={{
           display: 'flex',
@@ -656,7 +542,7 @@ function ComposeSceneRoot({
         >
           {scene.name}
         </span>
-        <AddLayerMenu composeSceneId={scene.id} />
+        <AddLayerButton composeSceneId={scene.id} />
         {projectId && (
           <a
             href={`/viewer/${projectId}/compose/${scene.id}`}

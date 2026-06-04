@@ -16,6 +16,33 @@ A preset payload (`format: 'vspark.preset.v2'`) is rooted at either a scene node
 
 `exportedFrom: { projectId, rootSceneNodeId, rootId }` is audit-trail metadata and is **deliberately excluded from id substitution** (replacing the source rootId with a placeholder would be misleading; the field is never read on import). See `fd6e6cb`.
 
+## Built-in presets (shipped, read-only)
+
+`packages/backend/src/presets/builtins.ts` defines `BUILTIN_PRESETS` — presets
+bundled with the app, authored as plain `vspark.preset.v2` objects (the backend
+bundle has no JSON-module support). They are served read-only and never touch
+the `presets` table:
+
+| Method + path | Purpose |
+|---|---|
+| `GET /api/presets/builtin` | List built-in summaries (`id, name, description, rootKind, builtin: true`). |
+| `GET /api/presets/builtin/:id` | Full built-in incl. `payload`. |
+
+These routes are registered **before** `/presets/:id` so the literal `builtin`
+segment isn't captured as an id. The frontend (`PresetLibrary.tsx`) shows them
+in a separate **Built-in** section above project presets, with a Use button and
+no delete. Ships with a Three-Point Lighting rig and an Organizer Group
+scaffold; add more by appending objects to `BUILTIN_PRESETS`.
+
+### Scene-node component bag round-trip
+
+`serialize.ts` now also captures the `scene_nodes.components` JSON bag
+(transform / light / camera / billboard config) as `sceneNodes[].componentsBag`,
+and `deserialize.ts` writes it back on instantiate (was previously dropped,
+leaving instantiated nodes with empty config). The field is additive and
+optional — payloads serialized before this change still import (the bag falls
+back to `{}`). This is what makes the built-in light rig actually render.
+
 ## Id portability — placeholder substitution
 
 Persisting a subtree requires solving a problem that wasn't visible until graphs / clips / set_*_param nodes started referencing entity ids directly inside their JSON config: every literal scene-node id, component id, graph id, clip id, lane id, etc. inside a `descriptor`, `layer.config`, `properties`, or `config` blob would, after import into another project, point at an entity that no longer exists.

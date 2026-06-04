@@ -12,6 +12,30 @@ import type { AssetFile } from '../../api/client';
 import { animRegistry } from '../../animRegistry';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
+
+/** Small "Pick…" button that routes the user to a bottom-dock asset tab and
+ *  flashes it as a hint. The asset tab's existing "Apply to <node>" buttons do
+ *  the actual assignment (flash-only picker). */
+function PickButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Pick from the asset library in the bottom dock"
+      style={{
+        background: '#1a3a5a',
+        border: 'none',
+        color: '#7ab',
+        borderRadius: 4,
+        padding: '2px 8px',
+        cursor: 'pointer',
+        fontSize: 11,
+        marginLeft: 8,
+      }}
+    >
+      Pick…
+    </button>
+  );
+}
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 
 interface Transform {
@@ -2803,6 +2827,7 @@ export function PropertiesPanel() {
   } = useEditorStore();
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
+  const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const selectedComp =
     nodeComponents.find((c) => c.id === selectedComponentId) ?? null;
@@ -2824,6 +2849,10 @@ export function PropertiesPanel() {
 
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
   const [name, setName] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const focusNameNonce = useEditorStore((s) => s.focusNameNonce);
+  const lastFocusNonce = useRef(focusNameNonce);
+  const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   const [transform, setTransform] = useState<Transform>({
     x: 0,
     y: 0,
@@ -2876,6 +2905,20 @@ export function PropertiesPanel() {
     if (node.kind === 'light') setLight(getLightProps(node));
     if (node.kind === 'camera') setCamera(getCameraProps(node));
   }, [node?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Focus + select the name field on request (e.g. right after a node is
+  // created from the Create palette, so the user can rename immediately).
+  useEffect(() => {
+    if (focusNameNonce === lastFocusNonce.current) return;
+    lastFocusNonce.current = focusNameNonce;
+    const el = nameInputRef.current;
+    if (!el) return;
+    // Defer one frame so the [node?.id] effect's setName has landed first.
+    requestAnimationFrame(() => {
+      el.focus();
+      el.select();
+    });
+  }, [focusNameNonce]);
 
   // Sync transform inputs when gizmo updates the store (skip while user is typing)
   const nodeTransformStr = node
@@ -3117,6 +3160,7 @@ export function PropertiesPanel() {
         {/* Name */}
         <div style={sectionHeader}>Name</div>
         <input
+          ref={nameInputRef}
           style={textInput}
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -3533,7 +3577,16 @@ export function PropertiesPanel() {
               ))}
             </div>
 
-            <div style={sectionHeader}>Background Image</div>
+            <div
+              style={{
+                ...sectionHeader,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              Background Image
+              <PickButton onClick={() => flashBottomTab('images')} />
+            </div>
             {(() => {
               const cam = (node.components?.camera ?? {}) as Record<
                 string,
@@ -3883,7 +3936,16 @@ export function PropertiesPanel() {
                     onSave={saveBc}
                   />
                 </div>
-                <div style={sectionHeader}>Texture</div>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Texture
+                  <PickButton onClick={() => flashBottomTab('images')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
@@ -4281,7 +4343,16 @@ export function PropertiesPanel() {
             );
             return (
               <>
-                <div style={sectionHeader}>Texture</div>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Texture
+                  <PickButton onClick={() => flashBottomTab('images')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
@@ -4885,6 +4956,106 @@ export function PropertiesPanel() {
           </>
         )}
 
+        {/* Model (avatar/model file) */}
+        {(node.kind === 'avatar' || node.kind === 'model') && (
+          <>
+            <div
+              style={{
+                ...sectionHeader,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              Model
+              <PickButton onClick={() => flashBottomTab('models')} />
+            </div>
+            <datalist id="model-list">
+              {modelAssets.map((a) => (
+                <option key={a.id} value={a.url} label={a.name} />
+              ))}
+            </datalist>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                list="model-list"
+                style={{ ...textInput, flex: 1 }}
+                placeholder={
+                  modelAssets.length
+                    ? 'Search or paste URL…'
+                    : 'No models uploaded yet'
+                }
+                defaultValue={node.filePath ?? ''}
+                key={node.id + ':model'}
+                onBlur={(e) => {
+                  const filePath = e.target.value.trim();
+                  api
+                    .updateNode(node.id, { filePath: filePath || '' })
+                    .catch(() => {});
+                  storeUpdateNode(node.id, { filePath: filePath || null });
+                }}
+              />
+              {node.filePath && (
+                <button
+                  title="Clear model"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#666',
+                    cursor: 'pointer',
+                    fontSize: 16,
+                    padding: '0 2px',
+                    flexShrink: 0,
+                  }}
+                  onClick={() => {
+                    api.updateNode(node.id, { filePath: '' }).catch(() => {});
+                    storeUpdateNode(node.id, { filePath: null });
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {modelAssets.length > 0 && (
+              <div
+                style={{
+                  marginTop: 6,
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 4,
+                }}
+              >
+                {modelAssets.map((a) => (
+                  <button
+                    key={a.id}
+                    style={{
+                      background:
+                        node.filePath === a.url ? '#1a3a5a' : '#1e1e1e',
+                      border: '1px solid #3a3a3a',
+                      color: '#ccc',
+                      borderRadius: 4,
+                      padding: '2px 8px',
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      maxWidth: 220,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={a.name}
+                    onClick={() => {
+                      api
+                        .updateNode(node.id, { filePath: a.url })
+                        .catch(() => {});
+                      storeUpdateNode(node.id, { filePath: a.url });
+                    }}
+                  >
+                    {a.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
         {/* Animation */}
         {/* TODO: Overhaul this section in a dedicated pass. The Speed/Offset
             number inputs and the seek slider were intentionally left on the
@@ -4895,7 +5066,16 @@ export function PropertiesPanel() {
             its planned UX update. */}
         {(node.kind === 'avatar' || node.kind === 'model') && (
           <>
-            <div style={sectionHeader}>Animation</div>
+            <div
+              style={{
+                ...sectionHeader,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              Animation
+              <PickButton onClick={() => flashBottomTab('animations')} />
+            </div>
             <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>
               Idle Animation
             </div>

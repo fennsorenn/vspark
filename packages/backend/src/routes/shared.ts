@@ -1,5 +1,5 @@
-import { randomUUID } from 'crypto';
-import { mkdirSync, readdirSync, statSync, existsSync } from 'fs';
+import { randomUUID, createHash } from 'crypto';
+import { mkdirSync, readdirSync, statSync, existsSync, readFileSync } from 'fs';
 import { join, extname, basename } from 'path';
 import { getDb } from '../db/index.js';
 import type { VmcManager } from '../node_components/vmc_receiver/manager.js';
@@ -177,6 +177,15 @@ export function allocateFilename(dir: string, originalName: string): string {
  * Scan uploads/<projectId>/ for files not yet registered in the DB and insert them.
  * Handles any subfolder found on disk, not just the known ones.
  */
+/** sha256 of a file on disk, or '' if unreadable. */
+function sha256File(absPath: string): string {
+  try {
+    return createHash('sha256').update(readFileSync(absPath)).digest('hex');
+  } catch {
+    return '';
+  }
+}
+
 export function discoverAssets(projectId: string): void {
   const projectDir = join(UPLOADS_DIR, projectId);
   if (!existsSync(projectDir)) return;
@@ -190,12 +199,16 @@ export function discoverAssets(projectId: string): void {
   );
   for (const entry of readdirSync(projectDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
+    // `thumbnails/` holds generated asset previews keyed by asset id, not
+    // user assets — never register those as asset_files.
+    if (entry.name === 'thumbnails') continue;
     const subDir = join(projectDir, entry.name);
     for (const file of readdirSync(subDir)) {
       const storedPath = `/uploads/${projectId}/${entry.name}/${file}`;
       if (existing.has(storedPath)) continue;
       try {
-        const stat = statSync(join(subDir, file));
+        const absPath = join(subDir, file);
+        const stat = statSync(absPath);
         if (!stat.isFile()) continue;
         const ext = extname(file).toLowerCase();
         db.prepare(
@@ -207,12 +220,27 @@ export function discoverAssets(projectId: string): void {
           storedPath,
           MIME_BY_EXT[ext] ?? 'application/octet-stream',
           stat.size,
-          ''
+          sha256File(absPath)
         );
       } catch {
         /* skip unreadable */
       }
     }
+  }
+
+  // Backfill content hashes for rows that predate hashing (older uploads stored
+  // an empty hash). Without this, preset asset re-matching by hash always
+  // misses and instantiated nodes lose their model/animation file. Self-heals
+  // once: after the update these rows no longer match the empty-hash filter.
+  const unhashed = db
+    .prepare(
+      "SELECT id, stored_path FROM asset_files WHERE project_id = ? AND (hash IS NULL OR hash = '')"
+    )
+    .all(projectId) as { id: string; stored_path: string }[];
+  for (const r of unhashed) {
+    const h = sha256File(join(UPLOADS_DIR, '..', r.stored_path));
+    if (h)
+      db.prepare('UPDATE asset_files SET hash = ? WHERE id = ?').run(h, r.id);
   }
 }
 
