@@ -308,6 +308,21 @@ export class SignalGraph {
     }
   }
 
+  // ── teardown ──────────────────────────────────────────────────────────────
+
+  /** Tear down the graph: call each node's `unbind()` so nodes can release
+   *  external resources (e.g. `set_data` clears its data-channel entries).
+   *  Called by graph hosts on stop / reconcile. Errors are isolated per node. */
+  dispose(): void {
+    for (const rt of this._nodes.values()) {
+      try {
+        rt.instance.unbind();
+      } catch (e) {
+        console.error(`[SignalGraph] unbind failed for ${rt.id}:`, e);
+      }
+    }
+  }
+
   // ── execution ─────────────────────────────────────────────────────────────
 
   /** Push an event from `fromId.fromPort` to every subscribed @eventIn handler. */

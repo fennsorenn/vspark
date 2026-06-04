@@ -81,11 +81,22 @@ hence the explicit `scope` (a `SceneEntity` chosen on `set_data`). Unscoped =
 global. The consumer side needs no config: a `feed` layer/3D billboard listens on
 `global ∪ own-id` by identity, and only mounts when its compose scene is shown.
 
+**Teardown clearing:** when a graph stops or reconciles, the engine calls each
+node's `unbind()` (via `SignalGraph.dispose()`, invoked from
+`ProjectGraphManager.stop()`); `set_data.onUnbind` clears the fields it published
+from every scope it touched (tracked in `_published`). Without this, retired
+scoped data lingered on the bus and — because a feed layer merges `global ∪ own`
+with **own winning** — a layer's stale own-scope value would shadow new global
+data, freezing the layer. (Note: data published before a process restart by a
+graph that was already stopped pre-dispose is only cleared by a backend restart,
+which resets the in-memory `_scopes`.)
+
 **Known limitations:**
 - Whole-value republish per field on each `fire` — no diff/debounce. Fine for
   chat rates.
-- No per-producer teardown clearing (fields are retained like a last value);
-  re-publishing merges/replaces, and `clear`/`clearAll` exist for explicit resets.
+- Two producers writing the same `(scope, field)` share one slot (last write
+  wins); one's teardown clears the shared field. `clear`/`clearAll` exist for
+  explicit resets.
 - Bare-name template access (`with(channels)`) requires field labels to be valid
   JS identifiers; `set_data` `seed`s declared fields as `null` on bind so a
   reference resolves before the first publish (otherwise a `ReferenceError`,

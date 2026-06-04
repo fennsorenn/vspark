@@ -38,6 +38,16 @@ export class SetData extends Node {
 
   @valueIn('scope', 'SceneEntity') scope!: () => string | undefined;
 
+  /** Scope keys this instance has published/seeded into, so they can be cleared
+   *  on teardown (otherwise stale entries linger in the bus and a feed layer's
+   *  own-scope data shadows global — see dev-notes/modules/data-channels.md). */
+  private readonly _published = new Set<string>();
+
+  private _fieldNames(): string[] {
+    const cfg = (this.config ?? {}) as SetDataConfig;
+    return (cfg.fields ?? []).filter((f) => f.length > 0);
+  }
+
   /** Resolve the scope input/config to a bus scope key ('' = global). */
   private _scopeKey(): string {
     const cfg = (this.config ?? {}) as SetDataConfig;
@@ -48,22 +58,34 @@ export class SetData extends Node {
   /** Pre-seed declared fields as null into the (config-resolved) scope so a
    *  template referencing a bare field name resolves before the first `fire`. */
   protected override onBind(): void {
-    const cfg = (this.config ?? {}) as SetDataConfig;
-    const fields = (cfg.fields ?? []).filter((f) => f.length > 0);
+    const fields = this._fieldNames();
     if (fields.length === 0) return;
+    const cfg = (this.config ?? {}) as SetDataConfig;
     const scope = typeof cfg.scope === 'string' ? cfg.scope : '';
     const seed: Record<string, unknown> = {};
     for (const name of fields) seed[name] = null;
+    this._published.add(scope);
     dataChannelManager.seed(scope, seed);
   }
 
   @eventIn('fire', 'Trigger')
   onFire(): void {
-    const cfg = (this.config ?? {}) as SetDataConfig;
-    const fields = (cfg.fields ?? []).filter((f) => f.length > 0);
+    const fields = this._fieldNames();
     if (fields.length === 0) return;
     const out: Record<string, unknown> = {};
     for (const name of fields) out[name] = this.input(name) ?? null;
-    dataChannelManager.set(this._scopeKey(), out);
+    const scope = this._scopeKey();
+    this._published.add(scope);
+    dataChannelManager.set(scope, out);
+  }
+
+  /** On teardown, clear this node's declared fields from every scope it touched
+   *  so retired data doesn't persist on the bus after the graph stops. */
+  protected override onUnbind(): void {
+    const fields = this._fieldNames();
+    for (const scope of this._published) {
+      for (const name of fields) dataChannelManager.clear(scope, name);
+    }
+    this._published.clear();
   }
 }

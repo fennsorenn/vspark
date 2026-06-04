@@ -191,6 +191,19 @@ export abstract class Node {
    */
   protected onBind(): void {}
 
+  /**
+   * Called by the engine when the graph is torn down (stop / reconcile). Override
+   * to release external resources a node acquired — e.g. `set_data` clears the
+   * data-channel entries it published so they don't linger after the graph stops.
+   * Default no-op.
+   */
+  unbind(): void {
+    this.onUnbind();
+  }
+
+  /** Override target for teardown cleanup. Runs once on graph dispose. */
+  protected onUnbind(): void {}
+
   // ── state (engine-injected, DB-backed) ───────────────────────────────────────
 
   protected getState<T = unknown>(): T {

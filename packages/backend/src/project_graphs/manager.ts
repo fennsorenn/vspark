@@ -203,6 +203,10 @@ export class ProjectGraphManager {
     const r = this.running.get(id);
     if (!r) return;
     for (const fn of r.cleanups) fn();
+    // Tear down nodes so they release external resources (e.g. set_data clears
+    // its data-channel entries — otherwise retired scoped data lingers and
+    // shadows global on feed layers).
+    r.graph.dispose();
     this.running.delete(id);
     console.log(`[ProjectGraph] Stopped ${id}`);
   }
