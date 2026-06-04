@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { join, extname } from 'path';
 import { getDb } from '../db/index.js';
@@ -72,6 +72,9 @@ router.post('/projects/:projectId/assets', (req, res) => {
   const storedPath = `/uploads/${req.params.projectId}/${sub}/${filename}`;
   writeFileSync(join(assetDir, filename), buffer);
   const id = randomUUID();
+  // Store the content hash so presets can re-link this file by hash on
+  // instantiate (without it, non-embedded presets lose the model/animation).
+  const hash = createHash('sha256').update(buffer).digest('hex');
   getDb()
     .prepare(
       'INSERT INTO asset_files (id, project_id, original_name, stored_path, mime_type, size, hash) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -83,7 +86,7 @@ router.post('/projects/:projectId/assets', (req, res) => {
       storedPath,
       mimeType ?? 'application/octet-stream',
       buffer.length,
-      ''
+      hash
     );
   res.status(201).json({
     ok: true,
