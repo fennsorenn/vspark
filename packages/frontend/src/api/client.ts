@@ -883,6 +883,16 @@ export const createProjectGraph = (projectId: string, name: string) =>
     body: JSON.stringify({ name }),
   });
 
+/** A scene-node- or compose-layer-scoped graph, tagged with its owner's
+ *  display name for listing in the Graphs panel's Scoped section. */
+export interface ScopedGraphRecord extends GraphRecord {
+  ownerName: string;
+  ownerNodeKind?: string;
+}
+
+export const getProjectScopedGraphs = (projectId: string) =>
+  request<ScopedGraphRecord[]>(`/projects/${projectId}/scoped-graphs`);
+
 // ─── Overlive: app credentials ───────────────────────────────────────────────
 
 export interface OverliveAppCredentialRecord {
@@ -1253,6 +1263,7 @@ export const api = {
   getComponentKinds,
   getProjectGraphs,
   createProjectGraph,
+  getProjectScopedGraphs,
   getOverliveAppCredentials,
   createOverliveAppCredential,
   updateOverliveAppCredential,

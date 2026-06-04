@@ -1048,13 +1048,15 @@ const formatBoneName = (name: string) =>
 
 // ---------- Graph list panel ----------
 import type { GraphDescriptor } from '@vspark/shared/signal';
-import type { GraphRecord } from '../../api/client';
+import type { GraphRecord, ScopedGraphRecord } from '../../api/client';
 
 function GraphListPanel() {
   const { projectId } = useParams<{ projectId: string }>();
   const { activeGraphId, setActiveGraph } = useEditorStore();
   const [componentGraphs, setComponentGraphs] = useState<GraphDescriptor[]>([]);
   const [projectGraphs, setProjectGraphs] = useState<GraphRecord[]>([]);
+  const [scopedGraphs, setScopedGraphs] = useState<ScopedGraphRecord[]>([]);
+  const [scopedGraphsOpen, setScopedGraphsOpen] = useState(true);
   const [componentGraphsOpen, setComponentGraphsOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
@@ -1070,11 +1072,29 @@ function GraphListPanel() {
       .getSignalGraphs()
       .then(setComponentGraphs)
       .catch(() => {});
-    if (projectId)
+    if (projectId) {
       api
         .getProjectGraphs(projectId)
         .then(setProjectGraphs)
         .catch(() => {});
+      api
+        .getProjectScopedGraphs(projectId)
+        .then(setScopedGraphs)
+        .catch(() => {});
+    }
+  };
+
+  const handleToggleScopedEnabled = async (g: ScopedGraphRecord) => {
+    try {
+      const updated = await api.updateGraph(g.id, { enabled: !g.enabled });
+      setScopedGraphs((prev) =>
+        prev.map((x) =>
+          x.id === g.id ? { ...x, enabled: updated.enabled } : x
+        )
+      );
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to toggle graph');
+    }
   };
 
   useEffect(() => {
@@ -1292,6 +1312,103 @@ function GraphListPanel() {
           );
         })
       )}
+
+      {/* Scoped graphs (scene-node / compose-layer owned). Listed here too —
+          in addition to the inline lists in the scene/compose trees — so the
+          Graphs tab can show the active scoped graph as selected and let the
+          user switch between scoped graphs without leaving this tab. */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '8px 10px 4px',
+          fontSize: 10,
+          fontWeight: 700,
+          color: '#666',
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+        onClick={() => setScopedGraphsOpen((v) => !v)}
+      >
+        <span style={{ color: '#555' }}>{scopedGraphsOpen ? '▼' : '▶'}</span>
+        <span>Scoped Graphs</span>
+        <span style={{ color: '#444', fontWeight: 400 }}>
+          ({scopedGraphs.length})
+        </span>
+      </div>
+      {scopedGraphsOpen &&
+        (scopedGraphs.length === 0 ? (
+          <div
+            style={{
+              color: '#444',
+              fontSize: 11,
+              padding: '4px 12px',
+              fontStyle: 'italic',
+            }}
+          >
+            No scoped graphs. Add one from a scene node or compose layer.
+          </div>
+        ) : (
+          scopedGraphs.map((g) => {
+            const active = g.id === activeGraphId;
+            return (
+              <div
+                key={g.id}
+                style={rowStyle(active)}
+                onClick={() => setActiveGraph(active ? null : g.id)}
+              >
+                <span style={{ opacity: g.enabled ? 0.9 : 0.35 }}>⊕</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontWeight: 500,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {g.name}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: '#555',
+                      marginTop: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {g.ownerName} ·{' '}
+                    {g.ownerKind === 'compose_layer' ? 'layer' : 'node'}
+                    {g.enabled ? '' : ' · disabled'}
+                  </div>
+                </div>
+                <button
+                  title={g.enabled ? 'Disable' : 'Enable'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleScopedEnabled(g);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: g.enabled ? '#4a9' : '#555',
+                    fontSize: 13,
+                    padding: '0 2px',
+                    lineHeight: 1,
+                  }}
+                >
+                  {g.enabled ? '●' : '○'}
+                </button>
+              </div>
+            );
+          })
+        ))}
 
       {/* Component-owned graphs (read-only) */}
       <div
