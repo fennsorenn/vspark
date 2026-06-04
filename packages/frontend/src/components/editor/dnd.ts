@@ -1,4 +1,5 @@
 import { useEditorStore } from '../../store/editorStore';
+import { api } from '../../api/client';
 import {
   createSceneNode,
   createNodeFromModelAsset,
@@ -59,6 +60,33 @@ export async function handleSceneNodeDrop(
   if (assetId) {
     const asset = store.assets.find((a) => a.id === assetId);
     if (!asset) return true;
+
+    // Animations aren't standalone nodes — they only make sense applied to an
+    // avatar/model. Accept the drop only when it lands on such a node and set
+    // its idle animation; ignore drops on the scene root, viewport, or any
+    // other node kind.
+    if (asset.kind === 'animation') {
+      const target = parentId
+        ? store.nodes.find((n) => n.id === parentId)
+        : null;
+      if (!target || (target.kind !== 'avatar' && target.kind !== 'model')) {
+        return true; // consumed, but no node created
+      }
+      const components = {
+        ...target.components,
+        animation: { idleUrl: asset.url },
+      };
+      try {
+        await api.updateNode(target.id, { components });
+        store.updateNode(target.id, { components });
+        store.selectNode(target.id);
+        store.setSceneSelected(false);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Failed to set animation');
+      }
+      return true;
+    }
+
     try {
       const node =
         asset.kind === 'image'
