@@ -29,10 +29,20 @@ Per-layer fields:
 
 Shared types live in [packages/shared/src/types.ts](../../packages/shared/src/types.ts) (`ComposeLayer`, `ComposeLayerKind`, anchor enums, `SCENE_RENDER_SLOT` constant) and Zod schemas in [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) (`createComposeLayerSchema`, `updateComposeLayerSchema`, `reorderComposeLayersSchema`).
 
-> **WIP: video/audio assets** — the `video` compose layer already renders but lacks
-> playback config (autoplay/loop/onEnd/muted/volume) + media-command-bus registration;
-> being finished alongside the new `video`/`audio` scene-node kinds.
-> See [plans/video-audio-assets.md](../plans/video-audio-assets.md).
+## Video layer (finished) + media-command bus
+
+The `video` compose layer is now a **config-driven `VideoLayer`** (was a hardcoded
+autoplay/muted/loop `<video>`). `ComposeLayerStack.tsx` reads playback fields
+(`autoplay`/`loop`/`onEnd`/`muted`/`volume`, surfaced as Playback controls in
+`ComposeLayerProperties.tsx`) and registers a `MediaHandle` in the media registry
+keyed by `layer.id`, so the media-command bus and the track-clip event lane can drive
+play/pause/stop/seek against it.
+
+The render **`mode` (`'editor' | 'viewer'`)** is now threaded through
+`ComposeLayerStack` → `LayerView` → `LayerContent` → `SceneIncludeLayer` so video
+audio honours the audibility gate (muted in the editor unless the session
+`editorAudioPreviewEnabled` preview is on; audible in the viewer, subject to the
+layer's own `muted` flag). See [media.md](media.md).
 
 ## Phase 1 additions (signal-graph expansion) — implemented
 

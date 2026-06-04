@@ -11,11 +11,11 @@ Ephemeral clip-clone spawning. Lets a signal graph trigger an *instance* of a no
 1. Look up the clip and its owner (the scene node or compose layer whose params the clip's lanes target).
 2. Deep-clone the owner in memory with a fresh tmp id of the form `__spawn:<uuid>`. **The clone is always unhidden** even if the source was hidden — hidden templates are the canonical pattern for "this only exists to be spawned".
 3. Broadcast the tmp entity to clients using the existing CRUD WS messages: `node_added` for a scene-node clone, `compose_layer_added` for a compose-layer clone. From the frontend's perspective a spawned entity is just another node/layer with an odd id — no separate code path.
-4. Duplicate the clip with its lane `target_id`s remapped to the tmp id; broadcast `track_clip_added` for the duplicated clip.
+4. Duplicate the clip with its lane `target_id`s remapped to the tmp id; broadcast `track_clip_added` for the duplicated clip. Event-marker lane entries (`track_clip_events`) are cloned + retargeted alongside the lanes so a spawned clip's timed media commands address the spawned instance. See [track-clips.md](track-clips.md) and [media.md](media.md).
 5. Call `TrackClipPlaybackManager.triggerEphemeral(tmpClipId, duration, loop)` (new) to play the duplicated clip without writing `started_at` to the DB.
 6. Pre-register the tmp target's scene with `runtimeOverrideManager.registerTarget(...)` so any `set_*_param` call routed against the tmp id during the same event chain can resolve a `sceneId` without hitting SQLite (where the tmp id doesn't exist).
 
-The `spawn_clip` node emits a `spawned: Event<SpawnRef>` event after step 5 with payload `{ tmpNodeId, tmpClipId, kind: 'scene_node' | 'compose_layer' }`. Downstream `set_*_param` and `set_text` nodes can wire this event into their optional `spawnRef` input to address the spawned instance for that fire (overriding `targetId`, and for `set_text` overriding `targetKind`).
+The `spawn_clip` node emits a `spawned: Event<SpawnRef>` event after step 5 with payload `{ tmpNodeId, tmpClipId, kind: 'scene_node' | 'compose_layer' }`. Downstream `set_*_param`, `set_text`, and `media_control` nodes can wire this event into their optional `spawnRef` input to address the spawned instance for that fire (overriding `targetId`, and for `set_text` overriding `targetKind`). See [media.md](media.md).
 
 ## Cleanup
 

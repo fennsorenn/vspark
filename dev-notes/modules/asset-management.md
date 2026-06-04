@@ -2,11 +2,6 @@
 
 Covers file upload, storage, discovery, and placement into scenes.
 
-> **WIP: video/audio assets** — adding `videos/` + `audio/` storage subfolders, video/audio
-> ext + MIME recognition (`routes/shared.ts`), `'video'`/`'audio'` asset-kind classification
-> (`api/client.ts`), and AssetManager tabs/actions for placing them as scene nodes / layers.
-> See [plans/video-audio-assets.md](../plans/video-audio-assets.md).
-
 ## Backend — `routes/api.ts`
 
 ### Storage layout
@@ -17,10 +12,14 @@ uploads/
     avatars/      .vrm, .glb, .gltf
     animations/   .fbx, .bvh
     images/       .jpg, .png, .webp, ...
+    videos/       .mp4, .webm, .mov, .m4v, .ogv
+    audio/        .mp3, .wav, .ogg, .m4a, .aac, .flac
     other/        everything else
 ```
 
-Subfolder is inferred from file extension at upload time.
+Subfolder is inferred from file extension at upload time via `SUBFOLDER_BY_EXT` in
+`routes/shared.ts`; matching MIME types come from `MIME_BY_EXT` there. Upload / list /
+delete routes are generic and unchanged for the new kinds.
 
 ### DB table — `asset_files` (migration 001)
 
@@ -74,8 +73,13 @@ Tabbed panel. Reads from `useEditorStore`: `assets`, `activeSceneId`, `selectedN
 | Models | `.vrm`, `.glb`, `.gltf` | `model` |
 | Animations | `.fbx`, `.bvh` | `animation` |
 | Images | `.jpg`, `.png`, `.webp`, ... | `image` |
+| Videos | `.mp4`, `.webm`, `.mov`, `.m4v`, `.ogv` | `video` |
+| Audio | `.mp3`, `.wav`, `.ogg`, `.m4a`, `.aac`, `.flac` | `audio` |
 | Components | — | (component kinds, not file assets) |
 | Effects | — | (camera effect kinds, not file assets) |
+
+`AssetThumb.tsx` renders a first-frame `<video>` poster for video assets and a 🔊 icon
+for audio. The `BottomDockTab` store field gained `'videos'` | `'audio'`.
 
 ### Asset-to-scene actions
 
@@ -91,6 +95,17 @@ Tabbed panel. Reads from `useEditorStore`: `assets`, `activeSceneId`, `selectedN
 - "Apply texture" → updates selected billboard or particle node's texture
 - "Set background" → updates selected camera node's `camera.backgroundImage`
 
+**Videos**:
+- "Add as Video" → creates a `video` scene node with the video source
+- apply-source action onto a selected `video` node / compose layer
+
+**Audio**:
+- "Add as Audio" → creates an `audio` scene node with the audio source
+- apply-source action onto a selected `audio` node
+
+See [media.md](media.md) for the `video`/`audio` node kinds, the compose video layer,
+and how playback is driven.
+
 **Components tab**:
 - Lists all `componentKinds` from store, filtered by applicability
 - Prevents adding duplicate kinds to the same node
@@ -104,9 +119,12 @@ Tabbed panel. Reads from `useEditorStore`: `assets`, `activeSceneId`, `selectedN
 
 ## Asset kinds (frontend classification)
 
-Assets in the store carry a `kind` field derived from MIME type:
+Assets in the store carry a `kind` field derived from MIME type (`AssetKind` union
+in `api/client.ts`, classified by `guessAssetKind`):
 - `model` — VRM/GLB/GLTF
 - `animation` — FBX/BVH
 - `image` — raster images
+- `video` — `.mp4 .webm .mov .m4v .ogv` (`video/*`)
+- `audio` — `.mp3 .wav .ogg .m4a .aac .flac` (`audio/*`)
 
 This is set client-side from the MIME type; it is not stored in the DB.
