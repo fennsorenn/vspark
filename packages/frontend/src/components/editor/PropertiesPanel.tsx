@@ -2824,6 +2824,9 @@ export function PropertiesPanel() {
 
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
   const [name, setName] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const focusNameNonce = useEditorStore((s) => s.focusNameNonce);
+  const lastFocusNonce = useRef(focusNameNonce);
   const [transform, setTransform] = useState<Transform>({
     x: 0,
     y: 0,
@@ -2876,6 +2879,20 @@ export function PropertiesPanel() {
     if (node.kind === 'light') setLight(getLightProps(node));
     if (node.kind === 'camera') setCamera(getCameraProps(node));
   }, [node?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Focus + select the name field on request (e.g. right after a node is
+  // created from the Create palette, so the user can rename immediately).
+  useEffect(() => {
+    if (focusNameNonce === lastFocusNonce.current) return;
+    lastFocusNonce.current = focusNameNonce;
+    const el = nameInputRef.current;
+    if (!el) return;
+    // Defer one frame so the [node?.id] effect's setName has landed first.
+    requestAnimationFrame(() => {
+      el.focus();
+      el.select();
+    });
+  }, [focusNameNonce]);
 
   // Sync transform inputs when gizmo updates the store (skip while user is typing)
   const nodeTransformStr = node
@@ -3117,6 +3134,7 @@ export function PropertiesPanel() {
         {/* Name */}
         <div style={sectionHeader}>Name</div>
         <input
+          ref={nameInputRef}
           style={textInput}
           value={name}
           onChange={(e) => setName(e.target.value)}

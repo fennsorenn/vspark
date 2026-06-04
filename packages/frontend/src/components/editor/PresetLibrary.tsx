@@ -368,7 +368,7 @@ export function PresetLibrary() {
       )}
 
       {/* Preset list */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
         {presets.length === 0 && (
           <div
             style={{
@@ -384,96 +384,102 @@ export function PresetLibrary() {
               : ' Select a node first.'}
           </div>
         )}
-        {presets.map((p) => (
-          <div
-            key={p.id}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '4px 8px',
-              margin: '1px 4px',
-              borderRadius: 3,
-              background: '#1a1a1a',
-              cursor: 'default',
-              fontSize: 12,
-              color: '#ccc',
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {p.rootKind === 'scene_node' ? '🧩' : '🎨'} {p.name}
-              </div>
-              {p.description && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+            gap: 8,
+          }}
+        >
+          {presets.map((p) => (
+            <div
+              key={p.id}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                padding: '8px 10px',
+                borderRadius: 6,
+                border: '1px solid #2a2a2a',
+                background: '#1a1a1a',
+                cursor: 'default',
+                fontSize: 12,
+                color: '#ccc',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div
                   style={{
-                    fontSize: 10,
-                    color: '#666',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {p.description}
+                  {p.rootKind === 'scene_node' ? '🧩' : '🎨'} {p.name}
                 </div>
-              )}
-            </div>
-            <div
-              style={{ display: 'flex', gap: 2, marginLeft: 4, flexShrink: 0 }}
-            >
-              {(() => {
-                const target =
-                  p.rootKind === 'compose_layer'
-                    ? activeComposeSceneId
-                    : activeSceneId;
-                return (
-                  <button
+                {p.description && (
+                  <div
                     style={{
-                      ...btnStyle,
                       fontSize: 10,
-                      padding: '2px 5px',
-                      opacity: instantiating === p.id ? 0.5 : 1,
+                      color: '#666',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                     }}
-                    onClick={() => handleInstantiate(p.id)}
-                    disabled={instantiating === p.id || !target}
-                    title={
-                      p.rootKind === 'compose_layer'
-                        ? 'Instantiate into current compose scene'
-                        : 'Instantiate into current 3D scene'
-                    }
                   >
-                    Use
-                  </button>
-                );
-              })()}
-              <button
-                style={{ ...btnStyle, fontSize: 10, padding: '2px 5px' }}
-                onClick={() => handleExport(p.id)}
-                title="Export as .json"
-              >
-                Export
-              </button>
-              <button
-                style={{
-                  ...btnStyle,
-                  fontSize: 10,
-                  padding: '2px 5px',
-                  color: '#a55',
-                }}
-                onClick={() => handleDelete(p.id)}
-                title="Delete preset"
-              >
-                Del
-              </button>
+                    {p.description}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                {(() => {
+                  const target =
+                    p.rootKind === 'compose_layer'
+                      ? activeComposeSceneId
+                      : activeSceneId;
+                  return (
+                    <button
+                      style={{
+                        ...btnStyle,
+                        fontSize: 10,
+                        padding: '2px 5px',
+                        opacity: instantiating === p.id ? 0.5 : 1,
+                      }}
+                      onClick={() => handleInstantiate(p.id)}
+                      disabled={instantiating === p.id || !target}
+                      title={
+                        p.rootKind === 'compose_layer'
+                          ? 'Instantiate into current compose scene'
+                          : 'Instantiate into current 3D scene'
+                      }
+                    >
+                      Use
+                    </button>
+                  );
+                })()}
+                <button
+                  style={{ ...btnStyle, fontSize: 10, padding: '2px 5px' }}
+                  onClick={() => handleExport(p.id)}
+                  title="Export as .json"
+                >
+                  Export
+                </button>
+                <button
+                  style={{
+                    ...btnStyle,
+                    fontSize: 10,
+                    padding: '2px 5px',
+                    color: '#a55',
+                  }}
+                  onClick={() => handleDelete(p.id)}
+                  title="Delete preset"
+                >
+                  Del
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );

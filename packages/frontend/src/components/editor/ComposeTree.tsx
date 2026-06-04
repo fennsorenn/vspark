@@ -22,17 +22,6 @@ const KIND_ICONS: Record<ComposeLayerKind, string> = {
   text: '📝',
 };
 
-// Layer kinds the user can add inside a compose scene.
-const ADDABLE_KINDS: ComposeLayerKind[] = [
-  'camera_view',
-  'scene_include',
-  'image',
-  'video',
-  'browser',
-  'text',
-  'group',
-];
-
 const addBtn: CSSProperties = {
   background: '#2563eb',
   border: 'none',
@@ -60,138 +49,26 @@ function rowStyle(selected: boolean): CSSProperties {
   };
 }
 
-// ---- Add-layer menu ---------------------------------------------------------
+// ---- Add-layer button -------------------------------------------------------
 
-async function createLayer(composeSceneId: string, kind: ComposeLayerKind) {
-  const name =
-    kind === 'camera_view'
-      ? 'Camera View'
-      : kind === 'scene_include'
-        ? 'Included Scene'
-        : kind[0].toUpperCase() + kind.slice(1) + ' Layer';
-
-  // Camera views default to the first available camera; reassign in properties.
-  let cameraNodeId: string | null = null;
-  if (kind === 'camera_view') {
-    const cameras = useEditorStore
-      .getState()
-      .nodes.filter((n) => n.kind === 'camera');
-    if (cameras.length === 0) {
-      alert('No cameras exist yet. Add a camera node to a scene first.');
-      return;
-    }
-    cameraNodeId = cameras[0].id;
-  }
-
-  const config: Record<string, unknown> =
-    kind === 'browser' ? { url: 'https://example.com' } : {};
-
-  // Scene includes default to the first OTHER compose scene; reassign in
-  // properties. They mount that scene's whole layer stack.
-  if (kind === 'scene_include') {
-    const others = useEditorStore
-      .getState()
-      .composeScenes.filter((s) => s.id !== composeSceneId);
-    if (others.length === 0) {
-      alert('No other compose scene to include. Create another one first.');
-      return;
-    }
-    config.includeSceneId = others[0].id;
-  }
-
-  // Camera views and scene includes default to filling the whole compose frame
-  // (100% × 100%).
-  const fills = kind === 'camera_view' || kind === 'scene_include';
-  const sizeDefaults = fills
-    ? { width: 100, height: 100 }
-    : ({} as { width?: number; height?: number });
-  if (fills) {
-    config.widthUnit = '%';
-    config.heightUnit = '%';
-  }
-  try {
-    const created = await api.createComposeSceneLayer(composeSceneId, {
-      name,
-      kind,
-      cameraNodeId,
-      config,
-      ...sizeDefaults,
-    });
-    // Optimistic insert; the WS broadcast dedupes by id.
-    useEditorStore.getState().addComposeLayer(created);
-    useEditorStore.getState().selectComposeLayer(created.id);
-  } catch (e) {
-    alert(e instanceof Error ? e.message : 'Failed to add layer');
-  }
-}
-
-function AddLayerMenu({ composeSceneId }: { composeSceneId: string }) {
-  const [open, setOpen] = useState(false);
+/** Routes the user to the bottom-dock Create palette (which shows layer kinds
+ *  while the Compose tab is active) and flashes it as a hint, after making this
+ *  compose scene the active one so the palette adds layers to it. */
+function AddLayerButton({ composeSceneId }: { composeSceneId: string }) {
+  const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
+  const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   return (
-    <div style={{ position: 'relative' }}>
-      <button
-        style={addBtn}
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        title="Add layer"
-      >
-        + ▾
-      </button>
-      {open && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '100%',
-            right: 0,
-            marginTop: 4,
-            background: '#1e1e1e',
-            border: '1px solid #3a3a3a',
-            borderRadius: 4,
-            minWidth: 150,
-            zIndex: 50,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-          }}
-        >
-          {ADDABLE_KINDS.map((k) => (
-            <button
-              key={k}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen(false);
-                createLayer(composeSceneId, k);
-              }}
-              style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
-                padding: '6px 10px',
-                background: 'transparent',
-                border: 'none',
-                color: '#ddd',
-                cursor: 'pointer',
-                fontSize: 12,
-              }}
-              onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLElement).style.background = '#2a2a2a')
-              }
-              onMouseLeave={(e) =>
-                ((e.currentTarget as HTMLElement).style.background =
-                  'transparent')
-              }
-            >
-              <span style={{ marginRight: 6 }}>{KIND_ICONS[k]}</span>
-              {k === 'camera_view'
-                ? 'camera view'
-                : k === 'scene_include'
-                  ? 'include scene'
-                  : k}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <button
+      style={addBtn}
+      title="Add layer — opens the Create palette"
+      onClick={(e) => {
+        e.stopPropagation();
+        selectComposeScene(composeSceneId);
+        flashBottomTab('create');
+      }}
+    >
+      +
+    </button>
   );
 }
 
@@ -304,7 +181,8 @@ function LayerRow({
     // compose scene that owns the row we right-clicked (the layer's
     // rootComposeSceneId); the new parent is the right-clicked layer.
     const targetSceneId =
-      layer.rootComposeSceneId ?? layer.id; /* layer is itself a compose_scene */
+      layer.rootComposeSceneId ??
+      layer.id; /* layer is itself a compose_scene */
     try {
       await api.instantiatePreset(
         payload.preset,
@@ -338,9 +216,7 @@ function LayerRow({
     }
   };
 
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(
-    null
-  );
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     setCtxMenu({ x: e.clientX, y: e.clientY });
@@ -349,7 +225,11 @@ function LayerRow({
     const canPasteLayer = clipboardPayload?.kind === 'compose-layer';
     const canPasteGraph = clipboardPayload?.kind === 'graph';
     const items: ContextMenuItem[] = [
-      { kind: 'item', label: 'Copy layer', onClick: () => void handleCopyLayer() },
+      {
+        kind: 'item',
+        label: 'Copy layer',
+        onClick: () => void handleCopyLayer(),
+      },
     ];
     if (canPasteLayer) {
       items.push({
@@ -410,7 +290,9 @@ function LayerRow({
           e.preventDefault();
           e.dataTransfer.dropEffect = 'move';
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          setDropPos(e.clientY - rect.top < rect.height / 2 ? 'before' : 'after');
+          setDropPos(
+            e.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
+          );
         }}
         onDragLeave={() => setDropPos(null)}
         onDrop={(e) => {
@@ -432,9 +314,7 @@ function LayerRow({
               ? '2px solid #4a9eff'
               : '2px solid transparent',
           borderBottom:
-            dropPos === 'after'
-              ? '2px solid #4a9eff'
-              : '2px solid transparent',
+            dropPos === 'after' ? '2px solid #4a9eff' : '2px solid transparent',
         }}
         onClick={() => {
           selectComposeLayer(layer.id);
@@ -577,8 +457,7 @@ function ComposeSceneRoot({
     // Treat a layer as a root if it has no parent OR its parent isn't part of
     // this scene (dangling/cross-scene parent), so it can never be orphaned out
     // of the tree and rendered invisibly.
-    const key =
-      l.parentId && sceneLayerIds.has(l.parentId) ? l.parentId : null;
+    const key = l.parentId && sceneLayerIds.has(l.parentId) ? l.parentId : null;
     if (!layersByParent.has(key)) layersByParent.set(key, []);
     layersByParent.get(key)!.push(l);
   }
@@ -587,9 +466,7 @@ function ComposeSceneRoot({
     .sort((a, b) => b.sceneOrder - a.sceneOrder);
 
   const handleDeleteScene = async () => {
-    if (
-      !confirm(`Delete compose scene "${scene.name}" and all its layers?`)
-    )
+    if (!confirm(`Delete compose scene "${scene.name}" and all its layers?`))
       return;
     useEditorStore.getState().removeComposeScene(scene.id);
     await api.deleteComposeLayer(scene.id).catch(() => {});
@@ -610,9 +487,7 @@ function ComposeSceneRoot({
           color: isActive ? '#e0e0e0' : '#999',
           userSelect: 'none',
           gap: 2,
-          borderLeft: isActive
-            ? '2px solid #7a5af0'
-            : '2px solid transparent',
+          borderLeft: isActive ? '2px solid #7a5af0' : '2px solid transparent',
         }}
         onClick={() => selectComposeScene(scene.id)}
       >
@@ -645,7 +520,7 @@ function ComposeSceneRoot({
         >
           {scene.name}
         </span>
-        <AddLayerMenu composeSceneId={scene.id} />
+        <AddLayerButton composeSceneId={scene.id} />
         {projectId && (
           <a
             href={`/viewer/${projectId}/compose/${scene.id}`}
@@ -735,7 +610,12 @@ export function ComposeTree() {
 
   return (
     <div
-      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+      }}
     >
       <div
         style={{
@@ -758,7 +638,11 @@ export function ComposeTree() {
         >
           Compose Scenes
         </span>
-        <button style={addBtn} onClick={handleNewComposeScene} title="New compose scene">
+        <button
+          style={addBtn}
+          onClick={handleNewComposeScene}
+          title="New compose scene"
+        >
           + Scene
         </button>
       </div>
@@ -779,7 +663,11 @@ export function ComposeTree() {
           </div>
         ) : (
           composeScenes.map((scene) => (
-            <ComposeSceneRoot key={scene.id} scene={scene} projectId={projectId} />
+            <ComposeSceneRoot
+              key={scene.id}
+              scene={scene}
+              projectId={projectId}
+            />
           ))
         )}
       </div>

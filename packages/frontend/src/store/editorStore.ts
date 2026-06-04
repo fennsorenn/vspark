@@ -83,6 +83,7 @@ export type RuntimeOverrideMap = Record<string, RuntimeOverrideValue>;
 
 export type LeftDockTab = 'scene' | 'compose' | 'graphs';
 export type BottomDockTab =
+  | 'create'
   | 'models'
   | 'animations'
   | 'images'
@@ -372,6 +373,15 @@ interface EditorState {
   composeLayers: ComposeLayerRecord[];
   leftTab: LeftDockTab;
   bottomTab: BottomDockTab;
+  /** Bumped (to a fresh timestamp) every time something asks the bottom dock to
+   *  draw attention to its currently-active tab — e.g. the scene "+" button
+   *  routing the user to the Create tab, or a Properties picker button routing
+   *  to an asset tab. The dock tab bar watches this and briefly pulses. */
+  bottomTabFlash: number;
+  /** Bumped every time something wants the Properties name field to take focus
+   *  and select its text — e.g. right after creating a node so the user can
+   *  immediately rename it. */
+  focusNameNonce: number;
   /** In-memory mirror of the OS clipboard. Written on every editor copy;
    *  read synchronously by context menus to decide which Paste items are
    *  applicable. Null when the editor hasn't seen a copy in this session
@@ -479,6 +489,10 @@ interface EditorState {
   removeComposeScene: (id: string) => void;
   setLeftTab: (tab: LeftDockTab) => void;
   setBottomTab: (tab: BottomDockTab) => void;
+  /** Switch the bottom dock to `tab` and pulse it as a hint. */
+  flashBottomTab: (tab: BottomDockTab) => void;
+  /** Ask the Properties name field to focus + select-all. */
+  requestFocusName: () => void;
   setBottomDockHeight: (h: number) => void;
   setClipboard: (
     payload: import('../clipboard').ClipboardPayload | null
@@ -603,6 +617,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   composeLayers: [],
   leftTab: 'scene',
   bottomTab: 'models',
+  bottomTabFlash: 0,
+  focusNameNonce: 0,
   bottomDockHeight: 200,
   clipboardPayload: null,
   selectedComposeLayerId: null,
@@ -845,6 +861,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }),
   setLeftTab: (tab) => set({ leftTab: tab }),
   setBottomTab: (tab) => set({ bottomTab: tab }),
+  flashBottomTab: (tab) => set({ bottomTab: tab, bottomTabFlash: Date.now() }),
+  requestFocusName: () =>
+    set((s) => ({ focusNameNonce: s.focusNameNonce + 1 })),
   setClipboard: (payload) => set({ clipboardPayload: payload }),
   setBottomDockHeight: (h) =>
     set({ bottomDockHeight: Math.max(120, Math.min(800, Math.round(h))) }),
