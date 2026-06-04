@@ -2827,6 +2827,7 @@ export function PropertiesPanel() {
   } = useEditorStore();
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
+  const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const selectedComp =
     nodeComponents.find((c) => c.id === selectedComponentId) ?? null;
@@ -4821,6 +4822,106 @@ export function PropertiesPanel() {
               />
               Show FBX animation model
             </label>
+          </>
+        )}
+
+        {/* Model (avatar/model file) */}
+        {(node.kind === 'avatar' || node.kind === 'model') && (
+          <>
+            <div
+              style={{
+                ...sectionHeader,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              Model
+              <PickButton onClick={() => flashBottomTab('models')} />
+            </div>
+            <datalist id="model-list">
+              {modelAssets.map((a) => (
+                <option key={a.id} value={a.url} label={a.name} />
+              ))}
+            </datalist>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                list="model-list"
+                style={{ ...textInput, flex: 1 }}
+                placeholder={
+                  modelAssets.length
+                    ? 'Search or paste URL…'
+                    : 'No models uploaded yet'
+                }
+                defaultValue={node.filePath ?? ''}
+                key={node.id + ':model'}
+                onBlur={(e) => {
+                  const filePath = e.target.value.trim();
+                  api
+                    .updateNode(node.id, { filePath: filePath || '' })
+                    .catch(() => {});
+                  storeUpdateNode(node.id, { filePath: filePath || null });
+                }}
+              />
+              {node.filePath && (
+                <button
+                  title="Clear model"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#666',
+                    cursor: 'pointer',
+                    fontSize: 16,
+                    padding: '0 2px',
+                    flexShrink: 0,
+                  }}
+                  onClick={() => {
+                    api.updateNode(node.id, { filePath: '' }).catch(() => {});
+                    storeUpdateNode(node.id, { filePath: null });
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {modelAssets.length > 0 && (
+              <div
+                style={{
+                  marginTop: 6,
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 4,
+                }}
+              >
+                {modelAssets.map((a) => (
+                  <button
+                    key={a.id}
+                    style={{
+                      background:
+                        node.filePath === a.url ? '#1a3a5a' : '#1e1e1e',
+                      border: '1px solid #3a3a3a',
+                      color: '#ccc',
+                      borderRadius: 4,
+                      padding: '2px 8px',
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      maxWidth: 220,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={a.name}
+                    onClick={() => {
+                      api
+                        .updateNode(node.id, { filePath: a.url })
+                        .catch(() => {});
+                      storeUpdateNode(node.id, { filePath: a.url });
+                    }}
+                  >
+                    {a.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
 

@@ -31,6 +31,8 @@ export function AssetManager() {
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const canApplyAnim =
     selectedNode?.kind === 'avatar' || selectedNode?.kind === 'model';
+  const canApplyModel =
+    selectedNode?.kind === 'avatar' || selectedNode?.kind === 'model';
   const canApplyTexture =
     selectedNode?.kind === 'billboard' || selectedNode?.kind === 'particle';
   const canApplyCameraBg = selectedNode?.kind === 'camera';
@@ -47,8 +49,10 @@ export function AssetManager() {
   const relevantTabs = new Set<BottomDockTab>();
   if (selectedNode) {
     relevantTabs.add('components');
-    if (selectedNode.kind === 'avatar' || selectedNode.kind === 'model')
+    if (selectedNode.kind === 'avatar' || selectedNode.kind === 'model') {
+      relevantTabs.add('models');
       relevantTabs.add('animations');
+    }
     if (selectedNode.kind === 'camera') {
       relevantTabs.add('effects');
       relevantTabs.add('images');
@@ -205,6 +209,16 @@ export function AssetManager() {
       storeUpdateNode(selectedNode.id, { components });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Failed to set camera background');
+    }
+  };
+
+  const handleApplyModel = async (asset: AssetFile) => {
+    if (!selectedNode) return;
+    try {
+      await api.updateNode(selectedNode.id, { filePath: asset.url });
+      storeUpdateNode(selectedNode.id, { filePath: asset.url });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to set model');
     }
   };
 
@@ -799,6 +813,23 @@ export function AssetManager() {
                             onClick={() => handleAddToScene(asset)}
                           >
                             Add to Scene
+                          </button>
+                        )}
+                        {asset.kind === 'model' && canApplyModel && (
+                          <button
+                            style={{
+                              background: '#1a3a2a',
+                              border: 'none',
+                              color: '#7c9',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={`Set as model for "${selectedNode!.name}"`}
+                            onClick={() => handleApplyModel(asset)}
+                          >
+                            Apply to {selectedNode!.name}
                           </button>
                         )}
                         {asset.kind === 'animation' && canApplyAnim && (
