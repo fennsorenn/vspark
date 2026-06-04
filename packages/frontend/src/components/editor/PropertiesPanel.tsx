@@ -44,6 +44,7 @@ import {
   type MaterialOverrides,
   type ShaderKind,
   type AlphaMode,
+  type EmissiveMapMode,
 } from './materialOverrides';
 
 interface Transform {
@@ -264,6 +265,26 @@ const matColorInput: React.CSSProperties = {
   padding: 0,
 };
 
+/** Keys of MaterialOverride whose value is a hex color string. */
+type MatColorKey = Exclude<
+  {
+    [K in keyof MaterialOverride]-?: NonNullable<
+      MaterialOverride[K]
+    > extends string
+      ? K
+      : never;
+  }[keyof MaterialOverride],
+  'shader' | 'alphaMode'
+>;
+/** Keys of MaterialOverride whose value is a number. */
+type MatNumKey = {
+  [K in keyof MaterialOverride]-?: NonNullable<
+    MaterialOverride[K]
+  > extends number
+    ? K
+    : never;
+}[keyof MaterialOverride];
+
 /** One material's editor: shader toggle + collapsible param body + reset. */
 function MaterialRow({
   node,
@@ -274,14 +295,15 @@ function MaterialRow({
 }) {
   const { updateNode: storeUpdateNode } = useEditorStore();
   const [open, setOpen] = useState(false);
+  const [advOpen, setAdvOpen] = useState(false);
   const overrides = (node.properties?.materialOverrides ??
     {}) as MaterialOverrides;
   const ov = overrides[slot.key] as MaterialOverride | undefined;
   const d = slot.defaults;
-  const defaultShader: ShaderKind =
-    slot.nativeShader === 'pbr' ? 'pbr' : 'mtoon';
-  const shader: ShaderKind =
-    slot.nativeShader === 'pbr' ? 'pbr' : (ov?.shader ?? 'mtoon');
+  const defaultShader: ShaderKind = slot.supportsMToon ? 'mtoon' : 'pbr';
+  let shader: ShaderKind = ov?.shader ?? defaultShader;
+  if (shader === 'mtoon' && !slot.supportsMToon) shader = 'pbr';
+  const isStandard = shader === 'pbr' || shader === 'apbr';
 
   const writeOverrides = (next: MaterialOverrides, persist: boolean) => {
     const properties = { ...node.properties, materialOverrides: next };
@@ -316,35 +338,26 @@ function MaterialRow({
   ): NonNullable<MaterialOverride[K]> =>
     (ov?.[key] as NonNullable<MaterialOverride[K]> | undefined) ?? fallback;
 
-  const colorRow = (
-    label: string,
-    key: 'baseColor' | 'emissive' | 'shadeColor' | 'rimColor' | 'outlineColor',
-    fallback: string
-  ) => (
+  const colorRow = (label: string, key: MatColorKey, fallback: string) => (
     <div style={matRow}>
       <span style={matLabel}>{label}</span>
       <input
         type="color"
         value={val(key, fallback)}
         style={matColorInput}
-        onChange={(e) => patch({ [key]: e.target.value }, false)}
-        onBlur={(e) => patch({ [key]: e.target.value }, true)}
+        onChange={(e) =>
+          patch({ [key]: e.target.value } as Partial<MaterialOverride>, false)
+        }
+        onBlur={(e) =>
+          patch({ [key]: e.target.value } as Partial<MaterialOverride>, true)
+        }
       />
     </div>
   );
 
   const sliderRow = (
     label: string,
-    key:
-      | 'emissiveIntensity'
-      | 'normalScale'
-      | 'alphaCutoff'
-      | 'shadingShiftFactor'
-      | 'shadingToonyFactor'
-      | 'rimLightingMix'
-      | 'outlineWidth'
-      | 'roughness'
-      | 'metalness',
+    key: MatNumKey,
     fallback: number,
     min: number,
     max: number,
@@ -360,8 +373,10 @@ function MaterialRow({
         step={step}
         precision={precision}
         style={{ flex: 1 }}
-        onChange={(v) => patch({ [key]: v }, false)}
-        onCommit={(v) => patch({ [key]: v }, true)}
+        onChange={(v) =>
+          patch({ [key]: v } as Partial<MaterialOverride>, false)
+        }
+        onCommit={(v) => patch({ [key]: v } as Partial<MaterialOverride>, true)}
       />
     </div>
   );
@@ -415,7 +430,8 @@ function MaterialRow({
         <span
           style={{
             fontSize: 9,
-            color: shader === 'pbr' ? '#7ab' : '#a8a',
+            color:
+              shader === 'apbr' ? '#7c9' : shader === 'pbr' ? '#7ab' : '#a8a',
             border: '1px solid #333',
             borderRadius: 3,
             padding: '1px 5px',
@@ -439,25 +455,34 @@ function MaterialRow({
           <div style={matRow}>
             <span style={matLabel}>Shader</span>
             <div style={{ display: 'flex', gap: 0 }}>
-              {(['mtoon', 'pbr'] as ShaderKind[]).map((s) => {
+              {(['mtoon', 'pbr', 'apbr'] as ShaderKind[]).map((s, i, arr) => {
                 const active = shader === s;
                 const disabled = s === 'mtoon' && !slot.supportsMToon;
                 return (
                   <button
                     key={s}
                     disabled={disabled}
+                    title={
+                      s === 'apbr'
+                        ? 'Advanced PBR (MeshPhysicalMaterial): specular, clearcoat, sheen, transmission…'
+                        : undefined
+                    }
                     onClick={() => patch({ shader: s }, true)}
                     style={{
                       background: active ? '#1a3a5a' : '#1e1e1e',
                       border: '1px solid #3a3a3a',
                       color: disabled ? '#555' : active ? '#cde' : '#aaa',
-                      padding: '3px 12px',
+                      padding: '3px 10px',
                       fontSize: 11,
                       cursor: disabled ? 'not-allowed' : 'pointer',
                       textTransform: 'uppercase',
                       borderRadius:
-                        s === 'mtoon' ? '4px 0 0 4px' : '0 4px 4px 0',
-                      marginLeft: s === 'pbr' ? -1 : 0,
+                        i === 0
+                          ? '4px 0 0 4px'
+                          : i === arr.length - 1
+                            ? '0 4px 4px 0'
+                            : 0,
+                      marginLeft: i === 0 ? 0 : -1,
                     }}
                   >
                     {s}
@@ -479,6 +504,30 @@ function MaterialRow({
             0.01,
             2
           )}
+          <div style={matRow}>
+            <span style={matLabel}>Emissive map</span>
+            <select
+              value={val('emissiveMapMode', 'original')}
+              onChange={(e) =>
+                patch(
+                  { emissiveMapMode: e.target.value as EmissiveMapMode },
+                  true
+                )
+              }
+              style={{
+                background: '#2a2a2a',
+                border: '1px solid #3a3a3a',
+                color: '#e0e0e0',
+                borderRadius: 4,
+                padding: '3px 6px',
+                fontSize: 11,
+              }}
+            >
+              <option value="original">Original texture</option>
+              <option value="flat">Flat (no texture)</option>
+              <option value="albedo">Albedo texture</option>
+            </select>
+          </div>
           {d.hasNormalMap &&
             sliderRow(
               'Normal scale',
@@ -551,6 +600,16 @@ function MaterialRow({
                 0.01,
                 2
               )}
+              {sliderRow(
+                'GI equalize',
+                'giEqualization',
+                d.giEqualization,
+                0,
+                1,
+                0.01,
+                2
+              )}
+              {colorRow('Matcap', 'matcapColor', d.matcapColor)}
               {colorRow('Rim color', 'rimColor', d.rimColor)}
               {sliderRow(
                 'Rim mix',
@@ -561,6 +620,16 @@ function MaterialRow({
                 0.01,
                 2
               )}
+              {sliderRow(
+                'Rim fresnel',
+                'rimFresnelPower',
+                d.rimFresnelPower,
+                0,
+                50,
+                0.1,
+                1
+              )}
+              {sliderRow('Rim lift', 'rimLift', d.rimLift, 0, 1, 0.01, 2)}
               {d.hasOutline && (
                 <>
                   {sliderRow(
@@ -573,16 +642,169 @@ function MaterialRow({
                     3
                   )}
                   {colorRow('Outline color', 'outlineColor', d.outlineColor)}
+                  {sliderRow(
+                    'Outline mix',
+                    'outlineLightingMix',
+                    d.outlineLightingMix,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
                 </>
               )}
             </>
           )}
 
-          {/* PBR-only */}
-          {shader === 'pbr' && (
+          {/* PBR + APBR shared */}
+          {isStandard && (
             <>
               {sliderRow('Roughness', 'roughness', d.roughness, 0, 1, 0.01, 2)}
               {sliderRow('Metalness', 'metalness', d.metalness, 0, 1, 0.01, 2)}
+              {sliderRow(
+                'Env intensity',
+                'envMapIntensity',
+                d.envMapIntensity,
+                0,
+                3,
+                0.01,
+                2
+              )}
+            </>
+          )}
+
+          {/* APBR-only advanced lobes (MeshPhysicalMaterial) */}
+          {shader === 'apbr' && (
+            <>
+              <div
+                onClick={() => setAdvOpen((o) => !o)}
+                style={{
+                  ...matRow,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  color: '#888',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                  marginTop: 4,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 9,
+                    color: '#666',
+                    display: 'inline-block',
+                    transform: advOpen ? 'rotate(90deg)' : 'none',
+                  }}
+                >
+                  ▶
+                </span>
+                Advanced
+              </div>
+              {advOpen && (
+                <>
+                  {sliderRow(
+                    'Specular',
+                    'specularIntensity',
+                    d.specularIntensity,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {colorRow('Specular tint', 'specularColor', d.specularColor)}
+                  {sliderRow(
+                    'Clearcoat',
+                    'clearcoat',
+                    d.clearcoat,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow(
+                    'Clearcoat rgh',
+                    'clearcoatRoughness',
+                    d.clearcoatRoughness,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow('Sheen', 'sheen', d.sheen, 0, 1, 0.01, 2)}
+                  {sliderRow(
+                    'Sheen rgh',
+                    'sheenRoughness',
+                    d.sheenRoughness,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {colorRow('Sheen color', 'sheenColor', d.sheenColor)}
+                  {sliderRow(
+                    'Transmission',
+                    'transmission',
+                    d.transmission,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow(
+                    'Thickness',
+                    'thickness',
+                    d.thickness,
+                    0,
+                    5,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow('IOR', 'ior', d.ior, 1, 2.333, 0.001, 3)}
+                  {colorRow(
+                    'Attenuation',
+                    'attenuationColor',
+                    d.attenuationColor
+                  )}
+                  {sliderRow(
+                    'Atten. dist.',
+                    'attenuationDistance',
+                    d.attenuationDistance,
+                    0,
+                    5,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow(
+                    'Iridescence',
+                    'iridescence',
+                    d.iridescence,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow(
+                    'Iridescence IOR',
+                    'iridescenceIor',
+                    d.iridescenceIor,
+                    1,
+                    2.333,
+                    0.001,
+                    3
+                  )}
+                  {sliderRow(
+                    'Anisotropy',
+                    'anisotropy',
+                    d.anisotropy,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                </>
+              )}
             </>
           )}
 
