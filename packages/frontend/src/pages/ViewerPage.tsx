@@ -64,8 +64,17 @@ export function ViewerPage() {
   } = useEditorStore();
 
   useEffect(() => {
-    document.documentElement.style.background = 'transparent';
-    document.body.style.background = 'transparent';
+    // OBS browser sources composite over a transparent page, so we must keep
+    // the document transparent there. A normal browser has nothing behind the
+    // page, so we paint it black for a solid backdrop. Detect OBS via the
+    // `window.obsstudio` global it injects (more reliable than the UA, which
+    // can be overridden in the browser-source settings); fall back to the UA.
+    const inOBS =
+      typeof (window as unknown as { obsstudio?: unknown }).obsstudio !==
+        'undefined' || /\bOBS\b/.test(navigator.userAgent);
+    const bg = inOBS ? 'transparent' : '#000000';
+    document.documentElement.style.background = bg;
+    document.body.style.background = bg;
     return () => {
       document.documentElement.style.background = '';
       document.body.style.background = '';
