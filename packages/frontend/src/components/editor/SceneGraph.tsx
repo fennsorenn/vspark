@@ -11,6 +11,10 @@ import { GraphsSection } from './GraphsSection';
 import { ContextMenu } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
+import {
+  FEED_DEFAULT_TEMPLATE,
+  FEED_DEFAULT_CSS,
+} from '../../lib/feedTemplate';
 
 const KIND_ICONS: Record<string, string> = {
   scene: '🎬',
@@ -54,6 +58,7 @@ const NODE_TYPES = [
   { label: 'Billboard', kind: 'billboard' },
   { label: 'Text (SDF / troika)', kind: 'text_troika' },
   { label: 'Text (canvas, HTML-capable)', kind: 'text_canvas' },
+  { label: 'Feed (3D data overlay)', kind: 'feed' },
 ];
 
 // ---------- Context menu ----------
@@ -372,7 +377,11 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
     await copyToClipboard(
       {
         kind: 'node-component',
-        component: { kind: comp.kind, enabled: comp.enabled, config: comp.config },
+        component: {
+          kind: comp.kind,
+          enabled: comp.enabled,
+          config: comp.config,
+        },
       },
       setClipboard
     );
@@ -562,7 +571,12 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
 
       {/* Add / paste component buttons */}
       <div
-        style={{ position: 'relative', padding: '3px 6px', display: 'flex', gap: 6 }}
+        style={{
+          position: 'relative',
+          padding: '3px 6px',
+          display: 'flex',
+          gap: 6,
+        }}
       >
         <button
           style={{
@@ -710,7 +724,11 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
     await copyToClipboard(
       {
         kind: 'camera-effect',
-        effect: { kind: effect.kind, enabled: effect.enabled, config: effect.config },
+        effect: {
+          kind: effect.kind,
+          enabled: effect.enabled,
+          config: effect.config,
+        },
       },
       setClipboard
     );
@@ -890,7 +908,12 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
         );
       })}
       <div
-        style={{ position: 'relative', padding: '3px 6px', display: 'flex', gap: 6 }}
+        style={{
+          position: 'relative',
+          padding: '3px 6px',
+          display: 'flex',
+          gap: 6,
+        }}
       >
         <button
           style={{
@@ -1322,8 +1345,16 @@ function GraphListPanel() {
           y={ctxMenu.y}
           onClose={() => setCtxMenu(null)}
           items={[
-            { kind: 'item', label: 'Copy graph', onClick: () => void handleCopy(ctxMenu.graph) },
-            { kind: 'item', label: 'Rename…', onClick: () => handleRename(ctxMenu.graph) },
+            {
+              kind: 'item',
+              label: 'Copy graph',
+              onClick: () => void handleCopy(ctxMenu.graph),
+            },
+            {
+              kind: 'item',
+              label: 'Rename…',
+              onClick: () => handleRename(ctxMenu.graph),
+            },
             {
               kind: 'item',
               label: ctxMenu.graph.enabled ? 'Disable' : 'Enable',
@@ -1523,6 +1554,18 @@ export function SceneGraph() {
         billboard: true,
         facing: 'screen' as 'screen' | 'world',
       };
+    } else if (type.kind === 'feed') {
+      components.feed = {
+        type: 'feed',
+        template: FEED_DEFAULT_TEMPLATE,
+        css: FEED_DEFAULT_CSS,
+        width: 2,
+        height: 1.2,
+        padding: 16,
+        fontSize: 28,
+        color: '#ffffff',
+        billboard: true,
+      };
     }
 
     try {
@@ -1575,9 +1618,7 @@ export function SceneGraph() {
         setClipboard
       );
     } catch (e) {
-      alert(
-        e instanceof Error ? e.message : 'Failed to copy node (serialize)'
-      );
+      alert(e instanceof Error ? e.message : 'Failed to copy node (serialize)');
     }
   };
 

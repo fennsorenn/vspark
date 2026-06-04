@@ -39,6 +39,13 @@ import { Text as TroikaText } from 'troika-three-text';
 import DOMPurify from 'dompurify';
 import html2canvas from 'html2canvas';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
+import { createRoot, type Root } from 'react-dom/client';
+import { flushSync } from 'react-dom';
+import {
+  compileTemplate,
+  FeedContent,
+  FeedErrorBoundary,
+} from '../../lib/feedTemplate';
 import { VRMLoaderPlugin } from '@pixiv/three-vrm';
 import type { VRM, VRMHumanBoneName, VRMPose } from '@pixiv/three-vrm';
 import { useEditorStore } from '../../store/editorStore';
@@ -582,9 +589,7 @@ function getTransform(node: NodeRecord): Transform {
  *  Track-clip wins so an in-progress clip isn't interrupted by a stale runtime
  *  value. See dev-notes/modules/runtime-overrides.md. */
 function useTransformWithOverride(node: NodeRecord): Transform {
-  const clipOverride = useEditorStore(
-    (s) => s.nodeTransformOverrides[node.id]
-  );
+  const clipOverride = useEditorStore((s) => s.nodeTransformOverrides[node.id]);
   const runtimeOverride = useEditorStore(
     (s) => s.runtimeNodeOverrides[node.id]
   );
@@ -595,12 +600,9 @@ function useTransformWithOverride(node: NodeRecord): Transform {
   if (clipOverride?.position?.x !== undefined) out.x = clipOverride.position.x;
   if (clipOverride?.position?.y !== undefined) out.y = clipOverride.position.y;
   if (clipOverride?.position?.z !== undefined) out.z = clipOverride.position.z;
-  if (clipOverride?.rotation?.x !== undefined)
-    out.rx = clipOverride.rotation.x;
-  if (clipOverride?.rotation?.y !== undefined)
-    out.ry = clipOverride.rotation.y;
-  if (clipOverride?.rotation?.z !== undefined)
-    out.rz = clipOverride.rotation.z;
+  if (clipOverride?.rotation?.x !== undefined) out.rx = clipOverride.rotation.x;
+  if (clipOverride?.rotation?.y !== undefined) out.ry = clipOverride.rotation.y;
+  if (clipOverride?.rotation?.z !== undefined) out.rz = clipOverride.rotation.z;
   if (clipOverride?.scale?.x !== undefined) out.sx = clipOverride.scale.x;
   if (clipOverride?.scale?.y !== undefined) out.sy = clipOverride.scale.y;
   if (clipOverride?.scale?.z !== undefined) out.sz = clipOverride.scale.z;
@@ -652,7 +654,10 @@ function useApplyOpacity(
 ): void {
   // Cache per-material: last opacity applied + the original `transparent` flag.
   const cacheRef = useRef(
-    new WeakMap<THREE.Material, { lastOpacity: number; origTransparent: boolean }>()
+    new WeakMap<
+      THREE.Material,
+      { lastOpacity: number; origTransparent: boolean }
+    >()
   );
   useFrame(() => {
     const root = groupRef.current;
@@ -2961,7 +2966,8 @@ function TextCanvasNode({ node }: { node: NodeRecord }) {
           for (const img of imgs) img.crossOrigin = 'anonymous';
           await Promise.all(
             imgs.map((img) => {
-              if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+              if (img.complete && img.naturalWidth > 0)
+                return Promise.resolve();
               return new Promise<void>((resolve) => {
                 // Resolve on success OR failure — a single broken image
                 // shouldn't block the whole render.
@@ -3042,6 +3048,206 @@ function TextCanvasNode({ node }: { node: NodeRecord }) {
           <planeGeometry args={[planeW, planeH]} />
           <meshBasicMaterial
             map={textureRef.current ?? undefined}
+            transparent
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+/** A data-channel feed rendered into a CanvasTexture on a plane — the in-scene
+ *  (3D) analog of the 2D `feed` compose layer (ComposeLayerStack.FeedLayer).
+ *  Subscribes to the data-channel bus by identity (GLOBAL ∪ this node's own id),
+ *  renders the htm template into an off-screen React root, and rasterises it via
+ *  html2canvas so emotes + arbitrary template markup composite into WebGL and
+ *  recordings (like text_canvas). See dev-notes/modules/data-channels.md. */
+function FeedCanvasNode({ node }: { node: NodeRecord }) {
+  const outerRef = useRef<THREE.Group>(null);
+  const billboardRef = useRef<THREE.Group>(null);
+  const textureRef = useRef<THREE.CanvasTexture | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<Root | null>(null);
+  const [texture, setTexture] = useState<THREE.CanvasTexture | null>(null);
+  const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
+  const camera = useThree((s) => s.camera);
+
+  const cfg = (node.components?.feed ?? {}) as {
+    template?: string;
+    css?: string;
+    width?: number;
+    height?: number;
+    padding?: number;
+    fontSize?: number;
+    color?: string;
+    billboard?: boolean;
+  };
+  const planeW = cfg.width ?? 2;
+  const planeH = cfg.height ?? 1.2;
+  const template = typeof cfg.template === 'string' ? cfg.template : '';
+  const css = typeof cfg.css === 'string' ? cfg.css : '';
+  const compiled = useMemo(() => compileTemplate(template), [template]);
+
+  // Fields visible to this node: GLOBAL ∪ its own id (own wins), mirroring the
+  // 2D feed layer's consumer-by-identity model.
+  const globalFields = useEditorStore((s) => s.dataChannels['']);
+  const ownFields = useEditorStore((s) => s.dataChannels[node.id]);
+  const channels = useMemo(
+    () => ({ ...(globalFields ?? {}), ...(ownFields ?? {}) }),
+    [globalFields, ownFields]
+  );
+  const scopeId = useMemo(
+    () => `feed3d-${node.id.replace(/[^a-zA-Z0-9_-]/g, '')}`,
+    [node.id]
+  );
+
+  // One-time canvas + texture + off-screen React host. Re-renders mutate the
+  // canvas in place so the CanvasTexture identity stays stable.
+  useEffect(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(planeW * 256));
+    canvas.height = Math.max(1, Math.round(planeH * 256));
+    canvasRef.current = canvas;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    textureRef.current = tex;
+    setTexture(tex);
+
+    const host = document.createElement('div');
+    host.style.position = 'fixed';
+    host.style.left = '-99999px';
+    host.style.top = '0';
+    host.style.width = `${canvas.width}px`;
+    host.style.height = `${canvas.height}px`;
+    host.style.overflow = 'hidden';
+    host.style.lineHeight = '1.2';
+    host.style.wordBreak = 'break-word';
+    host.setAttribute('data-feed-scope', scopeId);
+    document.body.appendChild(host);
+    hostRef.current = host;
+    rootRef.current = createRoot(host);
+
+    return () => {
+      // Defer unmount: React forbids unmounting a root synchronously from within
+      // a commit/cleanup phase.
+      const root = rootRef.current;
+      queueMicrotask(() => root?.unmount());
+      host.remove();
+      tex.dispose();
+      textureRef.current = null;
+      canvasRef.current = null;
+      hostRef.current = null;
+      rootRef.current = null;
+    };
+  }, [planeW, planeH, scopeId]);
+
+  // Re-render the template + re-rasterise whenever data / template / styling
+  // changes. Async because html2canvas + emote image loads are async.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const tex = textureRef.current;
+    const host = hostRef.current;
+    const root = rootRef.current;
+    if (!canvas || !tex || !host || !root) return;
+    let cancelled = false;
+
+    const color = cfg.color ?? '#ffffff';
+    const fontSize = cfg.fontSize ?? 28;
+    const padding = cfg.padding ?? 16;
+    host.style.color = color;
+    host.style.fontSize = `${fontSize}px`;
+    host.style.padding = `${padding}px`;
+    host.style.boxSizing = 'border-box';
+    const scopedCss = css
+      ? `@scope ([data-feed-scope="${scopeId}"]) {\n${css}\n}`
+      : '';
+
+    const draw = async () => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      // Commit the template to the off-screen DOM synchronously so html2canvas
+      // captures the up-to-date tree. A bad template renders as nothing
+      // (FeedContent swallows the throw) and retries on the next update.
+      flushSync(() => {
+        root.render(
+          <>
+            {scopedCss && <style>{scopedCss}</style>}
+            {compiled.render && (
+              <FeedErrorBoundary key={template}>
+                <FeedContent render={compiled.render} channels={channels} />
+              </FeedErrorBoundary>
+            )}
+          </>
+        );
+      });
+
+      // Emotes are <img>s; html2canvas captures synchronously, so wait for them
+      // (set crossorigin first — DOMPurify strips it; see TextCanvasNode).
+      const imgs = Array.from(host.querySelectorAll('img'));
+      for (const img of imgs) img.crossOrigin = 'anonymous';
+      await Promise.all(
+        imgs.map((img) =>
+          img.complete && img.naturalWidth > 0
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                img.addEventListener('load', () => resolve(), { once: true });
+                img.addEventListener('error', () => resolve(), { once: true });
+              })
+        )
+      );
+      if (cancelled) return;
+      const rendered = await html2canvas(host, {
+        backgroundColor: null,
+        width: canvas.width,
+        height: canvas.height,
+        scale: 1,
+        logging: false,
+        useCORS: true,
+        allowTaint: false,
+      });
+      if (cancelled) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(rendered, 0, 0);
+      tex.needsUpdate = true;
+    };
+    void draw();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    channels,
+    compiled,
+    template,
+    css,
+    scopeId,
+    cfg.color,
+    cfg.fontSize,
+    cfg.padding,
+  ]);
+
+  useFrame(() => {
+    if (cfg.billboard && billboardRef.current) {
+      billboardRef.current.quaternion.copy(camera.quaternion);
+    } else if (billboardRef.current) {
+      billboardRef.current.quaternion.identity();
+    }
+  });
+
+  return (
+    <group
+      ref={outerRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+      scale={[t.sx, t.sy, t.sz]}
+    >
+      <group ref={billboardRef}>
+        <mesh>
+          <planeGeometry args={[planeW, planeH]} />
+          <meshBasicMaterial
+            map={texture ?? undefined}
             transparent
             side={THREE.DoubleSide}
           />
@@ -3495,6 +3701,7 @@ function renderNodeElement(
   if (node.kind === 'billboard') return null;
   if (node.kind === 'text_troika') return null;
   if (node.kind === 'text_canvas') return null;
+  if (node.kind === 'feed') return null;
   return (
     <group key={node.id} visible={visible}>
       <ModelNode node={node}>{childElements}</ModelNode>
@@ -3530,6 +3737,7 @@ export function SceneNodes({
   const flatBillboards = sceneNodes.filter((n) => n.kind === 'billboard');
   const flatTextTroika = sceneNodes.filter((n) => n.kind === 'text_troika');
   const flatTextCanvas = sceneNodes.filter((n) => n.kind === 'text_canvas');
+  const flatFeed = sceneNodes.filter((n) => n.kind === 'feed');
 
   // Hidden cascade for flat-mounted nodes: hierarchical kinds already inherit
   // `visible: false` from a hidden ancestor via R3F's <group> nesting, but
@@ -3549,8 +3757,7 @@ export function SceneNodes({
     }
     return false;
   };
-  const effectiveVisible = (n: NodeRecord) =>
-    !n.hidden && !isAncestorHidden(n);
+  const effectiveVisible = (n: NodeRecord) => !n.hidden && !isAncestorHidden(n);
 
   return (
     <>
@@ -3573,6 +3780,11 @@ export function SceneNodes({
       {flatTextCanvas.map((node) => (
         <group key={node.id} visible={effectiveVisible(node)}>
           <TextCanvasNode node={node} />
+        </group>
+      ))}
+      {flatFeed.map((node) => (
+        <group key={node.id} visible={effectiveVisible(node)}>
+          <FeedCanvasNode node={node} />
         </group>
       ))}
     </>

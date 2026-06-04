@@ -42,6 +42,7 @@ export const sceneNodeKindSchema = z
     'group',
     'text_troika',
     'text_canvas',
+    'feed',
   ])
   .openapi('SceneNodeKind');
 

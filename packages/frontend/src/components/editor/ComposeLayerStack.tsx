@@ -1,11 +1,4 @@
-import {
-  Component,
-  createElement,
-  useId,
-  useMemo,
-  type CSSProperties,
-  type ReactNode,
-} from 'react';
+import { useId, useMemo, type CSSProperties } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import type {
   ComposeLayerRecord,
@@ -13,12 +6,13 @@ import type {
   RuntimeOverrideMap,
 } from '../../store/editorStore';
 import DOMPurify from 'dompurify';
-import htm from 'htm';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
 import { CameraCanvas } from './CameraCanvas';
-
-/** htm bound to React.createElement — JSX-ish templates with no build step. */
-const html = htm.bind(createElement);
+import {
+  compileTemplate,
+  FeedContent,
+  FeedErrorBoundary,
+} from '../../lib/feedTemplate';
 
 interface ComposeLayerStackProps {
   layers: ComposeLayerRecord[];
@@ -323,109 +317,6 @@ function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
     return <div style={style} dangerouslySetInnerHTML={{ __html: safe }} />;
   }
   return <div style={style}>{content}</div>;
-}
-
-/** Host-provided component for feed templates: renders a per-field HTML blob
- *  (e.g. the chat `html` field with emote <img>s) safely. Templates inject raw
- *  HTML only through this; everything else is authored as JSX-ish markup and
- *  produced as real React elements. */
-function Emote({ html: raw }: { html?: string }) {
-  return (
-    <span
-      dangerouslySetInnerHTML={{
-        __html: DOMPurify.sanitize(raw ?? '', TEXT_SANITIZE_OPTS),
-      }}
-    />
-  );
-}
-
-type FeedRender = (
-  html: unknown,
-  Emote: unknown,
-  channels: Record<string, unknown>
-) => ReactNode;
-
-interface CompiledTemplate {
-  render: FeedRender | null;
-  error: string | null;
-}
-
-// Compiled templates are cached by source string — `new Function` (the htm
-// "compile") runs once per distinct template, then re-renders are cheap.
-const _templateCache = new Map<string, CompiledTemplate>();
-
-/**
- * Compile a feed template (JSX-ish htm body) into a render function. The body is
- * interpolated into an htm tagged-template literal and evaluated as JS via
- * `new Function` — htm has no build step. The published fields visible to this
- * consumer are exposed as BARE NAMES via `with(channels)` (so a field labeled
- * `chat` is referenced as `${chat.map(...)}`); the `Emote` helper is also in
- * scope. Field names must be valid JS identifiers to be referenced bare.
- *
- * NOTE: templates execute as code. This is acceptable under vspark's local /
- * single-user model — no worse than the `browser` compose layer, which already
- * runs arbitrary web content. Revisit before any multi-user / untrusted-import
- * story (see dev-notes/modules/data-channels.md).
- */
-function compileTemplate(src: string): CompiledTemplate {
-  const hit = _templateCache.get(src);
-  if (hit) return hit;
-  let result: CompiledTemplate;
-  try {
-    // `with` is sloppy-mode only; a `new Function` body is sloppy by default, so
-    // it's allowed here and gives bare-name field access without knowing the
-    // field set at compile time.
-    const fn = new Function(
-      'html',
-      'Emote',
-      'channels',
-      `with (channels) { return html\`${src}\`; }`
-    ) as FeedRender;
-    result = { render: fn, error: null };
-  } catch (e) {
-    result = {
-      render: null,
-      error: e instanceof Error ? e.message : String(e),
-    };
-  }
-  _templateCache.set(src, result);
-  return result;
-}
-
-/** Renders the compiled template. The htm tagged-template builds its React
- *  element tree synchronously, so a throw here (a bare field referenced before
- *  its producer has published, or a typo) is caught and rendered as nothing —
- *  and retried on the next data update, rather than latching like an error
- *  boundary would. Real syntax errors are caught at compile time. */
-function FeedContent({
-  render,
-  channels,
-}: {
-  render: FeedRender;
-  channels: Record<string, unknown>;
-}) {
-  try {
-    return <>{render(html, Emote, channels)}</>;
-  } catch {
-    return null;
-  }
-}
-
-/** Backstop for any throw that escapes FeedContent's synchronous try/catch
- *  (e.g. a deferred render-phase throw) so a bad template can't white-screen the
- *  viewport. Reset by remounting (parent keys it on the template source). */
-class FeedErrorBoundary extends Component<
-  { children: ReactNode },
-  { failed: boolean }
-> {
-  state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-  render() {
-    if (this.state.failed) return null;
-    return this.props.children;
-  }
 }
 
 /**

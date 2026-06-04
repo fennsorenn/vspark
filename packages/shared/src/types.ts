@@ -15,7 +15,8 @@ export type NodeKind =
   | 'billboard'
   | 'group'
   | 'text_troika'
-  | 'text_canvas';
+  | 'text_canvas'
+  | 'feed';
 
 // Animation tracking: tracks which clip is playing and when it started
 export interface AnimationState {
