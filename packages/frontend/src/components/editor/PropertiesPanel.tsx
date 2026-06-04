@@ -12,6 +12,30 @@ import type { AssetFile } from '../../api/client';
 import { animRegistry } from '../../animRegistry';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
+
+/** Small "Pick…" button that routes the user to a bottom-dock asset tab and
+ *  flashes it as a hint. The asset tab's existing "Apply to <node>" buttons do
+ *  the actual assignment (flash-only picker). */
+function PickButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Pick from the asset library in the bottom dock"
+      style={{
+        background: '#1a3a5a',
+        border: 'none',
+        color: '#7ab',
+        borderRadius: 4,
+        padding: '2px 8px',
+        cursor: 'pointer',
+        fontSize: 11,
+        marginLeft: 8,
+      }}
+    >
+      Pick…
+    </button>
+  );
+}
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 
 interface Transform {
@@ -2827,6 +2851,7 @@ export function PropertiesPanel() {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const focusNameNonce = useEditorStore((s) => s.focusNameNonce);
   const lastFocusNonce = useRef(focusNameNonce);
+  const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   const [transform, setTransform] = useState<Transform>({
     x: 0,
     y: 0,
@@ -3551,7 +3576,16 @@ export function PropertiesPanel() {
               ))}
             </div>
 
-            <div style={sectionHeader}>Background Image</div>
+            <div
+              style={{
+                ...sectionHeader,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              Background Image
+              <PickButton onClick={() => flashBottomTab('images')} />
+            </div>
             {(() => {
               const cam = (node.components?.camera ?? {}) as Record<
                 string,
@@ -3901,7 +3935,16 @@ export function PropertiesPanel() {
                     onSave={saveBc}
                   />
                 </div>
-                <div style={sectionHeader}>Texture</div>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Texture
+                  <PickButton onClick={() => flashBottomTab('images')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
@@ -4168,7 +4211,16 @@ export function PropertiesPanel() {
             );
             return (
               <>
-                <div style={sectionHeader}>Texture</div>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Texture
+                  <PickButton onClick={() => flashBottomTab('images')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
@@ -4782,7 +4834,16 @@ export function PropertiesPanel() {
             its planned UX update. */}
         {(node.kind === 'avatar' || node.kind === 'model') && (
           <>
-            <div style={sectionHeader}>Animation</div>
+            <div
+              style={{
+                ...sectionHeader,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              Animation
+              <PickButton onClick={() => flashBottomTab('animations')} />
+            </div>
             <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>
               Idle Animation
             </div>
