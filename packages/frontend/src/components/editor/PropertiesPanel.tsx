@@ -44,6 +44,7 @@ import {
   type MaterialOverrides,
   type ShaderKind,
   type AlphaMode,
+  type EmissiveMapMode,
 } from './materialOverrides';
 
 interface Transform {
@@ -503,12 +504,30 @@ function MaterialRow({
             0.01,
             2
           )}
-          {d.hasEmissiveMap && ov?.emissive !== undefined && (
-            <div style={{ fontSize: 10, color: '#666', lineHeight: 1.4 }}>
-              Emissive color overrides this material's emissive texture (flat
-              glow). Reset to restore it.
-            </div>
-          )}
+          <div style={matRow}>
+            <span style={matLabel}>Emissive map</span>
+            <select
+              value={val('emissiveMapMode', 'original')}
+              onChange={(e) =>
+                patch(
+                  { emissiveMapMode: e.target.value as EmissiveMapMode },
+                  true
+                )
+              }
+              style={{
+                background: '#2a2a2a',
+                border: '1px solid #3a3a3a',
+                color: '#e0e0e0',
+                borderRadius: 4,
+                padding: '3px 6px',
+                fontSize: 11,
+              }}
+            >
+              <option value="original">Original texture</option>
+              <option value="flat">Flat (no texture)</option>
+              <option value="albedo">Albedo texture</option>
+            </select>
+          </div>
           {d.hasNormalMap &&
             sliderRow(
               'Normal scale',

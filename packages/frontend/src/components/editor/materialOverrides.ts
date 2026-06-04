@@ -49,6 +49,14 @@ import type { VRM } from '@pixiv/three-vrm';
  */
 export type ShaderKind = 'mtoon' | 'pbr' | 'apbr';
 export type AlphaMode = 'opaque' | 'mask' | 'blend';
+/**
+ * Which texture modulates the emissive factor:
+ *   - `original` — the authored emissive texture (glTF/MToon default).
+ *   - `flat`     — none; the emissive color/intensity show everywhere.
+ *   - `albedo`   — the base-color (albedo) texture, so the material emits its
+ *                  own diffuse pattern tinted by the emissive color.
+ */
+export type EmissiveMapMode = 'original' | 'flat' | 'albedo';
 
 /** Stable per-material identity — see module header. */
 export type MaterialKey = string;
@@ -60,6 +68,9 @@ export interface MaterialOverride {
   baseColor?: string; // hex
   emissive?: string; // hex
   emissiveIntensity?: number;
+  /** Which texture modulates the emissive factor — see {@link EmissiveMapMode}.
+   *  Default `original`. */
+  emissiveMapMode?: EmissiveMapMode;
   normalScale?: number;
   doubleSided?: boolean;
   alphaMode?: AlphaMode;
@@ -205,9 +216,11 @@ interface Slot {
   nativeShader: ShaderKind;
   /** The original authored material (never disposed by us). */
   source: THREE.Material;
-  /** The authored emissive texture, cached so we can detach it when the user
-   *  sets a flat emissive override and restore it on reset. */
+  /** The authored emissive texture, cached so we can swap/detach it per the
+   *  emissive-map mode and restore it. */
   sourceEmissiveMap: THREE.Texture | null;
+  /** The authored base-color (albedo) texture, for the `albedo` emissive mode. */
+  sourceMap: THREE.Texture | null;
   defaults: MaterialDefaults;
   meshes: MeshSlot[];
   /** Lazily built standard-PBR material; cached for reuse across switches. */
@@ -340,6 +353,7 @@ function buildRegistry(vrm: VRM): Registry {
       source: mat,
       sourceEmissiveMap:
         (mat as Partial<THREE.MeshStandardMaterial>).emissiveMap ?? null,
+      sourceMap: (mat as Partial<THREE.MeshStandardMaterial>).map ?? null,
       defaults: readDefaults(mat),
       meshes: [],
       pbr: null,
@@ -433,20 +447,22 @@ function applySide(mat: THREE.Material, doubleSided: boolean): boolean {
   return false;
 }
 
-/** Detach the emissive texture when the user sets a flat emissive override, so
- *  the chosen color/intensity shows everywhere. glTF/MToon otherwise multiply
- *  the emissive factor by the (frequently mostly-black) emissive texture, which
- *  makes the color control look like a no-op. Restored on reset. Returns true
- *  when the USE_EMISSIVEMAP define toggled (needs a recompile). */
+/** Pick the emissive texture per the emissive-map mode. glTF/MToon multiply the
+ *  emissive factor by this texture, so `flat` (none) lets the emissive color
+ *  show everywhere and `albedo` makes the material emit its own diffuse pattern.
+ *  Returns true when the binding changed (may toggle USE_EMISSIVEMAP → recompile). */
 function applyEmissiveMap(
   mat: { emissiveMap: THREE.Texture | null },
   slot: Slot,
   ov: MaterialOverride | undefined
 ): boolean {
-  // Only a colour override goes flat — an intensity-only tweak should still
-  // scale an authored (textured) emissive, e.g. boosting glowing eyes.
-  const flat = ov?.emissive !== undefined;
-  const next = flat ? null : slot.sourceEmissiveMap;
+  const mode = ov?.emissiveMapMode ?? 'original';
+  const next =
+    mode === 'flat'
+      ? null
+      : mode === 'albedo'
+        ? slot.sourceMap
+        : slot.sourceEmissiveMap;
   if (mat.emissiveMap !== next) {
     mat.emissiveMap = next;
     return true;
