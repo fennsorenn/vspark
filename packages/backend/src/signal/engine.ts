@@ -80,11 +80,13 @@ export class SignalGraph {
   constructor(
     private readonly _getConfig: (nodeId: string) => unknown,
     private readonly _getState: (nodeId: string) => unknown,
-    private readonly _onSetState: (nodeId: string, state: unknown) => void
+    private readonly _onSetState: (nodeId: string, state: unknown) => void,
+    ownerKind?: import('@vspark/shared/types').GraphOwnerKind
   ) {
     this._infer = new InferGraph(
       (kind) => INFER_BY_KIND[kind],
-      (kind) => this._portsForKind(kind)
+      (kind) => this._portsForKind(kind),
+      ownerKind
     );
   }
 
@@ -100,9 +102,10 @@ export class SignalGraph {
     registry: ReadonlyMap<string, SignalNodeClass>,
     getConfig: (nodeId: string) => unknown,
     getState: (nodeId: string) => unknown,
-    onSetState: (nodeId: string, state: unknown) => void
+    onSetState: (nodeId: string, state: unknown) => void,
+    ownerKind?: import('@vspark/shared/types').GraphOwnerKind
   ): SignalGraph {
-    const graph = new SignalGraph(getConfig, getState, onSetState);
+    const graph = new SignalGraph(getConfig, getState, onSetState, ownerKind);
     graph._registry = registry;
 
     // 1. Instantiate + bind every node.
@@ -194,7 +197,10 @@ export class SignalGraph {
   }
 
   /** Transport of a target input port, from the resolved inference graph. */
-  private _inputTransport(nodeId: string, port: string): 'event' | 'value' | 'list' {
+  private _inputTransport(
+    nodeId: string,
+    port: string
+  ): 'event' | 'value' | 'list' {
     const t = this._infer.inputType(nodeId, port);
     if (t?.kind === 'event') return 'event';
     if (t?.kind === 'list') return 'list';
@@ -292,7 +298,10 @@ export class SignalGraph {
       rt.lastOutputs.set(fromPort, v);
       return v;
     } catch (err) {
-      console.error(`[SignalGraph pull] ${fromId}.${fromPort} (${rt.kind}):`, err);
+      console.error(
+        `[SignalGraph pull] ${fromId}.${fromPort} (${rt.kind}):`,
+        err
+      );
       return undefined;
     } finally {
       this._pulling.delete(guardKey);
@@ -322,7 +331,11 @@ export class SignalGraph {
     this._deliverEvent(nodeId, portName, value);
   }
 
-  private _deliverEvent(toNodeId: string, toPort: string, value: unknown): void {
+  private _deliverEvent(
+    toNodeId: string,
+    toPort: string,
+    value: unknown
+  ): void {
     const rt = this._nodes.get(toNodeId);
     if (!rt) return;
     // Enabled gate (mirrors the old dispatcher's skip).
@@ -364,8 +377,10 @@ export class SignalGraph {
     const nodes: Record<string, NodeStateSnapshot> = {};
     for (const [id, node] of this._nodes) {
       const portValues: Record<string, unknown> = {};
-      for (const [k, v] of node.lastOutputs) portValues[`out:${k}`] = _summarise(v);
-      for (const [k, v] of node.lastInputs) portValues[`in:${k}`] = _summarise(v);
+      for (const [k, v] of node.lastOutputs)
+        portValues[`out:${k}`] = _summarise(v);
+      for (const [k, v] of node.lastInputs)
+        portValues[`in:${k}`] = _summarise(v);
       nodes[id] = {
         lastExecutedAt: node.lastExecutedAt,
         portValues,
@@ -381,10 +396,7 @@ export class SignalGraph {
 
 function _isEvent(v: unknown): v is Event<unknown> {
   return (
-    typeof v === 'object' &&
-    v !== null &&
-    'payload' in v &&
-    'timestamp' in v
+    typeof v === 'object' && v !== null && 'payload' in v && 'timestamp' in v
   );
 }
 
@@ -395,7 +407,9 @@ function _summarise(v: unknown): unknown {
     return {
       _event: true,
       timestamp: ev.timestamp,
-      kind: (ev.payload as { constructor?: { name?: string } })?.constructor?.name ?? typeof ev.payload,
+      kind:
+        (ev.payload as { constructor?: { name?: string } })?.constructor
+          ?.name ?? typeof ev.payload,
     };
   }
   if (typeof v === 'object')

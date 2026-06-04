@@ -243,6 +243,10 @@ export interface InferCtx {
   resolvedInputs: Record<string, ResolvedType>;
   /** This node's live config. */
   config: unknown;
+  /** Owner kind of the graph this node lives in (`project` / `scene_node` /
+   *  `compose_layer`), when known. Scope-aware nodes (e.g. `scene_entity`) use it
+   *  to vary their port types. Undefined for graphs with no scope context. */
+  ownerKind?: import('./types.js').GraphOwnerKind;
 }
 
 export interface InferResult {

@@ -7,9 +7,12 @@
  *
  * Context-node availability depends on owner_kind:
  *   - 'project'        — no context nodes at all.
- *   - 'scene_node'     — `scene_entity` is auto-fed the attached node's id;
- *                        component_config / component_id are still forbidden.
- *   - 'compose_layer'  — no context nodes today (no compose_layer_entity yet).
+ *   - 'scene_node'     — `scene_entity` is auto-fed the attached node's id and
+ *                        outputs a `SceneNode`; component_config / component_id
+ *                        are still forbidden.
+ *   - 'compose_layer'  — `scene_entity` is auto-fed the layer's id and outputs a
+ *                        `ComposeLayer` (its output type follows the scope via
+ *                        `inferSceneEntity`); component context still forbidden.
  *
  * Per-graph node state is persisted on the graphs row in a `node_state` JSON
  * column (mirroring the `_nodeState` convention used by component-owned
@@ -23,6 +26,7 @@ import type {
   GraphDescriptor,
   GraphStateSnapshot,
 } from '@vspark/shared/signal';
+import type { GraphOwnerKind } from '@vspark/shared/types';
 
 /** Node kinds that depend on the component-context system. Always rejected
  *  in standalone graphs because there's no component to read config from. */
@@ -160,7 +164,8 @@ export class ProjectGraphManager {
         (nodeId, state) => {
           nodeStates.set(nodeId, state);
           this._persistNodeState(id, nodeId, state);
-        }
+        },
+        row.owner_kind as GraphOwnerKind
       );
 
       // Clock nodes self-tick.
@@ -292,11 +297,12 @@ export class ProjectGraphManager {
   ): unknown {
     const nodeDef = descriptor.nodes.find((n) => n.id === nodeId);
     const defaults = (nodeDef?.defaultConfig ?? {}) as Record<string, unknown>;
-    // For scene-node-scoped graphs, auto-inject the owner node's id as the
-    // `nodeId` config of any `scene_entity` instance. The node's static
-    // execute() just reads config.nodeId — no further plumbing needed.
+    // For scene-node- and compose-layer-scoped graphs, auto-inject the owner
+    // entity's id as the `nodeId` config of any `scene_entity` instance. The
+    // node just reads config.nodeId — its OUTPUT TYPE follows the scope
+    // (SceneNode vs ComposeLayer) via `inferSceneEntity`. No further plumbing.
     if (
-      row.owner_kind === 'scene_node' &&
+      (row.owner_kind === 'scene_node' || row.owner_kind === 'compose_layer') &&
       nodeDef?.kind === 'scene_entity' &&
       defaults.nodeId == null
     ) {
@@ -339,12 +345,14 @@ function parseNodeStateMap(raw: string): Map<string, unknown> {
 /**
  * Reject descriptors that reference context nodes the owner kind can't
  * satisfy. component_config / component_id always need a component context
- * and so are forbidden in every standalone graph; scene_entity is allowed
- * only in scene-node-scoped graphs (where the manager auto-feeds its
- * nodeId config).
+ * and so are forbidden in every standalone graph; scene_entity is allowed in
+ * scene-node- and compose-layer-scoped graphs (where the manager auto-feeds its
+ * nodeId config and its output type follows the scope), but not in
+ * project-scoped graphs, which have no owner entity.
  */
 function validateDescriptor(d: GraphDescriptor, ownerKind: string): void {
-  const sceneEntityAllowed = ownerKind === 'scene_node';
+  const sceneEntityAllowed =
+    ownerKind === 'scene_node' || ownerKind === 'compose_layer';
   for (const n of d.nodes) {
     if (ALWAYS_FORBIDDEN_CONTEXT_KINDS.has(n.kind)) {
       throw new Error(
@@ -354,8 +362,8 @@ function validateDescriptor(d: GraphDescriptor, ownerKind: string): void {
     }
     if (n.kind === 'scene_entity' && !sceneEntityAllowed) {
       throw new Error(
-        `scene_entity can only be used in scene-node-scoped graphs ` +
-          `(owner_kind 'scene_node'), not '${ownerKind}'.`
+        `scene_entity can only be used in scene-node- or compose-layer-scoped ` +
+          `graphs, not '${ownerKind}'.`
       );
     }
   }

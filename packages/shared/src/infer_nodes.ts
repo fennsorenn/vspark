@@ -89,6 +89,22 @@ export const inferSetData: InferPortsFn = (ctx: InferCtx): InferResult => {
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
+// scene_entity — context node: outputs the id of the entity its graph is scoped
+// to. The output TYPE follows the scope: `ComposeLayer` for a compose-layer-scoped
+// graph, otherwise `SceneNode` (scene-node-scoped graphs + component graphs). The
+// runtime value (a bare id string) is fed via config.nodeId by the host manager.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const inferSceneEntity: InferPortsFn = (ctx: InferCtx): InferResult => {
+  const outType =
+    ctx.ownerKind === 'compose_layer' ? 'ComposeLayer' : 'SceneNode';
+  return {
+    inputPorts: [],
+    outputPorts: [{ name: 'nodeId', type: RT.primitive(outType) }],
+  };
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
 // queue_events — FIFO passthrough; `popped` mirrors the enqueued payload type
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -147,6 +163,7 @@ export const inferUnpackEvent: InferPortsFn = (ctx: InferCtx): InferResult => {
 export const INFER_BY_KIND: Record<string, InferPortsFn> = {
   pack_event: inferPackEvent,
   set_data: inferSetData,
+  scene_entity: inferSceneEntity,
   queue_events: inferQueueEvents,
   unpack_event: inferUnpackEvent,
 };
