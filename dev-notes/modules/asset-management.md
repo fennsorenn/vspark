@@ -2,6 +2,11 @@
 
 Covers file upload, storage, discovery, and placement into scenes.
 
+> **WIP: video/audio assets** — adding `videos/` + `audio/` storage subfolders, video/audio
+> ext + MIME recognition (`routes/shared.ts`), `'video'`/`'audio'` asset-kind classification
+> (`api/client.ts`), and AssetManager tabs/actions for placing them as scene nodes / layers.
+> See [plans/video-audio-assets.md](../plans/video-audio-assets.md).
+
 ## Backend — `routes/api.ts`
 
 ### Storage layout

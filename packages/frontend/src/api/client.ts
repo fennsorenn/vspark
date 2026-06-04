@@ -131,11 +131,14 @@ function mapAsset(r: Record<string, unknown>): AssetFile {
   };
 }
 
-function guessAssetKind(name: string): 'model' | 'animation' | 'image' {
+function guessAssetKind(name: string): AssetKind {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   if (['fbx', 'bvh'].includes(ext)) return 'animation';
   if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'].includes(ext))
     return 'image';
+  if (['mp4', 'webm', 'mov', 'm4v', 'ogv'].includes(ext)) return 'video';
+  if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext))
+    return 'audio';
   return 'model';
 }
 
@@ -186,6 +189,8 @@ export interface NodeRecord {
   hidden?: boolean;
 }
 
+export type AssetKind = 'model' | 'animation' | 'image' | 'video' | 'audio';
+
 export interface AssetFile {
   id: string;
   projectId: string;
@@ -193,7 +198,7 @@ export interface AssetFile {
   storedPath: string;
   url: string;
   mimeType: string;
-  kind: 'model' | 'animation' | 'image';
+  kind: AssetKind;
 }
 
 export interface NodeComponentRecord {

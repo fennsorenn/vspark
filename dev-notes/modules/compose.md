@@ -29,6 +29,11 @@ Per-layer fields:
 
 Shared types live in [packages/shared/src/types.ts](../../packages/shared/src/types.ts) (`ComposeLayer`, `ComposeLayerKind`, anchor enums, `SCENE_RENDER_SLOT` constant) and Zod schemas in [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) (`createComposeLayerSchema`, `updateComposeLayerSchema`, `reorderComposeLayersSchema`).
 
+> **WIP: video/audio assets** — the `video` compose layer already renders but lacks
+> playback config (autoplay/loop/onEnd/muted/volume) + media-command-bus registration;
+> being finished alongside the new `video`/`audio` scene-node kinds.
+> See [plans/video-audio-assets.md](../plans/video-audio-assets.md).
+
 ## Phase 1 additions (signal-graph expansion) — implemented
 
 Graph-driven param mutation and a text layer kind.

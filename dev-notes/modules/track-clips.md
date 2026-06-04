@@ -2,6 +2,12 @@
 
 **Status: Implemented.**
 
+> **WIP: video/audio assets** — a second lane *flavour* carrying discrete timed
+> **event/markers** (new `track_clip_events` table + migration) that fire fire-and-forget
+> media commands at marker times via the media-command bus, evaluated client-side in
+> `useTrackClipEvaluator` with per-clip last-fired tracking. Distinct from the scalar
+> keyframe lanes. See [plans/video-audio-assets.md](../plans/video-audio-assets.md).
+
 Timeline-based parameter animation. A **track clip** is a short, triggerable, optionally-looping clip that animates scalar parameters on scene nodes or compose layers. Authored in the `'clips'` tab of the bottom dock; played back with a backend-authoritative playhead so multiple clients (editor + `ViewerPage`) stay in sync. Supports play / pause / resume / stop / seek (scrub).
 
 ## How this differs from `animation_clips`

@@ -2,6 +2,11 @@
 
 The reactive execution engine at the core of vspark. Defined in `packages/backend/src/signal/`.
 
+> **WIP: video/audio assets** — a new `media_control` signal node (single node with an
+> `action` config + `SceneEntity` target + optional `t`/`volume` inputs) dispatches
+> fire-and-forget play/pause/stop/seek/restart/setVolume onto the media-command bus, plus
+> an optional `media_ended` event. See [plans/video-audio-assets.md](../plans/video-audio-assets.md).
+
 ## Node model — class-instance / decorator (Phase 2)
 
 Signal nodes are **live class instances** that extend the abstract `Node` base class (`packages/shared/src/node.ts`). A node's **decorated members ARE its ports**. There is no `static execute` and no `static inputPorts/outputPorts` — that model is gone.

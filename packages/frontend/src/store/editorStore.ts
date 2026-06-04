@@ -87,6 +87,8 @@ export type BottomDockTab =
   | 'models'
   | 'animations'
   | 'images'
+  | 'videos'
+  | 'audio'
   | 'components'
   | 'effects'
   | 'clips'
@@ -121,6 +123,8 @@ const BOTTOM_TABS: BottomDockTab[] = [
   'models',
   'animations',
   'images',
+  'videos',
+  'audio',
   'components',
   'effects',
   'clips',

@@ -13,6 +13,8 @@ export type NodeKind =
   | 'prop'
   | 'godray_caster'
   | 'billboard'
+  | 'video'
+  | 'audio'
   | 'group'
   | 'text_troika'
   | 'text_canvas'
