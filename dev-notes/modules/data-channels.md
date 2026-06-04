@@ -54,54 +54,78 @@ next message, so a reconcile that wipes node state self-heals.)
 ## Generic half (the reusable part)
 
 ### `DataChannelManager` — `data_channels/manager.ts`
-Sibling of `RuntimeOverrideManager`. In-memory, **keyed by channel name only**
-(no sceneId, no targetKind/targetId, no paramPath coercion). Public API:
-`init(ws)`, `set(channel, payload)`, `clear(channel)`, `clearAll()`,
-`sendSnapshotTo(send)`. WS broadcasts: `data_channel_set {channel, payload}`,
-`data_channel_clear {channel}`, `data_channel_snapshot {entries}`.
+Sibling of `RuntimeOverrideManager`. In-memory, keyed by **`(scope, field)`** —
+`scope → Map<field, value>`:
+- **scope** — a consumer's id (a compose layer / scene node id), or `''` for
+  GLOBAL (visible to every consumer). A consumer reads `global ∪ its-own-id`.
+- **field** — one published value's label (the former "channel name"), referenced
+  by bare name in templates.
 
-Channels are **retained** until overwritten or cleared, and re-sent as a snapshot
-on every new WS connect (wired in `index.ts`'s `onClientConnected`, alongside the
+Public API: `init(ws)`, `set(scope, fields)` (**merge** — overwrites the named
+fields, leaves others; so two producers sharing a scope don't clobber),
+`seed(scope, fields)` (merge only fields not already present), `clear(scope,
+field?)`, `clearAll()`, `sendSnapshotTo(send)`. WS broadcasts:
+`data_channel_set {scope, fields}`, `data_channel_clear {scope, field?}`,
+`data_channel_snapshot {entries: [{scope, fields}]}`.
+
+Scopes/fields are **retained** until cleared, and re-sent as a snapshot on every
+new WS connect (wired in `index.ts`'s `onClientConnected`, alongside the
 track-clip + override snapshots) so a freshly-loaded editor/viewer matches
 current state.
 
-**Scoping decision (Phase 3):** the plan originally specced scene-scoped
-channels, but the motivating producer (`overlive_chat_feed` → `set_data`) is
-driven by the OverliveManager firing into **project-scoped graphs**, which have
-no scene context (the engine rejects an explicit `scene_entity` there). So the
-bus addresses by channel name only; "scene-scoping" is handled naturally on the
-frontend — a `feed` layer only mounts (and renders) when its compose scene is the
-one being shown. Channel-name uniqueness is the user's responsibility.
+**Scoping model:** the original Phase-3 bus addressed by a single flat channel
+name. It was reshaped (still pre-merge) so a `set_data` node exposes multiple
+labeled fields and optionally targets one consumer. Producers are
+project-scoped graphs with no scene context, so the bus can't infer a target —
+hence the explicit `scope` (a `SceneEntity` chosen on `set_data`). Unscoped =
+global. The consumer side needs no config: a `feed` layer/3D billboard listens on
+`global ∪ own-id` by identity, and only mounts when its compose scene is shown.
 
-**Known limitations** (deferred, as in the plan):
-- Whole-payload republish per `set` — no diff/debounce. Fine for chat rates.
-- No per-producer teardown clearing (channels are retained like a last value);
-  re-publishing replaces, and `clear`/`clearAll` exist for explicit resets.
+**Known limitations:**
+- Whole-value republish per field on each `fire` — no diff/debounce. Fine for
+  chat rates.
+- No per-producer teardown clearing (fields are retained like a last value);
+  re-publishing merges/replaces, and `clear`/`clearAll` exist for explicit resets.
+- Bare-name template access (`with(channels)`) requires field labels to be valid
+  JS identifiers; `set_data` `seed`s declared fields as `null` on bind so a
+  reference resolves before the first publish (otherwise a `ReferenceError`,
+  which the feed layer swallows to empty and retries on the next update).
 
 ### `set_data` node — `signal/nodes/set_data.ts`
-Generic sibling of `set_text`. in: `fire` (Trigger event), `channel` (String),
-`data` (Any — inferred from whatever is wired in). On `fire`, publishes
-`data()` to the named channel via `dataChannelManager.set`. The `data` input is a
-wildcard, so a record (`pack_event`), a list (`overlive_chat_feed.messages`), or
-a scalar all flow through unchanged.
+Publishes a set of user-defined named **fields** to the bus. Dynamic labeled
+input ports work exactly like `pack_event` — `config.fields: string[]` + the
+shared `inferSetData` in `shared/infer_nodes.ts` (registered in `INFER_BY_KIND`,
+which also flags it `dynamic` so the editor renders the same ports). Static ports:
+`fire` (Trigger event) and `scope` (`SceneEntity`). On `fire`, each declared
+field's value is read via `this.input(name)` and the whole record is published to
+the resolved scope (`scope().id`, else config fallback, else `''`/global) via
+`dataChannelManager.set`. `onBind` `seed`s the declared fields as `null` into the
+config-resolved scope (see bare-name note above).
+
+The `scope` input is a `SceneEntity` (`{kind:'scene_node'|'compose_layer', id}` —
+a new type tag in `shared/signal.ts` + `SIGNAL_TYPE_COLORS`). Unconnected, the
+node card renders a Nodes/Layers dropdown (`SceneEntitySelect` in
+`SignalNodeCard.tsx`, added to `STATIC_INPUT_TYPES`; the chosen `{kind,id}` lands
+in `config.scope`, read back via the engine's unconnected→config fallback). A
+node that outputs a `SceneEntity` can be wired in instead. The labeled-field
+editor (`PackFieldsEditor`) is now shown for both `pack_event` and `set_data`.
 
 ### `feed` compose layer — `ComposeLayerStack.tsx` (`FeedLayer`)
 New `ComposeLayerKind` `'feed'` (added to `shared/types.ts`,
 `shared/schema.ts`, and the frontend's local `ComposeLayerKind` in
 `api/client.ts`; icon + addable entry in `ComposeTree.tsx`; config editor in
-`ComposeLayerProperties.tsx`). Config:
-- `channel` — which data channel to subscribe to.
-- `template` — a **JSX-ish (htm) template** authored by the user.
-- `css` — static styles (injected scoped to this layer, see below).
+`ComposeLayerProperties.tsx`). Config is just `template` (a **JSX-ish (htm)
+template**) + `css` — **no channel/scope config**: the layer reads the fields
+visible to it (`global ∪ its-own-layer-id`) by identity.
 
 **Template engine = `htm`** (`htm.bind(React.createElement)`). The template is
 the body of an htm tagged-template literal; `compileTemplate` wraps it in a
-`new Function('html','data','Emote', 'return html`…`')` (memoised per source
-string) and re-renders are cheap. It produces **real React elements**, so
-reconciliation keys (`key=${m.id}`) handle per-item enter animation — no string
-diffing/morphdom. The channel payload is exposed to the template as `data`
-(array → loop with `${data.map(...)}`; record → reference fields directly), so
-the layer stays data-shape-independent.
+`new Function('html','Emote','channels', 'with(channels){ return html`…` }')`
+(memoised per source string) and re-renders are cheap. It produces **real React
+elements**, so reconciliation keys (`key=${m.id}`) handle per-item enter
+animation — no string diffing/morphdom. Every in-scope field is exposed to the
+template **by its bare name** via `with(channels)` (a field labeled `chat` →
+`${chat.map(...)}`), so the layer stays data-shape-independent and config-free.
 
 Engine choice (Phase 3): we evaluated safe-mdx (MDX→AST, no eval, ~10KB via a
 backend-parse split — even patched + measured working) but it **cannot render
@@ -116,8 +140,11 @@ already runs arbitrary web content. Revisit before any multi-user /
 untrusted-preset-import story. The only raw-HTML injection is the per-field
 `<Emote html=…>` helper, which DOMPurifies through `TEXT_SANITIZE_OPTS` (the
 emote allow-list); all structural markup is real React elements, never an HTML
-string. A `FeedErrorBoundary` (keyed on the template source) catches render-time
-throws so a bad template degrades to a placeholder instead of white-screening.
+string. `FeedContent` evaluates the template inside a synchronous `try/catch`
+(the htm tag builds its element tree eagerly), so a bare field referenced before
+its producer publishes — or a typo — renders as nothing and **retries on the next
+update** rather than latching; a `FeedErrorBoundary` (keyed on template source) is
+a backstop for any escaped throw. Compile-time syntax errors show a placeholder.
 
 **CSS scoping:** `css` is injected as `<style>@scope ([data-feed-scope="…"]) {
 … }</style>` with a per-layer `useId()` scope id, so two feed layers can't
@@ -126,22 +153,26 @@ Chromium / OBS browser source). Dynamic styles go inline in the template
 (`style=${{ color: m.color }}`).
 
 ### Frontend store + WS — `store/editorStore.ts`, `hooks/useWsSync.ts`
-`dataChannels: Record<channel, payload>` slice with `setDataChannel`,
-`clearDataChannel`, `replaceDataChannels`, parallel to the runtime-override
-slice. `useWsSync` handles `data_channel_set` / `data_channel_clear` /
-`data_channel_snapshot`. Shared by `Editor` and `ViewerPage` (both call
-`useWsSync` + render `ComposeLayerStack`), so streamed output matches the editor.
+`dataChannels: Record<scope, Record<field, value>>` slice with
+`mergeDataChannels(scope, fields)`, `clearDataChannels(scope, field?)`,
+`replaceDataChannels(entries)`. `useWsSync` handles `data_channel_set` /
+`data_channel_clear` / `data_channel_snapshot`. `FeedLayer` selects
+`dataChannels['']` and `dataChannels[layer.id]` and merges them (`global ∪ own`).
+Shared by `Editor` and `ViewerPage` (both call `useWsSync` + render
+`ComposeLayerStack`), so streamed output matches the editor.
 
 ## Wiring a chat overlay
-1. In a project (or scoped) graph: `overlive_chat_feed` → `set_data`
-   (`channel = 'chat'`): wire `update → fire` and `messages → data`.
-2. Add a `feed` compose layer (it ships a default chat `template` + `css`), set
-   its `channel` to `chat`. The default template loops the payload:
-   `${(data || []).map((m) => html`<div key=${m.id}>${m.displayName}: <${Emote} html=${m.html} /></div>`)}`.
+1. In a project (or scoped) graph: `overlive_chat_feed` → `set_data`. On
+   `set_data`, add a field named `chat`, then wire `feed.update → set_data.fire`
+   and `feed.messages → set_data.chat`. Leave `scope` unset for a global overlay,
+   or pick this feed layer to make the field private to it.
+2. Add a `feed` compose layer (it ships a default chat `template` + `css`). The
+   default template loops the bare field:
+   `${(chat || []).map((m) => html`<div key=${m.id}>${m.displayName}: <${Emote} html=${m.html} /></div>`)}`.
 3. Chat arrives → messages append + render; emotes show via `<Emote>`.
 
-A non-chat payload (a `pack_event` record, a static list) published to a
-different channel and rendered through a different template confirms the layer is
+Adding more labeled fields to one `set_data` (e.g. `donors`, `nowPlaying`) makes
+them all available to every in-scope template by name, confirming the layer is
 data-shape-independent.
 
 ## Cross-references

@@ -490,36 +490,6 @@ export function ComposeLayerProperties({
 
       {layer.kind === 'feed' && (
         <>
-          <div style={sectionHeader}>Data channel</div>
-          <input
-            type="text"
-            value={(layer.config.channel as string | undefined) ?? ''}
-            onChange={(e) =>
-              updateLayerLocal(layer.id, {
-                config: { ...layer.config, channel: e.target.value },
-              })
-            }
-            onBlur={(e) =>
-              api
-                .updateComposeLayer(layer.id, {
-                  config: { ...layer.config, channel: e.target.value },
-                })
-                .catch(() => {})
-            }
-            placeholder="e.g. chat"
-            style={textInput}
-          />
-          <div
-            style={{
-              fontSize: 10,
-              color: '#555',
-              lineHeight: 1.4,
-              marginTop: 4,
-            }}
-          >
-            Name of the channel a `set_data` node publishes to.
-          </div>
-
           <div style={sectionHeader}>Template</div>
           <textarea
             value={(layer.config.template as string | undefined) ?? ''}
@@ -536,7 +506,7 @@ export function ComposeLayerProperties({
                 .catch(() => {})
             }
             placeholder={
-              '<div className="chat">\n  ${(data || []).map((m) => html`\n    <div key=${m.id}>${m.displayName}: <${Emote} html=${m.html} /></div>\n  `)}\n</div>'
+              '<div className="chat">\n  ${(chat || []).map((m) => html`\n    <div key=${m.id}>${m.displayName}: <${Emote} html=${m.html} /></div>\n  `)}\n</div>'
             }
             rows={8}
             spellCheck={false}
@@ -556,10 +526,14 @@ export function ComposeLayerProperties({
               marginTop: 4,
             }}
           >
-            JSX-ish (htm) markup. The channel payload is <code>data</code> (loop
-            an array with <code>{'${data.map(...)}'}</code>). Use{' '}
-            <code>{'<${Emote} html=${m.html} />'}</code> for emote HTML. Use{' '}
-            <code>className</code>, not <code>class</code>.
+            JSX-ish (htm) markup. Each field a <code>set_data</code> node
+            publishes is in scope by its bare name (a field labeled{' '}
+            <code>chat</code> → <code>{'${chat.map(...)}'}</code>); guard with{' '}
+            <code>{'${(chat ?? []).map(...)}'}</code> until data arrives. Use{' '}
+            <code>{'<${Emote} html=${m.html} />'}</code> for emote HTML, and{' '}
+            <code>className</code>, not <code>class</code>. A{' '}
+            <code>set_data</code> with no scope is global; one scoped to this
+            layer is private to it.
           </div>
 
           <div style={sectionHeader}>Styles (CSS)</div>

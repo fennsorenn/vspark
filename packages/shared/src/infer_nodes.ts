@@ -58,6 +58,37 @@ export const inferPackEvent: InferPortsFn = (ctx: InferCtx): InferResult => {
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
+// set_data — user-defined named input FIELDS published to the data-channel bus
+//
+// Same dynamic-field mechanism as pack_event (config.fields: string[]), but the
+// fields are PUBLISHED (each label becomes a data-channel field) rather than
+// packed into an event payload. A static `scope` input (SceneEntity) optionally
+// targets which consumer the field-set is visible to; unwired → global. `fire`
+// triggers the publish. Has no output ports. A trailing empty slot is appended
+// so the editor can wire/name the next field. See dev-notes/modules/data-channels.md.
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface SetDataConfig {
+  fields?: string[];
+}
+
+export const inferSetData: InferPortsFn = (ctx: InferCtx): InferResult => {
+  const cfg = (ctx.config ?? {}) as SetDataConfig;
+  const fields = (cfg.fields ?? []).filter((f) => f.length > 0);
+
+  const inputPorts: ResolvedPort[] = [
+    { name: 'fire', type: RT.event(RT.primitive('Trigger')) },
+    { name: 'scope', type: RT.primitive('SceneEntity') },
+  ];
+  for (const name of fields) {
+    inputPorts.push({ name, type: ctx.resolvedInputs[name] ?? RT.unknown() });
+  }
+  inputPorts.push({ name: TRAILING_SLOT, type: RT.unknown() });
+
+  return { inputPorts, outputPorts: [] };
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
 // queue_events — FIFO passthrough; `popped` mirrors the enqueued payload type
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -65,7 +96,9 @@ export const inferQueueEvents: InferPortsFn = (ctx: InferCtx): InferResult => {
   const enq = ctx.resolvedInputs['enqueue'];
   // enqueue is an event port; its resolved type is Event<payload>. Mirror it onto popped.
   const poppedType: ResolvedType =
-    enq && enq.kind === 'event' ? RT.event(enq.payload) : RT.event(RT.unknown());
+    enq && enq.kind === 'event'
+      ? RT.event(enq.payload)
+      : RT.event(RT.unknown());
   return {
     inputPorts: [
       { name: 'enqueue', type: RT.event(RT.unknown()) },
@@ -113,6 +146,7 @@ export const inferUnpackEvent: InferPortsFn = (ctx: InferCtx): InferResult => {
 
 export const INFER_BY_KIND: Record<string, InferPortsFn> = {
   pack_event: inferPackEvent,
+  set_data: inferSetData,
   queue_events: inferQueueEvents,
   unpack_event: inferUnpackEvent,
 };

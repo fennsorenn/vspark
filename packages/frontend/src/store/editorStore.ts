@@ -397,12 +397,12 @@ interface EditorState {
   runtimeNodeOverrides: Record<string, RuntimeOverrideMap>;
   /** composeLayerId → paramPath → value, same as above for compose layers. */
   runtimeLayerOverrides: Record<string, RuntimeOverrideMap>;
-  /** channelName → last-published payload, fed by the data-channel bus
-   *  (`set_data` node → WS `data_channel_*`). Consumed by `feed` compose
-   *  layers, which render whatever shape the payload carries through a
-   *  user template. Addressed by name only; a feed layer only renders when
-   *  its compose scene is the one being shown. */
-  dataChannels: Record<string, unknown>;
+  /** scope → (field → last-published value), fed by the data-channel bus
+   *  (`set_data` node → WS `data_channel_*`). Consumed by `feed` compose layers
+   *  (and the 3D billboard), which expose every in-scope field to a user template
+   *  by its bare name. scope `''` is GLOBAL; other scopes are a consumer's own id
+   *  (a layer/node id). A consumer reads `global ∪ its-own-id`. */
+  dataChannels: Record<string, Record<string, unknown>>;
   /** Per-(target, param) suppression set: while a key is present, the evaluator
    *  must NOT apply that lane's value as an override, and the existing override
    *  slot for it should be cleared. Set when the user edits a numeric input on
@@ -554,13 +554,13 @@ interface EditorState {
   clearOverrideSuppressions: () => void;
 
   // Data channels (generic graph → frontend publish surface)
-  /** Apply a single data-channel publish broadcast from the data-channel bus. */
-  setDataChannel: (channel: string, payload: unknown) => void;
-  /** Clear a single data channel. */
-  clearDataChannel: (channel: string) => void;
+  /** Merge a published field-set into a scope (data-channel bus broadcast). */
+  mergeDataChannels: (scope: string, fields: Record<string, unknown>) => void;
+  /** Clear one field in a scope, or the whole scope when `field` is omitted. */
+  clearDataChannels: (scope: string, field?: string) => void;
   /** Bulk apply a snapshot (used on WS (re)connect). Replaces the whole map. */
   replaceDataChannels: (
-    entries: Array<{ channel: string; payload: unknown }>
+    entries: Array<{ scope: string; fields: Record<string, unknown> }>
   ) => void;
 
   // Presets
@@ -1028,18 +1028,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       return { runtimeNodeOverrides: nodes, runtimeLayerOverrides: layers };
     }),
-  setDataChannel: (channel, payload) =>
-    set((s) => ({ dataChannels: { ...s.dataChannels, [channel]: payload } })),
-  clearDataChannel: (channel) =>
+  mergeDataChannels: (scope, fields) =>
+    set((s) => ({
+      dataChannels: {
+        ...s.dataChannels,
+        [scope]: { ...(s.dataChannels[scope] ?? {}), ...fields },
+      },
+    })),
+  clearDataChannels: (scope, field) =>
     set((s) => {
-      if (!(channel in s.dataChannels)) return {};
-      const { [channel]: _, ...rest } = s.dataChannels;
-      return { dataChannels: rest };
+      const bucket = s.dataChannels[scope];
+      if (!bucket) return {};
+      if (field === undefined) {
+        const { [scope]: _, ...rest } = s.dataChannels;
+        return { dataChannels: rest };
+      }
+      if (!(field in bucket)) return {};
+      const { [field]: _, ...restFields } = bucket;
+      const next = { ...s.dataChannels };
+      if (Object.keys(restFields).length === 0) delete next[scope];
+      else next[scope] = restFields;
+      return { dataChannels: next };
     }),
   replaceDataChannels: (entries) =>
     set(() => {
-      const next: Record<string, unknown> = {};
-      for (const e of entries) next[e.channel] = e.payload;
+      const next: Record<string, Record<string, unknown>> = {};
+      for (const e of entries) next[e.scope] = { ...e.fields };
       return { dataChannels: next };
     }),
 

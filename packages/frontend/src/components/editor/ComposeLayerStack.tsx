@@ -339,7 +339,11 @@ function Emote({ html: raw }: { html?: string }) {
   );
 }
 
-type FeedRender = (html: unknown, data: unknown, Emote: unknown) => ReactNode;
+type FeedRender = (
+  html: unknown,
+  Emote: unknown,
+  channels: Record<string, unknown>
+) => ReactNode;
 
 interface CompiledTemplate {
   render: FeedRender | null;
@@ -353,8 +357,10 @@ const _templateCache = new Map<string, CompiledTemplate>();
 /**
  * Compile a feed template (JSX-ish htm body) into a render function. The body is
  * interpolated into an htm tagged-template literal and evaluated as JS via
- * `new Function` — htm has no build step. `data` (the channel payload) and the
- * `Emote` helper are in scope.
+ * `new Function` — htm has no build step. The published fields visible to this
+ * consumer are exposed as BARE NAMES via `with(channels)` (so a field labeled
+ * `chat` is referenced as `${chat.map(...)}`); the `Emote` helper is also in
+ * scope. Field names must be valid JS identifiers to be referenced bare.
  *
  * NOTE: templates execute as code. This is acceptable under vspark's local /
  * single-user model — no worse than the `browser` compose layer, which already
@@ -366,11 +372,14 @@ function compileTemplate(src: string): CompiledTemplate {
   if (hit) return hit;
   let result: CompiledTemplate;
   try {
+    // `with` is sloppy-mode only; a `new Function` body is sloppy by default, so
+    // it's allowed here and gives bare-name field access without knowing the
+    // field set at compile time.
     const fn = new Function(
       'html',
-      'data',
       'Emote',
-      `return html\`${src}\`;`
+      'channels',
+      `with (channels) { return html\`${src}\`; }`
     ) as FeedRender;
     result = { render: fn, error: null };
   } catch (e) {
@@ -383,15 +392,28 @@ function compileTemplate(src: string): CompiledTemplate {
   return result;
 }
 
-/** Renders the compiled template; isolated in its own component so a render-time
- *  throw is caught by the surrounding error boundary. */
-function FeedContent({ render, data }: { render: FeedRender; data: unknown }) {
-  return <>{render(html, data, Emote)}</>;
+/** Renders the compiled template. The htm tagged-template builds its React
+ *  element tree synchronously, so a throw here (a bare field referenced before
+ *  its producer has published, or a typo) is caught and rendered as nothing —
+ *  and retried on the next data update, rather than latching like an error
+ *  boundary would. Real syntax errors are caught at compile time. */
+function FeedContent({
+  render,
+  channels,
+}: {
+  render: FeedRender;
+  channels: Record<string, unknown>;
+}) {
+  try {
+    return <>{render(html, Emote, channels)}</>;
+  } catch {
+    return null;
+  }
 }
 
-/** Catches errors thrown while rendering a user template so a bad template
- *  degrades to a placeholder instead of white-screening the viewport. Reset by
- *  remounting (the parent keys it on the template source). */
+/** Backstop for any throw that escapes FeedContent's synchronous try/catch
+ *  (e.g. a deferred render-phase throw) so a bad template can't white-screen the
+ *  viewport. Reset by remounting (parent keys it on the template source). */
 class FeedErrorBoundary extends Component<
   { children: ReactNode },
   { failed: boolean }
@@ -401,37 +423,34 @@ class FeedErrorBoundary extends Component<
     return { failed: true };
   }
   render() {
-    if (this.state.failed) return <Placeholder text="template error" />;
+    if (this.state.failed) return null;
     return this.props.children;
   }
 }
 
 /**
- * Generic, data-shape-independent feed/template layer. Subscribes to a named
- * data channel (fed by the `set_data` signal node over WS) and renders the
- * channel payload through a user-authored JSX-ish (htm) template, exposed to the
- * template as `data` (an array → loop with `${data.map(...)}`; a record →
- * reference fields directly). Because the template produces real React elements
- * with stable keys, reconciliation handles per-item enter animation. Static
- * styles live in `config.css`, injected scoped to this layer via `@scope`.
- * See dev-notes/modules/data-channels.md.
+ * Generic, data-shape-independent feed/template layer. Renders the data-channel
+ * fields visible to this layer — the GLOBAL scope merged with this layer's own
+ * id scope (a `set_data` node optionally targets a layer/node id) — through a
+ * user-authored JSX-ish (htm) template. Every field is exposed to the template
+ * by its bare name (a field labeled `chat` → `${chat.map(...)}`). Because the
+ * template produces real React elements with stable keys, reconciliation handles
+ * per-item enter animation. Static styles live in `config.css`, injected scoped
+ * to this layer via `@scope`. See dev-notes/modules/data-channels.md.
  */
 function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
-  const cfg = layer.config as {
-    channel?: string;
-    template?: string;
-    css?: string;
-  };
-  const channel = typeof cfg.channel === 'string' ? cfg.channel : '';
-  const payload = useEditorStore((s) =>
-    channel ? s.dataChannels[channel] : undefined
+  const cfg = layer.config as { template?: string; css?: string };
+  const globalFields = useEditorStore((s) => s.dataChannels['']);
+  const ownFields = useEditorStore((s) => s.dataChannels[layer.id]);
+  const channels = useMemo(
+    () => ({ ...(globalFields ?? {}), ...(ownFields ?? {}) }),
+    [globalFields, ownFields]
   );
   const template = typeof cfg.template === 'string' ? cfg.template : '';
   const compiled = useMemo(() => compileTemplate(template), [template]);
   const rawScopeId = useId();
   const scopeId = `feed-${rawScopeId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
-  if (!channel) return <Placeholder text="no channel" />;
   if (!template) return <Placeholder text="empty template" />;
   if (!compiled.render) return <Placeholder text="template syntax error" />;
 
@@ -447,7 +466,7 @@ function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
     >
       {scopedCss && <style>{scopedCss}</style>}
       <FeedErrorBoundary key={template}>
-        <FeedContent render={compiled.render} data={payload ?? null} />
+        <FeedContent render={compiled.render} channels={channels} />
       </FeedErrorBoundary>
     </div>
   );

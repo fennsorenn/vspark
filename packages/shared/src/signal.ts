@@ -379,6 +379,14 @@ export interface SignalTypeMap {
     tmpClipId: string;
     kind: 'scene_node' | 'compose_layer';
   };
+  /**
+   * Reference to a scene entity — either a scene node or a compose layer —
+   * addressed by `{kind, id}`. Used as the `scope` input on `set_data` to target
+   * which consumer a published field-set is visible to (the consumer listens on
+   * its own id). The port editor renders a node/layer dropdown when nothing is
+   * wired in; a node that outputs a `SceneEntity` can be wired in instead.
+   */
+  SceneEntity: { kind: 'scene_node' | 'compose_layer'; id: string };
 }
 
 export type SignalTypeName = keyof SignalTypeMap;
@@ -447,6 +455,7 @@ export const SIGNAL_TYPE_COLORS: Record<SignalTypeName, string> = {
   IkTargets: '#a06a9a',
   Account: '#9146ff',
   SpawnRef: '#c97a3a',
+  SceneEntity: '#4aa0a0',
   Any: '#888888',
 };
 
