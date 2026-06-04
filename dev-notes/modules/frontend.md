@@ -151,8 +151,38 @@ Inspector for the selected node. Sections:
 - New **Blend transition** input on VRM avatar nodes writes to `node.properties.blendTransitionTime` (persisted via the `scene_nodes.properties` JSON column, migration 007). Default 0.5s. Controls the Viewport ramp between blend modes and between apply/don't-apply.
 - New `BreathingProps` panel for breathing components: **Chest amplitude** + **Shoulder lift** fields, writing to component config `chestAmplitude` / `shoulderAmplitude`. See [component-managers.md](component-managers.md) BreathingManager.
 
-### `AssetManager.tsx`
-File upload and asset library. Sends base64-encoded files to `POST /api/projects/:id/assets`.
+### `AssetManager.tsx` (bottom dock)
+The bottom dock. Tabs (`BottomDockTab` in the store, persisted to localStorage
+alongside `leftTab` + dock height): **Create, Models, Animations, Images,
+Components, Effects, Clips, Presets**. File upload sends base64 to
+`POST /api/projects/:id/assets`. Collections render as responsive tile grids.
+
+- **Create palette** (`CreatePalette.tsx`) — node kinds (when the left dock is
+  on Scene) or compose-layer kinds (when on Compose). The scene / compose-scene
+  `+` buttons no longer open their own dropdowns; they switch to this tab and
+  pulse it via `flashBottomTab` (a timestamp the dock watches to run a one-shot
+  CSS flash on the active tab).
+- **Shared kind registry** (`createKinds.ts`) — `NODE_KIND_DEFS` / `LAYER_KIND_DEFS`
+  + `createSceneNode` / `createLayer` / `createNodeFromModelAsset` /
+  `createBillboardFromImageAsset` / `nextNodeName` / `componentCompatibleWith`,
+  consumed by the scene tree, compose tree, and Create palette so all three add
+  entities the same way. Creation auto-names (deduped), selects the new entity,
+  and `requestFocusName()` focuses the Properties name field for inline rename.
+- **Drag-create** (`dnd.ts`) — Create tiles and asset cards are draggable onto
+  the scene tree (root / node-as-child), the viewport (scene root), and — for
+  layer tiles — a compose scene. Custom MIME types (`DND_CREATE_NODE` /
+  `DND_CREATE_LAYER` / `DND_ASSET`) so they don't collide with the internal
+  reparent drag; `handleSceneNodeDrop` is the shared drop handler.
+- **Tab relevance** — tabs relevant to the current selection get an accent
+  (non-destructive; nothing hidden/disabled). Components are split into
+  compatible vs "Other" via `componentCompatibleWith` (same split fixes the
+  scene-tree inline add-component menu's prior over-filter).
+- **Thumbnails** — `AssetThumb.tsx` previews images directly and lazily renders
+  cached 3D thumbnails for models via the shared offscreen renderer in
+  `modelThumb.ts`; animations show an icon.
+- **Pickers** — `PropertiesPanel` "Pick…" buttons (animation / texture /
+  background) flash the relevant asset tab (flash-only; the tab's existing
+  "Apply to <node>" buttons do the assignment).
 
 ### `signal/SignalGraphCanvas.tsx`
 Visual graph editor. Renders `SignalNodeCard` components connected by bezier edges. Node palette via `NodePalette`. Supports node drag, edge drawing, and live port value display (via `/api/signal/graphs/:id/node-states` polling).
