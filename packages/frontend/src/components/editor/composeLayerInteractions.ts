@@ -36,11 +36,16 @@ function anchorSigns(layer: ComposeLayerRecord): { sx: number; sy: number } {
 
 export type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
-/** Viewport pixel dimensions, used to convert px drag deltas into the layer's
- *  unit when a field is sized/positioned in '%'. */
+/** The coordinate frame a layer's stored x/y/width/height live in — its parent
+ *  layer's box (or the viewport, for a root layer). `width`/`height` are the
+ *  parent box dimensions in px (the basis for '%' fields); `angle` is the
+ *  parent's accumulated rotation in radians, used to map screen-space pointer
+ *  deltas into the parent's (possibly rotated) local axes so nested layers
+ *  drag/resize relative to their parent. */
 export interface ComposeFrame {
   width: number;
   height: number;
+  angle?: number;
 }
 
 /** Convert a screen-space px delta to the field's stored unit. */
@@ -75,11 +80,18 @@ export function startDrag(
   const emit = makePreviewEmitter(layer.id);
   const fw = frame?.width ?? 0;
   const fh = frame?.height ?? 0;
+  // Map screen-space deltas into the parent's local axes so a layer nested under
+  // a rotated parent still tracks the cursor along the parent's orientation.
+  const pa = frame?.angle ?? 0;
+  const cosP = Math.cos(pa);
+  const sinP = Math.sin(pa);
   let last: Partial<ComposeLayerRecord> | null = null;
 
   const move = (ev: PointerEvent) => {
-    const dx = ev.clientX - start.x;
-    const dy = ev.clientY - start.y;
+    const dxs = ev.clientX - start.x;
+    const dys = ev.clientY - start.y;
+    const dx = cosP * dxs + sinP * dys;
+    const dy = -sinP * dxs + cosP * dys;
     last = {
       x: start.lx + deltaInUnit(dx * sx, layer.config, 'xUnit', fw),
       y: start.ly + deltaInUnit(dy * sy, layer.config, 'yUnit', fh),
@@ -129,13 +141,18 @@ export function startResize(
   let last: Partial<ComposeLayerRecord> | null = null;
 
   // Project screen-space deltas onto the layer's local axes so rotated layers
-  // resize along their own edges. Anchor-aware position adjustment ensures that
-  // dragging the far edge from the anchor leaves the anchored edge pinned.
-  // (For rotated layers we don't fully compensate the centre shift, so the layer
-  // grows from its centre rather than its opposite edge — acceptable for v1.)
-  const rad = (layer.rotation * Math.PI) / 180;
+  // resize along their own edges. The layer's orientation in screen space is its
+  // own rotation plus the parent's accumulated rotation. Anchor-aware position
+  // adjustment ensures that dragging the far edge from the anchor leaves the
+  // anchored edge pinned. (For rotated layers we don't fully compensate the
+  // centre shift, so the layer grows from its centre rather than its opposite
+  // edge — acceptable for v1.)
+  const rad = (frame?.angle ?? 0) + (layer.rotation * Math.PI) / 180;
   const cosR = Math.cos(rad);
   const sinR = Math.sin(rad);
+  // Only the axis-aligned case can pin the anchored edge while moving the near
+  // edge; once the layer (or any ancestor) is rotated we grow from the centre.
+  const axisAligned = Math.abs(rad) < 1e-6;
 
   const move = (ev: PointerEvent) => {
     const dxs = ev.clientX - start.x;
@@ -156,7 +173,7 @@ export function startResize(
       // anchorH=right → far edge, grows by -dxl.
       if (layer.anchorH === 'right') {
         patch.width = Math.max(0, start.w - wUnit(dxl));
-      } else if (layer.rotation === 0) {
+      } else if (axisAligned) {
         patch.width = Math.max(0, start.w - wUnit(dxs));
         patch.x = start.lx + xUnit(dxs);
       }
@@ -170,7 +187,7 @@ export function startResize(
     } else if (touchesNorth) {
       if (layer.anchorV === 'bottom') {
         patch.height = Math.max(0, start.h - hUnit(dyl));
-      } else if (layer.rotation === 0) {
+      } else if (axisAligned) {
         patch.height = Math.max(0, start.h - hUnit(dys));
         patch.y = start.ly + yUnit(dys);
       }

@@ -383,14 +383,25 @@ function Placeholder({ text }: { text: string }) {
   );
 }
 
+/** Siblings stack by DOM order (later = on top), so we render ASCENDING by
+ *  sceneOrder: lowest first (back), highest last (front). This matches the
+ *  tree, where the top row is the front-most layer. */
+function orderSiblings(layers: ComposeLayerRecord[]): ComposeLayerRecord[] {
+  return [...layers].sort(
+    (a, b) => a.sceneOrder - b.sceneOrder || a.cameraOrder - b.cameraOrder
+  );
+}
+
 function LayerView({
   layer,
   assets,
   includeChain,
+  childrenByParent,
 }: {
   layer: ComposeLayerRecord;
   assets: AssetFile[];
   includeChain: string[];
+  childrenByParent: Map<string | null, ComposeLayerRecord[]>;
 }) {
   // Per-layer subscription to its track-clip override: this keeps re-renders
   // localized to layers being animated; idle layers don't re-render each rAF.
@@ -398,11 +409,15 @@ function LayerView({
   const runtimeOverride = useEditorStore(
     (s) => s.runtimeLayerOverrides[layer.id]
   );
+  // Child layers are nested INSIDE this layer's box, so their CSS left/top/
+  // width/height (and % units) resolve against this layer's content box and
+  // their rotation composes with ours — i.e. children are positioned, rotated
+  // and sized relative to their parent rather than the viewport.
+  const kids = orderSiblings(childrenByParent.get(layer.id) ?? []);
   // Layer wrappers are passive: pointer events go to the top-level capture
-  // overlay (ComposeEventCapture), which uses document.elementsFromPoint to
-  // find which layer is under the cursor via data-compose-layer-id. This
-  // single-owner model removes the need to route between layer wrappers,
-  // canvas, and selection chrome.
+  // overlay (ComposeEventCapture), which hit-tests layers analytically (see
+  // composeHitTest) via data-compose-layer-id. This single-owner model removes
+  // the need to route between layer wrappers, canvas, and selection chrome.
   return (
     <div
       data-compose-layer-id={layer.id}
@@ -412,6 +427,15 @@ function LayerView({
       }}
     >
       <LayerContent layer={layer} assets={assets} includeChain={includeChain} />
+      {kids.map((k) => (
+        <LayerView
+          key={k.id}
+          layer={k}
+          assets={assets}
+          includeChain={includeChain}
+          childrenByParent={childrenByParent}
+        />
+      ))}
     </div>
   );
 }
@@ -421,16 +445,21 @@ export function ComposeLayerStack({
   assets,
   includeChain = [],
 }: ComposeLayerStackProps) {
-  // Single z-ordered pass. Convention: higher sceneOrder = more in front (top
-  // of the layer tree). Absolutely-positioned siblings with no zIndex stack by
-  // DOM order (later = on top), so we sort ASCENDING here: lowest sceneOrder
-  // first in the DOM (back), highest last (front). This makes the rendered
-  // stacking match the tree, where the top row is the front-most layer.
-  const ordered = [...layers]
-    .filter((l) => l.kind !== 'compose_scene' && l.kind !== 'group')
-    .sort(
-      (a, b) => a.sceneOrder - b.sceneOrder || a.cameraOrder - b.cameraOrder
-    );
+  // Build the parent→children map for hierarchical rendering. A layer roots the
+  // stack when it has no parent OR its parent isn't part of this layer set
+  // (e.g. the parent is the compose_scene row, or a dangling/cross-scene
+  // parent) — so it can never be orphaned out of the render entirely. This
+  // mirrors ComposeTree's nesting logic. `group` layers stay in the map as
+  // transparent container boxes; only the compose_scene root is excluded.
+  const present = new Set(layers.map((l) => l.id));
+  const childrenByParent = new Map<string | null, ComposeLayerRecord[]>();
+  for (const l of layers) {
+    if (l.kind === 'compose_scene') continue;
+    const key = l.parentId && present.has(l.parentId) ? l.parentId : null;
+    if (!childrenByParent.has(key)) childrenByParent.set(key, []);
+    childrenByParent.get(key)!.push(l);
+  }
+  const roots = orderSiblings(childrenByParent.get(null) ?? []);
 
   // The container stays pointer-transparent so empty space falls through to the
   // parent viewport (click-to-deselect). Individual layer wrappers re-enable
@@ -445,12 +474,13 @@ export function ComposeLayerStack({
         pointerEvents: 'none',
       }}
     >
-      {ordered.map((l) => (
+      {roots.map((l) => (
         <LayerView
           key={l.id}
           layer={l}
           assets={assets}
           includeChain={includeChain}
+          childrenByParent={childrenByParent}
         />
       ))}
     </div>
