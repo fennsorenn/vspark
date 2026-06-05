@@ -78,6 +78,13 @@ import {
 import type { VmcCalibration } from '../../calibration';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
 import { registerMedia } from './mediaRegistry';
+import {
+  makeVideoMaterial,
+  updateVideoMaterial,
+  applyVideoBlend,
+  readChroma,
+  type VideoBlend3D,
+} from './videoFx';
 import { api } from '../../api/client';
 import { BoneFilterBank } from '../../oneEuroFilter';
 import {
@@ -2906,6 +2913,8 @@ interface VideoConfig {
   onEnd: 'freeze' | 'hide';
   muted: boolean;
   volume: number;
+  blendMode: VideoBlend3D;
+  chromaKey?: Record<string, unknown>;
 }
 
 const VIDEO_DEFAULTS: VideoConfig = {
@@ -2920,6 +2929,7 @@ const VIDEO_DEFAULTS: VideoConfig = {
   onEnd: 'freeze',
   muted: true,
   volume: 1,
+  blendMode: 'normal',
 };
 
 /** A flat-mounted plane textured with a live <video> element. Mirrors
@@ -2936,15 +2946,24 @@ function VideoNode({
 }) {
   const outerRef = useRef<THREE.Group>(null);
   const billboardRef = useRef<THREE.Group>(null);
-  const frontRef = useRef<THREE.Mesh>(null);
-  const backRef = useRef<THREE.Mesh>(null);
   const t = useTransformWithOverride(node);
-  useApplyOpacity(outerRef, t.opacity);
   const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
   const vc: VideoConfig = {
     ...VIDEO_DEFAULTS,
     ...((node.components?.video ?? {}) as Partial<VideoConfig>),
   };
+  const chroma = readChroma(vc.chromaKey);
+
+  // ShaderMaterials handle chroma key + opacity + blend (and UV-mirror the back
+  // face). Created once; uniforms/blending pushed via effects below.
+  const frontMat = useMemo(() => makeVideoMaterial(), []);
+  const backMat = useMemo(() => makeVideoMaterial(), []);
+  useEffect(() => {
+    return () => {
+      frontMat.dispose();
+      backMat.dispose();
+    };
+  }, [frontMat, backMat]);
 
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const textureRef = useRef<THREE.VideoTexture | null>(null);
@@ -2953,19 +2972,13 @@ function VideoNode({
   // (Re)create the <video> element + texture when the source changes.
   useEffect(() => {
     setHidden(false);
-    const applyMap = (m: THREE.Mesh | null, map: THREE.Texture | null) => {
-      if (!m) return;
-      const mat = m.material as THREE.MeshBasicMaterial;
-      mat.map = map;
-      mat.needsUpdate = true;
-    };
     if (!vc.sourceUrl) {
       videoElRef.current?.pause();
       videoElRef.current = null;
       textureRef.current?.dispose();
       textureRef.current = null;
-      applyMap(frontRef.current, null);
-      applyMap(backRef.current, null);
+      frontMat.uniforms.map.value = null;
+      backMat.uniforms.map.value = null;
       return;
     }
     const el = document.createElement('video');
@@ -2978,8 +2991,8 @@ function VideoNode({
     const tex = new THREE.VideoTexture(el);
     tex.colorSpace = THREE.SRGBColorSpace;
     textureRef.current = tex;
-    applyMap(frontRef.current, tex);
-    if (vc.backface !== 'none') applyMap(backRef.current, tex);
+    frontMat.uniforms.map.value = tex;
+    backMat.uniforms.map.value = tex;
 
     const onEnded = () => {
       if (el.loop) return;
@@ -2992,7 +3005,32 @@ function VideoNode({
       el.pause();
       tex.dispose();
     };
-  }, [vc.sourceUrl, vc.loop, vc.backface, vc.onEnd]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [vc.sourceUrl, vc.loop, vc.onEnd, frontMat, backMat]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Push chroma / opacity / blend / mirror into the materials.
+  useEffect(() => {
+    const opacity = Math.max(0, Math.min(1, t.opacity)) * vc.alpha;
+    updateVideoMaterial(frontMat, { opacity, flipX: false, chroma });
+    updateVideoMaterial(backMat, {
+      opacity,
+      flipX: vc.backface === 'mirror',
+      chroma,
+    });
+    applyVideoBlend(frontMat, vc.blendMode);
+    applyVideoBlend(backMat, vc.blendMode);
+  }, [
+    frontMat,
+    backMat,
+    t.opacity,
+    vc.alpha,
+    vc.backface,
+    vc.blendMode,
+    chroma.enabled,
+    chroma.color,
+    chroma.similarity,
+    chroma.smoothness,
+    chroma.spill,
+  ]);
 
   // Apply audibility + volume. Video audio plays in the viewer, or in the
   // editor only when preview is enabled; honours the per-node muted flag.
@@ -3075,26 +3113,12 @@ function VideoNode({
       visible={!hidden}
     >
       <group ref={billboardRef}>
-        <mesh ref={frontRef}>
+        <mesh material={frontMat}>
           <planeGeometry args={[w, h]} />
-          <meshBasicMaterial
-            color="#ffffff"
-            transparent
-            opacity={vc.alpha}
-            side={THREE.FrontSide}
-            depthWrite={false}
-          />
         </mesh>
         {vc.backface !== 'none' && (
-          <mesh ref={backRef} rotation={[0, Math.PI, 0]}>
+          <mesh material={backMat} rotation={[0, Math.PI, 0]}>
             <planeGeometry args={[w, h]} />
-            <meshBasicMaterial
-              color="#ffffff"
-              transparent
-              opacity={vc.alpha}
-              side={THREE.FrontSide}
-              depthWrite={false}
-            />
           </mesh>
         )}
       </group>

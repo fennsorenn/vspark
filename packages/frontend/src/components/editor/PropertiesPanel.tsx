@@ -5118,6 +5118,99 @@ export function PropertiesPanel() {
                     onSave={saveVc}
                   />
                 </div>
+                <div style={sectionHeader}>Effects</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {row(
+                    'Blend',
+                    <select
+                      style={sel}
+                      value={(vc.blendMode as string) ?? 'normal'}
+                      onChange={(e) => saveVc({ blendMode: e.target.value })}
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="additive">Additive</option>
+                      <option value="multiply">Multiply</option>
+                      <option value="screen">Screen</option>
+                    </select>
+                  )}
+                  {(() => {
+                    const ck: Record<string, unknown> = {
+                      enabled: false,
+                      color: '#00ff00',
+                      similarity: 0.4,
+                      smoothness: 0.08,
+                      spill: 0.1,
+                      ...((vc.chromaKey ?? {}) as Record<string, unknown>),
+                    };
+                    const saveCk = (p: Record<string, unknown>) =>
+                      saveVc({ chromaKey: { ...ck, ...p } });
+                    return (
+                      <>
+                        {row(
+                          'Chroma key',
+                          <input
+                            type="checkbox"
+                            checked={ck.enabled as boolean}
+                            onChange={(e) =>
+                              saveCk({ enabled: e.target.checked })
+                            }
+                          />
+                        )}
+                        {(ck.enabled as boolean) && (
+                          <>
+                            {row(
+                              'Key color',
+                              <input
+                                type="color"
+                                value={ck.color as string}
+                                onChange={(e) =>
+                                  saveCk({ color: e.target.value })
+                                }
+                                style={{
+                                  width: 40,
+                                  height: 22,
+                                  background: 'none',
+                                  border: '1px solid #3a3a3a',
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                }}
+                              />
+                            )}
+                            <EffectRow
+                              label="Similarity"
+                              cfg={ck}
+                              field="similarity"
+                              step={0.01}
+                              min={0}
+                              max={1}
+                              onSave={saveCk}
+                            />
+                            <EffectRow
+                              label="Smoothness"
+                              cfg={ck}
+                              field="smoothness"
+                              step={0.01}
+                              min={0}
+                              max={1}
+                              onSave={saveCk}
+                            />
+                            <EffectRow
+                              label="Spill"
+                              cfg={ck}
+                              field="spill"
+                              step={0.01}
+                              min={0}
+                              max={1}
+                              onSave={saveCk}
+                            />
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
                 <div style={sectionHeader}>Plane</div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}

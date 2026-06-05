@@ -8,6 +8,8 @@ import {
 } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import { registerMedia } from './mediaRegistry';
+import { ChromaVideoCanvas } from './ChromaVideoCanvas';
+import { readChroma } from './videoFx';
 import type {
   ComposeLayerRecord,
   AssetFile,
@@ -98,6 +100,10 @@ function layerStyle(
     (typeof layer.config.opacity === 'number' ? layer.config.opacity : 1);
 
   const cfg = layer.config;
+  const blendMode =
+    typeof cfg.blendMode === 'string' && cfg.blendMode !== 'normal'
+      ? (cfg.blendMode as CSSProperties['mixBlendMode'])
+      : undefined;
   const style: CSSProperties = {
     position: 'absolute',
     width: cssLen(width, cfg, 'widthUnit'),
@@ -106,6 +112,7 @@ function layerStyle(
     transformOrigin: 'center center',
     visibility: layer.visible ? 'visible' : 'hidden',
     opacity,
+    mixBlendMode: blendMode,
     overflow: 'hidden',
   };
   const xLen = cssLen(x, cfg, 'xUnit');
@@ -267,26 +274,35 @@ function VideoLayer({
     });
   }, [layer.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const chroma = readChroma(cfg.chromaKey as Record<string, unknown>);
+
   return (
-    <video
-      ref={ref}
-      src={url}
-      autoPlay={autoplay}
-      loop={loop}
-      muted
-      playsInline
-      onEnded={() => {
-        if (!loop && onEnd === 'hide') setHidden(true);
-      }}
-      style={{
-        width: '100%',
-        height: '100%',
-        objectFit,
-        display: 'block',
-        visibility: hidden ? 'hidden' : 'visible',
-        pointerEvents: 'none',
-      }}
-    />
+    <>
+      <video
+        ref={ref}
+        src={url}
+        autoPlay={autoplay}
+        loop={loop}
+        muted
+        playsInline
+        crossOrigin="anonymous"
+        onEnded={() => {
+          if (!loop && onEnd === 'hide') setHidden(true);
+        }}
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit,
+          // While keying, the <video> is the off-screen source for the canvas.
+          display: chroma.enabled ? 'none' : 'block',
+          visibility: hidden ? 'hidden' : 'visible',
+          pointerEvents: 'none',
+        }}
+      />
+      {chroma.enabled && !hidden && (
+        <ChromaVideoCanvas videoRef={ref} chroma={chroma} objectFit={objectFit} />
+      )}
+    </>
   );
 }
 
