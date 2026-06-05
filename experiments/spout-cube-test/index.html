@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>spout-cube-test</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #202428;
+      }
+      /* This number is part of the rendered page, so it shows up in the
+         Spout/OBS output too — when the game grabs fullscreen you can SEE
+         whether the frame rate holds, right inside OBS. */
+      #fps {
+        position: absolute;
+        top: 10px;
+        left: 12px;
+        z-index: 10;
+        font: bold 30px/1 monospace;
+        color: #25e06a;
+        text-shadow: 0 0 5px #000, 0 0 5px #000;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="fps">-- fps</div>
+
+    <script type="module">
+      // three.js pinned to the same version vspark uses. Loaded from a CDN to
+      // keep this test tiny; if the machine has no/limited network, download
+      // three.module.js next to this file and change the import path below.
+      import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js';
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(1);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x202428);
+
+      const camera = new THREE.PerspectiveCamera(
+        50,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        100,
+      );
+      camera.position.set(2.5, 2, 3.5);
+      camera.lookAt(0, 0.5, 0);
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+      const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+      dir.position.set(5, 8, 5);
+      scene.add(dir);
+
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: 0x3aa0ff, roughness: 0.35, metalness: 0.1 }),
+      );
+      cube.position.y = 0.5;
+      scene.add(cube);
+
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(10, 10),
+        new THREE.MeshStandardMaterial({ color: 0x2a2f36 }),
+      );
+      ground.rotation.x = -Math.PI / 2;
+      scene.add(ground);
+
+      // In-page FPS meter (measures the page's own render-loop rate).
+      const fpsEl = document.getElementById('fps');
+      let frames = 0;
+      let last = performance.now();
+      setInterval(() => {
+        const now = performance.now();
+        fpsEl.textContent = Math.round((frames * 1000) / (now - last)) + ' fps';
+        frames = 0;
+        last = now;
+      }, 500);
+
+      renderer.setAnimationLoop((t) => {
+        cube.rotation.x = t * 0.0006;
+        cube.rotation.y = t * 0.0009;
+        renderer.render(scene, camera);
+        frames++;
+      });
+
+      addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    </script>
+  </body>
+</html>

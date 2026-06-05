@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>headless throttle test</title>
+    <style>
+      body {
+        font: 14px system-ui, sans-serif;
+        margin: 18px;
+        color: #e6e6e6;
+        background: #1d2024;
+      }
+      h3 {
+        margin: 0 0 8px;
+      }
+      p {
+        color: #9aa3ad;
+      }
+      button {
+        font: inherit;
+        padding: 8px 14px;
+        cursor: pointer;
+        background: #2a2f36;
+        color: #e6e6e6;
+        border: 1px solid #3a4047;
+        border-radius: 6px;
+      }
+      #status {
+        margin-top: 16px;
+        white-space: pre-wrap;
+        font: 14px/1.5 monospace;
+        color: #25e06a;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>Headless throttle test</h3>
+    <p>
+      Renders a cube in headless Edge and measures real FPS for 10s. Click Run, then
+      bring your game to the FOREGROUND in fullscreen and watch the result.
+    </p>
+    <button id="run">Run test (10s)</button>
+    <div id="status">Idle.</div>
+
+    <script>
+      const { ipcRenderer } = require('electron');
+      document.getElementById('run').onclick = () => {
+        document.getElementById('status').textContent = 'Starting…';
+        ipcRenderer.send('run');
+      };
+      ipcRenderer.on('status', (_e, msg) => {
+        document.getElementById('status').textContent = msg;
+      });
+    </script>
+  </body>
+</html>

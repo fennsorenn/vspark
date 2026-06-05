@@ -1,0 +1,24 @@
+{
+  "name": "headless-test",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Measures headless-Chromium (Edge) render FPS via CDP screencast while a game is fullscreen — tests whether a headless surface escapes the throttle. Standalone — not part of the vspark workspace.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  },
+  "devDependencies": {
+    "electron": "30.0.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "dev.vspark.headlesstest",
+    "productName": "headless-test",
+    "win": { "target": "portable" },
+    "portable": { "artifactName": "headless-test-${version}.exe" }
+  }
+}

@@ -1,0 +1,167 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>vspark viewer launcher</title>
+    <style>
+      body {
+        font: 14px system-ui, sans-serif;
+        margin: 18px;
+        color: #e6e6e6;
+        background: #1d2024;
+      }
+      h3 {
+        margin: 0 0 12px;
+      }
+      label {
+        display: block;
+        margin: 10px 0 4px;
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+        padding: 6px 8px;
+        background: #2a2f36;
+        color: #e6e6e6;
+        border: 1px solid #3a4047;
+        border-radius: 6px;
+      }
+      input,
+      select {
+        width: 100%;
+        box-sizing: border-box;
+      }
+      button {
+        cursor: pointer;
+        margin-top: 12px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+      }
+      .row > * {
+        flex: 1;
+      }
+      fieldset {
+        margin-top: 14px;
+        border: 1px solid #3a4047;
+        border-radius: 6px;
+      }
+      fieldset label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      fieldset input {
+        width: auto;
+      }
+      #status {
+        margin-top: 6px;
+        color: #9aa3ad;
+        min-height: 1.2em;
+      }
+      #fps {
+        margin-top: 14px;
+        font: bold 18px monospace;
+        color: #25e06a;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>vspark viewer launcher</h3>
+
+    <label>Server URL (where the vspark frontend is served)</label>
+    <div class="row">
+      <input id="url" value="http://localhost:3001" />
+      <button id="connect" style="flex: 0 0 auto; margin-top: 0">Connect</button>
+    </div>
+    <div id="status"></div>
+
+    <label>Project</label>
+    <select id="project"></select>
+
+    <label>Target (camera or compose scene)</label>
+    <select id="target"></select>
+
+    <fieldset>
+      <legend>Render mode</legend>
+      <label><input type="radio" name="mode" value="window" checked /> Windowed (normal viewer)</label>
+      <label><input type="radio" name="mode" value="offscreen" /> Offscreen + FPS (throttle test)</label>
+    </fieldset>
+
+    <div class="row">
+      <button id="open">Open viewer</button>
+      <button id="close">Close viewer</button>
+    </div>
+
+    <div id="fps">FPS: --</div>
+
+    <script>
+      const { ipcRenderer } = require('electron');
+      const $ = (id) => document.getElementById(id);
+      const base = () => $('url').value.replace(/\/+$/, '');
+
+      $('connect').onclick = async () => {
+        $('status').textContent = 'Connecting...';
+        try {
+          const res = await ipcRenderer.invoke('api:projects', base());
+          const projects = (res && res.data) || [];
+          $('project').innerHTML = projects
+            .map((p) => `<option value="${p.id}">${p.name}</option>`)
+            .join('');
+          $('status').textContent = `${projects.length} project(s) found`;
+          if (projects.length) loadScenes();
+          else $('target').innerHTML = '';
+        } catch (e) {
+          $('status').textContent = 'Error: ' + e.message + ' (is the server running?)';
+        }
+      };
+
+      $('project').onchange = loadScenes;
+
+      async function loadScenes() {
+        const pid = $('project').value;
+        if (!pid) return;
+        try {
+          const res = await ipcRenderer.invoke('api:scenes', base(), pid);
+          const data = (res && res.data) || {};
+          const opts = [];
+          for (const l of data.composeLayers || []) {
+            if (l.kind === 'compose_scene')
+              opts.push({ label: `[compose] ${l.name}`, path: `/viewer/${pid}/compose/${l.id}` });
+          }
+          for (const n of data.nodes || []) {
+            if (n.kind === 'camera')
+              opts.push({ label: `[camera] ${n.name}`, path: `/viewer/${pid}/${n.id}` });
+          }
+          $('target').innerHTML = opts.length
+            ? opts.map((o) => `<option value="${o.path}">${o.label}</option>`).join('')
+            : '<option value="">(no cameras / compose scenes)</option>';
+        } catch (e) {
+          $('status').textContent = 'Error loading scenes: ' + e.message;
+        }
+      }
+
+      $('open').onclick = () => {
+        const path = $('target').value;
+        if (!path) {
+          $('status').textContent = 'Pick a target first.';
+          return;
+        }
+        const mode = document.querySelector('input[name=mode]:checked').value;
+        ipcRenderer.send('open-viewer', { url: base() + path, mode });
+        $('fps').textContent = mode === 'offscreen' ? 'FPS: measuring...' : 'FPS: (windowed mode)';
+      };
+
+      $('close').onclick = () => {
+        ipcRenderer.send('close-viewer');
+        $('fps').textContent = 'FPS: --';
+      };
+
+      ipcRenderer.on('fps', (_e, n) => {
+        $('fps').textContent = `FPS (offscreen produced): ${n}`;
+      });
+    </script>
+  </body>
+</html>
