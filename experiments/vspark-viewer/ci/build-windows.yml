@@ -1,0 +1,29 @@
+# Builds the standalone Windows test apps under experiments/ into double-click
+# portable .exe files and uploads them as downloadable artifacts.
+#
+# Run it manually: Actions tab -> "build viewer experiments (Windows)" -> Run
+# workflow. When it finishes, download the artifact, unzip, and hand the .exe to
+# the test machine. No Node/toolchain needed on that machine.
+name: build viewer experiments (Windows)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vspark-viewer:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: experiments/vspark-viewer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vspark-viewer-portable
+          path: experiments/vspark-viewer/dist/*.exe
+          if-no-files-found: error
