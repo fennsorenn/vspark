@@ -1,0 +1,4 @@
+node_modules/
+# Per-machine native addon — build/copy locally, see README.
+electron_spout.node
+three.module.js
