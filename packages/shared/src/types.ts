@@ -484,6 +484,10 @@ export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 export interface UpdateStatus {
   updateAvailable: boolean;
   downloadReady: boolean;
+  /** Bytes downloaded so far while a download is in progress (else null). */
+  downloadedBytes: number | null;
+  /** Total bytes to download, from Content-Length (null if unknown). */
+  totalBytes: number | null;
   currentVersion: string;
   latestVersion: string | null;
   releaseNotes: string | null;

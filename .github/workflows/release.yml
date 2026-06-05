@@ -95,12 +95,10 @@ jobs:
             platform: win-x64
             node_binary: node.exe
             start_script: start.bat
-            updater_script: updater.bat
           - os: ubuntu-latest
             platform: linux-x64
             node_binary: node
             start_script: start.sh
-            updater_script: updater.sh
 
     runs-on: ${{ matrix.os }}
 
@@ -152,42 +150,48 @@ jobs:
               "node-v${NODE_VERSION}-linux-x64/bin/node"
           fi
 
+      # The start script supervises the server: it runs it in a loop, and when
+      # the server exits with code 42 (UPDATE_EXIT_CODE in update.ts) it applies
+      # the downloaded update zip in place and relaunches — all in the SAME
+      # console, so the terminal the user launched from is never orphaned. Any
+      # other exit code stops normally. The zip is written by the server to
+      # <parent-of-vspark>/vspark-update.zip (downloadZipPath() in update.ts).
       - name: Write start script
         shell: bash
         run: |
           if [[ "${{ matrix.platform }}" == "win-x64" ]]; then
-            python3 -c "open('packages/backend/dist/start.bat','wb').write(b'@echo off\r\n\"%~dp0node.exe\" \"%~dp0bundle.cjs\"\r\n')"
-          else
-            printf '#!/bin/sh\nDIR="$(cd "$(dirname "$0")" && pwd)"\n"$DIR/node" "$DIR/bundle.cjs"\n' \
-              > packages/backend/dist/start.sh
-            chmod +x packages/backend/dist/start.sh
-          fi
-
-      - name: Write updater script
-        shell: bash
-        run: |
-          if [[ "${{ matrix.platform }}" == "win-x64" ]]; then
-            cat > packages/backend/dist/updater.bat << 'SCRIPT'
+            cat > packages/backend/dist/start.bat << 'SCRIPT'
           @echo off
-          set PID=%1
-          set ZIP=%2
-          set INSTALLDIR=%3
-          :wait
-          tasklist /FI "PID eq %PID%" | find "%PID%" >nul && timeout /t 1 /nobreak >nul && goto wait
-          powershell -Command "Expand-Archive -Force -Path '%ZIP%' -DestinationPath '%INSTALLDIR%'"
-          start "" "%INSTALLDIR%\vspark\start.bat"
+          setlocal
+          set "DIR=%~dp0"
+          set "ZIP=%DIR%..\vspark-update.zip"
+          :loop
+          "%DIR%node.exe" "%DIR%bundle.cjs"
+          if errorlevel 42 if not errorlevel 43 (
+            echo [update] applying update...
+            powershell -NoProfile -Command "Expand-Archive -Force -Path '%ZIP%' -DestinationPath '%DIR%..'"
+            del "%ZIP%" 2>nul
+            goto loop
+          )
+          endlocal
           SCRIPT
           else
-            cat > packages/backend/dist/updater.sh << 'SCRIPT'
+            cat > packages/backend/dist/start.sh << 'SCRIPT'
           #!/bin/sh
-          PID=$1
-          ZIP=$2
-          INSTALLDIR=$3
-          while kill -0 $PID 2>/dev/null; do sleep 1; done
-          unzip -o "$ZIP" -d "$INSTALLDIR"
-          "$INSTALLDIR/vspark/start.sh" &
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          ZIP="$DIR/../vspark-update.zip"
+          while :; do
+            "$DIR/node" "$DIR/bundle.cjs"
+            code=$?
+            if [ "$code" -eq 42 ]; then
+              echo "[update] applying update..."
+              unzip -o "$ZIP" -d "$DIR/.." && rm -f "$ZIP"
+              continue
+            fi
+            exit "$code"
+          done
           SCRIPT
-            chmod +x packages/backend/dist/updater.sh
+            chmod +x packages/backend/dist/start.sh
           fi
 
       - name: Package release zip
@@ -199,7 +203,6 @@ jobs:
           cp -r packages/backend/dist/public release/vspark/
           cp packages/backend/dist/${{ matrix.node_binary }} release/vspark/
           cp packages/backend/dist/${{ matrix.start_script }} release/vspark/
-          cp packages/backend/dist/${{ matrix.updater_script }} release/vspark/
           cp packages/backend/dist/version.json release/vspark/
           cd release
           if [[ "${{ matrix.platform }}" == "win-x64" ]]; then
