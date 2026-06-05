@@ -54,9 +54,16 @@ jobs:
             --runtime=electron --runtime-version=30.0.1 --arch=x64 \
             --CDCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
             --CDCMAKE_MSVC_RUNTIME_LIBRARY='MultiThreaded$<$<CONFIG:Debug>:Debug>DLL'
-          cp build/Release/electron_spout.node .. 2>/dev/null \
-            || cp build/electron_spout.node .. 2>/dev/null \
-            || find . -name electron_spout.node -exec cp {} .. \;
+          # cmake-js emits the addon as "electron-spout.node" (hyphen), but the
+          # app requires "./electron_spout.node" (underscore) — copy to that name.
+          # Accept either spelling as the source and verify the file landed.
+          SRC="$(find build -name 'electron[-_]spout.node' -print -quit)"
+          if [ -z "$SRC" ]; then
+            echo "Built addon not found under build/ — Spout will be absent."
+            exit 1
+          fi
+          cp "$SRC" ../electron_spout.node
+          ls -l ../electron_spout.node
 
       - name: Report whether Spout addon was built
         shell: bash
