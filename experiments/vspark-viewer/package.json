@@ -15,7 +15,9 @@
   "build": {
     "appId": "dev.vspark.viewer",
     "productName": "vspark-viewer",
-    "files": ["main.js", "launcher.html", "package.json"],
+    "files": ["main.js", "launcher.html", "package.json", "*.node"],
+    "asar": true,
+    "asarUnpack": ["**/*.node"],
     "win": { "target": "portable" },
     "portable": { "artifactName": "vspark-viewer-${version}.exe" }
   }
