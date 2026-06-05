@@ -2,6 +2,11 @@
 
 **Status: Implemented.**
 
+> **Event/marker lane (implemented).** Besides scalar keyframe lanes, a clip carries
+> discrete timed **event markers** (`track_clip_events` table, migration 021) that
+> fire fire-and-forget media commands at marker times, dispatched client-side to the
+> media registry. See [Event/Marker Lane](#eventmarker-lane) below and [media.md](media.md).
+
 Timeline-based parameter animation. A **track clip** is a short, triggerable, optionally-looping clip that animates scalar parameters on scene nodes or compose layers. Authored in the `'clips'` tab of the bottom dock; played back with a backend-authoritative playhead so multiple clients (editor + `ViewerPage`) stay in sync. Supports play / pause / resume / stop / seek (scrub).
 
 ## How this differs from `animation_clips`
@@ -129,7 +134,7 @@ The scene-bundle endpoint includes `trackClips` so the editor hydrates everythin
 
 In `WSMessageKind`:
 
-`track_clip_added`, `track_clip_updated`, `track_clip_removed`, `track_clip_lane_added`, `track_clip_lane_updated`, `track_clip_lane_removed`, `track_clip_keyframes_replaced`, `track_clip_started`, `track_clip_stopped`, `track_clip_paused`, `track_clip_playback_snapshot`.
+`track_clip_added`, `track_clip_updated`, `track_clip_removed`, `track_clip_lane_added`, `track_clip_lane_updated`, `track_clip_lane_removed`, `track_clip_keyframes_replaced`, `track_clip_events_replaced`, `track_clip_started`, `track_clip_stopped`, `track_clip_paused`, `track_clip_playback_snapshot`.
 
 Handled in `packages/frontend/src/hooks/useWsSync.ts` following the compose-layer pattern. The snapshot handler reads either `startedAt` or `pausedAtT` per entry.
 
@@ -164,6 +169,41 @@ When a clip stops or is cleared, the override entries go away and the target sna
 - Targets deleted mid-playback: skipped.
 - Bezier handles outside the segment: root-finder clamps without breaking monotonicity.
 - Pause: no auto-complete, no wall-clock advancement, but full lane re-evaluation each frame.
+
+## Event/Marker Lane
+
+A second lane *flavour* carrying **discrete timed markers** instead of interpolated
+scalar keyframes. Markers fire fire-and-forget **media commands** (play/pause/stop/
+restart/seek/setVolume/mute) at a given playhead `t`, dispatched client-side to the
+media registry. Distinct from the scalar lanes — it reuses none of their evaluator.
+Full media model in [media.md](media.md).
+
+**DB — migration 021 (`track_clip_events`):** flat per-clip table
+`track_clip_events (id, clip_id, t, action, target_kind, target_id, payload)`,
+`ON DELETE CASCADE` on clip delete, indexed `(clip_id, t)`. Registered in
+`db/index.ts`. A flat per-clip table (rather than per-lane) keeps the scalar lane
+evaluator untouched.
+
+**Shared:** `TrackClipEvent { id, t, action, targetKind, targetId, payload }`
+(`action: MediaAction`, `targetKind: MediaTargetKind`); `TrackClip.events`;
+`WSMessageKind 'track_clip_events_replaced'`.
+
+**Routes** (`routes/track-clips.ts`): events are loaded into the clip bundle
+(`loadClip`/`mapClip`/`mapEvent`); bulk-replace endpoint
+`PUT /track-clips/:id/events` broadcasts `track_clip_events_replaced` (mirrors the
+keyframe bulk-replace). `spawn/manager.ts` clones + retargets event markers when
+spawning a clip (see [spawn.md](spawn.md)).
+
+**Evaluator** (`useTrackClipEvaluator.ts`): a module-level `lastTByClip` map plus a
+`crossedMarker(prevT, t, markerT, duration, loop)` helper fire each marker once when
+the playhead crosses it. **Playing-only** (paused clips don't fire); the helper
+handles loop wrap so a marker re-arms each loop. Crossed markers dispatch via
+`dispatchMediaCommand`. `lastTByClip` is cleared when nothing is playing and the
+per-clip entry deleted on stop, so markers don't double-fire on pause / scrub.
+
+**UI** (`TrackClipTimeline.tsx`): an `EventLane` — a marker strip on the ruler plus a
+list editor — targeting video/audio scene nodes and video compose layers.
+`ClipsSection` copy/paste carries events.
 
 ## Frontend Recorder
 
@@ -212,23 +252,23 @@ Each numeric input in the Properties panel gets a small **◆** button next to i
 ## Files
 
 **Backend:**
-- `packages/backend/src/db/migrations/009_track_clips.sql` + `.ts`
+- `packages/backend/src/db/migrations/009_track_clips.sql` + `.ts`; `021_track_clip_events.sql` + `.ts` (event/marker lane)
 - `packages/backend/src/track_clips/playback.ts` — `TrackClipPlaybackManager`; play / pause / resume / seek / stop, discriminated union entries
-- `packages/backend/src/routes/track-clips.ts` — CRUD + `/trigger /stop /pause /resume /seek` (mounted in `routes/index.ts`; scene bundle in `routes/scenes.ts` includes nested `trackClips`)
+- `packages/backend/src/routes/track-clips.ts` — CRUD + `/trigger /stop /pause /resume /seek` + `PUT /track-clips/:id/events` (event-marker bulk replace); event load via `loadClip`/`mapClip`/`mapEvent`. Mounted in `routes/index.ts`; scene bundle in `routes/scenes.ts` includes nested `trackClips` (with `events`)
 - `packages/backend/src/signal/nodes/track_clip_trigger.ts` (registered in `signal/registry.ts`)
 - `packages/backend/src/index.ts` — manager init + snapshot-on-WS-connect wiring
 - `packages/backend/src/routes/shared.ts` — `_trackClipPlayback` accessor
 
 **Shared:**
-- `packages/shared/src/types.ts` — `TrackClip`, `TrackClipLane`, `TrackClipKeyframe`, `TrackClipMode`, `TrackClipTargetKind`, `TrackClipEasing`, `TrackClipStartedMessage`, `TrackClipPausedMessage`, `TrackClipPlaybackEntry` (discriminated), `TrackClipPlaybackSnapshot`; `WSMessageKind` union includes `track_clip_paused`
+- `packages/shared/src/types.ts` — `TrackClip` (with `events`), `TrackClipLane`, `TrackClipKeyframe`, `TrackClipEvent`, `TrackClipMode`, `TrackClipTargetKind`, `TrackClipEasing`, `TrackClipStartedMessage`, `TrackClipPausedMessage`, `TrackClipPlaybackEntry` (discriminated), `TrackClipPlaybackSnapshot`; `WSMessageKind` union includes `track_clip_paused`, `track_clip_events_replaced`
 - `packages/shared/src/schema.ts` — Zod schemas + `*Input` types
 
 **Frontend:**
-- `packages/frontend/src/api/client.ts` — `TrackClipRecord`/`TrackClipLaneRecord`/`TrackClipKeyframeRecord`, `mapTrackClip*` helpers, full CRUD + trigger/stop/pause/resume/seek; `getScenes` returns `trackClips`
+- `packages/frontend/src/api/client.ts` — `TrackClipRecord`/`TrackClipLaneRecord`/`TrackClipKeyframeRecord`/`TrackClipEventRecord`, `mapTrackClip*` + `mapTrackClipEvent` helpers, full CRUD + trigger/stop/pause/resume/seek + `replaceTrackClipEvents`; `getScenes` returns `trackClips`
 - `packages/frontend/src/store/editorStore.ts` — slice: `trackClips`, `selectedTrackClipId`, `trackClipPlayback` (discriminated entries), ephemeral `nodeTransformOverrides` + `composeLayerOverrides`, `bottomTab: BottomDockTab`; clip/lane/keyframe CRUD actions, playback set/replace, override set
 - `packages/frontend/src/hooks/useWsSync.ts` — handlers for all `track_clip_*` messages including `track_clip_paused` and the dual-shape snapshot
 - `packages/frontend/src/components/editor/trackClipEvaluator.ts` — pure `evaluateLane` + `resolveClipTime`
-- `packages/frontend/src/hooks/useTrackClipEvaluator.ts` — rAF loop; honours paused entries (no wall-clock advance, no auto-complete, still re-evaluates each frame)
+- `packages/frontend/src/hooks/useTrackClipEvaluator.ts` — rAF loop; honours paused entries (no wall-clock advance, no auto-complete, still re-evaluates each frame); fires event markers via `lastTByClip` + `crossedMarker` → `dispatchMediaCommand`
 - `packages/frontend/src/hooks/useTrackClipRecorder.ts` — **new**; `canRecord`, `currentPlayhead`, lane-find-or-create + keyframe upsert
 - `packages/frontend/src/components/editor/Viewport.tsx` — `useTransformWithOverride` per-node hook
 - `packages/frontend/src/components/editor/ComposeLayerStack.tsx` — `LayerView` per-layer override subscription merged into `layerStyle`
@@ -242,5 +282,6 @@ Each numeric input in the Properties panel gets a small **◆** button next to i
 
 - [compose.md](compose.md) — compose layers are one of the two target kinds; `LayerView` reads `composeLayerOverrides[layer.id]` per-render.
 - [signal-graph.md](signal-graph.md) — the `track_clip_trigger` node lives alongside other input-source / trigger nodes.
+- [media.md](media.md) — the event/marker lane fires media commands through the media registry; video/audio nodes and video compose layers are its targets.
 - [animation.md](animation.md) — distinguishes the two clip systems; track clips do **not** go through `AnimationMixer` or the retargeting pipeline.
 - [frontend.md](modules/frontend.md) — `bottomTab` is one of the lifted-to-store dock selectors; the Properties panel gates the ◆ recorder buttons on it.

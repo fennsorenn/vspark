@@ -2,6 +2,11 @@
 
 The reactive execution engine at the core of vspark. Defined in `packages/backend/src/signal/`.
 
+> **Implemented — `media_control` node.** A single node (`action`/`targetKind`/`targetId`
+> config + `SceneEntity` `target` input + optional `t`/`volume` inputs + a `spawnRef`
+> retarget) dispatches fire-and-forget play/pause/stop/restart/seek/setVolume/mute/unmute
+> onto the media-command bus. See [media.md](media.md) and the Output table below.
+
 ## Node model — class-instance / decorator (Phase 2)
 
 Signal nodes are **live class instances** that extend the abstract `Node` base class (`packages/shared/src/node.ts`). A node's **decorated members ARE its ports**. There is no `static execute` and no `static inputPorts/outputPorts` — that model is gone.
@@ -132,6 +137,7 @@ Organized by role:
 | `set_compose_layer_param` | Same shape, compose-layer target. |
 | `set_text` | Convenience over the set-param nodes for the `text.content` paramPath; `spawnRef.kind` overrides `targetKind` when triggered via that port. |
 | `set_data` | Generic sibling of `set_text`: on `fire`, publishes the wired `data` (Any) payload to the named `channel` (String) on the data-channel bus → frontend `feed` layer. See [data-channels.md](data-channels.md). |
+| `media_control` | Fire-and-forget media command (play/pause/stop/restart/seek/setVolume/mute/unmute) onto the media-command bus. Config `action`/`targetKind`/`targetId`; inputs `target` (SceneEntity, picker-or-wired), `t` (Float, for seek), `volume` (Float, for setVolume); a `spawnRef` event retargets to a spawned instance for that fire. tags `['media','output']`. See [media.md](media.md). |
 
 ### Pose interceptor chain
 The interceptor chain lets components (e.g., breathing) modify poses in-flight before broadcast.

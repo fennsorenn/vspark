@@ -123,6 +123,28 @@ export function AssetThumb({ asset }: { asset: AssetFile }) {
     return <AnimThumb asset={asset} />;
   }
 
+  if (asset.kind === 'video') {
+    // A muted, metadata-preloaded <video> renders its first frame as a poster.
+    return (
+      <video
+        src={asset.url}
+        muted
+        playsInline
+        preload="metadata"
+        draggable={false}
+        style={{ ...box, objectFit: 'contain' }}
+      />
+    );
+  }
+
+  if (asset.kind === 'audio') {
+    return (
+      <div style={box}>
+        <span style={{ fontSize: 30, opacity: 0.5 }}>🔊</span>
+      </div>
+    );
+  }
+
   // Model
   if (thumb) {
     return (

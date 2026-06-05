@@ -3561,6 +3561,7 @@ export function PropertiesPanel() {
     updateSceneItem,
     composeLayers,
     selectedComposeLayerId,
+    leftTab,
   } = useEditorStore();
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
@@ -3725,13 +3726,52 @@ export function PropertiesPanel() {
     </div>
   );
 
-  // Compose layer selected — show layer properties.
-  const selectedComposeLayer = selectedComposeLayerId
-    ? composeLayers.find((l) => l.id === selectedComposeLayerId)
-    : null;
-  if (selectedComposeLayer) {
-    return panelShell(<ComposeLayerProperties layer={selectedComposeLayer} />);
+  // The inspector follows the active main-view tab. Each tab owns a distinct
+  // selection model, so a leftover selection from another tab never leaks in:
+  //   • Compose tab → compose layers
+  //   • Graphs tab  → nothing (signal nodes are edited inline on the canvas)
+  //   • Scene tab   → 3D scene nodes + their components / camera effects
+  const emptyState = (text: string) => (
+    <div
+      style={{
+        width: 280,
+        flexShrink: 0,
+        background: '#141414',
+        borderLeft: '1px solid #2a2a2a',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        padding: '0 20px',
+        color: '#555',
+        fontSize: 13,
+        fontFamily: 'system-ui, sans-serif',
+      }}
+    >
+      {text}
+    </div>
+  );
+
+  // Compose tab: the inspector targets compose layers only.
+  if (leftTab === 'compose') {
+    const selectedComposeLayer = selectedComposeLayerId
+      ? composeLayers.find((l) => l.id === selectedComposeLayerId)
+      : null;
+    if (selectedComposeLayer) {
+      return panelShell(
+        <ComposeLayerProperties layer={selectedComposeLayer} />
+      );
+    }
+    return emptyState('Select a layer to edit its properties.');
   }
+
+  // Graphs tab: signal nodes are edited inline on the canvas, so the right
+  // inspector has nothing node-shaped to show here.
+  if (leftTab === 'graphs') {
+    return emptyState('Editing a graph — select nodes on the canvas.');
+  }
+
+  // Scene tab (everything below): the inspector targets 3D scene nodes only.
 
   // Effect selected — show focused effect panel.
   if (
@@ -4996,6 +5036,472 @@ export function PropertiesPanel() {
                     />
                   ) : null}
                 </div>
+              </>
+            );
+          })()}
+
+        {node.kind === 'video' &&
+          (() => {
+            const vc: Record<string, unknown> = {
+              facing: 'world',
+              backface: 'none',
+              width: 1.6,
+              height: 0.9,
+              alpha: 1,
+              sourceUrl: null,
+              autoplay: true,
+              loop: true,
+              onEnd: 'freeze',
+              muted: true,
+              volume: 1,
+              ...((node.components?.video ?? {}) as Record<string, unknown>),
+            };
+            const saveVc = (patch: Record<string, unknown>) => {
+              const next = { ...vc, ...patch };
+              const components = { ...node.components, video: next };
+              const filePatch =
+                'sourceUrl' in patch
+                  ? { filePath: (patch.sourceUrl as string) ?? null }
+                  : {};
+              api
+                .updateNode(node.id, { components, ...filePatch })
+                .catch(() => {});
+              storeUpdateNode(node.id, { components, ...filePatch });
+            };
+            const videoAssets = assets.filter((a) => a.kind === 'video');
+            const sel: React.CSSProperties = {
+              background: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              color: '#e0e0e0',
+              borderRadius: 4,
+              padding: '3px 6px',
+              fontSize: 12,
+              outline: 'none',
+            };
+            const row = (label: string, children: React.ReactNode) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                  {label}
+                </span>
+                {children}
+              </div>
+            );
+            const check = (
+              label: string,
+              field: string,
+              checked: boolean
+            ) =>
+              row(
+                label,
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => saveVc({ [field]: e.target.checked })}
+                />
+              );
+            return (
+              <>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Video Source
+                  <PickButton onClick={() => flashBottomTab('videos')} />
+                </div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  <datalist id="video-src-list">
+                    {videoAssets.map((a) => (
+                      <option key={a.id} value={a.url} label={a.name} />
+                    ))}
+                  </datalist>
+                  {row(
+                    'Source',
+                    <input
+                      list="video-src-list"
+                      style={{ ...numInput, width: 120 }}
+                      placeholder="URL or pick asset…"
+                      defaultValue={(vc.sourceUrl as string) ?? ''}
+                      key={node.id + '-vidsrc'}
+                      onBlur={(e) =>
+                        saveVc({ sourceUrl: e.target.value.trim() || null })
+                      }
+                    />
+                  )}
+                </div>
+                <div style={sectionHeader}>Playback</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {check('Autoplay', 'autoplay', vc.autoplay as boolean)}
+                  {check('Loop', 'loop', vc.loop as boolean)}
+                  {row(
+                    'On end',
+                    <select
+                      style={sel}
+                      value={vc.onEnd as string}
+                      onChange={(e) => saveVc({ onEnd: e.target.value })}
+                    >
+                      <option value="freeze">Freeze on last frame</option>
+                      <option value="hide">Hide</option>
+                    </select>
+                  )}
+                  {check('Muted', 'muted', vc.muted as boolean)}
+                  <EffectRow
+                    label="Volume"
+                    cfg={vc}
+                    field="volume"
+                    step={0.05}
+                    min={0}
+                    max={1}
+                    onSave={saveVc}
+                  />
+                </div>
+                <div style={sectionHeader}>Effects</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {row(
+                    'Blend',
+                    <select
+                      style={sel}
+                      value={(vc.blendMode as string) ?? 'normal'}
+                      onChange={(e) => saveVc({ blendMode: e.target.value })}
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="additive">Additive</option>
+                      <option value="multiply">Multiply</option>
+                      <option value="screen">Screen</option>
+                    </select>
+                  )}
+                  {(() => {
+                    const ck: Record<string, unknown> = {
+                      enabled: false,
+                      color: '#00ff00',
+                      similarity: 0.4,
+                      smoothness: 0.08,
+                      spill: 0.1,
+                      ...((vc.chromaKey ?? {}) as Record<string, unknown>),
+                    };
+                    const saveCk = (p: Record<string, unknown>) =>
+                      saveVc({ chromaKey: { ...ck, ...p } });
+                    return (
+                      <>
+                        {row(
+                          'Chroma key',
+                          <input
+                            type="checkbox"
+                            checked={ck.enabled as boolean}
+                            onChange={(e) =>
+                              saveCk({ enabled: e.target.checked })
+                            }
+                          />
+                        )}
+                        {(ck.enabled as boolean) && (
+                          <>
+                            {row(
+                              'Key color',
+                              <input
+                                type="color"
+                                value={ck.color as string}
+                                onChange={(e) =>
+                                  saveCk({ color: e.target.value })
+                                }
+                                style={{
+                                  width: 40,
+                                  height: 22,
+                                  background: 'none',
+                                  border: '1px solid #3a3a3a',
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                }}
+                              />
+                            )}
+                            <EffectRow
+                              label="Similarity"
+                              cfg={ck}
+                              field="similarity"
+                              step={0.01}
+                              min={0}
+                              max={1}
+                              onSave={saveCk}
+                            />
+                            <EffectRow
+                              label="Smoothness"
+                              cfg={ck}
+                              field="smoothness"
+                              step={0.01}
+                              min={0}
+                              max={1}
+                              onSave={saveCk}
+                            />
+                            <EffectRow
+                              label="Spill"
+                              cfg={ck}
+                              field="spill"
+                              step={0.01}
+                              min={0}
+                              max={1}
+                              onSave={saveCk}
+                            />
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+                <div style={sectionHeader}>Plane</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {row(
+                    'Facing',
+                    <select
+                      style={sel}
+                      value={vc.facing as string}
+                      onChange={(e) => saveVc({ facing: e.target.value })}
+                    >
+                      <option value="screen">
+                        Screen (always faces camera)
+                      </option>
+                      <option value="world">World (fixed rotation)</option>
+                    </select>
+                  )}
+                  {row(
+                    'Backface',
+                    <select
+                      style={sel}
+                      value={vc.backface as string}
+                      onChange={(e) => saveVc({ backface: e.target.value })}
+                    >
+                      <option value="none">None (single-sided)</option>
+                      <option value="mirror">Mirror (flip X)</option>
+                      <option value="unmirrored">
+                        Unmirrored (double-sided)
+                      </option>
+                    </select>
+                  )}
+                  <EffectRow
+                    label="Width"
+                    cfg={vc}
+                    field="width"
+                    step={0.05}
+                    min={0.01}
+                    onSave={saveVc}
+                  />
+                  <EffectRow
+                    label="Height"
+                    cfg={vc}
+                    field="height"
+                    step={0.05}
+                    min={0.01}
+                    onSave={saveVc}
+                  />
+                  <EffectRow
+                    label="Alpha"
+                    cfg={vc}
+                    field="alpha"
+                    step={0.05}
+                    min={0}
+                    max={1}
+                    onSave={saveVc}
+                  />
+                </div>
+              </>
+            );
+          })()}
+
+        {node.kind === 'audio' &&
+          (() => {
+            const ac: Record<string, unknown> = {
+              audioType: 'simple',
+              sourceUrl: null,
+              autoplay: true,
+              loop: false,
+              onEnd: 'stop',
+              volume: 1,
+              fadeTime: 0,
+              refDistance: 1,
+              rolloffFactor: 1,
+              maxDistance: 100,
+              coneInnerAngle: 360,
+              coneOuterAngle: 360,
+              coneOuterGain: 0,
+              ...((node.components?.audio ?? {}) as Record<string, unknown>),
+            };
+            const saveAc = (patch: Record<string, unknown>) => {
+              const next = { ...ac, ...patch };
+              const components = { ...node.components, audio: next };
+              const filePatch =
+                'sourceUrl' in patch
+                  ? { filePath: (patch.sourceUrl as string) ?? null }
+                  : {};
+              api
+                .updateNode(node.id, { components, ...filePatch })
+                .catch(() => {});
+              storeUpdateNode(node.id, { components, ...filePatch });
+            };
+            const audioAssets = assets.filter((a) => a.kind === 'audio');
+            const sel: React.CSSProperties = {
+              background: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              color: '#e0e0e0',
+              borderRadius: 4,
+              padding: '3px 6px',
+              fontSize: 12,
+              outline: 'none',
+            };
+            const row = (label: string, children: React.ReactNode) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                  {label}
+                </span>
+                {children}
+              </div>
+            );
+            const check = (
+              label: string,
+              field: string,
+              checked: boolean
+            ) =>
+              row(
+                label,
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => saveAc({ [field]: e.target.checked })}
+                />
+              );
+            const isDirectional = ac.audioType === 'directional';
+            return (
+              <>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Audio Source
+                  <PickButton onClick={() => flashBottomTab('audio')} />
+                </div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  <datalist id="audio-src-list">
+                    {audioAssets.map((a) => (
+                      <option key={a.id} value={a.url} label={a.name} />
+                    ))}
+                  </datalist>
+                  {row(
+                    'Source',
+                    <input
+                      list="audio-src-list"
+                      style={{ ...numInput, width: 120 }}
+                      placeholder="URL or pick asset…"
+                      defaultValue={(ac.sourceUrl as string) ?? ''}
+                      key={node.id + '-audsrc'}
+                      onBlur={(e) =>
+                        saveAc({ sourceUrl: e.target.value.trim() || null })
+                      }
+                    />
+                  )}
+                  {row(
+                    'Type',
+                    <select
+                      style={sel}
+                      value={ac.audioType as string}
+                      onChange={(e) => saveAc({ audioType: e.target.value })}
+                    >
+                      <option value="simple">Simple (non-spatial)</option>
+                      <option value="directional">Directional (spatial)</option>
+                    </select>
+                  )}
+                </div>
+                <div style={sectionHeader}>Playback</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {check('Autoplay', 'autoplay', ac.autoplay as boolean)}
+                  {check('Loop', 'loop', ac.loop as boolean)}
+                  <EffectRow
+                    label="Volume"
+                    cfg={ac}
+                    field="volume"
+                    step={0.05}
+                    min={0}
+                    max={1}
+                    onSave={saveAc}
+                  />
+                </div>
+                {isDirectional && (
+                  <>
+                    <div style={sectionHeader}>Spatial</div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      <EffectRow
+                        label="Ref distance"
+                        cfg={ac}
+                        field="refDistance"
+                        step={0.1}
+                        min={0}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Rolloff"
+                        cfg={ac}
+                        field="rolloffFactor"
+                        step={0.1}
+                        min={0}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Max distance"
+                        cfg={ac}
+                        field="maxDistance"
+                        step={1}
+                        min={0}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Cone inner°"
+                        cfg={ac}
+                        field="coneInnerAngle"
+                        step={1}
+                        min={0}
+                        max={360}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Cone outer°"
+                        cfg={ac}
+                        field="coneOuterAngle"
+                        step={1}
+                        min={0}
+                        max={360}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Cone outer gain"
+                        cfg={ac}
+                        field="coneOuterGain"
+                        step={0.05}
+                        min={0}
+                        max={1}
+                        onSave={saveAc}
+                      />
+                    </div>
+                  </>
+                )}
               </>
             );
           })()}

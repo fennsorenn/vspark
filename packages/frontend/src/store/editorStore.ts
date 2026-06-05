@@ -7,6 +7,7 @@ import type {
   TrackClipRecord,
   TrackClipLaneRecord,
   TrackClipKeyframeRecord,
+  TrackClipEventRecord,
 } from '../api/client';
 import type {
   UpdateChannel,
@@ -28,6 +29,7 @@ export type {
   TrackClipRecord,
   TrackClipLaneRecord,
   TrackClipKeyframeRecord,
+  TrackClipEventRecord,
 };
 
 /** Active playback for one track clip — either playing (wall clock advances from
@@ -87,6 +89,8 @@ export type BottomDockTab =
   | 'models'
   | 'animations'
   | 'images'
+  | 'videos'
+  | 'audio'
   | 'components'
   | 'effects'
   | 'clips'
@@ -121,6 +125,8 @@ const BOTTOM_TABS: BottomDockTab[] = [
   'models',
   'animations',
   'images',
+  'videos',
+  'audio',
   'components',
   'effects',
   'clips',
@@ -444,6 +450,10 @@ interface EditorState {
   /** Height of the bottom dock (AssetManager / NodePalette) in pixels.
    *  Persisted in-session only; clamped at the call site. */
   bottomDockHeight: number;
+  /** Whether audio (audio nodes + unmuted video) is audible in the EDITOR
+   *  viewport. Off by default so authoring isn't noisy; the viewer/output page
+   *  always plays audio regardless. Session-only, not persisted. */
+  editorAudioPreviewEnabled: boolean;
   selectedComposeLayerId: string | null;
 
   // Track clips
@@ -553,6 +563,7 @@ interface EditorState {
   /** Ask the Properties name field to focus + select-all. */
   requestFocusName: () => void;
   setBottomDockHeight: (h: number) => void;
+  setEditorAudioPreviewEnabled: (on: boolean) => void;
   setClipboard: (
     payload: import('../clipboard').ClipboardPayload | null
   ) => void;
@@ -570,6 +581,10 @@ interface EditorState {
   replaceTrackClipLaneKeyframes: (
     laneId: string,
     keyframes: TrackClipKeyframeRecord[]
+  ) => void;
+  replaceTrackClipEvents: (
+    clipId: string,
+    events: TrackClipEventRecord[]
   ) => void;
   setTrackClipPlayback: (
     clipId: string,
@@ -689,6 +704,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   bottomTabFlash: 0,
   focusNameNonce: 0,
   bottomDockHeight: initialBottomDockHeight(),
+  editorAudioPreviewEnabled: false,
   clipboardPayload: null,
   selectedComposeLayerId: null,
 
@@ -845,12 +861,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setComponentKinds: (kinds) => set({ componentKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
   setActiveGraphWritable: (writable) => set({ activeGraphWritable: writable }),
-  setActiveGraph: (id) =>
-    set({
+  setActiveGraph: (id) => {
+    // Opening a graph (from any list — including scoped graphs in the scene /
+    // compose trees) follows the main view to the Graphs tab, so the canvas is
+    // what's actually shown. Clearing the active graph leaves the current tab
+    // alone (the toggle-off path shouldn't yank the user away).
+    if (id != null) lsSet(LS.leftTab, 'graphs');
+    set((s) => ({
       activeGraphId: id,
       selectedSignalNodeId: null,
       activeGraphWritable: false,
-    }),
+      leftTab: id != null ? 'graphs' : s.leftTab,
+    }));
+  },
   setSelectedSignalNode: (id) => set({ selectedSignalNodeId: id }),
   setBoneListExpanded: (nodeId, expanded) =>
     set((s) => ({
@@ -949,6 +972,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     lsSet(LS.bottomDockHeight, String(clamped));
     set({ bottomDockHeight: clamped });
   },
+  setEditorAudioPreviewEnabled: (on) => set({ editorAudioPreviewEnabled: on }),
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
 
   setTrackClips: (clips) => set({ trackClips: clips }),
@@ -1029,6 +1053,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ...c,
         lanes: c.lanes.map((l) => (l.id === laneId ? { ...l, keyframes } : l)),
       })),
+    })),
+  replaceTrackClipEvents: (clipId, events) =>
+    set((s) => ({
+      trackClips: s.trackClips.map((c) =>
+        c.id === clipId ? { ...c, events } : c
+      ),
     })),
   setTrackClipPlayback: (clipId, entry) =>
     set((s) => {

@@ -7,6 +7,7 @@ import {
   mapTrackClip,
   mapTrackClipLane,
   mapTrackClipKeyframe,
+  mapTrackClipEvent,
 } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
 import { smoothNodeTransform, smoothComposeLayer } from '../previewSmoother';
@@ -15,7 +16,9 @@ import type {
   IkTargetFrame,
   AnimationBlendMode,
   ApiAnimationMessage,
+  MediaCommand,
 } from '@vspark/shared/types';
+import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 const RECONNECT_MS = 3000;
@@ -263,6 +266,13 @@ export function useWsSync() {
                 laneId,
                 rows.map(mapTrackClipKeyframe)
               );
+          } else if (msg.kind === 'track_clip_events_replaced') {
+            const clipId = msg.payload.clipId as string;
+            const rows =
+              (msg.payload.events as Record<string, unknown>[]) ?? [];
+            useEditorStore
+              .getState()
+              .replaceTrackClipEvents(clipId, rows.map(mapTrackClipEvent));
           } else if (msg.kind === 'track_clip_started') {
             const p = msg.payload as {
               clipId: string;
@@ -371,6 +381,12 @@ export function useWsSync() {
               }>;
             };
             useEditorStore.getState().replaceRuntimeOverrides(p.entries ?? []);
+          } else if (msg.kind === 'media_control') {
+            const p = msg.payload as {
+              targetId: string;
+              command: MediaCommand;
+            };
+            dispatchMediaCommand(p.targetId, p.command);
           } else if (msg.kind === 'data_channel_set') {
             const p = msg.payload as {
               scope: string;

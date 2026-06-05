@@ -19,6 +19,8 @@ export interface NodeKindDef {
   kind: string;
   /** Only meaningful for `kind === 'light'`. */
   lightType?: string;
+  /** Only meaningful for `kind === 'audio'`: 'simple' | 'directional'. */
+  audioType?: string;
   icon: string;
 }
 
@@ -38,6 +40,14 @@ export const NODE_KIND_DEFS: NodeKindDef[] = [
   { label: 'Godray Caster', kind: 'godray_caster', icon: '☀️' },
   { label: 'Particle', kind: 'particle', icon: '✨' },
   { label: 'Billboard', kind: 'billboard', icon: '🖼️' },
+  { label: 'Video', kind: 'video', icon: '🎞️' },
+  { label: 'Audio (Simple)', kind: 'audio', audioType: 'simple', icon: '🔊' },
+  {
+    label: 'Audio (Spatial)',
+    kind: 'audio',
+    audioType: 'directional',
+    icon: '🔈',
+  },
   { label: 'Text (SDF / troika)', kind: 'text_troika', icon: '🔤' },
   { label: 'Text (canvas, HTML-capable)', kind: 'text_canvas', icon: '🔡' },
   { label: 'Feed (3D data overlay)', kind: 'feed', icon: '📜' },
@@ -121,6 +131,40 @@ export async function createSceneNode(
       height: 1,
       alpha: 1,
       textureUrl: null,
+    };
+  } else if (def.kind === 'video') {
+    components.video = {
+      type: 'video',
+      assetId: null,
+      sourceUrl: null,
+      facing: 'world',
+      backface: 'none',
+      width: 1.6,
+      height: 0.9,
+      alpha: 1,
+      autoplay: true,
+      loop: true,
+      onEnd: 'freeze',
+      muted: true,
+      volume: 1,
+    };
+  } else if (def.kind === 'audio') {
+    components.audio = {
+      type: 'audio',
+      audioType: def.audioType ?? 'simple',
+      assetId: null,
+      sourceUrl: null,
+      autoplay: true,
+      loop: false,
+      onEnd: 'stop',
+      volume: 1,
+      fadeTime: 0,
+      refDistance: 1,
+      rolloffFactor: 1,
+      maxDistance: 100,
+      coneInnerAngle: 360,
+      coneOuterAngle: 360,
+      coneOuterGain: 0,
     };
   } else if (def.kind === 'text_troika') {
     components.text = {
@@ -285,7 +329,16 @@ export async function createLayer(
       ? { url: 'https://example.com' }
       : kind === 'feed'
         ? { template: FEED_DEFAULT_TEMPLATE, css: FEED_DEFAULT_CSS }
-        : {};
+        : kind === 'video'
+          ? {
+              objectFit: 'contain',
+              autoplay: true,
+              loop: true,
+              onEnd: 'freeze',
+              muted: true,
+              volume: 1,
+            }
+          : {};
 
   // Scene includes default to the first OTHER compose scene; reassign in
   // properties. They mount that scene's whole layer stack.

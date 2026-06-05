@@ -8,7 +8,7 @@ import {
   startRotate,
   type ResizeEdge,
 } from './composeLayerInteractions';
-import { layerFrame } from './composeHitTest';
+import { layerFrame, layerParentFrame } from './composeHitTest';
 
 interface ComposeSelectionOverlayProps {
   viewportRef: RefObject<HTMLElement>;
@@ -62,6 +62,9 @@ export function ComposeSelectionOverlay({
   // Track this layer's active clip override so the chrome follows the same
   // x/y/rotation the rendered layer uses (ComposeLayerStack applies it too).
   const override = useEditorStore((s) => s.composeLayerOverrides[layer.id]);
+  // All layers, so the frame can be composed through this layer's ancestors
+  // (nested layers are positioned relative to their parent).
+  const composeLayers = useEditorStore((s) => s.composeLayers);
   const [viewportRect, setViewportRect] = useState<DOMRect | null>(null);
 
   // Track the viewport rect (it can change with window resize / panel resize).
@@ -91,7 +94,16 @@ export function ComposeSelectionOverlay({
         rotation: override.rotation ?? layer.rotation,
       }
     : layer;
-  const f = layerFrame(viewportRect, effectiveLayer);
+  const byId = new Map(composeLayers.map((l) => [l.id, l] as const));
+  const f = layerFrame(viewportRect, effectiveLayer, byId);
+  // The frame of this layer's parent (or the viewport) — the basis for '%'
+  // resize math and screen→local delta projection.
+  const pf = layerParentFrame(viewportRect, effectiveLayer, byId);
+  const parentFrame = {
+    width: pf.hx * 2,
+    height: pf.hy * 2,
+    angle: pf.angle,
+  };
   const apply = (patch: Partial<ComposeLayerRecord>) =>
     updateLayer(layer.id, patch);
 
@@ -184,15 +196,15 @@ export function ComposeSelectionOverlay({
               if (e.button !== 0) return;
               e.preventDefault();
               e.stopPropagation();
-              // startResize uses screen-space deltas and writes into width/height/x/y.
-              // Pass a synthetic element representing the (non-rotated) layer rect so the
-              // rotate-aware math in composeLayerInteractions can later upgrade if needed.
+              // startResize uses screen-space deltas and writes into
+              // width/height/x/y. The parent frame supplies the '%' basis and
+              // the parent's rotation so nested layers resize relative to it.
               startResize(
                 { clientX: e.clientX, clientY: e.clientY },
                 layer,
                 edge,
                 apply,
-                { width: viewportRect.width, height: viewportRect.height }
+                parentFrame
               );
             }}
           />

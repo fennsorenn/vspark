@@ -77,6 +77,14 @@ import {
 } from '../../calibration';
 import type { VmcCalibration } from '../../calibration';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
+import { registerMedia } from './mediaRegistry';
+import {
+  makeVideoMaterial,
+  updateVideoMaterial,
+  applyVideoBlend,
+  readChroma,
+  type VideoBlend3D,
+} from './videoFx';
 import { api } from '../../api/client';
 import { BoneFilterBank } from '../../oneEuroFilter';
 import {
@@ -2476,6 +2484,33 @@ const DIR_RAYS = Array.from({ length: 8 }, (_, i) => {
   ] as const;
 });
 
+// Stylised speaker glyph for audio sources: a square body + a trapezoid cone,
+// drawn in the XY plane and billboarded toward the camera. The outline is one
+// closed polyline; the divider line is the shared body/cone edge so both the
+// square and the trapezoid read clearly.
+type Pt3 = [number, number, number];
+const SPEAKER_OUTLINE_PTS: Pt3[] = [
+  [-0.09, 0.04, 0], // body top-left
+  [-0.03, 0.04, 0], // body top-right / cone near-top
+  [0.07, 0.1, 0], // cone far-top
+  [0.07, -0.1, 0], // cone far-bottom
+  [-0.03, -0.04, 0], // body bottom-right / cone near-bottom
+  [-0.09, -0.04, 0], // body bottom-left
+  [-0.09, 0.04, 0], // close
+];
+const SPEAKER_DIVIDER_PTS: Pt3[] = [
+  [-0.03, 0.04, 0],
+  [-0.03, -0.04, 0],
+];
+// Two sound-wave arcs to the right of the cone.
+const SPEAKER_WAVE_PTS: Pt3[][] = [0.11, 0.16].map((r) =>
+  Array.from({ length: 9 }, (_, i) => {
+    const a = (-Math.PI / 4) + (i / 8) * (Math.PI / 2);
+    return [Math.cos(a) * r + 0.04, Math.sin(a) * r, 0] as Pt3;
+  })
+);
+
+
 function LightNode({
   node,
   viewerMode,
@@ -2895,6 +2930,463 @@ function BillboardNode({ node }: { node: NodeRecord }) {
       scale={[t.sx, t.sy, t.sz]}
     >
       {inner}
+    </group>
+  );
+}
+
+interface VideoConfig {
+  facing: 'screen' | 'world';
+  backface: 'none' | 'mirror' | 'unmirrored';
+  width: number;
+  height: number;
+  alpha: number;
+  sourceUrl: string | null;
+  autoplay: boolean;
+  loop: boolean;
+  onEnd: 'freeze' | 'hide';
+  muted: boolean;
+  volume: number;
+  blendMode: VideoBlend3D;
+  chromaKey?: Record<string, unknown>;
+}
+
+const VIDEO_DEFAULTS: VideoConfig = {
+  facing: 'world',
+  backface: 'none',
+  width: 1.6,
+  height: 0.9,
+  alpha: 1,
+  sourceUrl: null,
+  autoplay: true,
+  loop: true,
+  onEnd: 'freeze',
+  muted: true,
+  volume: 1,
+  blendMode: 'normal',
+};
+
+/** A flat-mounted plane textured with a live <video> element. Mirrors
+ *  BillboardNode (facing / backface / size) but with playback config and a
+ *  MediaHandle so the command bus / clip event lane can drive play/pause/etc.
+ *  Flat-mounted (like billboards) so reparenting never remounts the element and
+ *  loses playback position. */
+function VideoNode({
+  node,
+  viewerMode,
+}: {
+  node: NodeRecord;
+  viewerMode?: boolean;
+}) {
+  const outerRef = useRef<THREE.Group>(null);
+  const billboardRef = useRef<THREE.Group>(null);
+  const t = useTransformWithOverride(node);
+  const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const vc: VideoConfig = {
+    ...VIDEO_DEFAULTS,
+    ...((node.components?.video ?? {}) as Partial<VideoConfig>),
+  };
+  const chroma = readChroma(vc.chromaKey);
+
+  // ShaderMaterials handle chroma key + opacity + blend (and UV-mirror the back
+  // face). Created once; uniforms/blending pushed via effects below.
+  const frontMat = useMemo(() => makeVideoMaterial(), []);
+  const backMat = useMemo(() => makeVideoMaterial(), []);
+  useEffect(() => {
+    return () => {
+      frontMat.dispose();
+      backMat.dispose();
+    };
+  }, [frontMat, backMat]);
+
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const textureRef = useRef<THREE.VideoTexture | null>(null);
+  const [hidden, setHidden] = useState(false);
+
+  // (Re)create the <video> element + texture when the source changes.
+  useEffect(() => {
+    setHidden(false);
+    if (!vc.sourceUrl) {
+      videoElRef.current?.pause();
+      videoElRef.current = null;
+      textureRef.current?.dispose();
+      textureRef.current = null;
+      frontMat.uniforms.map.value = null;
+      backMat.uniforms.map.value = null;
+      return;
+    }
+    const el = document.createElement('video');
+    el.src = vc.sourceUrl;
+    el.crossOrigin = 'anonymous';
+    el.playsInline = true;
+    el.loop = vc.loop;
+    el.preload = 'auto';
+    videoElRef.current = el;
+    const tex = new THREE.VideoTexture(el);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    textureRef.current = tex;
+    frontMat.uniforms.map.value = tex;
+    backMat.uniforms.map.value = tex;
+
+    const onEnded = () => {
+      if (el.loop) return;
+      if (vc.onEnd === 'hide') setHidden(true);
+      // 'freeze' leaves the element paused on its last frame (default).
+    };
+    el.addEventListener('ended', onEnded);
+    return () => {
+      el.removeEventListener('ended', onEnded);
+      el.pause();
+      tex.dispose();
+    };
+  }, [vc.sourceUrl, vc.loop, vc.onEnd, frontMat, backMat]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Push chroma / opacity / blend / mirror into the materials.
+  useEffect(() => {
+    const opacity = Math.max(0, Math.min(1, t.opacity)) * vc.alpha;
+    updateVideoMaterial(frontMat, { opacity, flipX: false, chroma });
+    updateVideoMaterial(backMat, {
+      opacity,
+      flipX: vc.backface === 'mirror',
+      chroma,
+    });
+    applyVideoBlend(frontMat, vc.blendMode);
+    applyVideoBlend(backMat, vc.blendMode);
+  }, [
+    frontMat,
+    backMat,
+    t.opacity,
+    vc.alpha,
+    vc.backface,
+    vc.blendMode,
+    chroma.enabled,
+    chroma.color,
+    chroma.similarity,
+    chroma.smoothness,
+    chroma.spill,
+  ]);
+
+  // Apply audibility + volume. Video audio plays in the viewer, or in the
+  // editor only when preview is enabled; honours the per-node muted flag.
+  useEffect(() => {
+    const el = videoElRef.current;
+    if (!el) return;
+    const audible = (viewerMode || audioPreview) && !vc.muted;
+    el.muted = !audible;
+    el.volume = Math.max(0, Math.min(1, vc.volume));
+  }, [viewerMode, audioPreview, vc.muted, vc.volume, vc.sourceUrl]);
+
+  // Autoplay on (re)mount / source change.
+  useEffect(() => {
+    const el = videoElRef.current;
+    if (!el || !vc.autoplay) return;
+    void el.play().catch(() => {
+      /* autoplay may be blocked until a user gesture; ignore */
+    });
+  }, [vc.autoplay, vc.sourceUrl]);
+
+  // Imperative playback handle for the media-command bus + clip event lane.
+  useEffect(() => {
+    return registerMedia(node.id, {
+      play: () => void videoElRef.current?.play().catch(() => {}),
+      pause: () => videoElRef.current?.pause(),
+      stop: () => {
+        const el = videoElRef.current;
+        if (!el) return;
+        el.pause();
+        el.currentTime = 0;
+        if (vc.onEnd === 'hide') setHidden(true);
+      },
+      restart: () => {
+        const el = videoElRef.current;
+        if (!el) return;
+        setHidden(false);
+        el.currentTime = 0;
+        void el.play().catch(() => {});
+      },
+      seek: (sec: number) => {
+        const el = videoElRef.current;
+        if (el) el.currentTime = Math.max(0, sec);
+      },
+      setVolume: (v: number) => {
+        const el = videoElRef.current;
+        if (el) el.volume = Math.max(0, Math.min(1, v));
+      },
+      mute: () => {
+        if (videoElRef.current) videoElRef.current.muted = true;
+      },
+      unmute: () => {
+        if (videoElRef.current) videoElRef.current.muted = false;
+      },
+    });
+  }, [node.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!outerRef.current) return;
+    return registerNodeGroup(node.id, outerRef.current);
+  }, [node.id]);
+
+  useFrame(({ camera }) => {
+    if (!billboardRef.current) return;
+    if (vc.facing === 'screen') {
+      billboardRef.current.quaternion.copy(camera.quaternion);
+    } else {
+      billboardRef.current.quaternion.identity();
+    }
+  });
+
+  const w = vc.width;
+  const h = vc.height;
+
+  return (
+    <group
+      ref={outerRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+      scale={[t.sx, t.sy, t.sz]}
+      visible={!hidden}
+    >
+      <group ref={billboardRef}>
+        <mesh material={frontMat}>
+          <planeGeometry args={[w, h]} />
+        </mesh>
+        {vc.backface !== 'none' && (
+          <mesh material={backMat} rotation={[0, Math.PI, 0]}>
+            <planeGeometry args={[w, h]} />
+          </mesh>
+        )}
+      </group>
+    </group>
+  );
+}
+
+// One shared AudioListener per camera (Web Audio allows a single listener).
+const _audioListeners = new WeakMap<THREE.Object3D, THREE.AudioListener>();
+function getAudioListener(camera: THREE.Object3D): THREE.AudioListener {
+  let l = _audioListeners.get(camera);
+  if (!l) {
+    l = new THREE.AudioListener();
+    camera.add(l);
+    _audioListeners.set(camera, l);
+  }
+  return l;
+}
+
+interface AudioCfg {
+  audioType: 'simple' | 'directional';
+  sourceUrl: string | null;
+  autoplay: boolean;
+  loop: boolean;
+  volume: number;
+  refDistance: number;
+  rolloffFactor: number;
+  maxDistance: number;
+  coneInnerAngle: number;
+  coneOuterAngle: number;
+  coneOuterGain: number;
+}
+
+const AUDIO_DEFAULTS: AudioCfg = {
+  audioType: 'simple',
+  sourceUrl: null,
+  autoplay: true,
+  loop: false,
+  volume: 1,
+  refDistance: 1,
+  rolloffFactor: 1,
+  maxDistance: 100,
+  coneInnerAngle: 360,
+  coneOuterAngle: 360,
+  coneOuterGain: 0,
+};
+
+/** A non-visual audio source. 'simple' = non-spatial THREE.Audio; 'directional'
+ *  = spatial THREE.PositionalAudio positioned by the node transform. Audible in
+ *  the viewer; in the editor only when audio preview is enabled. Registers a
+ *  MediaHandle for the command bus / clip event lane. Draws a gizmo in editor. */
+function AudioNode({
+  node,
+  viewerMode,
+}: {
+  node: NodeRecord;
+  viewerMode?: boolean;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const t = useTransformWithOverride(node);
+  const { camera } = useThree();
+  const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const ac: AudioCfg = {
+    ...AUDIO_DEFAULTS,
+    ...((node.components?.audio ?? {}) as Partial<AudioCfg>),
+  };
+
+  const soundRef = useRef<THREE.Audio | THREE.PositionalAudio | null>(null);
+  // Desired loudness inputs; the effective gain is their product gated on
+  // audibility, applied through applyVolume so play/mute/preview all compose.
+  const desiredVolRef = useRef(ac.volume);
+  const mutedRef = useRef(false);
+  const audibleRef = useRef(false);
+  desiredVolRef.current = ac.volume;
+  audibleRef.current = viewerMode === true || audioPreview;
+
+  const applyVolume = () => {
+    const s = soundRef.current;
+    if (!s) return;
+    const v = audibleRef.current && !mutedRef.current ? desiredVolRef.current : 0;
+    s.setVolume(Math.max(0, Math.min(1, v)));
+  };
+
+  useEffect(() => {
+    if (!groupRef.current) return;
+    return registerNodeGroup(node.id, groupRef.current);
+  }, [node.id]);
+
+  // (Re)create the sound when source / type changes.
+  useEffect(() => {
+    const group = groupRef.current;
+    const listener = getAudioListener(camera);
+    // Tear down any previous sound.
+    const prev = soundRef.current;
+    if (prev) {
+      if (prev.isPlaying) prev.stop();
+      prev.removeFromParent();
+      soundRef.current = null;
+    }
+    if (!ac.sourceUrl || !group) return;
+
+    const sound =
+      ac.audioType === 'directional'
+        ? new THREE.PositionalAudio(listener)
+        : new THREE.Audio(listener);
+    if (sound instanceof THREE.PositionalAudio) {
+      sound.setRefDistance(ac.refDistance);
+      sound.setRolloffFactor(ac.rolloffFactor);
+      sound.setMaxDistance(ac.maxDistance);
+      sound.setDirectionalCone(
+        ac.coneInnerAngle,
+        ac.coneOuterAngle,
+        ac.coneOuterGain
+      );
+    }
+    group.add(sound);
+    soundRef.current = sound;
+
+    let cancelled = false;
+    new THREE.AudioLoader().load(ac.sourceUrl, (buffer) => {
+      if (cancelled) return;
+      sound.setBuffer(buffer);
+      sound.setLoop(ac.loop);
+      applyVolume();
+      if (ac.autoplay) {
+        // Resume a suspended context (editor may be suspended pre-gesture).
+        void listener.context.resume?.().catch(() => {});
+        if (!sound.isPlaying) sound.play();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (sound.isPlaying) sound.stop();
+      sound.removeFromParent();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    ac.sourceUrl,
+    ac.audioType,
+    ac.loop,
+    ac.refDistance,
+    ac.rolloffFactor,
+    ac.maxDistance,
+    ac.coneInnerAngle,
+    ac.coneOuterAngle,
+    ac.coneOuterGain,
+    camera,
+  ]);
+
+  // React to audibility / volume changes.
+  useEffect(() => {
+    applyVolume();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewerMode, audioPreview, ac.volume]);
+
+  // Media handle for the command bus / clip event lane.
+  useEffect(() => {
+    return registerMedia(node.id, {
+      play: () => {
+        const s = soundRef.current;
+        if (!s || !s.buffer) return;
+        void (s as THREE.Audio).context.resume?.().catch(() => {});
+        if (!s.isPlaying) s.play();
+      },
+      pause: () => {
+        const s = soundRef.current;
+        if (s?.isPlaying) s.pause();
+      },
+      stop: () => {
+        const s = soundRef.current;
+        if (s?.isPlaying) s.stop();
+      },
+      restart: () => {
+        const s = soundRef.current;
+        if (!s || !s.buffer) return;
+        if (s.isPlaying) s.stop();
+        s.play();
+      },
+      seek: (sec: number) => {
+        const s = soundRef.current;
+        if (!s || !s.buffer) return;
+        const wasPlaying = s.isPlaying;
+        if (wasPlaying) s.stop();
+        s.offset = Math.max(0, sec);
+        if (wasPlaying) s.play();
+      },
+      setVolume: (v: number) => {
+        desiredVolRef.current = Math.max(0, Math.min(1, v));
+        applyVolume();
+      },
+      mute: () => {
+        mutedRef.current = true;
+        applyVolume();
+      },
+      unmute: () => {
+        mutedRef.current = false;
+        applyVolume();
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node.id]);
+
+  const iconColor = ac.audioType === 'directional' ? '#22dd88' : '#22bbdd';
+
+  return (
+    <group
+      ref={groupRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+    >
+      {!viewerMode && (
+        <Billboard>
+          <Line
+            points={SPEAKER_OUTLINE_PTS}
+            color={iconColor}
+            lineWidth={1.5}
+          />
+          <Line
+            points={SPEAKER_DIVIDER_PTS}
+            color={iconColor}
+            lineWidth={1.5}
+          />
+          {/* Directional sources get the sound-wave arcs; simple ones don't. */}
+          {ac.audioType === 'directional' &&
+            SPEAKER_WAVE_PTS.map((pts, i) => (
+              <Line
+                key={i}
+                points={pts}
+                color={iconColor}
+                lineWidth={1.5}
+              />
+            ))}
+        </Billboard>
+      )}
     </group>
   );
 }
@@ -3852,6 +4344,12 @@ function renderNodeElement(
         <LightNode node={node} viewerMode={viewerMode} />
       </group>
     );
+  if (node.kind === 'audio')
+    return (
+      <group key={node.id} visible={visible}>
+        <AudioNode node={node} viewerMode={viewerMode} />
+      </group>
+    );
   if (node.kind === 'camera')
     return (
       <group key={node.id} visible={visible}>
@@ -3890,6 +4388,7 @@ function renderNodeElement(
   // billboard textures, troika SDF caches, and html2canvas-backed textures).
   if (node.kind === 'particle') return null;
   if (node.kind === 'billboard') return null;
+  if (node.kind === 'video') return null;
   if (node.kind === 'text_troika') return null;
   if (node.kind === 'text_canvas') return null;
   if (node.kind === 'feed') return null;
@@ -3926,6 +4425,7 @@ export function SceneNodes({
   // otherwise unmount+remount them, destroying the particle pool).
   const flatParticles = sceneNodes.filter((n) => n.kind === 'particle');
   const flatBillboards = sceneNodes.filter((n) => n.kind === 'billboard');
+  const flatVideos = sceneNodes.filter((n) => n.kind === 'video');
   const flatTextTroika = sceneNodes.filter((n) => n.kind === 'text_troika');
   const flatTextCanvas = sceneNodes.filter((n) => n.kind === 'text_canvas');
   const flatFeed = sceneNodes.filter((n) => n.kind === 'feed');
@@ -3961,6 +4461,11 @@ export function SceneNodes({
       {flatBillboards.map((node) => (
         <group key={node.id} visible={effectiveVisible(node)}>
           <BillboardNode node={node} />
+        </group>
+      ))}
+      {flatVideos.map((node) => (
+        <group key={node.id} visible={effectiveVisible(node)}>
+          <VideoNode node={node} viewerMode={viewerMode} />
         </group>
       ))}
       {flatTextTroika.map((node) => (
@@ -4674,6 +5179,41 @@ export function Viewport() {
         <CameraEffects />
       </Canvas>
       <GizmoToolbar mode={gizmoMode} setMode={setGizmoMode} />
+      <AudioPreviewToggle />
     </div>
+  );
+}
+
+/** Editor-only toggle to preview audio (audio nodes + unmuted video) in the
+ *  viewport. Off by default so authoring stays quiet; the viewer/output always
+ *  plays audio regardless of this. */
+function AudioPreviewToggle() {
+  const on = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const setOn = useEditorStore((s) => s.setEditorAudioPreviewEnabled);
+  return (
+    <button
+      title={on ? 'Audio preview on (click to mute editor)' : 'Audio muted in editor (click to preview)'}
+      onClick={() => setOn(!on)}
+      style={{
+        position: 'absolute',
+        bottom: 16,
+        left: 120,
+        width: 30,
+        height: 30,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 15,
+        cursor: 'pointer',
+        background: on ? '#1e2e4a' : '#0e0e18',
+        border: `1px solid ${on ? '#3a5a9a' : '#2a2a3a'}`,
+        borderRadius: 6,
+        color: on ? '#7ab' : '#555',
+        lineHeight: 1,
+        zIndex: 10,
+      }}
+    >
+      {on ? '🔊' : '🔇'}
+    </button>
   );
 }

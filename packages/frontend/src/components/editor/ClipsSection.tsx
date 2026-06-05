@@ -92,6 +92,7 @@ export function ClipsSection({
               id: '',
             })),
           })),
+          events: clip.events.map((e) => ({ ...e, id: '' })),
         },
       },
       setClipboard
@@ -143,6 +144,22 @@ export function ClipsSection({
             }))
           );
         }
+      }
+      // 2b. Recreate event markers, retargeting owner-pointed markers like lanes.
+      if (payload.clip.events && payload.clip.events.length > 0) {
+        await api.replaceTrackClipEvents(
+          created.id,
+          payload.clip.events.map((e) => {
+            const isOwner = e.targetId === payload.sourceOwnerId;
+            return {
+              t: e.t,
+              action: e.action,
+              targetKind: isOwner ? destOwnerKind : e.targetKind,
+              targetId: isOwner ? owner.id : e.targetId,
+              payload: e.payload,
+            };
+          })
+        );
       }
       // 3. Reload the full clip (with its lanes + keyframes) so the local
       //    store reflects the paste. The lane / keyframe create+replace

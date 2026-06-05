@@ -36,8 +36,17 @@ export function AssetManager() {
   const canApplyTexture =
     selectedNode?.kind === 'billboard' || selectedNode?.kind === 'particle';
   const canApplyCameraBg = selectedNode?.kind === 'camera';
+  const canApplyVideo = selectedNode?.kind === 'video';
+  const canApplyAudio = selectedNode?.kind === 'audio';
   const tab = useEditorStore((s) => s.bottomTab);
   const setTab = useEditorStore((s) => s.setBottomTab);
+  const leftTab = useEditorStore((s) => s.leftTab);
+  const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
+  const addComposeLayer = useEditorStore((s) => s.addComposeLayer);
+  const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
+  // The "Add" action follows the left-dock context: Compose tab → create a
+  // compose layer; Scene/Graphs tab → create a 3D scene node.
+  const composeMode = leftTab === 'compose';
   const bottomDockHeight = useEditorStore((s) => s.bottomDockHeight);
   const bottomTabFlash = useEditorStore((s) => s.bottomTabFlash);
   const [uploading, setUploading] = useState(false);
@@ -59,6 +68,8 @@ export function AssetManager() {
     }
     if (selectedNode.kind === 'billboard' || selectedNode.kind === 'particle')
       relevantTabs.add('images');
+    if (selectedNode.kind === 'video') relevantTabs.add('videos');
+    if (selectedNode.kind === 'audio') relevantTabs.add('audio');
   }
 
   // Brief pulse of the active tab when something flashes it (scene "+" button,
@@ -78,10 +89,14 @@ export function AssetManager() {
   const modelInputRef = useRef<HTMLInputElement>(null);
   const animInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   const models = assets.filter((a) => a.kind === 'model');
   const animations = assets.filter((a) => a.kind === 'animation');
   const images = assets.filter((a) => a.kind === 'image');
+  const videos = assets.filter((a) => a.kind === 'video');
+  const audioAssets = assets.filter((a) => a.kind === 'audio');
 
   const handleUpload = async (file: File) => {
     if (!projectId) {
@@ -98,6 +113,48 @@ export function AssetManager() {
       setUploading(false);
     }
   };
+
+  // OS file drag-and-drop onto the dock. Uploads every dropped file, then jumps
+  // to the tab for the first file's kind so the upload is visible.
+  const KIND_TO_TAB: Record<string, BottomDockTab> = {
+    model: 'models',
+    animation: 'animations',
+    image: 'images',
+    video: 'videos',
+    audio: 'audio',
+  };
+  const dragDepth = useRef(0);
+  const [fileDragOver, setFileDragOver] = useState(false);
+
+  const handleUploadFiles = async (files: FileList | File[]) => {
+    if (!projectId) {
+      alert('No project loaded.');
+      return;
+    }
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setUploading(true);
+    let firstKind: string | null = null;
+    const failures: string[] = [];
+    for (const file of list) {
+      try {
+        const asset = await api.uploadAsset(projectId, file);
+        addAsset(asset);
+        if (firstKind == null) firstKind = asset.kind;
+      } catch {
+        failures.push(file.name);
+      }
+    }
+    setUploading(false);
+    if (firstKind && KIND_TO_TAB[firstKind]) setTab(KIND_TO_TAB[firstKind]);
+    if (failures.length > 0)
+      alert(`Failed to upload: ${failures.join(', ')}`);
+  };
+
+  // Only react to OS file drags (dataTransfer carries "Files"); internal asset/
+  // tile drags use custom MIME types and must pass straight through.
+  const isFileDrag = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer.types).includes('Files');
 
   const handleAddToScene = async (asset: AssetFile) => {
     if (!activeSceneId) {
@@ -172,6 +229,152 @@ export function AssetManager() {
         addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Failed to add billboard');
+    }
+  };
+
+  const TRANSFORM_DEFAULT = {
+    type: 'transform',
+    x: 0,
+    y: 0,
+    z: 0,
+    rx: 0,
+    ry: 0,
+    rz: 0,
+    sx: 1,
+    sy: 1,
+    sz: 1,
+  };
+
+  const handleAddAsVideo = async (asset: AssetFile) => {
+    if (!activeSceneId) {
+      alert('No active scene.');
+      return;
+    }
+    try {
+      const node = await api.createNode(activeSceneId, {
+        parentId: null,
+        name: asset.name,
+        kind: 'video',
+        filePath: asset.url,
+        components: {
+          transform: TRANSFORM_DEFAULT,
+          video: {
+            type: 'video',
+            assetId: asset.id,
+            sourceUrl: asset.url,
+            facing: 'world',
+            backface: 'none',
+            width: 1.6,
+            height: 0.9,
+            alpha: 1,
+            autoplay: true,
+            loop: true,
+            onEnd: 'freeze',
+            muted: true,
+            volume: 1,
+          },
+        },
+      });
+      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
+        addNode(node);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to add video');
+    }
+  };
+
+  const handleAddAsAudio = async (asset: AssetFile) => {
+    if (!activeSceneId) {
+      alert('No active scene.');
+      return;
+    }
+    try {
+      const node = await api.createNode(activeSceneId, {
+        parentId: null,
+        name: asset.name,
+        kind: 'audio',
+        filePath: asset.url,
+        components: {
+          transform: TRANSFORM_DEFAULT,
+          audio: {
+            type: 'audio',
+            audioType: 'simple',
+            assetId: asset.id,
+            sourceUrl: asset.url,
+            autoplay: true,
+            loop: false,
+            onEnd: 'stop',
+            volume: 1,
+            fadeTime: 0,
+            refDistance: 1,
+            rolloffFactor: 1,
+            maxDistance: 100,
+            coneInnerAngle: 360,
+            coneOuterAngle: 360,
+            coneOuterGain: 0,
+          },
+        },
+      });
+      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
+        addNode(node);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to add audio');
+    }
+  };
+
+  // Add an image/video asset as a compose layer in the active compose scene.
+  const handleAddAsLayer = async (
+    asset: AssetFile,
+    kind: 'image' | 'video'
+  ) => {
+    if (!activeComposeSceneId) {
+      alert(
+        'No active compose scene. Open the Compose tab and select a compose scene first.'
+      );
+      return;
+    }
+    const config: Record<string, unknown> =
+      kind === 'video'
+        ? {
+            objectFit: 'contain',
+            autoplay: true,
+            loop: true,
+            onEnd: 'freeze',
+            muted: true,
+            volume: 1,
+          }
+        : { objectFit: 'contain' };
+    try {
+      const created = await api.createComposeSceneLayer(activeComposeSceneId, {
+        name: asset.name,
+        kind,
+        assetId: asset.id,
+        config,
+      });
+      addComposeLayer(created);
+      selectComposeLayer(created.id);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to add layer');
+    }
+  };
+
+  const handleApplyMediaSource = async (
+    asset: AssetFile,
+    key: 'video' | 'audio'
+  ) => {
+    if (!selectedNode) return;
+    const existing = (selectedNode.components?.[key] ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const components = {
+      ...selectedNode.components,
+      [key]: { ...existing, assetId: asset.id, sourceUrl: asset.url },
+    };
+    try {
+      await api.updateNode(selectedNode.id, { components, filePath: asset.url });
+      storeUpdateNode(selectedNode.id, { components, filePath: asset.url });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to apply media source');
     }
   };
 
@@ -400,6 +603,32 @@ export function AssetManager() {
 
   return (
     <div
+      onDragEnter={(e) => {
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        dragDepth.current += 1;
+        setFileDragOver(true);
+      }}
+      onDragOver={(e) => {
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }}
+      onDragLeave={(e) => {
+        if (!isFileDrag(e)) return;
+        dragDepth.current -= 1;
+        if (dragDepth.current <= 0) {
+          dragDepth.current = 0;
+          setFileDragOver(false);
+        }
+      }}
+      onDrop={(e) => {
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        dragDepth.current = 0;
+        setFileDragOver(false);
+        handleUploadFiles(e.dataTransfer.files);
+      }}
       style={{
         height: bottomDockHeight,
         flexShrink: 0,
@@ -412,6 +641,26 @@ export function AssetManager() {
       }}
     >
       <BottomDockResizeHandle />
+      {fileDragOver && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 50,
+            background: 'rgba(37,99,235,0.12)',
+            border: '2px dashed #2563eb',
+            borderRadius: 6,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+          }}
+        >
+          <div style={{ color: '#cfe0ff', fontSize: 15, fontWeight: 600 }}>
+            ⬆ Drop files to upload
+          </div>
+        </div>
+      )}
       <style>{`@keyframes vsTabFlash { 0%,100% { box-shadow: none } 50% { box-shadow: 0 0 0 2px #2563eb inset, 0 0 10px rgba(37,99,235,0.6) } }`}</style>
       <div
         style={{
@@ -438,6 +687,12 @@ export function AssetManager() {
         <button style={tabBtn('images')} onClick={() => setTab('images')}>
           Images
         </button>
+        <button style={tabBtn('videos')} onClick={() => setTab('videos')}>
+          Videos
+        </button>
+        <button style={tabBtn('audio')} onClick={() => setTab('audio')}>
+          Audio
+        </button>
         <button
           style={tabBtn('components')}
           onClick={() => setTab('components')}
@@ -454,7 +709,11 @@ export function AssetManager() {
           Presets
         </button>
         <div style={{ flex: 1 }} />
-        {(tab === 'models' || tab === 'animations' || tab === 'images') && (
+        {(tab === 'models' ||
+          tab === 'animations' ||
+          tab === 'images' ||
+          tab === 'videos' ||
+          tab === 'audio') && (
           <input
             value={assetQuery}
             onChange={(e) => setAssetQuery(e.target.value)}
@@ -530,6 +789,48 @@ export function AssetManager() {
               ref={imageInputRef}
               type="file"
               accept=".jpg,.jpeg,.png,.webp,.gif,.avif"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleUpload(file);
+                e.target.value = '';
+              }}
+            />
+          </>
+        ) : tab === 'videos' ? (
+          <>
+            <button
+              style={uploadBtn}
+              disabled={uploading}
+              onClick={() => videoInputRef.current?.click()}
+            >
+              {uploading ? 'Uploading…' : 'Upload Video'}
+            </button>
+            <input
+              ref={videoInputRef}
+              type="file"
+              accept=".mp4,.webm,.mov,.m4v,.ogv"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleUpload(file);
+                e.target.value = '';
+              }}
+            />
+          </>
+        ) : tab === 'audio' ? (
+          <>
+            <button
+              style={uploadBtn}
+              disabled={uploading}
+              onClick={() => audioInputRef.current?.click()}
+            >
+              {uploading ? 'Uploading…' : 'Upload Audio'}
+            </button>
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept=".mp3,.wav,.ogg,.m4a,.aac,.flac"
               style={{ display: 'none' }}
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -696,15 +997,23 @@ export function AssetManager() {
             </div>
           )}
 
-          {/* Models / Animations / Images tabs */}
-          {(tab === 'models' || tab === 'animations' || tab === 'images') &&
+          {/* Models / Animations / Images / Videos / Audio tabs */}
+          {(tab === 'models' ||
+            tab === 'animations' ||
+            tab === 'images' ||
+            tab === 'videos' ||
+            tab === 'audio') &&
             (() => {
               const all =
                 tab === 'models'
                   ? models
                   : tab === 'animations'
                     ? animations
-                    : images;
+                    : tab === 'images'
+                      ? images
+                      : tab === 'videos'
+                        ? videos
+                        : audioAssets;
               const q = assetQuery.trim().toLowerCase();
               const list = q
                 ? all.filter((a) => a.name.toLowerCase().includes(q))
@@ -871,9 +1180,18 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            onClick={() => handleAddAsBillboard(asset)}
+                            title={
+                              composeMode
+                                ? 'Add as an image layer in the active compose scene'
+                                : 'Add as a billboard in the 3D scene'
+                            }
+                            onClick={() =>
+                              composeMode
+                                ? handleAddAsLayer(asset, 'image')
+                                : handleAddAsBillboard(asset)
+                            }
                           >
-                            Add as Billboard
+                            {composeMode ? 'Add as Layer' : 'Add as Billboard'}
                           </button>
                         )}
                         {asset.kind === 'image' && canApplyTexture && (
@@ -924,6 +1242,81 @@ export function AssetManager() {
                               Select billboard/particle/camera
                             </span>
                           )}
+                        {asset.kind === 'video' && (
+                          <button
+                            style={{
+                              background: '#1a2a4a',
+                              border: 'none',
+                              color: '#78b',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={
+                              composeMode
+                                ? 'Add as a video layer in the active compose scene'
+                                : 'Add as a 3D video node in the scene'
+                            }
+                            onClick={() =>
+                              composeMode
+                                ? handleAddAsLayer(asset, 'video')
+                                : handleAddAsVideo(asset)
+                            }
+                          >
+                            {composeMode ? 'Add as Layer' : 'Add as Video'}
+                          </button>
+                        )}
+                        {asset.kind === 'video' && canApplyVideo && (
+                          <button
+                            style={{
+                              background: '#2a1a3a',
+                              border: 'none',
+                              color: '#a7c',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={`Apply to "${selectedNode!.name}"`}
+                            onClick={() => handleApplyMediaSource(asset, 'video')}
+                          >
+                            Apply to {selectedNode!.name}
+                          </button>
+                        )}
+                        {asset.kind === 'audio' && (
+                          <button
+                            style={{
+                              background: '#1a3a2a',
+                              border: 'none',
+                              color: '#7c9',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            onClick={() => handleAddAsAudio(asset)}
+                          >
+                            Add as Audio
+                          </button>
+                        )}
+                        {asset.kind === 'audio' && canApplyAudio && (
+                          <button
+                            style={{
+                              background: '#2a1a3a',
+                              border: 'none',
+                              color: '#a7c',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={`Apply to "${selectedNode!.name}"`}
+                            onClick={() => handleApplyMediaSource(asset, 'audio')}
+                          >
+                            Apply to {selectedNode!.name}
+                          </button>
+                        )}
                         <button
                           style={{
                             background: 'none',

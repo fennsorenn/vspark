@@ -1,5 +1,15 @@
-import { useId, useMemo, type CSSProperties } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import { useEditorStore } from '../../store/editorStore';
+import { registerMedia } from './mediaRegistry';
+import { ChromaVideoCanvas } from './ChromaVideoCanvas';
+import { readChroma } from './videoFx';
 import type {
   ComposeLayerRecord,
   AssetFile,
@@ -17,9 +27,10 @@ import {
 interface ComposeLayerStackProps {
   layers: ComposeLayerRecord[];
   assets: AssetFile[];
-  /** Render mode is currently ignored — both editor and viewer render the same
-   *  passive DOM; the editor's input goes through ComposeEventCapture. Kept
-   *  in the signature so ViewerPage's call site doesn't need to change. */
+  /** Editor vs viewer. Both render the same passive DOM (editor input goes
+   *  through ComposeEventCapture); the only behavioural difference is media
+   *  audibility — video layers are audible in the viewer, but muted in the
+   *  editor unless audio preview is enabled. Defaults to 'editor'. */
   mode?: 'editor' | 'viewer';
   /** Chain of compose-scene ids currently being rendered (outermost first).
    *  Used by scene_include layers to refuse rendering a scene that's already an
@@ -89,6 +100,10 @@ function layerStyle(
     (typeof layer.config.opacity === 'number' ? layer.config.opacity : 1);
 
   const cfg = layer.config;
+  const blendMode =
+    typeof cfg.blendMode === 'string' && cfg.blendMode !== 'normal'
+      ? (cfg.blendMode as CSSProperties['mixBlendMode'])
+      : undefined;
   const style: CSSProperties = {
     position: 'absolute',
     width: cssLen(width, cfg, 'widthUnit'),
@@ -97,6 +112,7 @@ function layerStyle(
     transformOrigin: 'center center',
     visibility: layer.visible ? 'visible' : 'hidden',
     opacity,
+    mixBlendMode: blendMode,
     overflow: 'hidden',
   };
   const xLen = cssLen(x, cfg, 'xUnit');
@@ -152,10 +168,12 @@ function SceneIncludeLayer({
   layer,
   assets,
   includeChain,
+  mode,
 }: {
   layer: ComposeLayerRecord;
   assets: AssetFile[];
   includeChain: string[];
+  mode: 'editor' | 'viewer';
 }) {
   const targetId =
     typeof layer.config.includeSceneId === 'string'
@@ -176,8 +194,115 @@ function SceneIncludeLayer({
         layers={targetLayers ?? []}
         assets={assets}
         includeChain={[...includeChain, targetId]}
+        mode={mode}
       />
     </div>
+  );
+}
+
+/** A compose-layer <video>, driven by config (autoplay/loop/onEnd/muted/volume)
+ *  and registered in the media registry so the command bus / clip event lane can
+ *  control it. Audio plays in the viewer; in the editor only when preview is on. */
+function VideoLayer({
+  layer,
+  url,
+  objectFit,
+  mode,
+}: {
+  layer: ComposeLayerRecord;
+  url: string;
+  objectFit: CSSProperties['objectFit'];
+  mode: 'editor' | 'viewer';
+}) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+  const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const cfg = layer.config as Record<string, unknown>;
+  const autoplay = cfg.autoplay !== false;
+  const loop = cfg.loop !== false;
+  const onEnd = (cfg.onEnd as string) ?? 'freeze';
+  const muted = cfg.muted !== false;
+  const volume = typeof cfg.volume === 'number' ? cfg.volume : 1;
+  const [hidden, setHidden] = useState(false);
+
+  // Reset hidden + apply autoplay when the source changes.
+  useEffect(() => {
+    setHidden(false);
+    const el = ref.current;
+    if (el && autoplay) void el.play().catch(() => {});
+  }, [url, autoplay]);
+
+  // Audibility + volume.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const audible = (mode === 'viewer' || audioPreview) && !muted;
+    el.muted = !audible;
+    el.volume = Math.max(0, Math.min(1, volume));
+  }, [mode, audioPreview, muted, volume, url]);
+
+  // Media handle for command bus / clip events.
+  useEffect(() => {
+    return registerMedia(layer.id, {
+      play: () => void ref.current?.play().catch(() => {}),
+      pause: () => ref.current?.pause(),
+      stop: () => {
+        const el = ref.current;
+        if (!el) return;
+        el.pause();
+        el.currentTime = 0;
+        if (onEnd === 'hide') setHidden(true);
+      },
+      restart: () => {
+        const el = ref.current;
+        if (!el) return;
+        setHidden(false);
+        el.currentTime = 0;
+        void el.play().catch(() => {});
+      },
+      seek: (t: number) => {
+        if (ref.current) ref.current.currentTime = Math.max(0, t);
+      },
+      setVolume: (v: number) => {
+        if (ref.current) ref.current.volume = Math.max(0, Math.min(1, v));
+      },
+      mute: () => {
+        if (ref.current) ref.current.muted = true;
+      },
+      unmute: () => {
+        if (ref.current) ref.current.muted = false;
+      },
+    });
+  }, [layer.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const chroma = readChroma(cfg.chromaKey as Record<string, unknown>);
+
+  return (
+    <>
+      <video
+        ref={ref}
+        src={url}
+        autoPlay={autoplay}
+        loop={loop}
+        muted
+        playsInline
+        crossOrigin="anonymous"
+        onEnded={() => {
+          if (!loop && onEnd === 'hide') setHidden(true);
+        }}
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit,
+          // While keying, the <video> is the off-screen source for the canvas.
+          display: chroma.enabled ? 'none' : 'block',
+          visibility: hidden ? 'hidden' : 'visible',
+          pointerEvents: 'none',
+        }}
+      />
+      {chroma.enabled && !hidden && (
+        <ChromaVideoCanvas videoRef={ref} chroma={chroma} objectFit={objectFit} />
+      )}
+    </>
   );
 }
 
@@ -185,10 +310,12 @@ function LayerContent({
   layer,
   assets,
   includeChain,
+  mode,
 }: {
   layer: ComposeLayerRecord;
   assets: AssetFile[];
   includeChain: string[];
+  mode: 'editor' | 'viewer';
 }) {
   if (layer.kind === 'camera_view') {
     return <CameraViewLayer layer={layer} />;
@@ -199,6 +326,7 @@ function LayerContent({
         layer={layer}
         assets={assets}
         includeChain={includeChain}
+        mode={mode}
       />
     );
   }
@@ -228,22 +356,7 @@ function LayerContent({
   if (layer.kind === 'video') {
     const url = resolveAssetUrl(layer, assets);
     if (!url) return <Placeholder text="no video" />;
-    return (
-      <video
-        src={url}
-        autoPlay
-        muted
-        loop
-        playsInline
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit,
-          display: 'block',
-          pointerEvents: 'none',
-        }}
-      />
-    );
+    return <VideoLayer layer={layer} url={url} objectFit={objectFit} mode={mode} />;
   }
   if (layer.kind === 'text') {
     return <TextLayer layer={layer} />;
@@ -383,14 +496,27 @@ function Placeholder({ text }: { text: string }) {
   );
 }
 
+/** Siblings stack by DOM order (later = on top), so we render ASCENDING by
+ *  sceneOrder: lowest first (back), highest last (front). This matches the
+ *  tree, where the top row is the front-most layer. */
+function orderSiblings(layers: ComposeLayerRecord[]): ComposeLayerRecord[] {
+  return [...layers].sort(
+    (a, b) => a.sceneOrder - b.sceneOrder || a.cameraOrder - b.cameraOrder
+  );
+}
+
 function LayerView({
   layer,
   assets,
   includeChain,
+  childrenByParent,
+  mode,
 }: {
   layer: ComposeLayerRecord;
   assets: AssetFile[];
   includeChain: string[];
+  childrenByParent: Map<string | null, ComposeLayerRecord[]>;
+  mode: 'editor' | 'viewer';
 }) {
   // Per-layer subscription to its track-clip override: this keeps re-renders
   // localized to layers being animated; idle layers don't re-render each rAF.
@@ -398,11 +524,15 @@ function LayerView({
   const runtimeOverride = useEditorStore(
     (s) => s.runtimeLayerOverrides[layer.id]
   );
+  // Child layers are nested INSIDE this layer's box, so their CSS left/top/
+  // width/height (and % units) resolve against this layer's content box and
+  // their rotation composes with ours — i.e. children are positioned, rotated
+  // and sized relative to their parent rather than the viewport.
+  const kids = orderSiblings(childrenByParent.get(layer.id) ?? []);
   // Layer wrappers are passive: pointer events go to the top-level capture
-  // overlay (ComposeEventCapture), which uses document.elementsFromPoint to
-  // find which layer is under the cursor via data-compose-layer-id. This
-  // single-owner model removes the need to route between layer wrappers,
-  // canvas, and selection chrome.
+  // overlay (ComposeEventCapture), which hit-tests layers analytically (see
+  // composeHitTest) via data-compose-layer-id. This single-owner model removes
+  // the need to route between layer wrappers, canvas, and selection chrome.
   return (
     <div
       data-compose-layer-id={layer.id}
@@ -411,7 +541,22 @@ function LayerView({
         pointerEvents: 'none',
       }}
     >
-      <LayerContent layer={layer} assets={assets} includeChain={includeChain} />
+      <LayerContent
+        layer={layer}
+        assets={assets}
+        includeChain={includeChain}
+        mode={mode}
+      />
+      {kids.map((k) => (
+        <LayerView
+          key={k.id}
+          layer={k}
+          assets={assets}
+          includeChain={includeChain}
+          childrenByParent={childrenByParent}
+          mode={mode}
+        />
+      ))}
     </div>
   );
 }
@@ -420,17 +565,23 @@ export function ComposeLayerStack({
   layers,
   assets,
   includeChain = [],
+  mode = 'editor',
 }: ComposeLayerStackProps) {
-  // Single z-ordered pass. Convention: higher sceneOrder = more in front (top
-  // of the layer tree). Absolutely-positioned siblings with no zIndex stack by
-  // DOM order (later = on top), so we sort ASCENDING here: lowest sceneOrder
-  // first in the DOM (back), highest last (front). This makes the rendered
-  // stacking match the tree, where the top row is the front-most layer.
-  const ordered = [...layers]
-    .filter((l) => l.kind !== 'compose_scene' && l.kind !== 'group')
-    .sort(
-      (a, b) => a.sceneOrder - b.sceneOrder || a.cameraOrder - b.cameraOrder
-    );
+  // Build the parent→children map for hierarchical rendering. A layer roots the
+  // stack when it has no parent OR its parent isn't part of this layer set
+  // (e.g. the parent is the compose_scene row, or a dangling/cross-scene
+  // parent) — so it can never be orphaned out of the render entirely. This
+  // mirrors ComposeTree's nesting logic. `group` layers stay in the map as
+  // transparent container boxes; only the compose_scene root is excluded.
+  const present = new Set(layers.map((l) => l.id));
+  const childrenByParent = new Map<string | null, ComposeLayerRecord[]>();
+  for (const l of layers) {
+    if (l.kind === 'compose_scene') continue;
+    const key = l.parentId && present.has(l.parentId) ? l.parentId : null;
+    if (!childrenByParent.has(key)) childrenByParent.set(key, []);
+    childrenByParent.get(key)!.push(l);
+  }
+  const roots = orderSiblings(childrenByParent.get(null) ?? []);
 
   // The container stays pointer-transparent so empty space falls through to the
   // parent viewport (click-to-deselect). Individual layer wrappers re-enable
@@ -445,12 +596,14 @@ export function ComposeLayerStack({
         pointerEvents: 'none',
       }}
     >
-      {ordered.map((l) => (
+      {roots.map((l) => (
         <LayerView
           key={l.id}
           layer={l}
           assets={assets}
           includeChain={includeChain}
+          childrenByParent={childrenByParent}
+          mode={mode}
         />
       ))}
     </div>
