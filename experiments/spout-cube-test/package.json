@@ -1,0 +1,13 @@
+{
+  "name": "spout-cube-test",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Offscreen Electron throttle + Spout test (rotating cube). Standalone — not part of the vspark workspace.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "30.0.1"
+  }
+}
