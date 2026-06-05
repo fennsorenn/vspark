@@ -9,6 +9,12 @@ name: build viewer experiments (Windows)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - experiments/viewer-spout
+    paths:
+      - experiments/**
+      - .github/workflows/build-windows.yml
 
 jobs:
   vspark-viewer:
