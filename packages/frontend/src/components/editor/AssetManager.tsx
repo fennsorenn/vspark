@@ -40,6 +40,13 @@ export function AssetManager() {
   const canApplyAudio = selectedNode?.kind === 'audio';
   const tab = useEditorStore((s) => s.bottomTab);
   const setTab = useEditorStore((s) => s.setBottomTab);
+  const leftTab = useEditorStore((s) => s.leftTab);
+  const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
+  const addComposeLayer = useEditorStore((s) => s.addComposeLayer);
+  const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
+  // The "Add" action follows the left-dock context: Compose tab → create a
+  // compose layer; Scene/Graphs tab → create a 3D scene node.
+  const composeMode = leftTab === 'compose';
   const bottomDockHeight = useEditorStore((s) => s.bottomDockHeight);
   const bottomTabFlash = useEditorStore((s) => s.bottomTabFlash);
   const [uploading, setUploading] = useState(false);
@@ -311,6 +318,42 @@ export function AssetManager() {
         addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Failed to add audio');
+    }
+  };
+
+  // Add an image/video asset as a compose layer in the active compose scene.
+  const handleAddAsLayer = async (
+    asset: AssetFile,
+    kind: 'image' | 'video'
+  ) => {
+    if (!activeComposeSceneId) {
+      alert(
+        'No active compose scene. Open the Compose tab and select a compose scene first.'
+      );
+      return;
+    }
+    const config: Record<string, unknown> =
+      kind === 'video'
+        ? {
+            objectFit: 'contain',
+            autoplay: true,
+            loop: true,
+            onEnd: 'freeze',
+            muted: true,
+            volume: 1,
+          }
+        : { objectFit: 'contain' };
+    try {
+      const created = await api.createComposeSceneLayer(activeComposeSceneId, {
+        name: asset.name,
+        kind,
+        assetId: asset.id,
+        config,
+      });
+      addComposeLayer(created);
+      selectComposeLayer(created.id);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to add layer');
     }
   };
 
@@ -1137,9 +1180,18 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            onClick={() => handleAddAsBillboard(asset)}
+                            title={
+                              composeMode
+                                ? 'Add as an image layer in the active compose scene'
+                                : 'Add as a billboard in the 3D scene'
+                            }
+                            onClick={() =>
+                              composeMode
+                                ? handleAddAsLayer(asset, 'image')
+                                : handleAddAsBillboard(asset)
+                            }
                           >
-                            Add as Billboard
+                            {composeMode ? 'Add as Layer' : 'Add as Billboard'}
                           </button>
                         )}
                         {asset.kind === 'image' && canApplyTexture && (
@@ -1201,9 +1253,18 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            onClick={() => handleAddAsVideo(asset)}
+                            title={
+                              composeMode
+                                ? 'Add as a video layer in the active compose scene'
+                                : 'Add as a 3D video node in the scene'
+                            }
+                            onClick={() =>
+                              composeMode
+                                ? handleAddAsLayer(asset, 'video')
+                                : handleAddAsVideo(asset)
+                            }
                           >
-                            Add as Video
+                            {composeMode ? 'Add as Layer' : 'Add as Video'}
                           </button>
                         )}
                         {asset.kind === 'video' && canApplyVideo && (
