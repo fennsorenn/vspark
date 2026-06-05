@@ -2483,6 +2483,33 @@ const DIR_RAYS = Array.from({ length: 8 }, (_, i) => {
   ] as const;
 });
 
+// Stylised speaker glyph for audio sources: a square body + a trapezoid cone,
+// drawn in the XY plane and billboarded toward the camera. The outline is one
+// closed polyline; the divider line is the shared body/cone edge so both the
+// square and the trapezoid read clearly.
+type Pt3 = [number, number, number];
+const SPEAKER_OUTLINE_PTS: Pt3[] = [
+  [-0.09, 0.04, 0], // body top-left
+  [-0.03, 0.04, 0], // body top-right / cone near-top
+  [0.07, 0.1, 0], // cone far-top
+  [0.07, -0.1, 0], // cone far-bottom
+  [-0.03, -0.04, 0], // body bottom-right / cone near-bottom
+  [-0.09, -0.04, 0], // body bottom-left
+  [-0.09, 0.04, 0], // close
+];
+const SPEAKER_DIVIDER_PTS: Pt3[] = [
+  [-0.03, 0.04, 0],
+  [-0.03, -0.04, 0],
+];
+// Two sound-wave arcs to the right of the cone.
+const SPEAKER_WAVE_PTS: Pt3[][] = [0.11, 0.16].map((r) =>
+  Array.from({ length: 9 }, (_, i) => {
+    const a = (-Math.PI / 4) + (i / 8) * (Math.PI / 2);
+    return [Math.cos(a) * r + 0.04, Math.sin(a) * r, 0] as Pt3;
+  })
+);
+
+
 function LightNode({
   node,
   viewerMode,
@@ -3332,7 +3359,26 @@ function AudioNode({
     >
       {!viewerMode && (
         <Billboard>
-          <Line points={POINT_CIRCLE_PTS} color={iconColor} lineWidth={1.5} />
+          <Line
+            points={SPEAKER_OUTLINE_PTS}
+            color={iconColor}
+            lineWidth={1.5}
+          />
+          <Line
+            points={SPEAKER_DIVIDER_PTS}
+            color={iconColor}
+            lineWidth={1.5}
+          />
+          {/* Directional sources get the sound-wave arcs; simple ones don't. */}
+          {ac.audioType === 'directional' &&
+            SPEAKER_WAVE_PTS.map((pts, i) => (
+              <Line
+                key={i}
+                points={pts}
+                color={iconColor}
+                lineWidth={1.5}
+              />
+            ))}
         </Billboard>
       )}
     </group>
