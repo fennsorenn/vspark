@@ -23,6 +23,10 @@ export function UpdateDialog({ onClose }: Props) {
   const [currentVersion, setCurrentVersion] = useState<string>('—');
   const [channel, setChannel] = useState<UpdateChannel>('stable');
   const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState<{
+    downloaded: number;
+    total: number | null;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -61,13 +65,20 @@ export function UpdateDialog({ onClose }: Props) {
 
   const handleUpdate = async () => {
     setDownloading(true);
+    setProgress({ downloaded: 0, total: null });
     setError(null);
     try {
       await api.startUpdateDownload();
-      // Poll until download is ready
+      // Poll for progress until the download is ready, then apply.
       pollRef.current = setInterval(async () => {
         try {
           const status = await api.getUpdateStatus();
+          if (status.downloadedBytes !== null) {
+            setProgress({
+              downloaded: status.downloadedBytes,
+              total: status.totalBytes,
+            });
+          }
           if (status.downloadReady) {
             clearInterval(pollRef.current!);
             await api.applyUpdate();
@@ -78,12 +89,18 @@ export function UpdateDialog({ onClose }: Props) {
           setError('Download failed');
           setDownloading(false);
         }
-      }, 2000);
+      }, 500);
     } catch {
       setError('Failed to start download');
       setDownloading(false);
     }
   };
+
+  const pct =
+    progress && progress.total
+      ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
+      : null;
+  const fmtMB = (b: number) => `${(b / (1024 * 1024)).toFixed(1)} MB`;
 
   return (
     <div
@@ -227,6 +244,37 @@ export function UpdateDialog({ onClose }: Props) {
 
         {error && <div style={{ color: '#f87171', fontSize: 12 }}>{error}</div>}
 
+        {/* Download progress */}
+        {downloading && progress && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div
+              style={{
+                height: 6,
+                background: '#222',
+                borderRadius: 3,
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  height: '100%',
+                  width: pct !== null ? `${pct}%` : '100%',
+                  background: '#4ade80',
+                  borderRadius: 3,
+                  transition: 'width 0.3s linear',
+                  // Indeterminate look when total size is unknown.
+                  opacity: pct !== null ? 1 : 0.4,
+                }}
+              />
+            </div>
+            <div style={{ fontSize: 11, color: '#888' }}>
+              {pct !== null
+                ? `${pct}% — ${fmtMB(progress.downloaded)} / ${fmtMB(progress.total!)}`
+                : `${fmtMB(progress.downloaded)} downloaded`}
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
         <div
           style={{
@@ -264,7 +312,11 @@ export function UpdateDialog({ onClose }: Props) {
                 fontSize: 13,
               }}
             >
-              {downloading ? 'Downloading…' : 'Update Now'}
+              {downloading
+                ? pct !== null
+                  ? `Downloading ${pct}%`
+                  : 'Downloading…'
+                : 'Update Now'}
             </button>
           )}
         </div>
