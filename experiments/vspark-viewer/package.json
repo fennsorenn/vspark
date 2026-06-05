@@ -1,0 +1,22 @@
+{
+  "name": "vspark-viewer",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Standalone Electron launcher + viewer for vspark. Windowed + offscreen(FPS) modes. Doubles as the Electron-OSR throttle test. Standalone — not part of the vspark workspace.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "30.0.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "dev.vspark.viewer",
+    "productName": "vspark-viewer",
+    "files": ["main.js", "launcher.html", "package.json"],
+    "win": { "target": "portable" },
+    "portable": { "artifactName": "vspark-viewer-${version}.exe" }
+  }
+}
