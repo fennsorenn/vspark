@@ -29,13 +29,30 @@ jobs:
       - name: Build electron_spout.node (best-effort)
         continue-on-error: true
         shell: bash
+        # VCPKG_INSTALLATION_ROOT is provided via the Actions env context rather
+        # than the raw shell env: Git Bash on windows-latest does not reliably
+        # inherit it, which previously left the toolchain path as a bare
+        # "/scripts/buildsystems/vcpkg.cmake" and failed CMake configure. We pass
+        # it explicitly and fall back to the known image path (C:\vcpkg).
+        env:
+          VCPKG_ROOT: ${{ env.VCPKG_INSTALLATION_ROOT }}
         run: |
+          set -euo pipefail
+          # Resolve vcpkg root, falling back to the documented runner-image path,
+          # then convert C:\... -> C:/... so CMake accepts the toolchain path.
+          VCPKG_ROOT="${VCPKG_ROOT:-/c/vcpkg}"
+          TOOLCHAIN="$(cygpath -m "$VCPKG_ROOT" 2>/dev/null || echo "$VCPKG_ROOT")/scripts/buildsystems/vcpkg.cmake"
+          echo "Using vcpkg toolchain: $TOOLCHAIN"
+          if [ ! -f "$TOOLCHAIN" ]; then
+            echo "vcpkg toolchain not found at $TOOLCHAIN — skipping Spout build."
+            exit 1
+          fi
           git clone --depth 1 https://github.com/reitowo/electron-spout spout-src
           cd spout-src
           npm install
           npx cmake-js compile \
             --runtime=electron --runtime-version=30.0.1 --arch=x64 \
-            --CDCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            --CDCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
             --CDCMAKE_MSVC_RUNTIME_LIBRARY='MultiThreaded$<$<CONFIG:Debug>:Debug>DLL'
           cp build/Release/electron_spout.node .. 2>/dev/null \
             || cp build/electron_spout.node .. 2>/dev/null \
