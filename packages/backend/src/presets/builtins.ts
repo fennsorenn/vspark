@@ -3,73 +3,25 @@
 // shape the serializer emits, so they flow through the normal instantiate path.
 // They are read-only: served via GET /api/presets/builtin[/:id], never stored
 // in or deletable from the DB.
+//
+// Definitions are split by theme under `builtin_presets/`:
+//   - helpers.ts   — shared builders (scene node / compose layer / graph / clip)
+//   - particles.ts — Rain / Snow / Fire / Magic Sparkles / Sparkler
+//   - chat.ts      — chat overlay (2D layer + 3D node) + scrolling 3D chat
+//   - alerts.ts    — Donation / Tip / Sub / Raid event overlays
+// Add more by extending the relevant file (or appending below).
+import {
+  identity,
+  sceneNode,
+  sceneNodePreset,
+  transform,
+  type BuiltinPreset,
+} from './builtin_presets/helpers.js';
+import { PARTICLE_PRESETS } from './builtin_presets/particles.js';
+import { CHAT_PRESETS } from './builtin_presets/chat.js';
+import { ALERT_PRESETS } from './builtin_presets/alerts.js';
 
-export interface BuiltinPreset {
-  id: string;
-  name: string;
-  description: string;
-  rootKind: 'scene_node' | 'compose_layer';
-  payload: Record<string, unknown>;
-}
-
-const identity = {
-  type: 'transform',
-  x: 0,
-  y: 0,
-  z: 0,
-  rx: 0,
-  ry: 0,
-  rz: 0,
-  sx: 1,
-  sy: 1,
-  sz: 1,
-};
-
-function transform(x: number, y: number, z: number) {
-  return { ...identity, x, y, z };
-}
-
-function sceneNode(
-  presetId: string,
-  parentPresetId: string | null,
-  name: string,
-  kind: string,
-  componentsBag: Record<string, unknown>
-) {
-  return {
-    presetId,
-    parentPresetId,
-    name,
-    kind,
-    filePresetAssetId: null,
-    boneAttachment: null,
-    hidden: false,
-    properties: {},
-    componentsBag,
-    components: [],
-    cameraEffects: [],
-  };
-}
-
-function sceneNodePreset(
-  id: string,
-  name: string,
-  description: string,
-  sceneNodes: unknown[]
-): BuiltinPreset {
-  return {
-    id,
-    name,
-    description,
-    rootKind: 'scene_node',
-    payload: {
-      format: 'vspark.preset.v2',
-      rootKind: 'scene_node',
-      assets: [],
-      sceneNodes,
-    },
-  };
-}
+export type { BuiltinPreset } from './builtin_presets/helpers.js';
 
 export const BUILTIN_PRESETS: BuiltinPreset[] = [
   sceneNodePreset(
@@ -118,6 +70,9 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       sceneNode('n4', 'n1', 'Effects', 'group', { transform: identity }),
     ]
   ),
+  ...PARTICLE_PRESETS,
+  ...CHAT_PRESETS,
+  ...ALERT_PRESETS,
 ];
 
 export function getBuiltinPreset(id: string): BuiltinPreset | undefined {

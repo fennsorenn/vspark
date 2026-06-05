@@ -65,6 +65,7 @@ export function ComposeLayerProperties({
 }) {
   const assets = useEditorStore((s) => s.assets);
   const updateLayerLocal = useEditorStore((s) => s.updateComposeLayerLocal);
+  const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   const nodes = useEditorStore((s) => s.nodes);
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
 
@@ -79,6 +80,28 @@ export function ComposeLayerProperties({
     updateLayerLocal(layer.id, patch);
     api.updateComposeLayer(layer.id, patch).catch(() => {});
   };
+
+  // Mirror the 3D media nodes' "Pick…" affordance: jump to + flash the matching
+  // bottom-dock asset tab, where the asset's "Apply to <layer>" button sets the
+  // source of this selected layer.
+  const pickBtn = (tab: Parameters<typeof flashBottomTab>[0]) => (
+    <button
+      onClick={() => flashBottomTab(tab)}
+      title="Pick from the asset drawer"
+      style={{
+        marginLeft: 8,
+        background: '#2a2a2a',
+        border: '1px solid #3a3a3a',
+        color: '#9cf',
+        borderRadius: 4,
+        padding: '1px 6px',
+        cursor: 'pointer',
+        fontSize: 10,
+      }}
+    >
+      Pick…
+    </button>
+  );
 
   // The compose scene this layer belongs to defines the % reference frame.
   const composeScenes = useEditorStore((s) => s.composeScenes);
@@ -131,6 +154,7 @@ export function ComposeLayerProperties({
   const compatibleAssets = assets.filter((a) => {
     if (layer.kind === 'image') return a.kind === 'image';
     if (layer.kind === 'video') return a.mimeType.startsWith('video/');
+    if (layer.kind === 'audio') return a.mimeType.startsWith('audio/');
     return false;
   });
 
@@ -447,8 +471,11 @@ export function ComposeLayerProperties({
 
       {(layer.kind === 'image' || layer.kind === 'video') && (
         <>
-          <div style={sectionHeader}>
+          <div
+            style={{ ...sectionHeader, display: 'flex', alignItems: 'center' }}
+          >
             {layer.kind === 'image' ? 'Image asset' : 'Video asset'}
+            {pickBtn(layer.kind === 'image' ? 'images' : 'videos')}
           </div>
           <select
             value={layer.assetId ?? ''}
@@ -639,6 +666,85 @@ export function ComposeLayerProperties({
               </>
             );
           })()}
+        </>
+      )}
+
+      {layer.kind === 'audio' && (
+        <>
+          <div
+            style={{ ...sectionHeader, display: 'flex', alignItems: 'center' }}
+          >
+            Audio asset
+            {pickBtn('audio')}
+          </div>
+          <select
+            value={layer.assetId ?? ''}
+            onChange={(e) => commit({ assetId: e.target.value || null })}
+            style={{ ...select, width: '100%' }}
+          >
+            <option value="">— none —</option>
+            {compatibleAssets.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <div style={sectionHeader}>Playback</div>
+          <div style={row}>
+            <span style={label}>Autoplay</span>
+            <input
+              type="checkbox"
+              checked={layer.config.autoplay === true}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, autoplay: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Loop</span>
+            <input
+              type="checkbox"
+              checked={layer.config.loop === true}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, loop: e.target.checked } })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Muted</span>
+            <input
+              type="checkbox"
+              checked={layer.config.muted === true}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, muted: e.target.checked } })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Volume</span>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={
+                typeof layer.config.volume === 'number'
+                  ? layer.config.volume
+                  : 1
+              }
+              onChange={(e) =>
+                commit({
+                  config: {
+                    ...layer.config,
+                    volume: parseFloat(e.target.value),
+                  },
+                })
+              }
+              style={textInput}
+            />
+          </div>
         </>
       )}
 

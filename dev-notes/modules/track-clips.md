@@ -205,6 +205,11 @@ per-clip entry deleted on stop, so markers don't double-fire on pause / scrub.
 list editor — targeting video/audio scene nodes and video compose layers.
 `ClipsSection` copy/paste carries events.
 
+**Presets:** preset serialize/deserialize round-trip the event/marker lane alongside
+scalar lanes/keyframes — `serialize.ts`'s `serializeClipEvents()` emits an `events`
+array per clip (with `targetPresetId` remapped like lanes) and `deserialize.ts`
+premints event presetIds and inserts `track_clip_events` rows. See [presets.md](presets.md).
+
 ## Frontend Recorder
 
 `packages/frontend/src/hooks/useTrackClipRecorder.ts` is the entry point for the "set keyframe" buttons in the Properties panel. Exposes:

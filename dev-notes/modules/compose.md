@@ -21,8 +21,8 @@ The frontend exposes compose scenes as a separate top-level concept from 3D scen
 Table `compose_layers` (migration [008_compose_layers.sql](../../packages/backend/src/db/migrations/008_compose_layers.sql) + later patches 016, 018). Layers are project-scoped (was scene-scoped). `camera_node_id` is nullable — `NULL` means visible in every camera. `parent_id` (migration 016) supports nesting (`compose_scene` → group layer → image, etc.). `root_compose_scene_id` (migration 018) points at the owning `compose_scene` row.
 
 Per-layer fields:
-- `kind`: `'compose_scene' | 'image' | 'video' | 'browser' | 'text'`
-- `asset_id` (image/video) or `url` (browser)
+- `kind`: `'compose_scene' | 'image' | 'video' | 'audio' | 'browser' | 'text'`
+- `asset_id` (image/video/audio) or `url` (browser)
 - Layout: `x`, `y` (pixel offsets from anchor corner), `width`, `height`, `anchor` (`top|bottom × left|right`), `rotation` (degrees, CSS transform around centre)
 - Display: `visible`, `opacity`, `name`
 - Ordering: `scene_order` (signed int), `camera_order` (int)
@@ -49,6 +49,12 @@ layer's own `muted` flag). See [media.md](media.md).
 kind; the video layer additionally chroma-keys via a WebGL2 `ChromaVideoCanvas` when
 `config.chromaKey.enabled` (CSS can't key a `<video>`). Both surfaced in
 `ComposeLayerProperties`. See [media.md](media.md) (Video FX).
+
+There is also a non-visual **`audio` layer kind** (`ComposeLayerStack.AudioLayer`):
+a `<audio>` element that registers a `MediaHandle` and keeps playing even when the
+layer is `visible:false` (the stack uses CSS `visibility:hidden`). Same playback
+config (`autoplay`/`loop`/`muted`/`volume`) and audibility gate as video. See
+[media.md](media.md) (Audio — 2D compose layer).
 
 ## Phase 1 additions (signal-graph expansion) — implemented
 

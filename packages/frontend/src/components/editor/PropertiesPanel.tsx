@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
-import { getBuiltinParticleTextures } from '../../particleTextures';
+import {
+  getBuiltinParticleTextures,
+  builtinParticleTextureUrl,
+} from '../../particleTextures';
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
@@ -5876,12 +5879,16 @@ export function PropertiesPanel() {
                   {/* Built-in presets */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {getBuiltinParticleTextures().map((t) => {
-                      const active = pc.textureUrl === t.dataUrl;
+                      const url = builtinParticleTextureUrl(t.key);
+                      // Match the canonical `builtin-tex:<key>` ref; also treat a
+                      // legacy inlined data URI as selected.
+                      const active =
+                        pc.textureUrl === url || pc.textureUrl === t.dataUrl;
                       return (
                         <button
-                          key={t.label}
+                          key={t.key}
                           title={t.label}
-                          onClick={() => savePc({ textureUrl: t.dataUrl })}
+                          onClick={() => savePc({ textureUrl: url })}
                           style={{
                             background: active ? '#2a4a6a' : '#1e1e1e',
                             border: active

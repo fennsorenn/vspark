@@ -194,15 +194,23 @@ function TimelineEditor({
     }
   };
 
-  // Media-capable targets: video/audio scene nodes + video compose layers.
+  // Media-capable targets: video/audio scene nodes + video/audio compose layers.
   const mediaTargets = useMemo(() => {
     const out: { kind: TrackClipTargetKind; id: string; name: string }[] = [];
     for (const n of nodes)
       if (n.kind === 'video' || n.kind === 'audio')
-        out.push({ kind: 'scene_node', id: n.id, name: `${n.name} (${n.kind})` });
+        out.push({
+          kind: 'scene_node',
+          id: n.id,
+          name: `${n.name} (${n.kind})`,
+        });
     for (const l of composeLayers)
-      if (l.kind === 'video')
-        out.push({ kind: 'compose_layer', id: l.id, name: `${l.name} (layer)` });
+      if (l.kind === 'video' || l.kind === 'audio')
+        out.push({
+          kind: 'compose_layer',
+          id: l.id,
+          name: `${l.name} (${l.kind} layer)`,
+        });
     return out;
   }, [nodes, composeLayers]);
 
@@ -375,9 +383,7 @@ function TimelineEditor({
       <EventLane
         clip={clip}
         targets={mediaTargets}
-        playheadT={
-          computePlayheadT(activePlayback ?? null, clip.duration) ?? 0
-        }
+        playheadT={computePlayheadT(activePlayback ?? null, clip.duration) ?? 0}
         onReplace={handleReplaceEvents}
       />
 
@@ -1446,16 +1452,24 @@ function EventLane({
       </div>
 
       {/* Marker list editor */}
-      <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div
+        style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}
+      >
         {events.length === 0 && (
           <div style={{ color: '#555', fontSize: 11 }}>
-            No event markers. Add one to fire a media command at a point in the clip.
+            No event markers. Add one to fire a media command at a point in the
+            clip.
           </div>
         )}
         {events.map((e) => (
           <div
             key={e.id}
-            style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}
+            style={{
+              display: 'flex',
+              gap: 6,
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}
           >
             <label style={{ color: '#888', fontSize: 11 }}>t</label>
             <input
@@ -1508,22 +1522,27 @@ function EventLane({
                   step={e.action === 'seek' ? 0.1 : 0.05}
                   value={
                     e.action === 'seek'
-                      ? Number(((e.payload?.t as number) ?? 0).toFixed?.(3) ?? 0)
+                      ? Number(
+                          ((e.payload?.t as number) ?? 0).toFixed?.(3) ?? 0
+                        )
                       : ((e.payload?.volume as number) ?? 1)
                   }
                   onChange={(ev) => {
                     const v = Number(ev.target.value);
                     if (!Number.isFinite(v)) return;
                     patch(e.id, {
-                      payload:
-                        e.action === 'seek' ? { t: v } : { volume: v },
+                      payload: e.action === 'seek' ? { t: v } : { volume: v },
                     });
                   }}
                   style={{ ...inputStyle, width: 70 }}
                 />
               </>
             )}
-            <button onClick={() => remove(e.id)} style={btnDanger} title="Remove marker">
+            <button
+              onClick={() => remove(e.id)}
+              style={btnDanger}
+              title="Remove marker"
+            >
               ×
             </button>
           </div>

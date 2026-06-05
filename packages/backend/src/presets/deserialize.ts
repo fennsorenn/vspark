@@ -91,6 +91,14 @@ interface PresetPayload {
     loop: boolean;
     mode: string;
     autoplay: boolean;
+    events?: Array<{
+      presetId: string;
+      t: number;
+      action: string;
+      targetKind: string;
+      targetPresetId: string;
+      payload: Record<string, unknown> | null;
+    }>;
     lanes: Array<{
       presetId: string;
       targetKind: string;
@@ -165,6 +173,7 @@ export function instantiatePreset(
   }
   for (const tc of payloadInput.trackClips ?? []) {
     premint(tc.presetId);
+    for (const ev of tc.events ?? []) premint(ev.presetId);
     for (const lane of tc.lanes) {
       premint(lane.presetId);
       for (const kf of lane.keyframes) premint(kf.presetId);
@@ -438,6 +447,23 @@ export function instantiatePreset(
           kf.outHandleVFraction
         );
       }
+    }
+
+    for (const ev of tc.events ?? []) {
+      const evId = mintId(ev.presetId);
+      const targetId = resolveId(ev.targetPresetId);
+      db.prepare(
+        `INSERT INTO track_clip_events (id, clip_id, t, action, target_kind, target_id, payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        evId,
+        clipId,
+        ev.t,
+        ev.action,
+        ev.targetKind,
+        targetId,
+        ev.payload ? JSON.stringify(ev.payload) : null
+      );
     }
   }
 

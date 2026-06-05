@@ -93,6 +93,7 @@ import {
   tickParticles,
 } from '../../particleUtils';
 import type { ParticlePool } from '../../particleUtils';
+import { resolveParticleTextureUrl } from '../../particleTextures';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -2841,7 +2842,12 @@ function BillboardNode({ node }: { node: NodeRecord }) {
       return;
     }
     let cancelled = false;
-    new THREE.TextureLoader().load(bc.textureUrl, (tex) => {
+    const url = resolveParticleTextureUrl(bc.textureUrl);
+    if (!url) {
+      textureRef.current = null;
+      return;
+    }
+    new THREE.TextureLoader().load(url, (tex) => {
       if (cancelled) {
         tex.dispose();
         return;
@@ -3978,12 +3984,13 @@ function ParticleNode({ node }: { node: NodeRecord }) {
   // Texture loading
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
   useEffect(() => {
-    if (!pc.textureUrl) {
+    const url = resolveParticleTextureUrl(pc.textureUrl);
+    if (!url) {
       setTexture(null);
       return;
     }
     let cancelled = false;
-    new THREE.TextureLoader().load(pc.textureUrl, (tex) => {
+    new THREE.TextureLoader().load(url, (tex) => {
       if (!cancelled) {
         tex.colorSpace = THREE.SRGBColorSpace;
         setTexture(tex);

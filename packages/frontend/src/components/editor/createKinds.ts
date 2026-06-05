@@ -291,6 +291,7 @@ export const LAYER_KIND_DEFS: LayerKindDef[] = [
   { kind: 'scene_include', label: 'Include Scene', icon: '🎬' },
   { kind: 'image', label: 'Image', icon: '🖼' },
   { kind: 'video', label: 'Video', icon: '🎞' },
+  { kind: 'audio', label: 'Audio', icon: '🔊' },
   { kind: 'browser', label: 'Browser', icon: '🌐' },
   { kind: 'text', label: 'Text', icon: '📝' },
   { kind: 'feed', label: 'Feed', icon: '📜' },
@@ -338,7 +339,9 @@ export async function createLayer(
               muted: true,
               volume: 1,
             }
-          : {};
+          : kind === 'audio'
+            ? { autoplay: false, loop: false, muted: false, volume: 1 }
+            : {};
 
   // Scene includes default to the first OTHER compose scene; reassign in
   // properties. They mount that scene's whole layer stack.

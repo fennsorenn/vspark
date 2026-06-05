@@ -16,6 +16,7 @@ import { DND_CREATE_LAYER } from './dnd';
 const KIND_ICONS: Record<ComposeLayerKind, string> = {
   image: '🖼',
   video: '🎞',
+  audio: '🔊',
   browser: '🌐',
   group: '📁',
   compose_scene: '🎬',
