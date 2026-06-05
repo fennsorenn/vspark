@@ -23,7 +23,7 @@
 
 **Update / config types**:
 - `UpdateChannel` — `'stable' | 'recent' | 'experimental'`
-- `UpdateStatus` — `{ version, latestVersion, releaseNotes, channel, downloadReady }`
+- `UpdateStatus` — `{ updateAvailable, downloadReady, downloadedBytes, totalBytes, currentVersion, latestVersion, releaseNotes, channel }`
 - `AppConfig` — shape of `config.json` on disk; includes `channel: UpdateChannel`
 - `server_update` in `WSMessageKind` — payload carries update availability info; `reloadOnReconnect: true` triggers a page reload after server restart
 
