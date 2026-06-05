@@ -1,9 +1,10 @@
 # Builds the standalone Windows test apps under experiments/ into double-click
 # portable .exe files and uploads them as downloadable artifacts.
 #
-# Run it manually: Actions tab -> "build viewer experiments (Windows)" -> Run
-# workflow. When it finishes, download the artifact, unzip, and hand the .exe to
-# the test machine. No Node/toolchain needed on that machine.
+# This file can't be committed under .github/workflows/ by the bot (push creds
+# lack the `workflow` scope). Enable it once: copy this file to
+# .github/workflows/build-windows.yml (GitHub web UI "Add file", or a commit
+# from an account with `workflow` scope). Then run it from the Actions tab.
 name: build viewer experiments (Windows)
 
 on:
@@ -20,10 +21,54 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      # Best-effort: build the Spout native addon and drop it next to the app so
+      # electron-builder bundles it. If anything here fails, we still ship the
+      # viewer (the FPS/throttle test works without Spout). Check this step's log
+      # if Spout doesn't show up in the .exe.
+      - name: Build electron_spout.node (best-effort)
+        continue-on-error: true
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/reitowo/electron-spout spout-src
+          cd spout-src
+          npm install
+          npx cmake-js compile \
+            --runtime=electron --runtime-version=30.0.1 --arch=x64 \
+            --CDCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            --CDCMAKE_MSVC_RUNTIME_LIBRARY='MultiThreaded$<$<CONFIG:Debug>:Debug>DLL'
+          cp build/Release/electron_spout.node .. 2>/dev/null \
+            || cp build/electron_spout.node .. 2>/dev/null \
+            || find . -name electron_spout.node -exec cp {} .. \;
+
+      - name: Report whether Spout addon was built
+        shell: bash
+        run: |
+          if [ -f electron_spout.node ]; then echo "Spout addon present — .exe will include Spout."; \
+          else echo "Spout addon NOT built — .exe will run WITHOUT Spout (throttle test still works)."; fi
+
       - run: npm install
       - run: npm run dist
       - uses: actions/upload-artifact@v4
         with:
           name: vspark-viewer-portable
           path: experiments/vspark-viewer/dist/*.exe
+          if-no-files-found: error
+
+  headless-test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: experiments/headless-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: headless-test-portable
+          path: experiments/headless-test/dist/*.exe
           if-no-files-found: error
