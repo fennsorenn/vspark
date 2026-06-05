@@ -4,17 +4,24 @@ import http from 'http';
 import { createWriteStream, existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
-import { tmpdir } from 'os';
-import { spawn } from 'child_process';
 import type { WSSync } from '../ws/index.js';
 import type { UpdateStatus, UpdateChannel } from '@vspark/shared';
 
 const GITHUB_REPO = 'fennsorenn/vspark';
-const DOWNLOAD_PATH = join(tmpdir(), 'vspark-update.zip');
+
+/**
+ * Exit code that signals the supervising start script (start.sh / start.bat)
+ * to apply the downloaded update and relaunch in the same console, instead of
+ * shutting down. Any other exit code is treated as a normal stop. Must match
+ * the start scripts generated in .github/workflows/release.yml.
+ */
+const UPDATE_EXIT_CODE = 42;
 
 let _status: UpdateStatus = {
   updateAvailable: false,
   downloadReady: false,
+  downloadedBytes: null,
+  totalBytes: null,
   currentVersion: 'dev',
   latestVersion: null,
   releaseNotes: null,
@@ -24,6 +31,15 @@ let _downloadPath: string | null = null;
 let _latestAssetUrl: string | null = null;
 let _wsSync: WSSync | null = null;
 let _installDir: string = process.cwd();
+
+/**
+ * Where the update zip is downloaded. Sits next to the install dir (i.e. in the
+ * parent that contains the `vspark/` folder) so the start script can find it at
+ * a predictable path without having to agree with Node on the OS temp dir.
+ */
+function downloadZipPath(): string {
+  return join(dirname(_installDir), 'vspark-update.zip');
+}
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -64,6 +80,10 @@ function compareSemver(a: string, b: string): number {
   if (pa.pre !== null && pb.pre === null) return -1;
   if (pa.pre !== null && pb.pre !== null) return pa.pre > pb.pre ? 1 : -1;
   return 0;
+}
+
+function formatMB(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function httpsGet(
@@ -215,16 +235,48 @@ updateRoutes.post('/update/download', (_req, res) => {
 
   res.json({ ok: true, data: { started: true } });
 
+  const target = downloadZipPath();
+  _status.downloadReady = false;
+  _status.downloadedBytes = 0;
+  _status.totalBytes = null;
+
   // Stream download in background (follows redirects — GitHub asset URLs redirect to S3)
   httpsGet(_latestAssetUrl, {
     'User-Agent': `vspark/${_status.currentVersion}`,
   })
     .then((fileRes) => {
-      const dest = createWriteStream(DOWNLOAD_PATH);
+      const total = Number(fileRes.headers['content-length']) || null;
+      _status.totalBytes = total;
+
+      let received = 0;
+      let lastLoggedPct = -1;
+      fileRes.on('data', (chunk: Buffer) => {
+        received += chunk.length;
+        _status.downloadedBytes = received;
+        // Throttle console output to whole-percent steps (or per-MB if size unknown).
+        if (total) {
+          const pct = Math.floor((received / total) * 100);
+          if (pct !== lastLoggedPct) {
+            lastLoggedPct = pct;
+            console.log(
+              `[update] downloading ${pct}% (${formatMB(received)} / ${formatMB(total)})`
+            );
+          }
+        } else {
+          const mb = Math.floor(received / (1024 * 1024));
+          if (mb !== lastLoggedPct) {
+            lastLoggedPct = mb;
+            console.log(`[update] downloading ${formatMB(received)}`);
+          }
+        }
+      });
+
+      const dest = createWriteStream(target);
       fileRes.pipe(dest);
       dest.on('finish', () => {
-        _downloadPath = DOWNLOAD_PATH;
+        _downloadPath = target;
         _status.downloadReady = true;
+        console.log(`[update] download complete: ${target}`);
       });
       dest.on('error', (e) =>
         console.error('[update] download write error:', e)
@@ -244,22 +296,12 @@ updateRoutes.post('/update/apply', (_req, res) => {
   _wsSync?.broadcast('server_update', { reloadOnReconnect: true });
   res.json({ ok: true, data: { ok: true } });
 
-  const isWin = process.platform === 'win32';
-  const updaterName = isWin ? 'updater.bat' : 'updater.sh';
-  const updaterPath = join(_installDir, updaterName);
-  const parentDir = dirname(_installDir);
-
+  // Hand control back to the supervising start script: exit with the sentinel
+  // code so it applies the downloaded zip and relaunches us in the same
+  // console. The zip is already at downloadZipPath(), which the script reads.
+  // Small delay so the HTTP response and WS broadcast flush before we exit.
   setTimeout(() => {
-    const child = spawn(
-      updaterPath,
-      [String(process.pid), _downloadPath!, parentDir],
-      {
-        detached: true,
-        stdio: 'ignore',
-        shell: isWin,
-      }
-    );
-    child.unref();
-    process.exit(0);
+    console.log('[update] applying update and relaunching…');
+    process.exit(UPDATE_EXIT_CODE);
   }, 500);
 });
