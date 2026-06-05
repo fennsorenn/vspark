@@ -39,6 +39,35 @@ type KeyframeRow = {
   out_handle_v_fraction: number | null;
 };
 
+type EventRow = {
+  id: string;
+  clip_id: string;
+  t: number;
+  action: string;
+  target_kind: string;
+  target_id: string;
+  payload: string | null;
+};
+
+function mapEvent(r: EventRow) {
+  let payload: Record<string, unknown> | null = null;
+  if (r.payload) {
+    try {
+      payload = JSON.parse(r.payload) as Record<string, unknown>;
+    } catch {
+      payload = null;
+    }
+  }
+  return {
+    id: r.id,
+    t: r.t,
+    action: r.action,
+    targetKind: r.target_kind,
+    targetId: r.target_id,
+    payload,
+  };
+}
+
 function mapKeyframe(r: KeyframeRow) {
   return {
     id: r.id,
@@ -64,7 +93,11 @@ function mapLane(r: LaneRow, keyframes: KeyframeRow[]) {
   };
 }
 
-function mapClip(r: ClipRow, lanes: { lane: LaneRow; kfs: KeyframeRow[] }[]) {
+function mapClip(
+  r: ClipRow,
+  lanes: { lane: LaneRow; kfs: KeyframeRow[] }[],
+  events: EventRow[]
+) {
   return {
     id: r.id,
     ownerNodeId: r.owner_node_id,
@@ -77,6 +110,7 @@ function mapClip(r: ClipRow, lanes: { lane: LaneRow; kfs: KeyframeRow[] }[]) {
     startedAt: r.started_at,
     createdAt: r.created_at,
     lanes: lanes.map(({ lane, kfs }) => mapLane(lane, kfs)),
+    events: events.map(mapEvent),
   };
 }
 
@@ -97,7 +131,10 @@ function loadClip(clipId: string) {
       )
       .all(lane.id) as KeyframeRow[],
   }));
-  return mapClip(row, laneBundles);
+  const events = db
+    .prepare('SELECT * FROM track_clip_events WHERE clip_id = ? ORDER BY t')
+    .all(clipId) as EventRow[];
+  return mapClip(row, laneBundles, events);
 }
 
 /** GET track clips owned by a specific scene node (scene roots included). */
@@ -612,6 +649,63 @@ router.post('/track-clips/:id/seek', (req, res) => {
   }
   _trackClipPlayback.seek(req.params.id, t);
   res.json({ ok: true, data: { id: req.params.id, t } });
+});
+
+/**
+ * @openapi
+ * /api/track-clips/{id}/events:
+ *   put:
+ *     tags: [track_clips]
+ *     summary: Replace all event markers on a clip (drag-then-commit pattern)
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Replaced; broadcast as track_clip_events_replaced }
+ */
+router.put('/track-clips/:id/events', (req, res) => {
+  const clipId = req.params.id;
+  const events = (req.body?.events ?? []) as Array<{
+    id?: string;
+    t: number;
+    action: string;
+    targetKind?: string;
+    targetId: string;
+    payload?: Record<string, unknown> | null;
+  }>;
+  const db = getDb();
+
+  const clipRow = db
+    .prepare('SELECT id FROM track_clips WHERE id = ?')
+    .get(clipId) as { id: string } | undefined;
+  if (!clipRow) {
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  }
+
+  db.prepare('DELETE FROM track_clip_events WHERE clip_id = ?').run(clipId);
+  for (const e of events) {
+    db.prepare(
+      `INSERT INTO track_clip_events
+         (id, clip_id, t, action, target_kind, target_id, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      e.id ?? randomUUID(),
+      clipId,
+      e.t ?? 0,
+      e.action ?? 'play',
+      e.targetKind ?? 'scene_node',
+      e.targetId,
+      e.payload != null ? JSON.stringify(e.payload) : null
+    );
+  }
+  const rows = db
+    .prepare('SELECT * FROM track_clip_events WHERE clip_id = ? ORDER BY t')
+    .all(clipId) as EventRow[];
+  const data = { clipId, events: rows.map(mapEvent) };
+  _ws?.broadcast('track_clip_events_replaced', data);
+  res.json({ ok: true, data });
 });
 
 export default router;

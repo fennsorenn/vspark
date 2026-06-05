@@ -131,11 +131,14 @@ function mapAsset(r: Record<string, unknown>): AssetFile {
   };
 }
 
-function guessAssetKind(name: string): 'model' | 'animation' | 'image' {
+function guessAssetKind(name: string): AssetKind {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   if (['fbx', 'bvh'].includes(ext)) return 'animation';
   if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'].includes(ext))
     return 'image';
+  if (['mp4', 'webm', 'mov', 'm4v', 'ogv'].includes(ext)) return 'video';
+  if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext))
+    return 'audio';
   return 'model';
 }
 
@@ -186,6 +189,8 @@ export interface NodeRecord {
   hidden?: boolean;
 }
 
+export type AssetKind = 'model' | 'animation' | 'image' | 'video' | 'audio';
+
 export interface AssetFile {
   id: string;
   projectId: string;
@@ -193,7 +198,7 @@ export interface AssetFile {
   storedPath: string;
   url: string;
   mimeType: string;
-  kind: 'model' | 'animation' | 'image';
+  kind: AssetKind;
 }
 
 export interface NodeComponentRecord {
@@ -276,6 +281,15 @@ export interface TrackClipLaneRecord {
   keyframes: TrackClipKeyframeRecord[];
 }
 
+export interface TrackClipEventRecord {
+  id: string;
+  t: number;
+  action: string;
+  targetKind: TrackClipTargetKind;
+  targetId: string;
+  payload: Record<string, unknown> | null;
+}
+
 export interface TrackClipRecord {
   id: string;
   /** Owner is exactly one of these (the other is null). */
@@ -288,6 +302,7 @@ export interface TrackClipRecord {
   autoplay: boolean;
   startedAt: number | null;
   lanes: TrackClipLaneRecord[];
+  events: TrackClipEventRecord[];
 }
 
 // Projects
@@ -389,8 +404,22 @@ export function mapTrackClipLane(
   };
 }
 
+export function mapTrackClipEvent(
+  r: Record<string, unknown>
+): TrackClipEventRecord {
+  return {
+    id: r.id as string,
+    t: Number(r.t ?? 0),
+    action: (r.action ?? 'play') as string,
+    targetKind: (r.target_kind ?? r.targetKind ?? 'scene_node') as TrackClipTargetKind,
+    targetId: (r.target_id ?? r.targetId ?? '') as string,
+    payload: (r.payload ?? null) as Record<string, unknown> | null,
+  };
+}
+
 export function mapTrackClip(r: Record<string, unknown>): TrackClipRecord {
   const rawLanes = (r.lanes as Record<string, unknown>[] | undefined) ?? [];
+  const rawEvents = (r.events as Record<string, unknown>[] | undefined) ?? [];
   return {
     id: r.id as string,
     ownerNodeId: (r.owner_node_id ?? r.ownerNodeId ?? null) as string | null,
@@ -407,6 +436,7 @@ export function mapTrackClip(r: Record<string, unknown>): TrackClipRecord {
           ? Number(r.startedAt)
           : null,
     lanes: rawLanes.map(mapTrackClipLane),
+    events: rawEvents.map(mapTrackClipEvent),
   };
 }
 
@@ -789,6 +819,23 @@ export const replaceTrackClipKeyframes = (
   ).then((r) => ({
     laneId: r.laneId,
     keyframes: r.keyframes.map(mapTrackClipKeyframe),
+  }));
+
+export const replaceTrackClipEvents = (
+  clipId: string,
+  events: Array<
+    Partial<TrackClipEventRecord> & { t: number; action: string; targetId: string }
+  >
+) =>
+  request<{ clipId: string; events: Record<string, unknown>[] }>(
+    `/track-clips/${clipId}/events`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ events }),
+    }
+  ).then((r) => ({
+    clipId: r.clipId,
+    events: r.events.map(mapTrackClipEvent),
   }));
 
 export const triggerTrackClip = (id: string) =>
@@ -1239,6 +1286,7 @@ export const api = {
   updateTrackClipLane,
   deleteTrackClipLane,
   replaceTrackClipKeyframes,
+  replaceTrackClipEvents,
   triggerTrackClip,
   stopTrackClip,
   pauseTrackClip,

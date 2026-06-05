@@ -56,6 +56,8 @@ Self-referential FK with cascade: deleting a parent deletes all descendants.
 | `godray_caster` | Invisible sun mesh for the GodRays post-processing effect |
 | `text_troika` | SDF text via `troika-three-text`. Config: `{ content, fontSize, color, anchorX, anchorY, maxWidth, billboard? }`. With `billboard: true` the rendered text quaternion-locks to the active camera. `renderNodeElement` returns `null` for this kind so it mounts flat at the top level (like billboards/particles); the per-scene mount happens via `SceneNodes` `flatTextTroika`. |
 | `text_canvas` | `THREE.CanvasTexture` on a plane mesh, flat-mounted like `billboard`. Config: `{ content, fontSize, color, padding, allowHtml?, width, height, billboard? }`. Plain-text path uses a 2D canvas context with word-wrap. With `allowHtml`, the content is sanitised via `DOMPurify` (curated allow-list, see `lib/textSanitize.ts` `TEXT_SANITIZE_OPTS`) and rasterised off-DOM via `html2canvas` — this is the path used to render overlive emote HTML. |
+| `video` | 3D video plane backed by `THREE.VideoTexture`, mirrors `billboard` (facing/backface/size). Per-instance playback config (`autoplay`/`loop`/`onEnd: 'freeze'\|'hide'`/`muted`/`volume`). **Flat-mounted** like billboards (`renderNodeElement` returns `null`; rendered at the top level) so reparenting doesn't remount the `<video>` and restart it. Registers a `MediaHandle` keyed by `node.id`. See [media.md](media.md). |
+| `audio` | Non-visual audio source modelled on `light` (editor gizmo when not `viewerMode`). `audioType: 'simple'` → `THREE.Audio`; `'directional'` → `THREE.PositionalAudio` positioned by `useTransformWithOverride` with `refDistance`/`rolloffFactor`/`maxDistance` + cone. Uses a shared per-camera `THREE.AudioListener` (`getAudioListener`). Muted in the editor unless `editorAudioPreviewEnabled`; audible in the viewer. Registers a `MediaHandle` keyed by `node.id`. See [media.md](media.md). |
 | `feed` | In-scene (3D) data-channel overlay — the analog of the 2D `feed` compose layer. `THREE.CanvasTexture` on a plane (`Viewport.FeedCanvasNode`), flat-mounted like `text_canvas`. Config: `{ template, css, width, height, padding, fontSize, color, billboard? }` (under `components.feed`). Subscribes to the data-channel bus by identity (`global ∪ this node's own id`), renders the htm template into an **off-screen React root** (`createRoot` + `flushSync`), then rasterises via `html2canvas`. Shares the template engine (`lib/feedTemplate.tsx`) with the 2D feed layer. A `set_data` node targets it by picking the feed node as its `scope`. See [data-channels.md](data-channels.md). |
 
 ## Implemented (Phase 1 — signal-graph expansion)
@@ -67,7 +69,11 @@ Self-referential FK with cascade: deleting a parent deletes all descendants.
   - Animatable via track clips and runtime overrides.
 - **Runtime override read path:** `useTransformWithOverride` merges `runtimeNodeOverrides[node.id]` alongside the existing clip override slot. Conflict on transform/scalar paths: **clip wins**. For `opacity` and `text.content`, runtime overrides are the only surface. See [runtime-overrides.md](runtime-overrides.md).
 - **Tmp scene nodes** rendered from the spawn channel arrive via the normal `node_added` / `node_removed` WS messages and render through the same per-kind renderers as persistent nodes. See [spawn.md](spawn.md).
-- **Schema:** `sceneNodeKindSchema` and the `NodeKind` union (`packages/shared/src/types.ts`) extended with `text_troika` and `text_canvas`. New frontend deps: `dompurify`, `html2canvas`, `troika-three-text` (ambient `.d.ts` at `packages/frontend/src/types/troika-three-text.d.ts`).
+- **Schema:** `sceneNodeKindSchema` and the `NodeKind` union (`packages/shared/src/types.ts`) extended with `text_troika`, `text_canvas`, `video`, `audio` (and backfilled `billboard`). New frontend deps: `dompurify`, `html2canvas`, `troika-three-text` (ambient `.d.ts` at `packages/frontend/src/types/troika-three-text.d.ts`).
+
+## Implemented — video & audio scene-node kinds
+
+The `video` and `audio` node kinds (and their playback model, the media-command bus, and the track-clip event lane that drives them) are documented in [media.md](media.md). Both are flat-mounted (like billboards/text): `video` for stable `<video>` playback across reparenting, `audio` because it's non-visual. Each registers a `MediaHandle` in the media registry keyed by `node.id`. Audio audibility is gated (editor-muted unless `editorAudioPreviewEnabled`; audible in the viewer).
 
 
 ### `components` JSON structure (per node)
@@ -158,9 +164,11 @@ Filters nodes to the active scene and optional exclusions. Recursively renders t
 | `godray_caster` | `GodrayCasterNode` | Sun mesh for GodRays |
 | `particle` | `ParticleNode` | GPU-instanced particle system — see [nodes/particle.md](nodes/particle.md) |
 | `billboard` | `BillboardNode` | 2D sprite — see [nodes/particle.md](nodes/particle.md) |
+| `video` | `VideoNode` | `THREE.VideoTexture` plane — see [media.md](media.md) |
+| `audio` | `AudioNode` | Non-visual Web Audio source — see [media.md](media.md) |
 | `group` | `THREE.Group` | No geometry |
 
-**Particles and billboards are rendered at the top level** (not nested inside the React tree), even though they have a `parentId` in the DB. This preserves React component instance identity across reparenting and avoids destroying particle pools. See [nodes/particle.md](nodes/particle.md) for details.
+**Particles, billboards, video and audio nodes are rendered at the top level** (not nested inside the React tree), even though they have a `parentId` in the DB. This preserves React component instance identity across reparenting — for particles it avoids destroying pools; for `video`/`audio` it keeps the `<video>`/Web Audio element from remounting and restarting playback. See [nodes/particle.md](nodes/particle.md) and [media.md](media.md).
 
 ### Node registry
 

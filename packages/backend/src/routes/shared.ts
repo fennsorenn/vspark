@@ -125,6 +125,17 @@ export const SUBFOLDER_BY_EXT: Record<string, string> = {
   '.webp': 'images',
   '.gif': 'images',
   '.avif': 'images',
+  '.mp4': 'videos',
+  '.webm': 'videos',
+  '.mov': 'videos',
+  '.m4v': 'videos',
+  '.ogv': 'videos',
+  '.mp3': 'audio',
+  '.wav': 'audio',
+  '.ogg': 'audio',
+  '.m4a': 'audio',
+  '.aac': 'audio',
+  '.flac': 'audio',
 };
 // Extension → MIME type (used when registering manually dropped files)
 export const MIME_BY_EXT: Record<string, string> = {
@@ -139,6 +150,17 @@ export const MIME_BY_EXT: Record<string, string> = {
   '.webp': 'image/webp',
   '.gif': 'image/gif',
   '.avif': 'image/avif',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/x-m4v',
+  '.ogv': 'video/ogg',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
 };
 
 export function assetSubfolder(ext: string): string {

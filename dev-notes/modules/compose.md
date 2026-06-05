@@ -29,6 +29,27 @@ Per-layer fields:
 
 Shared types live in [packages/shared/src/types.ts](../../packages/shared/src/types.ts) (`ComposeLayer`, `ComposeLayerKind`, anchor enums, `SCENE_RENDER_SLOT` constant) and Zod schemas in [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) (`createComposeLayerSchema`, `updateComposeLayerSchema`, `reorderComposeLayersSchema`).
 
+## Video layer (finished) + media-command bus
+
+The `video` compose layer is now a **config-driven `VideoLayer`** (was a hardcoded
+autoplay/muted/loop `<video>`). `ComposeLayerStack.tsx` reads playback fields
+(`autoplay`/`loop`/`onEnd`/`muted`/`volume`, surfaced as Playback controls in
+`ComposeLayerProperties.tsx`) and registers a `MediaHandle` in the media registry
+keyed by `layer.id`, so the media-command bus and the track-clip event lane can drive
+play/pause/stop/seek against it.
+
+The render **`mode` (`'editor' | 'viewer'`)** is now threaded through
+`ComposeLayerStack` → `LayerView` → `LayerContent` → `SceneIncludeLayer` so video
+audio honours the audibility gate (muted in the editor unless the session
+`editorAudioPreviewEnabled` preview is on; audible in the viewer, subject to the
+layer's own `muted` flag). See [media.md](media.md).
+
+**Blend mode + chroma key.** `layerStyle()` applies `config.blendMode` (any CSS
+`mix-blend-mode` string, skipped when `'normal'`) as `mixBlendMode` for **every** layer
+kind; the video layer additionally chroma-keys via a WebGL2 `ChromaVideoCanvas` when
+`config.chromaKey.enabled` (CSS can't key a `<video>`). Both surfaced in
+`ComposeLayerProperties`. See [media.md](media.md) (Video FX).
+
 ## Phase 1 additions (signal-graph expansion) — implemented
 
 Graph-driven param mutation and a text layer kind.

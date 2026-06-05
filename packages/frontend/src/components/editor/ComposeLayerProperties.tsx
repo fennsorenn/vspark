@@ -7,6 +7,7 @@ import { api } from '../../api/client';
 import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { NumInput, VecInput, SliderInput } from './numericInputs';
+import { CSS_BLEND_MODES, readChroma } from './videoFx';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -427,6 +428,22 @@ export function ComposeLayerProperties({
           style={{ flex: 1 }}
         />
       </div>
+      <div style={row}>
+        <span style={label}>Blend</span>
+        <select
+          value={(layer.config.blendMode as string | undefined) ?? 'normal'}
+          onChange={(e) =>
+            commit({ config: { ...layer.config, blendMode: e.target.value } })
+          }
+          style={select}
+        >
+          {CSS_BLEND_MODES.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {(layer.kind === 'image' || layer.kind === 'video') && (
         <>
@@ -461,6 +478,167 @@ export function ComposeLayerProperties({
               <option value="fill">fill</option>
             </select>
           </div>
+        </>
+      )}
+
+      {layer.kind === 'video' && (
+        <>
+          <div style={sectionHeader}>Playback</div>
+          <div style={row}>
+            <span style={label}>Autoplay</span>
+            <input
+              type="checkbox"
+              checked={layer.config.autoplay !== false}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, autoplay: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Loop</span>
+            <input
+              type="checkbox"
+              checked={layer.config.loop !== false}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, loop: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>On end</span>
+            <select
+              value={(layer.config.onEnd as string | undefined) ?? 'freeze'}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, onEnd: e.target.value },
+                })
+              }
+              style={select}
+            >
+              <option value="freeze">Freeze on last frame</option>
+              <option value="hide">Hide</option>
+            </select>
+          </div>
+          <div style={row}>
+            <span style={label}>Muted</span>
+            <input
+              type="checkbox"
+              checked={layer.config.muted !== false}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, muted: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Volume</span>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={
+                typeof layer.config.volume === 'number'
+                  ? layer.config.volume
+                  : 1
+              }
+              onChange={(e) =>
+                commit({
+                  config: {
+                    ...layer.config,
+                    volume: parseFloat(e.target.value),
+                  },
+                })
+              }
+              style={textInput}
+            />
+          </div>
+          {(() => {
+            const ck = readChroma(
+              layer.config.chromaKey as Record<string, unknown>
+            );
+            const saveCk = (p: Partial<typeof ck>) =>
+              commit({
+                config: {
+                  ...layer.config,
+                  chromaKey: { ...ck, ...p },
+                },
+              });
+            return (
+              <>
+                <div style={sectionHeader}>Chroma key</div>
+                <div style={row}>
+                  <span style={label}>Enabled</span>
+                  <input
+                    type="checkbox"
+                    checked={ck.enabled}
+                    onChange={(e) => saveCk({ enabled: e.target.checked })}
+                  />
+                </div>
+                {ck.enabled && (
+                  <>
+                    <div style={row}>
+                      <span style={label}>Key color</span>
+                      <input
+                        type="color"
+                        value={ck.color}
+                        onChange={(e) => saveCk({ color: e.target.value })}
+                        style={{
+                          width: 40,
+                          height: 22,
+                          background: 'none',
+                          border: '1px solid #333',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                        }}
+                      />
+                    </div>
+                    <div style={row}>
+                      <span style={label}>Similarity</span>
+                      <SliderInput
+                        value={ck.similarity}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        precision={2}
+                        onChange={(v) => saveCk({ similarity: v })}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                    <div style={row}>
+                      <span style={label}>Smoothness</span>
+                      <SliderInput
+                        value={ck.smoothness}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        precision={2}
+                        onChange={(v) => saveCk({ smoothness: v })}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                    <div style={row}>
+                      <span style={label}>Spill</span>
+                      <SliderInput
+                        value={ck.spill}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        precision={2}
+                        onChange={(v) => saveCk({ spill: v })}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                  </>
+                )}
+              </>
+            );
+          })()}
         </>
       )}
 
