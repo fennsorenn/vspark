@@ -138,6 +138,11 @@ TopBar checks update status on mount (`GET /api/update-status`). When an update 
 ### `SceneGraph.tsx`
 Node hierarchy tree. Context menu: Add Child, Move Into, Unparent, Delete. Expandable bone list per avatar node with VRM expression/bone visualization. Hidden node toggle.
 
+### Main view ↔ tab binding
+The center view is bound strictly to the left-dock tab (`leftTab`, `Editor.tsx`): **Scene** → 3D `Viewport` (kept mounted, just hidden under other tabs, to preserve the WebGL context), **Graphs** → `SignalGraphCanvas` (or a placeholder when no graph is open), **Compose** → `ComposeView`. The bottom dock shows the signal `NodePalette` on the Graphs tab and the `AssetManager` otherwise. Opening any graph routes through `setActiveGraph`, which also switches `leftTab` to `'graphs'` (see [project-graphs.md](project-graphs.md)).
+
+The right-hand `PropertiesPanel` is likewise tab-scoped: **Scene** targets 3D scene nodes (and their components / camera effects / scene settings) only, **Compose** targets compose layers, **Graphs** shows a placeholder (signal nodes are edited inline on the canvas). A leftover selection from another tab never leaks into the inspector.
+
 ### Left dock — Compose tab
 Second tab in the editor's left dock alongside Scene Graph (and Graphs). `leftTab` state (`'scene' | 'compose' | 'graphs'`) lives in the store. The tab is disabled until at least one camera node exists. Selecting it swaps the centre viewport to `ComposeView`, which renders the chosen camera's output: 3D canvas sandwiched between two `ComposeLayerStack` DOM stacks (behind / in front), reusing `<SceneNodes>` + `<CameraEffects>` so it matches `ViewerPage`. The same `ComposeLayerStack` runs in `ViewerPage` (in `mode='viewer'`) so the streamed output matches the editor preview. Per-layer fields are edited via `ComposeLayerProperties` in `PropertiesPanel`. See [compose.md](compose.md) for the data model, ordering scheme, and anchor-aware drag/resize math.
 

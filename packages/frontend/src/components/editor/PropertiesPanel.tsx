@@ -3558,6 +3558,7 @@ export function PropertiesPanel() {
     updateSceneItem,
     composeLayers,
     selectedComposeLayerId,
+    leftTab,
   } = useEditorStore();
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
@@ -3722,13 +3723,52 @@ export function PropertiesPanel() {
     </div>
   );
 
-  // Compose layer selected — show layer properties.
-  const selectedComposeLayer = selectedComposeLayerId
-    ? composeLayers.find((l) => l.id === selectedComposeLayerId)
-    : null;
-  if (selectedComposeLayer) {
-    return panelShell(<ComposeLayerProperties layer={selectedComposeLayer} />);
+  // The inspector follows the active main-view tab. Each tab owns a distinct
+  // selection model, so a leftover selection from another tab never leaks in:
+  //   • Compose tab → compose layers
+  //   • Graphs tab  → nothing (signal nodes are edited inline on the canvas)
+  //   • Scene tab   → 3D scene nodes + their components / camera effects
+  const emptyState = (text: string) => (
+    <div
+      style={{
+        width: 280,
+        flexShrink: 0,
+        background: '#141414',
+        borderLeft: '1px solid #2a2a2a',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        padding: '0 20px',
+        color: '#555',
+        fontSize: 13,
+        fontFamily: 'system-ui, sans-serif',
+      }}
+    >
+      {text}
+    </div>
+  );
+
+  // Compose tab: the inspector targets compose layers only.
+  if (leftTab === 'compose') {
+    const selectedComposeLayer = selectedComposeLayerId
+      ? composeLayers.find((l) => l.id === selectedComposeLayerId)
+      : null;
+    if (selectedComposeLayer) {
+      return panelShell(
+        <ComposeLayerProperties layer={selectedComposeLayer} />
+      );
+    }
+    return emptyState('Select a layer to edit its properties.');
   }
+
+  // Graphs tab: signal nodes are edited inline on the canvas, so the right
+  // inspector has nothing node-shaped to show here.
+  if (leftTab === 'graphs') {
+    return emptyState('Editing a graph — select nodes on the canvas.');
+  }
+
+  // Scene tab (everything below): the inspector targets 3D scene nodes only.
 
   // Effect selected — show focused effect panel.
   if (

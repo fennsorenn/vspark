@@ -861,12 +861,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setComponentKinds: (kinds) => set({ componentKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
   setActiveGraphWritable: (writable) => set({ activeGraphWritable: writable }),
-  setActiveGraph: (id) =>
-    set({
+  setActiveGraph: (id) => {
+    // Opening a graph (from any list — including scoped graphs in the scene /
+    // compose trees) follows the main view to the Graphs tab, so the canvas is
+    // what's actually shown. Clearing the active graph leaves the current tab
+    // alone (the toggle-off path shouldn't yank the user away).
+    if (id != null) lsSet(LS.leftTab, 'graphs');
+    set((s) => ({
       activeGraphId: id,
       selectedSignalNodeId: null,
       activeGraphWritable: false,
-    }),
+      leftTab: id != null ? 'graphs' : s.leftTab,
+    }));
+  },
   setSelectedSignalNode: (id) => set({ selectedSignalNodeId: id }),
   setBoneListExpanded: (nodeId, expanded) =>
     set((s) => ({
