@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #202428;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js';
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(1);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x202428);
+      const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+      camera.position.set(2.5, 2, 3.5);
+      camera.lookAt(0, 0.5, 0);
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+      const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+      dir.position.set(5, 8, 5);
+      scene.add(dir);
+
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: 0x3aa0ff, roughness: 0.35, metalness: 0.1 }),
+      );
+      cube.position.y = 0.5;
+      scene.add(cube);
+
+      renderer.setAnimationLoop((t) => {
+        cube.rotation.x = t * 0.0006;
+        cube.rotation.y = t * 0.0009;
+        renderer.render(scene, camera);
+      });
+    </script>
+  </body>
+</html>

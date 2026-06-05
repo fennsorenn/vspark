@@ -11,9 +11,10 @@ It renders two ways:
   produced frames/sec back to the launcher. This is the throttle test: start a
   game fullscreen and watch whether the FPS holds.
 
-> v1 has **no Spout output yet** — that's v2, once we've confirmed offscreen
-> escapes the throttle (and it's when the native-addon build step becomes worth
-> it). v1 already answers the throttle question and is a usable viewer.
+> **Spout** output is wired into the offscreen path and activates automatically
+> when the native addon `electron_spout.node` is present (see "Spout output"
+> below). Without it, the viewer still runs and the FPS/throttle test still works
+> — Spout just stays off.
 
 ## Prerequisite
 
@@ -65,10 +66,30 @@ npm start
    - **Drops to single digits** → offscreen Electron throttles like OBS's CEF;
      we escalate to the headless `beginFrame` test (owning the frame clock).
 
+## Spout output
+
+In **Offscreen + FPS** mode, if `electron_spout.node` is present next to the app,
+each offscreen frame is published to a Spout sender named **`vspark-viewer`** —
+receive it in OBS with the Spout2 plugin. This is GPU-direct when shared textures
+are available.
+
+The catch: `electron-spout` has **no prebuilt binary** and builds via
+cmake-js + vcpkg + VS2022 + the Spout2 SDK. Two ways to get it:
+
+- **Best-effort (automatic):** the CI workflow (`ci/build-windows.yml`) tries to
+  build it and bundle it into the `.exe`. If that step fails, the `.exe` still
+  ships and the throttle test still works — check the "Build electron_spout.node"
+  step log.
+- **Guaranteed (one-time, on a Windows machine):** clone
+  [`reitowo/electron-spout`](https://github.com/reitowo/electron-spout), build
+  per its README (cmake-js, targeting Electron `30.0.1`), and copy the resulting
+  `electron_spout.node` into this folder before `npm run dist`.
+
 ## Files
 
-| File            | Role                                                        |
-| --------------- | ----------------------------------------------------------- |
-| `main.js`       | Electron main — launcher + viewer windows, FPS reporting.   |
-| `launcher.html` | Tiny UI: connect, pick project/target, choose mode.         |
-| `package.json`  | Pins Electron `30.0.1`; `electron-builder` portable target. |
+| File             | Role                                                         |
+| ---------------- | ----------------------------------------------------------- |
+| `main.js`        | Electron main — launcher + viewer windows, FPS + Spout.     |
+| `launcher.html`  | Tiny UI: connect, pick project/target, choose mode.         |
+| `package.json`   | Pins Electron `30.0.1`; `electron-builder` portable target. |
+| `ci/build-windows.yml` | CI to build both apps' portable `.exe`s (copy to `.github/workflows/`). |
