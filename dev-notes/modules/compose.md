@@ -44,6 +44,12 @@ audio honours the audibility gate (muted in the editor unless the session
 `editorAudioPreviewEnabled` preview is on; audible in the viewer, subject to the
 layer's own `muted` flag). See [media.md](media.md).
 
+**Blend mode + chroma key.** `layerStyle()` applies `config.blendMode` (any CSS
+`mix-blend-mode` string, skipped when `'normal'`) as `mixBlendMode` for **every** layer
+kind; the video layer additionally chroma-keys via a WebGL2 `ChromaVideoCanvas` when
+`config.chromaKey.enabled` (CSS can't key a `<video>`). Both surfaced in
+`ComposeLayerProperties`. See [media.md](media.md) (Video FX).
+
 ## Phase 1 additions (signal-graph expansion) — implemented
 
 Graph-driven param mutation and a text layer kind.

@@ -103,6 +103,63 @@ The render `mode` (`'editor' | 'viewer'`) is threaded through
 audio honours the audibility gate (muted in the editor unless preview is enabled;
 audible in the viewer, subject to the layer's own `muted` flag).
 
+## Video FX — chroma key + blend mode
+
+Shared by both video surfaces (3D node + compose layer) and surfaced as an Effects
+section in the properties panels.
+
+### Shared module — `packages/frontend/src/components/editor/videoFx.ts`
+
+- `CHROMA_GLSL` — a chroma-key GLSL function (`vfx_chroma`): keys by chrominance
+  distance in **YUV** space with `similarity` (base threshold), `smoothness` (edge
+  softness), and `spill` (residual-key-colour desaturation). Shared **verbatim** by
+  the 3D node and the DOM layer so both key identically (the canvas path rewrites
+  `texture2D` → `texture` for GLSL ES 3.00).
+- `makeVideoMaterial()` — a Three.js `ShaderMaterial` for a 3D video plane: samples
+  the video texture, applies chroma + `uOpacity`, supports a `uFlipX` backface
+  UV-mirror flag, and linearises the (sRGB) sampled output (`pow(rgb, 2.2)`) so the
+  renderer's output conversion lands back at source colour. `transparent`,
+  `depthWrite:false`. `updateVideoMaterial(mat, {opacity, flipX, chroma})` pushes
+  config into uniforms each render.
+- `applyVideoBlend(mat, blend)` — maps `VideoBlend3D`
+  (`'normal'|'additive'|'multiply'|'screen'`) to Three.js blending; `screen` is
+  `CustomBlending` (Add / OneFactor / OneMinusSrcColorFactor).
+- `readChroma(src)` / `CHROMA_DEFAULTS` — coerce a config blob to a
+  `ChromaKeyConfig {enabled, color, similarity, smoothness, spill}`.
+- `CSS_BLEND_MODES` — the full CSS `mix-blend-mode` list, used for compose layers.
+
+### 3D video node (`VideoNode`)
+
+Refactored from `MeshBasicMaterial` to the `videoFx` `ShaderMaterial`. Each render it
+reads `components.video.chromaKey` (enabled/color/similarity/smoothness/spill) and
+`components.video.blendMode: VideoBlend3D`, pushing them to the material uniforms /
+blending via `updateVideoMaterial` / `applyVideoBlend`. Opacity is now a uniform
+(`uOpacity` = transform opacity × `alpha`) rather than `useApplyOpacity`.
+
+### Compose video layer DOM keying — `packages/frontend/src/components/editor/ChromaVideoCanvas.tsx`
+
+CSS can't chroma-key a `<video>`, so DOM-layer keying needs a **WebGL2 canvas**.
+`ChromaVideoCanvas` renders a playing `<video>` element to a chroma-keyed canvas per
+`requestAnimationFrame` (resizes to the video's intrinsic dimensions, uploads the
+frame via `texImage2D(... video)`, draws a full-screen quad with `CHROMA_GLSL`). The
+`<video>` stays the source of truth and the registered `MediaHandle` target; the
+canvas only displays the keyed copy. `ComposeLayerStack.tsx` `VideoLayer` mounts it
+**only when `config.chromaKey.enabled`** and renders the plain `<video>` otherwise.
+`config.chromaKey` holds the same `ChromaKeyConfig` shape.
+
+### Blend mode for ALL compose layers
+
+`ComposeLayerStack.tsx` `layerStyle()` applies `config.blendMode` (any CSS
+`mix-blend-mode` string) as the layer's `mixBlendMode` — skipped when `'normal'`. A
+Blend select (full CSS list) was added to `ComposeLayerProperties.tsx` for **every**
+layer kind, plus a Chroma key section for video layers. See [compose.md](compose.md).
+
+### Properties — `PropertiesPanel.tsx`
+
+The Video block gained an Effects section: Blend (`normal/additive/multiply/screen`)
++ Chroma key (colour picker + similarity/smoothness/spill sliders), writing
+`components.video.blendMode` / `components.video.chromaKey`.
+
 ## Audio — scene node (`audio` kind)
 
 `Viewport.tsx` `AudioNode`, modelled on `light` (non-visual; draws an editor gizmo
@@ -203,12 +260,18 @@ Video/audio are first-class asset kinds. See [asset-management.md](asset-managem
 
 **Frontend:**
 - `components/editor/mediaRegistry.ts` — `MediaHandle` registry + `dispatchMediaCommand`
-- `components/editor/Viewport.tsx` — `VideoNode`, `AudioNode`, `getAudioListener`,
-  `AudioPreviewToggle`
-- `components/editor/ComposeLayerStack.tsx` — config-driven `VideoLayer` + `mode`
-  threading
-- `components/editor/ComposeLayerProperties.tsx` — video Playback controls
-- `components/editor/PropertiesPanel.tsx` — Video + Audio blocks
+- `components/editor/videoFx.ts` — shared chroma GLSL + `ShaderMaterial` factory +
+  3D blend mapping + `CSS_BLEND_MODES`
+- `components/editor/ChromaVideoCanvas.tsx` — WebGL2 per-frame chroma keying for the
+  compose video layer
+- `components/editor/Viewport.tsx` — `VideoNode` (now `videoFx` ShaderMaterial),
+  `AudioNode`, `getAudioListener`, `AudioPreviewToggle`
+- `components/editor/ComposeLayerStack.tsx` — config-driven `VideoLayer`
+  (`ChromaVideoCanvas` when keying on) + `mode` threading + `layerStyle` blend mode
+- `components/editor/ComposeLayerProperties.tsx` — video Playback controls + per-layer
+  Blend select + video Chroma key section
+- `components/editor/PropertiesPanel.tsx` — Video (incl. Effects: blend + chroma) +
+  Audio blocks
 - `components/editor/createKinds.ts` — `video`/`audio` defs + compose video defaults
 - `components/editor/SceneGraph.tsx` — `KIND_ICONS` for video/audio
 - `components/editor/AssetManager.tsx` + `AssetThumb.tsx` — Videos/Audio tabs + thumbs
