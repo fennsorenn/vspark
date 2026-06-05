@@ -78,7 +78,6 @@ router.get('/projects/:projectId/scenes', (req, res) => {
         .all(n.id);
       cameraEffects.push(...effects);
     }
-
   }
 
   // Track clips are owned by a scene node or a compose layer (project-wide, no
@@ -105,7 +104,30 @@ router.get('/projects/:projectId/scenes', (req, res) => {
           )
           .all(lane.id),
       }));
-      trackClips.push({ ...c, lanes: lanesWithKfs });
+      // Event/marker lane (media-command triggers) — without this the scene
+      // bundle would drop clip events, so an instantiated alert preset's
+      // play/restart markers would silently vanish on the post-import refetch.
+      const events = (
+        db
+          .prepare(
+            'SELECT * FROM track_clip_events WHERE clip_id = ? ORDER BY t'
+          )
+          .all(c.id) as Record<string, unknown>[]
+      ).map((e) => {
+        let payload: Record<string, unknown> | null = null;
+        if (e.payload) {
+          try {
+            payload = JSON.parse(e.payload as string) as Record<
+              string,
+              unknown
+            >;
+          } catch {
+            payload = null;
+          }
+        }
+        return { ...e, payload };
+      });
+      trackClips.push({ ...c, lanes: lanesWithKfs, events });
     }
   }
 

@@ -37,6 +37,8 @@ Actions: `setUpdateAvailable(info)`, `setPendingReload(value)`.
 - `vrmExpressionsByNode: Record<nodeId, string[]>`
 - `vrmMorphTargetsByNode: Record<nodeId, string[]>`
 
+Default per-avatar expression weights are stored on the scene node itself, not in a dedicated slice: `node.properties.defaultExpressions` (`Record<expressionName, number>`, only non-zero weights kept). Mirrored on the store `NodeProperties` and the api-client `NodeProperties`; the shared field is `SceneNodeProperties.defaultExpressions`.
+
 **Signal graph**
 - `activeGraphId`, `selectedSignalNodeId`
 - `componentKinds`
@@ -86,11 +88,15 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 - `vrmRegistry: Map<nodeId, VRM>` — avatar nodes → loaded VRM instance
 - `godrayCasterRegistry: Map<nodeId, THREE.Mesh>`
 
+**Material overrides (implemented)**: after VRM load and whenever `node.properties.materialOverrides` changes (effect keyed on `JSON.stringify` of the record; VRM-loaded signal is `vrmBonesByNode`), Viewport calls `applyMaterialOverrides(vrm, overrides)` from `components/editor/materialOverrides.ts` to switch each material between MToon and PBR and apply per-material param overrides. `disposeMaterialOverrides(vrm)` is called on VRM unload to free the lazily-built PBR materials. See [material-overrides.md](material-overrides.md).
+
 **Per-frame work** (`useFrame`):
 1. Read `vmc_pose` from store → apply quaternions to VRM bones
-2. Read `vmc_blendshapes` → apply weights to VRM morph targets
+2. Apply expressions/blendshapes (see below)
 3. Advance timeline animations
 4. Simulate particles
+
+**Expression/blendshape application** (pre-`expressionManager.update()` pass): default expression weights (`node.properties.defaultExpressions`) are applied first via `vrm.expressionManager.setValue` as a per-frame baseline, then the latest broadcast blendshapes (`getVmcBlendshapes`) are overlaid on top. So live broadcasts (VMC, lipsync, tracking) override the defaults per-key, and the defaults re-assert when the bus emits an empty record (no active producer). The morph-target-name guard (`!morphMap.has(name)`) is preserved.
 
 **Pose gate (current rules, implemented)**: the `vmcCompRef` and tracking-lost gates were dropped. The broadcast pose is applied whenever `pose != null && Object.keys(pose).length > 0 && fresh`. The bus's fallback frame (empty `bones`) trips application off — that is the sole "stop applying" signal.
 
@@ -132,6 +138,11 @@ TopBar checks update status on mount (`GET /api/update-status`). When an update 
 ### `SceneGraph.tsx`
 Node hierarchy tree. Context menu: Add Child, Move Into, Unparent, Delete. Expandable bone list per avatar node with VRM expression/bone visualization. Hidden node toggle.
 
+### Main view ↔ tab binding
+The center view is bound strictly to the left-dock tab (`leftTab`, `Editor.tsx`): **Scene** → 3D `Viewport` (kept mounted, just hidden under other tabs, to preserve the WebGL context), **Graphs** → `SignalGraphCanvas` (or a placeholder when no graph is open), **Compose** → `ComposeView`. The bottom dock shows the signal `NodePalette` on the Graphs tab and the `AssetManager` otherwise. Opening any graph routes through `setActiveGraph`, which also switches `leftTab` to `'graphs'` (see [project-graphs.md](project-graphs.md)).
+
+The right-hand `PropertiesPanel` is likewise tab-scoped: **Scene** targets 3D scene nodes (and their components / camera effects / scene settings) only, **Compose** targets compose layers, **Graphs** shows a placeholder (signal nodes are edited inline on the canvas). A leftover selection from another tab never leaks into the inspector.
+
 ### Left dock — Compose tab
 Second tab in the editor's left dock alongside Scene Graph (and Graphs). `leftTab` state (`'scene' | 'compose' | 'graphs'`) lives in the store. The tab is disabled until at least one camera node exists. Selecting it swaps the centre viewport to `ComposeView`, which renders the chosen camera's output: 3D canvas sandwiched between two `ComposeLayerStack` DOM stacks (behind / in front), reusing `<SceneNodes>` + `<CameraEffects>` so it matches `ViewerPage`. The same `ComposeLayerStack` runs in `ViewerPage` (in `mode='viewer'`) so the streamed output matches the editor preview. Per-layer fields are edited via `ComposeLayerProperties` in `PropertiesPanel`. See [compose.md](compose.md) for the data model, ordering scheme, and anchor-aware drag/resize math.
 
@@ -141,6 +152,7 @@ Inspector for the selected node. Sections:
 - **Light**: type, color, intensity
 - **Camera**: fov, near, far
 - **Components**: per-kind config editors for VMC receiver, breathing, lipsync, tracking; calibration wizard (head neutral, arm reach captures)
+- **Avatar**: VRM-node controls — idle-animation URL (with `<datalist>`) + speed/offset + playback transport; **Default Expression** sliders; read-only **Morph Targets** list
 - **Animation clips**: clip selection and playback
 - **Camera effects**: add/configure post-processing per camera
 - **Particle emitter**: emitter config
@@ -151,8 +163,51 @@ Inspector for the selected node. Sections:
 - New **Blend transition** input on VRM avatar nodes writes to `node.properties.blendTransitionTime` (persisted via the `scene_nodes.properties` JSON column, migration 007). Default 0.5s. Controls the Viewport ramp between blend modes and between apply/don't-apply.
 - New `BreathingProps` panel for breathing components: **Chest amplitude** + **Shoulder lift** fields, writing to component config `chestAmplitude` / `shoulderAmplitude`. See [component-managers.md](component-managers.md) BreathingManager.
 
-### `AssetManager.tsx`
-File upload and asset library. Sends base64-encoded files to `POST /api/projects/:id/assets`.
+**Avatar section (implemented)**:
+- The inline animation-asset list (the grid of clickable animation buttons) was removed. Animations are picked via the bottom-dock **Animations** tab; the Avatar section's **Pick…** button only flashes that tab. The idle-animation URL input (with `<datalist>`), speed/offset inputs, and playback transport remain.
+- The previously read-only **Expressions** list is now a **Default Expression** control: one 0..1 `SliderInput` per VRM expression. Weights are stored on `node.properties.defaultExpressions` (only non-zero kept) and persisted via `api.updateNode({ properties: { defaultExpressions } })`, which the backend shallow-merges (same mechanism as `blendTransitionTime`). The read-only **Morph Targets** list is unchanged.
+
+**Material section (implemented)**:
+- New **Material** section on VRM avatar nodes plus a reusable `CollapsibleSection` primitive (default collapsed); the **Default Expression** section is collapsible too. One collapsible row per material with a 3-way MToon/PBR/APBR shader toggle (APBR = `MeshPhysicalMaterial` advanced lobes under a nested **Advanced** disclosure), editable shader params (overlap + active-shader-only; PBR+APBR share roughness/metalness/envMapIntensity; normal scale only with a normal map, alpha cutoff only in mask mode, outline only when the material has one), and a per-material Reset. Overrides persist on `node.properties.materialOverrides` (same `node.properties` mechanism as `defaultExpressions`). The apply layer that mutates/swaps live three.js materials lives in `components/editor/materialOverrides.ts` and is invoked from `Viewport.tsx`. See [material-overrides.md](material-overrides.md).
+
+### `AssetManager.tsx` (bottom dock)
+The bottom dock. Tabs (`BottomDockTab` in the store, persisted to localStorage
+alongside `leftTab` + dock height): **Create, Models, Animations, Images,
+Components, Effects, Clips, Presets**. File upload sends base64 to
+`POST /api/projects/:id/assets`. Collections render as responsive tile grids.
+
+- **Create palette** (`CreatePalette.tsx`) — node kinds (when the left dock is
+  on Scene) or compose-layer kinds (when on Compose). The scene / compose-scene
+  `+` buttons no longer open their own dropdowns; they switch to this tab and
+  pulse it via `flashBottomTab` (a timestamp the dock watches to run a one-shot
+  CSS flash on the active tab).
+- **Shared kind registry** (`createKinds.ts`) — `NODE_KIND_DEFS` / `LAYER_KIND_DEFS`
+  + `createSceneNode` / `createLayer` / `createNodeFromModelAsset` /
+  `createBillboardFromImageAsset` / `nextNodeName` / `componentCompatibleWith`,
+  consumed by the scene tree, compose tree, and Create palette so all three add
+  entities the same way. Creation auto-names (deduped), selects the new entity,
+  and `requestFocusName()` focuses the Properties name field for inline rename.
+- **Drag-create** (`dnd.ts`) — Create tiles and asset cards are draggable onto
+  the scene tree (root / node-as-child), the viewport (scene root), and — for
+  layer tiles — a compose scene. Custom MIME types (`DND_CREATE_NODE` /
+  `DND_CREATE_LAYER` / `DND_ASSET`) so they don't collide with the internal
+  reparent drag; `handleSceneNodeDrop` is the shared drop handler.
+- **Tab relevance** — tabs relevant to the current selection get an accent
+  (non-destructive; nothing hidden/disabled). Components are split into
+  compatible vs "Other" via `componentCompatibleWith` (same split fixes the
+  scene-tree inline add-component menu's prior over-filter).
+- **Thumbnails** — `AssetThumb.tsx` previews images directly and lazily renders
+  cached 3D thumbnails for models via the shared offscreen renderer in
+  `modelThumb.ts`. Animation assets render their skeleton (`THREE.SkeletonHelper`,
+  meshes hidden) at the clip's mid-frame and play it on hover via a single
+  shared overlay canvas — see `animPreview.ts` (FBX + BVH). Model + animation
+  thumbnails are persisted to the backend (`thumbCache.ts` → `PUT
+  /api/assets/:id/thumbnail`, served from `/uploads/<project>/thumbnails/`), so
+  the expensive WebGL render only happens once per asset rather than every
+  session.
+- **Pickers** — `PropertiesPanel` "Pick…" buttons (animation / texture /
+  background) flash the relevant asset tab (flash-only; the tab's existing
+  "Apply to <node>" buttons do the assignment).
 
 ### `signal/SignalGraphCanvas.tsx`
 Visual graph editor. Renders `SignalNodeCard` components connected by bezier edges. Node palette via `NodePalette`. Supports node drag, edge drawing, and live port value display (via `/api/signal/graphs/:id/node-states` polling).

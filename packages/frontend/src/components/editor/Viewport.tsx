@@ -39,6 +39,13 @@ import { Text as TroikaText } from 'troika-three-text';
 import DOMPurify from 'dompurify';
 import html2canvas from 'html2canvas';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
+import { createRoot, type Root } from 'react-dom/client';
+import { flushSync } from 'react-dom';
+import {
+  compileTemplate,
+  FeedContent,
+  FeedErrorBoundary,
+} from '../../lib/feedTemplate';
 import { VRMLoaderPlugin } from '@pixiv/three-vrm';
 import type { VRM, VRMHumanBoneName, VRMPose } from '@pixiv/three-vrm';
 import { useEditorStore } from '../../store/editorStore';
@@ -59,12 +66,25 @@ import {
 import { getIkTargets, getIkTargetsTime } from '../../ikTargetStore';
 import { vrmRegistry } from '../../vrmRegistry';
 import {
+  applyMaterialOverrides,
+  disposeMaterialOverrides,
+  type MaterialOverrides,
+} from './materialOverrides';
+import {
   applyArmCalib,
   upperArmNormRotFromTarget,
   DEFAULT_CALIBRATION,
 } from '../../calibration';
 import type { VmcCalibration } from '../../calibration';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
+import { registerMedia } from './mediaRegistry';
+import {
+  makeVideoMaterial,
+  updateVideoMaterial,
+  applyVideoBlend,
+  readChroma,
+  type VideoBlend3D,
+} from './videoFx';
 import { api } from '../../api/client';
 import { BoneFilterBank } from '../../oneEuroFilter';
 import {
@@ -73,6 +93,7 @@ import {
   tickParticles,
 } from '../../particleUtils';
 import type { ParticlePool } from '../../particleUtils';
+import { resolveParticleTextureUrl } from '../../particleTextures';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -554,8 +575,13 @@ interface Transform {
   sy: number;
   sz: number;
   /** Uniform descendant-mesh opacity (1 = fully opaque). Persisted on
-   *  components.transform; applied per-frame by useApplyOpacity. */
+   *  components.transform; applied per-frame by useApplyMeshFlags. */
   opacity: number;
+  /** Whether this node's descendant meshes cast shadows. Only has a visible
+   *  effect when the active camera has shadows enabled. Default true. */
+  castShadow: boolean;
+  /** Whether this node's descendant meshes receive shadows. Default true. */
+  receiveShadow: boolean;
 }
 
 function getTransform(node: NodeRecord): Transform {
@@ -571,6 +597,8 @@ function getTransform(node: NodeRecord): Transform {
     sy: t?.sy ?? 1,
     sz: t?.sz ?? 1,
     opacity: t?.opacity ?? 1,
+    castShadow: t?.castShadow ?? true,
+    receiveShadow: t?.receiveShadow ?? true,
   };
 }
 
@@ -582,9 +610,7 @@ function getTransform(node: NodeRecord): Transform {
  *  Track-clip wins so an in-progress clip isn't interrupted by a stale runtime
  *  value. See dev-notes/modules/runtime-overrides.md. */
 function useTransformWithOverride(node: NodeRecord): Transform {
-  const clipOverride = useEditorStore(
-    (s) => s.nodeTransformOverrides[node.id]
-  );
+  const clipOverride = useEditorStore((s) => s.nodeTransformOverrides[node.id]);
   const runtimeOverride = useEditorStore(
     (s) => s.runtimeNodeOverrides[node.id]
   );
@@ -595,12 +621,9 @@ function useTransformWithOverride(node: NodeRecord): Transform {
   if (clipOverride?.position?.x !== undefined) out.x = clipOverride.position.x;
   if (clipOverride?.position?.y !== undefined) out.y = clipOverride.position.y;
   if (clipOverride?.position?.z !== undefined) out.z = clipOverride.position.z;
-  if (clipOverride?.rotation?.x !== undefined)
-    out.rx = clipOverride.rotation.x;
-  if (clipOverride?.rotation?.y !== undefined)
-    out.ry = clipOverride.rotation.y;
-  if (clipOverride?.rotation?.z !== undefined)
-    out.rz = clipOverride.rotation.z;
+  if (clipOverride?.rotation?.x !== undefined) out.rx = clipOverride.rotation.x;
+  if (clipOverride?.rotation?.y !== undefined) out.ry = clipOverride.rotation.y;
+  if (clipOverride?.rotation?.z !== undefined) out.rz = clipOverride.rotation.z;
   if (clipOverride?.scale?.x !== undefined) out.sx = clipOverride.scale.x;
   if (clipOverride?.scale?.y !== undefined) out.sy = clipOverride.scale.y;
   if (clipOverride?.scale?.z !== undefined) out.sz = clipOverride.scale.z;
@@ -645,14 +668,17 @@ function useTransformWithOverride(node: NodeRecord): Transform {
  *  every descendant material, caching the last applied value per material so
  *  we skip writes when unchanged. When `opacity >= 1` we restore the
  *  material's original `transparent` flag (false), so opaque rendering stays
- *  cheap when not animating. */
+ *  cheap when not animating. Used by nodes that don't participate in shadows
+ *  (text, billboards, particles); avatar/model nodes use useApplyMeshFlags. */
 function useApplyOpacity(
   groupRef: React.RefObject<THREE.Object3D | null>,
   opacity: number
 ): void {
-  // Cache per-material: last opacity applied + the original `transparent` flag.
   const cacheRef = useRef(
-    new WeakMap<THREE.Material, { lastOpacity: number; origTransparent: boolean }>()
+    new WeakMap<
+      THREE.Material,
+      { lastOpacity: number; origTransparent: boolean }
+    >()
   );
   useFrame(() => {
     const root = groupRef.current;
@@ -666,6 +692,64 @@ function useApplyOpacity(
       if (!m) return;
       const arr = Array.isArray(m) ? m : [m];
       for (const mat of arr) {
+        let entry = cache.get(mat);
+        if (!entry) {
+          entry = { lastOpacity: 1, origTransparent: mat.transparent };
+          cache.set(mat, entry);
+        }
+        if (entry.lastOpacity === opacity) continue;
+        if (opacity >= 1) {
+          mat.opacity = 1;
+          mat.transparent = entry.origTransparent;
+        } else {
+          mat.opacity = Math.max(0, opacity);
+          mat.transparent = true;
+        }
+        mat.needsUpdate = true;
+        entry.lastOpacity = opacity;
+      }
+    });
+  });
+}
+
+/** Per-frame mesh walk that applies descendant material opacity and the
+ *  node's shadow cast/receive flags. Caches the last applied opacity per
+ *  material so we skip writes when unchanged; for shadows we compare the
+ *  cheap booleans on each mesh directly. When `opacity >= 1` we restore the
+ *  material's original `transparent` flag (false), so opaque rendering stays
+ *  cheap when not animating. Toggling `receiveShadow` forces a material
+ *  recompile (shadow receiving is baked into the shader). */
+function useApplyMeshFlags(
+  groupRef: React.RefObject<THREE.Object3D | null>,
+  opacity: number,
+  castShadow: boolean,
+  receiveShadow: boolean
+): void {
+  // Cache per-material: last opacity applied + the original `transparent` flag.
+  const cacheRef = useRef(
+    new WeakMap<
+      THREE.Material,
+      { lastOpacity: number; origTransparent: boolean }
+    >()
+  );
+  useFrame(() => {
+    const root = groupRef.current;
+    if (!root) return;
+    const cache = cacheRef.current;
+    root.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      const m = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (!m) return;
+      const arr = Array.isArray(m) ? m : [m];
+
+      // Shadow flags live on the mesh (Object3D). castShadow is a no-op until
+      // the next shadow-map render; receiveShadow needs a shader recompile.
+      if (mesh.castShadow !== castShadow) mesh.castShadow = castShadow;
+      const recvChanged = mesh.receiveShadow !== receiveShadow;
+      if (recvChanged) mesh.receiveShadow = receiveShadow;
+
+      for (const mat of arr) {
+        if (recvChanged) mat.needsUpdate = true;
         let entry = cache.get(mat);
         if (!entry) {
           entry = { lastOpacity: 1, origTransparent: mat.transparent };
@@ -774,7 +858,7 @@ function AvatarNode({
   const blendWeightRef = useRef(0); // 0 = animation, 1 = VMC
   const [vrmLoaded, setVrmLoaded] = useState(false);
   const t = useTransformWithOverride(node);
-  useApplyOpacity(outerRef, t.opacity);
+  useApplyMeshFlags(outerRef, t.opacity, t.castShadow, t.receiveShadow);
 
   const showBoneHelper = useEditorStore(
     (s) => s.boneListExpanded[node.id] ?? false
@@ -938,6 +1022,7 @@ function AvatarNode({
     return () => {
       cancelled = true;
       setVrmLoaded(false);
+      if (vrmRef.current) disposeMaterialOverrides(vrmRef.current);
       vrmMixerRef.current?.stopAllAction();
       vrmMixerRef.current = null;
       vrmRef.current = null;
@@ -952,6 +1037,21 @@ function AvatarNode({
       vrmRegistry.delete(node.id);
     };
   }, [node.filePath]);
+
+  // --- Material overrides (MToon ⇄ PBR + per-material params) ---
+  // Re-apply whenever the override record changes or the VRM (re)loads. The
+  // apply layer is idempotent and caches per-VRM slots, so this is cheap.
+  const materialOverrides = node.properties?.materialOverrides as
+    | MaterialOverrides
+    | undefined;
+  const materialOverridesKey = JSON.stringify(materialOverrides ?? null);
+  useEffect(() => {
+    if (!vrmLoaded) return;
+    const vrm = vrmRef.current;
+    if (!vrm) return;
+    applyMaterialOverrides(vrm, materialOverrides);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vrmLoaded, materialOverridesKey]);
 
   // --- Animation clip auto-registration ---
   // Once the avatar VRM is loaded, probe each .fbx asset in the project for its real
@@ -2129,11 +2229,25 @@ function AvatarNode({
       // safe no-op here.
       // Morph-target names (Fcl_*, etc.) are deferred to after update() so they
       // aren't overwritten when expressionManager applies its tracked clip values.
+      // Per-node default ("resting") expression weights are applied first as a
+      // baseline, then the latest broadcast blendshapes are overlaid on top so
+      // live capture overrides the defaults per-key. When the bus has no active
+      // producer it emits an empty record, leaving the defaults in effect.
+      const defaultExpr = node.properties?.defaultExpressions;
       const bs = getVmcBlendshapes(node.id) ?? null;
-      if (bs && vrm.expressionManager) {
+      if (vrm.expressionManager) {
         const morphMap = morphMapRef.current;
-        for (const [name, value] of Object.entries(bs)) {
-          if (!morphMap.has(name)) vrm.expressionManager.setValue(name, value);
+        if (defaultExpr) {
+          for (const [name, value] of Object.entries(defaultExpr)) {
+            if (!morphMap.has(name))
+              vrm.expressionManager.setValue(name, value);
+          }
+        }
+        if (bs) {
+          for (const [name, value] of Object.entries(bs)) {
+            if (!morphMap.has(name))
+              vrm.expressionManager.setValue(name, value);
+          }
         }
       }
 
@@ -2370,6 +2484,33 @@ const DIR_RAYS = Array.from({ length: 8 }, (_, i) => {
   ] as const;
 });
 
+// Stylised speaker glyph for audio sources: a square body + a trapezoid cone,
+// drawn in the XY plane and billboarded toward the camera. The outline is one
+// closed polyline; the divider line is the shared body/cone edge so both the
+// square and the trapezoid read clearly.
+type Pt3 = [number, number, number];
+const SPEAKER_OUTLINE_PTS: Pt3[] = [
+  [-0.09, 0.04, 0], // body top-left
+  [-0.03, 0.04, 0], // body top-right / cone near-top
+  [0.07, 0.1, 0], // cone far-top
+  [0.07, -0.1, 0], // cone far-bottom
+  [-0.03, -0.04, 0], // body bottom-right / cone near-bottom
+  [-0.09, -0.04, 0], // body bottom-left
+  [-0.09, 0.04, 0], // close
+];
+const SPEAKER_DIVIDER_PTS: Pt3[] = [
+  [-0.03, 0.04, 0],
+  [-0.03, -0.04, 0],
+];
+// Two sound-wave arcs to the right of the cone.
+const SPEAKER_WAVE_PTS: Pt3[][] = [0.11, 0.16].map((r) =>
+  Array.from({ length: 9 }, (_, i) => {
+    const a = (-Math.PI / 4) + (i / 8) * (Math.PI / 2);
+    return [Math.cos(a) * r + 0.04, Math.sin(a) * r, 0] as Pt3;
+  })
+);
+
+
 function LightNode({
   node,
   viewerMode,
@@ -2380,12 +2521,31 @@ function LightNode({
   const groupRef = useRef<THREE.Group>(null);
   const t = useTransformWithOverride(node);
   const lc = node.components?.light as
-    | { lightType?: string; color?: string; intensity?: number }
+    | {
+        lightType?: string;
+        color?: string;
+        intensity?: number;
+        castShadow?: boolean;
+        shadowMapSize?: number;
+        shadowBias?: number;
+        shadowNormalBias?: number;
+        shadowCameraSize?: number;
+        shadowCameraFar?: number;
+      }
     | undefined;
   const lightType = lc?.lightType ?? 'point';
   const color = lc?.color ?? '#ffffff';
   const intensity = lc?.intensity ?? 1;
   const iconColor = '#ffaa22';
+
+  // Shadow casting is opt-in per light. These props are inert unless the
+  // active camera (and thus the Canvas) has shadow maps enabled.
+  const castShadow = lc?.castShadow ?? false;
+  const shadowMapSize = lc?.shadowMapSize ?? 1024;
+  const shadowBias = lc?.shadowBias ?? -0.0005;
+  const shadowNormalBias = lc?.shadowNormalBias ?? 0.02;
+  const shadowCameraSize = lc?.shadowCameraSize ?? 10; // directional ortho half-extent
+  const shadowCameraFar = lc?.shadowCameraFar ?? 50;
 
   useEffect(() => {
     if (!groupRef.current) return;
@@ -2399,16 +2559,50 @@ function LightNode({
       rotation={[t.rx, t.ry, t.rz]}
     >
       {lightType === 'point' && (
-        <pointLight color={color} intensity={intensity} />
+        <pointLight
+          color={color}
+          intensity={intensity}
+          castShadow={castShadow}
+          shadow-mapSize-width={shadowMapSize}
+          shadow-mapSize-height={shadowMapSize}
+          shadow-bias={shadowBias}
+          shadow-normalBias={shadowNormalBias}
+          shadow-camera-near={0.1}
+          shadow-camera-far={shadowCameraFar}
+        />
       )}
       {lightType === 'directional' && (
-        <directionalLight color={color} intensity={intensity} />
+        <directionalLight
+          color={color}
+          intensity={intensity}
+          castShadow={castShadow}
+          shadow-mapSize-width={shadowMapSize}
+          shadow-mapSize-height={shadowMapSize}
+          shadow-bias={shadowBias}
+          shadow-normalBias={shadowNormalBias}
+          shadow-camera-near={0.1}
+          shadow-camera-far={shadowCameraFar}
+          shadow-camera-left={-shadowCameraSize}
+          shadow-camera-right={shadowCameraSize}
+          shadow-camera-top={shadowCameraSize}
+          shadow-camera-bottom={-shadowCameraSize}
+        />
       )}
       {lightType === 'ambient' && (
         <ambientLight color={color} intensity={intensity} />
       )}
       {lightType === 'spot' && (
-        <spotLight color={color} intensity={intensity} />
+        <spotLight
+          color={color}
+          intensity={intensity}
+          castShadow={castShadow}
+          shadow-mapSize-width={shadowMapSize}
+          shadow-mapSize-height={shadowMapSize}
+          shadow-bias={shadowBias}
+          shadow-normalBias={shadowNormalBias}
+          shadow-camera-near={0.1}
+          shadow-camera-far={shadowCameraFar}
+        />
       )}
 
       {!viewerMode && lightType === 'point' && (
@@ -2648,7 +2842,12 @@ function BillboardNode({ node }: { node: NodeRecord }) {
       return;
     }
     let cancelled = false;
-    new THREE.TextureLoader().load(bc.textureUrl, (tex) => {
+    const url = resolveParticleTextureUrl(bc.textureUrl);
+    if (!url) {
+      textureRef.current = null;
+      return;
+    }
+    new THREE.TextureLoader().load(url, (tex) => {
       if (cancelled) {
         tex.dispose();
         return;
@@ -2731,6 +2930,463 @@ function BillboardNode({ node }: { node: NodeRecord }) {
       scale={[t.sx, t.sy, t.sz]}
     >
       {inner}
+    </group>
+  );
+}
+
+interface VideoConfig {
+  facing: 'screen' | 'world';
+  backface: 'none' | 'mirror' | 'unmirrored';
+  width: number;
+  height: number;
+  alpha: number;
+  sourceUrl: string | null;
+  autoplay: boolean;
+  loop: boolean;
+  onEnd: 'freeze' | 'hide';
+  muted: boolean;
+  volume: number;
+  blendMode: VideoBlend3D;
+  chromaKey?: Record<string, unknown>;
+}
+
+const VIDEO_DEFAULTS: VideoConfig = {
+  facing: 'world',
+  backface: 'none',
+  width: 1.6,
+  height: 0.9,
+  alpha: 1,
+  sourceUrl: null,
+  autoplay: true,
+  loop: true,
+  onEnd: 'freeze',
+  muted: true,
+  volume: 1,
+  blendMode: 'normal',
+};
+
+/** A flat-mounted plane textured with a live <video> element. Mirrors
+ *  BillboardNode (facing / backface / size) but with playback config and a
+ *  MediaHandle so the command bus / clip event lane can drive play/pause/etc.
+ *  Flat-mounted (like billboards) so reparenting never remounts the element and
+ *  loses playback position. */
+function VideoNode({
+  node,
+  viewerMode,
+}: {
+  node: NodeRecord;
+  viewerMode?: boolean;
+}) {
+  const outerRef = useRef<THREE.Group>(null);
+  const billboardRef = useRef<THREE.Group>(null);
+  const t = useTransformWithOverride(node);
+  const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const vc: VideoConfig = {
+    ...VIDEO_DEFAULTS,
+    ...((node.components?.video ?? {}) as Partial<VideoConfig>),
+  };
+  const chroma = readChroma(vc.chromaKey);
+
+  // ShaderMaterials handle chroma key + opacity + blend (and UV-mirror the back
+  // face). Created once; uniforms/blending pushed via effects below.
+  const frontMat = useMemo(() => makeVideoMaterial(), []);
+  const backMat = useMemo(() => makeVideoMaterial(), []);
+  useEffect(() => {
+    return () => {
+      frontMat.dispose();
+      backMat.dispose();
+    };
+  }, [frontMat, backMat]);
+
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const textureRef = useRef<THREE.VideoTexture | null>(null);
+  const [hidden, setHidden] = useState(false);
+
+  // (Re)create the <video> element + texture when the source changes.
+  useEffect(() => {
+    setHidden(false);
+    if (!vc.sourceUrl) {
+      videoElRef.current?.pause();
+      videoElRef.current = null;
+      textureRef.current?.dispose();
+      textureRef.current = null;
+      frontMat.uniforms.map.value = null;
+      backMat.uniforms.map.value = null;
+      return;
+    }
+    const el = document.createElement('video');
+    el.src = vc.sourceUrl;
+    el.crossOrigin = 'anonymous';
+    el.playsInline = true;
+    el.loop = vc.loop;
+    el.preload = 'auto';
+    videoElRef.current = el;
+    const tex = new THREE.VideoTexture(el);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    textureRef.current = tex;
+    frontMat.uniforms.map.value = tex;
+    backMat.uniforms.map.value = tex;
+
+    const onEnded = () => {
+      if (el.loop) return;
+      if (vc.onEnd === 'hide') setHidden(true);
+      // 'freeze' leaves the element paused on its last frame (default).
+    };
+    el.addEventListener('ended', onEnded);
+    return () => {
+      el.removeEventListener('ended', onEnded);
+      el.pause();
+      tex.dispose();
+    };
+  }, [vc.sourceUrl, vc.loop, vc.onEnd, frontMat, backMat]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Push chroma / opacity / blend / mirror into the materials.
+  useEffect(() => {
+    const opacity = Math.max(0, Math.min(1, t.opacity)) * vc.alpha;
+    updateVideoMaterial(frontMat, { opacity, flipX: false, chroma });
+    updateVideoMaterial(backMat, {
+      opacity,
+      flipX: vc.backface === 'mirror',
+      chroma,
+    });
+    applyVideoBlend(frontMat, vc.blendMode);
+    applyVideoBlend(backMat, vc.blendMode);
+  }, [
+    frontMat,
+    backMat,
+    t.opacity,
+    vc.alpha,
+    vc.backface,
+    vc.blendMode,
+    chroma.enabled,
+    chroma.color,
+    chroma.similarity,
+    chroma.smoothness,
+    chroma.spill,
+  ]);
+
+  // Apply audibility + volume. Video audio plays in the viewer, or in the
+  // editor only when preview is enabled; honours the per-node muted flag.
+  useEffect(() => {
+    const el = videoElRef.current;
+    if (!el) return;
+    const audible = (viewerMode || audioPreview) && !vc.muted;
+    el.muted = !audible;
+    el.volume = Math.max(0, Math.min(1, vc.volume));
+  }, [viewerMode, audioPreview, vc.muted, vc.volume, vc.sourceUrl]);
+
+  // Autoplay on (re)mount / source change.
+  useEffect(() => {
+    const el = videoElRef.current;
+    if (!el || !vc.autoplay) return;
+    void el.play().catch(() => {
+      /* autoplay may be blocked until a user gesture; ignore */
+    });
+  }, [vc.autoplay, vc.sourceUrl]);
+
+  // Imperative playback handle for the media-command bus + clip event lane.
+  useEffect(() => {
+    return registerMedia(node.id, {
+      play: () => void videoElRef.current?.play().catch(() => {}),
+      pause: () => videoElRef.current?.pause(),
+      stop: () => {
+        const el = videoElRef.current;
+        if (!el) return;
+        el.pause();
+        el.currentTime = 0;
+        if (vc.onEnd === 'hide') setHidden(true);
+      },
+      restart: () => {
+        const el = videoElRef.current;
+        if (!el) return;
+        setHidden(false);
+        el.currentTime = 0;
+        void el.play().catch(() => {});
+      },
+      seek: (sec: number) => {
+        const el = videoElRef.current;
+        if (el) el.currentTime = Math.max(0, sec);
+      },
+      setVolume: (v: number) => {
+        const el = videoElRef.current;
+        if (el) el.volume = Math.max(0, Math.min(1, v));
+      },
+      mute: () => {
+        if (videoElRef.current) videoElRef.current.muted = true;
+      },
+      unmute: () => {
+        if (videoElRef.current) videoElRef.current.muted = false;
+      },
+    });
+  }, [node.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!outerRef.current) return;
+    return registerNodeGroup(node.id, outerRef.current);
+  }, [node.id]);
+
+  useFrame(({ camera }) => {
+    if (!billboardRef.current) return;
+    if (vc.facing === 'screen') {
+      billboardRef.current.quaternion.copy(camera.quaternion);
+    } else {
+      billboardRef.current.quaternion.identity();
+    }
+  });
+
+  const w = vc.width;
+  const h = vc.height;
+
+  return (
+    <group
+      ref={outerRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+      scale={[t.sx, t.sy, t.sz]}
+      visible={!hidden}
+    >
+      <group ref={billboardRef}>
+        <mesh material={frontMat}>
+          <planeGeometry args={[w, h]} />
+        </mesh>
+        {vc.backface !== 'none' && (
+          <mesh material={backMat} rotation={[0, Math.PI, 0]}>
+            <planeGeometry args={[w, h]} />
+          </mesh>
+        )}
+      </group>
+    </group>
+  );
+}
+
+// One shared AudioListener per camera (Web Audio allows a single listener).
+const _audioListeners = new WeakMap<THREE.Object3D, THREE.AudioListener>();
+function getAudioListener(camera: THREE.Object3D): THREE.AudioListener {
+  let l = _audioListeners.get(camera);
+  if (!l) {
+    l = new THREE.AudioListener();
+    camera.add(l);
+    _audioListeners.set(camera, l);
+  }
+  return l;
+}
+
+interface AudioCfg {
+  audioType: 'simple' | 'directional';
+  sourceUrl: string | null;
+  autoplay: boolean;
+  loop: boolean;
+  volume: number;
+  refDistance: number;
+  rolloffFactor: number;
+  maxDistance: number;
+  coneInnerAngle: number;
+  coneOuterAngle: number;
+  coneOuterGain: number;
+}
+
+const AUDIO_DEFAULTS: AudioCfg = {
+  audioType: 'simple',
+  sourceUrl: null,
+  autoplay: true,
+  loop: false,
+  volume: 1,
+  refDistance: 1,
+  rolloffFactor: 1,
+  maxDistance: 100,
+  coneInnerAngle: 360,
+  coneOuterAngle: 360,
+  coneOuterGain: 0,
+};
+
+/** A non-visual audio source. 'simple' = non-spatial THREE.Audio; 'directional'
+ *  = spatial THREE.PositionalAudio positioned by the node transform. Audible in
+ *  the viewer; in the editor only when audio preview is enabled. Registers a
+ *  MediaHandle for the command bus / clip event lane. Draws a gizmo in editor. */
+function AudioNode({
+  node,
+  viewerMode,
+}: {
+  node: NodeRecord;
+  viewerMode?: boolean;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const t = useTransformWithOverride(node);
+  const { camera } = useThree();
+  const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const ac: AudioCfg = {
+    ...AUDIO_DEFAULTS,
+    ...((node.components?.audio ?? {}) as Partial<AudioCfg>),
+  };
+
+  const soundRef = useRef<THREE.Audio | THREE.PositionalAudio | null>(null);
+  // Desired loudness inputs; the effective gain is their product gated on
+  // audibility, applied through applyVolume so play/mute/preview all compose.
+  const desiredVolRef = useRef(ac.volume);
+  const mutedRef = useRef(false);
+  const audibleRef = useRef(false);
+  desiredVolRef.current = ac.volume;
+  audibleRef.current = viewerMode === true || audioPreview;
+
+  const applyVolume = () => {
+    const s = soundRef.current;
+    if (!s) return;
+    const v = audibleRef.current && !mutedRef.current ? desiredVolRef.current : 0;
+    s.setVolume(Math.max(0, Math.min(1, v)));
+  };
+
+  useEffect(() => {
+    if (!groupRef.current) return;
+    return registerNodeGroup(node.id, groupRef.current);
+  }, [node.id]);
+
+  // (Re)create the sound when source / type changes.
+  useEffect(() => {
+    const group = groupRef.current;
+    const listener = getAudioListener(camera);
+    // Tear down any previous sound.
+    const prev = soundRef.current;
+    if (prev) {
+      if (prev.isPlaying) prev.stop();
+      prev.removeFromParent();
+      soundRef.current = null;
+    }
+    if (!ac.sourceUrl || !group) return;
+
+    const sound =
+      ac.audioType === 'directional'
+        ? new THREE.PositionalAudio(listener)
+        : new THREE.Audio(listener);
+    if (sound instanceof THREE.PositionalAudio) {
+      sound.setRefDistance(ac.refDistance);
+      sound.setRolloffFactor(ac.rolloffFactor);
+      sound.setMaxDistance(ac.maxDistance);
+      sound.setDirectionalCone(
+        ac.coneInnerAngle,
+        ac.coneOuterAngle,
+        ac.coneOuterGain
+      );
+    }
+    group.add(sound);
+    soundRef.current = sound;
+
+    let cancelled = false;
+    new THREE.AudioLoader().load(ac.sourceUrl, (buffer) => {
+      if (cancelled) return;
+      sound.setBuffer(buffer);
+      sound.setLoop(ac.loop);
+      applyVolume();
+      if (ac.autoplay) {
+        // Resume a suspended context (editor may be suspended pre-gesture).
+        void listener.context.resume?.().catch(() => {});
+        if (!sound.isPlaying) sound.play();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (sound.isPlaying) sound.stop();
+      sound.removeFromParent();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    ac.sourceUrl,
+    ac.audioType,
+    ac.loop,
+    ac.refDistance,
+    ac.rolloffFactor,
+    ac.maxDistance,
+    ac.coneInnerAngle,
+    ac.coneOuterAngle,
+    ac.coneOuterGain,
+    camera,
+  ]);
+
+  // React to audibility / volume changes.
+  useEffect(() => {
+    applyVolume();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewerMode, audioPreview, ac.volume]);
+
+  // Media handle for the command bus / clip event lane.
+  useEffect(() => {
+    return registerMedia(node.id, {
+      play: () => {
+        const s = soundRef.current;
+        if (!s || !s.buffer) return;
+        void (s as THREE.Audio).context.resume?.().catch(() => {});
+        if (!s.isPlaying) s.play();
+      },
+      pause: () => {
+        const s = soundRef.current;
+        if (s?.isPlaying) s.pause();
+      },
+      stop: () => {
+        const s = soundRef.current;
+        if (s?.isPlaying) s.stop();
+      },
+      restart: () => {
+        const s = soundRef.current;
+        if (!s || !s.buffer) return;
+        if (s.isPlaying) s.stop();
+        s.play();
+      },
+      seek: (sec: number) => {
+        const s = soundRef.current;
+        if (!s || !s.buffer) return;
+        const wasPlaying = s.isPlaying;
+        if (wasPlaying) s.stop();
+        s.offset = Math.max(0, sec);
+        if (wasPlaying) s.play();
+      },
+      setVolume: (v: number) => {
+        desiredVolRef.current = Math.max(0, Math.min(1, v));
+        applyVolume();
+      },
+      mute: () => {
+        mutedRef.current = true;
+        applyVolume();
+      },
+      unmute: () => {
+        mutedRef.current = false;
+        applyVolume();
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node.id]);
+
+  const iconColor = ac.audioType === 'directional' ? '#22dd88' : '#22bbdd';
+
+  return (
+    <group
+      ref={groupRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+    >
+      {!viewerMode && (
+        <Billboard>
+          <Line
+            points={SPEAKER_OUTLINE_PTS}
+            color={iconColor}
+            lineWidth={1.5}
+          />
+          <Line
+            points={SPEAKER_DIVIDER_PTS}
+            color={iconColor}
+            lineWidth={1.5}
+          />
+          {/* Directional sources get the sound-wave arcs; simple ones don't. */}
+          {ac.audioType === 'directional' &&
+            SPEAKER_WAVE_PTS.map((pts, i) => (
+              <Line
+                key={i}
+                points={pts}
+                color={iconColor}
+                lineWidth={1.5}
+              />
+            ))}
+        </Billboard>
+      )}
     </group>
   );
 }
@@ -2961,7 +3617,8 @@ function TextCanvasNode({ node }: { node: NodeRecord }) {
           for (const img of imgs) img.crossOrigin = 'anonymous';
           await Promise.all(
             imgs.map((img) => {
-              if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+              if (img.complete && img.naturalWidth > 0)
+                return Promise.resolve();
               return new Promise<void>((resolve) => {
                 // Resolve on success OR failure — a single broken image
                 // shouldn't block the whole render.
@@ -3051,6 +3708,237 @@ function TextCanvasNode({ node }: { node: NodeRecord }) {
   );
 }
 
+/** A data-channel feed rendered into a CanvasTexture on a plane — the in-scene
+ *  (3D) analog of the 2D `feed` compose layer (ComposeLayerStack.FeedLayer).
+ *  Subscribes to the data-channel bus by identity (GLOBAL ∪ this node's own id),
+ *  renders the htm template into an off-screen React root, and rasterises it via
+ *  html2canvas so emotes + arbitrary template markup composite into WebGL and
+ *  recordings (like text_canvas). See dev-notes/modules/data-channels.md. */
+function FeedCanvasNode({
+  node,
+  viewerMode,
+}: {
+  node: NodeRecord;
+  viewerMode?: boolean;
+}) {
+  const outerRef = useRef<THREE.Group>(null);
+  const billboardRef = useRef<THREE.Group>(null);
+  const textureRef = useRef<THREE.CanvasTexture | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<Root | null>(null);
+  const [texture, setTexture] = useState<THREE.CanvasTexture | null>(null);
+  const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
+  const camera = useThree((s) => s.camera);
+
+  const cfg = (node.components?.feed ?? {}) as {
+    template?: string;
+    css?: string;
+    width?: number;
+    height?: number;
+    padding?: number;
+    fontSize?: number;
+    color?: string;
+    billboard?: boolean;
+  };
+  const planeW = cfg.width ?? 2;
+  const planeH = cfg.height ?? 1.2;
+  const template = typeof cfg.template === 'string' ? cfg.template : '';
+  const css = typeof cfg.css === 'string' ? cfg.css : '';
+  const compiled = useMemo(() => compileTemplate(template), [template]);
+
+  // Fields visible to this node: GLOBAL ∪ its own id (own wins), mirroring the
+  // 2D feed layer's consumer-by-identity model.
+  const globalFields = useEditorStore((s) => s.dataChannels['']);
+  const ownFields = useEditorStore((s) => s.dataChannels[node.id]);
+  const channels = useMemo(
+    () => ({ ...(globalFields ?? {}), ...(ownFields ?? {}) }),
+    [globalFields, ownFields]
+  );
+  const scopeId = useMemo(
+    () => `feed3d-${node.id.replace(/[^a-zA-Z0-9_-]/g, '')}`,
+    [node.id]
+  );
+
+  // One-time canvas + texture + off-screen React host. Re-renders mutate the
+  // canvas in place so the CanvasTexture identity stays stable.
+  useEffect(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(planeW * 256));
+    canvas.height = Math.max(1, Math.round(planeH * 256));
+    canvasRef.current = canvas;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    textureRef.current = tex;
+    setTexture(tex);
+
+    const host = document.createElement('div');
+    host.style.position = 'fixed';
+    host.style.left = '-99999px';
+    host.style.top = '0';
+    host.style.width = `${canvas.width}px`;
+    host.style.height = `${canvas.height}px`;
+    host.style.overflow = 'hidden';
+    host.style.lineHeight = '1.2';
+    host.style.wordBreak = 'break-word';
+    host.setAttribute('data-feed-scope', scopeId);
+    document.body.appendChild(host);
+    hostRef.current = host;
+    rootRef.current = createRoot(host);
+
+    return () => {
+      // Defer unmount: React forbids unmounting a root synchronously from within
+      // a commit/cleanup phase.
+      const root = rootRef.current;
+      queueMicrotask(() => root?.unmount());
+      host.remove();
+      tex.dispose();
+      textureRef.current = null;
+      canvasRef.current = null;
+      hostRef.current = null;
+      rootRef.current = null;
+    };
+  }, [planeW, planeH, scopeId]);
+
+  // Re-render the template + re-rasterise whenever data / template / styling
+  // changes. Async because html2canvas + emote image loads are async.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const tex = textureRef.current;
+    const host = hostRef.current;
+    const root = rootRef.current;
+    if (!canvas || !tex || !host || !root) return;
+    let cancelled = false;
+
+    const color = cfg.color ?? '#ffffff';
+    const fontSize = cfg.fontSize ?? 28;
+    const padding = cfg.padding ?? 16;
+    host.style.color = color;
+    host.style.fontSize = `${fontSize}px`;
+    host.style.padding = `${padding}px`;
+    host.style.boxSizing = 'border-box';
+    const scopedCss = css
+      ? `@scope ([data-feed-scope="${scopeId}"]) {\n${css}\n}`
+      : '';
+
+    const draw = async () => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      // Commit the template to the off-screen DOM synchronously so html2canvas
+      // captures the up-to-date tree. A bad template renders as nothing
+      // (FeedContent swallows the throw) and retries on the next update.
+      flushSync(() => {
+        root.render(
+          <>
+            {scopedCss && <style>{scopedCss}</style>}
+            {compiled.render && (
+              <FeedErrorBoundary key={template}>
+                <FeedContent render={compiled.render} channels={channels} />
+              </FeedErrorBoundary>
+            )}
+          </>
+        );
+      });
+
+      // Emotes are <img>s; html2canvas captures synchronously, so wait for them
+      // (set crossorigin first — DOMPurify strips it; see TextCanvasNode).
+      const imgs = Array.from(host.querySelectorAll('img'));
+      for (const img of imgs) img.crossOrigin = 'anonymous';
+      await Promise.all(
+        imgs.map((img) =>
+          img.complete && img.naturalWidth > 0
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                img.addEventListener('load', () => resolve(), { once: true });
+                img.addEventListener('error', () => resolve(), { once: true });
+              })
+        )
+      );
+      if (cancelled) return;
+      const rendered = await html2canvas(host, {
+        backgroundColor: null,
+        width: canvas.width,
+        height: canvas.height,
+        scale: 1,
+        logging: false,
+        useCORS: true,
+        allowTaint: false,
+      });
+      if (cancelled) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(rendered, 0, 0);
+      tex.needsUpdate = true;
+    };
+    void draw();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    channels,
+    compiled,
+    template,
+    css,
+    scopeId,
+    cfg.color,
+    cfg.fontSize,
+    cfg.padding,
+  ]);
+
+  // Register the node's group so it's selectable and the transform gizmo can
+  // attach (like billboard/particle/model flat mounts).
+  useEffect(() => {
+    if (!outerRef.current) return;
+    return registerNodeGroup(node.id, outerRef.current);
+  }, [node.id]);
+
+  useFrame(() => {
+    if (cfg.billboard && billboardRef.current) {
+      billboardRef.current.quaternion.copy(camera.quaternion);
+    } else if (billboardRef.current) {
+      billboardRef.current.quaternion.identity();
+    }
+  });
+
+  return (
+    <group
+      ref={outerRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+      scale={[t.sx, t.sy, t.sz]}
+    >
+      <group ref={billboardRef}>
+        {/* Editor-only affordance: an empty feed (no data published yet)
+            rasterises to a transparent texture and would be invisible, so show
+            a faint outline + backing so it's visible and clickable while
+            editing. Hidden in the viewer/stream output. */}
+        {!viewerMode && (
+          <mesh position={[0, 0, -0.001]}>
+            <planeGeometry args={[planeW, planeH]} />
+            <meshBasicMaterial
+              color="#4488ff"
+              transparent
+              opacity={0.08}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+            />
+          </mesh>
+        )}
+        {texture && (
+          <mesh>
+            <planeGeometry args={[planeW, planeH]} />
+            <meshBasicMaterial
+              map={texture}
+              transparent
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        )}
+      </group>
+    </group>
+  );
+}
+
 function ParticleNode({ node }: { node: NodeRecord }) {
   const outerRef = useRef<THREE.Group>(null);
   // InstancedMesh for local-space; a scene-root InstancedMesh for world-space
@@ -3096,12 +3984,13 @@ function ParticleNode({ node }: { node: NodeRecord }) {
   // Texture loading
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
   useEffect(() => {
-    if (!pc.textureUrl) {
+    const url = resolveParticleTextureUrl(pc.textureUrl);
+    if (!url) {
       setTexture(null);
       return;
     }
     let cancelled = false;
-    new THREE.TextureLoader().load(pc.textureUrl, (tex) => {
+    new THREE.TextureLoader().load(url, (tex) => {
       if (!cancelled) {
         tex.colorSpace = THREE.SRGBColorSpace;
         setTexture(tex);
@@ -3358,7 +4247,7 @@ function ModelNode({
   const outerRef = useRef<THREE.Group>(null);
   const innerRef = useRef<THREE.Group>(null);
   const t = useTransformWithOverride(node);
-  useApplyOpacity(outerRef, t.opacity);
+  useApplyMeshFlags(outerRef, t.opacity, t.castShadow, t.receiveShadow);
   const ext = node.filePath?.split('.').pop()?.toLowerCase();
   const isGlb = Boolean(node.filePath && (ext === 'glb' || ext === 'gltf'));
 
@@ -3455,6 +4344,12 @@ function renderNodeElement(
         <LightNode node={node} viewerMode={viewerMode} />
       </group>
     );
+  if (node.kind === 'audio')
+    return (
+      <group key={node.id} visible={visible}>
+        <AudioNode node={node} viewerMode={viewerMode} />
+      </group>
+    );
   if (node.kind === 'camera')
     return (
       <group key={node.id} visible={visible}>
@@ -3493,8 +4388,10 @@ function renderNodeElement(
   // billboard textures, troika SDF caches, and html2canvas-backed textures).
   if (node.kind === 'particle') return null;
   if (node.kind === 'billboard') return null;
+  if (node.kind === 'video') return null;
   if (node.kind === 'text_troika') return null;
   if (node.kind === 'text_canvas') return null;
+  if (node.kind === 'feed') return null;
   return (
     <group key={node.id} visible={visible}>
       <ModelNode node={node}>{childElements}</ModelNode>
@@ -3528,8 +4425,10 @@ export function SceneNodes({
   // otherwise unmount+remount them, destroying the particle pool).
   const flatParticles = sceneNodes.filter((n) => n.kind === 'particle');
   const flatBillboards = sceneNodes.filter((n) => n.kind === 'billboard');
+  const flatVideos = sceneNodes.filter((n) => n.kind === 'video');
   const flatTextTroika = sceneNodes.filter((n) => n.kind === 'text_troika');
   const flatTextCanvas = sceneNodes.filter((n) => n.kind === 'text_canvas');
+  const flatFeed = sceneNodes.filter((n) => n.kind === 'feed');
 
   // Hidden cascade for flat-mounted nodes: hierarchical kinds already inherit
   // `visible: false` from a hidden ancestor via R3F's <group> nesting, but
@@ -3549,8 +4448,7 @@ export function SceneNodes({
     }
     return false;
   };
-  const effectiveVisible = (n: NodeRecord) =>
-    !n.hidden && !isAncestorHidden(n);
+  const effectiveVisible = (n: NodeRecord) => !n.hidden && !isAncestorHidden(n);
 
   return (
     <>
@@ -3565,6 +4463,11 @@ export function SceneNodes({
           <BillboardNode node={node} />
         </group>
       ))}
+      {flatVideos.map((node) => (
+        <group key={node.id} visible={effectiveVisible(node)}>
+          <VideoNode node={node} viewerMode={viewerMode} />
+        </group>
+      ))}
       {flatTextTroika.map((node) => (
         <group key={node.id} visible={effectiveVisible(node)}>
           <TextTroikaNode node={node} />
@@ -3573,6 +4476,11 @@ export function SceneNodes({
       {flatTextCanvas.map((node) => (
         <group key={node.id} visible={effectiveVisible(node)}>
           <TextCanvasNode node={node} />
+        </group>
+      ))}
+      {flatFeed.map((node) => (
+        <group key={node.id} visible={effectiveVisible(node)}>
+          <FeedCanvasNode node={node} viewerMode={viewerMode} />
         </group>
       ))}
     </>
@@ -4146,9 +5054,89 @@ export function CameraEffects({
   );
 }
 
+// ── Shadows ───────────────────────────────────────────────────────────────
+// Shadows are enabled per-camera (each camera is its own composed view of the
+// scene). The camera's quality maps to the renderer's shadow-map filter; the
+// per-light `castShadow` flag and per-node cast/receive flags do the rest.
+
+export type ShadowQuality = 'low' | 'medium' | 'high';
+
+/** Maps a camera's shadow quality to the R3F `<Canvas shadows>` prop value
+ *  (the global shadow-map filtering type). Returns `false` when disabled. */
+export function canvasShadowsProp(
+  enabled: boolean,
+  quality: ShadowQuality | undefined
+): false | 'basic' | 'percentage' | 'soft' {
+  if (!enabled) return false;
+  if (quality === 'low') return 'basic';
+  if (quality === 'high') return 'soft';
+  return 'percentage'; // medium / default → PCF
+}
+
+/** Invisible ground plane at y=0 that only renders the shadows cast onto it,
+ *  leaving the rest of the floor (the Grid) untouched. Mount only when the
+ *  view has shadows enabled. */
+export function ShadowCatcher({
+  opacity = 0.4,
+  size = 100,
+}: {
+  opacity?: number;
+  size?: number;
+}) {
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+      <planeGeometry args={[size, size]} />
+      <shadowMaterial transparent opacity={opacity} />
+    </mesh>
+  );
+}
+
+/** Forces a material recompile + shadow-map refresh whenever the view's shadow
+ *  enablement flips, so toggling shadows takes effect immediately instead of
+ *  on the next unrelated material change. */
+export function ShadowMaterialSync({ enabled }: { enabled: boolean }) {
+  const { scene, gl } = useThree();
+  useEffect(() => {
+    gl.shadowMap.needsUpdate = true;
+    scene.traverse((obj) => {
+      const m = (obj as THREE.Mesh).material as
+        | THREE.Material
+        | THREE.Material[]
+        | undefined;
+      if (!m) return;
+      for (const mat of Array.isArray(m) ? m : [m]) mat.needsUpdate = true;
+    });
+  }, [enabled, scene, gl]);
+  return null;
+}
+
+/** Selector: returns the effective shadow quality for the editor viewport, or
+ *  null when no camera in the active scene has shadows enabled. The editor is a
+ *  free authoring view (not a camera), so it previews shadows whenever any
+ *  camera does, picking the highest requested quality. */
+function useEditorShadowQuality(): ShadowQuality | null {
+  return useEditorStore((s) => {
+    let best: ShadowQuality | null = null;
+    const rank = { low: 1, medium: 2, high: 3 } as const;
+    for (const n of s.nodes) {
+      if (n.kind !== 'camera' || n.rootSceneNodeId !== s.activeSceneId)
+        continue;
+      const cam = n.components?.camera as
+        | { shadowsEnabled?: boolean; shadowQuality?: ShadowQuality }
+        | undefined;
+      if (!cam?.shadowsEnabled) continue;
+      const q = cam.shadowQuality ?? 'medium';
+      if (!best || rank[q] > rank[best]) best = q;
+    }
+    return best;
+  });
+}
+
 export function Viewport() {
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
   const orbitRef = useRef<any>(null);
+  const shadowQuality = useEditorShadowQuality();
+  const shadowsEnabled = shadowQuality !== null;
 
   return (
     <div
@@ -4163,17 +5151,69 @@ export function Viewport() {
       <Canvas
         camera={{ position: [0, 1.5, 5], fov: 50 }}
         gl={{ toneMapping: THREE.NoToneMapping }}
+        shadows={canvasShadowsProp(shadowsEnabled, shadowQuality ?? undefined)}
       >
         <ambientLight intensity={0.4} />
-        <directionalLight position={[5, 10, 5]} intensity={0.8} />
+        <directionalLight
+          position={[5, 10, 5]}
+          intensity={0.8}
+          castShadow={shadowsEnabled}
+          shadow-mapSize-width={2048}
+          shadow-mapSize-height={2048}
+          shadow-bias={-0.0005}
+          shadow-normalBias={0.02}
+          shadow-camera-near={0.1}
+          shadow-camera-far={50}
+          shadow-camera-left={-10}
+          shadow-camera-right={10}
+          shadow-camera-top={10}
+          shadow-camera-bottom={-10}
+        />
         <SceneNodes />
         <TransformGizmo mode={gizmoMode} orbitRef={orbitRef} />
         <Grid infiniteGrid fadeDistance={30} fadeStrength={1} />
+        {shadowsEnabled && <ShadowCatcher />}
+        <ShadowMaterialSync enabled={shadowsEnabled} />
         <Environment preset="city" />
         <OrbitControls ref={orbitRef} makeDefault />
         <CameraEffects />
       </Canvas>
       <GizmoToolbar mode={gizmoMode} setMode={setGizmoMode} />
+      <AudioPreviewToggle />
     </div>
+  );
+}
+
+/** Editor-only toggle to preview audio (audio nodes + unmuted video) in the
+ *  viewport. Off by default so authoring stays quiet; the viewer/output always
+ *  plays audio regardless of this. */
+function AudioPreviewToggle() {
+  const on = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const setOn = useEditorStore((s) => s.setEditorAudioPreviewEnabled);
+  return (
+    <button
+      title={on ? 'Audio preview on (click to mute editor)' : 'Audio muted in editor (click to preview)'}
+      onClick={() => setOn(!on)}
+      style={{
+        position: 'absolute',
+        bottom: 16,
+        left: 120,
+        width: 30,
+        height: 30,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 15,
+        cursor: 'pointer',
+        background: on ? '#1e2e4a' : '#0e0e18',
+        border: `1px solid ${on ? '#3a5a9a' : '#2a2a3a'}`,
+        borderRadius: 6,
+        color: on ? '#7ab' : '#555',
+        lineHeight: 1,
+        zIndex: 10,
+      }}
+    >
+      {on ? '🔊' : '🔇'}
+    </button>
   );
 }

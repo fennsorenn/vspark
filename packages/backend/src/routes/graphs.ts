@@ -48,6 +48,39 @@ router.post('/projects/:projectId/graphs', (req, res) => {
   res.status(201).json({ ok: true, data: mapGraphRow(row) });
 });
 
+/** All scene-node- and compose-layer-scoped graphs for a project, in one
+ *  query, each tagged with its owner's display name. Powers the "Scoped
+ *  Graphs" section of the Graphs panel — the per-owner GET routes below stay
+ *  the source of truth for the inline scene-tree / compose-tree lists. */
+router.get('/projects/:projectId/scoped-graphs', (req, res) => {
+  const db = getDb();
+  type ScopedRow = GraphRow & { owner_name: string; owner_node_kind: string };
+  const nodeGraphs = db
+    .prepare(
+      `SELECT g.*, sn.name AS owner_name, sn.kind AS owner_node_kind
+       FROM graphs g
+       JOIN scene_nodes sn ON sn.id = g.owner_id
+       WHERE g.owner_kind = 'scene_node' AND sn.project_id = ?
+       ORDER BY g.created_at`
+    )
+    .all(req.params.projectId) as unknown as ScopedRow[];
+  const layerGraphs = db
+    .prepare(
+      `SELECT g.*, cl.name AS owner_name, cl.kind AS owner_node_kind
+       FROM graphs g
+       JOIN compose_layers cl ON cl.id = g.owner_id
+       WHERE g.owner_kind = 'compose_layer' AND cl.project_id = ?
+       ORDER BY g.created_at`
+    )
+    .all(req.params.projectId) as unknown as ScopedRow[];
+  const data = [...nodeGraphs, ...layerGraphs].map((r) => ({
+    ...mapGraphRow(r),
+    ownerName: r.owner_name,
+    ownerNodeKind: r.owner_node_kind,
+  }));
+  res.json({ ok: true, data });
+});
+
 router.get('/scene-nodes/:nodeId/graphs', (req, res) => {
   const rows = getDb()
     .prepare(

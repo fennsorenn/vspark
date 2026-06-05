@@ -20,7 +20,7 @@ export class IkBroadcast extends Node {
   static readonly kind = 'ik_broadcast';
 
   @valueIn('targets', 'IkTargets') targets!: () => IkTargetFrame | undefined;
-  @valueIn('nodeId', 'EntityId') nodeId!: () => string | undefined;
+  @valueIn('nodeId', 'SceneNode') nodeId!: () => string | undefined;
   @valueIn('enabled', 'Bool') enabledIn!: () => boolean | null | undefined;
 
   @eventIn('trigger', 'Trigger')

@@ -39,9 +39,13 @@ export const sceneNodeKindSchema = z
     'fx',
     'prop',
     'godray_caster',
+    'billboard',
+    'video',
+    'audio',
     'group',
     'text_troika',
     'text_canvas',
+    'feed',
   ])
   .openapi('SceneNodeKind');
 
@@ -220,9 +224,11 @@ export const composeLayerKindSchema = z
     'camera_view',
     'image',
     'video',
+    'audio',
     'browser',
     'group',
     'text',
+    'feed',
   ])
   .openapi('ComposeLayerKind');
 export const composeAnchorHSchema = z

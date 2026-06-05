@@ -30,6 +30,7 @@ import m017 from './migrations/017_presets_table.js';
 import m018 from './migrations/018_refactor_scenes_to_nodes.js';
 import m019 from './migrations/019_track_clips_owner_columns.js';
 import m020 from './migrations/020_overlive_accounts_default.js';
+import m021 from './migrations/021_track_clip_events.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -69,6 +70,7 @@ const MIGRATIONS: Migration[] = [
   { name: '018_refactor_scenes_to_nodes.sql', run: m018 },
   { name: '019_track_clips_owner_columns.sql', run: m019 },
   { name: '020_overlive_accounts_default.ts', run: m020 },
+  { name: '021_track_clip_events.sql', sql: m021 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

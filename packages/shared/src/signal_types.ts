@@ -44,7 +44,10 @@ export type Transport = 'event' | 'value' | 'list';
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const RT = {
-  primitive: (name: SignalTypeName): ResolvedType => ({ kind: 'primitive', name }),
+  primitive: (name: SignalTypeName): ResolvedType => ({
+    kind: 'primitive',
+    name,
+  }),
   record: (fields: Record<string, ResolvedType>): ResolvedType => ({
     kind: 'record',
     fields,
@@ -97,8 +100,17 @@ export function isAssignable(from: ResolvedType, to: ResolvedType): boolean {
   if (from.kind !== to.kind) return false;
 
   switch (from.kind) {
-    case 'primitive':
-      return from.name === (to as Extract<ResolvedType, { kind: 'primitive' }>).name;
+    case 'primitive': {
+      const toName = (to as Extract<ResolvedType, { kind: 'primitive' }>).name;
+      if (from.name === toName) return true;
+      // Entity widening (asymmetric, like list fan-in above): a concrete scene
+      // entity reference flows into the generic `SceneEntity` slot, but not the
+      // reverse, and `SceneNode`/`ComposeLayer` stay mutually incompatible.
+      return (
+        toName === 'SceneEntity' &&
+        (from.name === 'SceneNode' || from.name === 'ComposeLayer')
+      );
+    }
     case 'event':
       return isAssignable(
         from.payload,

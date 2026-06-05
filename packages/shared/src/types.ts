@@ -13,9 +13,12 @@ export type NodeKind =
   | 'prop'
   | 'godray_caster'
   | 'billboard'
+  | 'video'
+  | 'audio'
   | 'group'
   | 'text_troika'
-  | 'text_canvas';
+  | 'text_canvas'
+  | 'feed';
 
 // Animation tracking: tracks which clip is playing and when it started
 export interface AnimationState {
@@ -46,6 +49,38 @@ export type Component =
   | TransformComponent
   | VisibilityComponent;
 
+// --- Media playback control (video / audio entities) ---
+
+/** Target kinds a media command may address (scene-node entity or compose layer). */
+export type MediaTargetKind = 'scene_node' | 'compose_layer';
+
+/** Fire-and-forget media playback actions. Carried over the media-command bus
+ *  (graph → frontend) and fired directly by the track-clip event lane. */
+export type MediaAction =
+  | 'play'
+  | 'pause'
+  | 'stop'
+  | 'restart'
+  | 'seek'
+  | 'setVolume'
+  | 'mute'
+  | 'unmute';
+
+export interface MediaCommand {
+  action: MediaAction;
+  /** Seconds — only for `action: 'seek'`. */
+  t?: number;
+  /** 0..1 — only for `action: 'setVolume'`. */
+  volume?: number;
+}
+
+/** Payload of the `media_control` WS message (graph → frontend). */
+export interface MediaControlMessage {
+  targetKind: MediaTargetKind;
+  targetId: string;
+  command: MediaCommand;
+}
+
 /** Per-node free-form properties stored in the `scene_nodes.properties` JSON column.
  *  Kind-specific fields are namespaced on this object; readers should treat unknown
  *  keys as opaque so different node kinds can carry their own settings. */
@@ -53,6 +88,10 @@ export interface SceneNodeProperties {
   /** Seconds to ramp between override and additive when the broadcast bus flips
    *  blend modes for this avatar. Applies to VRM avatar nodes. Default 0.5. */
   blendTransitionTime?: number;
+  /** Resting expression weights (VRM expression preset name → 0..1) applied to
+   *  the avatar every frame as a baseline. Live blendshape broadcasts (VMC,
+   *  lipsync, tracking) override them per-key. Applies to VRM avatar nodes. */
+  defaultExpressions?: Record<string, number>;
   /** Broadcast Bus tick rate in Hz. Applies to kind='scene' nodes. Default 60. */
   broadcastTickHz?: number;
   /** References another kind='scene' node. Applies to kind='scene_instance' nodes. */
@@ -111,7 +150,10 @@ export type ComposeLayerKind =
   | 'camera_view'
   | 'image'
   | 'video'
+  | 'audio'
   | 'browser'
+  | 'text'
+  | 'feed'
   | 'group';
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
@@ -210,6 +252,22 @@ export interface TrackClipLane {
   keyframes: TrackClipKeyframe[];
 }
 
+/** A discrete marker on a track clip that fires a fire-and-forget media command
+ *  when the playhead crosses time `t` (re-armed each loop). Unlike lanes (scalar
+ *  interpolation), events are one-shot. Evaluated client-side and dispatched to
+ *  the media registry. See dev-notes/modules/track-clips.md. */
+export interface TrackClipEvent {
+  id: string;
+  /** Seconds from clip start. */
+  t: number;
+  action: MediaAction;
+  targetKind: MediaTargetKind;
+  /** Scene-node or compose-layer id of the media entity to control. */
+  targetId: string;
+  /** Optional extra args (e.g. { t } for seek, { volume } for setVolume). */
+  payload: Record<string, unknown> | null;
+}
+
 export interface TrackClip {
   id: string;
   /** Owner is exactly one of these: a scene node (scene roots included) or a
@@ -226,6 +284,8 @@ export interface TrackClip {
   startedAt: number | null;
   createdAt: string;
   lanes: TrackClipLane[];
+  /** Timed media-command markers (event lane). */
+  events: TrackClipEvent[];
 }
 
 /** WS payload broadcast when a clip begins playback. Clients compute their own clock offset
@@ -409,10 +469,15 @@ export type WSMessageKind =
   | 'track_clip_lane_updated'
   | 'track_clip_lane_removed'
   | 'track_clip_keyframes_replaced'
+  | 'track_clip_events_replaced'
   | 'track_clip_started'
   | 'track_clip_paused'
   | 'track_clip_stopped'
-  | 'track_clip_playback_snapshot';
+  | 'track_clip_playback_snapshot'
+  | 'data_channel_set'
+  | 'data_channel_clear'
+  | 'data_channel_snapshot'
+  | 'media_control';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 

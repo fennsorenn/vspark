@@ -30,6 +30,32 @@ function nextPresetId(prefix: string): string {
   return `${prefix}${++_nodeSeq}`;
 }
 
+/** Serialize a clip's event/marker lane. `target_id` is remapped through the
+ *  same realToPreset map used for lanes (so in-subtree targets round-trip);
+ *  out-of-subtree targets survive verbatim and are caught by the substituter. */
+function serializeClipEvents(
+  db: ReturnType<typeof getDb>,
+  clipId: string,
+  realToPreset: Map<string, string>
+): unknown[] {
+  const rows = db
+    .prepare('SELECT * FROM track_clip_events WHERE clip_id = ? ORDER BY t')
+    .all(clipId) as Record<string, unknown>[];
+  return rows.map((e) => {
+    const evPresetId = nextPresetId('ev');
+    realToPreset.set(e.id as string, evPresetId);
+    return {
+      presetId: evPresetId,
+      t: e.t,
+      action: e.action,
+      targetKind: e.target_kind,
+      targetPresetId:
+        realToPreset.get(e.target_id as string) ?? (e.target_id as string),
+      payload: e.payload ? JSON.parse(e.payload as string) : null,
+    };
+  });
+}
+
 export function serializeSceneNodeSubtree(
   rootId: string,
   opts: SerializeOpts = {}
@@ -119,6 +145,9 @@ export function serializeSceneNodeSubtree(
       boneAttachment: row.bone_attachment ?? null,
       hidden: (row.hidden as number) === 1,
       properties: JSON.parse((row.properties as string) || '{}'),
+      // Spatial/kind-specific bag (transform, light, camera, billboard, …)
+      // stored on the scene_nodes row. Previously dropped on round-trip.
+      componentsBag: JSON.parse((row.components as string) || '{}'),
       components: components.map((c) => {
         const compPresetId = nextPresetId('c');
         realToPreset.set(c.id as string, compPresetId);
@@ -220,6 +249,7 @@ export function serializeSceneNodeSubtree(
       loop: (tc.loop as number) === 1,
       mode: tc.mode,
       autoplay: (tc.autoplay as number) === 1,
+      events: serializeClipEvents(db, tc.id as string, realToPreset),
       lanes: lanes.map((lane) => {
         const kfs = db
           .prepare(
@@ -411,6 +441,7 @@ export function serializeComposeLayerSubtree(
       loop: (tc.loop as number) === 1,
       mode: tc.mode,
       autoplay: (tc.autoplay as number) === 1,
+      events: serializeClipEvents(db, tc.id as string, realToPreset),
       lanes: lanes.map((lane) => {
         const kfs = db
           .prepare(

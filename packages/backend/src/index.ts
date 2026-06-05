@@ -35,6 +35,8 @@ import { initIkBroadcast } from './signal/nodes/ik_broadcast.js';
 import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
 import { initStartClip } from './signal/nodes/start_clip.js';
 import { runtimeOverrideManager } from './runtime_overrides/manager.js';
+import { dataChannelManager } from './data_channels/manager.js';
+import { mediaControlManager } from './media_control/manager.js';
 import { spawnManager } from './spawn/manager.js';
 import type {
   LipsyncInputMessage,
@@ -111,6 +113,16 @@ async function start() {
   // See dev-notes/modules/runtime-overrides.md.
   runtimeOverrideManager.init(wsSync, null);
 
+  // Data-channel bus — generic graph→frontend publish surface (set_data node →
+  // feed/template compose layer). Sibling of the override bus.
+  // See dev-notes/modules/data-channels.md.
+  dataChannelManager.init(wsSync);
+
+  // Media-control bus — fire-and-forget play/pause/stop/seek commands for
+  // video/audio entities (media_control node → frontend media registry).
+  // See dev-notes/modules/media.md.
+  mediaControlManager.init(wsSync);
+
   // Spawn manager — ephemeral clip-clone spawning. Subscribes to playback
   // completion events so it can tear down tmp entities on clip end.
   // See dev-notes/modules/spawn.md.
@@ -136,6 +148,9 @@ async function start() {
       wsSync.sendTo(ws, kind, payload)
     );
     runtimeOverrideManager.sendSnapshotTo((kind, payload) =>
+      wsSync.sendTo(ws, kind, payload)
+    );
+    dataChannelManager.sendSnapshotTo((kind, payload) =>
       wsSync.sendTo(ws, kind, payload)
     );
   });

@@ -23,7 +23,7 @@ export class BlendshapesBroadcast extends Node {
 
   @valueIn('blendshapes', 'Blendshapes')
   blendshapes!: () => Blendshapes | undefined;
-  @valueIn('nodeId', 'EntityId') nodeId!: () => string | undefined;
+  @valueIn('nodeId', 'SceneNode') nodeId!: () => string | undefined;
   @valueIn('componentId', 'String') componentId!: () => string | undefined;
 
   @eventIn('trigger', 'Trigger')

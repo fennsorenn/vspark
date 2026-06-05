@@ -47,7 +47,10 @@ export function defaultInfer(ports: PortMeta[]): InferResult {
 // InferGraph
 // ──────────────────────────────────────────────────────────────────────────────
 
-export type InferPortsFn = (ctx: InferCtx, staticPorts: PortMeta[]) => InferResult;
+export type InferPortsFn = (
+  ctx: InferCtx,
+  staticPorts: PortMeta[]
+) => InferResult;
 
 export interface InferEdge {
   fromNodeId: string;
@@ -76,10 +79,13 @@ export class InferGraph {
    * @param inferFor  resolves a kind's inferPorts function (or undefined → defaultInfer).
    *                  Typically `(kind) => INFER_BY_KIND[kind]`.
    * @param portsFor  resolves a kind's static port declarations.
+   * @param ownerKind owner kind of the graph (threaded into every node's InferCtx
+   *                  so scope-aware nodes can vary their ports). Optional.
    */
   constructor(
     private readonly inferFor: (kind: string) => InferPortsFn | undefined,
-    private readonly portsFor: (kind: string) => PortMeta[]
+    private readonly portsFor: (kind: string) => PortMeta[],
+    private readonly ownerKind?: import('./types.js').GraphOwnerKind
   ) {}
 
   addNode(id: string, kind: string, config: unknown): void {
@@ -121,18 +127,26 @@ export class InferGraph {
   }
 
   /** Resolved input + output ports for a node (what the editor renders). */
-  portsOf(id: string): { inputPorts: ResolvedPort[]; outputPorts: ResolvedPort[] } {
+  portsOf(id: string): {
+    inputPorts: ResolvedPort[];
+    outputPorts: ResolvedPort[];
+  } {
     const n = this._nodes.get(id);
     if (!n) return { inputPorts: [], outputPorts: [] };
-    return { inputPorts: n.resolvedInputPorts, outputPorts: n.resolvedOutputPorts };
+    return {
+      inputPorts: n.resolvedInputPorts,
+      outputPorts: n.resolvedOutputPorts,
+    };
   }
 
   outputType(id: string, port: string): ResolvedType | undefined {
-    return this._nodes.get(id)?.resolvedOutputPorts.find((p) => p.name === port)?.type;
+    return this._nodes.get(id)?.resolvedOutputPorts.find((p) => p.name === port)
+      ?.type;
   }
 
   inputType(id: string, port: string): ResolvedType | undefined {
-    return this._nodes.get(id)?.resolvedInputPorts.find((p) => p.name === port)?.type;
+    return this._nodes.get(id)?.resolvedInputPorts.find((p) => p.name === port)
+      ?.type;
   }
 
   hasEdge(e: InferEdge): boolean {
@@ -152,15 +166,22 @@ export class InferGraph {
   tryAddEdge(e: InferEdge): TryAddResult {
     const src = this._nodes.get(e.fromNodeId);
     const dst = this._nodes.get(e.toNodeId);
-    if (!src) return { ok: false, reason: `unknown source node ${e.fromNodeId}` };
+    if (!src)
+      return { ok: false, reason: `unknown source node ${e.fromNodeId}` };
     if (!dst) return { ok: false, reason: `unknown target node ${e.toNodeId}` };
 
     const srcType = this.outputType(e.fromNodeId, e.fromPort);
     if (!srcType)
-      return { ok: false, reason: `${e.fromNodeId} has no output port "${e.fromPort}"` };
+      return {
+        ok: false,
+        reason: `${e.fromNodeId} has no output port "${e.fromPort}"`,
+      };
     const dstType = this.inputType(e.toNodeId, e.toPort);
     if (!dstType)
-      return { ok: false, reason: `${e.toNodeId} has no input port "${e.toPort}"` };
+      return {
+        ok: false,
+        reason: `${e.toNodeId} has no input port "${e.toPort}"`,
+      };
 
     if (!isAssignable(srcType, dstType)) {
       return {
@@ -227,11 +248,10 @@ export class InferGraph {
     const ctx: InferCtx = {
       resolvedInputs: Object.fromEntries(node.resolvedInputs),
       config: node.config,
+      ownerKind: this.ownerKind,
     };
     const fn = this.inferFor(node.kind);
-    const res = fn
-      ? fn(ctx, node.staticPorts)
-      : defaultInfer(node.staticPorts);
+    const res = fn ? fn(ctx, node.staticPorts) : defaultInfer(node.staticPorts);
     node.resolvedInputPorts = res.inputPorts;
     node.resolvedOutputPorts = res.outputPorts;
   }

@@ -16,6 +16,10 @@ import { AssetManager } from '../components/editor/AssetManager';
 import { SignalGraphCanvas } from '../components/editor/signal/SignalGraphCanvas';
 import { NodePalette } from '../components/editor/signal/NodePalette';
 import { ComposeView } from '../components/editor/ComposeView';
+import {
+  handleSceneNodeDrop,
+  hasCreatePayload,
+} from '../components/editor/dnd';
 import type { NodeKindMeta } from '@vspark/shared/signal';
 
 export function Editor() {
@@ -198,28 +202,68 @@ export function Editor() {
       <TopBar />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <SceneGraph />
-        {/* Viewport always mounts (keeps 3D scene alive) but is hidden when another mode is active */}
-        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {/* The main view is bound to the active left-dock tab: Scene → 3D
+            viewport, Graphs → signal graph canvas, Compose → compose view.
+            The Viewport always stays mounted (keeps the 3D scene + WebGL
+            context alive) and is merely hidden when another tab is active. */}
+        <div
+          style={{ flex: 1, position: 'relative', overflow: 'hidden' }}
+          onDragOver={(e) => {
+            // Accept drag-create drops from the bottom dock only while the 3D
+            // viewport is the visible tab.
+            if (leftTab !== 'scene') return;
+            if (hasCreatePayload(e)) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+            }
+          }}
+          onDrop={(e) => {
+            if (leftTab !== 'scene') return;
+            void handleSceneNodeDrop(
+              e,
+              useEditorStore.getState().activeSceneId,
+              null
+            );
+          }}
+        >
           <div
             style={{
               position: 'absolute',
               inset: 0,
-              visibility:
-                activeGraphId || leftTab === 'compose' ? 'hidden' : 'visible',
+              visibility: leftTab === 'scene' ? 'visible' : 'hidden',
             }}
           >
             <Viewport />
           </div>
-          {activeGraphId && (
-            <div style={{ position: 'absolute', inset: 0 }}>
-              <SignalGraphCanvas graphId={activeGraphId} kindMeta={kindMeta} />
-            </div>
-          )}
-          {!activeGraphId && leftTab === 'compose' && <ComposeView />}
+          {leftTab === 'graphs' &&
+            (activeGraphId ? (
+              <div style={{ position: 'absolute', inset: 0 }}>
+                <SignalGraphCanvas
+                  graphId={activeGraphId}
+                  kindMeta={kindMeta}
+                />
+              </div>
+            ) : (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#555',
+                  fontSize: 13,
+                  background: '#0a0a0a',
+                }}
+              >
+                Select or create a graph from the Graphs panel.
+              </div>
+            ))}
+          {leftTab === 'compose' && <ComposeView />}
         </div>
         <PropertiesPanel />
       </div>
-      {activeGraphId ? (
+      {leftTab === 'graphs' ? (
         <NodePalette kindMeta={kindMeta} graphReadonly={!activeGraphWritable} />
       ) : (
         <AssetManager />

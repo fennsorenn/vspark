@@ -2,7 +2,14 @@ import { Canvas } from '@react-three/fiber';
 import { PerspectiveCamera, Environment } from '@react-three/drei';
 import * as THREE from 'three';
 import type { NodeRecord } from '../../store/editorStore';
-import { SceneNodes, CameraEffects } from './Viewport';
+import {
+  SceneNodes,
+  CameraEffects,
+  ShadowCatcher,
+  ShadowMaterialSync,
+  canvasShadowsProp,
+  type ShadowQuality,
+} from './Viewport';
 import { ComposeSceneInteractions } from './ComposeSceneInteractions';
 import { FittedOrthoCamera } from './FittedOrthoCamera';
 
@@ -58,16 +65,22 @@ export function CameraCanvas({
         near?: number;
         far?: number;
         orthoSize?: number;
+        shadowsEnabled?: boolean;
+        shadowQuality?: ShadowQuality;
+        envIntensity?: number;
       }
     | undefined;
   const projection = cc?.projection ?? 'perspective';
   const orthoSize = cc?.orthoSize ?? 2;
+  const shadowsEnabled = cc?.shadowsEnabled ?? false;
+  const envIntensity = cc?.envIntensity ?? 1;
   const t = getT(cameraNode.components as Record<string, unknown> | undefined);
 
   return (
     <Canvas
       frameloop={active ? 'always' : 'never'}
       gl={{ alpha: true, antialias: true, toneMapping: THREE.NoToneMapping }}
+      shadows={canvasShadowsProp(shadowsEnabled, cc?.shadowQuality)}
       style={{ width: '100%', height: '100%', background: 'transparent' }}
       onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
     >
@@ -92,7 +105,9 @@ export function CameraCanvas({
       <ComposeSceneInteractions composeLayerId={composeLayerId}>
         <SceneNodes omitKinds={['camera']} viewerMode sceneId={sceneId} />
       </ComposeSceneInteractions>
-      <Environment preset="city" />
+      {shadowsEnabled && <ShadowCatcher />}
+      <ShadowMaterialSync enabled={shadowsEnabled} />
+      <Environment preset="city" environmentIntensity={envIntensity} />
       <CameraEffects forceNodeId={cameraNode.id} sceneId={sceneId} />
     </Canvas>
   );

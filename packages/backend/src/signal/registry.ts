@@ -51,6 +51,8 @@ import { Random } from './nodes/random.js';
 import { SetSceneNodeParam } from './nodes/set_scene_node_param.js';
 import { SetComposeLayerParam } from './nodes/set_compose_layer_param.js';
 import { SetText } from './nodes/set_text.js';
+import { SetData } from './nodes/set_data.js';
+import { MediaControl } from './nodes/media_control.js';
 import { LogNode } from './nodes/log.js';
 // Overlive event nodes
 import { OverliveRedemption } from './nodes/overlive/redemption.js';
@@ -59,6 +61,7 @@ import { OverliveGiftBomb } from './nodes/overlive/gift_bomb.js';
 import { OverliveRaid } from './nodes/overlive/raid.js';
 import { OverliveFollow } from './nodes/overlive/follow.js';
 import { OverliveChatMessage } from './nodes/overlive/chat_message.js';
+import { OverliveChatFeed } from './nodes/overlive/chat_feed.js';
 import { OverliveChatCommand } from './nodes/overlive/chat_command.js';
 import { OverliveChatDelete } from './nodes/overlive/chat_delete.js';
 import { OverliveAdStart } from './nodes/overlive/ad_start.js';
@@ -124,6 +127,9 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   SetSceneNodeParam,
   SetComposeLayerParam,
   SetText,
+  SetData,
+  // Media playback control (fire-and-forget command bus)
+  MediaControl,
   // Debug
   LogNode,
   // Overlive event nodes
@@ -133,6 +139,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   OverliveRaid,
   OverliveFollow,
   OverliveChatMessage,
+  OverliveChatFeed,
   OverliveChatCommand,
   OverliveChatDelete,
   OverliveAdStart,

@@ -111,6 +111,9 @@ importers:
       dompurify:
         specifier: ^3.4.7
         version: 3.4.7
+      htm:
+        specifier: ^3.1.1
+        version: 3.1.1
       html2canvas:
         specifier: ^1.4.1
         version: 1.4.1
@@ -1524,6 +1527,9 @@ packages:
 
   hls.js@1.6.16:
     resolution: {integrity: sha512-VSIRpLfRwlAAdGL4wiTucx2ScRipo0ed1FBatWkyt832jC4CReKstga6yIhYVwGu9LOBjuX9wzmRMeQdBJtzEA==}
+
+  htm@3.1.1:
+    resolution: {integrity: sha512-983Vyg8NwUE7JkZ6NmOqpCZ+sh1bKv2iYTlUkzlWmA5JD2acKoxd4KVxbMmxX/85mtfdnDmTFoNKcg5DGAvxNQ==}
 
   html2canvas@1.4.1:
     resolution: {integrity: sha512-fPU6BHNpsyIhr8yyMpTLLxAbkaK8ArIBcmZIRiBLiDhjeqvXolaEmDGmELFuX9I4xDcaKKcJl+TKZLqruBbmWA==}
@@ -3442,6 +3448,8 @@ snapshots:
       function-bind: 1.1.2
 
   hls.js@1.6.16: {}
+
+  htm@3.1.1: {}
 
   html2canvas@1.4.1:
     dependencies:

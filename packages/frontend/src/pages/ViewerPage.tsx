@@ -8,7 +8,14 @@ import { useEditorStore } from '../store/editorStore';
 import { api } from '../api/client';
 import { useWsSync } from '../hooks/useWsSync';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
-import { SceneNodes, CameraEffects } from '../components/editor/Viewport';
+import {
+  SceneNodes,
+  CameraEffects,
+  ShadowCatcher,
+  ShadowMaterialSync,
+  canvasShadowsProp,
+  type ShadowQuality,
+} from '../components/editor/Viewport';
 import { ComposeLayerStack } from '../components/editor/ComposeLayerStack';
 
 function getT(components: Record<string, unknown> | undefined) {
@@ -57,8 +64,17 @@ export function ViewerPage() {
   } = useEditorStore();
 
   useEffect(() => {
-    document.documentElement.style.background = 'transparent';
-    document.body.style.background = 'transparent';
+    // OBS browser sources composite over a transparent page, so we must keep
+    // the document transparent there. A normal browser has nothing behind the
+    // page, so we paint it black for a solid backdrop. Detect OBS via the
+    // `window.obsstudio` global it injects (more reliable than the UA, which
+    // can be overridden in the browser-source settings); fall back to the UA.
+    const inOBS =
+      typeof (window as unknown as { obsstudio?: unknown }).obsstudio !==
+        'undefined' || /\bOBS\b/.test(navigator.userAgent);
+    const bg = inOBS ? 'transparent' : '#000000';
+    document.documentElement.style.background = bg;
+    document.body.style.background = bg;
     return () => {
       document.documentElement.style.background = '';
       document.body.style.background = '';
@@ -154,10 +170,15 @@ export function ViewerPage() {
         far?: number;
         orthoSize?: number;
         backgroundImage?: string;
+        shadowsEnabled?: boolean;
+        shadowQuality?: ShadowQuality;
+        envIntensity?: number;
       }
     | undefined;
   const projection = cc?.projection ?? 'perspective';
   const orthoSize = cc?.orthoSize ?? 2;
+  const shadowsEnabled = cc?.shadowsEnabled ?? false;
+  const envIntensity = cc?.envIntensity ?? 1;
   const t = getT(camNode?.components as Record<string, unknown> | undefined);
   const bgImage = cc?.backgroundImage ?? null;
   const camSceneId = camNode?.rootSceneNodeId;
@@ -198,6 +219,7 @@ export function ViewerPage() {
       <ComposeLayerStack layers={stackLayers} assets={assets} mode="viewer" />
       <Canvas
         gl={{ alpha: true, antialias: true, toneMapping: THREE.NoToneMapping }}
+        shadows={canvasShadowsProp(shadowsEnabled, cc?.shadowQuality)}
         style={{
           background: 'transparent',
           position: 'relative',
@@ -227,7 +249,9 @@ export function ViewerPage() {
           />
         )}
         <SceneNodes omitKinds={['camera']} viewerMode sceneId={camSceneId} />
-        <Environment preset="city" />
+        {shadowsEnabled && <ShadowCatcher />}
+        <ShadowMaterialSync enabled={shadowsEnabled} />
+        <Environment preset="city" environmentIntensity={envIntensity} />
         {nodeId && <CameraEffects forceNodeId={nodeId} sceneId={camSceneId} />}
       </Canvas>
     </div>

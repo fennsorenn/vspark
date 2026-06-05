@@ -26,6 +26,9 @@ interface PresetPayload {
     boneAttachment: string | null;
     hidden: boolean;
     properties: Record<string, unknown>;
+    /** Spatial/kind-specific bag (transform, light, camera, …). Optional for
+     *  backward compatibility with payloads serialized before this field. */
+    componentsBag?: Record<string, unknown>;
     components: Array<{
       presetId: string;
       kind: string;
@@ -88,6 +91,14 @@ interface PresetPayload {
     loop: boolean;
     mode: string;
     autoplay: boolean;
+    events?: Array<{
+      presetId: string;
+      t: number;
+      action: string;
+      targetKind: string;
+      targetPresetId: string;
+      payload: Record<string, unknown> | null;
+    }>;
     lanes: Array<{
       presetId: string;
       targetKind: string;
@@ -162,6 +173,7 @@ export function instantiatePreset(
   }
   for (const tc of payloadInput.trackClips ?? []) {
     premint(tc.presetId);
+    for (const ev of tc.events ?? []) premint(ev.presetId);
     for (const lane of tc.lanes) {
       premint(lane.presetId);
       for (const kf of lane.keyframes) premint(kf.presetId);
@@ -258,7 +270,7 @@ export function instantiatePreset(
         node.name,
         node.kind,
         filePath,
-        JSON.stringify({}),
+        JSON.stringify(node.componentsBag ?? {}),
         JSON.stringify(node.properties),
         node.hidden ? 1 : 0
       );
@@ -435,6 +447,23 @@ export function instantiatePreset(
           kf.outHandleVFraction
         );
       }
+    }
+
+    for (const ev of tc.events ?? []) {
+      const evId = mintId(ev.presetId);
+      const targetId = resolveId(ev.targetPresetId);
+      db.prepare(
+        `INSERT INTO track_clip_events (id, clip_id, t, action, target_kind, target_id, payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        evId,
+        clipId,
+        ev.t,
+        ev.action,
+        ev.targetKind,
+        targetId,
+        ev.payload ? JSON.stringify(ev.payload) : null
+      );
     }
   }
 

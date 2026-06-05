@@ -7,6 +7,7 @@ import { api } from '../../api/client';
 import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { NumInput, VecInput, SliderInput } from './numericInputs';
+import { CSS_BLEND_MODES, readChroma } from './videoFx';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -64,6 +65,7 @@ export function ComposeLayerProperties({
 }) {
   const assets = useEditorStore((s) => s.assets);
   const updateLayerLocal = useEditorStore((s) => s.updateComposeLayerLocal);
+  const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   const nodes = useEditorStore((s) => s.nodes);
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
 
@@ -78,6 +80,28 @@ export function ComposeLayerProperties({
     updateLayerLocal(layer.id, patch);
     api.updateComposeLayer(layer.id, patch).catch(() => {});
   };
+
+  // Mirror the 3D media nodes' "Pick…" affordance: jump to + flash the matching
+  // bottom-dock asset tab, where the asset's "Apply to <layer>" button sets the
+  // source of this selected layer.
+  const pickBtn = (tab: Parameters<typeof flashBottomTab>[0]) => (
+    <button
+      onClick={() => flashBottomTab(tab)}
+      title="Pick from the asset drawer"
+      style={{
+        marginLeft: 8,
+        background: '#2a2a2a',
+        border: '1px solid #3a3a3a',
+        color: '#9cf',
+        borderRadius: 4,
+        padding: '1px 6px',
+        cursor: 'pointer',
+        fontSize: 10,
+      }}
+    >
+      Pick…
+    </button>
+  );
 
   // The compose scene this layer belongs to defines the % reference frame.
   const composeScenes = useEditorStore((s) => s.composeScenes);
@@ -100,8 +124,7 @@ export function ComposeLayerProperties({
   ) => {
     const current = unitOf(unitKey);
     if (current === unit) return;
-    const basis =
-      field === 'x' || field === 'width' ? frameW : frameH;
+    const basis = field === 'x' || field === 'width' ? frameW : frameH;
     const value = layer[field];
     const converted =
       unit === '%'
@@ -131,6 +154,7 @@ export function ComposeLayerProperties({
   const compatibleAssets = assets.filter((a) => {
     if (layer.kind === 'image') return a.kind === 'image';
     if (layer.kind === 'video') return a.mimeType.startsWith('video/');
+    if (layer.kind === 'audio') return a.mimeType.startsWith('audio/');
     return false;
   });
 
@@ -428,11 +452,30 @@ export function ComposeLayerProperties({
           style={{ flex: 1 }}
         />
       </div>
+      <div style={row}>
+        <span style={label}>Blend</span>
+        <select
+          value={(layer.config.blendMode as string | undefined) ?? 'normal'}
+          onChange={(e) =>
+            commit({ config: { ...layer.config, blendMode: e.target.value } })
+          }
+          style={select}
+        >
+          {CSS_BLEND_MODES.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {(layer.kind === 'image' || layer.kind === 'video') && (
         <>
-          <div style={sectionHeader}>
+          <div
+            style={{ ...sectionHeader, display: 'flex', alignItems: 'center' }}
+          >
             {layer.kind === 'image' ? 'Image asset' : 'Video asset'}
+            {pickBtn(layer.kind === 'image' ? 'images' : 'videos')}
           </div>
           <select
             value={layer.assetId ?? ''}
@@ -465,6 +508,246 @@ export function ComposeLayerProperties({
         </>
       )}
 
+      {layer.kind === 'video' && (
+        <>
+          <div style={sectionHeader}>Playback</div>
+          <div style={row}>
+            <span style={label}>Autoplay</span>
+            <input
+              type="checkbox"
+              checked={layer.config.autoplay !== false}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, autoplay: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Loop</span>
+            <input
+              type="checkbox"
+              checked={layer.config.loop !== false}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, loop: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>On end</span>
+            <select
+              value={(layer.config.onEnd as string | undefined) ?? 'freeze'}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, onEnd: e.target.value },
+                })
+              }
+              style={select}
+            >
+              <option value="freeze">Freeze on last frame</option>
+              <option value="hide">Hide</option>
+            </select>
+          </div>
+          <div style={row}>
+            <span style={label}>Muted</span>
+            <input
+              type="checkbox"
+              checked={layer.config.muted !== false}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, muted: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Volume</span>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={
+                typeof layer.config.volume === 'number'
+                  ? layer.config.volume
+                  : 1
+              }
+              onChange={(e) =>
+                commit({
+                  config: {
+                    ...layer.config,
+                    volume: parseFloat(e.target.value),
+                  },
+                })
+              }
+              style={textInput}
+            />
+          </div>
+          {(() => {
+            const ck = readChroma(
+              layer.config.chromaKey as Record<string, unknown>
+            );
+            const saveCk = (p: Partial<typeof ck>) =>
+              commit({
+                config: {
+                  ...layer.config,
+                  chromaKey: { ...ck, ...p },
+                },
+              });
+            return (
+              <>
+                <div style={sectionHeader}>Chroma key</div>
+                <div style={row}>
+                  <span style={label}>Enabled</span>
+                  <input
+                    type="checkbox"
+                    checked={ck.enabled}
+                    onChange={(e) => saveCk({ enabled: e.target.checked })}
+                  />
+                </div>
+                {ck.enabled && (
+                  <>
+                    <div style={row}>
+                      <span style={label}>Key color</span>
+                      <input
+                        type="color"
+                        value={ck.color}
+                        onChange={(e) => saveCk({ color: e.target.value })}
+                        style={{
+                          width: 40,
+                          height: 22,
+                          background: 'none',
+                          border: '1px solid #333',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                        }}
+                      />
+                    </div>
+                    <div style={row}>
+                      <span style={label}>Similarity</span>
+                      <SliderInput
+                        value={ck.similarity}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        precision={2}
+                        onChange={(v) => saveCk({ similarity: v })}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                    <div style={row}>
+                      <span style={label}>Smoothness</span>
+                      <SliderInput
+                        value={ck.smoothness}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        precision={2}
+                        onChange={(v) => saveCk({ smoothness: v })}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                    <div style={row}>
+                      <span style={label}>Spill</span>
+                      <SliderInput
+                        value={ck.spill}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        precision={2}
+                        onChange={(v) => saveCk({ spill: v })}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                  </>
+                )}
+              </>
+            );
+          })()}
+        </>
+      )}
+
+      {layer.kind === 'audio' && (
+        <>
+          <div
+            style={{ ...sectionHeader, display: 'flex', alignItems: 'center' }}
+          >
+            Audio asset
+            {pickBtn('audio')}
+          </div>
+          <select
+            value={layer.assetId ?? ''}
+            onChange={(e) => commit({ assetId: e.target.value || null })}
+            style={{ ...select, width: '100%' }}
+          >
+            <option value="">— none —</option>
+            {compatibleAssets.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <div style={sectionHeader}>Playback</div>
+          <div style={row}>
+            <span style={label}>Autoplay</span>
+            <input
+              type="checkbox"
+              checked={layer.config.autoplay === true}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, autoplay: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Loop</span>
+            <input
+              type="checkbox"
+              checked={layer.config.loop === true}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, loop: e.target.checked } })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Muted</span>
+            <input
+              type="checkbox"
+              checked={layer.config.muted === true}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, muted: e.target.checked } })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Volume</span>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={
+                typeof layer.config.volume === 'number'
+                  ? layer.config.volume
+                  : 1
+              }
+              onChange={(e) =>
+                commit({
+                  config: {
+                    ...layer.config,
+                    volume: parseFloat(e.target.value),
+                  },
+                })
+              }
+              style={textInput}
+            />
+          </div>
+        </>
+      )}
+
       {layer.kind === 'browser' && (
         <>
           <div style={sectionHeader}>URL</div>
@@ -486,6 +769,94 @@ export function ComposeLayerProperties({
             placeholder="https://…"
             style={textInput}
           />
+        </>
+      )}
+
+      {layer.kind === 'feed' && (
+        <>
+          <div style={sectionHeader}>Template</div>
+          <textarea
+            value={(layer.config.template as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, template: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, template: e.target.value },
+                })
+                .catch(() => {})
+            }
+            placeholder={
+              '<div className="chat">\n  ${(chat || []).map((m) => html`\n    <div key=${m.id}>${m.displayName}: <${Emote} html=${m.html} /></div>\n  `)}\n</div>'
+            }
+            rows={8}
+            spellCheck={false}
+            style={{
+              ...textInput,
+              resize: 'vertical',
+              fontFamily: 'monospace',
+              fontSize: 12,
+              whiteSpace: 'pre',
+            }}
+          />
+          <div
+            style={{
+              fontSize: 10,
+              color: '#555',
+              lineHeight: 1.4,
+              marginTop: 4,
+            }}
+          >
+            JSX-ish (htm) markup. Each field a <code>set_data</code> node
+            publishes is in scope by its bare name (a field labeled{' '}
+            <code>chat</code> → <code>{'${chat.map(...)}'}</code>); guard with{' '}
+            <code>{'${(chat ?? []).map(...)}'}</code> until data arrives. Use{' '}
+            <code>{'<${Emote} html=${m.html} />'}</code> for emote HTML, and{' '}
+            <code>className</code>, not <code>class</code>. A{' '}
+            <code>set_data</code> with no scope is global; one scoped to this
+            layer is private to it.
+          </div>
+
+          <div style={sectionHeader}>Styles (CSS)</div>
+          <textarea
+            value={(layer.config.css as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, css: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, css: e.target.value },
+                })
+                .catch(() => {})
+            }
+            placeholder={'.chat { display:flex; flex-direction:column; }'}
+            rows={6}
+            spellCheck={false}
+            style={{
+              ...textInput,
+              resize: 'vertical',
+              fontFamily: 'monospace',
+              fontSize: 12,
+              whiteSpace: 'pre',
+            }}
+          />
+          <div
+            style={{
+              fontSize: 10,
+              color: '#555',
+              lineHeight: 1.4,
+              marginTop: 4,
+            }}
+          >
+            Static styles, scoped to this layer. Dynamic styles can go inline in
+            the template (<code>{'style=${{ color: m.color }}'}</code>).
+          </div>
         </>
       )}
 

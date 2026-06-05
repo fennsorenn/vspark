@@ -5,10 +5,22 @@ import type {
   TrackClipRecord,
   TrackClipLaneRecord,
   TrackClipKeyframeRecord,
+  TrackClipEventRecord,
   TrackClipTargetKind,
   TrackClipMode,
   TrackClipEasing,
 } from '../../api/client';
+
+const MEDIA_ACTIONS = [
+  'play',
+  'pause',
+  'stop',
+  'restart',
+  'seek',
+  'setVolume',
+  'mute',
+  'unmute',
+] as const;
 
 const LANE_HEIGHT = 56; // tall enough to visualise the envelope shape
 const LANE_LABEL_WIDTH = 200;
@@ -80,6 +92,9 @@ function TimelineEditor({
   const removeTrackClipLaneStore = useEditorStore((s) => s.removeTrackClipLane);
   const replaceTrackClipLaneKeyframes = useEditorStore(
     (s) => s.replaceTrackClipLaneKeyframes
+  );
+  const replaceTrackClipEventsStore = useEditorStore(
+    (s) => s.replaceTrackClipEvents
   );
 
   const [adding, setAdding] = useState(false);
@@ -159,6 +174,45 @@ function TimelineEditor({
       }
     }
   };
+
+  const handleReplaceEvents = async (events: TrackClipEventRecord[]) => {
+    replaceTrackClipEventsStore(clip.id, events);
+    try {
+      await api.replaceTrackClipEvents(
+        clip.id,
+        events.map((e) => ({
+          id: e.id,
+          t: e.t,
+          action: e.action,
+          targetKind: e.targetKind,
+          targetId: e.targetId,
+          payload: e.payload,
+        }))
+      );
+    } catch {
+      /* non-fatal */
+    }
+  };
+
+  // Media-capable targets: video/audio scene nodes + video/audio compose layers.
+  const mediaTargets = useMemo(() => {
+    const out: { kind: TrackClipTargetKind; id: string; name: string }[] = [];
+    for (const n of nodes)
+      if (n.kind === 'video' || n.kind === 'audio')
+        out.push({
+          kind: 'scene_node',
+          id: n.id,
+          name: `${n.name} (${n.kind})`,
+        });
+    for (const l of composeLayers)
+      if (l.kind === 'video' || l.kind === 'audio')
+        out.push({
+          kind: 'compose_layer',
+          id: l.id,
+          name: `${l.name} (${l.kind} layer)`,
+        });
+    return out;
+  }, [nodes, composeLayers]);
 
   const activePlayback = playback[clip.id];
   const selectedLane = selected
@@ -324,6 +378,14 @@ function TimelineEditor({
           />
         ))}
       </div>
+
+      {/* Event lane: timed media-command markers */}
+      <EventLane
+        clip={clip}
+        targets={mediaTargets}
+        playheadT={computePlayheadT(activePlayback ?? null, clip.duration) ?? 0}
+        onReplace={handleReplaceEvents}
+      />
 
       {/* Footer: add lane */}
       <div
@@ -1312,6 +1374,195 @@ function KeyframeDot({
         />
       )}
     </>
+  );
+}
+
+/** Editor for a clip's event/marker lane: timed fire-and-forget media commands.
+ *  Markers render on a mini-ruler and as an editable list. */
+function EventLane({
+  clip,
+  targets,
+  playheadT,
+  onReplace,
+}: {
+  clip: TrackClipRecord;
+  targets: { kind: TrackClipTargetKind; id: string; name: string }[];
+  playheadT: number;
+  onReplace: (events: TrackClipEventRecord[]) => void;
+}) {
+  const events = [...clip.events].sort((a, b) => a.t - b.t);
+
+  const addEvent = () => {
+    const ev: TrackClipEventRecord = {
+      id: cryptoId(),
+      t: Math.max(0, Math.min(clip.duration, playheadT)),
+      action: 'play',
+      targetKind: targets[0]?.kind ?? 'scene_node',
+      targetId: targets[0]?.id ?? '',
+      payload: null,
+    };
+    onReplace([...clip.events, ev]);
+  };
+
+  const patch = (id: string, p: Partial<TrackClipEventRecord>) =>
+    onReplace(clip.events.map((e) => (e.id === id ? { ...e, ...p } : e)));
+
+  const remove = (id: string) =>
+    onReplace(clip.events.filter((e) => e.id !== id));
+
+  const needsValue = (action: string) =>
+    action === 'seek' || action === 'setVolume';
+
+  return (
+    <div style={{ borderTop: '1px solid #2a2a2a', flexShrink: 0 }}>
+      {/* Mini marker ruler */}
+      <div style={{ display: 'flex', height: 18, background: '#161616' }}>
+        <div
+          style={{
+            width: LANE_LABEL_WIDTH,
+            flexShrink: 0,
+            fontSize: 11,
+            color: '#a78',
+            padding: '0 8px',
+            display: 'flex',
+            alignItems: 'center',
+            borderRight: '1px solid #2a2a2a',
+          }}
+        >
+          🎬 events
+        </div>
+        <div style={{ flex: 1, position: 'relative' }}>
+          {events.map((e) => (
+            <div
+              key={e.id}
+              title={`${e.action} @ ${e.t.toFixed(2)}s`}
+              style={{
+                position: 'absolute',
+                top: 3,
+                left: `calc(${(e.t / Math.max(0.0001, clip.duration)) * 100}% - 5px)`,
+                width: 0,
+                height: 0,
+                borderLeft: '5px solid transparent',
+                borderRight: '5px solid transparent',
+                borderTop: '8px solid #c97ab8',
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Marker list editor */}
+      <div
+        style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}
+      >
+        {events.length === 0 && (
+          <div style={{ color: '#555', fontSize: 11 }}>
+            No event markers. Add one to fire a media command at a point in the
+            clip.
+          </div>
+        )}
+        {events.map((e) => (
+          <div
+            key={e.id}
+            style={{
+              display: 'flex',
+              gap: 6,
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}
+          >
+            <label style={{ color: '#888', fontSize: 11 }}>t</label>
+            <input
+              type="number"
+              step={0.05}
+              min={0}
+              value={Number(e.t.toFixed(3))}
+              onChange={(ev) => {
+                const v = Number(ev.target.value);
+                if (Number.isFinite(v)) patch(e.id, { t: Math.max(0, v) });
+              }}
+              style={{ ...inputStyle, width: 70 }}
+            />
+            <select
+              value={e.action}
+              onChange={(ev) => patch(e.id, { action: ev.target.value })}
+              style={inputStyle}
+            >
+              {MEDIA_ACTIONS.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+            <select
+              value={`${e.targetKind}:${e.targetId}`}
+              onChange={(ev) => {
+                const [kind, ...rest] = ev.target.value.split(':');
+                patch(e.id, {
+                  targetKind: kind as TrackClipTargetKind,
+                  targetId: rest.join(':'),
+                });
+              }}
+              style={inputStyle}
+            >
+              <option value=":">— select target —</option>
+              {targets.map((tg) => (
+                <option key={tg.id} value={`${tg.kind}:${tg.id}`}>
+                  {tg.name}
+                </option>
+              ))}
+            </select>
+            {needsValue(e.action) && (
+              <>
+                <label style={{ color: '#888', fontSize: 11 }}>
+                  {e.action === 'seek' ? 'to(s)' : 'vol'}
+                </label>
+                <input
+                  type="number"
+                  step={e.action === 'seek' ? 0.1 : 0.05}
+                  value={
+                    e.action === 'seek'
+                      ? Number(
+                          ((e.payload?.t as number) ?? 0).toFixed?.(3) ?? 0
+                        )
+                      : ((e.payload?.volume as number) ?? 1)
+                  }
+                  onChange={(ev) => {
+                    const v = Number(ev.target.value);
+                    if (!Number.isFinite(v)) return;
+                    patch(e.id, {
+                      payload: e.action === 'seek' ? { t: v } : { volume: v },
+                    });
+                  }}
+                  style={{ ...inputStyle, width: 70 }}
+                />
+              </>
+            )}
+            <button
+              onClick={() => remove(e.id)}
+              style={btnDanger}
+              title="Remove marker"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <div>
+          <button
+            onClick={addEvent}
+            disabled={targets.length === 0}
+            style={btnPrimary}
+            title={
+              targets.length === 0
+                ? 'Add a video or audio entity first'
+                : 'Add an event marker at the playhead'
+            }
+          >
+            + Add Event
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

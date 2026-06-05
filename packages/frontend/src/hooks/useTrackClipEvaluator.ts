@@ -13,6 +13,27 @@ import {
   evaluateLane,
   resolveClipTime,
 } from '../components/editor/trackClipEvaluator';
+import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
+import type { MediaCommand, MediaAction } from '@vspark/shared';
+
+// Per-clip last evaluated playhead time, kept across rAF ticks (module scope so
+// it survives re-renders). Used to detect when the playhead crosses an event
+// marker so each marker fires exactly once per pass (re-armed per loop).
+const lastTByClip = new Map<string, number>();
+
+/** Did the playhead cross marker time `m` going from `prev` to `cur`? Handles
+ *  the loop wrap (cur < prev) by treating the pass as (prev, duration] ∪ [0, cur]. */
+function crossedMarker(
+  prev: number,
+  cur: number,
+  m: number,
+  duration: number,
+  loop: boolean
+): boolean {
+  if (!loop || cur >= prev) return prev < m && m <= cur;
+  // Wrapped this frame.
+  return (m > prev && m <= duration) || (m >= 0 && m <= cur);
+}
 
 interface NodeAccumulator {
   position?: Record<'x' | 'y' | 'z', number | undefined>;
@@ -51,6 +72,7 @@ export function useTrackClipEvaluator(): void {
       const playbackEntries = Object.entries(playback);
       // Fast exit + cleanup when nothing is playing.
       if (playbackEntries.length === 0) {
+        if (lastTByClip.size > 0) lastTByClip.clear();
         if (Object.keys(s.nodeTransformOverrides).length > 0) {
           for (const id of Object.keys(s.nodeTransformOverrides))
             s.setNodeTransformOverride(id, null);
@@ -86,6 +108,25 @@ export function useTrackClipEvaluator(): void {
           completed.push(clipId);
           continue;
         }
+        // Fire event-lane markers crossed since the last tick (playing only;
+        // paused clips don't advance so nothing is crossed).
+        if (entry.kind === 'playing' && clip.events.length > 0) {
+          const prevT = lastTByClip.has(clipId)
+            ? lastTByClip.get(clipId)!
+            : -Infinity;
+          if (t !== prevT) {
+            for (const ev of clip.events) {
+              if (crossedMarker(prevT, t, ev.t, clip.duration, entry.loop)) {
+                const cmd: MediaCommand = { action: ev.action as MediaAction };
+                const p = ev.payload as Record<string, unknown> | null;
+                if (p && typeof p.t === 'number') cmd.t = p.t;
+                if (p && typeof p.volume === 'number') cmd.volume = p.volume;
+                dispatchMediaCommand(ev.targetId, cmd);
+              }
+            }
+          }
+        }
+        lastTByClip.set(clipId, t);
         for (const lane of clip.lanes) {
           // User edits on a driven param insert a key here; skip those so the
           // base value stays visible until the next clip event clears the set.
@@ -119,7 +160,10 @@ export function useTrackClipEvaluator(): void {
       for (const layerId of prevLayerIds)
         s.setComposeLayerOverride(layerId, null);
 
-      for (const id of completed) s.setTrackClipPlayback(id, null);
+      for (const id of completed) {
+        s.setTrackClipPlayback(id, null);
+        lastTByClip.delete(id);
+      }
     };
 
     raf = requestAnimationFrame(tick);

@@ -7,6 +7,7 @@ import type {
   TrackClipRecord,
   TrackClipLaneRecord,
   TrackClipKeyframeRecord,
+  TrackClipEventRecord,
 } from '../api/client';
 import type {
   UpdateChannel,
@@ -28,6 +29,7 @@ export type {
   TrackClipRecord,
   TrackClipLaneRecord,
   TrackClipKeyframeRecord,
+  TrackClipEventRecord,
 };
 
 /** Active playback for one track clip — either playing (wall clock advances from
@@ -83,18 +85,76 @@ export type RuntimeOverrideMap = Record<string, RuntimeOverrideValue>;
 
 export type LeftDockTab = 'scene' | 'compose' | 'graphs';
 export type BottomDockTab =
+  | 'create'
   | 'models'
   | 'animations'
   | 'images'
+  | 'videos'
+  | 'audio'
   | 'components'
   | 'effects'
   | 'clips'
   | 'presets';
 
+// ── Dock-layout persistence ────────────────────────────────────────────────
+// The active tabs + dock height are session-spanning UI prefs, persisted to
+// localStorage so the editor reopens the way the user left it. Guarded so a
+// disabled/again unavailable storage never throws.
+const LS = {
+  leftTab: 'vspark.leftTab',
+  bottomTab: 'vspark.bottomTab',
+  bottomDockHeight: 'vspark.bottomDockHeight',
+};
+function lsGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function lsSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable — ignore */
+  }
+}
+const LEFT_TABS: LeftDockTab[] = ['scene', 'compose', 'graphs'];
+const BOTTOM_TABS: BottomDockTab[] = [
+  'create',
+  'models',
+  'animations',
+  'images',
+  'videos',
+  'audio',
+  'components',
+  'effects',
+  'clips',
+  'presets',
+];
+function initialLeftTab(): LeftDockTab {
+  const v = lsGet(LS.leftTab) as LeftDockTab | null;
+  return v && LEFT_TABS.includes(v) ? v : 'scene';
+}
+function initialBottomTab(): BottomDockTab {
+  const v = lsGet(LS.bottomTab) as BottomDockTab | null;
+  return v && BOTTOM_TABS.includes(v) ? v : 'models';
+}
+function initialBottomDockHeight(): number {
+  const n = Number(lsGet(LS.bottomDockHeight));
+  return Number.isFinite(n) && n >= 120 && n <= 800 ? n : 200;
+}
+
 /** Per-node free-form properties (mirror of backend `scene_nodes.properties`). */
 export interface NodeProperties {
   /** VRM avatar: seconds to ramp between override and additive on bus mode flip. */
   blendTransitionTime?: number;
+  /** VRM avatar: resting expression weights (expression name → 0..1) applied as a
+   *  baseline each frame; live blendshape broadcasts override them per-key. */
+  defaultExpressions?: Record<string, number>;
+  /** VRM avatar: per-material shader/param overrides (MToon ⇄ PBR), keyed by a
+   *  stable material identity. See components/editor/materialOverrides.ts. */
+  materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
 }
 
 export interface NodeRecord {
@@ -372,6 +432,15 @@ interface EditorState {
   composeLayers: ComposeLayerRecord[];
   leftTab: LeftDockTab;
   bottomTab: BottomDockTab;
+  /** Bumped (to a fresh timestamp) every time something asks the bottom dock to
+   *  draw attention to its currently-active tab — e.g. the scene "+" button
+   *  routing the user to the Create tab, or a Properties picker button routing
+   *  to an asset tab. The dock tab bar watches this and briefly pulses. */
+  bottomTabFlash: number;
+  /** Bumped every time something wants the Properties name field to take focus
+   *  and select its text — e.g. right after creating a node so the user can
+   *  immediately rename it. */
+  focusNameNonce: number;
   /** In-memory mirror of the OS clipboard. Written on every editor copy;
    *  read synchronously by context menus to decide which Paste items are
    *  applicable. Null when the editor hasn't seen a copy in this session
@@ -381,6 +450,10 @@ interface EditorState {
   /** Height of the bottom dock (AssetManager / NodePalette) in pixels.
    *  Persisted in-session only; clamped at the call site. */
   bottomDockHeight: number;
+  /** Whether audio (audio nodes + unmuted video) is audible in the EDITOR
+   *  viewport. Off by default so authoring isn't noisy; the viewer/output page
+   *  always plays audio regardless. Session-only, not persisted. */
+  editorAudioPreviewEnabled: boolean;
   selectedComposeLayerId: string | null;
 
   // Track clips
@@ -397,6 +470,12 @@ interface EditorState {
   runtimeNodeOverrides: Record<string, RuntimeOverrideMap>;
   /** composeLayerId → paramPath → value, same as above for compose layers. */
   runtimeLayerOverrides: Record<string, RuntimeOverrideMap>;
+  /** scope → (field → last-published value), fed by the data-channel bus
+   *  (`set_data` node → WS `data_channel_*`). Consumed by `feed` compose layers
+   *  (and the 3D billboard), which expose every in-scope field to a user template
+   *  by its bare name. scope `''` is GLOBAL; other scopes are a consumer's own id
+   *  (a layer/node id). A consumer reads `global ∪ its-own-id`. */
+  dataChannels: Record<string, Record<string, unknown>>;
   /** Per-(target, param) suppression set: while a key is present, the evaluator
    *  must NOT apply that lane's value as an override, and the existing override
    *  slot for it should be cleared. Set when the user edits a numeric input on
@@ -479,7 +558,12 @@ interface EditorState {
   removeComposeScene: (id: string) => void;
   setLeftTab: (tab: LeftDockTab) => void;
   setBottomTab: (tab: BottomDockTab) => void;
+  /** Switch the bottom dock to `tab` and pulse it as a hint. */
+  flashBottomTab: (tab: BottomDockTab) => void;
+  /** Ask the Properties name field to focus + select-all. */
+  requestFocusName: () => void;
   setBottomDockHeight: (h: number) => void;
+  setEditorAudioPreviewEnabled: (on: boolean) => void;
   setClipboard: (
     payload: import('../clipboard').ClipboardPayload | null
   ) => void;
@@ -497,6 +581,10 @@ interface EditorState {
   replaceTrackClipLaneKeyframes: (
     laneId: string,
     keyframes: TrackClipKeyframeRecord[]
+  ) => void;
+  replaceTrackClipEvents: (
+    clipId: string,
+    events: TrackClipEventRecord[]
   ) => void;
   setTrackClipPlayback: (
     clipId: string,
@@ -546,6 +634,16 @@ interface EditorState {
   ) => void;
   /** Drop all suppressions — called when a clip is triggered / paused / scrubbed. */
   clearOverrideSuppressions: () => void;
+
+  // Data channels (generic graph → frontend publish surface)
+  /** Merge a published field-set into a scope (data-channel bus broadcast). */
+  mergeDataChannels: (scope: string, fields: Record<string, unknown>) => void;
+  /** Clear one field in a scope, or the whole scope when `field` is omitted. */
+  clearDataChannels: (scope: string, field?: string) => void;
+  /** Bulk apply a snapshot (used on WS (re)connect). Replaces the whole map. */
+  replaceDataChannels: (
+    entries: Array<{ scope: string; fields: Record<string, unknown> }>
+  ) => void;
 
   // Presets
   presets: PresetSummary[];
@@ -601,9 +699,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   composeScenes: [],
   activeComposeSceneId: null,
   composeLayers: [],
-  leftTab: 'scene',
-  bottomTab: 'models',
-  bottomDockHeight: 200,
+  leftTab: initialLeftTab(),
+  bottomTab: initialBottomTab(),
+  bottomTabFlash: 0,
+  focusNameNonce: 0,
+  bottomDockHeight: initialBottomDockHeight(),
+  editorAudioPreviewEnabled: false,
   clipboardPayload: null,
   selectedComposeLayerId: null,
 
@@ -614,6 +715,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   composeLayerOverrides: {},
   runtimeNodeOverrides: {},
   runtimeLayerOverrides: {},
+  dataChannels: {},
   suppressedOverrides: new Set<string>(),
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
@@ -759,12 +861,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setComponentKinds: (kinds) => set({ componentKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
   setActiveGraphWritable: (writable) => set({ activeGraphWritable: writable }),
-  setActiveGraph: (id) =>
-    set({
+  setActiveGraph: (id) => {
+    // Opening a graph (from any list — including scoped graphs in the scene /
+    // compose trees) follows the main view to the Graphs tab, so the canvas is
+    // what's actually shown. Clearing the active graph leaves the current tab
+    // alone (the toggle-off path shouldn't yank the user away).
+    if (id != null) lsSet(LS.leftTab, 'graphs');
+    set((s) => ({
       activeGraphId: id,
       selectedSignalNodeId: null,
       activeGraphWritable: false,
-    }),
+      leftTab: id != null ? 'graphs' : s.leftTab,
+    }));
+  },
   setSelectedSignalNode: (id) => set({ selectedSignalNodeId: id }),
   setBoneListExpanded: (nodeId, expanded) =>
     set((s) => ({
@@ -843,11 +952,27 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             : s.activeComposeSceneId,
       };
     }),
-  setLeftTab: (tab) => set({ leftTab: tab }),
-  setBottomTab: (tab) => set({ bottomTab: tab }),
+  setLeftTab: (tab) => {
+    lsSet(LS.leftTab, tab);
+    set({ leftTab: tab });
+  },
+  setBottomTab: (tab) => {
+    lsSet(LS.bottomTab, tab);
+    set({ bottomTab: tab });
+  },
+  flashBottomTab: (tab) => {
+    lsSet(LS.bottomTab, tab);
+    set({ bottomTab: tab, bottomTabFlash: Date.now() });
+  },
+  requestFocusName: () =>
+    set((s) => ({ focusNameNonce: s.focusNameNonce + 1 })),
   setClipboard: (payload) => set({ clipboardPayload: payload }),
-  setBottomDockHeight: (h) =>
-    set({ bottomDockHeight: Math.max(120, Math.min(800, Math.round(h))) }),
+  setBottomDockHeight: (h) => {
+    const clamped = Math.max(120, Math.min(800, Math.round(h)));
+    lsSet(LS.bottomDockHeight, String(clamped));
+    set({ bottomDockHeight: clamped });
+  },
+  setEditorAudioPreviewEnabled: (on) => set({ editorAudioPreviewEnabled: on }),
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
 
   setTrackClips: (clips) => set({ trackClips: clips }),
@@ -928,6 +1053,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ...c,
         lanes: c.lanes.map((l) => (l.id === laneId ? { ...l, keyframes } : l)),
       })),
+    })),
+  replaceTrackClipEvents: (clipId, events) =>
+    set((s) => ({
+      trackClips: s.trackClips.map((c) =>
+        c.id === clipId ? { ...c, events } : c
+      ),
     })),
   setTrackClipPlayback: (clipId, entry) =>
     set((s) => {
@@ -1010,6 +1141,34 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         bucket[e.targetId] = { ...prev, [e.paramPath]: e.value };
       }
       return { runtimeNodeOverrides: nodes, runtimeLayerOverrides: layers };
+    }),
+  mergeDataChannels: (scope, fields) =>
+    set((s) => ({
+      dataChannels: {
+        ...s.dataChannels,
+        [scope]: { ...(s.dataChannels[scope] ?? {}), ...fields },
+      },
+    })),
+  clearDataChannels: (scope, field) =>
+    set((s) => {
+      const bucket = s.dataChannels[scope];
+      if (!bucket) return {};
+      if (field === undefined) {
+        const { [scope]: _, ...rest } = s.dataChannels;
+        return { dataChannels: rest };
+      }
+      if (!(field in bucket)) return {};
+      const { [field]: _, ...restFields } = bucket;
+      const next = { ...s.dataChannels };
+      if (Object.keys(restFields).length === 0) delete next[scope];
+      else next[scope] = restFields;
+      return { dataChannels: next };
+    }),
+  replaceDataChannels: (entries) =>
+    set(() => {
+      const next: Record<string, Record<string, unknown>> = {};
+      for (const e of entries) next[e.scope] = { ...e.fields };
+      return { dataChannels: next };
     }),
 
   presets: [],

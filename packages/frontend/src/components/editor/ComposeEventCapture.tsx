@@ -9,7 +9,12 @@ import {
   composeSceneStartDrag,
   composeSceneApplyWheel,
 } from './ComposeSceneInteractions';
-import { composeViewportRect, layersAtClientPoint } from './composeHitTest';
+import {
+  composeViewportRect,
+  layersAtClientPoint,
+  layerParentFrame,
+} from './composeHitTest';
+import type { ComposeFrame } from './composeLayerInteractions';
 
 const DRAG_THRESHOLD_PX = 3;
 
@@ -109,10 +114,21 @@ export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
   );
 }
 
-/** The current compose viewport pixel dimensions (for %↔px drag conversion). */
-function viewportFrame(): { width: number; height: number } | undefined {
+/** The coordinate frame a layer's x/y live in — its parent box (or the
+ *  viewport for a root layer) — used to convert screen-space drag deltas into
+ *  the layer's stored units and to project them through a rotated parent. */
+function parentFrameFor(layer: ComposeLayerRecord): ComposeFrame | undefined {
   const rect = composeViewportRect.current?.();
-  return rect ? { width: rect.width, height: rect.height } : undefined;
+  if (!rect) return undefined;
+  const byId = new Map(
+    useEditorStore.getState().composeLayers.map((l) => [l.id, l] as const)
+  );
+  const pf = layerParentFrame(
+    { width: rect.width, height: rect.height },
+    layer,
+    byId
+  );
+  return { width: pf.hx * 2, height: pf.hy * 2, angle: pf.angle };
 }
 
 /** Drag routing on the *current* selection at the moment the drag is detected.
@@ -153,7 +169,7 @@ function startDragOnCurrentTarget(x: number, y: number, pointerId: number) {
         { clientX: x, clientY: y, pointerId },
         layer,
         apply,
-        viewportFrame()
+        parentFrameFor(layer)
       );
       return;
     }
@@ -178,7 +194,7 @@ function startDragOnCurrentTarget(x: number, y: number, pointerId: number) {
         { clientX: x, clientY: y, pointerId },
         layer,
         apply,
-        viewportFrame()
+        parentFrameFor(layer)
       );
     }
   } else if (s2.selectedNodeId) {

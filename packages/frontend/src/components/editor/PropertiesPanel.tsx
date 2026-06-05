@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
-import { getBuiltinParticleTextures } from '../../particleTextures';
+import {
+  getBuiltinParticleTextures,
+  builtinParticleTextureUrl,
+} from '../../particleTextures';
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
@@ -12,7 +15,40 @@ import type { AssetFile } from '../../api/client';
 import { animRegistry } from '../../animRegistry';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
+
+/** Small "Pick…" button that routes the user to a bottom-dock asset tab and
+ *  flashes it as a hint. The asset tab's existing "Apply to <node>" buttons do
+ *  the actual assignment (flash-only picker). */
+function PickButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Pick from the asset library in the bottom dock"
+      style={{
+        background: '#1a3a5a',
+        border: 'none',
+        color: '#7ab',
+        borderRadius: 4,
+        padding: '2px 8px',
+        cursor: 'pointer',
+        fontSize: 11,
+        marginLeft: 8,
+      }}
+    >
+      Pick…
+    </button>
+  );
+}
 import { NumInput, VecInput, SliderInput } from './numericInputs';
+import { vrmRegistry } from '../../vrmRegistry';
+import {
+  getMaterialSlots,
+  type MaterialOverride,
+  type MaterialOverrides,
+  type ShaderKind,
+  type AlphaMode,
+  type EmissiveMapMode,
+} from './materialOverrides';
 
 interface Transform {
   x: number;
@@ -27,15 +63,32 @@ interface Transform {
   /** Uniform descendant-mesh opacity. Persisted on components.transform; the
    *  viewport's per-frame material walk reads it and adjusts material.opacity. */
   opacity: number;
+  /** Whether descendant meshes cast shadows (when the camera has shadows on). */
+  castShadow: boolean;
+  /** Whether descendant meshes receive shadows. */
+  receiveShadow: boolean;
 }
 
 interface LightProps {
   lightType: string;
   color: string;
   intensity: number;
+  /** Whether this light casts shadows. Inert unless the camera enables shadows. */
+  castShadow?: boolean;
+  /** Shadow-map resolution (px, square). Default 1024. */
+  shadowMapSize?: number;
+  /** Depth bias to combat shadow acne. Default -0.0005. */
+  shadowBias?: number;
+  /** Normal-offset bias to combat peter-panning. Default 0.02. */
+  shadowNormalBias?: number;
+  /** Directional-light ortho shadow-camera half-extent (world units). Default 10. */
+  shadowCameraSize?: number;
+  /** Shadow-camera far plane (world units). Default 50. */
+  shadowCameraFar?: number;
 }
 
 export type CameraProjection = 'perspective' | 'orthographic';
+export type ShadowQuality = 'low' | 'medium' | 'high';
 interface CameraProps {
   projection: CameraProjection;
   fov: number;
@@ -43,6 +96,16 @@ interface CameraProps {
   far: number;
   /** Half-height of the orthographic view frustum (world units). */
   orthoSize: number;
+  /** Enable shadow-map rendering for this camera's view. Default false. */
+  shadowsEnabled: boolean;
+  /** Shadow-map filter quality. low=hard, medium=PCF, high=PCF-soft. */
+  shadowQuality: ShadowQuality;
+  /**
+   * Multiplier for the environment-map (HDRI) lighting contribution in the
+   * output/viewer canvases. Lower values darken surfaces facing away from
+   * scene lights, increasing directional contrast. Default 1.
+   */
+  envIntensity: number;
 }
 
 const RAD = Math.PI / 180;
@@ -60,6 +123,8 @@ function getTransform(node: NodeRecord): Transform {
     sy: t?.sy ?? 1,
     sz: t?.sz ?? 1,
     opacity: t?.opacity ?? 1,
+    castShadow: t?.castShadow ?? true,
+    receiveShadow: t?.receiveShadow ?? true,
   };
 }
 
@@ -69,6 +134,12 @@ function getLightProps(node: NodeRecord): LightProps {
     lightType: l?.lightType ?? 'point',
     color: l?.color ?? '#ffffff',
     intensity: l?.intensity ?? 1,
+    castShadow: l?.castShadow ?? false,
+    shadowMapSize: l?.shadowMapSize ?? 1024,
+    shadowBias: l?.shadowBias ?? -0.0005,
+    shadowNormalBias: l?.shadowNormalBias ?? 0.02,
+    shadowCameraSize: l?.shadowCameraSize ?? 10,
+    shadowCameraFar: l?.shadowCameraFar ?? 50,
   };
 }
 
@@ -80,6 +151,9 @@ function getCameraProps(node: NodeRecord): CameraProps {
     near: c?.near ?? 0.1,
     far: c?.far ?? 1000,
     orthoSize: c?.orthoSize ?? 2,
+    shadowsEnabled: c?.shadowsEnabled ?? false,
+    shadowQuality: c?.shadowQuality ?? 'medium',
+    envIntensity: c?.envIntensity ?? 1,
   };
 }
 
@@ -120,6 +194,693 @@ const sectionHeader: React.CSSProperties = {
 // The old `KfBtn`, local `NumInput`, and Vec3 row helpers (`row3`, `label`,
 // `cellWithBtn`, `groupHeaderRow`, `kfGroupBtnStyle`) were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
+
+// ---------- Collapsible section ----------
+
+/** A section header that toggles its children open/closed. Reuses the flat
+ *  `sectionHeader` look with a disclosure caret. Collapse state is ephemeral
+ *  (not persisted). */
+function CollapsibleSection({
+  title,
+  count,
+  defaultCollapsed = true,
+  children,
+}: {
+  title: string;
+  count?: number;
+  defaultCollapsed?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(!defaultCollapsed);
+  return (
+    <>
+      <div
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          ...sectionHeader,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            color: '#666',
+            display: 'inline-block',
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: 'transform 120ms',
+          }}
+        >
+          ▶
+        </span>
+        <span>
+          {title}
+          {count != null ? ` (${count})` : ''}
+        </span>
+      </div>
+      {open && children}
+    </>
+  );
+}
+
+// ---------- Material editor (MToon ⇄ PBR) ----------
+
+const matLabel: React.CSSProperties = {
+  fontSize: 11,
+  color: '#888',
+  width: 96,
+  flexShrink: 0,
+};
+const matRow: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+};
+const matColorInput: React.CSSProperties = {
+  width: 32,
+  height: 22,
+  border: 'none',
+  background: 'none',
+  cursor: 'pointer',
+  padding: 0,
+};
+
+/** Keys of MaterialOverride whose value is a hex color string. */
+type MatColorKey = Exclude<
+  {
+    [K in keyof MaterialOverride]-?: NonNullable<
+      MaterialOverride[K]
+    > extends string
+      ? K
+      : never;
+  }[keyof MaterialOverride],
+  'shader' | 'alphaMode'
+>;
+/** Keys of MaterialOverride whose value is a number. */
+type MatNumKey = {
+  [K in keyof MaterialOverride]-?: NonNullable<
+    MaterialOverride[K]
+  > extends number
+    ? K
+    : never;
+}[keyof MaterialOverride];
+
+/** One material's editor: shader toggle + collapsible param body + reset. */
+function MaterialRow({
+  node,
+  slot,
+}: {
+  node: NodeRecord;
+  slot: ReturnType<typeof getMaterialSlots>[number];
+}) {
+  const { updateNode: storeUpdateNode } = useEditorStore();
+  const [open, setOpen] = useState(false);
+  const [advOpen, setAdvOpen] = useState(false);
+  const overrides = (node.properties?.materialOverrides ??
+    {}) as MaterialOverrides;
+  const ov = overrides[slot.key] as MaterialOverride | undefined;
+  const d = slot.defaults;
+  const defaultShader: ShaderKind = slot.supportsMToon ? 'mtoon' : 'pbr';
+  let shader: ShaderKind = ov?.shader ?? defaultShader;
+  if (shader === 'mtoon' && !slot.supportsMToon) shader = 'pbr';
+  const isStandard = shader === 'pbr' || shader === 'apbr';
+
+  const writeOverrides = (next: MaterialOverrides, persist: boolean) => {
+    const properties = { ...node.properties, materialOverrides: next };
+    storeUpdateNode(node.id, { properties });
+    if (persist)
+      api
+        .updateNode(node.id, { properties: { materialOverrides: next } })
+        .catch(() => {});
+  };
+
+  const patch = (p: Partial<MaterialOverride>, persist: boolean) => {
+    const prev = (node.properties?.materialOverrides ??
+      {}) as MaterialOverrides;
+    const prevEntry: MaterialOverride = prev[slot.key] ?? {
+      shader: defaultShader,
+    };
+    const next = { ...prev, [slot.key]: { ...prevEntry, ...p } };
+    writeOverrides(next, persist);
+  };
+
+  const reset = () => {
+    const prev = (node.properties?.materialOverrides ??
+      {}) as MaterialOverrides;
+    const next = { ...prev };
+    delete next[slot.key];
+    writeOverrides(next, true);
+  };
+
+  const val = <K extends keyof MaterialOverride>(
+    key: K,
+    fallback: NonNullable<MaterialOverride[K]>
+  ): NonNullable<MaterialOverride[K]> =>
+    (ov?.[key] as NonNullable<MaterialOverride[K]> | undefined) ?? fallback;
+
+  const colorRow = (label: string, key: MatColorKey, fallback: string) => (
+    <div style={matRow}>
+      <span style={matLabel}>{label}</span>
+      <input
+        type="color"
+        value={val(key, fallback)}
+        style={matColorInput}
+        onChange={(e) =>
+          patch({ [key]: e.target.value } as Partial<MaterialOverride>, false)
+        }
+        onBlur={(e) =>
+          patch({ [key]: e.target.value } as Partial<MaterialOverride>, true)
+        }
+      />
+    </div>
+  );
+
+  const sliderRow = (
+    label: string,
+    key: MatNumKey,
+    fallback: number,
+    min: number,
+    max: number,
+    step: number,
+    precision: number
+  ) => (
+    <div style={matRow}>
+      <span style={matLabel}>{label}</span>
+      <SliderInput
+        value={val(key, fallback)}
+        min={min}
+        max={max}
+        step={step}
+        precision={precision}
+        style={{ flex: 1 }}
+        onChange={(v) =>
+          patch({ [key]: v } as Partial<MaterialOverride>, false)
+        }
+        onCommit={(v) => patch({ [key]: v } as Partial<MaterialOverride>, true)}
+      />
+    </div>
+  );
+
+  const alphaMode = val('alphaMode', d.alphaMode);
+
+  return (
+    <div
+      style={{
+        border: '1px solid #222',
+        borderRadius: 4,
+        marginBottom: 6,
+        background: '#141414',
+      }}
+    >
+      <div
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '5px 8px',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            color: '#666',
+            display: 'inline-block',
+            transform: open ? 'rotate(90deg)' : 'none',
+          }}
+        >
+          ▶
+        </span>
+        <span
+          style={{
+            fontSize: 11,
+            color: '#bbb',
+            fontFamily: 'monospace',
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={slot.displayName}
+        >
+          {slot.displayName}
+        </span>
+        <span
+          style={{
+            fontSize: 9,
+            color:
+              shader === 'apbr' ? '#7c9' : shader === 'pbr' ? '#7ab' : '#a8a',
+            border: '1px solid #333',
+            borderRadius: 3,
+            padding: '1px 5px',
+            textTransform: 'uppercase',
+          }}
+        >
+          {shader}
+        </span>
+      </div>
+      {open && (
+        <div
+          style={{
+            padding: '6px 8px 8px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            borderTop: '1px solid #222',
+          }}
+        >
+          {/* Shader toggle */}
+          <div style={matRow}>
+            <span style={matLabel}>Shader</span>
+            <div style={{ display: 'flex', gap: 0 }}>
+              {(['mtoon', 'pbr', 'apbr'] as ShaderKind[]).map((s, i, arr) => {
+                const active = shader === s;
+                const disabled = s === 'mtoon' && !slot.supportsMToon;
+                return (
+                  <button
+                    key={s}
+                    disabled={disabled}
+                    title={
+                      s === 'apbr'
+                        ? 'Advanced PBR (MeshPhysicalMaterial): specular, clearcoat, sheen, transmission…'
+                        : undefined
+                    }
+                    onClick={() => patch({ shader: s }, true)}
+                    style={{
+                      background: active ? '#1a3a5a' : '#1e1e1e',
+                      border: '1px solid #3a3a3a',
+                      color: disabled ? '#555' : active ? '#cde' : '#aaa',
+                      padding: '3px 10px',
+                      fontSize: 11,
+                      cursor: disabled ? 'not-allowed' : 'pointer',
+                      textTransform: 'uppercase',
+                      borderRadius:
+                        i === 0
+                          ? '4px 0 0 4px'
+                          : i === arr.length - 1
+                            ? '0 4px 4px 0'
+                            : 0,
+                      marginLeft: i === 0 ? 0 : -1,
+                    }}
+                  >
+                    {s}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Overlapping params */}
+          {colorRow('Base color', 'baseColor', d.baseColor)}
+          {colorRow('Emissive', 'emissive', d.emissive)}
+          {sliderRow(
+            'Emissive int.',
+            'emissiveIntensity',
+            d.emissiveIntensity,
+            0,
+            5,
+            0.01,
+            2
+          )}
+          <div style={matRow}>
+            <span style={matLabel}>Emissive map</span>
+            <select
+              value={val('emissiveMapMode', 'original')}
+              onChange={(e) =>
+                patch(
+                  { emissiveMapMode: e.target.value as EmissiveMapMode },
+                  true
+                )
+              }
+              style={{
+                background: '#2a2a2a',
+                border: '1px solid #3a3a3a',
+                color: '#e0e0e0',
+                borderRadius: 4,
+                padding: '3px 6px',
+                fontSize: 11,
+              }}
+            >
+              <option value="original">Original texture</option>
+              <option value="flat">Flat (no texture)</option>
+              <option value="albedo">Albedo texture</option>
+            </select>
+          </div>
+          {d.hasNormalMap &&
+            sliderRow(
+              'Normal scale',
+              'normalScale',
+              d.normalScale,
+              0,
+              2,
+              0.01,
+              2
+            )}
+          {sliderRow('Smooth normals', 'normalSmoothing', 0, 0, 1, 0.01, 2)}
+          <div style={matRow}>
+            <span style={matLabel}>Flat shading</span>
+            <input
+              type="checkbox"
+              checked={val('flatShading', d.flatShading)}
+              onChange={(e) => patch({ flatShading: e.target.checked }, true)}
+            />
+          </div>
+          <div style={matRow}>
+            <span style={matLabel}>Double sided</span>
+            <input
+              type="checkbox"
+              checked={val('doubleSided', d.doubleSided)}
+              onChange={(e) => patch({ doubleSided: e.target.checked }, true)}
+            />
+          </div>
+          <div style={matRow}>
+            <span style={matLabel}>Alpha mode</span>
+            <select
+              value={alphaMode}
+              onChange={(e) =>
+                patch({ alphaMode: e.target.value as AlphaMode }, true)
+              }
+              style={{
+                background: '#2a2a2a',
+                border: '1px solid #3a3a3a',
+                color: '#e0e0e0',
+                borderRadius: 4,
+                padding: '3px 6px',
+                fontSize: 11,
+              }}
+            >
+              <option value="opaque">Opaque</option>
+              <option value="mask">Mask (cutout)</option>
+              <option value="blend">Blend</option>
+            </select>
+          </div>
+          {alphaMode === 'mask' &&
+            sliderRow(
+              'Alpha cutoff',
+              'alphaCutoff',
+              d.alphaCutoff,
+              0,
+              1,
+              0.01,
+              2
+            )}
+          {sliderRow('Opacity', 'opacity', d.opacity, 0, 1, 0.01, 2)}
+
+          {/* MToon-only */}
+          {shader === 'mtoon' && (
+            <>
+              {colorRow('Shade color', 'shadeColor', d.shadeColor)}
+              {sliderRow(
+                'Shading shift',
+                'shadingShiftFactor',
+                d.shadingShiftFactor,
+                -1,
+                1,
+                0.01,
+                2
+              )}
+              {sliderRow(
+                'Shading toony',
+                'shadingToonyFactor',
+                d.shadingToonyFactor,
+                0,
+                1,
+                0.01,
+                2
+              )}
+              {sliderRow(
+                'GI equalize',
+                'giEqualization',
+                d.giEqualization,
+                0,
+                1,
+                0.01,
+                2
+              )}
+              {colorRow('Matcap', 'matcapColor', d.matcapColor)}
+              {colorRow('Rim color', 'rimColor', d.rimColor)}
+              {sliderRow(
+                'Rim mix',
+                'rimLightingMix',
+                d.rimLightingMix,
+                0,
+                1,
+                0.01,
+                2
+              )}
+              {sliderRow(
+                'Rim fresnel',
+                'rimFresnelPower',
+                d.rimFresnelPower,
+                0,
+                50,
+                0.1,
+                1
+              )}
+              {sliderRow('Rim lift', 'rimLift', d.rimLift, 0, 1, 0.01, 2)}
+              {d.hasOutline && (
+                <>
+                  {sliderRow(
+                    'Outline width',
+                    'outlineWidth',
+                    d.outlineWidth,
+                    0,
+                    0.05,
+                    0.001,
+                    3
+                  )}
+                  {colorRow('Outline color', 'outlineColor', d.outlineColor)}
+                  {sliderRow(
+                    'Outline mix',
+                    'outlineLightingMix',
+                    d.outlineLightingMix,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {/* PBR + APBR shared */}
+          {isStandard && (
+            <>
+              {sliderRow('Roughness', 'roughness', d.roughness, 0, 1, 0.01, 2)}
+              {sliderRow('Metalness', 'metalness', d.metalness, 0, 1, 0.01, 2)}
+              {sliderRow(
+                'Env intensity',
+                'envMapIntensity',
+                d.envMapIntensity,
+                0,
+                3,
+                0.01,
+                2
+              )}
+            </>
+          )}
+
+          {/* APBR-only advanced lobes (MeshPhysicalMaterial) */}
+          {shader === 'apbr' && (
+            <>
+              <div
+                onClick={() => setAdvOpen((o) => !o)}
+                style={{
+                  ...matRow,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  color: '#888',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                  marginTop: 4,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 9,
+                    color: '#666',
+                    display: 'inline-block',
+                    transform: advOpen ? 'rotate(90deg)' : 'none',
+                  }}
+                >
+                  ▶
+                </span>
+                Advanced
+              </div>
+              {advOpen && (
+                <>
+                  {sliderRow(
+                    'Specular',
+                    'specularIntensity',
+                    d.specularIntensity,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {colorRow('Specular tint', 'specularColor', d.specularColor)}
+                  {sliderRow(
+                    'Clearcoat',
+                    'clearcoat',
+                    d.clearcoat,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow(
+                    'Clearcoat rgh',
+                    'clearcoatRoughness',
+                    d.clearcoatRoughness,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow('Sheen', 'sheen', d.sheen, 0, 1, 0.01, 2)}
+                  {sliderRow(
+                    'Sheen rgh',
+                    'sheenRoughness',
+                    d.sheenRoughness,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {colorRow('Sheen color', 'sheenColor', d.sheenColor)}
+                  {sliderRow(
+                    'Transmission',
+                    'transmission',
+                    d.transmission,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow(
+                    'Thickness',
+                    'thickness',
+                    d.thickness,
+                    0,
+                    5,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow('IOR', 'ior', d.ior, 1, 2.333, 0.001, 3)}
+                  {colorRow(
+                    'Attenuation',
+                    'attenuationColor',
+                    d.attenuationColor
+                  )}
+                  {sliderRow(
+                    'Atten. dist.',
+                    'attenuationDistance',
+                    d.attenuationDistance,
+                    0,
+                    5,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow(
+                    'Iridescence',
+                    'iridescence',
+                    d.iridescence,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                  {sliderRow(
+                    'Iridescence IOR',
+                    'iridescenceIor',
+                    d.iridescenceIor,
+                    1,
+                    2.333,
+                    0.001,
+                    3
+                  )}
+                  {sliderRow(
+                    'Anisotropy',
+                    'anisotropy',
+                    d.anisotropy,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              onClick={reset}
+              disabled={!ov}
+              title="Drop overrides and rebuild this material from the VRM file"
+              style={{
+                background: 'none',
+                border: '1px solid #3a3a3a',
+                color: ov ? '#c88' : '#555',
+                borderRadius: 4,
+                padding: '2px 10px',
+                fontSize: 11,
+                cursor: ov ? 'pointer' : 'default',
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Lists every material on the loaded VRM with per-material shader controls. */
+function MaterialSection({ node }: { node: NodeRecord }) {
+  // Re-render when the VRM (re)loads — bones are set on load, cleared on unload.
+  const loadedBones = useEditorStore((s) => s.vrmBonesByNode[node.id]);
+  const vrm = vrmRegistry.get(node.id);
+  if (!vrm || !loadedBones) {
+    return (
+      <CollapsibleSection title="Material">
+        <div style={{ fontSize: 11, color: '#555' }}>
+          Load a model to edit its materials.
+        </div>
+      </CollapsibleSection>
+    );
+  }
+  const slots = getMaterialSlots(vrm);
+  if (slots.length === 0) return null;
+  return (
+    <CollapsibleSection title="Material" count={slots.length}>
+      <div
+        style={{
+          fontSize: 10,
+          color: '#555',
+          lineHeight: 1.4,
+          marginBottom: 6,
+        }}
+      >
+        MToon is the toon look (ignores environment light). PBR responds to
+        scene lights and the camera's environment intensity — switch to PBR for
+        full light falloff and darkness.
+      </div>
+      {slots.map((slot) => (
+        <MaterialRow key={slot.key} node={node} slot={slot} />
+      ))}
+    </CollapsibleSection>
+  );
+}
 
 // ---------- Calibration wizard ----------
 
@@ -2800,9 +3561,11 @@ export function PropertiesPanel() {
     updateSceneItem,
     composeLayers,
     selectedComposeLayerId,
+    leftTab,
   } = useEditorStore();
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
+  const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const selectedComp =
     nodeComponents.find((c) => c.id === selectedComponentId) ?? null;
@@ -2824,6 +3587,10 @@ export function PropertiesPanel() {
 
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
   const [name, setName] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const focusNameNonce = useEditorStore((s) => s.focusNameNonce);
+  const lastFocusNonce = useRef(focusNameNonce);
+  const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   const [transform, setTransform] = useState<Transform>({
     x: 0,
     y: 0,
@@ -2835,6 +3602,8 @@ export function PropertiesPanel() {
     sy: 1,
     sz: 1,
     opacity: 1,
+    castShadow: true,
+    receiveShadow: true,
   });
   // Ref always holds the latest transform — avoids stale closures in onBlur handlers
   const transformRef = useRef<Transform>({
@@ -2848,6 +3617,8 @@ export function PropertiesPanel() {
     sy: 1,
     sz: 1,
     opacity: 1,
+    castShadow: true,
+    receiveShadow: true,
   });
   const isEditingTransform = useRef(false);
   const [light, setLight] = useState<LightProps>({
@@ -2861,6 +3632,9 @@ export function PropertiesPanel() {
     near: 0.1,
     far: 1000,
     orthoSize: 2,
+    shadowsEnabled: false,
+    shadowQuality: 'medium',
+    envIntensity: 1,
   });
   const [animPlaying, setAnimPlaying] = useState(true);
   const [animTime, setAnimTime] = useState(0);
@@ -2876,6 +3650,20 @@ export function PropertiesPanel() {
     if (node.kind === 'light') setLight(getLightProps(node));
     if (node.kind === 'camera') setCamera(getCameraProps(node));
   }, [node?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Focus + select the name field on request (e.g. right after a node is
+  // created from the Create palette, so the user can rename immediately).
+  useEffect(() => {
+    if (focusNameNonce === lastFocusNonce.current) return;
+    lastFocusNonce.current = focusNameNonce;
+    const el = nameInputRef.current;
+    if (!el) return;
+    // Defer one frame so the [node?.id] effect's setName has landed first.
+    requestAnimationFrame(() => {
+      el.focus();
+      el.select();
+    });
+  }, [focusNameNonce]);
 
   // Sync transform inputs when gizmo updates the store (skip while user is typing)
   const nodeTransformStr = node
@@ -2938,13 +3726,52 @@ export function PropertiesPanel() {
     </div>
   );
 
-  // Compose layer selected — show layer properties.
-  const selectedComposeLayer = selectedComposeLayerId
-    ? composeLayers.find((l) => l.id === selectedComposeLayerId)
-    : null;
-  if (selectedComposeLayer) {
-    return panelShell(<ComposeLayerProperties layer={selectedComposeLayer} />);
+  // The inspector follows the active main-view tab. Each tab owns a distinct
+  // selection model, so a leftover selection from another tab never leaks in:
+  //   • Compose tab → compose layers
+  //   • Graphs tab  → nothing (signal nodes are edited inline on the canvas)
+  //   • Scene tab   → 3D scene nodes + their components / camera effects
+  const emptyState = (text: string) => (
+    <div
+      style={{
+        width: 280,
+        flexShrink: 0,
+        background: '#141414',
+        borderLeft: '1px solid #2a2a2a',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        padding: '0 20px',
+        color: '#555',
+        fontSize: 13,
+        fontFamily: 'system-ui, sans-serif',
+      }}
+    >
+      {text}
+    </div>
+  );
+
+  // Compose tab: the inspector targets compose layers only.
+  if (leftTab === 'compose') {
+    const selectedComposeLayer = selectedComposeLayerId
+      ? composeLayers.find((l) => l.id === selectedComposeLayerId)
+      : null;
+    if (selectedComposeLayer) {
+      return panelShell(
+        <ComposeLayerProperties layer={selectedComposeLayer} />
+      );
+    }
+    return emptyState('Select a layer to edit its properties.');
   }
+
+  // Graphs tab: signal nodes are edited inline on the canvas, so the right
+  // inspector has nothing node-shaped to show here.
+  if (leftTab === 'graphs') {
+    return emptyState('Editing a graph — select nodes on the canvas.');
+  }
+
+  // Scene tab (everything below): the inspector targets 3D scene nodes only.
 
   // Effect selected — show focused effect panel.
   if (
@@ -3081,7 +3908,12 @@ export function PropertiesPanel() {
   };
 
   const saveCamera = (c: CameraProps) => {
-    const components = { ...node.components, camera: { type: 'camera', ...c } };
+    // Merge over the existing camera component so fields not covered by
+    // CameraProps (e.g. backgroundImage) survive the write.
+    const components = {
+      ...node.components,
+      camera: { ...(node.components?.camera as object), type: 'camera', ...c },
+    };
     storeUpdateNode(node.id, { components });
     api.updateNode(node.id, { components }).catch(() => {});
   };
@@ -3117,6 +3949,7 @@ export function PropertiesPanel() {
         {/* Name */}
         <div style={sectionHeader}>Name</div>
         <input
+          ref={nameInputRef}
           style={textInput}
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -3375,6 +4208,51 @@ export function PropertiesPanel() {
           }
         />
 
+        {/* Shadow flags — only meaningful for mesh-bearing kinds. Visible only
+            when some camera has shadows enabled. */}
+        {(node.kind === 'avatar' ||
+          node.kind === 'model' ||
+          node.kind === 'prop' ||
+          node.kind === 'scene_instance' ||
+          node.kind === 'group') && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 16,
+              marginTop: 8,
+              fontSize: 12,
+              color: '#aaa',
+            }}
+          >
+            {(['castShadow', 'receiveShadow'] as const).map((key) => (
+              <label
+                key={key}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={transform[key]}
+                  onChange={(e) => {
+                    const t = {
+                      ...transformRef.current,
+                      [key]: e.target.checked,
+                    };
+                    transformRef.current = t;
+                    setTransform(t);
+                    saveTransform();
+                  }}
+                />
+                {key === 'castShadow' ? 'Cast shadows' : 'Receive shadows'}
+              </label>
+            ))}
+          </div>
+        )}
+
         {/* Light Properties */}
         {node.kind === 'light' && (
           <>
@@ -3437,6 +4315,125 @@ export function PropertiesPanel() {
                   }}
                 />
               </div>
+
+              {/* Shadows — ambient lights can't cast. Enabling requires the
+                  camera to also have shadows on (see Camera Properties). */}
+              {light.lightType !== 'ambient' && (
+                <>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 12,
+                      color: '#aaa',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={light.castShadow ?? false}
+                      onChange={(e) => {
+                        const next = { ...light, castShadow: e.target.checked };
+                        setLight(next);
+                        saveLight(next);
+                      }}
+                    />
+                    Cast shadows
+                  </label>
+                  {light.castShadow && (
+                    <>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                      >
+                        <span
+                          style={{ fontSize: 12, color: '#888', width: 60 }}
+                        >
+                          Map Size
+                        </span>
+                        <select
+                          style={{ ...textInput, width: 'auto', flex: 1 }}
+                          value={String(light.shadowMapSize ?? 1024)}
+                          onChange={(e) => {
+                            const next = {
+                              ...light,
+                              shadowMapSize: Number(e.target.value),
+                            };
+                            setLight(next);
+                            saveLight(next);
+                          }}
+                        >
+                          <option value="512">512 (fast)</option>
+                          <option value="1024">1024</option>
+                          <option value="2048">2048 (sharp)</option>
+                          <option value="4096">4096</option>
+                        </select>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                      >
+                        <span
+                          style={{ fontSize: 12, color: '#888', width: 60 }}
+                          title="Depth bias — increase (toward 0) if shadows detach, decrease if you see acne"
+                        >
+                          Bias
+                        </span>
+                        <NumInput
+                          value={light.shadowBias ?? -0.0005}
+                          step={0.0001}
+                          style={{ width: 96 }}
+                          onChange={(v) =>
+                            setLight({ ...light, shadowBias: v })
+                          }
+                          onCommit={(v) => {
+                            const next = { ...light, shadowBias: v };
+                            setLight(next);
+                            saveLight(next);
+                          }}
+                        />
+                      </div>
+                      {light.lightType === 'directional' && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                          }}
+                        >
+                          <span
+                            style={{ fontSize: 12, color: '#888', width: 60 }}
+                            title="Half-size of the area the shadow covers. Smaller = sharper shadows over a smaller region."
+                          >
+                            Area
+                          </span>
+                          <NumInput
+                            value={light.shadowCameraSize ?? 10}
+                            step={1}
+                            min={1}
+                            style={{ width: 96 }}
+                            onChange={(v) =>
+                              setLight({ ...light, shadowCameraSize: v })
+                            }
+                            onCommit={(v) => {
+                              const next = { ...light, shadowCameraSize: v };
+                              setLight(next);
+                              saveLight(next);
+                            }}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
             </div>
           </>
         )}
@@ -3533,7 +4530,117 @@ export function PropertiesPanel() {
               ))}
             </div>
 
-            <div style={sectionHeader}>Background Image</div>
+            <div style={sectionHeader}>Shadows</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 12,
+                  color: '#aaa',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={camera.shadowsEnabled}
+                  onChange={(e) => {
+                    const next = {
+                      ...camera,
+                      shadowsEnabled: e.target.checked,
+                    };
+                    setCamera(next);
+                    saveCamera(next);
+                  }}
+                />
+                Enable shadows
+              </label>
+              {camera.shadowsEnabled && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: '#888', width: 60 }}>
+                    Quality
+                  </span>
+                  <select
+                    style={{ ...textInput, width: 'auto', flex: 1 }}
+                    value={camera.shadowQuality}
+                    onChange={(e) => {
+                      const next = {
+                        ...camera,
+                        shadowQuality: e.target.value as ShadowQuality,
+                      };
+                      setCamera(next);
+                      saveCamera(next);
+                    }}
+                  >
+                    <option value="low">Low (hard edges)</option>
+                    <option value="medium">Medium (PCF)</option>
+                    <option value="high">High (soft PCF)</option>
+                  </select>
+                </div>
+              )}
+              <div
+                style={{
+                  fontSize: 10,
+                  color: '#555',
+                  lineHeight: 1.4,
+                }}
+              >
+                Lights only cast shadows if their own "Cast shadows" is on.
+                Per-object cast/receive is set on each model's transform.
+              </div>
+            </div>
+
+            <div style={sectionHeader}>Environment</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', width: 60 }}>
+                  Intensity
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={0.01}
+                  value={camera.envIntensity}
+                  style={{ flex: 1, accentColor: '#2563eb' }}
+                  onChange={(e) => {
+                    const next = {
+                      ...camera,
+                      envIntensity: parseFloat(e.target.value),
+                    };
+                    setCamera(next);
+                    saveCamera(next);
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: '#aaa',
+                    width: 32,
+                    textAlign: 'right',
+                  }}
+                >
+                  {camera.envIntensity.toFixed(2)}
+                </span>
+              </div>
+              <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+                Scales ambient light from the environment map in the output and
+                viewer. Lower for more directional contrast; 0 lights the model
+                with scene lights only.
+              </div>
+            </div>
+
+            <div
+              style={{
+                ...sectionHeader,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              Background Image
+              <PickButton onClick={() => flashBottomTab('images')} />
+            </div>
             {(() => {
               const cam = (node.components?.camera ?? {}) as Record<
                 string,
@@ -3883,7 +4990,16 @@ export function PropertiesPanel() {
                     onSave={saveBc}
                   />
                 </div>
-                <div style={sectionHeader}>Texture</div>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Texture
+                  <PickButton onClick={() => flashBottomTab('images')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
@@ -3920,6 +5036,472 @@ export function PropertiesPanel() {
                     />
                   ) : null}
                 </div>
+              </>
+            );
+          })()}
+
+        {node.kind === 'video' &&
+          (() => {
+            const vc: Record<string, unknown> = {
+              facing: 'world',
+              backface: 'none',
+              width: 1.6,
+              height: 0.9,
+              alpha: 1,
+              sourceUrl: null,
+              autoplay: true,
+              loop: true,
+              onEnd: 'freeze',
+              muted: true,
+              volume: 1,
+              ...((node.components?.video ?? {}) as Record<string, unknown>),
+            };
+            const saveVc = (patch: Record<string, unknown>) => {
+              const next = { ...vc, ...patch };
+              const components = { ...node.components, video: next };
+              const filePatch =
+                'sourceUrl' in patch
+                  ? { filePath: (patch.sourceUrl as string) ?? null }
+                  : {};
+              api
+                .updateNode(node.id, { components, ...filePatch })
+                .catch(() => {});
+              storeUpdateNode(node.id, { components, ...filePatch });
+            };
+            const videoAssets = assets.filter((a) => a.kind === 'video');
+            const sel: React.CSSProperties = {
+              background: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              color: '#e0e0e0',
+              borderRadius: 4,
+              padding: '3px 6px',
+              fontSize: 12,
+              outline: 'none',
+            };
+            const row = (label: string, children: React.ReactNode) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                  {label}
+                </span>
+                {children}
+              </div>
+            );
+            const check = (
+              label: string,
+              field: string,
+              checked: boolean
+            ) =>
+              row(
+                label,
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => saveVc({ [field]: e.target.checked })}
+                />
+              );
+            return (
+              <>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Video Source
+                  <PickButton onClick={() => flashBottomTab('videos')} />
+                </div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  <datalist id="video-src-list">
+                    {videoAssets.map((a) => (
+                      <option key={a.id} value={a.url} label={a.name} />
+                    ))}
+                  </datalist>
+                  {row(
+                    'Source',
+                    <input
+                      list="video-src-list"
+                      style={{ ...numInput, width: 120 }}
+                      placeholder="URL or pick asset…"
+                      defaultValue={(vc.sourceUrl as string) ?? ''}
+                      key={node.id + '-vidsrc'}
+                      onBlur={(e) =>
+                        saveVc({ sourceUrl: e.target.value.trim() || null })
+                      }
+                    />
+                  )}
+                </div>
+                <div style={sectionHeader}>Playback</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {check('Autoplay', 'autoplay', vc.autoplay as boolean)}
+                  {check('Loop', 'loop', vc.loop as boolean)}
+                  {row(
+                    'On end',
+                    <select
+                      style={sel}
+                      value={vc.onEnd as string}
+                      onChange={(e) => saveVc({ onEnd: e.target.value })}
+                    >
+                      <option value="freeze">Freeze on last frame</option>
+                      <option value="hide">Hide</option>
+                    </select>
+                  )}
+                  {check('Muted', 'muted', vc.muted as boolean)}
+                  <EffectRow
+                    label="Volume"
+                    cfg={vc}
+                    field="volume"
+                    step={0.05}
+                    min={0}
+                    max={1}
+                    onSave={saveVc}
+                  />
+                </div>
+                <div style={sectionHeader}>Effects</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {row(
+                    'Blend',
+                    <select
+                      style={sel}
+                      value={(vc.blendMode as string) ?? 'normal'}
+                      onChange={(e) => saveVc({ blendMode: e.target.value })}
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="additive">Additive</option>
+                      <option value="multiply">Multiply</option>
+                      <option value="screen">Screen</option>
+                    </select>
+                  )}
+                  {(() => {
+                    const ck: Record<string, unknown> = {
+                      enabled: false,
+                      color: '#00ff00',
+                      similarity: 0.4,
+                      smoothness: 0.08,
+                      spill: 0.1,
+                      ...((vc.chromaKey ?? {}) as Record<string, unknown>),
+                    };
+                    const saveCk = (p: Record<string, unknown>) =>
+                      saveVc({ chromaKey: { ...ck, ...p } });
+                    return (
+                      <>
+                        {row(
+                          'Chroma key',
+                          <input
+                            type="checkbox"
+                            checked={ck.enabled as boolean}
+                            onChange={(e) =>
+                              saveCk({ enabled: e.target.checked })
+                            }
+                          />
+                        )}
+                        {(ck.enabled as boolean) && (
+                          <>
+                            {row(
+                              'Key color',
+                              <input
+                                type="color"
+                                value={ck.color as string}
+                                onChange={(e) =>
+                                  saveCk({ color: e.target.value })
+                                }
+                                style={{
+                                  width: 40,
+                                  height: 22,
+                                  background: 'none',
+                                  border: '1px solid #3a3a3a',
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                }}
+                              />
+                            )}
+                            <EffectRow
+                              label="Similarity"
+                              cfg={ck}
+                              field="similarity"
+                              step={0.01}
+                              min={0}
+                              max={1}
+                              onSave={saveCk}
+                            />
+                            <EffectRow
+                              label="Smoothness"
+                              cfg={ck}
+                              field="smoothness"
+                              step={0.01}
+                              min={0}
+                              max={1}
+                              onSave={saveCk}
+                            />
+                            <EffectRow
+                              label="Spill"
+                              cfg={ck}
+                              field="spill"
+                              step={0.01}
+                              min={0}
+                              max={1}
+                              onSave={saveCk}
+                            />
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+                <div style={sectionHeader}>Plane</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {row(
+                    'Facing',
+                    <select
+                      style={sel}
+                      value={vc.facing as string}
+                      onChange={(e) => saveVc({ facing: e.target.value })}
+                    >
+                      <option value="screen">
+                        Screen (always faces camera)
+                      </option>
+                      <option value="world">World (fixed rotation)</option>
+                    </select>
+                  )}
+                  {row(
+                    'Backface',
+                    <select
+                      style={sel}
+                      value={vc.backface as string}
+                      onChange={(e) => saveVc({ backface: e.target.value })}
+                    >
+                      <option value="none">None (single-sided)</option>
+                      <option value="mirror">Mirror (flip X)</option>
+                      <option value="unmirrored">
+                        Unmirrored (double-sided)
+                      </option>
+                    </select>
+                  )}
+                  <EffectRow
+                    label="Width"
+                    cfg={vc}
+                    field="width"
+                    step={0.05}
+                    min={0.01}
+                    onSave={saveVc}
+                  />
+                  <EffectRow
+                    label="Height"
+                    cfg={vc}
+                    field="height"
+                    step={0.05}
+                    min={0.01}
+                    onSave={saveVc}
+                  />
+                  <EffectRow
+                    label="Alpha"
+                    cfg={vc}
+                    field="alpha"
+                    step={0.05}
+                    min={0}
+                    max={1}
+                    onSave={saveVc}
+                  />
+                </div>
+              </>
+            );
+          })()}
+
+        {node.kind === 'audio' &&
+          (() => {
+            const ac: Record<string, unknown> = {
+              audioType: 'simple',
+              sourceUrl: null,
+              autoplay: true,
+              loop: false,
+              onEnd: 'stop',
+              volume: 1,
+              fadeTime: 0,
+              refDistance: 1,
+              rolloffFactor: 1,
+              maxDistance: 100,
+              coneInnerAngle: 360,
+              coneOuterAngle: 360,
+              coneOuterGain: 0,
+              ...((node.components?.audio ?? {}) as Record<string, unknown>),
+            };
+            const saveAc = (patch: Record<string, unknown>) => {
+              const next = { ...ac, ...patch };
+              const components = { ...node.components, audio: next };
+              const filePatch =
+                'sourceUrl' in patch
+                  ? { filePath: (patch.sourceUrl as string) ?? null }
+                  : {};
+              api
+                .updateNode(node.id, { components, ...filePatch })
+                .catch(() => {});
+              storeUpdateNode(node.id, { components, ...filePatch });
+            };
+            const audioAssets = assets.filter((a) => a.kind === 'audio');
+            const sel: React.CSSProperties = {
+              background: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              color: '#e0e0e0',
+              borderRadius: 4,
+              padding: '3px 6px',
+              fontSize: 12,
+              outline: 'none',
+            };
+            const row = (label: string, children: React.ReactNode) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                  {label}
+                </span>
+                {children}
+              </div>
+            );
+            const check = (
+              label: string,
+              field: string,
+              checked: boolean
+            ) =>
+              row(
+                label,
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => saveAc({ [field]: e.target.checked })}
+                />
+              );
+            const isDirectional = ac.audioType === 'directional';
+            return (
+              <>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Audio Source
+                  <PickButton onClick={() => flashBottomTab('audio')} />
+                </div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  <datalist id="audio-src-list">
+                    {audioAssets.map((a) => (
+                      <option key={a.id} value={a.url} label={a.name} />
+                    ))}
+                  </datalist>
+                  {row(
+                    'Source',
+                    <input
+                      list="audio-src-list"
+                      style={{ ...numInput, width: 120 }}
+                      placeholder="URL or pick asset…"
+                      defaultValue={(ac.sourceUrl as string) ?? ''}
+                      key={node.id + '-audsrc'}
+                      onBlur={(e) =>
+                        saveAc({ sourceUrl: e.target.value.trim() || null })
+                      }
+                    />
+                  )}
+                  {row(
+                    'Type',
+                    <select
+                      style={sel}
+                      value={ac.audioType as string}
+                      onChange={(e) => saveAc({ audioType: e.target.value })}
+                    >
+                      <option value="simple">Simple (non-spatial)</option>
+                      <option value="directional">Directional (spatial)</option>
+                    </select>
+                  )}
+                </div>
+                <div style={sectionHeader}>Playback</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {check('Autoplay', 'autoplay', ac.autoplay as boolean)}
+                  {check('Loop', 'loop', ac.loop as boolean)}
+                  <EffectRow
+                    label="Volume"
+                    cfg={ac}
+                    field="volume"
+                    step={0.05}
+                    min={0}
+                    max={1}
+                    onSave={saveAc}
+                  />
+                </div>
+                {isDirectional && (
+                  <>
+                    <div style={sectionHeader}>Spatial</div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      <EffectRow
+                        label="Ref distance"
+                        cfg={ac}
+                        field="refDistance"
+                        step={0.1}
+                        min={0}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Rolloff"
+                        cfg={ac}
+                        field="rolloffFactor"
+                        step={0.1}
+                        min={0}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Max distance"
+                        cfg={ac}
+                        field="maxDistance"
+                        step={1}
+                        min={0}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Cone inner°"
+                        cfg={ac}
+                        field="coneInnerAngle"
+                        step={1}
+                        min={0}
+                        max={360}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Cone outer°"
+                        cfg={ac}
+                        field="coneOuterAngle"
+                        step={1}
+                        min={0}
+                        max={360}
+                        onSave={saveAc}
+                      />
+                      <EffectRow
+                        label="Cone outer gain"
+                        cfg={ac}
+                        field="coneOuterGain"
+                        step={0.05}
+                        min={0}
+                        max={1}
+                        onSave={saveAc}
+                      />
+                    </div>
+                  </>
+                )}
               </>
             );
           })()}
@@ -4109,6 +5691,137 @@ export function PropertiesPanel() {
             );
           })()}
 
+        {node.kind === 'feed' &&
+          (() => {
+            const fc: Record<string, unknown> = {
+              template: '',
+              css: '',
+              width: 2,
+              height: 1.2,
+              padding: 16,
+              fontSize: 28,
+              color: '#ffffff',
+              billboard: true,
+              ...((node.components?.feed ?? {}) as Record<string, unknown>),
+            };
+            const saveFc = (patch: Record<string, unknown>) => {
+              const merged: Record<string, unknown> = { ...fc, ...patch };
+              const components = {
+                ...node.components,
+                feed: { type: 'feed', ...merged },
+              };
+              api.updateNode(node.id, { components }).catch(() => {});
+              storeUpdateNode(node.id, { components });
+            };
+            const row = (label: string, children: React.ReactNode) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                  {label}
+                </span>
+                {children}
+              </div>
+            );
+            const area: React.CSSProperties = {
+              background: '#1e1e1e',
+              border: '1px solid #3a3a3a',
+              color: '#e0e0e0',
+              borderRadius: 4,
+              padding: 6,
+              fontSize: 11,
+              fontFamily: 'monospace',
+              outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
+              resize: 'vertical',
+            };
+            return (
+              <>
+                <div style={sectionHeader}>Feed</div>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  <span style={{ fontSize: 11, color: '#666' }}>
+                    Renders the data-channel fields visible to this node (global
+                    + this node as a <code>set_data</code> scope target) through
+                    the template below.
+                  </span>
+                  {row(
+                    'Billboard',
+                    <input
+                      type="checkbox"
+                      checked={Boolean(fc.billboard)}
+                      onChange={(e) => saveFc({ billboard: e.target.checked })}
+                    />
+                  )}
+                  {row(
+                    'Color',
+                    <input
+                      type="color"
+                      value={(fc.color as string) ?? '#ffffff'}
+                      onChange={(e) => saveFc({ color: e.target.value })}
+                      style={{
+                        width: 40,
+                        height: 24,
+                        background: '#2a2a2a',
+                        border: '1px solid #3a3a3a',
+                        borderRadius: 4,
+                        padding: 0,
+                      }}
+                    />
+                  )}
+                  <EffectRow
+                    label="Font Size (px)"
+                    cfg={fc}
+                    field="fontSize"
+                    step={1}
+                    min={1}
+                    onSave={saveFc}
+                  />
+                  <EffectRow
+                    label="Padding (px)"
+                    cfg={fc}
+                    field="padding"
+                    step={1}
+                    min={0}
+                    onSave={saveFc}
+                  />
+                  <EffectRow
+                    label="Width (m)"
+                    cfg={fc}
+                    field="width"
+                    step={0.1}
+                    min={0.01}
+                    onSave={saveFc}
+                  />
+                  <EffectRow
+                    label="Height (m)"
+                    cfg={fc}
+                    field="height"
+                    step={0.1}
+                    min={0.01}
+                    onSave={saveFc}
+                  />
+                  <span style={{ fontSize: 12, color: '#888' }}>Template</span>
+                  <textarea
+                    style={{ ...area, minHeight: 120 }}
+                    defaultValue={(fc.template as string) ?? ''}
+                    key={node.id + '-feed-template'}
+                    spellCheck={false}
+                    onBlur={(e) => saveFc({ template: e.target.value })}
+                  />
+                  <span style={{ fontSize: 12, color: '#888' }}>CSS</span>
+                  <textarea
+                    style={{ ...area, minHeight: 100 }}
+                    defaultValue={(fc.css as string) ?? ''}
+                    key={node.id + '-feed-css'}
+                    spellCheck={false}
+                    onBlur={(e) => saveFc({ css: e.target.value })}
+                  />
+                </div>
+              </>
+            );
+          })()}
+
         {node.kind === 'particle' &&
           (() => {
             const pc: Record<string, unknown> = {
@@ -4150,19 +5863,32 @@ export function PropertiesPanel() {
             );
             return (
               <>
-                <div style={sectionHeader}>Texture</div>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  Texture
+                  <PickButton onClick={() => flashBottomTab('images')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   {/* Built-in presets */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {getBuiltinParticleTextures().map((t) => {
-                      const active = pc.textureUrl === t.dataUrl;
+                      const url = builtinParticleTextureUrl(t.key);
+                      // Match the canonical `builtin-tex:<key>` ref; also treat a
+                      // legacy inlined data URI as selected.
+                      const active =
+                        pc.textureUrl === url || pc.textureUrl === t.dataUrl;
                       return (
                         <button
-                          key={t.label}
+                          key={t.key}
                           title={t.label}
-                          onClick={() => savePc({ textureUrl: t.dataUrl })}
+                          onClick={() => savePc({ textureUrl: url })}
                           style={{
                             background: active ? '#2a4a6a' : '#1e1e1e',
                             border: active
@@ -4667,22 +6393,99 @@ export function PropertiesPanel() {
                   </>
                 )}
                 {exprs.length > 0 && (
-                  <>
-                    <div style={sectionHeader}>
-                      Expressions ({exprs.length})
+                  <CollapsibleSection
+                    title="Default Expression"
+                    count={exprs.length}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: '#555',
+                        lineHeight: 1.4,
+                        marginBottom: 6,
+                      }}
+                    >
+                      Resting expression weights held until a blendshape
+                      broadcast (VMC, lipsync, tracking) overrides them.
                     </div>
-                    <div style={listStyle}>
-                      {exprs.map((n) => (
-                        <div key={n} style={itemStyle}>
-                          {n}
-                        </div>
-                      ))}
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                      }}
+                    >
+                      {exprs.map((n) => {
+                        const defaults = (node.properties?.defaultExpressions ??
+                          {}) as Record<string, number>;
+                        const setDefaultExpr = (
+                          v: number,
+                          persist: boolean
+                        ) => {
+                          const prev = (node.properties?.defaultExpressions ??
+                            {}) as Record<string, number>;
+                          // Keep 0 entries (don't delete) so the viewport keeps
+                          // driving the expression back to 0 — dropping the key
+                          // would leave the last applied weight stuck on the VRM.
+                          const next = { ...prev, [n]: v };
+                          const properties = {
+                            ...node.properties,
+                            defaultExpressions: next,
+                          };
+                          storeUpdateNode(node.id, { properties });
+                          if (persist)
+                            api
+                              .updateNode(node.id, {
+                                properties: { defaultExpressions: next },
+                              })
+                              .catch(() => {});
+                        };
+                        return (
+                          <div
+                            key={n}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 11,
+                                color: '#aaa',
+                                fontFamily: 'monospace',
+                                width: 110,
+                                flexShrink: 0,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={n}
+                            >
+                              {n}
+                            </span>
+                            <SliderInput
+                              value={defaults[n] ?? 0}
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              precision={2}
+                              style={{ flex: 1 }}
+                              onChange={(v) => setDefaultExpr(v, false)}
+                              onCommit={(v) => setDefaultExpr(v, true)}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
-                  </>
+                  </CollapsibleSection>
                 )}
               </>
             );
           })()}
+
+        {/* Material editor — avatar only, lists materials once the VRM loads */}
+        {node.kind === 'avatar' && <MaterialSection node={node} />}
 
         {/* Avatar properties — broadcast pose blend, etc. */}
         {node.kind === 'avatar' && (
@@ -4754,6 +6557,106 @@ export function PropertiesPanel() {
           </>
         )}
 
+        {/* Model (avatar/model file) */}
+        {(node.kind === 'avatar' || node.kind === 'model') && (
+          <>
+            <div
+              style={{
+                ...sectionHeader,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              Model
+              <PickButton onClick={() => flashBottomTab('models')} />
+            </div>
+            <datalist id="model-list">
+              {modelAssets.map((a) => (
+                <option key={a.id} value={a.url} label={a.name} />
+              ))}
+            </datalist>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                list="model-list"
+                style={{ ...textInput, flex: 1 }}
+                placeholder={
+                  modelAssets.length
+                    ? 'Search or paste URL…'
+                    : 'No models uploaded yet'
+                }
+                defaultValue={node.filePath ?? ''}
+                key={node.id + ':model'}
+                onBlur={(e) => {
+                  const filePath = e.target.value.trim();
+                  api
+                    .updateNode(node.id, { filePath: filePath || '' })
+                    .catch(() => {});
+                  storeUpdateNode(node.id, { filePath: filePath || null });
+                }}
+              />
+              {node.filePath && (
+                <button
+                  title="Clear model"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#666',
+                    cursor: 'pointer',
+                    fontSize: 16,
+                    padding: '0 2px',
+                    flexShrink: 0,
+                  }}
+                  onClick={() => {
+                    api.updateNode(node.id, { filePath: '' }).catch(() => {});
+                    storeUpdateNode(node.id, { filePath: null });
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {modelAssets.length > 0 && (
+              <div
+                style={{
+                  marginTop: 6,
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 4,
+                }}
+              >
+                {modelAssets.map((a) => (
+                  <button
+                    key={a.id}
+                    style={{
+                      background:
+                        node.filePath === a.url ? '#1a3a5a' : '#1e1e1e',
+                      border: '1px solid #3a3a3a',
+                      color: '#ccc',
+                      borderRadius: 4,
+                      padding: '2px 8px',
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      maxWidth: 220,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={a.name}
+                    onClick={() => {
+                      api
+                        .updateNode(node.id, { filePath: a.url })
+                        .catch(() => {});
+                      storeUpdateNode(node.id, { filePath: a.url });
+                    }}
+                  >
+                    {a.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
         {/* Animation */}
         {/* TODO: Overhaul this section in a dedicated pass. The Speed/Offset
             number inputs and the seek slider were intentionally left on the
@@ -4764,7 +6667,16 @@ export function PropertiesPanel() {
             its planned UX update. */}
         {(node.kind === 'avatar' || node.kind === 'model') && (
           <>
-            <div style={sectionHeader}>Animation</div>
+            <div
+              style={{
+                ...sectionHeader,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              Animation
+              <PickButton onClick={() => flashBottomTab('animations')} />
+            </div>
             <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>
               Idle Animation
             </div>
@@ -4821,50 +6733,6 @@ export function PropertiesPanel() {
                 </button>
               )}
             </div>
-            {animAssets.length > 0 && (
-              <div
-                style={{
-                  marginTop: 6,
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 4,
-                }}
-              >
-                {animAssets.map((a) => (
-                  <button
-                    key={a.id}
-                    style={{
-                      background:
-                        (node.components?.animation as { idleUrl?: string })
-                          ?.idleUrl === a.url
-                          ? '#1a4a2a'
-                          : '#1e1e1e',
-                      border: '1px solid #3a3a3a',
-                      color: '#ccc',
-                      borderRadius: 4,
-                      padding: '2px 8px',
-                      cursor: 'pointer',
-                      fontSize: 11,
-                      maxWidth: 220,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                    title={a.name}
-                    onClick={() => {
-                      const components = {
-                        ...node.components,
-                        animation: { idleUrl: a.url },
-                      };
-                      api.updateNode(node.id, { components }).catch(() => {});
-                      storeUpdateNode(node.id, { components });
-                    }}
-                  >
-                    {a.name}
-                  </button>
-                ))}
-              </div>
-            )}
             {/* Speed and offset */}
             {(node.components?.animation as { idleUrl?: string })?.idleUrl && (
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>

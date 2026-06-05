@@ -1,12 +1,15 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useEditorStore, type PresetSummary } from '../../store/editorStore';
 import {
   getPresets,
   createPreset,
   deletePreset,
   getPreset,
+  getBuiltinPresets,
+  getBuiltinPreset,
   serializePreset,
   instantiatePreset,
+  type BuiltinPresetSummary,
 } from '../../api/client';
 
 export function PresetLibrary() {
@@ -27,7 +30,27 @@ export function PresetLibrary() {
   const [description, setDescription] = useState('');
   const [embedAssets, setEmbedAssets] = useState(false);
   const [showSaveForm, setShowSaveForm] = useState(false);
+  const [builtins, setBuiltins] = useState<BuiltinPresetSummary[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Built-in presets are shipped with the app and don't depend on the project.
+  useEffect(() => {
+    getBuiltinPresets()
+      .then(setBuiltins)
+      .catch(() => {});
+  }, []);
+
+  const handleInstantiateBuiltin = async (id: string) => {
+    setInstantiating(id);
+    try {
+      const data = await getBuiltinPreset(id);
+      await instantiatePayload(data.payload);
+    } catch (e) {
+      console.error('Failed to instantiate builtin preset:', e);
+    } finally {
+      setInstantiating(null);
+    }
+  };
 
   const loadPresets = async () => {
     if (!projectId) return;
@@ -240,6 +263,24 @@ export function PresetLibrary() {
     cursor: 'pointer',
   };
 
+  const groupLabel: React.CSSProperties = {
+    fontSize: 10,
+    fontWeight: 700,
+    color: '#666',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    margin: '2px 2px 6px',
+  };
+
+  const modalInput: React.CSSProperties = {
+    background: '#1a1a1a',
+    border: '1px solid #3a3a3a',
+    borderRadius: 4,
+    color: '#ccc',
+    padding: '6px 8px',
+    fontSize: 12,
+  };
+
   return (
     <div
       style={{
@@ -253,6 +294,22 @@ export function PresetLibrary() {
       <div style={sectionHeader}>
         <span>Preset Library</span>
         <div style={{ display: 'flex', gap: 4 }}>
+          <button
+            style={{ ...btnStyle, opacity: canSave ? 1 : 0.4 }}
+            onClick={() => {
+              if (!canSave) return;
+              setShowSaveForm(true);
+              loadPresets();
+            }}
+            disabled={!canSave}
+            title={
+              canSave
+                ? 'Save the selected node/layer as a preset'
+                : 'Select a node or layer first'
+            }
+          >
+            Save
+          </button>
           <button
             style={btnStyle}
             onClick={handleCopy}
@@ -290,85 +347,78 @@ export function PresetLibrary() {
         }}
       />
 
-      {/* Save form */}
-      {canSave && (
-        <div style={{ padding: '6px 8px', borderBottom: '1px solid #2a2a2a' }}>
-          {!showSaveForm ? (
-            <button
-              style={{ ...btnStyle, width: '100%' }}
-              onClick={() => {
-                setShowSaveForm(true);
-                loadPresets();
+      {/* Preset list */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
+        {/* Built-in (shipped, read-only) presets */}
+        {builtins.length > 0 && (
+          <>
+            <div style={groupLabel}>Built-in</div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                gap: 8,
+                marginBottom: 10,
               }}
             >
-              Save Selected as Preset
-            </button>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <input
-                placeholder="Preset name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                style={{
-                  background: '#1a1a1a',
-                  border: '1px solid #3a3a3a',
-                  borderRadius: 3,
-                  color: '#ccc',
-                  padding: '4px 6px',
-                  fontSize: 11,
-                }}
-              />
-              <input
-                placeholder="Description (optional)"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                style={{
-                  background: '#1a1a1a',
-                  border: '1px solid #3a3a3a',
-                  borderRadius: 3,
-                  color: '#ccc',
-                  padding: '4px 6px',
-                  fontSize: 11,
-                }}
-              />
-              <label
-                style={{
-                  fontSize: 10,
-                  color: '#888',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={embedAssets}
-                  onChange={(e) => setEmbedAssets(e.target.checked)}
-                />
-                Embed assets (portable)
-              </label>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button
-                  style={{ ...btnStyle, flex: 1, opacity: saving ? 0.5 : 1 }}
-                  onClick={handleSave}
-                  disabled={saving || !name.trim()}
-                >
-                  {saving ? 'Saving...' : 'Save'}
-                </button>
-                <button
-                  style={{ ...btnStyle }}
-                  onClick={() => setShowSaveForm(false)}
-                >
-                  Cancel
-                </button>
-              </div>
+              {builtins.map((b) => {
+                const target =
+                  b.rootKind === 'compose_layer'
+                    ? activeComposeSceneId
+                    : activeSceneId;
+                return (
+                  <div
+                    key={b.id}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      border: '1px solid #2a2a2a',
+                      background: '#181818',
+                      fontSize: 12,
+                      color: '#ccc',
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {b.rootKind === 'scene_node' ? '🧩' : '🎨'} {b.name}
+                      </div>
+                      {b.description && (
+                        <div style={{ fontSize: 10, color: '#666' }}>
+                          {b.description}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button
+                        style={{
+                          ...btnStyle,
+                          fontSize: 10,
+                          padding: '2px 5px',
+                          opacity: instantiating === b.id ? 0.5 : 1,
+                        }}
+                        onClick={() => handleInstantiateBuiltin(b.id)}
+                        disabled={instantiating === b.id || !target}
+                        title="Instantiate into the current scene"
+                      >
+                        Use
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Preset list */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+            <div style={groupLabel}>Project</div>
+          </>
+        )}
         {presets.length === 0 && (
           <div
             style={{
@@ -384,97 +434,196 @@ export function PresetLibrary() {
               : ' Select a node first.'}
           </div>
         )}
-        {presets.map((p) => (
-          <div
-            key={p.id}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '4px 8px',
-              margin: '1px 4px',
-              borderRadius: 3,
-              background: '#1a1a1a',
-              cursor: 'default',
-              fontSize: 12,
-              color: '#ccc',
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {p.rootKind === 'scene_node' ? '🧩' : '🎨'} {p.name}
-              </div>
-              {p.description && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+            gap: 8,
+          }}
+        >
+          {presets.map((p) => (
+            <div
+              key={p.id}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                padding: '8px 10px',
+                borderRadius: 6,
+                border: '1px solid #2a2a2a',
+                background: '#1a1a1a',
+                cursor: 'default',
+                fontSize: 12,
+                color: '#ccc',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div
                   style={{
-                    fontSize: 10,
-                    color: '#666',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {p.description}
+                  {p.rootKind === 'scene_node' ? '🧩' : '🎨'} {p.name}
                 </div>
-              )}
-            </div>
-            <div
-              style={{ display: 'flex', gap: 2, marginLeft: 4, flexShrink: 0 }}
-            >
-              {(() => {
-                const target =
-                  p.rootKind === 'compose_layer'
-                    ? activeComposeSceneId
-                    : activeSceneId;
-                return (
-                  <button
+                {p.description && (
+                  <div
                     style={{
-                      ...btnStyle,
                       fontSize: 10,
-                      padding: '2px 5px',
-                      opacity: instantiating === p.id ? 0.5 : 1,
+                      color: '#666',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                     }}
-                    onClick={() => handleInstantiate(p.id)}
-                    disabled={instantiating === p.id || !target}
-                    title={
-                      p.rootKind === 'compose_layer'
-                        ? 'Instantiate into current compose scene'
-                        : 'Instantiate into current 3D scene'
-                    }
                   >
-                    Use
-                  </button>
-                );
-              })()}
-              <button
-                style={{ ...btnStyle, fontSize: 10, padding: '2px 5px' }}
-                onClick={() => handleExport(p.id)}
-                title="Export as .json"
-              >
-                Export
+                    {p.description}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                {(() => {
+                  const target =
+                    p.rootKind === 'compose_layer'
+                      ? activeComposeSceneId
+                      : activeSceneId;
+                  return (
+                    <button
+                      style={{
+                        ...btnStyle,
+                        fontSize: 10,
+                        padding: '2px 5px',
+                        opacity: instantiating === p.id ? 0.5 : 1,
+                      }}
+                      onClick={() => handleInstantiate(p.id)}
+                      disabled={instantiating === p.id || !target}
+                      title={
+                        p.rootKind === 'compose_layer'
+                          ? 'Instantiate into current compose scene'
+                          : 'Instantiate into current 3D scene'
+                      }
+                    >
+                      Use
+                    </button>
+                  );
+                })()}
+                <button
+                  style={{ ...btnStyle, fontSize: 10, padding: '2px 5px' }}
+                  onClick={() => handleExport(p.id)}
+                  title="Export as .json"
+                >
+                  Export
+                </button>
+                <button
+                  style={{
+                    ...btnStyle,
+                    fontSize: 10,
+                    padding: '2px 5px',
+                    color: '#a55',
+                  }}
+                  onClick={() => handleDelete(p.id)}
+                  title="Delete preset"
+                >
+                  Del
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Save-as-preset modal */}
+      {showSaveForm && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+          }}
+          onClick={() => !saving && setShowSaveForm(false)}
+        >
+          <div
+            style={{
+              width: 340,
+              background: '#1e1e1e',
+              border: '1px solid #3a3a3a',
+              borderRadius: 8,
+              padding: 16,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              boxShadow: '0 8px 30px rgba(0,0,0,0.6)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#ddd' }}>
+              Save as Preset
+            </div>
+            <input
+              autoFocus
+              placeholder="Preset name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && name.trim() && !saving) handleSave();
+                if (e.key === 'Escape') setShowSaveForm(false);
+              }}
+              style={modalInput}
+            />
+            <input
+              placeholder="Description (optional)"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              style={modalInput}
+            />
+            <label
+              style={{
+                fontSize: 11,
+                color: '#888',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={embedAssets}
+                onChange={(e) => setEmbedAssets(e.target.checked)}
+              />
+              Embed assets (portable across projects)
+            </label>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 6,
+                marginTop: 4,
+              }}
+            >
+              <button style={btnStyle} onClick={() => setShowSaveForm(false)}>
+                Cancel
               </button>
               <button
                 style={{
                   ...btnStyle,
-                  fontSize: 10,
-                  padding: '2px 5px',
-                  color: '#a55',
+                  background: '#2563eb',
+                  border: '1px solid #2563eb',
+                  color: '#fff',
+                  opacity: saving || !name.trim() ? 0.5 : 1,
                 }}
-                onClick={() => handleDelete(p.id)}
-                title="Delete preset"
+                onClick={handleSave}
+                disabled={saving || !name.trim()}
               >
-                Del
+                {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -9,8 +9,8 @@ Standalone graphs exist independently of any `node_components` row. The canonica
 | Owner kind | Use case | Context node injected |
 |---|---|---|
 | `project` | Project-wide event handlers (overlive, manual triggers). No spatial owner. | none |
-| `scene_node` | Logic attached to a scene node (e.g. drive that node's transform or trigger its clips). | synthetic `scene_entity` bound to the owner scene node id |
-| `compose_layer` | Logic attached to a compose layer (e.g. drive that layer's text content / opacity). | synthetic `scene_entity` bound to the owner compose layer id |
+| `scene_node` | Logic attached to a scene node (e.g. drive that node's transform or trigger its clips). | `scene_entity` (output type `SceneNode`), fed the owner scene node id |
+| `compose_layer` | Logic attached to a compose layer (e.g. drive that layer's text content / opacity). | `scene_entity` (output type `ComposeLayer`), fed the owner compose layer id |
 
 Component graphs (one per `node_components` row, hardcoded shape) are a separate concept; they're owned by the component manager and not surfaced through the same routes.
 
@@ -35,6 +35,7 @@ A single generic router serves all three owner kinds.
 |---|---|
 | `GET  /api/projects/:projectId/graphs` | List project-scope graphs. |
 | `POST /api/projects/:projectId/graphs` | Create project-scope graph (body: `{ name }`). Routes through `projectGraphManager.create` + `reconcile`. |
+| `GET  /api/projects/:projectId/scoped-graphs` | List **all** scene-node- and compose-layer-scoped graphs for the project in one query, each tagged with its owner's display name (`ownerName`) and kind (`ownerNodeKind`). Powers the Graphs panel's "Scoped Graphs" section. |
 | `GET  /api/scene-nodes/:nodeId/graphs` | List scene-node-scope graphs. |
 | `POST /api/scene-nodes/:nodeId/graphs` | Create scene-node-scope graph; manager auto-injects `scene_entity` bound to the node. |
 | `GET  /api/compose-layers/:layerId/graphs` | List compose-layer-scope graphs. |
@@ -50,7 +51,7 @@ A single generic router serves all three owner kinds.
 
 - **`startAllEnabled()`** — called at server boot. Hydrates and starts every `enabled = 1` row across all owner kinds.
 - **`reconcile(id)`** — called on every create/update. If `enabled` it stops then re-starts the instance (picks up descriptor + node_state changes); if disabled, stops only.
-- **Descriptor validation** — `validateDescriptor()` rejects any node whose kind is in `COMPONENT_CONTEXT_KINDS = { component_config, component_id, scene_entity }`. Thrown errors surface as `400` from the PUT handler. For scoped graphs the manager injects its own `scene_entity` node at start time, so users can still consume the entity id via normal port connections — they just can't author the context node directly.
+- **Descriptor validation** — `validateDescriptor()` always rejects the component-context kinds `{ component_config, component_id }` (no component to read from). `scene_entity` is allowed in **scene-node- and compose-layer-scoped** graphs and rejected only in **project**-scoped graphs (no owner entity). Thrown errors surface as `400` from the PUT handler. For the allowed scopes the user authors a `scene_entity` node directly; the manager feeds its `config.nodeId` = `owner_id` at start time, and the node's **output type follows the scope** — `SceneNode` for scene-node-scoped, `ComposeLayer` for compose-layer-scoped — via `inferSceneEntity` (the scope reaches inference through `SignalGraph.fromDescriptor(..., ownerKind)` → `InferGraph` → `InferCtx.ownerKind`).
 - **State persistence** — each `setState(nodeId, state)` writes the JSON map back to the row's `node_state` column.
 - **Clock self-tick** — for each `clock` node in the descriptor, the manager calls `Clock.attach(...)` and stashes the cleanup; defaults to 30Hz or `defaultConfig.hz`.
 
@@ -72,9 +73,11 @@ for (const { graphId, node, projectId } of projectGraphManager.iterateNodes()) {
 
 ### `components/editor/GraphsSection.tsx`
 
-Inline expandable list of standalone graphs attached to a single scene node or compose layer. Polls `api.getNodeGraphs(ownerId)` / `api.getLayerGraphs(ownerId)` every 3s, supports add / rename / toggle / delete via right-click `ContextMenu`. Selecting a graph sets `activeGraphId` in the store, which opens the writable `SignalGraphCanvas`.
+Inline expandable list of standalone graphs attached to a single scene node or compose layer. Polls `api.getNodeGraphs(ownerId)` / `api.getLayerGraphs(ownerId)` every 3s, supports add / rename / toggle / delete via right-click `ContextMenu`. Selecting a graph sets `activeGraphId` in the store.
 
-Project-scope graphs are surfaced in a sibling list in the editor sidebar (formerly two separate "Project Graphs" and "Component Graphs" sections — these were merged into a unified standalone-graphs list with grouping).
+`setActiveGraph(id)` (store) does double duty: when `id != null` it also flips `leftTab` to `'graphs'`, so opening any graph — including a scoped graph from the scene/compose trees — switches the main view to the writable `SignalGraphCanvas`. Clearing the active graph (`null`) leaves the current tab alone. This is the mechanism behind "the main view is bound to the active tab" (see [frontend.md](frontend.md)).
+
+The Graphs panel (`GraphListPanel` in `SceneGraph.tsx`) lists three groups: **Project Graphs**, **Scoped Graphs** (scene-node + compose-layer owned, via `GET /api/projects/:id/scoped-graphs`, each row labelled with its owner name + scope), and **Component Graphs** (read-only). The Scoped Graphs section exists so the active scoped graph shows as selected and can be switched without leaving the Graphs tab — the inline per-owner lists in the scene/compose trees remain the place to create them.
 
 ### `SignalGraphCanvas` — writable
 

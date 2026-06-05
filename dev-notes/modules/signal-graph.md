@@ -2,6 +2,11 @@
 
 The reactive execution engine at the core of vspark. Defined in `packages/backend/src/signal/`.
 
+> **Implemented — `media_control` node.** A single node (`action`/`targetKind`/`targetId`
+> config + `SceneEntity` `target` input + optional `t`/`volume` inputs + a `spawnRef`
+> retarget) dispatches fire-and-forget play/pause/stop/restart/seek/setVolume/mute/unmute
+> onto the media-command bus. See [media.md](media.md) and the Output table below.
+
 ## Node model — class-instance / decorator (Phase 2)
 
 Signal nodes are **live class instances** that extend the abstract `Node` base class (`packages/shared/src/node.ts`). A node's **decorated members ARE its ports**. There is no `static execute` and no `static inputPorts/outputPorts` — that model is gone.
@@ -33,7 +38,7 @@ Toolchain: repo runs TC39 Stage-3 decorators (TS 5.9, **no** `experimentalDecora
 
 ## Runtime — `signal/engine.ts`
 
-`SignalGraph` is instantiated per component (one per VMC receiver, one per breathing component, etc.). Graphs can also be **project-scoped** rather than component-scoped — see [project-graphs.md](project-graphs.md) for standalone user-authored graphs owned by a `graphs` row. Project graphs have no component context: the `component_config`, `component_id`, and `scene_entity` node kinds are rejected at descriptor-validation time by `ProjectGraphManager` and would throw inside the engine even if smuggled in.
+`SignalGraph` is instantiated per component (one per VMC receiver, one per breathing component, etc.). Graphs can also be **standalone** (project / scene-node / compose-layer scoped) rather than component-scoped — see [project-graphs.md](project-graphs.md) for user-authored graphs owned by a `graphs` row. The component-context kinds `component_config` / `component_id` are rejected in all standalone graphs at descriptor-validation time by `ProjectGraphManager`. `scene_entity` is allowed in scene-node- and compose-layer-scoped graphs (rejected only in project scope); the graph's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
 
 After the Phase 2 re-architecture the engine is **wiring + lifecycle** over Node instances, not a central dispatcher:
 
@@ -67,7 +72,7 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → node class. All 54 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → node class. All 56 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
 
@@ -131,6 +136,8 @@ Organized by role:
 | `set_scene_node_param` | Writes a scalar/coerced paramPath into the runtime override bus for a scene node. Optional `spawnRef` event input retargets the fire to a tmp id. See [runtime-overrides.md](runtime-overrides.md). |
 | `set_compose_layer_param` | Same shape, compose-layer target. |
 | `set_text` | Convenience over the set-param nodes for the `text.content` paramPath; `spawnRef.kind` overrides `targetKind` when triggered via that port. |
+| `set_data` | Generic sibling of `set_text`: on `fire`, publishes the wired `data` (Any) payload to the named `channel` (String) on the data-channel bus → frontend `feed` layer. See [data-channels.md](data-channels.md). |
+| `media_control` | Fire-and-forget media command (play/pause/stop/restart/seek/setVolume/mute/unmute) onto the media-command bus. Config `action`/`targetKind`/`targetId`; inputs `target` (SceneEntity, picker-or-wired), `t` (Float, for seek), `volume` (Float, for setVolume); a `spawnRef` event retargets to a spawned instance for that fire. tags `['media','output']`. See [media.md](media.md). |
 
 ### Pose interceptor chain
 The interceptor chain lets components (e.g., breathing) modify poses in-flight before broadcast.
@@ -145,7 +152,7 @@ The interceptor chain lets components (e.g., breathing) modify poses in-flight b
 |------|-------------|
 | `component_config` | Dot-notation extractor on component config JSON (e.g., `field: "myNode.param"`) |
 | `component_id` | Injects the owning componentId as a string value |
-| `scene_entity` | Injects the scene node ID for addressed broadcasts |
+| `scene_entity` | Outputs the id of the entity the graph is scoped to; output type follows scope (`SceneNode` / `ComposeLayer`) |
 | `viseme_passthrough` | Scales viseme weights by a sensitivity config value |
 
 ## Graph Descriptor
@@ -172,7 +179,7 @@ Phase 1 of the signal-graph expansion (stream-overlay flows: chat billboards, et
 
 | Kind | Purpose |
 |------|---------|
-| `set_scene_node_param` | Inputs: `fire` (Trigger), `targetId` (EntityId), `paramPath` (String), `value` (Any — coerced via the paramPath registry), `persist` (Bool), optional `spawnRef` (Event<SpawnRef>) that overrides `targetId` for the fire (detected via `ctx.triggeredPort === 'spawnRef'`). On fire: looks up the registry entry, coerces `value` via `coerceParamValue`, calls `runtimeOverrideManager.set(...)`. `persist: true` is best-effort (see [runtime-overrides.md](runtime-overrides.md)). |
+| `set_scene_node_param` | Inputs: `fire` (Trigger), `targetId` (SceneNode), `paramPath` (String), `value` (Any — coerced via the paramPath registry), `persist` (Bool), optional `spawnRef` (Event<SpawnRef>) that overrides `targetId` for the fire (detected via `ctx.triggeredPort === 'spawnRef'`). On fire: looks up the registry entry, coerces `value` via `coerceParamValue`, calls `runtimeOverrideManager.set(...)`. `persist: true` is best-effort (see [runtime-overrides.md](runtime-overrides.md)). |
 | `set_compose_layer_param` | Same shape, compose-layer target. |
 | `set_text` | Convenience over `set_*_param` for the `text.content` paramPath. Accepts `spawnRef`, and when triggered through that port the ref's `kind` overrides `targetKind`. Mismatched ref kinds are refused with a `console.warn`. |
 | `start_clip` | Canonical generalisation of `track_clip_trigger`. Calls `playbackManager.trigger(clipId)`. The original `track_clip_trigger` kind is retained for back-compat. |

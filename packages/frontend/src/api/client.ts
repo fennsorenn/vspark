@@ -131,11 +131,13 @@ function mapAsset(r: Record<string, unknown>): AssetFile {
   };
 }
 
-function guessAssetKind(name: string): 'model' | 'animation' | 'image' {
+function guessAssetKind(name: string): AssetKind {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   if (['fbx', 'bvh'].includes(ext)) return 'animation';
   if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'].includes(ext))
     return 'image';
+  if (['mp4', 'webm', 'mov', 'm4v', 'ogv'].includes(ext)) return 'video';
+  if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext)) return 'audio';
   return 'model';
 }
 
@@ -164,6 +166,12 @@ export interface NodeProperties {
   /** VRM avatar: seconds to ramp between override and additive when the bus flips
    *  blend mode (e.g. on tracking loss). Default 0.5. */
   blendTransitionTime?: number;
+  /** VRM avatar: resting expression weights (expression name → 0..1) applied as a
+   *  baseline each frame; live blendshape broadcasts override them per-key. */
+  defaultExpressions?: Record<string, number>;
+  /** VRM avatar: per-material shader/param overrides (MToon ⇄ PBR), keyed by a
+   *  stable material identity. See components/editor/materialOverrides.ts. */
+  materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
 }
 
 export interface NodeRecord {
@@ -180,6 +188,8 @@ export interface NodeRecord {
   hidden?: boolean;
 }
 
+export type AssetKind = 'model' | 'animation' | 'image' | 'video' | 'audio';
+
 export interface AssetFile {
   id: string;
   projectId: string;
@@ -187,7 +197,7 @@ export interface AssetFile {
   storedPath: string;
   url: string;
   mimeType: string;
-  kind: 'model' | 'animation' | 'image';
+  kind: AssetKind;
 }
 
 export interface NodeComponentRecord {
@@ -209,12 +219,14 @@ export interface CameraEffectRecord {
 export type ComposeLayerKind =
   | 'image'
   | 'video'
+  | 'audio'
   | 'browser'
   | 'group'
   | 'compose_scene'
   | 'scene_include'
   | 'camera_view'
-  | 'text';
+  | 'text'
+  | 'feed';
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
 
@@ -269,6 +281,15 @@ export interface TrackClipLaneRecord {
   keyframes: TrackClipKeyframeRecord[];
 }
 
+export interface TrackClipEventRecord {
+  id: string;
+  t: number;
+  action: string;
+  targetKind: TrackClipTargetKind;
+  targetId: string;
+  payload: Record<string, unknown> | null;
+}
+
 export interface TrackClipRecord {
   id: string;
   /** Owner is exactly one of these (the other is null). */
@@ -281,6 +302,7 @@ export interface TrackClipRecord {
   autoplay: boolean;
   startedAt: number | null;
   lanes: TrackClipLaneRecord[];
+  events: TrackClipEventRecord[];
 }
 
 // Projects
@@ -382,8 +404,24 @@ export function mapTrackClipLane(
   };
 }
 
+export function mapTrackClipEvent(
+  r: Record<string, unknown>
+): TrackClipEventRecord {
+  return {
+    id: r.id as string,
+    t: Number(r.t ?? 0),
+    action: (r.action ?? 'play') as string,
+    targetKind: (r.target_kind ??
+      r.targetKind ??
+      'scene_node') as TrackClipTargetKind,
+    targetId: (r.target_id ?? r.targetId ?? '') as string,
+    payload: (r.payload ?? null) as Record<string, unknown> | null,
+  };
+}
+
 export function mapTrackClip(r: Record<string, unknown>): TrackClipRecord {
   const rawLanes = (r.lanes as Record<string, unknown>[] | undefined) ?? [];
+  const rawEvents = (r.events as Record<string, unknown>[] | undefined) ?? [];
   return {
     id: r.id as string,
     ownerNodeId: (r.owner_node_id ?? r.ownerNodeId ?? null) as string | null,
@@ -400,6 +438,7 @@ export function mapTrackClip(r: Record<string, unknown>): TrackClipRecord {
           ? Number(r.startedAt)
           : null,
     lanes: rawLanes.map(mapTrackClipLane),
+    events: rawEvents.map(mapTrackClipEvent),
   };
 }
 
@@ -690,9 +729,9 @@ type CreateTrackClipBody = {
  *  via lane / keyframe endpoints and the caller needs a consistent local
  *  snapshot rather than reconstructing from WS broadcasts. */
 export const getTrackClipsForNode = (nodeId: string) =>
-  request<Record<string, unknown>[]>(
-    `/scene-nodes/${nodeId}/track-clips`
-  ).then((rows) => rows.map(mapTrackClip));
+  request<Record<string, unknown>[]>(`/scene-nodes/${nodeId}/track-clips`).then(
+    (rows) => rows.map(mapTrackClip)
+  );
 
 export const getTrackClipsForLayer = (layerId: string) =>
   request<Record<string, unknown>[]>(
@@ -782,6 +821,27 @@ export const replaceTrackClipKeyframes = (
   ).then((r) => ({
     laneId: r.laneId,
     keyframes: r.keyframes.map(mapTrackClipKeyframe),
+  }));
+
+export const replaceTrackClipEvents = (
+  clipId: string,
+  events: Array<
+    Partial<TrackClipEventRecord> & {
+      t: number;
+      action: string;
+      targetId: string;
+    }
+  >
+) =>
+  request<{ clipId: string; events: Record<string, unknown>[] }>(
+    `/track-clips/${clipId}/events`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ events }),
+    }
+  ).then((r) => ({
+    clipId: r.clipId,
+    events: r.events.map(mapTrackClipEvent),
   }));
 
 export const triggerTrackClip = (id: string) =>
@@ -875,6 +935,16 @@ export const createProjectGraph = (projectId: string, name: string) =>
     method: 'POST',
     body: JSON.stringify({ name }),
   });
+
+/** A scene-node- or compose-layer-scoped graph, tagged with its owner's
+ *  display name for listing in the Graphs panel's Scoped section. */
+export interface ScopedGraphRecord extends GraphRecord {
+  ownerName: string;
+  ownerNodeKind?: string;
+}
+
+export const getProjectScopedGraphs = (projectId: string) =>
+  request<ScopedGraphRecord[]>(`/projects/${projectId}/scoped-graphs`);
 
 // ─── Overlive: app credentials ───────────────────────────────────────────────
 
@@ -1092,6 +1162,22 @@ export const createPreset = (
 export const getPreset = (id: string) =>
   request<PresetRecord>(`/presets/${id}`);
 
+export interface BuiltinPresetSummary {
+  id: string;
+  name: string;
+  description: string;
+  rootKind: 'scene_node' | 'compose_layer';
+  builtin: true;
+}
+
+export const getBuiltinPresets = () =>
+  request<BuiltinPresetSummary[]>(`/presets/builtin`);
+
+export const getBuiltinPreset = (id: string) =>
+  request<BuiltinPresetSummary & { payload: unknown }>(
+    `/presets/builtin/${id}`
+  );
+
 export const deletePreset = (id: string) =>
   request<void>(`/presets/${id}`, { method: 'DELETE' });
 
@@ -1136,8 +1222,7 @@ export const instantiatePreset = (
 
 /** Generic graph fetch by id — works for any owner kind. Used by the canvas
  *  so it can open a graph without first knowing its scope. */
-export const getGraph = (id: string) =>
-  request<GraphRecord>(`/graphs/${id}`);
+export const getGraph = (id: string) => request<GraphRecord>(`/graphs/${id}`);
 
 export const getNodeGraphs = (nodeId: string) =>
   request<GraphRecord[]>(`/scene-nodes/${nodeId}/graphs`);
@@ -1217,6 +1302,7 @@ export const api = {
   updateTrackClipLane,
   deleteTrackClipLane,
   replaceTrackClipKeyframes,
+  replaceTrackClipEvents,
   triggerTrackClip,
   stopTrackClip,
   pauseTrackClip,
@@ -1231,6 +1317,7 @@ export const api = {
   getComponentKinds,
   getProjectGraphs,
   createProjectGraph,
+  getProjectScopedGraphs,
   getOverliveAppCredentials,
   createOverliveAppCredential,
   updateOverliveAppCredential,
@@ -1245,6 +1332,8 @@ export const api = {
   getPresets,
   createPreset,
   getPreset,
+  getBuiltinPresets,
+  getBuiltinPreset,
   deletePreset,
   serializePreset,
   instantiatePreset,

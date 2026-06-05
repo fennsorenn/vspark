@@ -21,13 +21,40 @@ The frontend exposes compose scenes as a separate top-level concept from 3D scen
 Table `compose_layers` (migration [008_compose_layers.sql](../../packages/backend/src/db/migrations/008_compose_layers.sql) + later patches 016, 018). Layers are project-scoped (was scene-scoped). `camera_node_id` is nullable — `NULL` means visible in every camera. `parent_id` (migration 016) supports nesting (`compose_scene` → group layer → image, etc.). `root_compose_scene_id` (migration 018) points at the owning `compose_scene` row.
 
 Per-layer fields:
-- `kind`: `'compose_scene' | 'image' | 'video' | 'browser' | 'text'`
-- `asset_id` (image/video) or `url` (browser)
+- `kind`: `'compose_scene' | 'image' | 'video' | 'audio' | 'browser' | 'text'`
+- `asset_id` (image/video/audio) or `url` (browser)
 - Layout: `x`, `y` (pixel offsets from anchor corner), `width`, `height`, `anchor` (`top|bottom × left|right`), `rotation` (degrees, CSS transform around centre)
 - Display: `visible`, `opacity`, `name`
 - Ordering: `scene_order` (signed int), `camera_order` (int)
 
 Shared types live in [packages/shared/src/types.ts](../../packages/shared/src/types.ts) (`ComposeLayer`, `ComposeLayerKind`, anchor enums, `SCENE_RENDER_SLOT` constant) and Zod schemas in [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) (`createComposeLayerSchema`, `updateComposeLayerSchema`, `reorderComposeLayersSchema`).
+
+## Video layer (finished) + media-command bus
+
+The `video` compose layer is now a **config-driven `VideoLayer`** (was a hardcoded
+autoplay/muted/loop `<video>`). `ComposeLayerStack.tsx` reads playback fields
+(`autoplay`/`loop`/`onEnd`/`muted`/`volume`, surfaced as Playback controls in
+`ComposeLayerProperties.tsx`) and registers a `MediaHandle` in the media registry
+keyed by `layer.id`, so the media-command bus and the track-clip event lane can drive
+play/pause/stop/seek against it.
+
+The render **`mode` (`'editor' | 'viewer'`)** is now threaded through
+`ComposeLayerStack` → `LayerView` → `LayerContent` → `SceneIncludeLayer` so video
+audio honours the audibility gate (muted in the editor unless the session
+`editorAudioPreviewEnabled` preview is on; audible in the viewer, subject to the
+layer's own `muted` flag). See [media.md](media.md).
+
+**Blend mode + chroma key.** `layerStyle()` applies `config.blendMode` (any CSS
+`mix-blend-mode` string, skipped when `'normal'`) as `mixBlendMode` for **every** layer
+kind; the video layer additionally chroma-keys via a WebGL2 `ChromaVideoCanvas` when
+`config.chromaKey.enabled` (CSS can't key a `<video>`). Both surfaced in
+`ComposeLayerProperties`. See [media.md](media.md) (Video FX).
+
+There is also a non-visual **`audio` layer kind** (`ComposeLayerStack.AudioLayer`):
+a `<audio>` element that registers a `MediaHandle` and keeps playing even when the
+layer is `visible:false` (the stack uses CSS `visibility:hidden`). Same playback
+config (`autoplay`/`loop`/`muted`/`volume`) and audibility gate as video. See
+[media.md](media.md) (Audio — 2D compose layer).
 
 ## Phase 1 additions (signal-graph expansion) — implemented
 
@@ -73,8 +100,9 @@ Per-camera sections in the tree show all scene-wide layers as pinned/interleaved
 [components/editor/ComposeLayerStack.tsx](../../packages/frontend/src/components/editor/ComposeLayerStack.tsx) is a single renderer used by both the editor's compose viewport and the public viewer:
 
 - Layers are absolutely positioned DOM elements (HTML/CSS), not CSS3D or WebGL textures.
-- Position is anchor-relative: `(x, y)` is an offset from the chosen corner (`top|bottom × left|right`), so layers stay glued to e.g. the bottom-right of any window size.
-- Rotation is a CSS `transform: rotate(...)` around the layer centre.
+- **Layers nest by `parentId` and are positioned, rotated and sized relative to their parent — not the viewport.** The renderer builds a parent→children map and renders the tree recursively: each `LayerView` renders its children *inside* its own box, so a child's CSS `left/top/width/height` (and `%` units) resolve against the parent layer's content box and its `rotate(...)` transform composes with the parent's. A layer roots the stack when it has no parent, or its parent isn't part of the rendered set (e.g. the parent is the `compose_scene` row, or a dangling/cross-scene parent), mirroring `ComposeTree`'s nesting logic. `group` layers render as transparent container boxes (their `LayerContent` is empty); only the `compose_scene` root is excluded. Because every layer box carries `overflow: hidden`, children are clipped to their parent's bounds.
+- Position is anchor-relative *within the parent box*: `(x, y)` is an offset from the chosen corner (`top|bottom × left|right`), so layers stay glued to e.g. the bottom-right of their parent at any size.
+- Rotation is a CSS `transform: rotate(...)` around the layer centre, composing down the parent chain.
 - A `mode: 'editor' | 'viewer'` prop toggles selection chrome rendering. Layer DOM is always `pointer-events: none` — in editor mode all input is owned by the capture overlay (see below), and viewer mode is fully non-interactive.
 - `LayerView` (internal to `ComposeLayerStack`) is a pure presentation wrapper; it carries no pointer handlers and `ComposeLayerStack` no longer takes `selectedId`/`onSelect` props.
 
@@ -108,7 +136,9 @@ This replaces an earlier model in which each interactive element had its own han
 
 ### Hit testing
 
-[components/editor/composeHitTest.ts](../../packages/frontend/src/components/editor/composeHitTest.ts) exposes `layerFrame`, `pointAt`, `pointInLayer`, and `layersAtClientPoint` so the cycle/capture path can do analytical hit-testing against layer rectangles. This avoids `document.elementsFromPoint`, which excludes `pointer-events: none` elements — the very state the new model relies on.
+[components/editor/composeHitTest.ts](../../packages/frontend/src/components/editor/composeHitTest.ts) exposes `layerFrame`, `layerParentFrame`, `pointInLayer`, and `layersAtClientPoint` so the cycle/capture path can do analytical hit-testing against layer rectangles. This avoids `document.elementsFromPoint`, which excludes `pointer-events: none` elements — the very state the new model relies on.
+
+Because layers nest, the geometry is **composed through the ancestor chain**: `layerFrame(viewport, layer, byId)` walks the parent links (`byId` lookup, cycle-guarded), composing each ancestor's frame so a nested layer's rect is computed relative to its parent box and the parents' accumulated rotation, then projected into viewport space. The returned `LayerFrame` carries the centre, unit local axes, half-extents, and the accumulated rotation. `layerParentFrame` returns the frame of the coordinate system a layer's stored `x/y/width/height` live in (its parent box, or the viewport for a root) — used by the gesture math for the `%` basis and screen→local delta projection. Passing no `byId` treats the layer as a root (the prior viewport-relative behaviour).
 
 It also exports a module-level `composeViewportRect` getter. `ComposeView` installs the current viewport's bounding-rect lookup at mount; other modules (capture, scene interactions) resolve viewport-relative coordinates through it instead of prop-drilling refs.
 
@@ -125,9 +155,11 @@ The component itself no longer attaches an `onPointerDown` to its wrapper `<grou
 
 The gesture math itself lives in [components/editor/composeLayerInteractions.ts](../../packages/frontend/src/components/editor/composeLayerInteractions.ts) and is invoked by the capture overlay (drag) and the selection-overlay handles (resize, rotate):
 
-- `startDrag` — translates pointer delta into `(x, y)` delta. Because `x/y` are offsets from the anchor corner, signs depend on which corner the layer is anchored to (e.g. dragging right increases `x` for left-anchors but decreases `x` for right-anchors).
-- `startResize` — 8 handles (corners + edges) on `ComposeSelectionOverlay`. The sign math is anchor-aware so that dragging a handle in a given screen direction always grows or shrinks the layer the way the user expects, regardless of which corner the layer is anchored to. Concretely: for each axis, the resize delta is multiplied by `±1` based on (handle side) XOR (anchor side), so the handle nearest the anchor moves the anchor-relative origin while the far handle only changes size.
-- `startRotate` — drag around the layer centre from the rotate handle; pointer angle relative to centre becomes `rotation` degrees.
+All three gestures operate in the layer's *parent* frame, supplied as a `ComposeFrame` (`{ width, height, angle }` — the parent box dims + accumulated rotation, resolved by `layerParentFrame` at the call site). This is what keeps a nested layer's drag/resize relative to its parent.
+
+- `startDrag` — translates pointer delta into `(x, y)` delta. The screen-space delta is first projected onto the parent's local axes (via the parent `angle`) so a layer under a rotated parent tracks the cursor along the parent's orientation; the `%` basis is the parent box. Because `x/y` are offsets from the anchor corner, signs depend on which corner the layer is anchored to (e.g. dragging right increases `x` for left-anchors but decreases `x` for right-anchors).
+- `startResize` — 8 handles (corners + edges) on `ComposeSelectionOverlay`. The sign math is anchor-aware so that dragging a handle in a given screen direction always grows or shrinks the layer the way the user expects, regardless of which corner the layer is anchored to. Concretely: for each axis, the resize delta is multiplied by `±1` based on (handle side) XOR (anchor side), so the handle nearest the anchor moves the anchor-relative origin while the far handle only changes size. The local-axis projection uses the layer's *accumulated* rotation (parent angle + own rotation); the anchored-edge pin only applies when fully axis-aligned, otherwise the layer grows from its centre (v1).
+- `startRotate` — drag around the layer centre from the rotate handle; pointer angle relative to centre becomes `rotation` degrees. Since the parent is fixed during the gesture, the screen-angle delta equals the (parent-relative) rotation delta, so no extra compensation is needed.
 
 All three gestures patch the Zustand store optimistically during the drag for instant visual feedback, then persist the final state with a single `PUT /compose-layers/:id` on `pointerup`. Other clients receive the change via the `compose_layer_updated` WS broadcast.
 
@@ -157,4 +189,6 @@ See also [frontend.md](frontend.md) for general editor structure and store conve
 
 - No drag-and-drop reorder in the tree; manual ↑/↓ buttons + numeric `sceneOrder` / `cameraOrder` inputs only.
 - `cameraOrder` interleaving between pinned scene layers is supported by the data model and the properties panel, but the tree UI has no fine-grained "insert between two pinned scene layers" affordance.
-- Layers are positioned in editor-pixel space against the editor frame and in viewer-window pixel space against the viewer. The same `x/y/width/height` therefore renders at different visual sizes on differently-sized viewers — anchors mitigate corner placement but full resolution-independent scaling is not implemented.
+- Root layers are positioned in editor-pixel space against the editor frame and in viewer-window pixel space against the viewer. The same `x/y/width/height` therefore renders at different visual sizes on differently-sized viewers — anchors (and `%` units relative to the parent box) mitigate this but full resolution-independent scaling is not implemented.
+- Nesting composes translation + rotation only; there is no parent→child *scaling*, so a child sized in `px` keeps its pixel size when the parent is resized (use `%` width/height for proportional children). Layer boxes clip children (`overflow: hidden`), so a `group`'s default 320×180 box will crop children placed outside it until resized.
+- Selection-chrome / gesture geometry composes ancestors from their *base* (persisted) transforms; an active clip/runtime override animating a parent layer is not folded into a child's hit-test frame while editing that child.
