@@ -65,6 +65,7 @@ export function ComposeLayerProperties({
 }) {
   const assets = useEditorStore((s) => s.assets);
   const updateLayerLocal = useEditorStore((s) => s.updateComposeLayerLocal);
+  const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   const nodes = useEditorStore((s) => s.nodes);
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
 
@@ -79,6 +80,28 @@ export function ComposeLayerProperties({
     updateLayerLocal(layer.id, patch);
     api.updateComposeLayer(layer.id, patch).catch(() => {});
   };
+
+  // Mirror the 3D media nodes' "Pick…" affordance: jump to + flash the matching
+  // bottom-dock asset tab, where the asset's "Apply to <layer>" button sets the
+  // source of this selected layer.
+  const pickBtn = (tab: Parameters<typeof flashBottomTab>[0]) => (
+    <button
+      onClick={() => flashBottomTab(tab)}
+      title="Pick from the asset drawer"
+      style={{
+        marginLeft: 8,
+        background: '#2a2a2a',
+        border: '1px solid #3a3a3a',
+        color: '#9cf',
+        borderRadius: 4,
+        padding: '1px 6px',
+        cursor: 'pointer',
+        fontSize: 10,
+      }}
+    >
+      Pick…
+    </button>
+  );
 
   // The compose scene this layer belongs to defines the % reference frame.
   const composeScenes = useEditorStore((s) => s.composeScenes);
@@ -448,8 +471,11 @@ export function ComposeLayerProperties({
 
       {(layer.kind === 'image' || layer.kind === 'video') && (
         <>
-          <div style={sectionHeader}>
+          <div
+            style={{ ...sectionHeader, display: 'flex', alignItems: 'center' }}
+          >
             {layer.kind === 'image' ? 'Image asset' : 'Video asset'}
+            {pickBtn(layer.kind === 'image' ? 'images' : 'videos')}
           </div>
           <select
             value={layer.assetId ?? ''}
@@ -645,7 +671,12 @@ export function ComposeLayerProperties({
 
       {layer.kind === 'audio' && (
         <>
-          <div style={sectionHeader}>Audio asset</div>
+          <div
+            style={{ ...sectionHeader, display: 'flex', alignItems: 'center' }}
+          >
+            Audio asset
+            {pickBtn('audio')}
+          </div>
           <select
             value={layer.assetId ?? ''}
             onChange={(e) => commit({ assetId: e.target.value || null })}

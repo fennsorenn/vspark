@@ -7,14 +7,17 @@
 //
 // On the matching Overlive event the graph packs the relevant field,
 // FIFO-queues it, and releases one alert per clock tick (so bursts don't
-// overlap): it sets the caption text, plays a track clip that fades the visual
-// + caption in and back out, restarts the audio layer (and, for video variants,
-// the video), then settles back to opacity 0 when the clip finishes.
+// overlap): it sets the caption text and plays a track clip that fades the
+// visual + caption in and back out. The clip's event/marker lane restarts the
+// audio layer (and, for video variants, the video) at t=0 — a fire-and-forget
+// media command straight to the frontend media registry, no graph node needed.
+// When the clip finishes the overlay settles back to opacity 0.
 //
 // To use: drop an audio clip into the Sound layer (and an image / video into
 // the badge), then set the `account` on the overlive_* node in the graph. Tune
 // the clock hz / clip duration to taste.
 import {
+  clipEvent,
   composeLayer,
   composeLayerPreset,
   edge,
@@ -24,8 +27,6 @@ import {
   lane,
   ref,
   trackClip,
-  type GEdge,
-  type GNode,
   type BuiltinPreset,
 } from './helpers.js';
 
@@ -77,47 +78,13 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
         sceneOrder: -1,
       });
 
-  // Graph: shared chain + per-media playback commands.
-  const nodes: GNode[] = [
-    gnode('ev', spec.eventKind, 0, 0, spec.eventConfig),
-    gnode('pack', 'pack_event', 1, 0, { fields: ['text'] }),
-    gnode('queue', 'queue_events', 2, 0),
-    gnode('clock', 'clock', 2, 1, { hz: 0.2 }),
-    gnode('unpack', 'unpack_event', 3, 0),
-    gnode('setText', 'set_text', 4, 0, {
-      targetKind: 'compose_layer',
-      targetId: ref('l3'),
-    }),
-    gnode('play', 'start_clip', 4, 1, { clipId: ref('tc1') }),
-    // Restart the bundled audio layer so the alert plays its sound from the top.
-    gnode('sound', 'media_control', 4, 2, {
-      action: 'restart',
-      targetKind: 'compose_layer',
-      targetId: ref('l4'),
-    }),
+  // The fade clip's event/marker lane drives playback: restart the sound (and,
+  // for video variants, the video) at t=0 each time the clip plays. No graph
+  // media_control node — the clip already plays on every released alert.
+  const events = [
+    clipEvent('ev1', 0, 'restart', 'compose_layer', 'l4'),
+    ...(isVideo ? [clipEvent('ev2', 0, 'restart', 'compose_layer', 'l2')] : []),
   ];
-  const edges: GEdge[] = [
-    edge('ev', 'event', 'pack', 'fire', 'event'),
-    edge('ev', spec.textPort, 'pack', 'text', 'value'),
-    edge('pack', 'event', 'queue', 'enqueue', 'event'),
-    edge('clock', 'tick', 'queue', 'pop', 'event'),
-    edge('queue', 'popped', 'unpack', 'event', 'event'),
-    edge('unpack', 'trigger', 'setText', 'fire', 'event'),
-    edge('unpack', 'trigger', 'play', 'fire', 'event'),
-    edge('unpack', 'trigger', 'sound', 'fire', 'event'),
-    edge('unpack', 'text', 'setText', 'text', 'value'),
-  ];
-  if (isVideo) {
-    // Also restart the video so it plays its clip from the start each alert.
-    nodes.push(
-      gnode('vid', 'media_control', 4, 3, {
-        action: 'restart',
-        targetKind: 'compose_layer',
-        targetId: ref('l2'),
-      })
-    );
-    edges.push(edge('unpack', 'trigger', 'vid', 'fire', 'event'));
-  }
 
   return composeLayerPreset(
     spec.id,
@@ -176,11 +143,39 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
               kf('k7', 4, 1),
               kf('k8', 4.5, 0),
             ]),
-          ]
+          ],
+          events
         ),
       ],
       graphs: [
-        graph('g1', 'compose_layer', 'l1', `${spec.name} Queue`, nodes, edges),
+        graph(
+          'g1',
+          'compose_layer',
+          'l1',
+          `${spec.name} Queue`,
+          [
+            gnode('ev', spec.eventKind, 0, 0, spec.eventConfig),
+            gnode('pack', 'pack_event', 1, 0, { fields: ['text'] }),
+            gnode('queue', 'queue_events', 2, 0),
+            gnode('clock', 'clock', 2, 1, { hz: 0.2 }),
+            gnode('unpack', 'unpack_event', 3, 0),
+            gnode('setText', 'set_text', 4, 0, {
+              targetKind: 'compose_layer',
+              targetId: ref('l3'),
+            }),
+            gnode('play', 'start_clip', 4, 1, { clipId: ref('tc1') }),
+          ],
+          [
+            edge('ev', 'event', 'pack', 'fire', 'event'),
+            edge('ev', spec.textPort, 'pack', 'text', 'value'),
+            edge('pack', 'event', 'queue', 'enqueue', 'event'),
+            edge('clock', 'tick', 'queue', 'pop', 'event'),
+            edge('queue', 'popped', 'unpack', 'event', 'event'),
+            edge('unpack', 'trigger', 'setText', 'fire', 'event'),
+            edge('unpack', 'trigger', 'play', 'fire', 'event'),
+            edge('unpack', 'text', 'setText', 'text', 'value'),
+          ]
+        ),
       ],
     }
   );

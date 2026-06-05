@@ -44,6 +44,18 @@ export function AssetManager() {
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
   const addComposeLayer = useEditorStore((s) => s.addComposeLayer);
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
+  const selectedComposeLayerId = useEditorStore(
+    (s) => s.selectedComposeLayerId
+  );
+  const composeLayers = useEditorStore((s) => s.composeLayers);
+  const updateComposeLayerLocal = useEditorStore(
+    (s) => s.updateComposeLayerLocal
+  );
+  const selectedComposeLayer =
+    composeLayers.find((l) => l.id === selectedComposeLayerId) ?? null;
+  const canApplyImageLayer = selectedComposeLayer?.kind === 'image';
+  const canApplyVideoLayer = selectedComposeLayer?.kind === 'video';
+  const canApplyAudioLayer = selectedComposeLayer?.kind === 'audio';
   // The "Add" action follows the left-dock context: Compose tab → create a
   // compose layer; Scene/Graphs tab → create a 3D scene node.
   const composeMode = leftTab === 'compose';
@@ -70,6 +82,12 @@ export function AssetManager() {
       relevantTabs.add('images');
     if (selectedNode.kind === 'video') relevantTabs.add('videos');
     if (selectedNode.kind === 'audio') relevantTabs.add('audio');
+  }
+  // A selected compose media layer highlights its asset tab too.
+  if (selectedComposeLayer) {
+    if (selectedComposeLayer.kind === 'image') relevantTabs.add('images');
+    if (selectedComposeLayer.kind === 'video') relevantTabs.add('videos');
+    if (selectedComposeLayer.kind === 'audio') relevantTabs.add('audio');
   }
 
   // Brief pulse of the active tab when something flashes it (scene "+" button,
@@ -147,8 +165,7 @@ export function AssetManager() {
     }
     setUploading(false);
     if (firstKind && KIND_TO_TAB[firstKind]) setTab(KIND_TO_TAB[firstKind]);
-    if (failures.length > 0)
-      alert(`Failed to upload: ${failures.join(', ')}`);
+    if (failures.length > 0) alert(`Failed to upload: ${failures.join(', ')}`);
   };
 
   // Only react to OS file drags (dataTransfer carries "Files"); internal asset/
@@ -371,8 +388,24 @@ export function AssetManager() {
       [key]: { ...existing, assetId: asset.id, sourceUrl: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, { components, filePath: asset.url });
+      await api.updateNode(selectedNode.id, {
+        components,
+        filePath: asset.url,
+      });
       storeUpdateNode(selectedNode.id, { components, filePath: asset.url });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to apply media source');
+    }
+  };
+
+  // Compose media layers (image / video / audio) resolve their source from the
+  // `assetId` column — set it on the selected layer from the drawer.
+  const handleApplyMediaSourceToLayer = async (asset: AssetFile) => {
+    const layer = selectedComposeLayer;
+    if (!layer) return;
+    try {
+      await api.updateComposeLayer(layer.id, { assetId: asset.id });
+      updateComposeLayerLocal(layer.id, { assetId: asset.id });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Failed to apply media source');
     }
@@ -1228,6 +1261,23 @@ export function AssetManager() {
                             Set as BG
                           </button>
                         )}
+                        {asset.kind === 'image' && canApplyImageLayer && (
+                          <button
+                            style={{
+                              background: '#2a1a3a',
+                              border: 'none',
+                              color: '#a7c',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={`Apply to "${selectedComposeLayer!.name}"`}
+                            onClick={() => handleApplyMediaSourceToLayer(asset)}
+                          >
+                            Apply to {selectedComposeLayer!.name}
+                          </button>
+                        )}
                         {asset.kind === 'image' &&
                           !canApplyTexture &&
                           !canApplyCameraBg &&
@@ -1279,9 +1329,28 @@ export function AssetManager() {
                               fontSize: 11,
                             }}
                             title={`Apply to "${selectedNode!.name}"`}
-                            onClick={() => handleApplyMediaSource(asset, 'video')}
+                            onClick={() =>
+                              handleApplyMediaSource(asset, 'video')
+                            }
                           >
                             Apply to {selectedNode!.name}
+                          </button>
+                        )}
+                        {asset.kind === 'video' && canApplyVideoLayer && (
+                          <button
+                            style={{
+                              background: '#2a1a3a',
+                              border: 'none',
+                              color: '#a7c',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={`Apply to "${selectedComposeLayer!.name}"`}
+                            onClick={() => handleApplyMediaSourceToLayer(asset)}
+                          >
+                            Apply to {selectedComposeLayer!.name}
                           </button>
                         )}
                         {asset.kind === 'audio' && (
@@ -1312,9 +1381,28 @@ export function AssetManager() {
                               fontSize: 11,
                             }}
                             title={`Apply to "${selectedNode!.name}"`}
-                            onClick={() => handleApplyMediaSource(asset, 'audio')}
+                            onClick={() =>
+                              handleApplyMediaSource(asset, 'audio')
+                            }
                           >
                             Apply to {selectedNode!.name}
+                          </button>
+                        )}
+                        {asset.kind === 'audio' && canApplyAudioLayer && (
+                          <button
+                            style={{
+                              background: '#2a1a3a',
+                              border: 'none',
+                              color: '#a7c',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={`Apply to "${selectedComposeLayer!.name}"`}
+                            onClick={() => handleApplyMediaSourceToLayer(asset)}
+                          >
+                            Apply to {selectedComposeLayer!.name}
                           </button>
                         )}
                         <button

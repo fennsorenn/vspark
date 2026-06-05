@@ -270,6 +270,28 @@ export function lane(
   };
 }
 
+export interface ClipEvent {
+  presetId: string;
+  t: number;
+  action: string;
+  targetKind: 'scene_node' | 'compose_layer';
+  targetPresetId: string;
+  payload: Record<string, unknown> | null;
+}
+
+/** A track-clip event marker: fires a fire-and-forget media command (play /
+ *  restart / …) at playhead time `t` on the target entity. See media.md. */
+export function clipEvent(
+  presetId: string,
+  t: number,
+  action: string,
+  targetKind: 'scene_node' | 'compose_layer',
+  targetPresetId: string,
+  payload: Record<string, unknown> | null = null
+): ClipEvent {
+  return { presetId, t, action, targetKind, targetPresetId, payload };
+}
+
 export interface TrackClipEntry {
   presetId: string;
   ownerKind: 'scene_node' | 'compose_layer';
@@ -280,6 +302,7 @@ export interface TrackClipEntry {
   mode: string;
   autoplay: boolean;
   lanes: Lane[];
+  events?: ClipEvent[];
 }
 
 export function trackClip(
@@ -291,7 +314,8 @@ export function trackClip(
   mode: 'override' | 'relative',
   loop: boolean,
   autoplay: boolean,
-  lanes: Lane[]
+  lanes: Lane[],
+  events: ClipEvent[] = []
 ): TrackClipEntry {
   return {
     presetId,
@@ -303,6 +327,7 @@ export function trackClip(
     mode,
     autoplay,
     lanes,
+    ...(events.length > 0 ? { events } : {}),
   };
 }
 

@@ -118,6 +118,14 @@ flag). Config: `assetId`/`sourceUrl`, `autoplay` (default off), `loop`, `muted`,
 `ComposeLayerProperties.tsx` (the compatible-asset filter matches `audio/*` mimes).
 See [compose.md](compose.md).
 
+**Asset UX parity with the 3D audio node.** The audio (and image/video) asset
+sections in `ComposeLayerProperties.tsx` gained a "Pick…" button that jumps to +
+flashes the matching bottom-dock asset tab (`flashBottomTab`). `AssetManager.tsx` is
+now aware of the selected compose layer (`selectedComposeLayerId`): it highlights the
+relevant asset tab (image→images, video→videos, audio→audio) and shows an "Apply to
+&lt;layer&gt;" button on image/video/audio assets that sets the selected layer's
+`assetId` (compose media layers resolve their source from `assetId`).
+
 ## Video FX — chroma key + blend mode
 
 Shared by both video surfaces (3D node + compose layer) and surfaced as an Effects
@@ -238,6 +246,12 @@ lane evaluator untouched.
 - `TrackClipTimeline.tsx`: an `EventLane` editor — a marker strip on the ruler + a
   list editor — targeting video/audio scene nodes and video compose layers.
 - `ClipsSection` copy/paste carries events.
+
+The built-in **event-alert presets** drive their sound/video through this lane rather
+than a `media_control` graph node: each alert's "Alert Fade" track clip carries
+markers at `t=0` that `restart` the bundled hidden `audio` "Sound" layer (and the
+`video` badge for `-video` variants), firing client-side via the media registry on
+each released alert. See [presets.md](presets.md).
 
 ## Asset support
 
