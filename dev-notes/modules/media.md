@@ -103,6 +103,21 @@ The render `mode` (`'editor' | 'viewer'`) is threaded through
 audio honours the audibility gate (muted in the editor unless preview is enabled;
 audible in the viewer, subject to the layer's own `muted` flag).
 
+## Audio — 2D compose layer (`audio` kind)
+
+`ComposeLayerStack.tsx` `AudioLayer`: a non-visual `<audio>` element that registers
+a `MediaHandle` (via `registerMedia`, keyed by `layer.id`) so the media-command bus
+and track-clip event lane can play/pause/restart it. It renders nothing visible and
+keeps playing even when the layer is `visible:false` (the stack uses CSS
+`visibility:hidden`, which doesn't stop playback). Honours the same audibility gate
+as video (`mode==='viewer' || editorAudioPreviewEnabled`, plus its own `muted`
+flag). Config: `assetId`/`sourceUrl`, `autoplay` (default off), `loop`, `muted`,
+`volume`. Registered in `createKinds.ts` (`LAYER_KIND_DEFS`, icon 🔊, defaults
+`{ autoplay:false, loop:false, muted:false, volume:1 }`), `ComposeTree.tsx`
+`KIND_ICONS` (🔊), and an Audio asset selector + Playback section in
+`ComposeLayerProperties.tsx` (the compatible-asset filter matches `audio/*` mimes).
+See [compose.md](compose.md).
+
 ## Video FX — chroma key + blend mode
 
 Shared by both video surfaces (3D node + compose layer) and surfaced as an Effects

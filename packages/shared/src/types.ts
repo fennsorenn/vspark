@@ -150,6 +150,7 @@ export type ComposeLayerKind =
   | 'camera_view'
   | 'image'
   | 'video'
+  | 'audio'
   | 'browser'
   | 'text'
   | 'feed'

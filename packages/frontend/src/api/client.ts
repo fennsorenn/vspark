@@ -137,8 +137,7 @@ function guessAssetKind(name: string): AssetKind {
   if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'].includes(ext))
     return 'image';
   if (['mp4', 'webm', 'mov', 'm4v', 'ogv'].includes(ext)) return 'video';
-  if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext))
-    return 'audio';
+  if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext)) return 'audio';
   return 'model';
 }
 
@@ -220,6 +219,7 @@ export interface CameraEffectRecord {
 export type ComposeLayerKind =
   | 'image'
   | 'video'
+  | 'audio'
   | 'browser'
   | 'group'
   | 'compose_scene'
@@ -411,7 +411,9 @@ export function mapTrackClipEvent(
     id: r.id as string,
     t: Number(r.t ?? 0),
     action: (r.action ?? 'play') as string,
-    targetKind: (r.target_kind ?? r.targetKind ?? 'scene_node') as TrackClipTargetKind,
+    targetKind: (r.target_kind ??
+      r.targetKind ??
+      'scene_node') as TrackClipTargetKind,
     targetId: (r.target_id ?? r.targetId ?? '') as string,
     payload: (r.payload ?? null) as Record<string, unknown> | null,
   };
@@ -824,7 +826,11 @@ export const replaceTrackClipKeyframes = (
 export const replaceTrackClipEvents = (
   clipId: string,
   events: Array<
-    Partial<TrackClipEventRecord> & { t: number; action: string; targetId: string }
+    Partial<TrackClipEventRecord> & {
+      t: number;
+      action: string;
+      targetId: string;
+    }
   >
 ) =>
   request<{ clipId: string; events: Record<string, unknown>[] }>(

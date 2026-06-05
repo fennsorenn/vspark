@@ -300,9 +300,95 @@ function VideoLayer({
         }}
       />
       {chroma.enabled && !hidden && (
-        <ChromaVideoCanvas videoRef={ref} chroma={chroma} objectFit={objectFit} />
+        <ChromaVideoCanvas
+          videoRef={ref}
+          chroma={chroma}
+          objectFit={objectFit}
+        />
       )}
     </>
+  );
+}
+
+/** An audio-only compose layer: a non-visual `<audio>` element registered in the
+ *  media registry so the command bus / clip event lane can play it. Renders
+ *  nothing visible (the layer can be `visible:false` and still play, since the
+ *  stack uses `visibility:hidden`, which doesn't stop playback). Audible in the
+ *  viewer; in the editor only when audio preview is on, and never if `muted`. */
+function AudioLayer({
+  layer,
+  url,
+  mode,
+}: {
+  layer: ComposeLayerRecord;
+  url: string | null;
+  mode: 'editor' | 'viewer';
+}) {
+  const ref = useRef<HTMLAudioElement | null>(null);
+  const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  const cfg = layer.config as Record<string, unknown>;
+  const autoplay = cfg.autoplay === true; // default off — usually command-driven
+  const loop = cfg.loop === true;
+  const muted = cfg.muted === true;
+  const volume = typeof cfg.volume === 'number' ? cfg.volume : 1;
+
+  // Apply autoplay when the source changes.
+  useEffect(() => {
+    const el = ref.current;
+    if (el && autoplay && url) void el.play().catch(() => {});
+  }, [url, autoplay]);
+
+  // Audibility + volume.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const audible = (mode === 'viewer' || audioPreview) && !muted;
+    el.muted = !audible;
+    el.volume = Math.max(0, Math.min(1, volume));
+  }, [mode, audioPreview, muted, volume, url]);
+
+  // Media handle for the command bus / clip event lane.
+  useEffect(() => {
+    return registerMedia(layer.id, {
+      play: () => void ref.current?.play().catch(() => {}),
+      pause: () => ref.current?.pause(),
+      stop: () => {
+        const el = ref.current;
+        if (!el) return;
+        el.pause();
+        el.currentTime = 0;
+      },
+      restart: () => {
+        const el = ref.current;
+        if (!el) return;
+        el.currentTime = 0;
+        void el.play().catch(() => {});
+      },
+      seek: (t: number) => {
+        if (ref.current) ref.current.currentTime = Math.max(0, t);
+      },
+      setVolume: (v: number) => {
+        if (ref.current) ref.current.volume = Math.max(0, Math.min(1, v));
+      },
+      mute: () => {
+        if (ref.current) ref.current.muted = true;
+      },
+      unmute: () => {
+        if (ref.current) ref.current.muted = false;
+      },
+    });
+  }, [layer.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!url) return <Placeholder text="no audio" />;
+  return (
+    <audio
+      ref={ref}
+      src={url}
+      autoPlay={autoplay}
+      loop={loop}
+      crossOrigin="anonymous"
+      style={{ display: 'none' }}
+    />
   );
 }
 
@@ -356,7 +442,13 @@ function LayerContent({
   if (layer.kind === 'video') {
     const url = resolveAssetUrl(layer, assets);
     if (!url) return <Placeholder text="no video" />;
-    return <VideoLayer layer={layer} url={url} objectFit={objectFit} mode={mode} />;
+    return (
+      <VideoLayer layer={layer} url={url} objectFit={objectFit} mode={mode} />
+    );
+  }
+  if (layer.kind === 'audio') {
+    const url = resolveAssetUrl(layer, assets);
+    return <AudioLayer layer={layer} url={url} mode={mode} />;
   }
   if (layer.kind === 'text') {
     return <TextLayer layer={layer} />;

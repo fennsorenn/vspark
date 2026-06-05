@@ -224,6 +224,7 @@ export const composeLayerKindSchema = z
     'camera_view',
     'image',
     'video',
+    'audio',
     'browser',
     'group',
     'text',

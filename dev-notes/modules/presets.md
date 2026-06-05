@@ -47,9 +47,16 @@ Ships with a Three-Point Lighting rig and an Organizer Group scaffold, plus:
 - **Particle generators** (`particles.ts`): Rain, Snow, Fire, Magic Sparkles,
   Sparkler — each a `particle` scene node with a tuned `components.particle` config.
 - **Event alert overlays** (`alerts.ts`): Donations, Tips, Subs, Raids — each a
-  compose `group` containing an image + text layer at base opacity 0, a track clip
-  fading opacity 0→1→0, and a graph: `overlive` event → `pack_event` →
-  `queue_events` ← `clock` pop → `unpack_event` → `start_clip` + `set_text`.
+  compose `group` containing a badge + text layer at base opacity 0, a hidden
+  `audio` "Sound" layer (`visible:false`) as the sound source, a track clip fading
+  opacity 0→1→0, and a graph: `overlive` event → `pack_event` → `queue_events` ←
+  `clock` pop → `unpack_event` → `start_clip` + `set_text` + a `media_control` node
+  (action `restart`, `targetKind: compose_layer`, targeting the audio layer via a
+  `__preset:` ref) fired on each released alert. Each event ships **two variants** —
+  an image badge (`builtin:alert-<event>`) and a video badge
+  (`builtin:alert-<event>-video`, the `video` layer muted and command-restarted on
+  each alert; the audio layer carries the sound) — so there are 8 alert presets
+  (Donation/Tip/Sub/Raid × image/video), 18 built-ins total.
 
 ### Scene-node component bag round-trip
 

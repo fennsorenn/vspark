@@ -131,6 +131,7 @@ export function ComposeLayerProperties({
   const compatibleAssets = assets.filter((a) => {
     if (layer.kind === 'image') return a.kind === 'image';
     if (layer.kind === 'video') return a.mimeType.startsWith('video/');
+    if (layer.kind === 'audio') return a.mimeType.startsWith('audio/');
     return false;
   });
 
@@ -639,6 +640,80 @@ export function ComposeLayerProperties({
               </>
             );
           })()}
+        </>
+      )}
+
+      {layer.kind === 'audio' && (
+        <>
+          <div style={sectionHeader}>Audio asset</div>
+          <select
+            value={layer.assetId ?? ''}
+            onChange={(e) => commit({ assetId: e.target.value || null })}
+            style={{ ...select, width: '100%' }}
+          >
+            <option value="">— none —</option>
+            {compatibleAssets.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <div style={sectionHeader}>Playback</div>
+          <div style={row}>
+            <span style={label}>Autoplay</span>
+            <input
+              type="checkbox"
+              checked={layer.config.autoplay === true}
+              onChange={(e) =>
+                commit({
+                  config: { ...layer.config, autoplay: e.target.checked },
+                })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Loop</span>
+            <input
+              type="checkbox"
+              checked={layer.config.loop === true}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, loop: e.target.checked } })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Muted</span>
+            <input
+              type="checkbox"
+              checked={layer.config.muted === true}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, muted: e.target.checked } })
+              }
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>Volume</span>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={
+                typeof layer.config.volume === 'number'
+                  ? layer.config.volume
+                  : 1
+              }
+              onChange={(e) =>
+                commit({
+                  config: {
+                    ...layer.config,
+                    volume: parseFloat(e.target.value),
+                  },
+                })
+              }
+              style={textInput}
+            />
+          </div>
         </>
       )}
 
