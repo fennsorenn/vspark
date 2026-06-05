@@ -107,6 +107,48 @@ export function AssetManager() {
     }
   };
 
+  // OS file drag-and-drop onto the dock. Uploads every dropped file, then jumps
+  // to the tab for the first file's kind so the upload is visible.
+  const KIND_TO_TAB: Record<string, BottomDockTab> = {
+    model: 'models',
+    animation: 'animations',
+    image: 'images',
+    video: 'videos',
+    audio: 'audio',
+  };
+  const dragDepth = useRef(0);
+  const [fileDragOver, setFileDragOver] = useState(false);
+
+  const handleUploadFiles = async (files: FileList | File[]) => {
+    if (!projectId) {
+      alert('No project loaded.');
+      return;
+    }
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setUploading(true);
+    let firstKind: string | null = null;
+    const failures: string[] = [];
+    for (const file of list) {
+      try {
+        const asset = await api.uploadAsset(projectId, file);
+        addAsset(asset);
+        if (firstKind == null) firstKind = asset.kind;
+      } catch {
+        failures.push(file.name);
+      }
+    }
+    setUploading(false);
+    if (firstKind && KIND_TO_TAB[firstKind]) setTab(KIND_TO_TAB[firstKind]);
+    if (failures.length > 0)
+      alert(`Failed to upload: ${failures.join(', ')}`);
+  };
+
+  // Only react to OS file drags (dataTransfer carries "Files"); internal asset/
+  // tile drags use custom MIME types and must pass straight through.
+  const isFileDrag = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer.types).includes('Files');
+
   const handleAddToScene = async (asset: AssetFile) => {
     if (!activeSceneId) {
       alert('No active scene. Select or create a scene first.');
@@ -518,6 +560,32 @@ export function AssetManager() {
 
   return (
     <div
+      onDragEnter={(e) => {
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        dragDepth.current += 1;
+        setFileDragOver(true);
+      }}
+      onDragOver={(e) => {
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }}
+      onDragLeave={(e) => {
+        if (!isFileDrag(e)) return;
+        dragDepth.current -= 1;
+        if (dragDepth.current <= 0) {
+          dragDepth.current = 0;
+          setFileDragOver(false);
+        }
+      }}
+      onDrop={(e) => {
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        dragDepth.current = 0;
+        setFileDragOver(false);
+        handleUploadFiles(e.dataTransfer.files);
+      }}
       style={{
         height: bottomDockHeight,
         flexShrink: 0,
@@ -530,6 +598,26 @@ export function AssetManager() {
       }}
     >
       <BottomDockResizeHandle />
+      {fileDragOver && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 50,
+            background: 'rgba(37,99,235,0.12)',
+            border: '2px dashed #2563eb',
+            borderRadius: 6,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+          }}
+        >
+          <div style={{ color: '#cfe0ff', fontSize: 15, fontWeight: 600 }}>
+            ⬆ Drop files to upload
+          </div>
+        </div>
+      )}
       <style>{`@keyframes vsTabFlash { 0%,100% { box-shadow: none } 50% { box-shadow: 0 0 0 2px #2563eb inset, 0 0 10px rgba(37,99,235,0.6) } }`}</style>
       <div
         style={{
