@@ -51,7 +51,22 @@ export const NODE_KIND_DEFS: NodeKindDef[] = [
   { label: 'Plain Text', kind: 'text_troika', icon: '🔤' },
   { label: 'Rich Text', kind: 'text_canvas', icon: '🔡' },
   { label: 'Feed (3D data overlay)', kind: 'feed', icon: '📜' },
+  { label: 'Live2D Avatar', kind: 'live2d', icon: '🎭' },
 ];
+
+/** Default `components.live2d` bag for a Live2D scene node. */
+export const LIVE2D_DEFAULTS = {
+  type: 'live2d',
+  modelUrl: null as string | null,
+  scale: 1,
+  width: 2,
+  height: 2,
+  facing: 'screen' as 'screen' | 'world',
+  autoBlink: true,
+  autoBreath: true,
+  // Live2D param id → override of the default blendshape map (see live2dParamMap.ts).
+  paramMap: {} as Record<string, unknown>,
+};
 
 const DEFAULT_COMPONENTS = {
   transform: {
@@ -193,6 +208,8 @@ export async function createSceneNode(
       billboard: true,
       facing: 'screen' as 'screen' | 'world',
     };
+  } else if (def.kind === 'live2d') {
+    components.live2d = { ...LIVE2D_DEFAULTS };
   } else if (def.kind === 'feed') {
     components.feed = {
       type: 'feed',
@@ -239,6 +256,29 @@ export async function createNodeFromModelAsset(
     kind,
     filePath: asset.url,
     components: { ...DEFAULT_COMPONENTS },
+  });
+  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
+    useEditorStore.getState().addNode(node);
+  }
+  return node;
+}
+
+/** Add a Live2D bundle asset (its *.model3.json manifest) to a scene as a
+ *  `live2d` avatar node pointed at the manifest url. */
+export async function createNodeFromLive2dAsset(
+  asset: AssetFile,
+  sceneId: string,
+  parentId: string | null = null
+): Promise<NodeRecord> {
+  const node = await api.createNode(sceneId, {
+    parentId,
+    name: asset.name,
+    kind: 'live2d',
+    filePath: asset.url,
+    components: {
+      ...DEFAULT_COMPONENTS,
+      live2d: { ...LIVE2D_DEFAULTS, modelUrl: asset.url },
+    },
   });
   if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
     useEditorStore.getState().addNode(node);

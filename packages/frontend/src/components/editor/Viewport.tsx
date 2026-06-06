@@ -2934,6 +2934,89 @@ function BillboardNode({ node }: { node: NodeRecord }) {
   );
 }
 
+interface Live2DConfig {
+  modelUrl: string | null;
+  width: number;
+  height: number;
+  facing: 'screen' | 'world';
+}
+
+const LIVE2D_NODE_DEFAULTS: Live2DConfig = {
+  modelUrl: null,
+  width: 2,
+  height: 2,
+  facing: 'screen',
+};
+
+/** Flat-mounted Live2D avatar node.
+ *
+ *  RENDERER STUB: the Cubism runtime adapter (Puppet2DRuntime → Live2DRuntime)
+ *  is not wired in this environment (the official framework is vendored as a git
+ *  submodule + the proprietary Core is runtime-fetched, neither verifiable
+ *  headless). This renders a selectable placeholder plane carrying the node's
+ *  transform / opacity / facing, so the surrounding wiring (selection, gizmo,
+ *  clips, properties, asset→node creation) is exercisable now. The model load +
+ *  per-frame param application (via mapToLive2dParams) land with the adapter.
+ *  Flat-mounted like billboards so reparents never remount it. See
+ *  dev-notes/plans/live2d-integration.md. */
+function Live2DNode({
+  node,
+  viewerMode,
+}: {
+  node: NodeRecord;
+  viewerMode?: boolean;
+}) {
+  const outerRef = useRef<THREE.Group>(null);
+  const facingRef = useRef<THREE.Group>(null);
+  const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
+  const cfg: Live2DConfig = {
+    ...LIVE2D_NODE_DEFAULTS,
+    ...((node.components?.live2d ?? {}) as Partial<Live2DConfig>),
+  };
+
+  useEffect(() => {
+    if (!outerRef.current) return;
+    return registerNodeGroup(node.id, outerRef.current);
+  }, [node.id]);
+
+  // Screen-facing parity with billboards: lock the inner group to the camera.
+  useFrame(({ camera }) => {
+    if (!facingRef.current) return;
+    if (cfg.facing === 'screen') {
+      facingRef.current.quaternion.copy(camera.quaternion);
+    } else {
+      facingRef.current.quaternion.identity();
+    }
+  });
+
+  return (
+    <group
+      ref={outerRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+      scale={[t.sx, t.sy, t.sz]}
+    >
+      <group ref={facingRef}>
+        {/* Editor-only placeholder: until the runtime adapter renders the model,
+            don't emit anything into viewer/output. */}
+        {!viewerMode && (
+          <mesh>
+            <planeGeometry args={[cfg.width, cfg.height]} />
+            <meshBasicMaterial
+              color={cfg.modelUrl ? '#6a3aa0' : '#444444'}
+              transparent
+              opacity={0.25}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+            />
+          </mesh>
+        )}
+      </group>
+    </group>
+  );
+}
+
 interface VideoConfig {
   facing: 'screen' | 'world';
   backface: 'none' | 'mirror' | 'unmirrored';
@@ -4392,6 +4475,7 @@ function renderNodeElement(
   if (node.kind === 'text_troika') return null;
   if (node.kind === 'text_canvas') return null;
   if (node.kind === 'feed') return null;
+  if (node.kind === 'live2d') return null;
   return (
     <group key={node.id} visible={visible}>
       <ModelNode node={node}>{childElements}</ModelNode>
@@ -4429,6 +4513,7 @@ export function SceneNodes({
   const flatTextTroika = sceneNodes.filter((n) => n.kind === 'text_troika');
   const flatTextCanvas = sceneNodes.filter((n) => n.kind === 'text_canvas');
   const flatFeed = sceneNodes.filter((n) => n.kind === 'feed');
+  const flatLive2d = sceneNodes.filter((n) => n.kind === 'live2d');
 
   // Hidden cascade for flat-mounted nodes: hierarchical kinds already inherit
   // `visible: false` from a hidden ancestor via R3F's <group> nesting, but
@@ -4481,6 +4566,11 @@ export function SceneNodes({
       {flatFeed.map((node) => (
         <group key={node.id} visible={effectiveVisible(node)}>
           <FeedCanvasNode node={node} viewerMode={viewerMode} />
+        </group>
+      ))}
+      {flatLive2d.map((node) => (
+        <group key={node.id} visible={effectiveVisible(node)}>
+          <Live2DNode node={node} viewerMode={viewerMode} />
         </group>
       ))}
     </>

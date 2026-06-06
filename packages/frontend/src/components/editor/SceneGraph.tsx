@@ -34,6 +34,7 @@ const KIND_ICONS: Record<string, string> = {
   video: '🎞️',
   audio: '🔊',
   feed: '📜',
+  live2d: '🎭',
 };
 
 // Node kinds the user can add. Sourced from the shared registry so the scene
