@@ -26,6 +26,30 @@ const DEFAULT_CORE_URL =
 
 let corePromise: Promise<void> | null = null;
 
+// Interim opt-in gate. The Core is proprietary and must not be fetched without
+// the user accepting the Live2D license. A persistent server-side flag
+// (AppConfig.live2dLicenseAccepted) + an acceptance dialog land in Phase 5;
+// until then consent is a client-only localStorage flag (set it from a console
+// during in-browser verification: localStorage.setItem('vspark.live2d.accepted','1')).
+const CONSENT_KEY = 'vspark.live2d.accepted';
+
+export function hasLive2dConsent(): boolean {
+  try {
+    return localStorage.getItem(CONSENT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setLive2dConsent(accepted: boolean): void {
+  try {
+    if (accepted) localStorage.setItem(CONSENT_KEY, '1');
+    else localStorage.removeItem(CONSENT_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export function isCubismCoreLoaded(): boolean {
   return typeof window !== 'undefined' && window.Live2DCubismCore != null;
 }
@@ -45,6 +69,12 @@ export function ensureCubismCore(
   opts: CubismCoreLoadOptions = {}
 ): Promise<void> {
   if (isCubismCoreLoaded()) return Promise.resolve();
+  if (!hasLive2dConsent())
+    return Promise.reject(
+      new Error(
+        'Live2D Cubism Core not loaded: the Live2D license has not been accepted.'
+      )
+    );
   if (corePromise) return corePromise;
 
   const url = opts.url ?? DEFAULT_CORE_URL;
