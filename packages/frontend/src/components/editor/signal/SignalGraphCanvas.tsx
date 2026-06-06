@@ -398,7 +398,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     return () => clearTimeout(t);
   }, [rejectMsg]);
 
-  // Load descriptor — first check component-owned graphs (read-only), then
+  // Load descriptor — first check behavior-owned graphs (read-only), then
   // fall back to standalone project graphs (writable).
   useEffect(() => {
     if (!graphId) return;
@@ -412,7 +412,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
             writableRef.current = false;
             setWritable(false);
             setActiveAutomationWritable(false);
-            // Component-owned graphs are always attached to a scene node.
+            // Behavior-owned graphs are always attached to a scene node.
             setOwnerKind('scene_node');
             setDescriptor(match);
           }

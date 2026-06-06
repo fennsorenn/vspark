@@ -156,10 +156,10 @@ router.put('/automations/:id', (req, res) => {
       .status(404)
       .json({ ok: false, error: { message: 'graph not found' } });
 
-  // All standalone graphs (project / scene_node / compose_layer) go through
+  // All automations (project / scene_node / compose_layer) go through
   // the manager so the underlying SignalGraph is reconciled (validated,
-  // restarted) after every edit. Component-owned graphs aren't reachable
-  // via this route — they have no graphs row.
+  // restarted) after every edit. Behavior-owned graphs aren't reachable
+  // via this route — they have no automations row.
   try {
     const row = automationManager.update(req.params.id, {
       ...(name !== undefined ? { name } : {}),

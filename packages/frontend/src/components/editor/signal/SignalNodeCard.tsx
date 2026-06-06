@@ -467,8 +467,8 @@ export function SignalNodeCard({
   const { behaviors, updateBehavior } = useEditorStore();
 
   const handleStaticChange = (portName: string, value: unknown) => {
-    // Component-owned graphs use the "kind:behaviorId" id shape. Standalone
-    // project graphs use a bare UUID — they don't have a node_components row
+    // Behavior-owned graphs use the "kind:behaviorId" id shape. Standalone
+    // project automations use a bare UUID — they don't have a behaviors row
     // to update, so we delegate to the canvas via a custom event which mutates
     // the descriptor's defaultConfig and persists via PUT.
     if (!graphId.includes(':')) {

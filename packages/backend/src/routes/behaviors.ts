@@ -14,7 +14,7 @@ const router: ReturnType<typeof Router> = Router();
  *     parameters:
  *       - { in: path, name: nodeId, required: true, schema: { type: string } }
  *     responses:
- *       200: { description: Array of node_component rows ordered by sort_order }
+ *       200: { description: Array of behaviors rows ordered by sort_order }
  */
 router.get('/scene-nodes/:nodeId/behaviors', (req, res) => {
   const data = getDb()
@@ -39,7 +39,7 @@ router.get('/scene-nodes/:nodeId/behaviors', (req, res) => {
  *         application/json:
  *           schema: { $ref: '#/components/schemas/CreateBehavior' }
  *     responses:
- *       201: { description: Component attached; all component managers re-synced }
+ *       201: { description: Behavior attached; all behavior managers re-synced }
  *       400: { description: Missing kind, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
 router.post('/scene-nodes/:nodeId/behaviors', (req, res) => {
@@ -91,7 +91,7 @@ router.post('/scene-nodes/:nodeId/behaviors', (req, res) => {
  *         application/json:
  *           schema: { $ref: '#/components/schemas/UpdateBehavior' }
  *     responses:
- *       200: { description: Updated; all component managers re-synced }
+ *       200: { description: Updated; all behavior managers re-synced }
  */
 router.put('/behaviors/:id', (req, res) => {
   const { enabled, config } = req.body;

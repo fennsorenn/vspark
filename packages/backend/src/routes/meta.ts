@@ -62,7 +62,7 @@ router.get('/behaviors/:id/body-calib-state', (req, res) => {
  * /api/behavior-kinds:
  *   get:
  *     tags: [meta]
- *     summary: List all registered node_component kinds with display metadata
+ *     summary: List all registered behavior kinds with display metadata
  *     responses:
  *       200: { description: Array of component-kind metadata objects }
  */

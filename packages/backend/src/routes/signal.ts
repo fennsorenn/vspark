@@ -31,7 +31,7 @@ function _stripPrefix(graphId: string): string {
  * /api/signal/graphs:
  *   get:
  *     tags: [signal]
- *     summary: List all active signal-graph descriptors across every component manager
+ *     summary: List all active signal-graph descriptors across every behavior manager
  *     responses:
  *       200: { description: Array of GraphDescriptor objects }
  */

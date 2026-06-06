@@ -1412,7 +1412,7 @@ function AutomationListPanel() {
           })
         ))}
 
-      {/* Component-owned graphs (read-only) */}
+      {/* Behavior-owned graphs (read-only) */}
       <div
         style={{
           display: 'flex',

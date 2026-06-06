@@ -31,7 +31,7 @@ packages/
 | Module | Status | Notes |
 |--------|--------|-------|
 | HTTP + WebSocket server | Implemented | `index.ts` |
-| REST API | Implemented | `routes/` — split per resource (projects, scenes, scene-nodes, assets, node-components (Behaviors), api-controller, expressions, camera-effects, signal, meta) composed via `routes/index.ts`; manager singletons + helpers in `routes/shared.ts`. Behavior routes are `/api/scene-nodes/:id/behaviors`, `/api/behaviors/:id`, `/api/behavior-kinds`. |
+| REST API | Implemented | `routes/` — split per resource (projects, scenes, scene-nodes, assets, behaviors, api-controller, expressions, camera-effects, signal, meta) composed via `routes/index.ts`; manager singletons + helpers in `routes/shared.ts`. Behavior routes are `/api/scene-nodes/:id/behaviors`, `/api/behaviors/:id`, `/api/behavior-kinds`. |
 | OpenAPI docs | Implemented | Swagger UI at `/api-docs`, raw spec at `/api-docs.json`; `routes/openapi.ts` generates `components.schemas` from Zod via `@asteasolutions/zod-to-openapi`; per-route `@openapi` JSDoc scanned by `swagger-jsdoc` |
 | Update routes | Implemented | `routes/update.ts`, `routes/config.ts` — GitHub Releases update check/download/apply (with download progress), config.json channel preference. Apply exits with sentinel code 42; the bundled `start.sh`/`start.bat` supervisor loop unzips the update in place and relaunches in the same console. See [updates.md](modules/updates.md). |
 | SQLite persistence | Implemented | `db/` — `node-sqlite3-wasm` (WASM, no native addon); `WasmDb` adapter; `initDb()` async |
