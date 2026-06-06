@@ -10,7 +10,7 @@ import { PresetLibrary } from './PresetLibrary';
 import { CreatePalette } from './CreatePalette';
 import { AssetThumb } from './AssetThumb';
 import { DND_ASSET } from './dnd';
-import { behaviorCompatibleWith } from './createKinds';
+import { behaviorCompatibleWith, createNodeFromLive2dAsset } from './createKinds';
 import { HelpButton } from '../../help/HelpButton';
 
 /** Per-tab contextual help target — one consistent `?` follows the active tab. */
@@ -61,6 +61,7 @@ export function AssetManager() {
   const canApplyCameraBg = selectedNode?.kind === 'camera';
   const canApplyVideo = selectedNode?.kind === 'video';
   const canApplyAudio = selectedNode?.kind === 'audio';
+  const canApplyLive2d = selectedNode?.kind === 'live2d';
   const tab = useEditorStore((s) => s.bottomTab);
   const setTab = useEditorStore((s) => s.setBottomTab);
   const leftTab = useEditorStore((s) => s.leftTab);
@@ -97,6 +98,7 @@ export function AssetManager() {
       relevantTabs.add('models');
       relevantTabs.add('animations');
     }
+    if (selectedNode.kind === 'live2d') relevantTabs.add('models');
     if (selectedNode.kind === 'camera') {
       relevantTabs.add('effects');
       relevantTabs.add('images');
@@ -128,12 +130,25 @@ export function AssetManager() {
     };
   }, [bottomTabFlash]);
   const modelInputRef = useRef<HTMLInputElement>(null);
+  const live2dInputRef = useRef<HTMLInputElement>(null);
   const animInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
-  const models = assets.filter((a) => a.kind === 'model');
+  // A Live2D model is a folder (manifest + moc3 + textures), not a single file;
+  // `webkitdirectory` isn't in React's input attribute types, so set it directly.
+  useEffect(() => {
+    const el = live2dInputRef.current;
+    if (!el) return;
+    el.setAttribute('webkitdirectory', '');
+    el.setAttribute('directory', '');
+  }, []);
+
+  // The Models tab holds both 3D models (vrm/glb) and Live2D bundles.
+  const models = assets.filter(
+    (a) => a.kind === 'model' || a.kind === 'live2d'
+  );
   const animations = assets.filter((a) => a.kind === 'animation');
   const images = assets.filter((a) => a.kind === 'image');
   const videos = assets.filter((a) => a.kind === 'video');
@@ -150,6 +165,38 @@ export function AssetManager() {
       addAsset(asset);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.uploadFailed'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Live2D models upload as a folder (manifest + moc3 + textures) via the bundle
+  // endpoint, preserving each file's path relative to the model root.
+  const handleUploadLive2dFolder = async (files: FileList | File[]) => {
+    if (!projectId) {
+      alert('No project loaded.');
+      return;
+    }
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    const firstPath = list[0].webkitRelativePath || list[0].name;
+    const rootName = firstPath.includes('/')
+      ? firstPath.split('/')[0]
+      : 'live2d-model';
+    const inputs = list.map((f) => {
+      const rel = f.webkitRelativePath || f.name;
+      const relPath = rel.startsWith(`${rootName}/`)
+        ? rel.slice(rootName.length + 1)
+        : rel;
+      return { relPath, file: f };
+    });
+    setUploading(true);
+    try {
+      const asset = await api.uploadLive2dBundle(projectId, rootName, inputs);
+      addAsset(asset);
+      setTab('models');
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Live2D upload failed');
     } finally {
       setUploading(false);
     }
@@ -359,6 +406,36 @@ export function AssetManager() {
         addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addAudioFailed'));
+    }
+  };
+
+  const handleAddAsLive2d = async (asset: AssetFile) => {
+    if (!activeSceneId) {
+      alert('No active scene.');
+      return;
+    }
+    try {
+      await createNodeFromLive2dAsset(asset, activeSceneId);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to add Live2D model');
+    }
+  };
+
+  const handleApplyLive2dModel = async (asset: AssetFile) => {
+    if (!selectedNode) return;
+    const existing = (selectedNode.components?.live2d ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const components = {
+      ...selectedNode.components,
+      live2d: { type: 'live2d', ...existing, modelUrl: asset.url },
+    };
+    try {
+      await api.updateNode(selectedNode.id, { components, filePath: asset.url });
+      storeUpdateNode(selectedNode.id, { components, filePath: asset.url });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to set Live2D model');
     }
   };
 
@@ -842,6 +919,25 @@ export function AssetManager() {
                 e.target.value = '';
               }}
             />
+            <button
+              style={uploadBtn}
+              disabled={uploading}
+              title="Upload a Live2D model folder (.model3.json + .moc3 + textures)"
+              onClick={() => live2dInputRef.current?.click()}
+            >
+              {uploading ? 'Uploading…' : 'Upload Live2D'}
+            </button>
+            <input
+              ref={live2dInputRef}
+              type="file"
+              multiple
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0)
+                  handleUploadLive2dFolder(e.target.files);
+                e.target.value = '';
+              }}
+            />
           </>
         ) : tab === 'animations' ? (
           <>
@@ -1245,6 +1341,39 @@ export function AssetManager() {
                             {t('actions.applyToNode', {
                               name: selectedNode!.name,
                             })}
+                          </button>
+                        )}
+                        {asset.kind === 'live2d' && (
+                          <button
+                            style={{
+                              background: '#1a3a5a',
+                              border: 'none',
+                              color: '#7ab',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            onClick={() => handleAddAsLive2d(asset)}
+                          >
+                            Add to Scene
+                          </button>
+                        )}
+                        {asset.kind === 'live2d' && canApplyLive2d && (
+                          <button
+                            style={{
+                              background: '#1a3a2a',
+                              border: 'none',
+                              color: '#7c9',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={`Set as model for "${selectedNode!.name}"`}
+                            onClick={() => handleApplyLive2dModel(asset)}
+                          >
+                            Apply to {selectedNode!.name}
                           </button>
                         )}
                         {asset.kind === 'animation' && canApplyAnim && (

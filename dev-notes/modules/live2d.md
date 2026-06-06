@@ -55,11 +55,17 @@ the per-node blendshape/pose broadcast bus already routes to a node's id.
   `getVmcBlendshapes`/`getVmcPose` feed each frame, and renders the texture on a
   plane (screen/world facing). **Any load/runtime error falls back to the
   editor-only placeholder** — a failure never blanks the app.
-- `components/editor/PropertiesPanel.tsx` → `Live2DProperties` — model select +
-  **directory upload** (`/assets/bundle`), transform/facing/auto-blink-breath,
-  the **license-acceptance** block (writes `AppConfig` + consent gate), and the
+- `components/editor/PropertiesPanel.tsx` → `Live2DProperties` — model select
+  (from uploaded `live2d` assets), transform/facing/auto-blink-breath, the
+  **license-acceptance** block (writes `AppConfig` + consent gate), and the
   **parameter-override editor** (source field, gain, invert) populated from the
   model's discovered params (`live2dParamsByNode`).
+- `components/editor/AssetManager.tsx` — the **Models tab** lists `live2d`
+  alongside `model` assets, with an **Upload Live2D** folder picker
+  (`webkitdirectory` → `/assets/bundle`), an **Add to Scene** action
+  (`createNodeFromLive2dAsset`), and **Apply to &lt;node&gt;** for a selected
+  `live2d` node. Dragging a `live2d` asset onto the scene tree/viewport also
+  creates a node (`dnd.ts`).
 
 ### Build integration (the non-obvious bit)
 The framework is a **git submodule** at
