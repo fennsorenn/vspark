@@ -155,12 +155,13 @@ Pose interceptor for manually fine-tuning an avatar's pose with a per-bone, per-
 
 **Lifecycle**: mirrors `BreathingManager` — per-behavior `SignalGraph`, persisted node state (`config._nodeState[nodeId]`), hot-applied config. The difference is registration: at start it registers the graph's `on_pose_broadcast` node via `OnPoseBroadcast.register` (exactly like `VmcManager`'s interceptor wiring) rather than attaching a clock.
 
-**Graph descriptor** (`manual_calibration/graph.ts`): a minimal interceptor pipeline:
+**Graph descriptor** (`manual_calibration/graph.ts`): a minimal interceptor pipeline, with the per-bone map exposed as a wired input rather than read from config behind the node's back:
 ```
 on_pose_broadcast (priority 5) → pose_manual_calibration → pose_interceptor_broadcast
+behavior_config (field: calibrations) ──┘ (→ calibrations input)
 ```
 
-**Live config plumbing**: the `calib` node's config is fed live from the behavior config's `calibrations` map via the manager's `_getNodeConfig` (same nodeConfig side-channel as the other graph-backed managers). Config shape: `{ calibrations: Record<boneName, { multiplier?: [x,y,z]; offset?: [x,y,z] }> }`.
+**Calibration map plumbing**: the per-bone map is exposed as a `behavior_config` (Behavior Settings) node (`field: 'calibrations'`) wired into the `pose_manual_calibration` node's `calibrations` value-input — visible on the graph, not a hidden config read. The manager injects `_behaviorConfig` via `_getNodeConfig` so the node resolves the field against the live behavior config. Because node `config` now resolves live per access (engine `_makeBindContext` exposes it as a getter — see [signal-graph.md](signal-graph.md)), UI edits hot-apply without a graph rebuild. Config shape: `{ calibrations: Record<boneName, { multiplier?: [x,y,z]; offset?: [x,y,z] }> }`.
 
 **Per-bone math** (`pose_manual_calibration` node): for each configured bone, decompose the quaternion to ZYX euler and apply per axis `angle' = angle * multiplier + offset` (offset stored in **degrees**, converted to radians in the node; multiplier unitless). Bones with no config entry, or at identity (mult `[1,1,1]` / offset `[0,0,0]`), pass through untouched. See the node entry in [signal-graph.md](signal-graph.md) and the euler conventions in [animation.md](animation.md).
 
