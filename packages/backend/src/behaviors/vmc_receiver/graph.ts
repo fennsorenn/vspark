@@ -411,3 +411,43 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
 export function makeVmcGraphDescriptor(behaviorId: string): GraphDescriptor {
   return { ...VMC_PIPELINE_TEMPLATE, id: `vmc-pipeline:${behaviorId}` };
 }
+
+// ── 2D puppet variant ───────────────────────────────────────────────────────
+// Live2D puppets only consume head/neck rotation + blendshapes. They have no
+// VRM skeleton, so the skeleton-dependent arm-IK stage is meaningless. This
+// template is the full pipeline minus the arm-IK node and its three arm
+// calibration triggers, with the head/spine calibration wired straight to the
+// pose broadcast. Everything else — the VMC source, OSC ingest, RhyLive bone
+// mapping, ARKit blendshape mappers, head-neutral calibration — is shared
+// verbatim, so it can't drift from the 3D pipeline.
+const ARM_NODE_IDS = new Set([
+  'arm_ik_calib',
+  'left_arm_capture',
+  'right_arm_capture',
+  'arm_calib_reset',
+]);
+
+export const VMC_2D_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
+  ...VMC_PIPELINE_TEMPLATE,
+  label: 'VMC Receiver Pipeline (2D)',
+  nodes: VMC_PIPELINE_TEMPLATE.nodes.filter((n) => !ARM_NODE_IDS.has(n.id)),
+  edges: [
+    // Drop every edge touching an arm node (this removes arm_ik_calib → pose_out
+    // and head_calib → arm_ik_calib)…
+    ...VMC_PIPELINE_TEMPLATE.edges.filter(
+      (e) => !ARM_NODE_IDS.has(e.fromNodeId) && !ARM_NODE_IDS.has(e.toNodeId)
+    ),
+    // …then reconnect the bone chain end directly to the broadcast.
+    {
+      fromNodeId: 'head_calib',
+      fromPort: 'pose',
+      toNodeId: 'pose_out',
+      toPort: 'pose',
+      kind: 'value',
+    },
+  ],
+};
+
+export function makeVmcGraphDescriptor2d(behaviorId: string): GraphDescriptor {
+  return { ...VMC_2D_PIPELINE_TEMPLATE, id: `vmc-pipeline-2d:${behaviorId}` };
+}

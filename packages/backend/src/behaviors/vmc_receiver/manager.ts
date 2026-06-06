@@ -9,7 +9,11 @@ import { initPoseBroadcast } from '../../signal/nodes/pose_broadcast.js';
 import { initBlendshapesBroadcast } from '../../signal/nodes/blendshapes_broadcast.js';
 import { OnPoseBroadcast } from '../../signal/nodes/on_pose_broadcast.js';
 import { broadcastBus } from '../../broadcast/bus.js';
-import { makeVmcGraphDescriptor, HEAD_CALIB_BONES } from './graph.js';
+import {
+  makeVmcGraphDescriptor,
+  makeVmcGraphDescriptor2d,
+  HEAD_CALIB_BONES,
+} from './graph.js';
 import { loadVrmSkeleton } from '../../vrm/skeleton.js';
 import type { VrmSkeletonData } from '../../vrm/skeleton.js';
 import { join } from 'path';
@@ -195,6 +199,15 @@ interface Receiver {
   applicableTo: ['any'],
   defaultConfig: { host: '0.0.0.0', port: 39539, mirror: false },
 })
+@BehaviorKind({
+  kind: 'vmc_receiver_2d',
+  label: 'VMC Receiver (2D)',
+  icon: '📡',
+  description:
+    'Drives a 2D puppet from VMC head pose + ARKit blendshapes. Same VMC ingest as the 3D receiver, minus the skeleton-based arm IK.',
+  applicableTo: ['live2d'],
+  defaultConfig: { host: '0.0.0.0', port: 39539, mirror: false },
+})
 export class VmcManager {
   private readonly receivers = new Map<string, Receiver>();
   private readonly graphs = new Map<string, SignalGraph>();
@@ -204,6 +217,8 @@ export class VmcManager {
     Record<string, unknown>
   >();
   private readonly behaviorNodeIds = new Map<string, string>();
+  // behaviorId → kind ('vmc_receiver' | 'vmc_receiver_2d'); selects the graph template.
+  private readonly behaviorKinds = new Map<string, string>();
   private readonly behaviorSkeletons = new Map<
     string,
     VrmSkeletonData | null
@@ -239,7 +254,10 @@ export class VmcManager {
   // ── graph management ───────────────────────────────────────────────────────
 
   private createGraph(behaviorId: string): SignalGraph {
-    const descriptor = makeVmcGraphDescriptor(behaviorId);
+    const descriptor =
+      this.behaviorKinds.get(behaviorId) === 'vmc_receiver_2d'
+        ? makeVmcGraphDescriptor2d(behaviorId)
+        : makeVmcGraphDescriptor(behaviorId);
     this.descriptors.set(behaviorId, descriptor);
     if (!this.nodeStates.has(behaviorId))
       this.nodeStates.set(behaviorId, new Map());
@@ -508,7 +526,11 @@ export class VmcManager {
   ) {
     const active = new Set<string>();
     for (const c of comps) {
-      if (c.kind !== 'vmc_receiver' || !c.enabled) continue;
+      if (
+        (c.kind !== 'vmc_receiver' && c.kind !== 'vmc_receiver_2d') ||
+        !c.enabled
+      )
+        continue;
       // Restore persisted node state from the config's _nodeState namespace.
       const savedStates = (c.config._nodeState ?? {}) as Record<
         string,
@@ -522,7 +544,11 @@ export class VmcManager {
       const { _nodeState: _removed, ...liveConfig } = c.config;
       this.behaviorConfigs.set(c.id, liveConfig);
       this.behaviorNodeIds.set(c.id, c.nodeId);
-      this._loadSkeletonForBehavior(c.id, c.nodeId);
+      this.behaviorKinds.set(c.id, c.kind);
+      // The 2D pipeline has no arm-IK stage, so it needs no VRM skeleton (and the
+      // node it's attached to has none). Only the 3D receiver loads one.
+      if (c.kind === 'vmc_receiver_2d') this.behaviorSkeletons.set(c.id, null);
+      else this._loadSkeletonForBehavior(c.id, c.nodeId);
       const port = (c.config.port as number) ?? 39539;
       this.startReceiver(c.id, port);
       active.add(c.id);

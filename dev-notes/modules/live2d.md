@@ -94,8 +94,24 @@ type-checked by this repo's strict tsc. The boundary:
 - `routes/config.ts` — `PUT /config` accepts partial updates including
   `live2dLicenseAccepted` (persisted to `config.json`).
 
+## Driving a puppet (tracking input)
+A puppet consumes the **same per-node broadcast bus** as a VRM avatar — the bus
+is keyed purely by `nodeId`, renderer-agnostic. Attach a tracking behavior to the
+`live2d` node and `Live2DNode` maps its output. The puppet-scoped option is
+**`vmc_receiver_2d`** ("VMC Receiver (2D)", `applicableTo: ['live2d']`): the same
+`VmcManager`, UDP socket pool, and OSC ingest as the 3D `vmc_receiver`, but a
+trimmed graph (`makeVmcGraphDescriptor2d`) that drops the skeleton-dependent
+arm-IK stage and wires head/spine calibration straight to the pose broadcast — so
+no VRM skeleton is loaded and no arm-IK runs. Routing is two
+`kind IN ('vmc_receiver','vmc_receiver_2d')` queries (`index.ts`, `routes/shared.ts`);
+the manager branches the template on the behavior's kind. The Properties UI
+(`VmcReceiverProps`/`CalibrationSection`) reuses the 3D editor but hides the arm
+calibration for the 2D kind. (The generic `vmc_receiver`, being `['any']`, can
+also be attached and works — its arm-IK simply passes through with no skeleton —
+but `vmc_receiver_2d` is the clean, purpose-named choice.)
+
 ## Data flow (one frame)
-1. A tracking component on the node writes blendshapes + a `neck` quaternion into
+1. A tracking behavior on the node writes blendshapes + a `neck` quaternion into
    the per-node broadcast bus (same path as VRM).
 2. `Live2DNode`'s `useFrame` reads them, calls `mapToLive2dParams(...)` (default
    map ∪ node overrides), and `setParam`s each result.
