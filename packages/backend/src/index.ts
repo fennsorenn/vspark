@@ -8,6 +8,7 @@ import {
   apiRoutes,
   setVmcManager,
   setBreathingManager,
+  setManualCalibrationManager,
   setLipsyncManager,
   setTrackingManager,
   setApiControllerManager,
@@ -25,6 +26,7 @@ import swaggerUi from 'swagger-ui-express';
 import { WSSync } from './ws/index.js';
 import { VmcManager } from './behaviors/vmc_receiver/manager.js';
 import { BreathingManager } from './behaviors/breathing/manager.js';
+import { ManualCalibrationManager } from './behaviors/manual_calibration/manager.js';
 import { LipsyncManager } from './behaviors/lipsync/manager.js';
 import { TrackingManager } from './behaviors/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from './behaviors/api_controller/manager.js';
@@ -91,6 +93,9 @@ async function start() {
 
   const breathingManager = new BreathingManager();
   setBreathingManager(breathingManager);
+
+  const manualCalibrationManager = new ManualCalibrationManager();
+  setManualCalibrationManager(manualCalibrationManager);
 
   const lipsyncManager = new LipsyncManager();
   setLipsyncManager(lipsyncManager);
@@ -223,6 +228,11 @@ async function start() {
     .prepare("SELECT * FROM behaviors WHERE kind = 'breathing'")
     .all() as Record<string, unknown>[];
   breathingManager.syncBehaviors(breathingRows.map(mapRow));
+
+  const manualCalibrationRows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'manual_calibration'")
+    .all() as Record<string, unknown>[];
+  manualCalibrationManager.syncBehaviors(manualCalibrationRows.map(mapRow));
 
   const lipsyncRows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'lipsync_processor'")

@@ -5,6 +5,7 @@ import {
   builtinParticleTextureUrl,
 } from '../../particleTextures';
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
+import { VRM_BONE_NAMES } from '@vspark/shared/signal';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { api, fireSignalEvent, updateScene } from '../../api/client';
@@ -2686,6 +2687,184 @@ function BreathingProps({ comp }: { comp: Behavior }) {
   );
 }
 
+// ── Manual calibration component panel ───────────────────────────────────────
+
+interface BoneCalibration {
+  multiplier?: [number, number, number];
+  offset?: [number, number, number];
+}
+
+const DEFAULT_MULTIPLIER: [number, number, number] = [1, 1, 1];
+const DEFAULT_OFFSET: [number, number, number] = [0, 0, 0];
+
+function isDefaultCalibration(cal: BoneCalibration): boolean {
+  const m = cal.multiplier ?? DEFAULT_MULTIPLIER;
+  const o = cal.offset ?? DEFAULT_OFFSET;
+  return (
+    m[0] === 1 &&
+    m[1] === 1 &&
+    m[2] === 1 &&
+    o[0] === 0 &&
+    o[1] === 0 &&
+    o[2] === 0
+  );
+}
+
+function ManualCalibrationProps({ comp }: { comp: Behavior }) {
+  const { updateBehavior } = useEditorStore();
+  const cfg = (comp.config ?? {}) as {
+    calibrations?: Record<string, BoneCalibration>;
+  };
+  const calibrations = cfg.calibrations ?? {};
+
+  const saveCalibrations = (next: Record<string, BoneCalibration>) => {
+    const config = { ...comp.config, calibrations: next };
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
+  };
+
+  const setBone = (bone: string, patch: BoneCalibration) => {
+    const merged: BoneCalibration = { ...calibrations[bone], ...patch };
+    const next = { ...calibrations };
+    // Prune entries that are back at the identity so the stored map stays lean.
+    if (isDefaultCalibration(merged)) delete next[bone];
+    else next[bone] = merged;
+    saveCalibrations(next);
+  };
+
+  const resetBone = (bone: string) => {
+    if (!(bone in calibrations)) return;
+    const next = { ...calibrations };
+    delete next[bone];
+    saveCalibrations(next);
+  };
+
+  const modifiedCount = Object.keys(calibrations).length;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}
+      >
+        <span style={{ fontSize: 11, color: '#888' }}>
+          {modifiedCount > 0
+            ? `${modifiedCount} bone${modifiedCount === 1 ? '' : 's'} calibrated`
+            : 'No calibration'}
+        </span>
+        {modifiedCount > 0 && (
+          <button
+            onClick={() => saveCalibrations({})}
+            style={{
+              background: 'transparent',
+              color: '#a66',
+              border: '1px solid #533',
+              borderRadius: 4,
+              fontSize: 10,
+              padding: '1px 6px',
+              cursor: 'pointer',
+            }}
+          >
+            Reset all
+          </button>
+        )}
+      </div>
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        Multiplier scales how far a rotation travels along each axis (2 = twice
+        as far). Offset shifts the neutral 0, in degrees.
+      </div>
+
+      {VRM_BONE_NAMES.map((bone) => {
+        const cal = calibrations[bone] ?? {};
+        const m = cal.multiplier ?? DEFAULT_MULTIPLIER;
+        const o = cal.offset ?? DEFAULT_OFFSET;
+        const modified = bone in calibrations;
+        return (
+          <CollapsibleSection key={bone} title={modified ? `${bone} ●` : bone}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                padding: '4px 0 8px 14px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: '#888',
+                    width: 64,
+                    flexShrink: 0,
+                  }}
+                >
+                  Multiplier
+                </span>
+                <VecInput
+                  values={m as number[]}
+                  labels={['X', 'Y', 'Z']}
+                  step={0.1}
+                  onCommit={(next) =>
+                    setBone(bone, {
+                      multiplier: next as [number, number, number],
+                    })
+                  }
+                  style={{ flex: 1 }}
+                />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: '#888',
+                    width: 64,
+                    flexShrink: 0,
+                  }}
+                >
+                  Offset
+                </span>
+                <VecInput
+                  values={o as number[]}
+                  labels={['X', 'Y', 'Z']}
+                  step={1}
+                  suffix="°"
+                  onCommit={(next) =>
+                    setBone(bone, {
+                      offset: next as [number, number, number],
+                    })
+                  }
+                  style={{ flex: 1 }}
+                />
+              </div>
+              {modified && (
+                <button
+                  onClick={() => resetBone(bone)}
+                  style={{
+                    alignSelf: 'flex-start',
+                    background: 'transparent',
+                    color: '#a66',
+                    border: '1px solid #533',
+                    borderRadius: 4,
+                    fontSize: 10,
+                    padding: '1px 6px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Reset bone
+                </button>
+              )}
+            </div>
+          </CollapsibleSection>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Component dispatcher ──────────────────────────────────────────────────────
 
 function BehaviorProps({ comp }: { comp: Behavior }) {
@@ -2700,6 +2879,8 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
       return <ApiControllerProps comp={comp} />;
     case 'breathing':
       return <BreathingProps comp={comp} />;
+    case 'manual_calibration':
+      return <ManualCalibrationProps comp={comp} />;
     default:
       return (
         <div style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>
@@ -5089,11 +5270,7 @@ export function PropertiesPanel() {
                 {children}
               </div>
             );
-            const check = (
-              label: string,
-              field: string,
-              checked: boolean
-            ) =>
+            const check = (label: string, field: string, checked: boolean) =>
               row(
                 label,
                 <input
@@ -5366,11 +5543,7 @@ export function PropertiesPanel() {
                 {children}
               </div>
             );
-            const check = (
-              label: string,
-              field: string,
-              checked: boolean
-            ) =>
+            const check = (label: string, field: string, checked: boolean) =>
               row(
                 label,
                 <input
