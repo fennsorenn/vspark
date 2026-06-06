@@ -1,0 +1,132 @@
+{
+  "tabs": {
+    "stage": "Stage",
+    "compose": "Compose",
+    "logic": "Logik"
+  },
+  "scenes": {
+    "header": "Szenen",
+    "newButton": "+ Szene",
+    "newButton_title": "Neue Szene",
+    "empty": "Noch keine Szenen. Auf + Szene klicken",
+    "emptyScene": "Leere Szene",
+    "promptName": "Szenenname:",
+    "promptDefault": "Neue Szene",
+    "confirmDelete": "Szene „{{name}}“ und alle Knoten löschen? Dies kann nicht rückgängig gemacht werden.",
+    "failCreate": "Szene konnte nicht erstellt werden",
+    "failDelete": "Szene konnte nicht gelöscht werden"
+  },
+  "nodes": {
+    "addNodeTitle": "Knoten hinzufügen — öffnet die Erstell-Palette",
+    "deleteTitle": "Knoten löschen",
+    "deleteScene": "Szene löschen",
+    "confirmDelete": "„{{name}}“ löschen?",
+    "failCreate": "Knoten konnte nicht erstellt werden",
+    "failDelete": "Knoten konnte nicht gelöscht werden",
+    "failMove": "Knoten konnte nicht verschoben werden",
+    "failCopy": "Knoten konnte nicht kopiert werden (Serialisierung)",
+    "failPaste": "Knoten konnte nicht eingefügt werden"
+  },
+  "bones": {
+    "expand": "Alle Knochen einblenden",
+    "collapse": "Leere Knochen ausblenden",
+    "pasteConfirm": "Knoten an Knochen „{{bone}}“ einfügen?"
+  },
+  "behaviors": {
+    "empty": "Keine Verhalten",
+    "addButton": "+ Verhalten hinzufügen",
+    "pasteTitle": "Verhalten aus Zwischenablage auf diesen Knoten einfügen",
+    "pasteButton": "⧉ Einfügen",
+    "other": "Weitere",
+    "disable": "Deaktivieren",
+    "enable": "Aktivieren",
+    "ctxCopy": "Verhalten kopieren",
+    "ctxRemove": "Verhalten entfernen",
+    "failPaste": "Logik konnte nicht eingefügt werden"
+  },
+  "effects": {
+    "header": "Effekte",
+    "empty": "Keine Effekte",
+    "addButton": "+ Effekt hinzufügen",
+    "pasteTitle": "Effekt aus Zwischenablage auf diese Kamera einfügen",
+    "pasteButton": "⧉ Einfügen",
+    "ctxCopy": "Effekt kopieren",
+    "ctxRemove": "Effekt entfernen",
+    "disable": "Deaktivieren",
+    "enable": "Aktivieren"
+  },
+  "camera": {
+    "previewEnable": "Effekte im Ansichtsfenster vorschauen",
+    "previewDisable": "Effektvorschau deaktivieren",
+    "openViewer": "Betrachter öffnen"
+  },
+  "visibility": {
+    "show": "Einblenden",
+    "hide": "Ausblenden"
+  },
+  "components": {
+    "show": "Verhalten anzeigen",
+    "hide": "Verhalten ausblenden"
+  },
+  "vmc": {
+    "clientConnected": "Client verbunden",
+    "noClient": "Kein Client",
+    "trackingActive": "Tracking aktiv",
+    "trackingLost": "Tracking verloren",
+    "notConnected": "Nicht verbunden"
+  },
+  "context": {
+    "addChild": "Kind hinzufügen",
+    "moveInto": "Hineinbewegen",
+    "unparent": "Übergeordnet aufheben",
+    "copyNode": "Knoten kopieren",
+    "pasteNodeAsChild": "Knoten als Kind einfügen",
+    "pasteLogicHere": "Logik hier einfügen",
+    "delete": "Löschen"
+  },
+  "logic": {
+    "globalLogic": "Globale Logik",
+    "scopedLogic": "Bereichslogik",
+    "behaviorLogic": "Verhaltenslogik",
+    "pasteTitle": "Logik aus Zwischenablage als globale Logik einfügen",
+    "newTitle": "Neue Logik",
+    "noProjectGraphs": "Noch keine Projektgraphen.",
+    "noScopedGraphs": "Keine Bereichsgraphen. Über einen Szenenknoten oder eine Compose-Ebene hinzufügen.",
+    "noBehaviorGraphs": "Keine aktiven Komponentengraphen.",
+    "nodes": "{{count}} Knoten",
+    "disabled": "· deaktiviert",
+    "readOnly": "nur lesen",
+    "layer": "Ebene",
+    "node": "Knoten",
+    "promptName": "Name der neuen Logik:",
+    "promptDefault": "Unbenannte Logik",
+    "promptRename": "Logik umbenennen:",
+    "confirmDelete": "Graph „{{name}}“ löschen?",
+    "ctxCopy": "Logik kopieren",
+    "ctxRename": "Umbenennen…",
+    "ctxDelete": "Löschen",
+    "disable": "Deaktivieren",
+    "enable": "Aktivieren",
+    "failCreate": "Logik konnte nicht erstellt werden",
+    "failRename": "Logik konnte nicht umbenannt werden",
+    "failToggle": "Logik konnte nicht umgeschaltet werden",
+    "failDelete": "Logik konnte nicht gelöscht werden",
+    "failPaste": "Logik konnte nicht eingefügt werden"
+  },
+  "palette": {
+    "tileTitle": "Klicken zum Hinzufügen oder in die Szene / Ansicht ziehen",
+    "addLayerTo": "Ebene hinzufügen zu",
+    "addTo": "Hinzufügen zu",
+    "scene": "Szene",
+    "noComposeScene": "Keine Compose-Szene ausgewählt. Im Compose-Tab erstellen oder auswählen.",
+    "noScene": "Keine Szene ausgewählt. Im Szenen-Tab erstellen oder auswählen.",
+    "failCreate": "Knoten konnte nicht erstellt werden"
+  },
+  "help": {
+    "sceneNodes": "Szenen und Knoten kennenlernen",
+    "hierarchy": "Knotenüberordnung und Hierarchie verstehen",
+    "avatar": "Avatare laden und konfigurieren",
+    "camera": "Kameras in der Szene verwenden",
+    "lights": "Lichter hinzufügen und konfigurieren"
+  }
+}

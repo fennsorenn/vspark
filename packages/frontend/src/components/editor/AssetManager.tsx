@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { AssetFile } from '../../api/client';
@@ -10,8 +11,10 @@ import { CreatePalette } from './CreatePalette';
 import { AssetThumb } from './AssetThumb';
 import { DND_ASSET } from './dnd';
 import { behaviorCompatibleWith } from './createKinds';
+import { HelpButton } from '../../help/HelpButton';
 
 export function AssetManager() {
+  const { t } = useTranslation('assets');
   const {
     assets,
     addAsset,
@@ -118,7 +121,7 @@ export function AssetManager() {
 
   const handleUpload = async (file: File) => {
     if (!projectId) {
-      alert('No project loaded.');
+      alert(t('alerts.noProject'));
       return;
     }
     setUploading(true);
@@ -126,7 +129,7 @@ export function AssetManager() {
       const asset = await api.uploadAsset(projectId, file);
       addAsset(asset);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Upload failed');
+      alert(e instanceof Error ? e.message : t('alerts.uploadFailed'));
     } finally {
       setUploading(false);
     }
@@ -146,7 +149,7 @@ export function AssetManager() {
 
   const handleUploadFiles = async (files: FileList | File[]) => {
     if (!projectId) {
-      alert('No project loaded.');
+      alert(t('alerts.noProject'));
       return;
     }
     const list = Array.from(files);
@@ -165,7 +168,7 @@ export function AssetManager() {
     }
     setUploading(false);
     if (firstKind && KIND_TO_TAB[firstKind]) setTab(KIND_TO_TAB[firstKind]);
-    if (failures.length > 0) alert(`Failed to upload: ${failures.join(', ')}`);
+    if (failures.length > 0) alert(t('alerts.uploadFailedFiles', { files: failures.join(', ') }));
   };
 
   // Only react to OS file drags (dataTransfer carries "Files"); internal asset/
@@ -175,7 +178,7 @@ export function AssetManager() {
 
   const handleAddToScene = async (asset: AssetFile) => {
     if (!activeSceneId) {
-      alert('No active scene. Select or create a scene first.');
+      alert(t('alerts.noScene'));
       return;
     }
     const ext = asset.name.split('.').pop()?.toLowerCase();
@@ -204,13 +207,13 @@ export function AssetManager() {
       if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
         addNode(node);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to add to scene');
+      alert(e instanceof Error ? e.message : t('alerts.addSceneFailed'));
     }
   };
 
   const handleAddAsBillboard = async (asset: AssetFile) => {
     if (!activeSceneId) {
-      alert('No active scene.');
+      alert(t('alerts.noSceneShort'));
       return;
     }
     try {
@@ -245,7 +248,7 @@ export function AssetManager() {
       if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
         addNode(node);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to add billboard');
+      alert(e instanceof Error ? e.message : t('alerts.addBillboardFailed'));
     }
   };
 
@@ -264,7 +267,7 @@ export function AssetManager() {
 
   const handleAddAsVideo = async (asset: AssetFile) => {
     if (!activeSceneId) {
-      alert('No active scene.');
+      alert(t('alerts.noSceneShort'));
       return;
     }
     try {
@@ -295,13 +298,13 @@ export function AssetManager() {
       if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
         addNode(node);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to add video');
+      alert(e instanceof Error ? e.message : t('alerts.addVideoFailed'));
     }
   };
 
   const handleAddAsAudio = async (asset: AssetFile) => {
     if (!activeSceneId) {
-      alert('No active scene.');
+      alert(t('alerts.noSceneShort'));
       return;
     }
     try {
@@ -334,7 +337,7 @@ export function AssetManager() {
       if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
         addNode(node);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to add audio');
+      alert(e instanceof Error ? e.message : t('alerts.addAudioFailed'));
     }
   };
 
@@ -344,9 +347,7 @@ export function AssetManager() {
     kind: 'image' | 'video'
   ) => {
     if (!activeComposeSceneId) {
-      alert(
-        'No active compose scene. Open the Compose tab and select a compose scene first.'
-      );
+      alert(t('alerts.noComposeScene'));
       return;
     }
     const config: Record<string, unknown> =
@@ -370,7 +371,7 @@ export function AssetManager() {
       addComposeLayer(created);
       selectComposeLayer(created.id);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to add layer');
+      alert(e instanceof Error ? e.message : t('alerts.addLayerFailed'));
     }
   };
 
@@ -394,7 +395,7 @@ export function AssetManager() {
       });
       storeUpdateNode(selectedNode.id, { components, filePath: asset.url });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to apply media source');
+      alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));
     }
   };
 
@@ -407,7 +408,7 @@ export function AssetManager() {
       await api.updateComposeLayer(layer.id, { assetId: asset.id });
       updateComposeLayerLocal(layer.id, { assetId: asset.id });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to apply media source');
+      alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));
     }
   };
 
@@ -426,7 +427,7 @@ export function AssetManager() {
       await api.updateNode(selectedNode.id, { components });
       storeUpdateNode(selectedNode.id, { components });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to apply texture');
+      alert(e instanceof Error ? e.message : t('alerts.applyTextureFailed'));
     }
   };
 
@@ -444,7 +445,7 @@ export function AssetManager() {
       await api.updateNode(selectedNode.id, { components });
       storeUpdateNode(selectedNode.id, { components });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to set camera background');
+      alert(e instanceof Error ? e.message : t('alerts.applyCameraBgFailed'));
     }
   };
 
@@ -454,7 +455,7 @@ export function AssetManager() {
       await api.updateNode(selectedNode.id, { filePath: asset.url });
       storeUpdateNode(selectedNode.id, { filePath: asset.url });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to set model');
+      alert(e instanceof Error ? e.message : t('alerts.applyModelFailed'));
     }
   };
 
@@ -468,7 +469,7 @@ export function AssetManager() {
       await api.updateNode(selectedNode.id, { components });
       storeUpdateNode(selectedNode.id, { components });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to apply animation');
+      alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
     }
   };
 
@@ -477,7 +478,7 @@ export function AssetManager() {
       await api.deleteAsset(asset.id);
       deleteAsset(asset.id);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Delete failed');
+      alert(e instanceof Error ? e.message : t('alerts.deleteFailed'));
     }
   };
 
@@ -519,9 +520,9 @@ export function AssetManager() {
     }
   };
 
-  const tabBtn = (t: BottomDockTab): React.CSSProperties => {
-    const active = tab === t;
-    const relevant = relevantTabs.has(t);
+  const tabBtn = (tabId: BottomDockTab): React.CSSProperties => {
+    const active = tab === tabId;
+    const relevant = relevantTabs.has(tabId);
     return {
       background: active ? '#2a2a2a' : 'none',
       border: 'none',
@@ -613,10 +614,10 @@ export function AssetManager() {
           disabled={alreadyAdded}
           onClick={() => handleAddBehavior(ct.kind)}
           title={
-            alreadyAdded ? 'Already added' : `Add to ${selectedNode!.name}`
+            alreadyAdded ? t('card.alreadyAdded') : t('card.addToNode', { name: selectedNode!.name })
           }
         >
-          {alreadyAdded ? '✓ Added' : '+ Add'}
+          {alreadyAdded ? t('card.added') : t('card.add')}
         </button>
       </div>
     );
@@ -690,7 +691,7 @@ export function AssetManager() {
           }}
         >
           <div style={{ color: '#cfe0ff', fontSize: 15, fontWeight: 600 }}>
-            ⬆ Drop files to upload
+            {t('upload.dropFiles')}
           </div>
         </div>
       )}
@@ -706,40 +707,43 @@ export function AssetManager() {
         }}
       >
         <button style={tabBtn('create')} onClick={() => setTab('create')}>
-          Create
+          {t('tabs.create')}
         </button>
         <button style={tabBtn('models')} onClick={() => setTab('models')}>
-          Models
+          {t('tabs.models')}
         </button>
+        <HelpButton topic="avatar" anchor="loading" tip={t('help.models')} size={12} />
         <button
           style={tabBtn('animations')}
           onClick={() => setTab('animations')}
         >
-          Animations
+          {t('tabs.animations')}
         </button>
+        <HelpButton topic="avatar" anchor="animation" tip={t('help.animations')} size={12} />
         <button style={tabBtn('images')} onClick={() => setTab('images')}>
-          Images
+          {t('tabs.images')}
         </button>
         <button style={tabBtn('videos')} onClick={() => setTab('videos')}>
-          Videos
+          {t('tabs.videos')}
         </button>
         <button style={tabBtn('audio')} onClick={() => setTab('audio')}>
-          Audio
+          {t('tabs.audio')}
         </button>
         <button
           style={tabBtn('components')}
           onClick={() => setTab('components')}
         >
-          Behaviors
+          {t('tabs.components')}
         </button>
+        <HelpButton topic="behaviors" anchor="vmc" tip={t('help.behaviors')} size={12} />
         <button style={tabBtn('effects')} onClick={() => setTab('effects')}>
-          Effects
+          {t('tabs.effects')}
         </button>
         <button style={tabBtn('clips')} onClick={() => setTab('clips')}>
-          Timeline
+          {t('tabs.clips')}
         </button>
         <button style={tabBtn('presets')} onClick={() => setTab('presets')}>
-          Presets
+          {t('tabs.presets')}
         </button>
         <div style={{ flex: 1 }} />
         {(tab === 'models' ||
@@ -750,7 +754,7 @@ export function AssetManager() {
           <input
             value={assetQuery}
             onChange={(e) => setAssetQuery(e.target.value)}
-            placeholder="Search…"
+            placeholder={t('search.placeholder')}
             style={{
               background: '#1a1a1a',
               border: '1px solid #2a2a2a',
@@ -774,7 +778,7 @@ export function AssetManager() {
               disabled={uploading}
               onClick={() => modelInputRef.current?.click()}
             >
-              {uploading ? 'Uploading…' : 'Upload Model'}
+              {uploading ? t('upload.uploading') : t('upload.model')}
             </button>
             <input
               ref={modelInputRef}
@@ -795,7 +799,7 @@ export function AssetManager() {
               disabled={uploading}
               onClick={() => animInputRef.current?.click()}
             >
-              {uploading ? 'Uploading…' : 'Upload Animation'}
+              {uploading ? t('upload.uploading') : t('upload.animation')}
             </button>
             <input
               ref={animInputRef}
@@ -816,7 +820,7 @@ export function AssetManager() {
               disabled={uploading}
               onClick={() => imageInputRef.current?.click()}
             >
-              {uploading ? 'Uploading…' : 'Upload Image'}
+              {uploading ? t('upload.uploading') : t('upload.image')}
             </button>
             <input
               ref={imageInputRef}
@@ -837,7 +841,7 @@ export function AssetManager() {
               disabled={uploading}
               onClick={() => videoInputRef.current?.click()}
             >
-              {uploading ? 'Uploading…' : 'Upload Video'}
+              {uploading ? t('upload.uploading') : t('upload.video')}
             </button>
             <input
               ref={videoInputRef}
@@ -858,7 +862,7 @@ export function AssetManager() {
               disabled={uploading}
               onClick={() => audioInputRef.current?.click()}
             >
-              {uploading ? 'Uploading…' : 'Upload Audio'}
+              {uploading ? t('upload.uploading') : t('upload.audio')}
             </button>
             <input
               ref={audioInputRef}
@@ -901,7 +905,7 @@ export function AssetManager() {
                     paddingTop: 12,
                   }}
                 >
-                  Select an object in the scene to add behaviors.
+                  {t('empty.selectNode')}
                 </div>
               )}
               {selectedNode &&
@@ -924,8 +928,7 @@ export function AssetManager() {
                       {incompatible.length > 0 && (
                         <>
                           <div style={sectionLabel}>
-                            Other behaviors (not typical for{' '}
-                            {selectedNode.kind})
+                            {t('behaviors.otherBehaviors', { kind: selectedNode.kind })}
                           </div>
                           <div style={cardGrid}>
                             {incompatible.map((ct) =>
@@ -952,7 +955,7 @@ export function AssetManager() {
                     paddingTop: 12,
                   }}
                 >
-                  Select a camera node to add effects.
+                  {t('empty.selectCamera')}
                 </div>
               )}
               {selectedNode && selectedNode.kind === 'camera' && (
@@ -1016,11 +1019,11 @@ export function AssetManager() {
                           onClick={() => handleAddEffect(ek.kind)}
                           title={
                             alreadyAdded
-                              ? 'Already added'
-                              : `Add to ${selectedNode.name}`
+                              ? t('card.alreadyAdded')
+                              : t('card.addToNode', { name: selectedNode.name })
                           }
                         >
-                          {alreadyAdded ? '✓ Added' : '+ Add'}
+                          {alreadyAdded ? t('card.added') : t('card.add')}
                         </button>
                       </div>
                     );
@@ -1061,7 +1064,7 @@ export function AssetManager() {
                       paddingTop: 20,
                     }}
                   >
-                    No {tab} yet. Upload one above.
+                    {t('empty.noAssets', { tab })}
                   </div>
                 );
               if (list.length === 0)
@@ -1074,7 +1077,7 @@ export function AssetManager() {
                       paddingTop: 20,
                     }}
                   >
-                    No {tab} match “{assetQuery}”.
+                    {t('empty.noMatch', { tab, query: assetQuery })}
                   </div>
                 );
               const cardStyle: React.CSSProperties = {
@@ -1110,7 +1113,7 @@ export function AssetManager() {
                       key={asset.id}
                       style={{ ...cardStyle, cursor: 'grab' }}
                       draggable
-                      title="Drag onto the scene tree or viewport to add"
+                      title={t('card.dragHint')}
                       onDragStart={(e) => {
                         e.dataTransfer.effectAllowed = 'copy';
                         e.dataTransfer.setData(DND_ASSET, asset.id);
@@ -1154,7 +1157,7 @@ export function AssetManager() {
                             }}
                             onClick={() => handleAddToScene(asset)}
                           >
-                            Add to Scene
+                            {t('actions.addToScene')}
                           </button>
                         )}
                         {asset.kind === 'model' && canApplyModel && (
@@ -1168,10 +1171,10 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={`Set as model for "${selectedNode!.name}"`}
+                            title={t('actions.applyToNodeTitle', { name: selectedNode!.name })}
                             onClick={() => handleApplyModel(asset)}
                           >
-                            Apply to {selectedNode!.name}
+                            {t('actions.applyToNode', { name: selectedNode!.name })}
                           </button>
                         )}
                         {asset.kind === 'animation' && canApplyAnim && (
@@ -1185,10 +1188,10 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={`Apply to "${selectedNode!.name}"`}
+                            title={t('actions.applyAnimTitle', { name: selectedNode!.name })}
                             onClick={() => handleApplyAnimation(asset)}
                           >
-                            Apply to {selectedNode!.name}
+                            {t('actions.applyToNode', { name: selectedNode!.name })}
                           </button>
                         )}
                         {asset.kind === 'animation' && !canApplyAnim && (
@@ -1199,7 +1202,7 @@ export function AssetManager() {
                               alignSelf: 'center',
                             }}
                           >
-                            Select an avatar first
+                            {t('empty.selectAvatar')}
                           </span>
                         )}
                         {asset.kind === 'image' && (
@@ -1215,8 +1218,8 @@ export function AssetManager() {
                             }}
                             title={
                               composeMode
-                                ? 'Add as an image layer in the active compose scene'
-                                : 'Add as a billboard in the 3D scene'
+                                ? t('actions.addAsBillboardTitle')
+                                : t('actions.addAsBillboard3dTitle')
                             }
                             onClick={() =>
                               composeMode
@@ -1224,7 +1227,7 @@ export function AssetManager() {
                                 : handleAddAsBillboard(asset)
                             }
                           >
-                            {composeMode ? 'Add as Layer' : 'Add as Billboard'}
+                            {composeMode ? t('actions.addAsLayer') : t('actions.addAsBillboard')}
                           </button>
                         )}
                         {asset.kind === 'image' && canApplyTexture && (
@@ -1238,10 +1241,10 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={`Apply texture to "${selectedNode!.name}"`}
+                            title={t('actions.applyTextureTitle', { name: selectedNode!.name })}
                             onClick={() => handleApplyTexture(asset)}
                           >
-                            Apply to {selectedNode!.name}
+                            {t('actions.applyTexture', { name: selectedNode!.name })}
                           </button>
                         )}
                         {asset.kind === 'image' && canApplyCameraBg && (
@@ -1255,10 +1258,10 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={`Set as background for "${selectedNode!.name}"`}
+                            title={t('actions.setAsBgTitle', { name: selectedNode!.name })}
                             onClick={() => handleApplyCameraBg(asset)}
                           >
-                            Set as BG
+                            {t('actions.setAsBg')}
                           </button>
                         )}
                         {asset.kind === 'image' && canApplyImageLayer && (
@@ -1272,10 +1275,10 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={`Apply to "${selectedComposeLayer!.name}"`}
+                            title={t('actions.applyToLayerTitle', { name: selectedComposeLayer!.name })}
                             onClick={() => handleApplyMediaSourceToLayer(asset)}
                           >
-                            Apply to {selectedComposeLayer!.name}
+                            {t('actions.applyToLayer', { name: selectedComposeLayer!.name })}
                           </button>
                         )}
                         {asset.kind === 'image' &&
@@ -1289,7 +1292,7 @@ export function AssetManager() {
                                 alignSelf: 'center',
                               }}
                             >
-                              Select billboard/particle/camera
+                              {t('empty.selectBillboardOrCamera')}
                             </span>
                           )}
                         {asset.kind === 'video' && (
@@ -1305,8 +1308,8 @@ export function AssetManager() {
                             }}
                             title={
                               composeMode
-                                ? 'Add as a video layer in the active compose scene'
-                                : 'Add as a 3D video node in the scene'
+                                ? t('actions.addAsVideoLayerTitle')
+                                : t('actions.addAsVideo3dTitle')
                             }
                             onClick={() =>
                               composeMode
@@ -1314,7 +1317,7 @@ export function AssetManager() {
                                 : handleAddAsVideo(asset)
                             }
                           >
-                            {composeMode ? 'Add as Layer' : 'Add as Video'}
+                            {composeMode ? t('actions.addAsLayer') : t('actions.addAsVideo')}
                           </button>
                         )}
                         {asset.kind === 'video' && canApplyVideo && (
@@ -1328,12 +1331,12 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={`Apply to "${selectedNode!.name}"`}
+                            title={t('actions.applyVideoTitle', { name: selectedNode!.name })}
                             onClick={() =>
                               handleApplyMediaSource(asset, 'video')
                             }
                           >
-                            Apply to {selectedNode!.name}
+                            {t('actions.applyToNode', { name: selectedNode!.name })}
                           </button>
                         )}
                         {asset.kind === 'video' && canApplyVideoLayer && (
@@ -1347,10 +1350,10 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={`Apply to "${selectedComposeLayer!.name}"`}
+                            title={t('actions.applyToLayerTitle', { name: selectedComposeLayer!.name })}
                             onClick={() => handleApplyMediaSourceToLayer(asset)}
                           >
-                            Apply to {selectedComposeLayer!.name}
+                            {t('actions.applyToLayer', { name: selectedComposeLayer!.name })}
                           </button>
                         )}
                         {asset.kind === 'audio' && (
@@ -1366,7 +1369,7 @@ export function AssetManager() {
                             }}
                             onClick={() => handleAddAsAudio(asset)}
                           >
-                            Add as Audio
+                            {t('actions.addAsAudio')}
                           </button>
                         )}
                         {asset.kind === 'audio' && canApplyAudio && (
@@ -1380,12 +1383,12 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={`Apply to "${selectedNode!.name}"`}
+                            title={t('actions.applyAudioTitle', { name: selectedNode!.name })}
                             onClick={() =>
                               handleApplyMediaSource(asset, 'audio')
                             }
                           >
-                            Apply to {selectedNode!.name}
+                            {t('actions.applyToNode', { name: selectedNode!.name })}
                           </button>
                         )}
                         {asset.kind === 'audio' && canApplyAudioLayer && (
@@ -1399,10 +1402,10 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={`Apply to "${selectedComposeLayer!.name}"`}
+                            title={t('actions.applyToLayerTitle', { name: selectedComposeLayer!.name })}
                             onClick={() => handleApplyMediaSourceToLayer(asset)}
                           >
-                            Apply to {selectedComposeLayer!.name}
+                            {t('actions.applyToLayer', { name: selectedComposeLayer!.name })}
                           </button>
                         )}
                         <button
@@ -1415,7 +1418,7 @@ export function AssetManager() {
                             padding: '0 2px',
                           }}
                           onClick={() => handleDelete(asset)}
-                          title="Remove"
+                          title={t('card.remove')}
                         >
                           ×
                         </button>
@@ -1435,6 +1438,7 @@ export function AssetManager() {
  *  the dock; the height is clamped in the store action. Highlights on hover so
  *  the user can find it. */
 export function BottomDockResizeHandle() {
+  const { t } = useTranslation('assets');
   const setBottomDockHeight = useEditorStore((s) => s.setBottomDockHeight);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1460,7 +1464,7 @@ export function BottomDockResizeHandle() {
   return (
     <div
       onPointerDown={onPointerDown}
-      title="Drag to resize"
+      title={t('resize.dragTitle')}
       style={{
         position: 'absolute',
         top: -2,

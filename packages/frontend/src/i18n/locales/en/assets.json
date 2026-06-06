@@ -1,0 +1,95 @@
+{
+  "tabs": {
+    "create": "Create",
+    "models": "Models",
+    "animations": "Animations",
+    "images": "Images",
+    "videos": "Videos",
+    "audio": "Audio",
+    "components": "Behaviors",
+    "effects": "Effects",
+    "clips": "Timeline",
+    "presets": "Presets"
+  },
+  "search": {
+    "placeholder": "Search…"
+  },
+  "upload": {
+    "uploading": "Uploading…",
+    "model": "Upload Model",
+    "animation": "Upload Animation",
+    "image": "Upload Image",
+    "video": "Upload Video",
+    "audio": "Upload Audio",
+    "dropFiles": "⬆ Drop files to upload"
+  },
+  "empty": {
+    "noAssets": "No {{tab}} yet. Upload one above.",
+    "noMatch": "No {{tab}} match \"{{query}}\".",
+    "selectNode": "Select an object in the scene to add behaviors.",
+    "selectCamera": "Select a camera node to add effects.",
+    "selectAvatar": "Select an avatar first",
+    "selectBillboardOrCamera": "Select billboard/particle/camera"
+  },
+  "card": {
+    "dragHint": "Drag onto the scene tree or viewport to add",
+    "alreadyAdded": "Already added",
+    "addToNode": "Add to {{name}}",
+    "added": "✓ Added",
+    "add": "+ Add",
+    "remove": "Remove"
+  },
+  "actions": {
+    "addToScene": "Add to Scene",
+    "applyToNode": "Apply to {{name}}",
+    "applyToNodeTitle": "Set as model for \"{{name}}\"",
+    "applyAnimTitle": "Apply to \"{{name}}\"",
+    "addAsLayer": "Add as Layer",
+    "addAsBillboard": "Add as Billboard",
+    "addAsBillboardTitle": "Add as an image layer in the active compose scene",
+    "addAsBillboard3dTitle": "Add as a billboard in the 3D scene",
+    "applyTexture": "Apply to {{name}}",
+    "applyTextureTitle": "Apply texture to \"{{name}}\"",
+    "setAsBg": "Set as BG",
+    "setAsBgTitle": "Set as background for \"{{name}}\"",
+    "applyToLayer": "Apply to {{name}}",
+    "applyToLayerTitle": "Apply to \"{{name}}\"",
+    "addAsVideo": "Add as Video",
+    "addAsVideoLayerTitle": "Add as a video layer in the active compose scene",
+    "addAsVideo3dTitle": "Add as a 3D video node in the scene",
+    "addAsAudio": "Add as Audio",
+    "applyVideoTitle": "Apply to \"{{name}}\"",
+    "applyAudioTitle": "Apply to \"{{name}}\""
+  },
+  "behaviors": {
+    "otherBehaviors": "Other behaviors (not typical for {{kind}})"
+  },
+  "alerts": {
+    "noProject": "No project loaded.",
+    "noScene": "No active scene. Select or create a scene first.",
+    "noSceneShort": "No active scene.",
+    "noComposeScene": "No active compose scene. Open the Compose tab and select a compose scene first.",
+    "uploadFailed": "Upload failed",
+    "uploadFailedFiles": "Failed to upload: {{files}}",
+    "addSceneFailed": "Failed to add to scene",
+    "addBillboardFailed": "Failed to add billboard",
+    "addVideoFailed": "Failed to add video",
+    "addAudioFailed": "Failed to add audio",
+    "addLayerFailed": "Failed to add layer",
+    "applyMediaFailed": "Failed to apply media source",
+    "applyTextureFailed": "Failed to apply texture",
+    "applyCameraBgFailed": "Failed to set camera background",
+    "applyModelFailed": "Failed to set model",
+    "applyAnimFailed": "Failed to apply animation",
+    "deleteFailed": "Delete failed"
+  },
+  "resize": {
+    "dragTitle": "Drag to resize"
+  },
+  "help": {
+    "animations": "Learn how to load and apply animation clips to your avatar.",
+    "behaviors": "Learn how to connect VMC motion capture and other behaviors to your nodes.",
+    "models": "Learn how to load VRM and 3D model assets into your scene.",
+    "clips": "Learn how to automate scene changes using the timeline and trigger clips."
+  }
+}

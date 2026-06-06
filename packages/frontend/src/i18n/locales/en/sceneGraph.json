@@ -1,0 +1,132 @@
+{
+  "tabs": {
+    "stage": "Stage",
+    "compose": "Compose",
+    "logic": "Logic"
+  },
+  "scenes": {
+    "header": "Scenes",
+    "newButton": "+ Scene",
+    "newButton_title": "New scene",
+    "empty": "No scenes yet. Click + Scene",
+    "emptyScene": "Empty scene",
+    "promptName": "Scene name:",
+    "promptDefault": "New Scene",
+    "confirmDelete": "Delete scene \"{{name}}\" and all its nodes? This cannot be undone.",
+    "failCreate": "Failed to create scene",
+    "failDelete": "Failed to delete scene"
+  },
+  "nodes": {
+    "addNodeTitle": "Add node — opens the Create palette",
+    "deleteTitle": "Delete node",
+    "deleteScene": "Delete scene",
+    "confirmDelete": "Delete \"{{name}}\"?",
+    "failCreate": "Failed to create node",
+    "failDelete": "Failed to delete node",
+    "failMove": "Failed to move node",
+    "failCopy": "Failed to copy node (serialize)",
+    "failPaste": "Failed to paste node"
+  },
+  "bones": {
+    "expand": "Expand all bones",
+    "collapse": "Collapse empty bones",
+    "pasteConfirm": "Paste node onto bone \"{{bone}}\"?"
+  },
+  "behaviors": {
+    "empty": "No behaviors",
+    "addButton": "+ Add Behavior",
+    "pasteTitle": "Paste component from clipboard onto this node",
+    "pasteButton": "⧉ Paste",
+    "other": "Other",
+    "disable": "Disable",
+    "enable": "Enable",
+    "ctxCopy": "Copy component",
+    "ctxRemove": "Remove component",
+    "failPaste": "Failed to paste logic"
+  },
+  "effects": {
+    "header": "Effects",
+    "empty": "No effects",
+    "addButton": "+ Add Effect",
+    "pasteTitle": "Paste effect from clipboard onto this camera",
+    "pasteButton": "⧉ Paste",
+    "ctxCopy": "Copy effect",
+    "ctxRemove": "Remove effect",
+    "disable": "Disable",
+    "enable": "Enable"
+  },
+  "camera": {
+    "previewEnable": "Preview effects in viewport",
+    "previewDisable": "Disable effect preview",
+    "openViewer": "Open viewer"
+  },
+  "visibility": {
+    "show": "Show",
+    "hide": "Hide"
+  },
+  "components": {
+    "show": "Show components",
+    "hide": "Hide components"
+  },
+  "vmc": {
+    "clientConnected": "Client connected",
+    "noClient": "No client",
+    "trackingActive": "Tracking active",
+    "trackingLost": "Tracking lost",
+    "notConnected": "Not connected"
+  },
+  "context": {
+    "addChild": "Add Child",
+    "moveInto": "Move Into",
+    "unparent": "Unparent",
+    "copyNode": "Copy node",
+    "pasteNodeAsChild": "Paste node as child",
+    "pasteLogicHere": "Paste logic here",
+    "delete": "Delete"
+  },
+  "logic": {
+    "globalLogic": "Global Logic",
+    "scopedLogic": "Scoped Logic",
+    "behaviorLogic": "Behavior Logic",
+    "pasteTitle": "Paste logic from clipboard as a global logic",
+    "newTitle": "New logic",
+    "noProjectGraphs": "No project graphs yet.",
+    "noScopedGraphs": "No scoped graphs. Add one from a scene node or compose layer.",
+    "noBehaviorGraphs": "No active component graphs.",
+    "nodes": "{{count}} nodes",
+    "disabled": "· disabled",
+    "readOnly": "read-only",
+    "layer": "layer",
+    "node": "node",
+    "promptName": "New logic name:",
+    "promptDefault": "Untitled Logic",
+    "promptRename": "Rename logic:",
+    "confirmDelete": "Delete graph \"{{name}}\"?",
+    "ctxCopy": "Copy logic",
+    "ctxRename": "Rename…",
+    "ctxDelete": "Delete",
+    "disable": "Disable",
+    "enable": "Enable",
+    "failCreate": "Failed to create logic",
+    "failRename": "Failed to rename logic",
+    "failToggle": "Failed to toggle logic",
+    "failDelete": "Failed to delete logic",
+    "failPaste": "Failed to paste logic"
+  },
+  "palette": {
+    "tileTitle": "Click to add, or drag onto the scene / viewport",
+    "addLayerTo": "Add layer to",
+    "addTo": "Add to",
+    "scene": "scene",
+    "noComposeScene": "No compose scene selected. Create or select one in the Compose tab.",
+    "noScene": "No scene selected. Create or select one in the Scene tab.",
+    "failCreate": "Failed to create node"
+  },
+  "help": {
+    "sceneNodes": "Learn about scenes and nodes",
+    "hierarchy": "Learn about node parenting and hierarchy",
+    "avatar": "How to load and configure avatars",
+    "camera": "Working with cameras in your scene",
+    "lights": "Adding and configuring lights"
+  }
+}
