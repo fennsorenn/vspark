@@ -332,10 +332,10 @@ export class VmcManager {
       cfg.nodeConfig as Record<string, unknown> | undefined
     )?.[nodeId] ?? {}) as Record<string, unknown>;
 
-    // component_config nodes get the full live component config injected so they
+    // behavior_config nodes get the full live component config injected so they
     // can resolve arbitrary dot-notation field paths.
-    if (nodeDef?.kind === 'component_config') {
-      return { ...defaults, ...overrides, _componentConfig: cfg };
+    if (nodeDef?.kind === 'behavior_config') {
+      return { ...defaults, ...overrides, _behaviorConfig: cfg };
     }
 
     return { ...defaults, ...overrides };

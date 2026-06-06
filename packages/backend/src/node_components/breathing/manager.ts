@@ -88,9 +88,9 @@ export class BreathingManager {
     const overrides = ((
       cfg.nodeConfig as Record<string, unknown> | undefined
     )?.[nodeId] ?? {}) as Record<string, unknown>;
-    // _componentConfig is consumed by `component_config` nodes to resolve dotted
+    // _behaviorConfig is consumed by `behavior_config` nodes to resolve dotted
     // field paths against the live component config.
-    return { ...defaults, ...overrides, _componentConfig: cfg };
+    return { ...defaults, ...overrides, _behaviorConfig: cfg };
   }
 
   private _persistNodeState(

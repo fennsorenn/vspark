@@ -22,26 +22,26 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     // Columns: x=-520 (cfg), x=-240 (vmc source), x=60 (mappers+bone), x=360 (calib/bs), x=640 (arm), x=920 (out)
     {
       id: 'cfg_host',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -520, y: 80 },
       defaultConfig: { field: 'host', defaultValue: '0.0.0.0' },
     },
     {
       id: 'cfg_port',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -520, y: 200 },
       defaultConfig: { field: 'port', defaultValue: 39539 },
     },
     {
       id: 'cfg_mirror',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -520, y: 320 },
       defaultConfig: { field: 'mirror', defaultValue: false },
     },
     // Mapper config pairs — 160 px between en/map, 240 px between mapper groups.
     {
       id: 'cfg_fcl_en',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -520, y: 540 },
       defaultConfig: {
         field: 'nodeConfig.arkit_fcl_cfg.enabled',
@@ -50,7 +50,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_fcl_map',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -520, y: 660 },
       defaultConfig: {
         field: 'nodeConfig.arkit_fcl_cfg.mapping',
@@ -59,7 +59,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_expr_en',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -520, y: 820 },
       defaultConfig: {
         field: 'nodeConfig.arkit_expr_cfg.enabled',
@@ -68,7 +68,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_expr_map',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -520, y: 940 },
       defaultConfig: {
         field: 'nodeConfig.arkit_expr_cfg.mapping',
@@ -77,7 +77,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_pass_en',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -520, y: 1100 },
       defaultConfig: {
         field: 'nodeConfig.arkit_pass_cfg.enabled',
@@ -86,7 +86,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_pass_map',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -520, y: 1220 },
       defaultConfig: {
         field: 'nodeConfig.arkit_pass_cfg.mapping',
@@ -94,7 +94,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       },
     },
     // ── Other internal context nodes ─────────────────────────────────────────
-    { id: 'comp_id', kind: 'component_id', position: { x: -240, y: -220 } },
+    { id: 'comp_id', kind: 'behavior_id', position: { x: -240, y: -220 } },
     { id: 'scene_entity', kind: 'scene_entity', position: { x: 920, y: -220 } },
     // ── Component trigger bridges (UI buttons → graph) ───────────────────────
     {
@@ -345,7 +345,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       toPort: 'mapping',
       kind: 'value',
     },
-    // ── Value: nodeId + componentId for broadcast ──────────────────────────────
+    // ── Value: nodeId + behaviorId for broadcast ──────────────────────────────
     {
       fromNodeId: 'scene_entity',
       fromPort: 'nodeId',
@@ -364,14 +364,14 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromNodeId: 'comp_id',
       fromPort: 'id',
       toNodeId: 'pose_out',
-      toPort: 'componentId',
+      toPort: 'behaviorId',
       kind: 'value',
     },
     {
       fromNodeId: 'comp_id',
       fromPort: 'id',
       toNodeId: 'bs_out',
-      toPort: 'componentId',
+      toPort: 'behaviorId',
       kind: 'value',
     },
     // ── Event: calibration commands ────────────────────────────────────────────
@@ -408,6 +408,6 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   ],
 };
 
-export function makeVmcGraphDescriptor(componentId: string): GraphDescriptor {
-  return { ...VMC_PIPELINE_TEMPLATE, id: `vmc-pipeline:${componentId}` };
+export function makeVmcGraphDescriptor(behaviorId: string): GraphDescriptor {
+  return { ...VMC_PIPELINE_TEMPLATE, id: `vmc-pipeline:${behaviorId}` };
 }

@@ -2,13 +2,13 @@ import { SignalNode } from '@vspark/shared/signal';
 import { Node } from '@vspark/shared/node';
 import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
-export interface ComponentConfigNodeConfig {
+export interface BehaviorConfigNodeConfig {
   /** Dot-notation path into the component config, e.g. "host" or "nodeConfig.arkit_fcl_cfg.enabled" */
   field?: string;
   /** Returned when the resolved path is undefined (no stored value yet). */
   defaultValue?: unknown;
   /** Injected by the manager at resolve time — the full live component config. */
-  _componentConfig?: Record<string, unknown>;
+  _behaviorConfig?: Record<string, unknown>;
 }
 
 function resolvePath(obj: unknown, path: string): unknown {
@@ -29,7 +29,7 @@ function resolvePath(obj: unknown, path: string): unknown {
  * "nodeConfig.arkit_fcl_cfg.enabled"). `defaultValue` is returned when no
  * stored config value exists at that path yet.
  *
- * The output port is typed ComponentConfig (a raw-value escape hatch) and is
+ * The output port is typed BehaviorConfig (a raw-value escape hatch) and is
  * compatible with any typed value port — the engine does no runtime type check.
  */
 @SignalNode({
@@ -38,17 +38,17 @@ function resolvePath(obj: unknown, path: string): unknown {
   color: '#2a2a4a',
   internal: true,
 })
-export class ComponentConfigNode extends Node {
-  static readonly kind = 'component_config';
+export class BehaviorConfigNode extends Node {
+  static readonly kind = 'behavior_config';
 
   // Wired `field` port takes precedence; the engine falls back to config.field.
   @valueIn('field', 'String') field!: () => string | null | undefined;
 
-  @valueOut('value', 'ComponentConfig')
+  @valueOut('value', 'BehaviorConfig')
   value = (): Record<string, unknown> => {
-    const cfg = this.config as ComponentConfigNodeConfig;
+    const cfg = this.config as BehaviorConfigNodeConfig;
     const path = this.field() ?? '';
-    const data = cfg._componentConfig ?? {};
+    const data = cfg._behaviorConfig ?? {};
     const resolved = path ? resolvePath(data, path) : data;
     const value =
       resolved !== undefined ? resolved : (cfg.defaultValue ?? null);

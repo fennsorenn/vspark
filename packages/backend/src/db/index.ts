@@ -32,6 +32,7 @@ import m019 from './migrations/019_track_clips_owner_columns.js';
 import m020 from './migrations/020_overlive_accounts_default.js';
 import m021 from './migrations/021_track_clip_events.js';
 import m022 from './migrations/022_rename_tables_to_vocab.js';
+import m023 from './migrations/023_rename_behavior_context_kinds.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -73,6 +74,7 @@ const MIGRATIONS: Migration[] = [
   { name: '020_overlive_accounts_default.ts', run: m020 },
   { name: '021_track_clip_events.sql', sql: m021 },
   { name: '022_rename_tables_to_vocab.sql', sql: m022 },
+  { name: '023_rename_behavior_context_kinds.ts', run: m023 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

@@ -8,7 +8,7 @@
  * Context-node availability depends on owner_kind:
  *   - 'project'        — no context nodes at all.
  *   - 'scene_node'     — `scene_entity` is auto-fed the attached node's id and
- *                        outputs a `SceneNode`; component_config / component_id
+ *                        outputs a `SceneNode`; behavior_config / behavior_id
  *                        are still forbidden.
  *   - 'compose_layer'  — `scene_entity` is auto-fed the layer's id and outputs a
  *                        `ComposeLayer` (its output type follows the scope via
@@ -31,8 +31,8 @@ import type { AutomationOwnerKind } from '@vspark/shared/types';
 /** Node kinds that depend on the component-context system. Always rejected
  *  in standalone graphs because there's no component to read config from. */
 const ALWAYS_FORBIDDEN_CONTEXT_KINDS = new Set([
-  'component_config',
-  'component_id',
+  'behavior_config',
+  'behavior_id',
 ]);
 
 export interface AutomationRow {
@@ -348,7 +348,7 @@ function parseNodeStateMap(raw: string): Map<string, unknown> {
 
 /**
  * Reject descriptors that reference context nodes the owner kind can't
- * satisfy. component_config / component_id always need a component context
+ * satisfy. behavior_config / behavior_id always need a component context
  * and so are forbidden in every standalone graph; scene_entity is allowed in
  * scene-node- and compose-layer-scoped graphs (where the manager auto-feeds its
  * nodeId config and its output type follows the scope), but not in

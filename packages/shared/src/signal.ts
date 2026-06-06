@@ -346,7 +346,7 @@ export interface SignalTypeMap {
   /** General-purpose string value (IDs, names). */
   String: string;
   /** A component's full config JSON, pulled as a value. */
-  ComponentConfig: Record<string, unknown>;
+  BehaviorConfig: Record<string, unknown>;
   /**
    * Reference to a scene NODE — carried as the node's bare id string at runtime.
    * The narrow counterpart of `SceneEntity` (a `SceneNode` is assignable to a
@@ -456,7 +456,7 @@ export const SIGNAL_TYPE_COLORS: Record<SignalTypeName, string> = {
   Bool: '#c87070',
   Trigger: '#888888',
   String: '#7ab8c8',
-  ComponentConfig: '#8a6aaf',
+  BehaviorConfig: '#8a6aaf',
   SceneNode: '#6a8aaf',
   ComposeLayer: '#6aaf9a',
   MappingTable: '#a07050',
