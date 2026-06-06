@@ -38,7 +38,7 @@ Toolchain: repo runs TC39 Stage-3 decorators (TS 5.9, **no** `experimentalDecora
 
 ## Runtime — `signal/engine.ts`
 
-`SignalGraph` (the reactive substrate; name kept) is instantiated per Behavior (one per VMC receiver, one per breathing behavior, etc.). A signal graph can also back an **Automation** (project / scene-node / compose-layer scoped) rather than a Behavior — see [project-graphs.md](project-graphs.md) for user-authored automations owned by an `automations` row (table renamed from `graphs` in migration 022). The behavior-context kinds `behavior_config` / `behavior_id` are rejected in all automations at descriptor-validation time by `AutomationManager`. `scene_entity` is allowed in scene-node- and compose-layer-scoped automations (rejected only in project scope); the automation's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
+`SignalGraph` (the reactive substrate; name kept) is instantiated per Behavior (one per VMC receiver, one per breathing behavior, etc.). A signal graph can also back a **Logic** (project / scene-node / compose-layer scoped) rather than a Behavior — see [project-graphs.md](project-graphs.md) for user-authored logic owned by a `logic` row (table renamed from `graphs` via migrations 022 → 025). The behavior-context kinds `behavior_config` / `behavior_id` are rejected in all logic at descriptor-validation time by `LogicManager`. `scene_entity` is allowed in scene-node- and compose-layer-scoped logic (rejected only in project scope); the logic's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
 
 After the Phase 2 re-architecture the engine is **wiring + lifecycle** over Node instances, not a central dispatcher:
 
@@ -152,7 +152,7 @@ The interceptor chain lets behaviors (e.g., breathing) modify poses in-flight be
 |------|-------------|
 | `behavior_config` (label "Behavior Settings") | Dot-notation extractor on behavior config JSON (e.g., `field: "myNode.param"`). |
 | `behavior_id` (label "This Behavior") | Injects the owning behavior's instance id as a string value. |
-| `scene_entity` (label "This Entity") | Outputs the id of the entity the automation/behavior is scoped to; output type follows scope (`SceneNode` / `ComposeLayer`) |
+| `scene_entity` (label "This Entity") | Outputs the id of the entity the logic/behavior is scoped to; output type follows scope (`SceneNode` / `ComposeLayer`) |
 | `viseme_passthrough` (label "Visemes → Blendshapes") | Scales viseme weights by a sensitivity config value |
 
 ## Graph Descriptor

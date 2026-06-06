@@ -13,7 +13,7 @@
 - `AnimationClip` — id, name, sourceNodeId, sourceFilePath, clipIndex, label, startTime, endTime, duration, fps
 - `AssetFile` — id, projectId, originalName, storedPath, mimeType, size, hash, isDeduplicated
 - `Behavior` (the behavioral-driver record, formerly `NodeComponent`) — id, nodeId, kind, enabled, config (any), sortOrder. The frontend record type is `Behavior` / `BehaviorRecord` (in `editorStore.ts` / `api/client.ts`); persisted in the `behaviors` table.
-- `Automation` — `{ id, ownerKind: AutomationOwnerKind, ownerId, name, enabled, descriptor, ... }` — the user-built standalone-signal-graph record (formerly `Graph`); `AutomationOwnerKind = 'project' | 'scene_node' | 'compose_layer'`.
+- `Logic` — `{ id, ownerKind: LogicOwnerKind, ownerId, name, enabled, descriptor, ... }` — the user-built standalone-signal-graph record (formerly `Graph`); `LogicOwnerKind = 'project' | 'scene_node' | 'compose_layer'`.
 - `Landmark` — `{ x, y, z, visibility? }` (MediaPipe format)
 - `LipsyncInputMessage` — `{ kind: 'lipsync_input', behaviorId, visemes }`
 - `TrackingInputMessage` — `{ kind: 'tracking_input', behaviorId, face?, leftHand?, rightHand?, pose? }`
@@ -37,7 +37,7 @@ Request body validation for all REST routes. All schemas are strict (no extra ke
 **Schemas double as OpenAPI components**. Every schema is tagged with `.openapi('Name')` via `@asteasolutions/zod-to-openapi`; the backend's `routes/openapi.ts` registers them in an `OpenAPIRegistry` and generates the `components.schemas` block at startup. Adding a new request schema means: (a) define + `.openapi('Name')` here, (b) register it in `routes/openapi.ts`'s `named` array. See [backend-api.md](backend-api.md#openapi-docs--routesopenapits).
 
 **Registered OpenAPI schemas**:
-`Error`, `EmptyOk`, `SceneNodeKind`, `CreateProject`, `UpdateProject`, `CreateScene`, `UpdateScene`, `CreateSceneNode`, `UpdateSceneNode`, `CreateAnimationClip`, `CreateAsset`, `CreateBehavior`, `UpdateBehavior` (renamed from `CreateNodeComponent`/`UpdateNodeComponent`), `AutomationOwnerKind`, `CreateCameraEffect`, `UpdateCameraEffect`, `FireGraphEvent` (substrate fire schema; name kept), `ApiControllerAnimation`, `ApiControllerAnimationQueue`, `ApiControllerBlendshapes`.
+`Error`, `EmptyOk`, `SceneNodeKind`, `CreateProject`, `UpdateProject`, `CreateScene`, `UpdateScene`, `CreateSceneNode`, `UpdateSceneNode`, `CreateAnimationClip`, `CreateAsset`, `CreateBehavior`, `UpdateBehavior` (renamed from `CreateNodeComponent`/`UpdateNodeComponent`), `LogicOwnerKind`, `CreateCameraEffect`, `UpdateCameraEffect`, `FireGraphEvent` (substrate fire schema; name kept), `ApiControllerAnimation`, `ApiControllerAnimationQueue`, `ApiControllerBlendshapes`.
 
 ## `signal.ts` — Signal graph type system
 

@@ -2,7 +2,7 @@
 
 **Status: Implemented.**
 
-Single editor-wide clipboard slot driven by Cmd/Ctrl+C / Cmd/Ctrl+V across most concepts in the editor: signal-graph node selections, whole automations, scene-node subtrees, compose-layer subtrees, camera effects, behaviors, and track clips. (The clipboard `kind` discriminant strings — `'graph'`, `'graph-nodes'`, `'node-component'` — are persisted into the OS clipboard and were intentionally NOT renamed.)
+Single editor-wide clipboard slot driven by Cmd/Ctrl+C / Cmd/Ctrl+V across most concepts in the editor: signal-graph node selections, whole logic, scene-node subtrees, compose-layer subtrees, camera effects, behaviors, and track clips. (The clipboard `kind` discriminant strings — `'graph'`, `'graph-nodes'`, `'node-component'` — are persisted into the OS clipboard and were intentionally NOT renamed.)
 
 Frontend module: `packages/frontend/src/clipboard.ts`.
 
@@ -22,7 +22,7 @@ Both surfaces wrap the payload with a `{ vspark: 'vspark.clipboard.v1', payload 
 | `kind` | Payload shape | Source / sink |
 |---|---|---|
 | `graph-nodes` | `{ nodes: GraphNodeDescriptor[], edges: GraphEdgeDescriptor[] }` | In-graph (substrate) selection — `SignalGraphCanvas` (`ec9c02e`). |
-| `graph` | `{ name, descriptor, sourceOwnerKind: OwnerKind }` | Whole automation copy/paste across scopes — `AutomationsSection` / Automation UI (`9ac2740`). (`kind` string kept.) |
+| `graph` | `{ name, descriptor, sourceOwnerKind: OwnerKind }` | Whole logic copy/paste across scopes — `LogicSection` / Logic UI (`9ac2740`). (`kind` string kept.) |
 | `scene-node` | `{ preset: PresetPayloadInput }` | Scene-tree right-click + Cmd/Ctrl+C/V (`d26518a`). Re-uses preset serialise/instantiate machinery; see [presets.md](presets.md). |
 | `compose-layer` | `{ preset: PresetPayloadInput }` | Compose-tree right-click + Cmd/Ctrl+C/V (`d26518a`). |
 | `camera-effect` | `{ effect: Omit<CameraEffectRecord, 'id' \| 'nodeId'> }` | Camera-effect rows in `SceneGraph` (`d26518a` / `47af189`). |
@@ -42,5 +42,5 @@ Cmd/Ctrl+C / Cmd/Ctrl+V are handled at keyboard scope per panel; right-click con
 ## Cross-references
 
 - [presets.md](presets.md) — `'scene-node'` / `'compose-layer'` variants reuse the preset payload format; cross-project paste works for free.
-- [project-graphs.md](project-graphs.md) — `'graph'` variant (an Automation) pastes across owner scopes; the manager rebinds context nodes as needed.
+- [project-graphs.md](project-graphs.md) — `'graph'` variant (an Logic) pastes across owner scopes; the manager rebinds context nodes as needed.
 - [track-clips.md](track-clips.md) — `'track-clip'` variant's `sourceOwnerKind` + `sourceOwnerId` drive the lane-retarget decision on paste.

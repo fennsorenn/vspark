@@ -39,8 +39,8 @@ Actions: `setUpdateAvailable(info)`, `setPendingReload(value)`.
 
 Default per-avatar expression weights are stored on the scene node itself, not in a dedicated slice: `node.properties.defaultExpressions` (`Record<expressionName, number>`, only non-zero weights kept). Mirrored on the store `NodeProperties` and the api-client `NodeProperties`; the shared field is `SceneNodeProperties.defaultExpressions`.
 
-**Automation / signal graph**
-- `activeAutomationId` (the active Automation; substrate canvas still `SignalGraphCanvas`), `selectedSignalNodeId`
+**Logic / signal graph**
+- `activeLogicId` (the active Logic; substrate canvas still `SignalGraphCanvas`), `selectedSignalNodeId`
 - `behaviorKinds`
 
 **Clipboard**
@@ -139,12 +139,12 @@ TopBar checks update status on mount (`GET /api/update-status`). When an update 
 Node hierarchy tree. Context menu: Add Child, Move Into, Unparent, Delete. Expandable bone list per avatar node with VRM expression/bone visualization. Hidden node toggle.
 
 ### Main view ↔ tab binding
-The center view is bound strictly to the left-dock tab (`leftTab`, `Editor.tsx`): **Scene** → 3D `Viewport` (kept mounted, just hidden under other tabs, to preserve the WebGL context), **Automation** (the tab labelled "Automation"; `leftTab` value is still `'graphs'`) → `SignalGraphCanvas` (or a placeholder when no automation is open), **Compose** → `ComposeView`. The bottom dock shows the signal `NodePalette` on the Automation tab and the `AssetManager` otherwise. Opening any automation routes through `setActiveAutomation`, which also switches `leftTab` to `'graphs'` (see [project-graphs.md](project-graphs.md)).
+The center view is bound strictly to the left-dock tab (`leftTab`, `Editor.tsx`): **Scene** → 3D `Viewport` (kept mounted, just hidden under other tabs, to preserve the WebGL context), **Logic** (the tab labelled "Logic"; `leftTab` value is still `'graphs'`) → `SignalGraphCanvas` (or a placeholder when no logic is open), **Compose** → `ComposeView`. The bottom dock shows the signal `NodePalette` on the Logic tab and the `AssetManager` otherwise. Opening any logic routes through `setActiveLogic`, which also switches `leftTab` to `'graphs'` (see [project-graphs.md](project-graphs.md)).
 
-The right-hand `PropertiesPanel` is likewise tab-scoped: **Scene** targets 3D scene nodes (and their behaviors / camera effects / scene settings) only, **Compose** targets compose layers, **Automation** shows a placeholder (signal nodes are edited inline on the canvas). A leftover selection from another tab never leaks into the inspector.
+The right-hand `PropertiesPanel` is likewise tab-scoped: **Scene** targets 3D scene nodes (and their behaviors / camera effects / scene settings) only, **Compose** targets compose layers, **Logic** shows a placeholder (signal nodes are edited inline on the canvas). A leftover selection from another tab never leaks into the inspector.
 
 ### Left dock — Compose tab
-Second tab in the editor's left dock alongside Scene Graph (and Automation). `leftTab` state (`'scene' | 'compose' | 'graphs'`; the `'graphs'` value drives the "Automation" tab) lives in the store. The tab is disabled until at least one camera node exists. Selecting it swaps the centre viewport to `ComposeView`, which renders the chosen camera's output: 3D canvas sandwiched between two `ComposeLayerStack` DOM stacks (behind / in front), reusing `<SceneNodes>` + `<CameraEffects>` so it matches `ViewerPage`. The same `ComposeLayerStack` runs in `ViewerPage` (in `mode='viewer'`) so the streamed output matches the editor preview. Per-layer fields are edited via `ComposeLayerProperties` in `PropertiesPanel`. See [compose.md](compose.md) for the data model, ordering scheme, and anchor-aware drag/resize math.
+Second tab in the editor's left dock alongside Scene Graph (and Logic). `leftTab` state (`'scene' | 'compose' | 'graphs'`; the `'graphs'` value drives the "Logic" tab) lives in the store. The tab is disabled until at least one camera node exists. Selecting it swaps the centre viewport to `ComposeView`, which renders the chosen camera's output: 3D canvas sandwiched between two `ComposeLayerStack` DOM stacks (behind / in front), reusing `<SceneNodes>` + `<CameraEffects>` so it matches `ViewerPage`. The same `ComposeLayerStack` runs in `ViewerPage` (in `mode='viewer'`) so the streamed output matches the editor preview. Per-layer fields are edited via `ComposeLayerProperties` in `PropertiesPanel`. See [compose.md](compose.md) for the data model, ordering scheme, and anchor-aware drag/resize math.
 
 ### `PropertiesPanel.tsx`
 Inspector for the selected node. Sections:

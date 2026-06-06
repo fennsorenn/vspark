@@ -143,7 +143,7 @@ Tree panel on the left side of the editor. Renders the active scene's node hiera
 
 **CameraEffectsSection**: shown only for camera nodes. Lists `camera_effects` rows for this node. Supports enable toggle and remove.
 
-**AutomationListPanel** (renamed from `GraphListPanel`): browsable list of the project's Automations and behavior signal graphs (VMC pipeline, breathing, etc.). Selecting an automation sets `activeAutomationId` in the store, which opens the `SignalGraphCanvas` (the signal-graph substrate editor).
+**LogicListPanel** (renamed from `GraphListPanel`): browsable list of the project's Logic and behavior signal graphs (VMC pipeline, breathing, etc.). Selecting a logic sets `activeLogicId` in the store, which opens the `SignalGraphCanvas` (the signal-graph substrate editor).
 
 ## Frontend — `Viewport.tsx` (`SceneNodes` component)
 

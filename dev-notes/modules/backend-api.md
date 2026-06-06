@@ -40,7 +40,7 @@ Response shape: `{ ok: true, data: ... }` or `{ ok: false, error: { status, mess
 | [routes/expressions.ts](../../packages/backend/src/routes/expressions.ts) | Read-only listings: VRM expressions + animation clips for an avatar node |
 | [routes/camera-effects.ts](../../packages/backend/src/routes/camera-effects.ts) | `/scene-nodes/:nodeId/effects`, `/effects/:id` — WS `camera_effect_*` broadcasts |
 | [routes/signal.ts](../../packages/backend/src/routes/signal.ts) | Signal graph inspection + `POST /signal/graphs/:graphId/fire` (dispatches by graph-id prefix to VMC or tracking) |
-| [routes/automations.ts](../../packages/backend/src/routes/automations.ts) | Automations over the unified `automations` table (renamed from `graphs` in migration 022) — project, scene-node, and compose-layer GET/POST plus `PUT /automations/:id` and `DELETE /automations/:id`. Rows route through `AutomationManager`. See [project-graphs.md](project-graphs.md). |
+| [routes/logic.ts](../../packages/backend/src/routes/logic.ts) | Logic over the unified `logic` table (renamed from `graphs` via migrations 022 → 025) — project, scene-node, and compose-layer GET/POST plus `PUT /logic/:id` and `DELETE /logic/:id`. Rows route through `LogicManager`. See [project-graphs.md](project-graphs.md). |
 | [routes/meta.ts](../../packages/backend/src/routes/meta.ts) | `/signal/node-kinds`, `/behavior-kinds`, `/system/local-ips` |
 | [routes/openapi.ts](../../packages/backend/src/routes/openapi.ts) | OpenAPI base spec + Zod→OpenAPI component-schema build |
 
@@ -153,8 +153,10 @@ PUT /api/config       writes config.json; channel change triggers checkForUpdate
 | `005_node_hidden.sql` | `scene_nodes.hidden` column |
 | `007_scene_node_properties.sql` | `scene_nodes.properties` JSON column — per-node properties bag; first use `blendTransitionTime` on VRM avatar nodes. `PUT /scene-nodes/:nodeId` shallow-merges incoming `properties` (mirrors the scene `runtime_settings` pattern); `POST` accepts the bag at insert time. |
 | `022_rename_tables_to_vocab.sql` | Vocabulary rename: `ALTER TABLE node_components RENAME TO behaviors` and `ALTER TABLE graphs RENAME TO automations` (FK constraints carried across; no data change). Historical CREATE migrations 002/014 left untouched. |
-| `023_rename_behavior_context_kinds.ts` | Vocabulary rename (run-fn, idempotent): rewrites stored descriptors in `automations.descriptor` + `presets.payload` — node kinds `component_id`→`behavior_id` / `component_config`→`behavior_config`, the broadcast-node port `componentId`→`behaviorId` (edge ports + value-input fallback config key), and `_componentConfig`→`_behaviorConfig`. Walks every `{nodes,edges}` descriptor at any nesting depth. |
-| `024_rename_preset_graphs_key.ts` | Vocabulary rename (run-fn, idempotent): rewrites the top-level `graphs` key -> `automations` in existing `presets.payload` rows (nested standalone graphs in a preset are automations). |
+| `023_rename_behavior_context_kinds.ts` | Vocabulary rename (run-fn, idempotent): rewrites stored descriptors in `logic.descriptor` + `presets.payload` — node kinds `component_id`→`behavior_id` / `component_config`→`behavior_config`, the broadcast-node port `componentId`→`behaviorId` (edge ports + value-input fallback config key), and `_componentConfig`→`_behaviorConfig`. Walks every `{nodes,edges}` descriptor at any nesting depth. |
+| `024_rename_preset_graphs_key.ts` | Vocabulary rename (run-fn, idempotent): rewrites the top-level `graphs` key -> `automations` in existing `presets.payload` rows (nested standalone graphs in a preset are automations; later renamed to `logic` by 026). |
+| `025_rename_automations_table_to_logic.sql` | Vocabulary rename: `ALTER TABLE automations RENAME TO logic` (the standalone-graph feature became "Logic"). Data-preserving; chain on existing DBs is graphs (014) → automations (022) → logic (025). |
+| `026_rename_preset_logic_key.ts` | Vocabulary rename (run-fn, idempotent): rewrites the top-level preset payload key `automations` -> `logic`. |
 
 All tables carry `project_id` FK for strict workspace isolation. The `behaviors.config` column (table renamed from `node_components` in migration 022) stores behavior config JSON including the `_nodeState` sub-key for graph persistence.
 

@@ -76,14 +76,14 @@ current state.
 **Scoping model:** the original Phase-3 bus addressed by a single flat channel
 name. It was reshaped (still pre-merge) so a `set_data` node exposes multiple
 labeled fields and optionally targets one consumer. Producers are
-project-scoped automations with no scene context, so the bus can't infer a target —
+project-scoped logic with no scene context, so the bus can't infer a target —
 hence the explicit `scope` (a `SceneEntity` chosen on `set_data`). Unscoped =
 global. The consumer side needs no config: a `feed` layer/3D billboard listens on
 `global ∪ own-id` by identity, and only mounts when its compose scene is shown.
 
 **Teardown clearing:** when a graph stops or reconciles, the engine calls each
 node's `unbind()` (via `SignalGraph.dispose()`, invoked from
-`AutomationManager.stop()`); `set_data.onUnbind` clears the fields it published
+`LogicManager.stop()`); `set_data.onUnbind` clears the fields it published
 from every scope it touched (tracked in `_published`). Without this, retired
 scoped data lingered on the bus and — because a feed layer merges `global ∪ own`
 with **own winning** — a layer's stale own-scope value would shadow new global

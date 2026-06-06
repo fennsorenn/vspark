@@ -23,9 +23,9 @@ those, and they are the only part that needs data migrations.
 | **Object** | a 3D scene item (NOT renamed in code — `Object` is a reserved global; stays `SceneNode`/`scene_node` internally) | `scene_node` / `SceneNode` |
 | **Layer** | a compose item | `compose_layer` / `ComposeLayer` |
 | **Entity** | umbrella over Object \| Layer | `SceneEntity` |
-| **Target** | the Entity a clip / automation / behavior / scope applies to | `targetKind`/`targetId` |
-| **Automation** | a user-built signal graph | `graph` |
-| **Behavior** | a packaged driver attached to an object (a Behavior is an Automation with a friendly wrapper) | `component` / `node_component` |
+| **Target** | the Entity a clip / logic / behavior / scope applies to | `targetKind`/`targetId` |
+| **Logic** | a user-built signal graph | `graph` |
+| **Behavior** | a packaged driver attached to an object (a Behavior is an Logic with a friendly wrapper) | `component` / `node_component` |
 | **Clip** | a timeline keyframe recording (entity); the *feature* is the **Timeline** | `track_clip` |
 | **Animation** | an imported motion asset | `animation_clip` |
 
@@ -35,7 +35,7 @@ those, and they are the only part that needs data migrations.
   tiering: changes the compiler fully verifies are safe; stringly-typed changes it
   can't see (persisted `kind`s, WS message kinds) are higher risk.
 - User-facing vocabulary ≠ code identifier in every case. Display/identifier
-  separation is acceptable and expected (e.g. UI "Automation" while code says `graph`,
+  separation is acceptable and expected (e.g. UI "Logic" while code says `graph`,
   UI "Object" while type stays `SceneNode`). This is not the "drift" we're avoiding —
   the drift to avoid is *inconsistent* identifiers, not a clean label↔id mapping.
 - Do NOT rename persisted `kind` string values or signal-node `kind`s in this pass
@@ -69,9 +69,9 @@ Kept intentionally technical (advanced/converter nodes): `ARKit → VRM Mapper`,
 
 **1b. Frontend UI strings**:
 
-- Left-dock **Graphs** tab → **Automation**; `+ Add Graph` → `+ Add Automation`.
-- `Project Graphs` header → **Global Automations**; `Component Graphs` → **Behavior Automations**.
-- Per-object/layer **Graphs** sub-section (`GraphsSection`) → **Automations**.
+- Left-dock **Graphs** tab → **Logic**; `+ Add Graph` → `+ Add Logic`.
+- `Project Graphs` header → **Global Logic**; `Component Graphs` → **Behavior Logic**.
+- Per-object/layer **Graphs** sub-section (`GraphsSection`) → **Logic**.
 - **Components** → **Behaviors** everywhere shown: `+ Add Component` → `+ Add Behavior`,
   `No components` → `No behaviors`, AssetManager `Components` tab → `Behaviors`.
 - AssetManager **Clips** tab → **Timeline** (per-object `ClipsSection` keeps "Clips" — the entity).
@@ -91,10 +91,10 @@ migrations. Shipped in two commits, `pnpm lint` + frontend `tsc` green:
   `ComponentKind(Meta)`→`BehaviorKind(Meta)`, store `nodeComponents`/`componentKinds`/
   `selectedComponentId`/etc.→behavior equivalents, routes `/…/components`→`/…/behaviors`,
   `/component-kinds`→`/behavior-kinds`, scene-bundle field, OpenAPI schemas.
-- **2b `standalone-graph feature → automation`**: `interface Graph`→`Automation`,
-  `GraphOwnerKind`→`AutomationOwnerKind`, `ProjectGraphManager`→`AutomationManager`,
-  `GraphRow`/`GraphRecord`→`Automation*`, feature routes `/…/graphs`→`/…/automations`,
-  `GraphsSection.tsx`→`AutomationsSection.tsx`.
+- **2b `standalone-graph feature → logic`**: `interface Graph`→`Logic`,
+  `GraphOwnerKind`→`LogicOwnerKind`, `ProjectGraphManager`→`LogicManager`,
+  `GraphRow`/`GraphRecord`→`Logic*`, feature routes `/…/graphs`→`/…/logic`,
+  `GraphsSection.tsx`→`LogicSection.tsx`.
 
 **Kept as substrate (intentionally still "graph"):** `SignalGraph(Canvas)`,
 `GraphDescriptor`/`GraphNode`/`GraphEdgeDescriptor`, `GraphStateSnapshot`,
@@ -108,7 +108,7 @@ renamed in its own commit. The persisted port name + behavior-context node kinds
 ### Phase 2.5 — Docs follow-up (DONE)
 
 ARCHITECTURE.md + all affected module docs were refreshed to the new vocabulary
-(behavior / automation), including the table/route/kind/port renames and the
+(behavior / logic), including the table/route/kind/port renames and the
 source-dir + route-file renames.
 
 ### Phase 3 — Persisted `kind` renames (DEFERRED)
