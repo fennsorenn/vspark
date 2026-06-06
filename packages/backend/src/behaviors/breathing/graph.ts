@@ -22,7 +22,7 @@ export const BREATHING_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   nodes: [
     // ── Context ──────────────────────────────────────────────────────────────
     { id: 'scene_entity', kind: 'scene_entity', position: { x: 960, y: -120 } },
-    { id: 'comp_id', kind: 'component_id', position: { x: 960, y: -40 } },
+    { id: 'comp_id', kind: 'behavior_id', position: { x: 960, y: -40 } },
 
     // ── Tick ─────────────────────────────────────────────────────────────────
     {
@@ -38,13 +38,13 @@ export const BREATHING_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     // ── Configurable amplitudes ──────────────────────────────────────────────
     {
       id: 'cfg_chest_amp',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -300, y: 220 },
       defaultConfig: { field: 'chestAmplitude', defaultValue: 0.04 },
     },
     {
       id: 'cfg_shoulder_amp',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -300, y: 300 },
       defaultConfig: { field: 'shoulderAmplitude', defaultValue: 0.02 },
     },
@@ -440,14 +440,14 @@ export const BREATHING_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromNodeId: 'comp_id',
       fromPort: 'id',
       toNodeId: 'pose_out',
-      toPort: 'componentId',
+      toPort: 'behaviorId',
       kind: 'value',
     },
   ],
 };
 
 export function makeBreathingGraphDescriptor(
-  componentId: string
+  behaviorId: string
 ): GraphDescriptor {
-  return { ...BREATHING_PIPELINE_TEMPLATE, id: `breathing:${componentId}` };
+  return { ...BREATHING_PIPELINE_TEMPLATE, id: `breathing:${behaviorId}` };
 }

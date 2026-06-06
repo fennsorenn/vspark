@@ -9,7 +9,7 @@
  *    overlive_accounts.status / status_reason / status_message columns,
  *    broadcast over WebSocket as `overlive_account_status`.
  *  - Route inbound events into project graphs by walking every running
- *    ProjectGraph and firing the event into any overlive_<eventType> node
+ *    logic and firing the event into any overlive_<eventType> node
  *    whose `account` input matches the source account id and whose
  *    `channel` filter is empty or matches.
  *
@@ -29,7 +29,7 @@ import type { AdapterEmittedEvent, ChatMessageEvent } from '@overlive/core';
 import { tokensToHtml } from '@overlive/emotes';
 import { mkEvent } from '@vspark/shared/signal';
 import { getDb } from '../db/index.js';
-import { automationManager } from '../project_graphs/manager.js';
+import { logicManager } from '../logic/manager.js';
 import type { WSSync } from '../ws/index.js';
 
 /**
@@ -365,7 +365,7 @@ export class OverliveManager {
       graphId,
       node,
       projectId: gpId,
-    } of automationManager.iterateNodes()) {
+    } of logicManager.iterateNodes()) {
       if (gpId !== projectId) continue;
       if (node.kind !== expectedKind) continue;
       candidates++;
@@ -374,7 +374,7 @@ export class OverliveManager {
       // Fire as an event on the node's `event` input port. The node helpers
       // unwrap `inputs.event.payload`, so wrap the overlive event in the
       // engine's Event envelope rather than passing it raw.
-      automationManager.fire(graphId, node.id, 'event', mkEvent(event));
+      logicManager.fire(graphId, node.id, 'event', mkEvent(event));
       delivered++;
     }
     if (candidates > 0 && delivered === 0) {
@@ -458,7 +458,7 @@ export class OverliveManager {
       graphId,
       node,
       projectId: gpId,
-    } of automationManager.iterateNodes()) {
+    } of logicManager.iterateNodes()) {
       if (gpId !== projectId) continue;
       if (node.kind !== 'overlive_chat_feed') continue;
       const cfg = (node.defaultConfig ?? {}) as Record<string, unknown>;
@@ -472,7 +472,7 @@ export class OverliveManager {
       const slice = wantChannel
         ? buf.filter((m) => m.channel === wantChannel)
         : buf.slice();
-      automationManager.fire(graphId, node.id, 'event', mkEvent(slice));
+      logicManager.fire(graphId, node.id, 'event', mkEvent(slice));
     }
   }
 

@@ -130,7 +130,7 @@ export const openApiDoc = swaggerJSDoc({
       { name: 'scene_nodes', description: 'Scene node CRUD + animation clips' },
       { name: 'assets', description: 'Project asset uploads + listing' },
       {
-        name: 'node_components',
+        name: 'behaviors',
         description: 'Behavioural components attached to scene nodes',
       },
       {
@@ -158,7 +158,7 @@ export const openApiDoc = swaggerJSDoc({
       {
         name: 'meta',
         description:
-          'Component-kind metadata, system info, body-calibration state',
+          'Behavior-kind metadata, system info, body-calibration state',
       },
     ],
   },

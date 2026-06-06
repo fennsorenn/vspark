@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { matchAssetByHash, materializeAsset } from './assets.js';
 import { makeImportSubstituter } from './substitute.js';
-import { automationManager } from '../project_graphs/manager.js';
+import { logicManager } from '../logic/manager.js';
 
 interface PresetPayload {
   format: string;
@@ -62,7 +62,7 @@ interface PresetPayload {
     visible: boolean;
     cameraNodePresetId: string | null;
   }>;
-  graphs?: Array<{
+  logic?: Array<{
     presetId: string;
     ownerKind: string;
     ownerPresetId: string;
@@ -165,7 +165,7 @@ export function instantiatePreset(
   for (const l of payloadInput.composeLayers ?? []) {
     premint(l.presetId);
   }
-  for (const g of payloadInput.graphs ?? []) {
+  for (const g of payloadInput.logic ?? []) {
     premint(g.presetId);
   }
   for (const ac of payloadInput.animationClips ?? []) {
@@ -279,7 +279,7 @@ export function instantiatePreset(
       for (const comp of node.components) {
         const compId = mintId(comp.presetId);
         db.prepare(
-          `INSERT INTO node_components (id, node_id, kind, enabled, config, sort_order)
+          `INSERT INTO behaviors (id, node_id, kind, enabled, config, sort_order)
            VALUES (?, ?, ?, ?, ?, ?)`
         ).run(
           compId,
@@ -373,15 +373,15 @@ export function instantiatePreset(
     }
   }
 
-  // Insert graphs + reconcile so enabled standalone graphs start running
-  // immediately (parity with POST /scene-nodes/:nodeId/graphs and
-  // POST /compose-layers/:layerId/graphs).
-  const insertedGraphIds: string[] = [];
-  for (const graph of payload.graphs ?? []) {
+  // Insert logic + reconcile so enabled standalone logic start running
+  // immediately (parity with POST /scene-nodes/:nodeId/logic and
+  // POST /compose-layers/:layerId/logic).
+  const insertedLogicIds: string[] = [];
+  for (const graph of payload.logic ?? []) {
     const graphId = mintId(graph.presetId);
     const ownerId = resolveId(graph.ownerPresetId);
     db.prepare(
-      `INSERT INTO graphs (id, owner_kind, owner_id, name, enabled, descriptor, node_state)
+      `INSERT INTO logic (id, owner_kind, owner_id, name, enabled, descriptor, node_state)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(
       graphId,
@@ -392,7 +392,7 @@ export function instantiatePreset(
       JSON.stringify(graph.descriptor),
       JSON.stringify(graph.nodeState)
     );
-    insertedGraphIds.push(graphId);
+    insertedLogicIds.push(graphId);
   }
 
   // Insert track clips
@@ -467,12 +467,12 @@ export function instantiatePreset(
     }
   }
 
-  // Start any enabled standalone graphs we just inserted. Without this they
+  // Start any enabled standalone logic we just inserted. Without this they
   // sit in the DB but never instantiate (their nodes don't fire) until the
-  // next server restart, which would silently break preset-bundled graphs.
-  for (const gid of insertedGraphIds) {
+  // next server restart, which would silently break preset-bundled logic.
+  for (const gid of insertedLogicIds) {
     try {
-      automationManager.reconcile(gid);
+      logicManager.reconcile(gid);
     } catch (e) {
       console.warn(`[preset] failed to start imported graph ${gid}:`, e);
     }

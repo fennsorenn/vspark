@@ -92,7 +92,7 @@ Stored as a single JSON blob in `scene_nodes.components`. Each key is a sub-comp
 }
 ```
 
-This is not the same as `node_components` (the separate motion capture/breathing/etc. table). The `components` JSON column is for intrinsic per-kind data (transform, light params, camera settings); `node_components` rows are for behavioral drivers.
+This is not the same as the `behaviors` table (the separate motion capture/breathing/etc. table, renamed from `node_components` in migration 022). The `components` JSON column (the ECS `Component` union — `TransformComponent`/`LightComponent`/etc. — which keeps the "Component" name) is for intrinsic per-kind data (transform, light params, camera settings); `behaviors` rows are for behavioral drivers (now called **Behaviors**).
 
 ## Backend routes
 
@@ -139,11 +139,11 @@ Tree panel on the left side of the editor. Renders the active scene's node hiera
 
 ### Inline sections
 
-**NodeComponentsSection**: shows ordered list of `node_components` rows for the selected node (sorted by `sort_order`). Excludes camera effects. Supports enable toggle and remove.
+**BehaviorsSection** (component renamed from `NodeComponentsSection`): shows ordered list of `behaviors` rows for the selected node (sorted by `sort_order`). Excludes camera effects. Supports enable toggle and remove.
 
 **CameraEffectsSection**: shown only for camera nodes. Lists `camera_effects` rows for this node. Supports enable toggle and remove.
 
-**GraphListPanel**: browsable list of active signal graphs (VMC pipeline, breathing, etc.). Selecting a graph sets `activeGraphId` in the store, which opens the signal graph canvas.
+**LogicListPanel** (renamed from `GraphListPanel`): browsable list of the project's Logic and behavior signal graphs (VMC pipeline, breathing, etc.). Selecting a logic sets `activeLogicId` in the store, which opens the `SignalGraphCanvas` (the signal-graph substrate editor).
 
 ## Frontend — `Viewport.tsx` (`SceneNodes` component)
 

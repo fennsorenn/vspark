@@ -91,7 +91,7 @@ interface PoseIkConfig {
 @SignalNode({
   label: 'Pose IK Targets',
   description:
-    'Converts MediaPipe world-space pose landmarks into IK target positions (relative to a reference bone) with per-target chain definitions. Includes EMA smoothing to reduce jitter. Calibration (per-axis scale/offset/invert) arrives via input ports — wire `component_config` nodes for each.',
+    'Converts MediaPipe world-space pose landmarks into IK target positions (relative to a reference bone) with per-target chain definitions. Includes EMA smoothing to reduce jitter. Calibration (per-axis scale/offset/invert) arrives via input ports — wire `behavior_config` nodes for each.',
   tags: ['tracking', 'mapping'],
   color: '#6a4a9a',
 })
@@ -140,7 +140,7 @@ export class PoseIkTargets extends Node {
     const alpha = Math.max(0, Math.min(1, cfg.smoothing ?? 0.25));
     const refBone = cfg.referenceBone ?? 'chest';
 
-    // Calibration values arrive via input ports (each wired to a component_config node).
+    // Calibration values arrive via input ports (each wired to a behavior_config node).
     // Falsy/null inputs fall back to sensible defaults — z=3 to compensate MediaPipe's compressed depth.
     const numIn = (v: unknown, d: number): number =>
       typeof v === 'number' && Number.isFinite(v) ? v : d;

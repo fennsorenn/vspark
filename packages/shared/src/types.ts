@@ -192,13 +192,13 @@ export interface ComposeLayer {
   updatedAt: string;
 }
 
-// --- Automations (user-built signal graphs with owner scoping) ---
+// --- Logic (user-built signal graphs with owner scoping) ---
 
-export type AutomationOwnerKind = 'project' | 'scene_node' | 'compose_layer';
+export type LogicOwnerKind = 'project' | 'scene_node' | 'compose_layer';
 
-export interface Automation {
+export interface Logic {
   id: string;
-  ownerKind: AutomationOwnerKind;
+  ownerKind: LogicOwnerKind;
   ownerId: string;
   name: string;
   enabled: boolean;
@@ -521,20 +521,20 @@ export interface Landmark {
 
 export interface LipsyncInputMessage {
   kind: 'lipsync_input';
-  componentId: string;
+  behaviorId: string;
   visemes: Record<string, number>;
 }
 
 export interface LipsyncStatusMessage {
   kind: 'lipsync_status';
-  componentId: string;
+  behaviorId: string;
   active: boolean;
   error?: string;
 }
 
 export interface TrackingInputMessage {
   kind: 'tracking_input';
-  componentId: string;
+  behaviorId: string;
   face?: Landmark[]; // 478 points
   leftHand?: Landmark[]; // 21 points
   rightHand?: Landmark[]; // 21 points
@@ -543,7 +543,7 @@ export interface TrackingInputMessage {
 
 export interface TrackingStatusMessage {
   kind: 'tracking_status';
-  componentId: string;
+  behaviorId: string;
   active: boolean;
   error?: string;
 }
@@ -570,7 +570,7 @@ export interface AvatarExpressionsReportMessage {
 
 export interface ApiAnimationMessage {
   nodeId: string;
-  componentId: string;
+  behaviorId: string;
   queue: ApiAnimationQueueEntry[];
   loopMode: ApiAnimationLoopMode;
   /** ms epoch when the queue started; null when stopped. */

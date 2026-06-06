@@ -31,6 +31,11 @@ import m018 from './migrations/018_refactor_scenes_to_nodes.js';
 import m019 from './migrations/019_track_clips_owner_columns.js';
 import m020 from './migrations/020_overlive_accounts_default.js';
 import m021 from './migrations/021_track_clip_events.js';
+import m022 from './migrations/022_rename_tables_to_vocab.js';
+import m023 from './migrations/023_rename_behavior_context_kinds.js';
+import m024 from './migrations/024_rename_preset_graphs_key.js';
+import m025 from './migrations/025_rename_automations_table_to_logic.js';
+import m026 from './migrations/026_rename_preset_logic_key.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -71,6 +76,11 @@ const MIGRATIONS: Migration[] = [
   { name: '019_track_clips_owner_columns.sql', run: m019 },
   { name: '020_overlive_accounts_default.ts', run: m020 },
   { name: '021_track_clip_events.sql', sql: m021 },
+  { name: '022_rename_tables_to_vocab.sql', sql: m022 },
+  { name: '023_rename_behavior_context_kinds.ts', run: m023 },
+  { name: '024_rename_preset_graphs_key.ts', run: m024 },
+  { name: '025_rename_automations_table_to_logic.sql', sql: m025 },
+  { name: '026_rename_preset_logic_key.ts', run: m026 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

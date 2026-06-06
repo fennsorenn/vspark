@@ -8,7 +8,7 @@ import { broadcastBus } from '../../broadcast/bus.js';
 @SignalNode({
   label: 'Send Intercepted Pose',
   description:
-    'Advances the pose interceptor chain. Wire the frame from On Pose Broadcast and the (optionally modified) pose, then connect trigger from the end of your pipeline.',
+    'Advances the pose interceptor chain. Wire the frame from Intercept Pose and the (optionally modified) pose, then connect trigger from the end of your pipeline.',
   tags: ['interceptor', 'output'],
   color: '#4a6a9f',
 })

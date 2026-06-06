@@ -7,12 +7,12 @@ export const LIPSYNC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     // ── Config ──────────────────────────────────────────────────────────────
     {
       id: 'cfg_sensitivity',
-      kind: 'component_config',
+      kind: 'behavior_config',
       position: { x: -280, y: 80 },
       defaultConfig: { field: 'sensitivity', defaultValue: 1.0 },
     },
     // ── Infrastructure ───────────────────────────────────────────────────────
-    { id: 'comp_id', kind: 'component_id', position: { x: -280, y: -60 } },
+    { id: 'comp_id', kind: 'behavior_id', position: { x: -280, y: -60 } },
     { id: 'scene_entity', kind: 'scene_entity', position: { x: 640, y: -60 } },
     // ── Entry point (fired by LipsyncManager) ────────────────────────────────
     { id: 'lipsync_src', kind: 'lipsync_source', position: { x: -280, y: 0 } },
@@ -69,14 +69,14 @@ export const LIPSYNC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromNodeId: 'comp_id',
       fromPort: 'id',
       toNodeId: 'bs_out',
-      toPort: 'componentId',
+      toPort: 'behaviorId',
       kind: 'value',
     },
   ],
 };
 
 export function makeLipsyncGraphDescriptor(
-  componentId: string
+  behaviorId: string
 ): GraphDescriptor {
-  return { ...LIPSYNC_PIPELINE_TEMPLATE, id: `lipsync:${componentId}` };
+  return { ...LIPSYNC_PIPELINE_TEMPLATE, id: `lipsync:${behaviorId}` };
 }

@@ -85,7 +85,7 @@ export class InferGraph {
   constructor(
     private readonly inferFor: (kind: string) => InferPortsFn | undefined,
     private readonly portsFor: (kind: string) => PortMeta[],
-    private readonly ownerKind?: import('./types.js').AutomationOwnerKind
+    private readonly ownerKind?: import('./types.js').LogicOwnerKind
   ) {}
 
   addNode(id: string, kind: string, config: unknown): void {

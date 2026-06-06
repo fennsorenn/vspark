@@ -1,41 +1,41 @@
 import { useEffect, useState } from 'react';
 import { useEditorStore } from '../../store/editorStore';
-import { api, type AutomationRecord } from '../../api/client';
+import { api, type LogicRecord } from '../../api/client';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 
-/** Inline, expandable list of standalone graphs attached to a single scene
+/** Inline, expandable list of standalone logic attached to a single scene
  *  node or compose layer — mirrors ClipsSection. Selecting a graph opens it
  *  in the bottom-dock graph canvas. */
-export function AutomationsSection({
+export function LogicSection({
   owner,
 }: {
   owner: { kind: 'node'; id: string } | { kind: 'layer'; id: string };
 }) {
-  const setActiveAutomation = useEditorStore((s) => s.setActiveAutomation);
-  const activeAutomationId = useEditorStore((s) => s.activeAutomationId);
+  const setActiveLogic = useEditorStore((s) => s.setActiveLogic);
+  const activeLogicId = useEditorStore((s) => s.activeLogicId);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteGraph = clipboardPayload?.kind === 'graph';
+  const canPasteLogic = clipboardPayload?.kind === 'graph';
 
-  const [graphs, setGraphs] = useState<AutomationRecord[]>([]);
+  const [logic, setLogic] = useState<LogicRecord[]>([]);
   /** Open context menu state. Null when no menu is currently up. */
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
-    graph: AutomationRecord;
+    graph: LogicRecord;
   } | null>(null);
 
   const fetch = () => {
     const call =
       owner.kind === 'node'
-        ? api.getNodeAutomations(owner.id)
-        : api.getLayerAutomations(owner.id);
-    call.then(setGraphs).catch(() => {});
+        ? api.getNodeLogic(owner.id)
+        : api.getLayerLogic(owner.id);
+    call.then(setLogic).catch(() => {});
   };
 
   // Refresh on owner change + every few seconds (cheap, matches the
-  // AutomationListPanel polling cadence).
+  // LogicListPanel polling cadence).
   useEffect(() => {
     fetch();
     const iv = setInterval(fetch, 3000);
@@ -44,47 +44,47 @@ export function AutomationsSection({
   }, [owner.kind, owner.id]);
 
   const handleAdd = async () => {
-    const name = window.prompt('New automation name:', 'Untitled Automation');
+    const name = window.prompt('New logic name:', 'Untitled Logic');
     if (!name?.trim()) return;
     try {
       const created =
         owner.kind === 'node'
-          ? await api.createNodeAutomation(owner.id, name.trim())
-          : await api.createLayerAutomation(owner.id, name.trim());
-      setGraphs((prev) => [...prev, created]);
-      openGraph(created.id);
+          ? await api.createNodeLogic(owner.id, name.trim())
+          : await api.createLayerLogic(owner.id, name.trim());
+      setLogic((prev) => [...prev, created]);
+      openLogic(created.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create automation');
+      alert(e instanceof Error ? e.message : 'Failed to create logic');
     }
   };
 
-  const handleDelete = async (g: AutomationRecord) => {
-    if (!window.confirm(`Delete automation "${g.name}"?`)) return;
+  const handleDelete = async (g: LogicRecord) => {
+    if (!window.confirm(`Delete logic "${g.name}"?`)) return;
     try {
-      await api.deleteAutomation(g.id);
-      setGraphs((prev) => prev.filter((x) => x.id !== g.id));
-      if (activeAutomationId === g.id) setActiveAutomation(null);
+      await api.deleteLogic(g.id);
+      setLogic((prev) => prev.filter((x) => x.id !== g.id));
+      if (activeLogicId === g.id) setActiveLogic(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete automation');
+      alert(e instanceof Error ? e.message : 'Failed to delete logic');
     }
   };
 
-  const handleToggleEnabled = async (g: AutomationRecord) => {
+  const handleToggleEnabled = async (g: LogicRecord) => {
     try {
-      const updated = await api.updateAutomation(g.id, { enabled: !g.enabled });
-      setGraphs((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
+      const updated = await api.updateLogic(g.id, { enabled: !g.enabled });
+      setLogic((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle automation');
+      alert(e instanceof Error ? e.message : 'Failed to toggle logic');
     }
   };
 
   // Opening a graph swaps the main canvas to the SignalGraphCanvas (the
-  // editor's main pane). Clearing activeAutomation (e.g. selecting a non-graph
+  // editor's main pane). Clearing activeLogic (e.g. selecting a non-graph
   // tab in the left dock) returns to the viewport.
-  const openGraph = (id: string) => setActiveAutomation(id);
+  const openLogic = (id: string) => setActiveLogic(id);
 
-  const handleCopy = async (g: AutomationRecord) => {
-    // AutomationRecord.descriptor lacks the wrapper fields (id, label, readonly)
+  const handleCopy = async (g: LogicRecord) => {
+    // LogicRecord.descriptor lacks the wrapper fields (id, label, readonly)
     // that the canvas expects internally, but those are reconstructed on
     // paste — we only need the nodes + edges + name.
     await copyToClipboard(
@@ -104,18 +104,18 @@ export function AutomationsSection({
     try {
       const created =
         owner.kind === 'node'
-          ? await api.createNodeAutomation(owner.id, payload.name)
-          : await api.createLayerAutomation(owner.id, payload.name);
+          ? await api.createNodeLogic(owner.id, payload.name)
+          : await api.createLayerLogic(owner.id, payload.name);
       // Push the descriptor onto the new graph in a follow-up PUT — the
       // create endpoint only takes a name.
-      const updated = await api.updateAutomation(created.id, {
+      const updated = await api.updateLogic(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
-      setGraphs((prev) => [...prev, updated]);
-      openGraph(updated.id);
+      setLogic((prev) => [...prev, updated]);
+      openLogic(updated.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste automation');
+      alert(e instanceof Error ? e.message : 'Failed to paste logic');
     }
   };
 
@@ -131,7 +131,7 @@ export function AutomationsSection({
         overflow: 'hidden',
       }}
     >
-      {graphs.length === 0 && (
+      {logic.length === 0 && (
         <div
           style={{
             padding: '4px 10px',
@@ -140,11 +140,11 @@ export function AutomationsSection({
             fontStyle: 'italic',
           }}
         >
-          No automations
+          No logic
         </div>
       )}
-      {graphs.map((g) => {
-        const isActive = activeAutomationId === g.id;
+      {logic.map((g) => {
+        const isActive = activeLogicId === g.id;
         return (
           <div
             key={g.id}
@@ -158,7 +158,7 @@ export function AutomationsSection({
               cursor: 'pointer',
               background: isActive ? '#1a3a5a' : 'transparent',
             }}
-            onClick={() => openGraph(g.id)}
+            onClick={() => openLogic(g.id)}
             onContextMenu={(e) => {
               e.preventDefault();
               setCtxMenu({ x: e.clientX, y: e.clientY, graph: g });
@@ -220,12 +220,12 @@ export function AutomationsSection({
             textAlign: 'left',
           }}
         >
-          + Add Automation
+          + Add Logic
         </button>
-        {canPasteGraph && (
+        {canPasteLogic && (
           <button
             onClick={handlePaste}
-            title="Paste the automation from clipboard onto this owner"
+            title="Paste the logic from clipboard onto this owner"
             style={{
               background: 'none',
               border: '1px dashed #3a5a4a',
@@ -237,7 +237,7 @@ export function AutomationsSection({
               textAlign: 'left',
             }}
           >
-            ⧉ Paste Automation
+            ⧉ Paste Logic
           </button>
         )}
       </div>
@@ -246,7 +246,7 @@ export function AutomationsSection({
           x={ctxMenu.x}
           y={ctxMenu.y}
           onClose={() => setCtxMenu(null)}
-          items={buildAutomationRowMenu({
+          items={buildLogicRowMenu({
             graph: ctxMenu.graph,
             onCopy: () => void handleCopy(ctxMenu.graph),
             onToggleEnabled: () => handleToggleEnabled(ctxMenu.graph),
@@ -261,8 +261,8 @@ export function AutomationsSection({
 /** Build the per-graph-row menu. Pulled out so the same shape is reused
  *  (and trivially extended) without inlining a 30-line array literal at the
  *  call site. */
-function buildAutomationRowMenu(args: {
-  graph: AutomationRecord;
+function buildLogicRowMenu(args: {
+  graph: LogicRecord;
   onCopy: () => void;
   onToggleEnabled: () => void;
   onDelete: () => void;

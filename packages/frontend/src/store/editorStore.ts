@@ -403,8 +403,8 @@ interface EditorState {
   selectedBehaviorId: string | null;
   assets: AssetFile[];
   behaviors: Behavior[];
-  vmcStatus: Record<string, boolean>; // componentId → connected
-  vmcTracking: Record<string, boolean>; // componentId → tracking active
+  vmcStatus: Record<string, boolean>; // behaviorId → connected
+  vmcTracking: Record<string, boolean>; // behaviorId → tracking active
   apiAnimationByNode: Record<string, ApiAnimationState>; // nodeId → current api-driven animation queue
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
@@ -415,11 +415,11 @@ interface EditorState {
   /** Overlive login accounts for the current project. Populated lazily by Editor.tsx;
    *  consumed by signal-graph Account port dropdowns. */
   overliveAccounts: import('../api/client').OverliveAccountRecord[];
-  activeAutomationId: string | null;
+  activeLogicId: string | null;
   /** True when the active graph is a writable standalone project graph;
-   *  false when it's a component-owned (read-only) graph or no graph is active.
+   *  false when it's a behavior-owned (read-only) graph or no graph is active.
    *  Set by SignalGraphCanvas after it resolves the descriptor source. */
-  activeAutomationWritable: boolean;
+  activeLogicWritable: boolean;
   selectedSignalNodeId: string | null;
   boneListExpanded: Record<string, boolean>; // nodeId → bone list open in SceneGraph
   fbxDebugVisible: Record<string, boolean>; // nodeId → FBX debug model shown
@@ -514,8 +514,8 @@ interface EditorState {
   ) => void;
   removeBehavior: (id: string) => void;
   behaviorsFor: (nodeId: string) => Behavior[];
-  setVmcStatus: (componentId: string, connected: boolean) => void;
-  setVmcTracking: (componentId: string, tracking: boolean) => void;
+  setVmcStatus: (behaviorId: string, connected: boolean) => void;
+  setVmcTracking: (behaviorId: string, tracking: boolean) => void;
   setApiAnimation: (nodeId: string, state: ApiAnimationState | null) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
   clearVrmBonesForNode: (nodeId: string) => void;
@@ -530,8 +530,8 @@ interface EditorState {
   setOverliveAccounts: (
     accounts: import('../api/client').OverliveAccountRecord[]
   ) => void;
-  setActiveAutomation: (id: string | null) => void;
-  setActiveAutomationWritable: (writable: boolean) => void;
+  setActiveLogic: (id: string | null) => void;
+  setActiveLogicWritable: (writable: boolean) => void;
   setSelectedSignalNode: (id: string | null) => void;
   setBoneListExpanded: (nodeId: string, expanded: boolean) => void;
   setFbxDebugVisible: (nodeId: string, visible: boolean) => void;
@@ -690,8 +690,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   hoveredBoneName: null,
   behaviorKinds: [],
   overliveAccounts: [],
-  activeAutomationWritable: false,
-  activeAutomationId: null,
+  activeLogicWritable: false,
+  activeLogicId: null,
   selectedSignalNodeId: null,
   boneListExpanded: {},
   fbxDebugVisible: {},
@@ -817,11 +817,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })),
   behaviorsFor: (nodeId) =>
     get().behaviors.filter((c) => c.nodeId === nodeId),
-  setVmcStatus: (componentId, connected) =>
-    set((s) => ({ vmcStatus: { ...s.vmcStatus, [componentId]: connected } })),
-  setVmcTracking: (componentId, tracking) =>
+  setVmcStatus: (behaviorId, connected) =>
+    set((s) => ({ vmcStatus: { ...s.vmcStatus, [behaviorId]: connected } })),
+  setVmcTracking: (behaviorId, tracking) =>
     set((s) => ({
-      vmcTracking: { ...s.vmcTracking, [componentId]: tracking },
+      vmcTracking: { ...s.vmcTracking, [behaviorId]: tracking },
     })),
   setApiAnimation: (nodeId, state) =>
     set((s) => {
@@ -874,17 +874,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
   setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
-  setActiveAutomationWritable: (writable) => set({ activeAutomationWritable: writable }),
-  setActiveAutomation: (id) => {
+  setActiveLogicWritable: (writable) => set({ activeLogicWritable: writable }),
+  setActiveLogic: (id) => {
     // Opening a graph (from any list — including scoped graphs in the scene /
     // compose trees) follows the main view to the Graphs tab, so the canvas is
     // what's actually shown. Clearing the active graph leaves the current tab
     // alone (the toggle-off path shouldn't yank the user away).
     if (id != null) lsSet(LS.leftTab, 'graphs');
     set((s) => ({
-      activeAutomationId: id,
+      activeLogicId: id,
       selectedSignalNodeId: null,
-      activeAutomationWritable: false,
+      activeLogicWritable: false,
       leftTab: id != null ? 'graphs' : s.leftTab,
     }));
   },

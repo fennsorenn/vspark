@@ -30,7 +30,7 @@ export class PoseBroadcast extends Node {
 
   @valueIn('pose', 'NormalizedPose') pose!: () => NormalizedPose | undefined;
   @valueIn('nodeId', 'SceneNode') nodeId!: () => string | undefined;
-  @valueIn('componentId', 'String') componentId!: () => string | undefined;
+  @valueIn('behaviorId', 'String') behaviorId!: () => string | undefined;
   @valueIn('priority', 'Float') priority!: () => number | undefined;
   @valueIn('animationBlendMode', 'String')
   animationBlendMode!: () => string | undefined;
@@ -38,12 +38,12 @@ export class PoseBroadcast extends Node {
   @eventIn('trigger', 'Trigger')
   onTrigger(): void {
     const nodeId = this.nodeId();
-    const componentId = this.componentId();
+    const behaviorId = this.behaviorId();
     const pose = this.pose();
-    if (!nodeId || !componentId || !pose) return;
+    if (!nodeId || !behaviorId || !pose) return;
     const priority = _asPriority(this.priority());
     const mode = _asMode(this.animationBlendMode());
-    broadcastBus.publishBones(nodeId, componentId, pose, priority, mode);
+    broadcastBus.publishBones(nodeId, behaviorId, pose, priority, mode);
   }
 }
 

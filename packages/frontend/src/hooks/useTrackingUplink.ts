@@ -7,22 +7,22 @@ import type { CameraCapture, TrackingResult } from '../media/CameraCapture';
  */
 export function useTrackingUplink(
   ws: WebSocket | null,
-  componentId: string | null,
+  behaviorId: string | null,
   camera: CameraCapture | null,
   active: boolean
 ): void {
   useEffect(() => {
-    if (!active || !componentId || !camera || !ws) return;
+    if (!active || !behaviorId || !camera || !ws) return;
 
     camera.onResult = (result: TrackingResult) => {
-      if (!ws || ws.readyState !== WebSocket.OPEN || !componentId) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN || !behaviorId) return;
       ws.send(
-        JSON.stringify({ kind: 'tracking_input', componentId, ...result })
+        JSON.stringify({ kind: 'tracking_input', behaviorId, ...result })
       );
     };
 
     return () => {
       camera.onResult = null;
     };
-  }, [active, componentId, camera, ws]);
+  }, [active, behaviorId, camera, ws]);
 }

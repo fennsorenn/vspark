@@ -4,7 +4,7 @@
 
 Integrates the [`overlive`](https://github.com/) SDK (`~/projects/overlive`) into vspark so signal graphs can react to live-stream events from Twitch and StreamElements (subs, bits, chat, redemptions, raids, follows, ads, ban, stream online/offline, etc.).
 
-Depends on [project-graphs.md](project-graphs.md): the 13 Overlive event nodes are intended for project-scoped standalone graphs (they need no component context) and consume the `Account` port type.
+Depends on [project-graphs.md](project-graphs.md): the 13 Overlive event nodes are intended for project-scoped logic (they need no behavior context) and consume the `Account` port type.
 
 ## Overlive packages consumed
 
@@ -47,7 +47,7 @@ Gotchas:
 |---------|-------------|
 | App credential | Per-project Twitch dev-app: `client_id` + `client_secret` + `redirect_uri`. Stored plaintext (single-user assumption — see ARCHITECTURE Future Features). |
 | Account | A logged-in identity: Twitch channel (OAuth) or SE connection (JWT). Owned by a project. Twitch rows reference an `app_credential_id`; SE rows leave it NULL. |
-| OverliveManager | Backend singleton (init'd in `src/index.ts`). Owns one shared `OverliveKit` **per loaded project**, registers one adapter per account row, fans inbound events into running project graphs. |
+| OverliveManager | Backend singleton (init'd in `src/index.ts`). Owns one shared `OverliveKit` **per loaded project**, registers one adapter per account row, fans inbound events into running project-scoped logic (via `logicManager`). |
 | `Account` port | Signal-graph value port (`Account` in `SignalTypeMap`, colour `#9146ff` in `SIGNAL_TYPE_COLORS`). Resolves to an account row id at runtime; consumed by every Overlive event node. |
 
 ## DB
@@ -107,7 +107,7 @@ OAuth flow shape:
 
 ## OverliveManager — `overlive/manager.ts`
 
-One `OverliveKit` per loaded project, lazily instantiated on first account or first project-graph reference. Account row id is the kit's adapter `instanceId`.
+One `OverliveKit` per loaded project, lazily instantiated on first account or first project-scoped-logic reference. Account row id is the kit's adapter `instanceId`.
 
 Lifecycle hooks:
 
@@ -124,7 +124,7 @@ State + token persistence:
 Event routing:
 
 - `kit.onAny(event => routeEvent(projectId, event))`.
-- `routeEvent` walks `projectGraphManager.iterateNodes()`, skips graphs from other projects, matches `node.kind` against the `OVERLIVE_KIND_BY_EVENT` table (e.g. `chat.message` → `overlive_chat_message`), then filters by the node's `defaultConfig.account` (must match `event.sourceInstanceId`) and optional `defaultConfig.channel` (lowercased, empty = any). Matching nodes get the event fired into their `event` input port via `projectGraphManager.fire(graphId, nodeId, 'event', mkEvent(event))`.
+- `routeEvent` walks `logicManager.iterateNodes()`, skips logic from other projects, matches `node.kind` against the `OVERLIVE_KIND_BY_EVENT` table (e.g. `chat.message` → `overlive_chat_message`), then filters by the node's `defaultConfig.account` (must match `event.sourceInstanceId`) and optional `defaultConfig.channel` (lowercased, empty = any). Matching nodes get the event fired into their `event` input port via `logicManager.fire(graphId, nodeId, 'event', mkEvent(event))` (the `graphId` param keeps its substrate name).
 - The event MUST be wrapped with `mkEvent(event)` from `@vspark/shared/signal` before firing. The node helper `_helpers.ts handleOverliveEvent` reads `inputs.event.payload` (the signal engine's `Event<T>` envelope). Firing the raw overlive event (which has no `.payload`) made every node see `undefined` and emit empty outputs — the bug that `mkEvent` fixes.
 - Per-event filtering on top of this (command name, reward id, tier, etc.) happens inside the node's `execute()`.
 

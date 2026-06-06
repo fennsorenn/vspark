@@ -23,11 +23,11 @@ import { configRoutes } from './routes/config.js';
 import { openApiDoc } from './routes/openapi.js';
 import swaggerUi from 'swagger-ui-express';
 import { WSSync } from './ws/index.js';
-import { VmcManager } from './node_components/vmc_receiver/manager.js';
-import { BreathingManager } from './node_components/breathing/manager.js';
-import { LipsyncManager } from './node_components/lipsync/manager.js';
-import { TrackingManager } from './node_components/mediapipe_tracker/manager.js';
-import { ApiControllerManager } from './node_components/api_controller/manager.js';
+import { VmcManager } from './behaviors/vmc_receiver/manager.js';
+import { BreathingManager } from './behaviors/breathing/manager.js';
+import { LipsyncManager } from './behaviors/lipsync/manager.js';
+import { TrackingManager } from './behaviors/mediapipe_tracker/manager.js';
+import { ApiControllerManager } from './behaviors/api_controller/manager.js';
 import { TrackClipPlaybackManager } from './track_clips/playback.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
@@ -130,8 +130,8 @@ async function start() {
 
   // Standalone project graphs — start every persisted-enabled graph on boot.
   // See dev-notes/modules/project-graphs.md.
-  const { automationManager } = await import('./project_graphs/manager.js');
-  automationManager.startAllEnabled();
+  const { logicManager } = await import('./logic/manager.js');
+  logicManager.startAllEnabled();
 
   // Overlive integration — one shared kit per project with configured accounts.
   // See dev-notes/modules/overlive.md.
@@ -159,10 +159,10 @@ async function start() {
   wsSync.onMessage((kind, payload, sourceWs) => {
     if (kind === 'lipsync_input') {
       const msg = payload as LipsyncInputMessage;
-      lipsyncManager.fireVisemes(msg.componentId, msg.visemes ?? {});
+      lipsyncManager.fireVisemes(msg.behaviorId, msg.visemes ?? {});
     } else if (kind === 'tracking_input') {
       const msg = payload as TrackingInputMessage;
-      trackingManager.fireLandmarks(msg.componentId, {
+      trackingManager.fireLandmarks(msg.behaviorId, {
         face: msg.face,
         leftHand: msg.leftHand,
         rightHand: msg.rightHand,
@@ -215,29 +215,29 @@ async function start() {
 
   // Start receivers for any components that were persisted
   const vmcRows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'vmc_receiver'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'vmc_receiver'")
     .all() as Record<string, unknown>[];
-  vmcManager.syncComponents(vmcRows.map(mapRow));
+  vmcManager.syncBehaviors(vmcRows.map(mapRow));
 
   const breathingRows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'breathing'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'breathing'")
     .all() as Record<string, unknown>[];
-  breathingManager.syncComponents(breathingRows.map(mapRow));
+  breathingManager.syncBehaviors(breathingRows.map(mapRow));
 
   const lipsyncRows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'lipsync_processor'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'lipsync_processor'")
     .all() as Record<string, unknown>[];
-  lipsyncManager.syncComponents(lipsyncRows.map(mapRow));
+  lipsyncManager.syncBehaviors(lipsyncRows.map(mapRow));
 
   const trackingRows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'mediapipe_tracker'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'mediapipe_tracker'")
     .all() as Record<string, unknown>[];
-  trackingManager.syncComponents(trackingRows.map(mapRow));
+  trackingManager.syncBehaviors(trackingRows.map(mapRow));
 
   const apiControllerRows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'api_controller'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'api_controller'")
     .all() as Record<string, unknown>[];
-  apiControllerManager.syncComponents(apiControllerRows.map(mapRow));
+  apiControllerManager.syncBehaviors(apiControllerRows.map(mapRow));
 
   const port = 3001;
   server.listen(port, async () => {

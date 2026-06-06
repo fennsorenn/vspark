@@ -1,21 +1,21 @@
 /**
- * AutomationManager — lifecycle owner for *all* user-authored standalone
+ * LogicManager — lifecycle owner for *all* user-authored standalone
  * graphs: project-scoped, scene-node-scoped, and compose-layer-scoped. Unlike
- * component-owned graphs (one per node_component row, hosted by its component
+ * behavior-owned graphs (one per behaviors row, hosted by its behavior
  * manager), these are user-authored: edits flow in via REST and the manager
  * re-instantiates the underlying SignalGraph.
  *
  * Context-node availability depends on owner_kind:
  *   - 'project'        — no context nodes at all.
  *   - 'scene_node'     — `scene_entity` is auto-fed the attached node's id and
- *                        outputs a `SceneNode`; component_config / component_id
+ *                        outputs a `SceneNode`; behavior_config / behavior_id
  *                        are still forbidden.
  *   - 'compose_layer'  — `scene_entity` is auto-fed the layer's id and outputs a
  *                        `ComposeLayer` (its output type follows the scope via
- *                        `inferSceneEntity`); component context still forbidden.
+ *                        `inferSceneEntity`); behavior context still forbidden.
  *
- * Per-graph node state is persisted on the graphs row in a `node_state` JSON
- * column (mirroring the `_nodeState` convention used by component-owned
+ * Per-graph node state is persisted on the logic row in a `node_state` JSON
+ * column (mirroring the `_nodeState` convention used by behavior-owned
  * managers).
  */
 import { SignalGraph } from '../signal/engine.js';
@@ -26,16 +26,16 @@ import type {
   GraphDescriptor,
   GraphStateSnapshot,
 } from '@vspark/shared/signal';
-import type { AutomationOwnerKind } from '@vspark/shared/types';
+import type { LogicOwnerKind } from '@vspark/shared/types';
 
-/** Node kinds that depend on the component-context system. Always rejected
- *  in standalone graphs because there's no component to read config from. */
+/** Node kinds that depend on the behavior-context system. Always rejected
+ *  in logic because there's no behavior to read config from. */
 const ALWAYS_FORBIDDEN_CONTEXT_KINDS = new Set([
-  'component_config',
-  'component_id',
+  'behavior_config',
+  'behavior_id',
 ]);
 
-export interface AutomationRow {
+export interface LogicRow {
   id: string;
   owner_kind: string;
   owner_id: string;
@@ -47,7 +47,7 @@ export interface AutomationRow {
   updated_at: string;
 }
 
-export type ProjectAutomationRow = AutomationRow;
+export type ProjectLogicRow = LogicRow;
 
 interface RunningGraph {
   graph: SignalGraph;
@@ -56,30 +56,30 @@ interface RunningGraph {
   cleanups: Array<() => void>;
 }
 
-export class AutomationManager {
+export class LogicManager {
   private readonly running = new Map<string, RunningGraph>();
 
   // ── REST API entry points ─────────────────────────────────────────────────
 
   /** List all graphs for a project. */
-  list(projectId: string): AutomationRow[] {
+  list(projectId: string): LogicRow[] {
     return getDb()
       .prepare(
-        "SELECT * FROM graphs WHERE owner_kind = 'project' AND owner_id = ? ORDER BY created_at"
+        "SELECT * FROM logic WHERE owner_kind = 'project' AND owner_id = ? ORDER BY created_at"
       )
-      .all(projectId) as unknown as AutomationRow[];
+      .all(projectId) as unknown as LogicRow[];
   }
 
-  get(id: string): AutomationRow | undefined {
+  get(id: string): LogicRow | undefined {
     return getDb()
-      .prepare('SELECT * FROM graphs WHERE id = ?')
-      .get(id) as unknown as AutomationRow | undefined;
+      .prepare('SELECT * FROM logic WHERE id = ?')
+      .get(id) as unknown as LogicRow | undefined;
   }
 
-  create(input: { id: string; projectId: string; name: string }): AutomationRow {
+  create(input: { id: string; projectId: string; name: string }): LogicRow {
     const db = getDb();
     db.prepare(
-      "INSERT INTO graphs (id, owner_kind, owner_id, name) VALUES (?, 'project', ?, ?)"
+      "INSERT INTO logic (id, owner_kind, owner_id, name) VALUES (?, 'project', ?, ?)"
     ).run(input.id, input.projectId, input.name);
     return this.get(input.id)!;
   }
@@ -87,24 +87,24 @@ export class AutomationManager {
   update(
     id: string,
     patch: { name?: string; enabled?: boolean; descriptor?: GraphDescriptor }
-  ): ProjectAutomationRow | undefined {
+  ): ProjectLogicRow | undefined {
     const existing = this.get(id);
     if (!existing) return undefined;
     const db = getDb();
     if (patch.name !== undefined) {
       db.prepare(
-        "UPDATE graphs SET name = ?, updated_at = datetime('now') WHERE id = ?"
+        "UPDATE logic SET name = ?, updated_at = datetime('now') WHERE id = ?"
       ).run(patch.name, id);
     }
     if (patch.enabled !== undefined) {
       db.prepare(
-        "UPDATE graphs SET enabled = ?, updated_at = datetime('now') WHERE id = ?"
+        "UPDATE logic SET enabled = ?, updated_at = datetime('now') WHERE id = ?"
       ).run(patch.enabled ? 1 : 0, id);
     }
     if (patch.descriptor !== undefined) {
       validateDescriptor(patch.descriptor, existing.owner_kind);
       db.prepare(
-        "UPDATE graphs SET descriptor = ?, updated_at = datetime('now') WHERE id = ?"
+        "UPDATE logic SET descriptor = ?, updated_at = datetime('now') WHERE id = ?"
       ).run(JSON.stringify(patch.descriptor), id);
     }
     // Reconcile the running instance with the new state.
@@ -114,18 +114,18 @@ export class AutomationManager {
 
   remove(id: string): void {
     this.stop(id);
-    getDb().prepare('DELETE FROM graphs WHERE id = ?').run(id);
+    getDb().prepare('DELETE FROM logic WHERE id = ?').run(id);
   }
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
 
-  /** Start any standalone graphs (project / scene_node / compose_layer) that
-   *  are persisted as enabled. Called at server boot. Component-owned graphs
-   *  are NOT in this set — those are started by their component managers. */
+  /** Start any logic (project / scene_node / compose_layer) that
+   *  are persisted as enabled. Called at server boot. Behavior-owned graphs
+   *  are NOT in this set — those are started by their behavior managers. */
   startAllEnabled(): void {
     const rows = getDb()
       .prepare(
-        "SELECT id FROM graphs WHERE owner_kind IN ('project', 'scene_node', 'compose_layer') AND enabled = 1"
+        "SELECT id FROM logic WHERE owner_kind IN ('project', 'scene_node', 'compose_layer') AND enabled = 1"
       )
       .all() as Array<{ id: string }>;
     for (const { id } of rows) this.start(id);
@@ -165,7 +165,7 @@ export class AutomationManager {
           nodeStates.set(nodeId, state);
           this._persistNodeState(id, nodeId, state);
         },
-        row.owner_kind as AutomationOwnerKind
+        row.owner_kind as LogicOwnerKind
       );
 
       // Clock nodes self-tick.
@@ -192,10 +192,10 @@ export class AutomationManager {
 
       this.running.set(id, { graph, descriptor, nodeStates, cleanups });
       console.log(
-        `[ProjectGraph] Started ${row.name} (${id}) — ${descriptor.nodes.length} nodes, ${descriptor.edges.length} edges`
+        `[Logic] Started ${row.name} (${id}) — ${descriptor.nodes.length} nodes, ${descriptor.edges.length} edges`
       );
     } catch (e) {
-      console.error(`[ProjectGraph] Failed to start ${row.name} (${id}):`, e);
+      console.error(`[Logic] Failed to start ${row.name} (${id}):`, e);
     }
   }
 
@@ -208,7 +208,7 @@ export class AutomationManager {
     // shadows global on feed layers).
     r.graph.dispose();
     this.running.delete(id);
-    console.log(`[ProjectGraph] Stopped ${id}`);
+    console.log(`[Logic] Stopped ${id}`);
   }
 
   /**
@@ -271,7 +271,7 @@ export class AutomationManager {
   /** Find the project id this graph runs under, regardless of owner kind.
    *  Used by overlive routing so scoped graphs receive events for the
    *  right project. */
-  private _resolveProjectId(row: AutomationRow): string | null {
+  private _resolveProjectId(row: LogicRow): string | null {
     if (row.owner_kind === 'project') return row.owner_id;
     if (row.owner_kind === 'scene_node') {
       const r = getDb()
@@ -297,7 +297,7 @@ export class AutomationManager {
   private _getNodeConfig(
     descriptor: GraphDescriptor,
     nodeId: string,
-    row: AutomationRow
+    row: LogicRow
   ): unknown {
     const nodeDef = descriptor.nodes.find((n) => n.id === nodeId);
     const defaults = (nodeDef?.defaultConfig ?? {}) as Record<string, unknown>;
@@ -328,7 +328,7 @@ export class AutomationManager {
       const next = Object.fromEntries(map.entries());
       getDb()
         .prepare(
-          "UPDATE graphs SET node_state = ?, updated_at = datetime('now') WHERE id = ?"
+          "UPDATE logic SET node_state = ?, updated_at = datetime('now') WHERE id = ?"
         )
         .run(JSON.stringify(next), graphId);
     } catch {
@@ -348,8 +348,8 @@ function parseNodeStateMap(raw: string): Map<string, unknown> {
 
 /**
  * Reject descriptors that reference context nodes the owner kind can't
- * satisfy. component_config / component_id always need a component context
- * and so are forbidden in every standalone graph; scene_entity is allowed in
+ * satisfy. behavior_config / behavior_id always need a behavior context
+ * and so are forbidden in every logic; scene_entity is allowed in
  * scene-node- and compose-layer-scoped graphs (where the manager auto-feeds its
  * nodeId config and its output type follows the scope), but not in
  * project-scoped graphs, which have no owner entity.
@@ -360,8 +360,8 @@ function validateDescriptor(d: GraphDescriptor, ownerKind: string): void {
   for (const n of d.nodes) {
     if (ALWAYS_FORBIDDEN_CONTEXT_KINDS.has(n.kind)) {
       throw new Error(
-        `Standalone graphs cannot use component-context node "${n.kind}". ` +
-          `These nodes are only valid inside node_component graphs.`
+        `Logic cannot use behavior-context node "${n.kind}". ` +
+          `These nodes are only valid inside behavior graphs.`
       );
     }
     if (n.kind === 'scene_entity' && !sceneEntityAllowed) {
@@ -374,4 +374,4 @@ function validateDescriptor(d: GraphDescriptor, ownerKind: string): void {
 }
 
 // Singleton — mounted by routes/shared.ts.
-export const automationManager = new AutomationManager();
+export const logicManager = new LogicManager();

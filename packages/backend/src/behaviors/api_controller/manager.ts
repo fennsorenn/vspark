@@ -9,7 +9,7 @@ import { broadcastBus } from '../../broadcast/bus.js';
 import { getDb } from '../../db/index.js';
 import type { WSSync } from '../../ws/index.js';
 
-interface ComponentState {
+interface BehaviorState {
   sceneNodeId: string;
   queue: ApiAnimationQueueEntry[];
   loopMode: ApiAnimationLoopMode;
@@ -37,7 +37,7 @@ const DEFAULT_DURATION_SEC = 5;
   defaultConfig: {},
 })
 export class ApiControllerManager {
-  private readonly _state = new Map<string, ComponentState>();
+  private readonly _state = new Map<string, BehaviorState>();
   private readonly _expressionsByNode = new Map<string, string[]>();
   private readonly _ws: WSSync;
 
@@ -58,7 +58,7 @@ export class ApiControllerManager {
 
   // ── component lifecycle ────────────────────────────────────────────────────
 
-  syncComponents(
+  syncBehaviors(
     comps: Array<{
       id: string;
       nodeId: string;
@@ -92,7 +92,7 @@ export class ApiControllerManager {
 
   private _stop(id: string): void {
     this._state.delete(id);
-    broadcastBus.removeComponent(id);
+    broadcastBus.removeBehavior(id);
     console.log(`[ApiController] Stopped component ${id}`);
   }
 
@@ -105,21 +105,21 @@ export class ApiControllerManager {
   /** Find the api_controller component on a node, or null. */
   findByNode(
     nodeId: string
-  ): { componentId: string; state: ComponentState } | null {
+  ): { behaviorId: string; state: BehaviorState } | null {
     for (const [id, st] of this._state) {
-      if (st.sceneNodeId === nodeId) return { componentId: id, state: st };
+      if (st.sceneNodeId === nodeId) return { behaviorId: id, state: st };
     }
     return null;
   }
 
-  getState(componentId: string): ComponentState | null {
-    return this._state.get(componentId) ?? null;
+  getState(behaviorId: string): BehaviorState | null {
+    return this._state.get(behaviorId) ?? null;
   }
 
   /** All active state snapshots — used to rebroadcast on WS reconnect. */
-  snapshotAll(): Array<{ componentId: string; state: ComponentState }> {
-    return [...this._state.entries()].map(([componentId, state]) => ({
-      componentId,
+  snapshotAll(): Array<{ behaviorId: string; state: BehaviorState }> {
+    return [...this._state.entries()].map(([behaviorId, state]) => ({
+      behaviorId,
       state,
     }));
   }
@@ -128,13 +128,13 @@ export class ApiControllerManager {
 
   /** Replace the queue, optionally resolving by clip id or name. Throws if a name doesn't resolve. */
   setAnimationQueue(
-    componentId: string,
+    behaviorId: string,
     queueInput: Array<{ animation: string }>,
     loopMode: ApiAnimationLoopMode
   ): void {
-    const st = this._state.get(componentId);
+    const st = this._state.get(behaviorId);
     if (!st)
-      throw new Error(`api_controller component ${componentId} not active`);
+      throw new Error(`api_controller component ${behaviorId} not active`);
 
     const resolved: ApiAnimationQueueEntry[] = queueInput.map((entry) =>
       this._resolveClip(st.sceneNodeId, entry.animation)
@@ -143,15 +143,15 @@ export class ApiControllerManager {
     st.loopMode = loopMode;
     st.startedAt = resolved.length > 0 ? Date.now() : null;
 
-    this._broadcast(componentId, st);
+    this._broadcast(behaviorId, st);
   }
 
   // ── blendshapes ────────────────────────────────────────────────────────────
 
-  setBlendshapes(componentId: string, weights: Record<string, number>): void {
-    const st = this._state.get(componentId);
+  setBlendshapes(behaviorId: string, weights: Record<string, number>): void {
+    const st = this._state.get(behaviorId);
     if (!st)
-      throw new Error(`api_controller component ${componentId} not active`);
+      throw new Error(`api_controller component ${behaviorId} not active`);
     const full: Record<string, number> = {};
     const known = this._expressionsByNode.get(st.sceneNodeId);
     if (known) for (const name of known) full[name] = 0;
@@ -159,19 +159,19 @@ export class ApiControllerManager {
     st.blendshapes = Blendshapes.fromRecord(full);
     broadcastBus.publishBlendshapes(
       st.sceneNodeId,
-      componentId,
+      behaviorId,
       st.blendshapes
     );
   }
 
-  clearBlendshapes(componentId: string): void {
-    const st = this._state.get(componentId);
+  clearBlendshapes(behaviorId: string): void {
+    const st = this._state.get(behaviorId);
     if (!st)
-      throw new Error(`api_controller component ${componentId} not active`);
+      throw new Error(`api_controller component ${behaviorId} not active`);
     st.blendshapes = new Blendshapes();
     broadcastBus.publishBlendshapes(
       st.sceneNodeId,
-      componentId,
+      behaviorId,
       st.blendshapes
     );
   }
@@ -182,10 +182,10 @@ export class ApiControllerManager {
   rebroadcastTo(
     send: (kind: string, payload: Record<string, unknown>) => void
   ): void {
-    for (const [componentId, st] of this._state) {
+    for (const [behaviorId, st] of this._state) {
       send(
         'api_animation',
-        this._buildMessage(componentId, st) as unknown as Record<
+        this._buildMessage(behaviorId, st) as unknown as Record<
           string,
           unknown
         >
@@ -195,20 +195,20 @@ export class ApiControllerManager {
 
   // ── internals ──────────────────────────────────────────────────────────────
 
-  private _broadcast(componentId: string, st: ComponentState): void {
+  private _broadcast(behaviorId: string, st: BehaviorState): void {
     this._ws.broadcast(
       'api_animation',
-      this._buildMessage(componentId, st) as unknown as Record<string, unknown>
+      this._buildMessage(behaviorId, st) as unknown as Record<string, unknown>
     );
   }
 
   private _buildMessage(
-    componentId: string,
-    st: ComponentState
+    behaviorId: string,
+    st: BehaviorState
   ): ApiAnimationMessage {
     return {
       nodeId: st.sceneNodeId,
-      componentId,
+      behaviorId,
       queue: st.queue,
       loopMode: st.loopMode,
       startedAt: st.startedAt,

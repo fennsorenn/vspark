@@ -69,7 +69,7 @@ router.get('/projects/:projectId/scenes', (req, res) => {
     for (const n of sceneNodes as { id: string }[]) {
       const comps = db
         .prepare(
-          'SELECT * FROM node_components WHERE node_id = ? ORDER BY sort_order'
+          'SELECT * FROM behaviors WHERE node_id = ? ORDER BY sort_order'
         )
         .all(n.id);
       behaviors.push(...comps);
@@ -424,7 +424,7 @@ router.delete('/scenes/:sceneId', (req, res) => {
   db.exec('PRAGMA foreign_keys = OFF');
   try {
     for (const nid of nodeIds) {
-      db.prepare('DELETE FROM node_components WHERE node_id = ?').run(nid);
+      db.prepare('DELETE FROM behaviors WHERE node_id = ?').run(nid);
       db.prepare('DELETE FROM camera_effects WHERE node_id = ?').run(nid);
       // Drop camera_view compose layers that targeted this scene's cameras.
       db.prepare('DELETE FROM compose_layers WHERE camera_node_id = ?').run(
