@@ -7,7 +7,7 @@ export interface ComponentIdConfig {
 }
 
 @SignalNode({
-  label: 'Component ID',
+  label: 'This Behavior',
   tags: ['context'],
   color: '#2a2a4a',
   internal: true,

@@ -5,9 +5,9 @@ import { makeBreathingGraphDescriptor } from './graph.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import { getDb } from '../../db/index.js';
-import { ComponentKind } from '../decorator.js';
+import { BehaviorKind } from '../decorator.js';
 
-@ComponentKind({
+@BehaviorKind({
   kind: 'breathing',
   label: 'Breathing',
   icon: '🫁',

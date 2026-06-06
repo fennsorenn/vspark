@@ -14,7 +14,7 @@ import { loadVrmSkeleton } from '../../vrm/skeleton.js';
 import type { VrmSkeletonData } from '../../vrm/skeleton.js';
 import { join } from 'path';
 import { getDb } from '../../db/index.js';
-import { ComponentKind } from '../decorator.js';
+import { BehaviorKind } from '../decorator.js';
 
 // ---------- Minimal OSC parser ----------
 
@@ -186,7 +186,7 @@ interface Receiver {
   trackingActive: boolean | null;
 }
 
-@ComponentKind({
+@BehaviorKind({
   kind: 'vmc_receiver',
   label: 'VMC Receiver',
   icon: '📡',

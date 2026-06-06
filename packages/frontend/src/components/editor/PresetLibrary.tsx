@@ -123,7 +123,7 @@ export function PresetLibrary() {
     const data = await apiClient.getScenes(projectId);
     const store = useEditorStore.getState();
     store.setNodes(data.nodes);
-    store.setNodeComponents(data.nodeComponents);
+    store.setBehaviors(data.behaviors);
     store.setCameraEffects(data.cameraEffects);
     store.setTrackClips(data.trackClips);
     return result;

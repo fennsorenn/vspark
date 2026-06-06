@@ -246,7 +246,7 @@ function TimelineEditor({
           onChange={(e) => handlePatchClip({ name: e.target.value })}
           style={inputStyle}
         />
-        <label style={{ color: '#888', fontSize: 11 }}>dur</label>
+        <label style={{ color: '#888', fontSize: 11 }}>Duration</label>
         <input
           type="number"
           step={0.1}
@@ -279,6 +279,7 @@ function TimelineEditor({
           />{' '}
           autoplay
         </label>
+        <label style={{ color: '#888', fontSize: 11 }}>Blend</label>
         <select
           value={clip.mode}
           onChange={(e) =>
@@ -286,8 +287,8 @@ function TimelineEditor({
           }
           style={inputStyle}
         >
-          <option value="override">override</option>
-          <option value="relative">relative</option>
+          <option value="override">Replace</option>
+          <option value="relative">Add</option>
         </select>
         <div style={{ flex: 1 }} />
         {activePlayback?.kind === 'playing' ? (

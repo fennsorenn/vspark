@@ -19,7 +19,7 @@ export function broadcastPose(nodeId: string, pose: NormalizedPose): void {
 }
 
 @SignalNode({
-  label: 'Pose Broadcast',
+  label: 'Send Pose',
   description:
     'Publishes the processed NormalizedPose to the Broadcast Bus. The bus composes slots from all producers attached to this entity and emits a merged pose on each scene tick.',
   tags: ['output'],

@@ -3,11 +3,11 @@ import { NODE_REGISTRY } from '../../signal/registry.js';
 import { Blendshapes, mkEvent } from '@vspark/shared/signal';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import { getDb } from '../../db/index.js';
-import { ComponentKind } from '../decorator.js';
+import { BehaviorKind } from '../decorator.js';
 import { makeLipsyncGraphDescriptor } from './graph.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 
-@ComponentKind({
+@BehaviorKind({
   kind: 'lipsync_processor',
   label: 'Lipsync',
   icon: '🎤',

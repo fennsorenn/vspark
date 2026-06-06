@@ -182,7 +182,7 @@ export function TopBar() {
             }}
             title="Updates & release channel"
           >
-            ⚙ ver
+            ⚙ Version
           </button>
         </div>
       </div>

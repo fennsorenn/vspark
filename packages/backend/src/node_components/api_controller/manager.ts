@@ -4,7 +4,7 @@ import type {
   ApiAnimationMessage,
   ApiAnimationQueueEntry,
 } from '@vspark/shared';
-import { ComponentKind } from '../decorator.js';
+import { BehaviorKind } from '../decorator.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import { getDb } from '../../db/index.js';
 import type { WSSync } from '../../ws/index.js';
@@ -27,7 +27,7 @@ interface ClipRow {
 
 const DEFAULT_DURATION_SEC = 5;
 
-@ComponentKind({
+@BehaviorKind({
   kind: 'api_controller',
   label: 'API Controller',
   icon: '🎛',

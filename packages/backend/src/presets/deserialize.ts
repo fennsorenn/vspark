@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { matchAssetByHash, materializeAsset } from './assets.js';
 import { makeImportSubstituter } from './substitute.js';
-import { projectGraphManager } from '../project_graphs/manager.js';
+import { automationManager } from '../project_graphs/manager.js';
 
 interface PresetPayload {
   format: string;
@@ -472,7 +472,7 @@ export function instantiatePreset(
   // next server restart, which would silently break preset-bundled graphs.
   for (const gid of insertedGraphIds) {
     try {
-      projectGraphManager.reconcile(gid);
+      automationManager.reconcile(gid);
     } catch (e) {
       console.warn(`[preset] failed to start imported graph ${gid}:`, e);
     }

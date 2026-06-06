@@ -13,7 +13,7 @@ export function MediaInputPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { setNodes, setActiveScene, setNodeComponents } = useEditorStore();
+  const { setNodes, setActiveScene, setBehaviors } = useEditorStore();
 
   // Fetch the project/scene/nodes so MediaInputWindow can resolve component IDs
   useEffect(() => {
@@ -21,14 +21,14 @@ export function MediaInputPage() {
     let cancelled = false;
     async function load() {
       try {
-        const { scenes, nodes, nodeComponents } = await api.getScenes(
+        const { scenes, nodes, behaviors } = await api.getScenes(
           projectId!
         );
         if (cancelled) return;
         const firstScene = scenes[0];
         if (firstScene) setActiveScene(firstScene.id);
         setNodes(nodes);
-        setNodeComponents(nodeComponents);
+        setBehaviors(behaviors);
         setReady(true);
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
@@ -38,7 +38,7 @@ export function MediaInputPage() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, setNodes, setActiveScene, setNodeComponents]);
+  }, [projectId, setNodes, setActiveScene, setBehaviors]);
 
   const style: React.CSSProperties = {
     background: '#111',

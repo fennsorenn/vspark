@@ -10,7 +10,7 @@ export function initIkBroadcast(ws: WSSync): void {
 }
 
 @SignalNode({
-  label: 'IK Broadcast',
+  label: 'Send IK Targets',
   description:
     'Broadcasts an IkTargetFrame to all WebSocket clients as a pose_ik_targets message. Reference bone is set by the upstream IK targets node config.',
   tags: ['output'],

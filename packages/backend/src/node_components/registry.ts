@@ -4,4 +4,4 @@ import './lipsync/manager.js';
 import './mediapipe_tracker/manager.js';
 import './api_controller/register.js';
 
-export { getAllComponentKindMeta } from './decorator.js';
+export { getAllBehaviorKindMeta } from './decorator.js';

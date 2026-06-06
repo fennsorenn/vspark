@@ -2,12 +2,12 @@ import { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import type { NodeRecord, NodeComponent } from '../../store/editorStore';
-import { newComponentId } from '../../store/editorStore';
+import type { NodeRecord, Behavior } from '../../store/editorStore';
+import { newBehaviorId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
-import { GraphsSection } from './GraphsSection';
+import { AutomationsSection } from './AutomationsSection';
 import { ContextMenu } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
@@ -303,7 +303,7 @@ function SceneNodeContextMenu({
             onClose();
           }}
         >
-          Paste graph here
+          Paste automation here
         </div>
       )}
 
@@ -329,33 +329,33 @@ function SceneNodeContextMenu({
 }
 
 // ---------- Inline components section ----------
-function NodeComponentsSection({ nodeId }: { nodeId: string }) {
+function BehaviorsSection({ nodeId }: { nodeId: string }) {
   /** Open context menu state. Null when no menu is currently up. */
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
-    comp: NodeComponent;
+    comp: Behavior;
   } | null>(null);
-  const nodeComponentsFor = useEditorStore((s) => s.nodeComponentsFor);
+  const behaviorsFor = useEditorStore((s) => s.behaviorsFor);
   const nodeKind = useEditorStore(
     (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
   );
-  const addNodeComponent = useEditorStore((s) => s.addNodeComponent);
-  const updateNodeComponent = useEditorStore((s) => s.updateNodeComponent);
-  const removeNodeComponent = useEditorStore((s) => s.removeNodeComponent);
-  const selectedComponentId = useEditorStore((s) => s.selectedComponentId);
-  const selectComponent = useEditorStore((s) => s.selectComponent);
+  const addBehavior = useEditorStore((s) => s.addBehavior);
+  const updateBehavior = useEditorStore((s) => s.updateBehavior);
+  const removeBehavior = useEditorStore((s) => s.removeBehavior);
+  const selectedBehaviorId = useEditorStore((s) => s.selectedBehaviorId);
+  const selectBehavior = useEditorStore((s) => s.selectBehavior);
   const vmcStatus = useEditorStore((s) => s.vmcStatus);
   const vmcTracking = useEditorStore((s) => s.vmcTracking);
-  const componentKinds = useEditorStore((s) => s.componentKinds);
+  const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteComponent = clipboardPayload?.kind === 'node-component';
-  const components = nodeComponentsFor(nodeId).filter(
+  const components = behaviorsFor(nodeId).filter(
     (c) => !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
   );
 
-  const handleCopyComponent = async (comp: NodeComponent) => {
+  const handleCopyComponent = async (comp: Behavior) => {
     await copyToClipboard(
       {
         kind: 'node-component',
@@ -372,16 +372,16 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
   const handlePasteComponent = async () => {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'node-component') return;
-    const comp: NodeComponent = {
-      id: newComponentId(),
+    const comp: Behavior = {
+      id: newBehaviorId(),
       nodeId,
       kind: payload.component.kind,
       enabled: payload.component.enabled,
       config: { ...payload.component.config },
     };
-    addNodeComponent(comp);
+    addBehavior(comp);
     try {
-      await api.createNodeComponent(nodeId, comp);
+      await api.createBehavior(nodeId, comp);
     } catch {
       /* non-fatal */
     }
@@ -399,37 +399,37 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [showAddMenu]);
 
-  const handleAdd = async (ct: (typeof componentKinds)[number]) => {
+  const handleAdd = async (ct: (typeof behaviorKinds)[number]) => {
     setShowAddMenu(false);
-    const comp: NodeComponent = {
-      id: newComponentId(),
+    const comp: Behavior = {
+      id: newBehaviorId(),
       nodeId,
       kind: ct.kind,
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addNodeComponent(comp);
+    addBehavior(comp);
     try {
-      await api.createNodeComponent(nodeId, comp);
+      await api.createBehavior(nodeId, comp);
     } catch {
       /* non-fatal — state already updated locally */
     }
   };
 
-  const handleToggleEnabled = async (comp: NodeComponent) => {
+  const handleToggleEnabled = async (comp: Behavior) => {
     const next = !comp.enabled;
-    updateNodeComponent(comp.id, { enabled: next });
+    updateBehavior(comp.id, { enabled: next });
     try {
-      await api.updateNodeComponent(comp.id, { enabled: next });
+      await api.updateBehavior(comp.id, { enabled: next });
     } catch {
       /* non-fatal */
     }
   };
 
-  const handleRemove = async (comp: NodeComponent) => {
-    removeNodeComponent(comp.id);
+  const handleRemove = async (comp: Behavior) => {
+    removeBehavior(comp.id);
     try {
-      await api.deleteNodeComponent(comp.id);
+      await api.deleteBehavior(comp.id);
     } catch {
       /* non-fatal */
     }
@@ -456,12 +456,12 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
             fontStyle: 'italic',
           }}
         >
-          No components
+          No behaviors
         </div>
       )}
       {components.map((comp) => {
-        const ct = componentKinds.find((c) => c.kind === comp.kind);
-        const isSelected = selectedComponentId === comp.id;
+        const ct = behaviorKinds.find((c) => c.kind === comp.kind);
+        const isSelected = selectedBehaviorId === comp.id;
         const hasStatus = comp.kind === 'vmc_receiver';
         const isConnected = hasStatus && vmcStatus[comp.id] === true;
         const isTracking = hasStatus && vmcTracking[comp.id] === true;
@@ -478,7 +478,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               cursor: 'pointer',
               background: isSelected ? '#1a3a5a' : 'transparent',
             }}
-            onClick={() => selectComponent(isSelected ? null : comp.id)}
+            onClick={() => selectBehavior(isSelected ? null : comp.id)}
             onContextMenu={(e) => {
               e.preventDefault();
               setCtxMenu({ x: e.clientX, y: e.clientY, comp });
@@ -574,7 +574,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
           }}
           onClick={() => setShowAddMenu((v) => !v)}
         >
-          + Add Component
+          + Add Behavior
         </button>
         {canPasteComponent && (
           <button
@@ -614,7 +614,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               // Show components compatible with this node's kind first, then a
               // separated "Other" group for the rest (still addable).
               const item = (
-                ct: (typeof componentKinds)[number],
+                ct: (typeof behaviorKinds)[number],
                 dimmed: boolean
               ) => (
                 <div
@@ -648,10 +648,10 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
                   </div>
                 </div>
               );
-              const compatible = componentKinds.filter((ct) =>
+              const compatible = behaviorKinds.filter((ct) =>
                 componentCompatibleWith(ct.applicableTo, nodeKind)
               );
-              const incompatible = componentKinds.filter(
+              const incompatible = behaviorKinds.filter(
                 (ct) => !componentCompatibleWith(ct.applicableTo, nodeKind)
               );
               return (
@@ -750,7 +750,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
     // Refuse silently if this kind is already present (mirrors handleAdd).
     if (effects.some((e) => e.kind === payload.effect.kind)) return;
     const effect = {
-      id: newComponentId(),
+      id: newBehaviorId(),
       nodeId,
       kind: payload.effect.kind,
       enabled: payload.effect.enabled,
@@ -780,7 +780,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
     setShowAddMenu(false);
     if (effects.some((e) => e.kind === ek.kind)) return;
     const effect = {
-      id: newComponentId(),
+      id: newBehaviorId(),
       nodeId,
       kind: ek.kind,
       enabled: true,
@@ -1050,14 +1050,14 @@ const formatBoneName = (name: string) =>
 
 // ---------- Graph list panel ----------
 import type { GraphDescriptor } from '@vspark/shared/signal';
-import type { GraphRecord, ScopedGraphRecord } from '../../api/client';
+import type { AutomationRecord, ScopedAutomationRecord } from '../../api/client';
 
-function GraphListPanel() {
+function AutomationListPanel() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { activeGraphId, setActiveGraph } = useEditorStore();
+  const { activeAutomationId, setActiveAutomation } = useEditorStore();
   const [componentGraphs, setComponentGraphs] = useState<GraphDescriptor[]>([]);
-  const [projectGraphs, setProjectGraphs] = useState<GraphRecord[]>([]);
-  const [scopedGraphs, setScopedGraphs] = useState<ScopedGraphRecord[]>([]);
+  const [projectGraphs, setProjectGraphs] = useState<AutomationRecord[]>([]);
+  const [scopedGraphs, setScopedGraphs] = useState<ScopedAutomationRecord[]>([]);
   const [scopedGraphsOpen, setScopedGraphsOpen] = useState(true);
   const [componentGraphsOpen, setComponentGraphsOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
@@ -1066,7 +1066,7 @@ function GraphListPanel() {
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
-    graph: GraphRecord;
+    graph: AutomationRecord;
   } | null>(null);
 
   const refresh = () => {
@@ -1076,7 +1076,7 @@ function GraphListPanel() {
       .catch(() => {});
     if (projectId) {
       api
-        .getProjectGraphs(projectId)
+        .getProjectAutomations(projectId)
         .then(setProjectGraphs)
         .catch(() => {});
       api
@@ -1086,16 +1086,16 @@ function GraphListPanel() {
     }
   };
 
-  const handleToggleScopedEnabled = async (g: ScopedGraphRecord) => {
+  const handleToggleScopedEnabled = async (g: ScopedAutomationRecord) => {
     try {
-      const updated = await api.updateGraph(g.id, { enabled: !g.enabled });
+      const updated = await api.updateAutomation(g.id, { enabled: !g.enabled });
       setScopedGraphs((prev) =>
         prev.map((x) =>
           x.id === g.id ? { ...x, enabled: updated.enabled } : x
         )
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle graph');
+      alert(e instanceof Error ? e.message : 'Failed to toggle automation');
     }
   };
 
@@ -1121,55 +1121,55 @@ function GraphListPanel() {
 
   const handleCreate = async () => {
     if (!projectId) return;
-    const name = window.prompt('New graph name:', 'Untitled Graph');
+    const name = window.prompt('New automation name:', 'Untitled Automation');
     if (!name?.trim()) return;
     try {
       const created = await api.createProjectGraph(projectId, name.trim());
       setProjectGraphs((prev) => [...prev, created]);
-      setActiveGraph(created.id);
+      setActiveAutomation(created.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create graph');
+      alert(e instanceof Error ? e.message : 'Failed to create automation');
     }
   };
 
-  const handleRename = async (g: GraphRecord) => {
-    const name = window.prompt('Rename graph:', g.name);
+  const handleRename = async (g: AutomationRecord) => {
+    const name = window.prompt('Rename automation:', g.name);
     if (!name?.trim() || name.trim() === g.name) return;
     try {
-      const updated = await api.updateGraph(g.id, { name: name.trim() });
+      const updated = await api.updateAutomation(g.id, { name: name.trim() });
       setProjectGraphs((prev) =>
         prev.map((x) => (x.id === g.id ? updated : x))
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to rename graph');
+      alert(e instanceof Error ? e.message : 'Failed to rename automation');
     }
   };
 
-  const handleToggleEnabled = async (g: GraphRecord) => {
+  const handleToggleEnabled = async (g: AutomationRecord) => {
     try {
-      const updated = await api.updateGraph(g.id, {
+      const updated = await api.updateAutomation(g.id, {
         enabled: !g.enabled,
       });
       setProjectGraphs((prev) =>
         prev.map((x) => (x.id === g.id ? updated : x))
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle graph');
+      alert(e instanceof Error ? e.message : 'Failed to toggle automation');
     }
   };
 
-  const handleDelete = async (g: GraphRecord) => {
+  const handleDelete = async (g: AutomationRecord) => {
     if (!window.confirm(`Delete graph "${g.name}"?`)) return;
     try {
-      await api.deleteGraph(g.id);
+      await api.deleteAutomation(g.id);
       setProjectGraphs((prev) => prev.filter((x) => x.id !== g.id));
-      if (activeGraphId === g.id) setActiveGraph(null);
+      if (activeAutomationId === g.id) setActiveAutomation(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete graph');
+      alert(e instanceof Error ? e.message : 'Failed to delete automation');
     }
   };
 
-  const handleCopy = async (g: GraphRecord) => {
+  const handleCopy = async (g: AutomationRecord) => {
     await copyToClipboard(
       {
         kind: 'graph',
@@ -1187,14 +1187,14 @@ function GraphListPanel() {
     if (!payload || payload.kind !== 'graph') return;
     try {
       const created = await api.createProjectGraph(projectId, payload.name);
-      const updated = await api.updateGraph(created.id, {
+      const updated = await api.updateAutomation(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
       setProjectGraphs((prev) => [...prev, updated]);
-      setActiveGraph(updated.id);
+      setActiveAutomation(updated.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+      alert(e instanceof Error ? e.message : 'Failed to paste automation');
     }
   };
 
@@ -1214,11 +1214,11 @@ function GraphListPanel() {
           letterSpacing: 0.5,
         }}
       >
-        <span>Project Graphs</span>
+        <span>Global Automations</span>
         <div style={{ display: 'flex', gap: 4 }}>
           {canPasteGraph && (
             <button
-              title="Paste graph from clipboard as a project graph"
+              title="Paste automation from clipboard as a global automation"
               onClick={handlePaste}
               style={{
                 background: 'none',
@@ -1234,7 +1234,7 @@ function GraphListPanel() {
             </button>
           )}
           <button
-            title="New graph"
+            title="New automation"
             onClick={handleCreate}
             style={{
               background: '#2563eb',
@@ -1264,12 +1264,12 @@ function GraphListPanel() {
         </div>
       ) : (
         projectGraphs.map((g) => {
-          const active = g.id === activeGraphId;
+          const active = g.id === activeAutomationId;
           return (
             <div
               key={g.id}
               style={rowStyle(active)}
-              onClick={() => setActiveGraph(active ? null : g.id)}
+              onClick={() => setActiveAutomation(active ? null : g.id)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setCtxMenu({ x: e.clientX, y: e.clientY, graph: g });
@@ -1336,7 +1336,7 @@ function GraphListPanel() {
         onClick={() => setScopedGraphsOpen((v) => !v)}
       >
         <span style={{ color: '#555' }}>{scopedGraphsOpen ? '▼' : '▶'}</span>
-        <span>Scoped Graphs</span>
+        <span>Scoped Automations</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
           ({scopedGraphs.length})
         </span>
@@ -1355,12 +1355,12 @@ function GraphListPanel() {
           </div>
         ) : (
           scopedGraphs.map((g) => {
-            const active = g.id === activeGraphId;
+            const active = g.id === activeAutomationId;
             return (
               <div
                 key={g.id}
                 style={rowStyle(active)}
-                onClick={() => setActiveGraph(active ? null : g.id)}
+                onClick={() => setActiveAutomation(active ? null : g.id)}
               >
                 <span style={{ opacity: g.enabled ? 0.9 : 0.35 }}>⊕</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1430,7 +1430,7 @@ function GraphListPanel() {
         onClick={() => setComponentGraphsOpen((v) => !v)}
       >
         <span style={{ color: '#555' }}>{componentGraphsOpen ? '▼' : '▶'}</span>
-        <span>Component Graphs</span>
+        <span>Behavior Automations</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
           ({componentGraphs.length})
         </span>
@@ -1451,9 +1451,9 @@ function GraphListPanel() {
           componentGraphs.map((g) => (
             <div
               key={g.id}
-              style={rowStyle(g.id === activeGraphId)}
+              style={rowStyle(g.id === activeAutomationId)}
               onClick={() =>
-                setActiveGraph(g.id === activeGraphId ? null : g.id)
+                setActiveAutomation(g.id === activeAutomationId ? null : g.id)
               }
             >
               <span style={{ opacity: 0.6 }}>⬡</span>
@@ -1474,7 +1474,7 @@ function GraphListPanel() {
           items={[
             {
               kind: 'item',
-              label: 'Copy graph',
+              label: 'Copy automation',
               onClick: () => void handleCopy(ctxMenu.graph),
             },
             {
@@ -1512,7 +1512,7 @@ export function SceneGraph() {
     selectNode,
     deleteNode: storeDeleteNode,
     updateNode: storeUpdateNode,
-    nodeComponents,
+    behaviors,
     vrmBonesByNode,
     setHoveredBone,
     boneListExpanded,
@@ -1719,13 +1719,13 @@ export function SceneGraph() {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createNodeGraph(nodeId, payload.name);
-      await api.updateGraph(created.id, {
+      const created = await api.createNodeAutomation(nodeId, payload.name);
+      await api.updateAutomation(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+      alert(e instanceof Error ? e.message : 'Failed to paste automation');
     }
   };
 
@@ -1825,7 +1825,7 @@ export function SceneGraph() {
       (bones && showBones && bones.length > 0);
     const isCollapsed = collapsedNodes.has(node.id);
     const showComponents = expandedComponents.has(node.id);
-    const compCount = nodeComponents.filter(
+    const compCount = behaviors.filter(
       (c) =>
         c.nodeId === node.id &&
         !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
@@ -2053,12 +2053,12 @@ export function SceneGraph() {
         {/* Inline components section */}
         {showComponents && (
           <div style={{ paddingLeft: 8 + depth * 16 }}>
-            <NodeComponentsSection nodeId={node.id} />
+            <BehaviorsSection nodeId={node.id} />
             {node.kind === 'camera' && (
               <CameraEffectsSection nodeId={node.id} />
             )}
             <ClipsSection owner={{ kind: 'node', id: node.id }} />
-            <GraphsSection owner={{ kind: 'node', id: node.id }} />
+            <AutomationsSection owner={{ kind: 'node', id: node.id }} />
           </div>
         )}
 
@@ -2296,7 +2296,7 @@ export function SceneGraph() {
         {isSelected && (
           <>
             <ClipsSection owner={{ kind: 'node', id: scene.id }} />
-            <GraphsSection owner={{ kind: 'node', id: scene.id }} />
+            <AutomationsSection owner={{ kind: 'node', id: scene.id }} />
           </>
         )}
 
@@ -2372,11 +2372,11 @@ export function SceneGraph() {
           style={tabStyle(dockTab === 'graphs')}
           onClick={() => setDockTab('graphs')}
         >
-          Graphs
+          Automation
         </button>
       </div>
 
-      {dockTab === 'graphs' && <GraphListPanel />}
+      {dockTab === 'graphs' && <AutomationListPanel />}
       {dockTab === 'compose' && <ComposeTree />}
 
       {dockTab === 'scene' && (

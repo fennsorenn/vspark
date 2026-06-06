@@ -10,7 +10,7 @@ export interface SceneEntityConfig {
 }
 
 @SignalNode({
-  label: 'Scene Entity',
+  label: 'This Entity',
   description:
     'Outputs the id of the entity this graph is scoped to — a scene node or a compose layer. Wire into target/scope inputs.',
   tags: ['context'],

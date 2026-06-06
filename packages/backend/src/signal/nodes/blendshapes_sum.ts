@@ -8,7 +8,7 @@ import { listIn, valueOut } from '@vspark/shared/node_decorators';
  * connected mapper feeds into the same port and all contributions are summed.
  */
 @SignalNode({
-  label: 'Blendshapes Sum',
+  label: 'Combine Blendshapes',
   description:
     'Additively merges blendshape sources. Connect any number of mapper outputs to the sources list port.',
   tags: ['mapping', 'face'],

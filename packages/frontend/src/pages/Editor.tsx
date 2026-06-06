@@ -32,8 +32,8 @@ export function Editor() {
     setActiveScene,
     setNodes,
     setAssets,
-    setNodeComponents,
-    setComponentKinds,
+    setBehaviors,
+    setBehaviorKinds,
     setCameraEffects,
     setComposeLayers,
     setComposeScenes,
@@ -41,9 +41,9 @@ export function Editor() {
     setTrackClips,
     setOverliveAccounts,
     setPresets,
-    activeGraphId,
+    activeAutomationId,
     leftTab,
-    activeGraphWritable,
+    activeAutomationWritable,
   } = useEditorStore();
   const [kindMeta, setKindMeta] = useState<NodeKindMeta[]>([]);
 
@@ -53,10 +53,10 @@ export function Editor() {
       .then(setKindMeta)
       .catch(() => {});
     api
-      .getComponentKinds()
-      .then(setComponentKinds)
+      .getBehaviorKinds()
+      .then(setBehaviorKinds)
       .catch(() => {});
-  }, [setComponentKinds]);
+  }, [setBehaviorKinds]);
 
   // Load presets when project changes
   useEffect(() => {
@@ -138,13 +138,13 @@ export function Editor() {
         ({
           scenes,
           nodes,
-          nodeComponents,
+          behaviors,
           cameraEffects,
           composeLayers,
           trackClips,
         }) => {
           setScenes(scenes);
-          setNodeComponents(nodeComponents);
+          setBehaviors(behaviors);
           setCameraEffects(cameraEffects);
           // Separate compose_scene layers from regular layers
           const composeSceneItems = composeLayers.filter(
@@ -183,7 +183,7 @@ export function Editor() {
     setActiveScene,
     setNodes,
     setAssets,
-    setNodeComponents,
+    setBehaviors,
     setCameraEffects,
     setComposeLayers,
     setTrackClips,
@@ -236,10 +236,10 @@ export function Editor() {
             <Viewport />
           </div>
           {leftTab === 'graphs' &&
-            (activeGraphId ? (
+            (activeAutomationId ? (
               <div style={{ position: 'absolute', inset: 0 }}>
                 <SignalGraphCanvas
-                  graphId={activeGraphId}
+                  graphId={activeAutomationId}
                   kindMeta={kindMeta}
                 />
               </div>
@@ -264,7 +264,7 @@ export function Editor() {
         <PropertiesPanel />
       </div>
       {leftTab === 'graphs' ? (
-        <NodePalette kindMeta={kindMeta} graphReadonly={!activeGraphWritable} />
+        <NodePalette kindMeta={kindMeta} graphReadonly={!activeAutomationWritable} />
       ) : (
         <AssetManager />
       )}

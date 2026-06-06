@@ -3,7 +3,7 @@ import { NODE_REGISTRY } from '../../signal/registry.js';
 import { mkEvent } from '@vspark/shared/signal';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import { getDb } from '../../db/index.js';
-import { ComponentKind } from '../decorator.js';
+import { BehaviorKind } from '../decorator.js';
 import {
   makeMediapipeGraphDescriptor,
   HEAD_CALIB_BONES,
@@ -19,7 +19,7 @@ interface TrackingFrame {
   pose?: Landmark[];
 }
 
-@ComponentKind({
+@BehaviorKind({
   kind: 'mediapipe_tracker',
   label: 'MediaPipe Tracking',
   icon: '📷',

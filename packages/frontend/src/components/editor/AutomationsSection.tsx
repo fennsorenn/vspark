@@ -1,41 +1,41 @@
 import { useEffect, useState } from 'react';
 import { useEditorStore } from '../../store/editorStore';
-import { api, type GraphRecord } from '../../api/client';
+import { api, type AutomationRecord } from '../../api/client';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 
 /** Inline, expandable list of standalone graphs attached to a single scene
  *  node or compose layer — mirrors ClipsSection. Selecting a graph opens it
  *  in the bottom-dock graph canvas. */
-export function GraphsSection({
+export function AutomationsSection({
   owner,
 }: {
   owner: { kind: 'node'; id: string } | { kind: 'layer'; id: string };
 }) {
-  const setActiveGraph = useEditorStore((s) => s.setActiveGraph);
-  const activeGraphId = useEditorStore((s) => s.activeGraphId);
+  const setActiveAutomation = useEditorStore((s) => s.setActiveAutomation);
+  const activeAutomationId = useEditorStore((s) => s.activeAutomationId);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteGraph = clipboardPayload?.kind === 'graph';
 
-  const [graphs, setGraphs] = useState<GraphRecord[]>([]);
+  const [graphs, setGraphs] = useState<AutomationRecord[]>([]);
   /** Open context menu state. Null when no menu is currently up. */
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
-    graph: GraphRecord;
+    graph: AutomationRecord;
   } | null>(null);
 
   const fetch = () => {
     const call =
       owner.kind === 'node'
-        ? api.getNodeGraphs(owner.id)
-        : api.getLayerGraphs(owner.id);
+        ? api.getNodeAutomations(owner.id)
+        : api.getLayerAutomations(owner.id);
     call.then(setGraphs).catch(() => {});
   };
 
   // Refresh on owner change + every few seconds (cheap, matches the
-  // GraphListPanel polling cadence).
+  // AutomationListPanel polling cadence).
   useEffect(() => {
     fetch();
     const iv = setInterval(fetch, 3000);
@@ -44,47 +44,47 @@ export function GraphsSection({
   }, [owner.kind, owner.id]);
 
   const handleAdd = async () => {
-    const name = window.prompt('New graph name:', 'Untitled Graph');
+    const name = window.prompt('New automation name:', 'Untitled Automation');
     if (!name?.trim()) return;
     try {
       const created =
         owner.kind === 'node'
-          ? await api.createNodeGraph(owner.id, name.trim())
-          : await api.createLayerGraph(owner.id, name.trim());
+          ? await api.createNodeAutomation(owner.id, name.trim())
+          : await api.createLayerAutomation(owner.id, name.trim());
       setGraphs((prev) => [...prev, created]);
       openGraph(created.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create graph');
+      alert(e instanceof Error ? e.message : 'Failed to create automation');
     }
   };
 
-  const handleDelete = async (g: GraphRecord) => {
-    if (!window.confirm(`Delete graph "${g.name}"?`)) return;
+  const handleDelete = async (g: AutomationRecord) => {
+    if (!window.confirm(`Delete automation "${g.name}"?`)) return;
     try {
-      await api.deleteGraph(g.id);
+      await api.deleteAutomation(g.id);
       setGraphs((prev) => prev.filter((x) => x.id !== g.id));
-      if (activeGraphId === g.id) setActiveGraph(null);
+      if (activeAutomationId === g.id) setActiveAutomation(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete graph');
+      alert(e instanceof Error ? e.message : 'Failed to delete automation');
     }
   };
 
-  const handleToggleEnabled = async (g: GraphRecord) => {
+  const handleToggleEnabled = async (g: AutomationRecord) => {
     try {
-      const updated = await api.updateGraph(g.id, { enabled: !g.enabled });
+      const updated = await api.updateAutomation(g.id, { enabled: !g.enabled });
       setGraphs((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle graph');
+      alert(e instanceof Error ? e.message : 'Failed to toggle automation');
     }
   };
 
   // Opening a graph swaps the main canvas to the SignalGraphCanvas (the
-  // editor's main pane). Clearing activeGraph (e.g. selecting a non-graph
+  // editor's main pane). Clearing activeAutomation (e.g. selecting a non-graph
   // tab in the left dock) returns to the viewport.
-  const openGraph = (id: string) => setActiveGraph(id);
+  const openGraph = (id: string) => setActiveAutomation(id);
 
-  const handleCopy = async (g: GraphRecord) => {
-    // GraphRecord.descriptor lacks the wrapper fields (id, label, readonly)
+  const handleCopy = async (g: AutomationRecord) => {
+    // AutomationRecord.descriptor lacks the wrapper fields (id, label, readonly)
     // that the canvas expects internally, but those are reconstructed on
     // paste — we only need the nodes + edges + name.
     await copyToClipboard(
@@ -104,18 +104,18 @@ export function GraphsSection({
     try {
       const created =
         owner.kind === 'node'
-          ? await api.createNodeGraph(owner.id, payload.name)
-          : await api.createLayerGraph(owner.id, payload.name);
+          ? await api.createNodeAutomation(owner.id, payload.name)
+          : await api.createLayerAutomation(owner.id, payload.name);
       // Push the descriptor onto the new graph in a follow-up PUT — the
       // create endpoint only takes a name.
-      const updated = await api.updateGraph(created.id, {
+      const updated = await api.updateAutomation(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
       setGraphs((prev) => [...prev, updated]);
       openGraph(updated.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+      alert(e instanceof Error ? e.message : 'Failed to paste automation');
     }
   };
 
@@ -140,11 +140,11 @@ export function GraphsSection({
             fontStyle: 'italic',
           }}
         >
-          No graphs
+          No automations
         </div>
       )}
       {graphs.map((g) => {
-        const isActive = activeGraphId === g.id;
+        const isActive = activeAutomationId === g.id;
         return (
           <div
             key={g.id}
@@ -220,12 +220,12 @@ export function GraphsSection({
             textAlign: 'left',
           }}
         >
-          + Add Graph
+          + Add Automation
         </button>
         {canPasteGraph && (
           <button
             onClick={handlePaste}
-            title="Paste the graph from clipboard onto this owner"
+            title="Paste the automation from clipboard onto this owner"
             style={{
               background: 'none',
               border: '1px dashed #3a5a4a',
@@ -237,7 +237,7 @@ export function GraphsSection({
               textAlign: 'left',
             }}
           >
-            ⧉ Paste Graph
+            ⧉ Paste Automation
           </button>
         )}
       </div>
@@ -246,7 +246,7 @@ export function GraphsSection({
           x={ctxMenu.x}
           y={ctxMenu.y}
           onClose={() => setCtxMenu(null)}
-          items={buildGraphRowMenu({
+          items={buildAutomationRowMenu({
             graph: ctxMenu.graph,
             onCopy: () => void handleCopy(ctxMenu.graph),
             onToggleEnabled: () => handleToggleEnabled(ctxMenu.graph),
@@ -261,8 +261,8 @@ export function GraphsSection({
 /** Build the per-graph-row menu. Pulled out so the same shape is reused
  *  (and trivially extended) without inlining a 30-line array literal at the
  *  call site. */
-function buildGraphRowMenu(args: {
-  graph: GraphRecord;
+function buildAutomationRowMenu(args: {
+  graph: AutomationRecord;
   onCopy: () => void;
   onToggleEnabled: () => void;
   onDelete: () => void;

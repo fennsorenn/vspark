@@ -51,7 +51,7 @@ import type { VRM, VRMHumanBoneName, VRMPose } from '@pixiv/three-vrm';
 import { useEditorStore } from '../../store/editorStore';
 import type {
   NodeRecord,
-  NodeComponent,
+  Behavior,
   ApiAnimationState,
 } from '../../store/editorStore';
 import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync';
@@ -850,8 +850,8 @@ function AvatarNode({
   const vrmMixerRef = useRef<THREE.AnimationMixer | null>(null);
   const vrmRef = useRef<VRM | null>(null);
   const corrAxesRef = useRef<THREE.Object3D[]>([]);
-  const vmcCompRef = useRef<NodeComponent | null>(null);
-  const lipsyncCompRef = useRef<NodeComponent | null>(null);
+  const vmcCompRef = useRef<Behavior | null>(null);
+  const lipsyncCompRef = useRef<Behavior | null>(null);
   const vmcRetargetRef = useRef<VmcRetarget | null>(null);
   const boneFiltersRef = useRef(new BoneFilterBank());
   const poseWasActiveRef = useRef(false);
@@ -885,7 +885,7 @@ function AvatarNode({
   const vmcComp = useEditorStore(
     (s) =>
       s
-        .nodeComponentsFor(node.id)
+        .behaviorsFor(node.id)
         .find(
           (c) =>
             (c.kind === 'vmc_receiver' || c.kind === 'mediapipe_tracker') &&
@@ -900,7 +900,7 @@ function AvatarNode({
   const lipsyncComp = useEditorStore(
     (s) =>
       s
-        .nodeComponentsFor(node.id)
+        .behaviorsFor(node.id)
         .find(
           (c) =>
             (c.kind === 'lipsync_processor' ||

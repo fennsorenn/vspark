@@ -1,5 +1,5 @@
 /**
- * ProjectGraphManager — lifecycle owner for *all* user-authored standalone
+ * AutomationManager — lifecycle owner for *all* user-authored standalone
  * graphs: project-scoped, scene-node-scoped, and compose-layer-scoped. Unlike
  * component-owned graphs (one per node_component row, hosted by its component
  * manager), these are user-authored: edits flow in via REST and the manager
@@ -26,7 +26,7 @@ import type {
   GraphDescriptor,
   GraphStateSnapshot,
 } from '@vspark/shared/signal';
-import type { GraphOwnerKind } from '@vspark/shared/types';
+import type { AutomationOwnerKind } from '@vspark/shared/types';
 
 /** Node kinds that depend on the component-context system. Always rejected
  *  in standalone graphs because there's no component to read config from. */
@@ -35,7 +35,7 @@ const ALWAYS_FORBIDDEN_CONTEXT_KINDS = new Set([
   'component_id',
 ]);
 
-export interface GraphRow {
+export interface AutomationRow {
   id: string;
   owner_kind: string;
   owner_id: string;
@@ -47,7 +47,7 @@ export interface GraphRow {
   updated_at: string;
 }
 
-export type ProjectGraphRow = GraphRow;
+export type ProjectAutomationRow = AutomationRow;
 
 interface RunningGraph {
   graph: SignalGraph;
@@ -56,27 +56,27 @@ interface RunningGraph {
   cleanups: Array<() => void>;
 }
 
-export class ProjectGraphManager {
+export class AutomationManager {
   private readonly running = new Map<string, RunningGraph>();
 
   // ── REST API entry points ─────────────────────────────────────────────────
 
   /** List all graphs for a project. */
-  list(projectId: string): GraphRow[] {
+  list(projectId: string): AutomationRow[] {
     return getDb()
       .prepare(
         "SELECT * FROM graphs WHERE owner_kind = 'project' AND owner_id = ? ORDER BY created_at"
       )
-      .all(projectId) as unknown as GraphRow[];
+      .all(projectId) as unknown as AutomationRow[];
   }
 
-  get(id: string): GraphRow | undefined {
+  get(id: string): AutomationRow | undefined {
     return getDb()
       .prepare('SELECT * FROM graphs WHERE id = ?')
-      .get(id) as unknown as GraphRow | undefined;
+      .get(id) as unknown as AutomationRow | undefined;
   }
 
-  create(input: { id: string; projectId: string; name: string }): GraphRow {
+  create(input: { id: string; projectId: string; name: string }): AutomationRow {
     const db = getDb();
     db.prepare(
       "INSERT INTO graphs (id, owner_kind, owner_id, name) VALUES (?, 'project', ?, ?)"
@@ -87,7 +87,7 @@ export class ProjectGraphManager {
   update(
     id: string,
     patch: { name?: string; enabled?: boolean; descriptor?: GraphDescriptor }
-  ): ProjectGraphRow | undefined {
+  ): ProjectAutomationRow | undefined {
     const existing = this.get(id);
     if (!existing) return undefined;
     const db = getDb();
@@ -165,7 +165,7 @@ export class ProjectGraphManager {
           nodeStates.set(nodeId, state);
           this._persistNodeState(id, nodeId, state);
         },
-        row.owner_kind as GraphOwnerKind
+        row.owner_kind as AutomationOwnerKind
       );
 
       // Clock nodes self-tick.
@@ -271,7 +271,7 @@ export class ProjectGraphManager {
   /** Find the project id this graph runs under, regardless of owner kind.
    *  Used by overlive routing so scoped graphs receive events for the
    *  right project. */
-  private _resolveProjectId(row: GraphRow): string | null {
+  private _resolveProjectId(row: AutomationRow): string | null {
     if (row.owner_kind === 'project') return row.owner_id;
     if (row.owner_kind === 'scene_node') {
       const r = getDb()
@@ -297,7 +297,7 @@ export class ProjectGraphManager {
   private _getNodeConfig(
     descriptor: GraphDescriptor,
     nodeId: string,
-    row: GraphRow
+    row: AutomationRow
   ): unknown {
     const nodeDef = descriptor.nodes.find((n) => n.id === nodeId);
     const defaults = (nodeDef?.defaultConfig ?? {}) as Record<string, unknown>;
@@ -374,4 +374,4 @@ function validateDescriptor(d: GraphDescriptor, ownerKind: string): void {
 }
 
 // Singleton — mounted by routes/shared.ts.
-export const projectGraphManager = new ProjectGraphManager();
+export const automationManager = new AutomationManager();
