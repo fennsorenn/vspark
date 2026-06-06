@@ -110,6 +110,18 @@ calibration for the 2D kind. (The generic `vmc_receiver`, being `['any']`, can
 also be attached and works — its arm-IK simply passes through with no skeleton —
 but `vmc_receiver_2d` is the clean, purpose-named choice.)
 
+**Blendshape naming gotcha:** with the default VMC config only the `fcl` mapper
+is enabled, so the bus carries **VRoid `Fcl_*` names** (e.g. `jawOpen`→`Fcl_MTH_A`,
+`browInnerUp`→`Fcl_BRW_Surprised`), *not* raw ARKit names. `DEFAULT_BLENDSHAPE_MAP`
+therefore reads both schemes via `source`/`source2` + `combine:'max'` so it works
+whether `fcl` or `passthrough` (raw ARKit) is enabled.
+
+**Crispness:** the Cubism renderer's clipping-mask buffer defaults to 256², which
+makes masked drawables look downscaled-then-upscaled; `Live2DRuntime` calls
+`setClippingMaskBufferSize(canvas.width)` and renders at 2048² with mipmaps off.
+Also note `CubismUserModel.createRenderer(maskBufferCount)` takes only the mask
+buffer *count* — it ignores width/height.
+
 ## Data flow (one frame)
 1. A tracking behavior on the node writes blendshapes + a `neck` quaternion into
    the per-node broadcast bus (same path as VRM).

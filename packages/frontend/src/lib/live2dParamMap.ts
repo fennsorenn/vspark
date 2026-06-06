@@ -71,7 +71,10 @@ export const DEFAULT_BLENDSHAPE_MAP: Live2dParamMap = {
     combine: 'max',
     invert: true,
   },
-  ParamMouthOpenY: { source: 'jawOpen' },
+  // Mouth open from `jawOpen` (ARKit passthrough) OR `Fcl_MTH_A` (the VMC
+  // pipeline's default fcl mapper, which converts jawOpen → Fcl_MTH_A). `max`
+  // so it lights up under either mapper config.
+  ParamMouthOpenY: { source: 'jawOpen', source2: 'Fcl_MTH_A', combine: 'max' },
   // Vowel width: I pulls the mouth wide (+1), U purses it (-1).
   ParamMouthForm: {
     source: 'Fcl_MTH_I',
@@ -80,8 +83,17 @@ export const DEFAULT_BLENDSHAPE_MAP: Live2dParamMap = {
     min: -1,
     max: 1,
   },
-  ParamBrowLY: { source: 'browInnerUp' },
-  ParamBrowRY: { source: 'browInnerUp' },
+  // Brow raise from `browInnerUp` (ARKit) OR `Fcl_BRW_Surprised` (fcl mapper).
+  ParamBrowLY: {
+    source: 'browInnerUp',
+    source2: 'Fcl_BRW_Surprised',
+    combine: 'max',
+  },
+  ParamBrowRY: {
+    source: 'browInnerUp',
+    source2: 'Fcl_BRW_Surprised',
+    combine: 'max',
+  },
 };
 
 export const DEFAULT_HEAD_CONFIG: Required<
