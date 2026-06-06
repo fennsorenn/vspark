@@ -15,6 +15,7 @@
  *                  Optional inline keyframe button.
  */
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 
 // ── shared styles ─────────────────────────────────────────────────────────────
 
@@ -117,6 +118,7 @@ export function NumInput({
   style,
   disabled,
 }: NumInputProps) {
+  const { t } = useTranslation('misc');
   const [focused, setFocused] = useState(false);
   const [text, setText] = useState<string>(formatValue(value, precision));
   // Sync external value into the local text buffer when not actively editing.
@@ -370,7 +372,7 @@ export function NumInput({
             e.stopPropagation();
             void onSetKeyframe!(valueRef.current);
           }}
-          title="Set keyframe at playhead"
+          title={t('numericInputs.setKeyframe')}
           style={kfBtnStyle}
         >
           ◆
@@ -441,6 +443,7 @@ export function VecInput({
   style,
   inputStyle,
 }: VecInputProps) {
+  const { t } = useTranslation('misc');
   const hasHeader =
     groupLabel != null || (onSetGroupKeyframe != null && (canRecord ?? true));
   return (
@@ -463,10 +466,10 @@ export function VecInput({
                 e.preventDefault();
                 void onSetGroupKeyframe(values);
               }}
-              title="Set keyframe at playhead (all components)"
+              title={t('numericInputs.setKeyframeAll')}
               style={kfGroupBtnStyle}
             >
-              ◆ set group
+              {t('numericInputs.setGroupBtn')}
             </button>
           )}
         </div>
@@ -563,6 +566,7 @@ export function SliderInput({
   suffix,
   style,
 }: SliderInputProps) {
+  const { t } = useTranslation('misc');
   const [hover, setHover] = useState(false);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(formatValue(value, precision));
@@ -691,7 +695,7 @@ export function SliderInput({
                 padding: '0 6px',
                 userSelect: 'none',
               }}
-              title="Double-click to edit"
+              title={t('numericInputs.doubleClickEdit')}
             >
               {formatValue(value, precision)}
               {suffix ?? ''}
@@ -705,7 +709,7 @@ export function SliderInput({
             e.preventDefault();
             void onSetKeyframe!(value);
           }}
-          title="Set keyframe at playhead"
+          title={t('numericInputs.setKeyframe')}
           style={kfBtnStyle}
         >
           ◆

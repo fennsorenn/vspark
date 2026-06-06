@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api, type TrackClipRecord } from '../../api/client';
 import { ContextMenu } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
+import { HelpButton } from '../../help/HelpButton';
 
 /** Inline, expandable list of track clips owned by a single scene node or
  *  compose layer — mirrors the components/effects sub-sections in the scene
@@ -14,6 +16,7 @@ export function ClipsSection({
 }: {
   owner: { kind: 'node'; id: string } | { kind: 'layer'; id: string };
 }) {
+  const { t } = useTranslation('clips');
   const trackClips = useEditorStore((s) => s.trackClips);
   const selectedTrackClipId = useEditorStore((s) => s.selectedTrackClipId);
   const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
@@ -175,7 +178,7 @@ export function ClipsSection({
       selectTrackClip(created.id);
       setBottomTab('clips');
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste clip');
+      alert(e instanceof Error ? e.message : t('section.errors.pasteFailed'));
     }
   };
 
@@ -191,6 +194,21 @@ export function ClipsSection({
         overflow: 'hidden',
       }}
     >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '2px 8px 0',
+        }}
+      >
+        <HelpButton
+          topic="avatar"
+          anchor="animation"
+          tip={t('help.clipsSection')}
+          size={12}
+        />
+      </div>
       {clips.length === 0 && (
         <div
           style={{
@@ -200,7 +218,7 @@ export function ClipsSection({
             fontStyle: 'italic',
           }}
         >
-          No clips
+          {t('empty.noClips')}
         </div>
       )}
       {clips.map((clip) => {
@@ -255,12 +273,12 @@ export function ClipsSection({
             textAlign: 'left',
           }}
         >
-          + Add Clip
+          {t('section.addClip')}
         </button>
         {canPasteClip && (
           <button
             onClick={handlePasteClip}
-            title="Paste the clip from clipboard onto this owner"
+            title={t('section.pasteClipTitle')}
             style={{
               background: 'none',
               border: '1px dashed #3a5a4a',
@@ -271,7 +289,7 @@ export function ClipsSection({
               padding: '3px 8px',
             }}
           >
-            ⧉ Paste Clip
+            {t('section.pasteClip')}
           </button>
         )}
       </div>
@@ -283,13 +301,13 @@ export function ClipsSection({
           items={[
             {
               kind: 'item',
-              label: 'Copy clip',
+              label: t('section.ctx.copyClip'),
               onClick: () => void handleCopyClip(ctxMenu.clip),
             },
             { kind: 'divider' },
             {
               kind: 'item',
-              label: 'Delete clip',
+              label: t('section.ctx.deleteClip'),
               onClick: () => void handleRemove(ctxMenu.clip.id),
               danger: true,
             },

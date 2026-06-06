@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { MicCapture, type VowelTemplates } from '../media/MicCapture';
 import { CameraCapture } from '../media/CameraCapture';
 import { useLipsyncUplink } from '../hooks/useLipsyncUplink';
 import { editorWsRef } from '../hooks/useWsSync';
 import { useEditorStore } from '../store/editorStore';
+import { HelpButton } from '../help/HelpButton';
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
@@ -241,6 +243,8 @@ export function MediaInputWindow({
   ws: externalWs,
   visible = true,
 }: Props) {
+  const { t } = useTranslation('media');
+
   // ── State ──────────────────────────────────────────────────────────────────
   const [expanded, setExpanded] = useState(true);
   const [pos, setPos] = useState({ x: 24, y: 72 });
@@ -334,7 +338,7 @@ export function MediaInputWindow({
         micRef.current = mic;
         setLipsyncActive(true);
       } catch (e) {
-        alert(`Mic error: ${(e as Error).message}`);
+        alert(t('errors.micError', { message: (e as Error).message }));
       }
     }
   }, [lipsyncActive, micDeviceId, behaviors, resolvedLipsyncId]);
@@ -398,7 +402,7 @@ export function MediaInputWindow({
         cameraRef.current = cam;
         setTrackingActive(true);
       } catch (e) {
-        alert(`Camera error: ${(e as Error).message}`);
+        alert(t('errors.cameraError', { message: (e as Error).message }));
       }
     }
   }, [trackingActive, camDeviceId, enableFace, enablePose, enableHands]);
@@ -466,21 +470,22 @@ export function MediaInputWindow({
       {/* Title bar */}
       <div style={S.titleBar} onMouseDown={onMouseDownBar}>
         <div style={S.dot(lipsyncActive || trackingActive)} />
-        <span style={S.title}>Media Inputs</span>
+        <span style={S.title}>{t('window.title')}</span>
         {lipsyncStatus === 'active' && (
-          <span style={{ fontSize: 10, color: '#4ade80' }}>Lipsync</span>
+          <span style={{ fontSize: 10, color: '#4ade80' }}>{t('status.lipsync')}</span>
         )}
         {lipsyncStatus === 'no-component' && (
-          <span style={{ fontSize: 10, color: '#fbbf24' }}>No component</span>
+          <span style={{ fontSize: 10, color: '#fbbf24' }}>{t('status.noComponent')}</span>
         )}
         {trackingActive && (
-          <span style={{ fontSize: 10, color: '#60a5fa' }}>Tracking</span>
+          <span style={{ fontSize: 10, color: '#60a5fa' }}>{t('status.tracking')}</span>
         )}
+        <HelpButton topic="behaviors" anchor="tracking" tip={t('help.tracking')} />
         {!alwaysExpanded && (
           <button
             style={S.iconBtn}
             onClick={() => setExpanded((v) => !v)}
-            title={expanded ? 'Collapse' : 'Expand'}
+            title={expanded ? t('titleBar.collapse') : t('titleBar.expand')}
           >
             {expanded ? '−' : '+'}
           </button>
@@ -491,32 +496,35 @@ export function MediaInputWindow({
         <>
           {/* ── LIPSYNC SECTION ── */}
           <div style={S.section}>
-            <div style={S.sectionTitle}>LIPSYNC</div>
+            <div style={{ ...S.sectionTitle, display: 'flex', alignItems: 'center', gap: 4 }}>
+              {t('lipsync.sectionTitle')}
+              <HelpButton topic="behaviors" anchor="lipsync" tip={t('help.lipsync')} size={12} />
+            </div>
             <div style={S.row}>
-              <span style={S.label}>Device</span>
+              <span style={S.label}>{t('lipsync.deviceLabel')}</span>
               <select
                 style={S.select}
                 value={micDeviceId ?? ''}
                 onChange={(e) => setMicDeviceId(e.target.value || undefined)}
                 disabled={lipsyncActive}
               >
-                <option value="">Default microphone</option>
+                <option value="">{t('lipsync.defaultMic')}</option>
                 {micDevices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || `Mic ${d.deviceId.slice(0, 8)}`}
+                    {d.label || t('lipsync.micFallback', { id: d.deviceId.slice(0, 8) })}
                   </option>
                 ))}
               </select>
             </div>
             <div style={S.row}>
               <button style={S.btn(lipsyncActive)} onClick={toggleLipsync}>
-                {lipsyncActive ? '■ Stop' : '● Start'}
+                {lipsyncActive ? t('lipsync.stopBtn') : t('lipsync.startBtn')}
               </button>
               <LevelBar rmsRef={rmsRef} />
             </div>
             {!resolvedLipsyncId && (
               <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 2 }}>
-                No lipsync_processor component found on any node.
+                {t('lipsync.noComponent')}
               </div>
             )}
             <VisemeDisplay micRef={micRef} active={lipsyncActive} />
@@ -524,26 +532,26 @@ export function MediaInputWindow({
 
           {/* ── TRACKING SECTION ── */}
           <div style={{ ...S.section, borderBottom: 'none' }}>
-            <div style={S.sectionTitle}>TRACKING</div>
+            <div style={S.sectionTitle}>{t('tracking.sectionTitle')}</div>
             <div style={S.row}>
-              <span style={S.label}>Device</span>
+              <span style={S.label}>{t('tracking.deviceLabel')}</span>
               <select
                 style={S.select}
                 value={camDeviceId ?? ''}
                 onChange={(e) => setCamDeviceId(e.target.value || undefined)}
                 disabled={trackingActive}
               >
-                <option value="">Default camera</option>
+                <option value="">{t('tracking.defaultCam')}</option>
                 {camDevices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || `Camera ${d.deviceId.slice(0, 8)}`}
+                    {d.label || t('tracking.camFallback', { id: d.deviceId.slice(0, 8) })}
                   </option>
                 ))}
               </select>
             </div>
             <div style={S.row}>
               <button style={S.btn(trackingActive)} onClick={toggleTracking}>
-                {trackingActive ? '■ Stop' : '● Start'}
+                {trackingActive ? t('tracking.stopBtn') : t('tracking.startBtn')}
               </button>
               <label
                 style={{
@@ -561,16 +569,16 @@ export function MediaInputWindow({
                   onChange={(e) => setShowPreview(e.target.checked)}
                   style={{ cursor: 'pointer' }}
                 />
-                Preview
+                {t('tracking.previewLabel')}
               </label>
             </div>
             <div style={S.checkRow}>
               {(
                 [
-                  ['Face', enableFace, setEnableFace],
-                  ['Pose', enablePose, setEnablePose],
-                  ['Hands', enableHands, setEnableHands],
-                ] as const
+                  [t('tracking.faceLabel'), enableFace, setEnableFace],
+                  [t('tracking.poseLabel'), enablePose, setEnablePose],
+                  [t('tracking.handsLabel'), enableHands, setEnableHands],
+                ] as [string, boolean, (v: boolean) => void][]
               ).map(([label, val, setter]) => (
                 <label
                   key={label}
@@ -602,7 +610,7 @@ export function MediaInputWindow({
             )}
             {!resolvedTrackingId && (
               <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 4 }}>
-                No mediapipe_tracker component found on any node.
+                {t('tracking.noComponent')}
               </div>
             )}
           </div>

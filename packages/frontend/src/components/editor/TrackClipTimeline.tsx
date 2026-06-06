@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api, ApiError } from '../../api/client';
+import { HelpButton } from '../../help/HelpButton';
 import type {
   TrackClipRecord,
   TrackClipLaneRecord,
@@ -35,6 +37,7 @@ const SCENE_NODE_PARAMS = [
 const COMPOSE_LAYER_PARAMS = ['x', 'y', 'rotation'] as const;
 
 export function TrackClipTimeline() {
+  const { t } = useTranslation('clips');
   const trackClips = useEditorStore((s) => s.trackClips);
   const selectedTrackClipId = useEditorStore((s) => s.selectedTrackClipId);
   const updateTrackClipLocal = useEditorStore((s) => s.updateTrackClipLocal);
@@ -62,8 +65,22 @@ export function TrackClipTimeline() {
           onUpdate={updateTrackClipLocal}
         />
       ) : (
-        <div style={{ color: '#555', fontSize: 12, padding: 12 }}>
-          Select a clip from a node or layer in the left dock to edit it here.
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            color: '#555',
+            fontSize: 12,
+            padding: 12,
+          }}
+        >
+          <HelpButton
+            topic="avatar"
+            anchor="animation"
+            tip={t('help.timeline')}
+          />
+          {t('empty.selectClip')}
         </div>
       )}
     </div>
@@ -83,6 +100,7 @@ function TimelineEditor({
   clip: TrackClipRecord;
   onUpdate: (clip: TrackClipRecord) => void;
 }) {
+  const { t } = useTranslation('clips');
   const selectedNodeId = useEditorStore((s) => s.selectedNodeId);
   const selectedComposeId = useEditorStore((s) => s.selectedComposeLayerId);
   const nodes = useEditorStore((s) => s.nodes);
@@ -246,7 +264,7 @@ function TimelineEditor({
           onChange={(e) => handlePatchClip({ name: e.target.value })}
           style={inputStyle}
         />
-        <label style={{ color: '#888', fontSize: 11 }}>Duration</label>
+        <label style={{ color: '#888', fontSize: 11 }}>{t('header.duration')}</label>
         <input
           type="number"
           step={0.1}
@@ -265,11 +283,11 @@ function TimelineEditor({
             checked={clip.loop}
             onChange={(e) => handlePatchClip({ loop: e.target.checked })}
           />{' '}
-          loop
+          {t('header.loop')}
         </label>
         <label
           style={{ color: '#888', fontSize: 11 }}
-          title={clip.loop ? 'Resume on backend boot' : 'Enable loop first'}
+          title={clip.loop ? t('header.autoplayTitle_enabled') : t('header.autoplayTitle_disabled')}
         >
           <input
             type="checkbox"
@@ -277,9 +295,9 @@ function TimelineEditor({
             checked={clip.autoplay}
             onChange={(e) => handlePatchClip({ autoplay: e.target.checked })}
           />{' '}
-          autoplay
+          {t('header.autoplay')}
         </label>
-        <label style={{ color: '#888', fontSize: 11 }}>Blend</label>
+        <label style={{ color: '#888', fontSize: 11 }}>{t('header.blend')}</label>
         <select
           value={clip.mode}
           onChange={(e) =>
@@ -287,31 +305,31 @@ function TimelineEditor({
           }
           style={inputStyle}
         >
-          <option value="override">Replace</option>
-          <option value="relative">Add</option>
+          <option value="override">{t('header.blendOverride')}</option>
+          <option value="relative">{t('header.blendRelative')}</option>
         </select>
         <div style={{ flex: 1 }} />
         {activePlayback?.kind === 'playing' ? (
           <>
             <button onClick={handlePause} style={btnNeutral}>
-              ❚❚ Pause
+              {t('transport.pause')}
             </button>
             <button onClick={handleStop} style={btnStop}>
-              ■ Stop
+              {t('transport.stop')}
             </button>
           </>
         ) : activePlayback?.kind === 'paused' ? (
           <>
             <button onClick={handleResume} style={btnPlay}>
-              ▶ Resume
+              {t('transport.resume')}
             </button>
             <button onClick={handleStop} style={btnStop}>
-              ■ Stop
+              {t('transport.stop')}
             </button>
           </>
         ) : (
           <button onClick={handlePlay} style={btnPlay}>
-            ▶ Play
+            {t('transport.play')}
           </button>
         )}
       </div>
@@ -351,7 +369,7 @@ function TimelineEditor({
             borderBottom: '1px solid #2a2a2a',
           }}
         >
-          Click a keyframe to edit its easing, value, and bezier handles.
+          {t('keyframe.noSelection')}
         </div>
       )}
 

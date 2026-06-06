@@ -1,0 +1,53 @@
+{
+  "window": {
+    "title": "Media Inputs"
+  },
+  "status": {
+    "lipsync": "Lipsync",
+    "noComponent": "No component",
+    "tracking": "Tracking"
+  },
+  "titleBar": {
+    "collapse": "Collapse",
+    "expand": "Expand"
+  },
+  "lipsync": {
+    "sectionTitle": "LIPSYNC",
+    "deviceLabel": "Device",
+    "defaultMic": "Default microphone",
+    "micFallback": "Mic {{id}}",
+    "startBtn": "● Start",
+    "stopBtn": "■ Stop",
+    "noComponent": "No lipsync_processor component found on any node."
+  },
+  "tracking": {
+    "sectionTitle": "TRACKING",
+    "deviceLabel": "Device",
+    "defaultCam": "Default camera",
+    "camFallback": "Camera {{id}}",
+    "startBtn": "● Start",
+    "stopBtn": "■ Stop",
+    "previewLabel": "Preview",
+    "faceLabel": "Face",
+    "poseLabel": "Pose",
+    "handsLabel": "Hands",
+    "noComponent": "No mediapipe_tracker component found on any node."
+  },
+  "errors": {
+    "micError": "Mic error: {{message}}",
+    "cameraError": "Camera error: {{message}}"
+  },
+  "page": {
+    "pageLabel": "vspark · media input",
+    "loading": "Loading…",
+    "loadError": "Failed to load project: {{message}}"
+  },
+  "fileDrop": {
+    "dropPrompt": "Drop .vrm / .glb files here",
+    "browseBtn": "Browse Files"
+  },
+  "help": {
+    "tracking": "Camera tracking uses your webcam to estimate your face, hands, and body pose. Click to learn more.",
+    "lipsync": "Lip sync listens to your microphone and animates your avatar's mouth. Click to learn more."
+  }
+}

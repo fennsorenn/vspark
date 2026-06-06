@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { MediaInputWindow } from '../components/MediaInputWindow';
@@ -10,6 +11,7 @@ import { useEditorStore } from '../store/editorStore';
  * Route: /media-input/:projectId
  */
 export function MediaInputPage() {
+  const { t } = useTranslation('media');
   const { projectId } = useParams<{ projectId: string }>();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export function MediaInputPage() {
     return (
       <div style={style}>
         <div style={{ color: '#f87171', padding: 24 }}>
-          Failed to load project: {error}
+          {t('page.loadError', { message: error })}
         </div>
       </div>
     );
@@ -63,7 +65,7 @@ export function MediaInputPage() {
   if (!ready)
     return (
       <div style={style}>
-        <div style={{ padding: 24, color: '#666' }}>Loading…</div>
+        <div style={{ padding: 24, color: '#666' }}>{t('page.loading')}</div>
       </div>
     );
 
@@ -78,7 +80,7 @@ export function MediaInputPage() {
           left: 12,
         }}
       >
-        vspark · media input
+        {t('page.pageLabel')}
       </div>
       {/* Window rendered in place (alwaysExpanded, no position dragging needed on this page) */}
       <MediaInputWindow alwaysExpanded={true} />
