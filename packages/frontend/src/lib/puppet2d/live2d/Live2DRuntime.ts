@@ -104,11 +104,15 @@ export class Live2DRuntime implements Puppet2DRuntime {
     // set separately below.
     model.createRenderer(1);
     const renderer = model.getRenderer();
-    // Clipping masks default to a 256² buffer — far below the render target,
-    // which makes masked drawables (eyes, mouth, often most of the face) look
-    // downscaled-then-upscaled. Match the mask buffer to the canvas. This
-    // RECREATES the clipping manager, so it must run BEFORE startUp() — startUp
-    // is what propagates the GL context to the (current) clipping manager.
+    // High-precision masking: re-render each drawable's clip mask on demand at
+    // full resolution. The default low-precision path batches every mask into a
+    // single tiled buffer — which both looks blurry and, for models with many
+    // masks, mis-tiles them so masked drawables clip to nothing (invisible).
+    renderer.useHighPrecisionMask(true);
+    // Clipping masks default to a 256² buffer — far below the render target.
+    // Match it to the canvas for sharp masks. This RECREATES the clipping
+    // manager, so it must run BEFORE startUp() — startUp is what propagates the
+    // GL context to the (current) clipping manager.
     renderer.setClippingMaskBufferSize(this.canvas.width);
     renderer.startUp(this.gl);
     renderer.setIsPremultipliedAlpha(true);

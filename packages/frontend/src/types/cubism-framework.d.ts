@@ -98,6 +98,10 @@ declare module '@cubism/framework/rendering/cubismrenderer_webgl' {
     bindTexture(modelTextureNo: number, glTexture: WebGLTexture): void;
     setMvpMatrix(matrix44: CubismMatrix44): void;
     setIsPremultipliedAlpha(enable: boolean): void;
+    // true = re-render each drawable's clip mask on demand at full buffer
+    // resolution (sharp, no tiling). false = batch all masks into one tiled
+    // buffer (blurry, and mis-tiles models with many masks).
+    useHighPrecisionMask(enable: boolean): void;
     // Resolution of the off-screen buffer Cubism renders clipping masks into
     // (default 256²). Safely recreates the clipping manager internally.
     setClippingMaskBufferSize(size: number): void;
