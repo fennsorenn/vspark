@@ -1,8 +1,9 @@
 {
   "window": {
     "title": "Hilfe & Dokumentation",
-    "popOut": "In neuem Tab öffnen",
-    "close": "Schließen"
+    "popOut": "In separatem Fenster öffnen",
+    "close": "Schließen",
+    "resize": "Zum Ändern der Größe ziehen"
   },
   "nav": {
     "topics": "Themen"

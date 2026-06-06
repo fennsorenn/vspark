@@ -140,13 +140,15 @@ export function DocViewer({ topic, anchor, onNavigate, variant = 'window' }: Pro
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeHeadingIds, rehypeSlug]}
+            // Preserve our custom `topic:` and in-page `#` link schemes;
+            // react-markdown's default urlTransform strips unknown protocols
+            // (which would blank out the href).
+            urlTransform={(url) => url}
             components={{
-              a: ({ href, children, ...rest }) => (
-                <a
-                  href={href}
-                  onClick={(e) => handleLinkClick(href, e)}
-                  {...rest}
-                >
+              // Don't spread the remaining props — they include react-markdown's
+              // `node`, which would leak onto the DOM element as node="[object Object]".
+              a: ({ href, children }) => (
+                <a href={href} onClick={(e) => handleLinkClick(href, e)}>
                   {children}
                 </a>
               ),

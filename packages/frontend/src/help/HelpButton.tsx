@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useHelpStore } from './helpStore';
@@ -15,25 +15,58 @@ interface Props {
   style?: React.CSSProperties;
 }
 
+const MARGIN = 8;
+
 /**
  * Small inline `?` affordance. Hovering shows a short tooltip; clicking opens
  * the floating help window on `topic`, deep-scrolled to `anchor`.
  *
  * The tooltip is portaled to `document.body` and positioned with fixed
- * coordinates so it is never clipped by a panel's `overflow: hidden`.
+ * coordinates so it is never clipped by a panel's `overflow: hidden`, and it is
+ * clamped to the viewport (flipping below the button when there is no room
+ * above, and shifting horizontally to stay on-screen).
  */
 export function HelpButton({ topic, anchor, tip, size = 14, style }: Props) {
   const openHelp = useHelpStore((s) => s.openHelp);
   const { t } = useTranslation('help');
   const btnRef = useRef<HTMLButtonElement>(null);
-  const [tipPos, setTipPos] = useState<{ x: number; y: number } | null>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  // null until measured, so the tooltip doesn't flash at an unclamped position.
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
 
   const showTip = () => {
     if (!tip) return;
     const r = btnRef.current?.getBoundingClientRect();
-    if (r) setTipPos({ x: r.left + r.width / 2, y: r.top });
+    if (r) {
+      setAnchorRect(r);
+      setCoords(null);
+    }
   };
-  const hideTip = () => setTipPos(null);
+  const hideTip = () => {
+    setAnchorRect(null);
+    setCoords(null);
+  };
+
+  // After the tooltip renders we know its real size, so clamp it to the viewport.
+  useLayoutEffect(() => {
+    if (!anchorRect || !tipRef.current) return;
+    const tw = tipRef.current.offsetWidth;
+    const th = tipRef.current.offsetHeight;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    let left = anchorRect.left + anchorRect.width / 2 - tw / 2;
+    left = Math.max(MARGIN, Math.min(left, vw - tw - MARGIN));
+
+    // Prefer above the button; flip below if it would clip the top.
+    let top = anchorRect.top - th - MARGIN;
+    if (top < MARGIN) top = anchorRect.bottom + MARGIN;
+    // As a last resort (very short viewport) clamp into view.
+    top = Math.max(MARGIN, Math.min(top, vh - th - MARGIN));
+
+    setCoords({ left, top });
+  }, [anchorRect, tip]);
 
   return (
     <>
@@ -72,16 +105,18 @@ export function HelpButton({ topic, anchor, tip, size = 14, style }: Props) {
       >
         ?
       </button>
-      {tipPos &&
+      {anchorRect &&
         tip &&
         createPortal(
           <div
+            ref={tipRef}
             style={{
               position: 'fixed',
-              left: tipPos.x,
-              top: tipPos.y - 8,
-              transform: 'translate(-50%, -100%)',
-              maxWidth: 240,
+              left: coords ? coords.left : -9999,
+              top: coords ? coords.top : -9999,
+              visibility: coords ? 'visible' : 'hidden',
+              maxWidth: 260,
+              width: 'max-content',
               background: '#10151f',
               border: '1px solid #38456a',
               borderRadius: 6,
@@ -96,13 +131,7 @@ export function HelpButton({ topic, anchor, tip, size = 14, style }: Props) {
             }}
           >
             {tip}
-            <div
-              style={{
-                fontSize: 10,
-                color: '#6c7a99',
-                marginTop: 3,
-              }}
-            >
+            <div style={{ fontSize: 10, color: '#6c7a99', marginTop: 3 }}>
               ⌕ {t('button.clickHint')}
             </div>
           </div>,
