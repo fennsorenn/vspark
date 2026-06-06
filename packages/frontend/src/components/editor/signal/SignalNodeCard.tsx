@@ -464,7 +464,7 @@ export function SignalNodeCard({
       ? (config as Record<string, unknown>)
       : {};
 
-  const { nodeComponents, updateNodeComponent } = useEditorStore();
+  const { behaviors, updateBehavior } = useEditorStore();
 
   const handleStaticChange = (portName: string, value: unknown) => {
     // Component-owned graphs use the "kind:componentId" id shape. Standalone
@@ -480,7 +480,7 @@ export function SignalNodeCard({
       return;
     }
     const componentId = graphId.split(':').slice(1).join(':');
-    const comp = nodeComponents.find((c) => c.id === componentId);
+    const comp = behaviors.find((c) => c.id === componentId);
     if (!comp) return;
     const prevConfig = comp.config as Record<string, unknown>;
     const prevNodeConf = (prevConfig.nodeConfig ?? {}) as Record<
@@ -498,8 +498,8 @@ export function SignalNodeCard({
         [nodeId]: { ...prevNodeEntry, [portName]: value },
       },
     };
-    updateNodeComponent(componentId, { config: newConfig });
-    api.updateNodeComponent(componentId, { config: newConfig }).catch(() => {});
+    updateBehavior(componentId, { config: newConfig });
+    api.updateBehavior(componentId, { config: newConfig }).catch(() => {});
   };
 
   // pack_event / set_data: user-defined named input fields (config.fields:

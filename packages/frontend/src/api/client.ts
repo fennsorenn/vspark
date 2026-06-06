@@ -200,7 +200,7 @@ export interface AssetFile {
   kind: AssetKind;
 }
 
-export interface NodeComponentRecord {
+export interface BehaviorRecord {
   id: string;
   nodeId: string;
   kind: string;
@@ -326,7 +326,7 @@ export const updateProject = (id: string, name: string, description?: string) =>
     body: JSON.stringify({ name, description }),
   });
 
-function mapNodeComponent(r: Record<string, unknown>): NodeComponentRecord {
+function mapBehavior(r: Record<string, unknown>): BehaviorRecord {
   return {
     id: r.id as string,
     nodeId: (r.node_id ?? r.nodeId ?? '') as string,
@@ -473,12 +473,12 @@ export function mapComposeLayer(
   };
 }
 
-// Scenes — backend returns { scenes, nodes, nodeComponents, cameraEffects, composeLayers, trackClips }
+// Scenes — backend returns { scenes, nodes, behaviors, cameraEffects, composeLayers, trackClips }
 export const getScenes = (projectId: string) =>
   request<{
     scenes: Record<string, unknown>[];
     nodes: Record<string, unknown>[];
-    nodeComponents?: Record<string, unknown>[];
+    behaviors?: Record<string, unknown>[];
     cameraEffects?: Record<string, unknown>[];
     composeLayers?: Record<string, unknown>[];
     trackClips?: Record<string, unknown>[];
@@ -486,14 +486,14 @@ export const getScenes = (projectId: string) =>
     ({
       scenes,
       nodes,
-      nodeComponents,
+      behaviors,
       cameraEffects,
       composeLayers,
       trackClips,
     }) => ({
       scenes: scenes.map(mapScene),
       nodes: nodes.map((n) => mapNode(n)),
-      nodeComponents: (nodeComponents ?? []).map(mapNodeComponent),
+      behaviors: (behaviors ?? []).map(mapBehavior),
       cameraEffects: (cameraEffects ?? []).map(mapCameraEffect),
       composeLayers: (composeLayers ?? []).map(mapComposeLayer),
       trackClips: (trackClips ?? []).map(mapTrackClip),
@@ -603,11 +603,11 @@ export const deleteAsset = (id: string) =>
   request<void>(`/assets/${id}`, { method: 'DELETE' });
 
 // Node Components
-export const createNodeComponent = (
+export const createBehavior = (
   nodeId: string,
-  comp: Omit<NodeComponentRecord, 'nodeId'>
+  comp: Omit<BehaviorRecord, 'nodeId'>
 ) =>
-  request<Record<string, unknown>>(`/scene-nodes/${nodeId}/components`, {
+  request<Record<string, unknown>>(`/scene-nodes/${nodeId}/behaviors`, {
     method: 'POST',
     body: JSON.stringify({
       id: comp.id,
@@ -615,19 +615,19 @@ export const createNodeComponent = (
       enabled: comp.enabled,
       config: comp.config,
     }),
-  }).then(mapNodeComponent);
+  }).then(mapBehavior);
 
-export const updateNodeComponent = (
+export const updateBehavior = (
   id: string,
   patch: { enabled?: boolean; config?: Record<string, unknown> }
 ) =>
-  request<void>(`/node-components/${id}`, {
+  request<void>(`/behaviors/${id}`, {
     method: 'PUT',
     body: JSON.stringify(patch),
   });
 
-export const deleteNodeComponent = (id: string) =>
-  request<void>(`/node-components/${id}`, { method: 'DELETE' });
+export const deleteBehavior = (id: string) =>
+  request<void>(`/behaviors/${id}`, { method: 'DELETE' });
 
 // Camera Effects
 export const createCameraEffect = (
@@ -870,7 +870,7 @@ export const getLocalIps = () =>
  *  input for this component.  Bone keys are VRMBoneNames. */
 export const getBodyCalibState = (componentId: string) =>
   request<{ bones: Record<string, [number, number, number, number]> }>(
-    `/node-components/${componentId}/body-calib-state`
+    `/behaviors/${componentId}/body-calib-state`
   ).then((d) => d.bones);
 
 export const getSignalGraphs = () =>
@@ -879,7 +879,7 @@ export const getSignalGraphs = () =>
 export const getSignalNodeKinds = () =>
   request<import('@vspark/shared/signal').NodeKindMeta[]>('/signal/node-kinds');
 
-export interface ComponentKindMeta {
+export interface BehaviorKindMeta {
   kind: string;
   label: string;
   icon: string;
@@ -888,8 +888,8 @@ export interface ComponentKindMeta {
   defaultConfig: Record<string, unknown>;
 }
 
-export const getComponentKinds = () =>
-  request<ComponentKindMeta[]>('/component-kinds');
+export const getBehaviorKinds = () =>
+  request<BehaviorKindMeta[]>('/behavior-kinds');
 
 // Update / config
 export const getUpdateStatus = () =>
@@ -1279,9 +1279,9 @@ export const api = {
   getAssets,
   uploadAsset,
   deleteAsset,
-  createNodeComponent,
-  updateNodeComponent,
-  deleteNodeComponent,
+  createBehavior,
+  updateBehavior,
+  deleteBehavior,
   createCameraEffect,
   updateCameraEffect,
   deleteCameraEffect,
@@ -1314,7 +1314,7 @@ export const api = {
   getSignalNodeKinds,
   getSignalGraphStates,
   fireSignalEvent,
-  getComponentKinds,
+  getBehaviorKinds,
   getProjectGraphs,
   createProjectGraph,
   getProjectScopedGraphs,

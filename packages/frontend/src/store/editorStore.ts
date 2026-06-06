@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type {
   AssetFile,
-  ComponentKindMeta,
+  BehaviorKindMeta,
   CameraEffectRecord,
   ComposeLayerRecord,
   TrackClipRecord,
@@ -23,7 +23,7 @@ export interface ApiAnimationState {
 
 export type {
   AssetFile,
-  ComponentKindMeta,
+  BehaviorKindMeta,
   CameraEffectRecord,
   ComposeLayerRecord,
   TrackClipRecord,
@@ -181,7 +181,7 @@ export interface SceneItem {
   runtimeSettings: SceneRuntimeSettings;
 }
 
-export interface NodeComponent {
+export interface Behavior {
   id: string;
   nodeId: string;
   kind: string;
@@ -201,7 +201,7 @@ export interface PresetSummary {
 }
 
 let _compSeq = 0;
-export const newComponentId = () => `comp-${++_compSeq}-${Date.now()}`;
+export const newBehaviorId = () => `comp-${++_compSeq}-${Date.now()}`;
 
 export interface CameraEffectKind {
   kind: string;
@@ -400,9 +400,9 @@ interface EditorState {
   nodes: NodeRecord[];
   selectedNodeId: string | null;
   sceneSelected: boolean;
-  selectedComponentId: string | null;
+  selectedBehaviorId: string | null;
   assets: AssetFile[];
-  nodeComponents: NodeComponent[];
+  behaviors: Behavior[];
   vmcStatus: Record<string, boolean>; // componentId → connected
   vmcTracking: Record<string, boolean>; // componentId → tracking active
   apiAnimationByNode: Record<string, ApiAnimationState>; // nodeId → current api-driven animation queue
@@ -410,7 +410,7 @@ interface EditorState {
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
   hoveredBoneName: string | null;
-  componentKinds: ComponentKindMeta[];
+  behaviorKinds: BehaviorKindMeta[];
   /** Overlive login accounts for the current project. Populated lazily by Editor.tsx;
    *  consumed by signal-graph Account port dropdowns. */
   overliveAccounts: import('../api/client').OverliveAccountRecord[];
@@ -500,19 +500,19 @@ interface EditorState {
   updateNode: (id: string, updates: Partial<NodeRecord>) => void;
   deleteNode: (id: string) => void;
   selectNode: (id: string | null) => void;
-  selectComponent: (id: string | null) => void;
+  selectBehavior: (id: string | null) => void;
   setAssets: (assets: AssetFile[]) => void;
   addAsset: (asset: AssetFile) => void;
   deleteAsset: (id: string) => void;
   activeSceneNodes: () => NodeRecord[];
-  setNodeComponents: (comps: NodeComponent[]) => void;
-  addNodeComponent: (comp: NodeComponent) => void;
-  updateNodeComponent: (
+  setBehaviors: (comps: Behavior[]) => void;
+  addBehavior: (comp: Behavior) => void;
+  updateBehavior: (
     id: string,
-    updates: Partial<Omit<NodeComponent, 'id' | 'nodeId'>>
+    updates: Partial<Omit<Behavior, 'id' | 'nodeId'>>
   ) => void;
-  removeNodeComponent: (id: string) => void;
-  nodeComponentsFor: (nodeId: string) => NodeComponent[];
+  removeBehavior: (id: string) => void;
+  behaviorsFor: (nodeId: string) => Behavior[];
   setVmcStatus: (componentId: string, connected: boolean) => void;
   setVmcTracking: (componentId: string, tracking: boolean) => void;
   setApiAnimation: (nodeId: string, state: ApiAnimationState | null) => void;
@@ -523,7 +523,7 @@ interface EditorState {
   setVrmMorphTargetsForNode: (nodeId: string, names: string[]) => void;
   clearVrmMorphTargetsForNode: (nodeId: string) => void;
   setHoveredBone: (name: string | null) => void;
-  setComponentKinds: (kinds: ComponentKindMeta[]) => void;
+  setBehaviorKinds: (kinds: BehaviorKindMeta[]) => void;
   setOverliveAccounts: (
     accounts: import('../api/client').OverliveAccountRecord[]
   ) => void;
@@ -674,9 +674,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   nodes: [],
   selectedNodeId: null,
   sceneSelected: false,
-  selectedComponentId: null,
+  selectedBehaviorId: null,
   assets: [],
-  nodeComponents: [],
+  behaviors: [],
   vmcStatus: {},
   vmcTracking: {},
   apiAnimationByNode: {},
@@ -684,7 +684,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vrmExpressionsByNode: {},
   vrmMorphTargetsByNode: {},
   hoveredBoneName: null,
-  componentKinds: [],
+  behaviorKinds: [],
   overliveAccounts: [],
   activeGraphWritable: false,
   activeGraphId: null,
@@ -738,7 +738,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         scenes: remainingScenes,
         nodes: s.nodes.filter((n) => n.rootSceneNodeId !== sceneId),
-        nodeComponents: s.nodeComponents.filter(
+        behaviors: s.behaviors.filter(
           (c) => !removedNodeIds.has(c.nodeId)
         ),
         cameraEffects: s.cameraEffects.filter(
@@ -767,15 +767,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   deleteNode: (id) =>
     set((s) => {
       const removedComps = new Set(
-        s.nodeComponents.filter((c) => c.nodeId === id).map((c) => c.id)
+        s.behaviors.filter((c) => c.nodeId === id).map((c) => c.id)
       );
       return {
         nodes: s.nodes.filter((n) => n.id !== id),
         selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
-        selectedComponentId: removedComps.has(s.selectedComponentId ?? '')
+        selectedBehaviorId: removedComps.has(s.selectedBehaviorId ?? '')
           ? null
-          : s.selectedComponentId,
-        nodeComponents: s.nodeComponents.filter((c) => c.nodeId !== id),
+          : s.selectedBehaviorId,
+        behaviors: s.behaviors.filter((c) => c.nodeId !== id),
       };
     }),
   selectNode: (id) =>
@@ -783,11 +783,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedNodeId: id,
       // Only clear the scene selection when actually selecting a node, not when clearing.
       sceneSelected: id != null ? false : s.sceneSelected,
-      selectedComponentId: null,
+      selectedBehaviorId: null,
       selectedEffect: null,
     })),
-  selectComponent: (id) =>
-    set({ selectedComponentId: id, selectedEffect: null }),
+  selectBehavior: (id) =>
+    set({ selectedBehaviorId: id, selectedEffect: null }),
   setAssets: (assets) => set({ assets }),
   addAsset: (asset) => set((s) => ({ assets: [...s.assets, asset] })),
   deleteAsset: (id) =>
@@ -796,23 +796,23 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { nodes, activeSceneId } = get();
     return nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
   },
-  setNodeComponents: (comps) => set({ nodeComponents: comps }),
-  addNodeComponent: (comp) =>
-    set((s) => ({ nodeComponents: [...s.nodeComponents, comp] })),
-  updateNodeComponent: (id, updates) =>
+  setBehaviors: (comps) => set({ behaviors: comps }),
+  addBehavior: (comp) =>
+    set((s) => ({ behaviors: [...s.behaviors, comp] })),
+  updateBehavior: (id, updates) =>
     set((s) => ({
-      nodeComponents: s.nodeComponents.map((c) =>
+      behaviors: s.behaviors.map((c) =>
         c.id === id ? { ...c, ...updates } : c
       ),
     })),
-  removeNodeComponent: (id) =>
+  removeBehavior: (id) =>
     set((s) => ({
-      nodeComponents: s.nodeComponents.filter((c) => c.id !== id),
-      selectedComponentId:
-        s.selectedComponentId === id ? null : s.selectedComponentId,
+      behaviors: s.behaviors.filter((c) => c.id !== id),
+      selectedBehaviorId:
+        s.selectedBehaviorId === id ? null : s.selectedBehaviorId,
     })),
-  nodeComponentsFor: (nodeId) =>
-    get().nodeComponents.filter((c) => c.nodeId === nodeId),
+  behaviorsFor: (nodeId) =>
+    get().behaviors.filter((c) => c.nodeId === nodeId),
   setVmcStatus: (componentId, connected) =>
     set((s) => ({ vmcStatus: { ...s.vmcStatus, [componentId]: connected } })),
   setVmcTracking: (componentId, tracking) =>
@@ -858,7 +858,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { vrmMorphTargetsByNode: next };
     }),
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
-  setComponentKinds: (kinds) => set({ componentKinds: kinds }),
+  setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
   setActiveGraphWritable: (writable) => set({ activeGraphWritable: writable }),
   setActiveGraph: (id) => {
@@ -907,7 +907,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       previewEffectsCamera: s.previewEffectsCamera === nodeId ? null : nodeId,
     })),
   selectEffect: (nodeId, kind) =>
-    set({ selectedEffect: { nodeId, kind }, selectedComponentId: null }),
+    set({ selectedEffect: { nodeId, kind }, selectedBehaviorId: null }),
   clearSelectedEffect: () => set({ selectedEffect: null }),
 
   setComposeScenes: (scenes) => set({ composeScenes: scenes }),

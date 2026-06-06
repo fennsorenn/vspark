@@ -7,7 +7,7 @@ const router: ReturnType<typeof Router> = Router();
 
 /**
  * @openapi
- * /api/scene-nodes/{nodeId}/components:
+ * /api/scene-nodes/{nodeId}/behaviors:
  *   get:
  *     tags: [node_components]
  *     summary: List behavioural components attached to a node (vmc_receiver, breathing, lipsync, api_controller, ...)
@@ -16,7 +16,7 @@ const router: ReturnType<typeof Router> = Router();
  *     responses:
  *       200: { description: Array of node_component rows ordered by sort_order }
  */
-router.get('/scene-nodes/:nodeId/components', (req, res) => {
+router.get('/scene-nodes/:nodeId/behaviors', (req, res) => {
   const data = getDb()
     .prepare(
       'SELECT * FROM node_components WHERE node_id = ? ORDER BY sort_order'
@@ -27,7 +27,7 @@ router.get('/scene-nodes/:nodeId/components', (req, res) => {
 
 /**
  * @openapi
- * /api/scene-nodes/{nodeId}/components:
+ * /api/scene-nodes/{nodeId}/behaviors:
  *   post:
  *     tags: [node_components]
  *     summary: Attach a new component to a node; triggers signal-graph manager refresh
@@ -37,12 +37,12 @@ router.get('/scene-nodes/:nodeId/components', (req, res) => {
  *       required: true
  *       content:
  *         application/json:
- *           schema: { $ref: '#/components/schemas/CreateNodeComponent' }
+ *           schema: { $ref: '#/components/schemas/CreateBehavior' }
  *     responses:
  *       201: { description: Component attached; all component managers re-synced }
  *       400: { description: Missing kind, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
-router.post('/scene-nodes/:nodeId/components', (req, res) => {
+router.post('/scene-nodes/:nodeId/behaviors', (req, res) => {
   const { id, kind, enabled, config, sortOrder } = req.body;
   if (!kind)
     return res
@@ -79,7 +79,7 @@ router.post('/scene-nodes/:nodeId/components', (req, res) => {
 
 /**
  * @openapi
- * /api/node-components/{id}:
+ * /api/behaviors/{id}:
  *   put:
  *     tags: [node_components]
  *     summary: Update a component's enabled flag or config; triggers manager refresh
@@ -89,11 +89,11 @@ router.post('/scene-nodes/:nodeId/components', (req, res) => {
  *       required: true
  *       content:
  *         application/json:
- *           schema: { $ref: '#/components/schemas/UpdateNodeComponent' }
+ *           schema: { $ref: '#/components/schemas/UpdateBehavior' }
  *     responses:
  *       200: { description: Updated; all component managers re-synced }
  */
-router.put('/node-components/:id', (req, res) => {
+router.put('/behaviors/:id', (req, res) => {
   const { enabled, config } = req.body;
   getDb()
     .prepare(
@@ -114,7 +114,7 @@ router.put('/node-components/:id', (req, res) => {
 
 /**
  * @openapi
- * /api/node-components/{id}:
+ * /api/behaviors/{id}:
  *   delete:
  *     tags: [node_components]
  *     summary: Detach a component; triggers manager refresh which tears down its signal graph
@@ -123,7 +123,7 @@ router.put('/node-components/:id', (req, res) => {
  *     responses:
  *       200: { description: Deleted; managers re-synced, content: { application/json: { schema: { $ref: '#/components/schemas/EmptyOk' } } } }
  */
-router.delete('/node-components/:id', (req, res) => {
+router.delete('/behaviors/:id', (req, res) => {
   getDb()
     .prepare('DELETE FROM node_components WHERE id = ?')
     .run(req.params.id);

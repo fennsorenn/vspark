@@ -32,8 +32,8 @@ export function Editor() {
     setActiveScene,
     setNodes,
     setAssets,
-    setNodeComponents,
-    setComponentKinds,
+    setBehaviors,
+    setBehaviorKinds,
     setCameraEffects,
     setComposeLayers,
     setComposeScenes,
@@ -53,10 +53,10 @@ export function Editor() {
       .then(setKindMeta)
       .catch(() => {});
     api
-      .getComponentKinds()
-      .then(setComponentKinds)
+      .getBehaviorKinds()
+      .then(setBehaviorKinds)
       .catch(() => {});
-  }, [setComponentKinds]);
+  }, [setBehaviorKinds]);
 
   // Load presets when project changes
   useEffect(() => {
@@ -138,13 +138,13 @@ export function Editor() {
         ({
           scenes,
           nodes,
-          nodeComponents,
+          behaviors,
           cameraEffects,
           composeLayers,
           trackClips,
         }) => {
           setScenes(scenes);
-          setNodeComponents(nodeComponents);
+          setBehaviors(behaviors);
           setCameraEffects(cameraEffects);
           // Separate compose_scene layers from regular layers
           const composeSceneItems = composeLayers.filter(
@@ -183,7 +183,7 @@ export function Editor() {
     setActiveScene,
     setNodes,
     setAssets,
-    setNodeComponents,
+    setBehaviors,
     setCameraEffects,
     setComposeLayers,
     setTrackClips,

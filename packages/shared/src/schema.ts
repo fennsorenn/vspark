@@ -180,7 +180,7 @@ export const createAssetSchema = z
 
 // --- Node components ---
 
-export const createNodeComponentSchema = z
+export const createBehaviorSchema = z
   .object({
     id: z.string().optional(),
     kind: z.string(),
@@ -188,14 +188,14 @@ export const createNodeComponentSchema = z
     config: z.record(z.string(), z.unknown()).optional(),
     sortOrder: z.number().int().optional(),
   })
-  .openapi('CreateNodeComponent');
+  .openapi('CreateBehavior');
 
-export const updateNodeComponentSchema = z
+export const updateBehaviorSchema = z
   .object({
     enabled: z.boolean().optional(),
     config: z.record(z.string(), z.unknown()).optional(),
   })
-  .openapi('UpdateNodeComponent');
+  .openapi('UpdateBehavior');
 
 // --- Camera effects ---
 
@@ -659,11 +659,11 @@ export type CreateAnimationClipInput = z.infer<
   typeof createAnimationClipSchema
 >;
 export type CreateAssetInput = z.infer<typeof createAssetSchema>;
-export type CreateNodeComponentInput = z.infer<
-  typeof createNodeComponentSchema
+export type CreateBehaviorInput = z.infer<
+  typeof createBehaviorSchema
 >;
-export type UpdateNodeComponentInput = z.infer<
-  typeof updateNodeComponentSchema
+export type UpdateBehaviorInput = z.infer<
+  typeof updateBehaviorSchema
 >;
 export type CreateCameraEffectInput = z.infer<typeof createCameraEffectSchema>;
 export type UpdateCameraEffectInput = z.infer<typeof updateCameraEffectSchema>;

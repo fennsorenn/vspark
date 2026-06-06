@@ -2,8 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { AssetFile } from '../../api/client';
-import type { BottomDockTab, NodeComponent } from '../../store/editorStore';
-import { newComponentId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
+import type { BottomDockTab, Behavior } from '../../store/editorStore';
+import { newBehaviorId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { TrackClipTimeline } from './TrackClipTimeline';
 import { PresetLibrary } from './PresetLibrary';
 import { CreatePalette } from './CreatePalette';
@@ -22,9 +22,9 @@ export function AssetManager() {
     selectedNodeId,
     nodes,
     updateNode: storeUpdateNode,
-    addNodeComponent,
-    nodeComponents,
-    componentKinds,
+    addBehavior,
+    behaviors,
+    behaviorKinds,
     cameraEffects,
     addCameraEffect,
   } = useEditorStore();
@@ -483,18 +483,18 @@ export function AssetManager() {
 
   const handleAddComponent = async (kind: string) => {
     if (!selectedNode) return;
-    const ct = componentKinds.find((c) => c.kind === kind);
+    const ct = behaviorKinds.find((c) => c.kind === kind);
     if (!ct) return;
-    const comp: NodeComponent = {
-      id: newComponentId(),
+    const comp: Behavior = {
+      id: newBehaviorId(),
       nodeId: selectedNode.id,
       kind,
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addNodeComponent(comp);
+    addBehavior(comp);
     try {
-      await api.createNodeComponent(selectedNode.id, comp);
+      await api.createBehavior(selectedNode.id, comp);
     } catch {
       /* non-fatal */
     }
@@ -505,7 +505,7 @@ export function AssetManager() {
     const ek = CAMERA_EFFECT_KINDS.find((k) => k.kind === kind);
     if (!ek) return;
     const effect = {
-      id: newComponentId(),
+      id: newBehaviorId(),
       nodeId: selectedNode.id,
       kind,
       enabled: true,
@@ -560,10 +560,10 @@ export function AssetManager() {
   // One component card. `dimmed` is used for components that don't normally
   // apply to the selected node's kind — still addable, just de-emphasised.
   const renderComponentCard = (
-    ct: (typeof componentKinds)[number],
+    ct: (typeof behaviorKinds)[number],
     dimmed: boolean
   ) => {
-    const alreadyAdded = nodeComponents.some(
+    const alreadyAdded = behaviors.some(
       (c) => c.nodeId === selectedNode!.id && c.kind === ct.kind
     );
     return (
@@ -906,10 +906,10 @@ export function AssetManager() {
               )}
               {selectedNode &&
                 (() => {
-                  const compatible = componentKinds.filter((ct) =>
+                  const compatible = behaviorKinds.filter((ct) =>
                     componentCompatibleWith(ct.applicableTo, selectedNode.kind)
                   );
-                  const incompatible = componentKinds.filter(
+                  const incompatible = behaviorKinds.filter(
                     (ct) =>
                       !componentCompatibleWith(
                         ct.applicableTo,

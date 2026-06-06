@@ -267,15 +267,15 @@ export function MediaInputWindow({
   // WS connection — use prop if provided (standalone page), else use the shared editor socket
 
   // Resolve component IDs from store if not provided as props
-  const nodeComponents = useEditorStore((s) => s.nodeComponents);
+  const behaviors = useEditorStore((s) => s.behaviors);
   const resolvedLipsyncId =
     lipsyncComponentId ??
-    nodeComponents.find((c) => c.kind === 'lipsync_processor' && c.enabled)
+    behaviors.find((c) => c.kind === 'lipsync_processor' && c.enabled)
       ?.id ??
     null;
   const resolvedTrackingId =
     trackingComponentId ??
-    nodeComponents.find((c) => c.kind === 'mediapipe_tracker' && c.enabled)
+    behaviors.find((c) => c.kind === 'mediapipe_tracker' && c.enabled)
       ?.id ??
     null;
 
@@ -319,7 +319,7 @@ export function MediaInputWindow({
         rmsRef.current = rms;
       };
       // Apply calibrated vowel templates from the lipsync component config, if any.
-      const lipsyncComp = nodeComponents.find(
+      const lipsyncComp = behaviors.find(
         (c) => c.id === resolvedLipsyncId
       );
       const cfg = lipsyncComp?.config as
@@ -337,7 +337,7 @@ export function MediaInputWindow({
         alert(`Mic error: ${(e as Error).message}`);
       }
     }
-  }, [lipsyncActive, micDeviceId, nodeComponents, resolvedLipsyncId]);
+  }, [lipsyncActive, micDeviceId, behaviors, resolvedLipsyncId]);
 
   // Refs so onResult closure always reads the latest values without going stale
   const wsRef = useRef<WebSocket | null>(null);

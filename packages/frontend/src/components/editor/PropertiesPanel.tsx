@@ -8,7 +8,7 @@ import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { api, fireSignalEvent, updateScene } from '../../api/client';
-import type { NodeRecord, NodeComponent } from '../../store/editorStore';
+import type { NodeRecord, Behavior } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeLayerProperties } from './ComposeLayerProperties';
 import type { AssetFile } from '../../api/client';
@@ -884,7 +884,7 @@ function MaterialSection({ node }: { node: NodeRecord }) {
 
 // ---------- Calibration wizard ----------
 
-function CalibrationSection({ comp }: { comp: NodeComponent }) {
+function CalibrationSection({ comp }: { comp: Behavior }) {
   const [headSet, setHeadSet] = useState(false);
   const [leftSet, setLeftSet] = useState(false);
   const [rightSet, setRightSet] = useState(false);
@@ -1629,8 +1629,8 @@ const VRM_EXPR_PRESETS = [
   'lookRight',
 ];
 
-function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
-  const { updateNodeComponent, vrmMorphTargetsByNode, vrmExpressionsByNode } =
+function VmcReceiverProps({ comp }: { comp: Behavior }) {
+  const { updateBehavior, vrmMorphTargetsByNode, vrmExpressionsByNode } =
     useEditorStore();
   const morphTargets = vrmMorphTargetsByNode[comp.nodeId] ?? [];
   const expressions = vrmExpressionsByNode[comp.nodeId] ?? [];
@@ -1721,9 +1721,9 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
 
   const save = async (patch: Partial<Record<string, unknown>>) => {
     const newConfig = { ...comp.config, ...patch };
-    updateNodeComponent(comp.id, { config: newConfig });
+    updateBehavior(comp.id, { config: newConfig });
     try {
-      await api.updateNodeComponent(comp.id, { config: newConfig });
+      await api.updateBehavior(comp.id, { config: newConfig });
     } catch {
       /* non-fatal */
     }
@@ -1944,8 +1944,8 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
 
 // ── Lipsync props ─────────────────────────────────────────────────────────────
 
-function LipsyncProcessorProps({ comp }: { comp: NodeComponent }) {
-  const { updateNodeComponent } = useEditorStore();
+function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
+  const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
     sensitivity?: number;
@@ -1955,8 +1955,8 @@ function LipsyncProcessorProps({ comp }: { comp: NodeComponent }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateNodeComponent(comp.id, { config });
-    api.updateNodeComponent(comp.id, { config }).catch(() => {});
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
   };
 
   const rowStyle: React.CSSProperties = {
@@ -2190,8 +2190,8 @@ function LipsyncCalibration({
 
 // ── MediaPipe tracker props ────────────────────────────────────────────────────
 
-function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
-  const { updateNodeComponent } = useEditorStore();
+function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
+  const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
     enableFace?: boolean;
@@ -2245,8 +2245,8 @@ function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateNodeComponent(comp.id, { config });
-    api.updateNodeComponent(comp.id, { config }).catch(() => {});
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
   };
 
   const saveIk = (patch: Record<string, unknown>) => {
@@ -2551,7 +2551,7 @@ function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
   );
 }
 
-function ApiControllerProps({ comp }: { comp: NodeComponent }) {
+function ApiControllerProps({ comp }: { comp: Behavior }) {
   const { projectId } = useParams<{ projectId: string }>();
   const [copied, setCopied] = useState(false);
   const baseUrl = projectId
@@ -2622,8 +2622,8 @@ function ApiControllerProps({ comp }: { comp: NodeComponent }) {
 
 // ── Breathing component panel ────────────────────────────────────────────────
 
-function BreathingProps({ comp }: { comp: NodeComponent }) {
-  const { updateNodeComponent } = useEditorStore();
+function BreathingProps({ comp }: { comp: Behavior }) {
+  const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as {
     chestAmplitude?: number;
     shoulderAmplitude?: number;
@@ -2638,8 +2638,8 @@ function BreathingProps({ comp }: { comp: NodeComponent }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateNodeComponent(comp.id, { config });
-    api.updateNodeComponent(comp.id, { config }).catch(() => {});
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
   };
 
   return (
@@ -2688,7 +2688,7 @@ function BreathingProps({ comp }: { comp: NodeComponent }) {
 
 // ── Component dispatcher ──────────────────────────────────────────────────────
 
-function ComponentProps({ comp }: { comp: NodeComponent }) {
+function ComponentProps({ comp }: { comp: Behavior }) {
   switch (comp.kind) {
     case 'vmc_receiver':
       return <VmcReceiverProps comp={comp} />;
@@ -3549,13 +3549,13 @@ export function PropertiesPanel() {
     selectedNodeId,
     updateNode: storeUpdateNode,
     assets,
-    selectedComponentId,
-    nodeComponents,
+    selectedBehaviorId,
+    behaviors,
     fbxDebugVisible,
     setFbxDebugVisible,
     vrmExpressionsByNode,
     vrmMorphTargetsByNode,
-    componentKinds,
+    behaviorKinds,
     cameraEffects,
     selectedEffect,
     scenes,
@@ -3571,9 +3571,9 @@ export function PropertiesPanel() {
   const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const selectedComp =
-    nodeComponents.find((c) => c.id === selectedComponentId) ?? null;
+    behaviors.find((c) => c.id === selectedBehaviorId) ?? null;
   const selectedCompType = selectedComp
-    ? componentKinds.find((ct) => ct.kind === selectedComp.kind)
+    ? behaviorKinds.find((ct) => ct.kind === selectedComp.kind)
     : null;
   const selectedEffectRecord = selectedEffect
     ? cameraEffects.find(

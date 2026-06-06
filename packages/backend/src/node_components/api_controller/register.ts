@@ -1,2 +1,2 @@
-// Side-effect import so the @ComponentKind decorator registers at startup.
+// Side-effect import so the @BehaviorKind decorator registers at startup.
 import './manager.js';
