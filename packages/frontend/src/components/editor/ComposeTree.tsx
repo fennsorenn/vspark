@@ -7,7 +7,7 @@ import {
 import { api } from '../../api/client';
 import type { ComposeLayerKind } from '../../api/client';
 import { ClipsSection } from './ClipsSection';
-import { GraphsSection } from './GraphsSection';
+import { AutomationsSection } from './AutomationsSection';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { createLayer } from './createKinds';
@@ -210,8 +210,8 @@ function LayerRow({
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createLayerGraph(layer.id, payload.name);
-      await api.updateGraph(created.id, {
+      const created = await api.createLayerAutomation(layer.id, payload.name);
+      await api.updateAutomation(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
@@ -411,7 +411,7 @@ function LayerRow({
       {selected && (
         <>
           <ClipsSection owner={{ kind: 'layer', id: layer.id }} />
-          <GraphsSection owner={{ kind: 'layer', id: layer.id }} />
+          <AutomationsSection owner={{ kind: 'layer', id: layer.id }} />
         </>
       )}
       {children

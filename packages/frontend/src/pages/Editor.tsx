@@ -41,9 +41,9 @@ export function Editor() {
     setTrackClips,
     setOverliveAccounts,
     setPresets,
-    activeGraphId,
+    activeAutomationId,
     leftTab,
-    activeGraphWritable,
+    activeAutomationWritable,
   } = useEditorStore();
   const [kindMeta, setKindMeta] = useState<NodeKindMeta[]>([]);
 
@@ -236,10 +236,10 @@ export function Editor() {
             <Viewport />
           </div>
           {leftTab === 'graphs' &&
-            (activeGraphId ? (
+            (activeAutomationId ? (
               <div style={{ position: 'absolute', inset: 0 }}>
                 <SignalGraphCanvas
-                  graphId={activeGraphId}
+                  graphId={activeAutomationId}
                   kindMeta={kindMeta}
                 />
               </div>
@@ -264,7 +264,7 @@ export function Editor() {
         <PropertiesPanel />
       </div>
       {leftTab === 'graphs' ? (
-        <NodePalette kindMeta={kindMeta} graphReadonly={!activeGraphWritable} />
+        <NodePalette kindMeta={kindMeta} graphReadonly={!activeAutomationWritable} />
       ) : (
         <AssetManager />
       )}

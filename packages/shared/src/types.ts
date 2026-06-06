@@ -191,13 +191,13 @@ export interface ComposeLayer {
   updatedAt: string;
 }
 
-// --- Graphs (signal graphs with owner scoping) ---
+// --- Automations (user-built signal graphs with owner scoping) ---
 
-export type GraphOwnerKind = 'project' | 'scene_node' | 'compose_layer';
+export type AutomationOwnerKind = 'project' | 'scene_node' | 'compose_layer';
 
-export interface Graph {
+export interface Automation {
   id: string;
-  ownerKind: GraphOwnerKind;
+  ownerKind: AutomationOwnerKind;
   ownerId: string;
   name: string;
   enabled: boolean;

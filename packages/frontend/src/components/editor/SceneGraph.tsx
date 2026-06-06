@@ -7,7 +7,7 @@ import { newBehaviorId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
-import { GraphsSection } from './GraphsSection';
+import { AutomationsSection } from './AutomationsSection';
 import { ContextMenu } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
@@ -1050,14 +1050,14 @@ const formatBoneName = (name: string) =>
 
 // ---------- Graph list panel ----------
 import type { GraphDescriptor } from '@vspark/shared/signal';
-import type { GraphRecord, ScopedGraphRecord } from '../../api/client';
+import type { AutomationRecord, ScopedAutomationRecord } from '../../api/client';
 
-function GraphListPanel() {
+function AutomationListPanel() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { activeGraphId, setActiveGraph } = useEditorStore();
+  const { activeAutomationId, setActiveAutomation } = useEditorStore();
   const [componentGraphs, setComponentGraphs] = useState<GraphDescriptor[]>([]);
-  const [projectGraphs, setProjectGraphs] = useState<GraphRecord[]>([]);
-  const [scopedGraphs, setScopedGraphs] = useState<ScopedGraphRecord[]>([]);
+  const [projectGraphs, setProjectGraphs] = useState<AutomationRecord[]>([]);
+  const [scopedGraphs, setScopedGraphs] = useState<ScopedAutomationRecord[]>([]);
   const [scopedGraphsOpen, setScopedGraphsOpen] = useState(true);
   const [componentGraphsOpen, setComponentGraphsOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
@@ -1066,7 +1066,7 @@ function GraphListPanel() {
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
-    graph: GraphRecord;
+    graph: AutomationRecord;
   } | null>(null);
 
   const refresh = () => {
@@ -1076,7 +1076,7 @@ function GraphListPanel() {
       .catch(() => {});
     if (projectId) {
       api
-        .getProjectGraphs(projectId)
+        .getProjectAutomations(projectId)
         .then(setProjectGraphs)
         .catch(() => {});
       api
@@ -1086,9 +1086,9 @@ function GraphListPanel() {
     }
   };
 
-  const handleToggleScopedEnabled = async (g: ScopedGraphRecord) => {
+  const handleToggleScopedEnabled = async (g: ScopedAutomationRecord) => {
     try {
-      const updated = await api.updateGraph(g.id, { enabled: !g.enabled });
+      const updated = await api.updateAutomation(g.id, { enabled: !g.enabled });
       setScopedGraphs((prev) =>
         prev.map((x) =>
           x.id === g.id ? { ...x, enabled: updated.enabled } : x
@@ -1126,17 +1126,17 @@ function GraphListPanel() {
     try {
       const created = await api.createProjectGraph(projectId, name.trim());
       setProjectGraphs((prev) => [...prev, created]);
-      setActiveGraph(created.id);
+      setActiveAutomation(created.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to create automation');
     }
   };
 
-  const handleRename = async (g: GraphRecord) => {
+  const handleRename = async (g: AutomationRecord) => {
     const name = window.prompt('Rename automation:', g.name);
     if (!name?.trim() || name.trim() === g.name) return;
     try {
-      const updated = await api.updateGraph(g.id, { name: name.trim() });
+      const updated = await api.updateAutomation(g.id, { name: name.trim() });
       setProjectGraphs((prev) =>
         prev.map((x) => (x.id === g.id ? updated : x))
       );
@@ -1145,9 +1145,9 @@ function GraphListPanel() {
     }
   };
 
-  const handleToggleEnabled = async (g: GraphRecord) => {
+  const handleToggleEnabled = async (g: AutomationRecord) => {
     try {
-      const updated = await api.updateGraph(g.id, {
+      const updated = await api.updateAutomation(g.id, {
         enabled: !g.enabled,
       });
       setProjectGraphs((prev) =>
@@ -1158,18 +1158,18 @@ function GraphListPanel() {
     }
   };
 
-  const handleDelete = async (g: GraphRecord) => {
+  const handleDelete = async (g: AutomationRecord) => {
     if (!window.confirm(`Delete graph "${g.name}"?`)) return;
     try {
-      await api.deleteGraph(g.id);
+      await api.deleteAutomation(g.id);
       setProjectGraphs((prev) => prev.filter((x) => x.id !== g.id));
-      if (activeGraphId === g.id) setActiveGraph(null);
+      if (activeAutomationId === g.id) setActiveAutomation(null);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to delete automation');
     }
   };
 
-  const handleCopy = async (g: GraphRecord) => {
+  const handleCopy = async (g: AutomationRecord) => {
     await copyToClipboard(
       {
         kind: 'graph',
@@ -1187,12 +1187,12 @@ function GraphListPanel() {
     if (!payload || payload.kind !== 'graph') return;
     try {
       const created = await api.createProjectGraph(projectId, payload.name);
-      const updated = await api.updateGraph(created.id, {
+      const updated = await api.updateAutomation(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
       setProjectGraphs((prev) => [...prev, updated]);
-      setActiveGraph(updated.id);
+      setActiveAutomation(updated.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to paste automation');
     }
@@ -1264,12 +1264,12 @@ function GraphListPanel() {
         </div>
       ) : (
         projectGraphs.map((g) => {
-          const active = g.id === activeGraphId;
+          const active = g.id === activeAutomationId;
           return (
             <div
               key={g.id}
               style={rowStyle(active)}
-              onClick={() => setActiveGraph(active ? null : g.id)}
+              onClick={() => setActiveAutomation(active ? null : g.id)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setCtxMenu({ x: e.clientX, y: e.clientY, graph: g });
@@ -1355,12 +1355,12 @@ function GraphListPanel() {
           </div>
         ) : (
           scopedGraphs.map((g) => {
-            const active = g.id === activeGraphId;
+            const active = g.id === activeAutomationId;
             return (
               <div
                 key={g.id}
                 style={rowStyle(active)}
-                onClick={() => setActiveGraph(active ? null : g.id)}
+                onClick={() => setActiveAutomation(active ? null : g.id)}
               >
                 <span style={{ opacity: g.enabled ? 0.9 : 0.35 }}>⊕</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1451,9 +1451,9 @@ function GraphListPanel() {
           componentGraphs.map((g) => (
             <div
               key={g.id}
-              style={rowStyle(g.id === activeGraphId)}
+              style={rowStyle(g.id === activeAutomationId)}
               onClick={() =>
-                setActiveGraph(g.id === activeGraphId ? null : g.id)
+                setActiveAutomation(g.id === activeAutomationId ? null : g.id)
               }
             >
               <span style={{ opacity: 0.6 }}>⬡</span>
@@ -1719,8 +1719,8 @@ export function SceneGraph() {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createNodeGraph(nodeId, payload.name);
-      await api.updateGraph(created.id, {
+      const created = await api.createNodeAutomation(nodeId, payload.name);
+      await api.updateAutomation(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
@@ -2058,7 +2058,7 @@ export function SceneGraph() {
               <CameraEffectsSection nodeId={node.id} />
             )}
             <ClipsSection owner={{ kind: 'node', id: node.id }} />
-            <GraphsSection owner={{ kind: 'node', id: node.id }} />
+            <AutomationsSection owner={{ kind: 'node', id: node.id }} />
           </div>
         )}
 
@@ -2296,7 +2296,7 @@ export function SceneGraph() {
         {isSelected && (
           <>
             <ClipsSection owner={{ kind: 'node', id: scene.id }} />
-            <GraphsSection owner={{ kind: 'node', id: scene.id }} />
+            <AutomationsSection owner={{ kind: 'node', id: scene.id }} />
           </>
         )}
 
@@ -2376,7 +2376,7 @@ export function SceneGraph() {
         </button>
       </div>
 
-      {dockTab === 'graphs' && <GraphListPanel />}
+      {dockTab === 'graphs' && <AutomationListPanel />}
       {dockTab === 'compose' && <ComposeTree />}
 
       {dockTab === 'scene' && (

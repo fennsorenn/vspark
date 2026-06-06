@@ -130,8 +130,8 @@ async function start() {
 
   // Standalone project graphs — start every persisted-enabled graph on boot.
   // See dev-notes/modules/project-graphs.md.
-  const { projectGraphManager } = await import('./project_graphs/manager.js');
-  projectGraphManager.startAllEnabled();
+  const { automationManager } = await import('./project_graphs/manager.js');
+  automationManager.startAllEnabled();
 
   // Overlive integration — one shared kit per project with configured accounts.
   // See dev-notes/modules/overlive.md.

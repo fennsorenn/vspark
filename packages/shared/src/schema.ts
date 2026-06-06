@@ -368,7 +368,7 @@ export const replaceTrackClipKeyframesSchema = z
 
 export const graphOwnerKindSchema = z
   .enum(['project', 'scene_node', 'compose_layer'])
-  .openapi('GraphOwnerKind');
+  .openapi('AutomationOwnerKind');
 
 export const createGraphSchema = z
   .object({

@@ -927,24 +927,24 @@ export const fireSignalEvent = (
 
 // ─── Project graphs ──────────────────────────────────────────────────────────
 
-export const getProjectGraphs = (projectId: string) =>
-  request<GraphRecord[]>(`/projects/${projectId}/graphs`);
+export const getProjectAutomations = (projectId: string) =>
+  request<AutomationRecord[]>(`/projects/${projectId}/automations`);
 
 export const createProjectGraph = (projectId: string, name: string) =>
-  request<GraphRecord>(`/projects/${projectId}/graphs`, {
+  request<AutomationRecord>(`/projects/${projectId}/automations`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
 
 /** A scene-node- or compose-layer-scoped graph, tagged with its owner's
  *  display name for listing in the Graphs panel's Scoped section. */
-export interface ScopedGraphRecord extends GraphRecord {
+export interface ScopedAutomationRecord extends AutomationRecord {
   ownerName: string;
   ownerNodeKind?: string;
 }
 
 export const getProjectScopedGraphs = (projectId: string) =>
-  request<ScopedGraphRecord[]>(`/projects/${projectId}/scoped-graphs`);
+  request<ScopedAutomationRecord[]>(`/projects/${projectId}/scoped-automations`);
 
 // ─── Overlive: app credentials ───────────────────────────────────────────────
 
@@ -1130,7 +1130,7 @@ export interface PresetRecord extends PresetSummary {
   payload: unknown;
 }
 
-export interface GraphRecord {
+export interface AutomationRecord {
   id: string;
   ownerKind: string;
   ownerId: string;
@@ -1222,27 +1222,27 @@ export const instantiatePreset = (
 
 /** Generic graph fetch by id — works for any owner kind. Used by the canvas
  *  so it can open a graph without first knowing its scope. */
-export const getGraph = (id: string) => request<GraphRecord>(`/graphs/${id}`);
+export const getAutomation = (id: string) => request<AutomationRecord>(`/automations/${id}`);
 
-export const getNodeGraphs = (nodeId: string) =>
-  request<GraphRecord[]>(`/scene-nodes/${nodeId}/graphs`);
+export const getNodeAutomations = (nodeId: string) =>
+  request<AutomationRecord[]>(`/scene-nodes/${nodeId}/automations`);
 
-export const createNodeGraph = (nodeId: string, name: string) =>
-  request<GraphRecord>(`/scene-nodes/${nodeId}/graphs`, {
+export const createNodeAutomation = (nodeId: string, name: string) =>
+  request<AutomationRecord>(`/scene-nodes/${nodeId}/automations`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
 
-export const getLayerGraphs = (layerId: string) =>
-  request<GraphRecord[]>(`/compose-layers/${layerId}/graphs`);
+export const getLayerAutomations = (layerId: string) =>
+  request<AutomationRecord[]>(`/compose-layers/${layerId}/automations`);
 
-export const createLayerGraph = (layerId: string, name: string) =>
-  request<GraphRecord>(`/compose-layers/${layerId}/graphs`, {
+export const createLayerAutomation = (layerId: string, name: string) =>
+  request<AutomationRecord>(`/compose-layers/${layerId}/automations`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
 
-export const updateGraph = (
+export const updateAutomation = (
   id: string,
   patch: Partial<{
     name: string;
@@ -1250,13 +1250,13 @@ export const updateGraph = (
     descriptor: import('@vspark/shared/signal').GraphDescriptor;
   }>
 ) =>
-  request<GraphRecord>(`/graphs/${id}`, {
+  request<AutomationRecord>(`/automations/${id}`, {
     method: 'PUT',
     body: JSON.stringify(patch),
   });
 
-export const deleteGraph = (id: string) =>
-  request<Record<string, never>>(`/graphs/${id}`, { method: 'DELETE' });
+export const deleteAutomation = (id: string) =>
+  request<Record<string, never>>(`/automations/${id}`, { method: 'DELETE' });
 
 export const api = {
   getUpdateStatus,
@@ -1315,7 +1315,7 @@ export const api = {
   getSignalGraphStates,
   fireSignalEvent,
   getBehaviorKinds,
-  getProjectGraphs,
+  getProjectAutomations,
   createProjectGraph,
   getProjectScopedGraphs,
   getOverliveAppCredentials,
@@ -1337,11 +1337,11 @@ export const api = {
   deletePreset,
   serializePreset,
   instantiatePreset,
-  getGraph,
-  getNodeGraphs,
-  createNodeGraph,
-  getLayerGraphs,
-  createLayerGraph,
-  updateGraph,
-  deleteGraph,
+  getAutomation,
+  getNodeAutomations,
+  createNodeAutomation,
+  getLayerAutomations,
+  createLayerAutomation,
+  updateAutomation,
+  deleteAutomation,
 };

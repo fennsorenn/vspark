@@ -32,7 +32,7 @@ import { InferGraph } from '@vspark/shared/inference';
 import { inferForKind } from '@vspark/shared/infer_nodes';
 import { transportOf, type ResolvedPort } from '@vspark/shared/signal_types';
 import type { PortMeta } from '@vspark/shared/node';
-import type { GraphOwnerKind } from '@vspark/shared/types';
+import type { AutomationOwnerKind } from '@vspark/shared/types';
 import { SignalNodeCard } from './SignalNodeCard';
 import type { SignalNodeData } from './SignalNodeCard';
 import { FlashEdge } from './FlashEdge';
@@ -92,7 +92,7 @@ function staticPortsOf(meta: NodeKindMeta | undefined): PortMeta[] {
 function buildMirror(
   descriptor: GraphDescriptor,
   kindMap: Map<string, NodeKindMeta>,
-  ownerKind?: GraphOwnerKind
+  ownerKind?: AutomationOwnerKind
 ): InferGraph {
   const g = new InferGraph(
     inferForKind,
@@ -330,8 +330,8 @@ export function SignalGraphCanvas(props: Props) {
 
 function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   const setSelectedSignalNode = useEditorStore((s) => s.setSelectedSignalNode);
-  const setActiveGraphWritable = useEditorStore(
-    (s) => s.setActiveGraphWritable
+  const setActiveAutomationWritable = useEditorStore(
+    (s) => s.setActiveAutomationWritable
   );
   const { screenToFlowPosition } = useReactFlow();
 
@@ -349,7 +349,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   const [writable, setWritable] = useState(false);
   // Owner scope of the loaded graph — threaded into inference so scope-aware
   // nodes (scene_entity) resolve the right port types in the editor.
-  const [ownerKind, setOwnerKind] = useState<GraphOwnerKind | undefined>(
+  const [ownerKind, setOwnerKind] = useState<AutomationOwnerKind | undefined>(
     undefined
   );
   // Transient banner shown when a drag connection is refused by type inference.
@@ -411,7 +411,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
           if (!cancelled) {
             writableRef.current = false;
             setWritable(false);
-            setActiveGraphWritable(false);
+            setActiveAutomationWritable(false);
             // Component-owned graphs are always attached to a scene node.
             setOwnerKind('scene_node');
             setDescriptor(match);
@@ -422,10 +422,10 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
         /* ignore */
       }
       // Fall back to standalone graphs (project / scene_node / compose_layer)
-      // via the generic getGraph endpoint. All three owner kinds are writable
+      // via the generic getAutomation endpoint. All three owner kinds are writable
       // via the same PUT /graphs/:id route.
       try {
-        const g = await api.getGraph(graphId);
+        const g = await api.getAutomation(graphId);
         if (g && !cancelled) {
           const d: GraphDescriptor = {
             ...g.descriptor,
@@ -436,8 +436,8 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
           writableRef.current = true;
           editableRef.current = d;
           setWritable(true);
-          setActiveGraphWritable(true);
-          setOwnerKind((g.ownerKind as GraphOwnerKind) || undefined);
+          setActiveAutomationWritable(true);
+          setOwnerKind((g.ownerKind as AutomationOwnerKind) || undefined);
           setDescriptor(d);
         }
       } catch {
@@ -447,14 +447,14 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [graphId, setActiveGraphWritable]);
+  }, [graphId, setActiveAutomationWritable]);
 
   // Clear writable flag on unmount (so leaving the graph view also clears).
   useEffect(
     () => () => {
-      setActiveGraphWritable(false);
+      setActiveAutomationWritable(false);
     },
-    [setActiveGraphWritable]
+    [setActiveAutomationWritable]
   );
 
   // Poll graph states at ~500ms for live monitoring.
@@ -567,7 +567,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       persistTimer.current = setTimeout(() => {
         // Strip the wrapper fields the backend doesn't store on the row.
         void api
-          .updateGraph(graphId, {
+          .updateAutomation(graphId, {
             descriptor: {
               id: next.id,
               label: next.label,
@@ -593,7 +593,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       const next = editableRef.current;
       if (writableRef.current && next) {
         void api
-          .updateGraph(graphId, {
+          .updateAutomation(graphId, {
             descriptor: {
               id: next.id,
               label: next.label,
