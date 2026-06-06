@@ -463,7 +463,8 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
       {components.map((comp) => {
         const ct = behaviorKinds.find((c) => c.kind === comp.kind);
         const isSelected = selectedBehaviorId === comp.id;
-        const hasStatus = comp.kind === 'vmc_receiver';
+        const hasStatus =
+          comp.kind === 'vmc_receiver' || comp.kind === 'vmc_receiver_2d';
         const isConnected = hasStatus && vmcStatus[comp.id] === true;
         const isTracking = hasStatus && vmcTracking[comp.id] === true;
         return (

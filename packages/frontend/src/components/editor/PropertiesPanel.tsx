@@ -900,7 +900,10 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
     setTimeout(() => setFlash(null), 1800);
   };
 
-  const graphId = `vmc-pipeline:${comp.id}`;
+  // The 2D pipeline has no skeleton, so no arm IK / arm calibration; its graph
+  // id carries the `-2d` suffix (see makeVmcGraphDescriptor2d).
+  const is2d = comp.kind === 'vmc_receiver_2d';
+  const graphId = is2d ? `vmc-pipeline-2d:${comp.id}` : `vmc-pipeline:${comp.id}`;
 
   const fire = async (nodeId: string, label: string, onOk?: () => void) => {
     try {
@@ -915,7 +918,9 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
   const reset = async () => {
     await Promise.allSettled([
       fireSignalEvent(graphId, 'head_calib_reset', 'trigger'),
-      fireSignalEvent(graphId, 'arm_calib_reset', 'trigger'),
+      ...(is2d
+        ? []
+        : [fireSignalEvent(graphId, 'arm_calib_reset', 'trigger')]),
     ]);
     setHeadSet(false);
     setLeftSet(false);
@@ -995,43 +1000,48 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
         </button>
       </div>
 
-      <div style={rowStyle}>
-        <div style={dotStyle(leftSet)} />
-        <span style={labelStyle}>
-          Left arm — touch index finger to left eye corner
-        </span>
-        <button
-          style={btnStyle}
-          onClick={() =>
-            fire('left_arm_capture', 'Left arm captured ✓', () =>
-              setLeftSet(true)
-            )
-          }
-        >
-          Capture
-        </button>
-      </div>
+      {!is2d && (
+        <div style={rowStyle}>
+          <div style={dotStyle(leftSet)} />
+          <span style={labelStyle}>
+            Left arm — touch index finger to left eye corner
+          </span>
+          <button
+            style={btnStyle}
+            onClick={() =>
+              fire('left_arm_capture', 'Left arm captured ✓', () =>
+                setLeftSet(true)
+              )
+            }
+          >
+            Capture
+          </button>
+        </div>
+      )}
 
-      <div style={rowStyle}>
-        <div style={dotStyle(rightSet)} />
-        <span style={labelStyle}>
-          Right arm — touch index finger to right eye corner
-        </span>
-        <button
-          style={btnStyle}
-          onClick={() =>
-            fire('right_arm_capture', 'Right arm captured ✓', () =>
-              setRightSet(true)
-            )
-          }
-        >
-          Capture
-        </button>
-      </div>
+      {!is2d && (
+        <div style={rowStyle}>
+          <div style={dotStyle(rightSet)} />
+          <span style={labelStyle}>
+            Right arm — touch index finger to right eye corner
+          </span>
+          <button
+            style={btnStyle}
+            onClick={() =>
+              fire('right_arm_capture', 'Right arm captured ✓', () =>
+                setRightSet(true)
+              )
+            }
+          >
+            Capture
+          </button>
+        </div>
+      )}
 
       <div style={{ fontSize: 10, color: '#444', lineHeight: 1.5 }}>
-        Head: relax into your natural posture. Arms: touch fingertip to eye
-        corner, hold steady.
+        {is2d
+          ? 'Head: relax into your natural posture, then capture.'
+          : 'Head: relax into your natural posture. Arms: touch fingertip to eye corner, hold steady.'}
       </div>
 
       {(headSet || leftSet || rightSet) && (
@@ -2696,6 +2706,7 @@ function BreathingProps({ comp }: { comp: Behavior }) {
 function BehaviorProps({ comp }: { comp: Behavior }) {
   switch (comp.kind) {
     case 'vmc_receiver':
+    case 'vmc_receiver_2d':
       return <VmcReceiverProps comp={comp} />;
     case 'lipsync_processor':
       return <LipsyncProcessorProps comp={comp} />;
