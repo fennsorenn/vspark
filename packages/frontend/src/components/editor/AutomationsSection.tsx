@@ -16,7 +16,7 @@ export function AutomationsSection({
   const activeAutomationId = useEditorStore((s) => s.activeAutomationId);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteGraph = clipboardPayload?.kind === 'graph';
+  const canPasteAutomation = clipboardPayload?.kind === 'graph';
 
   const [automations, setAutomations] = useState<AutomationRecord[]>([]);
   /** Open context menu state. Null when no menu is currently up. */
@@ -222,7 +222,7 @@ export function AutomationsSection({
         >
           + Add Automation
         </button>
-        {canPasteGraph && (
+        {canPasteAutomation && (
           <button
             onClick={handlePaste}
             title="Paste the automation from clipboard onto this owner"

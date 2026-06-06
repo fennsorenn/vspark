@@ -206,7 +206,7 @@ function LayerRow({
     }
   };
 
-  const handlePasteGraphAtLayer = async () => {
+  const handlePasteAutomationAtLayer = async () => {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
@@ -227,7 +227,7 @@ function LayerRow({
   };
   const buildContextMenuItems = (): ContextMenuItem[] => {
     const canPasteLayer = clipboardPayload?.kind === 'compose-layer';
-    const canPasteGraph = clipboardPayload?.kind === 'graph';
+    const canPasteAutomation = clipboardPayload?.kind === 'graph';
     const items: ContextMenuItem[] = [
       {
         kind: 'item',
@@ -242,11 +242,11 @@ function LayerRow({
         onClick: () => void handlePasteLayer(),
       });
     }
-    if (canPasteGraph) {
+    if (canPasteAutomation) {
       items.push({
         kind: 'item',
         label: 'Paste automation here',
-        onClick: () => void handlePasteGraphAtLayer(),
+        onClick: () => void handlePasteAutomationAtLayer(),
       });
     }
     items.push(

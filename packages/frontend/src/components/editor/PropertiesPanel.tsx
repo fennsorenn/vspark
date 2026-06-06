@@ -4770,7 +4770,7 @@ export function PropertiesPanel() {
           </>
         )}
 
-        {/* Godray Caster Properties */}
+        {/* Light Rays Properties */}
         {node.kind === 'godray_caster' &&
           (() => {
             const gr =

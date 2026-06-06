@@ -170,7 +170,7 @@ export function edge(
   return { fromNodeId, fromPort, toNodeId, toPort, kind };
 }
 
-export interface GraphEntry {
+export interface AutomationEntry {
   presetId: string;
   ownerKind: 'scene_node' | 'compose_layer';
   ownerPresetId: string;
@@ -194,7 +194,7 @@ export function graph(
   nodes: GNode[],
   edges: GEdge[],
   enabled = true
-): GraphEntry {
+): AutomationEntry {
   return {
     presetId,
     ownerKind,
@@ -334,7 +334,7 @@ export function trackClip(
 // ── Payload assemblers ────────────────────────────────────────────────────
 
 export interface PresetExtras {
-  graphs?: GraphEntry[];
+  graphs?: AutomationEntry[];
   trackClips?: TrackClipEntry[];
   animationClips?: unknown[];
 }

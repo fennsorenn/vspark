@@ -61,9 +61,9 @@ function SceneNodeContextMenu({
   onDelete,
   onCopy,
   onPasteNode,
-  onPasteGraph,
+  onPasteAutomation,
   canPasteNode,
-  canPasteGraph,
+  canPasteAutomation,
 }: {
   menu: CtxMenu;
   nodes: NodeRecord[];
@@ -74,9 +74,9 @@ function SceneNodeContextMenu({
   onDelete: (nodeId: string) => void;
   onCopy: (nodeId: string) => void;
   onPasteNode: (parentNodeId: string) => void;
-  onPasteGraph: (nodeId: string) => void;
+  onPasteAutomation: (nodeId: string) => void;
   canPasteNode: boolean;
-  canPasteGraph: boolean;
+  canPasteAutomation: boolean;
 }) {
   const node = nodes.find((n) => n.id === menu.nodeId)!;
   const [showAddChild, setShowAddChild] = useState(false);
@@ -288,7 +288,7 @@ function SceneNodeContextMenu({
         </div>
       )}
 
-      {canPasteGraph && (
+      {canPasteAutomation && (
         <div
           style={itemStyle}
           onMouseEnter={(e) =>
@@ -299,7 +299,7 @@ function SceneNodeContextMenu({
               'transparent')
           }
           onClick={() => {
-            onPasteGraph(menu.nodeId);
+            onPasteAutomation(menu.nodeId);
             onClose();
           }}
         >
@@ -1062,7 +1062,7 @@ function AutomationListPanel() {
   const [behaviorAutomationsOpen, setBehaviorAutomationsOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteGraph = clipboardPayload?.kind === 'graph';
+  const canPasteAutomation = clipboardPayload?.kind === 'graph';
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
@@ -1216,7 +1216,7 @@ function AutomationListPanel() {
       >
         <span>Global Automations</span>
         <div style={{ display: 'flex', gap: 4 }}>
-          {canPasteGraph && (
+          {canPasteAutomation && (
             <button
               title="Paste automation from clipboard as a global automation"
               onClick={handlePaste}
@@ -1533,7 +1533,7 @@ export function SceneGraph() {
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteSceneNodeClipboard = clipboardPayload?.kind === 'scene-node';
-  const canPasteGraphClipboard = clipboardPayload?.kind === 'graph';
+  const canPasteAutomationClipboard = clipboardPayload?.kind === 'graph';
   // Collapsed scene roots (scene id set).
   const [collapsedScenes, setCollapsedScenes] = useState<Set<string>>(
     new Set()
@@ -1715,7 +1715,7 @@ export function SceneGraph() {
     }
   };
 
-  const handlePasteGraphAtNode = async (nodeId: string) => {
+  const handlePasteAutomationAtNode = async (nodeId: string) => {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
@@ -2457,9 +2457,9 @@ export function SceneGraph() {
               onPasteNode={(parentId) =>
                 void handlePasteNodeAsChild(parentId, null)
               }
-              onPasteGraph={(id) => void handlePasteGraphAtNode(id)}
+              onPasteAutomation={(id) => void handlePasteAutomationAtNode(id)}
               canPasteNode={canPasteSceneNodeClipboard}
-              canPasteGraph={canPasteGraphClipboard}
+              canPasteAutomation={canPasteAutomationClipboard}
             />
           )}
         </>

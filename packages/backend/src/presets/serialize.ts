@@ -181,10 +181,10 @@ export function serializeSceneNodeSubtree(
     .all(...nodeIds) as Record<string, unknown>[];
 
   const graphs = automationRows.map((g) => {
-    const graphPresetId = nextPresetId('g');
-    realToPreset.set(g.id as string, graphPresetId);
+    const automationPresetId = nextPresetId('g');
+    realToPreset.set(g.id as string, automationPresetId);
     return {
-      presetId: graphPresetId,
+      presetId: automationPresetId,
       ownerKind: 'scene_node' as const,
       ownerPresetId: realToPreset.get(g.owner_id as string) ?? '',
       name: g.name,
@@ -406,10 +406,10 @@ export function serializeComposeLayerSubtree(
     .all(...layerIds) as Record<string, unknown>[];
 
   const graphs = automationRows.map((g) => {
-    const graphPresetId = nextPresetId('g');
-    realToPreset.set(g.id as string, graphPresetId);
+    const automationPresetId = nextPresetId('g');
+    realToPreset.set(g.id as string, automationPresetId);
     return {
-      presetId: graphPresetId,
+      presetId: automationPresetId,
       ownerKind: 'compose_layer' as const,
       ownerPresetId: realToPreset.get(g.owner_id as string) ?? '',
       name: g.name,
