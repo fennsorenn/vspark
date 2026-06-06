@@ -38,7 +38,7 @@ Toolchain: repo runs TC39 Stage-3 decorators (TS 5.9, **no** `experimentalDecora
 
 ## Runtime — `signal/engine.ts`
 
-`SignalGraph` is instantiated per component (one per VMC receiver, one per breathing component, etc.). Graphs can also be **standalone** (project / scene-node / compose-layer scoped) rather than component-scoped — see [project-graphs.md](project-graphs.md) for user-authored graphs owned by a `graphs` row. The component-context kinds `component_config` / `component_id` are rejected in all standalone graphs at descriptor-validation time by `ProjectGraphManager`. `scene_entity` is allowed in scene-node- and compose-layer-scoped graphs (rejected only in project scope); the graph's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
+`SignalGraph` (the reactive substrate; name kept) is instantiated per Behavior (one per VMC receiver, one per breathing behavior, etc.). A signal graph can also back an **Automation** (project / scene-node / compose-layer scoped) rather than a Behavior — see [project-graphs.md](project-graphs.md) for user-authored automations owned by an `automations` row (table renamed from `graphs` in migration 022). The behavior-context kinds `component_config` / `component_id` (kind strings kept) are rejected in all automations at descriptor-validation time by `AutomationManager`. `scene_entity` is allowed in scene-node- and compose-layer-scoped automations (rejected only in project scope); the automation's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
 
 After the Phase 2 re-architecture the engine is **wiring + lifecycle** over Node instances, not a central dispatcher:
 
@@ -86,7 +86,7 @@ Organized by role:
 | `vmc_packet_source` | Entry for VMC/RhyLive UDP data; outputs `bones` (BoneRotations) and `arkit` events |
 | `mediapipe_source` | Entry for MediaPipe landmarks; outputs `face`, `leftHand`, `rightHand`, `pose` events |
 | `lipsync_source` | Entry for viseme weights from mic analysis; outputs `visemes` event |
-| `manual_trigger` | UI-facing trigger button; fires an event on demand |
+| `manual_trigger` (kind string `component_trigger`, label "Behavior Trigger") | UI-facing trigger button; fires an event on demand |
 | `clock` | Outputs elapsed time since graph start |
 | `time` | Outputs current time in seconds (pull) |
 | `sine_wave` | Time → sine wave (configurable freq/amplitude/phase) |
@@ -115,7 +115,7 @@ Organized by role:
 ### Processing / utility
 | Kind | Description |
 |------|-------------|
-| `blendshapes_sum` | List port → clamped sum across multiple Blendshapes inputs |
+| `blendshapes_sum` (label "Combine Blendshapes") | List port → clamped sum across multiple Blendshapes inputs |
 | `euler_to_quaternion` | Euler angles → quaternion |
 | `pack_event` | DYNAMIC user-named input fields (`config.fields` is names-only, types inferred from connections, trailing empty slot to add more). On `fire`, packs the wired field values into a single record and emits `event: Event<{...}>`. Named-field inputs have no decorated member — read via `this.input(name)`. |
 | `queue_events` | FIFO buffer. `enqueue` appends a payload, `pop` shifts + emits the oldest on `popped` (whose type mirrors the resolved `enqueue` payload), `size` is a value-out. FIFO array lives behind `getState/setState` so it survives `reconcile()`. |
@@ -130,30 +130,30 @@ Organized by role:
 ### Output/broadcast
 | Kind | Description |
 |------|-------------|
-| `pose_broadcast` | NormalizedPose → WebSocket `vmc_pose` broadcast; respects interceptor chain |
-| `blendshapes_broadcast` | Blendshapes → WebSocket `vmc_blendshapes` broadcast |
-| `ik_broadcast` | IkTargetFrame → WebSocket `ik_targets` broadcast (consumed by frontend `ikTargetStore` + Viewport Step 2.5 solver) |
-| `set_scene_node_param` | Writes a scalar/coerced paramPath into the runtime override bus for a scene node. Optional `spawnRef` event input retargets the fire to a tmp id. See [runtime-overrides.md](runtime-overrides.md). |
-| `set_compose_layer_param` | Same shape, compose-layer target. |
+| `pose_broadcast` (label "Send Pose") | NormalizedPose → WebSocket `vmc_pose` broadcast; respects interceptor chain. Its `componentId` value-in port is kept (persisted); the value it carries is the `behaviorId`. |
+| `blendshapes_broadcast` (label "Send Blendshapes") | Blendshapes → WebSocket `vmc_blendshapes` broadcast. Same `componentId`-port note as `pose_broadcast`. |
+| `ik_broadcast` (label "Send IK Targets") | IkTargetFrame → WebSocket `ik_targets` broadcast (consumed by frontend `ikTargetStore` + Viewport Step 2.5 solver) |
+| `set_scene_node_param` (label "Set Object Property") | Writes a scalar/coerced paramPath into the runtime override bus for a scene node. Optional `spawnRef` event input retargets the fire to a tmp id. See [runtime-overrides.md](runtime-overrides.md). |
+| `set_compose_layer_param` (label "Set Layer Property") | Same shape, compose-layer target. |
 | `set_text` | Convenience over the set-param nodes for the `text.content` paramPath; `spawnRef.kind` overrides `targetKind` when triggered via that port. |
 | `set_data` | Generic sibling of `set_text`: on `fire`, publishes the wired `data` (Any) payload to the named `channel` (String) on the data-channel bus → frontend `feed` layer. See [data-channels.md](data-channels.md). |
 | `media_control` | Fire-and-forget media command (play/pause/stop/restart/seek/setVolume/mute/unmute) onto the media-command bus. Config `action`/`targetKind`/`targetId`; inputs `target` (SceneEntity, picker-or-wired), `t` (Float, for seek), `volume` (Float, for setVolume); a `spawnRef` event retargets to a spawned instance for that fire. tags `['media','output']`. See [media.md](media.md). |
 
 ### Pose interceptor chain
-The interceptor chain lets components (e.g., breathing) modify poses in-flight before broadcast.
+The interceptor chain lets behaviors (e.g., breathing) modify poses in-flight before broadcast.
 
 | Kind | Description |
 |------|-------------|
-| `on_pose_broadcast` | Entry for interceptor graph; receives InterceptorFrame from the registry |
-| `pose_interceptor_broadcast` | Exit for interceptor graph; re-broadcasts modified pose back through chain |
+| `on_pose_broadcast` (label "Intercept Pose") | Entry for interceptor graph; receives InterceptorFrame from the registry |
+| `pose_interceptor_broadcast` (label "Send Intercepted Pose") | Exit for interceptor graph; re-broadcasts modified pose back through chain |
 
 ### Config/context
 | Kind | Description |
 |------|-------------|
-| `component_config` | Dot-notation extractor on component config JSON (e.g., `field: "myNode.param"`) |
-| `component_id` | Injects the owning componentId as a string value |
-| `scene_entity` | Outputs the id of the entity the graph is scoped to; output type follows scope (`SceneNode` / `ComposeLayer`) |
-| `viseme_passthrough` | Scales viseme weights by a sensitivity config value |
+| `component_config` (label "Behavior Settings") | Dot-notation extractor on behavior config JSON (e.g., `field: "myNode.param"`). Kind string + `componentId`-style internals kept. |
+| `component_id` (label "This Behavior") | Injects the owning behavior's instance id as a string value. Kind string and the `componentId` port/`ComponentIdConfig` are kept (persisted); the runtime value is the `behaviorId`. |
+| `scene_entity` (label "This Entity") | Outputs the id of the entity the automation/behavior is scoped to; output type follows scope (`SceneNode` / `ComposeLayer`) |
+| `viseme_passthrough` (label "Visemes → Blendshapes") | Scales viseme weights by a sensitivity config value |
 
 ## Graph Descriptor
 
@@ -167,7 +167,7 @@ A `GraphDescriptor` (defined in `packages/shared/src/signal.ts`) is a static tem
 }
 ```
 
-Edges no longer carry a `kind` — transport is derived from the resolved port types at load time (the old `PortKind` is deleted). Each manager creates its own descriptor factory (e.g., `makeVmcGraphDescriptor(componentId)`). The descriptor is passed to `SignalGraph.fromDescriptor()` along with live config/state callbacks; `fromDescriptor` replays the edges through `InferGraph.tryAddEdge` and silently skips any the inference rejects.
+Edges no longer carry a `kind` — transport is derived from the resolved port types at load time (the old `PortKind` is deleted). Each manager creates its own descriptor factory (e.g., `makeVmcGraphDescriptor(behaviorId)`). The descriptor is passed to `SignalGraph.fromDescriptor()` along with live config/state callbacks; `fromDescriptor` replays the edges through `InferGraph.tryAddEdge` and silently skips any the inference rejects.
 
 ## In-Flight & Planned Work
 

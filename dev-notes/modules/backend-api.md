@@ -12,13 +12,13 @@ WebSocket: `packages/backend/src/ws/index.ts`
 3. Instantiate managers (VmcManager, BreathingManager, LipsyncManager, TrackingManager, ApiControllerManager)
 4. Inject managers into route module via setters (re-exported from `routes/index.ts`, defined in `routes/shared.ts`)
 5. Mount Swagger UI at `/api-docs` and serve the raw spec at `/api-docs.json`
-6. Load all persisted `node_components` rows from DB and call `syncComponents()` on each manager
+6. Load all persisted `behaviors` rows (table renamed from `node_components` in migration 022) from DB and call `syncBehaviors()` on each manager
 7. Bind WebSocket upgrade handler; on connect, ApiController re-emits its current state via `rebroadcastTo()`
 8. Start HTTP server on port 3001
 
 **WebSocket message handlers** (registered on connect):
-- `lipsync_input` → `LipsyncManager.fireVisemes(componentId, visemes)`
-- `tracking_input` → `TrackingManager.fireLandmarks(componentId, frame)`
+- `lipsync_input` → `LipsyncManager.fireVisemes(behaviorId, visemes)`
+- `tracking_input` → `TrackingManager.fireLandmarks(behaviorId, frame)`
 - `avatar_expressions_report` → `ApiControllerManager.setExpressionsForNode(nodeId, expressions)` — frontend tells the backend which VRM expressions exist on a freshly loaded avatar
 
 ## REST routes — `routes/` (per-resource split)
@@ -30,18 +30,18 @@ Response shape: `{ ok: true, data: ... }` or `{ ok: false, error: { status, mess
 | File | Covers |
 |------|--------|
 | [routes/index.ts](../../packages/backend/src/routes/index.ts) | Composes sub-routers, re-exports manager/ws setters from `shared.ts` |
-| [routes/shared.ts](../../packages/backend/src/routes/shared.ts) | Manager singletons + setters, `refresh*` helpers (DB → `syncComponents`), uploads dir + extension/MIME tables, `discoverAssets`, `_resolveApiController` |
+| [routes/shared.ts](../../packages/backend/src/routes/shared.ts) | Manager singletons + setters, `refresh*` helpers (DB → `syncBehaviors`), uploads dir + extension/MIME tables, `discoverAssets`, `_resolveApiController` |
 | [routes/projects.ts](../../packages/backend/src/routes/projects.ts) | `/projects` CRUD |
 | [routes/scenes.ts](../../packages/backend/src/routes/scenes.ts) | `/projects/:projectId/scenes`, `/scenes/:sceneId` |
 | [routes/scene-nodes.ts](../../packages/backend/src/routes/scene-nodes.ts) | `/scenes/:sceneId/nodes`, `/scene-nodes/:nodeId`, animation-clip CRUD |
 | [routes/assets.ts](../../packages/backend/src/routes/assets.ts) | Project asset upload + listing (runs `discoverAssets()` on GET) |
-| [routes/node-components.ts](../../packages/backend/src/routes/node-components.ts) | Component CRUD — each mutation calls `refreshAllComponentManagers()` |
-| [routes/api-controller.ts](../../packages/backend/src/routes/api-controller.ts) | REST surface of the api_controller node component (see below) |
+| [routes/node-components.ts](../../packages/backend/src/routes/node-components.ts) | Behavior CRUD (`/api/scene-nodes/:id/behaviors`, `/api/behaviors/:id`) — each mutation calls `refreshAllBehaviorManagers()`. File name kept. |
+| [routes/api-controller.ts](../../packages/backend/src/routes/api-controller.ts) | REST surface of the api_controller behavior (see below) |
 | [routes/expressions.ts](../../packages/backend/src/routes/expressions.ts) | Read-only listings: VRM expressions + animation clips for an avatar node |
 | [routes/camera-effects.ts](../../packages/backend/src/routes/camera-effects.ts) | `/scene-nodes/:nodeId/effects`, `/effects/:id` — WS `camera_effect_*` broadcasts |
 | [routes/signal.ts](../../packages/backend/src/routes/signal.ts) | Signal graph inspection + `POST /signal/graphs/:graphId/fire` (dispatches by graph-id prefix to VMC or tracking) |
-| [routes/graphs.ts](../../packages/backend/src/routes/graphs.ts) | Standalone graphs over the unified `graphs` table — project, scene-node, and compose-layer GET/POST plus `PUT /graphs/:id` and `DELETE /graphs/:id`. Project rows route through `ProjectGraphManager`. See [project-graphs.md](project-graphs.md). |
-| [routes/meta.ts](../../packages/backend/src/routes/meta.ts) | `/signal/node-kinds`, `/component-kinds`, `/system/local-ips` |
+| [routes/graphs.ts](../../packages/backend/src/routes/graphs.ts) | Automations over the unified `automations` table (renamed from `graphs` in migration 022) — project, scene-node, and compose-layer GET/POST plus `PUT /automations/:id` and `DELETE /automations/:id`. Rows route through `AutomationManager`. File name kept. See [project-graphs.md](project-graphs.md). |
+| [routes/meta.ts](../../packages/backend/src/routes/meta.ts) | `/signal/node-kinds`, `/behavior-kinds`, `/system/local-ips` |
 | [routes/openapi.ts](../../packages/backend/src/routes/openapi.ts) | OpenAPI base spec + Zod→OpenAPI component-schema build |
 
 Sub-routers are composed with `router.use(subRouter)` in `routes/index.ts` (no path prefix — each sub-router declares its full path).
@@ -50,17 +50,17 @@ Sub-routers are composed with `router.use(subRouter)` in `routes/index.ts` (no p
 
 For the canonical, always-current request/response contracts of every route, browse Swagger UI at `http://localhost:3001/api-docs`. The notes below cover only behaviour that is not visible from the schema alone.
 
-- **node-components**: every mutation calls `refreshAllComponentManagers()` so manager state hot-reloads from DB.
+- **node-components** (behavior routes; file name kept): every mutation calls `refreshAllBehaviorManagers()` so manager state hot-reloads from DB.
 - **scene-nodes**: `POST /scenes/:sceneId/nodes` broadcasts `node_added` over WS; updates/deletes broadcast `node_updated`/`node_removed`. `POST /scene-nodes/:nodeId/clips` is an idempotent upsert keyed on `(source_file_path, clip_index)` — the frontend's Viewport calls it on VRM load to register real FBX clip durations.
 - **assets**: GET also runs `discoverAssets()`; files live under `uploads/{projectId}/{subdir}/` with subdir inferred from extension (avatars, animations, images, other). See `routes/shared.ts` for `SUBFOLDER_BY_EXT` / `MIME_BY_EXT` / `allocateFilename`.
 - **camera-effects**: mutations broadcast `camera_effect_added/updated/removed` over WS.
-- **signal**: `graphId` format is `<prefix>:<componentId>` (e.g. `vmc-pipeline:abc123`); `routes/signal.ts` dispatches by prefix to the right manager's `fireGraphEvent`.
-- **api-controller**: see the section below — first node component with a public REST control surface.
+- **signal**: `graphId` format is `<prefix>:<behaviorId>` (e.g. `vmc-pipeline:abc123`); `routes/signal.ts` dispatches by prefix to the right manager's `fireGraphEvent`.
+- **api-controller**: see the section below — first behavior with a public REST control surface.
 - **expressions**: read-only — `GET .../expressions` returns the VRM expression list reported by the frontend on VRM load (with `reported: false` until the frontend has loaded the avatar at least once); `GET .../animations` lists registered animation clips with playback metadata.
 
 ### api_controller REST surface — `routes/api-controller.ts`
 
-All routes are project-scoped via `/projects/:projectId/nodes/:nodeId/...`; `_resolveApiController` in `routes/shared.ts` confirms node ownership and resolves the active component id (404 if no component is attached, 503 if the manager hasn't been wired yet).
+All routes are project-scoped via `/projects/:projectId/nodes/:nodeId/...`; `_resolveApiController` in `routes/shared.ts` confirms node ownership and resolves the active `behaviorId` (404 if no behavior is attached, 503 if the manager hasn't been wired yet).
 
 | Method + path | Behaviour |
 |---|---|
@@ -147,13 +147,14 @@ PUT /api/config       writes config.json; channel change triggers checkForUpdate
 | File | What it adds |
 |------|--------------|
 | `001_initial.sql` | Core tables: projects, scenes, scene_nodes, asset_files, animation_clips, and several legacy tables |
-| `002_node_components.sql` | `node_components` table (replaces inline JSON components on nodes) |
+| `002_node_components.sql` | `node_components` table (replaces inline JSON components on nodes); renamed to `behaviors` in migration 022. Filename kept (historical CREATE). |
 | `003_camera_effects.sql` | `camera_effects` table |
 | `004_bone_attachment.sql` | `scene_nodes.bone_attachment` column (VRM bone name) |
 | `005_node_hidden.sql` | `scene_nodes.hidden` column |
 | `007_scene_node_properties.sql` | `scene_nodes.properties` JSON column — per-node properties bag; first use `blendTransitionTime` on VRM avatar nodes. `PUT /scene-nodes/:nodeId` shallow-merges incoming `properties` (mirrors the scene `runtime_settings` pattern); `POST` accepts the bag at insert time. |
+| `022_rename_tables_to_vocab.sql` | Vocabulary rename: `ALTER TABLE node_components RENAME TO behaviors` and `ALTER TABLE graphs RENAME TO automations` (FK constraints carried across; no data change). Historical CREATE migrations 002/014 left untouched. |
 
-All tables carry `project_id` FK for strict workspace isolation. The `node_components.config` column stores component config JSON including the `_nodeState` sub-key for graph persistence.
+All tables carry `project_id` FK for strict workspace isolation. The `behaviors.config` column (table renamed from `node_components` in migration 022) stores behavior config JSON including the `_nodeState` sub-key for graph persistence.
 
 ## Release packaging — `.github/workflows/release.yml`
 

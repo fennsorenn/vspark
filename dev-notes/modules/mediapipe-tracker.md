@@ -57,7 +57,7 @@ mediapipe_source
 
 ### Arm mode toggle
 
-The `useIk` component config flows through a `not_bool` fan-out wired to:
+The `useIk` behavior config flows through a `not_bool` fan-out wired to:
 - `pose_arms_to_bones.enabled` (true when IK is off)
 - `pose_ik_targets.enabled` / `ik_broadcast.enabled` (true when IK is on)
 
@@ -118,7 +118,7 @@ an active IK target:
 3. Wire it into `mediapipe_tracker/graph.ts`: add a node entry and edges from
    `mediapipe_source` (via `unpack_event` if you want a separate trigger/value
    split), through any merge/calibration nodes, into the appropriate broadcast.
-4. If the converter needs user-tunable knobs, add them to the component config
+4. If the converter needs user-tunable knobs, add them to the behavior config
    schema and add a `component_config` node feeding the relevant value port.
 5. If new UI knobs are needed, extend `MediapipeTrackerProps` in
    `PropertiesPanel.tsx`.

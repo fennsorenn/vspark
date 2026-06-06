@@ -1,4 +1,4 @@
-# API Controller (node component)
+# API Controller (behavior)
 
 REST-driven driver for VRM avatars. External systems can:
 
@@ -6,12 +6,12 @@ REST-driven driver for VRM avatars. External systems can:
 - set blendshape expressions (preset shorthand or explicit weight map)
 - read live state
 
-It is the first node component with a **public REST control surface** — its routes live under `/api/projects/:projectId/nodes/:nodeId/api-controller/...` rather than the generic component CRUD path.
+It is the first behavior with a **public REST control surface** — its routes live under `/api/projects/:projectId/nodes/:nodeId/api-controller/...` rather than the generic behavior CRUD path.
 
 ## Files
 
 - [packages/backend/src/node_components/api_controller/manager.ts](../../packages/backend/src/node_components/api_controller/manager.ts) — `ApiControllerManager`
-- [packages/backend/src/node_components/api_controller/register.ts](../../packages/backend/src/node_components/api_controller/register.ts) — `@ComponentKind` registration
+- [packages/backend/src/node_components/api_controller/register.ts](../../packages/backend/src/node_components/api_controller/register.ts) — `@BehaviorKind` registration (decorator renamed from `@ComponentKind`; source dir kept)
 - [packages/backend/src/routes/api-controller.ts](../../packages/backend/src/routes/api-controller.ts) — REST routes
 - [packages/backend/src/routes/expressions.ts](../../packages/backend/src/routes/expressions.ts) — read-only expression + animation listings
 - [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) — `apiControllerAnimationSchema`, `apiControllerAnimationQueueSchema`, `apiControllerBlendshapesSchema`
@@ -20,14 +20,15 @@ It is the first node component with a **public REST control surface** — its ro
 
 ## Architecture choice — no signal graph
 
-Unlike VMC, breathing, lipsync and tracking, this manager does **not** instantiate a signal graph. It keeps a plain `Map<componentId, ComponentState>` in memory and writes to the broadcast bus directly. There is no `_nodeState` persistence — state lives only as long as the process. Clients re-sync via `rebroadcastTo()` on WS reconnect.
+Unlike VMC, breathing, lipsync and tracking, this manager does **not** instantiate a signal graph. It keeps a plain `Map<behaviorId, BehaviorState>` in memory and writes to the broadcast bus directly. There is no `_nodeState` persistence — state lives only as long as the process. Clients re-sync via `rebroadcastTo()` on WS reconnect.
 
 This is intentional: there's no upstream data source to process — REST mutations and a clip lookup are all that's needed. A graph would be empty plumbing.
 
-## State per component
+## State per behavior
+
 
 ```ts
-interface ComponentState {
+interface BehaviorState {
   sceneNodeId: string
   queue:       ApiAnimationQueueEntry[]  // { animationId, sourceUrl, duration }[]
   loopMode:    'none' | 'last' | 'queue'
@@ -52,7 +53,7 @@ See [animation.md](animation.md) for the FBX retargeting pipeline that actually 
 
 ## Blendshape pipeline
 
-`setBlendshapes` / `clearBlendshapes` publish to `broadcastBus.publishBlendshapes(sceneNodeId, componentId, blendshapes)`. The broadcast bus additively composes weights across all blendshape sources for a node (lipsync, this component, …) and emits a single `vmc_blendshapes` WS frame per node, so api_controller weights coexist with lipsync output without overwriting it.
+`setBlendshapes` / `clearBlendshapes` publish to `broadcastBus.publishBlendshapes(sceneNodeId, behaviorId, blendshapes)`. The broadcast bus additively composes weights across all blendshape sources for a node (lipsync, this behavior, …) and emits a single `vmc_blendshapes` WS frame per node, so api_controller weights coexist with lipsync output without overwriting it.
 
 ## Expression cache
 

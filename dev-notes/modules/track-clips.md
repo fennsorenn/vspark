@@ -7,7 +7,7 @@
 > fire fire-and-forget media commands at marker times, dispatched client-side to the
 > media registry. See [Event/Marker Lane](#eventmarker-lane) below and [media.md](media.md).
 
-Timeline-based parameter animation. A **track clip** is a short, triggerable, optionally-looping clip that animates scalar parameters on scene nodes or compose layers. Authored in the `'clips'` tab of the bottom dock; played back with a backend-authoritative playhead so multiple clients (editor + `ViewerPage`) stay in sync. Supports play / pause / resume / stop / seek (scrub).
+Timeline-based parameter animation. A **track clip** is a short, triggerable, optionally-looping clip that animates scalar parameters on scene nodes or compose layers. Authored in the bottom-dock tab whose `bottomTab` id is `'clips'` (UI label is **Timeline** after the vocab rename; the tab-id string was kept); played back with a backend-authoritative playhead so multiple clients (editor + `ViewerPage`) stay in sync. Supports play / pause / resume / stop / seek (scrub).
 
 ## How this differs from `animation_clips`
 
