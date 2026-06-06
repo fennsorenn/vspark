@@ -122,7 +122,7 @@ export function CreatePalette() {
                 <Tile
                   key={def.kind}
                   icon={def.icon}
-                  label={def.label}
+                  label={t(`kinds:layer.${def.kind}`, { defaultValue: def.label })}
                   tileTitle={t('palette.tileTitle')}
                   onClick={() => handleAddLayer(def)}
                   onDragStart={(e) => {
@@ -165,10 +165,10 @@ export function CreatePalette() {
                       ? { helpTopic: 'scene', helpAnchor: 'lights', helpTip: t('help.lights') }
                       : null;
               return (
-                <div key={def.label} style={{ position: 'relative' }}>
+                <div key={def.i18nKey} style={{ position: 'relative' }}>
                   <Tile
                     icon={def.icon}
-                    label={def.label}
+                    label={t(`kinds:node.${def.i18nKey}`, { defaultValue: def.label })}
                     tileTitle={t('palette.tileTitle')}
                     onClick={() => handleAddNode(def)}
                     onDragStart={(e) => {

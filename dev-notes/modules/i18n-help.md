@@ -76,7 +76,8 @@ carried the original copy; this table is the durable source of truth.)
 | English | Deutsch |
 |---------|---------|
 | Scene | Szene |
-| Stage (the 3D tab) | Stage |
+| Stage (the 3D tab) | Bühne |
+| Compose (the 2D tab) | Komposition |
 | Node | Knoten |
 | Avatar | Avatar |
 | Camera | Kamera |

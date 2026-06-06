@@ -156,9 +156,9 @@ function SceneNodeContextMenu({
               overflow: 'hidden',
             }}
           >
-            {NODE_TYPES.map((t) => (
+            {NODE_TYPES.map((def) => (
               <div
-                key={t.label}
+                key={def.i18nKey}
                 style={itemStyle}
                 onMouseEnter={(e) =>
                   ((e.currentTarget as HTMLDivElement).style.background =
@@ -169,11 +169,12 @@ function SceneNodeContextMenu({
                     'transparent')
                 }
                 onClick={() => {
-                  onAddChild(menu.nodeId, t);
+                  onAddChild(menu.nodeId, def);
                   onClose();
                 }}
               >
-                {KIND_ICONS[t.kind] ?? '🔹'} {t.label}
+                {KIND_ICONS[def.kind] ?? '🔹'}{' '}
+                {t(`kinds:node.${def.i18nKey}`, { defaultValue: def.label })}
               </div>
             ))}
           </div>
@@ -902,7 +903,9 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
                 color: effect.enabled ? (isSelected ? '#fff' : '#ccc') : '#555',
               }}
             >
-              {ek?.label ?? effect.kind}
+              {ek
+                ? t(`kinds:effect.${ek.kind}.label`, { defaultValue: ek.label })
+                : effect.kind}
             </span>
             <button
               title={effect.enabled ? t('effects.disable') : t('effects.enable')}
@@ -1012,9 +1015,11 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
                 >
                   <span style={{ fontSize: 15 }}>{ek.icon}</span>
                   <div>
-                    <div style={{ fontWeight: 500 }}>{ek.label}</div>
+                    <div style={{ fontWeight: 500 }}>
+                      {t(`kinds:effect.${ek.kind}.label`, { defaultValue: ek.label })}
+                    </div>
                     <div style={{ fontSize: 10, color: '#666', marginTop: 1 }}>
-                      {ek.description}
+                      {t(`kinds:effect.${ek.kind}.description`, { defaultValue: ek.description })}
                     </div>
                   </div>
                 </div>

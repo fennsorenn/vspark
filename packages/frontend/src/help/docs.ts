@@ -39,20 +39,27 @@ for (const [path, raw] of Object.entries(rawDocs)) {
   entry.byLang[lng] = raw;
 }
 
-/** Order topics so the overview comes first, then alphabetical by title. */
+/** Order topics: concept pages first, then parameter-reference pages. */
 const TOPIC_ORDER = [
+  // Concept pages
   'overview',
   'avatar',
   'scene',
   'compose',
-  'props',
-  'assets',
   'behaviors',
-  'track-clips',
   'logic',
-  'streaming',
+  'assets',
   'presets',
+  'streaming',
+  // Parameter-reference pages
+  'transform',
+  'camera',
+  'lighting',
+  'materials',
+  'props',
+  'particles',
   'camera-effects',
+  'track-clips',
 ];
 
 function topicRank(topic: string): number {

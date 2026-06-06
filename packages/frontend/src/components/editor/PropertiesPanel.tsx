@@ -3466,7 +3466,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
         />
       )}
       <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>
-        {ek.description}
+        {t(`kinds:effect.${ek.kind}.description`, { defaultValue: ek.description })}
       </div>
     </div>
   );
@@ -3815,7 +3815,9 @@ export function PropertiesPanel() {
           <span style={{ fontSize: 18 }}>{selectedEffectKind.icon}</span>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', display: 'flex', alignItems: 'center', gap: 6 }}>
-              {selectedEffectKind.label}
+              {t(`kinds:effect.${selectedEffectKind.kind}.label`, {
+                defaultValue: selectedEffectKind.label,
+              })}
               <HelpButton topic="camera-effects" anchor="what" tip={t('help.cameraEffects')} />
             </div>
             <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>

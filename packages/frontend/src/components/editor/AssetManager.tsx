@@ -593,10 +593,10 @@ export function AssetManager() {
               marginBottom: 3,
             }}
           >
-            {ct.label}
+            {t(`kinds:behavior.${ct.kind}.label`, { defaultValue: ct.label })}
           </div>
           <div style={{ fontSize: 11, color: '#666', lineHeight: 1.4 }}>
-            {ct.description}
+            {t(`kinds:behavior.${ct.kind}.description`, { defaultValue: ct.description })}
           </div>
         </div>
         <button
@@ -992,7 +992,7 @@ export function AssetManager() {
                               marginBottom: 3,
                             }}
                           >
-                            {ek.label}
+                            {t(`kinds:effect.${ek.kind}.label`, { defaultValue: ek.label })}
                           </div>
                           <div
                             style={{
@@ -1001,7 +1001,7 @@ export function AssetManager() {
                               lineHeight: 1.4,
                             }}
                           >
-                            {ek.description}
+                            {t(`kinds:effect.${ek.kind}.description`, { defaultValue: ek.description })}
                           </div>
                         </div>
                         <button
