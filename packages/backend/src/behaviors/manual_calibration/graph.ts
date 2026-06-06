@@ -7,10 +7,12 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
  *
  *   Intercept Pose → Manual Calibration → Send Intercepted Pose
  *
- * The `pose_manual_calibration` node applies per-bone, per-axis multiplier +
- * offset (config supplied by the manager as `{ calibrations }`). The interceptor
- * registration (scene-node binding + priority) is wired out-of-band by the
- * manager via `OnPoseBroadcast.register`, mirroring the VMC receiver.
+ * The per-bone calibration map is exposed as a `behavior_config` (Behavior
+ * Settings) node reading the behavior's `calibrations` field and wired into the
+ * Manual Calibration node — so the input is visible on the graph, not pulled
+ * from config behind the node's back. The interceptor registration (scene-node
+ * binding + priority) is wired out-of-band by the manager via
+ * `OnPoseBroadcast.register`, mirroring the VMC receiver.
  */
 export const MANUAL_CALIBRATION_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'Manual Calibration',
@@ -21,6 +23,12 @@ export const MANUAL_CALIBRATION_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       kind: 'on_pose_broadcast',
       position: { x: -300, y: 0 },
       defaultConfig: { priority: 5 },
+    },
+    {
+      id: 'cfg_calibrations',
+      kind: 'behavior_config',
+      position: { x: -300, y: 160 },
+      defaultConfig: { field: 'calibrations', defaultValue: {} },
     },
     {
       id: 'calib',
@@ -55,6 +63,14 @@ export const MANUAL_CALIBRATION_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromPort: 'pose',
       toNodeId: 'calib',
       toPort: 'pose',
+      kind: 'value',
+    },
+    // Behavior settings: per-bone calibration map → calibration node
+    {
+      fromNodeId: 'cfg_calibrations',
+      fromPort: 'value',
+      toNodeId: 'calib',
+      toPort: 'calibrations',
       kind: 'value',
     },
     {

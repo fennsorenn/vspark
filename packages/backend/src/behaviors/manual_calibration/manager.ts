@@ -79,16 +79,15 @@ export class ManualCalibrationManager {
 
   private _getNodeConfig(behaviorId: string, nodeId: string): unknown {
     const cfg = this.behaviorConfigs.get(behaviorId) ?? {};
-    // The calibration node reads the live per-bone map straight off the behavior
-    // config so user edits hot-apply without rebuilding the graph.
-    if (nodeId === 'calib') return { calibrations: cfg.calibrations ?? {} };
-
     const descriptor = this.descriptors.get(behaviorId);
     const nodeDef = descriptor?.nodes.find((n) => n.id === nodeId);
     const defaults = nodeDef?.defaultConfig ?? {};
     const overrides = ((
       cfg.nodeConfig as Record<string, unknown> | undefined
     )?.[nodeId] ?? {}) as Record<string, unknown>;
+    // `_behaviorConfig` is consumed by the `behavior_config` node to resolve the
+    // `calibrations` field against the live behavior config (read fresh per pull,
+    // so edits hot-apply without a graph rebuild).
     return { ...defaults, ...overrides, _behaviorConfig: cfg };
   }
 
