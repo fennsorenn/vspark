@@ -49,6 +49,16 @@ in the same console: the script owns the process lifecycle, the server just sign
 "apply + relaunch" via exit 42. The standalone `updater.sh` / `updater.bat` scripts were
 removed entirely (including from the `release.yml` packaging matrix).
 
+### Signal handling
+
+`start.sh` runs `node` in the **background** and `trap`s `TERM`/`INT`, forwarding them to
+the child and then exiting (code 143). Without this, a SIGTERM to the supervisor shell
+(e.g. `kill <start.sh pid>`) kills only the shell and leaves the server reparented and
+orphaned — `sh` does not forward signals to a foreground child. The trap exits rather than
+loops, so a deliberate stop never relaunches; only the server's own exit code drives the
+update/restart branch. `start.bat` instead keeps `node.exe` in the **foreground** (cmd has
+no trap-style forwarding), so console Ctrl-C / window-close reach the server directly.
+
 ## Check-for-updates
 
 `checkForUpdates()` in `update.ts`:
