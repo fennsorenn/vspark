@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
-import { refreshAllComponentManagers } from './shared.js';
+import { refreshAllBehaviorManagers } from './shared.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -61,7 +61,7 @@ router.post('/scene-nodes/:nodeId/behaviors', (req, res) => {
       JSON.stringify(config ?? {}),
       sortOrder ?? 0
     );
-  refreshAllComponentManagers();
+  refreshAllBehaviorManagers();
   res
     .status(201)
     .json({
@@ -108,7 +108,7 @@ router.put('/behaviors/:id', (req, res) => {
       config != null ? JSON.stringify(config) : null,
       req.params.id
     );
-  refreshAllComponentManagers();
+  refreshAllBehaviorManagers();
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -127,7 +127,7 @@ router.delete('/behaviors/:id', (req, res) => {
   getDb()
     .prepare('DELETE FROM behaviors WHERE id = ?')
     .run(req.params.id);
-  refreshAllComponentManagers();
+  refreshAllBehaviorManagers();
   res.json({ ok: true, data: {} });
 });
 

@@ -70,7 +70,7 @@ const DEFAULT_COMPONENTS = {
 
 /** Whether a component kind (by its `applicableTo` list) can attach to a node
  *  of the given kind. Empty / `'any'` means universally applicable. */
-export function componentCompatibleWith(
+export function behaviorCompatibleWith(
   applicableTo: string[],
   nodeKind: string
 ): boolean {

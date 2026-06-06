@@ -192,10 +192,10 @@ export class AutomationManager {
 
       this.running.set(id, { graph, descriptor, nodeStates, cleanups });
       console.log(
-        `[ProjectGraph] Started ${row.name} (${id}) — ${descriptor.nodes.length} nodes, ${descriptor.edges.length} edges`
+        `[Automation] Started ${row.name} (${id}) — ${descriptor.nodes.length} nodes, ${descriptor.edges.length} edges`
       );
     } catch (e) {
-      console.error(`[ProjectGraph] Failed to start ${row.name} (${id}):`, e);
+      console.error(`[Automation] Failed to start ${row.name} (${id}):`, e);
     }
   }
 
@@ -208,7 +208,7 @@ export class AutomationManager {
     // shadows global on feed layers).
     r.graph.dispose();
     this.running.delete(id);
-    console.log(`[ProjectGraph] Stopped ${id}`);
+    console.log(`[Automation] Stopped ${id}`);
   }
 
   /**

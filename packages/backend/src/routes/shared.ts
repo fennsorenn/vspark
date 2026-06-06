@@ -49,7 +49,7 @@ export function setTrackClipPlaybackManager(m: TrackClipPlaybackManager) {
 
 // --- Component row mapping + refresh helpers ---
 
-export function _mapComponentRow(r: Record<string, unknown>) {
+export function _mapBehaviorRow(r: Record<string, unknown>) {
   return {
     id: r.id as string,
     nodeId: r.node_id as string,
@@ -64,7 +64,7 @@ export function refreshVmc() {
   const rows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'vmc_receiver'")
     .all() as Record<string, unknown>[];
-  _vmc.syncComponents(rows.map(_mapComponentRow));
+  _vmc.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
 export function refreshBreathing() {
@@ -72,7 +72,7 @@ export function refreshBreathing() {
   const rows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'breathing'")
     .all() as Record<string, unknown>[];
-  _breathing.syncComponents(rows.map(_mapComponentRow));
+  _breathing.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
 export function refreshLipsync() {
@@ -80,7 +80,7 @@ export function refreshLipsync() {
   const rows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'lipsync_processor'")
     .all() as Record<string, unknown>[];
-  _lipsync.syncComponents(rows.map(_mapComponentRow));
+  _lipsync.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
 export function refreshTracking() {
@@ -88,7 +88,7 @@ export function refreshTracking() {
   const rows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'mediapipe_tracker'")
     .all() as Record<string, unknown>[];
-  _tracking.syncComponents(rows.map(_mapComponentRow));
+  _tracking.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
 export function refreshApiController() {
@@ -96,10 +96,10 @@ export function refreshApiController() {
   const rows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'api_controller'")
     .all() as Record<string, unknown>[];
-  _apiController.syncComponents(rows.map(_mapComponentRow));
+  _apiController.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
-export function refreshAllComponentManagers() {
+export function refreshAllBehaviorManagers() {
   refreshVmc();
   refreshBreathing();
   refreshLipsync();

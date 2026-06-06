@@ -199,12 +199,12 @@ export class VmcManager {
   private readonly receivers = new Map<string, Receiver>();
   private readonly graphs = new Map<string, SignalGraph>();
   private readonly descriptors = new Map<string, GraphDescriptor>();
-  private readonly componentConfigs = new Map<
+  private readonly behaviorConfigs = new Map<
     string,
     Record<string, unknown>
   >();
-  private readonly componentNodeIds = new Map<string, string>();
-  private readonly componentSkeletons = new Map<
+  private readonly behaviorNodeIds = new Map<string, string>();
+  private readonly behaviorSkeletons = new Map<
     string,
     VrmSkeletonData | null
   >();
@@ -261,7 +261,7 @@ export class VmcManager {
     const cleanups: Array<() => void> = [];
     for (const nodeDef of descriptor.nodes) {
       if (nodeDef.kind !== 'on_pose_broadcast') continue;
-      const sceneNodeId = this.componentNodeIds.get(behaviorId) ?? '';
+      const sceneNodeId = this.behaviorNodeIds.get(behaviorId) ?? '';
       const priority =
         (nodeDef.defaultConfig?.priority as number | undefined) ?? 1;
       const graphNodeId = nodeDef.id;
@@ -308,8 +308,8 @@ export class VmcManager {
   }
 
   private getNodeConfig(behaviorId: string, nodeId: string): unknown {
-    const cfg = this.componentConfigs.get(behaviorId) ?? {};
-    const nodeId_ = this.componentNodeIds.get(behaviorId) ?? '';
+    const cfg = this.behaviorConfigs.get(behaviorId) ?? {};
+    const nodeId_ = this.behaviorNodeIds.get(behaviorId) ?? '';
 
     // Infrastructure nodes with non-config-derived values.
     switch (nodeId) {
@@ -321,7 +321,7 @@ export class VmcManager {
         return { boneFilter: HEAD_CALIB_BONES };
       case 'arm_ik_calib':
         return {
-          skeleton: this.componentSkeletons.get(behaviorId) ?? undefined,
+          skeleton: this.behaviorSkeletons.get(behaviorId) ?? undefined,
         };
     }
 
@@ -438,7 +438,7 @@ export class VmcManager {
               // Drop our bus slot on tracking loss so the merge falls back to other
               // producers (or the additive-identity fallback frame if we were the
               // only one). Resume is automatic — the next publishBones re-creates it.
-              if (!nowTracking) broadcastBus.removeComponent(behaviorId);
+              if (!nowTracking) broadcastBus.removeBehavior(behaviorId);
             }
           }
           info.prevBodyArgs = cur.slice();
@@ -491,13 +491,13 @@ export class VmcManager {
     for (const cleanup of this.interceptorCleanups.get(behaviorId) ?? [])
       cleanup();
     this.interceptorCleanups.delete(behaviorId);
-    broadcastBus.removeComponent(behaviorId);
+    broadcastBus.removeBehavior(behaviorId);
     if (info.connected)
       this.ws.broadcast('vmc_status', { behaviorId, connected: false });
     console.log(`[VMC] Receiver stopped (component ${behaviorId})`);
   }
 
-  syncComponents(
+  syncBehaviors(
     comps: Array<{
       id: string;
       nodeId: string;
@@ -520,9 +520,9 @@ export class VmcManager {
       this.nodeStates.set(c.id, stateMap);
       // Strip _nodeState from the live config so nodes don't see it.
       const { _nodeState: _removed, ...liveConfig } = c.config;
-      this.componentConfigs.set(c.id, liveConfig);
-      this.componentNodeIds.set(c.id, c.nodeId);
-      this._loadSkeletonForComponent(c.id, c.nodeId);
+      this.behaviorConfigs.set(c.id, liveConfig);
+      this.behaviorNodeIds.set(c.id, c.nodeId);
+      this._loadSkeletonForBehavior(c.id, c.nodeId);
       const port = (c.config.port as number) ?? 39539;
       this.startReceiver(c.id, port);
       active.add(c.id);
@@ -533,29 +533,29 @@ export class VmcManager {
     // Hot-apply config + nodeId updates to running receivers.
     for (const c of comps) {
       if (active.has(c.id)) {
-        this.componentConfigs.set(c.id, c.config);
-        this.componentNodeIds.set(c.id, c.nodeId);
+        this.behaviorConfigs.set(c.id, c.config);
+        this.behaviorNodeIds.set(c.id, c.nodeId);
       }
     }
   }
 
-  private _loadSkeletonForComponent(
+  private _loadSkeletonForBehavior(
     behaviorId: string,
     sceneNodeId: string
   ): void {
-    if (this.componentSkeletons.has(behaviorId)) return; // already loaded
+    if (this.behaviorSkeletons.has(behaviorId)) return; // already loaded
     try {
       const row = getDb()
         .prepare('SELECT file_path FROM scene_nodes WHERE id = ?')
         .get(sceneNodeId) as { file_path: string | null } | undefined;
       const filePath = row?.file_path;
       if (!filePath) {
-        this.componentSkeletons.set(behaviorId, null);
+        this.behaviorSkeletons.set(behaviorId, null);
         return;
       }
       const absPath = join(process.cwd(), filePath);
       const skeleton = loadVrmSkeleton(absPath);
-      this.componentSkeletons.set(behaviorId, skeleton);
+      this.behaviorSkeletons.set(behaviorId, skeleton);
       console.log(
         `[VmcManager] Loaded VRM skeleton for component ${behaviorId}: ${Object.keys(skeleton).length} bones`
       );
@@ -564,7 +564,7 @@ export class VmcManager {
         `[VmcManager] Could not load VRM skeleton for ${behaviorId}:`,
         (err as Error).message
       );
-      this.componentSkeletons.set(behaviorId, null);
+      this.behaviorSkeletons.set(behaviorId, null);
     }
   }
 

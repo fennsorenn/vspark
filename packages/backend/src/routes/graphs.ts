@@ -55,7 +55,7 @@ router.post('/projects/:projectId/automations', (req, res) => {
 router.get('/projects/:projectId/scoped-automations', (req, res) => {
   const db = getDb();
   type ScopedRow = AutomationRow & { owner_name: string; owner_node_kind: string };
-  const nodeGraphs = db
+  const nodeAutomations = db
     .prepare(
       `SELECT g.*, sn.name AS owner_name, sn.kind AS owner_node_kind
        FROM automations g
@@ -64,7 +64,7 @@ router.get('/projects/:projectId/scoped-automations', (req, res) => {
        ORDER BY g.created_at`
     )
     .all(req.params.projectId) as unknown as ScopedRow[];
-  const layerGraphs = db
+  const layerAutomations = db
     .prepare(
       `SELECT g.*, cl.name AS owner_name, cl.kind AS owner_node_kind
        FROM automations g
@@ -73,7 +73,7 @@ router.get('/projects/:projectId/scoped-automations', (req, res) => {
        ORDER BY g.created_at`
     )
     .all(req.params.projectId) as unknown as ScopedRow[];
-  const data = [...nodeGraphs, ...layerGraphs].map((r) => ({
+  const data = [...nodeAutomations, ...layerAutomations].map((r) => ({
     ...mapAutomationRow(r),
     ownerName: r.owner_name,
     ownerNodeKind: r.owner_node_kind,

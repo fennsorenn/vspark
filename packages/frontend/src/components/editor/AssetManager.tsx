@@ -9,7 +9,7 @@ import { PresetLibrary } from './PresetLibrary';
 import { CreatePalette } from './CreatePalette';
 import { AssetThumb } from './AssetThumb';
 import { DND_ASSET } from './dnd';
-import { componentCompatibleWith } from './createKinds';
+import { behaviorCompatibleWith } from './createKinds';
 
 export function AssetManager() {
   const {
@@ -481,7 +481,7 @@ export function AssetManager() {
     }
   };
 
-  const handleAddComponent = async (kind: string) => {
+  const handleAddBehavior = async (kind: string) => {
     if (!selectedNode) return;
     const ct = behaviorKinds.find((c) => c.kind === kind);
     if (!ct) return;
@@ -559,7 +559,7 @@ export function AssetManager() {
 
   // One component card. `dimmed` is used for components that don't normally
   // apply to the selected node's kind — still addable, just de-emphasised.
-  const renderComponentCard = (
+  const renderBehaviorCard = (
     ct: (typeof behaviorKinds)[number],
     dimmed: boolean
   ) => {
@@ -611,7 +611,7 @@ export function AssetManager() {
             marginTop: 2,
           }}
           disabled={alreadyAdded}
-          onClick={() => handleAddComponent(ct.kind)}
+          onClick={() => handleAddBehavior(ct.kind)}
           title={
             alreadyAdded ? 'Already added' : `Add to ${selectedNode!.name}`
           }
@@ -907,11 +907,11 @@ export function AssetManager() {
               {selectedNode &&
                 (() => {
                   const compatible = behaviorKinds.filter((ct) =>
-                    componentCompatibleWith(ct.applicableTo, selectedNode.kind)
+                    behaviorCompatibleWith(ct.applicableTo, selectedNode.kind)
                   );
                   const incompatible = behaviorKinds.filter(
                     (ct) =>
-                      !componentCompatibleWith(
+                      !behaviorCompatibleWith(
                         ct.applicableTo,
                         selectedNode.kind
                       )
@@ -919,7 +919,7 @@ export function AssetManager() {
                   return (
                     <>
                       <div style={cardGrid}>
-                        {compatible.map((ct) => renderComponentCard(ct, false))}
+                        {compatible.map((ct) => renderBehaviorCard(ct, false))}
                       </div>
                       {incompatible.length > 0 && (
                         <>
@@ -929,7 +929,7 @@ export function AssetManager() {
                           </div>
                           <div style={cardGrid}>
                             {incompatible.map((ct) =>
-                              renderComponentCard(ct, true)
+                              renderBehaviorCard(ct, true)
                             )}
                           </div>
                         </>

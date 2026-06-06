@@ -9,7 +9,7 @@
  *    overlive_accounts.status / status_reason / status_message columns,
  *    broadcast over WebSocket as `overlive_account_status`.
  *  - Route inbound events into project graphs by walking every running
- *    ProjectGraph and firing the event into any overlive_<eventType> node
+ *    automation and firing the event into any overlive_<eventType> node
  *    whose `account` input matches the source account id and whose
  *    `channel` filter is empty or matches.
  *

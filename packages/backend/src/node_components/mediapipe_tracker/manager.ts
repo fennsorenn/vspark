@@ -125,7 +125,7 @@ export class TrackingManager {
     console.log(`[Tracking] Stopped component ${behaviorId}`);
   }
 
-  syncComponents(
+  syncBehaviors(
     comps: Array<{
       id: string;
       nodeId: string;

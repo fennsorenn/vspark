@@ -20,8 +20,8 @@ export class BreathingManager {
   private readonly graphs = new Map<string, SignalGraph>();
   private readonly descriptors = new Map<string, GraphDescriptor>();
   private readonly nodeStates = new Map<string, Map<string, unknown>>();
-  private readonly componentNodeIds = new Map<string, string>();
-  private readonly componentConfigs = new Map<
+  private readonly behaviorNodeIds = new Map<string, string>();
+  private readonly behaviorConfigs = new Map<
     string,
     Record<string, unknown>
   >();
@@ -76,8 +76,8 @@ export class BreathingManager {
   }
 
   private _getNodeConfig(behaviorId: string, nodeId: string): unknown {
-    const cfg = this.componentConfigs.get(behaviorId) ?? {};
-    const nodeId_ = this.componentNodeIds.get(behaviorId) ?? '';
+    const cfg = this.behaviorConfigs.get(behaviorId) ?? {};
+    const nodeId_ = this.behaviorNodeIds.get(behaviorId) ?? '';
 
     if (nodeId === 'scene_entity') return { nodeId: nodeId_ };
     if (nodeId === 'comp_id') return { behaviorId };
@@ -134,11 +134,11 @@ export class BreathingManager {
     for (const fn of this.cleanups.get(behaviorId) ?? []) fn();
     this.cleanups.delete(behaviorId);
     this.graphs.delete(behaviorId);
-    broadcastBus.removeComponent(behaviorId);
+    broadcastBus.removeBehavior(behaviorId);
     console.log(`[Breathing] Stopped component ${behaviorId}`);
   }
 
-  syncComponents(
+  syncBehaviors(
     comps: Array<{
       id: string;
       nodeId: string;
@@ -159,8 +159,8 @@ export class BreathingManager {
         stateMap.set(nid, st);
       }
       this.nodeStates.set(c.id, stateMap);
-      this.componentConfigs.set(c.id, liveConfig);
-      this.componentNodeIds.set(c.id, c.nodeId);
+      this.behaviorConfigs.set(c.id, liveConfig);
+      this.behaviorNodeIds.set(c.id, c.nodeId);
       this.start(c.id);
       active.add(c.id);
     }
@@ -170,8 +170,8 @@ export class BreathingManager {
     // Hot-apply config updates.
     for (const c of comps) {
       if (active.has(c.id)) {
-        this.componentConfigs.set(c.id, c.config);
-        this.componentNodeIds.set(c.id, c.nodeId);
+        this.behaviorConfigs.set(c.id, c.config);
+        this.behaviorNodeIds.set(c.id, c.nodeId);
       }
     }
   }

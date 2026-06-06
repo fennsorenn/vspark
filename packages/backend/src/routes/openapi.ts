@@ -155,7 +155,7 @@ export const openApiDoc = swaggerJSDoc({
       {
         name: 'meta',
         description:
-          'Component-kind metadata, system info, body-calibration state',
+          'Behavior-kind metadata, system info, body-calibration state',
       },
     ],
   },

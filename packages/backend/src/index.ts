@@ -217,27 +217,27 @@ async function start() {
   const vmcRows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'vmc_receiver'")
     .all() as Record<string, unknown>[];
-  vmcManager.syncComponents(vmcRows.map(mapRow));
+  vmcManager.syncBehaviors(vmcRows.map(mapRow));
 
   const breathingRows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'breathing'")
     .all() as Record<string, unknown>[];
-  breathingManager.syncComponents(breathingRows.map(mapRow));
+  breathingManager.syncBehaviors(breathingRows.map(mapRow));
 
   const lipsyncRows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'lipsync_processor'")
     .all() as Record<string, unknown>[];
-  lipsyncManager.syncComponents(lipsyncRows.map(mapRow));
+  lipsyncManager.syncBehaviors(lipsyncRows.map(mapRow));
 
   const trackingRows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'mediapipe_tracker'")
     .all() as Record<string, unknown>[];
-  trackingManager.syncComponents(trackingRows.map(mapRow));
+  trackingManager.syncBehaviors(trackingRows.map(mapRow));
 
   const apiControllerRows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'api_controller'")
     .all() as Record<string, unknown>[];
-  apiControllerManager.syncComponents(apiControllerRows.map(mapRow));
+  apiControllerManager.syncBehaviors(apiControllerRows.map(mapRow));
 
   const port = 3001;
   server.listen(port, async () => {

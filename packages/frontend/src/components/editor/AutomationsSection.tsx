@@ -4,7 +4,7 @@ import { api, type AutomationRecord } from '../../api/client';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 
-/** Inline, expandable list of standalone graphs attached to a single scene
+/** Inline, expandable list of standalone automations attached to a single scene
  *  node or compose layer — mirrors ClipsSection. Selecting a graph opens it
  *  in the bottom-dock graph canvas. */
 export function AutomationsSection({
@@ -18,7 +18,7 @@ export function AutomationsSection({
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteGraph = clipboardPayload?.kind === 'graph';
 
-  const [graphs, setGraphs] = useState<AutomationRecord[]>([]);
+  const [automations, setAutomations] = useState<AutomationRecord[]>([]);
   /** Open context menu state. Null when no menu is currently up. */
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
@@ -31,7 +31,7 @@ export function AutomationsSection({
       owner.kind === 'node'
         ? api.getNodeAutomations(owner.id)
         : api.getLayerAutomations(owner.id);
-    call.then(setGraphs).catch(() => {});
+    call.then(setAutomations).catch(() => {});
   };
 
   // Refresh on owner change + every few seconds (cheap, matches the
@@ -51,8 +51,8 @@ export function AutomationsSection({
         owner.kind === 'node'
           ? await api.createNodeAutomation(owner.id, name.trim())
           : await api.createLayerAutomation(owner.id, name.trim());
-      setGraphs((prev) => [...prev, created]);
-      openGraph(created.id);
+      setAutomations((prev) => [...prev, created]);
+      openAutomation(created.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to create automation');
     }
@@ -62,7 +62,7 @@ export function AutomationsSection({
     if (!window.confirm(`Delete automation "${g.name}"?`)) return;
     try {
       await api.deleteAutomation(g.id);
-      setGraphs((prev) => prev.filter((x) => x.id !== g.id));
+      setAutomations((prev) => prev.filter((x) => x.id !== g.id));
       if (activeAutomationId === g.id) setActiveAutomation(null);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to delete automation');
@@ -72,7 +72,7 @@ export function AutomationsSection({
   const handleToggleEnabled = async (g: AutomationRecord) => {
     try {
       const updated = await api.updateAutomation(g.id, { enabled: !g.enabled });
-      setGraphs((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
+      setAutomations((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to toggle automation');
     }
@@ -81,7 +81,7 @@ export function AutomationsSection({
   // Opening a graph swaps the main canvas to the SignalGraphCanvas (the
   // editor's main pane). Clearing activeAutomation (e.g. selecting a non-graph
   // tab in the left dock) returns to the viewport.
-  const openGraph = (id: string) => setActiveAutomation(id);
+  const openAutomation = (id: string) => setActiveAutomation(id);
 
   const handleCopy = async (g: AutomationRecord) => {
     // AutomationRecord.descriptor lacks the wrapper fields (id, label, readonly)
@@ -112,8 +112,8 @@ export function AutomationsSection({
         descriptor: payload.descriptor,
         enabled: true,
       });
-      setGraphs((prev) => [...prev, updated]);
-      openGraph(updated.id);
+      setAutomations((prev) => [...prev, updated]);
+      openAutomation(updated.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to paste automation');
     }
@@ -131,7 +131,7 @@ export function AutomationsSection({
         overflow: 'hidden',
       }}
     >
-      {graphs.length === 0 && (
+      {automations.length === 0 && (
         <div
           style={{
             padding: '4px 10px',
@@ -143,7 +143,7 @@ export function AutomationsSection({
           No automations
         </div>
       )}
-      {graphs.map((g) => {
+      {automations.map((g) => {
         const isActive = activeAutomationId === g.id;
         return (
           <div
@@ -158,7 +158,7 @@ export function AutomationsSection({
               cursor: 'pointer',
               background: isActive ? '#1a3a5a' : 'transparent',
             }}
-            onClick={() => openGraph(g.id)}
+            onClick={() => openAutomation(g.id)}
             onContextMenu={(e) => {
               e.preventDefault();
               setCtxMenu({ x: e.clientX, y: e.clientY, graph: g });

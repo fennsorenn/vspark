@@ -93,11 +93,11 @@ export class LipsyncManager {
   stop(behaviorId: string): void {
     if (!this.graphs.has(behaviorId)) return;
     this.graphs.delete(behaviorId);
-    broadcastBus.removeComponent(behaviorId);
+    broadcastBus.removeBehavior(behaviorId);
     console.log(`[Lipsync] Stopped component ${behaviorId}`);
   }
 
-  syncComponents(
+  syncBehaviors(
     comps: Array<{
       id: string;
       nodeId: string;

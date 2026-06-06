@@ -930,7 +930,7 @@ export const fireSignalEvent = (
 export const getProjectAutomations = (projectId: string) =>
   request<AutomationRecord[]>(`/projects/${projectId}/automations`);
 
-export const createProjectGraph = (projectId: string, name: string) =>
+export const createProjectAutomation = (projectId: string, name: string) =>
   request<AutomationRecord>(`/projects/${projectId}/automations`, {
     method: 'POST',
     body: JSON.stringify({ name }),
@@ -943,7 +943,7 @@ export interface ScopedAutomationRecord extends AutomationRecord {
   ownerNodeKind?: string;
 }
 
-export const getProjectScopedGraphs = (projectId: string) =>
+export const getProjectScopedAutomations = (projectId: string) =>
   request<ScopedAutomationRecord[]>(`/projects/${projectId}/scoped-automations`);
 
 // ─── Overlive: app credentials ───────────────────────────────────────────────
@@ -1316,8 +1316,8 @@ export const api = {
   fireSignalEvent,
   getBehaviorKinds,
   getProjectAutomations,
-  createProjectGraph,
-  getProjectScopedGraphs,
+  createProjectAutomation,
+  getProjectScopedAutomations,
   getOverliveAppCredentials,
   createOverliveAppCredential,
   updateOverliveAppCredential,

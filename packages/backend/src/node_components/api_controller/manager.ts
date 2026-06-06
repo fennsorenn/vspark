@@ -9,7 +9,7 @@ import { broadcastBus } from '../../broadcast/bus.js';
 import { getDb } from '../../db/index.js';
 import type { WSSync } from '../../ws/index.js';
 
-interface ComponentState {
+interface BehaviorState {
   sceneNodeId: string;
   queue: ApiAnimationQueueEntry[];
   loopMode: ApiAnimationLoopMode;
@@ -37,7 +37,7 @@ const DEFAULT_DURATION_SEC = 5;
   defaultConfig: {},
 })
 export class ApiControllerManager {
-  private readonly _state = new Map<string, ComponentState>();
+  private readonly _state = new Map<string, BehaviorState>();
   private readonly _expressionsByNode = new Map<string, string[]>();
   private readonly _ws: WSSync;
 
@@ -58,7 +58,7 @@ export class ApiControllerManager {
 
   // ── component lifecycle ────────────────────────────────────────────────────
 
-  syncComponents(
+  syncBehaviors(
     comps: Array<{
       id: string;
       nodeId: string;
@@ -92,7 +92,7 @@ export class ApiControllerManager {
 
   private _stop(id: string): void {
     this._state.delete(id);
-    broadcastBus.removeComponent(id);
+    broadcastBus.removeBehavior(id);
     console.log(`[ApiController] Stopped component ${id}`);
   }
 
@@ -105,19 +105,19 @@ export class ApiControllerManager {
   /** Find the api_controller component on a node, or null. */
   findByNode(
     nodeId: string
-  ): { behaviorId: string; state: ComponentState } | null {
+  ): { behaviorId: string; state: BehaviorState } | null {
     for (const [id, st] of this._state) {
       if (st.sceneNodeId === nodeId) return { behaviorId: id, state: st };
     }
     return null;
   }
 
-  getState(behaviorId: string): ComponentState | null {
+  getState(behaviorId: string): BehaviorState | null {
     return this._state.get(behaviorId) ?? null;
   }
 
   /** All active state snapshots — used to rebroadcast on WS reconnect. */
-  snapshotAll(): Array<{ behaviorId: string; state: ComponentState }> {
+  snapshotAll(): Array<{ behaviorId: string; state: BehaviorState }> {
     return [...this._state.entries()].map(([behaviorId, state]) => ({
       behaviorId,
       state,
@@ -195,7 +195,7 @@ export class ApiControllerManager {
 
   // ── internals ──────────────────────────────────────────────────────────────
 
-  private _broadcast(behaviorId: string, st: ComponentState): void {
+  private _broadcast(behaviorId: string, st: BehaviorState): void {
     this._ws.broadcast(
       'api_animation',
       this._buildMessage(behaviorId, st) as unknown as Record<string, unknown>
@@ -204,7 +204,7 @@ export class ApiControllerManager {
 
   private _buildMessage(
     behaviorId: string,
-    st: ComponentState
+    st: BehaviorState
   ): ApiAnimationMessage {
     return {
       nodeId: st.sceneNodeId,

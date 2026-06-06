@@ -2574,7 +2574,7 @@ function ApiControllerProps({ comp }: { comp: Behavior }) {
   return (
     <div>
       <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
-        Component API base URL
+        Behavior API base URL
       </div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
         <input
@@ -2688,7 +2688,7 @@ function BreathingProps({ comp }: { comp: Behavior }) {
 
 // ── Component dispatcher ──────────────────────────────────────────────────────
 
-function ComponentProps({ comp }: { comp: Behavior }) {
+function BehaviorProps({ comp }: { comp: Behavior }) {
   switch (comp.kind) {
     case 'vmc_receiver':
       return <VmcReceiverProps comp={comp} />;
@@ -3570,10 +3570,10 @@ export function PropertiesPanel() {
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
   const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
-  const selectedComp =
+  const selectedBehavior =
     behaviors.find((c) => c.id === selectedBehaviorId) ?? null;
-  const selectedCompType = selectedComp
-    ? behaviorKinds.find((ct) => ct.kind === selectedComp.kind)
+  const selectedCompType = selectedBehavior
+    ? behaviorKinds.find((ct) => ct.kind === selectedBehavior.kind)
     : null;
   const selectedEffectRecord = selectedEffect
     ? cameraEffects.find(
@@ -3833,7 +3833,7 @@ export function PropertiesPanel() {
     );
   }
 
-  if (!node && !selectedComp) {
+  if (!node && !selectedBehavior) {
     return (
       <div
         style={{
@@ -3855,7 +3855,7 @@ export function PropertiesPanel() {
   }
 
   // Component selected without a parent node selected — show a focused component panel.
-  if (!node && selectedComp && selectedCompType) {
+  if (!node && selectedBehavior && selectedCompType) {
     return panelShell(
       <>
         <div
@@ -3876,7 +3876,7 @@ export function PropertiesPanel() {
             </div>
           </div>
         </div>
-        <ComponentProps comp={selectedComp} />
+        <BehaviorProps comp={selectedBehavior} />
       </>
     );
   }
@@ -6940,7 +6940,7 @@ export function PropertiesPanel() {
         )}
 
         {/* Selected component properties */}
-        {selectedComp && selectedCompType && (
+        {selectedBehavior && selectedCompType && (
           <>
             <div
               style={{
@@ -6969,7 +6969,7 @@ export function PropertiesPanel() {
                   </div>
                 </div>
               </div>
-              <ComponentProps comp={selectedComp} />
+              <BehaviorProps comp={selectedBehavior} />
             </div>
           </>
         )}

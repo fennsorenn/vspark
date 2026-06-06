@@ -14,7 +14,7 @@ import {
   NODE_KIND_DEFS,
   createSceneNode,
   nextNodeName,
-  componentCompatibleWith,
+  behaviorCompatibleWith,
   type NodeKindDef,
 } from './createKinds';
 import { handleSceneNodeDrop } from './dnd';
@@ -350,12 +350,12 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
   const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteComponent = clipboardPayload?.kind === 'node-component';
+  const canPasteBehavior = clipboardPayload?.kind === 'node-component';
   const components = behaviorsFor(nodeId).filter(
     (c) => !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
   );
 
-  const handleCopyComponent = async (comp: Behavior) => {
+  const handleCopyBehavior = async (comp: Behavior) => {
     await copyToClipboard(
       {
         kind: 'node-component',
@@ -369,7 +369,7 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
     );
   };
 
-  const handlePasteComponent = async () => {
+  const handlePasteBehavior = async () => {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'node-component') return;
     const comp: Behavior = {
@@ -576,10 +576,10 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
         >
           + Add Behavior
         </button>
-        {canPasteComponent && (
+        {canPasteBehavior && (
           <button
             title="Paste component from clipboard onto this node"
-            onClick={handlePasteComponent}
+            onClick={handlePasteBehavior}
             style={{
               background: 'none',
               border: '1px dashed #3a5a4a',
@@ -649,10 +649,10 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
                 </div>
               );
               const compatible = behaviorKinds.filter((ct) =>
-                componentCompatibleWith(ct.applicableTo, nodeKind)
+                behaviorCompatibleWith(ct.applicableTo, nodeKind)
               );
               const incompatible = behaviorKinds.filter(
-                (ct) => !componentCompatibleWith(ct.applicableTo, nodeKind)
+                (ct) => !behaviorCompatibleWith(ct.applicableTo, nodeKind)
               );
               return (
                 <>
@@ -687,7 +687,7 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
             {
               kind: 'item',
               label: 'Copy component',
-              onClick: () => void handleCopyComponent(ctxMenu.comp),
+              onClick: () => void handleCopyBehavior(ctxMenu.comp),
             },
             {
               kind: 'item',
@@ -1055,11 +1055,11 @@ import type { AutomationRecord, ScopedAutomationRecord } from '../../api/client'
 function AutomationListPanel() {
   const { projectId } = useParams<{ projectId: string }>();
   const { activeAutomationId, setActiveAutomation } = useEditorStore();
-  const [componentGraphs, setComponentGraphs] = useState<GraphDescriptor[]>([]);
-  const [projectGraphs, setProjectGraphs] = useState<AutomationRecord[]>([]);
-  const [scopedGraphs, setScopedGraphs] = useState<ScopedAutomationRecord[]>([]);
-  const [scopedGraphsOpen, setScopedGraphsOpen] = useState(true);
-  const [componentGraphsOpen, setComponentGraphsOpen] = useState(false);
+  const [behaviorAutomations, setBehaviorAutomations] = useState<GraphDescriptor[]>([]);
+  const [projectAutomations, setProjectAutomations] = useState<AutomationRecord[]>([]);
+  const [scopedAutomations, setScopedAutomations] = useState<ScopedAutomationRecord[]>([]);
+  const [scopedAutomationsOpen, setScopedAutomationsOpen] = useState(true);
+  const [behaviorAutomationsOpen, setBehaviorAutomationsOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteGraph = clipboardPayload?.kind === 'graph';
@@ -1072,16 +1072,16 @@ function AutomationListPanel() {
   const refresh = () => {
     api
       .getSignalGraphs()
-      .then(setComponentGraphs)
+      .then(setBehaviorAutomations)
       .catch(() => {});
     if (projectId) {
       api
         .getProjectAutomations(projectId)
-        .then(setProjectGraphs)
+        .then(setProjectAutomations)
         .catch(() => {});
       api
-        .getProjectScopedGraphs(projectId)
-        .then(setScopedGraphs)
+        .getProjectScopedAutomations(projectId)
+        .then(setScopedAutomations)
         .catch(() => {});
     }
   };
@@ -1089,7 +1089,7 @@ function AutomationListPanel() {
   const handleToggleScopedEnabled = async (g: ScopedAutomationRecord) => {
     try {
       const updated = await api.updateAutomation(g.id, { enabled: !g.enabled });
-      setScopedGraphs((prev) =>
+      setScopedAutomations((prev) =>
         prev.map((x) =>
           x.id === g.id ? { ...x, enabled: updated.enabled } : x
         )
@@ -1124,8 +1124,8 @@ function AutomationListPanel() {
     const name = window.prompt('New automation name:', 'Untitled Automation');
     if (!name?.trim()) return;
     try {
-      const created = await api.createProjectGraph(projectId, name.trim());
-      setProjectGraphs((prev) => [...prev, created]);
+      const created = await api.createProjectAutomation(projectId, name.trim());
+      setProjectAutomations((prev) => [...prev, created]);
       setActiveAutomation(created.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to create automation');
@@ -1137,7 +1137,7 @@ function AutomationListPanel() {
     if (!name?.trim() || name.trim() === g.name) return;
     try {
       const updated = await api.updateAutomation(g.id, { name: name.trim() });
-      setProjectGraphs((prev) =>
+      setProjectAutomations((prev) =>
         prev.map((x) => (x.id === g.id ? updated : x))
       );
     } catch (e) {
@@ -1150,7 +1150,7 @@ function AutomationListPanel() {
       const updated = await api.updateAutomation(g.id, {
         enabled: !g.enabled,
       });
-      setProjectGraphs((prev) =>
+      setProjectAutomations((prev) =>
         prev.map((x) => (x.id === g.id ? updated : x))
       );
     } catch (e) {
@@ -1162,7 +1162,7 @@ function AutomationListPanel() {
     if (!window.confirm(`Delete graph "${g.name}"?`)) return;
     try {
       await api.deleteAutomation(g.id);
-      setProjectGraphs((prev) => prev.filter((x) => x.id !== g.id));
+      setProjectAutomations((prev) => prev.filter((x) => x.id !== g.id));
       if (activeAutomationId === g.id) setActiveAutomation(null);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to delete automation');
@@ -1186,12 +1186,12 @@ function AutomationListPanel() {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createProjectGraph(projectId, payload.name);
+      const created = await api.createProjectAutomation(projectId, payload.name);
       const updated = await api.updateAutomation(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
-      setProjectGraphs((prev) => [...prev, updated]);
+      setProjectAutomations((prev) => [...prev, updated]);
       setActiveAutomation(updated.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to paste automation');
@@ -1251,7 +1251,7 @@ function AutomationListPanel() {
           </button>
         </div>
       </div>
-      {projectGraphs.length === 0 ? (
+      {projectAutomations.length === 0 ? (
         <div
           style={{
             color: '#444',
@@ -1263,7 +1263,7 @@ function AutomationListPanel() {
           No project graphs yet.
         </div>
       ) : (
-        projectGraphs.map((g) => {
+        projectAutomations.map((g) => {
           const active = g.id === activeAutomationId;
           return (
             <div
@@ -1333,16 +1333,16 @@ function AutomationListPanel() {
           cursor: 'pointer',
           userSelect: 'none',
         }}
-        onClick={() => setScopedGraphsOpen((v) => !v)}
+        onClick={() => setScopedAutomationsOpen((v) => !v)}
       >
-        <span style={{ color: '#555' }}>{scopedGraphsOpen ? '▼' : '▶'}</span>
+        <span style={{ color: '#555' }}>{scopedAutomationsOpen ? '▼' : '▶'}</span>
         <span>Scoped Automations</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
-          ({scopedGraphs.length})
+          ({scopedAutomations.length})
         </span>
       </div>
-      {scopedGraphsOpen &&
-        (scopedGraphs.length === 0 ? (
+      {scopedAutomationsOpen &&
+        (scopedAutomations.length === 0 ? (
           <div
             style={{
               color: '#444',
@@ -1354,7 +1354,7 @@ function AutomationListPanel() {
             No scoped graphs. Add one from a scene node or compose layer.
           </div>
         ) : (
-          scopedGraphs.map((g) => {
+          scopedAutomations.map((g) => {
             const active = g.id === activeAutomationId;
             return (
               <div
@@ -1427,16 +1427,16 @@ function AutomationListPanel() {
           cursor: 'pointer',
           userSelect: 'none',
         }}
-        onClick={() => setComponentGraphsOpen((v) => !v)}
+        onClick={() => setBehaviorAutomationsOpen((v) => !v)}
       >
-        <span style={{ color: '#555' }}>{componentGraphsOpen ? '▼' : '▶'}</span>
+        <span style={{ color: '#555' }}>{behaviorAutomationsOpen ? '▼' : '▶'}</span>
         <span>Behavior Automations</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
-          ({componentGraphs.length})
+          ({behaviorAutomations.length})
         </span>
       </div>
-      {componentGraphsOpen &&
-        (componentGraphs.length === 0 ? (
+      {behaviorAutomationsOpen &&
+        (behaviorAutomations.length === 0 ? (
           <div
             style={{
               color: '#444',
@@ -1448,7 +1448,7 @@ function AutomationListPanel() {
             No active component graphs.
           </div>
         ) : (
-          componentGraphs.map((g) => (
+          behaviorAutomations.map((g) => (
             <div
               key={g.id}
               style={rowStyle(g.id === activeAutomationId)}
@@ -1540,7 +1540,7 @@ export function SceneGraph() {
   );
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [collapsedBones, setCollapsedBones] = useState<Set<string>>(new Set()); // key: `${nodeId}:${boneName}`
-  const [expandedComponents, setExpandedComponents] = useState<Set<string>>(
+  const [expandedBehaviors, setExpandedBehaviors] = useState<Set<string>>(
     new Set()
   );
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
@@ -1575,8 +1575,8 @@ export function SceneGraph() {
       return n;
     });
 
-  const toggleComponents = (id: string) =>
-    setExpandedComponents((s) => {
+  const toggleBehaviors = (id: string) =>
+    setExpandedBehaviors((s) => {
       const n = new Set(s);
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
@@ -1824,7 +1824,7 @@ export function SceneGraph() {
       (bones && attachedChildren.length > 0) ||
       (bones && showBones && bones.length > 0);
     const isCollapsed = collapsedNodes.has(node.id);
-    const showComponents = expandedComponents.has(node.id);
+    const showBehaviors = expandedBehaviors.has(node.id);
     const compCount = behaviors.filter(
       (c) =>
         c.nodeId === node.id &&
@@ -1936,11 +1936,11 @@ export function SceneGraph() {
 
           {/* Components toggle */}
           <button
-            title={showComponents ? 'Hide components' : 'Show components'}
+            title={showBehaviors ? 'Hide components' : 'Show components'}
             style={{
               background: 'none',
               border: 'none',
-              color: showComponents ? '#4a8' : compCount > 0 ? '#666' : '#333',
+              color: showBehaviors ? '#4a8' : compCount > 0 ? '#666' : '#333',
               cursor: 'pointer',
               fontSize: 11,
               padding: '0 3px',
@@ -1949,7 +1949,7 @@ export function SceneGraph() {
             }}
             onClick={(e) => {
               e.stopPropagation();
-              toggleComponents(node.id);
+              toggleBehaviors(node.id);
             }}
           >
             ⚙
@@ -2051,7 +2051,7 @@ export function SceneGraph() {
         </div>
 
         {/* Inline components section */}
-        {showComponents && (
+        {showBehaviors && (
           <div style={{ paddingLeft: 8 + depth * 16 }}>
             <BehaviorsSection nodeId={node.id} />
             {node.kind === 'camera' && (

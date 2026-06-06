@@ -89,7 +89,7 @@ export class BroadcastBus {
    *  frame on that sceneNode — empty bones with `animationBlendMode: 'additive'` and empty
    *  blendshapes — so the frontend ramps back to pure animation rather than holding the
    *  last live frame. The empty nodeMap entry is then dropped. */
-  removeComponent(behaviorId: string): void {
+  removeBehavior(behaviorId: string): void {
     for (const sceneMap of this._slots.values()) {
       for (const [sceneNodeId, nodeMap] of sceneMap) {
         if (!nodeMap.has(behaviorId)) continue;

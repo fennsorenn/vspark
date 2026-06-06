@@ -405,8 +405,8 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        const componentGraphs = await api.getSignalGraphs();
-        const match = componentGraphs.find((g) => g.id === graphId);
+        const behaviorAutomations = await api.getSignalGraphs();
+        const match = behaviorAutomations.find((g) => g.id === graphId);
         if (match) {
           if (!cancelled) {
             writableRef.current = false;
