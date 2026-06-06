@@ -43,8 +43,14 @@ declare module '@cubism/framework/live2dcubismframework' {
 }
 
 declare module '@cubism/framework/id/cubismid' {
+  // getString() returns the framework's csmString wrapper, NOT a JS string —
+  // the actual text lives on `.s`. (Mis-declaring this as `string` previously
+  // let csmString objects leak into React as <option> children and crash.)
+  export class CsmString {
+    s: string;
+  }
   export class CubismId {
-    getString(): string;
+    getString(): CsmString;
   }
 }
 

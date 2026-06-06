@@ -158,7 +158,8 @@ export class Live2DRuntime implements Puppet2DRuntime {
     if (!m) return [];
     const out: string[] = [];
     const n = m.getParameterCount();
-    for (let i = 0; i < n; i++) out.push(m.getParameterId(i).getString());
+    // getString() returns a csmString wrapper; the JS string is on `.s`.
+    for (let i = 0; i < n; i++) out.push(m.getParameterId(i).getString().s);
     return out;
   }
 
