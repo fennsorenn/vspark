@@ -59,6 +59,17 @@ loops, so a deliberate stop never relaunches; only the server's own exit code dr
 update/restart branch. `start.bat` instead keeps `node.exe` in the **foreground** (cmd has
 no trap-style forwarding), so console Ctrl-C / window-close reach the server directly.
 
+**Windows caveat:** because the Windows fix relies on the foreground/console-group model
+rather than explicit forwarding, the common stop methods are covered — Ctrl-C
+(`CTRL_C_EVENT` goes to the whole console group), closing the window (`CTRL_CLOSE_EVENT`),
+and `taskkill /T` (kills the tree). The one uncovered case is `taskkill /PID <cmd.exe>`
+*without* `/T`: that kills only `cmd.exe` and leaves `node.exe` orphaned (Windows does not
+cascade kills by parentage, and cmd has no trap equivalent). This is accepted rather than
+fixed — closing it would require a PowerShell-Job-Object supervisor or server-side
+parent-death detection, neither worth the complexity for a niche manual-kill style. Note
+the automatic update restart is unaffected regardless: it is driven by node's exit code
+42, not by signals.
+
 ## Check-for-updates
 
 `checkForUpdates()` in `update.ts`:
