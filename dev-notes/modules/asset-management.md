@@ -2,7 +2,7 @@
 
 Covers file upload, storage, discovery, and placement into scenes.
 
-## Backend — `routes/api.ts`
+## Backend — `routes/assets.ts`
 
 ### Storage layout
 
