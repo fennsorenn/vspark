@@ -6,6 +6,16 @@ function shared(file: string) {
   return fileURLToPath(new URL(`../shared/src/${file}`, import.meta.url));
 }
 
+// Vendored Live2D Cubism Web Framework (git submodule). tsc resolves the
+// `@cubism/framework/*` specifiers to ambient declarations (src/types/
+// cubism-framework.d.ts); Vite resolves them to the real submodule source here
+// for the actual bundle.
+function cubism(sub: string) {
+  return fileURLToPath(
+    new URL(`./vendor/CubismWebFramework/src/${sub}`, import.meta.url)
+  );
+}
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -24,6 +34,7 @@ export default defineConfig({
   resolve: {
     // More-specific aliases must come before less-specific ones.
     alias: [
+      { find: /^@cubism\/framework\/(.*)/, replacement: cubism('$1') },
       { find: '@vspark/shared/signal_types', replacement: shared('signal_types.ts') },
       { find: '@vspark/shared/signal', replacement: shared('signal.ts') },
       { find: '@vspark/shared/node_decorators', replacement: shared('node_decorators.ts') },

@@ -145,6 +145,14 @@ export function AssetThumb({ asset }: { asset: AssetFile }) {
     );
   }
 
+  if (asset.kind === 'live2d') {
+    return (
+      <div style={box}>
+        <span style={{ fontSize: 30, opacity: 0.5 }}>🎭</span>
+      </div>
+    );
+  }
+
   // Model
   if (thumb) {
     return (

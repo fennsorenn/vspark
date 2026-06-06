@@ -46,6 +46,7 @@ export const sceneNodeKindSchema = z
     'text_troika',
     'text_canvas',
     'feed',
+    'live2d',
   ])
   .openapi('SceneNodeKind');
 
@@ -177,6 +178,33 @@ export const createAssetSchema = z
     data: z.string().describe('Base64-encoded file contents'),
   })
   .openapi('CreateAsset');
+
+// Multi-file asset bundle upload (e.g. a Live2D model: *.model3.json + *.moc3 +
+// textures + physics). Files keep their relative layout so a manifest's
+// relative references resolve when served statically. See
+// dev-notes/plans/live2d-integration.md.
+export const createAssetBundleSchema = z
+  .object({
+    rootName: z
+      .string()
+      .min(1)
+      .describe('Display/folder name for the bundle (e.g. the model name)'),
+    kind: z
+      .literal('live2d')
+      .describe('Bundle kind; selects the uploads subfolder + manifest match'),
+    files: z
+      .array(
+        z.object({
+          relPath: z
+            .string()
+            .min(1)
+            .describe('Path within the bundle, e.g. "model.moc3" or "textures/00.png"'),
+          data: z.string().describe('Base64-encoded file contents'),
+        })
+      )
+      .min(1),
+  })
+  .openapi('CreateAssetBundle');
 
 // --- Node components ---
 
@@ -659,6 +687,7 @@ export type CreateAnimationClipInput = z.infer<
   typeof createAnimationClipSchema
 >;
 export type CreateAssetInput = z.infer<typeof createAssetSchema>;
+export type CreateAssetBundleInput = z.infer<typeof createAssetBundleSchema>;
 export type CreateBehaviorInput = z.infer<
   typeof createBehaviorSchema
 >;

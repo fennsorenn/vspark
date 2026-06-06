@@ -215,7 +215,9 @@ async function start() {
 
   // Start receivers for any components that were persisted
   const vmcRows = getDb()
-    .prepare("SELECT * FROM behaviors WHERE kind = 'vmc_receiver'")
+    .prepare(
+      "SELECT * FROM behaviors WHERE kind IN ('vmc_receiver', 'vmc_receiver_2d')"
+    )
     .all() as Record<string, unknown>[];
   vmcManager.syncBehaviors(vmcRows.map(mapRow));
 

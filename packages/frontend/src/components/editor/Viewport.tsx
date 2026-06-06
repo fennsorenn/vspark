@@ -65,6 +65,11 @@ import {
 } from '../../vmcPoseStore';
 import { getIkTargets, getIkTargetsTime } from '../../ikTargetStore';
 import { vrmRegistry } from '../../vrmRegistry';
+import { Live2DRuntime } from '../../lib/puppet2d/live2d/Live2DRuntime';
+import {
+  mapToLive2dParams,
+  type Live2dParamMap,
+} from '../../lib/live2dParamMap';
 import {
   applyMaterialOverrides,
   disposeMaterialOverrides,
@@ -2934,6 +2939,172 @@ function BillboardNode({ node }: { node: NodeRecord }) {
   );
 }
 
+interface Live2DConfig {
+  modelUrl: string | null;
+  width: number;
+  height: number;
+  facing: 'screen' | 'world';
+}
+
+const LIVE2D_NODE_DEFAULTS: Live2DConfig = {
+  modelUrl: null,
+  width: 2,
+  height: 2,
+  facing: 'screen',
+};
+
+/** Flat-mounted Live2D avatar node.
+ *
+ *  RENDERER STUB: the Cubism runtime adapter (Puppet2DRuntime → Live2DRuntime)
+ *  is not wired in this environment (the official framework is vendored as a git
+ *  submodule + the proprietary Core is runtime-fetched, neither verifiable
+ *  headless). This renders a selectable placeholder plane carrying the node's
+ *  transform / opacity / facing, so the surrounding wiring (selection, gizmo,
+ *  clips, properties, asset→node creation) is exercisable now. The model load +
+ *  per-frame param application (via mapToLive2dParams) land with the adapter.
+ *  Flat-mounted like billboards so reparents never remount it. See
+ *  dev-notes/plans/live2d-integration.md. */
+function Live2DNode({
+  node,
+  viewerMode,
+}: {
+  node: NodeRecord;
+  viewerMode?: boolean;
+}) {
+  const outerRef = useRef<THREE.Group>(null);
+  const facingRef = useRef<THREE.Group>(null);
+  const t = useTransformWithOverride(node);
+  useApplyOpacity(outerRef, t.opacity);
+  const cfg: Live2DConfig = {
+    ...LIVE2D_NODE_DEFAULTS,
+    ...((node.components?.live2d ?? {}) as Partial<Live2DConfig>),
+  };
+  const rawMap = (node.components?.live2d as Record<string, unknown> | undefined)
+    ?.paramMap as Live2dParamMap | undefined;
+  const userMap =
+    rawMap && Object.keys(rawMap).length > 0 ? rawMap : undefined;
+
+  const runtimeRef = useRef<Live2DRuntime | null>(null);
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  const setLive2dParams = useEditorStore((s) => s.setLive2dParamsForNode);
+  const clearLive2dParams = useEditorStore((s) => s.clearLive2dParamsForNode);
+
+  useEffect(() => {
+    if (!outerRef.current) return;
+    return registerNodeGroup(node.id, outerRef.current);
+  }, [node.id]);
+
+  // Load (or reload) the model when the source changes. The runtime fetches the
+  // proprietary Core lazily and only with consent; any failure leaves the
+  // placeholder in place (caught below).
+  useEffect(() => {
+    let cancelled = false;
+    setTexture(null);
+    runtimeRef.current?.dispose();
+    runtimeRef.current = null;
+    clearLive2dParams(node.id);
+    if (!cfg.modelUrl) return;
+
+    let rt: Live2DRuntime;
+    try {
+      rt = new Live2DRuntime();
+    } catch {
+      return;
+    }
+    runtimeRef.current = rt;
+    rt.load(cfg.modelUrl)
+      .then(() => {
+        if (cancelled) {
+          rt.dispose();
+          return;
+        }
+        setTexture(rt.renderToTexture());
+        setLive2dParams(node.id, rt.listParams());
+      })
+      .catch((e) => {
+        console.warn('[live2d] model load failed', e);
+        if (runtimeRef.current === rt) {
+          rt.dispose();
+          runtimeRef.current = null;
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cfg.modelUrl, node.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(
+    () => () => {
+      runtimeRef.current?.dispose();
+      runtimeRef.current = null;
+    },
+    []
+  );
+
+  useFrame(({ camera }, delta) => {
+    if (facingRef.current) {
+      if (cfg.facing === 'screen') {
+        facingRef.current.quaternion.copy(camera.quaternion);
+      } else {
+        facingRef.current.quaternion.identity();
+      }
+    }
+    const rt = runtimeRef.current;
+    if (!rt || !texture) return;
+    // Drive Live2D parameters from this node's tracking feed (same per-node
+    // blendshape + head-pose data a VRM avatar consumes), then advance + redraw.
+    const bs = getVmcBlendshapes(node.id);
+    const pose = getVmcPose(node.id);
+    const neck = pose?.['neck'];
+    for (const [pid, v] of mapToLive2dParams(
+      bs,
+      neck,
+      userMap ? { map: userMap } : undefined
+    )) {
+      rt.setParam(pid, v);
+    }
+    rt.update(delta);
+  });
+
+  return (
+    <group
+      ref={outerRef}
+      position={[t.x, t.y, t.z]}
+      rotation={[t.rx, t.ry, t.rz]}
+      scale={[t.sx, t.sy, t.sz]}
+    >
+      <group ref={facingRef}>
+        {texture ? (
+          <mesh>
+            <planeGeometry args={[cfg.width, cfg.height]} />
+            <meshBasicMaterial
+              map={texture}
+              transparent
+              depthWrite={false}
+              side={THREE.DoubleSide}
+              toneMapped={false}
+            />
+          </mesh>
+        ) : (
+          // Editor-only placeholder while no model is loaded; nothing in output.
+          !viewerMode && (
+            <mesh>
+              <planeGeometry args={[cfg.width, cfg.height]} />
+              <meshBasicMaterial
+                color={cfg.modelUrl ? '#6a3aa0' : '#444444'}
+                transparent
+                opacity={0.25}
+                side={THREE.DoubleSide}
+                depthWrite={false}
+              />
+            </mesh>
+          )
+        )}
+      </group>
+    </group>
+  );
+}
+
 interface VideoConfig {
   facing: 'screen' | 'world';
   backface: 'none' | 'mirror' | 'unmirrored';
@@ -4392,6 +4563,7 @@ function renderNodeElement(
   if (node.kind === 'text_troika') return null;
   if (node.kind === 'text_canvas') return null;
   if (node.kind === 'feed') return null;
+  if (node.kind === 'live2d') return null;
   return (
     <group key={node.id} visible={visible}>
       <ModelNode node={node}>{childElements}</ModelNode>
@@ -4429,6 +4601,7 @@ export function SceneNodes({
   const flatTextTroika = sceneNodes.filter((n) => n.kind === 'text_troika');
   const flatTextCanvas = sceneNodes.filter((n) => n.kind === 'text_canvas');
   const flatFeed = sceneNodes.filter((n) => n.kind === 'feed');
+  const flatLive2d = sceneNodes.filter((n) => n.kind === 'live2d');
 
   // Hidden cascade for flat-mounted nodes: hierarchical kinds already inherit
   // `visible: false` from a hidden ancestor via R3F's <group> nesting, but
@@ -4481,6 +4654,11 @@ export function SceneNodes({
       {flatFeed.map((node) => (
         <group key={node.id} visible={effectiveVisible(node)}>
           <FeedCanvasNode node={node} viewerMode={viewerMode} />
+        </group>
+      ))}
+      {flatLive2d.map((node) => (
+        <group key={node.id} visible={effectiveVisible(node)}>
+          <Live2DNode node={node} viewerMode={viewerMode} />
         </group>
       ))}
     </>
