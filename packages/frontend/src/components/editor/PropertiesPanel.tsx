@@ -3573,13 +3573,25 @@ const LIVE2D_SOURCE_SUGGESTIONS = [
  *  can own hooks (license state, param-map editor) — the panel renders the
  *  other node kinds via inline IIFEs that cannot host hooks. */
 function Live2DProperties({ node }: { node: NodeRecord }) {
+  const { projectId } = useParams<{ projectId: string }>();
   const {
     assets,
+    addAsset,
     updateNode: storeUpdateNode,
     live2dParamsByNode,
   } = useEditorStore();
   const [licenseAccepted, setLicenseAccepted] = useState<boolean | null>(null);
   const [licenseBusy, setLicenseBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+
+  // `webkitdirectory` isn't in React's input attribute types; set it imperatively.
+  useEffect(() => {
+    const el = folderInputRef.current;
+    if (!el) return;
+    el.setAttribute('webkitdirectory', '');
+    el.setAttribute('directory', '');
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -3643,6 +3655,36 @@ function Live2DProperties({ node }: { node: NodeRecord }) {
     }
   };
 
+  const onPickFolder = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0 || !projectId) return;
+    // Derive the bundle root from the first file's path and strip it so relPaths
+    // are relative to the model root (e.g. "Hiyori/Hiyori.model3.json" → root
+    // "Hiyori", relPath "Hiyori.model3.json").
+    const firstPath = files[0].webkitRelativePath || files[0].name;
+    const rootName = firstPath.includes('/')
+      ? firstPath.split('/')[0]
+      : 'live2d-model';
+    const inputs = files.map((f) => {
+      const rel = f.webkitRelativePath || f.name;
+      const relPath = rel.startsWith(`${rootName}/`)
+        ? rel.slice(rootName.length + 1)
+        : rel;
+      return { relPath, file: f };
+    });
+    setUploading(true);
+    try {
+      const asset = await api.uploadLive2dBundle(projectId, rootName, inputs);
+      addAsset(asset);
+      if (asset.url) saveLc({ modelUrl: asset.url });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Live2D upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const row = (label: string, children: React.ReactNode) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{label}</span>
@@ -3686,6 +3728,29 @@ function Live2DProperties({ node }: { node: NodeRecord }) {
               </option>
             ))}
           </select>
+        )}
+        {row(
+          '',
+          <>
+            <input
+              ref={folderInputRef}
+              type="file"
+              multiple
+              style={{ display: 'none' }}
+              onChange={onPickFolder}
+            />
+            <button
+              disabled={uploading}
+              onClick={() => folderInputRef.current?.click()}
+              style={{
+                ...sel,
+                cursor: uploading ? 'default' : 'pointer',
+              }}
+              title="Upload a Live2D model folder (.model3.json + .moc3 + textures)"
+            >
+              {uploading ? 'Uploading…' : 'Upload model folder…'}
+            </button>
+          </>
         )}
         <EffectRow
           label="Scale"
