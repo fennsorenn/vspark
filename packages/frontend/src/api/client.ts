@@ -868,9 +868,9 @@ export const getLocalIps = () =>
 
 /** Returns the uncalibrated NormalizedPose at the body_calibration node's
  *  input for this component.  Bone keys are VRMBoneNames. */
-export const getBodyCalibState = (componentId: string) =>
+export const getBodyCalibState = (behaviorId: string) =>
   request<{ bones: Record<string, [number, number, number, number]> }>(
-    `/behaviors/${componentId}/body-calib-state`
+    `/behaviors/${behaviorId}/body-calib-state`
   ).then((d) => d.bones);
 
 export const getSignalGraphs = () =>

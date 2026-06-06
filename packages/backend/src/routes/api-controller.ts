@@ -48,7 +48,7 @@ router.get(
       return res
         .status(resolved.error.status)
         .json({ ok: false, error: resolved.error });
-    const state = _apiController!.getState(resolved.componentId);
+    const state = _apiController!.getState(resolved.behaviorId);
     if (!state)
       return res
         .status(404)
@@ -112,7 +112,7 @@ router.put(
         });
     try {
       _apiController!.setAnimationQueue(
-        resolved.componentId,
+        resolved.behaviorId,
         [{ animation: parsed.data.animation }],
         'last'
       );
@@ -176,7 +176,7 @@ router.put(
         });
     try {
       _apiController!.setAnimationQueue(
-        resolved.componentId,
+        resolved.behaviorId,
         parsed.data.queue,
         parsed.data.loopMode ?? 'none'
       );
@@ -241,7 +241,7 @@ router.put(
       'preset' in parsed.data
         ? { [parsed.data.preset]: 1.0 }
         : parsed.data.blendshapes;
-    _apiController!.setBlendshapes(resolved.componentId, weights);
+    _apiController!.setBlendshapes(resolved.behaviorId, weights);
     res.json({ ok: true, data: {} });
   }
 );
@@ -269,7 +269,7 @@ router.delete(
       return res
         .status(resolved.error.status)
         .json({ ok: false, error: resolved.error });
-    _apiController!.clearBlendshapes(resolved.componentId);
+    _apiController!.clearBlendshapes(resolved.behaviorId);
     res.json({ ok: true, data: {} });
   }
 );

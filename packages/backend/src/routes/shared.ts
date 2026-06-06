@@ -273,7 +273,7 @@ export function _resolveApiController(
   projectId: string,
   nodeId: string
 ):
-  | { componentId: string }
+  | { behaviorId: string }
   | { error: { status: number; message: string; code: string } } {
   if (!_apiController)
     return {
@@ -307,5 +307,5 @@ export function _resolveApiController(
         code: 'NOT_FOUND',
       },
     };
-  return { componentId: found.componentId };
+  return { behaviorId: found.behaviorId };
 }

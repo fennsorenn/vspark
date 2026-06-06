@@ -403,8 +403,8 @@ interface EditorState {
   selectedBehaviorId: string | null;
   assets: AssetFile[];
   behaviors: Behavior[];
-  vmcStatus: Record<string, boolean>; // componentId → connected
-  vmcTracking: Record<string, boolean>; // componentId → tracking active
+  vmcStatus: Record<string, boolean>; // behaviorId → connected
+  vmcTracking: Record<string, boolean>; // behaviorId → tracking active
   apiAnimationByNode: Record<string, ApiAnimationState>; // nodeId → current api-driven animation queue
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
@@ -513,8 +513,8 @@ interface EditorState {
   ) => void;
   removeBehavior: (id: string) => void;
   behaviorsFor: (nodeId: string) => Behavior[];
-  setVmcStatus: (componentId: string, connected: boolean) => void;
-  setVmcTracking: (componentId: string, tracking: boolean) => void;
+  setVmcStatus: (behaviorId: string, connected: boolean) => void;
+  setVmcTracking: (behaviorId: string, tracking: boolean) => void;
   setApiAnimation: (nodeId: string, state: ApiAnimationState | null) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
   clearVrmBonesForNode: (nodeId: string) => void;
@@ -813,11 +813,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })),
   behaviorsFor: (nodeId) =>
     get().behaviors.filter((c) => c.nodeId === nodeId),
-  setVmcStatus: (componentId, connected) =>
-    set((s) => ({ vmcStatus: { ...s.vmcStatus, [componentId]: connected } })),
-  setVmcTracking: (componentId, tracking) =>
+  setVmcStatus: (behaviorId, connected) =>
+    set((s) => ({ vmcStatus: { ...s.vmcStatus, [behaviorId]: connected } })),
+  setVmcTracking: (behaviorId, tracking) =>
     set((s) => ({
-      vmcTracking: { ...s.vmcTracking, [componentId]: tracking },
+      vmcTracking: { ...s.vmcTracking, [behaviorId]: tracking },
     })),
   setApiAnimation: (nodeId, state) =>
     set((s) => {

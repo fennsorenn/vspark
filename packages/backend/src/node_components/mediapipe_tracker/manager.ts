@@ -35,31 +35,31 @@ export class TrackingManager {
   private readonly nodeIds = new Map<string, string>();
   private readonly configs = new Map<string, Record<string, unknown>>();
 
-  private createGraph(componentId: string): SignalGraph {
-    const descriptor = makeMediapipeGraphDescriptor(componentId);
-    this.descriptors.set(componentId, descriptor);
-    if (!this.nodeStates.has(componentId))
-      this.nodeStates.set(componentId, new Map());
+  private createGraph(behaviorId: string): SignalGraph {
+    const descriptor = makeMediapipeGraphDescriptor(behaviorId);
+    this.descriptors.set(behaviorId, descriptor);
+    if (!this.nodeStates.has(behaviorId))
+      this.nodeStates.set(behaviorId, new Map());
 
     return SignalGraph.fromDescriptor(
       descriptor,
       NODE_REGISTRY,
-      (nodeId) => this._getNodeConfig(componentId, nodeId),
-      (nodeId) => this.nodeStates.get(componentId)?.get(nodeId) ?? {},
+      (nodeId) => this._getNodeConfig(behaviorId, nodeId),
+      (nodeId) => this.nodeStates.get(behaviorId)?.get(nodeId) ?? {},
       (nodeId, state) => {
-        this.nodeStates.get(componentId)!.set(nodeId, state);
-        this._persistNodeState(componentId, nodeId, state);
+        this.nodeStates.get(behaviorId)!.set(nodeId, state);
+        this._persistNodeState(behaviorId, nodeId, state);
       },
       // Component graphs are always attached to a scene node.
       'scene_node'
     );
   }
 
-  private _getNodeConfig(componentId: string, nodeId: string): unknown {
-    const cfg = this.configs.get(componentId) ?? {};
-    const nodeId_ = this.nodeIds.get(componentId) ?? '';
+  private _getNodeConfig(behaviorId: string, nodeId: string): unknown {
+    const cfg = this.configs.get(behaviorId) ?? {};
+    const nodeId_ = this.nodeIds.get(behaviorId) ?? '';
     if (nodeId === 'scene_entity') return { nodeId: nodeId_ };
-    if (nodeId === 'comp_id') return { componentId };
+    if (nodeId === 'comp_id') return { behaviorId };
     if (nodeId === 'head_calib') return { boneFilter: HEAD_CALIB_BONES };
     if (nodeId === 'finger_calib')
       return {
@@ -67,7 +67,7 @@ export class TrackingManager {
         mirrorPairs: FINGER_MIRROR_PAIRS,
       };
 
-    const descriptor = this.descriptors.get(componentId);
+    const descriptor = this.descriptors.get(behaviorId);
     const nodeDef = descriptor?.nodes.find((n) => n.id === nodeId);
     const defaults = nodeDef?.defaultConfig ?? {};
 
@@ -81,21 +81,21 @@ export class TrackingManager {
     return defaults;
   }
 
-  fireGraphEvent(componentId: string, nodeId: string, port: string): void {
-    const graph = this.graphs.get(componentId);
+  fireGraphEvent(behaviorId: string, nodeId: string, port: string): void {
+    const graph = this.graphs.get(behaviorId);
     if (!graph) return;
     graph.fire(nodeId, port, mkEvent(undefined));
   }
 
   private _persistNodeState(
-    componentId: string,
+    behaviorId: string,
     nodeId: string,
     state: unknown
   ): void {
     try {
       const existing = getDb()
         .prepare('SELECT config FROM behaviors WHERE id = ?')
-        .get(componentId) as { config: string } | undefined;
+        .get(behaviorId) as { config: string } | undefined;
       if (!existing) return;
       const cfg = JSON.parse(existing.config || '{}') as Record<
         string,
@@ -106,23 +106,23 @@ export class TrackingManager {
       cfg._nodeState = ns;
       getDb()
         .prepare('UPDATE behaviors SET config = ? WHERE id = ?')
-        .run(JSON.stringify(cfg), componentId);
+        .run(JSON.stringify(cfg), behaviorId);
     } catch {
       /* non-fatal */
     }
   }
 
-  start(componentId: string): void {
-    if (this.graphs.has(componentId)) return;
-    const graph = this.createGraph(componentId);
-    this.graphs.set(componentId, graph);
-    console.log(`[Tracking] Started component ${componentId}`);
+  start(behaviorId: string): void {
+    if (this.graphs.has(behaviorId)) return;
+    const graph = this.createGraph(behaviorId);
+    this.graphs.set(behaviorId, graph);
+    console.log(`[Tracking] Started component ${behaviorId}`);
   }
 
-  stop(componentId: string): void {
-    if (!this.graphs.has(componentId)) return;
-    this.graphs.delete(componentId);
-    console.log(`[Tracking] Stopped component ${componentId}`);
+  stop(behaviorId: string): void {
+    if (!this.graphs.has(behaviorId)) return;
+    this.graphs.delete(behaviorId);
+    console.log(`[Tracking] Stopped component ${behaviorId}`);
   }
 
   syncComponents(
@@ -162,8 +162,8 @@ export class TrackingManager {
   }
 
   /** Called by the WS handler for each tracking_input message from the browser. */
-  fireLandmarks(componentId: string, frame: TrackingFrame): void {
-    const graph = this.graphs.get(componentId);
+  fireLandmarks(behaviorId: string, frame: TrackingFrame): void {
+    const graph = this.graphs.get(behaviorId);
     if (!graph) return;
     const ts = Date.now();
     if (frame.face) graph.fire('mp_source', 'face', mkEvent(frame.face, ts));
@@ -175,13 +175,13 @@ export class TrackingManager {
   }
 
   getStates(
-    componentId: string
+    behaviorId: string
   ): import('@vspark/shared/signal').GraphStateSnapshot | null {
-    return this.graphs.get(componentId)?.getStates() ?? null;
+    return this.graphs.get(behaviorId)?.getStates() ?? null;
   }
 
-  getGraphDescriptor(componentId: string): GraphDescriptor | null {
-    return this.descriptors.get(componentId) ?? null;
+  getGraphDescriptor(behaviorId: string): GraphDescriptor | null {
+    return this.descriptors.get(behaviorId) ?? null;
   }
 
   getAllGraphDescriptors(): GraphDescriptor[] {

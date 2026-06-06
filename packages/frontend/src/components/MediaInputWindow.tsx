@@ -224,8 +224,8 @@ function VisemeDisplay({
 
 interface Props {
   /** If provided, restricts to a specific component; otherwise finds first active one. */
-  lipsyncComponentId?: string | null;
-  trackingComponentId?: string | null;
+  lipsyncBehaviorId?: string | null;
+  trackingBehaviorId?: string | null;
   /** If true, window cannot be minimised (standalone page mode). */
   alwaysExpanded?: boolean;
   /** Provide a WS if this component manages its own connection (standalone mode). */
@@ -235,8 +235,8 @@ interface Props {
 }
 
 export function MediaInputWindow({
-  lipsyncComponentId,
-  trackingComponentId,
+  lipsyncBehaviorId,
+  trackingBehaviorId,
   alwaysExpanded = false,
   ws: externalWs,
   visible = true,
@@ -269,12 +269,12 @@ export function MediaInputWindow({
   // Resolve component IDs from store if not provided as props
   const behaviors = useEditorStore((s) => s.behaviors);
   const resolvedLipsyncId =
-    lipsyncComponentId ??
+    lipsyncBehaviorId ??
     behaviors.find((c) => c.kind === 'lipsync_processor' && c.enabled)
       ?.id ??
     null;
   const resolvedTrackingId =
-    trackingComponentId ??
+    trackingBehaviorId ??
     behaviors.find((c) => c.kind === 'mediapipe_tracker' && c.enabled)
       ?.id ??
     null;
@@ -370,7 +370,7 @@ export function MediaInputWindow({
           socket.send(
             JSON.stringify({
               kind: 'tracking_input',
-              componentId: compId,
+              behaviorId: compId,
               ...result,
             })
           );

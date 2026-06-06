@@ -29,20 +29,20 @@ export class BreathingManager {
 
   // ── graph management ───────────────────────────────────────────────────────
 
-  private createGraph(componentId: string): SignalGraph {
-    const descriptor = makeBreathingGraphDescriptor(componentId);
-    this.descriptors.set(componentId, descriptor);
-    if (!this.nodeStates.has(componentId))
-      this.nodeStates.set(componentId, new Map());
+  private createGraph(behaviorId: string): SignalGraph {
+    const descriptor = makeBreathingGraphDescriptor(behaviorId);
+    this.descriptors.set(behaviorId, descriptor);
+    if (!this.nodeStates.has(behaviorId))
+      this.nodeStates.set(behaviorId, new Map());
 
     const graph = SignalGraph.fromDescriptor(
       descriptor,
       NODE_REGISTRY,
-      (nodeId) => this._getNodeConfig(componentId, nodeId),
-      (nodeId) => this.nodeStates.get(componentId)?.get(nodeId) ?? {},
+      (nodeId) => this._getNodeConfig(behaviorId, nodeId),
+      (nodeId) => this.nodeStates.get(behaviorId)?.get(nodeId) ?? {},
       (nodeId, state) => {
-        this.nodeStates.get(componentId)!.set(nodeId, state);
-        this._persistNodeState(componentId, nodeId, state);
+        this.nodeStates.get(behaviorId)!.set(nodeId, state);
+        this._persistNodeState(behaviorId, nodeId, state);
       },
       // Component graphs are always attached to a scene node.
       'scene_node'
@@ -60,7 +60,7 @@ export class BreathingManager {
             nodeDef.id,
             defaultHz,
             (gId) => {
-              const state = this.nodeStates.get(componentId)?.get(gId) as
+              const state = this.nodeStates.get(behaviorId)?.get(gId) as
                 | { hz?: number }
                 | undefined;
               return state?.hz ?? defaultHz;
@@ -71,18 +71,18 @@ export class BreathingManager {
       }
     }
 
-    this.cleanups.set(componentId, fns);
+    this.cleanups.set(behaviorId, fns);
     return graph;
   }
 
-  private _getNodeConfig(componentId: string, nodeId: string): unknown {
-    const cfg = this.componentConfigs.get(componentId) ?? {};
-    const nodeId_ = this.componentNodeIds.get(componentId) ?? '';
+  private _getNodeConfig(behaviorId: string, nodeId: string): unknown {
+    const cfg = this.componentConfigs.get(behaviorId) ?? {};
+    const nodeId_ = this.componentNodeIds.get(behaviorId) ?? '';
 
     if (nodeId === 'scene_entity') return { nodeId: nodeId_ };
-    if (nodeId === 'comp_id') return { componentId };
+    if (nodeId === 'comp_id') return { behaviorId };
 
-    const descriptor = this.descriptors.get(componentId);
+    const descriptor = this.descriptors.get(behaviorId);
     const nodeDef = descriptor?.nodes.find((n) => n.id === nodeId);
     const defaults = nodeDef?.defaultConfig ?? {};
     const overrides = ((
@@ -94,14 +94,14 @@ export class BreathingManager {
   }
 
   private _persistNodeState(
-    componentId: string,
+    behaviorId: string,
     nodeId: string,
     state: unknown
   ): void {
     try {
       const existing = getDb()
         .prepare('SELECT config FROM behaviors WHERE id = ?')
-        .get(componentId) as { config: string } | undefined;
+        .get(behaviorId) as { config: string } | undefined;
       if (!existing) return;
       const db = getDb();
       const cfg = JSON.parse(existing.config || '{}') as Record<
@@ -113,7 +113,7 @@ export class BreathingManager {
       cfg._nodeState = ns;
       db.prepare('UPDATE behaviors SET config = ? WHERE id = ?').run(
         JSON.stringify(cfg),
-        componentId
+        behaviorId
       );
     } catch {
       /* non-fatal */
@@ -122,20 +122,20 @@ export class BreathingManager {
 
   // ── component lifecycle ────────────────────────────────────────────────────
 
-  start(componentId: string): void {
-    if (this.graphs.has(componentId)) return;
-    const graph = this.createGraph(componentId);
-    this.graphs.set(componentId, graph);
-    console.log(`[Breathing] Started component ${componentId}`);
+  start(behaviorId: string): void {
+    if (this.graphs.has(behaviorId)) return;
+    const graph = this.createGraph(behaviorId);
+    this.graphs.set(behaviorId, graph);
+    console.log(`[Breathing] Started component ${behaviorId}`);
   }
 
-  stop(componentId: string): void {
-    if (!this.graphs.has(componentId)) return;
-    for (const fn of this.cleanups.get(componentId) ?? []) fn();
-    this.cleanups.delete(componentId);
-    this.graphs.delete(componentId);
-    broadcastBus.removeComponent(componentId);
-    console.log(`[Breathing] Stopped component ${componentId}`);
+  stop(behaviorId: string): void {
+    if (!this.graphs.has(behaviorId)) return;
+    for (const fn of this.cleanups.get(behaviorId) ?? []) fn();
+    this.cleanups.delete(behaviorId);
+    this.graphs.delete(behaviorId);
+    broadcastBus.removeComponent(behaviorId);
+    console.log(`[Breathing] Stopped component ${behaviorId}`);
   }
 
   syncComponents(
@@ -177,13 +177,13 @@ export class BreathingManager {
   }
 
   getStates(
-    componentId: string
+    behaviorId: string
   ): import('@vspark/shared/signal').GraphStateSnapshot | null {
-    return this.graphs.get(componentId)?.getStates() ?? null;
+    return this.graphs.get(behaviorId)?.getStates() ?? null;
   }
 
-  getGraphDescriptor(componentId: string): GraphDescriptor | null {
-    return this.descriptors.get(componentId) ?? null;
+  getGraphDescriptor(behaviorId: string): GraphDescriptor | null {
+    return this.descriptors.get(behaviorId) ?? null;
   }
 
   getAllGraphDescriptors(): GraphDescriptor[] {

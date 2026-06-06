@@ -159,10 +159,10 @@ async function start() {
   wsSync.onMessage((kind, payload, sourceWs) => {
     if (kind === 'lipsync_input') {
       const msg = payload as LipsyncInputMessage;
-      lipsyncManager.fireVisemes(msg.componentId, msg.visemes ?? {});
+      lipsyncManager.fireVisemes(msg.behaviorId, msg.visemes ?? {});
     } else if (kind === 'tracking_input') {
       const msg = payload as TrackingInputMessage;
-      trackingManager.fireLandmarks(msg.componentId, {
+      trackingManager.fireLandmarks(msg.behaviorId, {
         face: msg.face,
         leftHand: msg.leftHand,
         rightHand: msg.rightHand,

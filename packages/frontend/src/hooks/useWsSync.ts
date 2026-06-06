@@ -82,12 +82,12 @@ export function useWsSync() {
           };
           if (msg.kind === 'vmc_status') {
             setVmcStatus(
-              msg.payload.componentId as string,
+              msg.payload.behaviorId as string,
               msg.payload.connected as boolean
             );
           } else if (msg.kind === 'vmc_tracking_state') {
             setVmcTracking(
-              msg.payload.componentId as string,
+              msg.payload.behaviorId as string,
               msg.payload.tracking as boolean
             );
           } else if (msg.kind === 'vmc_pose') {

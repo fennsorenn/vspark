@@ -299,7 +299,7 @@ export interface InterceptorFrame {
 
 export class PoseFrame {
   constructor(
-    public readonly componentId: string,
+    public readonly behaviorId: string,
     public readonly pose: NormalizedPose,
     public readonly blendshapes: Blendshapes,
     public readonly timestamp: number

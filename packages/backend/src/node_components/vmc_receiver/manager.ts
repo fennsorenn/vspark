@@ -208,9 +208,9 @@ export class VmcManager {
     string,
     VrmSkeletonData | null
   >();
-  // Persistent node state: componentId → nodeId → state JSON
+  // Persistent node state: behaviorId → nodeId → state JSON
   private readonly nodeStates = new Map<string, Map<string, unknown>>();
-  // Interceptor unregister callbacks: componentId → list of cleanup fns
+  // Interceptor unregister callbacks: behaviorId → list of cleanup fns
   private readonly interceptorCleanups = new Map<string, Array<() => void>>();
   private readonly timer: ReturnType<typeof setInterval>;
 
@@ -221,14 +221,14 @@ export class VmcManager {
 
     // Send current receiver state to any new WebSocket client (handles page refresh / new tabs).
     ws.onClientConnected((client) => {
-      for (const [componentId, info] of this.receivers) {
+      for (const [behaviorId, info] of this.receivers) {
         ws.sendTo(client, 'vmc_status', {
-          componentId,
+          behaviorId,
           connected: info.connected,
         });
         if (info.trackingActive !== null) {
           ws.sendTo(client, 'vmc_tracking_state', {
-            componentId,
+            behaviorId,
             tracking: info.trackingActive,
           });
         }
@@ -238,20 +238,20 @@ export class VmcManager {
 
   // ── graph management ───────────────────────────────────────────────────────
 
-  private createGraph(componentId: string): SignalGraph {
-    const descriptor = makeVmcGraphDescriptor(componentId);
-    this.descriptors.set(componentId, descriptor);
-    if (!this.nodeStates.has(componentId))
-      this.nodeStates.set(componentId, new Map());
+  private createGraph(behaviorId: string): SignalGraph {
+    const descriptor = makeVmcGraphDescriptor(behaviorId);
+    this.descriptors.set(behaviorId, descriptor);
+    if (!this.nodeStates.has(behaviorId))
+      this.nodeStates.set(behaviorId, new Map());
     const graph = SignalGraph.fromDescriptor(
       descriptor,
       NODE_REGISTRY,
-      (nodeId) => this.getNodeConfig(componentId, nodeId),
-      (nodeId) => this.nodeStates.get(componentId)?.get(nodeId) ?? {},
+      (nodeId) => this.getNodeConfig(behaviorId, nodeId),
+      (nodeId) => this.nodeStates.get(behaviorId)?.get(nodeId) ?? {},
       (nodeId, state) => {
-        this.nodeStates.get(componentId)!.set(nodeId, state);
+        this.nodeStates.get(behaviorId)!.set(nodeId, state);
         // Persist via DB so state survives restarts (stored alongside component).
-        this.persistNodeState(componentId, nodeId, state);
+        this.persistNodeState(behaviorId, nodeId, state);
       },
       // Component graphs are always attached to a scene node.
       'scene_node'
@@ -261,7 +261,7 @@ export class VmcManager {
     const cleanups: Array<() => void> = [];
     for (const nodeDef of descriptor.nodes) {
       if (nodeDef.kind !== 'on_pose_broadcast') continue;
-      const sceneNodeId = this.componentNodeIds.get(componentId) ?? '';
+      const sceneNodeId = this.componentNodeIds.get(behaviorId) ?? '';
       const priority =
         (nodeDef.defaultConfig?.priority as number | undefined) ?? 1;
       const graphNodeId = nodeDef.id;
@@ -275,20 +275,20 @@ export class VmcManager {
         )
       );
     }
-    this.interceptorCleanups.set(componentId, cleanups);
+    this.interceptorCleanups.set(behaviorId, cleanups);
 
     return graph;
   }
 
   private persistNodeState(
-    componentId: string,
+    behaviorId: string,
     nodeId: string,
     state: unknown
   ): void {
     try {
       const existing = getDb()
         .prepare('SELECT config FROM behaviors WHERE id = ?')
-        .get(componentId) as { config: string } | undefined;
+        .get(behaviorId) as { config: string } | undefined;
       if (!existing) return;
       const db = getDb();
       const cfg = JSON.parse(existing.config || '{}') as Record<
@@ -300,32 +300,32 @@ export class VmcManager {
       cfg._nodeState = nodeStateMap;
       db.prepare('UPDATE behaviors SET config = ? WHERE id = ?').run(
         JSON.stringify(cfg),
-        componentId
+        behaviorId
       );
     } catch {
       /* non-fatal */
     }
   }
 
-  private getNodeConfig(componentId: string, nodeId: string): unknown {
-    const cfg = this.componentConfigs.get(componentId) ?? {};
-    const nodeId_ = this.componentNodeIds.get(componentId) ?? '';
+  private getNodeConfig(behaviorId: string, nodeId: string): unknown {
+    const cfg = this.componentConfigs.get(behaviorId) ?? {};
+    const nodeId_ = this.componentNodeIds.get(behaviorId) ?? '';
 
     // Infrastructure nodes with non-config-derived values.
     switch (nodeId) {
       case 'comp_id':
-        return { componentId };
+        return { behaviorId };
       case 'scene_entity':
         return { nodeId: nodeId_ };
       case 'head_calib':
         return { boneFilter: HEAD_CALIB_BONES };
       case 'arm_ik_calib':
         return {
-          skeleton: this.componentSkeletons.get(componentId) ?? undefined,
+          skeleton: this.componentSkeletons.get(behaviorId) ?? undefined,
         };
     }
 
-    const descriptor = this.descriptors.get(componentId);
+    const descriptor = this.descriptors.get(behaviorId);
     const nodeDef = descriptor?.nodes.find((n) => n.id === nodeId);
     const defaults = nodeDef?.defaultConfig ?? {};
     const overrides = ((
@@ -341,15 +341,15 @@ export class VmcManager {
     return { ...defaults, ...overrides };
   }
 
-  fireGraphEvent(componentId: string, nodeId: string, port: string): void {
-    const graph = this.graphs.get(componentId);
+  fireGraphEvent(behaviorId: string, nodeId: string, port: string): void {
+    const graph = this.graphs.get(behaviorId);
     if (!graph) return;
     graph.fire(nodeId, port, mkEvent(undefined));
   }
 
   /** The GraphDescriptor for a running VMC receiver (for the graph editor). */
-  getGraphDescriptor(componentId: string): GraphDescriptor | null {
-    return this.descriptors.get(componentId) ?? null;
+  getGraphDescriptor(behaviorId: string): GraphDescriptor | null {
+    return this.descriptors.get(behaviorId) ?? null;
   }
 
   /** All active VMC graph descriptors (for the graph list in the scene dock). */
@@ -358,21 +358,21 @@ export class VmcManager {
   }
 
   /** Returns the uncalibrated NormalizedPose at the head_calib input (last pulled value). */
-  peekBodyCalibInput(componentId: string): NormalizedPose | null {
-    const graph = this.graphs.get(componentId);
+  peekBodyCalibInput(behaviorId: string): NormalizedPose | null {
+    const graph = this.graphs.get(behaviorId);
     if (!graph) return null;
     return graph.peekInput('head_calib', 'pose') as NormalizedPose | null;
   }
 
   // ── receiver lifecycle ─────────────────────────────────────────────────────
 
-  startReceiver(componentId: string, port: number) {
-    const existing = this.receivers.get(componentId);
+  startReceiver(behaviorId: string, port: number) {
+    const existing = this.receivers.get(behaviorId);
     if (existing?.port === port) return;
-    if (existing) this.stopReceiver(componentId);
+    if (existing) this.stopReceiver(behaviorId);
 
-    const graph = this.createGraph(componentId);
-    this.graphs.set(componentId, graph);
+    const graph = this.createGraph(behaviorId);
+    this.graphs.set(behaviorId, graph);
 
     // Listener is captured here so we can store the unsubscribe handle on `info`
     // before defining the handler — info itself is referenced inside the handler.
@@ -384,7 +384,7 @@ export class VmcManager {
       prevBodyArgs: [],
       trackingActive: null,
     };
-    this.receivers.set(componentId, info);
+    this.receivers.set(behaviorId, info);
 
     const onPacket = (
       buf: Buffer,
@@ -396,10 +396,10 @@ export class VmcManager {
       if (!wasConnected) {
         info.connected = true;
         console.log(
-          `[VMC] Client connected: ${rinfo.address}:${rinfo.port} → port ${port} (component ${componentId})`
+          `[VMC] Client connected: ${rinfo.address}:${rinfo.port} → port ${port} (component ${behaviorId})`
         );
         this.ws.broadcast('vmc_status', {
-          componentId,
+          behaviorId,
           connected: true,
           remoteAddress: rinfo.address,
         });
@@ -429,16 +429,16 @@ export class VmcManager {
             if (nowTracking !== info.trackingActive) {
               info.trackingActive = nowTracking;
               console.log(
-                `[VMC] Tracking ${nowTracking ? 'ACTIVE' : 'LOST'} (component ${componentId})`
+                `[VMC] Tracking ${nowTracking ? 'ACTIVE' : 'LOST'} (component ${behaviorId})`
               );
               this.ws.broadcast('vmc_tracking_state', {
-                componentId,
+                behaviorId,
                 tracking: nowTracking,
               });
               // Drop our bus slot on tracking loss so the merge falls back to other
               // producers (or the additive-identity fallback frame if we were the
               // only one). Resume is automatic — the next publishBones re-creates it.
-              if (!nowTracking) broadcastBus.removeComponent(componentId);
+              if (!nowTracking) broadcastBus.removeComponent(behaviorId);
             }
           }
           info.prevBodyArgs = cur.slice();
@@ -477,24 +477,24 @@ export class VmcManager {
 
     info.unsubscribe = udpSocketPool.subscribe(port, onPacket, () => {
       console.log(
-        `[VMC] Receiver attached to port ${port} (component ${componentId})`
+        `[VMC] Receiver attached to port ${port} (component ${behaviorId})`
       );
     });
   }
 
-  stopReceiver(componentId: string) {
-    const info = this.receivers.get(componentId);
+  stopReceiver(behaviorId: string) {
+    const info = this.receivers.get(behaviorId);
     if (!info) return;
     info.unsubscribe();
-    this.receivers.delete(componentId);
-    this.graphs.delete(componentId);
-    for (const cleanup of this.interceptorCleanups.get(componentId) ?? [])
+    this.receivers.delete(behaviorId);
+    this.graphs.delete(behaviorId);
+    for (const cleanup of this.interceptorCleanups.get(behaviorId) ?? [])
       cleanup();
-    this.interceptorCleanups.delete(componentId);
-    broadcastBus.removeComponent(componentId);
+    this.interceptorCleanups.delete(behaviorId);
+    broadcastBus.removeComponent(behaviorId);
     if (info.connected)
-      this.ws.broadcast('vmc_status', { componentId, connected: false });
-    console.log(`[VMC] Receiver stopped (component ${componentId})`);
+      this.ws.broadcast('vmc_status', { behaviorId, connected: false });
+    console.log(`[VMC] Receiver stopped (component ${behaviorId})`);
   }
 
   syncComponents(
@@ -540,48 +540,48 @@ export class VmcManager {
   }
 
   private _loadSkeletonForComponent(
-    componentId: string,
+    behaviorId: string,
     sceneNodeId: string
   ): void {
-    if (this.componentSkeletons.has(componentId)) return; // already loaded
+    if (this.componentSkeletons.has(behaviorId)) return; // already loaded
     try {
       const row = getDb()
         .prepare('SELECT file_path FROM scene_nodes WHERE id = ?')
         .get(sceneNodeId) as { file_path: string | null } | undefined;
       const filePath = row?.file_path;
       if (!filePath) {
-        this.componentSkeletons.set(componentId, null);
+        this.componentSkeletons.set(behaviorId, null);
         return;
       }
       const absPath = join(process.cwd(), filePath);
       const skeleton = loadVrmSkeleton(absPath);
-      this.componentSkeletons.set(componentId, skeleton);
+      this.componentSkeletons.set(behaviorId, skeleton);
       console.log(
-        `[VmcManager] Loaded VRM skeleton for component ${componentId}: ${Object.keys(skeleton).length} bones`
+        `[VmcManager] Loaded VRM skeleton for component ${behaviorId}: ${Object.keys(skeleton).length} bones`
       );
     } catch (err) {
       console.warn(
-        `[VmcManager] Could not load VRM skeleton for ${componentId}:`,
+        `[VmcManager] Could not load VRM skeleton for ${behaviorId}:`,
         (err as Error).message
       );
-      this.componentSkeletons.set(componentId, null);
+      this.componentSkeletons.set(behaviorId, null);
     }
   }
 
   /** Returns monitoring state for all nodes and edges in a graph. */
   getStates(
-    componentId: string
+    behaviorId: string
   ): import('@vspark/shared/signal').GraphStateSnapshot | null {
-    return this.graphs.get(componentId)?.getStates() ?? null;
+    return this.graphs.get(behaviorId)?.getStates() ?? null;
   }
 
   private checkTimeouts() {
     const now = Date.now();
-    for (const [componentId, info] of this.receivers) {
+    for (const [behaviorId, info] of this.receivers) {
       if (info.connected && now - info.lastSeen > 3000) {
         info.connected = false;
-        console.log(`[VMC] Client timed out (component ${componentId})`);
-        this.ws.broadcast('vmc_status', { componentId, connected: false });
+        console.log(`[VMC] Client timed out (component ${behaviorId})`);
+        this.ws.broadcast('vmc_status', { behaviorId, connected: false });
       }
     }
   }

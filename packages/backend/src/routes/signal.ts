@@ -46,7 +46,7 @@ router.get('/signal/graphs', (_req, res) => {
  *     tags: [signal]
  *     summary: Fetch a single signal-graph descriptor by id
  *     parameters:
- *       - { in: path, name: id, required: true, schema: { type: string }, description: 'Graph id with manager prefix (e.g. "vmc-pipeline:<componentId>")' }
+ *       - { in: path, name: id, required: true, schema: { type: string }, description: 'Graph id with manager prefix (e.g. "vmc-pipeline:<behaviorId>")' }
  *     responses:
  *       200: { description: GraphDescriptor object }
  *       404: { description: Not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
@@ -82,14 +82,14 @@ router.get('/signal/graphs/:id/node-states', (req, res) => {
     const pgStates = automationManager.getStates(graphId);
     if (pgStates) return res.json({ ok: true, data: pgStates });
   }
-  const componentId = _stripPrefix(graphId);
+  const behaviorId = _stripPrefix(graphId);
   const states = graphId.startsWith('breathing:')
-    ? _breathing?.getStates(componentId)
+    ? _breathing?.getStates(behaviorId)
     : graphId.startsWith('lipsync:')
-      ? _lipsync?.getStates(componentId)
+      ? _lipsync?.getStates(behaviorId)
       : graphId.startsWith('mediapipe_tracker:')
-        ? _tracking?.getStates(componentId)
-        : _vmc?.getStates(componentId);
+        ? _tracking?.getStates(behaviorId)
+        : _vmc?.getStates(behaviorId);
   if (!states)
     return res
       .status(404)
@@ -138,7 +138,7 @@ router.post('/signal/graphs/:id/fire', (req, res) => {
     automationManager.fire(graphId, nodeId, port, undefined);
     return res.json({ ok: true });
   }
-  const componentId = _stripPrefix(graphId);
+  const behaviorId = _stripPrefix(graphId);
   if (graphId.startsWith('mediapipe_tracker:')) {
     if (!_tracking)
       return res
@@ -151,7 +151,7 @@ router.post('/signal/graphs/:id/fire', (req, res) => {
             code: 'NOT_READY',
           },
         });
-    _tracking.fireGraphEvent(componentId, nodeId, port);
+    _tracking.fireGraphEvent(behaviorId, nodeId, port);
     return res.json({ ok: true });
   }
   if (!_vmc)
@@ -165,7 +165,7 @@ router.post('/signal/graphs/:id/fire', (req, res) => {
           code: 'NOT_READY',
         },
       });
-  _vmc.fireGraphEvent(componentId, nodeId, port);
+  _vmc.fireGraphEvent(behaviorId, nodeId, port);
   res.json({ ok: true });
 });
 
