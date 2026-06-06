@@ -9,11 +9,6 @@ export interface BoneCalibration {
   offset?: [number, number, number];
 }
 
-export interface ManualCalibrationConfig {
-  /** Bone name → calibration. Bones with no entry pass through unchanged. */
-  calibrations?: Record<string, BoneCalibration>;
-}
-
 const DEG2RAD = Math.PI / 180;
 
 /**
@@ -46,14 +41,19 @@ export class PoseManualCalibration extends Node {
   static readonly kind = 'pose_manual_calibration';
 
   @valueIn('pose', 'NormalizedPose') poseIn!: () => NormalizedPose | undefined;
+  // Unconnected — the engine auto-resolves this against the live behavior config
+  // (`config.calibrations`) on every pull, so UI edits hot-apply without a graph
+  // rebuild. Reading `this.config` instead would snapshot at graph-build time.
+  @valueIn('calibrations', 'Any') calibrationsIn!: () =>
+    | Record<string, BoneCalibration>
+    | undefined;
 
   @valueOut('pose', 'NormalizedPose')
   pose = (): NormalizedPose | undefined => {
     const pose = this.poseIn();
     if (!pose) return undefined;
 
-    const cfg = this.config as ManualCalibrationConfig;
-    const calibrations = cfg.calibrations;
+    const calibrations = this.calibrationsIn();
     if (!calibrations || Object.keys(calibrations).length === 0) return pose;
 
     return pose.map((q, bone: VRMBoneName) => {
