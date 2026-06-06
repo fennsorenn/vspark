@@ -65,6 +65,11 @@ import {
 } from '../../vmcPoseStore';
 import { getIkTargets, getIkTargetsTime } from '../../ikTargetStore';
 import { vrmRegistry } from '../../vrmRegistry';
+import { Live2DRuntime } from '../../lib/puppet2d/live2d/Live2DRuntime';
+import {
+  mapToLive2dParams,
+  type Live2dParamMap,
+} from '../../lib/live2dParamMap';
 import {
   applyMaterialOverrides,
   disposeMaterialOverrides,
@@ -2974,20 +2979,91 @@ function Live2DNode({
     ...LIVE2D_NODE_DEFAULTS,
     ...((node.components?.live2d ?? {}) as Partial<Live2DConfig>),
   };
+  const rawMap = (node.components?.live2d as Record<string, unknown> | undefined)
+    ?.paramMap as Live2dParamMap | undefined;
+  const userMap =
+    rawMap && Object.keys(rawMap).length > 0 ? rawMap : undefined;
+
+  const runtimeRef = useRef<Live2DRuntime | null>(null);
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  const setLive2dParams = useEditorStore((s) => s.setLive2dParamsForNode);
+  const clearLive2dParams = useEditorStore((s) => s.clearLive2dParamsForNode);
 
   useEffect(() => {
     if (!outerRef.current) return;
     return registerNodeGroup(node.id, outerRef.current);
   }, [node.id]);
 
-  // Screen-facing parity with billboards: lock the inner group to the camera.
-  useFrame(({ camera }) => {
-    if (!facingRef.current) return;
-    if (cfg.facing === 'screen') {
-      facingRef.current.quaternion.copy(camera.quaternion);
-    } else {
-      facingRef.current.quaternion.identity();
+  // Load (or reload) the model when the source changes. The runtime fetches the
+  // proprietary Core lazily and only with consent; any failure leaves the
+  // placeholder in place (caught below).
+  useEffect(() => {
+    let cancelled = false;
+    setTexture(null);
+    runtimeRef.current?.dispose();
+    runtimeRef.current = null;
+    clearLive2dParams(node.id);
+    if (!cfg.modelUrl) return;
+
+    let rt: Live2DRuntime;
+    try {
+      rt = new Live2DRuntime();
+    } catch {
+      return;
     }
+    runtimeRef.current = rt;
+    rt.load(cfg.modelUrl)
+      .then(() => {
+        if (cancelled) {
+          rt.dispose();
+          return;
+        }
+        setTexture(rt.renderToTexture());
+        setLive2dParams(node.id, rt.listParams());
+      })
+      .catch((e) => {
+        console.warn('[live2d] model load failed', e);
+        if (runtimeRef.current === rt) {
+          rt.dispose();
+          runtimeRef.current = null;
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cfg.modelUrl, node.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(
+    () => () => {
+      runtimeRef.current?.dispose();
+      runtimeRef.current = null;
+    },
+    []
+  );
+
+  useFrame(({ camera }, delta) => {
+    if (facingRef.current) {
+      if (cfg.facing === 'screen') {
+        facingRef.current.quaternion.copy(camera.quaternion);
+      } else {
+        facingRef.current.quaternion.identity();
+      }
+    }
+    const rt = runtimeRef.current;
+    if (!rt || !texture) return;
+    // Drive Live2D parameters from this node's tracking feed (same per-node
+    // blendshape + head-pose data a VRM avatar consumes), then advance + redraw.
+    const bs = getVmcBlendshapes(node.id);
+    const pose = getVmcPose(node.id);
+    const neck = pose?.['neck'];
+    for (const [pid, v] of mapToLive2dParams(
+      bs,
+      neck,
+      userMap ? { map: userMap } : undefined
+    )) {
+      rt.setParam(pid, v);
+    }
+    rt.update(delta);
   });
 
   return (
@@ -2998,19 +3074,31 @@ function Live2DNode({
       scale={[t.sx, t.sy, t.sz]}
     >
       <group ref={facingRef}>
-        {/* Editor-only placeholder: until the runtime adapter renders the model,
-            don't emit anything into viewer/output. */}
-        {!viewerMode && (
+        {texture ? (
           <mesh>
             <planeGeometry args={[cfg.width, cfg.height]} />
             <meshBasicMaterial
-              color={cfg.modelUrl ? '#6a3aa0' : '#444444'}
+              map={texture}
               transparent
-              opacity={0.25}
-              side={THREE.DoubleSide}
               depthWrite={false}
+              side={THREE.DoubleSide}
+              toneMapped={false}
             />
           </mesh>
+        ) : (
+          // Editor-only placeholder while no model is loaded; nothing in output.
+          !viewerMode && (
+            <mesh>
+              <planeGeometry args={[cfg.width, cfg.height]} />
+              <meshBasicMaterial
+                color={cfg.modelUrl ? '#6a3aa0' : '#444444'}
+                transparent
+                opacity={0.25}
+                side={THREE.DoubleSide}
+                depthWrite={false}
+              />
+            </mesh>
+          )
         )}
       </group>
     </group>
