@@ -79,10 +79,10 @@ export const FINGER_MIRROR_PAIRS = [
 //       value (via pull) → converter node → pose_merge / bs_out
 //
 // Arm tracking has two modes — IK and quaternion — controlled by `useIk` in the component
-// config. The mode is read by a `component_config` node and wired through to each arm-related
+// config. The mode is read by a `behavior_config` node and wired through to each arm-related
 // node's `enabled` input. `useIk` defaults to false (quaternion arms).
 
-// Helper to keep the descriptor readable: a component_config node that reads one field.
+// Helper to keep the descriptor readable: a behavior_config node that reads one field.
 function cfgNode(
   id: string,
   field: string,
@@ -91,7 +91,7 @@ function cfgNode(
 ) {
   return {
     id,
-    kind: 'component_config',
+    kind: 'behavior_config',
     position,
     defaultConfig: { field, defaultValue },
   };
@@ -103,7 +103,7 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   nodes: [
     // ── Infrastructure ───────────────────────────────────────────────────────
     { id: 'scene_entity', kind: 'scene_entity', position: { x: 1400, y: 0 } },
-    { id: 'comp_id', kind: 'component_id', position: { x: 1400, y: 80 } },
+    { id: 'comp_id', kind: 'behavior_id', position: { x: 1400, y: 80 } },
     // ── Entry point ──────────────────────────────────────────────────────────
     { id: 'mp_source', kind: 'mediapipe_source', position: { x: -120, y: 0 } },
 
@@ -302,7 +302,7 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromNodeId: 'comp_id',
       fromPort: 'id',
       toNodeId: 'bs_out',
-      toPort: 'componentId',
+      toPort: 'behaviorId',
       kind: 'value',
     },
 
@@ -446,7 +446,7 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromNodeId: 'comp_id',
       fromPort: 'id',
       toNodeId: 'pose_out',
-      toPort: 'componentId',
+      toPort: 'behaviorId',
       kind: 'value',
     },
 
@@ -623,10 +623,10 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
 };
 
 export function makeMediapipeGraphDescriptor(
-  componentId: string
+  behaviorId: string
 ): GraphDescriptor {
   return {
     ...MEDIAPIPE_PIPELINE_TEMPLATE,
-    id: `mediapipe_tracker:${componentId}`,
+    id: `mediapipe_tracker:${behaviorId}`,
   };
 }

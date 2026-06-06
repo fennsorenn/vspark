@@ -8,7 +8,7 @@ import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { api, fireSignalEvent, updateScene } from '../../api/client';
-import type { NodeRecord, NodeComponent } from '../../store/editorStore';
+import type { NodeRecord, Behavior } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeLayerProperties } from './ComposeLayerProperties';
 import type { AssetFile } from '../../api/client';
@@ -884,7 +884,7 @@ function MaterialSection({ node }: { node: NodeRecord }) {
 
 // ---------- Calibration wizard ----------
 
-function CalibrationSection({ comp }: { comp: NodeComponent }) {
+function CalibrationSection({ comp }: { comp: Behavior }) {
   const [headSet, setHeadSet] = useState(false);
   const [leftSet, setLeftSet] = useState(false);
   const [rightSet, setRightSet] = useState(false);
@@ -1370,7 +1370,7 @@ const MAPPER_NODES: {
 }[] = [
   {
     id: 'arkit_fcl_cfg',
-    label: 'VRoid (Fcl_*)',
+    label: 'VRoid Blendshapes',
     defaultEnabled: true,
     builtinMapping: ARKIT_TO_FCL as Record<string, [string, number][]>,
   },
@@ -1629,8 +1629,8 @@ const VRM_EXPR_PRESETS = [
   'lookRight',
 ];
 
-function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
-  const { updateNodeComponent, vrmMorphTargetsByNode, vrmExpressionsByNode } =
+function VmcReceiverProps({ comp }: { comp: Behavior }) {
+  const { updateBehavior, vrmMorphTargetsByNode, vrmExpressionsByNode } =
     useEditorStore();
   const morphTargets = vrmMorphTargetsByNode[comp.nodeId] ?? [];
   const expressions = vrmExpressionsByNode[comp.nodeId] ?? [];
@@ -1721,9 +1721,9 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
 
   const save = async (patch: Partial<Record<string, unknown>>) => {
     const newConfig = { ...comp.config, ...patch };
-    updateNodeComponent(comp.id, { config: newConfig });
+    updateBehavior(comp.id, { config: newConfig });
     try {
-      await api.updateNodeComponent(comp.id, { config: newConfig });
+      await api.updateBehavior(comp.id, { config: newConfig });
     } catch {
       /* non-fatal */
     }
@@ -1944,8 +1944,8 @@ function VmcReceiverProps({ comp }: { comp: NodeComponent }) {
 
 // ── Lipsync props ─────────────────────────────────────────────────────────────
 
-function LipsyncProcessorProps({ comp }: { comp: NodeComponent }) {
-  const { updateNodeComponent } = useEditorStore();
+function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
+  const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
     sensitivity?: number;
@@ -1955,8 +1955,8 @@ function LipsyncProcessorProps({ comp }: { comp: NodeComponent }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateNodeComponent(comp.id, { config });
-    api.updateNodeComponent(comp.id, { config }).catch(() => {});
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
   };
 
   const rowStyle: React.CSSProperties = {
@@ -2190,8 +2190,8 @@ function LipsyncCalibration({
 
 // ── MediaPipe tracker props ────────────────────────────────────────────────────
 
-function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
-  const { updateNodeComponent } = useEditorStore();
+function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
+  const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
     enableFace?: boolean;
@@ -2245,8 +2245,8 @@ function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateNodeComponent(comp.id, { config });
-    api.updateNodeComponent(comp.id, { config }).catch(() => {});
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
   };
 
   const saveIk = (patch: Record<string, unknown>) => {
@@ -2551,7 +2551,7 @@ function MediapipeTrackerProps({ comp }: { comp: NodeComponent }) {
   );
 }
 
-function ApiControllerProps({ comp }: { comp: NodeComponent }) {
+function ApiControllerProps({ comp }: { comp: Behavior }) {
   const { projectId } = useParams<{ projectId: string }>();
   const [copied, setCopied] = useState(false);
   const baseUrl = projectId
@@ -2574,7 +2574,7 @@ function ApiControllerProps({ comp }: { comp: NodeComponent }) {
   return (
     <div>
       <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
-        Component API base URL
+        Behavior API base URL
       </div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
         <input
@@ -2622,8 +2622,8 @@ function ApiControllerProps({ comp }: { comp: NodeComponent }) {
 
 // ── Breathing component panel ────────────────────────────────────────────────
 
-function BreathingProps({ comp }: { comp: NodeComponent }) {
-  const { updateNodeComponent } = useEditorStore();
+function BreathingProps({ comp }: { comp: Behavior }) {
+  const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as {
     chestAmplitude?: number;
     shoulderAmplitude?: number;
@@ -2638,8 +2638,8 @@ function BreathingProps({ comp }: { comp: NodeComponent }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateNodeComponent(comp.id, { config });
-    api.updateNodeComponent(comp.id, { config }).catch(() => {});
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
   };
 
   return (
@@ -2688,7 +2688,7 @@ function BreathingProps({ comp }: { comp: NodeComponent }) {
 
 // ── Component dispatcher ──────────────────────────────────────────────────────
 
-function ComponentProps({ comp }: { comp: NodeComponent }) {
+function BehaviorProps({ comp }: { comp: Behavior }) {
   switch (comp.kind) {
     case 'vmc_receiver':
       return <VmcReceiverProps comp={comp} />;
@@ -3187,7 +3187,10 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                 'SUBTRACT',
               ].map((m) => (
                 <option key={m} value={m}>
-                  {m.replace(/_/g, ' ')}
+                  {m
+                    .toLowerCase()
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, (c) => c.toUpperCase())}
                 </option>
               ))}
             </select>
@@ -3546,13 +3549,13 @@ export function PropertiesPanel() {
     selectedNodeId,
     updateNode: storeUpdateNode,
     assets,
-    selectedComponentId,
-    nodeComponents,
+    selectedBehaviorId,
+    behaviors,
     fbxDebugVisible,
     setFbxDebugVisible,
     vrmExpressionsByNode,
     vrmMorphTargetsByNode,
-    componentKinds,
+    behaviorKinds,
     cameraEffects,
     selectedEffect,
     scenes,
@@ -3567,10 +3570,10 @@ export function PropertiesPanel() {
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
   const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
-  const selectedComp =
-    nodeComponents.find((c) => c.id === selectedComponentId) ?? null;
-  const selectedCompType = selectedComp
-    ? componentKinds.find((ct) => ct.kind === selectedComp.kind)
+  const selectedBehavior =
+    behaviors.find((c) => c.id === selectedBehaviorId) ?? null;
+  const selectedCompType = selectedBehavior
+    ? behaviorKinds.find((ct) => ct.kind === selectedBehavior.kind)
     : null;
   const selectedEffectRecord = selectedEffect
     ? cameraEffects.find(
@@ -3830,7 +3833,7 @@ export function PropertiesPanel() {
     );
   }
 
-  if (!node && !selectedComp) {
+  if (!node && !selectedBehavior) {
     return (
       <div
         style={{
@@ -3852,7 +3855,7 @@ export function PropertiesPanel() {
   }
 
   // Component selected without a parent node selected — show a focused component panel.
-  if (!node && selectedComp && selectedCompType) {
+  if (!node && selectedBehavior && selectedCompType) {
     return panelShell(
       <>
         <div
@@ -3873,7 +3876,7 @@ export function PropertiesPanel() {
             </div>
           </div>
         </div>
-        <ComponentProps comp={selectedComp} />
+        <BehaviorProps comp={selectedBehavior} />
       </>
     );
   }
@@ -4767,7 +4770,7 @@ export function PropertiesPanel() {
           </>
         )}
 
-        {/* Godray Caster Properties */}
+        {/* Light Rays Properties */}
         {node.kind === 'godray_caster' &&
           (() => {
             const gr =
@@ -6937,7 +6940,7 @@ export function PropertiesPanel() {
         )}
 
         {/* Selected component properties */}
-        {selectedComp && selectedCompType && (
+        {selectedBehavior && selectedCompType && (
           <>
             <div
               style={{
@@ -6966,7 +6969,7 @@ export function PropertiesPanel() {
                   </div>
                 </div>
               </div>
-              <ComponentProps comp={selectedComp} />
+              <BehaviorProps comp={selectedBehavior} />
             </div>
           </>
         )}

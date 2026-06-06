@@ -11,7 +11,7 @@ const router: ReturnType<typeof Router> = Router();
  * /api/projects/{projectId}/scenes:
  *   get:
  *     tags: [scenes]
- *     summary: List all scenes for a project, with their nodes, node-components and camera-effects
+ *     summary: List all scenes for a project, with their nodes, behaviors and camera-effects
  *     parameters:
  *       - in: path
  *         name: projectId
@@ -31,7 +31,7 @@ const router: ReturnType<typeof Router> = Router();
  *                   properties:
  *                     scenes:         { type: array, items: { type: object } }
  *                     nodes:          { type: array, items: { type: object } }
- *                     nodeComponents: { type: array, items: { type: object } }
+ *                     behaviors: { type: array, items: { type: object } }
  *                     cameraEffects:  { type: array, items: { type: object } }
  */
 router.get('/projects/:projectId/scenes', (req, res) => {
@@ -53,7 +53,7 @@ router.get('/projects/:projectId/scenes', (req, res) => {
   }));
 
   const nodes: unknown[] = [];
-  const nodeComponents: unknown[] = [];
+  const behaviors: unknown[] = [];
   const cameraEffects: unknown[] = [];
   const trackClips: unknown[] = [];
 
@@ -69,10 +69,10 @@ router.get('/projects/:projectId/scenes', (req, res) => {
     for (const n of sceneNodes as { id: string }[]) {
       const comps = db
         .prepare(
-          'SELECT * FROM node_components WHERE node_id = ? ORDER BY sort_order'
+          'SELECT * FROM behaviors WHERE node_id = ? ORDER BY sort_order'
         )
         .all(n.id);
-      nodeComponents.push(...comps);
+      behaviors.push(...comps);
       const effects = db
         .prepare('SELECT * FROM camera_effects WHERE node_id = ?')
         .all(n.id);
@@ -143,7 +143,7 @@ router.get('/projects/:projectId/scenes', (req, res) => {
     data: {
       scenes,
       nodes,
-      nodeComponents,
+      behaviors,
       cameraEffects,
       composeLayers,
       trackClips,
@@ -424,7 +424,7 @@ router.delete('/scenes/:sceneId', (req, res) => {
   db.exec('PRAGMA foreign_keys = OFF');
   try {
     for (const nid of nodeIds) {
-      db.prepare('DELETE FROM node_components WHERE node_id = ?').run(nid);
+      db.prepare('DELETE FROM behaviors WHERE node_id = ?').run(nid);
       db.prepare('DELETE FROM camera_effects WHERE node_id = ?').run(nid);
       // Drop camera_view compose layers that targeted this scene's cameras.
       db.prepare('DELETE FROM compose_layers WHERE camera_node_id = ?').run(

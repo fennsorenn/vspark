@@ -7,7 +7,7 @@ import {
 import { api } from '../../api/client';
 import type { ComposeLayerKind } from '../../api/client';
 import { ClipsSection } from './ClipsSection';
-import { GraphsSection } from './GraphsSection';
+import { LogicSection } from './LogicSection';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { createLayer } from './createKinds';
@@ -206,12 +206,12 @@ function LayerRow({
     }
   };
 
-  const handlePasteGraphAtLayer = async () => {
+  const handlePasteLogicAtLayer = async () => {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createLayerGraph(layer.id, payload.name);
-      await api.updateGraph(created.id, {
+      const created = await api.createLayerLogic(layer.id, payload.name);
+      await api.updateLogic(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
@@ -227,7 +227,7 @@ function LayerRow({
   };
   const buildContextMenuItems = (): ContextMenuItem[] => {
     const canPasteLayer = clipboardPayload?.kind === 'compose-layer';
-    const canPasteGraph = clipboardPayload?.kind === 'graph';
+    const canPasteLogic = clipboardPayload?.kind === 'graph';
     const items: ContextMenuItem[] = [
       {
         kind: 'item',
@@ -242,11 +242,11 @@ function LayerRow({
         onClick: () => void handlePasteLayer(),
       });
     }
-    if (canPasteGraph) {
+    if (canPasteLogic) {
       items.push({
         kind: 'item',
-        label: 'Paste graph here',
-        onClick: () => void handlePasteGraphAtLayer(),
+        label: 'Paste logic here',
+        onClick: () => void handlePasteLogicAtLayer(),
       });
     }
     items.push(
@@ -411,7 +411,7 @@ function LayerRow({
       {selected && (
         <>
           <ClipsSection owner={{ kind: 'layer', id: layer.id }} />
-          <GraphsSection owner={{ kind: 'layer', id: layer.id }} />
+          <LogicSection owner={{ kind: 'layer', id: layer.id }} />
         </>
       )}
       {children

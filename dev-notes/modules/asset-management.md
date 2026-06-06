@@ -64,7 +64,7 @@ DELETE /assets/:assetId
 
 ## Frontend — `AssetManager.tsx`
 
-Tabbed panel. Reads from `useEditorStore`: `assets`, `activeSceneId`, `selectedNodeId`, `nodes`, `nodeComponents`, `cameraEffects`.
+Tabbed panel. Reads from `useEditorStore`: `assets`, `activeSceneId`, `selectedNodeId`, `nodes`, `behaviors`, `cameraEffects`.
 
 ### Tabs
 
@@ -75,7 +75,7 @@ Tabbed panel. Reads from `useEditorStore`: `assets`, `activeSceneId`, `selectedN
 | Images | `.jpg`, `.png`, `.webp`, ... | `image` |
 | Videos | `.mp4`, `.webm`, `.mov`, `.m4v`, `.ogv` | `video` |
 | Audio | `.mp3`, `.wav`, `.ogg`, `.m4a`, `.aac`, `.flac` | `audio` |
-| Components | — | (component kinds, not file assets) |
+| Behaviors (formerly "Components") | — | (behavior kinds, not file assets) |
 | Effects | — | (camera effect kinds, not file assets) |
 
 `AssetThumb.tsx` renders a first-frame `<video>` poster for video assets and a 🔊 icon
@@ -106,10 +106,10 @@ for audio. The `BottomDockTab` store field gained `'videos'` | `'audio'`.
 See [media.md](media.md) for the `video`/`audio` node kinds, the compose video layer,
 and how playback is driven.
 
-**Components tab**:
-- Lists all `componentKinds` from store, filtered by applicability
+**Behaviors tab** (formerly "Components"):
+- Lists all `behaviorKinds` from store, filtered by applicability
 - Prevents adding duplicate kinds to the same node
-- "Add" → `POST /scene-nodes/:nodeId/components` with default config from kind definition
+- "Add" → `POST /scene-nodes/:nodeId/behaviors` with default config from kind definition
 
 **Effects tab**:
 - Only active when a camera node is selected

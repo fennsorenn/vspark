@@ -19,7 +19,7 @@ import type {
 import type { PresetPayloadInput } from '@vspark/shared/schema';
 import type {
   CameraEffectRecord,
-  NodeComponentRecord,
+  BehaviorRecord,
   TrackClipRecord,
 } from './api/client';
 
@@ -45,7 +45,7 @@ export type ClipboardPayload =
     }
   | {
       kind: 'node-component';
-      component: Omit<NodeComponentRecord, 'id' | 'nodeId'>;
+      component: Omit<BehaviorRecord, 'id' | 'nodeId'>;
     }
   | {
       kind: 'track-clip';

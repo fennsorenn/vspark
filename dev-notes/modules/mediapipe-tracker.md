@@ -11,8 +11,8 @@ Related: [signal-graph.md](signal-graph.md), [component-managers.md](component-m
 ## Files
 
 Backend:
-- `packages/backend/src/node_components/mediapipe_tracker/manager.ts`
-- `packages/backend/src/node_components/mediapipe_tracker/graph.ts`
+- `packages/backend/src/behaviors/mediapipe_tracker/manager.ts`
+- `packages/backend/src/behaviors/mediapipe_tracker/graph.ts`
 - `packages/backend/src/signal/nodes/pose_torso_head_to_bones.ts`
 - `packages/backend/src/signal/nodes/pose_arms_to_bones.ts`
 - `packages/backend/src/signal/nodes/pose_ik_targets.ts`
@@ -57,7 +57,7 @@ mediapipe_source
 
 ### Arm mode toggle
 
-The `useIk` component config flows through a `not_bool` fan-out wired to:
+The `useIk` behavior config flows through a `not_bool` fan-out wired to:
 - `pose_arms_to_bones.enabled` (true when IK is off)
 - `pose_ik_targets.enabled` / `ik_broadcast.enabled` (true when IK is on)
 
@@ -81,10 +81,10 @@ either `VmcManager` or `TrackingManager`.
 ### Config injection
 
 All knobs (IK xScale/yScale/zScale, xOffset/yOffset/zOffset, invertX/Y/Z; head
-pitchGain/yawGain/rollGain/restPitch) are surfaced via `component_config` nodes
+pitchGain/yawGain/rollGain/restPitch) are surfaced via `behavior_config` nodes
 wired into the converter nodes' value ports. There is no `nodeConfig[nodeId]`
-side-channel. The manager only injects `_componentConfig` for the
-`component_config` node kind.
+side-channel. The manager only injects `_behaviorConfig` for the
+`behavior_config` node kind.
 
 ## Frontend IK solve (Step 2.5)
 
@@ -118,8 +118,8 @@ an active IK target:
 3. Wire it into `mediapipe_tracker/graph.ts`: add a node entry and edges from
    `mediapipe_source` (via `unpack_event` if you want a separate trigger/value
    split), through any merge/calibration nodes, into the appropriate broadcast.
-4. If the converter needs user-tunable knobs, add them to the component config
-   schema and add a `component_config` node feeding the relevant value port.
+4. If the converter needs user-tunable knobs, add them to the behavior config
+   schema and add a `behavior_config` node feeding the relevant value port.
 5. If new UI knobs are needed, extend `MediapipeTrackerProps` in
    `PropertiesPanel.tsx`.
 

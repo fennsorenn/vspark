@@ -12,7 +12,7 @@ export function initBlendshapesBroadcast(ws: WSSync): void {
 }
 
 @SignalNode({
-  label: 'Blendshapes Broadcast',
+  label: 'Send Blendshapes',
   description:
     'Publishes VRM expression weights to the Broadcast Bus. The bus sums all producer slots for the entity (clamped to [0,1]) and emits a merged frame on each scene tick.',
   tags: ['output'],
@@ -24,14 +24,14 @@ export class BlendshapesBroadcast extends Node {
   @valueIn('blendshapes', 'Blendshapes')
   blendshapes!: () => Blendshapes | undefined;
   @valueIn('nodeId', 'SceneNode') nodeId!: () => string | undefined;
-  @valueIn('componentId', 'String') componentId!: () => string | undefined;
+  @valueIn('behaviorId', 'String') behaviorId!: () => string | undefined;
 
   @eventIn('trigger', 'Trigger')
   onTrigger(): void {
     const nodeId = this.nodeId();
-    const componentId = this.componentId();
+    const behaviorId = this.behaviorId();
     const blendshapes = this.blendshapes();
-    if (!nodeId || !componentId || !blendshapes) return;
-    broadcastBus.publishBlendshapes(nodeId, componentId, blendshapes);
+    if (!nodeId || !behaviorId || !blendshapes) return;
+    broadcastBus.publishBlendshapes(nodeId, behaviorId, blendshapes);
   }
 }

@@ -464,11 +464,11 @@ export function SignalNodeCard({
       ? (config as Record<string, unknown>)
       : {};
 
-  const { nodeComponents, updateNodeComponent } = useEditorStore();
+  const { behaviors, updateBehavior } = useEditorStore();
 
   const handleStaticChange = (portName: string, value: unknown) => {
-    // Component-owned graphs use the "kind:componentId" id shape. Standalone
-    // project graphs use a bare UUID — they don't have a node_components row
+    // Behavior-owned graphs use the "kind:behaviorId" id shape. Standalone
+    // project logic use a bare UUID — they don't have a behaviors row
     // to update, so we delegate to the canvas via a custom event which mutates
     // the descriptor's defaultConfig and persists via PUT.
     if (!graphId.includes(':')) {
@@ -479,8 +479,8 @@ export function SignalNodeCard({
       );
       return;
     }
-    const componentId = graphId.split(':').slice(1).join(':');
-    const comp = nodeComponents.find((c) => c.id === componentId);
+    const behaviorId = graphId.split(':').slice(1).join(':');
+    const comp = behaviors.find((c) => c.id === behaviorId);
     if (!comp) return;
     const prevConfig = comp.config as Record<string, unknown>;
     const prevNodeConf = (prevConfig.nodeConfig ?? {}) as Record<
@@ -498,8 +498,8 @@ export function SignalNodeCard({
         [nodeId]: { ...prevNodeEntry, [portName]: value },
       },
     };
-    updateNodeComponent(componentId, { config: newConfig });
-    api.updateNodeComponent(componentId, { config: newConfig }).catch(() => {});
+    updateBehavior(behaviorId, { config: newConfig });
+    api.updateBehavior(behaviorId, { config: newConfig }).catch(() => {});
   };
 
   // pack_event / set_data: user-defined named input fields (config.fields:

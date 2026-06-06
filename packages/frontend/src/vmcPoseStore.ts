@@ -1,7 +1,7 @@
 import type { AnimationBlendMode } from '@vspark/shared';
 
 // Not React state — written by the WS hook, polled by useFrame. No re-renders.
-// Keyed by scene nodeId (the VRM entity), not by componentId.
+// Keyed by scene nodeId (the VRM entity), not by behaviorId.
 const poses = new Map<
   string,
   Record<string, [number, number, number, number]>

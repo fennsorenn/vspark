@@ -2,19 +2,19 @@ import { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import type { NodeRecord, NodeComponent } from '../../store/editorStore';
-import { newComponentId } from '../../store/editorStore';
+import type { NodeRecord, Behavior } from '../../store/editorStore';
+import { newBehaviorId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
-import { GraphsSection } from './GraphsSection';
+import { LogicSection } from './LogicSection';
 import { ContextMenu } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
   NODE_KIND_DEFS,
   createSceneNode,
   nextNodeName,
-  componentCompatibleWith,
+  behaviorCompatibleWith,
   type NodeKindDef,
 } from './createKinds';
 import { handleSceneNodeDrop } from './dnd';
@@ -61,9 +61,9 @@ function SceneNodeContextMenu({
   onDelete,
   onCopy,
   onPasteNode,
-  onPasteGraph,
+  onPasteLogic,
   canPasteNode,
-  canPasteGraph,
+  canPasteLogic,
 }: {
   menu: CtxMenu;
   nodes: NodeRecord[];
@@ -74,9 +74,9 @@ function SceneNodeContextMenu({
   onDelete: (nodeId: string) => void;
   onCopy: (nodeId: string) => void;
   onPasteNode: (parentNodeId: string) => void;
-  onPasteGraph: (nodeId: string) => void;
+  onPasteLogic: (nodeId: string) => void;
   canPasteNode: boolean;
-  canPasteGraph: boolean;
+  canPasteLogic: boolean;
 }) {
   const node = nodes.find((n) => n.id === menu.nodeId)!;
   const [showAddChild, setShowAddChild] = useState(false);
@@ -288,7 +288,7 @@ function SceneNodeContextMenu({
         </div>
       )}
 
-      {canPasteGraph && (
+      {canPasteLogic && (
         <div
           style={itemStyle}
           onMouseEnter={(e) =>
@@ -299,11 +299,11 @@ function SceneNodeContextMenu({
               'transparent')
           }
           onClick={() => {
-            onPasteGraph(menu.nodeId);
+            onPasteLogic(menu.nodeId);
             onClose();
           }}
         >
-          Paste graph here
+          Paste logic here
         </div>
       )}
 
@@ -329,33 +329,33 @@ function SceneNodeContextMenu({
 }
 
 // ---------- Inline components section ----------
-function NodeComponentsSection({ nodeId }: { nodeId: string }) {
+function BehaviorsSection({ nodeId }: { nodeId: string }) {
   /** Open context menu state. Null when no menu is currently up. */
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
-    comp: NodeComponent;
+    comp: Behavior;
   } | null>(null);
-  const nodeComponentsFor = useEditorStore((s) => s.nodeComponentsFor);
+  const behaviorsFor = useEditorStore((s) => s.behaviorsFor);
   const nodeKind = useEditorStore(
     (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
   );
-  const addNodeComponent = useEditorStore((s) => s.addNodeComponent);
-  const updateNodeComponent = useEditorStore((s) => s.updateNodeComponent);
-  const removeNodeComponent = useEditorStore((s) => s.removeNodeComponent);
-  const selectedComponentId = useEditorStore((s) => s.selectedComponentId);
-  const selectComponent = useEditorStore((s) => s.selectComponent);
+  const addBehavior = useEditorStore((s) => s.addBehavior);
+  const updateBehavior = useEditorStore((s) => s.updateBehavior);
+  const removeBehavior = useEditorStore((s) => s.removeBehavior);
+  const selectedBehaviorId = useEditorStore((s) => s.selectedBehaviorId);
+  const selectBehavior = useEditorStore((s) => s.selectBehavior);
   const vmcStatus = useEditorStore((s) => s.vmcStatus);
   const vmcTracking = useEditorStore((s) => s.vmcTracking);
-  const componentKinds = useEditorStore((s) => s.componentKinds);
+  const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteComponent = clipboardPayload?.kind === 'node-component';
-  const components = nodeComponentsFor(nodeId).filter(
+  const canPasteBehavior = clipboardPayload?.kind === 'node-component';
+  const components = behaviorsFor(nodeId).filter(
     (c) => !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
   );
 
-  const handleCopyComponent = async (comp: NodeComponent) => {
+  const handleCopyBehavior = async (comp: Behavior) => {
     await copyToClipboard(
       {
         kind: 'node-component',
@@ -369,19 +369,19 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
     );
   };
 
-  const handlePasteComponent = async () => {
+  const handlePasteBehavior = async () => {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'node-component') return;
-    const comp: NodeComponent = {
-      id: newComponentId(),
+    const comp: Behavior = {
+      id: newBehaviorId(),
       nodeId,
       kind: payload.component.kind,
       enabled: payload.component.enabled,
       config: { ...payload.component.config },
     };
-    addNodeComponent(comp);
+    addBehavior(comp);
     try {
-      await api.createNodeComponent(nodeId, comp);
+      await api.createBehavior(nodeId, comp);
     } catch {
       /* non-fatal */
     }
@@ -399,37 +399,37 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [showAddMenu]);
 
-  const handleAdd = async (ct: (typeof componentKinds)[number]) => {
+  const handleAdd = async (ct: (typeof behaviorKinds)[number]) => {
     setShowAddMenu(false);
-    const comp: NodeComponent = {
-      id: newComponentId(),
+    const comp: Behavior = {
+      id: newBehaviorId(),
       nodeId,
       kind: ct.kind,
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addNodeComponent(comp);
+    addBehavior(comp);
     try {
-      await api.createNodeComponent(nodeId, comp);
+      await api.createBehavior(nodeId, comp);
     } catch {
       /* non-fatal — state already updated locally */
     }
   };
 
-  const handleToggleEnabled = async (comp: NodeComponent) => {
+  const handleToggleEnabled = async (comp: Behavior) => {
     const next = !comp.enabled;
-    updateNodeComponent(comp.id, { enabled: next });
+    updateBehavior(comp.id, { enabled: next });
     try {
-      await api.updateNodeComponent(comp.id, { enabled: next });
+      await api.updateBehavior(comp.id, { enabled: next });
     } catch {
       /* non-fatal */
     }
   };
 
-  const handleRemove = async (comp: NodeComponent) => {
-    removeNodeComponent(comp.id);
+  const handleRemove = async (comp: Behavior) => {
+    removeBehavior(comp.id);
     try {
-      await api.deleteNodeComponent(comp.id);
+      await api.deleteBehavior(comp.id);
     } catch {
       /* non-fatal */
     }
@@ -456,12 +456,12 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
             fontStyle: 'italic',
           }}
         >
-          No components
+          No behaviors
         </div>
       )}
       {components.map((comp) => {
-        const ct = componentKinds.find((c) => c.kind === comp.kind);
-        const isSelected = selectedComponentId === comp.id;
+        const ct = behaviorKinds.find((c) => c.kind === comp.kind);
+        const isSelected = selectedBehaviorId === comp.id;
         const hasStatus = comp.kind === 'vmc_receiver';
         const isConnected = hasStatus && vmcStatus[comp.id] === true;
         const isTracking = hasStatus && vmcTracking[comp.id] === true;
@@ -478,7 +478,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               cursor: 'pointer',
               background: isSelected ? '#1a3a5a' : 'transparent',
             }}
-            onClick={() => selectComponent(isSelected ? null : comp.id)}
+            onClick={() => selectBehavior(isSelected ? null : comp.id)}
             onContextMenu={(e) => {
               e.preventDefault();
               setCtxMenu({ x: e.clientX, y: e.clientY, comp });
@@ -574,12 +574,12 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
           }}
           onClick={() => setShowAddMenu((v) => !v)}
         >
-          + Add Component
+          + Add Behavior
         </button>
-        {canPasteComponent && (
+        {canPasteBehavior && (
           <button
             title="Paste component from clipboard onto this node"
-            onClick={handlePasteComponent}
+            onClick={handlePasteBehavior}
             style={{
               background: 'none',
               border: '1px dashed #3a5a4a',
@@ -614,7 +614,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               // Show components compatible with this node's kind first, then a
               // separated "Other" group for the rest (still addable).
               const item = (
-                ct: (typeof componentKinds)[number],
+                ct: (typeof behaviorKinds)[number],
                 dimmed: boolean
               ) => (
                 <div
@@ -648,11 +648,11 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
                   </div>
                 </div>
               );
-              const compatible = componentKinds.filter((ct) =>
-                componentCompatibleWith(ct.applicableTo, nodeKind)
+              const compatible = behaviorKinds.filter((ct) =>
+                behaviorCompatibleWith(ct.applicableTo, nodeKind)
               );
-              const incompatible = componentKinds.filter(
-                (ct) => !componentCompatibleWith(ct.applicableTo, nodeKind)
+              const incompatible = behaviorKinds.filter(
+                (ct) => !behaviorCompatibleWith(ct.applicableTo, nodeKind)
               );
               return (
                 <>
@@ -687,7 +687,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
             {
               kind: 'item',
               label: 'Copy component',
-              onClick: () => void handleCopyComponent(ctxMenu.comp),
+              onClick: () => void handleCopyBehavior(ctxMenu.comp),
             },
             {
               kind: 'item',
@@ -750,7 +750,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
     // Refuse silently if this kind is already present (mirrors handleAdd).
     if (effects.some((e) => e.kind === payload.effect.kind)) return;
     const effect = {
-      id: newComponentId(),
+      id: newBehaviorId(),
       nodeId,
       kind: payload.effect.kind,
       enabled: payload.effect.enabled,
@@ -780,7 +780,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
     setShowAddMenu(false);
     if (effects.some((e) => e.kind === ek.kind)) return;
     const effect = {
-      id: newComponentId(),
+      id: newBehaviorId(),
       nodeId,
       kind: ek.kind,
       enabled: true,
@@ -1050,52 +1050,52 @@ const formatBoneName = (name: string) =>
 
 // ---------- Graph list panel ----------
 import type { GraphDescriptor } from '@vspark/shared/signal';
-import type { GraphRecord, ScopedGraphRecord } from '../../api/client';
+import type { LogicRecord, ScopedLogicRecord } from '../../api/client';
 
-function GraphListPanel() {
+function LogicListPanel() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { activeGraphId, setActiveGraph } = useEditorStore();
-  const [componentGraphs, setComponentGraphs] = useState<GraphDescriptor[]>([]);
-  const [projectGraphs, setProjectGraphs] = useState<GraphRecord[]>([]);
-  const [scopedGraphs, setScopedGraphs] = useState<ScopedGraphRecord[]>([]);
-  const [scopedGraphsOpen, setScopedGraphsOpen] = useState(true);
-  const [componentGraphsOpen, setComponentGraphsOpen] = useState(false);
+  const { activeLogicId, setActiveLogic } = useEditorStore();
+  const [behaviorLogic, setBehaviorLogic] = useState<GraphDescriptor[]>([]);
+  const [projectLogic, setProjectLogic] = useState<LogicRecord[]>([]);
+  const [scopedLogic, setScopedLogic] = useState<ScopedLogicRecord[]>([]);
+  const [scopedLogicOpen, setScopedLogicOpen] = useState(true);
+  const [behaviorLogicOpen, setBehaviorLogicOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteGraph = clipboardPayload?.kind === 'graph';
+  const canPasteLogic = clipboardPayload?.kind === 'graph';
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
-    graph: GraphRecord;
+    graph: LogicRecord;
   } | null>(null);
 
   const refresh = () => {
     api
       .getSignalGraphs()
-      .then(setComponentGraphs)
+      .then(setBehaviorLogic)
       .catch(() => {});
     if (projectId) {
       api
-        .getProjectGraphs(projectId)
-        .then(setProjectGraphs)
+        .getProjectLogic(projectId)
+        .then(setProjectLogic)
         .catch(() => {});
       api
-        .getProjectScopedGraphs(projectId)
-        .then(setScopedGraphs)
+        .getProjectScopedLogic(projectId)
+        .then(setScopedLogic)
         .catch(() => {});
     }
   };
 
-  const handleToggleScopedEnabled = async (g: ScopedGraphRecord) => {
+  const handleToggleScopedEnabled = async (g: ScopedLogicRecord) => {
     try {
-      const updated = await api.updateGraph(g.id, { enabled: !g.enabled });
-      setScopedGraphs((prev) =>
+      const updated = await api.updateLogic(g.id, { enabled: !g.enabled });
+      setScopedLogic((prev) =>
         prev.map((x) =>
           x.id === g.id ? { ...x, enabled: updated.enabled } : x
         )
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle graph');
+      alert(e instanceof Error ? e.message : 'Failed to toggle logic');
     }
   };
 
@@ -1121,55 +1121,55 @@ function GraphListPanel() {
 
   const handleCreate = async () => {
     if (!projectId) return;
-    const name = window.prompt('New graph name:', 'Untitled Graph');
+    const name = window.prompt('New logic name:', 'Untitled Logic');
     if (!name?.trim()) return;
     try {
-      const created = await api.createProjectGraph(projectId, name.trim());
-      setProjectGraphs((prev) => [...prev, created]);
-      setActiveGraph(created.id);
+      const created = await api.createProjectLogic(projectId, name.trim());
+      setProjectLogic((prev) => [...prev, created]);
+      setActiveLogic(created.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create graph');
+      alert(e instanceof Error ? e.message : 'Failed to create logic');
     }
   };
 
-  const handleRename = async (g: GraphRecord) => {
-    const name = window.prompt('Rename graph:', g.name);
+  const handleRename = async (g: LogicRecord) => {
+    const name = window.prompt('Rename logic:', g.name);
     if (!name?.trim() || name.trim() === g.name) return;
     try {
-      const updated = await api.updateGraph(g.id, { name: name.trim() });
-      setProjectGraphs((prev) =>
+      const updated = await api.updateLogic(g.id, { name: name.trim() });
+      setProjectLogic((prev) =>
         prev.map((x) => (x.id === g.id ? updated : x))
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to rename graph');
+      alert(e instanceof Error ? e.message : 'Failed to rename logic');
     }
   };
 
-  const handleToggleEnabled = async (g: GraphRecord) => {
+  const handleToggleEnabled = async (g: LogicRecord) => {
     try {
-      const updated = await api.updateGraph(g.id, {
+      const updated = await api.updateLogic(g.id, {
         enabled: !g.enabled,
       });
-      setProjectGraphs((prev) =>
+      setProjectLogic((prev) =>
         prev.map((x) => (x.id === g.id ? updated : x))
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle graph');
+      alert(e instanceof Error ? e.message : 'Failed to toggle logic');
     }
   };
 
-  const handleDelete = async (g: GraphRecord) => {
+  const handleDelete = async (g: LogicRecord) => {
     if (!window.confirm(`Delete graph "${g.name}"?`)) return;
     try {
-      await api.deleteGraph(g.id);
-      setProjectGraphs((prev) => prev.filter((x) => x.id !== g.id));
-      if (activeGraphId === g.id) setActiveGraph(null);
+      await api.deleteLogic(g.id);
+      setProjectLogic((prev) => prev.filter((x) => x.id !== g.id));
+      if (activeLogicId === g.id) setActiveLogic(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete graph');
+      alert(e instanceof Error ? e.message : 'Failed to delete logic');
     }
   };
 
-  const handleCopy = async (g: GraphRecord) => {
+  const handleCopy = async (g: LogicRecord) => {
     await copyToClipboard(
       {
         kind: 'graph',
@@ -1186,15 +1186,15 @@ function GraphListPanel() {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createProjectGraph(projectId, payload.name);
-      const updated = await api.updateGraph(created.id, {
+      const created = await api.createProjectLogic(projectId, payload.name);
+      const updated = await api.updateLogic(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
-      setProjectGraphs((prev) => [...prev, updated]);
-      setActiveGraph(updated.id);
+      setProjectLogic((prev) => [...prev, updated]);
+      setActiveLogic(updated.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+      alert(e instanceof Error ? e.message : 'Failed to paste logic');
     }
   };
 
@@ -1214,11 +1214,11 @@ function GraphListPanel() {
           letterSpacing: 0.5,
         }}
       >
-        <span>Project Graphs</span>
+        <span>Global Logic</span>
         <div style={{ display: 'flex', gap: 4 }}>
-          {canPasteGraph && (
+          {canPasteLogic && (
             <button
-              title="Paste graph from clipboard as a project graph"
+              title="Paste logic from clipboard as a global logic"
               onClick={handlePaste}
               style={{
                 background: 'none',
@@ -1234,7 +1234,7 @@ function GraphListPanel() {
             </button>
           )}
           <button
-            title="New graph"
+            title="New logic"
             onClick={handleCreate}
             style={{
               background: '#2563eb',
@@ -1251,7 +1251,7 @@ function GraphListPanel() {
           </button>
         </div>
       </div>
-      {projectGraphs.length === 0 ? (
+      {projectLogic.length === 0 ? (
         <div
           style={{
             color: '#444',
@@ -1263,13 +1263,13 @@ function GraphListPanel() {
           No project graphs yet.
         </div>
       ) : (
-        projectGraphs.map((g) => {
-          const active = g.id === activeGraphId;
+        projectLogic.map((g) => {
+          const active = g.id === activeLogicId;
           return (
             <div
               key={g.id}
               style={rowStyle(active)}
-              onClick={() => setActiveGraph(active ? null : g.id)}
+              onClick={() => setActiveLogic(active ? null : g.id)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setCtxMenu({ x: e.clientX, y: e.clientY, graph: g });
@@ -1333,16 +1333,16 @@ function GraphListPanel() {
           cursor: 'pointer',
           userSelect: 'none',
         }}
-        onClick={() => setScopedGraphsOpen((v) => !v)}
+        onClick={() => setScopedLogicOpen((v) => !v)}
       >
-        <span style={{ color: '#555' }}>{scopedGraphsOpen ? '▼' : '▶'}</span>
-        <span>Scoped Graphs</span>
+        <span style={{ color: '#555' }}>{scopedLogicOpen ? '▼' : '▶'}</span>
+        <span>Scoped Logic</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
-          ({scopedGraphs.length})
+          ({scopedLogic.length})
         </span>
       </div>
-      {scopedGraphsOpen &&
-        (scopedGraphs.length === 0 ? (
+      {scopedLogicOpen &&
+        (scopedLogic.length === 0 ? (
           <div
             style={{
               color: '#444',
@@ -1354,13 +1354,13 @@ function GraphListPanel() {
             No scoped graphs. Add one from a scene node or compose layer.
           </div>
         ) : (
-          scopedGraphs.map((g) => {
-            const active = g.id === activeGraphId;
+          scopedLogic.map((g) => {
+            const active = g.id === activeLogicId;
             return (
               <div
                 key={g.id}
                 style={rowStyle(active)}
-                onClick={() => setActiveGraph(active ? null : g.id)}
+                onClick={() => setActiveLogic(active ? null : g.id)}
               >
                 <span style={{ opacity: g.enabled ? 0.9 : 0.35 }}>⊕</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1412,7 +1412,7 @@ function GraphListPanel() {
           })
         ))}
 
-      {/* Component-owned graphs (read-only) */}
+      {/* Behavior-owned graphs (read-only) */}
       <div
         style={{
           display: 'flex',
@@ -1427,16 +1427,16 @@ function GraphListPanel() {
           cursor: 'pointer',
           userSelect: 'none',
         }}
-        onClick={() => setComponentGraphsOpen((v) => !v)}
+        onClick={() => setBehaviorLogicOpen((v) => !v)}
       >
-        <span style={{ color: '#555' }}>{componentGraphsOpen ? '▼' : '▶'}</span>
-        <span>Component Graphs</span>
+        <span style={{ color: '#555' }}>{behaviorLogicOpen ? '▼' : '▶'}</span>
+        <span>Behavior Logic</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
-          ({componentGraphs.length})
+          ({behaviorLogic.length})
         </span>
       </div>
-      {componentGraphsOpen &&
-        (componentGraphs.length === 0 ? (
+      {behaviorLogicOpen &&
+        (behaviorLogic.length === 0 ? (
           <div
             style={{
               color: '#444',
@@ -1448,12 +1448,12 @@ function GraphListPanel() {
             No active component graphs.
           </div>
         ) : (
-          componentGraphs.map((g) => (
+          behaviorLogic.map((g) => (
             <div
               key={g.id}
-              style={rowStyle(g.id === activeGraphId)}
+              style={rowStyle(g.id === activeLogicId)}
               onClick={() =>
-                setActiveGraph(g.id === activeGraphId ? null : g.id)
+                setActiveLogic(g.id === activeLogicId ? null : g.id)
               }
             >
               <span style={{ opacity: 0.6 }}>⬡</span>
@@ -1474,7 +1474,7 @@ function GraphListPanel() {
           items={[
             {
               kind: 'item',
-              label: 'Copy graph',
+              label: 'Copy logic',
               onClick: () => void handleCopy(ctxMenu.graph),
             },
             {
@@ -1512,7 +1512,7 @@ export function SceneGraph() {
     selectNode,
     deleteNode: storeDeleteNode,
     updateNode: storeUpdateNode,
-    nodeComponents,
+    behaviors,
     vrmBonesByNode,
     setHoveredBone,
     boneListExpanded,
@@ -1533,14 +1533,14 @@ export function SceneGraph() {
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteSceneNodeClipboard = clipboardPayload?.kind === 'scene-node';
-  const canPasteGraphClipboard = clipboardPayload?.kind === 'graph';
+  const canPasteLogicClipboard = clipboardPayload?.kind === 'graph';
   // Collapsed scene roots (scene id set).
   const [collapsedScenes, setCollapsedScenes] = useState<Set<string>>(
     new Set()
   );
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [collapsedBones, setCollapsedBones] = useState<Set<string>>(new Set()); // key: `${nodeId}:${boneName}`
-  const [expandedComponents, setExpandedComponents] = useState<Set<string>>(
+  const [expandedBehaviors, setExpandedBehaviors] = useState<Set<string>>(
     new Set()
   );
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
@@ -1575,8 +1575,8 @@ export function SceneGraph() {
       return n;
     });
 
-  const toggleComponents = (id: string) =>
-    setExpandedComponents((s) => {
+  const toggleBehaviors = (id: string) =>
+    setExpandedBehaviors((s) => {
       const n = new Set(s);
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
@@ -1715,17 +1715,17 @@ export function SceneGraph() {
     }
   };
 
-  const handlePasteGraphAtNode = async (nodeId: string) => {
+  const handlePasteLogicAtNode = async (nodeId: string) => {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createNodeGraph(nodeId, payload.name);
-      await api.updateGraph(created.id, {
+      const created = await api.createNodeLogic(nodeId, payload.name);
+      await api.updateLogic(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+      alert(e instanceof Error ? e.message : 'Failed to paste logic');
     }
   };
 
@@ -1824,8 +1824,8 @@ export function SceneGraph() {
       (bones && attachedChildren.length > 0) ||
       (bones && showBones && bones.length > 0);
     const isCollapsed = collapsedNodes.has(node.id);
-    const showComponents = expandedComponents.has(node.id);
-    const compCount = nodeComponents.filter(
+    const showBehaviors = expandedBehaviors.has(node.id);
+    const compCount = behaviors.filter(
       (c) =>
         c.nodeId === node.id &&
         !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
@@ -1936,11 +1936,11 @@ export function SceneGraph() {
 
           {/* Components toggle */}
           <button
-            title={showComponents ? 'Hide components' : 'Show components'}
+            title={showBehaviors ? 'Hide components' : 'Show components'}
             style={{
               background: 'none',
               border: 'none',
-              color: showComponents ? '#4a8' : compCount > 0 ? '#666' : '#333',
+              color: showBehaviors ? '#4a8' : compCount > 0 ? '#666' : '#333',
               cursor: 'pointer',
               fontSize: 11,
               padding: '0 3px',
@@ -1949,7 +1949,7 @@ export function SceneGraph() {
             }}
             onClick={(e) => {
               e.stopPropagation();
-              toggleComponents(node.id);
+              toggleBehaviors(node.id);
             }}
           >
             ⚙
@@ -2051,14 +2051,14 @@ export function SceneGraph() {
         </div>
 
         {/* Inline components section */}
-        {showComponents && (
+        {showBehaviors && (
           <div style={{ paddingLeft: 8 + depth * 16 }}>
-            <NodeComponentsSection nodeId={node.id} />
+            <BehaviorsSection nodeId={node.id} />
             {node.kind === 'camera' && (
               <CameraEffectsSection nodeId={node.id} />
             )}
             <ClipsSection owner={{ kind: 'node', id: node.id }} />
-            <GraphsSection owner={{ kind: 'node', id: node.id }} />
+            <LogicSection owner={{ kind: 'node', id: node.id }} />
           </div>
         )}
 
@@ -2296,7 +2296,7 @@ export function SceneGraph() {
         {isSelected && (
           <>
             <ClipsSection owner={{ kind: 'node', id: scene.id }} />
-            <GraphsSection owner={{ kind: 'node', id: scene.id }} />
+            <LogicSection owner={{ kind: 'node', id: scene.id }} />
           </>
         )}
 
@@ -2359,7 +2359,7 @@ export function SceneGraph() {
           style={tabStyle(dockTab === 'scene')}
           onClick={() => setDockTab('scene')}
         >
-          Scene
+          Stage
         </button>
         <button
           style={tabStyle(dockTab === 'compose')}
@@ -2372,11 +2372,11 @@ export function SceneGraph() {
           style={tabStyle(dockTab === 'graphs')}
           onClick={() => setDockTab('graphs')}
         >
-          Graphs
+          Logic
         </button>
       </div>
 
-      {dockTab === 'graphs' && <GraphListPanel />}
+      {dockTab === 'graphs' && <LogicListPanel />}
       {dockTab === 'compose' && <ComposeTree />}
 
       {dockTab === 'scene' && (
@@ -2457,9 +2457,9 @@ export function SceneGraph() {
               onPasteNode={(parentId) =>
                 void handlePasteNodeAsChild(parentId, null)
               }
-              onPasteGraph={(id) => void handlePasteGraphAtNode(id)}
+              onPasteLogic={(id) => void handlePasteLogicAtNode(id)}
               canPasteNode={canPasteSceneNodeClipboard}
-              canPasteGraph={canPasteGraphClipboard}
+              canPasteLogic={canPasteLogicClipboard}
             />
           )}
         </>

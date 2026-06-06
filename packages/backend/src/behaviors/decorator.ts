@@ -1,4 +1,4 @@
-export interface ComponentKindMeta {
+export interface BehaviorKindMeta {
   kind: string;
   label: string;
   icon: string;
@@ -8,14 +8,14 @@ export interface ComponentKindMeta {
   defaultConfig: Record<string, unknown>;
 }
 
-const _registry: ComponentKindMeta[] = [];
+const _registry: BehaviorKindMeta[] = [];
 
-export function ComponentKind(meta: ComponentKindMeta) {
+export function BehaviorKind(meta: BehaviorKindMeta) {
   return function (_cls: object, _ctx: ClassDecoratorContext): void {
     _registry.push(meta);
   };
 }
 
-export function getAllComponentKindMeta(): ComponentKindMeta[] {
+export function getAllBehaviorKindMeta(): BehaviorKindMeta[] {
   return _registry;
 }

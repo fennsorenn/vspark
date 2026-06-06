@@ -224,8 +224,8 @@ function VisemeDisplay({
 
 interface Props {
   /** If provided, restricts to a specific component; otherwise finds first active one. */
-  lipsyncComponentId?: string | null;
-  trackingComponentId?: string | null;
+  lipsyncBehaviorId?: string | null;
+  trackingBehaviorId?: string | null;
   /** If true, window cannot be minimised (standalone page mode). */
   alwaysExpanded?: boolean;
   /** Provide a WS if this component manages its own connection (standalone mode). */
@@ -235,8 +235,8 @@ interface Props {
 }
 
 export function MediaInputWindow({
-  lipsyncComponentId,
-  trackingComponentId,
+  lipsyncBehaviorId,
+  trackingBehaviorId,
   alwaysExpanded = false,
   ws: externalWs,
   visible = true,
@@ -267,15 +267,15 @@ export function MediaInputWindow({
   // WS connection — use prop if provided (standalone page), else use the shared editor socket
 
   // Resolve component IDs from store if not provided as props
-  const nodeComponents = useEditorStore((s) => s.nodeComponents);
+  const behaviors = useEditorStore((s) => s.behaviors);
   const resolvedLipsyncId =
-    lipsyncComponentId ??
-    nodeComponents.find((c) => c.kind === 'lipsync_processor' && c.enabled)
+    lipsyncBehaviorId ??
+    behaviors.find((c) => c.kind === 'lipsync_processor' && c.enabled)
       ?.id ??
     null;
   const resolvedTrackingId =
-    trackingComponentId ??
-    nodeComponents.find((c) => c.kind === 'mediapipe_tracker' && c.enabled)
+    trackingBehaviorId ??
+    behaviors.find((c) => c.kind === 'mediapipe_tracker' && c.enabled)
       ?.id ??
     null;
 
@@ -319,7 +319,7 @@ export function MediaInputWindow({
         rmsRef.current = rms;
       };
       // Apply calibrated vowel templates from the lipsync component config, if any.
-      const lipsyncComp = nodeComponents.find(
+      const lipsyncComp = behaviors.find(
         (c) => c.id === resolvedLipsyncId
       );
       const cfg = lipsyncComp?.config as
@@ -337,7 +337,7 @@ export function MediaInputWindow({
         alert(`Mic error: ${(e as Error).message}`);
       }
     }
-  }, [lipsyncActive, micDeviceId, nodeComponents, resolvedLipsyncId]);
+  }, [lipsyncActive, micDeviceId, behaviors, resolvedLipsyncId]);
 
   // Refs so onResult closure always reads the latest values without going stale
   const wsRef = useRef<WebSocket | null>(null);
@@ -370,7 +370,7 @@ export function MediaInputWindow({
           socket.send(
             JSON.stringify({
               kind: 'tracking_input',
-              componentId: compId,
+              behaviorId: compId,
               ...result,
             })
           );

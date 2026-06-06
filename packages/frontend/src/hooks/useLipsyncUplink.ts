@@ -10,7 +10,7 @@ const FRAME_MS = 1000 / TARGET_FPS;
  */
 export function useLipsyncUplink(
   wsRef: React.RefObject<WebSocket | null>,
-  componentId: string | null,
+  behaviorId: string | null,
   micRef: React.RefObject<MicCapture | null>,
   active: boolean
 ): void {
@@ -18,7 +18,7 @@ export function useLipsyncUplink(
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!active || !componentId) {
+    if (!active || !behaviorId) {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -38,17 +38,17 @@ export function useLipsyncUplink(
         !mic?.active ||
         !ws ||
         ws.readyState !== WebSocket.OPEN ||
-        !componentId
+        !behaviorId
       )
         return;
 
       const visemes = mic.getVisemes();
-      ws.send(JSON.stringify({ kind: 'lipsync_input', componentId, visemes }));
+      ws.send(JSON.stringify({ kind: 'lipsync_input', behaviorId, visemes }));
     }
 
     rafRef.current = requestAnimationFrame(loop);
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [active, componentId, wsRef, micRef]);
+  }, [active, behaviorId, wsRef, micRef]);
 }

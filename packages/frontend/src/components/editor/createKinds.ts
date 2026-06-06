@@ -37,7 +37,7 @@ export const NODE_KIND_DEFS: NodeKindDef[] = [
     icon: '🔦',
   },
   { label: 'Camera', kind: 'camera', icon: '📷' },
-  { label: 'Godray Caster', kind: 'godray_caster', icon: '☀️' },
+  { label: 'Light Rays', kind: 'godray_caster', icon: '☀️' },
   { label: 'Particle', kind: 'particle', icon: '✨' },
   { label: 'Billboard', kind: 'billboard', icon: '🖼️' },
   { label: 'Video', kind: 'video', icon: '🎞️' },
@@ -48,8 +48,8 @@ export const NODE_KIND_DEFS: NodeKindDef[] = [
     audioType: 'directional',
     icon: '🔈',
   },
-  { label: 'Text (SDF / troika)', kind: 'text_troika', icon: '🔤' },
-  { label: 'Text (canvas, HTML-capable)', kind: 'text_canvas', icon: '🔡' },
+  { label: 'Plain Text', kind: 'text_troika', icon: '🔤' },
+  { label: 'Rich Text', kind: 'text_canvas', icon: '🔡' },
   { label: 'Feed (3D data overlay)', kind: 'feed', icon: '📜' },
 ];
 
@@ -70,7 +70,7 @@ const DEFAULT_COMPONENTS = {
 
 /** Whether a component kind (by its `applicableTo` list) can attach to a node
  *  of the given kind. Empty / `'any'` means universally applicable. */
-export function componentCompatibleWith(
+export function behaviorCompatibleWith(
   applicableTo: string[],
   nodeKind: string
 ): boolean {

@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { networkInterfaces } from 'os';
-import { getAllComponentKindMeta } from '../node_components/registry.js';
+import { getAllBehaviorKindMeta } from '../behaviors/registry.js';
 import { _vmc } from './shared.js';
 
 const router: ReturnType<typeof Router> = Router();
 
 /**
  * @openapi
- * /api/node-components/{id}/body-calib-state:
+ * /api/behaviors/{id}/body-calib-state:
  *   get:
  *     tags: [meta]
  *     summary: Peek the uncalibrated NormalizedPose at this VMC receiver's body_calibration input
@@ -30,7 +30,7 @@ const router: ReturnType<typeof Router> = Router();
  *       404: { description: No active receiver or no data yet, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  *       503: { description: VMC manager not ready,             content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
-router.get('/node-components/:id/body-calib-state', (req, res) => {
+router.get('/behaviors/:id/body-calib-state', (req, res) => {
   if (!_vmc)
     return res
       .status(503)
@@ -59,15 +59,15 @@ router.get('/node-components/:id/body-calib-state', (req, res) => {
 
 /**
  * @openapi
- * /api/component-kinds:
+ * /api/behavior-kinds:
  *   get:
  *     tags: [meta]
- *     summary: List all registered node_component kinds with display metadata
+ *     summary: List all registered behavior kinds with display metadata
  *     responses:
  *       200: { description: Array of component-kind metadata objects }
  */
-router.get('/component-kinds', (_req, res) => {
-  res.json({ ok: true, data: getAllComponentKindMeta() });
+router.get('/behavior-kinds', (_req, res) => {
+  res.json({ ok: true, data: getAllBehaviorKindMeta() });
 });
 
 /**

@@ -3,11 +3,11 @@ import { NODE_REGISTRY } from '../../signal/registry.js';
 import { Blendshapes, mkEvent } from '@vspark/shared/signal';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import { getDb } from '../../db/index.js';
-import { ComponentKind } from '../decorator.js';
+import { BehaviorKind } from '../decorator.js';
 import { makeLipsyncGraphDescriptor } from './graph.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 
-@ComponentKind({
+@BehaviorKind({
   kind: 'lipsync_processor',
   label: 'Lipsync',
   icon: '🎤',
@@ -23,33 +23,33 @@ export class LipsyncManager {
   private readonly nodeIds = new Map<string, string>();
   private readonly configs = new Map<string, Record<string, unknown>>();
 
-  private createGraph(componentId: string): SignalGraph {
-    const descriptor = makeLipsyncGraphDescriptor(componentId);
-    this.descriptors.set(componentId, descriptor);
-    if (!this.nodeStates.has(componentId))
-      this.nodeStates.set(componentId, new Map());
+  private createGraph(behaviorId: string): SignalGraph {
+    const descriptor = makeLipsyncGraphDescriptor(behaviorId);
+    this.descriptors.set(behaviorId, descriptor);
+    if (!this.nodeStates.has(behaviorId))
+      this.nodeStates.set(behaviorId, new Map());
 
     return SignalGraph.fromDescriptor(
       descriptor,
       NODE_REGISTRY,
-      (nodeId) => this._getNodeConfig(componentId, nodeId),
-      (nodeId) => this.nodeStates.get(componentId)?.get(nodeId) ?? {},
+      (nodeId) => this._getNodeConfig(behaviorId, nodeId),
+      (nodeId) => this.nodeStates.get(behaviorId)?.get(nodeId) ?? {},
       (nodeId, state) => {
-        this.nodeStates.get(componentId)!.set(nodeId, state);
-        this._persistNodeState(componentId, nodeId, state);
+        this.nodeStates.get(behaviorId)!.set(nodeId, state);
+        this._persistNodeState(behaviorId, nodeId, state);
       },
       // Component graphs are always attached to a scene node.
       'scene_node'
     );
   }
 
-  private _getNodeConfig(componentId: string, nodeId: string): unknown {
-    const cfg = this.configs.get(componentId) ?? {};
-    const nodeId_ = this.nodeIds.get(componentId) ?? '';
+  private _getNodeConfig(behaviorId: string, nodeId: string): unknown {
+    const cfg = this.configs.get(behaviorId) ?? {};
+    const nodeId_ = this.nodeIds.get(behaviorId) ?? '';
     if (nodeId === 'scene_entity') return { nodeId: nodeId_ };
-    if (nodeId === 'comp_id') return { componentId };
+    if (nodeId === 'comp_id') return { behaviorId };
 
-    const descriptor = this.descriptors.get(componentId);
+    const descriptor = this.descriptors.get(behaviorId);
     const nodeDef = descriptor?.nodes.find((n) => n.id === nodeId);
     const defaults = nodeDef?.defaultConfig ?? {};
     const overrides = ((
@@ -59,14 +59,14 @@ export class LipsyncManager {
   }
 
   private _persistNodeState(
-    componentId: string,
+    behaviorId: string,
     nodeId: string,
     state: unknown
   ): void {
     try {
       const existing = getDb()
-        .prepare('SELECT config FROM node_components WHERE id = ?')
-        .get(componentId) as { config: string } | undefined;
+        .prepare('SELECT config FROM behaviors WHERE id = ?')
+        .get(behaviorId) as { config: string } | undefined;
       if (!existing) return;
       const cfg = JSON.parse(existing.config || '{}') as Record<
         string,
@@ -76,28 +76,28 @@ export class LipsyncManager {
       ns[nodeId] = state;
       cfg._nodeState = ns;
       getDb()
-        .prepare('UPDATE node_components SET config = ? WHERE id = ?')
-        .run(JSON.stringify(cfg), componentId);
+        .prepare('UPDATE behaviors SET config = ? WHERE id = ?')
+        .run(JSON.stringify(cfg), behaviorId);
     } catch {
       /* non-fatal */
     }
   }
 
-  start(componentId: string): void {
-    if (this.graphs.has(componentId)) return;
-    const graph = this.createGraph(componentId);
-    this.graphs.set(componentId, graph);
-    console.log(`[Lipsync] Started component ${componentId}`);
+  start(behaviorId: string): void {
+    if (this.graphs.has(behaviorId)) return;
+    const graph = this.createGraph(behaviorId);
+    this.graphs.set(behaviorId, graph);
+    console.log(`[Lipsync] Started component ${behaviorId}`);
   }
 
-  stop(componentId: string): void {
-    if (!this.graphs.has(componentId)) return;
-    this.graphs.delete(componentId);
-    broadcastBus.removeComponent(componentId);
-    console.log(`[Lipsync] Stopped component ${componentId}`);
+  stop(behaviorId: string): void {
+    if (!this.graphs.has(behaviorId)) return;
+    this.graphs.delete(behaviorId);
+    broadcastBus.removeBehavior(behaviorId);
+    console.log(`[Lipsync] Stopped component ${behaviorId}`);
   }
 
-  syncComponents(
+  syncBehaviors(
     comps: Array<{
       id: string;
       nodeId: string;
@@ -134,8 +134,8 @@ export class LipsyncManager {
   }
 
   /** Called by the WS handler for each lipsync_input message from the browser. */
-  fireVisemes(componentId: string, visemes: Record<string, number>): void {
-    const graph = this.graphs.get(componentId);
+  fireVisemes(behaviorId: string, visemes: Record<string, number>): void {
+    const graph = this.graphs.get(behaviorId);
     if (!graph) return;
     const bs = Blendshapes.fromRecord(visemes);
     // Store in node state so lipsync_source.execute() can return it on pull.
@@ -144,13 +144,13 @@ export class LipsyncManager {
   }
 
   getStates(
-    componentId: string
+    behaviorId: string
   ): import('@vspark/shared/signal').GraphStateSnapshot | null {
-    return this.graphs.get(componentId)?.getStates() ?? null;
+    return this.graphs.get(behaviorId)?.getStates() ?? null;
   }
 
-  getGraphDescriptor(componentId: string): GraphDescriptor | null {
-    return this.descriptors.get(componentId) ?? null;
+  getGraphDescriptor(behaviorId: string): GraphDescriptor | null {
+    return this.descriptors.get(behaviorId) ?? null;
   }
 
   getAllGraphDescriptors(): GraphDescriptor[] {

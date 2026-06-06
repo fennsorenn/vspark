@@ -4,7 +4,7 @@ Status: **implemented**
 
 End-to-end mic → vowel weights → VRM mouth blendshapes. Classification lives entirely in the frontend; the backend manager only forwards weights through a trivial signal graph.
 
-See [component-managers.md](component-managers.md) for the `LipsyncManager` lifecycle and graph descriptor. This document covers the frontend pipeline and per-component calibration.
+See [component-managers.md](component-managers.md) for the `LipsyncManager` lifecycle and graph descriptor. This document covers the frontend pipeline and per-behavior calibration.
 
 ## Frontend MFCC pipeline
 
@@ -28,18 +28,18 @@ All processing is in-browser, per audio frame:
 
 ## Default templates
 
-`DEFAULT_TEMPLATES` constant in `MicCapture.ts` holds vowel templates captured from one English-speaking adult voice at 48 kHz. Components that have not been calibrated fall back to these.
+`DEFAULT_TEMPLATES` constant in `MicCapture.ts` holds vowel templates captured from one English-speaking adult voice at 48 kHz. Behaviors that have not been calibrated fall back to these.
 
-## Per-component calibration
+## Per-behavior calibration
 
-**Storage**: `node_components.config.vowelTemplates: { A: number[12], E: ..., I: ..., O: ..., U: ... }`.
+**Storage**: `behaviors.config.vowelTemplates: { A: number[12], E: ..., I: ..., O: ..., U: ... }` (table renamed from `node_components` in migration 022).
 
 **UI**: `LipsyncCalibration` block in [packages/frontend/src/components/editor/PropertiesPanel.tsx](../../packages/frontend/src/components/editor/PropertiesPanel.tsx), rendered inside `LipsyncProcessorProps` below the existing sensitivity field. Hold-to-record per vowel:
 
 - Press-and-hold spins up a temporary `MicCapture` instance with an `onCaptureFrame` callback that collects MFCC vectors.
-- On release, the collected vectors are averaged into the template for that vowel and persisted to `node_components.config`.
+- On release, the collected vectors are averaged into the template for that vowel and persisted to `behaviors.config`.
 
-**Application**: `MediaInputWindow.toggleLipsync` reads the saved templates from the component config and calls `mic.setTemplates(templates)` before `mic.start()`. If no templates are saved, `MicCapture` keeps `DEFAULT_TEMPLATES`.
+**Application**: `MediaInputWindow.toggleLipsync` reads the saved templates from the behavior config and calls `mic.setTemplates(templates)` before `mic.start()`. If no templates are saved, `MicCapture` keeps `DEFAULT_TEMPLATES`.
 
 ## Wire format
 
@@ -53,7 +53,7 @@ Minimal — no signal-graph changes were needed for this feature:
 lipsync_source → unpack_event → viseme_passthrough → blendshapes_broadcast
 ```
 
-Defined in [packages/backend/src/node_components/lipsync/graph.ts](../../packages/backend/src/node_components/lipsync/graph.ts).
+Defined in [packages/backend/src/behaviors/lipsync/graph.ts](../../packages/backend/src/behaviors/lipsync/graph.ts).
 
 ### Latent bug fixed during this work
 
@@ -61,10 +61,10 @@ The graph descriptor previously contained a stray edge wiring `cfg_sensitivity.v
 
 ### Latent issue (not fixed)
 
-`viseme_passthrough` reads `config.sensitivity` directly, but the manager's `_getNodeConfig` only forwards `cfg.nodeConfig[nodeId]` overrides — not top-level component config. The sensitivity slider in the UI is therefore currently a no-op. Tracked for a separate fix.
+`viseme_passthrough` reads `config.sensitivity` directly, but the manager's `_getNodeConfig` only forwards `cfg.nodeConfig[nodeId]` overrides — not top-level behavior config. The sensitivity slider in the UI is therefore currently a no-op. Tracked for a separate fix.
 
 ## Extension notes
 
 - To change the cepstral feature count, the bandcount, or the mel range, edit the constants at the top of `MicCapture.ts`. Existing stored templates are sized to 12 coefficients; changing this requires invalidating saved `vowelTemplates`.
 - To add additional visemes (e.g. consonant classes), extend both the template structure in `vowelTemplates` and the classifier output mapping. The wire format already accepts arbitrary `Fcl_MTH_*` keys.
-- Silence gate and EMA α are currently hardcoded; promote them to component config if user-tunable behaviour is needed.
+- Silence gate and EMA α are currently hardcoded; promote them to behavior config if user-tunable behaviour is needed.

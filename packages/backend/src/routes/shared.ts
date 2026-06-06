@@ -2,11 +2,11 @@ import { randomUUID, createHash } from 'crypto';
 import { mkdirSync, readdirSync, statSync, existsSync, readFileSync } from 'fs';
 import { join, extname, basename } from 'path';
 import { getDb } from '../db/index.js';
-import type { VmcManager } from '../node_components/vmc_receiver/manager.js';
-import type { BreathingManager } from '../node_components/breathing/manager.js';
-import type { LipsyncManager } from '../node_components/lipsync/manager.js';
-import type { TrackingManager } from '../node_components/mediapipe_tracker/manager.js';
-import type { ApiControllerManager } from '../node_components/api_controller/manager.js';
+import type { VmcManager } from '../behaviors/vmc_receiver/manager.js';
+import type { BreathingManager } from '../behaviors/breathing/manager.js';
+import type { LipsyncManager } from '../behaviors/lipsync/manager.js';
+import type { TrackingManager } from '../behaviors/mediapipe_tracker/manager.js';
+import type { ApiControllerManager } from '../behaviors/api_controller/manager.js';
 import type { WSSync } from '../ws/index.js';
 import type { TrackClipPlaybackManager } from '../track_clips/playback.js';
 
@@ -49,7 +49,7 @@ export function setTrackClipPlaybackManager(m: TrackClipPlaybackManager) {
 
 // --- Component row mapping + refresh helpers ---
 
-export function _mapComponentRow(r: Record<string, unknown>) {
+export function _mapBehaviorRow(r: Record<string, unknown>) {
   return {
     id: r.id as string,
     nodeId: r.node_id as string,
@@ -62,44 +62,44 @@ export function _mapComponentRow(r: Record<string, unknown>) {
 export function refreshVmc() {
   if (!_vmc) return;
   const rows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'vmc_receiver'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'vmc_receiver'")
     .all() as Record<string, unknown>[];
-  _vmc.syncComponents(rows.map(_mapComponentRow));
+  _vmc.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
 export function refreshBreathing() {
   if (!_breathing) return;
   const rows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'breathing'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'breathing'")
     .all() as Record<string, unknown>[];
-  _breathing.syncComponents(rows.map(_mapComponentRow));
+  _breathing.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
 export function refreshLipsync() {
   if (!_lipsync) return;
   const rows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'lipsync_processor'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'lipsync_processor'")
     .all() as Record<string, unknown>[];
-  _lipsync.syncComponents(rows.map(_mapComponentRow));
+  _lipsync.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
 export function refreshTracking() {
   if (!_tracking) return;
   const rows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'mediapipe_tracker'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'mediapipe_tracker'")
     .all() as Record<string, unknown>[];
-  _tracking.syncComponents(rows.map(_mapComponentRow));
+  _tracking.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
 export function refreshApiController() {
   if (!_apiController) return;
   const rows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'api_controller'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'api_controller'")
     .all() as Record<string, unknown>[];
-  _apiController.syncComponents(rows.map(_mapComponentRow));
+  _apiController.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
-export function refreshAllComponentManagers() {
+export function refreshAllBehaviorManagers() {
   refreshVmc();
   refreshBreathing();
   refreshLipsync();
@@ -273,7 +273,7 @@ export function _resolveApiController(
   projectId: string,
   nodeId: string
 ):
-  | { componentId: string }
+  | { behaviorId: string }
   | { error: { status: number; message: string; code: string } } {
   if (!_apiController)
     return {
@@ -307,5 +307,5 @@ export function _resolveApiController(
         code: 'NOT_FOUND',
       },
     };
-  return { componentId: found.componentId };
+  return { behaviorId: found.behaviorId };
 }
