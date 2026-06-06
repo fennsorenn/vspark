@@ -167,6 +167,16 @@ export function assetSubfolder(ext: string): string {
   return SUBFOLDER_BY_EXT[ext.toLowerCase()] ?? 'other';
 }
 
+// Live2D models are multi-file bundles filed under `live2d/<model>/…`; the
+// asset row points at the manifest and sibling files resolve relative to it.
+export const LIVE2D_SUBFOLDER = 'live2d';
+export const LIVE2D_MODEL_MIME = 'application/x-live2d-model';
+
+/** A Live2D model manifest, identified by the compound `.model3.json` ext. */
+export function isLive2dManifest(name: string): boolean {
+  return name.toLowerCase().endsWith('.model3.json');
+}
+
 /** Sanitize originalName → safe filename stem (no path traversal, no spaces). */
 export function sanitizeStem(originalName: string): string {
   const stem = basename(originalName, extname(originalName));
@@ -208,6 +218,48 @@ function sha256File(absPath: string): string {
   }
 }
 
+/** Register one asset row per Live2D bundle dir under `live2d/`, pointing at
+ *  the bundle's `*.model3.json` manifest. Sibling files (moc3, textures,
+ *  physics, motions) are served statically and fetched relative to it. */
+function registerLive2dBundles(
+  db: ReturnType<typeof getDb>,
+  projectId: string,
+  live2dDir: string,
+  existing: Set<string>
+): void {
+  for (const bundle of readdirSync(live2dDir, { withFileTypes: true })) {
+    if (!bundle.isDirectory()) continue;
+    const bundleDir = join(live2dDir, bundle.name);
+    let manifest: string | undefined;
+    try {
+      manifest = readdirSync(bundleDir).find((f) => isLive2dManifest(f));
+    } catch {
+      continue;
+    }
+    if (!manifest) continue;
+    const storedPath = `/uploads/${projectId}/${LIVE2D_SUBFOLDER}/${bundle.name}/${manifest}`;
+    if (existing.has(storedPath)) continue;
+    try {
+      const absPath = join(bundleDir, manifest);
+      const stat = statSync(absPath);
+      if (!stat.isFile()) continue;
+      db.prepare(
+        'INSERT INTO asset_files (id, project_id, original_name, stored_path, mime_type, size, hash) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        randomUUID(),
+        projectId,
+        manifest,
+        storedPath,
+        LIVE2D_MODEL_MIME,
+        stat.size,
+        sha256File(absPath)
+      );
+    } catch {
+      /* skip unreadable */
+    }
+  }
+}
+
 export function discoverAssets(projectId: string): void {
   const projectDir = join(UPLOADS_DIR, projectId);
   if (!existsSync(projectDir)) return;
@@ -225,6 +277,12 @@ export function discoverAssets(projectId: string): void {
     // user assets — never register those as asset_files.
     if (entry.name === 'thumbnails') continue;
     const subDir = join(projectDir, entry.name);
+    // `live2d/` is nested one level deeper (`live2d/<model>/…`): each immediate
+    // subdirectory is one bundle, registered by its manifest, siblings skipped.
+    if (entry.name === LIVE2D_SUBFOLDER) {
+      registerLive2dBundles(db, projectId, subDir, existing);
+      continue;
+    }
     for (const file of readdirSync(subDir)) {
       const storedPath = `/uploads/${projectId}/${entry.name}/${file}`;
       if (existing.has(storedPath)) continue;

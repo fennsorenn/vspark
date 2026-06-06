@@ -1,14 +1,33 @@
 import { Router } from 'express';
 import { randomUUID, createHash } from 'crypto';
-import { writeFileSync, unlinkSync, mkdirSync } from 'fs';
-import { join, extname } from 'path';
+import { writeFileSync, unlinkSync, mkdirSync, existsSync } from 'fs';
+import { join, extname, dirname, basename } from 'path';
 import { getDb } from '../db/index.js';
 import {
   UPLOADS_DIR,
   allocateFilename,
   assetSubfolder,
   discoverAssets,
+  sanitizeStem,
+  isLive2dManifest,
+  LIVE2D_SUBFOLDER,
+  LIVE2D_MODEL_MIME,
 } from './shared.js';
+
+/** Reject path-traversal / absolute / backslash segments in a bundle relPath. */
+function isSafeRelPath(p: string): boolean {
+  if (p.startsWith('/') || p.includes('\\') || p.includes('\0')) return false;
+  return p
+    .split('/')
+    .every((seg) => seg !== '' && seg !== '.' && seg !== '..');
+}
+
+function badReq(message: string) {
+  return {
+    ok: false as const,
+    error: { status: 400, message, code: 'VALIDATION_ERROR' },
+  };
+}
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -97,6 +116,104 @@ router.post('/projects/:projectId/assets', (req, res) => {
       stored_path: storedPath,
       mime_type: mimeType,
       size: buffer.length,
+    },
+  });
+});
+
+/**
+ * @openapi
+ * /api/projects/{projectId}/assets/bundle:
+ *   post:
+ *     tags: [assets]
+ *     summary: Upload a multi-file asset bundle (e.g. a Live2D model) preserving its layout
+ *     description: |
+ *       Files are written under uploads/{projectId}/live2d/{model}/… keeping their
+ *       relative paths so the manifest's relative references resolve when served
+ *       statically. One asset row is registered, pointing at the *.model3.json manifest.
+ *     parameters:
+ *       - { in: path, name: projectId, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/CreateAssetBundle' }
+ *     responses:
+ *       201: { description: Bundle stored; manifest registered in the DB }
+ *       400: { description: Invalid bundle, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+ */
+router.post('/projects/:projectId/assets/bundle', (req, res) => {
+  const { rootName, kind, files } = req.body ?? {};
+  if (kind !== 'live2d')
+    return res.status(400).json(badReq('only live2d bundles are supported'));
+  if (
+    typeof rootName !== 'string' ||
+    !rootName ||
+    !Array.isArray(files) ||
+    files.length === 0
+  )
+    return res.status(400).json(badReq('rootName and a non-empty files[] are required'));
+
+  for (const f of files) {
+    if (typeof f?.relPath !== 'string' || typeof f?.data !== 'string')
+      return res.status(400).json(badReq('each file needs string relPath + data'));
+    if (!isSafeRelPath(f.relPath))
+      return res.status(400).json(badReq(`unsafe relPath: ${f.relPath}`));
+  }
+  const manifestEntry = files.find((f: { relPath: string }) =>
+    isLive2dManifest(f.relPath)
+  );
+  if (!manifestEntry)
+    return res
+      .status(400)
+      .json(badReq('bundle must contain a *.model3.json manifest'));
+
+  // Allocate a non-colliding bundle directory under live2d/.
+  const stem = sanitizeStem(rootName) || 'model';
+  const live2dDir = join(UPLOADS_DIR, req.params.projectId, LIVE2D_SUBFOLDER);
+  mkdirSync(live2dDir, { recursive: true });
+  let dirName = stem;
+  let n = 2;
+  while (existsSync(join(live2dDir, dirName))) dirName = `${stem}_${n++}`;
+  const bundleDir = join(live2dDir, dirName);
+
+  // Write every file, preserving its relative layout. Total size = sum of bytes.
+  let totalSize = 0;
+  for (const f of files) {
+    const buf = Buffer.from(f.data, 'base64');
+    const dest = join(bundleDir, f.relPath);
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, buf);
+    totalSize += buf.length;
+  }
+
+  const manifestRel: string = manifestEntry.relPath;
+  const storedPath = `/uploads/${req.params.projectId}/${LIVE2D_SUBFOLDER}/${dirName}/${manifestRel}`;
+  const id = randomUUID();
+  const hash = createHash('sha256')
+    .update(Buffer.from(manifestEntry.data, 'base64'))
+    .digest('hex');
+  getDb()
+    .prepare(
+      'INSERT INTO asset_files (id, project_id, original_name, stored_path, mime_type, size, hash) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    )
+    .run(
+      id,
+      req.params.projectId,
+      basename(manifestRel),
+      storedPath,
+      LIVE2D_MODEL_MIME,
+      totalSize,
+      hash
+    );
+  res.status(201).json({
+    ok: true,
+    data: {
+      id,
+      project_id: req.params.projectId,
+      original_name: basename(manifestRel),
+      stored_path: storedPath,
+      mime_type: LIVE2D_MODEL_MIME,
+      size: totalSize,
     },
   });
 });

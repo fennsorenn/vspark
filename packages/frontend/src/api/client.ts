@@ -132,6 +132,8 @@ function mapAsset(r: Record<string, unknown>): AssetFile {
 }
 
 function guessAssetKind(name: string): AssetKind {
+  // Live2D manifests carry a compound extension; match before the simple-ext logic.
+  if (name.toLowerCase().endsWith('.model3.json')) return 'live2d';
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   if (['fbx', 'bvh'].includes(ext)) return 'animation';
   if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'].includes(ext))
@@ -188,7 +190,13 @@ export interface NodeRecord {
   hidden?: boolean;
 }
 
-export type AssetKind = 'model' | 'animation' | 'image' | 'video' | 'audio';
+export type AssetKind =
+  | 'model'
+  | 'animation'
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'live2d';
 
 export interface AssetFile {
   id: string;
@@ -598,6 +606,43 @@ export const uploadAsset = (projectId: string, file: File) =>
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+
+/** One file within a multi-file bundle upload, with its path inside the bundle. */
+export interface BundleFileInput {
+  relPath: string;
+  file: File;
+}
+
+/** Upload a Live2D model bundle (manifest + moc3 + textures + physics …),
+ *  preserving each file's relative path. Returns the registered manifest asset. */
+export const uploadLive2dBundle = (
+  projectId: string,
+  rootName: string,
+  files: BundleFileInput[]
+) =>
+  Promise.all(
+    files.map(
+      (f) =>
+        new Promise<{ relPath: string; data: string }>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () =>
+            resolve({
+              relPath: f.relPath,
+              data: (reader.result as string).split(',')[1],
+            });
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(f.file);
+        })
+    )
+  ).then((encoded) =>
+    request<Record<string, unknown>>(
+      `/projects/${projectId}/assets/bundle`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ rootName, kind: 'live2d', files: encoded }),
+      }
+    ).then(mapAsset)
+  );
 
 export const deleteAsset = (id: string) =>
   request<void>(`/assets/${id}`, { method: 'DELETE' });
@@ -1278,6 +1323,7 @@ export const api = {
   deleteNode,
   getAssets,
   uploadAsset,
+  uploadLive2dBundle,
   deleteAsset,
   createBehavior,
   updateBehavior,

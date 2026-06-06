@@ -18,7 +18,8 @@ export type NodeKind =
   | 'group'
   | 'text_troika'
   | 'text_canvas'
-  | 'feed';
+  | 'feed'
+  | 'live2d';
 
 // Animation tracking: tracks which clip is playing and when it started
 export interface AnimationState {
@@ -496,6 +497,12 @@ export interface UpdateStatus {
 
 export interface AppConfig {
   channel: UpdateChannel;
+  /**
+   * Whether the user has acknowledged the Live2D Cubism SDK license. The
+   * proprietary Cubism Core is fetched at runtime (never bundled) only after
+   * this opt-in. See dev-notes/plans/live2d-integration.md.
+   */
+  live2dLicenseAccepted?: boolean;
 }
 
 export interface WSMessage {
