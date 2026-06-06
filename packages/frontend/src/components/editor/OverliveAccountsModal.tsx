@@ -13,8 +13,10 @@
  */
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { api } from '../../api/client';
 import { useEditorStore } from '../../store/editorStore';
+import { HelpButton } from '../../help/HelpButton';
 import type {
   OverliveAppCredentialRecord,
   OverliveAccountRecord,
@@ -26,19 +28,8 @@ interface Props {
   onClose: () => void;
 }
 
-const STATUS_LABEL: Record<
-  OverliveAccountStatus,
-  { text: string; color: string }
-> = {
-  connected: { text: 'Connected', color: '#4ade80' },
-  connecting: { text: 'Connecting…', color: '#facc15' },
-  reconnecting: { text: 'Reconnecting…', color: '#facc15' },
-  disconnected: { text: 'Disconnected', color: '#888' },
-  error: { text: 'Error', color: '#f87171' },
-  needs_reauth: { text: 'Needs Reauth', color: '#f87171' },
-};
-
 export function OverliveAccountsModal({ onClose }: Props) {
+  const { t } = useTranslation('accounts');
   const { projectId } = useParams<{ projectId: string }>();
   const setStoreAccounts = useEditorStore((s) => s.setOverliveAccounts);
   const [apps, setApps] = useState<OverliveAppCredentialRecord[]>([]);
@@ -67,6 +58,19 @@ export function OverliveAccountsModal({ onClose }: Props) {
   const [pendingTwitchAppPick, setPendingTwitchAppPick] = useState(false);
   const [otherProjects, setOtherProjects] = useState<Project[]>([]);
 
+  // Build status label map using translated strings
+  const STATUS_LABEL: Record<
+    OverliveAccountStatus,
+    { text: string; color: string }
+  > = {
+    connected: { text: t('status.connected'), color: '#4ade80' },
+    connecting: { text: t('status.connecting'), color: '#facc15' },
+    reconnecting: { text: t('status.reconnecting'), color: '#facc15' },
+    disconnected: { text: t('status.disconnected'), color: '#888' },
+    error: { text: t('status.error'), color: '#f87171' },
+    needs_reauth: { text: t('status.needs_reauth'), color: '#f87171' },
+  };
+
   const refresh = async () => {
     if (!projectId) return;
     try {
@@ -93,7 +97,11 @@ export function OverliveAccountsModal({ onClose }: Props) {
       if (d.payload?.ok) refresh();
       else
         alert(
-          `Twitch sign-in failed: ${(d.payload as { message?: string } | undefined)?.message ?? 'unknown error'}`
+          t('alerts.oauthFailed', {
+            message:
+              (d.payload as { message?: string } | undefined)?.message ??
+              'unknown error',
+          })
         );
     };
     window.addEventListener('message', handler);
@@ -132,12 +140,9 @@ export function OverliveAccountsModal({ onClose }: Props) {
         'overlive-twitch-oauth',
         'width=600,height=720,popup=yes'
       );
-      if (!popup)
-        alert(
-          'Could not open OAuth popup — please disable your popup blocker for this site.'
-        );
+      if (!popup) alert(t('alerts.popupBlocked'));
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to start OAuth');
+      alert(e instanceof Error ? e.message : t('alerts.oauthError'));
     } finally {
       setBusy(false);
     }
@@ -158,19 +163,20 @@ export function OverliveAccountsModal({ onClose }: Props) {
   const handleReconnect = async (acc: OverliveAccountRecord) => {
     if (acc.platform !== 'twitch') return;
     if (!acc.appCredentialId) {
-      alert('This account has no app credential — recreate it from scratch.');
+      alert(t('alerts.noAppCredential'));
       return;
     }
     await startTwitchOAuthFor(acc.appCredentialId, acc.id);
   };
 
   const handleDeleteAccount = async (acc: OverliveAccountRecord) => {
-    if (!window.confirm(`Remove ${acc.label}?`)) return;
+    if (!window.confirm(t('alerts.removeAccountConfirm', { label: acc.label })))
+      return;
     try {
       await api.deleteOverliveAccount(acc.id);
       setAccounts((prev) => prev.filter((x) => x.id !== acc.id));
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete account');
+      alert(e instanceof Error ? e.message : t('alerts.removeAccountFailed'));
     }
   };
 
@@ -184,7 +190,7 @@ export function OverliveAccountsModal({ onClose }: Props) {
         prev.map((x) => ({ ...x, isDefault: x.id === acc.id }))
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to set default account');
+      alert(e instanceof Error ? e.message : t('alerts.setDefaultFailed'));
     }
   };
 
@@ -194,14 +200,19 @@ export function OverliveAccountsModal({ onClose }: Props) {
     ).length;
     const extra =
       usingCount > 0
-        ? `\n\n${usingCount} account(s) reference this app — they'll keep working until tokens expire, then will need a new app to reconnect.`
+        ? `\n\n${t('alerts.removeAppInUse', { n: usingCount })}`
         : '';
-    if (!window.confirm(`Remove app "${app.label}"?${extra}`)) return;
+    if (
+      !window.confirm(
+        `${t('alerts.removeAppConfirm', { label: app.label })}${extra}`
+      )
+    )
+      return;
     try {
       await api.deleteOverliveAppCredential(app.id);
       setApps((prev) => prev.filter((x) => x.id !== app.id));
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete app');
+      alert(e instanceof Error ? e.message : t('alerts.removeAppFailed'));
     }
   };
 
@@ -216,10 +227,24 @@ export function OverliveAccountsModal({ onClose }: Props) {
     >
       <div style={modalStyle}>
         <div style={headerStyle}>
-          <h2 style={{ margin: 0, fontSize: 16, color: '#fff' }}>
-            Stream Accounts
+          <h2
+            style={{
+              margin: 0,
+              fontSize: 16,
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            {t('title')}
+            <HelpButton
+              topic="logic"
+              anchor="triggers"
+              tip={t('help.streamAccounts')}
+            />
           </h2>
-          <button style={closeBtnStyle} onClick={onClose} title="Close">
+          <button style={closeBtnStyle} onClick={onClose} title={t('close')}>
             ×
           </button>
         </div>
@@ -227,20 +252,17 @@ export function OverliveAccountsModal({ onClose }: Props) {
         {/* Twitch Apps section */}
         <section style={sectionStyle}>
           <div style={sectionHeaderStyle}>
-            <span>Twitch Apps</span>
+            <span>{t('twitchApps.heading')}</span>
             <button
               style={primaryBtnStyle}
               onClick={() => setShowAppWalkthrough(true)}
               disabled={busy}
             >
-              + Register App
+              {t('twitchApps.registerApp')}
             </button>
           </div>
           {apps.length === 0 ? (
-            <div style={emptyStateStyle}>
-              No Twitch apps registered. Click <strong>Register App</strong> to
-              walk through setup at dev.twitch.tv.
-            </div>
+            <div style={emptyStateStyle}>{t('twitchApps.empty')}</div>
           ) : (
             apps.map((app) => (
               <div key={app.id} style={rowStyle}>
@@ -258,17 +280,16 @@ export function OverliveAccountsModal({ onClose }: Props) {
                       {app.clientId}
                     </code>{' '}
                     ·{' '}
-                    {
-                      accounts.filter((a) => a.appCredentialId === app.id)
-                        .length
-                    }{' '}
-                    account(s)
+                    {t('twitchApps.accountCount', {
+                      n: accounts.filter((a) => a.appCredentialId === app.id)
+                        .length,
+                    })}
                   </div>
                 </div>
                 <button
                   style={dangerBtnStyle}
                   onClick={() => handleDeleteApp(app)}
-                  title="Delete app"
+                  title={t('accounts.removeTitle')}
                 >
                   ×
                 </button>
@@ -280,30 +301,30 @@ export function OverliveAccountsModal({ onClose }: Props) {
         {/* Login Accounts section */}
         <section style={sectionStyle}>
           <div style={sectionHeaderStyle}>
-            <span>Accounts</span>
+            <span>{t('accounts.heading')}</span>
             <div style={{ display: 'flex', gap: 6 }}>
               <button
                 style={primaryBtnStyle}
                 onClick={handleAddTwitchAccount}
                 disabled={busy}
               >
-                + Twitch
+                {t('accounts.addTwitch')}
               </button>
               <button
                 style={primaryBtnStyle}
                 onClick={() => setShowSeForm(true)}
                 disabled={busy}
               >
-                + StreamElements
+                {t('accounts.addStreamElements')}
               </button>
             </div>
           </div>
           {accounts.length === 0 ? (
             <div style={emptyStateStyle}>
-              No accounts connected yet.{' '}
+              {t('accounts.emptyGeneral')}{' '}
               {apps.length === 0
-                ? 'Register a Twitch app first, then click + Twitch.'
-                : 'Click + Twitch to authenticate, or + StreamElements to paste a JWT.'}
+                ? t('accounts.emptyNoApp')
+                : t('accounts.emptyHasApp')}
             </div>
           ) : (
             accounts.map((acc) => {
@@ -360,11 +381,11 @@ export function OverliveAccountsModal({ onClose }: Props) {
                       onClick={() => handleReconnect(acc)}
                       disabled={busy}
                     >
-                      Reconnect
+                      {t('accounts.reconnect')}
                     </button>
                   )}
                   <label
-                    title="Default account — overlive nodes with no account picked fall back to this one"
+                    title={t('accounts.defaultTitle')}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -382,12 +403,12 @@ export function OverliveAccountsModal({ onClose }: Props) {
                       onChange={() => handleSetDefault(acc)}
                       style={{ accentColor: '#9146ff', cursor: 'pointer' }}
                     />
-                    default
+                    {t('accounts.default')}
                   </label>
                   <button
                     style={dangerBtnStyle}
                     onClick={() => handleDeleteAccount(acc)}
-                    title="Remove account"
+                    title={t('accounts.removeTitle')}
                   >
                     ×
                   </button>
@@ -406,7 +427,7 @@ export function OverliveAccountsModal({ onClose }: Props) {
             padding: '8px 16px 14px',
           }}
         >
-          Credentials are stored locally in your project database.
+          {t('footer')}
         </div>
 
         {/* Sub-dialogs */}
@@ -462,7 +483,8 @@ function RegisterAppDialog({
   onCreated: (app: OverliveAppCredentialRecord) => void;
   onCopied: (rows: OverliveAppCredentialRecord[]) => void;
 }) {
-  const [label, setLabel] = useState('My Twitch App');
+  const { t } = useTranslation('accounts');
+  const [label, setLabel] = useState(t('registerApp.fields.labelPlaceholder'));
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [redirectUri, setRedirectUri] = useState(
@@ -478,7 +500,7 @@ function RegisterAppDialog({
       !clientSecret.trim() ||
       !redirectUri.trim()
     ) {
-      alert('All fields are required.');
+      alert(t('registerApp.allRequired'));
       return;
     }
     setBusy(true);
@@ -491,7 +513,9 @@ function RegisterAppDialog({
       });
       onCreated(app);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create app credential');
+      alert(
+        e instanceof Error ? e.message : t('registerApp.createFailed')
+      );
     } finally {
       setBusy(false);
     }
@@ -505,10 +529,10 @@ function RegisterAppDialog({
         projectId,
         copySource
       );
-      if (rows.length === 0) alert('That project has no Twitch apps to copy.');
+      if (rows.length === 0) alert(t('registerApp.copyEmpty'));
       else onCopied(rows);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Copy failed');
+      alert(e instanceof Error ? e.message : t('registerApp.copyFailed'));
     } finally {
       setBusy(false);
     }
@@ -524,7 +548,7 @@ function RegisterAppDialog({
       <div style={{ ...subModalStyle, maxWidth: 580 }}>
         <div style={headerStyle}>
           <h3 style={{ margin: 0, fontSize: 15, color: '#fff' }}>
-            Register Twitch App
+            {t('registerApp.title')}
           </h3>
           <button style={closeBtnStyle} onClick={onCancel}>
             ×
@@ -543,7 +567,7 @@ function RegisterAppDialog({
                 marginBottom: 4,
               }}
             >
-              Copy from another project
+              {t('registerApp.copyFromProject')}
             </label>
             <div style={{ display: 'flex', gap: 6 }}>
               <select
@@ -551,7 +575,7 @@ function RegisterAppDialog({
                 onChange={(e) => setCopySource(e.target.value)}
                 style={inputStyle}
               >
-                <option value="">— select —</option>
+                <option value="">{t('registerApp.selectProject')}</option>
                 {otherProjects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -563,7 +587,7 @@ function RegisterAppDialog({
                 onClick={handleCopy}
                 disabled={!copySource || busy}
               >
-                Copy
+                {t('registerApp.copy')}
               </button>
             </div>
           </div>
@@ -579,29 +603,39 @@ function RegisterAppDialog({
           }}
         >
           <li>
-            Open{' '}
+            {t('registerApp.instructions.step1Open')}{' '}
             <a
               href="https://dev.twitch.tv/console/apps"
               target="_blank"
               rel="noreferrer"
               style={linkStyle}
             >
-              dev.twitch.tv/console/apps
+              {t('registerApp.instructions.step1Link')}
             </a>{' '}
-            and click <strong>Register Your Application</strong>.
+            {t('registerApp.instructions.step1Click')}{' '}
+            <strong>{t('registerApp.instructions.step1Action')}</strong>.
           </li>
           <li>
-            Set <strong>OAuth Redirect URLs</strong> to exactly:{' '}
+            {t('registerApp.instructions.step2Set')}{' '}
+            <strong>{t('registerApp.instructions.step2Field')}</strong>{' '}
+            {t('registerApp.instructions.step2To')}{' '}
             <code style={codeStyle}>{redirectUri}</code>
           </li>
           <li>
-            Choose <strong>Category</strong>: <em>Application Integration</em>{' '}
-            (or whichever fits — Twitch uses this for analytics, not scopes).
+            {t('registerApp.instructions.step3Choose')}{' '}
+            <strong>{t('registerApp.instructions.step3Field')}</strong>:{' '}
+            <em>{t('registerApp.instructions.step3Value')}</em>{' '}
+            {t('registerApp.instructions.step3Note')}
           </li>
           <li>
-            Save the app, then click <strong>Manage</strong>. Copy the{' '}
-            <strong>Client ID</strong> below; click <strong>New Secret</strong>{' '}
-            for the <strong>Client Secret</strong>.
+            {t('registerApp.instructions.step4Save')}{' '}
+            <strong>{t('registerApp.instructions.step4Manage')}</strong>
+            {t('registerApp.instructions.step4Copy')}{' '}
+            <strong>{t('registerApp.instructions.step4ClientId')}</strong>{' '}
+            {t('registerApp.instructions.step4Below')}{' '}
+            <strong>{t('registerApp.instructions.step4NewSecret')}</strong>{' '}
+            {t('registerApp.instructions.step4For')}{' '}
+            <strong>{t('registerApp.instructions.step4ClientSecret')}</strong>.
           </li>
         </ol>
 
@@ -614,31 +648,35 @@ function RegisterAppDialog({
             alignItems: 'center',
           }}
         >
-          <label style={labelStyle}>Label</label>
+          <label style={labelStyle}>{t('registerApp.fields.label')}</label>
           <input
             style={inputStyle}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="My Twitch App"
+            placeholder={t('registerApp.fields.labelPlaceholder')}
           />
-          <label style={labelStyle}>Client ID</label>
+          <label style={labelStyle}>{t('registerApp.fields.clientId')}</label>
           <input
             style={inputStyle}
             value={clientId}
             onChange={(e) => setClientId(e.target.value)}
-            placeholder="abc123…"
+            placeholder={t('registerApp.fields.clientIdPlaceholder')}
             autoComplete="off"
           />
-          <label style={labelStyle}>Client Secret</label>
+          <label style={labelStyle}>
+            {t('registerApp.fields.clientSecret')}
+          </label>
           <input
             style={inputStyle}
             value={clientSecret}
             onChange={(e) => setClientSecret(e.target.value)}
-            placeholder="••••••••"
+            placeholder={t('registerApp.fields.clientSecretPlaceholder')}
             type="password"
             autoComplete="off"
           />
-          <label style={labelStyle}>Redirect URI</label>
+          <label style={labelStyle}>
+            {t('registerApp.fields.redirectUri')}
+          </label>
           <input
             style={inputStyle}
             value={redirectUri}
@@ -655,14 +693,14 @@ function RegisterAppDialog({
           }}
         >
           <button style={secondaryBtnStyle} onClick={onCancel} disabled={busy}>
-            Cancel
+            {t('registerApp.cancel')}
           </button>
           <button
             style={primaryBtnStyle}
             onClick={handleCreate}
             disabled={busy}
           >
-            Save
+            {t('registerApp.save')}
           </button>
         </div>
       </div>
@@ -681,6 +719,7 @@ function RegisterSeAccountDialog({
   onCancel: () => void;
   onCreated: (acc: OverliveAccountRecord) => void;
 }) {
+  const { t } = useTranslation('accounts');
   const [label, setLabel] = useState('StreamElements');
   const [jwt, setJwt] = useState('');
   const [channelId, setChannelId] = useState('');
@@ -688,7 +727,7 @@ function RegisterSeAccountDialog({
 
   const handleSave = async () => {
     if (!label.trim() || !jwt.trim() || !channelId.trim()) {
-      alert('All fields are required.');
+      alert(t('registerSe.allRequired'));
       return;
     }
     setBusy(true);
@@ -701,7 +740,7 @@ function RegisterSeAccountDialog({
       });
       onCreated(acc);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to add account');
+      alert(e instanceof Error ? e.message : t('registerSe.saveFailed'));
     } finally {
       setBusy(false);
     }
@@ -717,7 +756,7 @@ function RegisterSeAccountDialog({
       <div style={subModalStyle}>
         <div style={headerStyle}>
           <h3 style={{ margin: 0, fontSize: 15, color: '#fff' }}>
-            Add StreamElements Account
+            {t('registerSe.title')}
           </h3>
           <button style={closeBtnStyle} onClick={onCancel}>
             ×
@@ -731,14 +770,14 @@ function RegisterSeAccountDialog({
             lineHeight: 1.6,
           }}
         >
-          Get your JWT and channel ID from{' '}
+          {t('registerSe.hint')}{' '}
           <a
             href="https://streamelements.com/dashboard/account/channels"
             target="_blank"
             rel="noreferrer"
             style={linkStyle}
           >
-            streamelements.com/dashboard/account/channels
+            {t('registerSe.hintLink')}
           </a>
           .
         </div>
@@ -751,13 +790,13 @@ function RegisterSeAccountDialog({
             alignItems: 'center',
           }}
         >
-          <label style={labelStyle}>Label</label>
+          <label style={labelStyle}>{t('registerSe.fields.label')}</label>
           <input
             style={inputStyle}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
-          <label style={labelStyle}>JWT</label>
+          <label style={labelStyle}>{t('registerSe.fields.jwt')}</label>
           <input
             style={inputStyle}
             value={jwt}
@@ -765,7 +804,7 @@ function RegisterSeAccountDialog({
             type="password"
             autoComplete="off"
           />
-          <label style={labelStyle}>Channel ID</label>
+          <label style={labelStyle}>{t('registerSe.fields.channelId')}</label>
           <input
             style={inputStyle}
             value={channelId}
@@ -782,10 +821,10 @@ function RegisterSeAccountDialog({
           }}
         >
           <button style={secondaryBtnStyle} onClick={onCancel} disabled={busy}>
-            Cancel
+            {t('registerSe.cancel')}
           </button>
           <button style={primaryBtnStyle} onClick={handleSave} disabled={busy}>
-            Save
+            {t('registerSe.save')}
           </button>
         </div>
       </div>
@@ -804,6 +843,7 @@ function PickAppDialog({
   onCancel: () => void;
   onPick: (id: string) => void;
 }) {
+  const { t } = useTranslation('accounts');
   return (
     <div
       style={subOverlayStyle}
@@ -814,7 +854,7 @@ function PickAppDialog({
       <div style={{ ...subModalStyle, maxWidth: 420 }}>
         <div style={headerStyle}>
           <h3 style={{ margin: 0, fontSize: 15, color: '#fff' }}>
-            Which Twitch app?
+            {t('pickApp.title')}
           </h3>
           <button style={closeBtnStyle} onClick={onCancel}>
             ×

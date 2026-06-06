@@ -377,7 +377,7 @@ function TimelineEditor({
       <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
         {clip.lanes.length === 0 && !adding && (
           <div style={{ color: '#555', fontSize: 11, padding: 12 }}>
-            No lanes yet. Click <b>+ Add Lane</b> below.
+            {t('empty.noLanes')}
           </div>
         )}
         {clip.lanes.map((lane) => (
@@ -421,7 +421,7 @@ function TimelineEditor({
           />
         ) : (
           <button onClick={() => setAdding(true)} style={btnPrimary}>
-            + Add Lane
+            {t('lane.addLane')}
           </button>
         )}
       </div>
@@ -440,6 +440,7 @@ function KeyframeProperties({
   onChange: (kf: TrackClipKeyframeRecord) => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation('clips');
   const setEasing = (easing: TrackClipEasing) => {
     if (easing === 'bezier') {
       onChange({ ...kf, easing, ...defaultBezierHandles(kf) });
@@ -492,15 +493,15 @@ function KeyframeProperties({
         }}
         style={{ ...inputStyle, width: 80 }}
       />
-      <label>easing</label>
+      <label>{t('keyframe.easingLabel')}</label>
       <select
         value={kf.easing}
         onChange={(e) => setEasing(e.target.value as TrackClipEasing)}
         style={inputStyle}
       >
-        <option value="linear">linear</option>
-        <option value="step">step</option>
-        <option value="bezier">bezier</option>
+        <option value="linear">{t('keyframe.easingLinear')}</option>
+        <option value="step">{t('keyframe.easingStep')}</option>
+        <option value="bezier">{t('keyframe.easingBezier')}</option>
       </select>
       {kf.easing === 'bezier' && (
         <span style={{ color: '#666' }}>
@@ -511,7 +512,7 @@ function KeyframeProperties({
       )}
       <div style={{ flex: 1 }} />
       <button onClick={onDelete} style={btnDanger}>
-        Delete keyframe
+        {t('keyframe.deleteKeyframe')}
       </button>
     </div>
   );
@@ -616,6 +617,7 @@ function AddLanePicker({
     defaultValue: number
   ) => void;
 }) {
+  const { t } = useTranslation('clips');
   const initialKind: TrackClipTargetKind = selectedComposeLayerId
     ? 'compose_layer'
     : 'scene_node';
@@ -658,15 +660,15 @@ function AddLanePicker({
         }}
         style={inputStyle}
       >
-        <option value="scene_node">Scene node</option>
-        <option value="compose_layer">Compose layer</option>
+        <option value="scene_node">{t('lane.targetSceneNode')}</option>
+        <option value="compose_layer">{t('lane.targetComposeLayer')}</option>
       </select>
       <select
         value={targetId}
         onChange={(e) => setTargetId(e.target.value)}
         style={inputStyle}
       >
-        <option value="">— select target —</option>
+        <option value="">{t('lane.selectTargetPlaceholder')}</option>
         {targets.map((t) => (
           <option key={t.id} value={t.id}>
             {t.name}
@@ -689,10 +691,10 @@ function AddLanePicker({
         onClick={() => onConfirm(kind, targetId, paramPath, 0)}
         style={btnPrimary}
       >
-        Add
+        {t('lane.add')}
       </button>
       <button onClick={onCancel} style={btnDanger}>
-        Cancel
+        {t('lane.cancel')}
       </button>
     </div>
   );
@@ -727,6 +729,7 @@ function ScrubRuler({
   playback: import('../../store/editorStore').TrackClipPlayback | null;
   onSeek: (t: number) => void;
 }) {
+  const { t: tl } = useTranslation('clips');
   const ref = useRef<HTMLDivElement>(null);
   const [, forceTick] = useState(0);
   // Re-render the playhead each frame while playing (so the indicator advances live).
@@ -790,7 +793,7 @@ function ScrubRuler({
           borderRight: '1px solid #2a2a2a',
         }}
       >
-        playhead: {t.toFixed(2)}s
+        {tl('scrub.playhead', { t: t.toFixed(2) })}
       </div>
       <div
         ref={ref}
@@ -802,7 +805,7 @@ function ScrubRuler({
           cursor: 'ew-resize',
           userSelect: 'none',
         }}
-        title="Drag to scrub"
+        title={tl('scrub.dragTitle')}
       >
         {ticks.map((tt) => (
           <div
@@ -902,6 +905,7 @@ function LaneRow({
   onDeleteLane: () => void;
   onReplaceKeyframes: (kfs: TrackClipKeyframeRecord[]) => void;
 }) {
+  const { t } = useTranslation('clips');
   const trackRef = useRef<HTMLDivElement>(null);
   const playback = useEditorStore((s) => s.trackClipPlayback[clip.id]);
   const [, forceTick] = useState(0);
@@ -1030,7 +1034,7 @@ function LaneRow({
             [{range.min.toFixed(2)}, {range.max.toFixed(2)}]
           </span>
         </span>
-        <button onClick={onDeleteLane} style={btnDanger} title="Remove lane">
+        <button onClick={onDeleteLane} style={btnDanger} title={t('lane.removeLaneTitle')}>
           ×
         </button>
       </div>
@@ -1229,6 +1233,7 @@ function KeyframeDot({
   onChange: (kf: TrackClipKeyframeRecord) => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation('clips');
   const dragKindRef = useRef<'kf' | 'in' | 'out' | null>(null);
 
   const xToT = (x: number) => (x / Math.max(1, size.w)) * duration;
@@ -1340,7 +1345,7 @@ function KeyframeDot({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onContextMenu={onContextMenu}
-        title={`t=${kf.t.toFixed(2)}s  v=${kf.value.toFixed(3)}  (${kf.easing})\nright-click to delete`}
+        title={t('keyframe.dotTitle', { t: kf.t.toFixed(2), v: kf.value.toFixed(3), easing: kf.easing })}
         style={{
           position: 'absolute',
           left: kx - KF_RADIUS,
@@ -1359,7 +1364,7 @@ function KeyframeDot({
           onPointerDown={handleDotDown('out')}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          title="out handle"
+          title={t('keyframe.outHandle')}
           style={{
             position: 'absolute',
             left: tToX(outEpAbs.t) - HANDLE_RADIUS,
@@ -1378,7 +1383,7 @@ function KeyframeDot({
           onPointerDown={handleDotDown('in')}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          title="in handle"
+          title={t('keyframe.inHandle')}
           style={{
             position: 'absolute',
             left: tToX(inEpAbs.t) - HANDLE_RADIUS,
@@ -1409,6 +1414,7 @@ function EventLane({
   playheadT: number;
   onReplace: (events: TrackClipEventRecord[]) => void;
 }) {
+  const { t } = useTranslation('clips');
   const events = [...clip.events].sort((a, b) => a.t - b.t);
 
   const addEvent = () => {
@@ -1448,13 +1454,13 @@ function EventLane({
             borderRight: '1px solid #2a2a2a',
           }}
         >
-          🎬 events
+          {t('events.laneLabel')}
         </div>
         <div style={{ flex: 1, position: 'relative' }}>
           {events.map((e) => (
             <div
               key={e.id}
-              title={`${e.action} @ ${e.t.toFixed(2)}s`}
+              title={t('events.markerTitle', { action: e.action, t: e.t.toFixed(2) })}
               style={{
                 position: 'absolute',
                 top: 3,
@@ -1476,8 +1482,7 @@ function EventLane({
       >
         {events.length === 0 && (
           <div style={{ color: '#555', fontSize: 11 }}>
-            No event markers. Add one to fire a media command at a point in the
-            clip.
+            {t('empty.noEvents')}
           </div>
         )}
         {events.map((e) => (
@@ -1524,7 +1529,7 @@ function EventLane({
               }}
               style={inputStyle}
             >
-              <option value=":">— select target —</option>
+              <option value=":">{t('events.selectTargetPlaceholder')}</option>
               {targets.map((tg) => (
                 <option key={tg.id} value={`${tg.kind}:${tg.id}`}>
                   {tg.name}
@@ -1534,7 +1539,7 @@ function EventLane({
             {needsValue(e.action) && (
               <>
                 <label style={{ color: '#888', fontSize: 11 }}>
-                  {e.action === 'seek' ? 'to(s)' : 'vol'}
+                  {e.action === 'seek' ? t('events.seekLabel') : t('events.volLabel')}
                 </label>
                 <input
                   type="number"
@@ -1560,7 +1565,7 @@ function EventLane({
             <button
               onClick={() => remove(e.id)}
               style={btnDanger}
-              title="Remove marker"
+              title={t('events.removeMarkerTitle')}
             >
               ×
             </button>
@@ -1573,11 +1578,11 @@ function EventLane({
             style={btnPrimary}
             title={
               targets.length === 0
-                ? 'Add a video or audio entity first'
-                : 'Add an event marker at the playhead'
+                ? t('events.addEventTitle_noTargets')
+                : t('events.addEventTitle')
             }
           >
-            + Add Event
+            {t('events.addEvent')}
           </button>
         </div>
       </div>
