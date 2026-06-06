@@ -447,6 +447,7 @@ interface EditorState {
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
+  live2dParamsByNode: Record<string, string[]>; // nodeId → Live2D parameter ids
   hoveredBoneName: string | null;
   behaviorKinds: BehaviorKindMeta[];
   /** Overlive login accounts for the current project. Populated lazily by Editor.tsx;
@@ -563,6 +564,8 @@ interface EditorState {
   clearVrmExpressionsForNode: (nodeId: string) => void;
   setVrmMorphTargetsForNode: (nodeId: string, names: string[]) => void;
   clearVrmMorphTargetsForNode: (nodeId: string) => void;
+  setLive2dParamsForNode: (nodeId: string, paramIds: string[]) => void;
+  clearLive2dParamsForNode: (nodeId: string) => void;
   setHoveredBone: (name: string | null) => void;
   setBehaviorKinds: (kinds: BehaviorKindMeta[]) => void;
   setOverliveAccounts: (
@@ -725,6 +728,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   animationClips: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
+  live2dParamsByNode: {},
   vrmMorphTargetsByNode: {},
   hoveredBoneName: null,
   behaviorKinds: [],
@@ -915,6 +919,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const next = { ...s.vrmMorphTargetsByNode };
       delete next[nodeId];
       return { vrmMorphTargetsByNode: next };
+    }),
+  setLive2dParamsForNode: (nodeId, paramIds) =>
+    set((s) => ({
+      live2dParamsByNode: { ...s.live2dParamsByNode, [nodeId]: paramIds },
+    })),
+  clearLive2dParamsForNode: (nodeId) =>
+    set((s) => {
+      const next = { ...s.live2dParamsByNode };
+      delete next[nodeId];
+      return { live2dParamsByNode: next };
     }),
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
   setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),

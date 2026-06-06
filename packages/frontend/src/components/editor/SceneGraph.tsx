@@ -51,6 +51,7 @@ const KIND_ICONS: Record<string, string> = {
   audio: '🔊',
   feed: '📜',
   remote_object: '🔗',
+  live2d: '🎭',
 };
 
 // Node kinds the user can add. Sourced from the shared registry so the scene
