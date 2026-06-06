@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { networkInterfaces } from 'os';
-import { getAllBehaviorKindMeta } from '../node_components/registry.js';
+import { getAllBehaviorKindMeta } from '../behaviors/registry.js';
 import { _vmc } from './shared.js';
 
 const router: ReturnType<typeof Router> = Router();

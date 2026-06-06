@@ -23,11 +23,11 @@ import { configRoutes } from './routes/config.js';
 import { openApiDoc } from './routes/openapi.js';
 import swaggerUi from 'swagger-ui-express';
 import { WSSync } from './ws/index.js';
-import { VmcManager } from './node_components/vmc_receiver/manager.js';
-import { BreathingManager } from './node_components/breathing/manager.js';
-import { LipsyncManager } from './node_components/lipsync/manager.js';
-import { TrackingManager } from './node_components/mediapipe_tracker/manager.js';
-import { ApiControllerManager } from './node_components/api_controller/manager.js';
+import { VmcManager } from './behaviors/vmc_receiver/manager.js';
+import { BreathingManager } from './behaviors/breathing/manager.js';
+import { LipsyncManager } from './behaviors/lipsync/manager.js';
+import { TrackingManager } from './behaviors/mediapipe_tracker/manager.js';
+import { ApiControllerManager } from './behaviors/api_controller/manager.js';
 import { TrackClipPlaybackManager } from './track_clips/playback.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
@@ -130,7 +130,7 @@ async function start() {
 
   // Standalone project graphs — start every persisted-enabled graph on boot.
   // See dev-notes/modules/project-graphs.md.
-  const { automationManager } = await import('./project_graphs/manager.js');
+  const { automationManager } = await import('./automations/manager.js');
   automationManager.startAllEnabled();
 
   // Overlive integration — one shared kit per project with configured accounts.

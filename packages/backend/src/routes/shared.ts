@@ -2,11 +2,11 @@ import { randomUUID, createHash } from 'crypto';
 import { mkdirSync, readdirSync, statSync, existsSync, readFileSync } from 'fs';
 import { join, extname, basename } from 'path';
 import { getDb } from '../db/index.js';
-import type { VmcManager } from '../node_components/vmc_receiver/manager.js';
-import type { BreathingManager } from '../node_components/breathing/manager.js';
-import type { LipsyncManager } from '../node_components/lipsync/manager.js';
-import type { TrackingManager } from '../node_components/mediapipe_tracker/manager.js';
-import type { ApiControllerManager } from '../node_components/api_controller/manager.js';
+import type { VmcManager } from '../behaviors/vmc_receiver/manager.js';
+import type { BreathingManager } from '../behaviors/breathing/manager.js';
+import type { LipsyncManager } from '../behaviors/lipsync/manager.js';
+import type { TrackingManager } from '../behaviors/mediapipe_tracker/manager.js';
+import type { ApiControllerManager } from '../behaviors/api_controller/manager.js';
 import type { WSSync } from '../ws/index.js';
 import type { TrackClipPlaybackManager } from '../track_clips/playback.js';
 

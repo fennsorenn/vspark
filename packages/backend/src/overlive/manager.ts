@@ -29,7 +29,7 @@ import type { AdapterEmittedEvent, ChatMessageEvent } from '@overlive/core';
 import { tokensToHtml } from '@overlive/emotes';
 import { mkEvent } from '@vspark/shared/signal';
 import { getDb } from '../db/index.js';
-import { automationManager } from '../project_graphs/manager.js';
+import { automationManager } from '../automations/manager.js';
 import type { WSSync } from '../ws/index.js';
 
 /**

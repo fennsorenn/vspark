@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getAllNodeKindMeta } from '../signal/registry.js';
 import { _vmc, _breathing, _lipsync, _tracking } from './shared.js';
-import { automationManager } from '../project_graphs/manager.js';
+import { automationManager } from '../automations/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
 

@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { matchAssetByHash, materializeAsset } from './assets.js';
 import { makeImportSubstituter } from './substitute.js';
-import { automationManager } from '../project_graphs/manager.js';
+import { automationManager } from '../automations/manager.js';
 
 interface PresetPayload {
   format: string;

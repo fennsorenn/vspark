@@ -4,7 +4,7 @@ import { getDb } from '../db/index.js';
 import {
   automationManager,
   type AutomationRow,
-} from '../project_graphs/manager.js';
+} from '../automations/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
 
