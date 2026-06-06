@@ -104,12 +104,14 @@ export class Live2DRuntime implements Puppet2DRuntime {
     // set separately below.
     model.createRenderer(1);
     const renderer = model.getRenderer();
-    renderer.startUp(this.gl);
-    renderer.setIsPremultipliedAlpha(true);
     // Clipping masks default to a 256² buffer — far below the render target,
     // which makes masked drawables (eyes, mouth, often most of the face) look
-    // downscaled-then-upscaled. Match the mask buffer to the canvas.
+    // downscaled-then-upscaled. Match the mask buffer to the canvas. This
+    // RECREATES the clipping manager, so it must run BEFORE startUp() — startUp
+    // is what propagates the GL context to the (current) clipping manager.
     renderer.setClippingMaskBufferSize(this.canvas.width);
+    renderer.startUp(this.gl);
+    renderer.setIsPremultipliedAlpha(true);
 
     const texCount = setting.getTextureCount();
     await Promise.all(
