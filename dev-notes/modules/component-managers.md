@@ -1,8 +1,8 @@
 # Behavior Managers
 
-> This module drives **Behaviors** (formerly "node components"). The persisted table is now `behaviors`, the runtime instance id is `behaviorId`, and the manager methods (`syncBehaviors`, `removeBehavior`, `_mapBehaviorRow`) follow the new spelling. Only the source **directory** `packages/backend/src/node_components/` keeps its old name — that's filesystem layout, not vocabulary, and was left as-is.
+> This module drives **Behaviors** (formerly "node components"). The persisted table is now `behaviors`, the runtime instance id is `behaviorId`, the manager methods (`syncBehaviors`, `removeBehavior`, `_mapBehaviorRow`) follow the new spelling, and the source directory is now `packages/backend/src/behaviors/`. (Only the historical migration filenames `002_node_components.sql` / `011_project_graphs.sql` keep the old spelling — applied migrations are immutable.)
 
-Managers live in `packages/backend/src/node_components/` (source dir name kept). Each manager owns the full lifecycle of a specific behavior kind: it instantiates signal graphs from descriptors, wires them to their data source (UDP socket, WebSocket message, timer), and persists graph node state back to the DB.
+Managers live in `packages/backend/src/behaviors/`. Each manager owns the full lifecycle of a specific behavior kind: it instantiates signal graphs from descriptors, wires them to their data source (UDP socket, WebSocket message, timer), and persists graph node state back to the DB.
 
 ## Pattern shared by all managers
 
@@ -107,7 +107,7 @@ covers only the manager-level lifecycle pattern.
 into `mediapipe_source`.
 
 **Graph descriptor**: `makeMediapipeGraphDescriptor(behaviorId)` in
-`node_components/mediapipe_tracker/graph.ts`. See module doc for the full node/edge layout.
+`behaviors/mediapipe_tracker/graph.ts`. See module doc for the full node/edge layout.
 
 **Manual triggers**: `fireGraphEvent(behaviorId, nodeId, port)` — used by the head/finger/IK
 capture+reset buttons in `PropertiesPanel.tsx`, dispatched by `POST /api/signal/graphs/:id/fire`.
@@ -161,7 +161,7 @@ Shared sink that merges per-behavior pose/blendshape outputs into the single `vm
 
 ## Adding a new manager
 
-1. Create `packages/backend/src/node_components/<kind>/manager.ts` (source dir name kept)
+1. Create `packages/backend/src/behaviors/<kind>/manager.ts`
 2. Implement `syncBehaviors(rows)` — diff and start/stop behavior instances
 3. Create a graph descriptor factory returning a `GraphDescriptor`
 4. Instantiate and register the manager in `packages/backend/src/index.ts`

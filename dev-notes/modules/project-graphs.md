@@ -1,6 +1,6 @@
 # Automations
 
-**Status: Implemented.** This module covers the **Automation** feature — user-built standalone signal graphs. (The module was formerly called "Standalone Graphs"; the filename `project-graphs.md` and the `project_graphs/` source dir are kept, but the user-facing concept and the code identifiers are now "Automation".) It covers **all three** scopes: project, scene-node ("object"), and compose-layer. They all share a single DB table, a single REST router, and a single backend manager (`AutomationManager`).
+**Status: Implemented.** This module covers the **Automation** feature — user-built standalone signal graphs. (The module was formerly called "Standalone Graphs"; the doc filename `project-graphs.md` is kept, but the source dir is now `automations/` and the user-facing concept and code identifiers are now "Automation".) It covers **all three** scopes: project, scene-node ("object"), and compose-layer. They all share a single DB table, a single REST router, and a single backend manager (`AutomationManager`).
 
 > An Automation **is** a signal graph (it owns a `GraphDescriptor` edited in the `SignalGraphCanvas` substrate editor). A [Behavior](component-managers.md) is **backed by** a signal graph but is a separate, packaged-driver concept. Keep "signal graph"/"graph" for the substrate; "automation" for this feature.
 
@@ -47,7 +47,7 @@ A single generic router serves all three owner kinds.
 
 `mapAutomationRow` returns the unified `AutomationRecord` shape: `{ id, ownerKind, ownerId, name, enabled, descriptor, createdAt, updatedAt }`.
 
-## Backend lifecycle — `project_graphs/manager.ts` (source dir kept)
+## Backend lifecycle — `automations/manager.ts`
 
 `AutomationManager` (singleton `automationManager`, mounted via `routes/shared.ts`) owns the runtime instances for all three scopes.
 

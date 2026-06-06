@@ -53,7 +53,7 @@ Minimal — no signal-graph changes were needed for this feature:
 lipsync_source → unpack_event → viseme_passthrough → blendshapes_broadcast
 ```
 
-Defined in [packages/backend/src/node_components/lipsync/graph.ts](../../packages/backend/src/node_components/lipsync/graph.ts).
+Defined in [packages/backend/src/behaviors/lipsync/graph.ts](../../packages/backend/src/behaviors/lipsync/graph.ts).
 
 ### Latent bug fixed during this work
 

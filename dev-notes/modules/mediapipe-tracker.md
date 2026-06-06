@@ -11,8 +11,8 @@ Related: [signal-graph.md](signal-graph.md), [component-managers.md](component-m
 ## Files
 
 Backend:
-- `packages/backend/src/node_components/mediapipe_tracker/manager.ts`
-- `packages/backend/src/node_components/mediapipe_tracker/graph.ts`
+- `packages/backend/src/behaviors/mediapipe_tracker/manager.ts`
+- `packages/backend/src/behaviors/mediapipe_tracker/graph.ts`
 - `packages/backend/src/signal/nodes/pose_torso_head_to_bones.ts`
 - `packages/backend/src/signal/nodes/pose_arms_to_bones.ts`
 - `packages/backend/src/signal/nodes/pose_ik_targets.ts`

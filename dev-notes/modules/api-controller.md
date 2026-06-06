@@ -10,8 +10,8 @@ It is the first behavior with a **public REST control surface** — its routes l
 
 ## Files
 
-- [packages/backend/src/node_components/api_controller/manager.ts](../../packages/backend/src/node_components/api_controller/manager.ts) — `ApiControllerManager`
-- [packages/backend/src/node_components/api_controller/register.ts](../../packages/backend/src/node_components/api_controller/register.ts) — `@BehaviorKind` registration (decorator renamed from `@ComponentKind`; source dir kept)
+- [packages/backend/src/behaviors/api_controller/manager.ts](../../packages/backend/src/behaviors/api_controller/manager.ts) — `ApiControllerManager`
+- [packages/backend/src/behaviors/api_controller/register.ts](../../packages/backend/src/behaviors/api_controller/register.ts) — `@BehaviorKind` registration (decorator renamed from `@ComponentKind`)
 - [packages/backend/src/routes/api-controller.ts](../../packages/backend/src/routes/api-controller.ts) — REST routes
 - [packages/backend/src/routes/expressions.ts](../../packages/backend/src/routes/expressions.ts) — read-only expression + animation listings
 - [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) — `apiControllerAnimationSchema`, `apiControllerAnimationQueueSchema`, `apiControllerBlendshapesSchema`

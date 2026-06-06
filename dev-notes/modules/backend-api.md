@@ -70,7 +70,7 @@ All routes are project-scoped via `/projects/:projectId/nodes/:nodeId/...`; `_re
 | `PUT .../api-controller/blendshapes` | Either `{ preset: '<name>' }` (single shape at weight 1.0) or `{ blendshapes: { name: weight, ... } }` |
 | `DELETE .../api-controller/blendshapes` | Clears all active weights |
 
-Clip resolution (in [api_controller/manager.ts:169](../../packages/backend/src/node_components/api_controller/manager.ts)) tries clip id first then clip name, both scoped to the avatar's `source_node_id`, so the queue can only reference clips owned by this avatar. See [api-controller.md](api-controller.md).
+Clip resolution (in [api_controller/manager.ts:169](../../packages/backend/src/behaviors/api_controller/manager.ts)) tries clip id first then clip name, both scoped to the avatar's `source_node_id`, so the queue can only reference clips owned by this avatar. See [api-controller.md](api-controller.md).
 
 ## OpenAPI docs — `routes/openapi.ts`
 
