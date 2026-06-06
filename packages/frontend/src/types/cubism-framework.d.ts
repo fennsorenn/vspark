@@ -98,6 +98,9 @@ declare module '@cubism/framework/rendering/cubismrenderer_webgl' {
     bindTexture(modelTextureNo: number, glTexture: WebGLTexture): void;
     setMvpMatrix(matrix44: CubismMatrix44): void;
     setIsPremultipliedAlpha(enable: boolean): void;
+    // Resolution of the off-screen buffer Cubism renders clipping masks into
+    // (default 256²). Safely recreates the clipping manager internally.
+    setClippingMaskBufferSize(size: number): void;
     setRenderState(fbo: WebGLFramebuffer | null, viewport: number[]): void;
     drawModel(): void;
     release(): void;
@@ -110,7 +113,8 @@ declare module '@cubism/framework/model/cubismusermodel' {
   import { CubismMatrix44 } from '@cubism/framework/math/cubismmatrix44';
   export class CubismUserModel {
     loadModel(buffer: ArrayBuffer, shouldCheckMocConsistency?: boolean): void;
-    createRenderer(width: number, height: number, maskBufferCount?: number): void;
+    // The only argument is maskBufferCount; width/height are NOT parameters.
+    createRenderer(maskBufferCount?: number): void;
     deleteRenderer(): void;
     getRenderer(): CubismRenderer_WebGL;
     getModel(): CubismModel;

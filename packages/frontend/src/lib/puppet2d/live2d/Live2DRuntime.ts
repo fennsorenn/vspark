@@ -62,7 +62,7 @@ export class Live2DRuntime implements Puppet2DRuntime {
   private readonly idCache = new Map<string, CubismId>();
   private disposed = false;
 
-  constructor(pixelWidth = 1024, pixelHeight = 1024) {
+  constructor(pixelWidth = 2048, pixelHeight = 2048) {
     this.canvas = document.createElement('canvas');
     this.canvas.width = pixelWidth;
     this.canvas.height = pixelHeight;
@@ -76,6 +76,11 @@ export class Live2DRuntime implements Puppet2DRuntime {
     // VERIFY: flipY / premultiply may need flipping depending on Cubism output.
     this.texture.flipY = true;
     this.texture.premultiplyAlpha = true;
+    // The canvas already renders at the target resolution; mip-chain sampling
+    // only softens it. Keep it crisp.
+    this.texture.generateMipmaps = false;
+    this.texture.minFilter = THREE.LinearFilter;
+    this.texture.magFilter = THREE.LinearFilter;
   }
 
   async load(bundleUrl: string): Promise<void> {
@@ -93,10 +98,18 @@ export class Live2DRuntime implements Puppet2DRuntime {
     const model = new fw.userModel.CubismUserModel();
     const mocBuf = await fetchArrayBuffer(baseDir + setting.getModelFileName());
     model.loadModel(mocBuf);
-    model.createRenderer(this.canvas.width, this.canvas.height);
+    // NB: createRenderer's only argument is maskBufferCount — the framework
+    // ignores width/height. Passing the canvas size here previously requested
+    // 1024 mask buffers; 1 is the framework default. The mask *resolution* is
+    // set separately below.
+    model.createRenderer(1);
     const renderer = model.getRenderer();
     renderer.startUp(this.gl);
     renderer.setIsPremultipliedAlpha(true);
+    // Clipping masks default to a 256² buffer — far below the render target,
+    // which makes masked drawables (eyes, mouth, often most of the face) look
+    // downscaled-then-upscaled. Match the mask buffer to the canvas.
+    renderer.setClippingMaskBufferSize(this.canvas.width);
 
     const texCount = setting.getTextureCount();
     await Promise.all(
