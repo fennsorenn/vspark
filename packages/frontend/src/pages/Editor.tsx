@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   api,
   serializePreset,
@@ -26,6 +27,7 @@ import type { NodeKindMeta } from '@vspark/shared/signal';
 export function Editor() {
   useWsSync();
   useTrackClipEvaluator();
+  const { t } = useTranslation('editor');
   const { projectId } = useParams<{ projectId: string }>();
   const {
     setProject,
@@ -257,7 +259,7 @@ export function Editor() {
                   background: '#0a0a0a',
                 }}
               >
-                Select or create a graph from the Graphs panel.
+                {t('logic.emptyCanvas')}
               </div>
             ))}
           {leftTab === 'compose' && <ComposeView />}

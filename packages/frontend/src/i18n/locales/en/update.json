@@ -1,0 +1,32 @@
+{
+  "header": {
+    "available": "↑ Update Available",
+    "updates": "Updates"
+  },
+  "version": {
+    "current": "Current:",
+    "latest": "Latest:",
+    "upToDate": "✓ Up to date"
+  },
+  "channel": {
+    "label": "Release channel",
+    "stable": "Stable",
+    "recent": "Recent (beta)",
+    "experimental": "Experimental (alpha)"
+  },
+  "progress": {
+    "withTotal": "{{pct}}% — {{downloaded}} / {{total}}",
+    "downloaded": "{{downloaded}} downloaded"
+  },
+  "actions": {
+    "later": "Later",
+    "updateNow": "Update Now",
+    "downloadingPct": "Downloading {{pct}}%",
+    "downloading": "Downloading…"
+  },
+  "error": {
+    "channel": "Failed to update channel",
+    "downloadFailed": "Download failed",
+    "startFailed": "Failed to start download"
+  }
+}

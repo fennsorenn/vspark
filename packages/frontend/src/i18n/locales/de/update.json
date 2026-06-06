@@ -1,0 +1,32 @@
+{
+  "header": {
+    "available": "↑ Update verfügbar",
+    "updates": "Updates"
+  },
+  "version": {
+    "current": "Aktuell:",
+    "latest": "Neueste:",
+    "upToDate": "✓ Auf dem neuesten Stand"
+  },
+  "channel": {
+    "label": "Release-Kanal",
+    "stable": "Stabil",
+    "recent": "Aktuell (Beta)",
+    "experimental": "Experimentell (Alpha)"
+  },
+  "progress": {
+    "withTotal": "{{pct}} % — {{downloaded}} / {{total}}",
+    "downloaded": "{{downloaded}} geladen"
+  },
+  "actions": {
+    "later": "Später",
+    "updateNow": "Jetzt aktualisieren",
+    "downloadingPct": "Wird geladen {{pct}} %",
+    "downloading": "Wird geladen…"
+  },
+  "error": {
+    "channel": "Kanal konnte nicht geändert werden",
+    "downloadFailed": "Download fehlgeschlagen",
+    "startFailed": "Download konnte nicht gestartet werden"
+  }
+}
