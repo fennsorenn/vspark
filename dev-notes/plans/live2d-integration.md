@@ -22,32 +22,54 @@ blendshape + pose broadcast bus already routes to the node's id.
    `nodeId`, so the existing per-node blendshape/pose bus, the `mediapipe_tracker` /
    `lipsync` / `vmc_receiver` components, transforms, opacity, and track clips all apply
    for free — exactly like a VRM `avatar` node.
-3. **This pass is the plan only.** Implementation follows after review.
+3. **Distribution:** the proprietary Cubism Core is **NOT bundled in the release**. The
+   integration code is in-tree (and stays MIT-clean), but `live2dcubismcore.min.js` is
+   **lazy-fetched at runtime on user opt-in**, behind a one-time license acknowledgment.
+   This keeps vspark's published artifacts free of redistributed proprietary code and
+   pushes the SDK-license relationship onto the end user (see "Licensing & distribution").
+4. **Open seam for Inochi2D:** the node, asset pipeline, param-mapping layer, and
+   properties UI are written against a small **`Puppet2DRuntime` interface**, with Live2D
+   as the *first and only* implemented adapter for v1. Inochi2D is explicitly a *future*
+   second adapter — not built now, but the architecture must not preclude it (see
+   "Roadmap & future direction").
+5. **This pass is the plan only.** Implementation follows after review.
 
-## Licensing & vendoring (READ FIRST — this is the non-obvious part)
+## Licensing & distribution (READ FIRST — this is the non-obvious part)
 
-Unlike the rest of the stack, Live2D Cubism Core is **proprietary**, not MIT.
+Unlike the rest of the stack, Live2D Cubism Core is **proprietary**, not MIT. The licensing
+constraint is tied to the **Core**, not the renderer choice — it would be identical with
+`pixi-live2d-display`, because that also depends on the same proprietary Core.
 
-- **Cubism Core** (`live2dcubismcore.min.js`) is required at runtime and is *redistributable*
-  under Live2D's terms, but the framework source is **not on npm** — it is consumed as
-  source/submodule from [`Live2D/CubismWebFramework`](https://github.com/Live2D/CubismWebFramework),
-  and the Core is downloaded from the [Cubism SDK for Web](https://www.live2d.com/en/sdk/download/web/).
-- **Free** for individuals and businesses under **¥10M/yr** revenue; a paid **Publication
-  License** is required above that threshold
-  ([SDK license](https://www.live2d.com/en/sdk/license/)). vspark ships via GitHub Releases,
-  so this must be surfaced to the user (a one-line notice + link in the Live2D properties
-  panel and in the README is sufficient for v1).
-- **Vendoring approach (recommended):** vendor a pinned copy of the Cubism Core
-  (`live2dcubismcore.min.js`) and a pre-built/copied subset of the Framework TS sources
-  under `packages/frontend/src/lib/live2d/` (or `vendor/live2d/`), with their `LICENSE.md`
-  kept intact alongside. Load the Core as a global (`window.Live2DCubismCore`) via a
-  `<script>` injected on first Live2D node mount (lazy — don't pay the cost for VRM-only
-  projects), then `Live2DCubismFramework.startUp()`. Do **not** add an npm dep that
-  silently pulls the Core — keep the license file visible in-tree.
-- Confirm the exact vendoring mechanics (submodule vs copied dist vs a thin npm shim like
-  `live2dcubismframework`) during implementation; the design below is renderer-agnostic
-  about *how* the framework is bundled, only that it exposes load + `setParameterValueById`
-  + `update` + a `CubismRenderer_WebGL`.
+- **Cubism Core** (`live2dcubismcore.min.js`) is required at runtime. **Free** for
+  individuals and businesses under **¥10M/yr** revenue; a paid **Publication License** is
+  required above that threshold ([SDK license](https://www.live2d.com/en/sdk/license/),
+  [EULA](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html)).
+- **The lever that matters is *distribution*, not code organization.** The risk to
+  vspark-the-project is *redistributing* the proprietary Core inside its GitHub Release
+  artifacts. We avoid that entirely:
+
+  > **Distribution model (decided): in-tree code, runtime-fetched Core, opt-in + ack.**
+  > - The integration code (framework wrapper, param mapping, node) lives in-tree and is
+  >   MIT-clean — it contains no proprietary blob.
+  > - On first use of a Live2D node, show a one-time **"Enable Live2D support"** dialog with
+  >   the license notice + link. On accept, **lazy-fetch `live2dcubismcore.min.js` at
+  >   runtime** (from Live2D's CDN, or let the user drop the file in) and cache it; inject
+  >   it as a global (`window.Live2DCubismCore`) and `startUp()` the framework. VRM-only
+  >   projects never fetch it.
+  > - Persist the acknowledgment (e.g. `AppConfig` flag). Surface the notice again in the
+  >   Live2D properties panel and the README.
+  > - Net: vspark's published artifacts redistribute **nothing proprietary**; the SDK terms
+  >   bind the end user who opted in. The end-user's own Publication-License obligation above
+  >   the revenue threshold is unchanged either way — that is theirs, not vspark's.
+
+- **The Cubism Web Framework** (the TS runtime that wraps the Core) is under Live2D's *Open
+  Software License* (source-available, free) and **not on npm** — consumed as source from
+  [`Live2D/CubismWebFramework`](https://github.com/Live2D/CubismWebFramework). It is **not**
+  the binding constraint and *may* be vendored in-tree (keep its `LICENSE.md`). Only the
+  **Core** is handled via runtime-fetch. Confirm exact mechanics (submodule vs copied dist
+  vs thin shim) during implementation; the design below only assumes the framework exposes
+  load + `setParameterValueById` + `update` + a `CubismRenderer_WebGL`, reached through the
+  `Puppet2DRuntime` adapter below.
 
 ## Constraints / patterns to preserve
 
@@ -72,6 +94,35 @@ Unlike the rest of the stack, Live2D Cubism Core is **proprietary**, not MIT.
   `createSceneNode` default-component bag) so the SceneGraph, ComposeTree, and the
   AssetManager "Create" palette all add it identically.
 - Type-check (`pnpm lint`) is the only correctness gate. No test runner.
+
+## 2D puppet runtime abstraction (`Puppet2DRuntime`)
+
+To keep the seam open for Inochi2D (decision 4) without over-building, the renderer is
+hidden behind a tiny interface. The `Live2DNode`, param-mapping layer, asset handling, and
+properties UI talk to **this**, never to Cubism directly:
+
+```ts
+// packages/frontend/src/lib/puppet2d/types.ts (new)
+export interface Puppet2DRuntime {
+  load(bundleUrl: string): Promise<void>;     // model3.json (Live2D) / .inp (Inochi, later)
+  listParams(): string[];                       // parameter ids the model exposes
+  setParam(id: string, value: number): void;
+  update(dtSeconds: number): void;              // advance physics / idle motion
+  renderToTexture(): THREE.Texture;             // the off-screen canvas/GL output, per frame
+  dispose(): void;
+}
+```
+
+- **v1 ships exactly one adapter:** `Live2DRuntime` (Cubism Core + framework +
+  `CubismRenderer_WebGL` → off-screen GL canvas → `THREE.CanvasTexture`). It also owns the
+  lazy Core fetch/ack from the licensing section.
+- The runtime is selected by **asset format** at load time (`*.model3.json` → Live2D). A
+  future `*.inp` → `InochiRuntime` adapter slots in with no change to the node/param/UI
+  layers.
+- **Don't generalize prematurely.** Keep the user-facing node kind named `live2d` for v1
+  (explicit, honest, less abstraction). When a real second adapter exists, decide then
+  whether to add a sibling `inochi` kind sharing the component shape or rename to a generic
+  `puppet2d` kind — that is a small, well-contained migration, not a v1 concern.
 
 ## Asset model — multi-file Live2D bundles
 
@@ -150,10 +201,12 @@ into a flat subfolder (`routes/assets.ts:56`), served from
 ### `Viewport.tsx` — `Live2DNode` component + flat-mount + `renderNodeElement` case
 
 Follow `FeedCanvasNode` (`Viewport.tsx:3717`) for the texture plumbing and `BillboardNode`
-for transform/facing:
+for transform/facing. **All Cubism-specific work below lives inside the `Live2DRuntime`
+adapter; `Live2DNode` orchestrates it through the `Puppet2DRuntime` interface** (load /
+listParams / setParam / update / renderToTexture / dispose):
 
-- On mount (and when `modelUrl` changes): lazy-load the Cubism Core script + `startUp()`
-  once (module-level guard), then load the bundle:
+- On mount (and when `modelUrl` changes): the adapter lazy-loads the Cubism Core script +
+  `startUp()` once (module-level guard, gated on the opt-in/ack), then loads the bundle:
   - fetch `*.model3.json`, parse it (`CubismModelSettingJson`), load the `.moc3` buffer,
     create the `CubismUserModel`/`CubismModel`, load textures, physics
     (`*.physics3.json`), pose, expressions, and the idle motion if configured. Build a GL
@@ -264,10 +317,14 @@ Shared:
 Frontend:
 - `packages/frontend/src/api/client.ts` — `AssetKind` `'live2d'`, `guessAssetKind`, bundle
   uploader.
-- `packages/frontend/src/lib/live2d/` *(new)* — vendored Cubism Core + Framework + their
-  LICENSE; a thin `Live2DModel` wrapper (load/update/setParam/render/dispose).
+- `packages/frontend/src/lib/puppet2d/types.ts` *(new)* — the `Puppet2DRuntime` interface.
+- `packages/frontend/src/lib/puppet2d/live2d/` *(new)* — `Live2DRuntime` adapter: the
+  framework wrapper + the **runtime Core loader/ack** (not a vendored Core blob), wrapping
+  load/update/setParam/render/dispose. Framework source (Open Software License) may be
+  vendored here with its `LICENSE.md`.
 - `packages/frontend/src/lib/live2dParamMap.ts` *(new)* — mapping layer + `DEFAULT_MAP` +
-  quat→euler.
+  quat→euler (adapter-agnostic; an Inochi map would be a sibling `DEFAULT_MAP`).
+- `packages/shared/src/types.ts` — `AppConfig` gains a Live2D opt-in/ack flag.
 - `packages/frontend/src/components/editor/Viewport.tsx` — `Live2DNode`, flat-mount,
   `renderNodeElement` case.
 - `packages/frontend/src/components/editor/createKinds.ts` — node def + factories.
@@ -277,6 +334,40 @@ Frontend:
 - `packages/frontend/src/components/editor/AssetManager.tsx` — Live2D tab + bundle/zip drop
   + "Add as Live2D avatar" action.
 - `packages/frontend/src/store/editorStore.ts` — `live2dParamsForNode`.
+
+## Roadmap & future direction (post-v1, NOT this pass)
+
+The staged path agreed with the user — each step gates the next:
+
+1. **(This plan) Live2D, behind `Puppet2DRuntime`.** Lazy-loaded Core, opt-in/ack, one
+   adapter. Ship and validate the whole 2D-puppet surface (node, asset bundles, param
+   mapping, properties) against the real ecosystem users have (`.moc3`).
+2. **Evaluate existing open Inochi2D runtimes for a drop-in second adapter.** Before writing
+   anything, assess whether an existing project is mature enough to wrap as an
+   `InochiRuntime` adapter:
+   - [`Inochi2D/inochi2d-ts`](https://github.com/Inochi2D/inochi2d-ts) — official TS +
+     **Three.js** runtime (BSD). Closest fit to vspark (already Three-based), but currently
+     a proof-of-concept (≈14 commits, no releases, author flags subpar code quality,
+     unclear physics/animation coverage). **First thing to check** given the Three.js
+     synergy.
+   - [`Inochi2D/inox2d`](https://github.com/Inochi2D/inox2d) — Rust, compiles to WASM,
+     WebGL renderer (BSD). Cleaner architecture but **prototype** (no physics yet, no
+     JS/TS bindings → would need a WASM bridge).
+   - Gate to adopt: renders real puppets faithfully, has (or can cheaply gain) physics +
+     parameter animation, and wraps behind `Puppet2DRuntime` without fighting it.
+3. **Only if step 2 comes up short:** consider building/expanding a runtime — e.g. hardening
+   `inochi2d-ts` and giving it a **Three.js `WebGPURenderer`** backend (WebGPU with WebGL2
+   fallback). This is a *separate library/product* with its own (BSD-clean) license, not
+   bundled into vspark's license surface; it would plug back in as the `InochiRuntime`
+   adapter. Feasible (open spec + 3 reference impls) but a multi-month effort whose real
+   cost is visual-fidelity QA, not code volume. Tracked separately; do not start from here.
+
+**Conversion bridges (`.moc3`/`.cmo3` → Inochi) are explicitly NOT part of any step.** moc3
+is a lossy compiled artifact (no clean inverse; reverse-engineering it hits the Live2D
+EULA); cmo3 is more information-complete but still proprietary/undocumented, paradigm-
+mismatched to Inochi's deform model, and — decisively — end users hold `.moc3`, not the
+artist-private `.cmo3`. If ever pursued, it would be its own standalone product that never
+touches vspark's license.
 
 ## Out of scope (note as future)
 
@@ -311,13 +402,14 @@ Frontend:
 ## Output
 
 Commit in coherent phases on `claude/epic-volta-QBoUm`:
-1. Vendoring + `Live2DModel` wrapper + a hardcoded test model rendering to a texture
-   (prove the renderer-in-a-texture path before any vspark wiring).
-2. `live2d` scene-node kind (schema/types, createKinds, `Live2DNode`, properties, icon)
-   with `modelUrl` pointed at a manually-placed bundle.
+1. `Puppet2DRuntime` interface + `Live2DRuntime` adapter (runtime Core loader + opt-in/ack)
+   + a hardcoded test model rendering to a texture — prove the runtime-fetch + renderer-in-
+   a-texture path before any vspark wiring. No vendored Core blob.
+2. `live2d` scene-node kind (schema/types, createKinds, `Live2DNode` driving the runtime,
+   properties, icon) with `modelUrl` pointed at a manually-placed bundle.
 3. Asset bundle upload + classification + AssetManager Live2D tab/drop.
 4. Param-mapping layer + live tracking application + param-map editor UI.
-5. Idle motion / auto-blink-breath fallback + licensing notice.
+5. Idle motion / auto-blink-breath fallback + license acknowledgment dialog & notice.
 
 Open a PR into `dev` when done (only if/when the user asks). Update `dev-notes`
 (ARCHITECTURE.md status row + a new `modules/live2d.md`, cross-ref `scene-graph.md`,
