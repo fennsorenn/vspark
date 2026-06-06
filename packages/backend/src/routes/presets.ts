@@ -7,9 +7,44 @@ import {
 } from '../presets/serialize.js';
 import { instantiatePreset } from '../presets/deserialize.js';
 import { BUILTIN_PRESETS, getBuiltinPreset } from '../presets/builtins.js';
+import { rowToLayer, type LayerRow } from './compose-layers.js';
 import { _ws } from './shared.js';
 
 const router: ReturnType<typeof Router> = Router();
+
+interface SceneNodeRow {
+  id: string;
+  project_id: string;
+  root_scene_node_id: string;
+  parent_id: string | null;
+  bone_attachment: string | null;
+  name: string;
+  kind: string;
+  file_path: string | null;
+  components: string;
+  properties: string;
+  hidden: number;
+}
+
+/** Map a raw scene_nodes row to the camelCase shape the frontend's
+ *  `node_added` WS handler expects (it casts the payload directly without
+ *  running it through a mapper, unlike compose layers). Mirrors the object
+ *  built by the regular POST /scenes/:sceneId/nodes route. */
+function rowToNode(r: SceneNodeRow) {
+  return {
+    id: r.id,
+    rootSceneNodeId: r.root_scene_node_id,
+    projectId: r.project_id,
+    parentId: r.parent_id,
+    boneAttachment: r.bone_attachment,
+    name: r.name,
+    kind: r.kind,
+    filePath: r.file_path,
+    components: JSON.parse(r.components || '{}'),
+    properties: JSON.parse(r.properties || '{}'),
+    hidden: r.hidden === 1,
+  };
+}
 
 interface PresetRow {
   id: string;
@@ -247,19 +282,29 @@ router.post('/presets/instantiate', (req, res) => {
         typeof boneAttachment === 'string' ? boneAttachment : null,
     });
 
+    // Broadcast the newly-created entities so other connected clients update
+    // their scene graph live. The initiating client refetches on its own and
+    // the receiving handlers dedupe by id, so broadcasting to everyone is safe.
+    // `result.idMap` maps preset ids → freshly minted real ids for every
+    // inserted entity, so its values are exactly the rows we just created.
+    const createdIds = new Set(Object.values(result.idMap));
+
     if (payload.rootKind === 'scene_node' && rootSceneNodeId) {
-      const nodes = getDb()
+      const rows = getDb()
         .prepare('SELECT * FROM scene_nodes WHERE root_scene_node_id = ?')
-        .all(rootSceneNodeId);
-      for (const node of nodes) {
-        if (
-          result.idMap[
-            Object.keys(result.idMap).find(
-              (k) => result.idMap[k] === (node as Record<string, unknown>).id
-            ) ?? ''
-          ]
-        ) {
-          _ws?.broadcast('node_added', node as Record<string, unknown>);
+        .all(rootSceneNodeId) as unknown as SceneNodeRow[];
+      for (const row of rows) {
+        if (createdIds.has(row.id)) {
+          _ws?.broadcast('node_added', rowToNode(row));
+        }
+      }
+    } else if (payload.rootKind === 'compose_layer' && rootComposeSceneId) {
+      const rows = getDb()
+        .prepare('SELECT * FROM compose_layers WHERE root_compose_scene_id = ?')
+        .all(rootComposeSceneId) as unknown as LayerRow[];
+      for (const row of rows) {
+        if (createdIds.has(row.id)) {
+          _ws?.broadcast('compose_layer_added', rowToLayer(row));
         }
       }
     }

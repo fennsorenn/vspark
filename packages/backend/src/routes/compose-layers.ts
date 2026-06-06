@@ -6,7 +6,7 @@ import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
 
-type LayerRow = {
+export type LayerRow = {
   id: string;
   project_id: string;
   root_compose_scene_id: string | null;
@@ -30,7 +30,7 @@ type LayerRow = {
   updated_at: string;
 };
 
-function rowToLayer(r: LayerRow) {
+export function rowToLayer(r: LayerRow) {
   return {
     id: r.id,
     projectId: r.project_id,
