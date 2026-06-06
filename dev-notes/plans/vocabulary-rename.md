@@ -105,11 +105,11 @@ behavior (`PoseFrame`, broadcast bus, lipsync/tracking WS fields, managers, fron
 renamed in its own commit. The persisted port name + behavior-context node kinds
 (`component_id`/`component_config`) followed in follow-up 1 with descriptor migration 023.
 
-### Phase 2.5 — Docs follow-up (TODO)
+### Phase 2.5 — Docs follow-up (DONE)
 
-dev-notes still reference old names (`ProjectGraphManager`, `project-graphs.md`,
-`node_components` as a user concept, `GraphsSection`). Refresh ARCHITECTURE.md +
-affected module docs to the new vocabulary.
+ARCHITECTURE.md + all affected module docs were refreshed to the new vocabulary
+(behavior / automation), including the table/route/kind/port renames and the
+source-dir + route-file renames.
 
 ### Phase 3 — Persisted `kind` renames (DEFERRED)
 

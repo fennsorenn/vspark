@@ -29,7 +29,7 @@ Behavior graphs (one per `behaviors` row, hardcoded shape) are a separate concep
 | `node_state` | TEXT (JSON, keyed by node id), default `{}` | Per-node persisted state. Mirrors the `_nodeState` convention used by behavior managers, but lives on the row directly. |
 | `created_at` / `updated_at` | TEXT | |
 
-## REST surface — `routes/graphs.ts`
+## REST surface — `routes/automations.ts`
 
 A single generic router serves all three owner kinds.
 

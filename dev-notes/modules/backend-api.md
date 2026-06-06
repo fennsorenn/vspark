@@ -35,12 +35,12 @@ Response shape: `{ ok: true, data: ... }` or `{ ok: false, error: { status, mess
 | [routes/scenes.ts](../../packages/backend/src/routes/scenes.ts) | `/projects/:projectId/scenes`, `/scenes/:sceneId` |
 | [routes/scene-nodes.ts](../../packages/backend/src/routes/scene-nodes.ts) | `/scenes/:sceneId/nodes`, `/scene-nodes/:nodeId`, animation-clip CRUD |
 | [routes/assets.ts](../../packages/backend/src/routes/assets.ts) | Project asset upload + listing (runs `discoverAssets()` on GET) |
-| [routes/node-components.ts](../../packages/backend/src/routes/node-components.ts) | Behavior CRUD (`/api/scene-nodes/:id/behaviors`, `/api/behaviors/:id`) — each mutation calls `refreshAllBehaviorManagers()`. File name kept. |
+| [routes/behaviors.ts](../../packages/backend/src/routes/behaviors.ts) | Behavior CRUD (`/api/scene-nodes/:id/behaviors`, `/api/behaviors/:id`) — each mutation calls `refreshAllBehaviorManagers()`. |
 | [routes/api-controller.ts](../../packages/backend/src/routes/api-controller.ts) | REST surface of the api_controller behavior (see below) |
 | [routes/expressions.ts](../../packages/backend/src/routes/expressions.ts) | Read-only listings: VRM expressions + animation clips for an avatar node |
 | [routes/camera-effects.ts](../../packages/backend/src/routes/camera-effects.ts) | `/scene-nodes/:nodeId/effects`, `/effects/:id` — WS `camera_effect_*` broadcasts |
 | [routes/signal.ts](../../packages/backend/src/routes/signal.ts) | Signal graph inspection + `POST /signal/graphs/:graphId/fire` (dispatches by graph-id prefix to VMC or tracking) |
-| [routes/graphs.ts](../../packages/backend/src/routes/graphs.ts) | Automations over the unified `automations` table (renamed from `graphs` in migration 022) — project, scene-node, and compose-layer GET/POST plus `PUT /automations/:id` and `DELETE /automations/:id`. Rows route through `AutomationManager`. File name kept. See [project-graphs.md](project-graphs.md). |
+| [routes/automations.ts](../../packages/backend/src/routes/automations.ts) | Automations over the unified `automations` table (renamed from `graphs` in migration 022) — project, scene-node, and compose-layer GET/POST plus `PUT /automations/:id` and `DELETE /automations/:id`. Rows route through `AutomationManager`. See [project-graphs.md](project-graphs.md). |
 | [routes/meta.ts](../../packages/backend/src/routes/meta.ts) | `/signal/node-kinds`, `/behavior-kinds`, `/system/local-ips` |
 | [routes/openapi.ts](../../packages/backend/src/routes/openapi.ts) | OpenAPI base spec + Zod→OpenAPI component-schema build |
 
@@ -50,7 +50,7 @@ Sub-routers are composed with `router.use(subRouter)` in `routes/index.ts` (no p
 
 For the canonical, always-current request/response contracts of every route, browse Swagger UI at `http://localhost:3001/api-docs`. The notes below cover only behaviour that is not visible from the schema alone.
 
-- **node-components** (behavior routes; file name kept): every mutation calls `refreshAllBehaviorManagers()` so manager state hot-reloads from DB.
+- **behaviors** (behavior routes): every mutation calls `refreshAllBehaviorManagers()` so manager state hot-reloads from DB.
 - **scene-nodes**: `POST /scenes/:sceneId/nodes` broadcasts `node_added` over WS; updates/deletes broadcast `node_updated`/`node_removed`. `POST /scene-nodes/:nodeId/clips` is an idempotent upsert keyed on `(source_file_path, clip_index)` — the frontend's Viewport calls it on VRM load to register real FBX clip durations.
 - **assets**: GET also runs `discoverAssets()`; files live under `uploads/{projectId}/{subdir}/` with subdir inferred from extension (avatars, animations, images, other). See `routes/shared.ts` for `SUBFOLDER_BY_EXT` / `MIME_BY_EXT` / `allocateFilename`.
 - **camera-effects**: mutations broadcast `camera_effect_added/updated/removed` over WS.
@@ -154,6 +154,7 @@ PUT /api/config       writes config.json; channel change triggers checkForUpdate
 | `007_scene_node_properties.sql` | `scene_nodes.properties` JSON column — per-node properties bag; first use `blendTransitionTime` on VRM avatar nodes. `PUT /scene-nodes/:nodeId` shallow-merges incoming `properties` (mirrors the scene `runtime_settings` pattern); `POST` accepts the bag at insert time. |
 | `022_rename_tables_to_vocab.sql` | Vocabulary rename: `ALTER TABLE node_components RENAME TO behaviors` and `ALTER TABLE graphs RENAME TO automations` (FK constraints carried across; no data change). Historical CREATE migrations 002/014 left untouched. |
 | `023_rename_behavior_context_kinds.ts` | Vocabulary rename (run-fn, idempotent): rewrites stored descriptors in `automations.descriptor` + `presets.payload` — node kinds `component_id`→`behavior_id` / `component_config`→`behavior_config`, the broadcast-node port `componentId`→`behaviorId` (edge ports + value-input fallback config key), and `_componentConfig`→`_behaviorConfig`. Walks every `{nodes,edges}` descriptor at any nesting depth. |
+| `024_rename_preset_graphs_key.ts` | Vocabulary rename (run-fn, idempotent): rewrites the top-level `graphs` key -> `automations` in existing `presets.payload` rows (nested standalone graphs in a preset are automations). |
 
 All tables carry `project_id` FK for strict workspace isolation. The `behaviors.config` column (table renamed from `node_components` in migration 022) stores behavior config JSON including the `_nodeState` sub-key for graph persistence.
 

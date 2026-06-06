@@ -165,5 +165,5 @@ Shared sink that merges per-behavior pose/blendshape outputs into the single `vm
 2. Implement `syncBehaviors(rows)` — diff and start/stop behavior instances
 3. Create a graph descriptor factory returning a `GraphDescriptor`
 4. Instantiate and register the manager in `packages/backend/src/index.ts`
-5. Wire the API: add `set<Kind>Manager()` and call `manager.syncBehaviors()` from the behavior CRUD routes in `routes/node-components.ts`
+5. Wire the API: add `set<Kind>Manager()` and call `manager.syncBehaviors()` from the behavior CRUD routes in `routes/behaviors.ts`
 6. Add a `@BehaviorKind` entry (decorator renamed from `@ComponentKind`; surfaced via `getAllBehaviorKindMeta`) in the shared metadata so the UI knows about it
