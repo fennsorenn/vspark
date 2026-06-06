@@ -72,7 +72,7 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → node class. All 58 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → node class. All 60 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
 
