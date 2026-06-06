@@ -287,7 +287,7 @@ export class VmcManager {
   ): void {
     try {
       const existing = getDb()
-        .prepare('SELECT config FROM node_components WHERE id = ?')
+        .prepare('SELECT config FROM behaviors WHERE id = ?')
         .get(componentId) as { config: string } | undefined;
       if (!existing) return;
       const db = getDb();
@@ -298,7 +298,7 @@ export class VmcManager {
       const nodeStateMap = (cfg._nodeState ?? {}) as Record<string, unknown>;
       nodeStateMap[nodeId] = state;
       cfg._nodeState = nodeStateMap;
-      db.prepare('UPDATE node_components SET config = ? WHERE id = ?').run(
+      db.prepare('UPDATE behaviors SET config = ? WHERE id = ?').run(
         JSON.stringify(cfg),
         componentId
       );

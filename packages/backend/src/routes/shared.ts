@@ -62,7 +62,7 @@ export function _mapComponentRow(r: Record<string, unknown>) {
 export function refreshVmc() {
   if (!_vmc) return;
   const rows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'vmc_receiver'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'vmc_receiver'")
     .all() as Record<string, unknown>[];
   _vmc.syncComponents(rows.map(_mapComponentRow));
 }
@@ -70,7 +70,7 @@ export function refreshVmc() {
 export function refreshBreathing() {
   if (!_breathing) return;
   const rows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'breathing'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'breathing'")
     .all() as Record<string, unknown>[];
   _breathing.syncComponents(rows.map(_mapComponentRow));
 }
@@ -78,7 +78,7 @@ export function refreshBreathing() {
 export function refreshLipsync() {
   if (!_lipsync) return;
   const rows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'lipsync_processor'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'lipsync_processor'")
     .all() as Record<string, unknown>[];
   _lipsync.syncComponents(rows.map(_mapComponentRow));
 }
@@ -86,7 +86,7 @@ export function refreshLipsync() {
 export function refreshTracking() {
   if (!_tracking) return;
   const rows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'mediapipe_tracker'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'mediapipe_tracker'")
     .all() as Record<string, unknown>[];
   _tracking.syncComponents(rows.map(_mapComponentRow));
 }
@@ -94,7 +94,7 @@ export function refreshTracking() {
 export function refreshApiController() {
   if (!_apiController) return;
   const rows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'api_controller'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'api_controller'")
     .all() as Record<string, unknown>[];
   _apiController.syncComponents(rows.map(_mapComponentRow));
 }

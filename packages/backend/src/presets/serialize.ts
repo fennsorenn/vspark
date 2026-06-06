@@ -126,7 +126,7 @@ export function serializeSceneNodeSubtree(
 
     const components = db
       .prepare(
-        'SELECT * FROM node_components WHERE node_id = ? ORDER BY sort_order'
+        'SELECT * FROM behaviors WHERE node_id = ? ORDER BY sort_order'
       )
       .all(nid) as Record<string, unknown>[];
 
@@ -176,7 +176,7 @@ export function serializeSceneNodeSubtree(
   const placeholders = nodeIds.map(() => '?').join(',');
   const graphRows = db
     .prepare(
-      `SELECT * FROM graphs WHERE owner_kind = 'scene_node' AND owner_id IN (${placeholders}) ORDER BY created_at`
+      `SELECT * FROM automations WHERE owner_kind = 'scene_node' AND owner_id IN (${placeholders}) ORDER BY created_at`
     )
     .all(...nodeIds) as Record<string, unknown>[];
 
@@ -401,7 +401,7 @@ export function serializeComposeLayerSubtree(
   const placeholders = layerIds.map(() => '?').join(',');
   const graphRows = db
     .prepare(
-      `SELECT * FROM graphs WHERE owner_kind = 'compose_layer' AND owner_id IN (${placeholders}) ORDER BY created_at`
+      `SELECT * FROM automations WHERE owner_kind = 'compose_layer' AND owner_id IN (${placeholders}) ORDER BY created_at`
     )
     .all(...layerIds) as Record<string, unknown>[];
 

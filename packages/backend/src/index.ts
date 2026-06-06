@@ -215,27 +215,27 @@ async function start() {
 
   // Start receivers for any components that were persisted
   const vmcRows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'vmc_receiver'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'vmc_receiver'")
     .all() as Record<string, unknown>[];
   vmcManager.syncComponents(vmcRows.map(mapRow));
 
   const breathingRows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'breathing'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'breathing'")
     .all() as Record<string, unknown>[];
   breathingManager.syncComponents(breathingRows.map(mapRow));
 
   const lipsyncRows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'lipsync_processor'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'lipsync_processor'")
     .all() as Record<string, unknown>[];
   lipsyncManager.syncComponents(lipsyncRows.map(mapRow));
 
   const trackingRows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'mediapipe_tracker'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'mediapipe_tracker'")
     .all() as Record<string, unknown>[];
   trackingManager.syncComponents(trackingRows.map(mapRow));
 
   const apiControllerRows = getDb()
-    .prepare("SELECT * FROM node_components WHERE kind = 'api_controller'")
+    .prepare("SELECT * FROM behaviors WHERE kind = 'api_controller'")
     .all() as Record<string, unknown>[];
   apiControllerManager.syncComponents(apiControllerRows.map(mapRow));
 

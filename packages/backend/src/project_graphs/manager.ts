@@ -65,21 +65,21 @@ export class AutomationManager {
   list(projectId: string): AutomationRow[] {
     return getDb()
       .prepare(
-        "SELECT * FROM graphs WHERE owner_kind = 'project' AND owner_id = ? ORDER BY created_at"
+        "SELECT * FROM automations WHERE owner_kind = 'project' AND owner_id = ? ORDER BY created_at"
       )
       .all(projectId) as unknown as AutomationRow[];
   }
 
   get(id: string): AutomationRow | undefined {
     return getDb()
-      .prepare('SELECT * FROM graphs WHERE id = ?')
+      .prepare('SELECT * FROM automations WHERE id = ?')
       .get(id) as unknown as AutomationRow | undefined;
   }
 
   create(input: { id: string; projectId: string; name: string }): AutomationRow {
     const db = getDb();
     db.prepare(
-      "INSERT INTO graphs (id, owner_kind, owner_id, name) VALUES (?, 'project', ?, ?)"
+      "INSERT INTO automations (id, owner_kind, owner_id, name) VALUES (?, 'project', ?, ?)"
     ).run(input.id, input.projectId, input.name);
     return this.get(input.id)!;
   }
@@ -93,18 +93,18 @@ export class AutomationManager {
     const db = getDb();
     if (patch.name !== undefined) {
       db.prepare(
-        "UPDATE graphs SET name = ?, updated_at = datetime('now') WHERE id = ?"
+        "UPDATE automations SET name = ?, updated_at = datetime('now') WHERE id = ?"
       ).run(patch.name, id);
     }
     if (patch.enabled !== undefined) {
       db.prepare(
-        "UPDATE graphs SET enabled = ?, updated_at = datetime('now') WHERE id = ?"
+        "UPDATE automations SET enabled = ?, updated_at = datetime('now') WHERE id = ?"
       ).run(patch.enabled ? 1 : 0, id);
     }
     if (patch.descriptor !== undefined) {
       validateDescriptor(patch.descriptor, existing.owner_kind);
       db.prepare(
-        "UPDATE graphs SET descriptor = ?, updated_at = datetime('now') WHERE id = ?"
+        "UPDATE automations SET descriptor = ?, updated_at = datetime('now') WHERE id = ?"
       ).run(JSON.stringify(patch.descriptor), id);
     }
     // Reconcile the running instance with the new state.
@@ -114,7 +114,7 @@ export class AutomationManager {
 
   remove(id: string): void {
     this.stop(id);
-    getDb().prepare('DELETE FROM graphs WHERE id = ?').run(id);
+    getDb().prepare('DELETE FROM automations WHERE id = ?').run(id);
   }
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
@@ -125,7 +125,7 @@ export class AutomationManager {
   startAllEnabled(): void {
     const rows = getDb()
       .prepare(
-        "SELECT id FROM graphs WHERE owner_kind IN ('project', 'scene_node', 'compose_layer') AND enabled = 1"
+        "SELECT id FROM automations WHERE owner_kind IN ('project', 'scene_node', 'compose_layer') AND enabled = 1"
       )
       .all() as Array<{ id: string }>;
     for (const { id } of rows) this.start(id);
@@ -328,7 +328,7 @@ export class AutomationManager {
       const next = Object.fromEntries(map.entries());
       getDb()
         .prepare(
-          "UPDATE graphs SET node_state = ?, updated_at = datetime('now') WHERE id = ?"
+          "UPDATE automations SET node_state = ?, updated_at = datetime('now') WHERE id = ?"
         )
         .run(JSON.stringify(next), graphId);
     } catch {

@@ -100,7 +100,7 @@ export class BreathingManager {
   ): void {
     try {
       const existing = getDb()
-        .prepare('SELECT config FROM node_components WHERE id = ?')
+        .prepare('SELECT config FROM behaviors WHERE id = ?')
         .get(componentId) as { config: string } | undefined;
       if (!existing) return;
       const db = getDb();
@@ -111,7 +111,7 @@ export class BreathingManager {
       const ns = (cfg._nodeState ?? {}) as Record<string, unknown>;
       ns[nodeId] = state;
       cfg._nodeState = ns;
-      db.prepare('UPDATE node_components SET config = ? WHERE id = ?').run(
+      db.prepare('UPDATE behaviors SET config = ? WHERE id = ?').run(
         JSON.stringify(cfg),
         componentId
       );

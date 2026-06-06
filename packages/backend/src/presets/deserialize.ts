@@ -279,7 +279,7 @@ export function instantiatePreset(
       for (const comp of node.components) {
         const compId = mintId(comp.presetId);
         db.prepare(
-          `INSERT INTO node_components (id, node_id, kind, enabled, config, sort_order)
+          `INSERT INTO behaviors (id, node_id, kind, enabled, config, sort_order)
            VALUES (?, ?, ?, ?, ?, ?)`
         ).run(
           compId,
@@ -381,7 +381,7 @@ export function instantiatePreset(
     const graphId = mintId(graph.presetId);
     const ownerId = resolveId(graph.ownerPresetId);
     db.prepare(
-      `INSERT INTO graphs (id, owner_kind, owner_id, name, enabled, descriptor, node_state)
+      `INSERT INTO automations (id, owner_kind, owner_id, name, enabled, descriptor, node_state)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(
       graphId,

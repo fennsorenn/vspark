@@ -24,7 +24,7 @@ function mapAutomationRow(r: AutomationRow) {
 router.get('/projects/:projectId/automations', (req, res) => {
   const rows = getDb()
     .prepare(
-      "SELECT * FROM graphs WHERE owner_kind = 'project' AND owner_id = ? ORDER BY created_at"
+      "SELECT * FROM automations WHERE owner_kind = 'project' AND owner_id = ? ORDER BY created_at"
     )
     .all(req.params.projectId) as unknown as AutomationRow[];
   res.json({ ok: true, data: rows.map(mapAutomationRow) });
@@ -58,7 +58,7 @@ router.get('/projects/:projectId/scoped-automations', (req, res) => {
   const nodeGraphs = db
     .prepare(
       `SELECT g.*, sn.name AS owner_name, sn.kind AS owner_node_kind
-       FROM graphs g
+       FROM automations g
        JOIN scene_nodes sn ON sn.id = g.owner_id
        WHERE g.owner_kind = 'scene_node' AND sn.project_id = ?
        ORDER BY g.created_at`
@@ -67,7 +67,7 @@ router.get('/projects/:projectId/scoped-automations', (req, res) => {
   const layerGraphs = db
     .prepare(
       `SELECT g.*, cl.name AS owner_name, cl.kind AS owner_node_kind
-       FROM graphs g
+       FROM automations g
        JOIN compose_layers cl ON cl.id = g.owner_id
        WHERE g.owner_kind = 'compose_layer' AND cl.project_id = ?
        ORDER BY g.created_at`
@@ -84,7 +84,7 @@ router.get('/projects/:projectId/scoped-automations', (req, res) => {
 router.get('/scene-nodes/:nodeId/automations', (req, res) => {
   const rows = getDb()
     .prepare(
-      "SELECT * FROM graphs WHERE owner_kind = 'scene_node' AND owner_id = ? ORDER BY created_at"
+      "SELECT * FROM automations WHERE owner_kind = 'scene_node' AND owner_id = ? ORDER BY created_at"
     )
     .all(req.params.nodeId) as unknown as AutomationRow[];
   res.json({ ok: true, data: rows.map(mapAutomationRow) });
@@ -99,7 +99,7 @@ router.post('/scene-nodes/:nodeId/automations', (req, res) => {
   const id = randomUUID();
   getDb()
     .prepare(
-      "INSERT INTO graphs (id, owner_kind, owner_id, name) VALUES (?, 'scene_node', ?, ?)"
+      "INSERT INTO automations (id, owner_kind, owner_id, name) VALUES (?, 'scene_node', ?, ?)"
     )
     .run(id, req.params.nodeId, name);
   // Route through the manager so the new graph starts immediately (it boots
@@ -108,7 +108,7 @@ router.post('/scene-nodes/:nodeId/automations', (req, res) => {
   // reconcile cleanly without a server restart).
   automationManager.reconcile(id);
   const row = getDb()
-    .prepare('SELECT * FROM graphs WHERE id = ?')
+    .prepare('SELECT * FROM automations WHERE id = ?')
     .get(id) as unknown as AutomationRow;
   res.status(201).json({ ok: true, data: mapAutomationRow(row) });
 });
@@ -116,7 +116,7 @@ router.post('/scene-nodes/:nodeId/automations', (req, res) => {
 router.get('/compose-layers/:layerId/automations', (req, res) => {
   const rows = getDb()
     .prepare(
-      "SELECT * FROM graphs WHERE owner_kind = 'compose_layer' AND owner_id = ? ORDER BY created_at"
+      "SELECT * FROM automations WHERE owner_kind = 'compose_layer' AND owner_id = ? ORDER BY created_at"
     )
     .all(req.params.layerId) as unknown as AutomationRow[];
   res.json({ ok: true, data: rows.map(mapAutomationRow) });
@@ -131,12 +131,12 @@ router.post('/compose-layers/:layerId/automations', (req, res) => {
   const id = randomUUID();
   getDb()
     .prepare(
-      "INSERT INTO graphs (id, owner_kind, owner_id, name) VALUES (?, 'compose_layer', ?, ?)"
+      "INSERT INTO automations (id, owner_kind, owner_id, name) VALUES (?, 'compose_layer', ?, ?)"
     )
     .run(id, req.params.layerId, name);
   automationManager.reconcile(id);
   const row = getDb()
-    .prepare('SELECT * FROM graphs WHERE id = ?')
+    .prepare('SELECT * FROM automations WHERE id = ?')
     .get(id) as unknown as AutomationRow;
   res.status(201).json({ ok: true, data: mapAutomationRow(row) });
 });
@@ -149,7 +149,7 @@ router.put('/automations/:id', (req, res) => {
   };
   const db = getDb();
   const existing = db
-    .prepare('SELECT * FROM graphs WHERE id = ?')
+    .prepare('SELECT * FROM automations WHERE id = ?')
     .get(req.params.id) as unknown as AutomationRow | undefined;
   if (!existing)
     return res
@@ -190,7 +190,7 @@ router.put('/automations/:id', (req, res) => {
  *  scene_node, or compose_layer scoped. */
 router.get('/automations/:id', (req, res) => {
   const row = getDb()
-    .prepare('SELECT * FROM graphs WHERE id = ?')
+    .prepare('SELECT * FROM automations WHERE id = ?')
     .get(req.params.id) as unknown as AutomationRow | undefined;
   if (!row)
     return res

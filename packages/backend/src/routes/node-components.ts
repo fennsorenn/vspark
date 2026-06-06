@@ -9,7 +9,7 @@ const router: ReturnType<typeof Router> = Router();
  * @openapi
  * /api/scene-nodes/{nodeId}/behaviors:
  *   get:
- *     tags: [node_components]
+ *     tags: [behaviors]
  *     summary: List behavioural components attached to a node (vmc_receiver, breathing, lipsync, api_controller, ...)
  *     parameters:
  *       - { in: path, name: nodeId, required: true, schema: { type: string } }
@@ -19,7 +19,7 @@ const router: ReturnType<typeof Router> = Router();
 router.get('/scene-nodes/:nodeId/behaviors', (req, res) => {
   const data = getDb()
     .prepare(
-      'SELECT * FROM node_components WHERE node_id = ? ORDER BY sort_order'
+      'SELECT * FROM behaviors WHERE node_id = ? ORDER BY sort_order'
     )
     .all(req.params.nodeId);
   res.json({ ok: true, data });
@@ -29,7 +29,7 @@ router.get('/scene-nodes/:nodeId/behaviors', (req, res) => {
  * @openapi
  * /api/scene-nodes/{nodeId}/behaviors:
  *   post:
- *     tags: [node_components]
+ *     tags: [behaviors]
  *     summary: Attach a new component to a node; triggers signal-graph manager refresh
  *     parameters:
  *       - { in: path, name: nodeId, required: true, schema: { type: string } }
@@ -51,7 +51,7 @@ router.post('/scene-nodes/:nodeId/behaviors', (req, res) => {
   const compId = id ?? randomUUID();
   getDb()
     .prepare(
-      'INSERT INTO node_components (id, node_id, kind, enabled, config, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO behaviors (id, node_id, kind, enabled, config, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
     )
     .run(
       compId,
@@ -81,7 +81,7 @@ router.post('/scene-nodes/:nodeId/behaviors', (req, res) => {
  * @openapi
  * /api/behaviors/{id}:
  *   put:
- *     tags: [node_components]
+ *     tags: [behaviors]
  *     summary: Update a component's enabled flag or config; triggers manager refresh
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
@@ -97,7 +97,7 @@ router.put('/behaviors/:id', (req, res) => {
   const { enabled, config } = req.body;
   getDb()
     .prepare(
-      `UPDATE node_components SET
+      `UPDATE behaviors SET
       enabled = COALESCE(?, enabled),
       config  = COALESCE(?, config),
       updated_at = datetime('now')
@@ -116,7 +116,7 @@ router.put('/behaviors/:id', (req, res) => {
  * @openapi
  * /api/behaviors/{id}:
  *   delete:
- *     tags: [node_components]
+ *     tags: [behaviors]
  *     summary: Detach a component; triggers manager refresh which tears down its signal graph
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
@@ -125,7 +125,7 @@ router.put('/behaviors/:id', (req, res) => {
  */
 router.delete('/behaviors/:id', (req, res) => {
   getDb()
-    .prepare('DELETE FROM node_components WHERE id = ?')
+    .prepare('DELETE FROM behaviors WHERE id = ?')
     .run(req.params.id);
   refreshAllComponentManagers();
   res.json({ ok: true, data: {} });

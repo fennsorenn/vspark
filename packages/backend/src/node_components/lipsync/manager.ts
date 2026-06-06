@@ -65,7 +65,7 @@ export class LipsyncManager {
   ): void {
     try {
       const existing = getDb()
-        .prepare('SELECT config FROM node_components WHERE id = ?')
+        .prepare('SELECT config FROM behaviors WHERE id = ?')
         .get(componentId) as { config: string } | undefined;
       if (!existing) return;
       const cfg = JSON.parse(existing.config || '{}') as Record<
@@ -76,7 +76,7 @@ export class LipsyncManager {
       ns[nodeId] = state;
       cfg._nodeState = ns;
       getDb()
-        .prepare('UPDATE node_components SET config = ? WHERE id = ?')
+        .prepare('UPDATE behaviors SET config = ? WHERE id = ?')
         .run(JSON.stringify(cfg), componentId);
     } catch {
       /* non-fatal */
