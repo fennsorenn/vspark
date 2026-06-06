@@ -82,12 +82,34 @@ Kept intentionally technical (advanced/converter nodes): `ARKit → VRM Mapper`,
 - PropertiesPanel: ALL_CAPS blend-mode names → Sentence case; `VRoid (Fcl_*)` → `VRoid Blendshapes`.
 - ComposeLayerProperties: `Scope Label` / "Animation Scope" → **Target**.
 
-### Phase 2 — Code-identifier renames (DEFERRED, planned)
+### Phase 2 — Code-identifier renames (DONE)
 
-Type-checked-safe identifier renames so code matches the new vocabulary:
-`component`→`behavior`, `graph`→`automation` in TS types/vars/store/React components,
-WS message kinds, and the REST routes (user OK'd a full route rewrite at 0.x). Larger,
-touches both frontend+backend in lockstep; no data migration. Do as isolated PRs.
+Type-checked-safe identifier renames so code matches the new vocabulary; no data
+migrations. Shipped in two commits, `pnpm lint` + frontend `tsc` green:
+
+- **2a `node-component driver → behavior`**: `NodeComponent(Record)`→`Behavior(Record)`,
+  `ComponentKind(Meta)`→`BehaviorKind(Meta)`, store `nodeComponents`/`componentKinds`/
+  `selectedComponentId`/etc.→behavior equivalents, routes `/…/components`→`/…/behaviors`,
+  `/component-kinds`→`/behavior-kinds`, scene-bundle field, OpenAPI schemas.
+- **2b `standalone-graph feature → automation`**: `interface Graph`→`Automation`,
+  `GraphOwnerKind`→`AutomationOwnerKind`, `ProjectGraphManager`→`AutomationManager`,
+  `GraphRow`/`GraphRecord`→`Automation*`, feature routes `/…/graphs`→`/…/automations`,
+  `GraphsSection.tsx`→`AutomationsSection.tsx`.
+
+**Kept as substrate (intentionally still "graph"):** `SignalGraph(Canvas)`,
+`GraphDescriptor`/`GraphNode`/`GraphEdgeDescriptor`, `GraphStateSnapshot`,
+`getGraphDescriptor`, the `/signal/graphs` monitoring API, `SceneGraph.tsx` (3D tree).
+
+**Remaining Phase 2 tail (DEFERRED):** the bare `componentId` WS-payload / signal field
+(instance id of the producing behavior — `PoseFrame.componentId`, `mkEvent`, lipsync/
+tracking messages, ~280 refs). It is woven into the broadcast bus + signal substrate and
+crosses the stringly-typed WS JSON boundary, so it's a separate careful lockstep step.
+
+### Phase 2.5 — Docs follow-up (TODO)
+
+dev-notes still reference old names (`ProjectGraphManager`, `project-graphs.md`,
+`node_components` as a user concept, `GraphsSection`). Refresh ARCHITECTURE.md +
+affected module docs to the new vocabulary.
 
 ### Phase 3 — Persisted `kind` renames (DEFERRED)
 
