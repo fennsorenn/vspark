@@ -28,5 +28,8 @@
     "channel": "Failed to update channel",
     "downloadFailed": "Download failed",
     "startFailed": "Failed to start download"
+  },
+  "help": {
+    "updates": "Learn how vspark checks for updates and what the release channels mean. Click to learn more."
   }
 }

@@ -239,8 +239,8 @@ export function OverliveAccountsModal({ onClose }: Props) {
           >
             {t('title')}
             <HelpButton
-              topic="logic"
-              anchor="triggers"
+              topic="streaming"
+              anchor="what"
               tip={t('help.streamAccounts')}
             />
           </h2>

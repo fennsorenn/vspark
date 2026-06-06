@@ -39,3 +39,39 @@ You can calibrate it to your own voice for sharper vowel shapes.
 Breathing adds a subtle, automatic rise-and-fall to the chest and shoulders so
 your avatar feels alive even when you're holding still. The amount of chest and
 shoulder movement is adjustable.
+
+## Camera & microphone setup {#devices}
+
+The **Media** window is where you choose which webcam and microphone vspark
+uses. Open it from the toolbar; it can also run in a separate browser tab so
+it stays active while you switch windows.
+
+**Choosing devices.** Use the drop-down menus to pick the camera or
+microphone you want. The list is populated the first time a capture session
+starts. If a device doesn't appear, check that it is connected and not in use
+by another app.
+
+**Browser permissions.** Capture runs entirely in the browser — no plugin or
+driver is needed. The first time you start tracking or lip sync, the browser
+will ask for permission to access your camera or microphone. Grant access and
+the device will be remembered for the current session. If you accidentally
+denied permission, open your browser's site-settings page for vspark and reset
+the permission, then reload.
+
+**Calibration.** After starting tracking, stand in a relaxed, neutral pose and
+click **Calibrate** (where shown). This teaches vspark your default standing
+position so offsets and proportions map correctly to the avatar. For lip sync,
+speaking a few vowels while the meter is visible lets the system learn your
+voice levels.
+
+## API control {#api}
+
+> **Advanced.** This behavior is intended for users who write scripts or use
+> automation tools to control vspark externally.
+
+The API control behavior exposes vspark's local HTTP API so that external
+tools — scripts, stream-deck macros, or other software — can trigger
+animations, set expressions, or adjust scene properties at runtime. You
+configure the behavior once; the API is then available on the local network
+at the port shown in the panel. Refer to the API reference (accessible from
+the Help menu) for the full list of endpoints and payload formats.

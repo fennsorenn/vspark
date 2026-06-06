@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { MediaInputWindow } from '../components/MediaInputWindow';
 import { useEditorStore } from '../store/editorStore';
+import { HelpButton } from '../help/HelpButton';
 
 /**
  * Standalone page for the Media Input window — can be opened in a separate tab
@@ -78,9 +79,13 @@ export function MediaInputPage() {
           position: 'fixed',
           top: 8,
           left: 12,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
         }}
       >
         {t('page.pageLabel')}
+        <HelpButton topic="behaviors" anchor="devices" tip={t('help.devices')} />
       </div>
       {/* Window rendered in place (alwaysExpanded, no position dragging needed on this page) */}
       <MediaInputWindow alwaysExpanded={true} />

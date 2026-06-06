@@ -48,6 +48,7 @@
   },
   "help": {
     "tracking": "Bewegungserfassung nutzt deine Webcam, um Gesicht, Hände und Körperhaltung zu erkennen. Klicken für mehr Informationen.",
-    "lipsync": "Lippensynchronisation liest dein Mikrofon aus und animiert den Mund deines Avatars. Klicken für mehr Informationen."
+    "lipsync": "Lippensynchronisation liest dein Mikrofon aus und animiert den Mund deines Avatars. Klicken für mehr Informationen.",
+    "devices": "Wähle Kamera und Mikrofon, erteile Browser-Berechtigungen und kalibriere. Klicken für mehr Informationen."
   }
 }

@@ -40,7 +40,20 @@ for (const [path, raw] of Object.entries(rawDocs)) {
 }
 
 /** Order topics so the overview comes first, then alphabetical by title. */
-const TOPIC_ORDER = ['overview', 'avatar', 'scene', 'behaviors', 'logic'];
+const TOPIC_ORDER = [
+  'overview',
+  'avatar',
+  'scene',
+  'compose',
+  'props',
+  'assets',
+  'behaviors',
+  'track-clips',
+  'logic',
+  'streaming',
+  'presets',
+  'camera-effects',
+];
 
 function topicRank(topic: string): number {
   const i = TOPIC_ORDER.indexOf(topic);

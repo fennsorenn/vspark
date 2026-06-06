@@ -239,7 +239,7 @@ export function ComposeLayerProperties({
 
       <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
         {t('properties.sectionName')}
-        <HelpButton topic="scene" anchor="compose" tip={t('help.layerProperties')} />
+        <HelpButton topic="compose" anchor="layers" tip={t('help.layerProperties')} />
       </div>
       <input
         type="text"

@@ -76,8 +76,8 @@ export function TrackClipTimeline() {
           }}
         >
           <HelpButton
-            topic="avatar"
-            anchor="animation"
+            topic="track-clips"
+            anchor="what"
             tip={t('help.timeline')}
           />
           {t('empty.selectClip')}

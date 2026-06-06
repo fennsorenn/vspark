@@ -203,8 +203,8 @@ export function ClipsSection({
         }}
       >
         <HelpButton
-          topic="avatar"
-          anchor="animation"
+          topic="track-clips"
+          anchor="what"
           tip={t('help.clipsSection')}
           size={12}
         />

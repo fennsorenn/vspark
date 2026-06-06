@@ -42,3 +42,43 @@ erhalten.
 Die Atmung fügt ein dezentes, automatisches Heben und Senken von Brust und
 Schultern hinzu, damit dein Avatar lebendig wirkt, selbst wenn du stillhältst.
 Das Ausmaß der Brust- und Schulterbewegung ist einstellbar.
+
+## Kamera & Mikrofon einrichten {#devices}
+
+Im **Medienfenster** wählst du aus, welche Kamera und welches Mikrofon vspark
+verwenden soll. Öffne es über die Werkzeugleiste; es kann auch in einem
+separaten Browser-Tab laufen, damit es aktiv bleibt, während du das Fenster
+wechselst.
+
+**Gerät auswählen.** Nutze die Auswahlmenüs, um die gewünschte Kamera oder
+das gewünschte Mikrofon festzulegen. Die Liste wird beim ersten Start einer
+Aufzeichnungssitzung befüllt. Falls ein Gerät nicht erscheint, prüfe, ob es
+angeschlossen ist und nicht von einer anderen App belegt wird.
+
+**Browser-Berechtigungen.** Die Aufnahme läuft vollständig im Browser — kein
+Plugin oder Treiber ist erforderlich. Beim ersten Start von Tracking oder
+Lippensynchronisation fragt der Browser nach der Berechtigung für den Zugriff
+auf Kamera oder Mikrofon. Erteile die Erlaubnis, und das Gerät wird für die
+aktuelle Sitzung gespeichert. Hast du die Berechtigung versehentlich abgelehnt,
+öffne die Website-Einstellungen deines Browsers für vspark, setze die
+Berechtigung zurück und lade die Seite neu.
+
+**Kalibrieren.** Nachdem du das Tracking gestartet hast, nimm eine entspannte,
+neutrale Haltung ein und klicke auf **Kalibrieren** (sofern angezeigt). Damit
+lernt vspark deine Standard-Stehhaltung kennen, sodass Abstände und
+Proportionen korrekt auf den Avatar übertragen werden. Bei der
+Lippensynchronisation hilft es, einige Vokale zu sprechen, während der
+Pegelanzeiger sichtbar ist, damit das System deine Stimmstärke erlernt.
+
+## API-Steuerung {#api}
+
+> **Fortgeschritten.** Dieses Verhalten richtet sich an Nutzer, die Skripte
+> oder Automatisierungstools einsetzen, um vspark von außen zu steuern.
+
+Das Verhalten „API-Steuerung" gibt vsparks lokale HTTP-API frei, sodass externe
+Werkzeuge — Skripte, Stream-Deck-Makros oder andere Programme — Animationen
+auslösen, Mimik setzen oder Szenen-Eigenschaften zur Laufzeit anpassen können.
+Du konfigurierst das Verhalten einmalig; die API ist danach im lokalen Netzwerk
+auf dem im Panel angezeigten Port erreichbar. Die vollständige Liste der
+Endpunkte und Nutzlastformate findest du in der API-Referenz (im Hilfemenü
+zugänglich).

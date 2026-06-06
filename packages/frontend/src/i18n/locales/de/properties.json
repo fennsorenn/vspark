@@ -519,6 +519,13 @@
     "camera": "Kamera-Eigenschaften und Projektionen erkunden",
     "light": "Lichttypen und Schatteneinstellungen erkunden",
     "breathing": "Wie das Atemverhalten funktioniert",
-    "compose": "Compose-Ebenen und Ausgabe-Compositing erkunden"
+    "compose": "Compose-Ebenen und Ausgabe-Compositing erkunden",
+    "cameraEffects": "Kameraeffekte und ihre Stapelreihenfolge erkunden",
+    "propImage": "Bildebenen und Billboards erkunden",
+    "propVideo": "Videoebenen und Wiedergabeoptionen erkunden",
+    "propAudio": "Audioquellen und räumlichen Klang erkunden",
+    "propText": "Text-Knoten und Rendering-Optionen erkunden",
+    "propParticles": "Partikelemitter erkunden",
+    "propFeed": "Szeneninterne Feed-Overlays und Datenkanäle erkunden"
   }
 }

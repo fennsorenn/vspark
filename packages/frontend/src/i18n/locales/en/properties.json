@@ -519,6 +519,13 @@
     "camera": "Learn about camera properties and projections",
     "light": "Learn about light types and shadow settings",
     "breathing": "Learn how the breathing behavior works",
-    "compose": "Learn about compose layers and output compositing"
+    "compose": "Learn about compose layers and output compositing",
+    "cameraEffects": "Learn what camera effects are and how they stack",
+    "propImage": "Learn about image planes and billboards",
+    "propVideo": "Learn about video planes and playback options",
+    "propAudio": "Learn about audio sources and spatial sound",
+    "propText": "Learn about text nodes and rendering options",
+    "propParticles": "Learn about particle emitters",
+    "propFeed": "Learn about in-scene feed overlays and data channels"
   }
 }

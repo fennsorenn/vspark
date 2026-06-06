@@ -106,7 +106,7 @@
     "templateSyntaxError": "Vorlagen-Syntaxfehler"
   },
   "help": {
-    "compose": "Mehr zur Compose-Ansicht: Szenen, Ebenen und ihre Kombination.",
-    "layerProperties": "Ebeneneigenschaften: Position, Größe, Drehung, Sichtbarkeit, Mischmodi und mehr."
+    "compose": "Mehr zu Compose: was es ist, Szenen und wie Ebenen dein Stream-Layout aufbauen.",
+    "layerProperties": "Mehr zu Ebenen: Bild-, Video-, Browserquellen- und Vorlagen-Typen."
   }
 }

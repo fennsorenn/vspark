@@ -745,6 +745,7 @@ export function AssetManager() {
         <button style={tabBtn('presets')} onClick={() => setTab('presets')}>
           {t('tabs.presets')}
         </button>
+        <HelpButton topic="assets" anchor="what" tip={t('help.assets')} size={12} />
         <div style={{ flex: 1 }} />
         {(tab === 'models' ||
           tab === 'animations' ||

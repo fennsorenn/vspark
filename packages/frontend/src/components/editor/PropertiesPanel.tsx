@@ -3814,8 +3814,9 @@ export function PropertiesPanel() {
         >
           <span style={{ fontSize: 18 }}>{selectedEffectKind.icon}</span>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', display: 'flex', alignItems: 'center', gap: 6 }}>
               {selectedEffectKind.label}
+              <HelpButton topic="camera-effects" anchor="what" tip={t('help.cameraEffects')} />
             </div>
             <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
               {selectedEffectNode.name}
@@ -4964,7 +4965,10 @@ export function PropertiesPanel() {
             );
             return (
               <>
-                <div style={sectionHeader}>{t('billboard.header')}</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('billboard.header')}
+                  <HelpButton topic="props" anchor="image" tip={t('help.propImage')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
@@ -5137,9 +5141,11 @@ export function PropertiesPanel() {
                     ...sectionHeader,
                     display: 'flex',
                     alignItems: 'center',
+                    gap: 6,
                   }}
                 >
                   {t('video.sourceHeader')}
+                  <HelpButton topic="props" anchor="video" tip={t('help.propVideo')} />
                   <PickButton onClick={() => flashBottomTab('videos')} />
                 </div>
                 <div
@@ -5415,9 +5421,11 @@ export function PropertiesPanel() {
                     ...sectionHeader,
                     display: 'flex',
                     alignItems: 'center',
+                    gap: 6,
                   }}
                 >
                   {t('audio.sourceHeader')}
+                  <HelpButton topic="props" anchor="audio" tip={t('help.propAudio')} />
                   <PickButton onClick={() => flashBottomTab('audio')} />
                 </div>
                 <div
@@ -5593,7 +5601,10 @@ export function PropertiesPanel() {
             );
             return (
               <>
-                <div style={sectionHeader}>{t('text.header')}</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('text.header')}
+                  <HelpButton topic="props" anchor="text" tip={t('help.propText')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
@@ -5767,7 +5778,10 @@ export function PropertiesPanel() {
             };
             return (
               <>
-                <div style={sectionHeader}>{t('feed.header')}</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('feed.header')}
+                  <HelpButton topic="props" anchor="feed" tip={t('help.propFeed')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
@@ -5897,9 +5911,11 @@ export function PropertiesPanel() {
                     ...sectionHeader,
                     display: 'flex',
                     alignItems: 'center',
+                    gap: 6,
                   }}
                 >
                   {t('particle.textureHeader')}
+                  <HelpButton topic="props" anchor="particles" tip={t('help.propParticles')} />
                   <PickButton onClick={() => flashBottomTab('images')} />
                 </div>
                 <div

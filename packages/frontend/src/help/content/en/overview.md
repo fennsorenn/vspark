@@ -37,3 +37,26 @@ left, or the **?** buttons next to the controls in the app.
 
 Use the language selector in the top bar to switch between **English** and
 **Deutsch**. Your choice is remembered the next time you open vspark.
+
+## Updating vspark {#updates}
+
+vspark checks for updates automatically in the background. When a new version
+is available, a notification appears in the top bar. Open the **Updates** panel
+(click the version number or the notification badge) to see what has changed and
+install the update.
+
+**How it works.** vspark downloads the new version in the background while you
+keep working. When the download is complete, click **Update Now** to apply it.
+vspark restarts automatically and your projects are preserved — no manual
+file-moving is needed.
+
+**Release channels.** You can choose how cutting-edge your updates are:
+
+- **Stable** — thoroughly tested releases recommended for everyday use.
+- **Recent** (beta) — finished features that are still being polished. Mostly
+  reliable, but occasional rough edges are possible.
+- **Experimental** (alpha) — the latest work-in-progress builds. Great for
+  trying new things early, but expect occasional instability.
+
+Switch channels in the **Updates** panel at any time. vspark will check for the
+newest release on the selected channel straight away.

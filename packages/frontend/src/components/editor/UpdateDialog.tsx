@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { UpdateChannel } from '@vspark/shared';
+import { HelpButton } from '../../help/HelpButton';
 
 const CHANNELS: UpdateChannel[] = ['stable', 'recent', 'experimental'];
 
@@ -126,8 +127,9 @@ export function UpdateDialog({ onClose }: Props) {
           borderBottom: '1px solid #2a2a2a',
         }}
       >
-        <span style={{ fontWeight: 600, fontSize: 14 }}>
+        <span style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
           {updateAvailable ? t('header.available') : t('header.updates')}
+          <HelpButton topic="overview" anchor="updates" tip={t('help.updates')} />
         </span>
         <button
           onClick={onClose}

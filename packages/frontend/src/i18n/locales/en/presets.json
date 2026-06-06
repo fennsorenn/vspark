@@ -40,6 +40,6 @@
     "saving": "Saving…"
   },
   "help": {
-    "presets": "Presets let you save a node or compose layer as a reusable template and apply it to any scene with one click."
+    "presets": "Save any node or layer as a reusable preset and drop it into any scene with one click."
   }
 }

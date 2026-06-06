@@ -298,8 +298,8 @@ export function PresetLibrary() {
         <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           {t('header')}
           <HelpButton
-            topic="overview"
-            anchor="pieces"
+            topic="presets"
+            anchor="what"
             tip={t('help.presets')}
           />
         </span>

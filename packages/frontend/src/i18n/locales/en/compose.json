@@ -106,7 +106,7 @@
     "templateSyntaxError": "template syntax error"
   },
   "help": {
-    "compose": "Learn about the Compose view: scenes, layers and how they combine.",
-    "layerProperties": "Layer properties: position, size, rotation, visibility, blend modes and more."
+    "compose": "Learn about Compose: what it is, scenes, and how layers build your stream layout.",
+    "layerProperties": "Learn about layers: image, video, browser source, and template types."
   }
 }

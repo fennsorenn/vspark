@@ -480,6 +480,7 @@ export function MediaInputWindow({
         {trackingActive && (
           <span style={{ fontSize: 10, color: '#60a5fa' }}>{t('status.tracking')}</span>
         )}
+        <HelpButton topic="behaviors" anchor="devices" tip={t('help.devices')} />
         <HelpButton topic="behaviors" anchor="tracking" tip={t('help.tracking')} />
         {!alwaysExpanded && (
           <button

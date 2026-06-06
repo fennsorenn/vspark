@@ -100,6 +100,6 @@
     "title": "Which Twitch app?"
   },
   "help": {
-    "streamAccounts": "Stream accounts are the source for Twitch and StreamElements triggers. Connect an account here to use it in your Logic automations."
+    "streamAccounts": "Connect Twitch or StreamElements here so vspark can react to live stream events in your Logic automations."
   }
 }

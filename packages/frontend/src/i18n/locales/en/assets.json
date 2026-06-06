@@ -90,6 +90,7 @@
     "animations": "Learn how to load and apply animation clips to your avatar.",
     "behaviors": "Learn how to connect VMC motion capture and other behaviors to your nodes.",
     "models": "Learn how to load VRM and 3D model assets into your scene.",
-    "clips": "Learn how to automate scene changes using the timeline and trigger clips."
+    "clips": "Learn how to automate scene changes using the timeline and trigger clips.",
+    "assets": "Learn what assets are and how to upload and use files in your project."
   }
 }

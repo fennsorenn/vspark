@@ -667,7 +667,7 @@ export function ComposeTree() {
         >
           {t('tree.header')}
         </span>
-        <HelpButton topic="scene" anchor="compose" tip={t('help.compose')} />
+        <HelpButton topic="compose" anchor="overview" tip={t('help.compose')} />
         <button
           style={addBtn}
           onClick={handleNewComposeScene}

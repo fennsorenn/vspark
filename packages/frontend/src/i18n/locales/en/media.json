@@ -48,6 +48,7 @@
   },
   "help": {
     "tracking": "Camera tracking uses your webcam to estimate your face, hands, and body pose. Click to learn more.",
-    "lipsync": "Lip sync listens to your microphone and animates your avatar's mouth. Click to learn more."
+    "lipsync": "Lip sync listens to your microphone and animates your avatar's mouth. Click to learn more.",
+    "devices": "Choose your webcam and microphone, grant browser permissions, and calibrate. Click to learn more."
   }
 }

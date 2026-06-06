@@ -40,6 +40,6 @@
     "saving": "Speichern…"
   },
   "help": {
-    "presets": "Vorlagen ermöglichen es, einen Knoten oder eine Compose-Ebene als wiederverwendbare Vorlage zu speichern und mit einem Klick auf jede Szene anzuwenden."
+    "presets": "Speichere jeden Knoten oder jede Ebene als wiederverwendbare Vorlage und füge sie mit einem Klick in jede Szene ein."
   }
 }

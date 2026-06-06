@@ -28,5 +28,8 @@
     "channel": "Kanal konnte nicht geändert werden",
     "downloadFailed": "Download fehlgeschlagen",
     "startFailed": "Download konnte nicht gestartet werden"
+  },
+  "help": {
+    "updates": "Erfahre, wie vspark nach Updates sucht und was die Release-Kanäle bedeuten. Klicken für mehr Informationen."
   }
 }

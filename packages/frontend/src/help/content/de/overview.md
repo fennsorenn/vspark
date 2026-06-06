@@ -45,3 +45,28 @@ App.
 Nutze die Sprachauswahl in der oberen Leiste, um zwischen **English** und
 **Deutsch** zu wechseln. Deine Wahl wird beim nächsten Öffnen von vspark
 gespeichert.
+
+## vspark aktualisieren {#updates}
+
+vspark sucht automatisch im Hintergrund nach Updates. Sobald eine neue Version
+verfügbar ist, erscheint eine Benachrichtigung in der oberen Leiste. Öffne das
+**Updates**-Panel (klicke auf die Versionsnummer oder die Benachrichtigungsmarke),
+um die Änderungen einzusehen und das Update zu installieren.
+
+**Wie es funktioniert.** vspark lädt die neue Version im Hintergrund herunter,
+während du weiterarbeitest. Wenn der Download abgeschlossen ist, klicke auf
+**Jetzt aktualisieren**, um das Update anzuwenden. vspark startet automatisch
+neu und deine Projekte bleiben erhalten — kein manuelles Verschieben von
+Dateien ist nötig.
+
+**Release-Kanäle.** Du kannst wählen, wie aktuell deine Updates sind:
+
+- **Stabil** — gründlich getestete Versionen, empfohlen für den täglichen
+  Einsatz.
+- **Aktuell** (Beta) — fertige Funktionen, die noch verfeinert werden.
+  Größtenteils zuverlässig, aber gelegentliche Unebenheiten sind möglich.
+- **Experimentell** (Alpha) — die neuesten Vorabversionen. Ideal, um neue
+  Funktionen früh auszuprobieren, jedoch mit möglicher Instabilität.
+
+Wechsle den Kanal jederzeit im **Updates**-Panel. vspark prüft sofort nach dem
+Wechsel auf die neueste Version des gewählten Kanals.

@@ -90,6 +90,7 @@
     "animations": "Erfahre, wie du Animationsclips auf deinen Avatar lädst und anwendest.",
     "behaviors": "Erfahre, wie du VMC-Motion-Capture und weitere Verhalten mit deinen Knoten verbindest.",
     "models": "Erfahre, wie du VRM- und 3D-Modell-Assets in deine Szene lädst.",
-    "clips": "Erfahre, wie du Szenenänderungen mit der Timeline und Trigger-Clips automatisierst."
+    "clips": "Erfahre, wie du Szenenänderungen mit der Timeline und Trigger-Clips automatisierst.",
+    "assets": "Erfahre, was Assets sind und wie du Dateien in deinem Projekt hochlädst und verwendest."
   }
 }
