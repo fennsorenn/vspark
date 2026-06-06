@@ -61,7 +61,7 @@ Request body validation for all REST routes. All schemas are strict (no extra ke
 
 The old `PortKind` / `PortDecl.kind` / `portsCompatible` machinery is **deleted**. Transport (event / value / list) is no longer a separate field — it is **derived from the resolved type**.
 
-`SignalTypeMap` still maps leaf type names (`SignalTypeName`, e.g. `BoneRotations`, `NormalizedPose`, `Blendshapes`, `Float`, `Bool`, `String`, `InterceptorFrame`, `Account`, `SpawnRef`, `Any`, `ComponentConfig`) to runtime types. The `Any` and `ComponentConfig` tags both map to the `unknown` wildcard.
+`SignalTypeMap` still maps leaf type names (`SignalTypeName`, e.g. `BoneRotations`, `NormalizedPose`, `Blendshapes`, `Float`, `Bool`, `String`, `InterceptorFrame`, `Account`, `SpawnRef`, `Any`, `BehaviorConfig`) to runtime types. The `Any` and `BehaviorConfig` tags both map to the `unknown` wildcard.
 
 The structural type AST and inference live in dedicated shared files:
 

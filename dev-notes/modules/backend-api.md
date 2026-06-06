@@ -153,6 +153,7 @@ PUT /api/config       writes config.json; channel change triggers checkForUpdate
 | `005_node_hidden.sql` | `scene_nodes.hidden` column |
 | `007_scene_node_properties.sql` | `scene_nodes.properties` JSON column — per-node properties bag; first use `blendTransitionTime` on VRM avatar nodes. `PUT /scene-nodes/:nodeId` shallow-merges incoming `properties` (mirrors the scene `runtime_settings` pattern); `POST` accepts the bag at insert time. |
 | `022_rename_tables_to_vocab.sql` | Vocabulary rename: `ALTER TABLE node_components RENAME TO behaviors` and `ALTER TABLE graphs RENAME TO automations` (FK constraints carried across; no data change). Historical CREATE migrations 002/014 left untouched. |
+| `023_rename_behavior_context_kinds.ts` | Vocabulary rename (run-fn, idempotent): rewrites stored descriptors in `automations.descriptor` + `presets.payload` — node kinds `component_id`→`behavior_id` / `component_config`→`behavior_config`, the broadcast-node port `componentId`→`behaviorId` (edge ports + value-input fallback config key), and `_componentConfig`→`_behaviorConfig`. Walks every `{nodes,edges}` descriptor at any nesting depth. |
 
 All tables carry `project_id` FK for strict workspace isolation. The `behaviors.config` column (table renamed from `node_components` in migration 022) stores behavior config JSON including the `_nodeState` sub-key for graph persistence.
 

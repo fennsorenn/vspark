@@ -66,11 +66,11 @@ Procedural sine-wave breathing published as an additive pose source through the 
 - `leftShoulder` / `rightShoulder` lift on inhale.
 - `leftUpperArm` / `rightUpperArm` counter-rotate by the negated shoulder amplitude so the arm visually stays in place while the shoulder lifts.
 
-**Configurable amplitudes** (`component_config` nodes): `chestAmplitude`, `shoulderAmplitude`. Both flow through a single `multiply(-1)` node to produce the counter-rotated value used by the upperChest and upper-arm branches.
+**Configurable amplitudes** (`behavior_config` nodes): `chestAmplitude`, `shoulderAmplitude`. Both flow through a single `multiply(-1)` node to produce the counter-rotated value used by the upperChest and upper-arm branches.
 
-**Graph descriptor** (`breathing/graph.ts`): the older "fake `component_config` literal helpers" for bone names / mode / priority / blend mode have been dropped — those now live as per-port `defaultConfig` on the consuming nodes (see the engine auto-fallback note below). Only the two amplitude `component_config` nodes remain, because they need to track live user edits.
+**Graph descriptor** (`breathing/graph.ts`): the older "fake `behavior_config` literal helpers" for bone names / mode / priority / blend mode have been dropped — those now live as per-port `defaultConfig` on the consuming nodes (see the engine auto-fallback note below). Only the two amplitude `behavior_config` nodes remain, because they need to track live user edits.
 
-**Live config plumbing**: the manager injects `_componentConfig` into the graph runtime so the `component_config` nodes can resolve their dotted field paths against the current row.
+**Live config plumbing**: the manager injects `_behaviorConfig` into the graph runtime so the `behavior_config` nodes can resolve their dotted field paths against the current row.
 
 ---
 
@@ -115,7 +115,7 @@ capture+reset buttons in `PropertiesPanel.tsx`, dispatched by `POST /api/signal/
 
 **Config**: `useIk` (arm mode toggle), `enableFace`, `enablePose`, `enableHands`, plus head and
 IK calibration knobs (see PropertiesPanel `MediapipeTrackerProps`). All knobs are surfaced
-through `component_config` nodes wired into converter value ports — no `nodeConfig[nodeId]`
+through `behavior_config` nodes wired into converter value ports — no `nodeConfig[nodeId]`
 side-channel.
 
 ---
@@ -157,7 +157,7 @@ Shared sink that merges per-behavior pose/blendshape outputs into the single `vm
   - `vmc_blendshapes` with empty `{}` record
 - The frontend Viewport sees the empty-bones frame, trips off pose application, and ramps back to pure animation. While *any* producer is still active (e.g. breathing) the fallback does not fire and other producers continue uninterrupted.
 
-**Producer requirement**: any source publishing into the bus (via `pose_broadcast` / `blendshapes_broadcast`) must supply a `behaviorId` so its contribution can be slotted and later cleared. (The wiring port on the broadcast nodes is still named `componentId` — a persisted signal-port string kept to avoid a descriptor-JSON migration — but the runtime value it carries is the `behaviorId`.) The mediapipe tracker graph was previously missing this wiring (silent no-op); fixed by adding a `comp_id` node (the `component_id` node kind, also kept) feeding both broadcast nodes in `mediapipe_tracker/graph.ts`.
+**Producer requirement**: any source publishing into the bus (via `pose_broadcast` / `blendshapes_broadcast`) must supply a `behaviorId` so its contribution can be slotted and later cleared — wired through the broadcast nodes' `behaviorId` input port. The mediapipe tracker graph was previously missing this wiring (silent no-op); fixed by adding a `comp_id` node (the `behavior_id` node kind) feeding both broadcast nodes in `mediapipe_tracker/graph.ts`.
 
 ## Adding a new manager
 

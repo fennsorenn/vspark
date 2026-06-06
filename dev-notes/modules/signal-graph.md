@@ -38,7 +38,7 @@ Toolchain: repo runs TC39 Stage-3 decorators (TS 5.9, **no** `experimentalDecora
 
 ## Runtime — `signal/engine.ts`
 
-`SignalGraph` (the reactive substrate; name kept) is instantiated per Behavior (one per VMC receiver, one per breathing behavior, etc.). A signal graph can also back an **Automation** (project / scene-node / compose-layer scoped) rather than a Behavior — see [project-graphs.md](project-graphs.md) for user-authored automations owned by an `automations` row (table renamed from `graphs` in migration 022). The behavior-context kinds `component_config` / `component_id` (kind strings kept) are rejected in all automations at descriptor-validation time by `AutomationManager`. `scene_entity` is allowed in scene-node- and compose-layer-scoped automations (rejected only in project scope); the automation's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
+`SignalGraph` (the reactive substrate; name kept) is instantiated per Behavior (one per VMC receiver, one per breathing behavior, etc.). A signal graph can also back an **Automation** (project / scene-node / compose-layer scoped) rather than a Behavior — see [project-graphs.md](project-graphs.md) for user-authored automations owned by an `automations` row (table renamed from `graphs` in migration 022). The behavior-context kinds `behavior_config` / `behavior_id` are rejected in all automations at descriptor-validation time by `AutomationManager`. `scene_entity` is allowed in scene-node- and compose-layer-scoped automations (rejected only in project scope); the automation's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
 
 After the Phase 2 re-architecture the engine is **wiring + lifecycle** over Node instances, not a central dispatcher:
 
@@ -55,7 +55,7 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 
 **Source nodes** (`vmc_packet_source` / `mediapipe_source` / `lipsync_source`) declare `@eventOut` ports that are fired externally by their managers via `deliverExternal`. `clock` keeps a static `attach()`; `on_pose_broadcast` keeps a static `register()`.
 
-**Value-input auto-fallback to `config.<port>`**: when a value-input port is unconnected, the engine resolves its pull-thunk to `defaultConfig.<portName>` from the descriptor. Nodes just read `this.port()` and get the config fallback for free. This is the preferred pattern; reserve `component_config` nodes for values that must track live user edits at runtime. The breathing graph is the reference example (bone names / mode / priority / blend mode in per-port `defaultConfig`; only the two live-editable amplitudes remain `component_config` nodes).
+**Value-input auto-fallback to `config.<port>`**: when a value-input port is unconnected, the engine resolves its pull-thunk to `defaultConfig.<portName>` from the descriptor. Nodes just read `this.port()` and get the config fallback for free. This is the preferred pattern; reserve `behavior_config` nodes for values that must track live user edits at runtime. The breathing graph is the reference example (bone names / mode / priority / blend mode in per-port `defaultConfig`; only the two live-editable amplitudes remain `behavior_config` nodes).
 
 **Hydration**: `SignalGraph.fromDescriptor(descriptor, registry, getConfig, getState, onSetState)` — builds a graph from a `GraphDescriptor` template. Config and state are injected from outside (DB-backed), so the graph itself is stateless across restarts.
 
@@ -65,7 +65,7 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 
 Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `portsCompatible` machinery is **deleted**.
 
-- `packages/shared/src/signal_types.ts` — the `ResolvedType` AST: `primitive | record | event | list | unknown`. Transport is derived from a type via `transportOf`. `isAssignable` is structural width subtyping on records, an `unknown` wildcard in **both** directions, and one documented special case: a `List<E>` target accepts a source of `E` or `List<E>`. Both the `Any` and `ComponentConfig` type tags map to `unknown` (`ComponentConfig` is the wildcard escape-hatch output of `component_config`).
+- `packages/shared/src/signal_types.ts` — the `ResolvedType` AST: `primitive | record | event | list | unknown`. Transport is derived from a type via `transportOf`. `isAssignable` is structural width subtyping on records, an `unknown` wildcard in **both** directions, and one documented special case: a `List<E>` target accepts a source of `E` or `List<E>`. Both the `Any` and `BehaviorConfig` type tags map to `unknown` (`BehaviorConfig` is the wildcard escape-hatch output of `behavior_config`).
 - `packages/shared/src/inference.ts` — `InferGraph`: `tryAddEdge` (forward propagation + transactional rollback if a downstream port is invalidated), `removeEdge`, `setConfig`, `portsOf`.
 - `packages/shared/src/infer_nodes.ts` — the `INFER_BY_KIND` table mapping kind → `inferPorts`. Imported by **both** the backend engine and the frontend canvas so the two never drift. Dynamic nodes (`pack_event`, `queue_events`, `unpack_event`) live here.
 - `NodeKindMeta` now carries `{ name, resolved, typeTag, transport }` per port plus a `dynamic` flag.
@@ -130,8 +130,8 @@ Organized by role:
 ### Output/broadcast
 | Kind | Description |
 |------|-------------|
-| `pose_broadcast` (label "Send Pose") | NormalizedPose → WebSocket `vmc_pose` broadcast; respects interceptor chain. Its `componentId` value-in port is kept (persisted); the value it carries is the `behaviorId`. |
-| `blendshapes_broadcast` (label "Send Blendshapes") | Blendshapes → WebSocket `vmc_blendshapes` broadcast. Same `componentId`-port note as `pose_broadcast`. |
+| `pose_broadcast` (label "Send Pose") | NormalizedPose → WebSocket `vmc_pose` broadcast; respects interceptor chain. Its `behaviorId` value-in port supplies the producing behavior's instance id. |
+| `blendshapes_broadcast` (label "Send Blendshapes") | Blendshapes → WebSocket `vmc_blendshapes` broadcast. Same `behaviorId`-port note as `pose_broadcast`. |
 | `ik_broadcast` (label "Send IK Targets") | IkTargetFrame → WebSocket `ik_targets` broadcast (consumed by frontend `ikTargetStore` + Viewport Step 2.5 solver) |
 | `set_scene_node_param` (label "Set Object Property") | Writes a scalar/coerced paramPath into the runtime override bus for a scene node. Optional `spawnRef` event input retargets the fire to a tmp id. See [runtime-overrides.md](runtime-overrides.md). |
 | `set_compose_layer_param` (label "Set Layer Property") | Same shape, compose-layer target. |
@@ -150,8 +150,8 @@ The interceptor chain lets behaviors (e.g., breathing) modify poses in-flight be
 ### Config/context
 | Kind | Description |
 |------|-------------|
-| `component_config` (label "Behavior Settings") | Dot-notation extractor on behavior config JSON (e.g., `field: "myNode.param"`). Kind string + `componentId`-style internals kept. |
-| `component_id` (label "This Behavior") | Injects the owning behavior's instance id as a string value. Kind string and the `componentId` port/`ComponentIdConfig` are kept (persisted); the runtime value is the `behaviorId`. |
+| `behavior_config` (label "Behavior Settings") | Dot-notation extractor on behavior config JSON (e.g., `field: "myNode.param"`). |
+| `behavior_id` (label "This Behavior") | Injects the owning behavior's instance id as a string value. |
 | `scene_entity` (label "This Entity") | Outputs the id of the entity the automation/behavior is scoped to; output type follows scope (`SceneNode` / `ComposeLayer`) |
 | `viseme_passthrough` (label "Visemes → Blendshapes") | Scales viseme weights by a sensitivity config value |
 
@@ -204,7 +204,7 @@ Phase 2 (branch `feature/signal-graph-nodes-v2`) landed both architecture change
 
 #### Deferred / out of scope
 
-- **Typed `component_config`** — `inferPorts`-based typing is deferred: there is no config-schema registry, so writable graphs simply **reject** the node and its `ComponentConfig` wildcard (→ `unknown`) output stays. Stays planned for a later phase.
+- **Typed `behavior_config`** — `inferPorts`-based typing is deferred: there is no config-schema registry, so writable graphs simply **reject** the node and its `BehaviorConfig` wildcard (→ `unknown`) output stays. Stays planned for a later phase.
 - Typed `set_*_param` value input (would replace the `Any` + runtime-coerce approach with a port typed from the paramPath registry).
 - Incremental `reconcile` (stays rebuild-from-scratch).
 

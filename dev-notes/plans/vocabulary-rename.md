@@ -100,10 +100,10 @@ migrations. Shipped in two commits, `pnpm lint` + frontend `tsc` green:
 `GraphDescriptor`/`GraphNode`/`GraphEdgeDescriptor`, `GraphStateSnapshot`,
 `getGraphDescriptor`, the `/signal/graphs` monitoring API, `SceneGraph.tsx` (3D tree).
 
-**Remaining Phase 2 tail (DEFERRED):** the bare `componentId` WS-payload / signal field
-(instance id of the producing behavior — `PoseFrame.componentId`, `mkEvent`, lipsync/
-tracking messages, ~280 refs). It is woven into the broadcast bus + signal substrate and
-crosses the stringly-typed WS JSON boundary, so it's a separate careful lockstep step.
+**`componentId` → `behaviorId` (DONE):** the runtime/WS instance id of the producing
+behavior (`PoseFrame`, broadcast bus, lipsync/tracking WS fields, managers, frontend) was
+renamed in its own commit. The persisted port name + behavior-context node kinds
+(`component_id`/`component_config`) followed in follow-up 1 with descriptor migration 023.
 
 ### Phase 2.5 — Docs follow-up (TODO)
 
