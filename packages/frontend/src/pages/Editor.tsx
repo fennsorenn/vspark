@@ -16,6 +16,7 @@ import { AssetManager } from '../components/editor/AssetManager';
 import { SignalGraphCanvas } from '../components/editor/signal/SignalGraphCanvas';
 import { NodePalette } from '../components/editor/signal/NodePalette';
 import { ComposeView } from '../components/editor/ComposeView';
+import { HelpWindow } from '../help/HelpWindow';
 import {
   handleSceneNodeDrop,
   hasCreatePayload,
@@ -268,6 +269,7 @@ export function Editor() {
       ) : (
         <AssetManager />
       )}
+      <HelpWindow />
     </div>
   );
 }

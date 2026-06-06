@@ -1,0 +1,39 @@
+# Welcome to vspark {#overview}
+
+vspark turns live motion into a 3D character on screen. You bring in movement
+(from a webcam, a phone, or tracking gear), point it at a virtual avatar, and
+vspark streams the result to a viewport you can put on stream or record.
+
+You don't need to know any of the technical details to get started — this guide
+explains each part in plain language. Look for the small **?** buttons around
+the app: hover for a quick hint, click for the full explanation.
+
+## The main pieces {#pieces}
+
+vspark is organised into a few areas. The tabs on the left switch between them.
+
+- **[Stage](topic:scene)** — the 3D world. Your avatar, cameras, and lights all
+  live here. This is what gets shown to your audience.
+- **[Avatar](topic:avatar)** — the character itself: how it loads, moves,
+  shows expressions, and looks.
+- **[Behaviors](topic:behaviors)** — the "drivers" that make things move, such
+  as reading your webcam or your microphone.
+- **[Logic](topic:logic)** — optional automation: make things happen in
+  response to events (for example, a chat message or a channel reward).
+- **Compose** — a 2D layer layout on top of the 3D scene (overlays, images,
+  webcam frames) for your final stream look.
+
+## A typical first session {#first-session}
+
+1. Add an **avatar** to the Stage and load a `.vrm` character file.
+2. Attach a **behavior** that captures your movement (webcam tracking or VMC).
+3. Watch your avatar come to life in the viewport.
+4. Optionally add **Logic** and **Compose** layers to react to your stream.
+
+Each of those steps has its own page in this guide — use the topic list on the
+left, or the **?** buttons next to the controls in the app.
+
+## Changing the language {#language}
+
+Use the language selector in the top bar to switch between **English** and
+**Deutsch**. Your choice is remembered the next time you open vspark.

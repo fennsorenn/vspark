@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
+import { useTranslation } from 'react-i18next';
 import { MediaInputWindow } from '../MediaInputWindow';
 import { UpdateDialog } from './UpdateDialog';
 import { OverliveAccountsModal } from './OverliveAccountsModal';
+import { LanguageSwitcher } from '../LanguageSwitcher';
+import { HelpButton } from '../../help/HelpButton';
 
 export function TopBar() {
   const navigate = useNavigate();
+  const { t } = useTranslation('topbar');
   const {
     projectId,
     projectName,
@@ -81,7 +85,7 @@ export function TopBar() {
         </button>
         <span style={{ color: '#444' }}>|</span>
         <span style={{ color: '#e0e0e0', fontWeight: 500 }}>
-          {projectName || 'Loading…'}
+          {projectName || t('loading')}
         </span>
 
         {/* Spacer */}
@@ -106,9 +110,9 @@ export function TopBar() {
               setMediaOpen((v) => !v);
               setMediaMounted(true);
             }}
-            title="Media Inputs (mic / camera)"
+            title={t('media.title')}
           >
-            🎤 Media
+            🎤 {t('media.label')}
           </button>
           <button
             style={{
@@ -122,7 +126,7 @@ export function TopBar() {
             onClick={() =>
               projectId && window.open(`/media-input/${projectId}`, '_blank')
             }
-            title="Open Media Input in new tab"
+            title={t('media.openNewTab')}
           >
             ↗
           </button>
@@ -136,7 +140,7 @@ export function TopBar() {
             }}
           >
             <span style={{ fontSize: 10 }}>{connected ? '●' : '○'}</span>
-            {connected ? 'Connected' : 'Disconnected'}
+            {connected ? t('status.connected') : t('status.disconnected')}
           </div>
           <button
             style={{
@@ -149,9 +153,9 @@ export function TopBar() {
               fontSize: 12,
             }}
             onClick={() => setAccountsOpen(true)}
-            title="Stream accounts (Twitch / StreamElements)"
+            title={t('accounts.title')}
           >
-            🟣 Accounts
+            🟣 {t('accounts.label')}
           </button>
           {updateAvailable && (
             <button
@@ -165,9 +169,9 @@ export function TopBar() {
                 cursor: 'pointer',
                 fontSize: 12,
               }}
-              title="An update is available"
+              title={t('update.availableTitle')}
             >
-              ↑ Update
+              ↑ {t('update.label')}
             </button>
           )}
           <button
@@ -180,10 +184,12 @@ export function TopBar() {
               fontSize: 11,
               padding: '0 2px',
             }}
-            title="Updates & release channel"
+            title={t('update.settingsTitle')}
           >
-            ⚙ Version
+            ⚙ {t('update.versionLabel')}
           </button>
+          <LanguageSwitcher compact />
+          <HelpButton topic="overview" tip={t('help.tip')} size={18} />
         </div>
       </div>
       {mediaMounted && <MediaInputWindow visible={mediaOpen} />}
