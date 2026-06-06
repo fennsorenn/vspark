@@ -8,6 +8,7 @@ import {
 import { instantiatePreset } from '../presets/deserialize.js';
 import { BUILTIN_PRESETS, getBuiltinPreset } from '../presets/builtins.js';
 import { rowToLayer, type LayerRow } from './compose-layers.js';
+import { loadClip } from './track-clips.js';
 import { _ws } from './shared.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -282,30 +283,83 @@ router.post('/presets/instantiate', (req, res) => {
         typeof boneAttachment === 'string' ? boneAttachment : null,
     });
 
-    // Broadcast the newly-created entities so other connected clients update
+    // Broadcast every newly-created entity so other connected clients update
     // their scene graph live. The initiating client refetches on its own and
     // the receiving handlers dedupe by id, so broadcasting to everyone is safe.
     // `result.idMap` maps preset ids → freshly minted real ids for every
     // inserted entity, so its values are exactly the rows we just created.
+    // Order matters: parent entities (nodes/layers) first so the renderer can
+    // mount them, then their attached behaviours/effects, then track clips
+    // (whose lanes reference the entity ids). Logic graphs and animation clips
+    // are loaded on demand by each client when they open the relevant editor,
+    // so they need no live broadcast.
+    const db = getDb();
     const createdIds = new Set(Object.values(result.idMap));
 
+    // `column` is a fixed literal, never user input — safe to interpolate.
+    const broadcastClipsFor = (
+      column: 'owner_node_id' | 'owner_layer_id',
+      ownerId: string
+    ) => {
+      const clipRows = db
+        .prepare(`SELECT id FROM track_clips WHERE ${column} = ?`)
+        .all(ownerId) as { id: string }[];
+      for (const { id } of clipRows) {
+        if (!createdIds.has(id)) continue;
+        const clip = loadClip(id);
+        if (clip)
+          _ws?.broadcast('track_clip_added', clip as Record<string, unknown>);
+      }
+    };
+
     if (payload.rootKind === 'scene_node' && rootSceneNodeId) {
-      const rows = getDb()
-        .prepare('SELECT * FROM scene_nodes WHERE root_scene_node_id = ?')
-        .all(rootSceneNodeId) as unknown as SceneNodeRow[];
-      for (const row of rows) {
-        if (createdIds.has(row.id)) {
-          _ws?.broadcast('node_added', rowToNode(row));
+      const nodeRows = (
+        db
+          .prepare('SELECT * FROM scene_nodes WHERE root_scene_node_id = ?')
+          .all(rootSceneNodeId) as unknown as SceneNodeRow[]
+      ).filter((r) => createdIds.has(r.id));
+
+      for (const row of nodeRows) {
+        _ws?.broadcast('node_added', rowToNode(row));
+      }
+      // Behaviours and camera effects ride on the raw row shape — their
+      // frontend handlers map node_id/config themselves (mapBehavior /
+      // the inline camera_effect_added mapper).
+      for (const row of nodeRows) {
+        const behaviorRows = db
+          .prepare(
+            'SELECT * FROM behaviors WHERE node_id = ? ORDER BY sort_order'
+          )
+          .all(row.id) as Record<string, unknown>[];
+        for (const b of behaviorRows) {
+          if (createdIds.has(b.id as string))
+            _ws?.broadcast('behavior_added', b);
+        }
+        const effectRows = db
+          .prepare('SELECT * FROM camera_effects WHERE node_id = ?')
+          .all(row.id) as Record<string, unknown>[];
+        for (const e of effectRows) {
+          if (createdIds.has(e.id as string))
+            _ws?.broadcast('camera_effect_added', e);
         }
       }
+      for (const row of nodeRows) {
+        broadcastClipsFor('owner_node_id', row.id);
+      }
     } else if (payload.rootKind === 'compose_layer' && rootComposeSceneId) {
-      const rows = getDb()
-        .prepare('SELECT * FROM compose_layers WHERE root_compose_scene_id = ?')
-        .all(rootComposeSceneId) as unknown as LayerRow[];
-      for (const row of rows) {
-        if (createdIds.has(row.id)) {
-          _ws?.broadcast('compose_layer_added', rowToLayer(row));
-        }
+      const layerRows = (
+        db
+          .prepare(
+            'SELECT * FROM compose_layers WHERE root_compose_scene_id = ?'
+          )
+          .all(rootComposeSceneId) as unknown as LayerRow[]
+      ).filter((r) => createdIds.has(r.id));
+
+      for (const row of layerRows) {
+        _ws?.broadcast('compose_layer_added', rowToLayer(row));
+      }
+      for (const row of layerRows) {
+        broadcastClipsFor('owner_layer_id', row.id);
       }
     }
 

@@ -114,7 +114,7 @@ function mapClip(
   };
 }
 
-function loadClip(clipId: string) {
+export function loadClip(clipId: string) {
   const db = getDb();
   const row = db
     .prepare('SELECT * FROM track_clips WHERE id = ?')
@@ -193,7 +193,11 @@ function insertClip(
 function nameRequired(res: import('express').Response) {
   res.status(400).json({
     ok: false,
-    error: { status: 400, message: 'name is required', code: 'VALIDATION_ERROR' },
+    error: {
+      status: 400,
+      message: 'name is required',
+      code: 'VALIDATION_ERROR',
+    },
   });
 }
 

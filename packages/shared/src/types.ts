@@ -456,6 +456,7 @@ export type WSMessageKind =
   | 'tracking_status'
   | 'pose_ik_targets'
   | 'server_update'
+  | 'behavior_added'
   | 'compose_layer_added'
   | 'compose_layer_updated'
   | 'compose_layer_removed'

@@ -326,7 +326,7 @@ export const updateProject = (id: string, name: string, description?: string) =>
     body: JSON.stringify({ name, description }),
   });
 
-function mapBehavior(r: Record<string, unknown>): BehaviorRecord {
+export function mapBehavior(r: Record<string, unknown>): BehaviorRecord {
   return {
     id: r.id as string,
     nodeId: (r.node_id ?? r.nodeId ?? '') as string,

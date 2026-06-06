@@ -3,6 +3,7 @@ import { useEditorStore } from '../store/editorStore';
 import type { NodeRecord } from '../store/editorStore';
 import type { CameraEffectRecord } from '../api/client';
 import {
+  mapBehavior,
   mapComposeLayer,
   mapTrackClip,
   mapTrackClipLane,
@@ -144,6 +145,13 @@ export function useWsSync() {
             // Only add if we have this scene loaded; avoid duplicates
             if (store.nodes.every((n) => n.id !== node.id)) {
               store.addNode(node);
+            }
+          } else if (msg.kind === 'behavior_added') {
+            const behavior = mapBehavior(msg.payload);
+            const store = useEditorStore.getState();
+            // Dedupe: the originating client may have refetched already.
+            if (store.behaviors.every((b) => b.id !== behavior.id)) {
+              store.addBehavior(behavior);
             }
           } else if (msg.kind === 'node_removed') {
             useEditorStore.getState().deleteNode(msg.payload.id as string);
