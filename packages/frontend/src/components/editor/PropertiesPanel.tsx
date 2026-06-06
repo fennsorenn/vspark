@@ -13,6 +13,11 @@ import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeLayerProperties } from './ComposeLayerProperties';
 import type { AssetFile } from '../../api/client';
 import { animRegistry } from '../../animRegistry';
+import { setLive2dConsent } from '../../lib/puppet2d/live2d/coreLoader';
+import type {
+  Live2dParamMap,
+  ParamMapEntry,
+} from '../../lib/live2dParamMap';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 
@@ -3542,6 +3547,370 @@ function SceneSettings({
 
 // ---------- Main panel ----------
 
+/** Common blendshape field names vspark emits, offered as autocomplete hints
+ *  for the param-map editor's `source` inputs. */
+const LIVE2D_SOURCE_SUGGESTIONS = [
+  'jawOpen',
+  'mouthFunnel',
+  'mouthPucker',
+  'eyeBlinkLeft',
+  'eyeBlinkRight',
+  'browInnerUp',
+  'browDownLeft',
+  'browDownRight',
+  'mouthSmileLeft',
+  'mouthSmileRight',
+  'Fcl_MTH_A',
+  'Fcl_MTH_I',
+  'Fcl_MTH_U',
+  'Fcl_MTH_E',
+  'Fcl_MTH_O',
+  'Fcl_EYE_Close_L',
+  'Fcl_EYE_Close_R',
+];
+
+/** Properties section for `live2d` nodes. Split out from the main panel so it
+ *  can own hooks (license state, param-map editor) — the panel renders the
+ *  other node kinds via inline IIFEs that cannot host hooks. */
+function Live2DProperties({ node }: { node: NodeRecord }) {
+  const {
+    assets,
+    updateNode: storeUpdateNode,
+    live2dParamsByNode,
+  } = useEditorStore();
+  const [licenseAccepted, setLicenseAccepted] = useState<boolean | null>(null);
+  const [licenseBusy, setLicenseBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .getConfig()
+      .then((c) => {
+        if (!alive) return;
+        const accepted = Boolean(c.live2dLicenseAccepted);
+        setLicenseAccepted(accepted);
+        if (accepted) setLive2dConsent(true);
+      })
+      .catch(() => {
+        if (alive) setLicenseAccepted(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const lc: Record<string, unknown> = {
+    modelUrl: null,
+    scale: 1,
+    width: 2,
+    height: 2,
+    facing: 'screen',
+    autoBlink: true,
+    autoBreath: true,
+    ...((node.components?.live2d ?? {}) as Record<string, unknown>),
+  };
+  const saveLc = (patch: Record<string, unknown>) => {
+    const components = {
+      ...node.components,
+      live2d: { type: 'live2d', ...lc, ...patch },
+    };
+    api.updateNode(node.id, { components }).catch(() => {});
+    storeUpdateNode(node.id, { components });
+  };
+
+  const paramMap = (lc.paramMap as Live2dParamMap | undefined) ?? {};
+  const modelParams = live2dParamsByNode[node.id] ?? [];
+  const mappedIds = Object.keys(paramMap);
+  const unmapped = modelParams.filter((p) => !mappedIds.includes(p));
+
+  const setEntry = (paramId: string, entry: ParamMapEntry | null) => {
+    const next: Live2dParamMap = { ...paramMap };
+    if (entry == null) delete next[paramId];
+    else next[paramId] = entry;
+    saveLc({ paramMap: next });
+  };
+
+  const acceptLicense = async () => {
+    setLicenseBusy(true);
+    try {
+      await api.putConfig({ live2dLicenseAccepted: true });
+      setLive2dConsent(true);
+      setLicenseAccepted(true);
+    } catch {
+      /* leave unaccepted on failure */
+    } finally {
+      setLicenseBusy(false);
+    }
+  };
+
+  const row = (label: string, children: React.ReactNode) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{label}</span>
+      {children}
+    </div>
+  );
+  const sel: React.CSSProperties = {
+    background: '#2a2a2a',
+    border: '1px solid #3a3a3a',
+    color: '#e0e0e0',
+    borderRadius: 4,
+    padding: '3px 6px',
+    fontSize: 12,
+  };
+  const removeBtn: React.CSSProperties = {
+    background: 'transparent',
+    border: 'none',
+    color: '#a06060',
+    cursor: 'pointer',
+    fontSize: 14,
+    lineHeight: 1,
+    padding: '0 2px',
+  };
+  const live2dAssets = assets.filter((a) => a.kind === 'live2d');
+
+  return (
+    <>
+      <div style={sectionHeader}>Live2D</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {row(
+          'Model',
+          <select
+            style={sel}
+            value={(lc.modelUrl as string) ?? ''}
+            onChange={(e) => saveLc({ modelUrl: e.target.value || null })}
+          >
+            <option value="">— none —</option>
+            {live2dAssets.map((a) => (
+              <option key={a.id} value={a.url}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <EffectRow
+          label="Scale"
+          cfg={lc}
+          field="scale"
+          step={0.05}
+          min={0.01}
+          onSave={saveLc}
+        />
+        <EffectRow
+          label="Width (m)"
+          cfg={lc}
+          field="width"
+          step={0.1}
+          min={0.01}
+          onSave={saveLc}
+        />
+        <EffectRow
+          label="Height (m)"
+          cfg={lc}
+          field="height"
+          step={0.1}
+          min={0.01}
+          onSave={saveLc}
+        />
+        {row(
+          'Facing',
+          <select
+            style={sel}
+            value={(lc.facing as string) ?? 'screen'}
+            onChange={(e) => saveLc({ facing: e.target.value })}
+          >
+            <option value="screen">Screen</option>
+            <option value="world">World</option>
+          </select>
+        )}
+        {row(
+          'Auto blink',
+          <input
+            type="checkbox"
+            checked={Boolean(lc.autoBlink)}
+            onChange={(e) => saveLc({ autoBlink: e.target.checked })}
+          />
+        )}
+        {row(
+          'Auto breath',
+          <input
+            type="checkbox"
+            checked={Boolean(lc.autoBreath)}
+            onChange={(e) => saveLc({ autoBreath: e.target.checked })}
+          />
+        )}
+
+        {licenseAccepted === false && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              padding: 8,
+              background: '#2a2418',
+              border: '1px solid #4a3a1a',
+              borderRadius: 4,
+            }}
+          >
+            <span style={{ fontSize: 11, color: '#d9b873' }}>
+              Live2D rendering uses the proprietary Cubism Core, fetched at
+              runtime from Live2D&apos;s CDN (never bundled). Accepting agrees to
+              the{' '}
+              <a
+                href="https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: '#e0c080' }}
+              >
+                Proprietary Software License
+              </a>{' '}
+              and{' '}
+              <a
+                href="https://www.live2d.com/eula/live2d-open-software-license-agreement_en.html"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: '#e0c080' }}
+              >
+                Open Software License
+              </a>
+              .
+            </span>
+            <button
+              disabled={licenseBusy}
+              onClick={acceptLicense}
+              style={{
+                ...sel,
+                cursor: licenseBusy ? 'default' : 'pointer',
+                color: '#f0d090',
+                borderColor: '#6a5a2a',
+              }}
+            >
+              {licenseBusy ? 'Saving…' : 'Accept Live2D license'}
+            </button>
+          </div>
+        )}
+        {licenseAccepted === true && (
+          <span style={{ fontSize: 11, color: '#5a9e5a' }}>
+            ✓ Live2D license accepted — Cubism Core loads on first use.
+          </span>
+        )}
+
+        <div style={sectionHeader}>Parameter mapping</div>
+        {modelParams.length === 0 ? (
+          <span style={{ fontSize: 11, color: '#666' }}>
+            Load a model to list its parameters. Defaults already drive eyes,
+            mouth, brows and head angle from this node&apos;s tracking
+            behaviors; add per-parameter overrides here.
+          </span>
+        ) : (
+          <>
+            <datalist id="live2d-src-suggest">
+              {LIVE2D_SOURCE_SUGGESTIONS.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+            {mappedIds.length === 0 && (
+              <span style={{ fontSize: 11, color: '#666' }}>
+                No overrides — {modelParams.length} model parameters using
+                defaults.
+              </span>
+            )}
+            {mappedIds.map((pid) => {
+              const e = paramMap[pid];
+              return (
+                <div
+                  key={pid}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: '#bbb',
+                      width: 100,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={pid}
+                  >
+                    {pid}
+                  </span>
+                  <input
+                    list="live2d-src-suggest"
+                    style={{ ...sel, width: 84 }}
+                    value={e.source}
+                    placeholder="source"
+                    title="source blendshape field"
+                    onChange={(ev) =>
+                      setEntry(pid, { ...e, source: ev.target.value })
+                    }
+                  />
+                  <input
+                    type="number"
+                    step={0.1}
+                    style={{ ...sel, width: 46 }}
+                    value={e.gain ?? 1}
+                    title="gain"
+                    onChange={(ev) =>
+                      setEntry(pid, { ...e, gain: Number(ev.target.value) })
+                    }
+                  />
+                  <label
+                    style={{
+                      fontSize: 10,
+                      color: '#888',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 2,
+                    }}
+                    title="invert (output = 1 − value)"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(e.invert)}
+                      onChange={(ev) =>
+                        setEntry(pid, { ...e, invert: ev.target.checked })
+                      }
+                    />
+                    inv
+                  </label>
+                  <button
+                    style={removeBtn}
+                    title="remove override"
+                    onClick={() => setEntry(pid, null)}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+            {unmapped.length > 0 && (
+              <select
+                style={sel}
+                value=""
+                onChange={(ev) => {
+                  if (ev.target.value) setEntry(ev.target.value, { source: '' });
+                }}
+              >
+                <option value="">+ add parameter override…</option>
+                {unmapped.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            )}
+          </>
+        )}
+
+        <span style={{ fontSize: 11, color: '#666' }}>
+          Parameters are driven by this node&apos;s tracking behaviors
+          (face/lip-sync). Rendering needs in-browser verification.
+        </span>
+      </div>
+    </>
+  );
+}
+
 export function PropertiesPanel() {
   const { projectId } = useParams<{ projectId: string }>();
   const {
@@ -5825,130 +6194,7 @@ export function PropertiesPanel() {
             );
           })()}
 
-        {node.kind === 'live2d' &&
-          (() => {
-            const lc: Record<string, unknown> = {
-              modelUrl: null,
-              scale: 1,
-              width: 2,
-              height: 2,
-              facing: 'screen',
-              autoBlink: true,
-              autoBreath: true,
-              ...((node.components?.live2d ?? {}) as Record<string, unknown>),
-            };
-            const saveLc = (patch: Record<string, unknown>) => {
-              const components = {
-                ...node.components,
-                live2d: { type: 'live2d', ...lc, ...patch },
-              };
-              api.updateNode(node.id, { components }).catch(() => {});
-              storeUpdateNode(node.id, { components });
-            };
-            const row = (label: string, children: React.ReactNode) => (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
-                  {label}
-                </span>
-                {children}
-              </div>
-            );
-            const live2dAssets = assets.filter((a) => a.kind === 'live2d');
-            const sel: React.CSSProperties = {
-              background: '#2a2a2a',
-              border: '1px solid #3a3a3a',
-              color: '#e0e0e0',
-              borderRadius: 4,
-              padding: '3px 6px',
-              fontSize: 12,
-            };
-            return (
-              <>
-                <div style={sectionHeader}>Live2D</div>
-                <div
-                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
-                >
-                  {row(
-                    'Model',
-                    <select
-                      style={sel}
-                      value={(lc.modelUrl as string) ?? ''}
-                      onChange={(e) =>
-                        saveLc({ modelUrl: e.target.value || null })
-                      }
-                    >
-                      <option value="">— none —</option>
-                      {live2dAssets.map((a) => (
-                        <option key={a.id} value={a.url}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  <EffectRow
-                    label="Scale"
-                    cfg={lc}
-                    field="scale"
-                    step={0.05}
-                    min={0.01}
-                    onSave={saveLc}
-                  />
-                  <EffectRow
-                    label="Width (m)"
-                    cfg={lc}
-                    field="width"
-                    step={0.1}
-                    min={0.01}
-                    onSave={saveLc}
-                  />
-                  <EffectRow
-                    label="Height (m)"
-                    cfg={lc}
-                    field="height"
-                    step={0.1}
-                    min={0.01}
-                    onSave={saveLc}
-                  />
-                  {row(
-                    'Facing',
-                    <select
-                      style={sel}
-                      value={(lc.facing as string) ?? 'screen'}
-                      onChange={(e) => saveLc({ facing: e.target.value })}
-                    >
-                      <option value="screen">Screen</option>
-                      <option value="world">World</option>
-                    </select>
-                  )}
-                  {row(
-                    'Auto blink',
-                    <input
-                      type="checkbox"
-                      checked={Boolean(lc.autoBlink)}
-                      onChange={(e) => saveLc({ autoBlink: e.target.checked })}
-                    />
-                  )}
-                  {row(
-                    'Auto breath',
-                    <input
-                      type="checkbox"
-                      checked={Boolean(lc.autoBreath)}
-                      onChange={(e) => saveLc({ autoBreath: e.target.checked })}
-                    />
-                  )}
-                  <span style={{ fontSize: 11, color: '#666' }}>
-                    Renderer stub: the Cubism runtime + per-parameter mapping
-                    (driven by this node's tracking behaviors) land with the
-                    Live2DRuntime adapter.
-                  </span>
-                  <span style={{ fontSize: 11, color: '#a07a40' }}>
-                    Live2D uses the proprietary Cubism Core, fetched on first use
-                    after you accept the Live2D license.
-                  </span>
-                </div>
-              </>
-            );
-          })()}
+        {node.kind === 'live2d' && <Live2DProperties node={node} />}
 
         {node.kind === 'particle' &&
           (() => {

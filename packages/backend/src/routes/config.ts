@@ -31,21 +31,28 @@ configRoutes.get('/config', async (_req, res) => {
 });
 
 configRoutes.put('/config', async (req, res) => {
-  const { channel } = req.body as Partial<AppConfig>;
-  if (!channel || !VALID_CHANNELS.includes(channel)) {
-    res
-      .status(400)
-      .json({
+  const body = (req.body ?? {}) as Partial<AppConfig>;
+  const current = await readConfig();
+  const updated: AppConfig = { ...current };
+
+  if (body.channel !== undefined) {
+    if (!VALID_CHANNELS.includes(body.channel)) {
+      res.status(400).json({
         ok: false,
         error: {
           message: `channel must be one of: ${VALID_CHANNELS.join(', ')}`,
         },
       });
-    return;
+      return;
+    }
+    updated.channel = body.channel;
   }
-  const current = await readConfig();
-  const updated: AppConfig = { ...current, channel };
+
+  if (body.live2dLicenseAccepted !== undefined) {
+    updated.live2dLicenseAccepted = Boolean(body.live2dLicenseAccepted);
+  }
+
   await writeConfig(updated);
-  void checkForUpdates();
+  if (body.channel !== undefined) void checkForUpdates();
   res.json({ ok: true, data: updated });
 });
