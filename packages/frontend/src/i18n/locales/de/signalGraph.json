@@ -1,0 +1,45 @@
+{
+  "canvas": {
+    "connectionRefused": "Verbindung abgelehnt: {{reason}}"
+  },
+  "nodeCard": {
+    "never": "nie",
+    "fields": "FELDER",
+    "removeField": "Feld entfernen",
+    "fieldPlaceholder": "+ Feldname",
+    "selectAccount": "— Konto auswählen —",
+    "selectNone": "— keine —",
+    "selectGlobal": "— global (alle) —",
+    "groupComposeLayers": "Compose-Ebenen",
+    "groupSceneNodes": "Szenenknoten"
+  },
+  "palette": {
+    "header": "Knoten",
+    "readOnly": "Schreibgeschützter Graph",
+    "empty": "Keine Knoten in dieser Kategorie."
+  },
+  "logic": {
+    "empty": "Keine Logik",
+    "enabled": "Aktiviert",
+    "disabled": "Deaktiviert",
+    "enable": "Aktivieren",
+    "disable": "Deaktivieren",
+    "addButton": "+ Logik hinzufügen",
+    "pasteButton": "⧉ Logik einfügen",
+    "pasteTitle": "Logik aus Zwischenablage auf diesen Besitzer einfügen",
+    "promptName": "Name der neuen Logik:",
+    "promptDefault": "Unbenannte Logik",
+    "confirmDelete": "Logik „{{name}}“ löschen?",
+    "failCreate": "Logik konnte nicht erstellt werden",
+    "failDelete": "Logik konnte nicht gelöscht werden",
+    "failToggle": "Logik konnte nicht umgeschaltet werden",
+    "failPaste": "Logik konnte nicht eingefügt werden",
+    "ctxCopy": "Graph kopieren",
+    "ctxDelete": "Löschen"
+  },
+  "help": {
+    "nodes": "Knoten im Logik-Canvas kennenlernen",
+    "automations": "Automatisierungen erstellen und verwalten",
+    "events": "Ereignis- und Werteverbindungen zwischen Knoten verstehen"
+  }
+}

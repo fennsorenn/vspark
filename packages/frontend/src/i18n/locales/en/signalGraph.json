@@ -1,0 +1,45 @@
+{
+  "canvas": {
+    "connectionRefused": "Connection refused: {{reason}}"
+  },
+  "nodeCard": {
+    "never": "never",
+    "fields": "FIELDS",
+    "removeField": "Remove field",
+    "fieldPlaceholder": "+ field name",
+    "selectAccount": "— select account —",
+    "selectNone": "— none —",
+    "selectGlobal": "— global (all) —",
+    "groupComposeLayers": "Compose layers",
+    "groupSceneNodes": "Scene nodes"
+  },
+  "palette": {
+    "header": "Nodes",
+    "readOnly": "read-only graph",
+    "empty": "No nodes in this category."
+  },
+  "logic": {
+    "empty": "No logic",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "enable": "Enable",
+    "disable": "Disable",
+    "addButton": "+ Add Logic",
+    "pasteButton": "⧉ Paste Logic",
+    "pasteTitle": "Paste the logic from clipboard onto this owner",
+    "promptName": "New logic name:",
+    "promptDefault": "Untitled Logic",
+    "confirmDelete": "Delete logic \"{{name}}\"?",
+    "failCreate": "Failed to create logic",
+    "failDelete": "Failed to delete logic",
+    "failToggle": "Failed to toggle logic",
+    "failPaste": "Failed to paste logic",
+    "ctxCopy": "Copy graph",
+    "ctxDelete": "Delete"
+  },
+  "help": {
+    "nodes": "Learn how to use nodes in the logic canvas",
+    "automations": "Learn how to create and manage automations",
+    "events": "Learn about event and value wiring between nodes"
+  }
+}

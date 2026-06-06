@@ -46,6 +46,19 @@ Same key structure in both. Nest keys semantically (e.g. `toolbar.add`,
 English. Use the project vocabulary below. These files are auto-discovered (glob),
 so no registration is needed.
 
+## JSON safety (read this — common breakage)
+
+A JSON string value must never contain a raw `"` character. For German
+quotation marks use the curly pair **„ … "** (opening `„` U+201E, closing `"`
+U+201C) — NOT a straight `"`, which prematurely ends the string and corrupts the
+file. Example:
+- WRONG: `"confirm": "Projekt „{{name}}" löschen?"`  ← the straight `"` breaks JSON
+- RIGHT: `"confirm": "Projekt „{{name}}“ löschen?"`
+
+Before you finish, validate BOTH json files by running:
+`node -e "JSON.parse(require('fs').readFileSync('<path>'))"` — it must print
+nothing (exit 0). Fix any parse error.
+
 ## Vocabulary (EN → DE) — use consistently
 
 | English | Deutsch |
