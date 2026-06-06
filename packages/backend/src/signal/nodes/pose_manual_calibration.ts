@@ -41,9 +41,10 @@ export class PoseManualCalibration extends Node {
   static readonly kind = 'pose_manual_calibration';
 
   @valueIn('pose', 'NormalizedPose') poseIn!: () => NormalizedPose | undefined;
-  // Unconnected — the engine auto-resolves this against the live behavior config
-  // (`config.calibrations`) on every pull, so UI edits hot-apply without a graph
-  // rebuild. Reading `this.config` instead would snapshot at graph-build time.
+  // The per-bone calibration map, wired in from a `behavior_config` (Behavior
+  // Settings) node reading the behavior's `calibrations` field — visible on the
+  // graph rather than read from config behind the scenes. Reads live each pull,
+  // so UI edits hot-apply without a graph rebuild.
   @valueIn('calibrations', 'Any') calibrationsIn!: () =>
     | Record<string, BoneCalibration>
     | undefined;

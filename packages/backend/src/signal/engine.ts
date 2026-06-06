@@ -212,7 +212,12 @@ export class SignalGraph {
   private _makeBindContext(rt: RuntimeNode): NodeBindContext {
     const self = this;
     return {
-      config: (self._getConfig(rt.id) ?? {}) as Record<string, unknown>,
+      // Live getter (not a snapshot): node config resolves on every access, so a
+      // `behavior_config` node — and any node reading `this.config` — picks up
+      // hot-applied edits to the owning behavior's config without a graph rebuild.
+      get config() {
+        return (self._getConfig(rt.id) ?? {}) as Record<string, unknown>;
+      },
       getState: <T>() => self._getState(rt.id) as T,
       setState: (s) => self._onSetState(rt.id, s),
       isEnabled: () =>
