@@ -147,7 +147,7 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
           events
         ),
       ],
-      automations: [
+      logic: [
         graph(
           'g1',
           'compose_layer',

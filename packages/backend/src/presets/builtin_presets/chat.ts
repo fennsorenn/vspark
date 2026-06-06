@@ -41,7 +41,7 @@ const chatOverlayLayer = composeLayerPreset(
     }),
   ],
   {
-    automations: [
+    logic: [
       graph(
         'g1',
         'compose_layer',
@@ -87,7 +87,7 @@ const chatOverlay3d = sceneNodePreset(
     }),
   ],
   {
-    automations: [
+    logic: [
       graph(
         'g1',
         'scene_node',
@@ -164,7 +164,7 @@ const scrollingChat3d = sceneNodePreset(
         ]
       ),
     ],
-    automations: [
+    logic: [
       graph(
         'g1',
         'scene_node',

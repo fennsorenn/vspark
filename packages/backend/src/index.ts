@@ -130,8 +130,8 @@ async function start() {
 
   // Standalone project graphs — start every persisted-enabled graph on boot.
   // See dev-notes/modules/project-graphs.md.
-  const { automationManager } = await import('./automations/manager.js');
-  automationManager.startAllEnabled();
+  const { logicManager } = await import('./logic/manager.js');
+  logicManager.startAllEnabled();
 
   // Overlive integration — one shared kit per project with configured accounts.
   // See dev-notes/modules/overlive.md.

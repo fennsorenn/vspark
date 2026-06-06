@@ -414,11 +414,11 @@ interface EditorState {
   /** Overlive login accounts for the current project. Populated lazily by Editor.tsx;
    *  consumed by signal-graph Account port dropdowns. */
   overliveAccounts: import('../api/client').OverliveAccountRecord[];
-  activeAutomationId: string | null;
+  activeLogicId: string | null;
   /** True when the active graph is a writable standalone project graph;
    *  false when it's a behavior-owned (read-only) graph or no graph is active.
    *  Set by SignalGraphCanvas after it resolves the descriptor source. */
-  activeAutomationWritable: boolean;
+  activeLogicWritable: boolean;
   selectedSignalNodeId: string | null;
   boneListExpanded: Record<string, boolean>; // nodeId → bone list open in SceneGraph
   fbxDebugVisible: Record<string, boolean>; // nodeId → FBX debug model shown
@@ -527,8 +527,8 @@ interface EditorState {
   setOverliveAccounts: (
     accounts: import('../api/client').OverliveAccountRecord[]
   ) => void;
-  setActiveAutomation: (id: string | null) => void;
-  setActiveAutomationWritable: (writable: boolean) => void;
+  setActiveLogic: (id: string | null) => void;
+  setActiveLogicWritable: (writable: boolean) => void;
   setSelectedSignalNode: (id: string | null) => void;
   setBoneListExpanded: (nodeId: string, expanded: boolean) => void;
   setFbxDebugVisible: (nodeId: string, visible: boolean) => void;
@@ -686,8 +686,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   hoveredBoneName: null,
   behaviorKinds: [],
   overliveAccounts: [],
-  activeAutomationWritable: false,
-  activeAutomationId: null,
+  activeLogicWritable: false,
+  activeLogicId: null,
   selectedSignalNodeId: null,
   boneListExpanded: {},
   fbxDebugVisible: {},
@@ -860,17 +860,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
   setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
-  setActiveAutomationWritable: (writable) => set({ activeAutomationWritable: writable }),
-  setActiveAutomation: (id) => {
+  setActiveLogicWritable: (writable) => set({ activeLogicWritable: writable }),
+  setActiveLogic: (id) => {
     // Opening a graph (from any list — including scoped graphs in the scene /
     // compose trees) follows the main view to the Graphs tab, so the canvas is
     // what's actually shown. Clearing the active graph leaves the current tab
     // alone (the toggle-off path shouldn't yank the user away).
     if (id != null) lsSet(LS.leftTab, 'graphs');
     set((s) => ({
-      activeAutomationId: id,
+      activeLogicId: id,
       selectedSignalNodeId: null,
-      activeAutomationWritable: false,
+      activeLogicWritable: false,
       leftTab: id != null ? 'graphs' : s.leftTab,
     }));
   },

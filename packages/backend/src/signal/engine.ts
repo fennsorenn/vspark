@@ -81,7 +81,7 @@ export class SignalGraph {
     private readonly _getConfig: (nodeId: string) => unknown,
     private readonly _getState: (nodeId: string) => unknown,
     private readonly _onSetState: (nodeId: string, state: unknown) => void,
-    ownerKind?: import('@vspark/shared/types').AutomationOwnerKind
+    ownerKind?: import('@vspark/shared/types').LogicOwnerKind
   ) {
     this._infer = new InferGraph(
       (kind) => INFER_BY_KIND[kind],
@@ -103,7 +103,7 @@ export class SignalGraph {
     getConfig: (nodeId: string) => unknown,
     getState: (nodeId: string) => unknown,
     onSetState: (nodeId: string, state: unknown) => void,
-    ownerKind?: import('@vspark/shared/types').AutomationOwnerKind
+    ownerKind?: import('@vspark/shared/types').LogicOwnerKind
   ): SignalGraph {
     const graph = new SignalGraph(getConfig, getState, onSetState, ownerKind);
     graph._registry = registry;

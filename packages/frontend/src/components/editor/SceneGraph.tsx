@@ -7,7 +7,7 @@ import { newBehaviorId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
-import { AutomationsSection } from './AutomationsSection';
+import { LogicSection } from './LogicSection';
 import { ContextMenu } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
@@ -61,9 +61,9 @@ function SceneNodeContextMenu({
   onDelete,
   onCopy,
   onPasteNode,
-  onPasteAutomation,
+  onPasteLogic,
   canPasteNode,
-  canPasteAutomation,
+  canPasteLogic,
 }: {
   menu: CtxMenu;
   nodes: NodeRecord[];
@@ -74,9 +74,9 @@ function SceneNodeContextMenu({
   onDelete: (nodeId: string) => void;
   onCopy: (nodeId: string) => void;
   onPasteNode: (parentNodeId: string) => void;
-  onPasteAutomation: (nodeId: string) => void;
+  onPasteLogic: (nodeId: string) => void;
   canPasteNode: boolean;
-  canPasteAutomation: boolean;
+  canPasteLogic: boolean;
 }) {
   const node = nodes.find((n) => n.id === menu.nodeId)!;
   const [showAddChild, setShowAddChild] = useState(false);
@@ -288,7 +288,7 @@ function SceneNodeContextMenu({
         </div>
       )}
 
-      {canPasteAutomation && (
+      {canPasteLogic && (
         <div
           style={itemStyle}
           onMouseEnter={(e) =>
@@ -299,11 +299,11 @@ function SceneNodeContextMenu({
               'transparent')
           }
           onClick={() => {
-            onPasteAutomation(menu.nodeId);
+            onPasteLogic(menu.nodeId);
             onClose();
           }}
         >
-          Paste automation here
+          Paste logic here
         </div>
       )}
 
@@ -1050,52 +1050,52 @@ const formatBoneName = (name: string) =>
 
 // ---------- Graph list panel ----------
 import type { GraphDescriptor } from '@vspark/shared/signal';
-import type { AutomationRecord, ScopedAutomationRecord } from '../../api/client';
+import type { LogicRecord, ScopedLogicRecord } from '../../api/client';
 
-function AutomationListPanel() {
+function LogicListPanel() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { activeAutomationId, setActiveAutomation } = useEditorStore();
-  const [behaviorAutomations, setBehaviorAutomations] = useState<GraphDescriptor[]>([]);
-  const [projectAutomations, setProjectAutomations] = useState<AutomationRecord[]>([]);
-  const [scopedAutomations, setScopedAutomations] = useState<ScopedAutomationRecord[]>([]);
-  const [scopedAutomationsOpen, setScopedAutomationsOpen] = useState(true);
-  const [behaviorAutomationsOpen, setBehaviorAutomationsOpen] = useState(false);
+  const { activeLogicId, setActiveLogic } = useEditorStore();
+  const [behaviorLogic, setBehaviorLogic] = useState<GraphDescriptor[]>([]);
+  const [projectLogic, setProjectLogic] = useState<LogicRecord[]>([]);
+  const [scopedLogic, setScopedLogic] = useState<ScopedLogicRecord[]>([]);
+  const [scopedLogicOpen, setScopedLogicOpen] = useState(true);
+  const [behaviorLogicOpen, setBehaviorLogicOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteAutomation = clipboardPayload?.kind === 'graph';
+  const canPasteLogic = clipboardPayload?.kind === 'graph';
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
-    graph: AutomationRecord;
+    graph: LogicRecord;
   } | null>(null);
 
   const refresh = () => {
     api
       .getSignalGraphs()
-      .then(setBehaviorAutomations)
+      .then(setBehaviorLogic)
       .catch(() => {});
     if (projectId) {
       api
-        .getProjectAutomations(projectId)
-        .then(setProjectAutomations)
+        .getProjectLogic(projectId)
+        .then(setProjectLogic)
         .catch(() => {});
       api
-        .getProjectScopedAutomations(projectId)
-        .then(setScopedAutomations)
+        .getProjectScopedLogic(projectId)
+        .then(setScopedLogic)
         .catch(() => {});
     }
   };
 
-  const handleToggleScopedEnabled = async (g: ScopedAutomationRecord) => {
+  const handleToggleScopedEnabled = async (g: ScopedLogicRecord) => {
     try {
-      const updated = await api.updateAutomation(g.id, { enabled: !g.enabled });
-      setScopedAutomations((prev) =>
+      const updated = await api.updateLogic(g.id, { enabled: !g.enabled });
+      setScopedLogic((prev) =>
         prev.map((x) =>
           x.id === g.id ? { ...x, enabled: updated.enabled } : x
         )
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle automation');
+      alert(e instanceof Error ? e.message : 'Failed to toggle logic');
     }
   };
 
@@ -1121,55 +1121,55 @@ function AutomationListPanel() {
 
   const handleCreate = async () => {
     if (!projectId) return;
-    const name = window.prompt('New automation name:', 'Untitled Automation');
+    const name = window.prompt('New logic name:', 'Untitled Logic');
     if (!name?.trim()) return;
     try {
-      const created = await api.createProjectAutomation(projectId, name.trim());
-      setProjectAutomations((prev) => [...prev, created]);
-      setActiveAutomation(created.id);
+      const created = await api.createProjectLogic(projectId, name.trim());
+      setProjectLogic((prev) => [...prev, created]);
+      setActiveLogic(created.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create automation');
+      alert(e instanceof Error ? e.message : 'Failed to create logic');
     }
   };
 
-  const handleRename = async (g: AutomationRecord) => {
-    const name = window.prompt('Rename automation:', g.name);
+  const handleRename = async (g: LogicRecord) => {
+    const name = window.prompt('Rename logic:', g.name);
     if (!name?.trim() || name.trim() === g.name) return;
     try {
-      const updated = await api.updateAutomation(g.id, { name: name.trim() });
-      setProjectAutomations((prev) =>
+      const updated = await api.updateLogic(g.id, { name: name.trim() });
+      setProjectLogic((prev) =>
         prev.map((x) => (x.id === g.id ? updated : x))
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to rename automation');
+      alert(e instanceof Error ? e.message : 'Failed to rename logic');
     }
   };
 
-  const handleToggleEnabled = async (g: AutomationRecord) => {
+  const handleToggleEnabled = async (g: LogicRecord) => {
     try {
-      const updated = await api.updateAutomation(g.id, {
+      const updated = await api.updateLogic(g.id, {
         enabled: !g.enabled,
       });
-      setProjectAutomations((prev) =>
+      setProjectLogic((prev) =>
         prev.map((x) => (x.id === g.id ? updated : x))
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle automation');
+      alert(e instanceof Error ? e.message : 'Failed to toggle logic');
     }
   };
 
-  const handleDelete = async (g: AutomationRecord) => {
+  const handleDelete = async (g: LogicRecord) => {
     if (!window.confirm(`Delete graph "${g.name}"?`)) return;
     try {
-      await api.deleteAutomation(g.id);
-      setProjectAutomations((prev) => prev.filter((x) => x.id !== g.id));
-      if (activeAutomationId === g.id) setActiveAutomation(null);
+      await api.deleteLogic(g.id);
+      setProjectLogic((prev) => prev.filter((x) => x.id !== g.id));
+      if (activeLogicId === g.id) setActiveLogic(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete automation');
+      alert(e instanceof Error ? e.message : 'Failed to delete logic');
     }
   };
 
-  const handleCopy = async (g: AutomationRecord) => {
+  const handleCopy = async (g: LogicRecord) => {
     await copyToClipboard(
       {
         kind: 'graph',
@@ -1186,15 +1186,15 @@ function AutomationListPanel() {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createProjectAutomation(projectId, payload.name);
-      const updated = await api.updateAutomation(created.id, {
+      const created = await api.createProjectLogic(projectId, payload.name);
+      const updated = await api.updateLogic(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
-      setProjectAutomations((prev) => [...prev, updated]);
-      setActiveAutomation(updated.id);
+      setProjectLogic((prev) => [...prev, updated]);
+      setActiveLogic(updated.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste automation');
+      alert(e instanceof Error ? e.message : 'Failed to paste logic');
     }
   };
 
@@ -1214,11 +1214,11 @@ function AutomationListPanel() {
           letterSpacing: 0.5,
         }}
       >
-        <span>Global Automations</span>
+        <span>Global Logic</span>
         <div style={{ display: 'flex', gap: 4 }}>
-          {canPasteAutomation && (
+          {canPasteLogic && (
             <button
-              title="Paste automation from clipboard as a global automation"
+              title="Paste logic from clipboard as a global logic"
               onClick={handlePaste}
               style={{
                 background: 'none',
@@ -1234,7 +1234,7 @@ function AutomationListPanel() {
             </button>
           )}
           <button
-            title="New automation"
+            title="New logic"
             onClick={handleCreate}
             style={{
               background: '#2563eb',
@@ -1251,7 +1251,7 @@ function AutomationListPanel() {
           </button>
         </div>
       </div>
-      {projectAutomations.length === 0 ? (
+      {projectLogic.length === 0 ? (
         <div
           style={{
             color: '#444',
@@ -1263,13 +1263,13 @@ function AutomationListPanel() {
           No project graphs yet.
         </div>
       ) : (
-        projectAutomations.map((g) => {
-          const active = g.id === activeAutomationId;
+        projectLogic.map((g) => {
+          const active = g.id === activeLogicId;
           return (
             <div
               key={g.id}
               style={rowStyle(active)}
-              onClick={() => setActiveAutomation(active ? null : g.id)}
+              onClick={() => setActiveLogic(active ? null : g.id)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setCtxMenu({ x: e.clientX, y: e.clientY, graph: g });
@@ -1333,16 +1333,16 @@ function AutomationListPanel() {
           cursor: 'pointer',
           userSelect: 'none',
         }}
-        onClick={() => setScopedAutomationsOpen((v) => !v)}
+        onClick={() => setScopedLogicOpen((v) => !v)}
       >
-        <span style={{ color: '#555' }}>{scopedAutomationsOpen ? '▼' : '▶'}</span>
-        <span>Scoped Automations</span>
+        <span style={{ color: '#555' }}>{scopedLogicOpen ? '▼' : '▶'}</span>
+        <span>Scoped Logic</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
-          ({scopedAutomations.length})
+          ({scopedLogic.length})
         </span>
       </div>
-      {scopedAutomationsOpen &&
-        (scopedAutomations.length === 0 ? (
+      {scopedLogicOpen &&
+        (scopedLogic.length === 0 ? (
           <div
             style={{
               color: '#444',
@@ -1354,13 +1354,13 @@ function AutomationListPanel() {
             No scoped graphs. Add one from a scene node or compose layer.
           </div>
         ) : (
-          scopedAutomations.map((g) => {
-            const active = g.id === activeAutomationId;
+          scopedLogic.map((g) => {
+            const active = g.id === activeLogicId;
             return (
               <div
                 key={g.id}
                 style={rowStyle(active)}
-                onClick={() => setActiveAutomation(active ? null : g.id)}
+                onClick={() => setActiveLogic(active ? null : g.id)}
               >
                 <span style={{ opacity: g.enabled ? 0.9 : 0.35 }}>⊕</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1427,16 +1427,16 @@ function AutomationListPanel() {
           cursor: 'pointer',
           userSelect: 'none',
         }}
-        onClick={() => setBehaviorAutomationsOpen((v) => !v)}
+        onClick={() => setBehaviorLogicOpen((v) => !v)}
       >
-        <span style={{ color: '#555' }}>{behaviorAutomationsOpen ? '▼' : '▶'}</span>
-        <span>Behavior Automations</span>
+        <span style={{ color: '#555' }}>{behaviorLogicOpen ? '▼' : '▶'}</span>
+        <span>Behavior Logic</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
-          ({behaviorAutomations.length})
+          ({behaviorLogic.length})
         </span>
       </div>
-      {behaviorAutomationsOpen &&
-        (behaviorAutomations.length === 0 ? (
+      {behaviorLogicOpen &&
+        (behaviorLogic.length === 0 ? (
           <div
             style={{
               color: '#444',
@@ -1448,12 +1448,12 @@ function AutomationListPanel() {
             No active component graphs.
           </div>
         ) : (
-          behaviorAutomations.map((g) => (
+          behaviorLogic.map((g) => (
             <div
               key={g.id}
-              style={rowStyle(g.id === activeAutomationId)}
+              style={rowStyle(g.id === activeLogicId)}
               onClick={() =>
-                setActiveAutomation(g.id === activeAutomationId ? null : g.id)
+                setActiveLogic(g.id === activeLogicId ? null : g.id)
               }
             >
               <span style={{ opacity: 0.6 }}>⬡</span>
@@ -1474,7 +1474,7 @@ function AutomationListPanel() {
           items={[
             {
               kind: 'item',
-              label: 'Copy automation',
+              label: 'Copy logic',
               onClick: () => void handleCopy(ctxMenu.graph),
             },
             {
@@ -1533,7 +1533,7 @@ export function SceneGraph() {
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteSceneNodeClipboard = clipboardPayload?.kind === 'scene-node';
-  const canPasteAutomationClipboard = clipboardPayload?.kind === 'graph';
+  const canPasteLogicClipboard = clipboardPayload?.kind === 'graph';
   // Collapsed scene roots (scene id set).
   const [collapsedScenes, setCollapsedScenes] = useState<Set<string>>(
     new Set()
@@ -1715,17 +1715,17 @@ export function SceneGraph() {
     }
   };
 
-  const handlePasteAutomationAtNode = async (nodeId: string) => {
+  const handlePasteLogicAtNode = async (nodeId: string) => {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createNodeAutomation(nodeId, payload.name);
-      await api.updateAutomation(created.id, {
+      const created = await api.createNodeLogic(nodeId, payload.name);
+      await api.updateLogic(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste automation');
+      alert(e instanceof Error ? e.message : 'Failed to paste logic');
     }
   };
 
@@ -2058,7 +2058,7 @@ export function SceneGraph() {
               <CameraEffectsSection nodeId={node.id} />
             )}
             <ClipsSection owner={{ kind: 'node', id: node.id }} />
-            <AutomationsSection owner={{ kind: 'node', id: node.id }} />
+            <LogicSection owner={{ kind: 'node', id: node.id }} />
           </div>
         )}
 
@@ -2296,7 +2296,7 @@ export function SceneGraph() {
         {isSelected && (
           <>
             <ClipsSection owner={{ kind: 'node', id: scene.id }} />
-            <AutomationsSection owner={{ kind: 'node', id: scene.id }} />
+            <LogicSection owner={{ kind: 'node', id: scene.id }} />
           </>
         )}
 
@@ -2359,7 +2359,7 @@ export function SceneGraph() {
           style={tabStyle(dockTab === 'scene')}
           onClick={() => setDockTab('scene')}
         >
-          Scene
+          Stage
         </button>
         <button
           style={tabStyle(dockTab === 'compose')}
@@ -2372,11 +2372,11 @@ export function SceneGraph() {
           style={tabStyle(dockTab === 'graphs')}
           onClick={() => setDockTab('graphs')}
         >
-          Automation
+          Logic
         </button>
       </div>
 
-      {dockTab === 'graphs' && <AutomationListPanel />}
+      {dockTab === 'graphs' && <LogicListPanel />}
       {dockTab === 'compose' && <ComposeTree />}
 
       {dockTab === 'scene' && (
@@ -2457,9 +2457,9 @@ export function SceneGraph() {
               onPasteNode={(parentId) =>
                 void handlePasteNodeAsChild(parentId, null)
               }
-              onPasteAutomation={(id) => void handlePasteAutomationAtNode(id)}
+              onPasteLogic={(id) => void handlePasteLogicAtNode(id)}
               canPasteNode={canPasteSceneNodeClipboard}
-              canPasteAutomation={canPasteAutomationClipboard}
+              canPasteLogic={canPasteLogicClipboard}
             />
           )}
         </>

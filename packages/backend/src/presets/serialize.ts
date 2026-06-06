@@ -174,17 +174,17 @@ export function serializeSceneNodeSubtree(
 
   // Graphs owned by nodes in the subtree
   const placeholders = nodeIds.map(() => '?').join(',');
-  const automationRows = db
+  const logicRows = db
     .prepare(
-      `SELECT * FROM automations WHERE owner_kind = 'scene_node' AND owner_id IN (${placeholders}) ORDER BY created_at`
+      `SELECT * FROM logic WHERE owner_kind = 'scene_node' AND owner_id IN (${placeholders}) ORDER BY created_at`
     )
     .all(...nodeIds) as Record<string, unknown>[];
 
-  const graphs = automationRows.map((g) => {
-    const automationPresetId = nextPresetId('g');
-    realToPreset.set(g.id as string, automationPresetId);
+  const graphs = logicRows.map((g) => {
+    const logicPresetId = nextPresetId('g');
+    realToPreset.set(g.id as string, logicPresetId);
     return {
-      presetId: automationPresetId,
+      presetId: logicPresetId,
       ownerKind: 'scene_node' as const,
       ownerPresetId: realToPreset.get(g.owner_id as string) ?? '',
       name: g.name,
@@ -317,7 +317,7 @@ export function serializeSceneNodeSubtree(
     },
     assets: substitute(assets),
     sceneNodes: substitute(sceneNodes),
-    automations: graphs.length > 0 ? substitute(graphs) : undefined,
+    logic: graphs.length > 0 ? substitute(graphs) : undefined,
     animationClips:
       animationClips.length > 0 ? substitute(animationClips) : undefined,
     trackClips: trackClips.length > 0 ? substitute(trackClips) : undefined,
@@ -399,17 +399,17 @@ export function serializeComposeLayerSubtree(
 
   // Graphs owned by layers in the subtree
   const placeholders = layerIds.map(() => '?').join(',');
-  const automationRows = db
+  const logicRows = db
     .prepare(
-      `SELECT * FROM automations WHERE owner_kind = 'compose_layer' AND owner_id IN (${placeholders}) ORDER BY created_at`
+      `SELECT * FROM logic WHERE owner_kind = 'compose_layer' AND owner_id IN (${placeholders}) ORDER BY created_at`
     )
     .all(...layerIds) as Record<string, unknown>[];
 
-  const graphs = automationRows.map((g) => {
-    const automationPresetId = nextPresetId('g');
-    realToPreset.set(g.id as string, automationPresetId);
+  const graphs = logicRows.map((g) => {
+    const logicPresetId = nextPresetId('g');
+    realToPreset.set(g.id as string, logicPresetId);
     return {
-      presetId: automationPresetId,
+      presetId: logicPresetId,
       ownerKind: 'compose_layer' as const,
       ownerPresetId: realToPreset.get(g.owner_id as string) ?? '',
       name: g.name,
@@ -497,7 +497,7 @@ export function serializeComposeLayerSubtree(
     },
     assets: substitute(assets),
     composeLayers: substitute(composeLayers),
-    automations: graphs.length > 0 ? substitute(graphs) : undefined,
+    logic: graphs.length > 0 ? substitute(graphs) : undefined,
     trackClips: trackClips.length > 0 ? substitute(trackClips) : undefined,
   };
 }

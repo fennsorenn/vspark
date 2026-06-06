@@ -927,24 +927,24 @@ export const fireSignalEvent = (
 
 // ─── Project graphs ──────────────────────────────────────────────────────────
 
-export const getProjectAutomations = (projectId: string) =>
-  request<AutomationRecord[]>(`/projects/${projectId}/automations`);
+export const getProjectLogic = (projectId: string) =>
+  request<LogicRecord[]>(`/projects/${projectId}/logic`);
 
-export const createProjectAutomation = (projectId: string, name: string) =>
-  request<AutomationRecord>(`/projects/${projectId}/automations`, {
+export const createProjectLogic = (projectId: string, name: string) =>
+  request<LogicRecord>(`/projects/${projectId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
 
 /** A scene-node- or compose-layer-scoped graph, tagged with its owner's
  *  display name for listing in the Graphs panel's Scoped section. */
-export interface ScopedAutomationRecord extends AutomationRecord {
+export interface ScopedLogicRecord extends LogicRecord {
   ownerName: string;
   ownerNodeKind?: string;
 }
 
-export const getProjectScopedAutomations = (projectId: string) =>
-  request<ScopedAutomationRecord[]>(`/projects/${projectId}/scoped-automations`);
+export const getProjectScopedLogic = (projectId: string) =>
+  request<ScopedLogicRecord[]>(`/projects/${projectId}/scoped-logic`);
 
 // ─── Overlive: app credentials ───────────────────────────────────────────────
 
@@ -1130,7 +1130,7 @@ export interface PresetRecord extends PresetSummary {
   payload: unknown;
 }
 
-export interface AutomationRecord {
+export interface LogicRecord {
   id: string;
   ownerKind: string;
   ownerId: string;
@@ -1222,27 +1222,27 @@ export const instantiatePreset = (
 
 /** Generic graph fetch by id — works for any owner kind. Used by the canvas
  *  so it can open a graph without first knowing its scope. */
-export const getAutomation = (id: string) => request<AutomationRecord>(`/automations/${id}`);
+export const getLogic = (id: string) => request<LogicRecord>(`/logic/${id}`);
 
-export const getNodeAutomations = (nodeId: string) =>
-  request<AutomationRecord[]>(`/scene-nodes/${nodeId}/automations`);
+export const getNodeLogic = (nodeId: string) =>
+  request<LogicRecord[]>(`/scene-nodes/${nodeId}/logic`);
 
-export const createNodeAutomation = (nodeId: string, name: string) =>
-  request<AutomationRecord>(`/scene-nodes/${nodeId}/automations`, {
+export const createNodeLogic = (nodeId: string, name: string) =>
+  request<LogicRecord>(`/scene-nodes/${nodeId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
 
-export const getLayerAutomations = (layerId: string) =>
-  request<AutomationRecord[]>(`/compose-layers/${layerId}/automations`);
+export const getLayerLogic = (layerId: string) =>
+  request<LogicRecord[]>(`/compose-layers/${layerId}/logic`);
 
-export const createLayerAutomation = (layerId: string, name: string) =>
-  request<AutomationRecord>(`/compose-layers/${layerId}/automations`, {
+export const createLayerLogic = (layerId: string, name: string) =>
+  request<LogicRecord>(`/compose-layers/${layerId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
 
-export const updateAutomation = (
+export const updateLogic = (
   id: string,
   patch: Partial<{
     name: string;
@@ -1250,13 +1250,13 @@ export const updateAutomation = (
     descriptor: import('@vspark/shared/signal').GraphDescriptor;
   }>
 ) =>
-  request<AutomationRecord>(`/automations/${id}`, {
+  request<LogicRecord>(`/logic/${id}`, {
     method: 'PUT',
     body: JSON.stringify(patch),
   });
 
-export const deleteAutomation = (id: string) =>
-  request<Record<string, never>>(`/automations/${id}`, { method: 'DELETE' });
+export const deleteLogic = (id: string) =>
+  request<Record<string, never>>(`/logic/${id}`, { method: 'DELETE' });
 
 export const api = {
   getUpdateStatus,
@@ -1315,9 +1315,9 @@ export const api = {
   getSignalGraphStates,
   fireSignalEvent,
   getBehaviorKinds,
-  getProjectAutomations,
-  createProjectAutomation,
-  getProjectScopedAutomations,
+  getProjectLogic,
+  createProjectLogic,
+  getProjectScopedLogic,
   getOverliveAppCredentials,
   createOverliveAppCredential,
   updateOverliveAppCredential,
@@ -1337,11 +1337,11 @@ export const api = {
   deletePreset,
   serializePreset,
   instantiatePreset,
-  getAutomation,
-  getNodeAutomations,
-  createNodeAutomation,
-  getLayerAutomations,
-  createLayerAutomation,
-  updateAutomation,
-  deleteAutomation,
+  getLogic,
+  getNodeLogic,
+  createNodeLogic,
+  getLayerLogic,
+  createLayerLogic,
+  updateLogic,
+  deleteLogic,
 };

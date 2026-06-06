@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getAllNodeKindMeta } from '../signal/registry.js';
 import { _vmc, _breathing, _lipsync, _tracking } from './shared.js';
-import { automationManager } from '../automations/manager.js';
+import { logicManager } from '../logic/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -79,7 +79,7 @@ router.get('/signal/graphs/:id/node-states', (req, res) => {
   const graphId = req.params.id;
   // Standalone project graphs use bare UUIDs (no prefix). Try those first.
   if (!graphId.includes(':')) {
-    const pgStates = automationManager.getStates(graphId);
+    const pgStates = logicManager.getStates(graphId);
     if (pgStates) return res.json({ ok: true, data: pgStates });
   }
   const behaviorId = _stripPrefix(graphId);
@@ -133,9 +133,9 @@ router.post('/signal/graphs/:id/fire', (req, res) => {
         },
       });
   }
-  // Standalone project graphs fire through the AutomationManager.
+  // Standalone project graphs fire through the LogicManager.
   if (!graphId.includes(':')) {
-    automationManager.fire(graphId, nodeId, port, undefined);
+    logicManager.fire(graphId, nodeId, port, undefined);
     return res.json({ ok: true });
   }
   const behaviorId = _stripPrefix(graphId);

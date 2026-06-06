@@ -32,7 +32,7 @@ import { InferGraph } from '@vspark/shared/inference';
 import { inferForKind } from '@vspark/shared/infer_nodes';
 import { transportOf, type ResolvedPort } from '@vspark/shared/signal_types';
 import type { PortMeta } from '@vspark/shared/node';
-import type { AutomationOwnerKind } from '@vspark/shared/types';
+import type { LogicOwnerKind } from '@vspark/shared/types';
 import { SignalNodeCard } from './SignalNodeCard';
 import type { SignalNodeData } from './SignalNodeCard';
 import { FlashEdge } from './FlashEdge';
@@ -92,7 +92,7 @@ function staticPortsOf(meta: NodeKindMeta | undefined): PortMeta[] {
 function buildMirror(
   descriptor: GraphDescriptor,
   kindMap: Map<string, NodeKindMeta>,
-  ownerKind?: AutomationOwnerKind
+  ownerKind?: LogicOwnerKind
 ): InferGraph {
   const g = new InferGraph(
     inferForKind,
@@ -330,8 +330,8 @@ export function SignalGraphCanvas(props: Props) {
 
 function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   const setSelectedSignalNode = useEditorStore((s) => s.setSelectedSignalNode);
-  const setActiveAutomationWritable = useEditorStore(
-    (s) => s.setActiveAutomationWritable
+  const setActiveLogicWritable = useEditorStore(
+    (s) => s.setActiveLogicWritable
   );
   const { screenToFlowPosition } = useReactFlow();
 
@@ -349,7 +349,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   const [writable, setWritable] = useState(false);
   // Owner scope of the loaded graph — threaded into inference so scope-aware
   // nodes (scene_entity) resolve the right port types in the editor.
-  const [ownerKind, setOwnerKind] = useState<AutomationOwnerKind | undefined>(
+  const [ownerKind, setOwnerKind] = useState<LogicOwnerKind | undefined>(
     undefined
   );
   // Transient banner shown when a drag connection is refused by type inference.
@@ -405,13 +405,13 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        const behaviorAutomations = await api.getSignalGraphs();
-        const match = behaviorAutomations.find((g) => g.id === graphId);
+        const behaviorLogic = await api.getSignalGraphs();
+        const match = behaviorLogic.find((g) => g.id === graphId);
         if (match) {
           if (!cancelled) {
             writableRef.current = false;
             setWritable(false);
-            setActiveAutomationWritable(false);
+            setActiveLogicWritable(false);
             // Behavior-owned graphs are always attached to a scene node.
             setOwnerKind('scene_node');
             setDescriptor(match);
@@ -422,10 +422,10 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
         /* ignore */
       }
       // Fall back to standalone graphs (project / scene_node / compose_layer)
-      // via the generic getAutomation endpoint. All three owner kinds are writable
+      // via the generic getLogic endpoint. All three owner kinds are writable
       // via the same PUT /graphs/:id route.
       try {
-        const g = await api.getAutomation(graphId);
+        const g = await api.getLogic(graphId);
         if (g && !cancelled) {
           const d: GraphDescriptor = {
             ...g.descriptor,
@@ -436,8 +436,8 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
           writableRef.current = true;
           editableRef.current = d;
           setWritable(true);
-          setActiveAutomationWritable(true);
-          setOwnerKind((g.ownerKind as AutomationOwnerKind) || undefined);
+          setActiveLogicWritable(true);
+          setOwnerKind((g.ownerKind as LogicOwnerKind) || undefined);
           setDescriptor(d);
         }
       } catch {
@@ -447,14 +447,14 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [graphId, setActiveAutomationWritable]);
+  }, [graphId, setActiveLogicWritable]);
 
   // Clear writable flag on unmount (so leaving the graph view also clears).
   useEffect(
     () => () => {
-      setActiveAutomationWritable(false);
+      setActiveLogicWritable(false);
     },
-    [setActiveAutomationWritable]
+    [setActiveLogicWritable]
   );
 
   // Poll graph states at ~500ms for live monitoring.
@@ -567,7 +567,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       persistTimer.current = setTimeout(() => {
         // Strip the wrapper fields the backend doesn't store on the row.
         void api
-          .updateAutomation(graphId, {
+          .updateLogic(graphId, {
             descriptor: {
               id: next.id,
               label: next.label,
@@ -593,7 +593,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       const next = editableRef.current;
       if (writableRef.current && next) {
         void api
-          .updateAutomation(graphId, {
+          .updateLogic(graphId, {
             descriptor: {
               id: next.id,
               label: next.label,

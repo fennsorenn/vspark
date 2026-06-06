@@ -368,23 +368,23 @@ export const replaceTrackClipKeyframesSchema = z
 
 export const graphOwnerKindSchema = z
   .enum(['project', 'scene_node', 'compose_layer'])
-  .openapi('AutomationOwnerKind');
+  .openapi('LogicOwnerKind');
 
-export const createAutomationSchema = z
+export const createLogicSchema = z
   .object({
     name: z.string().min(1),
     enabled: z.boolean().optional(),
     descriptor: z.unknown().optional(),
   })
-  .openapi('CreateAutomation');
+  .openapi('CreateLogic');
 
-export const updateAutomationSchema = z
+export const updateLogicSchema = z
   .object({
     name: z.string().min(1).optional(),
     enabled: z.boolean().optional(),
     descriptor: z.unknown().optional(),
   })
-  .openapi('UpdateAutomation');
+  .openapi('UpdateLogic');
 
 // --- Presets ---
 
@@ -461,7 +461,7 @@ export const presetComposeLayerSchema = z
   })
   .openapi('PresetComposeLayer');
 
-export const presetAutomationSchema = z
+export const presetLogicSchema = z
   .object({
     presetId: z.string(),
     ownerKind: z.enum(['scene_node', 'compose_layer']),
@@ -471,7 +471,7 @@ export const presetAutomationSchema = z
     descriptor: z.unknown(),
     nodeState: z.unknown(),
   })
-  .openapi('PresetAutomation');
+  .openapi('PresetLogic');
 
 export const presetAnimationClipSchema = z
   .object({
@@ -541,7 +541,7 @@ export const presetPayloadSchema = z
     assets: z.array(presetAssetSchema),
     sceneNodes: z.array(presetSceneNodeSchema).optional(),
     composeLayers: z.array(presetComposeLayerSchema).optional(),
-    automations: z.array(presetAutomationSchema).optional(),
+    logic: z.array(presetLogicSchema).optional(),
     animationClips: z.array(presetAnimationClipSchema).optional(),
     trackClips: z.array(presetTrackClipSchema).optional(),
   })
@@ -687,8 +687,8 @@ export type ReplaceTrackClipKeyframesInput = z.infer<
   typeof replaceTrackClipKeyframesSchema
 >;
 export type TrackClipKeyframeInput = z.infer<typeof trackClipKeyframeSchema>;
-export type CreateAutomationInput = z.infer<typeof createAutomationSchema>;
-export type UpdateAutomationInput = z.infer<typeof updateAutomationSchema>;
+export type CreateLogicInput = z.infer<typeof createLogicSchema>;
+export type UpdateLogicInput = z.infer<typeof updateLogicSchema>;
 export type CreatePresetInput = z.infer<typeof createPresetSchema>;
 export type InstantiatePresetInput = z.infer<typeof instantiatePresetSchema>;
 export type SerializePresetInput = z.infer<typeof serializePresetSchema>;
