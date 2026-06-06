@@ -8,7 +8,7 @@ import { valueIn, eventOut } from '@vspark/shared/node_decorators';
  * wire it or set it statically. There is no reaction; the node is fired from, not delivered to.
  */
 @SignalNode({
-  label: 'Component Trigger',
+  label: 'Behavior Trigger',
   description:
     'Emits a trigger event when its button is pressed in the component property panel.',
   tags: ['input'],

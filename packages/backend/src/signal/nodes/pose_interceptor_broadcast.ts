@@ -6,7 +6,7 @@ import { poseInterceptorRegistry } from '../pose_interceptor_registry.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 
 @SignalNode({
-  label: 'Pose Interceptor Broadcast',
+  label: 'Send Intercepted Pose',
   description:
     'Advances the pose interceptor chain. Wire the frame from On Pose Broadcast and the (optionally modified) pose, then connect trigger from the end of your pipeline.',
   tags: ['interceptor', 'output'],

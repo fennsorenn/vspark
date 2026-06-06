@@ -12,7 +12,7 @@ export function initBlendshapesBroadcast(ws: WSSync): void {
 }
 
 @SignalNode({
-  label: 'Blendshapes Broadcast',
+  label: 'Send Blendshapes',
   description:
     'Publishes VRM expression weights to the Broadcast Bus. The bus sums all producer slots for the entity (clamped to [0,1]) and emits a merged frame on each scene tick.',
   tags: ['output'],

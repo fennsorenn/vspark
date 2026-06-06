@@ -1370,7 +1370,7 @@ const MAPPER_NODES: {
 }[] = [
   {
     id: 'arkit_fcl_cfg',
-    label: 'VRoid (Fcl_*)',
+    label: 'VRoid Blendshapes',
     defaultEnabled: true,
     builtinMapping: ARKIT_TO_FCL as Record<string, [string, number][]>,
   },
@@ -3187,7 +3187,10 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                 'SUBTRACT',
               ].map((m) => (
                 <option key={m} value={m}>
-                  {m.replace(/_/g, ' ')}
+                  {m
+                    .toLowerCase()
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, (c) => c.toUpperCase())}
                 </option>
               ))}
             </select>

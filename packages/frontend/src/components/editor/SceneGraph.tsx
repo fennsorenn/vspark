@@ -303,7 +303,7 @@ function SceneNodeContextMenu({
             onClose();
           }}
         >
-          Paste graph here
+          Paste automation here
         </div>
       )}
 
@@ -456,7 +456,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
             fontStyle: 'italic',
           }}
         >
-          No components
+          No behaviors
         </div>
       )}
       {components.map((comp) => {
@@ -574,7 +574,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
           }}
           onClick={() => setShowAddMenu((v) => !v)}
         >
-          + Add Component
+          + Add Behavior
         </button>
         {canPasteComponent && (
           <button
@@ -1095,7 +1095,7 @@ function GraphListPanel() {
         )
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle graph');
+      alert(e instanceof Error ? e.message : 'Failed to toggle automation');
     }
   };
 
@@ -1121,19 +1121,19 @@ function GraphListPanel() {
 
   const handleCreate = async () => {
     if (!projectId) return;
-    const name = window.prompt('New graph name:', 'Untitled Graph');
+    const name = window.prompt('New automation name:', 'Untitled Automation');
     if (!name?.trim()) return;
     try {
       const created = await api.createProjectGraph(projectId, name.trim());
       setProjectGraphs((prev) => [...prev, created]);
       setActiveGraph(created.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create graph');
+      alert(e instanceof Error ? e.message : 'Failed to create automation');
     }
   };
 
   const handleRename = async (g: GraphRecord) => {
-    const name = window.prompt('Rename graph:', g.name);
+    const name = window.prompt('Rename automation:', g.name);
     if (!name?.trim() || name.trim() === g.name) return;
     try {
       const updated = await api.updateGraph(g.id, { name: name.trim() });
@@ -1141,7 +1141,7 @@ function GraphListPanel() {
         prev.map((x) => (x.id === g.id ? updated : x))
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to rename graph');
+      alert(e instanceof Error ? e.message : 'Failed to rename automation');
     }
   };
 
@@ -1154,7 +1154,7 @@ function GraphListPanel() {
         prev.map((x) => (x.id === g.id ? updated : x))
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle graph');
+      alert(e instanceof Error ? e.message : 'Failed to toggle automation');
     }
   };
 
@@ -1165,7 +1165,7 @@ function GraphListPanel() {
       setProjectGraphs((prev) => prev.filter((x) => x.id !== g.id));
       if (activeGraphId === g.id) setActiveGraph(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete graph');
+      alert(e instanceof Error ? e.message : 'Failed to delete automation');
     }
   };
 
@@ -1194,7 +1194,7 @@ function GraphListPanel() {
       setProjectGraphs((prev) => [...prev, updated]);
       setActiveGraph(updated.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+      alert(e instanceof Error ? e.message : 'Failed to paste automation');
     }
   };
 
@@ -1214,11 +1214,11 @@ function GraphListPanel() {
           letterSpacing: 0.5,
         }}
       >
-        <span>Project Graphs</span>
+        <span>Global Automations</span>
         <div style={{ display: 'flex', gap: 4 }}>
           {canPasteGraph && (
             <button
-              title="Paste graph from clipboard as a project graph"
+              title="Paste automation from clipboard as a global automation"
               onClick={handlePaste}
               style={{
                 background: 'none',
@@ -1234,7 +1234,7 @@ function GraphListPanel() {
             </button>
           )}
           <button
-            title="New graph"
+            title="New automation"
             onClick={handleCreate}
             style={{
               background: '#2563eb',
@@ -1336,7 +1336,7 @@ function GraphListPanel() {
         onClick={() => setScopedGraphsOpen((v) => !v)}
       >
         <span style={{ color: '#555' }}>{scopedGraphsOpen ? '▼' : '▶'}</span>
-        <span>Scoped Graphs</span>
+        <span>Scoped Automations</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
           ({scopedGraphs.length})
         </span>
@@ -1430,7 +1430,7 @@ function GraphListPanel() {
         onClick={() => setComponentGraphsOpen((v) => !v)}
       >
         <span style={{ color: '#555' }}>{componentGraphsOpen ? '▼' : '▶'}</span>
-        <span>Component Graphs</span>
+        <span>Behavior Automations</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
           ({componentGraphs.length})
         </span>
@@ -1474,7 +1474,7 @@ function GraphListPanel() {
           items={[
             {
               kind: 'item',
-              label: 'Copy graph',
+              label: 'Copy automation',
               onClick: () => void handleCopy(ctxMenu.graph),
             },
             {
@@ -1725,7 +1725,7 @@ export function SceneGraph() {
         enabled: true,
       });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+      alert(e instanceof Error ? e.message : 'Failed to paste automation');
     }
   };
 
@@ -2372,7 +2372,7 @@ export function SceneGraph() {
           style={tabStyle(dockTab === 'graphs')}
           onClick={() => setDockTab('graphs')}
         >
-          Graphs
+          Automation
         </button>
       </div>
 

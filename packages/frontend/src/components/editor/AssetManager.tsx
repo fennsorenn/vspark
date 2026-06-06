@@ -730,13 +730,13 @@ export function AssetManager() {
           style={tabBtn('components')}
           onClick={() => setTab('components')}
         >
-          Components
+          Behaviors
         </button>
         <button style={tabBtn('effects')} onClick={() => setTab('effects')}>
           Effects
         </button>
         <button style={tabBtn('clips')} onClick={() => setTab('clips')}>
-          Clips
+          Timeline
         </button>
         <button style={tabBtn('presets')} onClick={() => setTab('presets')}>
           Presets
@@ -901,7 +901,7 @@ export function AssetManager() {
                     paddingTop: 12,
                   }}
                 >
-                  Select a node in the scene to add components.
+                  Select an object in the scene to add behaviors.
                 </div>
               )}
               {selectedNode &&
@@ -924,7 +924,7 @@ export function AssetManager() {
                       {incompatible.length > 0 && (
                         <>
                           <div style={sectionLabel}>
-                            Other components (not typical for{' '}
+                            Other behaviors (not typical for{' '}
                             {selectedNode.kind})
                           </div>
                           <div style={cardGrid}>

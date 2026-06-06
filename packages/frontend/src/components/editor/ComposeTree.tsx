@@ -245,7 +245,7 @@ function LayerRow({
     if (canPasteGraph) {
       items.push({
         kind: 'item',
-        label: 'Paste graph here',
+        label: 'Paste automation here',
         onClick: () => void handlePasteGraphAtLayer(),
       });
     }

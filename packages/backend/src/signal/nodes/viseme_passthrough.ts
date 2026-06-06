@@ -13,7 +13,7 @@ interface VisemeState {
 }
 
 @SignalNode({
-  label: 'Viseme Passthrough',
+  label: 'Visemes → Blendshapes',
   description:
     'Scales all incoming viseme weights by a sensitivity multiplier. Clamped to [0, 1].',
   tags: ['lipsync'],

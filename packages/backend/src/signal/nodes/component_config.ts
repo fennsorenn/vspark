@@ -33,7 +33,7 @@ function resolvePath(obj: unknown, path: string): unknown {
  * compatible with any typed value port — the engine does no runtime type check.
  */
 @SignalNode({
-  label: 'Component Config',
+  label: 'Behavior Settings',
   tags: ['config'],
   color: '#2a2a4a',
   internal: true,

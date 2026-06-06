@@ -44,7 +44,7 @@ export function GraphsSection({
   }, [owner.kind, owner.id]);
 
   const handleAdd = async () => {
-    const name = window.prompt('New graph name:', 'Untitled Graph');
+    const name = window.prompt('New automation name:', 'Untitled Automation');
     if (!name?.trim()) return;
     try {
       const created =
@@ -54,18 +54,18 @@ export function GraphsSection({
       setGraphs((prev) => [...prev, created]);
       openGraph(created.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create graph');
+      alert(e instanceof Error ? e.message : 'Failed to create automation');
     }
   };
 
   const handleDelete = async (g: GraphRecord) => {
-    if (!window.confirm(`Delete graph "${g.name}"?`)) return;
+    if (!window.confirm(`Delete automation "${g.name}"?`)) return;
     try {
       await api.deleteGraph(g.id);
       setGraphs((prev) => prev.filter((x) => x.id !== g.id));
       if (activeGraphId === g.id) setActiveGraph(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete graph');
+      alert(e instanceof Error ? e.message : 'Failed to delete automation');
     }
   };
 
@@ -74,7 +74,7 @@ export function GraphsSection({
       const updated = await api.updateGraph(g.id, { enabled: !g.enabled });
       setGraphs((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle graph');
+      alert(e instanceof Error ? e.message : 'Failed to toggle automation');
     }
   };
 
@@ -115,7 +115,7 @@ export function GraphsSection({
       setGraphs((prev) => [...prev, updated]);
       openGraph(updated.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+      alert(e instanceof Error ? e.message : 'Failed to paste automation');
     }
   };
 
@@ -140,7 +140,7 @@ export function GraphsSection({
             fontStyle: 'italic',
           }}
         >
-          No graphs
+          No automations
         </div>
       )}
       {graphs.map((g) => {
@@ -220,12 +220,12 @@ export function GraphsSection({
             textAlign: 'left',
           }}
         >
-          + Add Graph
+          + Add Automation
         </button>
         {canPasteGraph && (
           <button
             onClick={handlePaste}
-            title="Paste the graph from clipboard onto this owner"
+            title="Paste the automation from clipboard onto this owner"
             style={{
               background: 'none',
               border: '1px dashed #3a5a4a',
@@ -237,7 +237,7 @@ export function GraphsSection({
               textAlign: 'left',
             }}
           >
-            ⧉ Paste Graph
+            ⧉ Paste Automation
           </button>
         )}
       </div>
