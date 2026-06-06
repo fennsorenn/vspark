@@ -21,7 +21,7 @@ Both produce per-bone world-space quaternions. The blend weight ramps smoothly b
 
 **`NormalizedPose`**: `Map<VRMBoneName, Quaternion>` — after mapping and coordinate correction. All downstream consumers use this.
 
-**`VRM_BONE_NAMES`**: 54-element string array. The canonical key set for `NormalizedPose`. Covers full humanoid skeleton from hips through all finger distal bones.
+**`VRM_BONE_NAMES`**: 55-element string array. The canonical key set for `NormalizedPose`. Covers full humanoid skeleton from hips through all finger distal bones.
 
 ## FBX/BVH retargeting — `Viewport.tsx`
 

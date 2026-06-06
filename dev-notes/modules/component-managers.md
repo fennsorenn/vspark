@@ -111,7 +111,7 @@ into `mediapipe_source`.
 
 **Manual triggers**: `fireGraphEvent(behaviorId, nodeId, port)` — used by the head/finger/IK
 capture+reset buttons in `PropertiesPanel.tsx`, dispatched by `POST /api/signal/graphs/:id/fire`.
-`routes/api.ts` routes by graph-id prefix (VMC vs tracking).
+`routes/signal.ts` routes by graph-id prefix (VMC vs tracking).
 
 **Config**: `useIk` (arm mode toggle), `enableFace`, `enablePose`, `enableHands`, plus head and
 IK calibration knobs (see PropertiesPanel `MediapipeTrackerProps`). All knobs are surfaced

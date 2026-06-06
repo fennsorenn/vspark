@@ -103,6 +103,14 @@ Documentation is maintained by the `doc-updater` agent. Spawn it in the backgrou
 - **Planning a feature**: spawn with the feature description and how it fits → it adds it as planned
 - **Completing a task**: spawn with a summary of what changed, which modules were affected, and any new patterns or extension points → it updates statuses and module files
 
+## Flagging stale docs
+
+Docs drift as the code changes. Whenever you read documentation during a task — `CLAUDE.md`, `dev-notes/`, `README*.md`, or inline comments — and notice it contradicts the current code (wrong file paths, renamed tables/types, removed modules described as present, outdated counts), **flag it to the user and offer to fix it**. Don't silently skip past it just because it's outside your immediate task.
+
+- **Verify against the actual source before editing** — never trust one stale doc to correct another; confirm the current truth in the code (file, symbol, count).
+- **Distinguish genuine staleness from intentionally historical notes.** Breadcrumbs like "renamed from `node_components`", "(formerly X)", "migration filename kept", or "Phase 2: all 54 nodes" are deliberate context — leave them.
+- Small, verified fixes: make them as part of your work in a separate `docs:` commit. Larger drift: surface it and let the user decide scope rather than ballooning the task.
+
 # Git
 
 ## Clean working tree before starting

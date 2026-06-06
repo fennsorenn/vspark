@@ -106,7 +106,7 @@ Client connection: HTTP upgrade on any path → `wsSync.upgrade(req, socket, hea
 
 ### `routes/update.ts`
 
-Mounted alongside `api.ts`. Startup calls `initUpdateChecker(installDir, wsSync)` once on boot to check GitHub Releases.
+Mounted at `/api` alongside the main API router (`apiRoutes` from `routes/index.ts`). Startup calls `initUpdateChecker(installDir, wsSync)` once on boot to check GitHub Releases.
 
 ```
 GET  /api/update-status         returns { version, latestVersion, releaseNotes, channel, downloadReady }
