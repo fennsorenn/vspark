@@ -165,6 +165,9 @@ jobs:
           setlocal
           set "DIR=%~dp0"
           set "ZIP=%DIR%..\vspark-update.zip"
+          rem node runs in the foreground so console Ctrl-C / close reaches it
+          rem directly (cmd has no trap-style signal forwarding); the server's
+          rem exit code below drives the update/restart logic.
           :loop
           "%DIR%node.exe" "%DIR%bundle.cjs"
           if errorlevel 42 if not errorlevel 43 (
@@ -180,8 +183,22 @@ jobs:
           #!/bin/sh
           DIR="$(cd "$(dirname "$0")" && pwd)"
           ZIP="$DIR/../vspark-update.zip"
+          # Run node in the background and forward TERM/INT to it, so killing or
+          # Ctrl-C-ing this supervisor cleanly stops the server instead of
+          # orphaning it. The trap exits the loop (a deliberate stop must not
+          # relaunch); only node's own exit code drives the update/restart logic.
+          # Forward TERM/INT to the server and stop: killing or Ctrl-C-ing this
+          # supervisor cleanly shuts the server down instead of orphaning it.
+          # The handler exits, so a deliberate stop never relaunches; only the
+          # server's own exit code (below) drives the update/restart logic.
+          child=""
+          trap '[ -n "$child" ] && kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 143' TERM INT
           while :; do
-            "$DIR/node" "$DIR/bundle.cjs"
+            "$DIR/node" "$DIR/bundle.cjs" &
+            child=$!
+            # On a trapped signal the handler runs and exits, so control only
+            # returns here on the server's own exit — $? is then its real code.
+            wait "$child"
             code=$?
             if [ "$code" -eq 42 ]; then
               echo "[update] applying update..."
