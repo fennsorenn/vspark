@@ -2973,6 +2973,9 @@ function BoneCalibRow({
             labels={['X', 'Y', 'Z']}
             step={0.1}
             groupLabel="Multiplier"
+            onChange={(next) =>
+              onChange({ multiplier: next as [number, number, number] })
+            }
             onCommit={(next) =>
               onChange({ multiplier: next as [number, number, number] })
             }
@@ -2984,6 +2987,9 @@ function BoneCalibRow({
             step={1}
             suffix="°"
             groupLabel="Offset (°)"
+            onChange={(next) =>
+              onChange({ offset: next as [number, number, number] })
+            }
             onCommit={(next) =>
               onChange({ offset: next as [number, number, number] })
             }
