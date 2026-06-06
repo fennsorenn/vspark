@@ -36,7 +36,7 @@ packages/
 | Update routes | Implemented | `routes/update.ts`, `routes/config.ts` — GitHub Releases update check/download/apply (with download progress), config.json channel preference. Apply exits with sentinel code 42; the bundled `start.sh`/`start.bat` supervisor loop unzips the update in place and relaunches in the same console. See [updates.md](modules/updates.md). |
 | SQLite persistence | Implemented | `db/` — `node-sqlite3-wasm` (WASM, no native addon); `WasmDb` adapter; `initDb()` async |
 | Signal graph engine | Implemented | `signal/engine.ts` — typed ports, value cache, cycle detection |
-| Signal node registry | Implemented | `signal/registry.ts` — 58 node kinds (mediapipe converters + IK, runtime mutation primitives `random` / `start_clip` / `spawn_clip` / `set_scene_node_param` / `set_compose_layer_param` / `set_text` / `set_data`, media `media_control`, `pose_manual_calibration`, `log` debug, plus 13 overlive event nodes + `overlive_chat_feed`) |
+| Signal node registry | Implemented | `signal/registry.ts` — 60 node kinds (mediapipe converters + IK, runtime mutation primitives `random` / `start_clip` / `spawn_clip` / `set_scene_node_param` / `set_compose_layer_param` / `set_text` / `set_data`, media `media_control`, `pose_manual_calibration`, `log` debug, plus 13 overlive event nodes + `overlive_chat_feed`) |
 | Engine value-input auto-fallback to `config.<port>` | Implemented | `signal/engine.ts` — unconnected value-input ports automatically resolve to `defaultConfig.<portName>`; nodes no longer need per-port `cfg?.X` boilerplate |
 | VMC receiver manager | Implemented | `behaviors/vmc_receiver/` |
 | Shared UDP socket pool (vmc_receiver) | Implemented | `vmc/udp_socket_pool.ts` — refcounted `UdpSocketPool` singleton (`udpSocketPool`) exposing `subscribe(port, listener, onBound?) -> unsubscribe`. First subscriber binds (currently `0.0.0.0`), last unsubscribe closes; listener dispatch snapshots the set so mid-dispatch unsubscribe is safe. `VmcManager.startReceiver` subscribes instead of binding its own `dgram` socket, so multiple `vmc_receiver` behaviors on the same port each receive every packet independently. See [component-managers.md](modules/component-managers.md). |
@@ -175,7 +175,7 @@ REST write → SQLite → WS broadcast (node_added/updated/removed, camera_effec
 
 ## Module Docs
 
-- [signal-graph.md](modules/signal-graph.md) — engine (class-instance/decorator model + edge-time type inference), all 58 node kinds, how to add a new node
+- [signal-graph.md](modules/signal-graph.md) — engine (class-instance/decorator model + edge-time type inference), all 60 node kinds, how to add a new node
 - [component-managers.md](modules/component-managers.md) — Behavior managers (VMC, breathing, lipsync, tracking, api_controller, manual_calibration); lifecycle pattern. (Doc filename `component-managers.md` kept; managers live in the `behaviors/` source dir.)
 - [api-controller.md](modules/api-controller.md) — REST-driven animation/blendshape control surface, the first behavior with public REST endpoints
 - [backend-api.md](modules/backend-api.md) — REST routes, WebSocket, DB migrations

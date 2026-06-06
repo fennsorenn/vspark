@@ -37,24 +37,24 @@ packages/
 
 ### Core Abstractions
 
-- **Project** → **Scene** → **Node** (VRM avatar, camera, light, group) — persistent hierarchy in SQLite
-- **Component** — behavioral driver attached to a node (e.g. `vmc_receiver`), stored in `node_components`
-- **Signal Graph** — reactive execution engine instantiated per component; hybrid push (events) / pull (values) model
+- **Project** → **Scene** → **Node** (VRM avatar, camera, light, group) — persistent hierarchy in SQLite. A Scene is itself a `scene_nodes` row (`kind = 'scene'`); the standalone `scenes` table was dropped (migration 018).
+- **Behavior** — behavioral driver attached to a node (e.g. `vmc_receiver`, `breathing`, `manual_calibration`, `lipsync_processor`, `mediapipe_tracker`, `api_controller`), stored in the `behaviors` table (renamed from `node_components` in migration 022)
+- **Signal Graph** — reactive execution engine instantiated per behavior; hybrid push (events) / pull (values) model
 - **PoseFrame** — sparse bone rotation payload produced by the graph and broadcast over WebSocket
 
 ### Backend Data Flow
 
-1. `node_components` CRUD (via `/api/node-components`) triggers `VmcManager` to instantiate/destroy signal graphs
+1. Behavior CRUD (via `/api/scene-nodes/:id/behaviors` + `/api/behaviors/:id`) triggers the behavior managers to instantiate/destroy signal graphs
 2. `VmcManager` opens a UDP socket; incoming OSC packets fire into the graph's `vmc_packet_source` node
 3. Graph executes through bone mappers → calibration nodes → `pose_broadcast` node
 4. `pose_broadcast` emits `vmc_pose` / `vmc_blendshapes` messages over the shared WebSocket
 
 Key backend files:
-- [packages/backend/src/index.ts](packages/backend/src/index.ts) — entry point, HTTP + WebSocket setup
-- [packages/backend/src/routes/api.ts](packages/backend/src/routes/api.ts) — all REST routes
+- [packages/backend/src/index.ts](packages/backend/src/index.ts) — entry point, HTTP + WebSocket setup, manager init
+- [packages/backend/src/routes/index.ts](packages/backend/src/routes/index.ts) — REST routes, split per resource and composed here (no monolithic `api.ts`)
 - [packages/backend/src/signal/engine.ts](packages/backend/src/signal/engine.ts) — graph runtime (typed ports, value cache, cycle detection)
 - [packages/backend/src/signal/registry.ts](packages/backend/src/signal/registry.ts) — registered signal node kinds
-- [packages/backend/src/vmc/manager.ts](packages/backend/src/vmc/manager.ts) — VMC component lifecycle
+- [packages/backend/src/behaviors/vmc_receiver/manager.ts](packages/backend/src/behaviors/vmc_receiver/manager.ts) — VMC behavior lifecycle (behavior managers live under `behaviors/<kind>/`)
 
 ### Frontend Data Flow
 
@@ -71,17 +71,17 @@ Key frontend files:
 
 ### Signal Graph
 
-Defined entirely in [packages/shared/src/signal.ts](packages/shared/src/signal.ts). Node classes are registered in the backend registry and serialized as `GraphDescriptor` objects. The 13 built-in node kinds live under [packages/backend/src/signal/nodes/](packages/backend/src/signal/nodes/).
+Defined entirely in [packages/shared/src/signal.ts](packages/shared/src/signal.ts). Node classes are registered in the backend registry and serialized as `GraphDescriptor` objects. The 60 built-in node kinds live under [packages/backend/src/signal/nodes/](packages/backend/src/signal/nodes/).
 
-The VMC pipeline graph shape is hardcoded in [packages/backend/src/vmc/vmc_graph.ts](packages/backend/src/vmc/vmc_graph.ts) — it wires source → mapper → calibration → broadcast nodes.
+The VMC pipeline graph shape is hardcoded in [packages/backend/src/behaviors/vmc_receiver/graph.ts](packages/backend/src/behaviors/vmc_receiver/graph.ts) — it wires source → mapper → calibration → broadcast nodes. Other behaviors follow the same `behaviors/<kind>/graph.ts` + `manager.ts` pattern.
 
 ### Database
 
-better-sqlite3 (synchronous). Migrations in [packages/backend/src/db/migrations/](packages/backend/src/db/migrations/). All tables are project-scoped with strict foreign key constraints. Key tables: `projects`, `scenes`, `scene_nodes`, `node_components`, `asset_files`, `animation_clips`.
+node-sqlite3-wasm (synchronous, WASM — no native addon). Migrations in [packages/backend/src/db/migrations/](packages/backend/src/db/migrations/). All tables are project-scoped with strict foreign key constraints. Key tables: `projects`, `scene_nodes`, `behaviors`, `asset_files`, `animation_clips`.
 
 ### Shared Types
 
-- [packages/shared/src/types.ts](packages/shared/src/types.ts) — `Node`, `Scene`, `Project`, `Component`, `AnimationState`
+- [packages/shared/src/types.ts](packages/shared/src/types.ts) — `SceneNode`, `Scene`, `Project`, `Component` (the ECS component union — transform/light/camera/etc.), `AnimationState`
 - [packages/shared/src/schema.ts](packages/shared/src/schema.ts) — Zod request validation schemas
 - [packages/shared/src/signal.ts](packages/shared/src/signal.ts) — `Quaternion`, `BoneRotations`, `VRM_BONE_NAMES`, `SignalNodeClass`, graph type system
 
