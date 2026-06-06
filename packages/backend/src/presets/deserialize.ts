@@ -62,7 +62,7 @@ interface PresetPayload {
     visible: boolean;
     cameraNodePresetId: string | null;
   }>;
-  graphs?: Array<{
+  automations?: Array<{
     presetId: string;
     ownerKind: string;
     ownerPresetId: string;
@@ -165,7 +165,7 @@ export function instantiatePreset(
   for (const l of payloadInput.composeLayers ?? []) {
     premint(l.presetId);
   }
-  for (const g of payloadInput.graphs ?? []) {
+  for (const g of payloadInput.automations ?? []) {
     premint(g.presetId);
   }
   for (const ac of payloadInput.animationClips ?? []) {
@@ -377,7 +377,7 @@ export function instantiatePreset(
   // immediately (parity with POST /scene-nodes/:nodeId/automations and
   // POST /compose-layers/:layerId/automations).
   const insertedAutomationIds: string[] = [];
-  for (const graph of payload.graphs ?? []) {
+  for (const graph of payload.automations ?? []) {
     const graphId = mintId(graph.presetId);
     const ownerId = resolveId(graph.ownerPresetId);
     db.prepare(

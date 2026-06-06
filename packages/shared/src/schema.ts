@@ -541,7 +541,7 @@ export const presetPayloadSchema = z
     assets: z.array(presetAssetSchema),
     sceneNodes: z.array(presetSceneNodeSchema).optional(),
     composeLayers: z.array(presetComposeLayerSchema).optional(),
-    graphs: z.array(presetAutomationSchema).optional(),
+    automations: z.array(presetAutomationSchema).optional(),
     animationClips: z.array(presetAnimationClipSchema).optional(),
     trackClips: z.array(presetTrackClipSchema).optional(),
   })

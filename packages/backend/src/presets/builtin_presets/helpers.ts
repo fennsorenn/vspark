@@ -334,7 +334,7 @@ export function trackClip(
 // ── Payload assemblers ────────────────────────────────────────────────────
 
 export interface PresetExtras {
-  graphs?: AutomationEntry[];
+  automations?: AutomationEntry[];
   trackClips?: TrackClipEntry[];
   animationClips?: unknown[];
 }
@@ -356,7 +356,7 @@ export function sceneNodePreset(
       rootKind: 'scene_node',
       assets: [],
       sceneNodes,
-      ...(extra.graphs ? { graphs: extra.graphs } : {}),
+      ...(extra.automations ? { automations: extra.automations } : {}),
       ...(extra.trackClips ? { trackClips: extra.trackClips } : {}),
       ...(extra.animationClips ? { animationClips: extra.animationClips } : {}),
     },
@@ -380,7 +380,7 @@ export function composeLayerPreset(
       rootKind: 'compose_layer',
       assets: [],
       composeLayers,
-      ...(extra.graphs ? { graphs: extra.graphs } : {}),
+      ...(extra.automations ? { automations: extra.automations } : {}),
       ...(extra.trackClips ? { trackClips: extra.trackClips } : {}),
     },
   };

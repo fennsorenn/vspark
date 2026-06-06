@@ -317,7 +317,7 @@ export function serializeSceneNodeSubtree(
     },
     assets: substitute(assets),
     sceneNodes: substitute(sceneNodes),
-    graphs: graphs.length > 0 ? substitute(graphs) : undefined,
+    automations: graphs.length > 0 ? substitute(graphs) : undefined,
     animationClips:
       animationClips.length > 0 ? substitute(animationClips) : undefined,
     trackClips: trackClips.length > 0 ? substitute(trackClips) : undefined,
@@ -497,7 +497,7 @@ export function serializeComposeLayerSubtree(
     },
     assets: substitute(assets),
     composeLayers: substitute(composeLayers),
-    graphs: graphs.length > 0 ? substitute(graphs) : undefined,
+    automations: graphs.length > 0 ? substitute(graphs) : undefined,
     trackClips: trackClips.length > 0 ? substitute(trackClips) : undefined,
   };
 }
