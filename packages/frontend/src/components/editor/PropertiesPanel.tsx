@@ -2710,6 +2710,105 @@ function isDefaultCalibration(cal: BoneCalibration): boolean {
   );
 }
 
+const resetBtnStyle: React.CSSProperties = {
+  alignSelf: 'flex-start',
+  background: 'transparent',
+  color: '#a66',
+  border: '1px solid #533',
+  borderRadius: 4,
+  fontSize: 10,
+  padding: '1px 6px',
+  cursor: 'pointer',
+};
+
+/** Compact, self-contained collapsible row for one bone (tight spacing — the
+ *  generic CollapsibleSection's 16px header margins stack badly across 55 bones). */
+function BoneCalibRow({
+  bone,
+  cal,
+  modified,
+  onChange,
+  onReset,
+}: {
+  bone: string;
+  cal: BoneCalibration;
+  modified: boolean;
+  onChange: (patch: BoneCalibration) => void;
+  onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const m = cal.multiplier ?? DEFAULT_MULTIPLIER;
+  const o = cal.offset ?? DEFAULT_OFFSET;
+  return (
+    <div style={{ borderBottom: '1px solid #262626' }}>
+      <div
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          cursor: 'pointer',
+          userSelect: 'none',
+          padding: '3px 2px',
+          fontSize: 11,
+          color: modified ? '#c9b86a' : '#aaa',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            color: '#666',
+            display: 'inline-block',
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: 'transform 120ms',
+          }}
+        >
+          ▶
+        </span>
+        <span style={{ flex: 1, minWidth: 0 }}>{bone}</span>
+        {modified && <span style={{ color: '#c9b86a', fontSize: 9 }}>●</span>}
+      </div>
+      {open && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            padding: '2px 2px 8px 16px',
+          }}
+        >
+          <VecInput
+            values={m as number[]}
+            labels={['X', 'Y', 'Z']}
+            step={0.1}
+            groupLabel="Multiplier"
+            onCommit={(next) =>
+              onChange({ multiplier: next as [number, number, number] })
+            }
+            style={{ minWidth: 0 }}
+          />
+          <VecInput
+            values={o as number[]}
+            labels={['X', 'Y', 'Z']}
+            step={1}
+            suffix="°"
+            groupLabel="Offset (°)"
+            onCommit={(next) =>
+              onChange({ offset: next as [number, number, number] })
+            }
+            style={{ minWidth: 0 }}
+          />
+          {modified && (
+            <button onClick={onReset} style={resetBtnStyle}>
+              Reset bone
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ManualCalibrationProps({ comp }: { comp: Behavior }) {
   const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as {
@@ -2742,7 +2841,7 @@ function ManualCalibrationProps({ comp }: { comp: Behavior }) {
   const modifiedCount = Object.keys(calibrations).length;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div
         style={{
           display: 'flex',
@@ -2757,18 +2856,7 @@ function ManualCalibrationProps({ comp }: { comp: Behavior }) {
             : 'No calibration'}
         </span>
         {modifiedCount > 0 && (
-          <button
-            onClick={() => saveCalibrations({})}
-            style={{
-              background: 'transparent',
-              color: '#a66',
-              border: '1px solid #533',
-              borderRadius: 4,
-              fontSize: 10,
-              padding: '1px 6px',
-              cursor: 'pointer',
-            }}
-          >
+          <button onClick={() => saveCalibrations({})} style={resetBtnStyle}>
             Reset all
           </button>
         )}
@@ -2778,89 +2866,18 @@ function ManualCalibrationProps({ comp }: { comp: Behavior }) {
         as far). Offset shifts the neutral 0, in degrees.
       </div>
 
-      {VRM_BONE_NAMES.map((bone) => {
-        const cal = calibrations[bone] ?? {};
-        const m = cal.multiplier ?? DEFAULT_MULTIPLIER;
-        const o = cal.offset ?? DEFAULT_OFFSET;
-        const modified = bone in calibrations;
-        return (
-          <CollapsibleSection key={bone} title={modified ? `${bone} ●` : bone}>
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                padding: '4px 0 8px 14px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: '#888',
-                    width: 64,
-                    flexShrink: 0,
-                  }}
-                >
-                  Multiplier
-                </span>
-                <VecInput
-                  values={m as number[]}
-                  labels={['X', 'Y', 'Z']}
-                  step={0.1}
-                  onCommit={(next) =>
-                    setBone(bone, {
-                      multiplier: next as [number, number, number],
-                    })
-                  }
-                  style={{ flex: 1 }}
-                />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: '#888',
-                    width: 64,
-                    flexShrink: 0,
-                  }}
-                >
-                  Offset
-                </span>
-                <VecInput
-                  values={o as number[]}
-                  labels={['X', 'Y', 'Z']}
-                  step={1}
-                  suffix="°"
-                  onCommit={(next) =>
-                    setBone(bone, {
-                      offset: next as [number, number, number],
-                    })
-                  }
-                  style={{ flex: 1 }}
-                />
-              </div>
-              {modified && (
-                <button
-                  onClick={() => resetBone(bone)}
-                  style={{
-                    alignSelf: 'flex-start',
-                    background: 'transparent',
-                    color: '#a66',
-                    border: '1px solid #533',
-                    borderRadius: 4,
-                    fontSize: 10,
-                    padding: '1px 6px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Reset bone
-                </button>
-              )}
-            </div>
-          </CollapsibleSection>
-        );
-      })}
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {VRM_BONE_NAMES.map((bone) => (
+          <BoneCalibRow
+            key={bone}
+            bone={bone}
+            cal={calibrations[bone] ?? {}}
+            modified={bone in calibrations}
+            onChange={(patch) => setBone(bone, patch)}
+            onReset={() => resetBone(bone)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
