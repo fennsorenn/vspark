@@ -480,8 +480,6 @@ export function MediaInputWindow({
         {trackingActive && (
           <span style={{ fontSize: 10, color: '#60a5fa' }}>{t('status.tracking')}</span>
         )}
-        <HelpButton topic="behaviors" anchor="devices" tip={t('help.devices')} />
-        <HelpButton topic="behaviors" anchor="tracking" tip={t('help.tracking')} />
         {!alwaysExpanded && (
           <button
             style={S.iconBtn}
@@ -533,7 +531,10 @@ export function MediaInputWindow({
 
           {/* ── TRACKING SECTION ── */}
           <div style={{ ...S.section, borderBottom: 'none' }}>
-            <div style={S.sectionTitle}>{t('tracking.sectionTitle')}</div>
+            <div style={{ ...S.sectionTitle, display: 'flex', alignItems: 'center', gap: 4 }}>
+              {t('tracking.sectionTitle')}
+              <HelpButton topic="behaviors" anchor="tracking" tip={t('help.tracking')} size={12} />
+            </div>
             <div style={S.row}>
               <span style={S.label}>{t('tracking.deviceLabel')}</span>
               <select

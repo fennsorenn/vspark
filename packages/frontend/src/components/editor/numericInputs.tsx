@@ -16,6 +16,14 @@
  */
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
+import { HelpButton } from '../../help/HelpButton';
+
+/** Field-level help: a doc topic/anchor + an explanatory hover tooltip. */
+export interface FieldHelp {
+  topic: string;
+  anchor?: string;
+  tip: string;
+}
 
 // ── shared styles ─────────────────────────────────────────────────────────────
 
@@ -546,6 +554,8 @@ export interface SliderInputProps {
   precision?: number;
   /** Suffix shown after the number (e.g. "°", "%"). */
   suffix?: string;
+  /** Optional field-level help shown as a `?` next to the label. */
+  help?: FieldHelp;
   style?: CSSProperties;
 }
 
@@ -564,6 +574,7 @@ export function SliderInput({
   label,
   precision,
   suffix,
+  help,
   style,
 }: SliderInputProps) {
   const { t } = useTranslation('misc');
@@ -586,8 +597,25 @@ export function SliderInput({
       }}
     >
       {label && (
-        <span style={{ fontSize: 12, color: COLORS.mutedText, flexShrink: 0 }}>
+        <span
+          style={{
+            fontSize: 12,
+            color: COLORS.mutedText,
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
           {label}
+          {help && (
+            <HelpButton
+              topic={help.topic}
+              anchor={help.anchor}
+              tip={help.tip}
+              size={12}
+            />
+          )}
         </span>
       )}
       <div

@@ -194,21 +194,6 @@ export function ClipsSection({
         overflow: 'hidden',
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-          padding: '2px 8px 0',
-        }}
-      >
-        <HelpButton
-          topic="track-clips"
-          anchor="what"
-          tip={t('help.clipsSection')}
-          size={12}
-        />
-      </div>
       {clips.length === 0 && (
         <div
           style={{
@@ -258,7 +243,7 @@ export function ClipsSection({
           </div>
         );
       })}
-      <div style={{ padding: '3px 6px', display: 'flex', gap: 6 }}>
+      <div style={{ padding: '3px 6px', display: 'flex', gap: 6, alignItems: 'center' }}>
         <button
           onClick={handleAdd}
           style={{
@@ -292,6 +277,12 @@ export function ClipsSection({
             {t('section.pasteClip')}
           </button>
         )}
+        <HelpButton
+          topic="track-clips"
+          anchor="what"
+          tip={t('help.clipsSection')}
+          size={12}
+        />
       </div>
       {ctxMenu && (
         <ContextMenu

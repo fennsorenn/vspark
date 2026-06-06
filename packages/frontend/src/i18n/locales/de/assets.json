@@ -91,6 +91,9 @@
     "behaviors": "Erfahre, wie du VMC-Motion-Capture und weitere Verhalten mit deinen Knoten verbindest.",
     "models": "Erfahre, wie du VRM- und 3D-Modell-Assets in deine Szene lädst.",
     "clips": "Erfahre, wie du Szenenänderungen mit der Timeline und Trigger-Clips automatisierst.",
-    "assets": "Erfahre, was Assets sind und wie du Dateien in deinem Projekt hochlädst und verwendest."
+    "assets": "Erfahre, was Assets sind und wie du Dateien in deinem Projekt hochlädst und verwendest.",
+    "create": "Erfahre, wie du Objekte (Avatare, Kameras, Lichter, Requisiten) zu deiner Szene hinzufügst.",
+    "effects": "Erfahre, was Kameraeffekte bewirken und wie du sie hinzufügst.",
+    "presets": "Erfahre, wie du Bausteine als Vorlagen speicherst und wiederverwendest."
   }
 }

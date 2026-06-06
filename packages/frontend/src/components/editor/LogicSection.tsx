@@ -247,6 +247,7 @@ export function LogicSection({
           topic="logic"
           anchor="automations"
           tip={t('help.automations')}
+          size={12}
         />
       </div>
       {ctxMenu && (

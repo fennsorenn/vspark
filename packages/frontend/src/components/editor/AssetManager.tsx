@@ -13,6 +13,22 @@ import { DND_ASSET } from './dnd';
 import { behaviorCompatibleWith } from './createKinds';
 import { HelpButton } from '../../help/HelpButton';
 
+/** Per-tab contextual help target — one consistent `?` follows the active tab. */
+const tabHelp: Partial<
+  Record<BottomDockTab, { topic: string; anchor?: string; tipKey: string }>
+> = {
+  create: { topic: 'scene', anchor: 'nodes', tipKey: 'help.create' },
+  models: { topic: 'avatar', anchor: 'loading', tipKey: 'help.models' },
+  animations: { topic: 'avatar', anchor: 'animation', tipKey: 'help.animations' },
+  images: { topic: 'assets', anchor: 'kinds', tipKey: 'help.assets' },
+  videos: { topic: 'assets', anchor: 'kinds', tipKey: 'help.assets' },
+  audio: { topic: 'assets', anchor: 'kinds', tipKey: 'help.assets' },
+  components: { topic: 'behaviors', anchor: 'vmc', tipKey: 'help.behaviors' },
+  effects: { topic: 'camera-effects', anchor: 'what', tipKey: 'help.effects' },
+  clips: { topic: 'track-clips', anchor: 'what', tipKey: 'help.clips' },
+  presets: { topic: 'presets', anchor: 'what', tipKey: 'help.presets' },
+};
+
 export function AssetManager() {
   const { t } = useTranslation('assets');
   const {
@@ -712,14 +728,12 @@ export function AssetManager() {
         <button style={tabBtn('models')} onClick={() => setTab('models')}>
           {t('tabs.models')}
         </button>
-        <HelpButton topic="avatar" anchor="loading" tip={t('help.models')} size={12} />
         <button
           style={tabBtn('animations')}
           onClick={() => setTab('animations')}
         >
           {t('tabs.animations')}
         </button>
-        <HelpButton topic="avatar" anchor="animation" tip={t('help.animations')} size={12} />
         <button style={tabBtn('images')} onClick={() => setTab('images')}>
           {t('tabs.images')}
         </button>
@@ -735,7 +749,6 @@ export function AssetManager() {
         >
           {t('tabs.components')}
         </button>
-        <HelpButton topic="behaviors" anchor="vmc" tip={t('help.behaviors')} size={12} />
         <button style={tabBtn('effects')} onClick={() => setTab('effects')}>
           {t('tabs.effects')}
         </button>
@@ -745,7 +758,16 @@ export function AssetManager() {
         <button style={tabBtn('presets')} onClick={() => setTab('presets')}>
           {t('tabs.presets')}
         </button>
-        <HelpButton topic="assets" anchor="what" tip={t('help.assets')} size={12} />
+        {/* One contextual help affordance for the active tab — consistent across
+            all tabs, instead of an inconsistent scatter of per-tab buttons. */}
+        {tabHelp[tab] && (
+          <HelpButton
+            topic={tabHelp[tab]!.topic}
+            anchor={tabHelp[tab]!.anchor}
+            tip={t(tabHelp[tab]!.tipKey)}
+            size={12}
+          />
+        )}
         <div style={{ flex: 1 }} />
         {(tab === 'models' ||
           tab === 'animations' ||

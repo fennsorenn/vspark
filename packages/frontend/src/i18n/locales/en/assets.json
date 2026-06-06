@@ -91,6 +91,9 @@
     "behaviors": "Learn how to connect VMC motion capture and other behaviors to your nodes.",
     "models": "Learn how to load VRM and 3D model assets into your scene.",
     "clips": "Learn how to automate scene changes using the timeline and trigger clips.",
-    "assets": "Learn what assets are and how to upload and use files in your project."
+    "assets": "Learn what assets are and how to upload and use files in your project.",
+    "create": "Learn how to add objects (avatars, cameras, lights, props) to your scene.",
+    "effects": "Learn what camera effects do and how to add them.",
+    "presets": "Learn how to save and reuse building blocks as presets."
   }
 }
