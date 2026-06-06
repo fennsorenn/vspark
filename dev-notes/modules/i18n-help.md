@@ -68,7 +68,39 @@ Interpolation uses double-brace syntax: `t('count', { n })` paired with `"count"
 
 ### Vocabulary
 
-Standard EN → DE mappings to use consistently across all namespaces (see `dev-notes/plans/i18n-help-migration.md` for the full table). Product names (`vspark`, `VRM`, `VMC`, `Twitch`, `StreamElements`, `MediaPipe`) are kept as-is in all locales.
+Standard EN → DE mappings to use consistently across all namespaces. Product
+names (`vspark`, `VRM`, `VMC`, `Twitch`, `StreamElements`, `MediaPipe`) are kept
+as-is in all locales. (The migration plan `dev-notes/plans/i18n-help-migration.md`
+carried the original copy; this table is the durable source of truth.)
+
+| English | Deutsch |
+|---------|---------|
+| Scene | Szene |
+| Stage (the 3D tab) | Stage |
+| Node | Knoten |
+| Avatar | Avatar |
+| Camera | Kamera |
+| Light | Licht |
+| Group | Gruppe |
+| Behavior | Verhalten |
+| Logic | Logik |
+| Automation | Automatisierung |
+| Compose | Compose |
+| Layer | Ebene |
+| Asset | Asset |
+| Animation | Animation |
+| Expression | Mimik |
+| Material | Material |
+| Track clip | Track-Clip |
+| Keyframe | Keyframe |
+| Preset | Vorlage |
+| Account | Konto |
+| Project | Projekt |
+| Properties | Eigenschaften |
+| Add / Remove / Delete | Hinzufügen / Entfernen / Löschen |
+
+When you introduce a new recurring domain term, add it here so future
+translations stay consistent.
 
 ---
 
@@ -169,3 +201,29 @@ Anchors are declared with `{#id}` inline markers, not derived from heading text.
 - When adding a new section, choose the anchor id in English (or a language-neutral slug) and use it consistently in all locale files.
 
 Do not rely on `rehype-slug`'s automatic heading id (the heading text lowercased/slugified) for anything that a `HelpButton` links to — those ids change if the heading is retranslated. Only the explicit `{#id}` markers are stable.
+
+---
+
+## Keeping i18n + help in sync with the app
+
+These two systems only stay useful if they're updated *alongside* the features
+they describe. Treat the following as part of "done" for any frontend change:
+
+- **New or changed UI text** → never hardcode. Add a key to the relevant
+  namespace in **both** `en` and `de` locale files, validate the JSON, and use
+  `t(...)`. See [the usage convention](#component-usage-convention).
+- **New feature, concept, or panel** → add or extend the relevant
+  `help/content/{en,de}/<topic>.md` page (with `{#anchor}` sections) and drop a
+  `HelpButton` next to the new control pointing at it. A feature shipped without
+  a hint or doc section is incomplete for non-technical users — the whole point
+  of this system.
+- **Renamed/removed concept** → update the doc prose, the affected
+  `HelpButton topic/anchor` references, and the [vocabulary table](#vocabulary)
+  if it's a recurring term. Removing a `{#anchor}` silently breaks every
+  `HelpButton` that targeted it, so grep for the anchor before deleting it.
+- **New recurring domain term** → add it to the vocabulary table above.
+
+When a task touches the UI, spawn the `doc-updater` agent (per the root
+`CLAUDE.md`) with enough context to refresh both this module doc and the help
+content. The agent maintains docs; it does not write the German translations or
+place `HelpButton`s — do those as part of the implementing change.
