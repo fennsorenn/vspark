@@ -19,7 +19,7 @@ packages/
 | Scene | A `scene_nodes` row with `kind = 'scene'` — itself a node. The scene tree's root. (Migration 018 dropped the standalone `scenes` table; scene ids are reused as the kind=scene node ids.) |
 | Node | Spatial entity (VRM, camera, light, group, etc.). Unique ID, transform inheritance. Roots back to its scene via `root_scene_node_id`. |
 | Compose Scene | A `compose_layers` row with `kind = 'compose_scene'` — root of a per-project compose hierarchy (decoupled from 3D scenes). Layers nest via `parent_id` (migration 016) and root via `root_compose_scene_id`. |
-| Behavior | Behavioral driver attached to a node (VMC receiver, breathing, lipsync, tracking, api_controller). Backed by a signal graph; shown in the "Behaviors" tab. Persisted in the `behaviors` table (renamed from `node_components` in migration 022); code identifier `Behavior`. |
+| Behavior | Behavioral driver attached to a node (VMC receiver, breathing, lipsync, tracking, api_controller, manual_calibration). Backed by a signal graph; shown in the "Behaviors" tab. Persisted in the `behaviors` table (renamed from `node_components` in migration 022); code identifier `Behavior`. |
 | Logic | A user-built standalone signal graph attached to a project / object / layer. Persisted in the `logic` table (renamed from `graphs` via migrations 022 → 025); code type `Logic`, managed by `LogicManager`. A Logic *is* a signal graph; a Behavior is *backed by* one. |
 | Signal Graph | The reactive execution substrate (engine + `GraphDescriptor`): push-based events + pull-based values. One graph instance per Behavior or Logic. Stays named "signal graph"/"graph" at the substrate level. |
 | PoseFrame | Sparse bone rotation payload broadcast over WebSocket at ~60Hz. Carries a `behaviorId` (the producing behavior's instance id). |
@@ -36,7 +36,7 @@ packages/
 | Update routes | Implemented | `routes/update.ts`, `routes/config.ts` — GitHub Releases update check/download/apply (with download progress), config.json channel preference. Apply exits with sentinel code 42; the bundled `start.sh`/`start.bat` supervisor loop unzips the update in place and relaunches in the same console. See [updates.md](modules/updates.md). |
 | SQLite persistence | Implemented | `db/` — `node-sqlite3-wasm` (WASM, no native addon); `WasmDb` adapter; `initDb()` async |
 | Signal graph engine | Implemented | `signal/engine.ts` — typed ports, value cache, cycle detection |
-| Signal node registry | Implemented | `signal/registry.ts` — 57 node kinds (mediapipe converters + IK, runtime mutation primitives `random` / `start_clip` / `spawn_clip` / `set_scene_node_param` / `set_compose_layer_param` / `set_text` / `set_data`, media `media_control`, `log` debug, plus 13 overlive event nodes + `overlive_chat_feed`) |
+| Signal node registry | Implemented | `signal/registry.ts` — 58 node kinds (mediapipe converters + IK, runtime mutation primitives `random` / `start_clip` / `spawn_clip` / `set_scene_node_param` / `set_compose_layer_param` / `set_text` / `set_data`, media `media_control`, `pose_manual_calibration`, `log` debug, plus 13 overlive event nodes + `overlive_chat_feed`) |
 | Engine value-input auto-fallback to `config.<port>` | Implemented | `signal/engine.ts` — unconnected value-input ports automatically resolve to `defaultConfig.<portName>`; nodes no longer need per-port `cfg?.X` boilerplate |
 | VMC receiver manager | Implemented | `behaviors/vmc_receiver/` |
 | Shared UDP socket pool (vmc_receiver) | Implemented | `vmc/udp_socket_pool.ts` — refcounted `UdpSocketPool` singleton (`udpSocketPool`) exposing `subscribe(port, listener, onBound?) -> unsubscribe`. First subscriber binds (currently `0.0.0.0`), last unsubscribe closes; listener dispatch snapshots the set so mid-dispatch unsubscribe is safe. `VmcManager.startReceiver` subscribes instead of binding its own `dgram` socket, so multiple `vmc_receiver` behaviors on the same port each receive every packet independently. See [component-managers.md](modules/component-managers.md). |
@@ -44,6 +44,7 @@ packages/
 | Lipsync manager | Implemented | `behaviors/lipsync/` |
 | MediaPipe tracking manager | Implemented | `behaviors/mediapipe_tracker/` |
 | API controller manager | Implemented | `behaviors/api_controller/` — REST-driven animation queue + blendshapes; first behavior with a public REST control surface |
+| Manual calibration manager | Implemented | `behaviors/manual_calibration/` — pose interceptor for manually fine-tuning an avatar's pose with a per-bone, per-axis euler multiplier + offset. Second interceptor-registering manager (alongside VMC); only acts while some producer broadcasts a pose for the avatar. New node `pose_manual_calibration`. See [component-managers.md](modules/component-managers.md). |
 | VRM skeleton parsing | Implemented | `vrm/skeleton.ts` — GLB/VRM 0.x + 1.x |
 | WebSocket sync | Implemented | `ws/index.ts` — broadcast bus |
 | Broadcast bus lifecycle refactor | Implemented | `broadcast/bus.ts` — final-fallback frame (empty bones + `animationBlendMode: 'additive'`, empty blendshapes) on last-producer removal; vmc_receiver tracking-loss now removes the producer by `behaviorId`; mediapipe `pose_broadcast`/`blendshapes_broadcast` now wired with `behaviorId`. (The bus keys producers by `behaviorId`, the runtime instance id, renamed from `componentId`.) See [component-managers.md](modules/component-managers.md) and [frontend.md](modules/frontend.md). |
@@ -76,6 +77,7 @@ packages/
 | 3D Viewport | Implemented | `components/editor/Viewport.tsx` — R3F, pose application, post-processing, particles |
 | Viewport pose-gate rewrite | Implemented | Drops `vmcCompRef`/tracking-lost gates; pose applied whenever `pose != null && Object.keys(pose).length > 0 && fresh`; `blendMode` now selects composition strategy (override = replace anim; additive = `animQ * (restRawQ⁻¹ * posedRawQ)`); ramps over per-avatar `blendTransitionTime` (default 0.5s) |
 | PropertiesPanel: blend-time relocation + breathing UI | Implemented | `blendTime` removed from vmc_receiver UI; `blendTransitionTime` lives on the VRM avatar node's `properties`; new `BreathingProps` panel (Chest amplitude + Shoulder lift) |
+| PropertiesPanel: manual calibration panel | Implemented | `ManualCalibrationProps` — lists all `VRM_BONE_NAMES` as collapsible per-bone sections with Multiplier (X/Y/Z, default 1) + Offset (X/Y/Z degrees, default 0) VecInputs, per-bone reset + "Reset all", modified-bone marker (●) + count. Persists only non-default entries into behavior config `calibrations`. See [frontend.md](modules/frontend.md). |
 | PropertiesPanel: avatar default expressions | Implemented | Avatar section drops the inline animation-asset grid (now picked via the bottom-dock Animations tab; Pick… just flashes it); read-only Expressions list becomes a **Default Expression** control (0..1 slider per VRM expression). Weights persist on `node.properties.defaultExpressions` (shared `SceneNodeProperties.defaultExpressions`, only non-zero kept; backend shallow-merge). `Viewport.tsx` applies them as a per-frame baseline under live broadcast blendshapes. See [frontend.md](modules/frontend.md) and [animation.md](modules/animation.md). |
 | Scene graph panel | Implemented | `components/editor/SceneGraph.tsx` |
 | Properties panel | Implemented | `components/editor/PropertiesPanel.tsx` |
@@ -116,7 +118,7 @@ UDP port (configurable)
   → SignalGraph.fire() → vmc_packet_source
   → rhylive_bone_mapper → body_calibration → arm_ik_calibration
   → pose_broadcast → WS vmc_pose
-  → [pose interceptors: breathing, etc.]
+  → [pose interceptors: breathing, manual_calibration, etc.]
   → Frontend useWsSync → Zustand → Viewport.useFrame() → VRM bones
 ```
 
@@ -173,8 +175,8 @@ REST write → SQLite → WS broadcast (node_added/updated/removed, camera_effec
 
 ## Module Docs
 
-- [signal-graph.md](modules/signal-graph.md) — engine (class-instance/decorator model + edge-time type inference), all 57 node kinds, how to add a new node
-- [component-managers.md](modules/component-managers.md) — Behavior managers (VMC, breathing, lipsync, tracking, api_controller); lifecycle pattern. (Doc filename `component-managers.md` kept; managers live in the `behaviors/` source dir.)
+- [signal-graph.md](modules/signal-graph.md) — engine (class-instance/decorator model + edge-time type inference), all 58 node kinds, how to add a new node
+- [component-managers.md](modules/component-managers.md) — Behavior managers (VMC, breathing, lipsync, tracking, api_controller, manual_calibration); lifecycle pattern. (Doc filename `component-managers.md` kept; managers live in the `behaviors/` source dir.)
 - [api-controller.md](modules/api-controller.md) — REST-driven animation/blendshape control surface, the first behavior with public REST endpoints
 - [backend-api.md](modules/backend-api.md) — REST routes, WebSocket, DB migrations
 - [frontend.md](modules/frontend.md) — Zustand store, Viewport, editor panels, hooks

@@ -46,7 +46,7 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
 
 **Review-later**: `poseTimeout` on vmc_receiver is largely redundant now that tracking-loss drives an immediate bus-side additive transition. Kept on the frontend (`Viewport.tsx`) as a client-side safety net for missed WS transition messages; revisit once the new flow proves robust in practice.
 
-**Interceptors**: `OnPoseBroadcast` nodes from other behaviors (breathing) are registered into the VMC graph's interceptor chain. Cleanup callbacks are stored per receiver so they're removed on stop.
+**Interceptors**: `OnPoseBroadcast` nodes from other behaviors (breathing, manual_calibration) are registered into the VMC graph's interceptor chain. Cleanup callbacks are stored per receiver so they're removed on stop.
 
 **VRM skeleton loading**: On start, parses the node's `.vrm`/`.glb` file to extract the humanoid bone hierarchy (used by `arm_ik_calibration` for forward kinematics). See `vrm/skeleton.ts`.
 
@@ -143,6 +143,30 @@ REST-driven driver for VRM avatars: external clients PUT an animation queue or b
 **Frontend UI**: `ApiControllerProps` in `PropertiesPanel.tsx` shows the per-behavior REST base URL with a copy button.
 
 **Limitations**: state is in-memory only and does not survive a backend restart (no `_nodeState` namespace); the queue/blendshapes have to be re-PUT by the client.
+
+---
+
+## ManualCalibrationManager — `manual_calibration/manager.ts`
+
+Pose interceptor for manually fine-tuning an avatar's pose with a per-bone, per-axis euler **multiplier + offset**. It is the **second interceptor-registering manager** alongside `VmcManager` — instead of attaching clocks/sources, it registers its graph's `on_pose_broadcast` node into the interceptor chain, so it only acts when *some other* producer (VMC, tracking, etc.) broadcasts a pose for that avatar's scene node.
+
+**Input**: an upstream pose via the interceptor chain (no external source of its own)
+**Output**: the modified pose re-broadcast through the chain (`pose_interceptor_broadcast`)
+
+**Lifecycle**: mirrors `BreathingManager` — per-behavior `SignalGraph`, persisted node state (`config._nodeState[nodeId]`), hot-applied config. The difference is registration: at start it registers the graph's `on_pose_broadcast` node via `OnPoseBroadcast.register` (exactly like `VmcManager`'s interceptor wiring) rather than attaching a clock.
+
+**Graph descriptor** (`manual_calibration/graph.ts`): a minimal interceptor pipeline:
+```
+on_pose_broadcast (priority 5) → pose_manual_calibration → pose_interceptor_broadcast
+```
+
+**Live config plumbing**: the `calib` node's config is fed live from the behavior config's `calibrations` map via the manager's `_getNodeConfig` (same nodeConfig side-channel as the other graph-backed managers). Config shape: `{ calibrations: Record<boneName, { multiplier?: [x,y,z]; offset?: [x,y,z] }> }`.
+
+**Per-bone math** (`pose_manual_calibration` node): for each configured bone, decompose the quaternion to ZYX euler and apply per axis `angle' = angle * multiplier + offset` (offset stored in **degrees**, converted to radians in the node; multiplier unitless). Bones with no config entry, or at identity (mult `[1,1,1]` / offset `[0,0,0]`), pass through untouched. See the node entry in [signal-graph.md](signal-graph.md) and the euler conventions in [animation.md](animation.md).
+
+**Caveat**: per-axis multiply/offset is an euler-space operation, so it's ZYX-order-dependent and degrades near the yaw=±90° gimbal singularity — expected for a manual fine-tuning knob.
+
+**BehaviorKind**: `@BehaviorKind({ kind: 'manual_calibration', label: 'Manual Calibration', icon: '🎚️', applicableTo: ['avatar'] })`. Frontend UI is `ManualCalibrationProps` in `PropertiesPanel.tsx` (see [frontend.md](frontend.md)).
 
 ---
 

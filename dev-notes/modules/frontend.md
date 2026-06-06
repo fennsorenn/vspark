@@ -151,7 +151,7 @@ Inspector for the selected node. Sections:
 - **Transform**: position, rotation, scale with drag-to-adjust (ns-resize NumInput)
 - **Light**: type, color, intensity
 - **Camera**: fov, near, far
-- **Behaviors** (tab labelled "Behaviors"): per-kind config editors for VMC receiver, breathing, lipsync, tracking; calibration wizard (head neutral, arm reach captures)
+- **Behaviors** (tab labelled "Behaviors"): per-kind config editors for VMC receiver, breathing, lipsync, tracking, manual_calibration; calibration wizard (head neutral, arm reach captures)
 - **Avatar**: VRM-node controls — idle-animation URL (with `<datalist>`) + speed/offset + playback transport; **Default Expression** sliders; read-only **Morph Targets** list
 - **Animation clips**: clip selection and playback
 - **Camera effects**: add/configure post-processing per camera
@@ -162,6 +162,8 @@ Inspector for the selected node. Sections:
 - `blendTime` removed from the vmc_receiver behavior UI.
 - New **Blend transition** input on VRM avatar nodes writes to `node.properties.blendTransitionTime` (persisted via the `scene_nodes.properties` JSON column, migration 007). Default 0.5s. Controls the Viewport ramp between blend modes and between apply/don't-apply.
 - New `BreathingProps` panel for breathing behaviors: **Chest amplitude** + **Shoulder lift** fields, writing to behavior config `chestAmplitude` / `shoulderAmplitude`. See [component-managers.md](component-managers.md) BreathingManager.
+
+**Manual calibration panel (implemented)**: `ManualCalibrationProps` (dispatcher case `manual_calibration`) lists ALL VRM bones (`VRM_BONE_NAMES`), each a collapsible section with **Multiplier** (X/Y/Z, default 1) and **Offset** (X/Y/Z, in degrees, default 0) `VecInput`s, a per-bone reset, a **Reset all** button, and a modified-bone marker (●) + count. Persists only non-default bone entries into behavior config `calibrations`. See [component-managers.md](component-managers.md) ManualCalibrationManager.
 
 **Avatar section (implemented)**:
 - The inline animation-asset list (the grid of clickable animation buttons) was removed. Animations are picked via the bottom-dock **Animations** tab; the Avatar section's **Pick…** button only flashes that tab. The idle-animation URL input (with `<datalist>`), speed/offset inputs, and playback transport remain.

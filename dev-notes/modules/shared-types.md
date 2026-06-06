@@ -43,7 +43,7 @@ Request body validation for all REST routes. All schemas are strict (no extra ke
 
 ### Core data types
 
-**`Quaternion`**: Immutable unit quaternion with algebra methods: `multiply`, `invert`, `normalize`. All bone rotation values flow as Quaternions.
+**`Quaternion`**: Immutable unit quaternion with algebra methods: `multiply`, `invert`, `normalize`. All bone rotation values flow as Quaternions. Euler bridges `Quaternion.fromEuler(pitch, yaw, roll)` / `q.toEuler()` use the intrinsic ZYX convention (matching the `euler_to_quaternion` node; round-trip ~1e-14, collapses onto roll at the yaw=±90° gimbal singularity). See [animation.md](animation.md).
 
 **`BoneRotations`**: `Map<string, Quaternion>` — bone name → rotation in source application's convention (Unity HumanBodyBones for VMC, etc.).
 
