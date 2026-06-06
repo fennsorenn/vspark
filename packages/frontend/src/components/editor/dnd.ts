@@ -3,6 +3,7 @@ import { api } from '../../api/client';
 import {
   createSceneNode,
   createNodeFromModelAsset,
+  createNodeFromLive2dAsset,
   createBillboardFromImageAsset,
   nextNodeName,
   type NodeKindDef,
@@ -91,7 +92,9 @@ export async function handleSceneNodeDrop(
       const node =
         asset.kind === 'image'
           ? await createBillboardFromImageAsset(asset, sceneId, parentId)
-          : await createNodeFromModelAsset(asset, sceneId, parentId);
+          : asset.kind === 'live2d'
+            ? await createNodeFromLive2dAsset(asset, sceneId, parentId)
+            : await createNodeFromModelAsset(asset, sceneId, parentId);
       store.selectNode(node.id);
       store.setSceneSelected(false);
     } catch (err) {
