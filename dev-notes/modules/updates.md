@@ -1,5 +1,7 @@
 # Self-update / release flow
 
+> The first end-to-end self-update test was performed updating v0.9.1 → v0.9.2.
+
 In-app self-update: the running server checks GitHub Releases, downloads a platform
 zip, and relaunches itself into the new version **in the same console**. The flow spans
 three places that must agree on a contract:
