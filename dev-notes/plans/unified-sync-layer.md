@@ -3,6 +3,8 @@
 > Branch: `feature/unified-sync-layer` · Status: draft (design — needs decisions before implementation)
 > Seed context for design discussion. Several forks (marked **DECISION**) need an
 > answer before this is ready to build.
+>
+> 📊 Diagrams + use-case walkthroughs: [`unified-sync-layer-diagrams.md`](./unified-sync-layer-diagrams.md)
 
 ## Goal
 
