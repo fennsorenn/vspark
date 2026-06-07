@@ -43,6 +43,7 @@ function PickButton({ onClick }: { onClick: () => void }) {
   );
 }
 import { NumInput, VecInput, SliderInput } from './numericInputs';
+import { Toggle } from '../Toggle';
 import { vrmRegistry } from '../../vrmRegistry';
 import {
   getMaterialSlots,
@@ -274,13 +275,20 @@ const matRow: React.CSSProperties = {
   alignItems: 'center',
   gap: 8,
 };
-const matColorInput: React.CSSProperties = {
-  width: 32,
-  height: 22,
-  border: 'none',
+// Wide color swatch that fills its row's control column (instead of a small
+// fixed chip), so colours are easier to read and click. Shared by material and
+// per-field colour inputs.
+const colorInput: React.CSSProperties = {
+  flex: 1,
+  width: '100%',
+  minWidth: 0,
+  height: 24,
+  border: '1px solid #3a3a3a',
+  borderRadius: 4,
   background: 'none',
   cursor: 'pointer',
-  padding: 0,
+  padding: 2,
+  boxSizing: 'border-box',
 };
 
 /** Keys of MaterialOverride whose value is a hex color string. */
@@ -363,7 +371,7 @@ function MaterialRow({
       <input
         type="color"
         value={val(key, fallback)}
-        style={matColorInput}
+        style={colorInput}
         onChange={(e) =>
           patch({ [key]: e.target.value } as Partial<MaterialOverride>, false)
         }
@@ -545,7 +553,7 @@ function MaterialRow({
             <input
               type="color"
               value={val('emissive', d.emissive)}
-              style={matColorInput}
+              style={colorInput}
               onChange={(e) =>
                 patch(
                   { emissive: e.target.value } as Partial<MaterialOverride>,
@@ -616,18 +624,16 @@ function MaterialRow({
           )}
           <div style={matRow}>
             <span style={matLabel}>{t('material.flatShading')}</span>
-            <input
-              type="checkbox"
+            <Toggle
               checked={val('flatShading', d.flatShading)}
-              onChange={(e) => patch({ flatShading: e.target.checked }, true)}
+              onChange={(v) => patch({ flatShading: v }, true)}
             />
           </div>
           <div style={matRow}>
             <span style={matLabel}>{t('material.doubleSided')}</span>
-            <input
-              type="checkbox"
+            <Toggle
               checked={val('doubleSided', d.doubleSided)}
-              onChange={(e) => patch({ doubleSided: e.target.checked }, true)}
+              onChange={(v) => patch({ doubleSided: v }, true)}
             />
           </div>
           <div style={matRow}>
@@ -1695,11 +1701,9 @@ function MapperSection({
           background: '#181818',
         }}
       >
-        <input
-          type="checkbox"
+        <Toggle
           checked={enabled}
-          style={{ cursor: 'pointer', flexShrink: 0 }}
-          onChange={(e) => onSave(nodeId, { enabled: e.target.checked })}
+          onChange={(v) => onSave(nodeId, { enabled: v })}
         />
         <span
           style={{
@@ -2019,14 +2023,12 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
             color: '#ccc',
           }}
         >
-          <input
-            type="checkbox"
+          <Toggle
             checked={mirror}
-            onChange={(e) => {
-              setMirror(e.target.checked);
-              save({ mirror: e.target.checked });
+            onChange={(v) => {
+              setMirror(v);
+              save({ mirror: v });
             }}
-            style={{ cursor: 'pointer' }}
           />
           {t('vmc.flipLR')}
         </label>
@@ -2490,11 +2492,9 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
       ).map(([field, label]) => (
         <div key={field} style={rowStyle}>
           <span style={labelStyle}>{label}</span>
-          <input
-            type="checkbox"
+          <Toggle
             checked={(cfg[field] as boolean | undefined) ?? true}
-            onChange={(e) => save({ [field]: e.target.checked })}
-            style={{ cursor: 'pointer' }}
+            onChange={(v) => save({ [field]: v })}
           />
         </div>
       ))}
@@ -2598,12 +2598,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
 
         <div style={rowStyle}>
           <span style={labelStyle}>{t('mediapipe.useIkArms')}</span>
-          <input
-            type="checkbox"
-            checked={useIk}
-            onChange={(e) => save({ useIk: e.target.checked })}
-            style={{ cursor: 'pointer' }}
-          />
+          <Toggle checked={useIk} onChange={(v) => save({ useIk: v })} />
         </div>
         <div style={{ fontSize: 10, color: '#555', marginBottom: 6 }}>
           {t('mediapipe.ikHint')}
@@ -2654,11 +2649,9 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
               />
               <div style={rowStyle}>
                 <span style={labelStyle}>{t('mediapipe.ikInvert')}</span>
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={a.invert}
-                  onChange={(e) => saveIk({ [invertField]: e.target.checked })}
-                  style={{ cursor: 'pointer' }}
+                  onChange={(v) => saveIk({ [invertField]: v })}
                 />
               </div>
             </div>
@@ -3139,10 +3132,9 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                   userSelect: 'none',
                 }}
               >
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={autofocus}
-                  onChange={(e) => save({ autofocus: e.target.checked })}
+                  onChange={(v) => save({ autofocus: v })}
                 />
                 <span style={{ color: autofocus ? '#7ab' : '#888' }}>
                   {t('effect.dof.autofocus')}
@@ -3340,14 +3332,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
               type="color"
               value={(cfg.color as string) ?? '#000000'}
               onChange={(e) => save({ color: e.target.value })}
-              style={{
-                width: 36,
-                height: 24,
-                border: 'none',
-                background: 'none',
-                cursor: 'pointer',
-                padding: 0,
-              }}
+              style={colorInput}
             />
           </div>
           <EffectRow
@@ -3534,24 +3519,16 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
               type="color"
               value={(cfg.color as string) ?? '#ffffff'}
               onChange={(e) => save({ color: e.target.value })}
-              style={{
-                width: 36,
-                height: 24,
-                border: 'none',
-                background: 'none',
-                cursor: 'pointer',
-                padding: 0,
-              }}
+              style={colorInput}
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
               {t('effect.ascii.invert')}
             </span>
-            <input
-              type="checkbox"
+            <Toggle
               checked={(cfg.invert as boolean) ?? false}
-              onChange={(e) => save({ invert: e.target.checked })}
+              onChange={(v) => save({ invert: v })}
             />
           </div>
         </>
@@ -4511,13 +4488,12 @@ export function PropertiesPanel() {
                   cursor: 'pointer',
                 }}
               >
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={transform[key]}
-                  onChange={(e) => {
+                  onChange={(v) => {
                     const t = {
                       ...transformRef.current,
-                      [key]: e.target.checked,
+                      [key]: v,
                     };
                     transformRef.current = t;
                     setTransform(t);
@@ -4585,13 +4561,7 @@ export function PropertiesPanel() {
                     setLight(l);
                   }}
                   onBlur={() => saveLight(light)}
-                  style={{
-                    width: 40,
-                    height: 28,
-                    border: 'none',
-                    background: 'none',
-                    cursor: 'pointer',
-                  }}
+                  style={colorInput}
                 />
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -4641,11 +4611,10 @@ export function PropertiesPanel() {
                       cursor: 'pointer',
                     }}
                   >
-                    <input
-                      type="checkbox"
+                    <Toggle
                       checked={light.castShadow ?? false}
-                      onChange={(e) => {
-                        const next = { ...light, castShadow: e.target.checked };
+                      onChange={(v) => {
+                        const next = { ...light, castShadow: v };
                         setLight(next);
                         saveLight(next);
                       }}
@@ -4923,13 +4892,12 @@ export function PropertiesPanel() {
                   cursor: 'pointer',
                 }}
               >
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={camera.shadowsEnabled}
-                  onChange={(e) => {
+                  onChange={(v) => {
                     const next = {
                       ...camera,
-                      shadowsEnabled: e.target.checked,
+                      shadowsEnabled: v,
                     };
                     setCamera(next);
                     saveCamera(next);
@@ -5202,14 +5170,7 @@ export function PropertiesPanel() {
                       type="color"
                       value={(gr.color as string) ?? '#ffffff'}
                       onChange={(e) => saveGr({ color: e.target.value })}
-                      style={{
-                        width: 36,
-                        height: 24,
-                        border: 'none',
-                        background: 'none',
-                        cursor: 'pointer',
-                        padding: 0,
-                      }}
+                      style={colorInput}
                     />
                   </div>
                   <EffectRow
@@ -5536,10 +5497,9 @@ export function PropertiesPanel() {
             const check = (label: string, field: string, checked: boolean) =>
               row(
                 label,
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={checked}
-                  onChange={(e) => saveVc({ [field]: e.target.checked })}
+                  onChange={(v) => saveVc({ [field]: v })}
                 />
               );
             return (
@@ -5688,12 +5648,9 @@ export function PropertiesPanel() {
                               size={12}
                             />
                           </span>
-                          <input
-                            type="checkbox"
+                          <Toggle
                             checked={ck.enabled as boolean}
-                            onChange={(e) =>
-                              saveCk({ enabled: e.target.checked })
-                            }
+                            onChange={(v) => saveCk({ enabled: v })}
                           />
                         </div>
                         {(ck.enabled as boolean) && (
@@ -5706,14 +5663,7 @@ export function PropertiesPanel() {
                                 onChange={(e) =>
                                   saveCk({ color: e.target.value })
                                 }
-                                style={{
-                                  width: 40,
-                                  height: 22,
-                                  background: 'none',
-                                  border: '1px solid #3a3a3a',
-                                  borderRadius: 4,
-                                  cursor: 'pointer',
-                                }}
+                                style={colorInput}
                               />
                             )}
                             <EffectRow
@@ -5878,10 +5828,9 @@ export function PropertiesPanel() {
             const check = (label: string, field: string, checked: boolean) =>
               row(
                 label,
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={checked}
-                  onChange={(e) => saveAc({ [field]: e.target.checked })}
+                  onChange={(v) => saveAc({ [field]: v })}
                 />
               );
             const isDirectional = ac.audioType === 'directional';
@@ -6177,14 +6126,7 @@ export function PropertiesPanel() {
                       type="color"
                       value={(tc.color as string) ?? '#ffffff'}
                       onChange={(e) => saveTc({ color: e.target.value })}
-                      style={{
-                        width: 40,
-                        height: 24,
-                        background: '#2a2a2a',
-                        border: '1px solid #3a3a3a',
-                        borderRadius: 4,
-                        padding: 0,
-                      }}
+                      style={colorInput}
                     />
                   )}
                   <EffectRow
@@ -6223,12 +6165,9 @@ export function PropertiesPanel() {
                       />
                       {row(
                         t('text.allowHtml'),
-                        <input
-                          type="checkbox"
+                        <Toggle
                           checked={Boolean(tc.allowHtml)}
-                          onChange={(e) =>
-                            saveTc({ allowHtml: e.target.checked })
-                          }
+                          onChange={(v) => saveTc({ allowHtml: v })}
                         />
                       )}
                     </>
@@ -6353,10 +6292,9 @@ export function PropertiesPanel() {
                   </span>
                   {row(
                     t('feed.billboard'),
-                    <input
-                      type="checkbox"
+                    <Toggle
                       checked={Boolean(fc.billboard)}
-                      onChange={(e) => saveFc({ billboard: e.target.checked })}
+                      onChange={(v) => saveFc({ billboard: v })}
                     />
                   )}
                   {row(
@@ -6365,14 +6303,7 @@ export function PropertiesPanel() {
                       type="color"
                       value={(fc.color as string) ?? '#ffffff'}
                       onChange={(e) => saveFc({ color: e.target.value })}
-                      style={{
-                        width: 40,
-                        height: 24,
-                        background: '#2a2a2a',
-                        border: '1px solid #3a3a3a',
-                        borderRadius: 4,
-                        padding: 0,
-                      }}
+                      style={colorInput}
                     />
                   )}
                   <EffectRow
@@ -6459,10 +6390,9 @@ export function PropertiesPanel() {
               boxSizing: 'border-box',
             };
             const chk = (field: string) => (
-              <input
-                type="checkbox"
+              <Toggle
                 checked={Boolean(pc[field])}
-                onChange={(e) => savePc({ [field]: e.target.checked })}
+                onChange={(v) => savePc({ [field]: v })}
               />
             );
             const row = (label: string, children: React.ReactNode) => (
@@ -6842,14 +6772,7 @@ export function PropertiesPanel() {
                       type="color"
                       value={(pc.colorStart as string) ?? '#ffffff'}
                       onChange={(e) => savePc({ colorStart: e.target.value })}
-                      style={{
-                        width: 36,
-                        height: 24,
-                        border: 'none',
-                        background: 'none',
-                        cursor: 'pointer',
-                        padding: 0,
-                      }}
+                      style={colorInput}
                     />
                   )}
                   {row(
@@ -6858,14 +6781,7 @@ export function PropertiesPanel() {
                       type="color"
                       value={(pc.colorEnd as string) ?? '#ff6600'}
                       onChange={(e) => savePc({ colorEnd: e.target.value })}
-                      style={{
-                        width: 36,
-                        height: 24,
-                        border: 'none',
-                        background: 'none',
-                        cursor: 'pointer',
-                        padding: 0,
-                      }}
+                      style={colorInput}
                     />
                   )}
                   <EffectRow
@@ -7335,10 +7251,9 @@ export function PropertiesPanel() {
                 userSelect: 'none',
               }}
             >
-              <input
-                type="checkbox"
+              <Toggle
                 checked={fbxDebugVisible[node.id] ?? false}
-                onChange={(e) => setFbxDebugVisible(node.id, e.target.checked)}
+                onChange={(v) => setFbxDebugVisible(node.id, v)}
               />
               {t('avatar.showFbxModel')}
             </label>

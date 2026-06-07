@@ -10,6 +10,7 @@ import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { CSS_BLEND_MODES, readChroma } from './videoFx';
 import { HelpButton } from '../../help/HelpButton';
+import { Toggle } from '../Toggle';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -266,11 +267,7 @@ export function ComposeLayerProperties({
             cursor: 'pointer',
           }}
         >
-          <input
-            type="checkbox"
-            checked={locked}
-            onChange={() => toggleLock('locked')}
-          />
+          <Toggle checked={locked} onChange={() => toggleLock('locked')} />
           {t('properties.lockLayer2d')}
         </label>
         {layer.kind === 'camera_view' && (
@@ -284,8 +281,7 @@ export function ComposeLayerProperties({
               cursor: 'pointer',
             }}
           >
-            <input
-              type="checkbox"
+            <Toggle
               checked={locked3d}
               onChange={() => toggleLock('locked3d')}
             />
@@ -500,10 +496,9 @@ export function ComposeLayerProperties({
             color: '#bbb',
           }}
         >
-          <input
-            type="checkbox"
+          <Toggle
             checked={layer.visible}
-            onChange={(e) => commit({ visible: e.target.checked })}
+            onChange={(v) => commit({ visible: v })}
           />
           {t('properties.labelVisible')}
         </label>
@@ -585,24 +580,22 @@ export function ComposeLayerProperties({
           <div style={sectionHeader}>{t('properties.sectionPlayback')}</div>
           <div style={row}>
             <span style={label}>{t('properties.labelAutoplay')}</span>
-            <input
-              type="checkbox"
+            <Toggle
               checked={layer.config.autoplay !== false}
-              onChange={(e) =>
+              onChange={(v) =>
                 commit({
-                  config: { ...layer.config, autoplay: e.target.checked },
+                  config: { ...layer.config, autoplay: v },
                 })
               }
             />
           </div>
           <div style={row}>
             <span style={label}>{t('properties.labelLoop')}</span>
-            <input
-              type="checkbox"
+            <Toggle
               checked={layer.config.loop !== false}
-              onChange={(e) =>
+              onChange={(v) =>
                 commit({
-                  config: { ...layer.config, loop: e.target.checked },
+                  config: { ...layer.config, loop: v },
                 })
               }
             />
@@ -624,12 +617,11 @@ export function ComposeLayerProperties({
           </div>
           <div style={row}>
             <span style={label}>{t('properties.labelMuted')}</span>
-            <input
-              type="checkbox"
+            <Toggle
               checked={layer.config.muted !== false}
-              onChange={(e) =>
+              onChange={(v) =>
                 commit({
-                  config: { ...layer.config, muted: e.target.checked },
+                  config: { ...layer.config, muted: v },
                 })
               }
             />
@@ -675,10 +667,9 @@ export function ComposeLayerProperties({
                 </div>
                 <div style={row}>
                   <span style={label}>{t('properties.labelEnabled')}</span>
-                  <input
-                    type="checkbox"
+                  <Toggle
                     checked={ck.enabled}
-                    onChange={(e) => saveCk({ enabled: e.target.checked })}
+                    onChange={(v) => saveCk({ enabled: v })}
                   />
                 </div>
                 {ck.enabled && (
@@ -690,12 +681,16 @@ export function ComposeLayerProperties({
                         value={ck.color}
                         onChange={(e) => saveCk({ color: e.target.value })}
                         style={{
-                          width: 40,
-                          height: 22,
+                          flex: 1,
+                          width: '100%',
+                          minWidth: 0,
+                          height: 24,
                           background: 'none',
-                          border: '1px solid #333',
+                          border: '1px solid #3a3a3a',
                           borderRadius: 4,
                           cursor: 'pointer',
+                          padding: 2,
+                          boxSizing: 'border-box',
                         }}
                       />
                     </div>
@@ -770,33 +765,28 @@ export function ComposeLayerProperties({
           <div style={sectionHeader}>{t('properties.sectionPlayback')}</div>
           <div style={row}>
             <span style={label}>{t('properties.labelAutoplay')}</span>
-            <input
-              type="checkbox"
+            <Toggle
               checked={layer.config.autoplay === true}
-              onChange={(e) =>
+              onChange={(v) =>
                 commit({
-                  config: { ...layer.config, autoplay: e.target.checked },
+                  config: { ...layer.config, autoplay: v },
                 })
               }
             />
           </div>
           <div style={row}>
             <span style={label}>{t('properties.labelLoop')}</span>
-            <input
-              type="checkbox"
+            <Toggle
               checked={layer.config.loop === true}
-              onChange={(e) =>
-                commit({ config: { ...layer.config, loop: e.target.checked } })
-              }
+              onChange={(v) => commit({ config: { ...layer.config, loop: v } })}
             />
           </div>
           <div style={row}>
             <span style={label}>{t('properties.labelMuted')}</span>
-            <input
-              type="checkbox"
+            <Toggle
               checked={layer.config.muted === true}
-              onChange={(e) =>
-                commit({ config: { ...layer.config, muted: e.target.checked } })
+              onChange={(v) =>
+                commit({ config: { ...layer.config, muted: v } })
               }
             />
           </div>
