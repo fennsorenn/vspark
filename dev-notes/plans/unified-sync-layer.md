@@ -179,17 +179,51 @@ Wins:
 - **Multiplayer falls out:** the object-share **wrapper transform** (subscriber-owned) is just
   another layer above the publisher's intrinsic value — same machinery, no special case.
 
+This is a read-model layered on top of sync — it doesn't change the transport or resource
+classes, it consumes them.
+
+### Staged compositing across the network boundary (where each layer folds)
+
+Compositing is **not single-location**. One logical layer stack can be **cut at a contiguous
+boundary** and folded in stages, the upstream segment shipped as a single pre-composited
+contribution that becomes the *base layer* of the downstream stack. The current pose flow is
+exactly this two-stage cut:
+
+```
+capture → behavior → mapping → [server compositor] ──vmc_pose Stream──▶ [client compositor: + clip + IK] → render
+```
+
+Each layer declares a **placement**, chosen by reconstructability/bandwidth:
+- **`stream-result`** — input exists only upstream or is too costly to ship as source (live
+  mocap @ 90 Hz): composite upstream, stream the *result*.
+- **`sync-source`** — cheaply syncable and deterministically reconstructable downstream (a clip =
+  asset synced once + a playhead timestamp via the existing `track_clip_*` messages): ship the
+  *source*, composite locally. This is why keeping clips client-side is more stable — ~one
+  timestamp instead of a frame stream.
+
+Constraint: the cut must be a **single contiguous slice** (all `stream-result` layers below all
+`sync-source` layers in the order) — the upstream partial composite is already folded when it
+leaves. **Masks relax this**: layers over disjoint bone sets (clip=body, mocap=face) are
+order-independent, so the cut sits freely between them.
+
+Federation reuses the same knob: a subscriber with the clip **asset cached** + the playhead synced
+reconstructs the clip layer downstream just like a local client (cut unchanged, ~one timestamp on
+the wire); if it lacks the asset, the publisher moves the cut up and ships finished frames. "Two-
+point" generalizes to "N-point" — any contiguous boundary, each chosen by the same test.
+
+This refines the note below: poses are not simply "composited at the owner" — they're composited
+in **stages**, with the live-capture segment necessarily `stream-result` and clips `sync-source`.
+
 Caveats / decisions:
 - **Blend semantics per layer/param must be explicit** (replace vs add vs multiply). Declare each
   param's compose rule in the `paramPaths` registry (the existing typed param schema).
-- **Skeleton pose** is high-dimensional (per-bone quaternions, additive blends) and may stay a
-  specialized layer rather than scalar-per-paramPath — conceptually a layer, practically its own
-  pipeline.
-- **Runs at render time on the frontend** (as today: per-rAF, per-node subscription to keep
-  re-render scope tight). The backend only needs effective values where it persists/broadcasts.
-
-This is a read-model layered on top of sync — it doesn't change the transport or resource
-classes, it consumes them.
+- **Skeleton pose** is high-dimensional (per-bone quaternions, additive blends, bone masks) — it
+  uses the *same compositor shape* with quaternion blend algebra, but composites in stages (see
+  above) rather than scalar-per-paramPath.
+- **Scalar fields composite at the consumer** (each layer synced individually, cheap + low-rate, so
+  every client can hold its own live-edit/override layer). **Poses composite in stages** (live
+  segment folded upstream and streamed; clip + client layers folded downstream). The general rule
+  is per-layer placement, not per-value-type.
 
 ## Federation: two genuinely different replication strategies
 
