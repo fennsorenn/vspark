@@ -15,6 +15,10 @@ Automations can belong to the whole project, to one scene node, or to a layer.
 
 ## Nodes and wires {#nodes}
 
+![Event and value wires](/help/diagrams/logic-wire.svg)
+
+*Nodes are wired output → input. Orange wires carry events (a moment, flowing → with the arrow); blue wires carry values (data read when needed).*
+
 A logic canvas is built from **nodes** (the boxes) joined by **wires** (the
 lines between them). Each node does a small thing — wait for an event, pick a
 random number, play an animation — and the wires carry information from one node

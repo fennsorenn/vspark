@@ -32,6 +32,10 @@ the right.
 
 ## Layer ordering {#ordering}
 
+![Layer stacking order](/help/diagrams/compose-order.svg)
+
+*Layers stack in front of or behind the 3D render (highlighted) relative to the viewer on the right.*
+
 Layers are arranged in a list from top (front) to bottom (back). Drag them to
 reorder. In addition, each layer has a **stack order** number that controls
 whether it appears in front of or behind the 3D scene:

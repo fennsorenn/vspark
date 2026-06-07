@@ -14,6 +14,10 @@ Ein Partikelemitter spawnt einen Pool aus kleinen texturierten Sprites und simul
 
 ## Lebensdauer {#lifetime}
 
+![Lebensdauer eines Partikels](/help/diagrams/particle-lifetime.svg)
+
+*Über seine Lebensdauer wird ein Partikel geboren, kann wachsen und die Farbe ändern und verblasst dann, bis es verschwindet.*
+
 **Lebensdauer** — wie lange jeder Partikel in Sekunden existiert, bevor er verschwindet. Standard: 2 s. Kurze Werte (0,1 – 0,5 s) halten die Wolke eng am Emitter. Lange Werte (5 – 10 s) lassen Partikel weit driften, bevor sie verblassen.
 
 **Lebensdauer-Zufall** — fügt jedem Partikel eine zufällige Abweichung der Lebensdauer hinzu. Bei 0 leben alle Partikel genau die eingestellte Dauer. Bei 0,5 schwankt die tatsächliche Lebensdauer jedes Partikels um bis zu ±50 % des Basiswerts. Standard: 0,2. Ein höherer Wert verhindert, dass alle Partikel gleichzeitig verschwinden.

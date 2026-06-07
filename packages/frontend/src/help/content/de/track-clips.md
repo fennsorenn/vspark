@@ -39,6 +39,10 @@ desselben Clips bleiben unverändert.
 
 ## Keyframes {#keyframes}
 
+![Easing-Kurven](/help/diagrams/easing-curves.svg)
+
+*Easing bestimmt, wie sich ein Wert zwischen Keyframes bewegt: grün = linear (gleichmäßig), gelb = Stufe (Sprung), blau = Bézier (sanftes Ein-/Ausblenden).*
+
 Ein **Keyframe** markiert einen Zeitpunkt, an dem eine Eigenschaft einen
 bestimmten Wert hat. Zwischen zwei Keyframes interpoliert vspark (füllt die
 Zwischenwerte aus) entsprechend dem gewählten **Easing**:

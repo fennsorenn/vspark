@@ -18,6 +18,10 @@ Die Hauptfarbe der Oberfläche. Klicke auf das Farbfeld, um den Farbwähler zu �
 
 ## Metallizität & Rauheit {#metalrough}
 
+![Tabelle aus Metallgrad und Rauheit](/help/diagrams/materials-pbr.svg)
+
+*Rauheit nimmt von links nach rechts zu (scharfes Glanzlicht → weich und matt). Metallgrad nimmt von oben nach unten zu (kunststoffartig → metallisch).*
+
 Verfügbar in den Modi **PBR und APBR**.
 
 - **Rauheit** (0–1, Standard `0,9`) — steuert, wie verschwommen oder scharf Oberflächenreflexionen sind. `0` ist eine spiegelglatte Oberfläche; `1` ist vollständig diffus ohne sichtbare Spiegellichter. Die meisten VRM-Modelle im Anime-Stil sehen zwischen `0,7` und `1,0` am besten aus. Niedrigere Werte lassen die Oberfläche sichtbar glänzend erscheinen.

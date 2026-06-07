@@ -18,6 +18,10 @@ The main surface colour. Click the swatch to open the colour picker. Applies in 
 
 ## Metalness & roughness {#metalrough}
 
+![Metalness and roughness chart](/help/diagrams/materials-pbr.svg)
+
+*Roughness increases left → right (sharp highlight → soft and matte). Metalness increases top → bottom (plastic-like → metallic).*
+
 Available in **PBR and APBR** modes.
 
 - **Roughness** (0–1, default `0.9`) — controls how blurry or sharp surface reflections are. `0` is a mirror-smooth surface; `1` is fully diffuse with no visible specular highlight. Most anime-style VRM models look best between `0.7` and `1.0`. Lower values make the surface visibly shiny.

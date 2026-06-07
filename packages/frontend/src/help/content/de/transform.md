@@ -1,5 +1,9 @@
 # Transform {#transform}
 
+![Koordinatenachsen](/help/diagrams/transform-axes.svg)
+
+*Die Achsen X (rot), Y (grün, oben) und Z (blau). Position verschiebt einen Knoten entlang dieser Achsen, Rotation dreht ihn um sie, und Skalierung streckt ihn entlang dieser Achsen.*
+
 Der Transform-Bereich bestimmt, wo sich ein Knoten in der Szene befindet, wie er ausgerichtet ist und wie er dargestellt wird — jeder Knoten besitzt einen.
 
 ## Position {#position}

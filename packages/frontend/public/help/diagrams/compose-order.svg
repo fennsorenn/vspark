@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="240" viewBox="0 0 440 240" font-family="system-ui, sans-serif" role="img" aria-label="Compose layers stacked in front of and behind the 3D render">
+  <style>.card{stroke-width:1.4}</style>
+  <!-- back layers (behind 3D) -->
+  <polygon class="card" points="40,70 130,40 130,160 40,190" fill="#222831" stroke="#5b6472"/>
+  <polygon class="card" points="95,70 185,40 185,160 95,190" fill="#252c36" stroke="#5b6472"/>
+  <!-- 3D render slot (highlighted) -->
+  <polygon class="card" points="160,70 250,40 250,160 160,190" fill="#243047" stroke="#6ea8fe" stroke-width="2"/>
+  <circle cx="205" cy="92" r="9" fill="#2b3242" stroke="#6ea8fe"/>
+  <rect x="197" y="101" width="16" height="34" rx="3" fill="#2b3242" stroke="#6ea8fe"/>
+  <!-- front layers -->
+  <polygon class="card" points="225,70 315,40 315,160 225,190" fill="#2b323e" stroke="#7e8aa0" opacity="0.85"/>
+  <polygon class="card" points="280,70 370,40 370,160 280,190" fill="#2f3744" stroke="#7e8aa0" opacity="0.8"/>
+  <!-- viewer eye -->
+  <path d="M410,115 q-24,-20 -48,0 q24,20 48,0 z" fill="none" stroke="#c8d2e0" stroke-width="1.6"/>
+  <circle cx="392" cy="115" r="5" fill="#c8d2e0"/>
+  <path d="M360,115 L320,115" stroke="#c8d2e0" stroke-width="1.4" stroke-dasharray="4 3"/>
+</svg>

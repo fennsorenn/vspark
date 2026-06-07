@@ -1,5 +1,9 @@
 # Transform {#transform}
 
+![Coordinate axes](/help/diagrams/transform-axes.svg)
+
+*The X (red), Y (green, up) and Z (blue) axes. Position moves a node along them, rotation turns it around them, and scale stretches it along them.*
+
 The Transform section controls where a node sits in the scene, how it is oriented, and how it appears — every node has one.
 
 ## Position {#position}

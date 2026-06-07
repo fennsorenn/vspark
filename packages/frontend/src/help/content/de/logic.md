@@ -17,6 +17,10 @@ zum gesamten Projekt, zu einem Szenenknoten oder zu einer Ebene gehören.
 
 ## Knoten und Verbindungen {#nodes}
 
+![Ereignis- und Wertverbindungen](/help/diagrams/logic-wire.svg)
+
+*Knoten werden Ausgang → Eingang verbunden. Orange Verbindungen tragen Ereignisse (ein Moment, fließt → mit dem Pfeil); blaue Verbindungen tragen Werte (Daten, die bei Bedarf gelesen werden).*
+
 Eine Logik-Arbeitsfläche besteht aus **Knoten** (den Kästchen), die durch
 **Verbindungen** (den Linien dazwischen) verknüpft sind. Jeder Knoten erledigt
 eine kleine Sache — auf ein Ereignis warten, eine Zufallszahl wählen, eine

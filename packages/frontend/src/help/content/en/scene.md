@@ -18,6 +18,10 @@ Select a node to edit it in the **Properties** panel on the right.
 
 ## Hierarchy {#hierarchy}
 
+![Parent and children](/help/diagrams/scene-hierarchy.svg)
+
+*A node’s children follow its transform: move or rotate the parent and everything beneath it comes along.*
+
 Nodes are arranged in a tree. A node can have children, and children follow
 their parent: move or rotate the parent and everything under it comes along.
 This is how you attach a prop to a hand, or move a whole set at once.

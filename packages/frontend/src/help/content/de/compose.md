@@ -35,6 +35,10 @@ rechts zu bearbeiten.
 
 ## Reihenfolge der Ebenen {#ordering}
 
+![Stapelreihenfolge der Ebenen](/help/diagrams/compose-order.svg)
+
+*Ebenen werden relativ zum Betrachter rechts vor oder hinter dem 3D-Bild (hervorgehoben) gestapelt.*
+
 Ebenen sind von oben (vorne) nach unten (hinten) angeordnet. Ziehe sie zum
 Umsortieren. Zusätzlich hat jede Ebene eine **Stapelreihenfolge**, die steuert,
 ob sie vor oder hinter der 3D-Szene erscheint:

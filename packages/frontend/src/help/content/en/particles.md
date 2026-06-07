@@ -14,6 +14,10 @@ A particle emitter spawns a pool of small textured sprites and simulates their m
 
 ## Lifetime {#lifetime}
 
+![Particle lifetime](/help/diagrams/particle-lifetime.svg)
+
+*Over its lifetime a particle is born, can grow and change colour, then fades out and disappears.*
+
 **Lifetime** — how long each particle lives, in seconds, before it disappears. Default: 2 s. Short lifetimes (0.1 – 0.5 s) keep the cloud tight and near the emitter. Long lifetimes (5 – 10 s) let particles drift far before fading.
 
 **Lifetime random** — adds randomness to each particle's lifetime. A value of 0 means all particles live exactly the set duration. At 0.5 each particle's actual lifetime varies by up to ±50 % of the base value. Default: 0.2. Increasing this avoids the "all particles vanish at once" look.

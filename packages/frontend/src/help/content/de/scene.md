@@ -19,6 +19,10 @@ Wähle einen Knoten aus, um ihn im **Eigenschaften**-Bereich rechts zu bearbeite
 
 ## Hierarchie {#hierarchy}
 
+![Übergeordneter Knoten und Unterknoten](/help/diagrams/scene-hierarchy.svg)
+
+*Die Unterknoten eines Knotens folgen seiner Transformation: Bewegst oder drehst du den übergeordneten Knoten, kommt alles darunter mit.*
+
 Knoten sind in einem Baum angeordnet. Ein Knoten kann Unterknoten haben, und
 diese folgen ihrem übergeordneten Knoten: Bewegst oder drehst du den
 übergeordneten Knoten, kommt alles darunter mit. So befestigst du eine Requisite

@@ -36,6 +36,10 @@ are unaffected.
 
 ## Keyframes {#keyframes}
 
+![Easing curves](/help/diagrams/easing-curves.svg)
+
+*Easing shapes how a value moves between keyframes: green = linear (constant), yellow = step (jump), blue = bezier (smooth ease in/out).*
+
 A **keyframe** marks a moment in time at which a property has a specific value.
 Between two keyframes vspark interpolates (fills in the in-between values)
 according to the **easing** you choose:
