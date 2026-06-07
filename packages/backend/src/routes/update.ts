@@ -91,21 +91,24 @@ function httpsGet(
   headers: Record<string, string>
 ): Promise<import('http').IncomingMessage> {
   return new Promise((resolve, reject) => {
-    const mod = url.startsWith('https') ? https : http;
-    mod
-      .get(url, { headers }, (res) => {
-        if (
-          res.statusCode &&
-          res.statusCode >= 300 &&
-          res.statusCode < 400 &&
-          res.headers.location
-        ) {
-          resolve(httpsGet(res.headers.location, headers));
-        } else {
-          resolve(res);
-        }
-      })
-      .on('error', reject);
+    // Call https.get / http.get concretely: the union of the two `.get`
+    // overloads isn't callable under newer @types/node.
+    const onRes = (res: import('http').IncomingMessage) => {
+      if (
+        res.statusCode &&
+        res.statusCode >= 300 &&
+        res.statusCode < 400 &&
+        res.headers.location
+      ) {
+        resolve(httpsGet(res.headers.location, headers));
+      } else {
+        resolve(res);
+      }
+    };
+    const req = url.startsWith('https')
+      ? https.get(url, { headers }, onRes)
+      : http.get(url, { headers }, onRes);
+    req.on('error', reject);
   });
 }
 
@@ -224,12 +227,10 @@ updateRoutes.post('/update/download', (_req, res) => {
     return;
   }
   if (!_latestAssetUrl) {
-    res
-      .status(400)
-      .json({
-        ok: false,
-        error: { message: 'No asset URL for this platform' },
-      });
+    res.status(400).json({
+      ok: false,
+      error: { message: 'No asset URL for this platform' },
+    });
     return;
   }
 
