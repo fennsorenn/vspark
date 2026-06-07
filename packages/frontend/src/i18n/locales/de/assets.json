@@ -1,0 +1,99 @@
+{
+  "tabs": {
+    "create": "Erstellen",
+    "models": "Modelle",
+    "animations": "Animationen",
+    "images": "Bilder",
+    "videos": "Videos",
+    "audio": "Audio",
+    "components": "Verhalten",
+    "effects": "Effekte",
+    "clips": "Timeline",
+    "presets": "Vorlagen"
+  },
+  "search": {
+    "placeholder": "Suchen…"
+  },
+  "upload": {
+    "uploading": "Wird hochgeladen…",
+    "model": "Modell hochladen",
+    "animation": "Animation hochladen",
+    "image": "Bild hochladen",
+    "video": "Video hochladen",
+    "audio": "Audio hochladen",
+    "dropFiles": "⬆ Dateien hierher ziehen zum Hochladen"
+  },
+  "empty": {
+    "noAssets": "Noch keine {{tab}}. Oben hochladen.",
+    "noMatch": "Keine {{tab}} entsprechen „{{query}}“.",
+    "selectNode": "Objekt in der Szene auswählen, um Verhalten hinzuzufügen.",
+    "selectCamera": "Kameraknoten auswählen, um Effekte hinzuzufügen.",
+    "selectAvatar": "Zuerst einen Avatar auswählen",
+    "selectBillboardOrCamera": "Billboard/Partikel/Kamera auswählen"
+  },
+  "card": {
+    "dragHint": "In den Szenenbaum oder das Ansichtsfenster ziehen, um hinzuzufügen",
+    "alreadyAdded": "Bereits hinzugefügt",
+    "addToNode": "Zu {{name}} hinzufügen",
+    "added": "✓ Hinzugefügt",
+    "add": "+ Hinzufügen",
+    "remove": "Entfernen"
+  },
+  "actions": {
+    "addToScene": "Zur Szene hinzufügen",
+    "applyToNode": "Auf {{name}} anwenden",
+    "applyToNodeTitle": "Als Modell für „{{name}}“ festlegen",
+    "applyAnimTitle": "Auf „{{name}}“ anwenden",
+    "addAsLayer": "Als Ebene hinzufügen",
+    "addAsBillboard": "Als Billboard hinzufügen",
+    "addAsBillboardTitle": "Als Bildebene in der aktiven Compose-Szene hinzufügen",
+    "addAsBillboard3dTitle": "Als Billboard in der 3D-Szene hinzufügen",
+    "applyTexture": "Auf {{name}} anwenden",
+    "applyTextureTitle": "Textur auf „{{name}}“ anwenden",
+    "setAsBg": "Als Hintergrund",
+    "setAsBgTitle": "Als Hintergrund für „{{name}}“ festlegen",
+    "applyToLayer": "Auf {{name}} anwenden",
+    "applyToLayerTitle": "Auf „{{name}}“ anwenden",
+    "addAsVideo": "Als Video hinzufügen",
+    "addAsVideoLayerTitle": "Als Videoebene in der aktiven Compose-Szene hinzufügen",
+    "addAsVideo3dTitle": "Als 3D-Videoknoten in der Szene hinzufügen",
+    "addAsAudio": "Als Audio hinzufügen",
+    "applyVideoTitle": "Auf „{{name}}“ anwenden",
+    "applyAudioTitle": "Auf „{{name}}“ anwenden"
+  },
+  "behaviors": {
+    "otherBehaviors": "Weitere Verhalten (nicht typisch für {{kind}})"
+  },
+  "alerts": {
+    "noProject": "Kein Projekt geladen.",
+    "noScene": "Keine aktive Szene. Zuerst eine Szene auswählen oder erstellen.",
+    "noSceneShort": "Keine aktive Szene.",
+    "noComposeScene": "Keine aktive Compose-Szene. Compose-Tab öffnen und eine Compose-Szene auswählen.",
+    "uploadFailed": "Hochladen fehlgeschlagen",
+    "uploadFailedFiles": "Hochladen fehlgeschlagen: {{files}}",
+    "addSceneFailed": "Zur Szene hinzufügen fehlgeschlagen",
+    "addBillboardFailed": "Billboard hinzufügen fehlgeschlagen",
+    "addVideoFailed": "Video hinzufügen fehlgeschlagen",
+    "addAudioFailed": "Audio hinzufügen fehlgeschlagen",
+    "addLayerFailed": "Ebene hinzufügen fehlgeschlagen",
+    "applyMediaFailed": "Medienquelle konnte nicht angewendet werden",
+    "applyTextureFailed": "Textur konnte nicht angewendet werden",
+    "applyCameraBgFailed": "Kamerahintergrund konnte nicht gesetzt werden",
+    "applyModelFailed": "Modell konnte nicht gesetzt werden",
+    "applyAnimFailed": "Animation konnte nicht angewendet werden",
+    "deleteFailed": "Löschen fehlgeschlagen"
+  },
+  "resize": {
+    "dragTitle": "Ziehen zum Vergrößern"
+  },
+  "help": {
+    "animations": "Erfahre, wie du Animationsclips auf deinen Avatar lädst und anwendest.",
+    "behaviors": "Erfahre, wie du VMC-Motion-Capture und weitere Verhalten mit deinen Knoten verbindest.",
+    "models": "Erfahre, wie du VRM- und 3D-Modell-Assets in deine Szene lädst.",
+    "clips": "Erfahre, wie du Szenenänderungen mit der Timeline und Trigger-Clips automatisierst.",
+    "assets": "Erfahre, was Assets sind und wie du Dateien in deinem Projekt hochlädst und verwendest.",
+    "create": "Erfahre, wie du Objekte (Avatare, Kameras, Lichter, Requisiten) zu deiner Szene hinzufügst.",
+    "effects": "Erfahre, was Kameraeffekte bewirken und wie du sie hinzufügst.",
+    "presets": "Erfahre, wie du Bausteine als Vorlagen speicherst und wiederverwendest."
+  }
+}

@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
 import type { NodeKindMeta, NodePortMeta } from '@vspark/shared/signal';
 import { useEditorStore } from '../../../store/editorStore';
 import { BottomDockResizeHandle } from '../AssetManager';
 import { PALETTE_DRAG_KIND } from './SignalGraphCanvas';
+import { HelpButton } from '../../../help/HelpButton';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Port chip
@@ -121,6 +123,7 @@ interface Props {
 }
 
 export function NodePalette({ kindMeta, graphReadonly }: Props) {
+  const { t } = useTranslation('signalGraph');
   const bottomDockHeight = useEditorStore((s) => s.bottomDockHeight);
   // Collect all unique tags, preserving insertion order. "all" tab is always first.
   const tags = [
@@ -182,7 +185,7 @@ export function NodePalette({ kindMeta, graphReadonly }: Props) {
             letterSpacing: 0.5,
           }}
         >
-          Nodes
+          {t('palette.header')}
         </span>
         {tags.map((tag) => (
           <button
@@ -202,9 +205,15 @@ export function NodePalette({ kindMeta, graphReadonly }: Props) {
               paddingRight: 8,
             }}
           >
-            read-only graph
+            {t('palette.readOnly')}
           </span>
         )}
+        <HelpButton
+          topic="logic"
+          anchor="nodes"
+          tip={t('help.nodes')}
+          style={{ marginLeft: graphReadonly ? 4 : 'auto', flexShrink: 0 }}
+        />
       </div>
 
       {/* Cards */}
@@ -221,7 +230,7 @@ export function NodePalette({ kindMeta, graphReadonly }: Props) {
       >
         {visible.length === 0 ? (
           <span style={{ color: '#444', fontSize: 12 }}>
-            No nodes in this category.
+            {t('palette.empty')}
           </span>
         ) : (
           visible.map((m) => (

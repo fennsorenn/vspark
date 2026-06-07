@@ -1,0 +1,19 @@
+{
+  "viewport": {
+    "gizmo": {
+      "translate": "Translate",
+      "rotate": "Rotate",
+      "scale": "Scale"
+    },
+    "audio": {
+      "on": "Audio preview on (click to mute editor)",
+      "off": "Audio muted in editor (click to preview)"
+    }
+  },
+  "numericInputs": {
+    "setKeyframe": "Set keyframe at playhead",
+    "setKeyframeAll": "Set keyframe at playhead (all components)",
+    "setGroupBtn": "◆ set group",
+    "doubleClickEdit": "Double-click to edit"
+  }
+}

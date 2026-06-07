@@ -1,0 +1,59 @@
+{
+  "node": {
+    "group": "Group",
+    "avatar": "Avatar",
+    "model": "Model",
+    "prop": "Prop",
+    "light_point": "Point Light",
+    "light_directional": "Directional Light",
+    "camera": "Camera",
+    "godray_caster": "Light Rays",
+    "particle": "Particle",
+    "billboard": "Billboard",
+    "video": "Video",
+    "audio_simple": "Audio (Simple)",
+    "audio_directional": "Audio (Spatial)",
+    "text_troika": "Plain Text",
+    "text_canvas": "Rich Text",
+    "feed": "Feed (3D data overlay)"
+  },
+  "layer": {
+    "camera_view": "Camera View",
+    "scene_include": "Include Scene",
+    "image": "Image",
+    "video": "Video",
+    "audio": "Audio",
+    "browser": "Browser",
+    "text": "Text",
+    "feed": "Feed",
+    "group": "Group"
+  },
+  "effect": {
+    "fx_tone_mapping": { "label": "Tone Mapping", "description": "Controls how HDR values are mapped to the display" },
+    "fx_brightness_contrast": { "label": "Brightness / Contrast", "description": "Adjusts overall image brightness and contrast" },
+    "fx_hue_saturation": { "label": "Hue / Saturation", "description": "Shifts hue and scales color saturation" },
+    "fx_sepia": { "label": "Sepia", "description": "Warm brownish cinematic tint" },
+    "fx_bloom": { "label": "Bloom", "description": "Glowing highlights bleed from bright areas" },
+    "fx_depth_of_field": { "label": "Depth of Field", "description": "Bokeh blur outside the focal plane" },
+    "fx_chromatic_aberration": { "label": "Chromatic Aberration", "description": "RGB channel fringing along edges, like a real lens" },
+    "fx_ssao": { "label": "Ambient Occlusion", "description": "Screen-space contact shadows in crevices" },
+    "fx_outline": { "label": "Edge Outline", "description": "Depth-buffer edge detection outlines" },
+    "fx_vignette": { "label": "Vignette", "description": "Darkened edges around the frame" },
+    "fx_noise": { "label": "Noise", "description": "Film grain overlay" },
+    "fx_scanline": { "label": "Scanline", "description": "CRT horizontal scanline overlay" },
+    "fx_pixelation": { "label": "Pixelation", "description": "Retro pixel art look" },
+    "fx_ascii": { "label": "ASCII", "description": "Renders the scene as ASCII characters" },
+    "fx_dot_screen": { "label": "Dot Screen", "description": "Halftone dot pattern overlay" },
+    "fx_glitch": { "label": "Glitch", "description": "Digital glitch distortion" },
+    "fx_smaa": { "label": "SMAA", "description": "Subpixel morphological antialiasing" },
+    "fx_tilt_shift": { "label": "Tilt Shift", "description": "Miniature / tilt-shift blur effect" },
+    "fx_water": { "label": "Water", "description": "Watery ripple distortion" }
+  },
+  "behavior": {
+    "vmc_receiver": { "label": "VMC Receiver", "description": "Receives motion capture data from RhyLive or any VMC-compatible app over UDP." },
+    "breathing": { "label": "Breathing", "description": "Adds procedural breathing motion to the chest and spine bones using a sine oscillator." },
+    "lipsync_processor": { "label": "Lipsync", "description": "Receives microphone viseme weights from the browser and drives VRM blendshapes in real time." },
+    "mediapipe_tracker": { "label": "MediaPipe Tracking", "description": "Receives face, hand, and body pose landmarks from the browser camera and drives VRM bones and blendshapes in real time." },
+    "api_controller": { "label": "API Controller", "description": "Drives the avatar via REST: set/queue animations and blendshape expressions." }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "header": {
+    "newProject": "+ Neues Projekt"
+  },
+  "form": {
+    "title": "Neues Projekt",
+    "namePlaceholder": "Projektname",
+    "descPlaceholder": "Beschreibung (optional)",
+    "creating": "Wird erstellt…",
+    "create": "Erstellen",
+    "cancel": "Abbrechen"
+  },
+  "list": {
+    "loading": "Projekte werden geladen…",
+    "empty": "Noch keine Projekte vorhanden. Klicke auf „Neues Projekt“, um zu starten.",
+    "created": "Erstellt am {{date}}"
+  },
+  "card": {
+    "open": "Öffnen",
+    "delete": "Löschen"
+  },
+  "confirm": {
+    "delete": "Projekt „{{name}}“ löschen? Dies kann nicht rückgängig gemacht werden."
+  },
+  "error": {
+    "createFailed": "Projekt konnte nicht erstellt werden",
+    "deleteFailed": "Projekt konnte nicht gelöscht werden"
+  },
+  "help": {
+    "overview": "Erfahre, wie vspark-Projekte funktionieren und wie du loslegen kannst."
+  }
+}

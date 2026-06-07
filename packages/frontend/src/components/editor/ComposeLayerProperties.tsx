@@ -1,4 +1,5 @@
 import { type CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   useEditorStore,
   type ComposeLayerRecord,
@@ -8,6 +9,7 @@ import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { CSS_BLEND_MODES, readChroma } from './videoFx';
+import { HelpButton } from '../../help/HelpButton';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -63,6 +65,7 @@ export function ComposeLayerProperties({
 }: {
   layer: ComposeLayerRecord;
 }) {
+  const { t } = useTranslation('compose');
   const assets = useEditorStore((s) => s.assets);
   const updateLayerLocal = useEditorStore((s) => s.updateComposeLayerLocal);
   const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
@@ -73,8 +76,8 @@ export function ComposeLayerProperties({
     ? nodes.find((n) => n.id === layer.cameraNodeId)
     : null;
   const scopeLabel = layer.cameraNodeId
-    ? `Camera · ${cameraNode?.name ?? 'unknown'}`
-    : 'Scene-wide (all cameras)';
+    ? t('properties.scopeCamera', { name: cameraNode?.name ?? t('properties.scopeUnknown') })
+    : t('properties.scopeAllCameras');
 
   const commit = (patch: Partial<ComposeLayerRecord>) => {
     updateLayerLocal(layer.id, patch);
@@ -87,7 +90,7 @@ export function ComposeLayerProperties({
   const pickBtn = (tab: Parameters<typeof flashBottomTab>[0]) => (
     <button
       onClick={() => flashBottomTab(tab)}
-      title="Pick from the asset drawer"
+      title={t('properties.pickBtnTitle')}
       style={{
         marginLeft: 8,
         background: '#2a2a2a',
@@ -99,7 +102,7 @@ export function ComposeLayerProperties({
         fontSize: 10,
       }}
     >
-      Pick…
+      {t('properties.pickBtn')}
     </button>
   );
 
@@ -144,7 +147,7 @@ export function ComposeLayerProperties({
       value={unitOf(unitKey)}
       onChange={(e) => setUnit(field, unitKey, e.target.value as 'px' | '%')}
       style={{ ...select, width: 48 }}
-      title="Unit"
+      title={t('properties.unitTitle')}
     >
       <option value="px">px</option>
       <option value="%">%</option>
@@ -194,7 +197,7 @@ export function ComposeLayerProperties({
         </div>
       </div>
 
-      <div style={sectionHeader}>Lock</div>
+      <div style={sectionHeader}>{t('properties.sectionLock')}</div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <label
           style={{
@@ -211,7 +214,7 @@ export function ComposeLayerProperties({
             checked={locked}
             onChange={() => toggleLock('locked')}
           />
-          Lock layer (2D)
+          {t('properties.lockLayer2d')}
         </label>
         {layer.kind === 'camera_view' && (
           <label
@@ -229,12 +232,15 @@ export function ComposeLayerProperties({
               checked={locked3d}
               onChange={() => toggleLock('locked3d')}
             />
-            Lock 3D interaction
+            {t('properties.lockLayer3d')}
           </label>
         )}
       </div>
 
-      <div style={sectionHeader}>Name</div>
+      <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+        {t('properties.sectionName')}
+        <HelpButton topic="compose" anchor="layers" tip={t('help.layerProperties')} />
+      </div>
       <input
         type="text"
         value={layer.name}
@@ -249,7 +255,7 @@ export function ComposeLayerProperties({
 
       {layer.kind === 'camera_view' && (
         <>
-          <div style={sectionHeader}>Camera</div>
+          <div style={sectionHeader}>{t('properties.sectionCamera')}</div>
           <select
             value={layer.cameraNodeId ?? ''}
             onChange={(e) =>
@@ -264,7 +270,7 @@ export function ComposeLayerProperties({
               cursor: 'pointer',
             }}
           >
-            <option value="">None</option>
+            <option value="">{t('properties.optionNone')}</option>
             {nodes
               .filter((n) => n.kind === 'camera')
               .map((n) => (
@@ -278,7 +284,7 @@ export function ComposeLayerProperties({
 
       {layer.kind === 'scene_include' && (
         <>
-          <div style={sectionHeader}>Included scene</div>
+          <div style={sectionHeader}>{t('properties.sectionIncludedScene')}</div>
           <select
             value={(layer.config.includeSceneId as string | undefined) ?? ''}
             onChange={(e) =>
@@ -296,7 +302,7 @@ export function ComposeLayerProperties({
               cursor: 'pointer',
             }}
           >
-            <option value="">None</option>
+            <option value="">{t('properties.optionNone')}</option>
             {composeScenes
               .filter((cs) => cs.id !== layer.rootComposeSceneId)
               .map((cs) => (
@@ -308,7 +314,7 @@ export function ComposeLayerProperties({
         </>
       )}
 
-      <div style={sectionHeader}>Position</div>
+      <div style={sectionHeader}>{t('properties.sectionPosition')}</div>
       <VecInput
         values={[layer.x, layer.y]}
         labels={['X', 'Y']}
@@ -351,12 +357,12 @@ export function ComposeLayerProperties({
         }
       />
       <div style={{ ...row, marginTop: 6 }}>
-        <span style={label}>Units</span>
+        <span style={label}>{t('properties.labelUnits')}</span>
         {unitSelect('x', 'xUnit')}
         {unitSelect('y', 'yUnit')}
       </div>
       <div style={row}>
-        <span style={label}>Anchor</span>
+        <span style={label}>{t('properties.labelAnchor')}</span>
         <select
           value={layer.anchorH}
           onChange={(e) =>
@@ -364,8 +370,8 @@ export function ComposeLayerProperties({
           }
           style={select}
         >
-          <option value="left">Left</option>
-          <option value="right">Right</option>
+          <option value="left">{t('properties.anchorLeft')}</option>
+          <option value="right">{t('properties.anchorRight')}</option>
         </select>
         <select
           value={layer.anchorV}
@@ -374,12 +380,12 @@ export function ComposeLayerProperties({
           }
           style={select}
         >
-          <option value="top">Top</option>
-          <option value="bottom">Bottom</option>
+          <option value="top">{t('properties.anchorTop')}</option>
+          <option value="bottom">{t('properties.anchorBottom')}</option>
         </select>
       </div>
 
-      <div style={sectionHeader}>Size</div>
+      <div style={sectionHeader}>{t('properties.sectionSize')}</div>
       <VecInput
         values={[layer.width, layer.height]}
         labels={['W', 'H']}
@@ -390,12 +396,12 @@ export function ComposeLayerProperties({
         }
       />
       <div style={{ ...row, marginTop: 6 }}>
-        <span style={label}>Units</span>
+        <span style={label}>{t('properties.labelUnits')}</span>
         {unitSelect('width', 'widthUnit')}
         {unitSelect('height', 'heightUnit')}
       </div>
 
-      <div style={sectionHeader}>Rotation</div>
+      <div style={sectionHeader}>{t('properties.sectionRotation')}</div>
       <NumInput
         value={layer.rotation}
         step={1}
@@ -419,7 +425,7 @@ export function ComposeLayerProperties({
         style={{ width: 110 }}
       />
 
-      <div style={sectionHeader}>Visibility</div>
+      <div style={sectionHeader}>{t('properties.sectionVisibility')}</div>
       <div style={row}>
         <label
           style={{
@@ -435,11 +441,11 @@ export function ComposeLayerProperties({
             checked={layer.visible}
             onChange={(e) => commit({ visible: e.target.checked })}
           />
-          Visible
+          {t('properties.labelVisible')}
         </label>
       </div>
       <div style={row}>
-        <span style={label}>Opacity</span>
+        <span style={label}>{t('properties.labelOpacity')}</span>
         <SliderInput
           value={
             typeof layer.config.opacity === 'number' ? layer.config.opacity : 1
@@ -453,7 +459,7 @@ export function ComposeLayerProperties({
         />
       </div>
       <div style={row}>
-        <span style={label}>Blend</span>
+        <span style={label}>{t('properties.labelBlend')}</span>
         <select
           value={(layer.config.blendMode as string | undefined) ?? 'normal'}
           onChange={(e) =>
@@ -474,7 +480,7 @@ export function ComposeLayerProperties({
           <div
             style={{ ...sectionHeader, display: 'flex', alignItems: 'center' }}
           >
-            {layer.kind === 'image' ? 'Image asset' : 'Video asset'}
+            {layer.kind === 'image' ? t('properties.sectionImageAsset') : t('properties.sectionVideoAsset')}
             {pickBtn(layer.kind === 'image' ? 'images' : 'videos')}
           </div>
           <select
@@ -482,7 +488,7 @@ export function ComposeLayerProperties({
             onChange={(e) => commit({ assetId: e.target.value || null })}
             style={{ ...select, width: '100%' }}
           >
-            <option value="">— none —</option>
+            <option value="">{t('properties.optionNoneAsset')}</option>
             {compatibleAssets.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -490,7 +496,7 @@ export function ComposeLayerProperties({
             ))}
           </select>
           <div style={{ ...row, marginTop: 6 }}>
-            <span style={label}>Fit</span>
+            <span style={label}>{t('properties.labelFit')}</span>
             <select
               value={(layer.config.objectFit as string | undefined) ?? 'cover'}
               onChange={(e) =>
@@ -510,9 +516,9 @@ export function ComposeLayerProperties({
 
       {layer.kind === 'video' && (
         <>
-          <div style={sectionHeader}>Playback</div>
+          <div style={sectionHeader}>{t('properties.sectionPlayback')}</div>
           <div style={row}>
-            <span style={label}>Autoplay</span>
+            <span style={label}>{t('properties.labelAutoplay')}</span>
             <input
               type="checkbox"
               checked={layer.config.autoplay !== false}
@@ -524,7 +530,7 @@ export function ComposeLayerProperties({
             />
           </div>
           <div style={row}>
-            <span style={label}>Loop</span>
+            <span style={label}>{t('properties.labelLoop')}</span>
             <input
               type="checkbox"
               checked={layer.config.loop !== false}
@@ -536,7 +542,7 @@ export function ComposeLayerProperties({
             />
           </div>
           <div style={row}>
-            <span style={label}>On end</span>
+            <span style={label}>{t('properties.labelOnEnd')}</span>
             <select
               value={(layer.config.onEnd as string | undefined) ?? 'freeze'}
               onChange={(e) =>
@@ -546,12 +552,12 @@ export function ComposeLayerProperties({
               }
               style={select}
             >
-              <option value="freeze">Freeze on last frame</option>
-              <option value="hide">Hide</option>
+              <option value="freeze">{t('properties.onEndFreeze')}</option>
+              <option value="hide">{t('properties.onEndHide')}</option>
             </select>
           </div>
           <div style={row}>
-            <span style={label}>Muted</span>
+            <span style={label}>{t('properties.labelMuted')}</span>
             <input
               type="checkbox"
               checked={layer.config.muted !== false}
@@ -563,7 +569,7 @@ export function ComposeLayerProperties({
             />
           </div>
           <div style={row}>
-            <span style={label}>Volume</span>
+            <span style={label}>{t('properties.labelVolume')}</span>
             <input
               type="number"
               min={0}
@@ -598,9 +604,9 @@ export function ComposeLayerProperties({
               });
             return (
               <>
-                <div style={sectionHeader}>Chroma key</div>
+                <div style={sectionHeader}>{t('properties.sectionChromaKey')}</div>
                 <div style={row}>
-                  <span style={label}>Enabled</span>
+                  <span style={label}>{t('properties.labelEnabled')}</span>
                   <input
                     type="checkbox"
                     checked={ck.enabled}
@@ -610,7 +616,7 @@ export function ComposeLayerProperties({
                 {ck.enabled && (
                   <>
                     <div style={row}>
-                      <span style={label}>Key color</span>
+                      <span style={label}>{t('properties.labelKeyColor')}</span>
                       <input
                         type="color"
                         value={ck.color}
@@ -626,7 +632,7 @@ export function ComposeLayerProperties({
                       />
                     </div>
                     <div style={row}>
-                      <span style={label}>Similarity</span>
+                      <span style={label}>{t('properties.labelSimilarity')}</span>
                       <SliderInput
                         value={ck.similarity}
                         min={0}
@@ -638,7 +644,7 @@ export function ComposeLayerProperties({
                       />
                     </div>
                     <div style={row}>
-                      <span style={label}>Smoothness</span>
+                      <span style={label}>{t('properties.labelSmoothness')}</span>
                       <SliderInput
                         value={ck.smoothness}
                         min={0}
@@ -650,7 +656,7 @@ export function ComposeLayerProperties({
                       />
                     </div>
                     <div style={row}>
-                      <span style={label}>Spill</span>
+                      <span style={label}>{t('properties.labelSpill')}</span>
                       <SliderInput
                         value={ck.spill}
                         min={0}
@@ -674,7 +680,7 @@ export function ComposeLayerProperties({
           <div
             style={{ ...sectionHeader, display: 'flex', alignItems: 'center' }}
           >
-            Audio asset
+            {t('properties.sectionAudioAsset')}
             {pickBtn('audio')}
           </div>
           <select
@@ -682,16 +688,16 @@ export function ComposeLayerProperties({
             onChange={(e) => commit({ assetId: e.target.value || null })}
             style={{ ...select, width: '100%' }}
           >
-            <option value="">— none —</option>
+            <option value="">{t('properties.optionNoneAsset')}</option>
             {compatibleAssets.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
               </option>
             ))}
           </select>
-          <div style={sectionHeader}>Playback</div>
+          <div style={sectionHeader}>{t('properties.sectionPlayback')}</div>
           <div style={row}>
-            <span style={label}>Autoplay</span>
+            <span style={label}>{t('properties.labelAutoplay')}</span>
             <input
               type="checkbox"
               checked={layer.config.autoplay === true}
@@ -703,7 +709,7 @@ export function ComposeLayerProperties({
             />
           </div>
           <div style={row}>
-            <span style={label}>Loop</span>
+            <span style={label}>{t('properties.labelLoop')}</span>
             <input
               type="checkbox"
               checked={layer.config.loop === true}
@@ -713,7 +719,7 @@ export function ComposeLayerProperties({
             />
           </div>
           <div style={row}>
-            <span style={label}>Muted</span>
+            <span style={label}>{t('properties.labelMuted')}</span>
             <input
               type="checkbox"
               checked={layer.config.muted === true}
@@ -723,7 +729,7 @@ export function ComposeLayerProperties({
             />
           </div>
           <div style={row}>
-            <span style={label}>Volume</span>
+            <span style={label}>{t('properties.labelVolume')}</span>
             <input
               type="number"
               min={0}
@@ -750,7 +756,7 @@ export function ComposeLayerProperties({
 
       {layer.kind === 'browser' && (
         <>
-          <div style={sectionHeader}>URL</div>
+          <div style={sectionHeader}>{t('properties.sectionUrl')}</div>
           <input
             type="text"
             value={(layer.config.url as string | undefined) ?? ''}
@@ -774,7 +780,7 @@ export function ComposeLayerProperties({
 
       {layer.kind === 'feed' && (
         <>
-          <div style={sectionHeader}>Template</div>
+          <div style={sectionHeader}>{t('properties.sectionTemplate')}</div>
           <textarea
             value={(layer.config.template as string | undefined) ?? ''}
             onChange={(e) =>
@@ -810,17 +816,10 @@ export function ComposeLayerProperties({
               marginTop: 4,
             }}
           >
-            JSX-ish (htm) markup. Each field a <code>set_data</code> node
-            publishes is in scope by its bare name (a field labeled{' '}
-            <code>chat</code> → <code>{'${chat.map(...)}'}</code>); guard with{' '}
-            <code>{'${(chat ?? []).map(...)}'}</code> until data arrives. Use{' '}
-            <code>{'<${Emote} html=${m.html} />'}</code> for emote HTML, and{' '}
-            <code>className</code>, not <code>class</code>. A{' '}
-            <code>set_data</code> with no scope is global; one scoped to this
-            layer is private to it.
+            {t('properties.feedHint')}
           </div>
 
-          <div style={sectionHeader}>Styles (CSS)</div>
+          <div style={sectionHeader}>{t('properties.sectionStyles')}</div>
           <textarea
             value={(layer.config.css as string | undefined) ?? ''}
             onChange={(e) =>
@@ -854,17 +853,16 @@ export function ComposeLayerProperties({
               marginTop: 4,
             }}
           >
-            Static styles, scoped to this layer. Dynamic styles can go inline in
-            the template (<code>{'style=${{ color: m.color }}'}</code>).
+            {t('properties.stylesHint')}
           </div>
         </>
       )}
 
-      <div style={sectionHeader}>Stack order</div>
+      <div style={sectionHeader}>{t('properties.sectionStackOrder')}</div>
       <div style={row}>
         <NumInput
           value={layer.sceneOrder}
-          prefix="Scene"
+          prefix={t('properties.prefixScene')}
           step={1}
           precision={0}
           onCommit={(v) => commit({ sceneOrder: Math.round(v) })}
@@ -872,7 +870,7 @@ export function ComposeLayerProperties({
         />
         <NumInput
           value={layer.cameraOrder}
-          prefix="Cam"
+          prefix={t('properties.prefixCam')}
           step={1}
           precision={0}
           onCommit={(v) => commit({ cameraOrder: Math.round(v) })}
@@ -882,7 +880,7 @@ export function ComposeLayerProperties({
       <div
         style={{ fontSize: 10, color: '#555', lineHeight: 1.4, marginTop: -2 }}
       >
-        scene_order &lt; 0 = in front of 3D · 0 = at 3D · &gt; 0 = behind 3D
+        {t('properties.stackOrderHint')}
       </div>
     </>
   );

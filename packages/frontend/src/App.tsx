@@ -4,6 +4,7 @@ import { Home } from './pages/Home';
 import { Editor } from './pages/Editor';
 import { ViewerPage } from './pages/ViewerPage';
 import { MediaInputPage } from './pages/MediaInputPage';
+import { DocsPage } from './pages/DocsPage';
 
 export default function App() {
   return (
@@ -17,6 +18,8 @@ export default function App() {
         />
         <Route path="/viewer/:projectId/:nodeId" element={<ViewerPage />} />
         <Route path="/media-input/:projectId" element={<MediaInputPage />} />
+        <Route path="/docs" element={<DocsPage />} />
+        <Route path="/docs/:topic" element={<DocsPage />} />
       </Routes>
     </BrowserRouter>
   );

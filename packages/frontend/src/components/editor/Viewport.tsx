@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useMemo, useContext } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   OrbitControls,
@@ -4555,10 +4556,10 @@ function TransformGizmo({
   );
 }
 
-const GIZMO_BUTTONS: { mode: GizmoMode; icon: string; title: string }[] = [
-  { mode: 'translate', icon: '↔', title: 'Translate' },
-  { mode: 'rotate', icon: '○', title: 'Rotate' },
-  { mode: 'scale', icon: '□', title: 'Scale' },
+const GIZMO_BUTTONS: { mode: GizmoMode; icon: string; titleKey: string }[] = [
+  { mode: 'translate', icon: '↔', titleKey: 'viewport.gizmo.translate' },
+  { mode: 'rotate', icon: '○', titleKey: 'viewport.gizmo.rotate' },
+  { mode: 'scale', icon: '□', titleKey: 'viewport.gizmo.scale' },
 ];
 
 function GizmoToolbar({
@@ -4568,6 +4569,7 @@ function GizmoToolbar({
   mode: GizmoMode;
   setMode: (m: GizmoMode) => void;
 }) {
+  const { t } = useTranslation('misc');
   return (
     <div
       style={{
@@ -4583,10 +4585,10 @@ function GizmoToolbar({
         zIndex: 10,
       }}
     >
-      {GIZMO_BUTTONS.map(({ mode: m, icon, title }) => (
+      {GIZMO_BUTTONS.map(({ mode: m, icon, titleKey }) => (
         <button
           key={m}
-          title={title}
+          title={t(titleKey)}
           onClick={() => setMode(m)}
           style={{
             width: 30,
@@ -5188,11 +5190,12 @@ export function Viewport() {
  *  viewport. Off by default so authoring stays quiet; the viewer/output always
  *  plays audio regardless of this. */
 function AudioPreviewToggle() {
+  const { t } = useTranslation('misc');
   const on = useEditorStore((s) => s.editorAudioPreviewEnabled);
   const setOn = useEditorStore((s) => s.setEditorAudioPreviewEnabled);
   return (
     <button
-      title={on ? 'Audio preview on (click to mute editor)' : 'Audio muted in editor (click to preview)'}
+      title={on ? t('viewport.audio.on') : t('viewport.audio.off')}
       onClick={() => setOn(!on)}
       style={{
         position: 'absolute',
