@@ -389,6 +389,35 @@ Natural split: `sync-core` (isomorphic), `sync-server` (persistence/snapshot/mes
 Stance: **"extraction-ready, not extracted"** — keep config-at-the-edges + transport-as-a-port,
 but don't over-generalize or publish before a real second consumer exists.
 
+## Sensible minimal scope (don't over-build)
+
+Pressure-tested: most compositing is just `??`, so the "layering" is **not a system** — it's a
+small precedence resolver + a declared list (cleanup, not a framework). The real, worth-it
+abstraction is a lean **typed shared-state sync channel**, justified by *current single-server
+pain alone* (it deletes the 58 hand-written broadcasts + duplicate mappers + the `useWsSync`
+if/else chain, and makes "forgot to sync the new entity" — the original bug — impossible).
+Multiplayer is a bonus on top, not the justification.
+
+**What to actually build (the lean core):**
+- A **typed, scoped** shared-state channel — peers receive only the state they care about.
+- **Delivery classes**, the one internal distinction that's *not* ceremony: **reliable +
+  persisted** (documents) vs **lossy + latest-wins** (streams) vs **fire-once** (events). A single
+  undifferentiated box is then either too slow (reliably ordering a 90 Hz firehose) or too lossy
+  (dropping a node creation). Field/override is just the "fast value" flavor of a document, not
+  separate machinery.
+- **Snapshot-on-join** (a new peer gets current state, not only future deltas) and **origin tags**
+  (no echo to sender, no mesh loops). Both cheap, both mandatory once >1 peer.
+- A **pluggable transport**, split **per class**: ephemeral **streams may go peer-direct**
+  (WebRTC) for latency; **persistent documents go through the authority** for ordering,
+  persistence, and reconciliation. A blanket P2P mesh would make full-sync *harder* (it discards
+  the central ordering point the chosen authority-coordinated reconciliation relies on).
+- A **tiny precedence resolver** for the read side (the "layering", demoted from system to
+  function; `replace` = coalesce, with `add`/`multiply`/`weighted` opt-in per param, full
+  compositor only for poses).
+
+Everything else in this doc (publications/wrappers, version-vector-free reconciliation, the
+override stack) is **policy expressed on that core**, not additional machinery.
+
 ## Migration path (each phase shippable on its own)
 
 - **Phase 0** — Introduce `SyncEnvelope` + resource registry + `applyRemote` dispatcher
