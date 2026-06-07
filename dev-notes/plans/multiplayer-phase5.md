@@ -18,17 +18,39 @@ on reconnect.
   address) handles **signaling + presence**; actual sync flows **peer-to-peer over WebRTC data
   channels**: pose on an *unreliable/unordered* channel (low latency, lossy-OK at 90 Hz), documents
   on a *reliable/ordered* channel.
-- **v1 = STUN-only, no TURN (P2P-only).** Use **public STUN** (e.g. Google) for hole-punching.
-  Symmetric-NAT / CGNAT pairs *can't* form a direct path and simply fail — show a clear
-  "couldn't connect directly (strict NAT)" error. **TURN is a documented later fallback** (self-host
-  `coturn` or managed: Cloudflare Calls / metered.ca / Twilio), added only if failures prove common.
-  Relay-broker mode (rendezvous relays everything) is the other zero-WebRTC fallback.
-- **Rendezvous hosting:** self-host the small app-specific rendezvous for production; **PeerJS**'s
-  free public PeerServer is fine for prototyping (rate-limited). (There's no generic production
-  public signaling server — signaling carries app room/identity logic.)
+- **ICE prefers direct/STUN; TURN is the capped last-resort relay.** Most home-broadband pairs go
+  direct (free, low latency); only strict-NAT / CGNAT pairs fall back to TURN. Both are outbound
+  (no port forwarding). All three pieces (rendezvous, STUN, TURN) ship in a **self-host bundle**
+  (see below) so there's no third-party dependency and strict-NAT users still connect.
+- **Rendezvous hosting:** the self-host bundle is the production path; **PeerJS**'s free public
+  PeerServer + public STUN are fine for early prototyping (rate-limited).
 - A `ServerMesh` transport implements the same port as today's `ClientHub`, carrying the same
   `SyncEnvelope`. No producer/consumer changes; pose uses the Phase 3 stream class.
 - Node WebRTC: `werift` (pure TS) or `node-datachannel`.
+
+## Self-host bundle (decided)
+
+One drop-on-a-server `docker compose` bundle running all the coordination infra, so an operator
+hosts it once for their collab group (no managed services, no app-server impact):
+
+- **`rendezvous`** — the small Node WS service (signaling + presence relay + room/pairing). The only
+  piece that must be publicly reachable.
+- **`coturn`** — a single container is **both STUN and TURN** (one image covers hole-punching +
+  relay fallback).
+- **`caddy`** (or nginx) — TLS termination: `wss://` for the rendezvous and `turns:` for coturn
+  (auto-cert via Let's Encrypt).
+
+**Keeping TURN load off the host** (it only engages when P2P fails, but cap it anyway):
+- coturn: `total-quota`, `bps-capacity` (global bandwidth ceiling), `max-bps` per session,
+  `user-quota`, a bounded `min-port/max-port` relay range, `no-cli`, `no-multicast-peers`, and
+  **short-lived HMAC credentials** (`use-auth-secret` shared with the rendezvous, which mints
+  time-limited TURN creds) so it can't be used as an open relay.
+- Compose `deploy.resources.limits` (cpu/memory) on the coturn service as a hard backstop.
+- Because ICE only uses TURN as a last resort, the steady-state relay load is just the strict-NAT
+  minority — the caps protect against abuse/spikes, not normal use.
+
+The bundle is built alongside the rendezvous in the first implementation PR (the coturn config +
+compose are off-the-shelf and can be scaffolded now; the rendezvous image needs its source first).
 
 ## Identity, pairing & contacts (decided)
 
@@ -42,26 +64,26 @@ on reconnect.
   the private key); to connect, route by peer id → **mutual nonce/signature challenge against the
   stored pubkey** (the rendezvous only routes, can't impersonate) → see the session-grant policy
   below → WebRTC. Revoke = delete (or `block`) the contact. Prior art: Syncthing.
-- **Accept policy = session grant, not a persisted flag.** An *incoming* connection from a known
-  contact **prompts once**; on accept, the peer is **auto-accepted for the session** — a runtime
-  grant `(peer_id → expires_at)`, TTL ~12h, cleared on server restart. **Manually disconnecting a
-  peer revokes its grant** (next incoming prompts again). Outgoing connections I initiate are
-  implicitly accepted on my side. (In-memory by default; persist with `expires_at` only if
-  surviving a restart within the window is wanted.)
+- **Accept policy = a persisted session grant.** An *incoming* connection from a known contact
+  **prompts once**; on accept, the peer is **auto-accepted** until the grant expires — a
+  `session_grants(peer_id PK, expires_at)` row, TTL ~12h. **Persisted on purpose:** a disconnect is
+  often a *crash*, and in a live-stream context reconnecting must be friction-free — so a server
+  restart within the window still auto-reconnects (no re-prompt). **Manually disconnecting a peer
+  deletes its grant** (an explicit "I'm done" → next incoming prompts again). Outgoing connections I
+  initiate are implicitly accepted on my side.
 
 ## Session topology (group call · decided)
 
-- A **session is a room**: connecting is **transitive** — there is never a state where you're
-  connected to B and C but B and C can't see each other. Adding a peer merges them into one session
-  (full mesh among members). Members **see each other** (presence) and **may share with each other**,
-  but visibility ≠ content: every share stays an **explicit per-peer grant**.
-- **No re-sharing received objects** — you can only share *your own* objects (with anyone in the
-  room). A received `remote_object` cannot be forwarded.
-- Mesh is fine at collab scale (2–4 peers); N² connections, not a concern here.
-- **Open sub-decision:** trust flow for a peer pulled in **transitively** who isn't a saved contact
-  (B & C never paired, both invited by A). Lean: transitive members **connect for presence
-  automatically** (you trust the room you're in), but saving each other to `known_peers` for future
-  *direct* code-free reconnect still requires explicit pairing.
+- **Direct connection requires pairing; awareness is transitive.** You hold direct WebRTC links only
+  to peers you've paired + connected with. A connected peer **relays the presence of its other
+  connected peers** to you (so if A is connected to both B and C, A tells B that C exists and vice
+  versa) — there's never a state where two of your co-members are invisible to each other.
+- **Transitive peers are introduced, not auto-connected.** A relayed presence shows up as a
+  "discoverable" peer with a **one-click pair shortcut**: one side clicks *Send pair request*
+  (pubkey travels through the relaying member A — no code to type), the other clicks *Accept*. Only
+  then do they form a direct connection. No silent mesh to strangers.
+- **No re-sharing received objects** — you can only share *your own* objects (with any connected
+  peer). A received `remote_object` cannot be forwarded.
 
 ## Data model
 
@@ -74,6 +96,13 @@ shares(
   object_id TEXT,                    -- scene_node id (object) or scene id (scene)
   grantee_peer_id TEXT,              -- a known_peers.peer_id or '*'
   created_at
+)
+
+-- persisted accept policy: auto-accept this peer's incoming connections until expiry.
+-- survives a crash/restart so reconnect stays friction-free; deleted on manual disconnect.
+session_grants(
+  peer_id PK,                        -- known_peers.peer_id
+  expires_at                         -- ~12h after the accepted prompt
 )
 ```
 
@@ -138,17 +167,16 @@ i18n + help (per CLAUDE.md, part of "done"): new namespace (e.g. `connections`) 
 
 ## Open decisions
 
-Resolved (see sections above): accept policy = **prompt-once-then-session-grant** (TTL ~12h,
-revoked on manual disconnect); revoke/source-delete → **keep placeholder**; **multiple placements
-allowed**; **no re-sharing** received objects; topology = **transitive group-call**; connectivity =
-**STUN-only P2P v1, no TURN**, self-host rendezvous (PeerJS for prototyping).
+All resolved (see sections above): accept policy = **prompt-once → persisted session grant** (~12h
+TTL, survives crash/restart, deleted on manual disconnect); revoke/source-delete → **keep
+placeholder**; **multiple placements allowed**; **no re-sharing** received objects; topology =
+**pairing-gated direct connections + transitive presence relay with one-click pairing**;
+connectivity = **WebRTC (direct/STUN preferred, capped TURN fallback)**, all infra in a
+**self-host docker-compose bundle** (rendezvous + coturn + caddy).
 
-Still open:
-- **Transitive-member trust:** auto-connect-for-presence vs prompt, for peers pulled into a session
-  who aren't saved contacts. (Lean: auto presence; pairing still required to save as a contact.)
-- **Session-grant persistence:** in-memory only (re-prompt after restart) vs persist `expires_at`
-  (survive restart within the ~12h window). (Lean: in-memory.)
-- **TURN later:** if STUN-only failure rate proves high, add TURN (self-host coturn vs managed).
+Nothing blocking remains — open items are now tuning knobs surfaced during build: exact TURN
+caps/quota values, session-grant TTL, and the relay-broker fallback (only if WebRTC proves
+unreliable in practice).
 
 ## Phase 6 — shared scenes (separate, gated)
 
