@@ -51,7 +51,22 @@ class SyncHub {
     },
   };
 
-  // field / stream producers are filled in by Phase 2 / Phase 3.
+  // field producer is filled in by Phase 2 (override/data-channel fold).
+
+  readonly stream = {
+    /** Publish one frame of a high-frequency stream (pose, blendshapes, IK).
+     *  Lossy + latest-wins by nature: no HLC stamp, no persistence, no snapshot.
+     *  NOTE: the live pose/blendshape/IK broadcasts are not migrated onto this
+     *  yet — that hot-path swap is deferred until it can be runtime-verified. */
+    publish: (
+      rtype: string,
+      key: string,
+      frame: Record<string, unknown>,
+      scope?: string
+    ): void => {
+      this.send({ rtype, op: 'frame', key, scope, data: frame });
+    },
+  };
 
   readonly event = {
     /** Fire-and-forget command; no snapshot, no persistence. */

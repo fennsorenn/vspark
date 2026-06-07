@@ -127,3 +127,13 @@ defineResource({
   cls: 'document',
   load: (id) => loadClip(id) ?? undefined,
 });
+
+// --- Stream resources (Phase 3) ---------------------------------------------
+// Declared so the four-class API surface is complete and these names are
+// reserved. Lossy/latest-wins, no load/scope/snapshot. The live broadcasts
+// (pose_broadcast / blendshapes_broadcast / ik_broadcast) still emit their
+// legacy WS kinds; migrating that 90 Hz hot path onto sync.stream.publish is
+// deferred until it can be runtime-verified (see the design doc, Phase 3).
+defineResource({ rtype: 'vmc_pose', cls: 'stream' });
+defineResource({ rtype: 'vmc_blendshapes', cls: 'stream' });
+defineResource({ rtype: 'pose_ik_targets', cls: 'stream' });
