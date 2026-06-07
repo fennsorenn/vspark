@@ -107,9 +107,10 @@ PUT    /scene-nodes/:nodeId                body: { name?, kind?, filePath?, pare
 DELETE /scene-nodes/:nodeId
 ```
 
-`POST /scenes/:sceneId/nodes` broadcasts `node_added` to all WebSocket clients.  
-`PUT /scene-nodes/:nodeId` broadcasts `node_updated`.  
-`DELETE /scene-nodes/:nodeId` broadcasts `node_removed` (cascade handles children in DB, but the broadcast is only for the deleted node).
+`POST /scenes/:sceneId/nodes` and `DELETE /scene-nodes/:nodeId` now broadcast **through the sync layer** — `sync.document.upsert`/`remove` for rtype `scene_node` on the single `'sync'` WS kind — instead of the bespoke `node_added`/`node_removed` kinds. The frontend applies them via the sync apply dispatcher (`upsert` dedupes by id; `remove` deletes the node). `DELETE` cascades children in the DB but emits a removal only for the deleted node. See [sync.md](sync.md).  
+`PUT /scene-nodes/:nodeId` still broadcasts the legacy `node_updated` (updates are not yet migrated).  
+
+Note: the spawn manager still emits inline `node_added` / `node_removed` for ephemeral tmp nodes, so those legacy handlers remain in place. See [spawn.md](spawn.md).
 
 ## Frontend — `SceneGraph.tsx`
 

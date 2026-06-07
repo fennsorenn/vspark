@@ -138,6 +138,8 @@ In `WSMessageKind`:
 
 Handled in `packages/frontend/src/hooks/useWsSync.ts` following the compose-layer pattern. The snapshot handler reads either `startedAt` or `pausedAtT` per entry.
 
+**Clip create/delete now flow through the sync layer** — `sync.document.upsert`/`remove` for rtype `track_clip` on the single `'sync'` WS kind — instead of the bespoke `track_clip_added`/`track_clip_removed` kinds for persistent clips. The legacy `track_clip_added`/`removed` handlers are kept because the spawn manager still emits them inline for ephemeral spawned clips. Lanes, keyframes, events, and playback messages above stay on their legacy kinds. See [sync.md](sync.md) and [spawn.md](spawn.md).
+
 ## Frontend Evaluator
 
 `packages/frontend/src/hooks/useTrackClipEvaluator.ts` is mounted in both `Editor.tsx` and `ViewerPage.tsx`.

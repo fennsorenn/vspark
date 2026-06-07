@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws, _trackClipPlayback } from './shared.js';
+import { sync } from '../sync/index.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -114,7 +115,7 @@ function mapClip(
   };
 }
 
-function loadClip(clipId: string) {
+export function loadClip(clipId: string) {
   const db = getDb();
   const row = db
     .prepare('SELECT * FROM track_clips WHERE id = ?')
@@ -193,7 +194,11 @@ function insertClip(
 function nameRequired(res: import('express').Response) {
   res.status(400).json({
     ok: false,
-    error: { status: 400, message: 'name is required', code: 'VALIDATION_ERROR' },
+    error: {
+      status: 400,
+      message: 'name is required',
+      code: 'VALIDATION_ERROR',
+    },
   });
 }
 
@@ -201,7 +206,7 @@ function nameRequired(res: import('express').Response) {
 router.post('/scene-nodes/:nodeId/track-clips', (req, res) => {
   const data = insertClip(req.body ?? {}, { ownerNodeId: req.params.nodeId });
   if (!data) return nameRequired(res);
-  _ws?.broadcast('track_clip_added', data as Record<string, unknown>);
+  sync.document.upsert('track_clip', data.id);
   res.status(201).json({ ok: true, data });
 });
 
@@ -209,7 +214,7 @@ router.post('/scene-nodes/:nodeId/track-clips', (req, res) => {
 router.post('/compose-layers/:layerId/track-clips', (req, res) => {
   const data = insertClip(req.body ?? {}, { ownerLayerId: req.params.layerId });
   if (!data) return nameRequired(res);
-  _ws?.broadcast('track_clip_added', data as Record<string, unknown>);
+  sync.document.upsert('track_clip', data.id);
   res.status(201).json({ ok: true, data });
 });
 
@@ -290,7 +295,7 @@ router.delete('/track-clips/:id', (req, res) => {
   const id = req.params.id;
   _trackClipPlayback?.onClipDeleted(id);
   getDb().prepare('DELETE FROM track_clips WHERE id = ?').run(id);
-  _ws?.broadcast('track_clip_removed', { id });
+  sync.document.remove('track_clip', id);
   res.json({ ok: true, data: { id } });
 });
 

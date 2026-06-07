@@ -13,7 +13,8 @@
     "./inference": "./src/inference.ts",
     "./infer_nodes": "./src/infer_nodes.ts",
     "./arkit": "./src/arkit_tables.ts",
-    "./paramPaths": "./src/paramPaths.ts"
+    "./paramPaths": "./src/paramPaths.ts",
+    "./sync": "./src/sync.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",
