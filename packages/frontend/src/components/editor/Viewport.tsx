@@ -3480,6 +3480,10 @@ function TextTroikaNode({ node }: { node: NodeRecord }) {
   // Create the troika Text mesh once and attach into the group.
   useEffect(() => {
     const inst = new TroikaText();
+    // Use a locally bundled font instead of troika's default, which is fetched
+    // from a remote CDN — that fetch fails offline/behind a firewall, leaving
+    // text invisible. See public/fonts/DejaVuSans-LICENSE.txt.
+    inst.font = '/fonts/DejaVuSans.ttf';
     textRef.current = inst;
     billboardRef.current?.add(inst);
     return () => {

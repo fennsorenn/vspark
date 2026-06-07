@@ -148,33 +148,57 @@ export function ComposeLayerProperties({
     } as Partial<ComposeLayerRecord>);
   };
 
-  // Compact unit toggle rendered inside a numeric field (right edge), so units
-  // live on the value row instead of a separate line.
+  // Compact unit picker rendered inside a numeric field (right edge), so units
+  // live on the value row instead of a separate line. Styled as a small pill
+  // with a caret so it reads as an interactive dropdown rather than static text.
   const unitSelectInline = (
     field: 'x' | 'y' | 'width' | 'height',
     unitKey: UnitKey
   ) => (
-    <select
-      value={unitOf(unitKey)}
-      onChange={(e) => setUnit(field, unitKey, e.target.value as 'px' | '%')}
-      title={t('properties.unitTitle')}
+    <span
       style={{
-        background: 'transparent',
-        border: 'none',
-        color: '#888',
-        fontSize: 10,
-        outline: 'none',
-        cursor: 'pointer',
-        padding: '0 2px 0 0',
-        appearance: 'none',
-        WebkitAppearance: 'none',
-        MozAppearance: 'none',
-        textAlignLast: 'right',
+        position: 'relative',
+        display: 'inline-flex',
+        alignItems: 'center',
+        flexShrink: 0,
       }}
     >
-      <option value="px">px</option>
-      <option value="%">%</option>
-    </select>
+      <select
+        value={unitOf(unitKey)}
+        onChange={(e) => setUnit(field, unitKey, e.target.value as 'px' | '%')}
+        title={t('properties.unitTitle')}
+        style={{
+          appearance: 'none',
+          WebkitAppearance: 'none',
+          MozAppearance: 'none',
+          background: '#ffffff14',
+          border: '1px solid #ffffff24',
+          borderRadius: 3,
+          color: '#bbb',
+          fontSize: 10,
+          outline: 'none',
+          cursor: 'pointer',
+          padding: '1px 13px 1px 5px',
+          textAlignLast: 'center',
+        }}
+      >
+        <option value="px">px</option>
+        <option value="%">%</option>
+      </select>
+      <span
+        style={{
+          position: 'absolute',
+          right: 4,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          pointerEvents: 'none',
+          fontSize: 7,
+          color: '#999',
+        }}
+      >
+        ▾
+      </span>
+    </span>
   );
 
   // One of the four layer corners. Highlights the active anchor and sets both
