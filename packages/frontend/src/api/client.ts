@@ -937,7 +937,7 @@ export const createProjectLogic = (projectId: string, name: string) =>
   });
 
 /** A scene-node- or compose-layer-scoped graph, tagged with its owner's
- *  display name for listing in the Graphs panel's Scoped section. */
+ *  display name for listing in the Logic panel's Scoped section. */
 export interface ScopedLogicRecord extends LogicRecord {
   ownerName: string;
   ownerNodeKind?: string;
@@ -1218,7 +1218,7 @@ export const instantiatePreset = (
     }),
   });
 
-// ─── Graphs (node/layer scoped) ─────────────────────────────────────────────
+// ─── Logic (node/layer scoped) ─────────────────────────────────────────────
 
 /** Generic graph fetch by id — works for any owner kind. Used by the canvas
  *  so it can open a graph without first knowing its scope. */

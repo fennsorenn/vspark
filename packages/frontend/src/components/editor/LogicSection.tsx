@@ -16,7 +16,7 @@ export function LogicSection({
   const activeLogicId = useEditorStore((s) => s.activeLogicId);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteLogic = clipboardPayload?.kind === 'graph';
+  const canPasteLogic = clipboardPayload?.kind === 'logic';
 
   const [logic, setLogic] = useState<LogicRecord[]>([]);
   /** Open context menu state. Null when no menu is currently up. */
@@ -89,7 +89,7 @@ export function LogicSection({
     // paste — we only need the nodes + edges + name.
     await copyToClipboard(
       {
-        kind: 'graph',
+        kind: 'logic',
         name: g.name,
         descriptor: g.descriptor,
         sourceOwnerKind: owner.kind === 'node' ? 'scene_node' : 'compose_layer',
@@ -100,7 +100,7 @@ export function LogicSection({
 
   const handlePaste = async () => {
     const payload = await pasteFromClipboard(clipboardPayload);
-    if (!payload || payload.kind !== 'graph') return;
+    if (!payload || payload.kind !== 'logic') return;
     try {
       const created =
         owner.kind === 'node'

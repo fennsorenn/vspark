@@ -203,7 +203,7 @@ export function Editor() {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <SceneGraph />
         {/* The main view is bound to the active left-dock tab: Scene → 3D
-            viewport, Graphs → signal graph canvas, Compose → compose view.
+            viewport, Logic → signal graph canvas, Compose → compose view.
             The Viewport always stays mounted (keeps the 3D scene + WebGL
             context alive) and is merely hidden when another tab is active. */}
         <div
@@ -235,7 +235,7 @@ export function Editor() {
           >
             <Viewport />
           </div>
-          {leftTab === 'graphs' &&
+          {leftTab === 'logic' &&
             (activeLogicId ? (
               <div style={{ position: 'absolute', inset: 0 }}>
                 <SignalGraphCanvas
@@ -256,14 +256,14 @@ export function Editor() {
                   background: '#0a0a0a',
                 }}
               >
-                Select or create a graph from the Graphs panel.
+                Select or create a graph from the Logic panel.
               </div>
             ))}
           {leftTab === 'compose' && <ComposeView />}
         </div>
         <PropertiesPanel />
       </div>
-      {leftTab === 'graphs' ? (
+      {leftTab === 'logic' ? (
         <NodePalette kindMeta={kindMeta} graphReadonly={!activeLogicWritable} />
       ) : (
         <AssetManager />

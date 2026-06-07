@@ -3732,7 +3732,7 @@ export function PropertiesPanel() {
   // The inspector follows the active main-view tab. Each tab owns a distinct
   // selection model, so a leftover selection from another tab never leaks in:
   //   • Compose tab → compose layers
-  //   • Graphs tab  → nothing (signal nodes are edited inline on the canvas)
+  //   • Logic tab  → nothing (signal nodes are edited inline on the canvas)
   //   • Scene tab   → 3D scene nodes + their components / camera effects
   const emptyState = (text: string) => (
     <div
@@ -3768,9 +3768,9 @@ export function PropertiesPanel() {
     return emptyState('Select a layer to edit its properties.');
   }
 
-  // Graphs tab: signal nodes are edited inline on the canvas, so the right
+  // Logic tab: signal nodes are edited inline on the canvas, so the right
   // inspector has nothing node-shaped to show here.
-  if (leftTab === 'graphs') {
+  if (leftTab === 'logic') {
     return emptyState('Editing a graph — select nodes on the canvas.');
   }
 

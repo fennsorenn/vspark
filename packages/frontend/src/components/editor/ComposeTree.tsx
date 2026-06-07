@@ -208,7 +208,7 @@ function LayerRow({
 
   const handlePasteLogicAtLayer = async () => {
     const payload = await pasteFromClipboard(clipboardPayload);
-    if (!payload || payload.kind !== 'graph') return;
+    if (!payload || payload.kind !== 'logic') return;
     try {
       const created = await api.createLayerLogic(layer.id, payload.name);
       await api.updateLogic(created.id, {
@@ -227,7 +227,7 @@ function LayerRow({
   };
   const buildContextMenuItems = (): ContextMenuItem[] => {
     const canPasteLayer = clipboardPayload?.kind === 'compose-layer';
-    const canPasteLogic = clipboardPayload?.kind === 'graph';
+    const canPasteLogic = clipboardPayload?.kind === 'logic';
     const items: ContextMenuItem[] = [
       {
         kind: 'item',

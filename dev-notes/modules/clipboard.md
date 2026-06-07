@@ -2,7 +2,7 @@
 
 **Status: Implemented.**
 
-Single editor-wide clipboard slot driven by Cmd/Ctrl+C / Cmd/Ctrl+V across most concepts in the editor: signal-graph node selections, whole logic, scene-node subtrees, compose-layer subtrees, camera effects, behaviors, and track clips. (The clipboard `kind` discriminant strings — `'graph'`, `'graph-nodes'`, `'node-component'` — are persisted into the OS clipboard and were intentionally NOT renamed.)
+Single editor-wide clipboard slot driven by Cmd/Ctrl+C / Cmd/Ctrl+V across most concepts in the editor: signal-graph node selections, whole logic, scene-node subtrees, compose-layer subtrees, camera effects, behaviors, and track clips. (The `kind` discriminants — `'logic'`, `'behavior'`, `'scene-node'`, `'compose-layer'`, `'camera-effect'`, `'track-clip'`, `'graph-nodes'` — are written into the OS clipboard as JSON. `'graph-nodes'` is a selection of nodes inside the `SignalGraphCanvas`; it keeps the substrate "signal graph" naming on purpose, the rest follow the current vocabulary.)
 
 Frontend module: `packages/frontend/src/clipboard.ts`.
 
@@ -42,5 +42,5 @@ Cmd/Ctrl+C / Cmd/Ctrl+V are handled at keyboard scope per panel; right-click con
 ## Cross-references
 
 - [presets.md](presets.md) — `'scene-node'` / `'compose-layer'` variants reuse the preset payload format; cross-project paste works for free.
-- [project-graphs.md](project-graphs.md) — `'graph'` variant (an Logic) pastes across owner scopes; the manager rebinds context nodes as needed.
+- [project-graphs.md](project-graphs.md) — `'logic'` variant (a Logic) pastes across owner scopes; the manager rebinds context nodes as needed.
 - [track-clips.md](track-clips.md) — `'track-clip'` variant's `sourceOwnerKind` + `sourceOwnerId` drive the lane-retarget decision on paste.

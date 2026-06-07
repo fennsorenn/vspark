@@ -83,7 +83,7 @@ export interface ComposeLayerOverride {
 export type RuntimeOverrideValue = number | string | boolean;
 export type RuntimeOverrideMap = Record<string, RuntimeOverrideValue>;
 
-export type LeftDockTab = 'scene' | 'compose' | 'graphs';
+export type LeftDockTab = 'scene' | 'compose' | 'logic';
 export type BottomDockTab =
   | 'create'
   | 'models'
@@ -91,7 +91,7 @@ export type BottomDockTab =
   | 'images'
   | 'videos'
   | 'audio'
-  | 'components'
+  | 'behaviors'
   | 'effects'
   | 'clips'
   | 'presets';
@@ -119,7 +119,7 @@ function lsSet(key: string, value: string): void {
     /* storage unavailable — ignore */
   }
 }
-const LEFT_TABS: LeftDockTab[] = ['scene', 'compose', 'graphs'];
+const LEFT_TABS: LeftDockTab[] = ['scene', 'compose', 'logic'];
 const BOTTOM_TABS: BottomDockTab[] = [
   'create',
   'models',
@@ -127,7 +127,7 @@ const BOTTOM_TABS: BottomDockTab[] = [
   'images',
   'videos',
   'audio',
-  'components',
+  'behaviors',
   'effects',
   'clips',
   'presets',
@@ -863,15 +863,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setActiveLogicWritable: (writable) => set({ activeLogicWritable: writable }),
   setActiveLogic: (id) => {
     // Opening a graph (from any list — including scoped graphs in the scene /
-    // compose trees) follows the main view to the Graphs tab, so the canvas is
+    // compose trees) follows the main view to the Logic tab, so the canvas is
     // what's actually shown. Clearing the active graph leaves the current tab
     // alone (the toggle-off path shouldn't yank the user away).
-    if (id != null) lsSet(LS.leftTab, 'graphs');
+    if (id != null) lsSet(LS.leftTab, 'logic');
     set((s) => ({
       activeLogicId: id,
       selectedSignalNodeId: null,
       activeLogicWritable: false,
-      leftTab: id != null ? 'graphs' : s.leftTab,
+      leftTab: id != null ? 'logic' : s.leftTab,
     }));
   },
   setSelectedSignalNode: (id) => set({ selectedSignalNodeId: id }),

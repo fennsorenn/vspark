@@ -350,7 +350,7 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
   const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteBehavior = clipboardPayload?.kind === 'node-component';
+  const canPasteBehavior = clipboardPayload?.kind === 'behavior';
   const components = behaviorsFor(nodeId).filter(
     (c) => !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
   );
@@ -358,8 +358,8 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
   const handleCopyBehavior = async (comp: Behavior) => {
     await copyToClipboard(
       {
-        kind: 'node-component',
-        component: {
+        kind: 'behavior',
+        behavior: {
           kind: comp.kind,
           enabled: comp.enabled,
           config: comp.config,
@@ -371,13 +371,13 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
 
   const handlePasteBehavior = async () => {
     const payload = await pasteFromClipboard(clipboardPayload);
-    if (!payload || payload.kind !== 'node-component') return;
+    if (!payload || payload.kind !== 'behavior') return;
     const comp: Behavior = {
       id: newBehaviorId(),
       nodeId,
-      kind: payload.component.kind,
-      enabled: payload.component.enabled,
-      config: { ...payload.component.config },
+      kind: payload.behavior.kind,
+      enabled: payload.behavior.enabled,
+      config: { ...payload.behavior.config },
     };
     addBehavior(comp);
     try {
@@ -1062,7 +1062,7 @@ function LogicListPanel() {
   const [behaviorLogicOpen, setBehaviorLogicOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteLogic = clipboardPayload?.kind === 'graph';
+  const canPasteLogic = clipboardPayload?.kind === 'logic';
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
@@ -1172,7 +1172,7 @@ function LogicListPanel() {
   const handleCopy = async (g: LogicRecord) => {
     await copyToClipboard(
       {
-        kind: 'graph',
+        kind: 'logic',
         name: g.name,
         descriptor: g.descriptor,
         sourceOwnerKind: 'project',
@@ -1184,7 +1184,7 @@ function LogicListPanel() {
   const handlePaste = async () => {
     if (!projectId) return;
     const payload = await pasteFromClipboard(clipboardPayload);
-    if (!payload || payload.kind !== 'graph') return;
+    if (!payload || payload.kind !== 'logic') return;
     try {
       const created = await api.createProjectLogic(projectId, payload.name);
       const updated = await api.updateLogic(created.id, {
@@ -1317,7 +1317,7 @@ function LogicListPanel() {
 
       {/* Scoped graphs (scene-node / compose-layer owned). Listed here too —
           in addition to the inline lists in the scene/compose trees — so the
-          Graphs tab can show the active scoped graph as selected and let the
+          Logic tab can show the active scoped graph as selected and let the
           user switch between scoped graphs without leaving this tab. */}
       <div
         style={{
@@ -1533,7 +1533,7 @@ export function SceneGraph() {
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteSceneNodeClipboard = clipboardPayload?.kind === 'scene-node';
-  const canPasteLogicClipboard = clipboardPayload?.kind === 'graph';
+  const canPasteLogicClipboard = clipboardPayload?.kind === 'logic';
   // Collapsed scene roots (scene id set).
   const [collapsedScenes, setCollapsedScenes] = useState<Set<string>>(
     new Set()
@@ -1717,7 +1717,7 @@ export function SceneGraph() {
 
   const handlePasteLogicAtNode = async (nodeId: string) => {
     const payload = await pasteFromClipboard(clipboardPayload);
-    if (!payload || payload.kind !== 'graph') return;
+    if (!payload || payload.kind !== 'logic') return;
     try {
       const created = await api.createNodeLogic(nodeId, payload.name);
       await api.updateLogic(created.id, {
@@ -2369,14 +2369,14 @@ export function SceneGraph() {
           Compose
         </button>
         <button
-          style={tabStyle(dockTab === 'graphs')}
-          onClick={() => setDockTab('graphs')}
+          style={tabStyle(dockTab === 'logic')}
+          onClick={() => setDockTab('logic')}
         >
           Logic
         </button>
       </div>
 
-      {dockTab === 'graphs' && <LogicListPanel />}
+      {dockTab === 'logic' && <LogicListPanel />}
       {dockTab === 'compose' && <ComposeTree />}
 
       {dockTab === 'scene' && (

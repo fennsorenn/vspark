@@ -32,7 +32,7 @@ export type ClipboardPayload =
       edges: GraphEdgeDescriptor[];
     }
   | {
-      kind: 'graph';
+      kind: 'logic';
       name: string;
       descriptor: GraphDescriptor;
       sourceOwnerKind: OwnerKind;
@@ -44,8 +44,8 @@ export type ClipboardPayload =
       effect: Omit<CameraEffectRecord, 'id' | 'nodeId'>;
     }
   | {
-      kind: 'node-component';
-      component: Omit<BehaviorRecord, 'id' | 'nodeId'>;
+      kind: 'behavior';
+      behavior: Omit<BehaviorRecord, 'id' | 'nodeId'>;
     }
   | {
       kind: 'track-clip';

@@ -57,7 +57,7 @@ export function AssetManager() {
   const canApplyVideoLayer = selectedComposeLayer?.kind === 'video';
   const canApplyAudioLayer = selectedComposeLayer?.kind === 'audio';
   // The "Add" action follows the left-dock context: Compose tab → create a
-  // compose layer; Scene/Graphs tab → create a 3D scene node.
+  // compose layer; Scene/Logic tab → create a 3D scene node.
   const composeMode = leftTab === 'compose';
   const bottomDockHeight = useEditorStore((s) => s.bottomDockHeight);
   const bottomTabFlash = useEditorStore((s) => s.bottomTabFlash);
@@ -66,10 +66,10 @@ export function AssetManager() {
 
   // Tabs worth highlighting for the current selection. Non-destructive — every
   // tab stays clickable; relevant ones just get an accent so the eye lands on
-  // them (e.g. select an avatar → Animations + Components light up).
+  // them (e.g. select an avatar → Animations + Behaviors light up).
   const relevantTabs = new Set<BottomDockTab>();
   if (selectedNode) {
-    relevantTabs.add('components');
+    relevantTabs.add('behaviors');
     if (selectedNode.kind === 'avatar' || selectedNode.kind === 'model') {
       relevantTabs.add('models');
       relevantTabs.add('animations');
@@ -727,8 +727,8 @@ export function AssetManager() {
           Audio
         </button>
         <button
-          style={tabBtn('components')}
-          onClick={() => setTab('components')}
+          style={tabBtn('behaviors')}
+          onClick={() => setTab('behaviors')}
         >
           Behaviors
         </button>
@@ -764,7 +764,7 @@ export function AssetManager() {
           />
         )}
         {tab === 'create' ||
-        tab === 'components' ||
+        tab === 'behaviors' ||
         tab === 'effects' ||
         tab === 'clips' ||
         tab === 'presets' ? null : tab === 'models' ? (
@@ -889,8 +889,8 @@ export function AssetManager() {
         </div>
       ) : (
         <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
-          {/* Components tab */}
-          {tab === 'components' && (
+          {/* Behaviors tab */}
+          {tab === 'behaviors' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {!selectedNode && (
                 <div
