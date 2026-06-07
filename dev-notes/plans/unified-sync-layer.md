@@ -448,24 +448,83 @@ override stack) is **policy expressed on that core**, not additional machinery.
 
 ## Migration path (each phase shippable on its own)
 
-- **Phase 0** — Introduce `SyncEnvelope` + resource registry + `applyRemote` dispatcher
-  *alongside* existing messages. No behavior change.
-- **Phase 1** — Migrate Document/CRUD entities to `sync.document.*`; send canonical DTOs
-  and **delete the duplicated frontend mappers**. Generically fixes the preset-sync bug class.
-- **Phase 2** — Fold `RuntimeOverrideManager` + `DataChannelManager` into `sync.field.*`
-  (≈90% there already). Add the live-edit overlay; unify preview→commit on it. **Introduce the
-  layer compositor** (single effective-value resolver) and retire the duplicated merge chains
-  (`useTransformWithOverride`, `layerStyle`) and the `suppressedOverrides` muting hack.
-- **Phase 3** — Wrap pose/blendshape/IK in `sync.stream.*` with coalescing; centralize
-  smoother routing. Mostly rename + consolidation.
-- **Phase 4** — Add HLC + `origin` end-to-end (harmless pre-multiplayer; prerequisite for it).
-- **Phase 5 — Object share (Strategy A).** `ServerMesh` transport + a thin directory;
-  **publications**, **proxy/`remote_avatar` entities** (live read-only Document projection +
-  remote Stream), B-owned persisted **wrapper group**, sha256 asset caching. No reconciliation.
-- **Phase 6 — Full scene sync (Strategy B), separate effort.** Multi-master document
-  replication: per-entity **version vectors**, **tombstones**, reconnect **resync protocol**,
-  and the chosen conflict policy. Gated behind Phase 5 and its own design pass — this is the
-  hard distributed-systems work.
+Sequencing: **Phases 0–4 are single-server** and each is independently valuable (they pay for
+themselves by deleting duplication and fixing the sync-the-new-entity bug class) — no multiplayer
+surface. **Phases 5–6 are the multiplayer arc**, gated behind a stable core. Migrate one
+resource/entity at a time, keeping the old path live until each is proven, then delete it.
+
+- **Phase 0 — Foundation (no behavior change).**
+  - *Goal:* the lean core, inert until used.
+  - *Build:* `SyncEnvelope`; the dotted-path addressing convention; the **resource registry**
+    (descriptor: rtype · class · scope · load/map · policy); **delivery classes**
+    (reliable/lossy/event) over the existing `WSSync` as the `ClientHub` transport; the
+    `applyRemote(envelope)` client dispatcher (runs alongside the current if/else, inert until
+    resources register); **snapshot-on-join** + **origin tags** baked in now (cheap, avoids a
+    retrofit).
+  - *Done when:* lint/typecheck green; a throwaway smoke resource round-trips; zero behavior change.
+  - *Risk:* low (pure addition).
+
+- **Phase 1 — Documents / CRUD (fixes the original bug).**
+  - *Goal:* all persisted entities sync through one path.
+  - *Build:* migrate `scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip` to
+    `sync.document.upsert/remove`; **one canonical DTO mapper per type** (shared) — delete the
+    duplicated frontend mappers; collapse the per-entity `useWsSync` branches into registry
+    bindings. Preset instantiation becomes "loop created ids → `document.upsert`."
+  - *Done when:* two clients reflect every CRUD op **and** preset instantiation with no reload; the
+    58 bespoke broadcasts + dup mappers are gone.
+  - *Risk:* medium (touches every CRUD route + store slices) — mitigate by one entity at a time.
+
+- **Phase 2 — Fields + the compositor.**
+  - *Goal:* one resolver for effective values; kill the duplicated precedence + suppression hack.
+  - *Build:* fold `RuntimeOverrideManager` + `DataChannelManager` into `sync.field.*` (≈90% there);
+    the dotted-path **layered store** (`state[path] = {layer→value}`) + the tiny precedence
+    resolver (replace = coalesce; add/multiply opt-in per param); add the **live-edit overlay**
+    layer and unify preview→commit on it; retire `useTransformWithOverride`, `layerStyle`, and
+    `suppressedOverrides` ("manual edit = higher layer").
+  - *Done when:* live drag over a playing clip behaves identically (manual wins, no flicker);
+    overrides + data channels intact; the two merge chains + suppression set are deleted.
+  - *Risk:* medium (render read-path; needs precedence + smoothing parity testing).
+
+- **Phase 3 — Streams (poses).**
+  - *Goal:* poses as a first-class lossy stream; staged compositing made explicit.
+  - *Build:* wrap pose/blendshape/IK as `sync.stream.*` (lossy, coalesced, latest-wins, not
+    persisted); centralize smoother routing; model the server compositor as the upstream
+    (`stream-result`) segment publishing `avatar.<id>.pose`, clip merged downstream
+    (`sync-source`) — formalize the **per-layer placement** + contiguous cut.
+  - *Done when:* pose latency/throughput unchanged; clip+mocap merge identical; stale frames drop.
+  - *Risk:* low–medium (mostly consolidation; watch 90 Hz perf).
+
+- **Phase 4 — Clocks & identity (multiplayer-ready).**
+  - *Goal:* deterministic ordering across peers.
+  - *Build:* **HLC** stamping + `origin` end-to-end; stale-update rejection (drop `v ≤ localV`).
+  - *Done when:* out-of-order / duplicate updates cause no regression; single-server behavior
+    unchanged.
+  - *Risk:* low.
+
+- **Phase 5 — Object share (Strategy A) · first multiplayer.**
+  - *Goal:* borrow an avatar across servers.
+  - *Build:* `ServerMesh` transport (Redis pub/sub) + a thin **directory** for discovery;
+    transport split per class (streams may go peer-direct); **publications**;
+    **proxy/`remote_avatar`** (read-only Document projection + remote pose Stream); subscriber-owned
+    **persisted wrapper group**; **sha256 asset caching** (reuse the preset asset path);
+    drop-on-disconnect.
+  - *Done when:* B embeds A's avatar in B's scene, places it via the wrapper, sees live pose;
+    disconnect drops the object, reconnect re-projects; B persists only the wrapper.
+  - *Risk:* medium–high (first cross-server, network failure modes) — bounded by needing **no
+    reconciliation**.
+
+- **Phase 6 — Full scene sync (Strategy B) · separate, gated effort.**
+  - *Goal:* two servers co-own + persist the same scene, resilient to disconnect.
+  - *Build:* **symmetric persistence** (both keep a full replica) + **authority-coordinated
+    reconciliation** on reconnect — a designated authority arbitrates; **apply both sides,
+    authority breaks ties only on the same field**; **dirty-since-sync markers** + **tombstones**
+    for deletes. *Not* version vectors / CRDT.
+  - *Done when:* both edit offline, reconnect converges deterministically; non-conflicting offline
+    edits from both sides survive; deleted entities don't resurrect.
+  - *Risk:* high (multi-master) — its own design pass; gate behind real demand.
+
+Cross-cutting: hold the **"extraction-ready"** discipline throughout (domain-agnostic core,
+transport as a port, specifics as config) so `packages/sync` can later become its own package.
 
 ## Out of scope (for the first build)
 
