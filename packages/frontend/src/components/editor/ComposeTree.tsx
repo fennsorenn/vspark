@@ -14,6 +14,7 @@ import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { createLayer } from './createKinds';
 import { DND_CREATE_LAYER } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
+import { usePrompt } from '../DialogProvider';
 
 const KIND_ICONS: Record<ComposeLayerKind, string> = {
   image: '🖼',
@@ -617,6 +618,7 @@ function ComposeSceneRoot({
 
 export function ComposeTree() {
   const { t } = useTranslation('compose');
+  const prompt = usePrompt();
   const { projectId } = useParams<{ projectId: string }>();
   const composeScenes = useEditorStore((s) => s.composeScenes);
   const addComposeScene = useEditorStore((s) => s.addComposeScene);
@@ -624,7 +626,11 @@ export function ComposeTree() {
 
   const handleNewComposeScene = async () => {
     if (!projectId) return;
-    const name = window.prompt(t('tree.promptName'), t('tree.promptDefault'));
+    const name = await prompt({
+      title: t('tree.promptName'),
+      defaultValue: t('tree.promptDefault'),
+      confirmLabel: t('common:actions.create'),
+    });
     if (!name?.trim()) return;
     try {
       const created = await api.createComposeScene(projectId, {

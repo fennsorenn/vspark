@@ -5,11 +5,13 @@ import { Editor } from './pages/Editor';
 import { ViewerPage } from './pages/ViewerPage';
 import { MediaInputPage } from './pages/MediaInputPage';
 import { DocsPage } from './pages/DocsPage';
+import { DialogProvider } from './components/DialogProvider';
 
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
+      <DialogProvider>
+        <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/editor/:projectId" element={<Editor />} />
         <Route
@@ -20,7 +22,8 @@ export default function App() {
         <Route path="/media-input/:projectId" element={<MediaInputPage />} />
         <Route path="/docs" element={<DocsPage />} />
         <Route path="/docs/:topic" element={<DocsPage />} />
-      </Routes>
+        </Routes>
+      </DialogProvider>
     </BrowserRouter>
   );
 }

@@ -11,6 +11,7 @@ import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
 import { ContextMenu } from './ContextMenu';
 import { HelpButton } from '../../help/HelpButton';
+import { useConfirm, usePrompt } from '../DialogProvider';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
   NODE_KIND_DEFS,
@@ -1068,6 +1069,8 @@ import type { LogicRecord, ScopedLogicRecord } from '../../api/client';
 function LogicListPanel() {
   const { t } = useTranslation('sceneGraph');
   const { projectId } = useParams<{ projectId: string }>();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const { activeLogicId, setActiveLogic } = useEditorStore();
   const [behaviorLogic, setBehaviorLogic] = useState<GraphDescriptor[]>([]);
   const [projectLogic, setProjectLogic] = useState<LogicRecord[]>([]);
@@ -1135,7 +1138,11 @@ function LogicListPanel() {
 
   const handleCreate = async () => {
     if (!projectId) return;
-    const name = window.prompt(t('logic.promptName'), t('logic.promptDefault'));
+    const name = await prompt({
+      title: t('logic.promptName'),
+      defaultValue: t('logic.promptDefault'),
+      confirmLabel: t('common:actions.create'),
+    });
     if (!name?.trim()) return;
     try {
       const created = await api.createProjectLogic(projectId, name.trim());
@@ -1147,7 +1154,11 @@ function LogicListPanel() {
   };
 
   const handleRename = async (g: LogicRecord) => {
-    const name = window.prompt(t('logic.promptRename'), g.name);
+    const name = await prompt({
+      title: t('logic.promptRename'),
+      defaultValue: g.name,
+      confirmLabel: t('common:actions.rename'),
+    });
     if (!name?.trim() || name.trim() === g.name) return;
     try {
       const updated = await api.updateLogic(g.id, { name: name.trim() });
@@ -1173,7 +1184,14 @@ function LogicListPanel() {
   };
 
   const handleDelete = async (g: LogicRecord) => {
-    if (!window.confirm(t('logic.confirmDelete', { name: g.name }))) return;
+    if (
+      !(await confirm({
+        message: t('logic.confirmDelete', { name: g.name }),
+        confirmLabel: t('common:actions.delete'),
+        danger: true,
+      }))
+    )
+      return;
     try {
       await api.deleteLogic(g.id);
       setProjectLogic((prev) => prev.filter((x) => x.id !== g.id));
@@ -1519,6 +1537,8 @@ function LogicListPanel() {
 export function SceneGraph() {
   const { t } = useTranslation('sceneGraph');
   const { projectId } = useParams<{ projectId: string }>();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const {
     activeSceneId,
     scenes,
@@ -1606,7 +1626,11 @@ export function SceneGraph() {
 
   const handleNewScene = async () => {
     if (!projectId) return;
-    const name = window.prompt(t('scenes.promptName'), t('scenes.promptDefault'));
+    const name = await prompt({
+      title: t('scenes.promptName'),
+      defaultValue: t('scenes.promptDefault'),
+      confirmLabel: t('common:actions.create'),
+    });
     if (!name?.trim()) return;
     try {
       const scene = await api.createScene(projectId, name.trim());
@@ -1623,9 +1647,11 @@ export function SceneGraph() {
 
   const handleDeleteScene = async (scene: (typeof scenes)[number]) => {
     if (
-      !window.confirm(
-        t('scenes.confirmDelete', { name: scene.name })
-      )
+      !(await confirm({
+        message: t('scenes.confirmDelete', { name: scene.name }),
+        confirmLabel: t('common:actions.delete'),
+        danger: true,
+      }))
     )
       return;
     try {
@@ -1663,7 +1689,15 @@ export function SceneGraph() {
 
   const handleDelete = async (nodeId: string) => {
     const node = sceneNodes.find((n) => n.id === nodeId);
-    if (!node || !window.confirm(t('nodes.confirmDelete', { name: node.name }))) return;
+    if (!node) return;
+    if (
+      !(await confirm({
+        message: t('nodes.confirmDelete', { name: node.name }),
+        confirmLabel: t('common:actions.delete'),
+        danger: true,
+      }))
+    )
+      return;
     try {
       await api.deleteNode(nodeId);
       storeDeleteNode(nodeId);
@@ -2115,12 +2149,14 @@ export function SceneGraph() {
                           // Single-action prompt — full menu is overkill
                           // when "paste here" is the only meaningful action
                           // a bone can host.
-                          const yes = window.confirm(
-                            t('bones.pasteConfirm', { bone: formatBoneName(boneName) })
-                          );
-                          if (yes) {
-                            void handlePasteNodeAsChild(node.id, boneName);
-                          }
+                          void confirm({
+                            message: t('bones.pasteConfirm', {
+                              bone: formatBoneName(boneName),
+                            }),
+                          }).then((yes) => {
+                            if (yes)
+                              void handlePasteNodeAsChild(node.id, boneName);
+                          });
                         }}
                         onDragOver={(e) => {
                           e.preventDefault();

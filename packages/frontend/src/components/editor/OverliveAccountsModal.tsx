@@ -18,6 +18,7 @@ import { api } from '../../api/client';
 import { useEditorStore } from '../../store/editorStore';
 import { HelpButton } from '../../help/HelpButton';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
+import { useConfirm } from '../DialogProvider';
 import type {
   OverliveAppCredentialRecord,
   OverliveAccountRecord,
@@ -32,6 +33,7 @@ interface Props {
 export function OverliveAccountsModal({ onClose }: Props) {
   const { t } = useTranslation('accounts');
   const { projectId } = useParams<{ projectId: string }>();
+  const confirm = useConfirm();
   useEscapeKey(onClose);
   const setStoreAccounts = useEditorStore((s) => s.setOverliveAccounts);
   const [apps, setApps] = useState<OverliveAppCredentialRecord[]>([]);
@@ -172,7 +174,13 @@ export function OverliveAccountsModal({ onClose }: Props) {
   };
 
   const handleDeleteAccount = async (acc: OverliveAccountRecord) => {
-    if (!window.confirm(t('alerts.removeAccountConfirm', { label: acc.label })))
+    if (
+      !(await confirm({
+        message: t('alerts.removeAccountConfirm', { label: acc.label }),
+        confirmLabel: t('common:actions.remove'),
+        danger: true,
+      }))
+    )
       return;
     try {
       await api.deleteOverliveAccount(acc.id);
@@ -205,9 +213,11 @@ export function OverliveAccountsModal({ onClose }: Props) {
         ? `\n\n${t('alerts.removeAppInUse', { n: usingCount })}`
         : '';
     if (
-      !window.confirm(
-        `${t('alerts.removeAppConfirm', { label: app.label })}${extra}`
-      )
+      !(await confirm({
+        message: `${t('alerts.removeAppConfirm', { label: app.label })}${extra}`,
+        confirmLabel: t('common:actions.remove'),
+        danger: true,
+      }))
     )
       return;
     try {

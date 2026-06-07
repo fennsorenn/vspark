@@ -5,10 +5,12 @@ import { api } from '../api/client';
 import type { Project } from '../api/client';
 import { HelpButton } from '../help/HelpButton';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
+import { useConfirm } from '../components/DialogProvider';
 
 export function Home() {
   const navigate = useNavigate();
   const { t } = useTranslation('home');
+  const confirm = useConfirm();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewForm, setShowNewForm] = useState(false);
@@ -54,7 +56,13 @@ export function Home() {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(t('confirm.delete', { name })))
+    if (
+      !(await confirm({
+        message: t('confirm.delete', { name }),
+        confirmLabel: t('card.delete'),
+        danger: true,
+      }))
+    )
       return;
     try {
       await api.deleteProject(id);
