@@ -6,7 +6,7 @@ import { valueIn, valueOut } from '@vspark/shared/node_decorators';
   label: 'Sine Wave',
   description:
     'Outputs sin(time × frequency × 2π + phase) × amplitude. Connect a Clock time output as the trigger/time source.',
-  tags: ['math'],
+  tags: ["math"],
   color: '#4a7a5a',
 })
 export class SineWave extends Node {

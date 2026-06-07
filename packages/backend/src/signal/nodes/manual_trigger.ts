@@ -11,7 +11,7 @@ import { valueIn, eventOut } from '@vspark/shared/node_decorators';
   label: 'Behavior Trigger',
   description:
     'Emits a trigger event when its button is pressed in the component property panel.',
-  tags: ['input'],
+  tags: ["input"],
   color: '#3a3a5a',
 })
 export class ManualTrigger extends Node {

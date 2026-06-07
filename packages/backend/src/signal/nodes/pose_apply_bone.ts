@@ -7,7 +7,7 @@ import { valueIn, valueOut } from '@vspark/shared/node_decorators';
   label: 'Pose Apply Bone',
   description:
     'Applies a quaternion rotation to one bone of a NormalizedPose. mode "multiply" adds a delta on top of the existing rotation; "set" replaces it.',
-  tags: ['pose'],
+  tags: ["mocap"],
   color: '#5b7a3a',
 })
 export class PoseApplyBone extends Node {

@@ -9,7 +9,7 @@ import { broadcastBus } from '../../broadcast/bus.js';
   label: 'Send Intercepted Pose',
   description:
     'Advances the pose interceptor chain. Wire the frame from Intercept Pose and the (optionally modified) pose, then connect trigger from the end of your pipeline.',
-  tags: ['interceptor', 'output'],
+  tags: ["output"],
   color: '#4a6a9f',
 })
 export class PoseInterceptorBroadcast extends Node {

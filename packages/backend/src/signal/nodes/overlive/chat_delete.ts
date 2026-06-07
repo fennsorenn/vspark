@@ -20,7 +20,7 @@ const EMPTY: ChatDeleteOut = {
 @SignalNode({
   label: 'Overlive Chat Delete',
   description: 'Fires when a moderator deletes a chat message.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveChatDelete extends Node {

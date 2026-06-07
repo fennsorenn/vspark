@@ -16,7 +16,7 @@ interface VisemeState {
   label: 'Visemes → Blendshapes',
   description:
     'Scales all incoming viseme weights by a sensitivity multiplier. Clamped to [0, 1].',
-  tags: ['lipsync'],
+  tags: ["mocap"],
   color: '#4a7a5a',
 })
 export class VisemePassthrough extends Node {

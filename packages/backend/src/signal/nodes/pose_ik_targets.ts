@@ -92,7 +92,7 @@ interface PoseIkConfig {
   label: 'Pose IK Targets',
   description:
     'Converts MediaPipe world-space pose landmarks into IK target positions (relative to a reference bone) with per-target chain definitions. Includes EMA smoothing to reduce jitter. Calibration (per-axis scale/offset/invert) arrives via input ports — wire `behavior_config` nodes for each.',
-  tags: ['tracking', 'mapping'],
+  tags: ["mocap"],
   color: '#6a4a9a',
 })
 export class PoseIkTargets extends Node {

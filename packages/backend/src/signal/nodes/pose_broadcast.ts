@@ -22,7 +22,7 @@ export function broadcastPose(nodeId: string, pose: NormalizedPose): void {
   label: 'Send Pose',
   description:
     'Publishes the processed NormalizedPose to the Broadcast Bus. The bus composes slots from all producers attached to this entity and emits a merged pose on each scene tick.',
-  tags: ['output'],
+  tags: ["output"],
   color: '#7a3a6a',
 })
 export class PoseBroadcast extends Node {

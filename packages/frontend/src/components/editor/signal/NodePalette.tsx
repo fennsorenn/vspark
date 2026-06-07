@@ -122,18 +122,43 @@ interface Props {
   graphReadonly: boolean;
 }
 
+// Canonical category order so the tab strip reads consistently regardless of
+// node registration order. Any tag not listed here is appended after these.
+const TAG_ORDER = [
+  'input',
+  'mocap',
+  'math',
+  'output',
+  'scene',
+  'clips',
+  'overlive',
+  'utility',
+];
+
 export function NodePalette({ kindMeta, graphReadonly }: Props) {
   const { t } = useTranslation('signalGraph');
   const bottomDockHeight = useEditorStore((s) => s.bottomDockHeight);
-  // Collect all unique tags, preserving insertion order. "all" tab is always first.
+  // Collect unique tags and order them canonically. "all" tab is always first.
+  const present = new Set(kindMeta.flatMap((m) => m.display?.tags ?? []));
   const tags = [
     'all',
-    ...Array.from(new Set(kindMeta.flatMap((m) => m.display?.tags ?? []))),
+    ...TAG_ORDER.filter((tag) => present.has(tag)),
+    ...[...present].filter((tag) => !TAG_ORDER.includes(tag)).sort(),
   ];
   const [activeTag, setActiveTag] = useState('all');
+  const [query, setQuery] = useState('');
 
-  const visible =
-    activeTag === 'all'
+  const q = query.trim().toLowerCase();
+  const matchesQuery = (m: NodeKindMeta) =>
+    (m.display?.label ?? m.kind).toLowerCase().includes(q) ||
+    m.kind.toLowerCase().includes(q) ||
+    (m.display?.description ?? '').toLowerCase().includes(q);
+
+  // A search spans every category (ignoring the active tab) so nodes are always
+  // findable by name; without a query we fall back to the selected category.
+  const visible = q
+    ? kindMeta.filter(matchesQuery)
+    : activeTag === 'all'
       ? kindMeta
       : kindMeta.filter((m) => m.display?.tags.includes(activeTag));
 
@@ -172,7 +197,7 @@ export function NodePalette({ kindMeta, graphReadonly }: Props) {
           alignItems: 'center',
           borderBottom: '1px solid #1e1e2e',
           padding: '0 8px',
-          gap: 2,
+          gap: 6,
           flexShrink: 0,
         }}
       >
@@ -180,29 +205,61 @@ export function NodePalette({ kindMeta, graphReadonly }: Props) {
           style={{
             fontSize: 10,
             color: '#444',
-            marginRight: 6,
             textTransform: 'uppercase',
             letterSpacing: 0.5,
+            flexShrink: 0,
           }}
         >
           {t('palette.header')}
         </span>
-        {tags.map((tag) => (
-          <button
-            key={tag}
-            style={tabStyle(activeTag === tag)}
-            onClick={() => setActiveTag(tag)}
-          >
-            {tag}
-          </button>
-        ))}
+        {/* Scrollable category strip — never clips, even with many categories. */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            flex: 1,
+            minWidth: 0,
+            overflowX: 'auto',
+            scrollbarWidth: 'thin',
+          }}
+        >
+          {tags.map((tag) => (
+            <button
+              key={tag}
+              style={tabStyle(activeTag === tag && !q)}
+              onClick={() => {
+                setActiveTag(tag);
+                setQuery('');
+              }}
+            >
+              {t(`palette.tags.${tag}`, { defaultValue: tag })}
+            </button>
+          ))}
+        </div>
+        {/* Search filters across every category. */}
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('palette.searchPlaceholder')}
+          style={{
+            flexShrink: 0,
+            width: 150,
+            background: '#1a1a2a',
+            border: '1px solid #2a2a4a',
+            borderRadius: 4,
+            color: '#e0e0e0',
+            fontSize: 11,
+            padding: '3px 8px',
+            outline: 'none',
+          }}
+        />
         {graphReadonly && (
           <span
             style={{
-              marginLeft: 'auto',
               fontSize: 10,
               color: '#444',
-              paddingRight: 8,
+              flexShrink: 0,
             }}
           >
             {t('palette.readOnly')}
@@ -212,7 +269,7 @@ export function NodePalette({ kindMeta, graphReadonly }: Props) {
           topic="logic"
           anchor="nodes"
           tip={t('help.nodes')}
-          style={{ marginLeft: graphReadonly ? 4 : 'auto', flexShrink: 0 }}
+          style={{ flexShrink: 0 }}
         />
       </div>
 
@@ -230,7 +287,7 @@ export function NodePalette({ kindMeta, graphReadonly }: Props) {
       >
         {visible.length === 0 ? (
           <span style={{ color: '#444', fontSize: 12 }}>
-            {t('palette.empty')}
+            {q ? t('palette.noMatch', { query }) : t('palette.empty')}
           </span>
         ) : (
           visible.map((m) => (

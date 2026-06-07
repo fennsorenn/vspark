@@ -6,7 +6,7 @@ import type { StreamOfflineEvent } from '@overlive/core';
 @SignalNode({
   label: 'Overlive Stream Offline',
   description: 'Fires when the configured account goes offline.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveStreamOffline extends Node {

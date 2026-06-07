@@ -44,7 +44,7 @@ export interface BodyCalibConfig {
   label: 'Body Calibration',
   description:
     'Removes neutral-pose bias. Use capture/reset triggers to calibrate.',
-  tags: ['calibration'],
+  tags: ["mocap"],
   color: '#4a5a9f',
 })
 export class BodyCalibration extends Node {

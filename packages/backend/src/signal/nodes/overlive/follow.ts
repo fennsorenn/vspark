@@ -13,7 +13,7 @@ const EMPTY: FollowOut = { username: '', displayName: '' };
 @SignalNode({
   label: 'Overlive Follow',
   description: 'Fires when a viewer follows the configured account.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveFollow extends Node {

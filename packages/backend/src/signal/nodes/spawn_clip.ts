@@ -26,7 +26,7 @@ interface SpawnClipConfig {
   label: 'Spawn Clip',
   description:
     'Clones the clip’s owner entity and plays a tmp copy of the clip on it. Cleans up on completion.',
-  tags: ['clips', 'spawn', 'output'],
+  tags: ["clips"],
   color: '#c97a3a',
 })
 export class SpawnClip extends Node {
