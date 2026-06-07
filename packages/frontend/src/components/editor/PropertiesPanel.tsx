@@ -2947,15 +2947,19 @@ function EffectRow({
   const value = (cfg[field] as number) ?? 0;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{label}</span>
-      <NumInput
-        value={value}
-        step={step ?? 0.01}
-        min={min}
-        max={max}
-        onCommit={(v) => onSave({ [field]: v })}
-        style={{ width: 96 }}
-      />
+      <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
+        {label}
+      </span>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex' }}>
+        <NumInput
+          value={value}
+          step={step ?? 0.01}
+          min={min}
+          max={max}
+          onCommit={(v) => onSave({ [field]: v })}
+          style={{ width: '100%' }}
+        />
+      </div>
     </div>
   );
 }
@@ -4613,7 +4617,7 @@ export function PropertiesPanel() {
                   value={light.intensity}
                   step={0.1}
                   min={0}
-                  style={{ width: 96 }}
+                  style={{ flex: 1, minWidth: 0 }}
                   onChange={(v) => setLight({ ...light, intensity: v })}
                   onCommit={(v) => {
                     const next = { ...light, intensity: v };
@@ -4702,7 +4706,7 @@ export function PropertiesPanel() {
                         <NumInput
                           value={light.shadowBias ?? -0.0005}
                           step={0.0001}
-                          style={{ width: 96 }}
+                          style={{ flex: 1, minWidth: 0 }}
                           onChange={(v) =>
                             setLight({ ...light, shadowBias: v })
                           }
@@ -4731,7 +4735,7 @@ export function PropertiesPanel() {
                             value={light.shadowCameraSize ?? 10}
                             step={1}
                             min={1}
-                            style={{ width: 96 }}
+                            style={{ flex: 1, minWidth: 0 }}
                             onChange={(v) =>
                               setLight({ ...light, shadowCameraSize: v })
                             }
@@ -4819,7 +4823,7 @@ export function PropertiesPanel() {
                     value={camera.fov}
                     step={1}
                     suffix="°"
-                    style={{ width: 96 }}
+                    style={{ flex: 1, minWidth: 0 }}
                     onChange={(v) => setCamera({ ...camera, fov: v })}
                     onCommit={(v) => {
                       const next = { ...camera, fov: v };
@@ -4852,7 +4856,7 @@ export function PropertiesPanel() {
                   <NumInput
                     value={camera.orthoSize}
                     step={0.1}
-                    style={{ width: 96 }}
+                    style={{ flex: 1, minWidth: 0 }}
                     onChange={(v) => setCamera({ ...camera, orthoSize: v })}
                     onCommit={(v) => {
                       const next = { ...camera, orthoSize: v };
@@ -4895,7 +4899,7 @@ export function PropertiesPanel() {
                   <NumInput
                     value={camera[key]}
                     step={step}
-                    style={{ width: 96 }}
+                    style={{ flex: 1, minWidth: 0 }}
                     onChange={(v) => setCamera({ ...camera, [key]: v })}
                     onCommit={(v) => {
                       const next = { ...camera, [key]: v };
@@ -5311,13 +5315,30 @@ export function PropertiesPanel() {
               padding: '3px 6px',
               fontSize: 12,
               outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
             };
+            // Consistent two-column field row: label on the left, a fixed-width
+            // control column on the right that the control fills, so every row's
+            // inputs share the same left/right edges instead of floating at their
+            // own content width.
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
             return (
@@ -5486,13 +5507,30 @@ export function PropertiesPanel() {
               padding: '3px 6px',
               fontSize: 12,
               outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
             };
+            // Consistent two-column field row: label on the left, a fixed-width
+            // control column on the right that the control fills, so every row's
+            // inputs share the same left/right edges instead of floating at their
+            // own content width.
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
             const check = (label: string, field: string, checked: boolean) =>
@@ -5811,13 +5849,30 @@ export function PropertiesPanel() {
               padding: '3px 6px',
               fontSize: 12,
               outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
             };
+            // Consistent two-column field row: label on the left, a fixed-width
+            // control column on the right that the control fills, so every row's
+            // inputs share the same left/right edges instead of floating at their
+            // own content width.
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
             const check = (label: string, field: string, checked: boolean) =>
@@ -6050,13 +6105,30 @@ export function PropertiesPanel() {
               padding: '3px 6px',
               fontSize: 12,
               outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
             };
+            // Consistent two-column field row: label on the left, a fixed-width
+            // control column on the right that the control fills, so every row's
+            // inputs share the same left/right edges instead of floating at their
+            // own content width.
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
             return (
@@ -6082,7 +6154,7 @@ export function PropertiesPanel() {
                   {row(
                     t('text.content'),
                     <input
-                      style={{ ...textInput, width: 160 }}
+                      style={{ ...textInput, width: '100%' }}
                       defaultValue={(tc.content as string) ?? ''}
                       key={node.id + '-tc-content'}
                       onBlur={(e) => saveTc({ content: e.target.value })}
@@ -6226,10 +6298,21 @@ export function PropertiesPanel() {
             };
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
             const area: React.CSSProperties = {
@@ -6372,6 +6455,8 @@ export function PropertiesPanel() {
               padding: '3px 6px',
               fontSize: 12,
               outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
             };
             const chk = (field: string) => (
               <input
@@ -6382,10 +6467,21 @@ export function PropertiesPanel() {
             );
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
             return (
@@ -7199,7 +7295,7 @@ export function PropertiesPanel() {
                 step={0.05}
                 min={0}
                 suffix="s"
-                style={{ width: 96 }}
+                style={{ flex: 1, minWidth: 0 }}
                 onChange={(v) => {
                   const properties = {
                     ...node.properties,
