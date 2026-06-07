@@ -167,6 +167,17 @@ This is **more than LWW** — LWW picks one value; the compositor *stacks* them 
 multiply (today's `relative` clip mode adds; opacity multiplies). It generalizes the existing
 `AnimationBlendMode` ('override'/'relative'/additive) idea to every param.
 
+**But keep the common case simple.** With every layer in `replace` mode the fold degenerates to a
+precedence coalesce — `effective = top ?? … ?? base` (nullish, *not* `||`: `0`/`''`/opacity `0`
+are valid; "absent" means the layer doesn't touch this field). That's most scalar params, so the
+scalar path should literally *be* an ordered coalesce. Add/multiply/weighted blends are an opt-in
+**per-param `compose` rule in `paramPaths`** (relative clips, opacity, IK influence); only **poses**
+need the full quaternion compositor. Don't build a heavyweight generic blend engine for the ~95%
+that's just `??`. In the trivial case the abstraction's payoff is *organizational, not arithmetic*:
+one declared precedence list (vs the chain copy-pasted across consumers, which is how the two
+existing copies drift), dynamic layer presence fed by sync sources, and "manual edit = higher
+layer" replacing the suppression hack.
+
 Wins:
 - **Precedence defined once.** Renderer, properties panel, and any future consumer call the same
   resolver instead of re-deriving the chain.
