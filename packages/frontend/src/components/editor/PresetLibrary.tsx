@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useEditorStore, type PresetSummary } from '../../store/editorStore';
+import { HelpButton } from '../../help/HelpButton';
 import {
   getPresets,
   createPreset,
@@ -13,6 +15,7 @@ import {
 } from '../../api/client';
 
 export function PresetLibrary() {
+  const { t } = useTranslation('presets');
   const projectId = useEditorStore((s) => s.projectId);
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
@@ -292,7 +295,14 @@ export function PresetLibrary() {
     >
       {/* Actions bar */}
       <div style={sectionHeader}>
-        <span>Preset Library</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          {t('header')}
+          <HelpButton
+            topic="presets"
+            anchor="what"
+            tip={t('help.presets')}
+          />
+        </span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button
             style={{ ...btnStyle, opacity: canSave ? 1 : 0.4 }}
@@ -304,33 +314,33 @@ export function PresetLibrary() {
             disabled={!canSave}
             title={
               canSave
-                ? 'Save the selected node/layer as a preset'
-                : 'Select a node or layer first'
+                ? t('actions.saveTitle')
+                : t('actions.saveDisabledTitle')
             }
           >
-            Save
+            {t('actions.save')}
           </button>
           <button
             style={btnStyle}
             onClick={handleCopy}
             disabled={!canSave}
-            title="Copy selected to clipboard"
+            title={t('actions.copyTitle')}
           >
-            Copy
+            {t('actions.copy')}
           </button>
           <button
             style={btnStyle}
             onClick={handlePaste}
-            title="Paste from clipboard"
+            title={t('actions.pasteTitle')}
           >
-            Paste
+            {t('actions.paste')}
           </button>
           <button
             style={btnStyle}
             onClick={() => fileInputRef.current?.click()}
-            title="Import .json preset"
+            title={t('actions.importTitle')}
           >
-            Import
+            {t('actions.import')}
           </button>
         </div>
       </div>
@@ -352,7 +362,7 @@ export function PresetLibrary() {
         {/* Built-in (shipped, read-only) presets */}
         {builtins.length > 0 && (
           <>
-            <div style={groupLabel}>Built-in</div>
+            <div style={groupLabel}>{t('groups.builtin')}</div>
             <div
               style={{
                 display: 'grid',
@@ -407,16 +417,16 @@ export function PresetLibrary() {
                         }}
                         onClick={() => handleInstantiateBuiltin(b.id)}
                         disabled={instantiating === b.id || !target}
-                        title="Instantiate into the current scene"
+                        title={t('card.useTitle')}
                       >
-                        Use
+                        {t('card.use')}
                       </button>
                     </div>
                   </div>
                 );
               })}
             </div>
-            <div style={groupLabel}>Project</div>
+            <div style={groupLabel}>{t('groups.project')}</div>
           </>
         )}
         {presets.length === 0 && (
@@ -428,10 +438,8 @@ export function PresetLibrary() {
               textAlign: 'center',
             }}
           >
-            No presets saved yet.
-            {canSave
-              ? ' Select a node and save it as a preset.'
-              : ' Select a node first.'}
+            {t('empty.noPresets')}
+            {canSave ? t('empty.selectNode') : t('empty.selectFirst')}
           </div>
         )}
         <div
@@ -499,20 +507,20 @@ export function PresetLibrary() {
                       disabled={instantiating === p.id || !target}
                       title={
                         p.rootKind === 'compose_layer'
-                          ? 'Instantiate into current compose scene'
-                          : 'Instantiate into current 3D scene'
+                          ? t('card.useCompose')
+                          : t('card.use3d')
                       }
                     >
-                      Use
+                      {t('card.use')}
                     </button>
                   );
                 })()}
                 <button
                   style={{ ...btnStyle, fontSize: 10, padding: '2px 5px' }}
                   onClick={() => handleExport(p.id)}
-                  title="Export as .json"
+                  title={t('card.exportTitle')}
                 >
-                  Export
+                  {t('card.export')}
                 </button>
                 <button
                   style={{
@@ -522,9 +530,9 @@ export function PresetLibrary() {
                     color: '#a55',
                   }}
                   onClick={() => handleDelete(p.id)}
-                  title="Delete preset"
+                  title={t('card.deleteTitle')}
                 >
-                  Del
+                  {t('card.delete')}
                 </button>
               </div>
             </div>
@@ -561,11 +569,11 @@ export function PresetLibrary() {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ fontSize: 14, fontWeight: 600, color: '#ddd' }}>
-              Save as Preset
+              {t('saveForm.title')}
             </div>
             <input
               autoFocus
-              placeholder="Preset name"
+              placeholder={t('saveForm.namePlaceholder')}
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
@@ -575,7 +583,7 @@ export function PresetLibrary() {
               style={modalInput}
             />
             <input
-              placeholder="Description (optional)"
+              placeholder={t('saveForm.descriptionPlaceholder')}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               style={modalInput}
@@ -594,7 +602,7 @@ export function PresetLibrary() {
                 checked={embedAssets}
                 onChange={(e) => setEmbedAssets(e.target.checked)}
               />
-              Embed assets (portable across projects)
+              {t('saveForm.embedAssets')}
             </label>
             <div
               style={{
@@ -605,7 +613,7 @@ export function PresetLibrary() {
               }}
             >
               <button style={btnStyle} onClick={() => setShowSaveForm(false)}>
-                Cancel
+                {t('saveForm.cancel')}
               </button>
               <button
                 style={{
@@ -618,7 +626,7 @@ export function PresetLibrary() {
                 onClick={handleSave}
                 disabled={saving || !name.trim()}
               >
-                {saving ? 'Saving…' : 'Save'}
+                {saving ? t('saveForm.saving') : t('saveForm.save')}
               </button>
             </div>
           </div>

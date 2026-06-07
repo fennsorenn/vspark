@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="220" viewBox="0 0 360 220" font-family="system-ui, sans-serif" role="img" aria-label="Parent node with children following its transform">
+  <defs>
+    <marker id="mv" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#6ea8fe"/></marker>
+  </defs>
+  <style>
+    .box{fill:#2b3242;stroke:#6ea8fe;stroke-width:1.6;rx:5}
+    .ghost{fill:#222831;stroke:#5b6472;stroke-width:1.2;stroke-dasharray:4 3}
+    .link{stroke:#8a93a6;stroke-width:1.4;fill:none}
+  </style>
+  <!-- ghost (moved) copies -->
+  <rect class="ghost" x="150" y="40" width="78" height="30" rx="5"/>
+  <rect class="ghost" x="92" y="128" width="70" height="28" rx="5"/>
+  <rect class="ghost" x="214" y="128" width="70" height="28" rx="5"/>
+  <!-- links original -->
+  <path class="link" d="M126,64 L70,120 M126,64 L186,120"/>
+  <!-- original parent -->
+  <rect class="box" x="92" y="34" width="78" height="30" rx="5"/>
+  <!-- original children -->
+  <rect class="box" x="40" y="120" width="70" height="28" rx="5"/>
+  <rect class="box" x="150" y="120" width="70" height="28" rx="5"/>
+  <!-- move arrow -->
+  <path d="M150,49 q34,-6 58,2" stroke="#6ea8fe" stroke-width="2" fill="none" marker-end="url(#mv)"/>
+</svg>

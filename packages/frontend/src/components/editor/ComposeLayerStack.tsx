@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { registerMedia } from './mediaRegistry';
 import { ChromaVideoCanvas } from './ChromaVideoCanvas';
@@ -125,6 +126,7 @@ function layerStyle(
 }
 
 function CameraViewLayer({ layer }: { layer: ComposeLayerRecord }) {
+  const { t } = useTranslation('compose');
   const nodes = useEditorStore((s) => s.nodes);
   const cam = layer.cameraNodeId
     ? nodes.find((n) => n.id === layer.cameraNodeId)
@@ -145,7 +147,7 @@ function CameraViewLayer({ layer }: { layer: ComposeLayerRecord }) {
           border: '1px dashed #333',
         }}
       >
-        📷 No camera
+        📷 {t('stack.noCamera')}
       </div>
     );
   }
@@ -175,6 +177,7 @@ function SceneIncludeLayer({
   includeChain: string[];
   mode: 'editor' | 'viewer';
 }) {
+  const { t } = useTranslation('compose');
   const targetId =
     typeof layer.config.includeSceneId === 'string'
       ? layer.config.includeSceneId
@@ -184,9 +187,9 @@ function SceneIncludeLayer({
       ? s.composeLayers.filter((l) => l.rootComposeSceneId === targetId)
       : null
   );
-  if (!targetId) return <Placeholder text="no scene" />;
+  if (!targetId) return <Placeholder text={t('stack.noScene')} />;
   if (includeChain.includes(targetId)) {
-    return <Placeholder text="⟳ recursive include" />;
+    return <Placeholder text={t('stack.recursiveInclude')} />;
   }
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
@@ -324,6 +327,7 @@ function AudioLayer({
   url: string | null;
   mode: 'editor' | 'viewer';
 }) {
+  const { t } = useTranslation('compose');
   const ref = useRef<HTMLAudioElement | null>(null);
   const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
   const cfg = layer.config as Record<string, unknown>;
@@ -379,7 +383,7 @@ function AudioLayer({
     });
   }, [layer.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!url) return <Placeholder text="no audio" />;
+  if (!url) return <Placeholder text={t('stack.noAudio')} />;
   return (
     <audio
       ref={ref}
@@ -403,6 +407,7 @@ function LayerContent({
   includeChain: string[];
   mode: 'editor' | 'viewer';
 }) {
+  const { t } = useTranslation('compose');
   if (layer.kind === 'camera_view') {
     return <CameraViewLayer layer={layer} />;
   }
@@ -423,7 +428,7 @@ function LayerContent({
     (layer.config.objectFit as CSSProperties['objectFit']) ?? 'cover';
   if (layer.kind === 'image') {
     const url = resolveAssetUrl(layer, assets);
-    if (!url) return <Placeholder text="no image" />;
+    if (!url) return <Placeholder text={t('stack.noImage')} />;
     return (
       <img
         src={url}
@@ -441,7 +446,7 @@ function LayerContent({
   }
   if (layer.kind === 'video') {
     const url = resolveAssetUrl(layer, assets);
-    if (!url) return <Placeholder text="no video" />;
+    if (!url) return <Placeholder text={t('stack.noVideo')} />;
     return (
       <VideoLayer layer={layer} url={url} objectFit={objectFit} mode={mode} />
     );
@@ -457,7 +462,7 @@ function LayerContent({
     return <FeedLayer layer={layer} />;
   }
   const url = (layer.config.url as string | undefined) ?? '';
-  if (!url) return <Placeholder text="no URL" />;
+  if (!url) return <Placeholder text={t('stack.noUrl')} />;
   // Iframes always swallow events when active. We keep them pointer-events:none
   // in editor mode so selection works; the streamed output (viewer mode) makes
   // them interactive only there.
@@ -535,6 +540,7 @@ function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
  * to this layer via `@scope`. See dev-notes/modules/data-channels.md.
  */
 function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
+  const { t } = useTranslation('compose');
   const cfg = layer.config as { template?: string; css?: string };
   const globalFields = useEditorStore((s) => s.dataChannels['']);
   const ownFields = useEditorStore((s) => s.dataChannels[layer.id]);
@@ -547,8 +553,8 @@ function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
   const rawScopeId = useId();
   const scopeId = `feed-${rawScopeId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
-  if (!template) return <Placeholder text="empty template" />;
-  if (!compiled.render) return <Placeholder text="template syntax error" />;
+  if (!template) return <Placeholder text={t('stack.emptyTemplate')} />;
+  if (!compiled.render) return <Placeholder text={t('stack.templateSyntaxError')} />;
 
   const css = typeof cfg.css === 'string' ? cfg.css : '';
   const scopedCss = css

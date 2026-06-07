@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { HelpButton } from '../../help/HelpButton';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 import {
   getBuiltinParticleTextures,
@@ -21,10 +23,11 @@ import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
  *  flashes it as a hint. The asset tab's existing "Apply to <node>" buttons do
  *  the actual assignment (flash-only picker). */
 function PickButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation('properties');
   return (
     <button
       onClick={onClick}
-      title="Pick from the asset library in the bottom dock"
+      title={t('pickButton')}
       style={{
         background: '#1a3a5a',
         border: 'none',
@@ -36,7 +39,7 @@ function PickButton({ onClick }: { onClick: () => void }) {
         marginLeft: 8,
       }}
     >
-      Pick…
+      {t('pickLabel')}
     </button>
   );
 }
@@ -205,11 +208,15 @@ function CollapsibleSection({
   title,
   count,
   defaultCollapsed = true,
+  extra,
   children,
 }: {
   title: string;
   count?: number;
   defaultCollapsed?: boolean;
+  /** Optional node rendered after the title (e.g. a HelpButton). It receives
+   *  a stopPropagation wrapper so clicks don't toggle open/closed. */
+  extra?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(!defaultCollapsed);
@@ -241,6 +248,11 @@ function CollapsibleSection({
           {title}
           {count != null ? ` (${count})` : ''}
         </span>
+        {extra && (
+          <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center' }}>
+            {extra}
+          </span>
+        )}
       </div>
       {open && children}
     </>
@@ -297,6 +309,7 @@ function MaterialRow({
   node: NodeRecord;
   slot: ReturnType<typeof getMaterialSlots>[number];
 }) {
+  const { t } = useTranslation('properties');
   const { updateNode: storeUpdateNode } = useEditorStore();
   const [open, setOpen] = useState(false);
   const [advOpen, setAdvOpen] = useState(false);
@@ -457,7 +470,10 @@ function MaterialRow({
         >
           {/* Shader toggle */}
           <div style={matRow}>
-            <span style={matLabel}>Shader</span>
+            <span style={{ ...matLabel, display: 'flex', alignItems: 'center', gap: 4 }}>
+              {t('material.shader')}
+              <HelpButton topic="materials" anchor="mode" tip={t('help.matMode')} size={12} />
+            </span>
             <div style={{ display: 'flex', gap: 0 }}>
               {(['mtoon', 'pbr', 'apbr'] as ShaderKind[]).map((s, i, arr) => {
                 const active = shader === s;
@@ -468,7 +484,7 @@ function MaterialRow({
                     disabled={disabled}
                     title={
                       s === 'apbr'
-                        ? 'Advanced PBR (MeshPhysicalMaterial): specular, clearcoat, sheen, transmission…'
+                        ? t('material.apbrTip')
                         : undefined
                     }
                     onClick={() => patch({ shader: s }, true)}
@@ -497,10 +513,27 @@ function MaterialRow({
           </div>
 
           {/* Overlapping params */}
-          {colorRow('Base color', 'baseColor', d.baseColor)}
-          {colorRow('Emissive', 'emissive', d.emissive)}
+          {colorRow(t('material.baseColor'), 'baseColor', d.baseColor)}
+          {/* Emissive group — help on the color label (one affordance for color+intensity) */}
+          <div style={matRow}>
+            <span style={{ ...matLabel, display: 'flex', alignItems: 'center', gap: 4 }}>
+              {t('material.emissive')}
+              <HelpButton topic="materials" anchor="emissive" tip={t('help.matEmissive')} size={12} />
+            </span>
+            <input
+              type="color"
+              value={val('emissive', d.emissive)}
+              style={matColorInput}
+              onChange={(e) =>
+                patch({ emissive: e.target.value } as Partial<MaterialOverride>, false)
+              }
+              onBlur={(e) =>
+                patch({ emissive: e.target.value } as Partial<MaterialOverride>, true)
+              }
+            />
+          </div>
           {sliderRow(
-            'Emissive int.',
+            t('material.emissiveInt'),
             'emissiveIntensity',
             d.emissiveIntensity,
             0,
@@ -509,7 +542,7 @@ function MaterialRow({
             2
           )}
           <div style={matRow}>
-            <span style={matLabel}>Emissive map</span>
+            <span style={matLabel}>{t('material.emissiveMap')}</span>
             <select
               value={val('emissiveMapMode', 'original')}
               onChange={(e) =>
@@ -527,14 +560,14 @@ function MaterialRow({
                 fontSize: 11,
               }}
             >
-              <option value="original">Original texture</option>
-              <option value="flat">Flat (no texture)</option>
-              <option value="albedo">Albedo texture</option>
+              <option value="original">{t('material.emissiveMapOriginal')}</option>
+              <option value="flat">{t('material.emissiveMapFlat')}</option>
+              <option value="albedo">{t('material.emissiveMapAlbedo')}</option>
             </select>
           </div>
           {d.hasNormalMap &&
             sliderRow(
-              'Normal scale',
+              t('material.normalScale'),
               'normalScale',
               d.normalScale,
               0,
@@ -542,9 +575,9 @@ function MaterialRow({
               0.01,
               2
             )}
-          {sliderRow('Smooth normals', 'normalSmoothing', 0, 0, 1, 0.01, 2)}
+          {sliderRow(t('material.normalSmoothing'), 'normalSmoothing', 0, 0, 1, 0.01, 2)}
           <div style={matRow}>
-            <span style={matLabel}>Flat shading</span>
+            <span style={matLabel}>{t('material.flatShading')}</span>
             <input
               type="checkbox"
               checked={val('flatShading', d.flatShading)}
@@ -552,7 +585,7 @@ function MaterialRow({
             />
           </div>
           <div style={matRow}>
-            <span style={matLabel}>Double sided</span>
+            <span style={matLabel}>{t('material.doubleSided')}</span>
             <input
               type="checkbox"
               checked={val('doubleSided', d.doubleSided)}
@@ -560,7 +593,7 @@ function MaterialRow({
             />
           </div>
           <div style={matRow}>
-            <span style={matLabel}>Alpha mode</span>
+            <span style={matLabel}>{t('material.alphaMode')}</span>
             <select
               value={alphaMode}
               onChange={(e) =>
@@ -575,14 +608,14 @@ function MaterialRow({
                 fontSize: 11,
               }}
             >
-              <option value="opaque">Opaque</option>
-              <option value="mask">Mask (cutout)</option>
-              <option value="blend">Blend</option>
+              <option value="opaque">{t('material.alphaModeOpaque')}</option>
+              <option value="mask">{t('material.alphaModeMask')}</option>
+              <option value="blend">{t('material.alphaModeBlend')}</option>
             </select>
           </div>
           {alphaMode === 'mask' &&
             sliderRow(
-              'Alpha cutoff',
+              t('material.alphaCutoff'),
               'alphaCutoff',
               d.alphaCutoff,
               0,
@@ -590,14 +623,14 @@ function MaterialRow({
               0.01,
               2
             )}
-          {sliderRow('Opacity', 'opacity', d.opacity, 0, 1, 0.01, 2)}
+          {sliderRow(t('material.opacity'), 'opacity', d.opacity, 0, 1, 0.01, 2)}
 
           {/* MToon-only */}
           {shader === 'mtoon' && (
             <>
-              {colorRow('Shade color', 'shadeColor', d.shadeColor)}
+              {colorRow(t('material.shadeColor'), 'shadeColor', d.shadeColor)}
               {sliderRow(
-                'Shading shift',
+                t('material.shadingShift'),
                 'shadingShiftFactor',
                 d.shadingShiftFactor,
                 -1,
@@ -606,7 +639,7 @@ function MaterialRow({
                 2
               )}
               {sliderRow(
-                'Shading toony',
+                t('material.shadingToony'),
                 'shadingToonyFactor',
                 d.shadingToonyFactor,
                 0,
@@ -615,7 +648,7 @@ function MaterialRow({
                 2
               )}
               {sliderRow(
-                'GI equalize',
+                t('material.giEqualize'),
                 'giEqualization',
                 d.giEqualization,
                 0,
@@ -623,10 +656,10 @@ function MaterialRow({
                 0.01,
                 2
               )}
-              {colorRow('Matcap', 'matcapColor', d.matcapColor)}
-              {colorRow('Rim color', 'rimColor', d.rimColor)}
+              {colorRow(t('material.matcap'), 'matcapColor', d.matcapColor)}
+              {colorRow(t('material.rimColor'), 'rimColor', d.rimColor)}
               {sliderRow(
-                'Rim mix',
+                t('material.rimMix'),
                 'rimLightingMix',
                 d.rimLightingMix,
                 0,
@@ -635,7 +668,7 @@ function MaterialRow({
                 2
               )}
               {sliderRow(
-                'Rim fresnel',
+                t('material.rimFresnel'),
                 'rimFresnelPower',
                 d.rimFresnelPower,
                 0,
@@ -643,11 +676,11 @@ function MaterialRow({
                 0.1,
                 1
               )}
-              {sliderRow('Rim lift', 'rimLift', d.rimLift, 0, 1, 0.01, 2)}
+              {sliderRow(t('material.rimLift'), 'rimLift', d.rimLift, 0, 1, 0.01, 2)}
               {d.hasOutline && (
                 <>
                   {sliderRow(
-                    'Outline width',
+                    t('material.outlineWidth'),
                     'outlineWidth',
                     d.outlineWidth,
                     0,
@@ -655,9 +688,9 @@ function MaterialRow({
                     0.001,
                     3
                   )}
-                  {colorRow('Outline color', 'outlineColor', d.outlineColor)}
+                  {colorRow(t('material.outlineColor'), 'outlineColor', d.outlineColor)}
                   {sliderRow(
-                    'Outline mix',
+                    t('material.outlineMix'),
                     'outlineLightingMix',
                     d.outlineLightingMix,
                     0,
@@ -673,17 +706,40 @@ function MaterialRow({
           {/* PBR + APBR shared */}
           {isStandard && (
             <>
-              {sliderRow('Roughness', 'roughness', d.roughness, 0, 1, 0.01, 2)}
-              {sliderRow('Metalness', 'metalness', d.metalness, 0, 1, 0.01, 2)}
-              {sliderRow(
-                'Env intensity',
-                'envMapIntensity',
-                d.envMapIntensity,
-                0,
-                3,
-                0.01,
-                2
-              )}
+              {/* Roughness + Metalness group — one ? on roughness label */}
+              <div style={matRow}>
+                <span style={{ ...matLabel, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {t('material.roughness')}
+                  <HelpButton topic="materials" anchor="metalrough" tip={t('help.matMetalRough')} size={12} />
+                </span>
+                <SliderInput
+                  value={val('roughness', d.roughness)}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  precision={2}
+                  style={{ flex: 1 }}
+                  onChange={(v) => patch({ roughness: v } as Partial<MaterialOverride>, false)}
+                  onCommit={(v) => patch({ roughness: v } as Partial<MaterialOverride>, true)}
+                />
+              </div>
+              {sliderRow(t('material.metalness'), 'metalness', d.metalness, 0, 1, 0.01, 2)}
+              <div style={matRow}>
+                <span style={{ ...matLabel, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {t('material.envIntensity')}
+                  <HelpButton topic="materials" anchor="env" tip={t('help.matEnv')} size={12} />
+                </span>
+                <SliderInput
+                  value={val('envMapIntensity', d.envMapIntensity)}
+                  min={0}
+                  max={3}
+                  step={0.01}
+                  precision={2}
+                  style={{ flex: 1 }}
+                  onChange={(v) => patch({ envMapIntensity: v } as Partial<MaterialOverride>, false)}
+                  onCommit={(v) => patch({ envMapIntensity: v } as Partial<MaterialOverride>, true)}
+                />
+              </div>
             </>
           )}
 
@@ -714,12 +770,15 @@ function MaterialRow({
                 >
                   ▶
                 </span>
-                Advanced
+                {t('material.advanced')}
+                <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                  <HelpButton topic="materials" anchor="advanced" tip={t('help.matAdvanced')} size={12} />
+                </span>
               </div>
               {advOpen && (
                 <>
                   {sliderRow(
-                    'Specular',
+                    t('material.specular'),
                     'specularIntensity',
                     d.specularIntensity,
                     0,
@@ -727,9 +786,9 @@ function MaterialRow({
                     0.01,
                     2
                   )}
-                  {colorRow('Specular tint', 'specularColor', d.specularColor)}
+                  {colorRow(t('material.specularTint'), 'specularColor', d.specularColor)}
                   {sliderRow(
-                    'Clearcoat',
+                    t('material.clearcoat'),
                     'clearcoat',
                     d.clearcoat,
                     0,
@@ -738,7 +797,7 @@ function MaterialRow({
                     2
                   )}
                   {sliderRow(
-                    'Clearcoat rgh',
+                    t('material.clearcoatRoughness'),
                     'clearcoatRoughness',
                     d.clearcoatRoughness,
                     0,
@@ -746,9 +805,9 @@ function MaterialRow({
                     0.01,
                     2
                   )}
-                  {sliderRow('Sheen', 'sheen', d.sheen, 0, 1, 0.01, 2)}
+                  {sliderRow(t('material.sheen'), 'sheen', d.sheen, 0, 1, 0.01, 2)}
                   {sliderRow(
-                    'Sheen rgh',
+                    t('material.sheenRoughness'),
                     'sheenRoughness',
                     d.sheenRoughness,
                     0,
@@ -756,9 +815,9 @@ function MaterialRow({
                     0.01,
                     2
                   )}
-                  {colorRow('Sheen color', 'sheenColor', d.sheenColor)}
+                  {colorRow(t('material.sheenColor'), 'sheenColor', d.sheenColor)}
                   {sliderRow(
-                    'Transmission',
+                    t('material.transmission'),
                     'transmission',
                     d.transmission,
                     0,
@@ -767,7 +826,7 @@ function MaterialRow({
                     2
                   )}
                   {sliderRow(
-                    'Thickness',
+                    t('material.thickness'),
                     'thickness',
                     d.thickness,
                     0,
@@ -775,14 +834,14 @@ function MaterialRow({
                     0.01,
                     2
                   )}
-                  {sliderRow('IOR', 'ior', d.ior, 1, 2.333, 0.001, 3)}
+                  {sliderRow(t('material.ior'), 'ior', d.ior, 1, 2.333, 0.001, 3)}
                   {colorRow(
-                    'Attenuation',
+                    t('material.attenuation'),
                     'attenuationColor',
                     d.attenuationColor
                   )}
                   {sliderRow(
-                    'Atten. dist.',
+                    t('material.attenuationDist'),
                     'attenuationDistance',
                     d.attenuationDistance,
                     0,
@@ -791,7 +850,7 @@ function MaterialRow({
                     2
                   )}
                   {sliderRow(
-                    'Iridescence',
+                    t('material.iridescence'),
                     'iridescence',
                     d.iridescence,
                     0,
@@ -800,7 +859,7 @@ function MaterialRow({
                     2
                   )}
                   {sliderRow(
-                    'Iridescence IOR',
+                    t('material.iridescenceIor'),
                     'iridescenceIor',
                     d.iridescenceIor,
                     1,
@@ -809,7 +868,7 @@ function MaterialRow({
                     3
                   )}
                   {sliderRow(
-                    'Anisotropy',
+                    t('material.anisotropy'),
                     'anisotropy',
                     d.anisotropy,
                     0,
@@ -826,7 +885,7 @@ function MaterialRow({
             <button
               onClick={reset}
               disabled={!ov}
-              title="Drop overrides and rebuild this material from the VRM file"
+              title={t('material.resetTip')}
               style={{
                 background: 'none',
                 border: '1px solid #3a3a3a',
@@ -837,7 +896,7 @@ function MaterialRow({
                 cursor: ov ? 'pointer' : 'default',
               }}
             >
-              Reset
+              {t('material.reset')}
             </button>
           </div>
         </div>
@@ -848,14 +907,15 @@ function MaterialRow({
 
 /** Lists every material on the loaded VRM with per-material shader controls. */
 function MaterialSection({ node }: { node: NodeRecord }) {
+  const { t } = useTranslation('properties');
   // Re-render when the VRM (re)loads — bones are set on load, cleared on unload.
   const loadedBones = useEditorStore((s) => s.vrmBonesByNode[node.id]);
   const vrm = vrmRegistry.get(node.id);
   if (!vrm || !loadedBones) {
     return (
-      <CollapsibleSection title="Material">
+      <CollapsibleSection title={t('material.header')}>
         <div style={{ fontSize: 11, color: '#555' }}>
-          Load a model to edit its materials.
+          {t('material.noModel')}
         </div>
       </CollapsibleSection>
     );
@@ -863,7 +923,10 @@ function MaterialSection({ node }: { node: NodeRecord }) {
   const slots = getMaterialSlots(vrm);
   if (slots.length === 0) return null;
   return (
-    <CollapsibleSection title="Material" count={slots.length}>
+    <CollapsibleSection
+      title={t('material.header')}
+      count={slots.length}
+    >
       <div
         style={{
           fontSize: 10,
@@ -872,9 +935,7 @@ function MaterialSection({ node }: { node: NodeRecord }) {
           marginBottom: 6,
         }}
       >
-        MToon is the toon look (ignores environment light). PBR responds to
-        scene lights and the camera's environment intensity — switch to PBR for
-        full light falloff and darkness.
+        {t('material.toonHint')}
       </div>
       {slots.map((slot) => (
         <MaterialRow key={slot.key} node={node} slot={slot} />
@@ -886,6 +947,7 @@ function MaterialSection({ node }: { node: NodeRecord }) {
 // ---------- Calibration wizard ----------
 
 function CalibrationSection({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
   const [headSet, setHeadSet] = useState(false);
   const [leftSet, setLeftSet] = useState(false);
   const [rightSet, setRightSet] = useState(false);
@@ -904,7 +966,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
       flash_(label);
       onOk?.();
     } catch {
-      flash_('Could not reach pipeline — is tracking active?');
+      flash_(t('calibration.pipelineError'));
     }
   };
 
@@ -916,7 +978,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
     setHeadSet(false);
     setLeftSet(false);
     setRightSet(false);
-    flash_('Calibration reset');
+    flash_(t('calibration.calibReset'));
   };
 
   const rowStyle: React.CSSProperties = {
@@ -959,7 +1021,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
           letterSpacing: 0.5,
         }}
       >
-        Calibration
+        {t('calibration.header')}
       </div>
 
       {flash && (
@@ -978,56 +1040,55 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
 
       <div style={rowStyle}>
         <div style={dotStyle(headSet)} />
-        <span style={labelStyle}>Head — look straight ahead, relax neck</span>
+        <span style={labelStyle}>{t('calibration.headLabel')}</span>
         <button
           style={btnStyle}
           onClick={() =>
-            fire('head_calib_capture', 'Head neutral captured ✓', () =>
+            fire('head_calib_capture', t('calibration.headCaptured'), () =>
               setHeadSet(true)
             )
           }
         >
-          Capture
+          {t('calibration.capture')}
         </button>
       </div>
 
       <div style={rowStyle}>
         <div style={dotStyle(leftSet)} />
         <span style={labelStyle}>
-          Left arm — touch index finger to left eye corner
+          {t('calibration.leftArmLabel')}
         </span>
         <button
           style={btnStyle}
           onClick={() =>
-            fire('left_arm_capture', 'Left arm captured ✓', () =>
+            fire('left_arm_capture', t('calibration.leftCaptured'), () =>
               setLeftSet(true)
             )
           }
         >
-          Capture
+          {t('calibration.capture')}
         </button>
       </div>
 
       <div style={rowStyle}>
         <div style={dotStyle(rightSet)} />
         <span style={labelStyle}>
-          Right arm — touch index finger to right eye corner
+          {t('calibration.rightArmLabel')}
         </span>
         <button
           style={btnStyle}
           onClick={() =>
-            fire('right_arm_capture', 'Right arm captured ✓', () =>
+            fire('right_arm_capture', t('calibration.rightCaptured'), () =>
               setRightSet(true)
             )
           }
         >
-          Capture
+          {t('calibration.capture')}
         </button>
       </div>
 
       <div style={{ fontSize: 10, color: '#444', lineHeight: 1.5 }}>
-        Head: relax into your natural posture. Arms: touch fingertip to eye
-        corner, hold steady.
+        {t('calibration.hint')}
       </div>
 
       {(headSet || leftSet || rightSet) && (
@@ -1041,7 +1102,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
           }}
           onClick={reset}
         >
-          Reset all calibration
+          {t('calibration.resetAll')}
         </button>
       )}
     </div>
@@ -1209,6 +1270,7 @@ function MappingEditor({
   targetOptions: string[];
   onChange: (entries: MappingEntry[]) => void;
 }) {
+  const { t } = useTranslation('properties');
   const xBtn: React.CSSProperties = {
     background: 'none',
     border: 'none',
@@ -1276,11 +1338,11 @@ function MappingEditor({
               value={entry.arkitShape}
               suggestions={arkitOptions}
               onChange={(v) => setShape(i, v)}
-              placeholder="ARKit shape…"
+              placeholder={t('vmc.mapperArkitPlaceholder')}
             />
             <button
               style={xBtn}
-              title="Remove shape"
+              title={t('vmc.mapperRemoveShape')}
               onClick={() => removeShape(i)}
             >
               ×
@@ -1301,11 +1363,11 @@ function MappingEditor({
                   value={out.target}
                   suggestions={targetOptions}
                   onChange={(v) => setOutput(i, j, { target: v })}
-                  placeholder="Morph target or expression…"
+                  placeholder={t('vmc.mapperTargetPlaceholder')}
                 />
                 <button
                   style={xBtn}
-                  title="Remove output"
+                  title={t('vmc.mapperRemoveOutput')}
                   onClick={() => removeOutput(i, j)}
                 >
                   ×
@@ -1333,7 +1395,7 @@ function MappingEditor({
             }}
             onClick={() => addOutput(i)}
           >
-            + add output
+            {t('vmc.mapperAddOutput')}
           </button>
         </div>
       ))}
@@ -1349,7 +1411,7 @@ function MappingEditor({
         }}
         onClick={addShape}
       >
-        + Add ARKit input
+        {t('vmc.mapperAddArkit')}
       </button>
     </div>
   );
@@ -1404,6 +1466,7 @@ function MapperSection({
   onSave: (id: string, patch: Partial<MapperNodeConfig>) => void;
   targetSuggestions: string[];
 }) {
+  const { t } = useTranslation('properties');
   const enabled = config?.enabled ?? false;
   const customMapping = config?.customMapping ?? '';
 
@@ -1524,7 +1587,7 @@ function MapperSection({
         {open && (
           <button
             style={smallBtn}
-            title="Switch between visual editor and raw JSON"
+            title={t('vmc.mapperVisualJson')}
             onClick={() => setMode((m) => (m === 'visual' ? 'json' : 'visual'))}
           >
             {mode === 'visual' ? '{ }' : '⊞'}
@@ -1561,7 +1624,7 @@ function MapperSection({
             }}
           >
             <button style={smallBtn} onClick={resetToDefault}>
-              Reset to default
+              {t('vmc.mapperResetDefault')}
             </button>
           </div>
 
@@ -1598,7 +1661,7 @@ function MapperSection({
               />
               {jsonErr && (
                 <div style={{ fontSize: 10, color: '#e55', marginTop: 3 }}>
-                  Invalid JSON
+                  {t('vmc.mapperInvalidJson')}
                 </div>
               )}
             </>
@@ -1631,6 +1694,7 @@ const VRM_EXPR_PRESETS = [
 ];
 
 function VmcReceiverProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
   const { updateBehavior, vrmMorphTargetsByNode, vrmExpressionsByNode } =
     useEditorStore();
   const morphTargets = vrmMorphTargetsByNode[comp.nodeId] ?? [];
@@ -1766,7 +1830,7 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 12, color: '#888', width: 72, flexShrink: 0 }}>
-          Host
+          {t('vmc.host')}
         </span>
         <input
           style={inputStyle}
@@ -1778,7 +1842,7 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 12, color: '#888', width: 72, flexShrink: 0 }}>
-          Port
+          {t('vmc.port')}
         </span>
         <NumInput
           value={port}
@@ -1797,7 +1861,7 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 12, color: '#888', width: 72, flexShrink: 0 }}>
-          Blend
+          {t('vmc.blend')}
         </span>
         <select
           style={{ ...inputStyle, cursor: 'pointer' }}
@@ -1807,14 +1871,14 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
             save({ blendMode: e.target.value });
           }}
         >
-          <option value="override">Override — VMC replaces animation</option>
-          <option value="additive">Additive — layered on top</option>
+          <option value="override">{t('vmc.blendOverride')}</option>
+          <option value="additive">{t('vmc.blendAdditive')}</option>
         </select>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 12, color: '#888', width: 72, flexShrink: 0 }}>
-          Mirror
+          {t('vmc.mirror')}
         </span>
         <label
           style={{
@@ -1835,13 +1899,13 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
             }}
             style={{ cursor: 'pointer' }}
           />
-          Flip left / right
+          {t('vmc.flipLR')}
         </label>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 12, color: '#888', width: 72, flexShrink: 0 }}>
-          Idle after
+          {t('vmc.idleAfter')}
         </span>
         <NumInput
           value={poseTimeout}
@@ -1867,7 +1931,7 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
           marginTop: 4,
         }}
       >
-        Face Mappers
+        {t('vmc.faceMappersHeader')}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {MAPPER_NODES.map(({ id, label, builtinMapping }, idx) => (
@@ -1901,13 +1965,13 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
               letterSpacing: 0.4,
             }}
           >
-            This machine's IPs — point your capture app here
+            {t('vmc.localIpsHeader')}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {localIps.map((ip) => (
               <button
                 key={ip}
-                title={`Set host to ${ip}`}
+                title={t('vmc.setHostTip', { ip })}
                 style={{
                   background: host === ip ? '#1a3a5a' : '#1e1e1e',
                   border: `1px solid ${host === ip ? '#2563eb' : '#2a2a2a'}`,
@@ -1933,8 +1997,7 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
       <div
         style={{ fontSize: 10, color: '#555', lineHeight: 1.4, marginTop: 2 }}
       >
-        Works with RhyLive, VSeeFace, VTube Studio, and any VMC-compatible app.
-        Set your capture app's OSC output to the IP above and port {port}.
+        {t('vmc.compatHint', { port })}
       </div>
 
       <div style={{ height: 1, background: '#222', margin: '4px 0' }} />
@@ -1946,6 +2009,7 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
 // ── Lipsync props ─────────────────────────────────────────────────────────────
 
 function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
   const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
@@ -1984,7 +2048,7 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
   return (
     <div>
       <div style={rowStyle}>
-        <span style={labelStyle}>Sensitivity</span>
+        <span style={labelStyle}>{t('lipsync.sensitivity')}</span>
         <input
           type="number"
           style={inputStyle}
@@ -2013,7 +2077,7 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
             projectId && window.open(`/media-input/${projectId}`, '_blank')
           }
         >
-          🎤 Open Media Input
+          {t('lipsync.openMediaInput')}
         </button>
       </div>
       <LipsyncCalibration
@@ -2039,6 +2103,7 @@ function LipsyncCalibration({
   onSave: (t: VowelTemplates) => void;
   onReset: () => void;
 }) {
+  const { t } = useTranslation('properties');
   const [draft, setDraft] = useState<Partial<VowelTemplates>>(templates ?? {});
   const [holding, setHolding] = useState<string | null>(null);
   const [status, setStatus] = useState<CalibrationStatus>('idle');
@@ -2143,9 +2208,9 @@ function LipsyncCalibration({
 
   return (
     <div style={sectionStyle}>
-      <div style={headerStyle}>Vowel Calibration</div>
+      <div style={headerStyle}>{t('lipsync.vowelCalibHeader')}</div>
       <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>
-        Hold each button while sustaining the vowel sound (~1s).
+        {t('lipsync.vowelCalibHint')}
       </div>
       <div style={rowStyle}>
         {VOWEL_KEYS.map((v) => (
@@ -2170,7 +2235,7 @@ function LipsyncCalibration({
           disabled={!canSave}
           onClick={() => canSave && onSave(draft as VowelTemplates)}
         >
-          Save
+          {t('lipsync.save')}
         </button>
         <button
           style={actionBtn}
@@ -2179,7 +2244,7 @@ function LipsyncCalibration({
             onReset();
           }}
         >
-          Reset to defaults
+          {t('lipsync.resetDefaults')}
         </button>
       </div>
       {error && (
@@ -2192,6 +2257,7 @@ function LipsyncCalibration({
 // ── MediaPipe tracker props ────────────────────────────────────────────────────
 
 function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
   const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
@@ -2268,7 +2334,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
       await fireSignalEvent(graphId, nodeId, 'trigger');
       flashCalib(label);
     } catch {
-      flashCalib('Could not reach pipeline — is tracking active?');
+      flashCalib(t('mediapipe.pipelineError'));
     }
   };
 
@@ -2288,10 +2354,10 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
     <div>
       {(
         [
-          ['enableFace', 'Face landmarks'],
-          ['enablePose', 'Pose (body)'],
-          ['enableHands', 'Hand tracking'],
-        ] as const
+          ['enableFace', t('mediapipe.faceLandmarks')],
+          ['enablePose', t('mediapipe.poseBody')],
+          ['enableHands', t('mediapipe.handTracking')],
+        ] as [keyof typeof cfg, string][]
       ).map(([field, label]) => (
         <div key={field} style={rowStyle}>
           <span style={labelStyle}>{label}</span>
@@ -2315,10 +2381,10 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
             marginBottom: 4,
           }}
         >
-          Calibration
+          {t('mediapipe.calibrationHeader')}
         </div>
         <div style={{ fontSize: 10, color: '#777', marginBottom: 2 }}>
-          Head/torso — capture in a relaxed neutral stance.
+          {t('mediapipe.headTorsoHint')}
         </div>
         <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
           <button
@@ -2333,10 +2399,10 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
               flex: 1,
             }}
             onClick={() =>
-              fireCalib('head_calib_capture', 'Head neutral captured ✓')
+              fireCalib('head_calib_capture', t('mediapipe.headCaptured'))
             }
           >
-            Capture head
+            {t('mediapipe.captureHead')}
           </button>
           <button
             style={{
@@ -2350,16 +2416,14 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
               flex: 1,
             }}
             onClick={() =>
-              fireCalib('head_calib_reset', 'Head calibration reset')
+              fireCalib('head_calib_reset', t('mediapipe.headReset'))
             }
           >
-            Reset head
+            {t('mediapipe.resetHead')}
           </button>
         </div>
         <div style={{ fontSize: 10, color: '#777', marginBottom: 2 }}>
-          Fingers — hold one hand up in the avatar's finger rest pose (for
-          VRoid: straight fingers, thumb relaxed-out). The higher hand wins; the
-          other side is mirrored from it.
+          {t('mediapipe.fingersHint')}
         </div>
         <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
           <button
@@ -2374,10 +2438,10 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
               flex: 1,
             }}
             onClick={() =>
-              fireCalib('finger_calib_capture', 'Finger neutral captured ✓')
+              fireCalib('finger_calib_capture', t('mediapipe.fingerCaptured'))
             }
           >
-            Capture fingers
+            {t('mediapipe.captureFingers')}
           </button>
           <button
             style={{
@@ -2391,10 +2455,10 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
               flex: 1,
             }}
             onClick={() =>
-              fireCalib('finger_calib_reset', 'Finger calibration reset')
+              fireCalib('finger_calib_reset', t('mediapipe.fingerReset'))
             }
           >
-            Reset fingers
+            {t('mediapipe.resetFingers')}
           </button>
         </div>
         {calibFlash && (
@@ -2404,7 +2468,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
         )}
 
         <div style={rowStyle}>
-          <span style={labelStyle}>Use IK arms</span>
+          <span style={labelStyle}>{t('mediapipe.useIkArms')}</span>
           <input
             type="checkbox"
             checked={useIk}
@@ -2413,8 +2477,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
           />
         </div>
         <div style={{ fontSize: 10, color: '#555', marginBottom: 6 }}>
-          When off, arms are driven by per-bone quaternions (lower fidelity but
-          always stable).
+          {t('mediapipe.ikHint')}
         </div>
         <div
           style={{
@@ -2424,9 +2487,9 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
             marginBottom: 4,
           }}
         >
-          IK calibration{' '}
+          {t('mediapipe.ikCalibHeader')}{' '}
           <span style={{ textTransform: 'none', color: '#555' }}>
-            (X is symmetric: +offset spreads outward)
+            {t('mediapipe.ikCalibNote')}
           </span>
         </div>
         {(['x', 'y', 'z'] as const).map((axis) => {
@@ -2440,10 +2503,10 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
           return (
             <div key={axis} style={{ marginBottom: 4 }}>
               <div style={{ fontSize: 10, color: '#777', marginBottom: 2 }}>
-                {axis.toUpperCase()} axis
+                {t('mediapipe.ikAxis', { axis: axis.toUpperCase() })}
               </div>
               <SliderInput
-                label="Scale"
+                label={t('mediapipe.ikScale')}
                 value={a.scale}
                 min={0}
                 max={8}
@@ -2452,7 +2515,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
                 onChange={(v) => saveIk({ [scaleField]: v })}
               />
               <SliderInput
-                label="Offset"
+                label={t('mediapipe.ikOffset')}
                 value={a.offset}
                 min={-0.5}
                 max={0.5}
@@ -2461,7 +2524,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
                 onChange={(v) => saveIk({ [offsetField]: v })}
               />
               <div style={rowStyle}>
-                <span style={labelStyle}>Invert</span>
+                <span style={labelStyle}>{t('mediapipe.ikInvert')}</span>
                 <input
                   type="checkbox"
                   checked={a.invert}
@@ -2485,13 +2548,13 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
             marginBottom: 4,
           }}
         >
-          Head calibration{' '}
+          {t('mediapipe.headCalibHeader')}{' '}
           <span style={{ textTransform: 'none', color: '#555' }}>
-            (gains amplify rotation axes; rest pitch shifts neutral nod)
+            {t('mediapipe.headCalibNote')}
           </span>
         </div>
         <SliderInput
-          label="Pitch gain"
+          label={t('mediapipe.pitchGain')}
           value={head.pitchGain}
           min={0.5}
           max={5}
@@ -2500,7 +2563,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
           onChange={(v) => saveHead({ pitchGain: v })}
         />
         <SliderInput
-          label="Yaw gain"
+          label={t('mediapipe.yawGain')}
           value={head.yawGain}
           min={0.5}
           max={5}
@@ -2509,7 +2572,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
           onChange={(v) => saveHead({ yawGain: v })}
         />
         <SliderInput
-          label="Roll gain"
+          label={t('mediapipe.rollGain')}
           value={head.rollGain}
           min={0.5}
           max={5}
@@ -2518,7 +2581,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
           onChange={(v) => saveHead({ rollGain: v })}
         />
         <SliderInput
-          label="Rest pitch"
+          label={t('mediapipe.restPitch')}
           value={head.restPitch}
           min={-1.0}
           max={1.0}
@@ -2545,7 +2608,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
             projectId && window.open(`/media-input/${projectId}`, '_blank')
           }
         >
-          📷 Open Media Input
+          {t('mediapipe.openMediaInput')}
         </button>
       </div>
     </div>
@@ -2553,6 +2616,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
 }
 
 function ApiControllerProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
   const { projectId } = useParams<{ projectId: string }>();
   const [copied, setCopied] = useState(false);
   const baseUrl = projectId
@@ -2575,7 +2639,7 @@ function ApiControllerProps({ comp }: { comp: Behavior }) {
   return (
     <div>
       <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
-        Behavior API base URL
+        {t('apiController.baseUrlLabel')}
       </div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
         <input
@@ -2606,16 +2670,13 @@ function ApiControllerProps({ comp }: { comp: Behavior }) {
             fontSize: 12,
           }}
         >
-          {copied ? '✓ Copied' : 'Copy'}
+          {copied ? t('apiController.copied') : t('apiController.copy')}
         </button>
       </div>
       <div
         style={{ fontSize: 11, color: '#666', marginTop: 6, lineHeight: 1.5 }}
       >
-        Append <code style={{ color: '#aaa' }}>/animation</code>,{' '}
-        <code style={{ color: '#aaa' }}>/animation-queue</code>,{' '}
-        <code style={{ color: '#aaa' }}>/blendshapes</code>, or{' '}
-        <code style={{ color: '#aaa' }}>/state</code>.
+        {t('apiController.hint')}
       </div>
     </div>
   );
@@ -2624,6 +2685,7 @@ function ApiControllerProps({ comp }: { comp: Behavior }) {
 // ── Breathing component panel ────────────────────────────────────────────────
 
 function BreathingProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
   const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as {
     chestAmplitude?: number;
@@ -2649,7 +2711,7 @@ function BreathingProps({ comp }: { comp: Behavior }) {
         <span
           style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}
         >
-          Chest amplitude
+          {t('breathing.chestAmplitude')}
         </span>
         <NumInput
           value={chest}
@@ -2668,7 +2730,7 @@ function BreathingProps({ comp }: { comp: Behavior }) {
         <span
           style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}
         >
-          Shoulder lift
+          {t('breathing.shoulderLift')}
         </span>
         <NumInput
           value={shoulder}
@@ -2891,6 +2953,7 @@ function ManualCalibrationProps({ comp }: { comp: Behavior }) {
 // ── Component dispatcher ──────────────────────────────────────────────────────
 
 function BehaviorProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
   switch (comp.kind) {
     case 'vmc_receiver':
       return <VmcReceiverProps comp={comp} />;
@@ -2907,13 +2970,36 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
     default:
       return (
         <div style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>
-          No configurable properties.
+          {t('behaviorFallback')}
         </div>
       );
   }
 }
 
 // ---------- Camera effect property panel ----------
+
+/** Maps effect kind → the matching doc anchor in camera-effects.md */
+const EFFECT_KIND_ANCHOR: Record<string, string> = {
+  fx_tone_mapping: 'tonemap',
+  fx_brightness_contrast: 'colorgrade',
+  fx_hue_saturation: 'hue-saturation',
+  fx_sepia: 'sepia',
+  fx_bloom: 'bloom',
+  fx_depth_of_field: 'dof',
+  fx_chromatic_aberration: 'chromatic',
+  fx_ssao: 'ssao',
+  fx_outline: 'outline',
+  fx_vignette: 'vignette',
+  fx_noise: 'noise',
+  fx_scanline: 'scanline',
+  fx_pixelation: 'pixelate',
+  fx_ascii: 'ascii',
+  fx_dot_screen: 'dotscreen',
+  fx_glitch: 'glitch',
+  fx_smaa: 'smaa',
+  fx_tilt_shift: 'tiltshift',
+  fx_water: 'water',
+};
 
 function EffectRow({
   label,
@@ -2949,6 +3035,7 @@ function EffectRow({
 }
 
 function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
+  const { t } = useTranslation('properties');
   const effect = useEditorStore((s) =>
     s.cameraEffects.find((e) => e.id === effectId)
   );
@@ -2979,7 +3066,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {kind === 'fx_tone_mapping' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Mode</span>
+          <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{t('effect.toneMapping.mode')}</span>
           <select
             value={(cfg.mode as number) ?? 6}
             onChange={(e) => save({ mode: Number(e.target.value) })}
@@ -3003,7 +3090,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_brightness_contrast' && (
         <>
           <EffectRow
-            label="Brightness"
+            label={t('effect.brightnessContrast.brightness')}
             cfg={cfg}
             field="brightness"
             step={0.01}
@@ -3012,7 +3099,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Contrast"
+            label={t('effect.brightnessContrast.contrast')}
             cfg={cfg}
             field="contrast"
             step={0.01}
@@ -3025,7 +3112,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_hue_saturation' && (
         <>
           <EffectRow
-            label="Hue"
+            label={t('effect.hueSaturation.hue')}
             cfg={cfg}
             field="hue"
             step={0.01}
@@ -3034,7 +3121,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Saturation"
+            label={t('effect.hueSaturation.saturation')}
             cfg={cfg}
             field="saturation"
             step={0.01}
@@ -3046,7 +3133,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       )}
       {kind === 'fx_sepia' && (
         <EffectRow
-          label="Intensity"
+          label={t('effect.sepia.intensity')}
           cfg={cfg}
           field="intensity"
           step={0.01}
@@ -3058,7 +3145,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_bloom' && (
         <>
           <EffectRow
-            label="Intensity"
+            label={t('effect.bloom.intensity')}
             cfg={cfg}
             field="intensity"
             step={0.1}
@@ -3066,7 +3153,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Lum. Threshold"
+            label={t('effect.bloom.lumThreshold')}
             cfg={cfg}
             field="luminanceThreshold"
             step={0.01}
@@ -3075,7 +3162,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Lum. Smoothing"
+            label={t('effect.bloom.lumSmoothing')}
             cfg={cfg}
             field="luminanceSmoothing"
             step={0.005}
@@ -3126,26 +3213,26 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                   onChange={(e) => save({ autofocus: e.target.checked })}
                 />
                 <span style={{ color: autofocus ? '#7ab' : '#888' }}>
-                  Autofocus (Experimental)
+                  {t('effect.dof.autofocus')}
                 </span>
               </label>
               {autofocus ? (
                 <>
                   <div style={rowStyle}>
-                    <span style={labelStyle}>AF Mode</span>
+                    <span style={labelStyle}>{t('effect.dof.afMode')}</span>
                     <select
                       value={afMode}
                       onChange={(e) => save({ afMode: e.target.value })}
                       style={selectStyle}
                     >
-                      <option value="point">Point</option>
-                      <option value="percentile">Percentile</option>
+                      <option value="point">{t('effect.dof.afModePoint')}</option>
+                      <option value="percentile">{t('effect.dof.afModePercentile')}</option>
                     </select>
                   </div>
                   {afMode === 'point' && (
                     <>
                       <EffectRow
-                        label="Point X"
+                        label={t('effect.dof.pointX')}
                         cfg={cfg}
                         field="afPointX"
                         step={0.01}
@@ -3154,7 +3241,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                         onSave={save}
                       />
                       <EffectRow
-                        label="Point Y"
+                        label={t('effect.dof.pointY')}
                         cfg={cfg}
                         field="afPointY"
                         step={0.01}
@@ -3166,7 +3253,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                   )}
                   {afMode === 'percentile' && (
                     <EffectRow
-                      label="Percentile %"
+                      label={t('effect.dof.percentile')}
                       cfg={cfg}
                       field="afPercentile"
                       step={1}
@@ -3179,7 +3266,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                     style={{ height: 1, background: '#222', margin: '2px 0' }}
                   />
                   <EffectRow
-                    label="AF Speed"
+                    label={t('effect.dof.afSpeed')}
                     cfg={cfg}
                     field="afSpeed"
                     step={0.1}
@@ -3188,7 +3275,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                     onSave={save}
                   />
                   <EffectRow
-                    label="AF Delay"
+                    label={t('effect.dof.afDelay')}
                     cfg={cfg}
                     field="afDelay"
                     step={0.05}
@@ -3197,7 +3284,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                     onSave={save}
                   />
                   <EffectRow
-                    label="Overshoot"
+                    label={t('effect.dof.overshoot')}
                     cfg={cfg}
                     field="afOvershoot"
                     step={0.01}
@@ -3208,7 +3295,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                 </>
               ) : (
                 <EffectRow
-                  label="Focus Distance"
+                  label={t('effect.dof.focusDistance')}
                   cfg={cfg}
                   field="worldFocusDistance"
                   step={0.1}
@@ -3218,7 +3305,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
               )}
               <div style={{ height: 1, background: '#222', margin: '2px 0' }} />
               <EffectRow
-                label="Focus Range"
+                label={t('effect.dof.focusRange')}
                 cfg={cfg}
                 field="worldFocusRange"
                 step={0.1}
@@ -3226,7 +3313,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                 onSave={save}
               />
               <EffectRow
-                label="Bokeh Scale"
+                label={t('effect.dof.bokehScale')}
                 cfg={cfg}
                 field="bokehScale"
                 step={0.1}
@@ -3239,7 +3326,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_chromatic_aberration' && (
         <>
           <EffectRow
-            label="Offset X"
+            label={t('effect.chromatic.offsetX')}
             cfg={cfg}
             field="offsetX"
             step={0.001}
@@ -3248,7 +3335,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Offset Y"
+            label={t('effect.chromatic.offsetY')}
             cfg={cfg}
             field="offsetY"
             step={0.001}
@@ -3261,7 +3348,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_ssao' && (
         <>
           <EffectRow
-            label="Intensity"
+            label={t('effect.ssao.intensity')}
             cfg={cfg}
             field="intensity"
             step={0.1}
@@ -3270,7 +3357,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Radius"
+            label={t('effect.ssao.radius')}
             cfg={cfg}
             field="radius"
             step={0.01}
@@ -3279,7 +3366,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Bias"
+            label={t('effect.ssao.bias')}
             cfg={cfg}
             field="bias"
             step={0.001}
@@ -3288,7 +3375,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Rings"
+            label={t('effect.ssao.rings')}
             cfg={cfg}
             field="rings"
             step={1}
@@ -3297,7 +3384,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Samples"
+            label={t('effect.ssao.samples')}
             cfg={cfg}
             field="samples"
             step={1}
@@ -3310,7 +3397,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_outline' && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Color</span>
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{t('effect.outline.color')}</span>
             <input
               type="color"
               value={(cfg.color as string) ?? '#000000'}
@@ -3326,7 +3413,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             />
           </div>
           <EffectRow
-            label="Threshold"
+            label={t('effect.outline.threshold')}
             cfg={cfg}
             field="threshold"
             step={0.0001}
@@ -3334,7 +3421,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Thickness"
+            label={t('effect.outline.thickness')}
             cfg={cfg}
             field="thickness"
             step={0.5}
@@ -3342,7 +3429,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Alpha"
+            label={t('effect.outline.alpha')}
             cfg={cfg}
             field="alpha"
             step={0.01}
@@ -3351,7 +3438,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Normal Strength"
+            label={t('effect.outline.normalStrength')}
             cfg={cfg}
             field="normalStrength"
             step={0.05}
@@ -3360,7 +3447,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
-              Blend Mode
+              {t('effect.outline.blendMode')}
             </span>
             <select
               value={(cfg.blendMode as string) ?? 'NORMAL'}
@@ -3404,7 +3491,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_vignette' && (
         <>
           <EffectRow
-            label="Offset"
+            label={t('effect.vignette.offset')}
             cfg={cfg}
             field="offset"
             step={0.01}
@@ -3413,7 +3500,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Darkness"
+            label={t('effect.vignette.darkness')}
             cfg={cfg}
             field="darkness"
             step={0.01}
@@ -3425,7 +3512,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       )}
       {kind === 'fx_noise' && (
         <EffectRow
-          label="Opacity"
+          label={t('effect.noise.opacity')}
           cfg={cfg}
           field="opacity"
           step={0.01}
@@ -3437,7 +3524,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_scanline' && (
         <>
           <EffectRow
-            label="Density"
+            label={t('effect.scanline.density')}
             cfg={cfg}
             field="density"
             step={0.05}
@@ -3445,7 +3532,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Opacity"
+            label={t('effect.scanline.opacity')}
             cfg={cfg}
             field="opacity"
             step={0.01}
@@ -3457,7 +3544,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       )}
       {kind === 'fx_pixelation' && (
         <EffectRow
-          label="Granularity"
+          label={t('effect.pixelation.granularity')}
           cfg={cfg}
           field="granularity"
           step={1}
@@ -3469,7 +3556,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
-              Characters
+              {t('effect.ascii.characters')}
             </span>
             <input
               value={(cfg.characters as string) ?? ' .:-+*=%@#'}
@@ -3486,7 +3573,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             />
           </div>
           <EffectRow
-            label="Font Size"
+            label={t('effect.ascii.fontSize')}
             cfg={cfg}
             field="fontSize"
             step={1}
@@ -3494,7 +3581,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Cell Size"
+            label={t('effect.ascii.cellSize')}
             cfg={cfg}
             field="cellSize"
             step={1}
@@ -3502,7 +3589,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Color</span>
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{t('effect.ascii.color')}</span>
             <input
               type="color"
               value={(cfg.color as string) ?? '#ffffff'}
@@ -3518,7 +3605,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Invert</span>
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{t('effect.ascii.invert')}</span>
             <input
               type="checkbox"
               checked={(cfg.invert as boolean) ?? false}
@@ -3530,7 +3617,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_dot_screen' && (
         <>
           <EffectRow
-            label="Angle"
+            label={t('effect.dotScreen.angle')}
             cfg={cfg}
             field="angle"
             step={0.01}
@@ -3538,7 +3625,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Scale"
+            label={t('effect.dotScreen.scale')}
             cfg={cfg}
             field="scale"
             step={0.05}
@@ -3551,10 +3638,10 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
         <>
           {(
             [
-              ['Delay min', 'delay', 0, 0.1],
-              ['Delay max', 'delay', 1, 0.1],
-              ['Strength min', 'strength', 0, 0.05],
-              ['Strength max', 'strength', 1, 0.05],
+              [t('effect.glitch.delayMin'), 'delay', 0, 0.1],
+              [t('effect.glitch.delayMax'), 'delay', 1, 0.1],
+              [t('effect.glitch.strengthMin'), 'strength', 0, 0.05],
+              [t('effect.glitch.strengthMax'), 'strength', 1, 0.05],
             ] as [string, string, number, number][]
           ).map(([label, field, idx, step]) => {
             const pair =
@@ -3583,7 +3670,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             );
           })}
           <EffectRow
-            label="Columns"
+            label={t('effect.glitch.columns')}
             cfg={cfg}
             field="columns"
             step={0.01}
@@ -3592,7 +3679,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Ratio"
+            label={t('effect.glitch.ratio')}
             cfg={cfg}
             field="ratio"
             step={0.05}
@@ -3605,7 +3692,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_tilt_shift' && (
         <>
           <EffectRow
-            label="Offset"
+            label={t('effect.tiltShift.offset')}
             cfg={cfg}
             field="offset"
             step={0.01}
@@ -3614,14 +3701,14 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Rotation"
+            label={t('effect.tiltShift.rotation')}
             cfg={cfg}
             field="rotation"
             step={0.01}
             onSave={save}
           />
           <EffectRow
-            label="Focus Area"
+            label={t('effect.tiltShift.focusArea')}
             cfg={cfg}
             field="focusArea"
             step={0.01}
@@ -3630,7 +3717,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <EffectRow
-            label="Feather"
+            label={t('effect.tiltShift.feather')}
             cfg={cfg}
             field="feather"
             step={0.01}
@@ -3642,7 +3729,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       )}
       {kind === 'fx_water' && (
         <EffectRow
-          label="Factor"
+          label={t('effect.water.factor')}
           cfg={cfg}
           field="factor"
           step={0.05}
@@ -3651,7 +3738,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
         />
       )}
       <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>
-        {ek.description}
+        {t(`kinds:effect.${ek.kind}.description`, { defaultValue: ek.description })}
       </div>
     </div>
   );
@@ -3670,6 +3757,7 @@ function SceneSettings({
   broadcastTickHz: number;
   onChange: (hz: number) => void;
 }) {
+  const { t } = useTranslation('properties');
   const [local, setLocal] = useState<string>(String(broadcastTickHz));
   useEffect(() => {
     setLocal(String(broadcastTickHz));
@@ -3699,7 +3787,7 @@ function SceneSettings({
         <span style={{ fontSize: 18 }}>🎬</span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>
-            Scene Settings
+            {t('scene.header')}
           </div>
           <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
             {sceneName}
@@ -3708,7 +3796,7 @@ function SceneSettings({
       </div>
       <div style={{ marginBottom: 10 }}>
         <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>
-          Broadcast Tick Rate (Hz)
+          {t('scene.broadcastRate')}
         </div>
         <input
           type="number"
@@ -3735,9 +3823,7 @@ function SceneSettings({
         <div
           style={{ fontSize: 10, color: '#555', marginTop: 4, lineHeight: 1.4 }}
         >
-          How often the server merges pose + blendshape sources and broadcasts a
-          frame. Default 60. Lower values reduce bandwidth at the cost of
-          smoothness.
+          {t('scene.broadcastHint')}
         </div>
       </div>
     </>
@@ -3747,6 +3833,7 @@ function SceneSettings({
 // ---------- Main panel ----------
 
 export function PropertiesPanel() {
+  const { t } = useTranslation('properties');
   const { projectId } = useParams<{ projectId: string }>();
   const {
     nodes,
@@ -3969,13 +4056,13 @@ export function PropertiesPanel() {
         <ComposeLayerProperties layer={selectedComposeLayer} />
       );
     }
-    return emptyState('Select a layer to edit its properties.');
+    return emptyState(t('emptyState.selectLayer'));
   }
 
   // Graphs tab: signal nodes are edited inline on the canvas, so the right
   // inspector has nothing node-shaped to show here.
   if (leftTab === 'graphs') {
-    return emptyState('Editing a graph — select nodes on the canvas.');
+    return emptyState(t('emptyState.graphsTab'));
   }
 
   // Scene tab (everything below): the inspector targets 3D scene nodes only.
@@ -3999,8 +4086,11 @@ export function PropertiesPanel() {
         >
           <span style={{ fontSize: 18 }}>{selectedEffectKind.icon}</span>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>
-              {selectedEffectKind.label}
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {t(`kinds:effect.${selectedEffectKind.kind}.label`, {
+                defaultValue: selectedEffectKind.label,
+              })}
+              <HelpButton topic="camera-effects" anchor={EFFECT_KIND_ANCHOR[selectedEffect.kind] ?? 'what'} tip={t('help.cameraEffects')} />
             </div>
             <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
               {selectedEffectNode.name}
@@ -4053,7 +4143,7 @@ export function PropertiesPanel() {
           fontFamily: 'system-ui, sans-serif',
         }}
       >
-        Select a node to edit its properties.
+        {t('emptyState.selectNode')}
       </div>
     );
   }
@@ -4071,9 +4161,12 @@ export function PropertiesPanel() {
           }}
         >
           <span style={{ fontSize: 18 }}>{selectedCompType.icon}</span>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', display: 'flex', alignItems: 'center', gap: 6 }}>
               {selectedCompType.label}
+              {selectedBehavior.kind === 'breathing' && (
+                <HelpButton topic="behaviors" anchor="breathing" tip={t('help.breathing')} />
+              )}
             </div>
             <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
               {selectedCompType.description}
@@ -4148,13 +4241,13 @@ export function PropertiesPanel() {
             letterSpacing: 0.5,
           }}
         >
-          Properties
+          {t('header')}
         </span>
       </div>
 
       <div style={{ padding: '12px 14px' }}>
         {/* Name */}
-        <div style={sectionHeader}>Name</div>
+        <div style={sectionHeader}>{t('name')}</div>
         <input
           ref={nameInputRef}
           style={textInput}
@@ -4181,10 +4274,12 @@ export function PropertiesPanel() {
         </div>
 
         {/* Transform */}
-        <div style={sectionHeader}>Transform</div>
+        <div style={sectionHeader}>
+          {t('transform.header')}
+        </div>
 
         <VecInput
-          groupLabel="Position"
+          groupLabel={t('transform.position')}
           labels={['X', 'Y', 'Z']}
           values={[transform.x, transform.y, transform.z]}
           onChange={(next, axis) => {
@@ -4256,7 +4351,7 @@ export function PropertiesPanel() {
         {/* Rotation is stored in radians on the transform component but edited in degrees;
             convert at the UI boundary so VecInput stays unit-agnostic. */}
         <VecInput
-          groupLabel="Rotation (deg)"
+          groupLabel={t('transform.rotation')}
           labels={['X', 'Y', 'Z']}
           values={[transform.rx / RAD, transform.ry / RAD, transform.rz / RAD]}
           step={1}
@@ -4326,7 +4421,7 @@ export function PropertiesPanel() {
         />
 
         <VecInput
-          groupLabel="Scale"
+          groupLabel={t('transform.scale')}
           labels={['X', 'Y', 'Z']}
           values={[transform.sx, transform.sy, transform.sz]}
           onChange={(next, axis) => {
@@ -4386,7 +4481,7 @@ export function PropertiesPanel() {
 
         {/* Opacity — walked across descendant materials by the viewport. */}
         <SliderInput
-          label="Opacity"
+          label={t('transform.opacity')}
           value={transform.opacity}
           min={0}
           max={1}
@@ -4454,7 +4549,7 @@ export function PropertiesPanel() {
                     saveTransform();
                   }}
                 />
-                {key === 'castShadow' ? 'Cast shadows' : 'Receive shadows'}
+                {key === 'castShadow' ? t('transform.castShadow') : t('transform.receiveShadow')}
               </label>
             ))}
           </div>
@@ -4463,11 +4558,14 @@ export function PropertiesPanel() {
         {/* Light Properties */}
         {node.kind === 'light' && (
           <>
-            <div style={sectionHeader}>Light Properties</div>
+            <div style={sectionHeader}>
+              {t('light.header')}
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', width: 60 }}>
-                  Type
+                <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {t('light.type')}
+                  <HelpButton topic="lighting" anchor="type" tip={t('help.lightType')} size={12} />
                 </span>
                 <select
                   style={{ ...textInput, width: 'auto', flex: 1 }}
@@ -4478,15 +4576,15 @@ export function PropertiesPanel() {
                     saveLight(l);
                   }}
                 >
-                  <option value="point">Point</option>
-                  <option value="directional">Directional</option>
-                  <option value="ambient">Ambient</option>
-                  <option value="spot">Spot</option>
+                  <option value="point">{t('light.typePoint')}</option>
+                  <option value="directional">{t('light.typeDirectional')}</option>
+                  <option value="ambient">{t('light.typeAmbient')}</option>
+                  <option value="spot">{t('light.typeSpot')}</option>
                 </select>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 12, color: '#888', width: 60 }}>
-                  Color
+                  {t('light.color')}
                 </span>
                 <input
                   type="color"
@@ -4506,8 +4604,9 @@ export function PropertiesPanel() {
                 />
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', width: 60 }}>
-                  Intensity
+                <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {t('light.intensity')}
+                  <HelpButton topic="lighting" anchor="intensity" tip={t('help.lightIntensity')} size={12} />
                 </span>
                 <NumInput
                   value={light.intensity}
@@ -4546,7 +4645,8 @@ export function PropertiesPanel() {
                         saveLight(next);
                       }}
                     />
-                    Cast shadows
+                    {t('light.castShadow')}
+                    <HelpButton topic="lighting" anchor="shadows" tip={t('help.lightShadows')} size={12} />
                   </label>
                   {light.castShadow && (
                     <>
@@ -4560,7 +4660,7 @@ export function PropertiesPanel() {
                         <span
                           style={{ fontSize: 12, color: '#888', width: 60 }}
                         >
-                          Map Size
+                          {t('light.mapSize')}
                         </span>
                         <select
                           style={{ ...textInput, width: 'auto', flex: 1 }}
@@ -4574,10 +4674,10 @@ export function PropertiesPanel() {
                             saveLight(next);
                           }}
                         >
-                          <option value="512">512 (fast)</option>
-                          <option value="1024">1024</option>
-                          <option value="2048">2048 (sharp)</option>
-                          <option value="4096">4096</option>
+                          <option value="512">{t('light.mapSize512')}</option>
+                          <option value="1024">{t('light.mapSize1024')}</option>
+                          <option value="2048">{t('light.mapSize2048')}</option>
+                          <option value="4096">{t('light.mapSize4096')}</option>
                         </select>
                       </div>
                       <div
@@ -4589,9 +4689,9 @@ export function PropertiesPanel() {
                       >
                         <span
                           style={{ fontSize: 12, color: '#888', width: 60 }}
-                          title="Depth bias — increase (toward 0) if shadows detach, decrease if you see acne"
+                          title={t('light.biasTip')}
                         >
-                          Bias
+                          {t('light.bias')}
                         </span>
                         <NumInput
                           value={light.shadowBias ?? -0.0005}
@@ -4617,9 +4717,9 @@ export function PropertiesPanel() {
                         >
                           <span
                             style={{ fontSize: 12, color: '#888', width: 60 }}
-                            title="Half-size of the area the shadow covers. Smaller = sharper shadows over a smaller region."
+                            title={t('light.areaTip')}
                           >
-                            Area
+                            {t('light.area')}
                           </span>
                           <NumInput
                             value={light.shadowCameraSize ?? 10}
@@ -4648,11 +4748,14 @@ export function PropertiesPanel() {
         {/* Camera Properties */}
         {node.kind === 'camera' && (
           <>
-            <div style={sectionHeader}>Camera Properties</div>
+            <div style={sectionHeader}>
+              {t('camera.header')}
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', width: 60 }}>
-                  Projection
+                <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {t('camera.projection')}
+                  <HelpButton topic="camera" anchor="projection" tip={t('help.camProjection')} size={12} />
                 </span>
                 <select
                   value={camera.projection}
@@ -4666,14 +4769,15 @@ export function PropertiesPanel() {
                   }}
                   style={{ ...textInput, width: 'auto', flex: 1 }}
                 >
-                  <option value="perspective">Perspective</option>
-                  <option value="orthographic">Orthographic</option>
+                  <option value="perspective">{t('camera.projectionPerspective')}</option>
+                  <option value="orthographic">{t('camera.projectionOrthographic')}</option>
                 </select>
               </div>
               {camera.projection === 'perspective' ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, color: '#888', width: 60 }}>
-                    FOV
+                  <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {t('camera.fov')}
+                    <HelpButton topic="camera" anchor="fov" tip={t('help.camFov')} size={12} />
                   </span>
                   <NumInput
                     value={camera.fov}
@@ -4691,10 +4795,11 @@ export function PropertiesPanel() {
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span
-                    style={{ fontSize: 12, color: '#888', width: 60 }}
-                    title="Half-height of the orthographic view volume"
+                    style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}
+                    title={t('camera.sizeTip')}
                   >
-                    Size
+                    {t('camera.size')}
+                    <HelpButton topic="camera" anchor="projection" tip={t('help.camProjection')} size={12} />
                   </span>
                   <NumInput
                     value={camera.orthoSize}
@@ -4711,16 +4816,17 @@ export function PropertiesPanel() {
               )}
               {(
                 [
-                  ['Near', 'near', 0.001],
-                  ['Far', 'far', 1],
+                  [t('camera.near'), 'near', 0.001],
+                  [t('camera.far'), 'far', 1],
                 ] as [string, 'near' | 'far', number][]
               ).map(([lab, key, step]) => (
                 <div
                   key={key}
                   style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                 >
-                  <span style={{ fontSize: 12, color: '#888', width: 60 }}>
+                  <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
                     {lab}
+                    {key === 'near' && <HelpButton topic="camera" anchor="clipping" tip={t('help.camClipping')} size={12} />}
                   </span>
                   <NumInput
                     value={camera[key]}
@@ -4737,7 +4843,7 @@ export function PropertiesPanel() {
               ))}
             </div>
 
-            <div style={sectionHeader}>Shadows</div>
+            <div style={sectionHeader}>{t('camera.shadowsHeader')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <label
                 style={{
@@ -4761,12 +4867,12 @@ export function PropertiesPanel() {
                     saveCamera(next);
                   }}
                 />
-                Enable shadows
+                {t('camera.shadowsEnable')}
               </label>
               {camera.shadowsEnabled && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: 12, color: '#888', width: 60 }}>
-                    Quality
+                    {t('camera.shadowQuality')}
                   </span>
                   <select
                     style={{ ...textInput, width: 'auto', flex: 1 }}
@@ -4780,9 +4886,9 @@ export function PropertiesPanel() {
                       saveCamera(next);
                     }}
                   >
-                    <option value="low">Low (hard edges)</option>
-                    <option value="medium">Medium (PCF)</option>
-                    <option value="high">High (soft PCF)</option>
+                    <option value="low">{t('camera.shadowLow')}</option>
+                    <option value="medium">{t('camera.shadowMedium')}</option>
+                    <option value="high">{t('camera.shadowHigh')}</option>
                   </select>
                 </div>
               )}
@@ -4793,16 +4899,16 @@ export function PropertiesPanel() {
                   lineHeight: 1.4,
                 }}
               >
-                Lights only cast shadows if their own "Cast shadows" is on.
-                Per-object cast/receive is set on each model's transform.
+                {t('camera.shadowHint')}
               </div>
             </div>
 
-            <div style={sectionHeader}>Environment</div>
+            <div style={sectionHeader}>{t('camera.envHeader')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', width: 60 }}>
-                  Intensity
+                <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {t('camera.envIntensity')}
+                  <HelpButton topic="camera" anchor="env" tip={t('help.camEnv')} size={12} />
                 </span>
                 <input
                   type="range"
@@ -4832,9 +4938,7 @@ export function PropertiesPanel() {
                 </span>
               </div>
               <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
-                Scales ambient light from the environment map in the output and
-                viewer. Lower for more directional contrast; 0 lights the model
-                with scene lights only.
+                {t('camera.envHint')}
               </div>
             </div>
 
@@ -4845,7 +4949,7 @@ export function PropertiesPanel() {
                 alignItems: 'center',
               }}
             >
-              Background Image
+              {t('camera.bgHeader')}
               <PickButton onClick={() => flashBottomTab('images')} />
             </div>
             {(() => {
@@ -4875,14 +4979,14 @@ export function PropertiesPanel() {
                     <input
                       list="cam-bg-list"
                       style={{ ...textInput, flex: 1 }}
-                      placeholder="URL or pick from Images…"
+                      placeholder={t('camera.bgPlaceholder')}
                       defaultValue={(cam.backgroundImage as string) ?? ''}
                       key={node.id + '-bg'}
                       onBlur={(e) => saveBgImage(e.target.value.trim() || null)}
                     />
                     {!!cam.backgroundImage && (
                       <button
-                        title="Clear background image"
+                        title={t('camera.bgClear')}
                         style={{
                           background: 'none',
                           border: 'none',
@@ -4915,7 +5019,7 @@ export function PropertiesPanel() {
               );
             })()}
 
-            <div style={sectionHeader}>Viewer</div>
+            <div style={sectionHeader}>{t('camera.viewerHeader')}</div>
             {(() => {
               const url = `${window.location.origin}/viewer/${projectId ?? ''}/${node.id}`;
               return (
@@ -4932,7 +5036,7 @@ export function PropertiesPanel() {
                     }}
                   />
                   <button
-                    title="Copy viewer URL"
+                    title={t('camera.viewerCopy')}
                     onClick={() => navigator.clipboard.writeText(url)}
                     style={{
                       background: '#2a2a2a',
@@ -4951,7 +5055,7 @@ export function PropertiesPanel() {
                     href={url}
                     target="_blank"
                     rel="noreferrer"
-                    title="Open viewer in new tab"
+                    title={t('camera.viewerOpen')}
                     style={{
                       background: '#2a2a2a',
                       border: '1px solid #3a3a3a',
@@ -5002,7 +5106,7 @@ export function PropertiesPanel() {
             };
             return (
               <>
-                <div style={sectionHeader}>Sun Appearance</div>
+                <div style={sectionHeader}>{t('godray.sunHeader')}</div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
@@ -5010,7 +5114,7 @@ export function PropertiesPanel() {
                     style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                   >
                     <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
-                      Color
+                      {t('godray.color')}
                     </span>
                     <input
                       type="color"
@@ -5027,7 +5131,7 @@ export function PropertiesPanel() {
                     />
                   </div>
                   <EffectRow
-                    label="Scale"
+                    label={t('godray.scale')}
                     cfg={grWithDefaults}
                     field="scale"
                     step={0.05}
@@ -5035,12 +5139,12 @@ export function PropertiesPanel() {
                     onSave={saveGr}
                   />
                 </div>
-                <div style={sectionHeader}>God Ray Parameters</div>
+                <div style={sectionHeader}>{t('godray.rayHeader')}</div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   <EffectRow
-                    label="Samples"
+                    label={t('godray.samples')}
                     cfg={grWithDefaults}
                     field="samples"
                     step={1}
@@ -5049,7 +5153,7 @@ export function PropertiesPanel() {
                     onSave={saveGr}
                   />
                   <EffectRow
-                    label="Density"
+                    label={t('godray.density')}
                     cfg={grWithDefaults}
                     field="density"
                     step={0.01}
@@ -5058,7 +5162,7 @@ export function PropertiesPanel() {
                     onSave={saveGr}
                   />
                   <EffectRow
-                    label="Decay"
+                    label={t('godray.decay')}
                     cfg={grWithDefaults}
                     field="decay"
                     step={0.01}
@@ -5067,7 +5171,7 @@ export function PropertiesPanel() {
                     onSave={saveGr}
                   />
                   <EffectRow
-                    label="Weight"
+                    label={t('godray.weight')}
                     cfg={grWithDefaults}
                     field="weight"
                     step={0.01}
@@ -5076,7 +5180,7 @@ export function PropertiesPanel() {
                     onSave={saveGr}
                   />
                   <EffectRow
-                    label="Exposure"
+                    label={t('godray.exposure')}
                     cfg={grWithDefaults}
                     field="exposure"
                     step={0.01}
@@ -5085,7 +5189,7 @@ export function PropertiesPanel() {
                     onSave={saveGr}
                   />
                   <EffectRow
-                    label="Clamp Max"
+                    label={t('godray.clampMax')}
                     cfg={grWithDefaults}
                     field="clampMax"
                     step={0.01}
@@ -5140,39 +5244,42 @@ export function PropertiesPanel() {
             );
             return (
               <>
-                <div style={sectionHeader}>Billboard</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('billboard.header')}
+                  <HelpButton topic="props" anchor="image" tip={t('help.propImage')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   {row(
-                    'Facing',
+                    t('billboard.facing'),
                     <select
                       style={sel}
                       value={bc.facing as string}
                       onChange={(e) => saveBc({ facing: e.target.value })}
                     >
                       <option value="screen">
-                        Screen (always faces camera)
+                        {t('billboard.facingScreen')}
                       </option>
-                      <option value="world">World (fixed rotation)</option>
+                      <option value="world">{t('billboard.facingWorld')}</option>
                     </select>
                   )}
                   {row(
-                    'Backface',
+                    t('billboard.backface'),
                     <select
                       style={sel}
                       value={bc.backface as string}
                       onChange={(e) => saveBc({ backface: e.target.value })}
                     >
-                      <option value="none">None (single-sided)</option>
-                      <option value="mirror">Mirror (flip X)</option>
+                      <option value="none">{t('billboard.backfaceNone')}</option>
+                      <option value="mirror">{t('billboard.backfaceMirror')}</option>
                       <option value="unmirrored">
-                        Unmirrored (double-sided)
+                        {t('billboard.backfaceUnmirrored')}
                       </option>
                     </select>
                   )}
                   <EffectRow
-                    label="Width"
+                    label={t('billboard.width')}
                     cfg={bc}
                     field="width"
                     step={0.05}
@@ -5180,7 +5287,7 @@ export function PropertiesPanel() {
                     onSave={saveBc}
                   />
                   <EffectRow
-                    label="Height"
+                    label={t('billboard.height')}
                     cfg={bc}
                     field="height"
                     step={0.05}
@@ -5188,7 +5295,7 @@ export function PropertiesPanel() {
                     onSave={saveBc}
                   />
                   <EffectRow
-                    label="Alpha"
+                    label={t('billboard.alpha')}
                     cfg={bc}
                     field="alpha"
                     step={0.05}
@@ -5204,7 +5311,7 @@ export function PropertiesPanel() {
                     alignItems: 'center',
                   }}
                 >
-                  Texture
+                  {t('billboard.textureHeader')}
                   <PickButton onClick={() => flashBottomTab('images')} />
                 </div>
                 <div
@@ -5216,11 +5323,11 @@ export function PropertiesPanel() {
                     ))}
                   </datalist>
                   {row(
-                    'Image',
+                    t('billboard.image'),
                     <input
                       list="billboard-img-list"
                       style={{ ...numInput, width: 120 }}
-                      placeholder="URL or pick asset…"
+                      placeholder={t('billboard.imagePlaceholder')}
                       defaultValue={(bc.textureUrl as string) ?? ''}
                       key={node.id + '-bbtex'}
                       onBlur={(e) =>
@@ -5309,9 +5416,11 @@ export function PropertiesPanel() {
                     ...sectionHeader,
                     display: 'flex',
                     alignItems: 'center',
+                    gap: 6,
                   }}
                 >
-                  Video Source
+                  {t('video.sourceHeader')}
+                  <HelpButton topic="props" anchor="video" tip={t('help.propVideo')} />
                   <PickButton onClick={() => flashBottomTab('videos')} />
                 </div>
                 <div
@@ -5323,11 +5432,11 @@ export function PropertiesPanel() {
                     ))}
                   </datalist>
                   {row(
-                    'Source',
+                    t('video.source'),
                     <input
                       list="video-src-list"
                       style={{ ...numInput, width: 120 }}
-                      placeholder="URL or pick asset…"
+                      placeholder={t('video.sourcePlaceholder')}
                       defaultValue={(vc.sourceUrl as string) ?? ''}
                       key={node.id + '-vidsrc'}
                       onBlur={(e) =>
@@ -5336,26 +5445,29 @@ export function PropertiesPanel() {
                     />
                   )}
                 </div>
-                <div style={sectionHeader}>Playback</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('video.playbackHeader')}
+                  <HelpButton topic="props" anchor="video-playback" tip={t('help.videoPlayback')} size={12} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
-                  {check('Autoplay', 'autoplay', vc.autoplay as boolean)}
-                  {check('Loop', 'loop', vc.loop as boolean)}
+                  {check(t('video.autoplay'), 'autoplay', vc.autoplay as boolean)}
+                  {check(t('video.loop'), 'loop', vc.loop as boolean)}
                   {row(
-                    'On end',
+                    t('video.onEnd'),
                     <select
                       style={sel}
                       value={vc.onEnd as string}
                       onChange={(e) => saveVc({ onEnd: e.target.value })}
                     >
-                      <option value="freeze">Freeze on last frame</option>
-                      <option value="hide">Hide</option>
+                      <option value="freeze">{t('video.onEndFreeze')}</option>
+                      <option value="hide">{t('video.onEndHide')}</option>
                     </select>
                   )}
-                  {check('Muted', 'muted', vc.muted as boolean)}
+                  {check(t('video.muted'), 'muted', vc.muted as boolean)}
                   <EffectRow
-                    label="Volume"
+                    label={t('video.volume')}
                     cfg={vc}
                     field="volume"
                     step={0.05}
@@ -5364,21 +5476,21 @@ export function PropertiesPanel() {
                     onSave={saveVc}
                   />
                 </div>
-                <div style={sectionHeader}>Effects</div>
+                <div style={sectionHeader}>{t('video.effectsHeader')}</div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   {row(
-                    'Blend',
+                    t('video.blend'),
                     <select
                       style={sel}
                       value={(vc.blendMode as string) ?? 'normal'}
                       onChange={(e) => saveVc({ blendMode: e.target.value })}
                     >
-                      <option value="normal">Normal</option>
-                      <option value="additive">Additive</option>
-                      <option value="multiply">Multiply</option>
-                      <option value="screen">Screen</option>
+                      <option value="normal">{t('video.blendNormal')}</option>
+                      <option value="additive">{t('video.blendAdditive')}</option>
+                      <option value="multiply">{t('video.blendMultiply')}</option>
+                      <option value="screen">{t('video.blendScreen')}</option>
                     </select>
                   )}
                   {(() => {
@@ -5394,8 +5506,11 @@ export function PropertiesPanel() {
                       saveVc({ chromaKey: { ...ck, ...p } });
                     return (
                       <>
-                        {row(
-                          'Chroma key',
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12, color: '#888', flex: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {t('video.chromaKey')}
+                            <HelpButton topic="props" anchor="video-chroma" tip={t('help.videoChroma')} size={12} />
+                          </span>
                           <input
                             type="checkbox"
                             checked={ck.enabled as boolean}
@@ -5403,11 +5518,11 @@ export function PropertiesPanel() {
                               saveCk({ enabled: e.target.checked })
                             }
                           />
-                        )}
+                        </div>
                         {(ck.enabled as boolean) && (
                           <>
                             {row(
-                              'Key color',
+                              t('video.chromaKeyColor'),
                               <input
                                 type="color"
                                 value={ck.color as string}
@@ -5425,7 +5540,7 @@ export function PropertiesPanel() {
                               />
                             )}
                             <EffectRow
-                              label="Similarity"
+                              label={t('video.chromaSimilarity')}
                               cfg={ck}
                               field="similarity"
                               step={0.01}
@@ -5434,7 +5549,7 @@ export function PropertiesPanel() {
                               onSave={saveCk}
                             />
                             <EffectRow
-                              label="Smoothness"
+                              label={t('video.chromaSmoothness')}
                               cfg={ck}
                               field="smoothness"
                               step={0.01}
@@ -5443,7 +5558,7 @@ export function PropertiesPanel() {
                               onSave={saveCk}
                             />
                             <EffectRow
-                              label="Spill"
+                              label={t('video.chromaSpill')}
                               cfg={ck}
                               field="spill"
                               step={0.01}
@@ -5457,39 +5572,39 @@ export function PropertiesPanel() {
                     );
                   })()}
                 </div>
-                <div style={sectionHeader}>Plane</div>
+                <div style={sectionHeader}>{t('video.planeHeader')}</div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   {row(
-                    'Facing',
+                    t('billboard.facing'),
                     <select
                       style={sel}
                       value={vc.facing as string}
                       onChange={(e) => saveVc({ facing: e.target.value })}
                     >
                       <option value="screen">
-                        Screen (always faces camera)
+                        {t('video.facingScreen')}
                       </option>
-                      <option value="world">World (fixed rotation)</option>
+                      <option value="world">{t('video.facingWorld')}</option>
                     </select>
                   )}
                   {row(
-                    'Backface',
+                    t('billboard.backface'),
                     <select
                       style={sel}
                       value={vc.backface as string}
                       onChange={(e) => saveVc({ backface: e.target.value })}
                     >
-                      <option value="none">None (single-sided)</option>
-                      <option value="mirror">Mirror (flip X)</option>
+                      <option value="none">{t('video.backfaceNone')}</option>
+                      <option value="mirror">{t('video.backfaceMirror')}</option>
                       <option value="unmirrored">
-                        Unmirrored (double-sided)
+                        {t('video.backfaceUnmirrored')}
                       </option>
                     </select>
                   )}
                   <EffectRow
-                    label="Width"
+                    label={t('billboard.width')}
                     cfg={vc}
                     field="width"
                     step={0.05}
@@ -5497,7 +5612,7 @@ export function PropertiesPanel() {
                     onSave={saveVc}
                   />
                   <EffectRow
-                    label="Height"
+                    label={t('billboard.height')}
                     cfg={vc}
                     field="height"
                     step={0.05}
@@ -5505,7 +5620,7 @@ export function PropertiesPanel() {
                     onSave={saveVc}
                   />
                   <EffectRow
-                    label="Alpha"
+                    label={t('billboard.alpha')}
                     cfg={vc}
                     field="alpha"
                     step={0.05}
@@ -5583,9 +5698,11 @@ export function PropertiesPanel() {
                     ...sectionHeader,
                     display: 'flex',
                     alignItems: 'center',
+                    gap: 6,
                   }}
                 >
-                  Audio Source
+                  {t('audio.sourceHeader')}
+                  <HelpButton topic="props" anchor="audio" tip={t('help.propAudio')} />
                   <PickButton onClick={() => flashBottomTab('audio')} />
                 </div>
                 <div
@@ -5597,11 +5714,11 @@ export function PropertiesPanel() {
                     ))}
                   </datalist>
                   {row(
-                    'Source',
+                    t('audio.source'),
                     <input
                       list="audio-src-list"
                       style={{ ...numInput, width: 120 }}
-                      placeholder="URL or pick asset…"
+                      placeholder={t('audio.sourcePlaceholder')}
                       defaultValue={(ac.sourceUrl as string) ?? ''}
                       key={node.id + '-audsrc'}
                       onBlur={(e) =>
@@ -5609,26 +5726,29 @@ export function PropertiesPanel() {
                       }
                     />
                   )}
-                  {row(
-                    'Type',
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: '#888', flex: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {t('audio.type')}
+                      <HelpButton topic="props" anchor="audio" tip={t('help.audioType')} size={12} />
+                    </span>
                     <select
                       style={sel}
                       value={ac.audioType as string}
                       onChange={(e) => saveAc({ audioType: e.target.value })}
                     >
-                      <option value="simple">Simple (non-spatial)</option>
-                      <option value="directional">Directional (spatial)</option>
+                      <option value="simple">{t('audio.typeSimple')}</option>
+                      <option value="directional">{t('audio.typeDirectional')}</option>
                     </select>
-                  )}
+                  </div>
                 </div>
-                <div style={sectionHeader}>Playback</div>
+                <div style={sectionHeader}>{t('audio.playbackHeader')}</div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
-                  {check('Autoplay', 'autoplay', ac.autoplay as boolean)}
-                  {check('Loop', 'loop', ac.loop as boolean)}
+                  {check(t('audio.autoplay'), 'autoplay', ac.autoplay as boolean)}
+                  {check(t('audio.loop'), 'loop', ac.loop as boolean)}
                   <EffectRow
-                    label="Volume"
+                    label={t('audio.volume')}
                     cfg={ac}
                     field="volume"
                     step={0.05}
@@ -5639,7 +5759,10 @@ export function PropertiesPanel() {
                 </div>
                 {isDirectional && (
                   <>
-                    <div style={sectionHeader}>Spatial</div>
+                    <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {t('audio.spatialHeader')}
+                      <HelpButton topic="props" anchor="audio-spatial" tip={t('help.audioSpatial')} size={12} />
+                    </div>
                     <div
                       style={{
                         display: 'flex',
@@ -5648,7 +5771,7 @@ export function PropertiesPanel() {
                       }}
                     >
                       <EffectRow
-                        label="Ref distance"
+                        label={t('audio.refDistance')}
                         cfg={ac}
                         field="refDistance"
                         step={0.1}
@@ -5656,7 +5779,7 @@ export function PropertiesPanel() {
                         onSave={saveAc}
                       />
                       <EffectRow
-                        label="Rolloff"
+                        label={t('audio.rolloff')}
                         cfg={ac}
                         field="rolloffFactor"
                         step={0.1}
@@ -5664,7 +5787,7 @@ export function PropertiesPanel() {
                         onSave={saveAc}
                       />
                       <EffectRow
-                        label="Max distance"
+                        label={t('audio.maxDistance')}
                         cfg={ac}
                         field="maxDistance"
                         step={1}
@@ -5672,7 +5795,7 @@ export function PropertiesPanel() {
                         onSave={saveAc}
                       />
                       <EffectRow
-                        label="Cone inner°"
+                        label={t('audio.coneInner')}
                         cfg={ac}
                         field="coneInnerAngle"
                         step={1}
@@ -5681,7 +5804,7 @@ export function PropertiesPanel() {
                         onSave={saveAc}
                       />
                       <EffectRow
-                        label="Cone outer°"
+                        label={t('audio.coneOuter')}
                         cfg={ac}
                         field="coneOuterAngle"
                         step={1}
@@ -5690,7 +5813,7 @@ export function PropertiesPanel() {
                         onSave={saveAc}
                       />
                       <EffectRow
-                        label="Cone outer gain"
+                        label={t('audio.coneOuterGain')}
                         cfg={ac}
                         field="coneOuterGain"
                         step={0.05}
@@ -5761,12 +5884,15 @@ export function PropertiesPanel() {
             );
             return (
               <>
-                <div style={sectionHeader}>Text</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('text.header')}
+                  <HelpButton topic="props" anchor="text" tip={t('help.propText')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   {row(
-                    'Content',
+                    t('text.content'),
                     <input
                       style={{ ...textInput, width: 160 }}
                       defaultValue={(tc.content as string) ?? ''}
@@ -5775,20 +5901,20 @@ export function PropertiesPanel() {
                     />
                   )}
                   {row(
-                    'Facing',
+                    t('text.facing'),
                     <select
                       style={sel}
                       value={(tc.facing as string) ?? 'screen'}
                       onChange={(e) => saveTc({ facing: e.target.value })}
                     >
                       <option value="screen">
-                        Screen (always faces camera)
+                        {t('text.facingScreen')}
                       </option>
-                      <option value="world">World (fixed rotation)</option>
+                      <option value="world">{t('text.facingWorld')}</option>
                     </select>
                   )}
                   {row(
-                    'Color',
+                    t('text.color'),
                     <input
                       type="color"
                       value={(tc.color as string) ?? '#ffffff'}
@@ -5804,7 +5930,7 @@ export function PropertiesPanel() {
                     />
                   )}
                   <EffectRow
-                    label="Font Size"
+                    label={t('text.fontSize')}
                     cfg={tc}
                     field="fontSize"
                     step={isCanvas ? 1 : 0.01}
@@ -5814,7 +5940,7 @@ export function PropertiesPanel() {
                   {isCanvas && (
                     <>
                       <EffectRow
-                        label="Padding"
+                        label={t('text.padding')}
                         cfg={tc}
                         field="padding"
                         step={1}
@@ -5822,7 +5948,7 @@ export function PropertiesPanel() {
                         onSave={saveTc}
                       />
                       <EffectRow
-                        label="Width"
+                        label={t('text.width')}
                         cfg={tc}
                         field="width"
                         step={0.1}
@@ -5830,7 +5956,7 @@ export function PropertiesPanel() {
                         onSave={saveTc}
                       />
                       <EffectRow
-                        label="Height"
+                        label={t('text.height')}
                         cfg={tc}
                         field="height"
                         step={0.1}
@@ -5838,7 +5964,7 @@ export function PropertiesPanel() {
                         onSave={saveTc}
                       />
                       {row(
-                        'Allow HTML',
+                        t('text.allowHtml'),
                         <input
                           type="checkbox"
                           checked={Boolean(tc.allowHtml)}
@@ -5852,7 +5978,7 @@ export function PropertiesPanel() {
                   {!isCanvas && (
                     <>
                       {row(
-                        'Anchor X',
+                        t('text.anchorX'),
                         <select
                           style={sel}
                           value={(tc.anchorX as string) ?? 'center'}
@@ -5864,7 +5990,7 @@ export function PropertiesPanel() {
                         </select>
                       )}
                       {row(
-                        'Anchor Y',
+                        t('text.anchorY'),
                         <select
                           style={sel}
                           value={(tc.anchorY as string) ?? 'middle'}
@@ -5876,7 +6002,7 @@ export function PropertiesPanel() {
                         </select>
                       )}
                       <EffectRow
-                        label="Max Width (0 = ∞)"
+                        label={t('text.maxWidth')}
                         cfg={tc}
                         field="maxWidth"
                         step={0.1}
@@ -5935,17 +6061,18 @@ export function PropertiesPanel() {
             };
             return (
               <>
-                <div style={sectionHeader}>Feed</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('feed.header')}
+                  <HelpButton topic="props" anchor="feed" tip={t('help.propFeed')} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   <span style={{ fontSize: 11, color: '#666' }}>
-                    Renders the data-channel fields visible to this node (global
-                    + this node as a <code>set_data</code> scope target) through
-                    the template below.
+                    {t('feed.description')}
                   </span>
                   {row(
-                    'Billboard',
+                    t('feed.billboard'),
                     <input
                       type="checkbox"
                       checked={Boolean(fc.billboard)}
@@ -5953,7 +6080,7 @@ export function PropertiesPanel() {
                     />
                   )}
                   {row(
-                    'Color',
+                    t('feed.color'),
                     <input
                       type="color"
                       value={(fc.color as string) ?? '#ffffff'}
@@ -5969,7 +6096,7 @@ export function PropertiesPanel() {
                     />
                   )}
                   <EffectRow
-                    label="Font Size (px)"
+                    label={t('feed.fontSize')}
                     cfg={fc}
                     field="fontSize"
                     step={1}
@@ -5977,7 +6104,7 @@ export function PropertiesPanel() {
                     onSave={saveFc}
                   />
                   <EffectRow
-                    label="Padding (px)"
+                    label={t('feed.padding')}
                     cfg={fc}
                     field="padding"
                     step={1}
@@ -5985,7 +6112,7 @@ export function PropertiesPanel() {
                     onSave={saveFc}
                   />
                   <EffectRow
-                    label="Width (m)"
+                    label={t('feed.width')}
                     cfg={fc}
                     field="width"
                     step={0.1}
@@ -5993,14 +6120,14 @@ export function PropertiesPanel() {
                     onSave={saveFc}
                   />
                   <EffectRow
-                    label="Height (m)"
+                    label={t('feed.height')}
                     cfg={fc}
                     field="height"
                     step={0.1}
                     min={0.01}
                     onSave={saveFc}
                   />
-                  <span style={{ fontSize: 12, color: '#888' }}>Template</span>
+                  <span style={{ fontSize: 12, color: '#888' }}>{t('feed.template')}</span>
                   <textarea
                     style={{ ...area, minHeight: 120 }}
                     defaultValue={(fc.template as string) ?? ''}
@@ -6008,7 +6135,7 @@ export function PropertiesPanel() {
                     spellCheck={false}
                     onBlur={(e) => saveFc({ template: e.target.value })}
                   />
-                  <span style={{ fontSize: 12, color: '#888' }}>CSS</span>
+                  <span style={{ fontSize: 12, color: '#888' }}>{t('feed.css')}</span>
                   <textarea
                     style={{ ...area, minHeight: 100 }}
                     defaultValue={(fc.css as string) ?? ''}
@@ -6067,9 +6194,11 @@ export function PropertiesPanel() {
                     ...sectionHeader,
                     display: 'flex',
                     alignItems: 'center',
+                    gap: 6,
                   }}
                 >
-                  Texture
+                  {t('particle.textureHeader')}
+                  <HelpButton topic="props" anchor="particles" tip={t('help.propParticles')} />
                   <PickButton onClick={() => flashBottomTab('images')} />
                 </div>
                 <div
@@ -6077,16 +6206,16 @@ export function PropertiesPanel() {
                 >
                   {/* Built-in presets */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {getBuiltinParticleTextures().map((t) => {
-                      const url = builtinParticleTextureUrl(t.key);
+                    {getBuiltinParticleTextures().map((tex) => {
+                      const url = builtinParticleTextureUrl(tex.key);
                       // Match the canonical `builtin-tex:<key>` ref; also treat a
                       // legacy inlined data URI as selected.
                       const active =
-                        pc.textureUrl === url || pc.textureUrl === t.dataUrl;
+                        pc.textureUrl === url || pc.textureUrl === tex.dataUrl;
                       return (
                         <button
-                          key={t.key}
-                          title={t.label}
+                          key={tex.key}
+                          title={tex.label}
                           onClick={() => savePc({ textureUrl: url })}
                           style={{
                             background: active ? '#2a4a6a' : '#1e1e1e',
@@ -6103,8 +6232,8 @@ export function PropertiesPanel() {
                           }}
                         >
                           <img
-                            src={t.dataUrl}
-                            alt={t.label}
+                            src={tex.dataUrl}
+                            alt={tex.label}
                             style={{
                               width: 28,
                               height: 28,
@@ -6120,13 +6249,13 @@ export function PropertiesPanel() {
                               lineHeight: 1,
                             }}
                           >
-                            {t.label}
+                            {tex.label}
                           </span>
                         </button>
                       );
                     })}
                     <button
-                      title="None (default sprite)"
+                      title={t('particle.textureDefault')}
                       onClick={() => savePc({ textureUrl: null })}
                       style={{
                         background: !pc.textureUrl ? '#2a4a6a' : '#1e1e1e',
@@ -6153,7 +6282,7 @@ export function PropertiesPanel() {
                           lineHeight: 1,
                         }}
                       >
-                        Default
+                        {t('particle.textureDefault')}
                       </span>
                     </button>
                   </div>
@@ -6164,11 +6293,11 @@ export function PropertiesPanel() {
                     ))}
                   </datalist>
                   {row(
-                    'Custom',
+                    t('particle.textureCustom'),
                     <input
                       list="particle-img-list"
                       style={{ ...numInput, width: 120 }}
-                      placeholder="URL or pick asset…"
+                      placeholder={t('particle.texturePlaceholder')}
                       defaultValue={(pc.textureUrl as string) ?? ''}
                       key={node.id + '-tex'}
                       onBlur={(e) =>
@@ -6178,24 +6307,27 @@ export function PropertiesPanel() {
                   )}
                 </div>
 
-                <div style={sectionHeader}>Rendering</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('particle.renderingHeader')}
+                  <HelpButton topic="particles" anchor="rendering" tip={t('help.partRendering')} size={12} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   {row(
-                    'Blend Mode',
+                    t('particle.blendMode'),
                     <select
                       style={sel}
                       value={pc.blendMode as string}
                       onChange={(e) => savePc({ blendMode: e.target.value })}
                     >
-                      <option value="additive">Additive</option>
-                      <option value="normal">Normal</option>
-                      <option value="multiply">Multiply</option>
+                      <option value="additive">{t('particle.blendAdditive')}</option>
+                      <option value="normal">{t('particle.blendNormal')}</option>
+                      <option value="multiply">{t('particle.blendMultiply')}</option>
                     </select>
                   )}
                   {row(
-                    'Simulation Space',
+                    t('particle.simulationSpace'),
                     <select
                       style={sel}
                       value={pc.simulationSpace as string}
@@ -6204,15 +6336,15 @@ export function PropertiesPanel() {
                       }
                     >
                       <option value="world">
-                        World (particles stay in place)
+                        {t('particle.simulationWorld')}
                       </option>
                       <option value="local">
-                        Local (particles follow emitter)
+                        {t('particle.simulationLocal')}
                       </option>
                     </select>
                   )}
                   <EffectRow
-                    label="Max Count"
+                    label={t('particle.maxCount')}
                     cfg={pc}
                     field="maxCount"
                     step={10}
@@ -6220,33 +6352,39 @@ export function PropertiesPanel() {
                     max={5000}
                     onSave={savePc}
                   />
-                  {row('Depth Write', chk('depthWrite'))}
-                  {row('Depth Test', chk('depthTest'))}
+                  {row(t('particle.depthWrite'), chk('depthWrite'))}
+                  {row(t('particle.depthTest'), chk('depthTest'))}
                 </div>
 
-                <div style={sectionHeader}>Emission</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('particle.emissionHeader')}
+                  <HelpButton topic="particles" anchor="emission" tip={t('help.partEmission')} size={12} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   <EffectRow
-                    label="Rate (p/s)"
+                    label={t('particle.emissionRate')}
                     cfg={pc}
                     field="emissionRate"
                     step={1}
                     min={0}
                     onSave={savePc}
                   />
-                  {row('Burst Mode', chk('burstMode'))}
-                  {row('Loop', chk('loop'))}
-                  {row('Play on Start', chk('playOnStart'))}
+                  {row(t('particle.burstMode'), chk('burstMode'))}
+                  {row(t('particle.loop'), chk('loop'))}
+                  {row(t('particle.playOnStart'), chk('playOnStart'))}
                 </div>
 
-                <div style={sectionHeader}>Lifetime</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('particle.lifetimeHeader')}
+                  <HelpButton topic="particles" anchor="lifetime" tip={t('help.partLifetime')} size={12} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   <EffectRow
-                    label="Lifetime (s)"
+                    label={t('particle.lifetime')}
                     cfg={pc}
                     field="lifetime"
                     step={0.1}
@@ -6254,7 +6392,7 @@ export function PropertiesPanel() {
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Lifetime ±"
+                    label={t('particle.lifetimeRandom')}
                     cfg={pc}
                     field="lifetimeRandom"
                     step={0.05}
@@ -6264,12 +6402,15 @@ export function PropertiesPanel() {
                   />
                 </div>
 
-                <div style={sectionHeader}>Size</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('particle.sizeHeader')}
+                  <HelpButton topic="particles" anchor="size" tip={t('help.partSize')} size={12} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   <EffectRow
-                    label="Width"
+                    label={t('particle.sizeWidth')}
                     cfg={pc}
                     field="sizeX"
                     step={0.005}
@@ -6277,7 +6418,7 @@ export function PropertiesPanel() {
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Height"
+                    label={t('particle.sizeHeight')}
                     cfg={pc}
                     field="sizeY"
                     step={0.005}
@@ -6285,7 +6426,7 @@ export function PropertiesPanel() {
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Width ±"
+                    label={t('particle.sizeWidthRandom')}
                     cfg={pc}
                     field="sizeRandomX"
                     step={0.05}
@@ -6294,7 +6435,7 @@ export function PropertiesPanel() {
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Height ±"
+                    label={t('particle.sizeHeightRandom')}
                     cfg={pc}
                     field="sizeRandomY"
                     step={0.05}
@@ -6303,7 +6444,7 @@ export function PropertiesPanel() {
                     onSave={savePc}
                   />
                   {row(
-                    'Size Over Lifetime',
+                    t('particle.sizeOverLifetime'),
                     <select
                       style={sel}
                       value={pc.sizeOverLifetime as string}
@@ -6311,20 +6452,23 @@ export function PropertiesPanel() {
                         savePc({ sizeOverLifetime: e.target.value })
                       }
                     >
-                      <option value="constant">Constant</option>
-                      <option value="shrink">Shrink</option>
-                      <option value="grow">Grow</option>
-                      <option value="pulse">Pulse</option>
+                      <option value="constant">{t('particle.sizeConstant')}</option>
+                      <option value="shrink">{t('particle.sizeShrink')}</option>
+                      <option value="grow">{t('particle.sizeGrow')}</option>
+                      <option value="pulse">{t('particle.sizePulse')}</option>
                     </select>
                   )}
                 </div>
 
-                <div style={sectionHeader}>Color &amp; Alpha</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('particle.colorHeader')}
+                  <HelpButton topic="particles" anchor="color" tip={t('help.partColor')} size={12} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   {row(
-                    'Color Start',
+                    t('particle.colorStart'),
                     <input
                       type="color"
                       value={(pc.colorStart as string) ?? '#ffffff'}
@@ -6340,7 +6484,7 @@ export function PropertiesPanel() {
                     />
                   )}
                   {row(
-                    'Color End',
+                    t('particle.colorEnd'),
                     <input
                       type="color"
                       value={(pc.colorEnd as string) ?? '#ff6600'}
@@ -6356,7 +6500,7 @@ export function PropertiesPanel() {
                     />
                   )}
                   <EffectRow
-                    label="Alpha"
+                    label={t('particle.alpha')}
                     cfg={pc}
                     field="alpha"
                     step={0.05}
@@ -6365,7 +6509,7 @@ export function PropertiesPanel() {
                     onSave={savePc}
                   />
                   {row(
-                    'Alpha Over Lifetime',
+                    t('particle.alphaOverLifetime'),
                     <select
                       style={sel}
                       value={pc.alphaOverLifetime as string}
@@ -6373,14 +6517,14 @@ export function PropertiesPanel() {
                         savePc({ alphaOverLifetime: e.target.value })
                       }
                     >
-                      <option value="constant">Constant</option>
-                      <option value="fade-in">Fade In</option>
-                      <option value="fade-out">Fade Out</option>
-                      <option value="fade-in-out">Fade In→Out</option>
+                      <option value="constant">{t('particle.alphaConstant')}</option>
+                      <option value="fade-in">{t('particle.alphaFadeIn')}</option>
+                      <option value="fade-out">{t('particle.alphaFadeOut')}</option>
+                      <option value="fade-in-out">{t('particle.alphaFadeInOut')}</option>
                     </select>
                   )}
                   <EffectRow
-                    label="Emissive Intensity"
+                    label={t('particle.emissiveIntensity')}
                     cfg={pc}
                     field="emissiveIntensity"
                     step={0.1}
@@ -6389,33 +6533,36 @@ export function PropertiesPanel() {
                   />
                 </div>
 
-                <div style={sectionHeader}>Direction &amp; Speed</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('particle.directionHeader')}
+                  <HelpButton topic="particles" anchor="direction" tip={t('help.partDirection')} size={12} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   <EffectRow
-                    label="Dir X"
+                    label={t('particle.dirX')}
                     cfg={pc}
                     field="directionX"
                     step={0.1}
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Dir Y"
+                    label={t('particle.dirY')}
                     cfg={pc}
                     field="directionY"
                     step={0.1}
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Dir Z"
+                    label={t('particle.dirZ')}
                     cfg={pc}
                     field="directionZ"
                     step={0.1}
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Spread (°)"
+                    label={t('particle.spread')}
                     cfg={pc}
                     field="spread"
                     step={1}
@@ -6424,7 +6571,7 @@ export function PropertiesPanel() {
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Speed"
+                    label={t('particle.speed')}
                     cfg={pc}
                     field="speed"
                     step={0.1}
@@ -6432,7 +6579,7 @@ export function PropertiesPanel() {
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Speed ±"
+                    label={t('particle.speedRandom')}
                     cfg={pc}
                     field="speedRandom"
                     step={0.05}
@@ -6442,12 +6589,15 @@ export function PropertiesPanel() {
                   />
                 </div>
 
-                <div style={sectionHeader}>Origin Area</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('particle.originHeader')}
+                  <HelpButton topic="particles" anchor="origin" tip={t('help.partOrigin')} size={12} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   <EffectRow
-                    label="Width"
+                    label={t('particle.originWidth')}
                     cfg={pc}
                     field="originW"
                     step={0.05}
@@ -6455,7 +6605,7 @@ export function PropertiesPanel() {
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Height"
+                    label={t('particle.originHeight')}
                     cfg={pc}
                     field="originH"
                     step={0.05}
@@ -6463,7 +6613,7 @@ export function PropertiesPanel() {
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Depth"
+                    label={t('particle.originDepth')}
                     cfg={pc}
                     field="originD"
                     step={0.05}
@@ -6472,33 +6622,36 @@ export function PropertiesPanel() {
                   />
                 </div>
 
-                <div style={sectionHeader}>Motion</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('particle.motionHeader')}
+                  <HelpButton topic="particles" anchor="motion" tip={t('help.partMotion')} size={12} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   <EffectRow
-                    label="Gravity X"
+                    label={t('particle.gravityX')}
                     cfg={pc}
                     field="gravityX"
                     step={0.05}
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Gravity Y"
+                    label={t('particle.gravityY')}
                     cfg={pc}
                     field="gravityY"
                     step={0.05}
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Gravity Z"
+                    label={t('particle.gravityZ')}
                     cfg={pc}
                     field="gravityZ"
                     step={0.05}
                     onSave={savePc}
                   />
                   <EffectRow
-                    label="Turbulence"
+                    label={t('particle.turbulence')}
                     cfg={pc}
                     field="turbulence"
                     step={0.05}
@@ -6507,25 +6660,28 @@ export function PropertiesPanel() {
                   />
                 </div>
 
-                <div style={sectionHeader}>Rotation</div>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t('particle.rotationHeader')}
+                  <HelpButton topic="particles" anchor="rotation" tip={t('help.partRotation')} size={12} />
+                </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   {row(
-                    'Mode',
+                    t('particle.rotationMode'),
                     <select
                       style={sel}
                       value={(pc.rotationMode as string) ?? 'free'}
                       onChange={(e) => savePc({ rotationMode: e.target.value })}
                     >
-                      <option value="free">Free (spin over lifetime)</option>
-                      <option value="velocity">Velocity aligned</option>
+                      <option value="free">{t('particle.rotationFree')}</option>
+                      <option value="velocity">{t('particle.rotationVelocity')}</option>
                     </select>
                   )}
                   {pc.rotationMode !== 'velocity' && (
                     <>
                       <EffectRow
-                        label="Start Rotation ±(°)"
+                        label={t('particle.rotationStart')}
                         cfg={pc}
                         field="rotationStart"
                         step={5}
@@ -6534,14 +6690,14 @@ export function PropertiesPanel() {
                         onSave={savePc}
                       />
                       <EffectRow
-                        label="Angular Vel (°/s)"
+                        label={t('particle.angularVelocity')}
                         cfg={pc}
                         field="angularVelocity"
                         step={5}
                         onSave={savePc}
                       />
                       <EffectRow
-                        label="Angular Vel ±"
+                        label={t('particle.angularVelocityRandom')}
                         cfg={pc}
                         field="angularVelocityRandom"
                         step={5}
@@ -6580,7 +6736,7 @@ export function PropertiesPanel() {
                 {morphs.length > 0 && (
                   <>
                     <div style={sectionHeader}>
-                      Morph Targets ({morphs.length})
+                      {t('avatar.morphHeader')} ({morphs.length})
                     </div>
                     <div style={listStyle}>
                       {morphs.map((n) => (
@@ -6593,8 +6749,9 @@ export function PropertiesPanel() {
                 )}
                 {exprs.length > 0 && (
                   <CollapsibleSection
-                    title="Default Expression"
+                    title={t('avatar.defaultExpressionHeader')}
                     count={exprs.length}
+                    extra={<HelpButton topic="avatar" anchor="expressions" tip={t('help.expressions')} />}
                   >
                     <div
                       style={{
@@ -6604,8 +6761,7 @@ export function PropertiesPanel() {
                         marginBottom: 6,
                       }}
                     >
-                      Resting expression weights held until a blendshape
-                      broadcast (VMC, lipsync, tracking) overrides them.
+                      {t('avatar.defaultExpressionHint')}
                     </div>
                     <div
                       style={{
@@ -6689,7 +6845,7 @@ export function PropertiesPanel() {
         {/* Avatar properties — broadcast pose blend, etc. */}
         {node.kind === 'avatar' && (
           <>
-            <div style={sectionHeader}>Properties</div>
+            <div style={sectionHeader}>{t('avatar.propertiesHeader')}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span
                 style={{
@@ -6699,7 +6855,7 @@ export function PropertiesPanel() {
                   flexShrink: 0,
                 }}
               >
-                Blend transition
+                {t('avatar.blendTransition')}
               </span>
               <NumInput
                 value={node.properties?.blendTransitionTime ?? 0.5}
@@ -6734,7 +6890,7 @@ export function PropertiesPanel() {
         {/* FBX debug toggle — avatar only */}
         {node.kind === 'avatar' && (
           <>
-            <div style={sectionHeader}>Debug</div>
+            <div style={sectionHeader}>{t('avatar.debugHeader')}</div>
             <label
               style={{
                 display: 'flex',
@@ -6751,7 +6907,7 @@ export function PropertiesPanel() {
                 checked={fbxDebugVisible[node.id] ?? false}
                 onChange={(e) => setFbxDebugVisible(node.id, e.target.checked)}
               />
-              Show FBX animation model
+              {t('avatar.showFbxModel')}
             </label>
           </>
         )}
@@ -6766,7 +6922,12 @@ export function PropertiesPanel() {
                 alignItems: 'center',
               }}
             >
-              Model
+              {node.kind === 'avatar' ? (
+                <>
+                  {t('avatar.modelHeader')}
+                  <HelpButton topic="avatar" anchor="loading" tip={t('help.avatar')} />
+                </>
+              ) : t('avatar.modelHeader')}
               <PickButton onClick={() => flashBottomTab('models')} />
             </div>
             <datalist id="model-list">
@@ -6780,8 +6941,8 @@ export function PropertiesPanel() {
                 style={{ ...textInput, flex: 1 }}
                 placeholder={
                   modelAssets.length
-                    ? 'Search or paste URL…'
-                    : 'No models uploaded yet'
+                    ? t('avatar.modelPlaceholder')
+                    : t('avatar.modelNoAssets')
                 }
                 defaultValue={node.filePath ?? ''}
                 key={node.id + ':model'}
@@ -6795,7 +6956,7 @@ export function PropertiesPanel() {
               />
               {node.filePath && (
                 <button
-                  title="Clear model"
+                  title={t('avatar.modelClear')}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -6873,11 +7034,11 @@ export function PropertiesPanel() {
                 alignItems: 'center',
               }}
             >
-              Animation
+              {t('avatar.animationHeader')}
               <PickButton onClick={() => flashBottomTab('animations')} />
             </div>
             <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>
-              Idle Animation
+              {t('avatar.idleAnimation')}
             </div>
             <datalist id="anim-list">
               {animAssets.map((a) => (
@@ -6890,8 +7051,8 @@ export function PropertiesPanel() {
                 style={{ ...textInput, flex: 1 }}
                 placeholder={
                   animAssets.length
-                    ? 'Search or paste URL…'
-                    : 'No animations uploaded yet'
+                    ? t('avatar.animPlaceholder')
+                    : t('avatar.animNoAssets')
                 }
                 defaultValue={
                   (node.components?.animation as { idleUrl?: string })
@@ -6909,7 +7070,7 @@ export function PropertiesPanel() {
               {(node.components?.animation as { idleUrl?: string })
                 ?.idleUrl && (
                 <button
-                  title="Clear animation"
+                  title={t('avatar.animClear')}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -6945,7 +7106,7 @@ export function PropertiesPanel() {
                     gap: 3,
                   }}
                 >
-                  Speed
+                  {t('avatar.animSpeed')}
                   <input
                     type="number"
                     style={{ ...textInput }}
@@ -6979,7 +7140,7 @@ export function PropertiesPanel() {
                     gap: 3,
                   }}
                 >
-                  Offset (s)
+                  {t('avatar.animOffset')}
                   <input
                     type="number"
                     style={{ ...textInput }}
@@ -7072,7 +7233,7 @@ export function PropertiesPanel() {
                           setAnimPlaying(!animPlaying);
                         }}
                       >
-                        {animPlaying ? '⏸ Pause' : '▶ Play'}
+                        {animPlaying ? t('avatar.animPause') : t('avatar.animPlay')}
                       </button>
                       <button
                         style={{
@@ -7090,7 +7251,7 @@ export function PropertiesPanel() {
                           setAnimTime(0);
                         }}
                       >
-                        ⏹ Rest
+                        {t('avatar.animRest')}
                       </button>
                     </div>
                     <input
@@ -7126,7 +7287,7 @@ export function PropertiesPanel() {
         {/* File Path */}
         {node.filePath && (
           <>
-            <div style={{ ...sectionHeader, marginTop: 16 }}>File</div>
+            <div style={{ ...sectionHeader, marginTop: 16 }}>{t('file.header')}</div>
             <div
               style={{ fontSize: 11, color: '#666', wordBreak: 'break-all' }}
             >
@@ -7154,11 +7315,14 @@ export function PropertiesPanel() {
                 }}
               >
                 <span style={{ fontSize: 18 }}>{selectedCompType.icon}</span>
-                <div>
+                <div style={{ flex: 1 }}>
                   <div
-                    style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}
+                    style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', display: 'flex', alignItems: 'center', gap: 6 }}
                   >
                     {selectedCompType.label}
+                    {selectedBehavior.kind === 'breathing' && (
+                      <HelpButton topic="behaviors" anchor="breathing" tip={t('help.breathing')} />
+                    )}
                   </div>
                   <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
                     {selectedCompType.description}

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="540" height="200" viewBox="0 0 540 200" font-family="system-ui, sans-serif" role="img" aria-label="Light types: point, directional and spot">
+  <style>
+    .ray{stroke:#f5c451;stroke-width:1.6}
+    .bulb{fill:#f5c451;stroke:#f5c451}
+    .cone{fill:#f5c451;opacity:0.14;stroke:#f5c451;stroke-width:1.2}
+    .ground{stroke:#5b6472;stroke-width:1.5}
+    .lbl{fill:#9aa6ba;font-size:12px;text-anchor:middle}
+    .num{fill:#6ea8fe;font-size:13px;font-weight:600;text-anchor:middle}
+  </style>
+
+  <!-- 1: POINT — rays radiate in all directions -->
+  <g>
+    <circle class="bulb" cx="90" cy="80" r="6"/>
+    <g class="ray">
+      <line x1="90" y1="80" x2="90" y2="40"/>
+      <line x1="90" y1="80" x2="90" y2="120"/>
+      <line x1="90" y1="80" x2="50" y2="80"/>
+      <line x1="90" y1="80" x2="130" y2="80"/>
+      <line x1="90" y1="80" x2="62" y2="52"/>
+      <line x1="90" y1="80" x2="118" y2="52"/>
+      <line x1="90" y1="80" x2="62" y2="108"/>
+      <line x1="90" y1="80" x2="118" y2="108"/>
+    </g>
+    <text class="num" x="90" y="160">1</text>
+  </g>
+
+  <!-- 2: DIRECTIONAL — parallel rays from one direction -->
+  <g transform="translate(180,0)">
+    <g class="ray">
+      <line x1="40" y1="40" x2="70" y2="95"/>
+      <line x1="70" y1="34" x2="100" y2="89"/>
+      <line x1="100" y1="40" x2="130" y2="95"/>
+      <line x1="130" y1="34" x2="160" y2="89"/>
+    </g>
+    <!-- arrow heads -->
+    <g fill="#f5c451">
+      <path d="M70,95 l-7,-2 l3,7 z"/>
+      <path d="M100,89 l-7,-2 l3,7 z"/>
+      <path d="M130,95 l-7,-2 l3,7 z"/>
+      <path d="M160,89 l-7,-2 l3,7 z"/>
+    </g>
+    <line class="ground" x1="55" y1="120" x2="175" y2="120"/>
+    <text class="num" x="100" y="160">2</text>
+  </g>
+
+  <!-- 3: SPOT — a cone of light from a point -->
+  <g transform="translate(360,0)">
+    <circle class="bulb" cx="100" cy="40" r="5"/>
+    <path class="cone" d="M100,40 L60,118 L140,118 Z"/>
+    <ellipse cx="100" cy="118" rx="40" ry="7" fill="#f5c451" opacity="0.22"/>
+    <text class="num" x="100" y="160">3</text>
+  </g>
+</svg>

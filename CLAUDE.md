@@ -111,6 +111,32 @@ Docs drift as the code changes. Whenever you read documentation during a task �
 - **Distinguish genuine staleness from intentionally historical notes.** Breadcrumbs like "renamed from `node_components`", "(formerly X)", "migration filename kept", or "Phase 2: all 54 nodes" are deliberate context — leave them.
 - Small, verified fixes: make them as part of your work in a separate `docs:` commit. Larger drift: surface it and let the user decide scope rather than ballooning the task.
 
+# Internationalization & Help (frontend)
+
+All user-facing frontend text is internationalized (English + German) via
+`react-i18next`, and the app carries an in-app help system (`?` buttons →
+floating window / `/docs` route backed by per-locale markdown). These are
+cross-cutting: treat them as part of "done" for **any** UI change, not as a
+separate module you only touch when working "on i18n".
+
+- **Never hardcode user-visible text.** Use `useTranslation('<namespace>')` and a
+  key. Add the key to **both** `packages/frontend/src/i18n/locales/{en,de}/<namespace>.json`
+  with matching structure; German must be a real translation (use the vocabulary
+  table in the module doc). Validate the JSON — German curly quotes are `„ … "`;
+  a straight `"` breaks the file.
+- **New feature / concept / panel:** add or extend the relevant
+  `packages/frontend/src/help/content/{en,de}/<topic>.md` page (with `{#anchor}`
+  section ids) and place a `HelpButton` next to the new control pointing at it. A
+  feature shipped without a hint/doc section is incomplete for non-technical
+  users.
+- **Renaming/removing a concept:** update the doc prose, the affected
+  `HelpButton topic/anchor` references, and the vocabulary table; grep for a
+  `{#anchor}` before deleting it (removing one silently breaks every `HelpButton`
+  that targets it).
+
+See [dev-notes/modules/i18n-help.md](dev-notes/modules/i18n-help.md) for the full
+conventions, namespace list, and step-by-step recipes.
+
 # Git
 
 ## Clean working tree before starting

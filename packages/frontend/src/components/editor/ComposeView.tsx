@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { ComposeLayerStack } from './ComposeLayerStack';
 import { ComposeSelectionOverlay } from './ComposeSelectionOverlay';
@@ -6,6 +7,7 @@ import { ComposeEventCapture } from './ComposeEventCapture';
 import { composeViewportRect } from './composeHitTest';
 
 export function ComposeView() {
+  const { t } = useTranslation('compose');
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
   const composeScenes = useEditorStore((s) => s.composeScenes);
   const composeLayers = useEditorStore((s) => s.composeLayers);
@@ -54,7 +56,7 @@ export function ComposeView() {
           background: '#0a0a0a',
         }}
       >
-        No compose scene selected.
+        {t('view.noSceneSelected')}
       </div>
     );
   }
@@ -92,7 +94,7 @@ export function ComposeView() {
         </span>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: '#555' }}>
-          {stackLayers.length} layer{stackLayers.length === 1 ? '' : 's'}
+          {t('view.layerCount', { count: stackLayers.length })}
         </span>
       </div>
       <div

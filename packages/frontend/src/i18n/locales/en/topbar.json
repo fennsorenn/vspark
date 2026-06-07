@@ -1,0 +1,25 @@
+{
+  "loading": "Loading…",
+  "media": {
+    "label": "Media",
+    "title": "Media Inputs (mic / camera)",
+    "openNewTab": "Open Media Input in new tab"
+  },
+  "status": {
+    "connected": "Connected",
+    "disconnected": "Disconnected"
+  },
+  "accounts": {
+    "label": "Accounts",
+    "title": "Stream accounts (Twitch / StreamElements)"
+  },
+  "update": {
+    "label": "Update",
+    "availableTitle": "An update is available",
+    "settingsTitle": "Updates & release channel",
+    "versionLabel": "Version"
+  },
+  "help": {
+    "tip": "Open help & documentation"
+  }
+}

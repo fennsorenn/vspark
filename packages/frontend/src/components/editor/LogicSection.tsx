@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api, type LogicRecord } from '../../api/client';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
+import { HelpButton } from '../../help/HelpButton';
 
 /** Inline, expandable list of standalone logic attached to a single scene
  *  node or compose layer — mirrors ClipsSection. Selecting a graph opens it
@@ -12,6 +14,7 @@ export function LogicSection({
 }: {
   owner: { kind: 'node'; id: string } | { kind: 'layer'; id: string };
 }) {
+  const { t } = useTranslation('signalGraph');
   const setActiveLogic = useEditorStore((s) => s.setActiveLogic);
   const activeLogicId = useEditorStore((s) => s.activeLogicId);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
@@ -44,7 +47,7 @@ export function LogicSection({
   }, [owner.kind, owner.id]);
 
   const handleAdd = async () => {
-    const name = window.prompt('New logic name:', 'Untitled Logic');
+    const name = window.prompt(t('logic.promptName'), t('logic.promptDefault'));
     if (!name?.trim()) return;
     try {
       const created =
@@ -54,18 +57,18 @@ export function LogicSection({
       setLogic((prev) => [...prev, created]);
       openLogic(created.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create logic');
+      alert(e instanceof Error ? e.message : t('logic.failCreate'));
     }
   };
 
   const handleDelete = async (g: LogicRecord) => {
-    if (!window.confirm(`Delete logic "${g.name}"?`)) return;
+    if (!window.confirm(t('logic.confirmDelete', { name: g.name }))) return;
     try {
       await api.deleteLogic(g.id);
       setLogic((prev) => prev.filter((x) => x.id !== g.id));
       if (activeLogicId === g.id) setActiveLogic(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete logic');
+      alert(e instanceof Error ? e.message : t('logic.failDelete'));
     }
   };
 
@@ -74,7 +77,7 @@ export function LogicSection({
       const updated = await api.updateLogic(g.id, { enabled: !g.enabled });
       setLogic((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle logic');
+      alert(e instanceof Error ? e.message : t('logic.failToggle'));
     }
   };
 
@@ -115,7 +118,7 @@ export function LogicSection({
       setLogic((prev) => [...prev, updated]);
       openLogic(updated.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste logic');
+      alert(e instanceof Error ? e.message : t('logic.failPaste'));
     }
   };
 
@@ -140,7 +143,7 @@ export function LogicSection({
             fontStyle: 'italic',
           }}
         >
-          No logic
+          {t('logic.empty')}
         </div>
       )}
       {logic.map((g) => {
@@ -169,7 +172,7 @@ export function LogicSection({
                 fontSize: 13,
                 color: g.enabled ? '#7aa86a' : '#555',
               }}
-              title={g.enabled ? 'Enabled' : 'Disabled'}
+              title={g.enabled ? t('logic.enabled') : t('logic.disabled')}
             >
               ⊕
             </span>
@@ -185,7 +188,7 @@ export function LogicSection({
               {g.name}
             </span>
             <button
-              title={g.enabled ? 'Disable' : 'Enable'}
+              title={g.enabled ? t('logic.disable') : t('logic.enable')}
               style={{
                 background: 'none',
                 border: 'none',
@@ -205,7 +208,7 @@ export function LogicSection({
           </div>
         );
       })}
-      <div style={{ padding: '3px 6px', display: 'flex', gap: 6 }}>
+      <div style={{ padding: '3px 6px', display: 'flex', gap: 6, alignItems: 'center' }}>
         <button
           onClick={handleAdd}
           style={{
@@ -220,12 +223,12 @@ export function LogicSection({
             textAlign: 'left',
           }}
         >
-          + Add Logic
+          {t('logic.addButton')}
         </button>
         {canPasteLogic && (
           <button
             onClick={handlePaste}
-            title="Paste the logic from clipboard onto this owner"
+            title={t('logic.pasteTitle')}
             style={{
               background: 'none',
               border: '1px dashed #3a5a4a',
@@ -237,9 +240,15 @@ export function LogicSection({
               textAlign: 'left',
             }}
           >
-            ⧉ Paste Logic
+            {t('logic.pasteButton')}
           </button>
         )}
+        <HelpButton
+          topic="logic"
+          anchor="automations"
+          tip={t('help.automations')}
+          size={12}
+        />
       </div>
       {ctxMenu && (
         <ContextMenu
@@ -248,6 +257,7 @@ export function LogicSection({
           onClose={() => setCtxMenu(null)}
           items={buildLogicRowMenu({
             graph: ctxMenu.graph,
+            t,
             onCopy: () => void handleCopy(ctxMenu.graph),
             onToggleEnabled: () => handleToggleEnabled(ctxMenu.graph),
             onDelete: () => handleDelete(ctxMenu.graph),
@@ -263,21 +273,22 @@ export function LogicSection({
  *  call site. */
 function buildLogicRowMenu(args: {
   graph: LogicRecord;
+  t: (key: string) => string;
   onCopy: () => void;
   onToggleEnabled: () => void;
   onDelete: () => void;
 }): ContextMenuItem[] {
   return [
-    { kind: 'item', label: 'Copy graph', onClick: args.onCopy },
+    { kind: 'item', label: args.t('logic.ctxCopy'), onClick: args.onCopy },
     {
       kind: 'item',
-      label: args.graph.enabled ? 'Disable' : 'Enable',
+      label: args.graph.enabled ? args.t('logic.disable') : args.t('logic.enable'),
       onClick: args.onToggleEnabled,
     },
     { kind: 'divider' },
     {
       kind: 'item',
-      label: 'Delete',
+      label: args.t('logic.ctxDelete'),
       onClick: args.onDelete,
       danger: true,
     },

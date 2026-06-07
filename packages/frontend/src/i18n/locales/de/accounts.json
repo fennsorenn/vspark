@@ -1,0 +1,105 @@
+{
+  "title": "Stream-Konten",
+  "close": "Schließen",
+  "twitchApps": {
+    "heading": "Twitch-Apps",
+    "registerApp": "+ App registrieren",
+    "empty": "Keine Twitch-Apps registriert. Klicke auf „App registrieren“, um die Einrichtung auf dev.twitch.tv durchzuführen.",
+    "accountCount": "{{n}} Konto(s)"
+  },
+  "accounts": {
+    "heading": "Konten",
+    "addTwitch": "+ Twitch",
+    "addStreamElements": "+ StreamElements",
+    "emptyNoApp": "Registriere zuerst eine Twitch-App und klicke dann auf + Twitch.",
+    "emptyHasApp": "Noch keine Konten verbunden. Klicke auf + Twitch zum Anmelden oder auf + StreamElements, um ein JWT einzufügen.",
+    "emptyGeneral": "Noch keine Konten verbunden.",
+    "default": "Standard",
+    "defaultTitle": "Standard-Konto — Overlive-Knoten ohne ausgewähltes Konto verwenden dieses als Rückfallkonto",
+    "reconnect": "Erneut verbinden",
+    "removeTitle": "Konto entfernen"
+  },
+  "status": {
+    "connected": "Verbunden",
+    "connecting": "Verbinde…",
+    "reconnecting": "Verbinde erneut…",
+    "disconnected": "Getrennt",
+    "error": "Fehler",
+    "needs_reauth": "Erneute Anmeldung erforderlich"
+  },
+  "footer": "Zugangsdaten werden lokal in deiner Projektdatenbank gespeichert.",
+  "alerts": {
+    "oauthFailed": "Twitch-Anmeldung fehlgeschlagen: {{message}}",
+    "popupBlocked": "Popup konnte nicht geöffnet werden — bitte deaktiviere den Popup-Blocker für diese Seite.",
+    "oauthError": "OAuth konnte nicht gestartet werden",
+    "noAppCredential": "Dieses Konto hat keine App-Zugangsdaten — bitte neu anlegen.",
+    "removeAccountConfirm": "{{label}} entfernen?",
+    "removeAccountFailed": "Konto konnte nicht gelöscht werden",
+    "setDefaultFailed": "Standard-Konto konnte nicht gesetzt werden",
+    "removeAppConfirm": "App „{{label}}“ entfernen?",
+    "removeAppInUse": "{{n}} Konto(s) verwenden diese App — sie funktionieren weiterhin, bis die Token ablaufen. Danach wird eine neue App zum Verbinden benötigt.",
+    "removeAppFailed": "App konnte nicht gelöscht werden"
+  },
+  "registerApp": {
+    "title": "Twitch-App registrieren",
+    "copyFromProject": "Aus anderem Projekt kopieren",
+    "selectProject": "— auswählen —",
+    "copy": "Kopieren",
+    "copyEmpty": "Dieses Projekt hat keine Twitch-Apps zum Kopieren.",
+    "copyFailed": "Kopieren fehlgeschlagen",
+    "instructions": {
+      "step1Open": "Öffne",
+      "step1Link": "dev.twitch.tv/console/apps",
+      "step1Click": "und klicke auf",
+      "step1Action": "Register Your Application",
+      "step2Set": "Setze",
+      "step2Field": "OAuth Redirect URLs",
+      "step2To": "auf genau:",
+      "step3Choose": "Wähle",
+      "step3Field": "Category",
+      "step3Value": "Application Integration",
+      "step3Note": "(oder eine passende Kategorie — Twitch verwendet dies nur für Analysen, nicht für Berechtigungen).",
+      "step4Save": "Speichere die App und klicke dann auf",
+      "step4Manage": "Manage",
+      "step4Copy": ". Kopiere die",
+      "step4ClientId": "Client ID",
+      "step4Below": "unten; klicke auf",
+      "step4NewSecret": "New Secret",
+      "step4For": "für das",
+      "step4ClientSecret": "Client Secret"
+    },
+    "fields": {
+      "label": "Bezeichnung",
+      "labelPlaceholder": "Meine Twitch-App",
+      "clientId": "Client ID",
+      "clientIdPlaceholder": "abc123…",
+      "clientSecret": "Client Secret",
+      "clientSecretPlaceholder": "••••••••",
+      "redirectUri": "Redirect URI"
+    },
+    "allRequired": "Alle Felder sind Pflichtfelder.",
+    "createFailed": "App-Zugangsdaten konnten nicht erstellt werden",
+    "cancel": "Abbrechen",
+    "save": "Speichern"
+  },
+  "registerSe": {
+    "title": "StreamElements-Konto hinzufügen",
+    "hint": "JWT und Kanal-ID findest du unter",
+    "hintLink": "streamelements.com/dashboard/account/channels",
+    "fields": {
+      "label": "Bezeichnung",
+      "jwt": "JWT",
+      "channelId": "Kanal-ID"
+    },
+    "allRequired": "Alle Felder sind Pflichtfelder.",
+    "saveFailed": "Konto konnte nicht hinzugefügt werden",
+    "cancel": "Abbrechen",
+    "save": "Speichern"
+  },
+  "pickApp": {
+    "title": "Welche Twitch-App?"
+  },
+  "help": {
+    "streamAccounts": "Verbinde hier Twitch oder StreamElements, damit vspark in deinen Logik-Automatisierungen auf Live-Stream-Ereignisse reagieren kann."
+  }
+}

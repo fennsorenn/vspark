@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import type { Project } from '../api/client';
+import { HelpButton } from '../help/HelpButton';
+import { LanguageSwitcher } from '../components/LanguageSwitcher';
 
 export function Home() {
   const navigate = useNavigate();
+  const { t } = useTranslation('home');
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewForm, setShowNewForm] = useState(false);
@@ -34,20 +38,20 @@ export function Home() {
       setNewName('');
       setNewDesc('');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to create project');
+      setError(e instanceof Error ? e.message : t('error.createFailed'));
     } finally {
       setCreating(false);
     }
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Delete project "${name}"? This cannot be undone.`))
+    if (!window.confirm(t('confirm.delete', { name })))
       return;
     try {
       await api.deleteProject(id);
       setProjects((prev) => prev.filter((p) => p.id !== id));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to delete project');
+      setError(e instanceof Error ? e.message : t('error.deleteFailed'));
     }
   };
 
@@ -103,19 +107,25 @@ export function Home() {
           justifyContent: 'space-between',
         }}
       >
-        <span
-          style={{
-            fontSize: 22,
-            fontWeight: 700,
-            color: '#fff',
-            letterSpacing: -0.5,
-          }}
-        >
-          vspark
-        </span>
-        <button style={btnStyle} onClick={() => setShowNewForm(true)}>
-          + New Project
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span
+            style={{
+              fontSize: 22,
+              fontWeight: 700,
+              color: '#fff',
+              letterSpacing: -0.5,
+            }}
+          >
+            vspark
+          </span>
+          <HelpButton topic="overview" tip={t('help.overview')} size={16} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <LanguageSwitcher />
+          <button style={btnStyle} onClick={() => setShowNewForm(true)}>
+            {t('header.newProject')}
+          </button>
+        </div>
       </div>
 
       <div style={{ padding: '32px' }}>
@@ -147,12 +157,12 @@ export function Home() {
             }}
           >
             <div style={{ fontWeight: 600, marginBottom: 16, fontSize: 15 }}>
-              New Project
+              {t('form.title')}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <input
                 style={inputStyle}
-                placeholder="Project name"
+                placeholder={t('form.namePlaceholder')}
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
@@ -160,7 +170,7 @@ export function Home() {
               />
               <input
                 style={inputStyle}
-                placeholder="Description (optional)"
+                placeholder={t('form.descPlaceholder')}
                 value={newDesc}
                 onChange={(e) => setNewDesc(e.target.value)}
               />
@@ -170,7 +180,7 @@ export function Home() {
                   onClick={handleCreate}
                   disabled={creating || !newName.trim()}
                 >
-                  {creating ? 'Creating…' : 'Create'}
+                  {creating ? t('form.creating') : t('form.create')}
                 </button>
                 <button
                   style={{ ...btnStyle, background: '#2a2a2a' }}
@@ -180,7 +190,7 @@ export function Home() {
                     setNewDesc('');
                   }}
                 >
-                  Cancel
+                  {t('form.cancel')}
                 </button>
               </div>
             </div>
@@ -189,7 +199,7 @@ export function Home() {
 
         {/* Projects grid */}
         {loading ? (
-          <div style={{ color: '#888', fontSize: 14 }}>Loading projects…</div>
+          <div style={{ color: '#888', fontSize: 14 }}>{t('list.loading')}</div>
         ) : projects.length === 0 ? (
           <div
             style={{
@@ -199,7 +209,7 @@ export function Home() {
               marginTop: 64,
             }}
           >
-            No projects yet. Click "New Project" to get started.
+            {t('list.empty')}
           </div>
         ) : (
           <div
@@ -220,14 +230,14 @@ export function Home() {
                   </div>
                 )}
                 <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
-                  Created {new Date(p.createdAt).toLocaleDateString()}
+                  {t('list.created', { date: new Date(p.createdAt).toLocaleDateString() })}
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                   <button
                     style={btnStyle}
                     onClick={() => navigate(`/editor/${p.id}`)}
                   >
-                    Open
+                    {t('card.open')}
                   </button>
                   <button
                     style={{
@@ -237,7 +247,7 @@ export function Home() {
                     }}
                     onClick={() => handleDelete(p.id, p.name)}
                   >
-                    Delete
+                    {t('card.delete')}
                   </button>
                 </div>
               </div>

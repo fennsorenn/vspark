@@ -15,7 +15,10 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface NodeKindDef {
+  /** English label; also the fallback if no translation is present. */
   label: string;
+  /** Stable key into the `kinds:node.*` translation namespace. */
+  i18nKey: string;
   kind: string;
   /** Only meaningful for `kind === 'light'`. */
   lightType?: string;
@@ -25,32 +28,34 @@ export interface NodeKindDef {
 }
 
 export const NODE_KIND_DEFS: NodeKindDef[] = [
-  { label: 'Group', kind: 'group', icon: '📁' },
-  { label: 'Avatar', kind: 'avatar', icon: '🧍' },
-  { label: 'Model', kind: 'model', icon: '📦' },
-  { label: 'Prop', kind: 'prop', icon: '🔹' },
-  { label: 'Point Light', kind: 'light', lightType: 'point', icon: '💡' },
+  { label: 'Group', i18nKey: 'group', kind: 'group', icon: '📁' },
+  { label: 'Avatar', i18nKey: 'avatar', kind: 'avatar', icon: '🧍' },
+  { label: 'Model', i18nKey: 'model', kind: 'model', icon: '📦' },
+  { label: 'Prop', i18nKey: 'prop', kind: 'prop', icon: '🔹' },
+  { label: 'Point Light', i18nKey: 'light_point', kind: 'light', lightType: 'point', icon: '💡' },
   {
     label: 'Directional Light',
+    i18nKey: 'light_directional',
     kind: 'light',
     lightType: 'directional',
     icon: '🔦',
   },
-  { label: 'Camera', kind: 'camera', icon: '📷' },
-  { label: 'Light Rays', kind: 'godray_caster', icon: '☀️' },
-  { label: 'Particle', kind: 'particle', icon: '✨' },
-  { label: 'Billboard', kind: 'billboard', icon: '🖼️' },
-  { label: 'Video', kind: 'video', icon: '🎞️' },
-  { label: 'Audio (Simple)', kind: 'audio', audioType: 'simple', icon: '🔊' },
+  { label: 'Camera', i18nKey: 'camera', kind: 'camera', icon: '📷' },
+  { label: 'Light Rays', i18nKey: 'godray_caster', kind: 'godray_caster', icon: '☀️' },
+  { label: 'Particle', i18nKey: 'particle', kind: 'particle', icon: '✨' },
+  { label: 'Billboard', i18nKey: 'billboard', kind: 'billboard', icon: '🖼️' },
+  { label: 'Video', i18nKey: 'video', kind: 'video', icon: '🎞️' },
+  { label: 'Audio (Simple)', i18nKey: 'audio_simple', kind: 'audio', audioType: 'simple', icon: '🔊' },
   {
     label: 'Audio (Spatial)',
+    i18nKey: 'audio_directional',
     kind: 'audio',
     audioType: 'directional',
     icon: '🔈',
   },
-  { label: 'Plain Text', kind: 'text_troika', icon: '🔤' },
-  { label: 'Rich Text', kind: 'text_canvas', icon: '🔡' },
-  { label: 'Feed (3D data overlay)', kind: 'feed', icon: '📜' },
+  { label: 'Plain Text', i18nKey: 'text_troika', kind: 'text_troika', icon: '🔤' },
+  { label: 'Rich Text', i18nKey: 'text_canvas', kind: 'text_canvas', icon: '🔡' },
+  { label: 'Feed (3D data overlay)', i18nKey: 'feed', kind: 'feed', icon: '📜' },
 ];
 
 const DEFAULT_COMPONENTS = {
