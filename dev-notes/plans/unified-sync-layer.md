@@ -191,16 +191,42 @@ project, gated behind Strategy A.
 | Conflict resolution | n/a (clean) | LWW / op-log / host-wins (DECISION) |
 | Shared plumbing | envelope · transport · registry · HLC/origin · snapshot — **both** |
 
-- **DECISION — which to build, and order.** Recommend **Object share first** (no reconciliation,
-  high value), Full sync later as a distinct effort.
-- **DECISION — Strategy B conflict/reconciliation policy** (only if/when full sync is pursued):
-  LWW+tombstones vs op-log/CRDT vs host-wins.
-- **DECISION — authority granularity (Strategy A):** is "publisher owns content, subscriber owns
-  wrapper" enough, or do publishers need a **capability model** (expose specific params as
-  read-only/writable, e.g. "you may tint or emote my avatar, not move its bones")?
+- **RESOLVED — which to build, and order.** Object share first (no reconciliation, high value).
+  Full sync **is in scope** (not optional): its symmetric ownership is wanted for *fault
+  tolerance* — see below — so reconciliation must be designed, not deferred away.
+- **RESOLVED — authority granularity (Strategy A): coarse.** Publisher owns the shared object's
+  state **completely**; the subscriber can only influence its **transform via the wrapper**. No
+  capability model, no subscriber writes to content. (Revisit only if a real need appears.)
+- **DECISION — Strategy B conflict/reconciliation policy:** LWW-per-field + version vectors +
+  tombstones (recommended baseline) vs op-log/CRDT (preserves more intent, heavier) vs
+  host-authoritative-on-reconnect (trivial, lossy).
 - **DECISION — discovery / signaling & bus:** how B finds and requests A's publication (directory
   service) and the relay transport: Redis pub/sub (pragmatic; adds presence + scale), NATS, or a
   direct WS peer mesh. Recommend Redis + a thin directory.
+
+### Fault tolerance: three things "ownership" was conflating
+
+The requirement *"the stream must not break down at either end if the connection fails at one
+end"* separates into three independent properties — only one of which is actually "ownership":
+
+1. **Write authority** — who may mutate content. *Object share:* publisher only (resolved
+   above). *Full sync:* **symmetric** — both write — which is precisely what keeps each end
+   working when the link drops (each keeps editing its own replica, reconcile on reconnect).
+   This is why symmetric ownership is the right call for the scene-sync mode, and it is the
+   thing that costs reconciliation.
+2. **State retention** — who holds a usable copy when the link is down. A running peer always
+   keeps its **last-known state in memory**, so a link drop degrades *gracefully* (freeze /
+   idle) rather than vanishing — even in object share, where the subscriber persists nothing.
+   Persistence only matters across a *restart*: object-share subscribers keep just cached
+   assets; full-sync peers keep the whole replica.
+3. **Stream liveness** — new frames require the producer. If the producer is unreachable, **no
+   ownership model conjures new motion** — the best any design can do is freeze on the last
+   frame, hold an idle loop, or extrapolate. So "doesn't break down" means *graceful
+   degradation*, a render-side policy, not literal continuation of live motion.
+
+Net: symmetric ownership (property 1) gives editing resilience for the persistent scene and is
+adopted for full sync; graceful-degradation (properties 2–3) covers the live stream and object
+share cheaply and is independent of ownership.
 
 ## Migration path (each phase shippable on its own)
 
