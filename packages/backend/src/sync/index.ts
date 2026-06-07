@@ -12,12 +12,20 @@
  *
  * Design: dev-notes/plans/unified-sync-layer.md
  */
+import { randomUUID } from 'crypto';
 import type { WSSync } from '../ws/index.js';
-import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
+import {
+  SYNC_MESSAGE_KIND,
+  makeHlcClock,
+  type SyncEnvelope,
+} from '@vspark/shared/sync';
 import { getResource } from './registry.js';
 
 class SyncHub {
   private _ws: WSSync | null = null;
+  /** This server's peer id — the `origin` tag + HLC tiebreak. Stable per process. */
+  private readonly _peerId = randomUUID();
+  private readonly _clock = makeHlcClock(this._peerId);
 
   init(ws: WSSync): void {
     this._ws = ws;
@@ -31,7 +39,8 @@ class SyncHub {
   }
 
   readonly document = {
-    /** Load the row via its descriptor, map to the canonical DTO, broadcast an upsert. */
+    /** Load the row via its descriptor, map to the canonical DTO, broadcast an
+     *  HLC-stamped upsert so out-of-order delivery can't clobber a newer value. */
     upsert: (rtype: string, id: string): void => {
       const r = getResource(rtype);
       if (!r?.load) return;
@@ -43,11 +52,21 @@ class SyncHub {
         key: id,
         scope: r.scope?.(dto),
         data: dto,
+        v: this._clock(),
+        origin: this._peerId,
       });
     },
-    /** Broadcast a removal. `scope` is optional (the row may already be gone). */
+    /** Broadcast an HLC-stamped removal. The stamp doubles as a tombstone marker
+     *  on the client (a stale upsert with an older stamp won't resurrect it). */
     remove: (rtype: string, id: string, scope?: string): void => {
-      this.send({ rtype, op: 'remove', key: id, scope });
+      this.send({
+        rtype,
+        op: 'remove',
+        key: id,
+        scope,
+        v: this._clock(),
+        origin: this._peerId,
+      });
     },
   };
 

@@ -53,6 +53,35 @@ export interface SyncEnvelope {
  *  the legacy bespoke message kinds during the migration. */
 export const SYNC_MESSAGE_KIND = 'sync';
 
+// --- Hybrid logical clock ---------------------------------------------------
+
+/** Total order over HLC stamps: returns >0 if `a` happened after `b`, <0 before,
+ *  0 if identical. Compares wall-clock, then counter, then peer id (so distinct
+ *  peers never tie). */
+export function compareHLC(a: HLC, b: HLC): number {
+  if (a.t !== b.t) return a.t - b.t;
+  if (a.c !== b.c) return a.c - b.c;
+  return a.n < b.n ? -1 : a.n > b.n ? 1 : 0;
+}
+
+/** Single-node monotonic HLC source. Guarantees strictly increasing (t,c) even
+ *  if the wall clock stalls or jumps backwards. Multi-peer merge (folding a
+ *  remote stamp's time in) arrives with the server mesh (Phase 5). */
+export function makeHlcClock(peerId: string): () => HLC {
+  let lastT = 0;
+  let lastC = 0;
+  return () => {
+    const now = Date.now();
+    if (now > lastT) {
+      lastT = now;
+      lastC = 0;
+    } else {
+      lastC += 1;
+    }
+    return { t: lastT, c: lastC, n: peerId };
+  };
+}
+
 // --- Dotted-path addressing -------------------------------------------------
 //
 // A value's identity is `<rtype>:<id>[:<subPath>]`. The `:` separates the

@@ -8,13 +8,24 @@
  *
  * Design: dev-notes/plans/unified-sync-layer.md
  */
-import type { SyncEnvelope, SyncOp } from '@vspark/shared/sync';
+import {
+  compareHLC,
+  type HLC,
+  type SyncEnvelope,
+  type SyncOp,
+} from '@vspark/shared/sync';
 
 export interface ClientResourceBinding {
   apply: (op: SyncOp, key: string, data: unknown, env: SyncEnvelope) => void;
 }
 
 const BINDINGS = new Map<string, ClientResourceBinding>();
+
+/** Last applied HLC stamp per `rtype:key`. Drops out-of-order / duplicate
+ *  envelopes (and prevents a stale upsert resurrecting a removed entity, since
+ *  the removal's stamp stays recorded as a tombstone). Streams omit `v`, so
+ *  they bypass this entirely (latest-wins by arrival). */
+const lastVersion = new Map<string, HLC>();
 
 export function bindResource(rtype: string, b: ClientResourceBinding): void {
   BINDINGS.set(rtype, b);
@@ -25,5 +36,11 @@ export function bindResource(rtype: string, b: ClientResourceBinding): void {
 export function applyRemote(env: SyncEnvelope): void {
   const b = BINDINGS.get(env.rtype);
   if (!b) return;
+  if (env.v) {
+    const k = `${env.rtype}:${env.key}`;
+    const prev = lastVersion.get(k);
+    if (prev && compareHLC(env.v, prev) <= 0) return; // stale / duplicate
+    lastVersion.set(k, env.v);
+  }
   b.apply(env.op, env.key, env.data, env);
 }
