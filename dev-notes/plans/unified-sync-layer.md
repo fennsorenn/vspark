@@ -520,6 +520,8 @@ resource/entity at a time, keeping the old path live until each is proven, then 
   - *Risk:* low.
 
 - **Phase 5 — Object share (Strategy A) · first multiplayer.**
+  - *Spec:* [`multiplayer-phase5.md`](./multiplayer-phase5.md) (transport, pairing, data model,
+    protocol, UX).
   - *Goal:* borrow an avatar across servers, low-latency, no port forwarding.
   - *Build:* a public **rendezvous** (signaling + presence; outbound-only) and a `ServerMesh`
     transport using **WebRTC data channels** (STUN hole-punch, TURN fallback) — pose on an
