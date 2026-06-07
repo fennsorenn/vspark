@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
+import { sync } from '../sync/index.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -166,7 +167,8 @@ router.post('/scenes/:sceneId/nodes', (req, res) => {
     components: components ?? {},
     properties: properties ?? {},
   };
-  _ws?.broadcast('node_added', node);
+  // Unified sync layer: broadcast the canonical document to other clients.
+  sync.document.upsert('scene_node', id);
   res.status(201).json({ ok: true, data: node });
 });
 
@@ -273,7 +275,7 @@ router.put('/scene-nodes/:id', (req, res) => {
 router.delete('/scene-nodes/:id', (req, res) => {
   getDb().prepare('DELETE FROM scene_nodes WHERE id = ?').run(req.params.id);
   runtimeOverrideManager.clearAllForTarget('scene_node', req.params.id);
-  _ws?.broadcast('node_removed', { id: req.params.id });
+  sync.document.remove('scene_node', req.params.id);
   res.json({ ok: true, data: {} });
 });
 

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
+import { sync } from '../sync/index.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -142,7 +143,7 @@ router.post('/projects/:projectId/compose-scenes', (req, res) => {
     .prepare('SELECT * FROM compose_layers WHERE id = ?')
     .get(layerId) as LayerRow;
   const data = rowToLayer(row);
-  _ws?.broadcast('compose_layer_added', data);
+  sync.document.upsert('compose_layer', layerId);
   res.status(201).json({ ok: true, data });
 });
 
@@ -285,7 +286,7 @@ router.post('/compose-scenes/:composeSceneId/layers', (req, res) => {
     .prepare('SELECT * FROM compose_layers WHERE id = ?')
     .get(layerId) as LayerRow;
   const data = rowToLayer(row);
-  _ws?.broadcast('compose_layer_added', data);
+  sync.document.upsert('compose_layer', layerId);
   res.status(201).json({ ok: true, data });
 });
 
@@ -447,7 +448,7 @@ router.delete('/compose-layers/:id', (req, res) => {
   }
 
   runtimeOverrideManager.clearAllForTarget('compose_layer', id);
-  _ws?.broadcast('compose_layer_removed', { id });
+  sync.document.remove('compose_layer', id);
   if (reanchored.length > 0) {
     _ws?.broadcast('compose_layer_reordered', { updates: reanchored });
   }

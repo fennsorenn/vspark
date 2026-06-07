@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
+import { sync } from '../sync/index.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -65,7 +66,7 @@ router.post('/scene-nodes/:nodeId/effects', (req, res) => {
     enabled: enabled ?? true,
     config: config ?? {},
   };
-  _ws?.broadcast('camera_effect_added', data);
+  sync.document.upsert('camera_effect', effectId);
   res.status(201).json({ ok: true, data });
 });
 
@@ -121,7 +122,7 @@ router.put('/camera-effects/:id', (req, res) => {
  */
 router.delete('/camera-effects/:id', (req, res) => {
   getDb().prepare('DELETE FROM camera_effects WHERE id = ?').run(req.params.id);
-  _ws?.broadcast('camera_effect_removed', { id: req.params.id });
+  sync.document.remove('camera_effect', req.params.id);
   res.json({ ok: true, data: {} });
 });
 
