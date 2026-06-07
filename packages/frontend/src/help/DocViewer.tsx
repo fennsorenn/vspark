@@ -199,7 +199,14 @@ function DocStyles() {
       .vspark-doc th, .vspark-doc td { border: 1px solid #2c2c2c; padding: 5px 10px; }
       .vspark-doc th { background: #1a1a1a; }
       .vspark-doc hr { border: none; border-top: 1px solid #262626; margin: 1.4em 0; }
-      .vspark-doc img { max-width: 100%; border-radius: 6px; }
+      .vspark-doc img {
+        max-width: 100%; display: block; margin: 12px 0;
+        background: #0d1117; border: 1px solid #20242c;
+        border-radius: 6px; padding: 8px;
+      }
+      .vspark-doc p > em:only-child {
+        display: block; color: #97a3b6; font-size: 0.9em; margin-top: -4px;
+      }
     `}</style>
   );
 }

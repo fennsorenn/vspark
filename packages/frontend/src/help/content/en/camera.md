@@ -6,6 +6,11 @@ Camera properties control what a camera node sees, how it projects the scene ont
 
 Field of view is the angle of the cone that the camera captures, measured in degrees across the vertical extent of the frame. It only applies when the camera is set to **Perspective** projection.
 
+![Field of view comparison](/help/diagrams/camera-fov.svg)
+
+*A narrow field of view (left, ≈20°) zooms in and flattens; a wide field of view (right, ≈40°) captures more of the scene but exaggerates perspective.*
+
+
 - **Low values (e.g. 20–30°)** zoom in and compress depth — the avatar's face appears flatter and features farther apart look closer together. This is the telephoto or portrait effect.
 - **High values (e.g. 70–90°)** show a wider area of the scene but exaggerate perspective: objects close to the camera appear large and objects further away shrink quickly.
 - **Typical streaming range:** 40–60° gives a natural appearance. The default is 50°.
@@ -16,6 +21,11 @@ Changing FOV does not move the camera; combine it with the Position transform to
 
 Projection determines the geometric model used to map 3D space onto the flat image.
 
+![Perspective versus orthographic projection](/help/diagrams/camera-projection.svg)
+
+*A (left) — perspective: parallel lines converge and distant objects look smaller. B (right) — orthographic: lines stay parallel and an object keeps the same size regardless of distance.*
+
+
 - **Perspective** — objects further from the camera appear smaller, matching how the human eye works. Use this for most avatar and scene shots. Default.
 - **Orthographic** — objects appear the same size regardless of their distance from the camera; there is no vanishing point. Use this for UI-style overlays, flat top-down or side-on layouts, or when you want no perspective distortion.
 
@@ -24,6 +34,11 @@ When Orthographic is selected, the FOV field is replaced by a **Size** field (th
 ## Near & far clipping {#clipping}
 
 Near and far are the two depth planes that bound what the camera renders.
+
+![Near and far clipping planes](/help/diagrams/camera-clipping.svg)
+
+*Only objects between the near (N) and far (F) planes are drawn. Anything closer than N or beyond F is clipped (✕).*
+
 
 - **Near** — anything closer than this distance (in scene units) to the camera is not drawn. Default: 0.1. Setting it too low can cause flickering (z-fighting) on overlapping surfaces; setting it too high clips the front of close objects.
 - **Far** — anything further than this distance is not drawn. Default: 1000. Reducing it can improve depth-buffer precision if z-fighting appears on distant objects; increasing it lets very large scenes stay visible.

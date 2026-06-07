@@ -6,6 +6,11 @@ Ein Licht-Knoten beleuchtet die Szene. Wähle ein Licht im Szenen-Graphen aus un
 
 Legt das physikalische Verhalten des Lichts fest.
 
+![Lichttypen](/help/diagrams/light-types.svg)
+
+*1 — Point: Licht strahlt von einer Position in alle Richtungen. 2 — Directional: parallele Strahlen aus der Ferne, wie Sonnenlicht. 3 — Spot: ein Lichtkegel, ausgerichtet durch Drehen des Knotens. (Ambient fügt gleichmäßiges Fülllicht aus allen Richtungen hinzu und hat keine Abbildung.)*
+
+
 - **Point** — strahlt Licht von einem einzelnen Punkt in alle Richtungen aus, wie eine Glühbirne. Die Helligkeit nimmt mit der Entfernung ab. Standard.
 - **Directional** — wirft parallele Strahlen aus unendlicher Entfernung, wie Sonnenlicht. Jede Fläche im gleichen Winkel erhält dieselbe Intensität, unabhängig davon, wie weit sie vom Positionsmarker des Lichts entfernt ist. Die Position beeinflusst trotzdem die Schattenberechnung, da sie die Schattenkaamera-Platzierung bestimmt.
 - **Ambient** — fügt allen Flächen gleichmäßig eine konstante Grundhelligkeit aus allen Richtungen hinzu. Kann keine Schatten werfen. Verwende es, um zu verhindern, dass eine Szene vollständig dunkel wird.

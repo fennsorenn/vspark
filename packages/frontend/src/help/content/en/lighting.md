@@ -6,6 +6,11 @@ A light node illuminates the scene. Select a light in the scene graph and edit i
 
 Selects the physical behaviour of the light.
 
+![Light types](/help/diagrams/light-types.svg)
+
+*1 — point: light radiates in every direction from one position. 2 — directional: parallel rays from far away, like sunlight. 3 — spot: a cone of light aimed by rotating the node. (Ambient adds uniform fill from all directions and has no diagram.)*
+
+
 - **Point** — emits light in all directions from a single position, like a bare bulb. Brightness falls off with distance. Default.
 - **Directional** — casts parallel rays from an infinite distance, like sunlight. Every surface at the same angle receives the same intensity regardless of how far it is from the light's position marker. Position still matters for shadow casting because it determines the shadow-camera placement.
 - **Ambient** — adds a constant base brightness to all surfaces equally, from all directions. Cannot cast shadows. Use it to prevent a scene from going completely dark.

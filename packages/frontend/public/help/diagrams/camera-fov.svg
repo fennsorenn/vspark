@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="230" viewBox="0 0 520 230" font-family="system-ui, sans-serif" role="img" aria-label="Field of view comparison: narrow versus wide">
+  <style>
+    .accent{stroke:#6ea8fe;stroke-width:2;fill:none}
+    .frame{stroke:#8a93a6;stroke-width:2;fill:none}
+    .subj{fill:#2b3242;stroke:#6ea8fe;stroke-width:1.5}
+    .cam{fill:#2b3242;stroke:#8a93a6;stroke-width:1.5}
+    .lbl{fill:#9aa6ba;font-size:11px}
+    .th{fill:#6ea8fe;font-size:14px;font-style:italic}
+  </style>
+
+  <!-- LEFT: narrow FOV (zoomed in) -->
+  <path class="accent" d="M40,115 L250,80 M40,115 L250,150"/>
+  <line class="frame" x1="250" y1="78" x2="250" y2="152"/>
+  <path class="accent" d="M81,107 A45,45 0 0 0 81,123"/>
+  <text class="th" x="88" y="120">θ</text>
+  <text class="lbl" x="34" y="150">≈20°</text>
+  <rect class="cam" x="20" y="103" width="22" height="24" rx="3"/>
+  <rect class="cam" x="42" y="108" width="8" height="14"/>
+  <circle class="subj" cx="237" cy="95" r="7"/>
+  <rect class="subj" x="230" y="103" width="14" height="36" rx="3"/>
+
+  <!-- RIGHT: wide FOV (shows more) -->
+  <path class="accent" d="M300,115 L510,40 M300,115 L510,190"/>
+  <line class="frame" x1="510" y1="38" x2="510" y2="192"/>
+  <path class="accent" d="M340,99 A45,45 0 0 0 340,131"/>
+  <text class="th" x="347" y="120">θ</text>
+  <text class="lbl" x="294" y="150">≈40°</text>
+  <rect class="cam" x="280" y="103" width="22" height="24" rx="3"/>
+  <rect class="cam" x="302" y="108" width="8" height="14"/>
+  <circle class="subj" cx="497" cy="100" r="6"/>
+  <rect class="subj" x="491" y="107" width="12" height="30" rx="3"/>
+</svg>
