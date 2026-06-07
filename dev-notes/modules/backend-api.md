@@ -51,9 +51,9 @@ Sub-routers are composed with `router.use(subRouter)` in `routes/index.ts` (no p
 For the canonical, always-current request/response contracts of every route, browse Swagger UI at `http://localhost:3001/api-docs`. The notes below cover only behaviour that is not visible from the schema alone.
 
 - **behaviors** (behavior routes): every mutation calls `refreshAllBehaviorManagers()` so manager state hot-reloads from DB.
-- **scene-nodes**: `POST /scenes/:sceneId/nodes` broadcasts `node_added` over WS; updates/deletes broadcast `node_updated`/`node_removed`. `POST /scene-nodes/:nodeId/clips` is an idempotent upsert keyed on `(source_file_path, clip_index)` — the frontend's Viewport calls it on VRM load to register real FBX clip durations.
+- **scene-nodes**: `POST /scenes/:sceneId/nodes` and `DELETE /scene-nodes/:nodeId` now broadcast **through the sync layer** (`sync.document.upsert/remove` for rtype `scene_node`, wire kind `'sync'`) rather than bespoke `node_added`/`node_removed` kinds; updates still broadcast the legacy `node_updated`. `POST /scene-nodes/:nodeId/clips` is an idempotent upsert keyed on `(source_file_path, clip_index)` — the frontend's Viewport calls it on VRM load to register real FBX clip durations.
 - **assets**: GET also runs `discoverAssets()`; files live under `uploads/{projectId}/{subdir}/` with subdir inferred from extension (avatars, animations, images, other). See `routes/shared.ts` for `SUBFOLDER_BY_EXT` / `MIME_BY_EXT` / `allocateFilename`.
-- **camera-effects**: mutations broadcast `camera_effect_added/updated/removed` over WS.
+- **camera-effects**: create/delete now flow through the sync layer (`sync.document.upsert/remove`, rtype `camera_effect`, wire kind `'sync'`); updates still broadcast the legacy `camera_effect_updated`.
 - **signal**: `graphId` format is `<prefix>:<behaviorId>` (e.g. `vmc-pipeline:abc123`); `routes/signal.ts` dispatches by prefix to the right manager's `fireGraphEvent`.
 - **api-controller**: see the section below — first behavior with a public REST control surface.
 - **expressions**: read-only — `GET .../expressions` returns the VRM expression list reported by the frontend on VRM load (with `reported: false` until the frontend has loaded the avatar at least once); `GET .../animations` lists registered animation clips with playback metadata.
@@ -101,6 +101,8 @@ wsSync.sendTo(ws, kind, payload)             // unicast
 Message wire format: `{ kind, payload, timestamp }`.
 
 Client connection: HTTP upgrade on any path → `wsSync.upgrade(req, socket, head)` → `onClientConnected` fires → server sends initial snapshot.
+
+Most CRUD broadcasts no longer use one bespoke kind per entity: create/delete of `scene_node` / `behavior` / `camera_effect` / `compose_layer` / `track_clip` (and preset instantiation) ride a single `'sync'` message carrying a `SyncEnvelope`, produced via the `sync` hub (`sync/index.ts`) rather than direct `wsSync.broadcast`. Update broadcasts and the live pose pipeline still use legacy kinds. See [sync.md](sync.md).
 
 ## Update routes — `routes/update.ts` + `routes/config.ts`
 
