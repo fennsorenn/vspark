@@ -97,6 +97,34 @@ interface SyncEnvelope {
    - fire-and-forget to current peers · no snapshot · no convergence. Called out explicitly
      so the abstraction doesn't pretend commands are state.
 
+### Addressing: dotted-path namespacing
+
+Every value is addressed by a **dotted path** (formalizing the convention `paramPaths` already
+uses: `position.x`, `text.content`). One key does three jobs:
+
+1. **Groups all layers under one value.** The path *is* the value's identity; layers are
+   contributions stored under it — `state[path] = { layerId → value }` — so resolution is
+   "fold the inner map by precedence." No more chasing one value across `nodeTransformOverrides`
+   + `runtimeNodeOverrides` + `node.components.transform`; they become three layers under
+   `scene_node.<id>.position.x`.
+2. **Is the resolver's unit** — the compositor folds all contributions at a path.
+3. **Is scoped delivery** — a subscription is a path **prefix**, which *is* the "only receive
+   what you care about" mechanism:
+   ```
+   scene.<sceneId>.**         → a whole scene
+   scene_node.<id>.**         → one node's fields
+   scene_node.<id>.position.* → just its position
+   publication.<pubId>.**     → an object-share publication
+   avatar.<id>.pose           → one pose stream (whole composited frame)
+   ```
+
+Keep it a **convention, not a query engine**: string keys + prefix matching, split on `.`.
+
+Delimiter wrinkle (dots separate `rtype.id` *and* appear inside paramPaths): either positional
+(first two segments are `<rtype>.<id>`, ids are UUIDs so dot-free) or — preferred, matches today's
+runtime-override key — keep a `:` between identity and sub-path: `scene_node:<id>:position.x`.
+Streams choose their own granularity (a pose is one `avatar.<id>.pose` key, not per-bone).
+
 ## Architecture (layers)
 
 ```
