@@ -300,6 +300,48 @@ the persistent scene and is adopted for full sync, resolved on reconnect by a de
 authority. Object share stays a pure live projection — dropped on disconnect, re-projected on
 reconnect — needing none of that machinery.
 
+## Build vs. buy, and extractability
+
+**No single dependency fits**, because the two most distinctive parts of this design are exactly
+what off-the-shelf libraries don't provide:
+
+- **Reconciliation:** we chose an authority-coordinated referee, *not* automatic merge — the
+  opposite of what CRDT libraries (**Yjs**, **Automerge**) are built around. Adopting one means
+  taking on a CRDT engine (and its imposed data model) for a feature we decided against.
+- **The override-layer compositor:** no general JS package exists — this is animation-engine
+  territory (Blender NLA strips, Unity animator layers). Three.js `AnimationMixer` does additive
+  *clip* blending but not a general per-property compositor over arbitrary sources. Ours to build
+  (small; well-trodden NLA semantics).
+
+The broader "sync engine" / local-first frameworks (**Zero**, **ElectricSQL**, **PowerSync**,
+**Replicache**, **Triplit**, **Instant**, **Jazz**, **Liveblocks**, **PartyKit**) are powerful but
+are things you *build the app around*, are usually **coupled to a specific backend DB** (Postgres)
+and/or **hosted/commercial**, and **none model our pose streams or the layer compositor**.
+Retrofitting one into the existing Express + SQLite + Zustand + R3F app is a large inversion of
+control. Transport (`ws`, Redis pub/sub, PartyKit) and the high-frequency stream channel are
+commodity.
+
+**Verdict: mostly build, selectively borrow.** Keep one door open — if *full-scene co-edit* ever
+needs true offline auto-merge instead of a referee, slot **Yjs behind only the Document class for
+that mode**. (Library landscape moves fast; re-verify before committing to any.)
+
+**Designed to be extractable** — the seams are already right; it's a matter of discipline:
+- **Core stays domain-agnostic** — envelope, resource registry, the four classes, HLC/versioning,
+  snapshot protocol, compositor know nothing about `scene_node`/VRM. They work on generic
+  `(rtype, key, value)` + policy + blend functions.
+- **vspark specifics live at the edges as config** — resource descriptors (load/persist), the
+  `paramPaths` + blend declarations, store-slice bindings.
+- **Transport is a port, not a hard-wire** — an interface the core depends on; `ws` adapter now,
+  Redis/PartyKit later. This is the biggest enabler of reuse.
+- **No framework lock-in in the core** (plain TS); thin adapters for Zustand (client) and
+  Express/SQLite (server); the compositor is pure functions.
+
+Natural split: `sync-core` (isomorphic), `sync-server` (persistence/snapshot/mesh), `sync-client`
+(store binding/reconnect). The pnpm monorepo makes the cheap path obvious: build as an internal
+`packages/sync` with a clean public surface from day one; extract to its own repo once proven.
+Stance: **"extraction-ready, not extracted"** — keep config-at-the-edges + transport-as-a-port,
+but don't over-generalize or publish before a real second consumer exists.
+
 ## Migration path (each phase shippable on its own)
 
 - **Phase 0** — Introduce `SyncEnvelope` + resource registry + `applyRemote` dispatcher
