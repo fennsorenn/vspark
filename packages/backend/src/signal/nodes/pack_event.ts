@@ -20,7 +20,7 @@ interface PackEventConfig {
   label: 'Pack Event',
   description:
     'Combine multiple inputs into one event payload. Connect into the empty slot to add a named field.',
-  tags: ['utility'],
+  tags: ["utility"],
   color: '#3a3a5a',
 })
 export class PackEvent extends Node {

@@ -13,7 +13,7 @@ const EMPTY: AdStartOut = { durationSeconds: 0, isAutomatic: false };
 @SignalNode({
   label: 'Overlive Ad Start',
   description: 'Fires at the beginning of an ad break.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveAdStart extends Node {

@@ -33,7 +33,7 @@ const EMPTY: RedemptionOut = {
   label: 'Overlive Redemption',
   description:
     'Bits, channel point redemption, tip, or superchat — all surfaced as a single event with a currency discriminator.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveRedemption extends Node {

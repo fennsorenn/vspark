@@ -1,5 +1,6 @@
 import { Canvas } from '@react-three/fiber';
-import { PerspectiveCamera, Environment } from '@react-three/drei';
+import { PerspectiveCamera } from '@react-three/drei';
+import { SafeEnvironment } from '../SafeEnvironment';
 import * as THREE from 'three';
 import type { NodeRecord } from '../../store/editorStore';
 import {
@@ -107,7 +108,7 @@ export function CameraCanvas({
       </ComposeSceneInteractions>
       {shadowsEnabled && <ShadowCatcher />}
       <ShadowMaterialSync enabled={shadowsEnabled} />
-      <Environment preset="city" environmentIntensity={envIntensity} />
+      <SafeEnvironment preset="city" environmentIntensity={envIntensity} />
       <CameraEffects forceNodeId={cameraNode.id} sceneId={sceneId} />
     </Canvas>
   );

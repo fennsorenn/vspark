@@ -4,14 +4,19 @@ import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { UpdateChannel } from '@vspark/shared';
 import { HelpButton } from '../../help/HelpButton';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 const CHANNELS: UpdateChannel[] = ['stable', 'recent', 'experimental'];
 
 interface Props {
   onClose: () => void;
+  /** Control that opened the dialog; the popover anchors under it. */
+  anchorRef?: React.RefObject<HTMLElement>;
 }
 
-export function UpdateDialog({ onClose }: Props) {
+const DIALOG_WIDTH = 340;
+
+export function UpdateDialog({ onClose, anchorRef }: Props) {
   const { t } = useTranslation('update');
   const { updateAvailable, updateInfo } = useEditorStore((s) => ({
     updateAvailable: s.updateAvailable,
@@ -27,6 +32,23 @@ export function UpdateDialog({ onClose }: Props) {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Anchor the popover under the control that opened it (the anchor is already
+  // mounted by the time this dialog renders on click), clamped to the viewport.
+  // Falls back to the top-right corner when no anchor is supplied.
+  const [pos] = useState(() => {
+    const r = anchorRef?.current?.getBoundingClientRect();
+    if (!r) return { top: 60, right: 16 };
+    const right = window.innerWidth - r.right;
+    const clamped = Math.min(
+      Math.max(8, right),
+      window.innerWidth - DIALOG_WIDTH - 8
+    );
+    return { top: r.bottom + 6, right: Math.max(8, clamped) };
+  });
+
+  // Close on Esc, but not mid-download so a stray keypress can't abandon it.
+  useEscapeKey(onClose, !downloading);
 
   useEffect(() => {
     // Load current version + channel on open
@@ -44,18 +66,16 @@ export function UpdateDialog({ onClose }: Props) {
     try {
       await api.putConfig({ channel: newChannel });
       const status = await api.getUpdateStatus();
-      useEditorStore
-        .getState()
-        .setUpdateAvailable(
-          status.updateAvailable,
-          status.updateAvailable && status.latestVersion
-            ? {
-                latestVersion: status.latestVersion,
-                releaseNotes: status.releaseNotes,
-                channel: status.channel,
-              }
-            : null
-        );
+      useEditorStore.getState().setUpdateAvailable(
+        status.updateAvailable,
+        status.updateAvailable && status.latestVersion
+          ? {
+              latestVersion: status.latestVersion,
+              releaseNotes: status.releaseNotes,
+              channel: status.channel,
+            }
+          : null
+      );
     } catch (e) {
       setError(t('error.channel'));
     }
@@ -104,9 +124,9 @@ export function UpdateDialog({ onClose }: Props) {
     <div
       style={{
         position: 'fixed',
-        top: 60,
-        right: 16,
-        width: 340,
+        top: pos.top,
+        right: pos.right,
+        width: DIALOG_WIDTH,
         background: '#181818',
         border: '1px solid #333',
         borderRadius: 8,
@@ -127,9 +147,21 @@ export function UpdateDialog({ onClose }: Props) {
           borderBottom: '1px solid #2a2a2a',
         }}
       >
-        <span style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span
+          style={{
+            fontWeight: 600,
+            fontSize: 14,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
           {updateAvailable ? t('header.available') : t('header.updates')}
-          <HelpButton topic="overview" anchor="updates" tip={t('help.updates')} />
+          <HelpButton
+            topic="overview"
+            anchor="updates"
+            tip={t('help.updates')}
+          />
         </span>
         <button
           onClick={onClose}

@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Canvas } from '@react-three/fiber';
-import { PerspectiveCamera, Environment } from '@react-three/drei';
+import { PerspectiveCamera } from '@react-three/drei';
+import { SafeEnvironment } from '../components/SafeEnvironment';
 import { FittedOrthoCamera } from '../components/editor/FittedOrthoCamera';
 import * as THREE from 'three';
 import { useEditorStore } from '../store/editorStore';
@@ -251,7 +252,7 @@ export function ViewerPage() {
         <SceneNodes omitKinds={['camera']} viewerMode sceneId={camSceneId} />
         {shadowsEnabled && <ShadowCatcher />}
         <ShadowMaterialSync enabled={shadowsEnabled} />
-        <Environment preset="city" environmentIntensity={envIntensity} />
+        <SafeEnvironment preset="city" environmentIntensity={envIntensity} />
         {nodeId && <CameraEffects forceNodeId={nodeId} sceneId={camSceneId} />}
       </Canvas>
     </div>

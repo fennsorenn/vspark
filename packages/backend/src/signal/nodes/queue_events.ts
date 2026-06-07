@@ -18,7 +18,7 @@ interface QueueState {
   label: 'Queue Events',
   description:
     'Buffer events FIFO. Enqueue to append, pop to release the oldest. Transparent to payload type.',
-  tags: ['utility'],
+  tags: ["utility"],
   color: '#3a3a5a',
 })
 export class QueueEvents extends Node {

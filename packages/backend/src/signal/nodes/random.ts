@@ -15,7 +15,7 @@ interface RandomState {
   label: 'Random',
   description:
     'Picks a random value in [min, max] on each fire. Same value seen by all downstream pulls until the next fire.',
-  tags: ['logic'],
+  tags: ["math"],
   color: '#7f5fb0',
 })
 export class Random extends Node {

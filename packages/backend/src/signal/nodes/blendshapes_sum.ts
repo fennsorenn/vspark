@@ -11,7 +11,7 @@ import { listIn, valueOut } from '@vspark/shared/node_decorators';
   label: 'Combine Blendshapes',
   description:
     'Additively merges blendshape sources. Connect any number of mapper outputs to the sources list port.',
-  tags: ['mapping', 'face'],
+  tags: ["mocap"],
   color: '#5a4a2a',
 })
 export class BlendshapesSum extends Node {

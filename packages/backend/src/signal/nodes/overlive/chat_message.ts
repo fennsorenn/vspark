@@ -44,7 +44,7 @@ const EMPTY: ChatMessageOut = {
   label: 'Overlive Chat Message',
   description:
     'Plain chat messages. Outputs both raw text and an HTML-rendered string with inline emote <img>s.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveChatMessage extends Node {

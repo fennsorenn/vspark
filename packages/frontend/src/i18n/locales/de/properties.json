@@ -264,7 +264,8 @@
   "emptyState": {
     "selectNode": "Wähle einen Knoten aus, um seine Eigenschaften zu bearbeiten.",
     "selectLayer": "Wähle eine Ebene aus, um ihre Eigenschaften zu bearbeiten.",
-    "graphsTab": "Graph wird bearbeitet — wähle Knoten auf der Leinwand aus."
+    "graphsTab": "Graph wird bearbeitet — wähle Knoten auf der Leinwand aus.",
+    "graphsTabNoGraph": "Wähle oder erstelle einen Logik-Graphen, um mit der Bearbeitung zu beginnen."
   },
   "pickButton": "Aus der Asset-Bibliothek im unteren Dock auswählen",
   "pickLabel": "Wählen…",

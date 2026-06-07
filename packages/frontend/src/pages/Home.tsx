@@ -5,10 +5,12 @@ import { api } from '../api/client';
 import type { Project } from '../api/client';
 import { HelpButton } from '../help/HelpButton';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
+import { useConfirm } from '../components/DialogProvider';
 
 export function Home() {
   const navigate = useNavigate();
   const { t } = useTranslation('home');
+  const confirm = useConfirm();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewForm, setShowNewForm] = useState(false);
@@ -33,6 +35,15 @@ export function Home() {
         newName.trim(),
         newDesc.trim() || undefined
       );
+      // Give new projects a ready-to-use starting scene so the editor opens onto
+      // something instead of an empty void with no obvious next step. The backend
+      // auto-populates the scene with a camera + key/fill lights. Best-effort:
+      // the project is still usable if this fails and the user can add a scene.
+      try {
+        await api.createScene(project.id, t('defaultSceneName'));
+      } catch {
+        /* non-fatal */
+      }
       setProjects((prev) => [...prev, project]);
       setShowNewForm(false);
       setNewName('');
@@ -45,7 +56,13 @@ export function Home() {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(t('confirm.delete', { name })))
+    if (
+      !(await confirm({
+        message: t('confirm.delete', { name }),
+        confirmLabel: t('card.delete'),
+        danger: true,
+      }))
+    )
       return;
     try {
       await api.deleteProject(id);
@@ -230,7 +247,9 @@ export function Home() {
                   </div>
                 )}
                 <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
-                  {t('list.created', { date: new Date(p.createdAt).toLocaleDateString() })}
+                  {t('list.created', {
+                    date: new Date(p.createdAt).toLocaleDateString(),
+                  })}
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                   <button

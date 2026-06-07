@@ -8,7 +8,7 @@ export interface BehaviorIdConfig {
 
 @SignalNode({
   label: 'This Behavior',
-  tags: ['context'],
+  tags: ["utility"],
   color: '#2a2a4a',
   internal: true,
 })
