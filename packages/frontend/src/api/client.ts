@@ -1345,3 +1345,68 @@ export const api = {
   updateLogic,
   deleteLogic,
 };
+
+// --- Multiplayer / connections (Phase 5) -----------------------------------
+
+export interface ConnectionIdentity {
+  peerId: string;
+  publicKey: string;
+}
+export interface ConnectionStatus {
+  enabled: boolean;
+  status: 'idle' | 'connecting' | 'ready' | 'closed';
+  peerId: string | null;
+  connected: string[];
+}
+export interface ConnectionPeer {
+  peerId: string;
+  publicKey: string;
+  displayName: string;
+  pairedAt: string;
+  lastSeen: string | null;
+  blocked: boolean;
+  sessionGranted: boolean;
+  connected: boolean;
+}
+
+export const getConnectionIdentity = () =>
+  request<ConnectionIdentity>('/connections/identity');
+export const getConnectionStatus = () =>
+  request<ConnectionStatus>('/connections/status');
+export const getConnectionPeers = () =>
+  request<ConnectionPeer[]>('/connections/peers');
+export const pairCreate = () =>
+  request<{ code: string }>('/connections/pair/create', { method: 'POST' });
+export const pairJoin = (code: string) =>
+  request<ConnectionPeer>('/connections/pair/join', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+export const peerConnect = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/connect`, {
+    method: 'POST',
+  });
+export const peerDisconnect = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/disconnect`, {
+    method: 'POST',
+  });
+export const peerAccept = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/accept`, {
+    method: 'POST',
+  });
+export const peerReject = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/reject`, {
+    method: 'POST',
+  });
+export const peerUpdate = (
+  peerId: string,
+  patch: { displayName?: string; blocked?: boolean }
+) =>
+  request<ConnectionPeer>(`/connections/peers/${peerId}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+export const peerRemove = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}`, {
+    method: 'DELETE',
+  });

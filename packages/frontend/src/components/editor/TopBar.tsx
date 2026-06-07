@@ -4,6 +4,7 @@ import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import { useTranslation } from 'react-i18next';
 import { MediaInputWindow } from '../MediaInputWindow';
+import { ConnectionsWindow } from '../ConnectionsWindow';
 import { UpdateDialog } from './UpdateDialog';
 import { OverliveAccountsModal } from './OverliveAccountsModal';
 import { LanguageSwitcher } from '../LanguageSwitcher';
@@ -12,15 +13,13 @@ import { HelpButton } from '../../help/HelpButton';
 export function TopBar() {
   const navigate = useNavigate();
   const { t } = useTranslation('topbar');
-  const {
-    projectId,
-    projectName,
-    updateAvailable,
-    setUpdateAvailable,
-  } = useEditorStore();
+  const { projectId, projectName, updateAvailable, setUpdateAvailable } =
+    useEditorStore();
   const [connected, setConnected] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [mediaMounted, setMediaMounted] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [connectionsMounted, setConnectionsMounted] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
 
@@ -116,6 +115,27 @@ export function TopBar() {
           </button>
           <button
             style={{
+              background: connectionsOpen ? '#1a2a3a' : '#2a2a2a',
+              border: `1px solid ${connectionsOpen ? '#60a5fa' : '#3a3a3a'}`,
+              color: connectionsOpen ? '#60a5fa' : '#ccc',
+              borderRadius: 5,
+              padding: '3px 10px',
+              cursor: 'pointer',
+              fontSize: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+            onClick={() => {
+              setConnectionsOpen((v) => !v);
+              setConnectionsMounted(true);
+            }}
+            title={t('connections.title')}
+          >
+            🔗 {t('connections.label')}
+          </button>
+          <button
+            style={{
               background: 'none',
               border: 'none',
               color: '#555',
@@ -193,6 +213,7 @@ export function TopBar() {
         </div>
       </div>
       {mediaMounted && <MediaInputWindow visible={mediaOpen} />}
+      {connectionsMounted && <ConnectionsWindow visible={connectionsOpen} />}
       {updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}
       {accountsOpen && (
         <OverliveAccountsModal onClose={() => setAccountsOpen(false)} />

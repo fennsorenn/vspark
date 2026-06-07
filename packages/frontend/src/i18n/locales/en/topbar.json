@@ -5,6 +5,10 @@
     "title": "Media Inputs (mic / camera)",
     "openNewTab": "Open Media Input in new tab"
   },
+  "connections": {
+    "label": "Connections",
+    "title": "Multiplayer connections (pair & connect with other servers)"
+  },
   "status": {
     "connected": "Connected",
     "disconnected": "Disconnected"

@@ -5,6 +5,10 @@
     "title": "Medieneingänge (Mikrofon / Kamera)",
     "openNewTab": "Medieneingang in neuem Tab öffnen"
   },
+  "connections": {
+    "label": "Verbindungen",
+    "title": "Mehrspieler-Verbindungen (mit anderen Servern koppeln & verbinden)"
+  },
   "status": {
     "connected": "Verbunden",
     "disconnected": "Getrennt"

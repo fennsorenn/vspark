@@ -1,0 +1,39 @@
+{
+  "window": {
+    "title": "Verbindungen"
+  },
+  "disabled": "Mehrspieler ist nicht aktiviert. Lege eine Rendezvous-URL fest, um es zu aktivieren.",
+  "status": {
+    "idle": "Inaktiv",
+    "connecting": "Verbinde…",
+    "ready": "Mit Rendezvous verbunden",
+    "closed": "Getrennt"
+  },
+  "help": {
+    "tip": "Mit anderen Servern koppeln und verbinden, um Avatare live zu teilen."
+  },
+  "identity": {
+    "label": "Deine Server-ID",
+    "copy": "Kopieren"
+  },
+  "pairing": {
+    "label": "Kopplung",
+    "create": "Code erstellen",
+    "codePlaceholder": "Kopplungscode eingeben",
+    "join": "Beitreten"
+  },
+  "requests": {
+    "label": "Eingehende Anfragen",
+    "accept": "Annehmen",
+    "reject": "Ablehnen"
+  },
+  "contacts": {
+    "label": "Kontakte",
+    "empty": "Noch keine Kontakte – kopple dich oben mit jemandem.",
+    "connect": "Verbinden",
+    "disconnect": "Trennen",
+    "remove": "Kontakt entfernen",
+    "connected": "Verbunden",
+    "disconnected": "Offline"
+  }
+}

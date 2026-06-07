@@ -23,6 +23,7 @@ import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 import { applyRemote } from '../sync/registry';
 import '../sync/resources';
+import { useConnectionsStore } from '../store/connectionsStore';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 const RECONNECT_MS = 3000;
@@ -424,6 +425,32 @@ export function useWsSync() {
               }>;
             };
             useEditorStore.getState().replaceDataChannels(p.entries ?? []);
+          } else if (msg.kind === 'mp_status') {
+            useConnectionsStore
+              .getState()
+              .setStatus(
+                msg.payload.status as 'idle' | 'connecting' | 'ready' | 'closed'
+              );
+          } else if (msg.kind === 'mp_peer') {
+            const p = msg.payload as {
+              peerId: string;
+              connected?: boolean;
+              paired?: boolean;
+            };
+            if (typeof p.connected === 'boolean')
+              useConnectionsStore
+                .getState()
+                .patchPeer(p.peerId, { connected: p.connected });
+            // New pairing (or unknown peer) → refetch the authoritative list.
+            useConnectionsStore.getState().bumpRevision();
+          } else if (msg.kind === 'mp_presence') {
+            // Presence reflected via lastSeen refresh on the next list fetch.
+            useConnectionsStore.getState().bumpRevision();
+          } else if (msg.kind === 'mp_connect_request') {
+            const p = msg.payload as { peerId: string; displayName: string };
+            useConnectionsStore
+              .getState()
+              .addIncoming({ peerId: p.peerId, displayName: p.displayName });
           } else if (msg.kind === 'server_update') {
             if (
               (msg.payload as { reloadOnReconnect?: boolean }).reloadOnReconnect

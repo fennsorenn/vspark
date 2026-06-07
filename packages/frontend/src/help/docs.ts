@@ -51,6 +51,7 @@ const TOPIC_ORDER = [
   'assets',
   'presets',
   'streaming',
+  'multiplayer',
   // Parameter-reference pages
   'transform',
   'camera',
@@ -87,10 +88,18 @@ export interface DocTopic {
 }
 
 /** Raw markdown for a topic in the requested language, falling back to English. */
-export function getDocMarkdown(topic: string, lng: LanguageCode | string): string | null {
+export function getDocMarkdown(
+  topic: string,
+  lng: LanguageCode | string
+): string | null {
   const entry = docs.get(topic);
   if (!entry) return null;
-  return entry.byLang[lng] ?? entry.byLang['en'] ?? Object.values(entry.byLang)[0] ?? null;
+  return (
+    entry.byLang[lng] ??
+    entry.byLang['en'] ??
+    Object.values(entry.byLang)[0] ??
+    null
+  );
 }
 
 /** All available topics with locale-aware titles, ordered for the nav list. */

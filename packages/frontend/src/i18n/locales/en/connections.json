@@ -1,0 +1,39 @@
+{
+  "window": {
+    "title": "Connections"
+  },
+  "disabled": "Multiplayer is not enabled. Set a rendezvous URL to enable it.",
+  "status": {
+    "idle": "Idle",
+    "connecting": "Connecting…",
+    "ready": "Connected to rendezvous",
+    "closed": "Disconnected"
+  },
+  "help": {
+    "tip": "Pair and connect with other servers to share avatars live."
+  },
+  "identity": {
+    "label": "Your server ID",
+    "copy": "Copy"
+  },
+  "pairing": {
+    "label": "Pairing",
+    "create": "Create code",
+    "codePlaceholder": "Enter pairing code",
+    "join": "Join"
+  },
+  "requests": {
+    "label": "Incoming requests",
+    "accept": "Accept",
+    "reject": "Reject"
+  },
+  "contacts": {
+    "label": "Contacts",
+    "empty": "No contacts yet — pair with someone above.",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "remove": "Remove contact",
+    "connected": "Connected",
+    "disconnected": "Offline"
+  }
+}
