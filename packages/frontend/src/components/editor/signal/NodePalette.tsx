@@ -13,7 +13,8 @@ import { HelpButton } from '../../../help/HelpButton';
 
 function PortChip({ port }: { port: NodePortMeta }) {
   const color =
-    SIGNAL_TYPE_COLORS[port.typeTag as keyof typeof SIGNAL_TYPE_COLORS] ?? '#888';
+    SIGNAL_TYPE_COLORS[port.typeTag as keyof typeof SIGNAL_TYPE_COLORS] ??
+    '#888';
   return (
     <span
       style={{

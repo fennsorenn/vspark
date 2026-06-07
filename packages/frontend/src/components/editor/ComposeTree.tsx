@@ -344,7 +344,11 @@ function LayerRow({
         </span>
         {layer.kind === 'camera_view' && (
           <button
-            title={locked3d ? t('tree.lock3dTitle_locked') : t('tree.lock3dTitle_unlocked')}
+            title={
+              locked3d
+                ? t('tree.lock3dTitle_locked')
+                : t('tree.lock3dTitle_unlocked')
+            }
             style={{
               background: 'none',
               border: 'none',
@@ -362,7 +366,9 @@ function LayerRow({
           </button>
         )}
         <button
-          title={locked ? t('tree.lockTitle_locked') : t('tree.lockTitle_unlocked')}
+          title={
+            locked ? t('tree.lockTitle_locked') : t('tree.lockTitle_unlocked')
+          }
           style={{
             background: 'none',
             border: 'none',
@@ -476,8 +482,7 @@ function ComposeSceneRoot({
     .sort((a, b) => b.sceneOrder - a.sceneOrder);
 
   const handleDeleteScene = async () => {
-    if (!confirm(t('tree.deleteSceneConfirm', { name: scene.name })))
-      return;
+    if (!confirm(t('tree.deleteSceneConfirm', { name: scene.name }))) return;
     useEditorStore.getState().removeComposeScene(scene.id);
     await api.deleteComposeLayer(scene.id).catch(() => {});
   };

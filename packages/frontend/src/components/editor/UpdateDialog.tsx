@@ -66,18 +66,16 @@ export function UpdateDialog({ onClose, anchorRef }: Props) {
     try {
       await api.putConfig({ channel: newChannel });
       const status = await api.getUpdateStatus();
-      useEditorStore
-        .getState()
-        .setUpdateAvailable(
-          status.updateAvailable,
-          status.updateAvailable && status.latestVersion
-            ? {
-                latestVersion: status.latestVersion,
-                releaseNotes: status.releaseNotes,
-                channel: status.channel,
-              }
-            : null
-        );
+      useEditorStore.getState().setUpdateAvailable(
+        status.updateAvailable,
+        status.updateAvailable && status.latestVersion
+          ? {
+              latestVersion: status.latestVersion,
+              releaseNotes: status.releaseNotes,
+              channel: status.channel,
+            }
+          : null
+      );
     } catch (e) {
       setError(t('error.channel'));
     }
@@ -149,9 +147,21 @@ export function UpdateDialog({ onClose, anchorRef }: Props) {
           borderBottom: '1px solid #2a2a2a',
         }}
       >
-        <span style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span
+          style={{
+            fontWeight: 600,
+            fontSize: 14,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
           {updateAvailable ? t('header.available') : t('header.updates')}
-          <HelpButton topic="overview" anchor="updates" tip={t('help.updates')} />
+          <HelpButton
+            topic="overview"
+            anchor="updates"
+            tip={t('help.updates')}
+          />
         </span>
         <button
           onClick={onClose}

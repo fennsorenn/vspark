@@ -54,7 +54,9 @@ const DialogContext = createContext<DialogApi | null>(null);
 function useDialogApi(): DialogApi {
   const ctx = useContext(DialogContext);
   if (!ctx)
-    throw new Error('useConfirm/usePrompt must be used within a DialogProvider');
+    throw new Error(
+      'useConfirm/usePrompt must be used within a DialogProvider'
+    );
   return ctx;
 }
 
@@ -84,15 +86,12 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  const close = useCallback(
-    (value: boolean | string | null) => {
-      setState((cur) => {
-        cur?.resolve(value as never);
-        return null;
-      });
-    },
-    []
-  );
+  const close = useCallback((value: boolean | string | null) => {
+    setState((cur) => {
+      cur?.resolve(value as never);
+      return null;
+    });
+  }, []);
 
   return (
     <DialogContext.Provider value={{ confirm, prompt }}>

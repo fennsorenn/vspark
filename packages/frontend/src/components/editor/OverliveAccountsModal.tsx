@@ -525,9 +525,7 @@ function RegisterAppDialog({
       });
       onCreated(app);
     } catch (e) {
-      alert(
-        e instanceof Error ? e.message : t('registerApp.createFailed')
-      );
+      alert(e instanceof Error ? e.message : t('registerApp.createFailed'));
     } finally {
       setBusy(false);
     }

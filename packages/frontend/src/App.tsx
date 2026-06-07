@@ -12,16 +12,16 @@ export default function App() {
     <BrowserRouter>
       <DialogProvider>
         <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/editor/:projectId" element={<Editor />} />
-        <Route
-          path="/viewer/:projectId/compose/:composeSceneId"
-          element={<ViewerPage />}
-        />
-        <Route path="/viewer/:projectId/:nodeId" element={<ViewerPage />} />
-        <Route path="/media-input/:projectId" element={<MediaInputPage />} />
-        <Route path="/docs" element={<DocsPage />} />
-        <Route path="/docs/:topic" element={<DocsPage />} />
+          <Route path="/" element={<Home />} />
+          <Route path="/editor/:projectId" element={<Editor />} />
+          <Route
+            path="/viewer/:projectId/compose/:composeSceneId"
+            element={<ViewerPage />}
+          />
+          <Route path="/viewer/:projectId/:nodeId" element={<ViewerPage />} />
+          <Route path="/media-input/:projectId" element={<MediaInputPage />} />
+          <Route path="/docs" element={<DocsPage />} />
+          <Route path="/docs/:topic" element={<DocsPage />} />
         </Routes>
       </DialogProvider>
     </BrowserRouter>

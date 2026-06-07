@@ -12,12 +12,8 @@ import { HelpButton } from '../../help/HelpButton';
 export function TopBar() {
   const navigate = useNavigate();
   const { t } = useTranslation('topbar');
-  const {
-    projectId,
-    projectName,
-    updateAvailable,
-    setUpdateAvailable,
-  } = useEditorStore();
+  const { projectId, projectName, updateAvailable, setUpdateAvailable } =
+    useEditorStore();
   const [connected, setConnected] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [mediaMounted, setMediaMounted] = useState(false);

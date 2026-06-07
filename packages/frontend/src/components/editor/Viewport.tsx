@@ -2515,11 +2515,10 @@ const SPEAKER_DIVIDER_PTS: Pt3[] = [
 // Two sound-wave arcs to the right of the cone.
 const SPEAKER_WAVE_PTS: Pt3[][] = [0.11, 0.16].map((r) =>
   Array.from({ length: 9 }, (_, i) => {
-    const a = (-Math.PI / 4) + (i / 8) * (Math.PI / 2);
+    const a = -Math.PI / 4 + (i / 8) * (Math.PI / 2);
     return [Math.cos(a) * r + 0.04, Math.sin(a) * r, 0] as Pt3;
   })
 );
-
 
 function LightNode({
   node,
@@ -3241,7 +3240,8 @@ function AudioNode({
   const applyVolume = () => {
     const s = soundRef.current;
     if (!s) return;
-    const v = audibleRef.current && !mutedRef.current ? desiredVolRef.current : 0;
+    const v =
+      audibleRef.current && !mutedRef.current ? desiredVolRef.current : 0;
     s.setVolume(Math.max(0, Math.min(1, v)));
   };
 
@@ -3388,12 +3388,7 @@ function AudioNode({
           {/* Directional sources get the sound-wave arcs; simple ones don't. */}
           {ac.audioType === 'directional' &&
             SPEAKER_WAVE_PTS.map((pts, i) => (
-              <Line
-                key={i}
-                points={pts}
-                color={iconColor}
-                lineWidth={1.5}
-              />
+              <Line key={i} points={pts} color={iconColor} lineWidth={1.5} />
             ))}
         </Billboard>
       )}

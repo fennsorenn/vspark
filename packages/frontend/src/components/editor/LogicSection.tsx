@@ -222,7 +222,14 @@ export function LogicSection({
           </div>
         );
       })}
-      <div style={{ padding: '3px 6px', display: 'flex', gap: 6, alignItems: 'center' }}>
+      <div
+        style={{
+          padding: '3px 6px',
+          display: 'flex',
+          gap: 6,
+          alignItems: 'center',
+        }}
+      >
         <button
           onClick={handleAdd}
           style={{
@@ -296,7 +303,9 @@ function buildLogicRowMenu(args: {
     { kind: 'item', label: args.t('logic.ctxCopy'), onClick: args.onCopy },
     {
       kind: 'item',
-      label: args.graph.enabled ? args.t('logic.disable') : args.t('logic.enable'),
+      label: args.graph.enabled
+        ? args.t('logic.disable')
+        : args.t('logic.enable'),
       onClick: args.onToggleEnabled,
     },
     { kind: 'divider' },

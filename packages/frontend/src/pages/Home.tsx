@@ -247,7 +247,9 @@ export function Home() {
                   </div>
                 )}
                 <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
-                  {t('list.created', { date: new Date(p.createdAt).toLocaleDateString() })}
+                  {t('list.created', {
+                    date: new Date(p.createdAt).toLocaleDateString(),
+                  })}
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                   <button
