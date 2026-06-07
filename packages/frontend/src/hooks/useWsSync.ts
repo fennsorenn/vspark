@@ -20,6 +20,9 @@ import type {
   MediaCommand,
 } from '@vspark/shared/types';
 import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
+import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
+import { applyRemote } from '../sync/registry';
+import '../sync/resources';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 const RECONNECT_MS = 3000;
@@ -81,6 +84,13 @@ export function useWsSync() {
             kind: string;
             payload: Record<string, unknown>;
           };
+          if (msg.kind === SYNC_MESSAGE_KIND) {
+            // Unified sync layer: route every envelope through one dispatcher.
+            // Unmigrated resource types are ignored, so this coexists with the
+            // legacy bespoke kinds below during the phased migration.
+            applyRemote(msg.payload as unknown as SyncEnvelope);
+            return;
+          }
           if (msg.kind === 'vmc_status') {
             setVmcStatus(
               msg.payload.behaviorId as string,

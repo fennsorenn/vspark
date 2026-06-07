@@ -38,6 +38,9 @@ import { runtimeOverrideManager } from './runtime_overrides/manager.js';
 import { dataChannelManager } from './data_channels/manager.js';
 import { mediaControlManager } from './media_control/manager.js';
 import { spawnManager } from './spawn/manager.js';
+import { sync } from './sync/index.js';
+import { SYNC_MESSAGE_KIND } from '@vspark/shared/sync';
+import './sync/resources.js';
 import type {
   LipsyncInputMessage,
   TrackingInputMessage,
@@ -81,6 +84,9 @@ async function start() {
   await runMigrations();
 
   setWsSync(wsSync);
+  // Unified sync layer: producer hub over the shared WS transport.
+  // Inert until resources register + routes emit (phased migration).
+  sync.init(wsSync);
   initPoseBroadcast(wsSync);
   initBlendshapesBroadcast(wsSync);
   initIkBroadcast(wsSync);
@@ -152,6 +158,14 @@ async function start() {
     );
     dataChannelManager.sendSnapshotTo((kind, payload) =>
       wsSync.sendTo(ws, kind, payload)
+    );
+    // Unified sync layer snapshot (no-op until field/stream resources land).
+    sync.sendSnapshotTo((env) =>
+      wsSync.sendTo(
+        ws,
+        SYNC_MESSAGE_KIND,
+        env as unknown as Record<string, unknown>
+      )
     );
   });
 
