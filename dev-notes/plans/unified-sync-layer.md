@@ -130,59 +130,77 @@ multiplayer becomes a transport + reconciliation concern, not a rewrite.
   collaborative rich-text/freeform editing is ever in scope, that subtree needs a CRDT
   (e.g. Yjs) bolted onto this layer. Recommendation: LWW now, leave a seam.
 
-## Federation, sharing modes & multi-server
+## Federation: two genuinely different replication strategies
 
-Two product modes, **one mechanism**:
+The **plumbing is shared** — envelope, transports (ClientHub/ServerMesh), resource registry,
+HLC/origin tagging, snapshot-on-connect, the four resource classes. But the two product modes
+are **not** the same mechanism with a different field policy; they differ in the three things
+that make distributed state hard: **persistence, authority, and reconciliation.**
 
-- **Full-scene sync** — peers mirror the same scene; documents + fields + streams all
-  replicate; concurrent edits converge (per-key LWW).
-- **Object / avatar sharing** — a peer *publishes* an object (e.g. an avatar subtree + its
-  pose/expression streams); other peers *subscribe* and embed it into their own, different
-  scene, controlling its placement / lighting / composition locally.
+### Strategy A — Object share (single-writer projection · *easy*)
 
-**Unifying insight:** full-sync is just object-sync where the published object is the whole
-scene and presentation is shared too. Both are the same primitive — a **publication** (a
-scoped set of resources a peer offers) that subscribers **project** into local state under a
-**presentation overlay**. (Decided: **per-server DB**; sharing whole scenes vs single
-objects still open — see DECISION below.)
+A picks an object O to share. B receives a **"Shared" wrapper** — a real group node that B
+**owns and persists** (placement, parenting, scale, lighting: B's presentation of O within
+B's own scene). *Inside* the wrapper sits a **live, non-persisted projection** of O:
 
-New concepts (extend, don't replace, the resource model):
+- **A is the sole authority** for O's intrinsic state + pose/expression streams.
+- **B never writes and never persists** O's content — it renders the live projection and
+  **caches assets only** (the VRM model, textures, audio), content-addressed by sha256.
+  → reuse the preset asset path (`matchAssetByHash` / `materializeAsset`).
+- On disconnect: B's **wrapper persists** (where O sat in B's scene); the projected content
+  freezes on its last frame / clears, and re-streams when A returns.
+- **No reconciliation, ever.** Single writer ⇒ no divergence is possible. This is the cheap,
+  obvious VTuber-collab case — ship it first.
 
-- **Publication** — a named, scoped bundle of resources. The envelope's `scope` generalizes
-  from `sceneId` to a publication id. Local-only resources use a local scope that never
-  crosses the transport.
-- **Authority split (per field-class)** — the base⊕overlay split with a network boundary:
-  - *Intrinsic* state (which avatar/model, pose/tracking stream, expressions) → owned by the
-    **publisher**, replicated read-only to subscribers.
-  - *Presentation / extrinsic* state (transform in MY scene, parenting, scale, lighting,
-    layer order) → owned by the **subscriber**, a **local overlay that is never sent back**.
-  - In embed mode authority is clean, so there are almost no write conflicts — **LWW only
-    really bites in full co-edit mode.**
-- **Proxy entity** — subscribing mints a local `remote_avatar`/proxy node aliased to
-  `(peerId, remoteEntityId)`; it renders the replicated intrinsic state + remote pose stream
-  and carries the local presentation overlay. A **live link, not a copy** (contrast preset
-  instantiation, which mints independent copies).
+Resource-wise this is: a read-only **Document** projection (O's intrinsic tree, never written
+to B's DB) + a **Stream** (O's pose) whose producer lives on A + a normal persisted Document
+for B's wrapper. The proxy/`remote_avatar` node is the bridge, aliased to `(peerId, remoteId)`.
+A remote avatar is literally a pose Stream with a remote producer — `Avatar.tsx`'s render path
+is unchanged from a locally-mocap'd avatar.
 
-**Big reuse:** a remote avatar is just a **Stream** whose producer lives on another peer.
-Today a `vmc_pose` stream keyed by nodeId is produced by a local UDP VMC receiver and
-rendered by `Avatar.tsx`; swap the producer for a remote peer and the *render path is
-unchanged*. Federation rides on the Stream class built in Phase 3.
+### Strategy B — Full scene sync (multi-master replication · *hard*)
 
-Per-server DB is fine for this: you replicate **publications** (curated projections), not
-whole databases. A subscriber stores a proxy + its own presentation, so cross-server
-*document* replication is scoped to published subtrees — not a full-DB sync problem.
+Both peers **own and persist the entire scene**; every edit is persisted in **both** DBs and
+must land on the other side. While connected, per-entity/field LWW (HLC) converges fine.
 
-- **DECISION — sharing modes:** object-sharing only, full-scene only, or both. Recommend
-  designing the publication/authority model now (it subsumes both) and shipping
-  **object-sharing first** (cleaner authority; the obvious VTuber-collab usecase), with full
-  co-edit as a later publication policy.
-- **DECISION — authority granularity:** is the intrinsic/presentation split sufficient, or
-  do publishers need a **capability model** (expose specific params as read-only / writable
-  to subscribers, e.g. "you may tint my avatar but not move its bones")?
-- **DECISION — discovery / signaling & bus:** how a subscriber finds and requests a
-  publication (directory service). For the relay/transport: Redis pub/sub (pragmatic, adds
-  presence + scale), NATS (richer), or direct WS peer mesh (no infra, worse at scale).
-  Recommend Redis + a thin directory.
+The hard part is **offline divergence + reconciliation**, which Strategy A simply doesn't have:
+
+- Both sides can edit independently while the link is down → on reconnect their DBs disagree.
+- Needs **per-entity version vectors** (not a scalar clock) to tell *causal* from *concurrent*
+  edits; **tombstones** for deletes (else a deleted entity gets resurrected from the peer's
+  stale copy); and a **reconnect resync protocol** (exchange changes since last common version,
+  apply a conflict policy).
+- Conflict policy is a real decision with no free lunch:
+  - *LWW per field + tombstones* — simplest workable; silently loses the losing side of a true
+    concurrent edit.
+  - *Operation log / CRDT* — preserves more intent; much heavier, and structural conflicts
+    (A deletes node X while B edits X's child) still need explicit rules.
+  - *Host-authoritative on reconnect* — one side wins wholesale; trivial but lossy.
+
+This is genuine multi-master replication with its own failure modes; treat it as a separate
+project, gated behind Strategy A.
+
+### What's shared vs strategy-specific
+
+| Concern | Object share (A) | Full sync (B) |
+| --- | --- | --- |
+| Receiver persists shared content | **No** (assets cached only) | **Yes** (full replica) |
+| Authority over shared content | Publisher only | Both (concurrent) |
+| Divergence possible offline | No | **Yes** |
+| Reconciliation needed | None | Version vectors + tombstones + resync |
+| Conflict resolution | n/a (clean) | LWW / op-log / host-wins (DECISION) |
+| Shared plumbing | envelope · transport · registry · HLC/origin · snapshot — **both** |
+
+- **DECISION — which to build, and order.** Recommend **Object share first** (no reconciliation,
+  high value), Full sync later as a distinct effort.
+- **DECISION — Strategy B conflict/reconciliation policy** (only if/when full sync is pursued):
+  LWW+tombstones vs op-log/CRDT vs host-wins.
+- **DECISION — authority granularity (Strategy A):** is "publisher owns content, subscriber owns
+  wrapper" enough, or do publishers need a **capability model** (expose specific params as
+  read-only/writable, e.g. "you may tint or emote my avatar, not move its bones")?
+- **DECISION — discovery / signaling & bus:** how B finds and requests A's publication (directory
+  service) and the relay transport: Redis pub/sub (pragmatic; adds presence + scale), NATS, or a
+  direct WS peer mesh. Recommend Redis + a thin directory.
 
 ## Migration path (each phase shippable on its own)
 
@@ -195,10 +213,13 @@ whole databases. A subscriber stores a proxy + its own presentation, so cross-se
 - **Phase 3** — Wrap pose/blendshape/IK in `sync.stream.*` with coalescing; centralize
   smoother routing. Mostly rename + consolidation.
 - **Phase 4** — Add HLC + `origin` end-to-end (harmless pre-multiplayer; prerequisite for it).
-- **Phase 5** — Federation: `ServerMesh` transport, **publications** (scope generalization),
-  **authority split** (publisher-intrinsic vs subscriber-presentation overlay), and
-  **proxy/`remote_avatar` entities**. Object-sharing first (a published avatar = a remote
-  Stream + read-only intrinsic doc), full-scene co-edit as a later publication policy.
+- **Phase 5 — Object share (Strategy A).** `ServerMesh` transport + a thin directory;
+  **publications**, **proxy/`remote_avatar` entities** (live read-only Document projection +
+  remote Stream), B-owned persisted **wrapper group**, sha256 asset caching. No reconciliation.
+- **Phase 6 — Full scene sync (Strategy B), separate effort.** Multi-master document
+  replication: per-entity **version vectors**, **tombstones**, reconnect **resync protocol**,
+  and the chosen conflict policy. Gated behind Phase 5 and its own design pass — this is the
+  hard distributed-systems work.
 
 ## Out of scope (for the first build)
 
