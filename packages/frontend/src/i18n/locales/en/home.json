@@ -1,0 +1,32 @@
+{
+  "header": {
+    "newProject": "+ New Project"
+  },
+  "form": {
+    "title": "New Project",
+    "namePlaceholder": "Project name",
+    "descPlaceholder": "Description (optional)",
+    "creating": "Creating…",
+    "create": "Create",
+    "cancel": "Cancel"
+  },
+  "list": {
+    "loading": "Loading projects…",
+    "empty": "No projects yet. Click \"New Project\" to get started.",
+    "created": "Created {{date}}"
+  },
+  "card": {
+    "open": "Open",
+    "delete": "Delete"
+  },
+  "confirm": {
+    "delete": "Delete project \"{{name}}\"? This cannot be undone."
+  },
+  "error": {
+    "createFailed": "Failed to create project",
+    "deleteFailed": "Failed to delete project"
+  },
+  "help": {
+    "overview": "Learn how vspark projects work and how to get started."
+  }
+}

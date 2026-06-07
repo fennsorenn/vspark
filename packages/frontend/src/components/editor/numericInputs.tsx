@@ -15,6 +15,15 @@
  *                  Optional inline keyframe button.
  */
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
+import { HelpButton } from '../../help/HelpButton';
+
+/** Field-level help: a doc topic/anchor + an explanatory hover tooltip. */
+export interface FieldHelp {
+  topic: string;
+  anchor?: string;
+  tip: string;
+}
 
 // ── shared styles ─────────────────────────────────────────────────────────────
 
@@ -117,6 +126,7 @@ export function NumInput({
   style,
   disabled,
 }: NumInputProps) {
+  const { t } = useTranslation('misc');
   const [focused, setFocused] = useState(false);
   const [text, setText] = useState<string>(formatValue(value, precision));
   // Sync external value into the local text buffer when not actively editing.
@@ -370,7 +380,7 @@ export function NumInput({
             e.stopPropagation();
             void onSetKeyframe!(valueRef.current);
           }}
-          title="Set keyframe at playhead"
+          title={t('numericInputs.setKeyframe')}
           style={kfBtnStyle}
         >
           ◆
@@ -441,6 +451,7 @@ export function VecInput({
   style,
   inputStyle,
 }: VecInputProps) {
+  const { t } = useTranslation('misc');
   const hasHeader =
     groupLabel != null || (onSetGroupKeyframe != null && (canRecord ?? true));
   return (
@@ -463,10 +474,10 @@ export function VecInput({
                 e.preventDefault();
                 void onSetGroupKeyframe(values);
               }}
-              title="Set keyframe at playhead (all components)"
+              title={t('numericInputs.setKeyframeAll')}
               style={kfGroupBtnStyle}
             >
-              ◆ set group
+              {t('numericInputs.setGroupBtn')}
             </button>
           )}
         </div>
@@ -543,6 +554,8 @@ export interface SliderInputProps {
   precision?: number;
   /** Suffix shown after the number (e.g. "°", "%"). */
   suffix?: string;
+  /** Optional field-level help shown as a `?` next to the label. */
+  help?: FieldHelp;
   style?: CSSProperties;
 }
 
@@ -561,8 +574,10 @@ export function SliderInput({
   label,
   precision,
   suffix,
+  help,
   style,
 }: SliderInputProps) {
+  const { t } = useTranslation('misc');
   const [hover, setHover] = useState(false);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(formatValue(value, precision));
@@ -582,8 +597,25 @@ export function SliderInput({
       }}
     >
       {label && (
-        <span style={{ fontSize: 12, color: COLORS.mutedText, flexShrink: 0 }}>
+        <span
+          style={{
+            fontSize: 12,
+            color: COLORS.mutedText,
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
           {label}
+          {help && (
+            <HelpButton
+              topic={help.topic}
+              anchor={help.anchor}
+              tip={help.tip}
+              size={12}
+            />
+          )}
         </span>
       )}
       <div
@@ -691,7 +723,7 @@ export function SliderInput({
                 padding: '0 6px',
                 userSelect: 'none',
               }}
-              title="Double-click to edit"
+              title={t('numericInputs.doubleClickEdit')}
             >
               {formatValue(value, precision)}
               {suffix ?? ''}
@@ -705,7 +737,7 @@ export function SliderInput({
             e.preventDefault();
             void onSetKeyframe!(value);
           }}
-          title="Set keyframe at playhead"
+          title={t('numericInputs.setKeyframe')}
           style={kfBtnStyle}
         >
           ◆

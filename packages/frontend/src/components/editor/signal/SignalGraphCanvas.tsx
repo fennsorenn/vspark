@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useCallback, useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ReactFlow,
   Background,
@@ -40,6 +41,7 @@ import type { FlashEdgeData } from './FlashEdge';
 import { useEditorStore } from '../../../store/editorStore';
 import { api, getSignalGraphStates } from '../../../api/client';
 import { copyToClipboard, pasteFromClipboard } from '../../../clipboard';
+import { HelpButton } from '../../../help/HelpButton';
 
 /** Mint a short, unique-enough node id for pasted nodes. Graph descriptor
  *  node ids are arbitrary strings (not constrained to UUIDs); using a
@@ -329,6 +331,7 @@ export function SignalGraphCanvas(props: Props) {
 }
 
 function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
+  const { t } = useTranslation('signalGraph');
   const setSelectedSignalNode = useEditorStore((s) => s.setSelectedSignalNode);
   const setActiveLogicWritable = useEditorStore(
     (s) => s.setActiveLogicWritable
@@ -956,11 +959,26 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
         height: '100%',
         background: '#0d0d0d',
         outline: 'none',
+        position: 'relative',
       }}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onMouseEnter={() => wrapperRef.current?.focus()}
     >
+      <div
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          zIndex: 10,
+        }}
+      >
+        <HelpButton
+          topic="logic"
+          anchor="nodes"
+          tip={t('help.nodes')}
+        />
+      </div>
       {rejectMsg && (
         <div
           style={{
@@ -980,7 +998,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
             pointerEvents: 'none',
           }}
         >
-          ⚠ Connection refused: {rejectMsg}
+          ⚠ {t('canvas.connectionRefused', { reason: rejectMsg })}
         </div>
       )}
       <ReactFlow

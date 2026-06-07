@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
 import type { NodeDisplay, NodePortMeta } from '@vspark/shared/signal';
@@ -28,7 +29,8 @@ function typeColor(type: string): string {
 }
 
 function RelativeTime({ ts }: { ts: number | null }) {
-  if (!ts) return <span style={{ color: '#444', fontSize: 9 }}>never</span>;
+  const { t } = useTranslation('signalGraph');
+  if (!ts) return <span style={{ color: '#444', fontSize: 9 }}>{t('nodeCard.never')}</span>;
   const age = Date.now() - ts;
   const text =
     age < 1000
@@ -195,6 +197,7 @@ function AccountSelect({
   configValue: unknown;
   onChange: (value: unknown) => void;
 }) {
+  const { t } = useTranslation('signalGraph');
   const accounts = useEditorStore((s) => s.overliveAccounts);
   const current = typeof configValue === 'string' ? configValue : '';
   return (
@@ -205,7 +208,7 @@ function AccountSelect({
       onClick={(e) => e.stopPropagation()}
       style={{ ...staticInputStyle, width: 180 }}
     >
-      <option value="">— select account —</option>
+      <option value="">{t('nodeCard.selectAccount')}</option>
       {accounts.map((a) => (
         <option key={a.id} value={a.id}>
           {a.platform === 'twitch' ? '🟣' : '🟢'} {a.label}
@@ -233,13 +236,14 @@ function SceneEntitySelect({
   configValue: unknown;
   onChange: (value: unknown) => void;
 }) {
+  const { t } = useTranslation('signalGraph');
   const layers = useEditorStore((s) => s.composeLayers);
   const nodes = useEditorStore((s) => s.nodes);
   const showLayers = typeTag === 'ComposeLayer' || typeTag === 'SceneEntity';
   const showNodes = typeTag === 'SceneNode' || typeTag === 'SceneEntity';
   const current = typeof configValue === 'string' ? configValue : '';
   const emptyLabel =
-    typeTag === 'SceneEntity' ? '— global (all) —' : '— none —';
+    typeTag === 'SceneEntity' ? t('nodeCard.selectGlobal') : t('nodeCard.selectNone');
   return (
     <select
       value={current}
@@ -250,7 +254,7 @@ function SceneEntitySelect({
     >
       <option value="">{emptyLabel}</option>
       {showLayers && layers.length > 0 && (
-        <optgroup label="Compose layers">
+        <optgroup label={t('nodeCard.groupComposeLayers')}>
           {layers.map((l) => (
             <option key={l.id} value={l.id}>
               {l.name || l.kind}
@@ -259,7 +263,7 @@ function SceneEntitySelect({
         </optgroup>
       )}
       {showNodes && nodes.length > 0 && (
-        <optgroup label="Scene nodes">
+        <optgroup label={t('nodeCard.groupSceneNodes')}>
           {nodes.map((n) => (
             <option key={n.id} value={n.id}>
               {n.name || n.kind}
@@ -380,6 +384,7 @@ function PackFieldsEditor({
   fields: string[];
   onChange: (next: string[]) => void;
 }) {
+  const { t } = useTranslation('signalGraph');
   const [draft, setDraft] = useState('');
   const add = () => {
     const name = draft.trim();
@@ -389,7 +394,7 @@ function PackFieldsEditor({
   };
   return (
     <div style={{ borderTop: '1px solid #2a2a4a', padding: '4px 10px' }}>
-      <div style={{ fontSize: 9, color: '#777', marginBottom: 3 }}>FIELDS</div>
+      <div style={{ fontSize: 9, color: '#777', marginBottom: 3 }}>{t('nodeCard.fields')}</div>
       {fields.map((f) => (
         <div
           key={f}
@@ -413,7 +418,7 @@ function PackFieldsEditor({
               fontSize: 11,
               padding: 0,
             }}
-            title="Remove field"
+            title={t('nodeCard.removeField')}
           >
             ✕
           </button>
@@ -421,7 +426,7 @@ function PackFieldsEditor({
       ))}
       <input
         value={draft}
-        placeholder="+ field name"
+        placeholder={t('nodeCard.fieldPlaceholder')}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           e.stopPropagation();
