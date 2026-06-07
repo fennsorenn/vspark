@@ -31,11 +31,12 @@ router.get('/connections/identity', (_req, res) => {
   res.json({ ok: true, data: id });
 });
 
-/** Paired contacts + whether each currently holds an auto-accept session grant. */
+/** Paired contacts + their session-grant + live connection state. */
 router.get('/connections/peers', (_req, res) => {
   const data = listKnownPeers().map((p) => ({
     ...p,
     sessionGranted: hasActiveGrant(p.peerId),
+    connected: multiplayerManager.isConnected(p.peerId),
   }));
   res.json({ ok: true, data });
 });
@@ -121,5 +122,54 @@ router.post('/connections/pair/join', async (req, res) => {
     });
   }
 });
+
+// --- connect / disconnect / accept / reject -------------------------------
+
+const guarded = (
+  fn: (peerId: string) => Promise<unknown> | unknown
+): import('express').RequestHandler => {
+  return async (req, res) => {
+    if (!multiplayerManager.isEnabled)
+      return res.status(503).json({
+        ok: false,
+        error: {
+          status: 503,
+          message: 'multiplayer is not enabled',
+          code: 'MULTIPLAYER_DISABLED',
+        },
+      });
+    const peerId = String(req.params.peerId);
+    try {
+      await fn(peerId);
+      res.json({ ok: true, data: { peerId } });
+    } catch (e) {
+      res.status(502).json({
+        ok: false,
+        error: {
+          status: 502,
+          message: e instanceof Error ? e.message : String(e),
+          code: 'CONNECT_FAILED',
+        },
+      });
+    }
+  };
+};
+
+router.post(
+  '/connections/peers/:peerId/connect',
+  guarded((id) => multiplayerManager.connect(id))
+);
+router.post(
+  '/connections/peers/:peerId/disconnect',
+  guarded((id) => multiplayerManager.disconnect(id))
+);
+router.post(
+  '/connections/peers/:peerId/accept',
+  guarded((id) => multiplayerManager.accept(id))
+);
+router.post(
+  '/connections/peers/:peerId/reject',
+  guarded((id) => multiplayerManager.reject(id))
+);
 
 export default router;

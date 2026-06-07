@@ -94,7 +94,8 @@ async function start() {
   // Connect to the rendezvous if configured (else multiplayer stays disabled).
   multiplayerManager.init(
     process.env.MULTIPLAYER_RENDEZVOUS_URL,
-    process.env.MULTIPLAYER_DISPLAY_NAME
+    process.env.MULTIPLAYER_DISPLAY_NAME,
+    (kind, payload) => wsSync.broadcast(kind, payload)
   );
   // Unified sync layer: producer hub over the shared WS transport.
   // Inert until resources register + routes emit (phased migration).

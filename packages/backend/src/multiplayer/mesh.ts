@@ -40,8 +40,8 @@ interface PeerConn {
 }
 
 /**
- * Events: `peerConnected`(peerId), `peerDisconnected`(peerId),
- * `envelope`({from, env}), `streamFrame`({from, frame}).
+ * Events: `incomingOffer`(peerId — awaiting accept/reject), `peerConnected`(peerId),
+ * `peerDisconnected`(peerId), `envelope`({from, env}), `streamFrame`({from, frame}).
  */
 const DBG = !!process.env.MESH_DEBUG;
 const dbg = (...a: unknown[]): void => {
@@ -52,16 +52,48 @@ export class ServerMesh extends EventEmitter {
   private readonly peers = new Map<string, PeerConn>();
   /** ICE candidates that arrived before the peer's remote description was set. */
   private readonly pendingIce = new Map<string, Record<string, unknown>[]>();
+  /** Offers awaiting an accept/reject decision (the prompt-once policy lives in
+   *  the manager; the mesh just holds the offer so it isn't dropped). */
+  private readonly pendingOffers = new Map<
+    string,
+    { sdp: { type: string; sdp: string } }
+  >();
 
   constructor(
     private readonly signaling: MeshSignaling,
-    /** Gate inbound offers (known + accepted peers only). */
-    private readonly allowPeer: (peerId: string) => boolean,
     /** ICE servers (STUN/TURN) for real NAT; empty is fine on loopback. */
     private readonly iceServers: () => IceServer[] = () => []
   ) {
     super();
     this.signaling.onSignal((from, data) => this.onSignal(from, data));
+  }
+
+  /** Accept a buffered inbound offer (answer it). Call after the accept policy
+   *  approves the peer. No-op if there's no pending offer. */
+  async acceptOffer(peerId: string): Promise<void> {
+    const pending = this.pendingOffers.get(peerId);
+    if (!pending || this.peers.has(peerId)) return;
+    this.pendingOffers.delete(peerId);
+    const pc = this.newPc(peerId, false);
+    const entry: PeerConn = {
+      pc,
+      connected: false,
+      initiator: false,
+      remoteSet: false,
+    };
+    this.peers.set(peerId, entry);
+    await pc.setRemoteDescription(pending.sdp as never);
+    entry.remoteSet = true;
+    this.flushIce(peerId);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    this.signaling.send(peerId, { kind: 'answer', sdp: pc.localDescription });
+  }
+
+  /** Reject (drop) a buffered inbound offer. */
+  rejectOffer(peerId: string): void {
+    this.pendingOffers.delete(peerId);
+    this.pendingIce.delete(peerId);
   }
 
   isConnected(peerId: string): boolean {
@@ -104,6 +136,7 @@ export class ServerMesh extends EventEmitter {
     if (!p) return;
     this.peers.delete(peerId);
     this.pendingIce.delete(peerId);
+    this.pendingOffers.delete(peerId);
     void p.pc.close().catch(() => {});
     if (p.connected) this.emit('peerDisconnected', peerId);
   }
@@ -196,21 +229,10 @@ export class ServerMesh extends EventEmitter {
     dbg('onSignal', from, data.kind);
     if (data.kind === 'offer') {
       if (this.peers.has(from)) return; // glare / already connecting — ignore
-      if (!this.allowPeer(from)) return;
-      const pc = this.newPc(from, false);
-      const entry: PeerConn = {
-        pc,
-        connected: false,
-        initiator: false,
-        remoteSet: false,
-      };
-      this.peers.set(from, entry);
-      await pc.setRemoteDescription(data.sdp as never);
-      entry.remoteSet = true;
-      this.flushIce(from);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      this.signaling.send(from, { kind: 'answer', sdp: pc.localDescription });
+      // Buffer the offer and let the manager apply the accept policy
+      // (prompt-once-per-session). It calls acceptOffer/rejectOffer.
+      this.pendingOffers.set(from, { sdp: data.sdp });
+      this.emit('incomingOffer', from);
     } else if (data.kind === 'answer') {
       const e = this.peers.get(from);
       if (e?.initiator) {
