@@ -186,9 +186,10 @@ project, gated behind Strategy A.
 | --- | --- | --- |
 | Receiver persists shared content | **No** (assets cached only) | **Yes** (full replica) |
 | Authority over shared content | Publisher only | Both (concurrent) |
+| On disconnect | shared object **dropped** (wrapper persists) | both keep editing own replica |
 | Divergence possible offline | No | **Yes** |
-| Reconciliation needed | None | Version vectors + tombstones + resync |
-| Conflict resolution | n/a (clean) | LWW / op-log / host-wins (DECISION) |
+| Reconciliation needed | None | **authority-coordinated** resync on reconnect |
+| Conflict resolution | n/a (clean) | designated authority decides (see RESOLVED) |
 | Shared plumbing | envelope · transport · registry · HLC/origin · snapshot — **both** |
 
 - **RESOLVED — which to build, and order.** Object share first (no reconciliation, high value).
@@ -197,9 +198,20 @@ project, gated behind Strategy A.
 - **RESOLVED — authority granularity (Strategy A): coarse.** Publisher owns the shared object's
   state **completely**; the subscriber can only influence its **transform via the wrapper**. No
   capability model, no subscriber writes to content. (Revisit only if a real need appears.)
-- **DECISION — Strategy B conflict/reconciliation policy:** LWW-per-field + version vectors +
-  tombstones (recommended baseline) vs op-log/CRDT (preserves more intent, heavier) vs
-  host-authoritative-on-reconnect (trivial, lossy).
+- **RESOLVED — Strategy A on disconnect: drop the object.** When the link fails, the subscriber
+  simply removes the projected object — no in-memory freeze/idle, no fallback to persist. The
+  B-owned **wrapper persists** (empty), and the object re-projects when A reconnects. (Simplifies
+  Strategy A: pure live projection.)
+- **RESOLVED — Strategy B persistence + reconciliation: symmetric persistence, authority-
+  coordinated reconnect.** *Both* peers persist a full replica so either can keep working
+  standalone while the link is down (the fall-back state). On reconnect, **one designated server
+  has reconciliation authority** and resolves divergence — i.e. authority-coordinated, not a
+  symmetric per-field CRDT merge. This avoids version-vector machinery. Open sub-points:
+  - *How the authority is chosen* — fixed (project owner/host) vs per-session/elected.
+  - *What the authority does on conflict* — wholesale "authority wins" (simplest, discards the
+    other side's offline edits) vs **apply both, authority breaks ties only on the same field**
+    (recommended: keeps non-conflicting offline work cheaply; needs change-tracking since last
+    sync, e.g. a dirty-since-sync marker per entity, but no full vector clocks).
 - **DECISION — discovery / signaling & bus:** how B finds and requests A's publication (directory
   service) and the relay transport: Redis pub/sub (pragmatic; adds presence + scale), NATS, or a
   direct WS peer mesh. Recommend Redis + a thin directory.
@@ -210,23 +222,24 @@ The requirement *"the stream must not break down at either end if the connection
 end"* separates into three independent properties — only one of which is actually "ownership":
 
 1. **Write authority** — who may mutate content. *Object share:* publisher only (resolved
-   above). *Full sync:* **symmetric** — both write — which is precisely what keeps each end
-   working when the link drops (each keeps editing its own replica, reconcile on reconnect).
-   This is why symmetric ownership is the right call for the scene-sync mode, and it is the
-   thing that costs reconciliation.
-2. **State retention** — who holds a usable copy when the link is down. A running peer always
-   keeps its **last-known state in memory**, so a link drop degrades *gracefully* (freeze /
-   idle) rather than vanishing — even in object share, where the subscriber persists nothing.
-   Persistence only matters across a *restart*: object-share subscribers keep just cached
-   assets; full-sync peers keep the whole replica.
-3. **Stream liveness** — new frames require the producer. If the producer is unreachable, **no
-   ownership model conjures new motion** — the best any design can do is freeze on the last
-   frame, hold an idle loop, or extrapolate. So "doesn't break down" means *graceful
+   above). *Full sync:* **symmetric** — both write, and **both persist a fall-back replica** —
+   which is what keeps each end working when the link drops (each keeps editing standalone,
+   then an authority-coordinated resync runs on reconnect). This is why symmetric ownership is
+   the right call for the scene-sync mode, and it is the thing that costs reconciliation.
+2. **State retention** — who holds a usable copy when the link is down. *Full sync:* both keep
+   the whole persisted replica (the explicit fall-back requirement). *Object share:* the
+   subscriber keeps nothing — the object is **dropped on disconnect** (resolved) and re-projects
+   on reconnect; only assets stay cached.
+3. **Stream liveness** — new frames need the producer. If the producer is unreachable, **no
+   ownership model conjures new motion**. For object share this is moot (the object is dropped);
+   for a shared avatar that stays visible it would mean freeze / idle / extrapolate — a
+   render-side policy, never something ownership can buy. So "doesn't break down" means *graceful
    degradation*, a render-side policy, not literal continuation of live motion.
 
-Net: symmetric ownership (property 1) gives editing resilience for the persistent scene and is
-adopted for full sync; graceful-degradation (properties 2–3) covers the live stream and object
-share cheaply and is independent of ownership.
+Net: symmetric ownership **+ symmetric persistence** (property 1) gives editing resilience for
+the persistent scene and is adopted for full sync, resolved on reconnect by a designated
+authority. Object share stays a pure live projection — dropped on disconnect, re-projected on
+reconnect — needing none of that machinery.
 
 ## Migration path (each phase shippable on its own)
 
