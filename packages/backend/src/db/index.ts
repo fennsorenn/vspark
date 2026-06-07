@@ -47,9 +47,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // In dev (tsx): __dirname is src/db/ → DB lives at src/vspark.db (one level up)
 // In bundle:    __dirname is the install dir containing bundle.cjs → DB lives there
 const IS_BUNDLED = !__dirname.includes('/src/');
-const DB_PATH = IS_BUNDLED
-  ? join(__dirname, 'vspark.db')
-  : join(__dirname, '..', 'vspark.db');
+// VSPARK_DB_PATH override lets two instances use separate DBs on one box
+// (multiplayer testing). Defaults to the install/src location.
+const DB_PATH =
+  process.env.VSPARK_DB_PATH ??
+  (IS_BUNDLED
+    ? join(__dirname, 'vspark.db')
+    : join(__dirname, '..', 'vspark.db'));
 
 type Migration =
   | { name: string; sql: string }

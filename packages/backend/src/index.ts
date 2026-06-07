@@ -266,9 +266,10 @@ async function start() {
     .all() as Record<string, unknown>[];
   apiControllerManager.syncBehaviors(apiControllerRows.map(mapRow));
 
-  const port = 3001;
+  // PORT override lets two instances run on one box (multiplayer testing).
+  const port = Number(process.env.PORT) || 3001;
   server.listen(port, async () => {
-    console.log('vspark listening on http://localhost:3001');
+    console.log(`vspark listening on http://localhost:${port}`);
     if (existsSync(PUBLIC_DIR)) {
       const { default: open } = await import('open');
       open(`http://localhost:${port}`);
