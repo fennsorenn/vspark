@@ -14,7 +14,13 @@
  *                  Frameless until focused; click the value to edit it directly.
  *                  Optional inline keyframe button.
  */
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
 
@@ -97,6 +103,10 @@ export interface NumInputProps {
   prefix?: string;
   /** Short text rendered inside the box, to the right of the value (e.g. "s", "px", "rad"). */
   suffix?: string;
+  /** Interactive node rendered inside the box, to the right of the value (e.g. a
+   *  compact unit selector). Its own pointer events are isolated from the field's
+   *  drag-to-scrub. */
+  suffixNode?: ReactNode;
   /** Show an inline ◆ keyframe button. If undefined, no button. */
   onSetKeyframe?: (value: number) => void | Promise<void>;
   /** Whether the keyframe button should render. Defaults to true when `onSetKeyframe` is provided. */
@@ -120,6 +130,7 @@ export function NumInput({
   precision,
   prefix,
   suffix,
+  suffixNode,
   onSetKeyframe,
   canRecord,
   title,
@@ -373,6 +384,17 @@ export function NumInput({
           {suffix}
         </span>
       )}
+      {suffixNode && (
+        <div
+          // Isolate the embedded control (e.g. a unit dropdown) from the field's
+          // drag-to-scrub / wheel-to-scrub so clicking it just operates it.
+          onPointerDown={(e) => e.stopPropagation()}
+          onWheel={(e) => e.stopPropagation()}
+          style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}
+        >
+          {suffixNode}
+        </div>
+      )}
       {showKfBtn && (
         <button
           onClick={(e) => {
@@ -411,6 +433,9 @@ export interface VecInputProps {
   max?: number | readonly number[];
   precision?: number | readonly number[];
   suffix?: string;
+  /** Optional interactive node rendered inside each axis' box (e.g. a per-axis
+   *  unit selector). */
+  axisSuffix?: (axis: number) => ReactNode;
   /** Optional per-axis keyframe handler — renders an inline ◆ on each scalar. */
   onSetAxisKeyframe?: (axis: number, value: number) => void | Promise<void>;
   /** Optional group keyframe handler — renders a "◆ set group" button in the row header. */
@@ -444,6 +469,7 @@ export function VecInput({
   max,
   precision,
   suffix,
+  axisSuffix,
   onSetAxisKeyframe,
   onSetGroupKeyframe,
   canRecord,
@@ -505,6 +531,7 @@ export function VecInput({
               value={v}
               prefix={labels?.[i]}
               suffix={suffix}
+              suffixNode={axisSuffix?.(i)}
               step={ax(step, i, 0.01)}
               min={ax(min, i)}
               max={ax(max, i)}
