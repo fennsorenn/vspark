@@ -346,9 +346,27 @@ project, gated behind Strategy A.
     other side's offline edits) vs **apply both, authority breaks ties only on the same field**
     (recommended: keeps non-conflicting offline work cheaply; needs change-tracking since last
     sync, e.g. a dirty-since-sync marker per entity, but no full vector clocks).
-- **DECISION — discovery / signaling & bus:** how B finds and requests A's publication (directory
-  service) and the relay transport: Redis pub/sub (pragmatic; adds presence + scale), NATS, or a
-  direct WS peer mesh. Recommend Redis + a thin directory.
+- **RESOLVED — connectivity / NAT traversal (no port forwarding): WebRTC direct + rendezvous
+  signaling (Shape B).** Both servers connect *outbound* to a small public **rendezvous** (only
+  it needs a public address) which exchanges WebRTC SDP/ICE; actual sync flows **peer-to-peer over
+  a WebRTC data channel** — pose on an *unreliable/unordered* channel (low-latency, lossy-OK for
+  90 Hz), documents on a *reliable/ordered* one. **STUN** hole-punches; **TURN** relays as the
+  fallback for strict NATs (also outbound). Chosen over a pure relay broker because tracking-sync
+  latency matters. The relay-broker shape (rendezvous also relays all traffic) stays as the
+  zero-WebRTC fallback. The mesh is a `ServerMesh` transport behind the same port as `ClientHub`,
+  carrying the same `SyncEnvelope` — no producer/consumer changes.
+- **RESOLVED — pairing & code-free reconnect: persistent keypair identity + a contacts table.**
+  The exchanged code is for *pairing once*, not for connecting. Each server holds a long-lived
+  **Ed25519 keypair**; its pubkey/fingerprint is the stable **peer id** (= the envelope `origin`
+  / HLC `n` — identity drops straight into the Phase 4 model, and survives IP changes). A new
+  per-server table `known_peers(peer_id PK, display_name, paired_at, last_seen, auto_accept)`
+  records paired peers. **First connect:** code → mutual pubkey exchange → both saved. **Reconnect:**
+  pick the contact → rendezvous routes by *signed* presence → a **mutual nonce/signature challenge
+  against the stored pubkey** authenticates (so a compromised rendezvous can't impersonate; it only
+  routes signaling) → auto-accept if `auto_accept`, else prompt → WebRTC. No code. Revocation =
+  delete the contact. Prior art: **Syncthing** (device-id pairing + public discovery/relay, no
+  port forwarding). Publisher still controls *what* is shared (object-share scope), so an
+  auto-accepted peer only ever sees published content.
 
 ### Fault tolerance: three things "ownership" was conflating
 
@@ -502,16 +520,20 @@ resource/entity at a time, keeping the old path live until each is proven, then 
   - *Risk:* low.
 
 - **Phase 5 — Object share (Strategy A) · first multiplayer.**
-  - *Goal:* borrow an avatar across servers.
-  - *Build:* `ServerMesh` transport (Redis pub/sub) + a thin **directory** for discovery;
-    transport split per class (streams may go peer-direct); **publications**;
-    **proxy/`remote_avatar`** (read-only Document projection + remote pose Stream); subscriber-owned
-    **persisted wrapper group**; **sha256 asset caching** (reuse the preset asset path);
-    drop-on-disconnect.
-  - *Done when:* B embeds A's avatar in B's scene, places it via the wrapper, sees live pose;
-    disconnect drops the object, reconnect re-projects; B persists only the wrapper.
-  - *Risk:* medium–high (first cross-server, network failure modes) — bounded by needing **no
-    reconciliation**.
+  - *Goal:* borrow an avatar across servers, low-latency, no port forwarding.
+  - *Build:* a public **rendezvous** (signaling + presence; outbound-only) and a `ServerMesh`
+    transport using **WebRTC data channels** (STUN hole-punch, TURN fallback) — pose on an
+    unreliable/unordered channel, documents on a reliable one; relay-broker mode as the
+    zero-WebRTC fallback. **Pairing:** Ed25519 peer-id keypair + `known_peers` contacts table →
+    code once, then code-free reconnect via signed presence + mutual key challenge. Then:
+    **publications**; **proxy/`remote_avatar`** (read-only Document projection + remote pose
+    Stream); subscriber-owned **persisted wrapper group**; **sha256 asset caching** (reuse the
+    preset asset path); drop-on-disconnect.
+  - *Done when:* B pairs with A once (code), reconnects later with no code, embeds A's avatar in
+    B's scene, places it via the wrapper, sees live pose; disconnect drops the object, reconnect
+    re-projects; B persists only the wrapper + the contact.
+  - *Risk:* medium–high (first cross-server, WebRTC/NAT + network failure modes) — bounded by
+    needing **no reconciliation**.
 
 - **Phase 6 — Full scene sync (Strategy B) · separate, gated effort.**
   - *Goal:* two servers co-own + persist the same scene, resilient to disconnect.
