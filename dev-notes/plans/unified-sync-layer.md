@@ -130,6 +130,65 @@ multiplayer becomes a transport + reconciliation concern, not a rewrite.
   collaborative rich-text/freeform editing is ever in scope, that subtree needs a CRDT
   (e.g. Yjs) bolted onto this layer. Recommendation: LWW now, leave a seam.
 
+## Field value resolution: explicit override layers
+
+**Today this exists but is implicit and duplicated.** A field's final value is already the
+result of stacking sources with a fixed precedence — **track-clip > runtime override > base** —
+but that rule is re-implemented in each consumer (`useTransformWithOverride` in `Viewport.tsx`,
+`layerStyle` in `ComposeLayerStack.tsx`, plus the clip evaluator), and two sources sit *outside*
+it entirely (VMC/pose on skeletons; data channels). The "user edits a field while a clip is
+paused" case is faked with a bolt-on `suppressedOverrides` set that *mutes* the clip — a
+workaround for not having an explicit "manual edit" layer that simply sits higher.
+
+**Make it first-class: one compositor.** Model every field as an ordered **layer stack**; the
+effective value is the layers folded low→high, each layer either replacing the accumulator or
+composing onto it (add / multiply):
+
+```
+effective(target, paramPath) =
+  fold LAYERS low→high:
+    contribution = layer.read(target, paramPath)        // value | none
+    if contribution: acc = layer.blend(acc, contribution)   // replace | add | multiply
+```
+
+Declared stack (single source of truth for precedence), low→high:
+
+| Layer | Source (sync resource class) | Blend |
+| --- | --- | --- |
+| Base | Document (persisted) | replace (identity) |
+| Pose / animation | Stream (VMC / clip pose) | replace or additive (skeleton-specific) |
+| Runtime override | Field (signal-graph bus) | replace (or add) |
+| Track-clip | clip Documents + playback Stream | replace (`override`) / add (`relative`) |
+| Live edit / manual gesture | Field (fast overlay) | replace |
+
+This is **more than LWW** — LWW picks one value; the compositor *stacks* them and can add or
+multiply (today's `relative` clip mode adds; opacity multiplies). It generalizes the existing
+`AnimationBlendMode` ('override'/'relative'/additive) idea to every param.
+
+Wins:
+- **Precedence defined once.** Renderer, properties panel, and any future consumer call the same
+  resolver instead of re-deriving the chain.
+- **The suppression hack disappears.** "Manual edit beats a paused clip" becomes "the manual-edit
+  layer is above the clip layer" — no muting set to keep in sync.
+- **New sources = add a layer**, not edit every consumer. Data channels and pose fold in instead
+  of being special cases.
+- **It IS the sync read-model.** Each layer is fed by one of the four resource classes; the
+  compositor is the single place those classes combine for display.
+- **Multiplayer falls out:** the object-share **wrapper transform** (subscriber-owned) is just
+  another layer above the publisher's intrinsic value — same machinery, no special case.
+
+Caveats / decisions:
+- **Blend semantics per layer/param must be explicit** (replace vs add vs multiply). Declare each
+  param's compose rule in the `paramPaths` registry (the existing typed param schema).
+- **Skeleton pose** is high-dimensional (per-bone quaternions, additive blends) and may stay a
+  specialized layer rather than scalar-per-paramPath — conceptually a layer, practically its own
+  pipeline.
+- **Runs at render time on the frontend** (as today: per-rAF, per-node subscription to keep
+  re-render scope tight). The backend only needs effective values where it persists/broadcasts.
+
+This is a read-model layered on top of sync — it doesn't change the transport or resource
+classes, it consumes them.
+
 ## Federation: two genuinely different replication strategies
 
 The **plumbing is shared** — envelope, transports (ClientHub/ServerMesh), resource registry,
@@ -248,7 +307,9 @@ reconnect — needing none of that machinery.
 - **Phase 1** — Migrate Document/CRUD entities to `sync.document.*`; send canonical DTOs
   and **delete the duplicated frontend mappers**. Generically fixes the preset-sync bug class.
 - **Phase 2** — Fold `RuntimeOverrideManager` + `DataChannelManager` into `sync.field.*`
-  (≈90% there already). Add the live-edit overlay; unify preview→commit on it.
+  (≈90% there already). Add the live-edit overlay; unify preview→commit on it. **Introduce the
+  layer compositor** (single effective-value resolver) and retire the duplicated merge chains
+  (`useTransformWithOverride`, `layerStyle`) and the `suppressedOverrides` muting hack.
 - **Phase 3** — Wrap pose/blendshape/IK in `sync.stream.*` with coalescing; centralize
   smoother routing. Mostly rename + consolidation.
 - **Phase 4** — Add HLC + `origin` end-to-end (harmless pre-multiplayer; prerequisite for it).
