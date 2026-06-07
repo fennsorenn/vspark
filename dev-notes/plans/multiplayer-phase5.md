@@ -14,27 +14,54 @@ on reconnect.
 
 ## Connectivity & transport (decided)
 
-- **WebRTC direct (Shape B).** A small public **rendezvous** (outbound-only; only it needs a
-  public address) handles **signaling + presence**; actual sync flows **peer-to-peer over WebRTC
-  data channels**: pose on an *unreliable/unordered* channel (low latency, lossy-OK at 90 Hz),
-  documents on a *reliable/ordered* channel. **STUN** hole-punch, **TURN** relay fallback (both
-  outbound). Relay-broker mode (rendezvous relays everything) is the zero-WebRTC fallback.
+- **WebRTC direct (Shape B).** A small **rendezvous** (outbound-only; only it needs a public
+  address) handles **signaling + presence**; actual sync flows **peer-to-peer over WebRTC data
+  channels**: pose on an *unreliable/unordered* channel (low latency, lossy-OK at 90 Hz), documents
+  on a *reliable/ordered* channel.
+- **v1 = STUN-only, no TURN (P2P-only).** Use **public STUN** (e.g. Google) for hole-punching.
+  Symmetric-NAT / CGNAT pairs *can't* form a direct path and simply fail — show a clear
+  "couldn't connect directly (strict NAT)" error. **TURN is a documented later fallback** (self-host
+  `coturn` or managed: Cloudflare Calls / metered.ca / Twilio), added only if failures prove common.
+  Relay-broker mode (rendezvous relays everything) is the other zero-WebRTC fallback.
+- **Rendezvous hosting:** self-host the small app-specific rendezvous for production; **PeerJS**'s
+  free public PeerServer is fine for prototyping (rate-limited). (There's no generic production
+  public signaling server — signaling carries app room/identity logic.)
 - A `ServerMesh` transport implements the same port as today's `ClientHub`, carrying the same
   `SyncEnvelope`. No producer/consumer changes; pose uses the Phase 3 stream class.
-- Node WebRTC: `werift` (pure TS) or `node-datachannel`. TURN: self-host `coturn` or managed.
+- Node WebRTC: `werift` (pure TS) or `node-datachannel`.
 
 ## Identity, pairing & contacts (decided)
 
 - **Peer id = a long-lived Ed25519 keypair** generated on first run; the pubkey/fingerprint is the
   stable id, equal to the envelope `origin` / HLC `n`. Survives IP changes.
 - **`known_peers` table** (per-server SQLite) — the contacts list:
-  `known_peers(peer_id PK, display_name, paired_at, last_seen, auto_accept, created_at)`.
+  `known_peers(peer_id PK, display_name, paired_at, last_seen, blocked, created_at)`.
 - **Pair once (code):** A creates a session → short code/link → B enters it → rendezvous matches →
   mutual pubkey exchange → both rows written to `known_peers`.
-- **Reconnect (no code):** servers announce **signed presence** to the rendezvous (sign a nonce
-  with the private key); to connect, route by peer id → **mutual nonce/signature challenge against
-  the stored pubkey** (the rendezvous only routes, can't impersonate) → `auto_accept` ? connect :
-  prompt → WebRTC. Revoke = delete the contact. Prior art: Syncthing.
+- **Reconnect (no code):** servers announce **signed presence** to the rendezvous (sign a nonce with
+  the private key); to connect, route by peer id → **mutual nonce/signature challenge against the
+  stored pubkey** (the rendezvous only routes, can't impersonate) → see the session-grant policy
+  below → WebRTC. Revoke = delete (or `block`) the contact. Prior art: Syncthing.
+- **Accept policy = session grant, not a persisted flag.** An *incoming* connection from a known
+  contact **prompts once**; on accept, the peer is **auto-accepted for the session** — a runtime
+  grant `(peer_id → expires_at)`, TTL ~12h, cleared on server restart. **Manually disconnecting a
+  peer revokes its grant** (next incoming prompts again). Outgoing connections I initiate are
+  implicitly accepted on my side. (In-memory by default; persist with `expires_at` only if
+  surviving a restart within the window is wanted.)
+
+## Session topology (group call · decided)
+
+- A **session is a room**: connecting is **transitive** — there is never a state where you're
+  connected to B and C but B and C can't see each other. Adding a peer merges them into one session
+  (full mesh among members). Members **see each other** (presence) and **may share with each other**,
+  but visibility ≠ content: every share stays an **explicit per-peer grant**.
+- **No re-sharing received objects** — you can only share *your own* objects (with anyone in the
+  room). A received `remote_object` cannot be forwarded.
+- Mesh is fine at collab scale (2–4 peers); N² connections, not a concern here.
+- **Open sub-decision:** trust flow for a peer pulled in **transitively** who isn't a saved contact
+  (B & C never paired, both invited by A). Lean: transitive members **connect for presence
+  automatically** (you trust the room you're in), but saving each other to `known_peers` for future
+  *direct* code-free reconnect still requires explicit pairing.
 
 ## Data model
 
@@ -84,7 +111,7 @@ Object-share is publisher-authoritative, so there are no write-backs and no reco
 
 A **Connections window** (sibling of the media window):
 - **Contacts:** paired peers with online/offline state; **Pair** (enter/append a code) and
-  **Connect**/Disconnect buttons; per-contact `auto_accept` toggle; remove (revoke).
+  **Connect**/Disconnect buttons; remove/block; disconnect revokes the peer's session grant.
 - **Incoming shares:** per *connected* peer, the list of objects they're sharing with me. Each entry
   can be **dragged into the scene** (creates a `remote_object` wrapper at root) or **placed into the
   selected object** via a button (wrapper parented to the selection).
@@ -111,14 +138,17 @@ i18n + help (per CLAUDE.md, part of "done"): new namespace (e.g. `connections`) 
 
 ## Open decisions
 
-- **`auto_accept` default** — auto-reconnect trusted contacts vs always prompt. (Lean: auto; scope
-  limits exposure.)
-- **On revoke / source-delete:** keep the wrapper as a "no longer shared" placeholder (user deletes)
-  vs auto-remove it. (Lean: placeholder — avoids surprising layout changes.)
-- **Multiple placements** of the same shared object (several wrappers → one source): allow vs single.
-  (Lean: allow.)
-- **Transitive re-share** (B re-shares A's avatar to C): disallow for v1 (only owners share their own).
-- **Rendezvous + TURN:** self-host vs managed (Cloudflare Calls / metered.ca / Twilio for TURN).
+Resolved (see sections above): accept policy = **prompt-once-then-session-grant** (TTL ~12h,
+revoked on manual disconnect); revoke/source-delete → **keep placeholder**; **multiple placements
+allowed**; **no re-sharing** received objects; topology = **transitive group-call**; connectivity =
+**STUN-only P2P v1, no TURN**, self-host rendezvous (PeerJS for prototyping).
+
+Still open:
+- **Transitive-member trust:** auto-connect-for-presence vs prompt, for peers pulled into a session
+  who aren't saved contacts. (Lean: auto presence; pairing still required to save as a contact.)
+- **Session-grant persistence:** in-memory only (re-prompt after restart) vs persist `expires_at`
+  (survive restart within the ~12h window). (Lean: in-memory.)
+- **TURN later:** if STUN-only failure rate proves high, add TURN (self-host coturn vs managed).
 
 ## Phase 6 — shared scenes (separate, gated)
 
