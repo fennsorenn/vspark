@@ -41,6 +41,8 @@ import { spawnManager } from './spawn/manager.js';
 import { sync } from './sync/index.js';
 import { SYNC_MESSAGE_KIND } from '@vspark/shared/sync';
 import './sync/resources.js';
+import { initIdentity } from './multiplayer/identity.js';
+import { pruneExpiredGrants } from './multiplayer/peers.js';
 import type {
   LipsyncInputMessage,
   TrackingInputMessage,
@@ -84,6 +86,10 @@ async function start() {
   await runMigrations();
 
   setWsSync(wsSync);
+  // Multiplayer identity (Phase 5): load/generate this server's Ed25519 peer id
+  // and clear any expired auto-accept grants.
+  initIdentity();
+  pruneExpiredGrants();
   // Unified sync layer: producer hub over the shared WS transport.
   // Inert until resources register + routes emit (phased migration).
   sync.init(wsSync);

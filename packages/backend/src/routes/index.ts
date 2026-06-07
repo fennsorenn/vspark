@@ -14,6 +14,7 @@ import presets from './presets.js';
 import overliveAccounts from './overlive-accounts.js';
 import overliveAuth from './overlive-auth.js';
 import signal from './signal.js';
+import connections from './connections.js';
 import meta from './meta.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -32,6 +33,7 @@ router.use(presets);
 router.use(overliveAccounts);
 router.use(overliveAuth);
 router.use(signal);
+router.use(connections);
 router.use(meta);
 
 export { router as apiRoutes };
