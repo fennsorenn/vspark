@@ -33,6 +33,15 @@ export function Home() {
         newName.trim(),
         newDesc.trim() || undefined
       );
+      // Give new projects a ready-to-use starting scene so the editor opens onto
+      // something instead of an empty void with no obvious next step. The backend
+      // auto-populates the scene with a camera + key/fill lights. Best-effort:
+      // the project is still usable if this fails and the user can add a scene.
+      try {
+        await api.createScene(project.id, t('defaultSceneName'));
+      } catch {
+        /* non-fatal */
+      }
       setProjects((prev) => [...prev, project]);
       setShowNewForm(false);
       setNewName('');

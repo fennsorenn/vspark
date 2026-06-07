@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../../api/client';
 import { useEditorStore } from '../../store/editorStore';
 import { HelpButton } from '../../help/HelpButton';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import type {
   OverliveAppCredentialRecord,
   OverliveAccountRecord,
@@ -31,6 +32,7 @@ interface Props {
 export function OverliveAccountsModal({ onClose }: Props) {
   const { t } = useTranslation('accounts');
   const { projectId } = useParams<{ projectId: string }>();
+  useEscapeKey(onClose);
   const setStoreAccounts = useEditorStore((s) => s.setOverliveAccounts);
   const [apps, setApps] = useState<OverliveAppCredentialRecord[]>([]);
   const [accounts, _setAccounts] = useState<OverliveAccountRecord[]>([]);

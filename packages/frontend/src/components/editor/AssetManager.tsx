@@ -1087,7 +1087,7 @@ export function AssetManager() {
                       paddingTop: 20,
                     }}
                   >
-                    {t('empty.noAssets', { tab })}
+                    {t('empty.noAssets', { tab: t(`tabs.${tab}`) })}
                   </div>
                 );
               if (list.length === 0)
@@ -1100,7 +1100,7 @@ export function AssetManager() {
                       paddingTop: 20,
                     }}
                   >
-                    {t('empty.noMatch', { tab, query: assetQuery })}
+                    {t('empty.noMatch', { tab: t(`tabs.${tab}`), query: assetQuery })}
                   </div>
                 );
               const cardStyle: React.CSSProperties = {

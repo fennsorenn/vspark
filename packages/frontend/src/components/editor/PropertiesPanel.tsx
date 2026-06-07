@@ -3652,6 +3652,7 @@ export function PropertiesPanel() {
     composeLayers,
     selectedComposeLayerId,
     leftTab,
+    activeLogicId,
   } = useEditorStore();
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
@@ -3856,9 +3857,15 @@ export function PropertiesPanel() {
   }
 
   // Graphs tab: signal nodes are edited inline on the canvas, so the right
-  // inspector has nothing node-shaped to show here.
+  // inspector has nothing node-shaped to show here. Only claim a graph is being
+  // edited once one is actually open, otherwise the hint contradicts the
+  // canvas' "select or create a graph" prompt.
   if (leftTab === 'graphs') {
-    return emptyState(t('emptyState.graphsTab'));
+    return emptyState(
+      activeLogicId
+        ? t('emptyState.graphsTab')
+        : t('emptyState.graphsTabNoGraph')
+    );
   }
 
   // Scene tab (everything below): the inspector targets 3D scene nodes only.

@@ -1,4 +1,13 @@
-import { useRef, useEffect, useState, useMemo, useContext } from 'react';
+import {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useContext,
+  Suspense,
+  Component,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
@@ -5176,13 +5185,42 @@ export function Viewport() {
         <Grid infiniteGrid fadeDistance={30} fadeStrength={1} />
         {shadowsEnabled && <ShadowCatcher />}
         <ShadowMaterialSync enabled={shadowsEnabled} />
-        <Environment preset="city" />
+        <SceneEnvironment />
         <OrbitControls ref={orbitRef} makeDefault />
         <CameraEffects />
       </Canvas>
       <GizmoToolbar mode={gizmoMode} setMode={setGizmoMode} />
       <AudioPreviewToggle />
     </div>
+  );
+}
+
+/** Isolates the image-based-lighting environment. drei fetches the `city`
+ *  preset HDR from a remote CDN, so an offline/firewalled/down-CDN load would
+ *  otherwise throw through Suspense and white-screen the entire editor. We keep
+ *  it behind its own Suspense + error boundary and degrade to a hemisphere
+ *  light, so the scene stays lit and the app stays usable when it can't load. */
+class EnvironmentBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+function SceneEnvironment() {
+  const fallback = <hemisphereLight args={[0xffffff, 0x444444, 0.6]} />;
+  return (
+    <EnvironmentBoundary fallback={fallback}>
+      <Suspense fallback={fallback}>
+        <Environment preset="city" />
+      </Suspense>
+    </EnvironmentBoundary>
   );
 }
 
