@@ -43,6 +43,7 @@ import { SYNC_MESSAGE_KIND } from '@vspark/shared/sync';
 import './sync/resources.js';
 import { initIdentity } from './multiplayer/identity.js';
 import { pruneExpiredGrants } from './multiplayer/peers.js';
+import { multiplayerManager } from './multiplayer/manager.js';
 import type {
   LipsyncInputMessage,
   TrackingInputMessage,
@@ -90,6 +91,11 @@ async function start() {
   // and clear any expired auto-accept grants.
   initIdentity();
   pruneExpiredGrants();
+  // Connect to the rendezvous if configured (else multiplayer stays disabled).
+  multiplayerManager.init(
+    process.env.MULTIPLAYER_RENDEZVOUS_URL,
+    process.env.MULTIPLAYER_DISPLAY_NAME
+  );
   // Unified sync layer: producer hub over the shared WS transport.
   // Inert until resources register + routes emit (phased migration).
   sync.init(wsSync);
