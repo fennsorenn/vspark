@@ -4,6 +4,7 @@ import { join, extname, basename } from 'path';
 import { getDb } from '../db/index.js';
 import type { VmcManager } from '../behaviors/vmc_receiver/manager.js';
 import type { BreathingManager } from '../behaviors/breathing/manager.js';
+import type { ManualCalibrationManager } from '../behaviors/manual_calibration/manager.js';
 import type { LipsyncManager } from '../behaviors/lipsync/manager.js';
 import type { TrackingManager } from '../behaviors/mediapipe_tracker/manager.js';
 import type { ApiControllerManager } from '../behaviors/api_controller/manager.js';
@@ -20,6 +21,11 @@ export function setVmcManager(m: VmcManager) {
 export let _breathing: BreathingManager | null = null;
 export function setBreathingManager(m: BreathingManager) {
   _breathing = m;
+}
+
+export let _manualCalibration: ManualCalibrationManager | null = null;
+export function setManualCalibrationManager(m: ManualCalibrationManager) {
+  _manualCalibration = m;
 }
 
 export let _lipsync: LipsyncManager | null = null;
@@ -75,6 +81,14 @@ export function refreshBreathing() {
   _breathing.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
+export function refreshManualCalibration() {
+  if (!_manualCalibration) return;
+  const rows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'manual_calibration'")
+    .all() as Record<string, unknown>[];
+  _manualCalibration.syncBehaviors(rows.map(_mapBehaviorRow));
+}
+
 export function refreshLipsync() {
   if (!_lipsync) return;
   const rows = getDb()
@@ -102,6 +116,7 @@ export function refreshApiController() {
 export function refreshAllBehaviorManagers() {
   refreshVmc();
   refreshBreathing();
+  refreshManualCalibration();
   refreshLipsync();
   refreshTracking();
   refreshApiController();

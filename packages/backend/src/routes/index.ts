@@ -38,6 +38,7 @@ export { router as apiRoutes };
 export {
   setVmcManager,
   setBreathingManager,
+  setManualCalibrationManager,
   setLipsyncManager,
   setTrackingManager,
   setApiControllerManager,

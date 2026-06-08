@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import { getAllNodeKindMeta } from '../signal/registry.js';
-import { _vmc, _breathing, _lipsync, _tracking } from './shared.js';
+import {
+  _vmc,
+  _breathing,
+  _manualCalibration,
+  _lipsync,
+  _tracking,
+} from './shared.js';
 import { logicManager } from '../logic/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -9,6 +15,7 @@ function _allGraphDescriptors() {
   return [
     ...(_vmc?.getAllGraphDescriptors() ?? []),
     ...(_breathing?.getAllGraphDescriptors() ?? []),
+    ...(_manualCalibration?.getAllGraphDescriptors() ?? []),
     ...(_lipsync?.getAllGraphDescriptors() ?? []),
     ...(_tracking?.getAllGraphDescriptors() ?? []),
   ];
@@ -18,6 +25,7 @@ function _stripPrefix(graphId: string): string {
   const prefixes = [
     'vmc-pipeline:',
     'breathing:',
+    'manual_calibration:',
     'lipsync:',
     'mediapipe_tracker:',
   ];
@@ -54,12 +62,10 @@ router.get('/signal/graphs', (_req, res) => {
 router.get('/signal/graphs/:id', (req, res) => {
   const graph = _allGraphDescriptors().find((g) => g.id === req.params.id);
   if (!graph)
-    return res
-      .status(404)
-      .json({
-        ok: false,
-        error: { status: 404, message: 'not found', code: 'NOT_FOUND' },
-      });
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'not found', code: 'NOT_FOUND' },
+    });
   res.json({ ok: true, data: graph });
 });
 
@@ -85,18 +91,18 @@ router.get('/signal/graphs/:id/node-states', (req, res) => {
   const behaviorId = _stripPrefix(graphId);
   const states = graphId.startsWith('breathing:')
     ? _breathing?.getStates(behaviorId)
-    : graphId.startsWith('lipsync:')
-      ? _lipsync?.getStates(behaviorId)
-      : graphId.startsWith('mediapipe_tracker:')
-        ? _tracking?.getStates(behaviorId)
-        : _vmc?.getStates(behaviorId);
+    : graphId.startsWith('manual_calibration:')
+      ? _manualCalibration?.getStates(behaviorId)
+      : graphId.startsWith('lipsync:')
+        ? _lipsync?.getStates(behaviorId)
+        : graphId.startsWith('mediapipe_tracker:')
+          ? _tracking?.getStates(behaviorId)
+          : _vmc?.getStates(behaviorId);
   if (!states)
-    return res
-      .status(404)
-      .json({
-        ok: false,
-        error: { status: 404, message: 'not found', code: 'NOT_FOUND' },
-      });
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'not found', code: 'NOT_FOUND' },
+    });
   res.json({ ok: true, data: states });
 });
 
@@ -122,16 +128,14 @@ router.post('/signal/graphs/:id/fire', (req, res) => {
   const graphId = req.params.id;
   const { nodeId, port } = req.body as { nodeId?: string; port?: string };
   if (!nodeId || !port) {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          status: 400,
-          message: 'nodeId and port are required',
-          code: 'VALIDATION_ERROR',
-        },
-      });
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'nodeId and port are required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
   }
   // Standalone project graphs fire through the LogicManager.
   if (!graphId.includes(':')) {
@@ -141,30 +145,26 @@ router.post('/signal/graphs/:id/fire', (req, res) => {
   const behaviorId = _stripPrefix(graphId);
   if (graphId.startsWith('mediapipe_tracker:')) {
     if (!_tracking)
-      return res
-        .status(503)
-        .json({
-          ok: false,
-          error: {
-            status: 503,
-            message: 'Tracking manager not ready',
-            code: 'NOT_READY',
-          },
-        });
+      return res.status(503).json({
+        ok: false,
+        error: {
+          status: 503,
+          message: 'Tracking manager not ready',
+          code: 'NOT_READY',
+        },
+      });
     _tracking.fireGraphEvent(behaviorId, nodeId, port);
     return res.json({ ok: true });
   }
   if (!_vmc)
-    return res
-      .status(503)
-      .json({
-        ok: false,
-        error: {
-          status: 503,
-          message: 'VMC manager not ready',
-          code: 'NOT_READY',
-        },
-      });
+    return res.status(503).json({
+      ok: false,
+      error: {
+        status: 503,
+        message: 'VMC manager not ready',
+        code: 'NOT_READY',
+      },
+    });
   _vmc.fireGraphEvent(behaviorId, nodeId, port);
   res.json({ ok: true });
 });

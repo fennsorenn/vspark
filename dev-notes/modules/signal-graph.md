@@ -57,6 +57,8 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 
 **Value-input auto-fallback to `config.<port>`**: when a value-input port is unconnected, the engine resolves its pull-thunk to `defaultConfig.<portName>` from the descriptor. Nodes just read `this.port()` and get the config fallback for free. This is the preferred pattern; reserve `behavior_config` nodes for values that must track live user edits at runtime. The breathing graph is the reference example (bone names / mode / priority / blend mode in per-port `defaultConfig`; only the two live-editable amplitudes remain `behavior_config` nodes).
 
+**Node config resolves live**: `_makeBindContext` exposes `config` as a **getter** (not a value snapshotted at graph-build time), so `this.config` — and therefore a `behavior_config` node reading `_behaviorConfig` — re-reads the owning behavior's current config on every access. This is what makes `behavior_config`-fed values (breathing amplitudes, manual-calibration map) hot-apply without a graph rebuild; before, they only took effect on behavior restart.
+
 **Hydration**: `SignalGraph.fromDescriptor(descriptor, registry, getConfig, getState, onSetState)` — builds a graph from a `GraphDescriptor` template. Config and state are injected from outside (DB-backed), so the graph itself is stateless across restarts.
 
 **Inspection**: `getStates()` returns a snapshot of node last-inputs / last-outputs / last-executed timestamps and edge fire history — used by `/api/signal/graphs/:id/node-states`.
@@ -72,7 +74,7 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → node class. All 56 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → node class. All 60 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
 
@@ -111,6 +113,7 @@ Organized by role:
 |------|-------------|
 | `body_calibration` | Captures neutral pose; subtracts offset via quaternion inversion. Supports optional `mirrorPairs` config + `mirrorSource` input port for one-hand symmetric calibration (used by finger_calib in MediaPipe tracker). |
 | `arm_ik_calibration` | Two-bone arm IK; captures arm reach (finger-to-eye-corner); applies corrected IK at runtime |
+| `pose_manual_calibration` (label "Manual Calibration") | Static `pose` in → `pose` out. For each configured bone, decomposes the quaternion to ZYX euler and applies per axis `angle' = angle * multiplier + offset` (offset in DEGREES, converted to radians; multiplier unitless). Bones with no entry, or at identity (mult `[1,1,1]` / offset `[0,0,0]`), pass through. The per-bone map arrives via a wired `calibrations` value-input (fed by a `behavior_config` node, `field: 'calibrations'`), not a hidden config read; shape `Record<boneName, { multiplier?: [x,y,z]; offset?: [x,y,z] }>`. Ordinary static node (NOT in `INFER_BY_KIND`; ports via decorators / `defaultInfer`, like `body_calibration` / `pose_apply_bone`). Drives the `manual_calibration` behavior interceptor — see [component-managers.md](component-managers.md). Euler-space, so ZYX-order-dependent + degrades at the yaw=±90° gimbal singularity. |
 
 ### Processing / utility
 | Kind | Description |

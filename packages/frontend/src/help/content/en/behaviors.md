@@ -5,7 +5,7 @@ own. Behaviors are the bridge between the outside world (your camera, your
 microphone, your tracking app) and your [avatar](topic:avatar).
 
 You add behaviors from the **Behaviors** tab and attach them to a node. A single
-avatar can have several behaviors running at once — for example tracking *and*
+avatar can have several behaviors running at once — for example tracking _and_
 lip sync.
 
 ## VMC receiver {#vmc}
@@ -39,6 +39,26 @@ You can calibrate it to your own voice for sharper vowel shapes.
 Breathing adds a subtle, automatic rise-and-fall to the chest and shoulders so
 your avatar feels alive even when you're holding still. The amount of chest and
 shoulder movement is adjustable.
+
+## Manual calibration {#manual-calibration}
+
+Manual calibration lets you hand-tune the incoming pose, one bone at a time. For
+each bone you set a **multiplier** and an **offset** on each axis (X, Y, Z):
+
+- **Multiplier** scales how far a rotation travels along that axis. `1` leaves it
+  unchanged, `2` makes the bone rotate twice as far, `0.5` half as far. This is
+  handy when a tracking source under- or over-rotates a joint.
+- **Offset** shifts the neutral "zero" position, measured in degrees. Use it to
+  nudge a bone's resting pose — for example, to relax shoulders that sit too high.
+
+Only bones you actually change are affected; everything else passes through
+untouched. Values apply live as you drag, so you can watch the avatar respond.
+A bone marked with a dot has active calibration; **Reset bone** clears one bone
+and **Reset all** clears everything.
+
+Because the adjustment works per axis on Euler angles, very large corrections
+near a bone's straight-up/-down limit can behave non-linearly — it's meant for
+fine-tuning, not wholesale re-rigging.
 
 ## Camera & microphone setup {#devices}
 

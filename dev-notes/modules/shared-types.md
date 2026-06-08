@@ -4,11 +4,11 @@
 
 ## `types.ts` — Domain types
 
-**Node kinds**: `'avatar' | 'model' | 'light' | 'camera' | 'trigger' | 'particle' | 'sfx' | 'fx' | 'prop' | 'godray_caster' | 'billboard'`
+**Node kinds**: `'scene' | 'scene_instance' | 'avatar' | 'model' | 'light' | 'camera' | 'trigger' | 'particle' | 'sfx' | 'fx' | 'prop' | 'godray_caster' | 'billboard' | 'video' | 'audio' | 'group' | 'text_troika' | 'text_canvas' | 'feed'`
 
 **Key interfaces**:
 - `SceneNode` — id, parentId, boneAttachment, name, kind, filePath, hidden, components (legacy JSON)
-- `Scene` — id, projectId, name, createdAt, updatedAt, nodes
+- `Scene` — id, projectId, name, createdAt, updatedAt, runtimeSettings, nodes
 - `Project` — id, name, description, createdAt, updatedAt, scenes
 - `AnimationClip` — id, name, sourceNodeId, sourceFilePath, clipIndex, label, startTime, endTime, duration, fps
 - `AssetFile` — id, projectId, originalName, storedPath, mimeType, size, hash, isDeduplicated
@@ -43,7 +43,7 @@ Request body validation for all REST routes. All schemas are strict (no extra ke
 
 ### Core data types
 
-**`Quaternion`**: Immutable unit quaternion with algebra methods: `multiply`, `invert`, `normalize`. All bone rotation values flow as Quaternions.
+**`Quaternion`**: Immutable unit quaternion with algebra methods: `multiply`, `invert`, `normalize`. All bone rotation values flow as Quaternions. Euler bridges `Quaternion.fromEuler(pitch, yaw, roll)` / `q.toEuler()` use the intrinsic ZYX convention (matching the `euler_to_quaternion` node; round-trip ~1e-14, collapses onto roll at the yaw=±90° gimbal singularity). See [animation.md](animation.md).
 
 **`BoneRotations`**: `Map<string, Quaternion>` — bone name → rotation in source application's convention (Unity HumanBodyBones for VMC, etc.).
 
@@ -55,7 +55,7 @@ Request body validation for all REST routes. All schemas are strict (no extra ke
 
 ### VRM bone names
 
-`VRM_BONE_NAMES`: array of 54 strings covering the full VRM humanoid skeleton — hips through all finger distal bones. These are the canonical keys for `NormalizedPose`.
+`VRM_BONE_NAMES`: array of 55 strings covering the full VRM humanoid skeleton — hips through all finger distal bones. These are the canonical keys for `NormalizedPose`.
 
 ### Port system (Phase 2 — transport folded into the type)
 

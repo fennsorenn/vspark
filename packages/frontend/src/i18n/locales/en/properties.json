@@ -413,6 +413,16 @@
     "chestAmplitude": "Chest amplitude",
     "shoulderLift": "Shoulder lift"
   },
+  "manualCalibration": {
+    "description": "Multiplier scales how far a rotation travels along each axis (2 = twice as far). Offset shifts the neutral 0, in degrees.",
+    "multiplier": "Multiplier",
+    "offset": "Offset (°)",
+    "none": "No calibration",
+    "calibrated_one": "{{count}} bone calibrated",
+    "calibrated_other": "{{count}} bones calibrated",
+    "resetBone": "Reset bone",
+    "resetAll": "Reset all"
+  },
   "behaviorFallback": "No configurable properties.",
   "effect": {
     "toneMapping": {
@@ -520,6 +530,7 @@
     "camera": "Learn about camera properties and projections",
     "light": "Learn about light types and shadow settings",
     "breathing": "Learn how the breathing behavior works",
+    "manualCalibration": "Learn how manual pose calibration works",
     "compose": "Learn about compose layers and output compositing",
     "cameraEffects": "Opens the doc section for this specific effect",
     "propImage": "Learn about image planes and billboards",
