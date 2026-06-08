@@ -13,7 +13,13 @@
  * optional until then.
  */
 
-/** How a resource is delivered/persisted. See the design doc's "Delivery classes". */
+/** How a resource is delivered/persisted. See the design doc's "Delivery classes".
+ *
+ *  `event` is retained for back-compat but **deprecated**: the live-mesh design
+ *  folds events into temporal `field` state — a retained, keyed
+ *  "started at timestamp X" anchor (see {@link TemporalAnchor}) that late
+ *  joiners render in sync rather than a fire-and-forget command. New temporal
+ *  state should use `field`. See dev-notes/plans/live-mesh.md. */
 export type ResourceClass = 'document' | 'field' | 'stream' | 'event';
 
 /** Mutation verbs carried on the wire. Not every class uses every op:
@@ -80,6 +86,91 @@ export function makeHlcClock(peerId: string): () => HLC {
     }
     return { t: lastT, c: lastC, n: peerId };
   };
+}
+
+// --- Participants -----------------------------------------------------------
+//
+// In the live P2P mesh a "participant" is any endpoint: a backend server or a
+// browser client. Backends use their stable Ed25519 peer id; a client gets
+// `${serverPeerId}#${ephemeralClientUuid}` (one per tab). The participant id is
+// the HLC `origin`/`n` and the loop-suppression tag, so it must be unique per
+// endpoint. See dev-notes/plans/live-mesh.md.
+
+const CLIENT_SEP = '#';
+
+/** Mint a per-tab client participant id under its server's peer id. */
+export function makeClientParticipantId(
+  serverPeerId: string,
+  clientUuid: string
+): string {
+  return `${serverPeerId}${CLIENT_SEP}${clientUuid}`;
+}
+
+/** Whether a participant id belongs to a browser client (vs a backend server). */
+export function isClientParticipant(id: string): boolean {
+  return id.includes(CLIENT_SEP);
+}
+
+/** The owning server's peer id for any participant (itself if it's a server). */
+export function participantServer(id: string): string {
+  const i = id.indexOf(CLIENT_SEP);
+  return i < 0 ? id : id.slice(0, i);
+}
+
+// --- Shared clock -----------------------------------------------------------
+//
+// A flat mesh has no single clock, but temporal state ("started at T") needs a
+// common base. Each participant tracks a smoothed offset *per origin* from
+// ping/pong over the data channel; a remote anchor is converted to local time
+// with `localizeAnchor(anchorT, offset)`. This generalises the per-server
+// `clockOffsetMs = serverNow − Date.now()` to per-origin offsets.
+
+/** A retained temporal value: "this began (or was anchored) at `anchorT`, in the
+ *  origin's clock". Consumers derive the current frame from
+ *  `localNow − localizeAnchor(anchorT, offset[origin])`. `paused` carries a
+ *  fixed position instead of a running anchor. */
+export interface TemporalAnchor {
+  /** wall-clock millis in the originating participant's clock */
+  anchorT: number;
+  /** when set, playback is held at this position (seconds) rather than running */
+  pausedAtT?: number;
+}
+
+/** Estimate `offset = remoteClock − localClock` from one ping round-trip:
+ *  ping sent at `localSendT`, pong (carrying the peer's `remoteT`) received at
+ *  `localRecvT`. Assumes symmetric latency (remoteT sampled mid-flight). */
+export function estimateClockOffset(
+  localSendT: number,
+  remoteT: number,
+  localRecvT: number
+): number {
+  return remoteT - (localSendT + localRecvT) / 2;
+}
+
+/** A smoothed per-origin clock-offset tracker. `observe()` folds in a fresh
+ *  round-trip estimate; `offset()` returns the current best estimate (0 until
+ *  the first observation). EMA-smoothed to ride out jitter. */
+export function makeOffsetTracker(alpha = 0.2): {
+  observe: (localSendT: number, remoteT: number, localRecvT: number) => void;
+  offset: () => number;
+} {
+  let off = 0;
+  let seeded = false;
+  return {
+    observe: (s, r, e) => {
+      const sample = estimateClockOffset(s, r, e);
+      off = seeded ? off + alpha * (sample - off) : sample;
+      seeded = true;
+    },
+    offset: () => off,
+  };
+}
+
+/** Convert an origin-clock anchor timestamp into local-clock millis. With
+ *  `offset = originClock − localClock`, the local equivalent of an origin
+ *  timestamp is `anchorT − offset`. */
+export function localizeAnchor(anchorT: number, offsetMs: number): number {
+  return anchorT - offsetMs;
 }
 
 // --- Dotted-path addressing -------------------------------------------------
