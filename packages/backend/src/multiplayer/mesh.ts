@@ -146,16 +146,26 @@ export class ServerMesh extends EventEmitter {
 
   /** Graceful disconnect: tell the peer we're leaving so it tears down at once,
    *  rather than waiting on a connection-state timeout that may never fire
-   *  (observed: the remote side stayed "connected" indefinitely). Sends a `bye`
-   *  on the reliable channel, then closes after a short flush window. */
+   *  (observed: the remote side stayed "connected" indefinitely).
+   *
+   *  The peer slot is freed *immediately* (not after the flush window) so a fast
+   *  reconnect isn't blocked by this half-open entry — `connect()` no-ops while
+   *  a slot exists. The `bye` is sent on the captured channel and the captured
+   *  pc is closed after a short flush window, independent of any new slot. */
   disconnectGraceful(peerId: string): void {
-    const sent = this.sendEnvelope(peerId, {
-      rtype: BYE_RTYPE,
-      op: 'event',
-      key: '',
-    });
-    if (sent) setTimeout(() => this.disconnect(peerId), 200);
-    else this.disconnect(peerId);
+    const p = this.peers.get(peerId);
+    if (!p) return;
+    this.peers.delete(peerId);
+    this.pendingIce.delete(peerId);
+    this.pendingOffers.delete(peerId);
+    try {
+      if (p.doc?.readyState === 'open')
+        p.doc.send(JSON.stringify({ rtype: BYE_RTYPE, op: 'event', key: '' }));
+    } catch {
+      /* channel already gone — nothing to flush */
+    }
+    if (p.connected) this.emit('peerDisconnected', peerId);
+    setTimeout(() => void p.pc.close().catch(() => {}), 200);
   }
 
   /** Reliable document/control envelope. Returns false if the channel isn't open
@@ -208,7 +218,13 @@ export class ServerMesh extends EventEmitter {
     });
     pc.connectionStateChange.subscribe((state: string) => {
       dbg('connState', peerId, state);
-      if (state === 'failed' || state === 'closed' || state === 'disconnected')
+      if (
+        (state === 'failed' || state === 'closed' || state === 'disconnected') &&
+        // Only tear down if this pc is still the active one for the peer — a
+        // stale pc closing (e.g. after a fast reconnect reused the id) must not
+        // kill the freshly-established connection.
+        this.peers.get(peerId)?.pc === pc
+      )
         this.disconnect(peerId);
     });
     // Answerer receives its channels here.
