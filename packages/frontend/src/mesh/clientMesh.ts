@@ -1,0 +1,222 @@
+/**
+ * Browser-side WebRTC mesh (live-mesh phase, slice 2).
+ *
+ * Each tab is a mesh participant (`${serverPeerId}#${tabUuid}`) that forms a
+ * direct data channel to every other participant in the roster. Signaling is
+ * relayed through the backend (WS `mesh_signal`); the bytes flow peer-to-peer.
+ *
+ * This slice only establishes channels + a per-peer clock offset (ping/pong);
+ * routing live `stream`/`field` envelopes over the mesh is the next slice.
+ *
+ * Glare is avoided by a deterministic rule: the lexicographically smaller
+ * participant id initiates; the larger only ever answers. See
+ * dev-notes/plans/live-mesh.md.
+ */
+import { makeOffsetTracker } from '@vspark/shared/sync';
+
+type Signal =
+  | { kind: 'offer' | 'answer'; sdp: RTCSessionDescriptionInit }
+  | { kind: 'ice'; candidate: RTCIceCandidateInit };
+
+interface MeshPeer {
+  pc: RTCPeerConnection;
+  dc: RTCDataChannel | null;
+  connected: boolean;
+  remoteSet: boolean;
+  pendingIce: RTCIceCandidateInit[];
+  offset: ReturnType<typeof makeOffsetTracker>;
+  pingTimer?: ReturnType<typeof setInterval>;
+}
+
+const PING_MS = 5000;
+
+class ClientMesh {
+  private selfId = '';
+  private getWs: () => WebSocket | null = () => null;
+  private onChange: (ids: string[]) => void = () => {};
+  private iceServers: RTCIceServer[] = [];
+  private readonly peers = new Map<string, MeshPeer>();
+
+  configure(opts: {
+    selfId: string;
+    getWs: () => WebSocket | null;
+    onChange: (ids: string[]) => void;
+    iceServers?: RTCIceServer[];
+  }): void {
+    this.selfId = opts.selfId;
+    this.getWs = opts.getWs;
+    this.onChange = opts.onChange;
+    if (opts.iceServers) this.iceServers = opts.iceServers;
+  }
+
+  /** Announce our participant id to the backend (call on every WS (re)open). */
+  sendHello(): void {
+    if (this.selfId) this.send('mesh_hello', { participantId: this.selfId });
+  }
+
+  /** Apply the latest roster: dial new smaller-id peers, drop departed ones. */
+  setRoster(participants: string[]): void {
+    const present = new Set(participants);
+    for (const id of participants) {
+      if (id === this.selfId || this.peers.has(id)) continue;
+      if (this.selfId < id) void this.dial(id); // we initiate
+      // else: wait for their offer
+    }
+    for (const id of [...this.peers.keys()])
+      if (!present.has(id)) this.drop(id);
+  }
+
+  /** Inbound SDP/ICE relayed from `from`. */
+  async handleSignal(from: string, data: Signal): Promise<void> {
+    if (data.kind === 'offer') {
+      const peer = this.peers.get(from) ?? this.newPeer(from);
+      await peer.pc.setRemoteDescription(data.sdp);
+      peer.remoteSet = true;
+      this.flushIce(from);
+      const answer = await peer.pc.createAnswer();
+      await peer.pc.setLocalDescription(answer);
+      this.send('mesh_signal', {
+        to: from,
+        data: { kind: 'answer', sdp: peer.pc.localDescription },
+      });
+    } else if (data.kind === 'answer') {
+      const peer = this.peers.get(from);
+      if (peer) {
+        await peer.pc.setRemoteDescription(data.sdp);
+        peer.remoteSet = true;
+        this.flushIce(from);
+      }
+    } else if (data.kind === 'ice') {
+      const peer = this.peers.get(from);
+      if (!peer) return;
+      if (peer.remoteSet)
+        await peer.pc.addIceCandidate(data.candidate).catch(() => {});
+      else peer.pendingIce.push(data.candidate);
+    }
+  }
+
+  connectedIds(): string[] {
+    return [...this.peers.entries()]
+      .filter(([, p]) => p.connected)
+      .map(([id]) => id);
+  }
+
+  /** Clock offset (originClock − localClock) for a participant, 0 if unknown. */
+  offsetFor(id: string): number {
+    return this.peers.get(id)?.offset.offset() ?? 0;
+  }
+
+  reset(): void {
+    for (const id of [...this.peers.keys()]) this.drop(id);
+  }
+
+  // --- internals -----------------------------------------------------------
+
+  private newPeer(id: string): MeshPeer {
+    const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+    const peer: MeshPeer = {
+      pc,
+      dc: null,
+      connected: false,
+      remoteSet: false,
+      pendingIce: [],
+      offset: makeOffsetTracker(),
+    };
+    this.peers.set(id, peer);
+    pc.onicecandidate = (e) => {
+      if (e.candidate)
+        this.send('mesh_signal', {
+          to: id,
+          data: { kind: 'ice', candidate: e.candidate.toJSON() },
+        });
+    };
+    pc.onconnectionstatechange = () => {
+      const s = pc.connectionState;
+      if (s === 'failed' || s === 'closed' || s === 'disconnected')
+        this.drop(id);
+    };
+    pc.ondatachannel = (e) => this.wireChannel(id, e.channel);
+    return peer;
+  }
+
+  private async dial(id: string): Promise<void> {
+    const peer = this.newPeer(id);
+    this.wireChannel(id, peer.pc.createDataChannel('mesh', { ordered: true }));
+    const offer = await peer.pc.createOffer();
+    await peer.pc.setLocalDescription(offer);
+    this.send('mesh_signal', {
+      to: id,
+      data: { kind: 'offer', sdp: peer.pc.localDescription },
+    });
+  }
+
+  private wireChannel(id: string, dc: RTCDataChannel): void {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    peer.dc = dc;
+    dc.onopen = () => {
+      peer.connected = true;
+      this.onChange(this.connectedIds());
+      // Clock-sync: ping immediately + on an interval.
+      const ping = () =>
+        dc.readyState === 'open' &&
+        dc.send(JSON.stringify({ kind: '__ping', t0: Date.now() }));
+      ping();
+      peer.pingTimer = setInterval(ping, PING_MS);
+    };
+    dc.onclose = () => {
+      peer.connected = false;
+      this.onChange(this.connectedIds());
+    };
+    dc.onmessage = (e) => this.onMessage(id, e.data as string);
+  }
+
+  private onMessage(id: string, raw: string): void {
+    let msg: { kind?: string; t0?: number; tr?: number };
+    try {
+      msg = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    if (msg.kind === '__ping') {
+      peer.dc?.send(
+        JSON.stringify({ kind: '__pong', t0: msg.t0, tr: Date.now() })
+      );
+    } else if (msg.kind === '__pong' && typeof msg.t0 === 'number') {
+      peer.offset.observe(msg.t0, msg.tr ?? Date.now(), Date.now());
+    }
+    // Live `stream`/`field` envelopes are routed here in the next slice.
+  }
+
+  private flushIce(id: string): void {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    const buf = peer.pendingIce;
+    peer.pendingIce = [];
+    for (const c of buf) void peer.pc.addIceCandidate(c).catch(() => {});
+  }
+
+  private drop(id: string): void {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    this.peers.delete(id);
+    if (peer.pingTimer) clearInterval(peer.pingTimer);
+    try {
+      peer.dc?.close();
+      peer.pc.close();
+    } catch {
+      /* already closed */
+    }
+    this.onChange(this.connectedIds());
+  }
+
+  private send(kind: string, payload: Record<string, unknown>): void {
+    const ws = this.getWs();
+    if (ws && ws.readyState === WebSocket.OPEN)
+      ws.send(JSON.stringify({ kind, payload }));
+  }
+}
+
+export const clientMesh = new ClientMesh();

@@ -30,8 +30,9 @@ import {
   removePeerProjections as removePeerSharedProjections,
 } from '../sync/sharedProjection';
 import { useConnectionsStore } from '../store/connectionsStore';
+import { clientMesh } from '../mesh/clientMesh';
 
-const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+const WS_URL =`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 const RECONNECT_MS = 3000;
 
 /** Module-level ref so any component can send messages on the shared editor WS. */
@@ -78,6 +79,8 @@ export function useWsSync() {
       editorWsRef.current = ws;
 
       ws.onopen = () => {
+        // Re-announce this tab to the client-mesh signaling relay.
+        clientMesh.sendHello();
         if (pendingReloadRef.current) {
           pendingReloadRef.current = false;
           useEditorStore.getState().setPendingReload(false);
@@ -496,6 +499,16 @@ export function useWsSync() {
             const p = msg.payload as { peerId: string };
             removePeerSharedProjections(p.peerId);
             useConnectionsStore.getState().clearPeerSharing(p.peerId);
+          } else if (msg.kind === 'mesh_roster') {
+            const p = msg.payload as { participants?: string[] };
+            clientMesh.setRoster(p.participants ?? []);
+          } else if (msg.kind === 'mesh_signal') {
+            const p = msg.payload as { from?: string; data?: unknown };
+            if (p.from)
+              void clientMesh.handleSignal(
+                p.from,
+                p.data as Parameters<typeof clientMesh.handleSignal>[1]
+              );
           } else if (msg.kind === 'server_update') {
             if (
               (msg.payload as { reloadOnReconnect?: boolean }).reloadOnReconnect

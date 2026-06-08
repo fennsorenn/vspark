@@ -292,6 +292,7 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
     peers,
     incoming,
     revision,
+    meshConnected,
     setMeta,
     setPeers,
     removeIncoming,
@@ -461,6 +462,12 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
               >
                 {t('identity.copy')}
               </button>
+            </div>
+
+            {/* Direct mesh status (live P2P data channels) */}
+            <div style={{ ...S.row, marginTop: 6, color: C.dim }}>
+              <span style={S.dot(meshConnected.length > 0)} />
+              <span>{t('mesh.label', { count: meshConnected.length })}</span>
             </div>
 
             {/* Incoming requests */}

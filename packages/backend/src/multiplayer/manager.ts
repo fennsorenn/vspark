@@ -19,6 +19,11 @@ import {
 } from './rendezvous_client.js';
 import { ServerMesh, type MeshSignaling } from './mesh.js';
 import { SharingManager, SHARE_RTYPES } from './sharing.js';
+import {
+  clientMeshRelay,
+  MESH_RELAY_RTYPE,
+  MESH_ROSTER_RTYPE,
+} from './clientMeshRelay.js';
 import { addShare, removeShare, listObjectGrantees } from './shares.js';
 import { sync } from '../sync/index.js';
 import {
@@ -95,6 +100,11 @@ class MultiplayerManager {
     this.sharing = new SharingManager(this.mesh, this.broadcast);
     // Forward shared objects' document updates to subscribed peers.
     sync.onDocument((env) => this.sharing?.forwardDocOp(env));
+    // Bridge the client-mesh signaling relay onto the server mesh.
+    clientMeshRelay.attachBridge({
+      send: (server, env) => this.mesh?.sendEnvelope(server, env),
+      connectedServers: () => this.mesh?.connectedPeers() ?? [],
+    });
 
     // Accept policy on inbound offers.
     this.mesh.on('incomingOffer', (peerId: string) => {
@@ -119,10 +129,12 @@ class MultiplayerManager {
       // Exchange display names so each side shows the other's live (per-project) name.
       this.sendProfile(peerId);
       this.sharing?.onPeerConnected(peerId);
+      clientMeshRelay.onServerConnected(peerId);
     });
     this.mesh.on('peerDisconnected', (peerId: string) => {
       this.broadcast('mp_peer', { peerId, connected: false });
       this.sharing?.onPeerDisconnected(peerId);
+      clientMeshRelay.onServerDisconnected(peerId);
     });
     // Inbound control envelopes: live display name + the sharing protocol.
     this.mesh.on(
@@ -143,6 +155,10 @@ class MultiplayerManager {
           this.sharing?.advertise(from);
         } else if (SHARE_RTYPES.has(env?.rtype)) {
           this.sharing?.handleEnvelope(from, env);
+        } else if (env?.rtype === MESH_RELAY_RTYPE) {
+          clientMeshRelay.onServerRelay(env);
+        } else if (env?.rtype === MESH_ROSTER_RTYPE) {
+          clientMeshRelay.onServerRoster(from, env);
         }
       }
     );

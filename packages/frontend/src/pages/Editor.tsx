@@ -10,6 +10,7 @@ import { useEditorStore } from '../store/editorStore';
 import { useWsSync } from '../hooks/useWsSync';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
 import { useSharedSubscriptions } from '../hooks/useSharedSubscriptions';
+import { useClientMesh } from '../hooks/useClientMesh';
 import { TopBar } from '../components/editor/TopBar';
 import { SceneGraph } from '../components/editor/SceneGraph';
 import { Viewport } from '../components/editor/Viewport';
@@ -29,6 +30,7 @@ export function Editor() {
   useWsSync();
   useTrackClipEvaluator();
   useSharedSubscriptions();
+  useClientMesh();
   const { t } = useTranslation('editor');
   const { projectId } = useParams<{ projectId: string }>();
   const {

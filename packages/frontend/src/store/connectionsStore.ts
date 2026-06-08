@@ -38,6 +38,8 @@ interface ConnectionsState {
   offers: Record<string, SharedOffer[]>;
   /** peerId → objectIds we've subscribed to (placed in our scene). */
   subscribed: Record<string, string[]>;
+  /** Participant ids we hold a live direct (client-mesh) data channel to. */
+  meshConnected: string[];
   /** Bumped by WS events so the window refetches the peer list. */
   revision: number;
 
@@ -54,6 +56,7 @@ interface ConnectionsState {
   setOffers: (peerId: string, offers: SharedOffer[]) => void;
   setSubscribed: (peerId: string, objectId: string, on: boolean) => void;
   clearPeerSharing: (peerId: string) => void;
+  setMeshConnected: (ids: string[]) => void;
   bumpRevision: () => void;
 }
 
@@ -67,6 +70,7 @@ export const useConnectionsStore = create<ConnectionsState>((set) => ({
   incoming: [],
   offers: {},
   subscribed: {},
+  meshConnected: [],
   revision: 0,
 
   setMeta: (m) => set(m),
@@ -116,5 +120,6 @@ export const useConnectionsStore = create<ConnectionsState>((set) => ({
       delete subscribed[peerId];
       return { offers, subscribed };
     }),
+  setMeshConnected: (ids) => set({ meshConnected: ids }),
   bumpRevision: () => set((s) => ({ revision: s.revision + 1 })),
 }));

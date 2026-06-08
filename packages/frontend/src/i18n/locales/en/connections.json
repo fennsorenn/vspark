@@ -20,6 +20,10 @@
     "label": "Your server ID",
     "copy": "Copy"
   },
+  "mesh": {
+    "label_one": "Direct mesh: {{count}} peer",
+    "label_other": "Direct mesh: {{count}} peers"
+  },
   "requests": {
     "label": "Incoming requests",
     "accept": "Accept",

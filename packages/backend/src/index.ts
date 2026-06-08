@@ -44,6 +44,7 @@ import './sync/resources.js';
 import { initIdentity } from './multiplayer/identity.js';
 import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
+import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
 import type {
   LipsyncInputMessage,
   TrackingInputMessage,
@@ -158,6 +159,13 @@ async function start() {
   const overliveManager = initOverliveManager(wsSync);
   await overliveManager.startAll();
 
+  // Client-mesh signaling relay: track each client's participant id + tear it
+  // down on disconnect so the roster stays accurate.
+  clientMeshRelay.initWs(wsSync);
+  wsSync.onClientConnected((ws) => {
+    ws.on('close', () => clientMeshRelay.onWsClose(ws));
+  });
+
   // Rebroadcast current state to any newly-connecting client.
   wsSync.onClientConnected((ws) => {
     apiControllerManager.rebroadcastTo((kind, payload) =>
@@ -227,6 +235,16 @@ async function start() {
           sourceWs
         );
       }
+    } else if (kind === 'mesh_hello') {
+      // A browser client registers its participant id for the client mesh.
+      const p = payload as { participantId?: string };
+      if (typeof p.participantId === 'string')
+        clientMeshRelay.onHello(sourceWs, p.participantId);
+    } else if (kind === 'mesh_signal') {
+      // SDP/ICE from a client toward another mesh participant.
+      const p = payload as { to?: string; data?: unknown };
+      if (typeof p.to === 'string')
+        clientMeshRelay.onSignal(sourceWs, p.to, p.data);
     }
   });
 
