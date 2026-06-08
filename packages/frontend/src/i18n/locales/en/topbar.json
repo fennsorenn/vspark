@@ -7,7 +7,8 @@
   },
   "connections": {
     "label": "Connections",
-    "title": "Multiplayer connections (pair & connect with other servers)"
+    "title": "Multiplayer connections (pair & connect with other servers)",
+    "none": "No active connections"
   },
   "status": {
     "connected": "Connected",

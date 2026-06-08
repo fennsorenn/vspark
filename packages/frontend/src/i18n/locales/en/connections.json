@@ -12,27 +12,41 @@
   "help": {
     "tip": "Pair and connect with other servers to share avatars live."
   },
+  "name": {
+    "label": "Your name (this project)",
+    "placeholder": "Name others see you as"
+  },
   "identity": {
     "label": "Your server ID",
     "copy": "Copy"
-  },
-  "pairing": {
-    "label": "Pairing",
-    "create": "Create code",
-    "codePlaceholder": "Enter pairing code",
-    "join": "Join"
   },
   "requests": {
     "label": "Incoming requests",
     "accept": "Accept",
     "reject": "Reject"
   },
+  "connected": {
+    "label": "Connected",
+    "empty": "No one connected."
+  },
+  "shared": {
+    "label": "Shared with you",
+    "empty": "Nothing shared yet."
+  },
+  "pairing": {
+    "label": "Pairing",
+    "create": "Create code",
+    "copyCode": "Copy",
+    "codePlaceholder": "Enter pairing code",
+    "join": "Join"
+  },
   "contacts": {
     "label": "Contacts",
-    "empty": "No contacts yet — pair with someone above.",
+    "empty": "No contacts yet — pair with someone in Pairing.",
     "connect": "Connect",
     "disconnect": "Disconnect",
-    "remove": "Remove contact",
+    "remove": "Remove contact (unpair)",
+    "confirmRemove": "Unpair?",
     "connected": "Connected",
     "disconnected": "Offline"
   }

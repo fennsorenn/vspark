@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
-import { api } from '../../api/client';
+import { useConnectionsStore } from '../../store/connectionsStore';
+import { api, getConnectionStatus, getConnectionPeers } from '../../api/client';
 import { useTranslation } from 'react-i18next';
 import { MediaInputWindow } from '../MediaInputWindow';
 import { ConnectionsWindow } from '../ConnectionsWindow';
@@ -20,6 +21,29 @@ export function TopBar() {
   const [mediaMounted, setMediaMounted] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [connectionsMounted, setConnectionsMounted] = useState(false);
+  const mpConnectedIds = useConnectionsStore((s) => s.connectedIds);
+  const mpNameById = useConnectionsStore((s) => s.nameById);
+  const mpIncoming = useConnectionsStore((s) => s.incoming);
+  const setMpMeta = useConnectionsStore((s) => s.setMeta);
+  const setMpPeers = useConnectionsStore((s) => s.setPeers);
+
+  // Seed multiplayer state so the button reflects connections without opening
+  // the window (WS mp_* events keep it live afterwards).
+  useEffect(() => {
+    void getConnectionStatus()
+      .then((st) => {
+        setMpMeta({
+          enabled: st.enabled,
+          status: st.status,
+          identityPeerId: st.peerId,
+        });
+        if (st.enabled)
+          void getConnectionPeers()
+            .then(setMpPeers)
+            .catch(() => {});
+      })
+      .catch(() => {});
+  }, [setMpMeta, setMpPeers]);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
 
@@ -115,6 +139,7 @@ export function TopBar() {
           </button>
           <button
             style={{
+              position: 'relative',
               background: connectionsOpen ? '#1a2a3a' : '#2a2a2a',
               border: `1px solid ${connectionsOpen ? '#60a5fa' : '#3a3a3a'}`,
               color: connectionsOpen ? '#60a5fa' : '#ccc',
@@ -130,9 +155,52 @@ export function TopBar() {
               setConnectionsOpen((v) => !v);
               setConnectionsMounted(true);
             }}
-            title={t('connections.title')}
+            title={
+              mpConnectedIds.length > 0
+                ? mpConnectedIds
+                    .map((id) => mpNameById[id] || id.slice(0, 8))
+                    .join('\n')
+                : t('connections.none')
+            }
           >
-            🔗 {t('connections.label')}
+            {/* chain icon tinted by connection status: green = ≥1 connected */}
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke={mpConnectedIds.length > 0 ? '#4ade80' : '#888'}
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
+              <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
+            </svg>
+            {t('connections.label')}
+            {mpIncoming.length > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: -6,
+                  right: -6,
+                  minWidth: 16,
+                  height: 16,
+                  padding: '0 4px',
+                  borderRadius: 8,
+                  background: '#ef4444',
+                  color: '#fff',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {mpIncoming.length}
+              </span>
+            )}
           </button>
           <button
             style={{

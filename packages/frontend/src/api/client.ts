@@ -1410,3 +1410,11 @@ export const peerRemove = (peerId: string) =>
   request<{ peerId: string }>(`/connections/peers/${peerId}`, {
     method: 'DELETE',
   });
+
+export const getConnectionDisplayName = (projectId: string) =>
+  request<{ displayName: string }>(`/connections/display-name/${projectId}`);
+export const setConnectionDisplayName = (projectId: string, name: string) =>
+  request<{ displayName: string }>(`/connections/display-name/${projectId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  });

@@ -12,27 +12,41 @@
   "help": {
     "tip": "Mit anderen Servern koppeln und verbinden, um Avatare live zu teilen."
   },
+  "name": {
+    "label": "Dein Name (dieses Projekt)",
+    "placeholder": "Name, den andere sehen"
+  },
   "identity": {
     "label": "Deine Server-ID",
     "copy": "Kopieren"
-  },
-  "pairing": {
-    "label": "Kopplung",
-    "create": "Code erstellen",
-    "codePlaceholder": "Kopplungscode eingeben",
-    "join": "Beitreten"
   },
   "requests": {
     "label": "Eingehende Anfragen",
     "accept": "Annehmen",
     "reject": "Ablehnen"
   },
+  "connected": {
+    "label": "Verbunden",
+    "empty": "Niemand verbunden."
+  },
+  "shared": {
+    "label": "Mit dir geteilt",
+    "empty": "Noch nichts geteilt."
+  },
+  "pairing": {
+    "label": "Kopplung",
+    "create": "Code erstellen",
+    "copyCode": "Kopieren",
+    "codePlaceholder": "Kopplungscode eingeben",
+    "join": "Beitreten"
+  },
   "contacts": {
     "label": "Kontakte",
-    "empty": "Noch keine Kontakte – kopple dich oben mit jemandem.",
+    "empty": "Noch keine Kontakte – kopple dich unter „Kopplung“.",
     "connect": "Verbinden",
     "disconnect": "Trennen",
-    "remove": "Kontakt entfernen",
+    "remove": "Kontakt entfernen (entkoppeln)",
+    "confirmRemove": "Entkoppeln?",
     "connected": "Verbunden",
     "disconnected": "Offline"
   }

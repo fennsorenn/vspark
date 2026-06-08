@@ -436,11 +436,12 @@ export function useWsSync() {
               peerId: string;
               connected?: boolean;
               paired?: boolean;
+              displayName?: string;
             };
             if (typeof p.connected === 'boolean')
               useConnectionsStore
                 .getState()
-                .patchPeer(p.peerId, { connected: p.connected });
+                .setConnected(p.peerId, p.connected, p.displayName);
             // New pairing (or unknown peer) → refetch the authoritative list.
             useConnectionsStore.getState().bumpRevision();
           } else if (msg.kind === 'mp_presence') {

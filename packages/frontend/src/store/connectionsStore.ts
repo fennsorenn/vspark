@@ -1,9 +1,11 @@
 /**
  * Multiplayer connections state (Phase 5) — kept separate from the large
  * editorStore. Holds this server's identity, rendezvous status, the contacts
- * list, and pending inbound connection prompts. WS messages (mp_*) patch it for
- * instant feedback and bump `revision` so the Connections window refetches the
- * authoritative list.
+ * list, who's currently connected, and pending inbound prompts.
+ *
+ * Two consumers: the Connections window (full peer list) and the TopBar button
+ * (connected count/names + incoming badge). WS messages (mp_*) patch it for
+ * instant feedback and bump `revision` so the window refetches the list.
  *
  * See dev-notes/plans/multiplayer-phase5.md.
  */
@@ -20,6 +22,10 @@ interface ConnectionsState {
   status: 'idle' | 'connecting' | 'ready' | 'closed';
   identityPeerId: string | null;
   peers: ConnectionPeer[];
+  /** Peer ids with a live mesh connection (button + window, kept current by WS). */
+  connectedIds: string[];
+  /** peerId → display name (for the button tooltip without the full list). */
+  nameById: Record<string, string>;
   incoming: IncomingRequest[];
   /** Bumped by WS events so the window refetches the peer list. */
   revision: number;
@@ -31,7 +37,7 @@ interface ConnectionsState {
   }) => void;
   setStatus: (status: ConnectionsState['status']) => void;
   setPeers: (peers: ConnectionPeer[]) => void;
-  patchPeer: (peerId: string, patch: Partial<ConnectionPeer>) => void;
+  setConnected: (peerId: string, connected: boolean, name?: string) => void;
   addIncoming: (req: IncomingRequest) => void;
   removeIncoming: (peerId: string) => void;
   bumpRevision: () => void;
@@ -42,15 +48,29 @@ export const useConnectionsStore = create<ConnectionsState>((set) => ({
   status: 'idle',
   identityPeerId: null,
   peers: [],
+  connectedIds: [],
+  nameById: {},
   incoming: [],
   revision: 0,
 
   setMeta: (m) => set(m),
   setStatus: (status) => set({ status }),
-  setPeers: (peers) => set({ peers }),
-  patchPeer: (peerId, patch) =>
+  setPeers: (peers) =>
+    set({
+      peers,
+      connectedIds: peers.filter((p) => p.connected).map((p) => p.peerId),
+      nameById: Object.fromEntries(
+        peers.map((p) => [p.peerId, p.displayName || p.peerId.slice(0, 8)])
+      ),
+    }),
+  setConnected: (peerId, connected, name) =>
     set((s) => ({
-      peers: s.peers.map((p) => (p.peerId === peerId ? { ...p, ...patch } : p)),
+      connectedIds: connected
+        ? s.connectedIds.includes(peerId)
+          ? s.connectedIds
+          : [...s.connectedIds, peerId]
+        : s.connectedIds.filter((id) => id !== peerId),
+      nameById: name ? { ...s.nameById, [peerId]: name } : s.nameById,
     })),
   addIncoming: (req) =>
     set((s) =>

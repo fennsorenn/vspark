@@ -1,19 +1,26 @@
 /**
- * Connections window (Phase 5 multiplayer) — pair with other servers, see
- * contacts + their online/connected state, and connect/disconnect. A draggable
- * floating window (sibling of the media window). Live updates arrive via the
- * mp_* WS messages → connectionsStore; this component drives the REST actions.
+ * Connections window (Phase 5 multiplayer). Layout (top → bottom):
+ *   - your display name (per project) + server ID
+ *   - incoming connection prompts
+ *   - currently-connected members, each with a collapsible "shared by them"
+ *     section and a Disconnect (without unpairing) button
+ *   - collapsed Pairing section (create/copy code, join)
+ *   - collapsed Contacts section (connect; unpair with confirm)
  *
- * See dev-notes/plans/multiplayer-phase5.md.
+ * Live updates arrive via the mp_* WS messages → connectionsStore; this
+ * component drives the REST actions. See dev-notes/plans/multiplayer-phase5.md.
  */
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConnectionsStore } from '../store/connectionsStore';
+import { useEditorStore } from '../store/editorStore';
 import { HelpButton } from '../help/HelpButton';
 import {
   getConnectionIdentity,
   getConnectionStatus,
   getConnectionPeers,
+  getConnectionDisplayName,
+  setConnectionDisplayName,
   pairCreate,
   pairJoin,
   peerConnect,
@@ -21,11 +28,13 @@ import {
   peerAccept,
   peerReject,
   peerRemove,
+  type ConnectionPeer,
 } from '../api/client';
 
 const C = {
   bg: '#181818',
   panel: '#222',
+  card: '#1e1e1e',
   border: '#333',
   text: '#ccc',
   dim: '#888',
@@ -42,6 +51,19 @@ const S = {
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     margin: '10px 0 4px',
+  } as React.CSSProperties,
+  collapseHeader: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: C.dim,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    margin: '12px 0 4px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    cursor: 'pointer',
+    userSelect: 'none',
   } as React.CSSProperties,
   btn: (
     kind: 'default' | 'primary' | 'danger' = 'default'
@@ -70,10 +92,99 @@ const S = {
     width: '100%',
   } as React.CSSProperties,
   row: { display: 'flex', alignItems: 'center', gap: 6 } as React.CSSProperties,
+  dot: (on: boolean): React.CSSProperties => ({
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: on ? C.green : C.dim,
+    flexShrink: 0,
+  }),
 };
+
+function Collapsible({
+  title,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <div style={S.collapseHeader} onClick={() => setOpen((o) => !o)}>
+        <span style={{ width: 8 }}>{open ? '▾' : '▸'}</span>
+        {title}
+      </div>
+      {open && children}
+    </div>
+  );
+}
+
+/** A connected member with a collapsible "shared by them" sub-section. */
+function ConnectedMember({
+  peer,
+  onDisconnect,
+  busy,
+}: {
+  peer: ConnectionPeer;
+  onDisconnect: () => void;
+  busy: boolean;
+}) {
+  const { t } = useTranslation('connections');
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      style={{
+        background: C.card,
+        border: `1px solid ${C.border}`,
+        borderRadius: 6,
+        padding: '6px 8px',
+        marginBottom: 6,
+      }}
+    >
+      <div style={S.row}>
+        <span style={S.dot(true)} />
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {peer.displayName || peer.peerId.slice(0, 12)}
+        </span>
+        <button style={S.btn()} disabled={busy} onClick={onDisconnect}>
+          {t('contacts.disconnect')}
+        </button>
+      </div>
+      <div
+        style={{
+          ...S.row,
+          marginTop: 4,
+          cursor: 'pointer',
+          color: C.dim,
+          fontSize: 11,
+        }}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span style={{ width: 8 }}>{open ? '▾' : '▸'}</span>
+        {t('shared.label')}
+      </div>
+      {open && (
+        <div
+          style={{
+            paddingLeft: 14,
+            color: C.dim,
+            fontSize: 11,
+            padding: '2px 0 2px 14px',
+          }}
+        >
+          {t('shared.empty')}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function ConnectionsWindow({ visible }: { visible: boolean }) {
   const { t } = useTranslation('connections');
+  const projectId = useEditorStore((s) => s.projectId);
   const [pos, setPos] = useState({ x: 80, y: 90 });
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
 
@@ -89,12 +200,14 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
     removeIncoming,
   } = useConnectionsStore();
 
+  const [name, setName] = useState('');
   const [code, setCode] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState('');
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Initial load: identity + status.
+  // Initial load: identity + status + my per-project display name.
   useEffect(() => {
     void (async () => {
       try {
@@ -112,6 +225,13 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
       }
     })();
   }, [setMeta]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    void getConnectionDisplayName(projectId)
+      .then((d) => setName(d.displayName))
+      .catch(() => {});
+  }, [projectId]);
 
   // Refetch the peer list on mount and whenever a WS event bumps the revision.
   useEffect(() => {
@@ -151,10 +271,17 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
     }
   };
 
+  const saveName = () => {
+    if (!projectId) return;
+    void setConnectionDisplayName(projectId, name).catch(() => {});
+  };
+
   if (!visible) return null;
 
   const statusColor =
     status === 'ready' ? C.green : status === 'connecting' ? '#fbbf24' : C.dim;
+  const connected = peers.filter((p) => p.connected);
+  const contacts = peers.filter((p) => !p.connected);
 
   return (
     <div
@@ -162,7 +289,7 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
         position: 'fixed',
         left: pos.x,
         top: pos.y,
-        width: 330,
+        width: 340,
         maxHeight: '80vh',
         overflowY: 'auto',
         background: C.bg,
@@ -188,12 +315,7 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
       >
         <span style={{ fontWeight: 600, flex: 1 }}>🔗 {t('window.title')}</span>
         <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: statusColor,
-          }}
+          style={{ ...S.dot(false), background: statusColor }}
           title={t(`status.${status}`)}
         />
         <HelpButton topic="multiplayer" tip={t('help.tip')} size={12} />
@@ -206,6 +328,18 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
 
         {enabled && (
           <>
+            {/* Display name */}
+            <div style={S.section}>{t('name.label')}</div>
+            <input
+              style={S.input}
+              value={name}
+              placeholder={t('name.placeholder')}
+              maxLength={64}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={saveName}
+              onKeyDown={(e) => e.key === 'Enter' && saveName()}
+            />
+
             {/* Identity */}
             <div style={S.section}>{t('identity.label')}</div>
             <div style={S.row}>
@@ -216,8 +350,9 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                 }}
+                title={identityPeerId ?? ''}
               >
-                {identityPeerId ? identityPeerId.slice(0, 16) + '…' : '—'}
+                {identityPeerId ? identityPeerId.slice(0, 18) + '…' : '—'}
               </code>
               <button
                 style={S.btn()}
@@ -228,53 +363,6 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
                 title={t('identity.copy')}
               >
                 {t('identity.copy')}
-              </button>
-            </div>
-
-            {/* Pairing */}
-            <div style={S.section}>{t('pairing.label')}</div>
-            <div style={{ ...S.row, marginBottom: 6 }}>
-              <button
-                style={S.btn('primary')}
-                disabled={busy}
-                onClick={() =>
-                  run(async () => setCode((await pairCreate()).code))
-                }
-              >
-                {t('pairing.create')}
-              </button>
-              {code && (
-                <code
-                  style={{
-                    flex: 1,
-                    letterSpacing: 2,
-                    color: C.green,
-                    fontSize: 14,
-                    textAlign: 'center',
-                  }}
-                >
-                  {code}
-                </code>
-              )}
-            </div>
-            <div style={S.row}>
-              <input
-                style={S.input}
-                placeholder={t('pairing.codePlaceholder')}
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-              />
-              <button
-                style={S.btn()}
-                disabled={busy || !joinCode.trim()}
-                onClick={() =>
-                  run(async () => {
-                    await pairJoin(joinCode.trim());
-                    setJoinCode('');
-                  })
-                }
-              >
-                {t('pairing.join')}
               </button>
             </div>
 
@@ -314,46 +402,100 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
               </>
             )}
 
-            {/* Contacts */}
-            <div style={S.section}>{t('contacts.label')}</div>
-            {peers.length === 0 && (
-              <div style={{ color: C.dim, padding: '4px 0' }}>
-                {t('contacts.empty')}
+            {/* Connected members */}
+            <div style={S.section}>
+              {t('connected.label')}{' '}
+              {connected.length > 0 && `(${connected.length})`}
+            </div>
+            {connected.length === 0 && (
+              <div style={{ color: C.dim, padding: '2px 0' }}>
+                {t('connected.empty')}
               </div>
             )}
-            {peers.map((p) => (
-              <div key={p.peerId} style={{ ...S.row, marginBottom: 4 }}>
-                <span
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    background: p.connected ? C.green : C.dim,
-                  }}
-                  title={
-                    p.connected
-                      ? t('contacts.connected')
-                      : t('contacts.disconnected')
+            {connected.map((p) => (
+              <ConnectedMember
+                key={p.peerId}
+                peer={p}
+                busy={busy}
+                onDisconnect={() => run(() => peerDisconnect(p.peerId))}
+              />
+            ))}
+
+            {/* Pairing (collapsed) */}
+            <Collapsible title={t('pairing.label')}>
+              <div style={{ ...S.row, marginBottom: 6 }}>
+                <button
+                  style={S.btn('primary')}
+                  disabled={busy}
+                  onClick={() =>
+                    run(async () => setCode((await pairCreate()).code))
                   }
-                />
-                <span
-                  style={{
-                    flex: 1,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
                 >
-                  {p.displayName || p.peerId.slice(0, 12)}
-                </span>
-                {p.connected ? (
-                  <button
-                    style={S.btn()}
-                    disabled={busy}
-                    onClick={() => run(() => peerDisconnect(p.peerId))}
+                  {t('pairing.create')}
+                </button>
+                {code && (
+                  <>
+                    <code
+                      style={{
+                        flex: 1,
+                        letterSpacing: 2,
+                        color: C.green,
+                        fontSize: 14,
+                        textAlign: 'center',
+                      }}
+                    >
+                      {code}
+                    </code>
+                    <button
+                      style={S.btn()}
+                      onClick={() => navigator.clipboard?.writeText(code)}
+                      title={t('pairing.copyCode')}
+                    >
+                      {t('pairing.copyCode')}
+                    </button>
+                  </>
+                )}
+              </div>
+              <div style={S.row}>
+                <input
+                  style={S.input}
+                  placeholder={t('pairing.codePlaceholder')}
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                />
+                <button
+                  style={S.btn()}
+                  disabled={busy || !joinCode.trim()}
+                  onClick={() =>
+                    run(async () => {
+                      await pairJoin(joinCode.trim());
+                      setJoinCode('');
+                    })
+                  }
+                >
+                  {t('pairing.join')}
+                </button>
+              </div>
+            </Collapsible>
+
+            {/* Contacts (collapsed) */}
+            <Collapsible title={`${t('contacts.label')} (${contacts.length})`}>
+              {contacts.length === 0 && (
+                <div style={{ color: C.dim, padding: '2px 0' }}>
+                  {t('contacts.empty')}
+                </div>
+              )}
+              {contacts.map((p) => (
+                <div key={p.peerId} style={{ ...S.row, marginBottom: 4 }}>
+                  <span
+                    style={{
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
                   >
-                    {t('contacts.disconnect')}
-                  </button>
-                ) : (
+                    {p.displayName || p.peerId.slice(0, 12)}
+                  </span>
                   <button
                     style={S.btn('primary')}
                     disabled={busy}
@@ -361,17 +503,32 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
                   >
                     {t('contacts.connect')}
                   </button>
-                )}
-                <button
-                  style={S.btn('danger')}
-                  disabled={busy}
-                  onClick={() => run(() => peerRemove(p.peerId))}
-                  title={t('contacts.remove')}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
+                  {confirmRemove === p.peerId ? (
+                    <button
+                      style={S.btn('danger')}
+                      disabled={busy}
+                      onClick={() =>
+                        run(async () => {
+                          await peerRemove(p.peerId);
+                          setConfirmRemove(null);
+                        })
+                      }
+                    >
+                      {t('contacts.confirmRemove')}
+                    </button>
+                  ) : (
+                    <button
+                      style={S.btn('danger')}
+                      disabled={busy}
+                      onClick={() => setConfirmRemove(p.peerId)}
+                      title={t('contacts.remove')}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+            </Collapsible>
 
             {err && (
               <div style={{ color: C.red, marginTop: 8, fontSize: 11 }}>

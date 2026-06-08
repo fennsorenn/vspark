@@ -7,7 +7,8 @@
   },
   "connections": {
     "label": "Verbindungen",
-    "title": "Mehrspieler-Verbindungen (mit anderen Servern koppeln & verbinden)"
+    "title": "Mehrspieler-Verbindungen (mit anderen Servern koppeln & verbinden)",
+    "none": "Keine aktiven Verbindungen"
   },
   "status": {
     "connected": "Verbunden",
