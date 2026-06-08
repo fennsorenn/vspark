@@ -30,6 +30,8 @@ const UPDATE = '_share_update';
 const UNSHARED = '_share_unshared';
 /** Live pose/blendshape frame for a shared avatar (rides the lossy stream channel). */
 const STREAM = '_share_stream';
+/** Runtime override set/clear on a shared subtree node (reliable doc channel). */
+const OVERRIDE = '_share_override';
 
 /** rtypes the sharing manager owns (so the mesh dispatcher routes them here). */
 export const SHARE_RTYPES = new Set([
@@ -39,6 +41,7 @@ export const SHARE_RTYPES = new Set([
   SNAPSHOT,
   UPDATE,
   UNSHARED,
+  OVERRIDE,
 ]);
 
 type Broadcast = (kind: string, payload: Record<string, unknown>) => void;
@@ -178,6 +181,9 @@ export class SharingManager {
           objectId: data.objectId,
         });
         break;
+      case OVERRIDE:
+        this.broadcast('mp_shared_override', { peerId: from, ...data });
+        break;
     }
   }
 
@@ -225,6 +231,26 @@ export class SharingManager {
           objectId: nodeId,
           kind,
           payload,
+        });
+    }
+  }
+
+  /** Owner: forward a runtime override set/clear on a shared subtree node to its
+   *  subscribers over the reliable doc channel (a dropped `clear` must not stick,
+   *  so this can't ride the lossy stream channel). Overrides are low-frequency,
+   *  so resolving the owning root per subscriber is fine. Only scene_node targets
+   *  are shared (compose layers aren't). */
+  forwardOverride(op: 'set' | 'clear', payload: Record<string, unknown>): void {
+    if (payload.targetKind !== 'scene_node') return;
+    const targetId = payload.targetId as string;
+    for (const [peerId, roots] of this.subscribers) {
+      if (roots.size === 0) continue;
+      if (findOwningRoot(targetId, roots))
+        this.mesh.sendEnvelope(peerId, {
+          rtype: OVERRIDE,
+          op: 'event',
+          key: targetId,
+          data: { op, ...payload },
         });
     }
   }

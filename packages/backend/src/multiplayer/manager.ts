@@ -314,6 +314,11 @@ class MultiplayerManager {
     this.sharing?.forwardStream(kind, nodeId, payload);
   }
 
+  /** Owner: forward a runtime override on a shared scene node to subscribers. */
+  forwardOverride(op: 'set' | 'clear', payload: Record<string, unknown>): void {
+    this.sharing?.forwardOverride(op, payload);
+  }
+
   /** Replay current share offers to a freshly-connected client (late-join gap). */
   sendSharingSnapshotTo(
     send: (kind: string, payload: Record<string, unknown>) => void

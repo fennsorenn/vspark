@@ -140,6 +140,10 @@ async function start() {
   // until then, `persist: true` falls through to a log + no-op.
   // See dev-notes/modules/runtime-overrides.md.
   runtimeOverrideManager.init(wsSync, null);
+  // Forward overrides on shared scene nodes to subscriber peers.
+  runtimeOverrideManager.setOverrideForwarder((op, payload) =>
+    multiplayerManager.forwardOverride(op, payload)
+  );
 
   // Data-channel bus — generic graph→frontend publish surface (set_data node →
   // feed/template compose layer). Sibling of the override bus.

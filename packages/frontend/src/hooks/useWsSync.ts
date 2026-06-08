@@ -529,6 +529,30 @@ export function useWsSync() {
                 f.transform as Record<string, number>
               );
             }
+          } else if (msg.kind === 'mp_shared_override') {
+            // Graph-driven runtime override on a shared node (owner ids are
+            // preserved by the projection, so it applies to the projected node).
+            const p = msg.payload as {
+              op: 'set' | 'clear';
+              targetKind: 'scene_node' | 'compose_layer';
+              targetId: string;
+              paramPath?: string;
+              value?: number | string | boolean;
+            };
+            if (p.op === 'set' && p.paramPath != null && p.value != null) {
+              useEditorStore
+                .getState()
+                .setRuntimeOverride(
+                  p.targetKind,
+                  p.targetId,
+                  p.paramPath,
+                  p.value
+                );
+            } else if (p.op === 'clear') {
+              useEditorStore
+                .getState()
+                .clearRuntimeOverride(p.targetKind, p.targetId, p.paramPath);
+            }
           } else if (msg.kind === 'mesh_roster') {
             const p = msg.payload as { participants?: string[] };
             clientMesh.setRoster(p.participants ?? []);
