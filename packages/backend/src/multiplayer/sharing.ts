@@ -167,13 +167,19 @@ export class SharingManager {
   }
 
   /** Owner: forward a document op to every subscriber whose subtree contains it.
-   *  Slice 1 forwards scene_node ops (the avatar tree); behaviours/effects/clips
-   *  ride the initial snapshot and are a follow-up for live updates. */
+   *  Forwards scene_node ops (the avatar tree): upserts (create + property /
+   *  transform / model edits) resolve the owning root via parent_id; removes use
+   *  the envelope's `route` ancestor hint, since the row is already gone.
+   *  Behaviours/effects/clips ride the initial snapshot — live updates for those
+   *  are a follow-up. */
   forwardDocOp(env: SyncEnvelope): void {
     if (env.rtype !== 'scene_node') return;
     for (const [peerId, roots] of this.subscribers) {
       if (roots.size === 0) continue;
-      const root = findOwningRoot(env.key, roots);
+      const root =
+        env.op === 'remove'
+          ? ((env.route ?? []).find((id) => roots.has(id)) ?? null)
+          : findOwningRoot(env.key, roots);
       if (root)
         this.mesh.sendEnvelope(peerId, {
           rtype: UPDATE,

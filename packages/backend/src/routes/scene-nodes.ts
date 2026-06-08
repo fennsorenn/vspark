@@ -257,6 +257,9 @@ router.put('/scene-nodes/:id', (req, res) => {
   if ('hidden' in req.body) patch.hidden = Boolean(req.body.hidden);
   if (mergedProperties != null) patch.properties = mergedProperties;
   _ws?.broadcast('node_updated', patch);
+  // Forward the canonical doc to share subscribers across the mesh (the legacy
+  // broadcast above stays local + smoothing-aware for this server's own clients).
+  sync.document.touch('scene_node', req.params.id);
 
   res.json({ ok: true, data: { id: req.params.id } });
 });
@@ -273,9 +276,23 @@ router.put('/scene-nodes/:id', (req, res) => {
  *       200: { description: Deleted; broadcast as node_removed over WebSocket }
  */
 router.delete('/scene-nodes/:id', (req, res) => {
-  getDb().prepare('DELETE FROM scene_nodes WHERE id = ?').run(req.params.id);
+  const db = getDb();
+  // Capture the ancestor chain (self → root) BEFORE deleting, so share fan-out
+  // can resolve the owning shared-object root once the row is gone.
+  const route: string[] = [];
+  let cur: string | null = req.params.id;
+  const seen = new Set<string>();
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    route.push(cur);
+    const r = db
+      .prepare('SELECT parent_id FROM scene_nodes WHERE id = ?')
+      .get(cur) as { parent_id: string | null } | undefined;
+    cur = r?.parent_id ?? null;
+  }
+  db.prepare('DELETE FROM scene_nodes WHERE id = ?').run(req.params.id);
   runtimeOverrideManager.clearAllForTarget('scene_node', req.params.id);
-  sync.document.remove('scene_node', req.params.id);
+  sync.document.remove('scene_node', req.params.id, undefined, route);
   res.json({ ok: true, data: {} });
 });
 

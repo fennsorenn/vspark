@@ -244,9 +244,12 @@ class MultiplayerManager {
     });
   }
 
-  /** Manual disconnect — revokes the session grant (next inbound re-prompts). */
+  /** Manual disconnect — revokes the session grant (next inbound re-prompts).
+   *  Sends a graceful `bye` so the peer tears down its side (and drops our
+   *  shared-object projections) immediately rather than hanging until a
+   *  transport timeout. */
   disconnect(peerId: string): void {
-    this.mesh?.disconnect(peerId);
+    this.mesh?.disconnectGraceful(peerId);
     revokeSessionGrant(peerId);
   }
 

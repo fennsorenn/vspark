@@ -87,6 +87,9 @@
     "shareNobody": "Niemand verbunden",
     "delete": "Löschen"
   },
+  "remote": {
+    "tip": "Von einem verbundenen Partner geteilt – schreibgeschützte Projektion, gehört zu dessen Server."
+  },
   "logic": {
     "globalLogic": "Globale Logik",
     "scopedLogic": "Bereichslogik",

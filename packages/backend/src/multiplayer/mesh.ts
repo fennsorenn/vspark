@@ -43,6 +43,9 @@ interface PeerConn {
  * Events: `incomingOffer`(peerId — awaiting accept/reject), `peerConnected`(peerId),
  * `peerDisconnected`(peerId), `envelope`({from, env}), `streamFrame`({from, frame}).
  */
+/** Reserved control rtype: a peer announcing a graceful disconnect. */
+const BYE_RTYPE = '_mesh_bye';
+
 const DBG = !!process.env.MESH_DEBUG;
 const dbg = (...a: unknown[]): void => {
   if (DBG) console.error('[mesh]', ...a);
@@ -141,6 +144,20 @@ export class ServerMesh extends EventEmitter {
     if (p.connected) this.emit('peerDisconnected', peerId);
   }
 
+  /** Graceful disconnect: tell the peer we're leaving so it tears down at once,
+   *  rather than waiting on a connection-state timeout that may never fire
+   *  (observed: the remote side stayed "connected" indefinitely). Sends a `bye`
+   *  on the reliable channel, then closes after a short flush window. */
+  disconnectGraceful(peerId: string): void {
+    const sent = this.sendEnvelope(peerId, {
+      rtype: BYE_RTYPE,
+      op: 'event',
+      key: '',
+    });
+    if (sent) setTimeout(() => this.disconnect(peerId), 200);
+    else this.disconnect(peerId);
+  }
+
   /** Reliable document/control envelope. Returns false if the channel isn't open. */
   sendEnvelope(peerId: string, env: SyncEnvelope): boolean {
     const dc = this.peers.get(peerId)?.doc;
@@ -203,9 +220,16 @@ export class ServerMesh extends EventEmitter {
       } catch {
         return;
       }
-      if (dc.label === 'doc')
+      if (dc.label === 'doc') {
+        // Peer announced it's leaving — tear down now instead of waiting for a
+        // transport timeout. Handled inside the mesh so it never surfaces as an
+        // application envelope.
+        if ((parsed as SyncEnvelope)?.rtype === BYE_RTYPE) {
+          this.disconnect(peerId);
+          return;
+        }
         this.emit('envelope', { from: peerId, env: parsed as SyncEnvelope });
-      else this.emit('streamFrame', { from: peerId, frame: parsed });
+      } else this.emit('streamFrame', { from: peerId, frame: parsed });
     });
     dc.stateChanged.subscribe((s: string) => {
       dbg('dc', peerId, dc.label, s);

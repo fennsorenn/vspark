@@ -87,6 +87,9 @@
     "shareNobody": "No one connected",
     "delete": "Delete"
   },
+  "remote": {
+    "tip": "Shared by a connected peer — read-only projection, owned on their server."
+  },
   "logic": {
     "globalLogic": "Global Logic",
     "scopedLogic": "Scoped Logic",

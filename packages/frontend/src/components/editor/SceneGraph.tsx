@@ -2054,6 +2054,16 @@ export function SceneGraph() {
             {node.name}
           </span>
 
+          {/* Remote (shared-by-peer) projection: read-only, owned elsewhere. */}
+          {node.remote && (
+            <span
+              title={t('remote.tip')}
+              style={{ fontSize: 11, flexShrink: 0, opacity: 0.7 }}
+            >
+              🔒
+            </span>
+          )}
+
           {/* Bones toggle — avatar/model only, shown once VRM is loaded */}
           {bones && (
             <button

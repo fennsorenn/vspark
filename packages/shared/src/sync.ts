@@ -53,6 +53,11 @@ export interface SyncEnvelope {
   v?: HLC;
   /** originating peer id — echo + loop suppression (Phase 4+). */
   origin?: string;
+  /** Fan-out routing hint for `remove` ops: the deleted entity's ancestor id
+   *  chain (self first, up to the tree root), captured *before* deletion so
+   *  subtree-scoped subscribers can still be resolved once the row is gone.
+   *  Ignored by consumers that route by key. */
+  route?: string[];
 }
 
 /** WS message kind that wraps every unified-sync envelope, so it coexists with
