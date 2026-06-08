@@ -99,6 +99,22 @@ export function touchLastSeen(peerId: string): void {
     .run(peerId);
 }
 
+// --- Per-project display name -----------------------------------------------
+
+/** The name peers see you as while this project is active (empty = unset). */
+export function getProjectDisplayName(projectId: string): string {
+  const r = getDb()
+    .prepare('SELECT mp_display_name FROM projects WHERE id = ?')
+    .get(projectId) as { mp_display_name: string } | undefined;
+  return r?.mp_display_name ?? '';
+}
+
+export function setProjectDisplayName(projectId: string, name: string): void {
+  getDb()
+    .prepare('UPDATE projects SET mp_display_name = ? WHERE id = ?')
+    .run(name, projectId);
+}
+
 // --- Session grants (persisted accept policy) -------------------------------
 
 const DEFAULT_GRANT_TTL_MS = 12 * 60 * 60 * 1000; // ~12h

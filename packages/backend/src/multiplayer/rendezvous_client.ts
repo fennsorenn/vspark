@@ -56,6 +56,8 @@ export class RendezvousClient extends EventEmitter {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly waiters: Waiter[] = [];
   private _status: RvStatus = 'idle';
+  /** Mutable display name (the per-project name; updated via setDisplayName). */
+  private displayName: string;
 
   constructor(
     private readonly url: string,
@@ -64,10 +66,16 @@ export class RendezvousClient extends EventEmitter {
     private watchPeerIds: () => string[] = () => []
   ) {
     super();
+    this.displayName = identity.displayName ?? '';
   }
 
   get status(): RvStatus {
     return this._status;
+  }
+
+  /** Update the name sent on hello/pair (peers see this). */
+  setDisplayName(name: string): void {
+    this.displayName = name;
   }
 
   start(): void {
@@ -93,7 +101,7 @@ export class RendezvousClient extends EventEmitter {
     this.sendRaw({
       type: 'pair_create',
       publicKey: this.identity.publicKey,
-      displayName: this.identity.displayName ?? '',
+      displayName: this.displayName,
     });
     const m = await this.once1(['pair_code']);
     return m.code as string;
@@ -105,7 +113,7 @@ export class RendezvousClient extends EventEmitter {
       type: 'pair_join',
       code,
       publicKey: this.identity.publicKey,
-      displayName: this.identity.displayName ?? '',
+      displayName: this.displayName,
     });
     const m = await this.once1(['pair_info', 'error']);
     if (m.type === 'error')
@@ -161,7 +169,7 @@ export class RendezvousClient extends EventEmitter {
         publicKey: this.identity.publicKey,
         ts,
         sig: this.identity.sign(`hello:${this.identity.peerId}:${ts}`),
-        displayName: this.identity.displayName ?? '',
+        displayName: this.displayName,
       });
     });
 

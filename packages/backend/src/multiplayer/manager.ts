@@ -26,7 +26,13 @@ import {
   getKnownPeer,
   listKnownPeers,
   touchLastSeen,
+  setPeerDisplayName,
 } from './peers.js';
+import type { SyncEnvelope } from '@vspark/shared/sync';
+
+/** Control envelope carrying a peer's current display name (the per-project
+ *  name updates live, so we exchange it on connect + on change). */
+const PROFILE_RTYPE = 'peer_profile';
 
 type Broadcast = (kind: string, payload: Record<string, unknown>) => void;
 
@@ -45,6 +51,7 @@ class MultiplayerManager {
   private broadcast: Broadcast = () => {};
   private iceServers: IceServer[] = [];
   private iceFetchedAt = 0;
+  private currentDisplayName = 'vspark';
 
   init(
     url: string | undefined,
@@ -54,6 +61,7 @@ class MultiplayerManager {
     if (!url) return;
     const id = getIdentity();
     this.enabled = true;
+    this.currentDisplayName = displayName || 'vspark';
     if (broadcast) this.broadcast = broadcast;
 
     this.client = new RendezvousClient(
@@ -100,10 +108,28 @@ class MultiplayerManager {
     this.mesh.on('peerConnected', (peerId: string) => {
       touchLastSeen(peerId);
       this.broadcast('mp_peer', { peerId, connected: true });
+      // Exchange display names so each side shows the other's live (per-project) name.
+      this.sendProfile(peerId);
     });
     this.mesh.on('peerDisconnected', (peerId: string) => {
       this.broadcast('mp_peer', { peerId, connected: false });
     });
+    // Inbound profile (live display name) from a connected peer.
+    this.mesh.on(
+      'envelope',
+      ({ from, env }: { from: string; env: SyncEnvelope }) => {
+        if (env?.rtype === PROFILE_RTYPE) {
+          const name =
+            (env.data as { displayName?: string })?.displayName ?? '';
+          if (name) setPeerDisplayName(from, name);
+          this.broadcast('mp_peer', {
+            peerId: from,
+            connected: true,
+            displayName: name,
+          });
+        }
+      }
+    );
 
     // Pairing stores the contact only; the first connection still prompts.
     this.client.on('pairRequest', (peer: PairedPeer) => {
@@ -182,6 +208,24 @@ class MultiplayerManager {
 
   reject(peerId: string): void {
     this.mesh?.rejectOffer(peerId);
+  }
+
+  /** Update the name peers see (per-project; the caller persists it). Pushes the
+   *  new name to the rendezvous (future pairs) and to all connected peers live. */
+  setDisplayName(name: string): void {
+    this.currentDisplayName = name;
+    this.client?.setDisplayName(name);
+    for (const peerId of this.mesh?.connectedPeers() ?? [])
+      this.sendProfile(peerId);
+  }
+
+  private sendProfile(peerId: string): void {
+    this.mesh?.sendEnvelope(peerId, {
+      rtype: PROFILE_RTYPE,
+      op: 'event',
+      key: getIdentity().peerId,
+      data: { displayName: this.currentDisplayName },
+    });
   }
 
   /** Manual disconnect — revokes the session grant (next inbound re-prompts). */

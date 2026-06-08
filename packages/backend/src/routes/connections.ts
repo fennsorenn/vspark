@@ -16,6 +16,8 @@ import {
   setPeerBlocked,
   setPeerDisplayName,
   hasActiveGrant,
+  getProjectDisplayName,
+  setProjectDisplayName,
 } from '../multiplayer/peers.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -23,6 +25,22 @@ const router: ReturnType<typeof Router> = Router();
 /** Whether multiplayer is enabled + the rendezvous connection status. */
 router.get('/connections/status', (_req, res) => {
   res.json({ ok: true, data: multiplayerManager.status() });
+});
+
+/** The per-project display name peers see you as. */
+router.get('/connections/display-name/:projectId', (req, res) => {
+  res.json({
+    ok: true,
+    data: { displayName: getProjectDisplayName(req.params.projectId) },
+  });
+});
+
+/** Set the per-project display name + push it live to peers. */
+router.put('/connections/display-name/:projectId', (req, res) => {
+  const name = String(req.body?.name ?? '').slice(0, 64);
+  setProjectDisplayName(req.params.projectId, name);
+  if (multiplayerManager.isEnabled) multiplayerManager.setDisplayName(name);
+  res.json({ ok: true, data: { displayName: name } });
 });
 
 /** This server's stable identity (peer id + public key) for display/pairing. */

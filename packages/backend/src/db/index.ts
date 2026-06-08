@@ -37,6 +37,7 @@ import m024 from './migrations/024_rename_preset_graphs_key.js';
 import m025 from './migrations/025_rename_automations_table_to_logic.js';
 import m026 from './migrations/026_rename_preset_logic_key.js';
 import m027 from './migrations/027_multiplayer_identity.js';
+import m028 from './migrations/028_project_mp_display_name.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -87,6 +88,7 @@ const MIGRATIONS: Migration[] = [
   { name: '025_rename_automations_table_to_logic.sql', sql: m025 },
   { name: '026_rename_preset_logic_key.ts', run: m026 },
   { name: '027_multiplayer_identity.sql', sql: m027 },
+  { name: '028_project_mp_display_name.sql', sql: m028 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.
