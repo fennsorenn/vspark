@@ -19,6 +19,7 @@ import {
 } from './rendezvous_client.js';
 import { ServerMesh, type MeshSignaling } from './mesh.js';
 import { SharingManager, SHARE_RTYPES } from './sharing.js';
+import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
 import {
   clientMeshRelay,
   MESH_RELAY_RTYPE,
@@ -57,6 +58,7 @@ class MultiplayerManager {
   private client: RendezvousClient | null = null;
   private mesh: ServerMesh | null = null;
   private sharing: SharingManager | null = null;
+  private blob: BlobManager | null = null;
   private enabled = false;
   private broadcast: Broadcast = () => {};
   private iceServers: IceServer[] = [];
@@ -97,7 +99,8 @@ class MultiplayerManager {
         ),
     };
     this.mesh = new ServerMesh(signaling, () => this.iceServers);
-    this.sharing = new SharingManager(this.mesh, this.broadcast);
+    this.blob = new BlobManager(this.mesh);
+    this.sharing = new SharingManager(this.mesh, this.broadcast, this.blob);
     // Forward shared objects' document updates to subscribed peers.
     sync.onDocument((env) => this.sharing?.forwardDocOp(env));
     // Bridge the client-mesh signaling relay onto the server mesh.
@@ -155,6 +158,8 @@ class MultiplayerManager {
           this.sharing?.advertise(from);
         } else if (SHARE_RTYPES.has(env?.rtype)) {
           this.sharing?.handleEnvelope(from, env);
+        } else if (BLOB_RTYPES.has(env?.rtype)) {
+          this.blob?.handleEnvelope(from, env);
         } else if (env?.rtype === MESH_RELAY_RTYPE) {
           clientMeshRelay.onServerRelay(env);
         } else if (env?.rtype === MESH_ROSTER_RTYPE) {

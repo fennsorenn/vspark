@@ -5,6 +5,7 @@
  */
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
+import { extOf } from './blobs.js';
 
 export type ShareKind = 'object' | 'scene';
 
@@ -101,14 +102,24 @@ interface SceneNodeRow {
  *  as the canonical camelCase DTOs the frontend renders. Parent ids are kept so
  *  the receiver can rebuild the tree under its wrapper (the root's parent is
  *  rewritten to the wrapper locally). */
+export interface SnapshotAsset {
+  /** the owner's file path as it appears on the subtree's nodes */
+  filePath: string;
+  hash: string;
+  ext: string;
+  mime: string;
+  size: number;
+}
+
 export interface ObjectSnapshot {
   objectId: string;
   rootName: string;
   nodes: Record<string, unknown>[];
   behaviors: Record<string, unknown>[];
   cameraEffects: Record<string, unknown>[];
-  /** sha256 → file_path for assets referenced by the subtree (transfer later). */
-  assetHashes: string[];
+  /** Assets referenced by the subtree, content-addressed for transfer; the
+   *  receiver fetches each by hash and rewrites node file paths to its cache. */
+  assets: SnapshotAsset[];
 }
 
 function rowToNode(r: SceneNodeRow): Record<string, unknown> {
@@ -170,17 +181,30 @@ export function gatherObjectSnapshot(objectId: string): ObjectSnapshot | null {
           )
           .all(...ids) as Record<string, unknown>[])
       : [];
-  const assetHashes = (
-    db
-      .prepare(
-        `SELECT DISTINCT hash FROM asset_files WHERE stored_path IN (${subtree
-          .map(() => '?')
-          .join(',')})`
-      )
-      .all(...subtree.map((n) => n.file_path ?? '')) as { hash: string }[]
+  const paths = subtree.map((n) => n.file_path ?? '').filter(Boolean);
+  const assets = (
+    paths.length > 0
+      ? (db
+          .prepare(
+            `SELECT stored_path, hash, mime_type, size FROM asset_files
+             WHERE stored_path IN (${paths.map(() => '?').join(',')})`
+          )
+          .all(...paths) as {
+          stored_path: string;
+          hash: string;
+          mime_type: string;
+          size: number;
+        }[])
+      : []
   )
-    .map((r) => r.hash)
-    .filter(Boolean);
+    .filter((r) => r.hash)
+    .map((r) => ({
+      filePath: r.stored_path,
+      hash: r.hash,
+      ext: extOf(r.stored_path),
+      mime: r.mime_type,
+      size: r.size,
+    }));
 
   return {
     objectId,
@@ -200,7 +224,7 @@ export function gatherObjectSnapshot(objectId: string): ObjectSnapshot | null {
       enabled: (e.enabled as number) === 1,
       config: JSON.parse((e.config as string) || '{}'),
     })),
-    assetHashes,
+    assets,
   };
 }
 

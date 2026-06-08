@@ -29,7 +29,9 @@ interface ObjectSnapshot {
   nodes: Record<string, unknown>[];
   behaviors: Record<string, unknown>[];
   cameraEffects: Record<string, unknown>[];
-  assetHashes: string[];
+  /** Node file paths are localized to the receiver's cache by the backend
+   *  before the snapshot reaches us, so this is informational only here. */
+  assets?: unknown[];
 }
 
 interface RemoteRef {

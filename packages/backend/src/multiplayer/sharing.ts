@@ -16,7 +16,10 @@ import {
   isSharedWith,
   gatherObjectSnapshot,
   findOwningRoot,
+  type ObjectSnapshot,
 } from './shares.js';
+import { assetForPath, type AssetMeta } from './blobs.js';
+import { BlobManager } from './blobTransfer.js';
 import type { SyncEnvelope } from '@vspark/shared/sync';
 
 const ADVERTISE = '_share_advertise';
@@ -54,7 +57,8 @@ export class SharingManager {
 
   constructor(
     private readonly mesh: ServerMesh,
-    private readonly broadcast: Broadcast
+    private readonly broadcast: Broadcast,
+    private readonly blob: BlobManager
   ) {}
 
   onPeerConnected(peerId: string): void {
@@ -156,17 +160,15 @@ export class SharingManager {
         break;
       }
       case SNAPSHOT:
-        this.broadcast('mp_shared_snapshot', {
-          peerId: from,
-          snapshot: data.snapshot,
-        });
+        void this.relaySnapshot(from, data.snapshot as ObjectSnapshot);
         break;
       case UPDATE:
-        this.broadcast('mp_shared_update', {
-          peerId: from,
-          objectId: data.objectId,
-          env: data.env,
-        });
+        void this.relayUpdate(
+          from,
+          data.objectId as string,
+          data.env as SyncEnvelope,
+          data.asset as AssetMeta | undefined
+        );
         break;
       case UNSHARED:
         this.broadcast('mp_shared_unshared', {
@@ -180,11 +182,15 @@ export class SharingManager {
   /** Owner: forward a document op to every subscriber whose subtree contains it.
    *  Forwards scene_node ops (the avatar tree): upserts (create + property /
    *  transform / model edits) resolve the owning root via parent_id; removes use
-   *  the envelope's `route` ancestor hint, since the row is already gone.
-   *  Behaviours/effects/clips ride the initial snapshot — live updates for those
-   *  are a follow-up. */
+   *  the envelope's `route` ancestor hint, since the row is already gone. A live
+   *  model swap also carries the new asset's metadata so the receiver can fetch
+   *  it. Behaviours/effects/clips ride the initial snapshot — live updates for
+   *  those are a follow-up. */
   forwardDocOp(env: SyncEnvelope): void {
     if (env.rtype !== 'scene_node') return;
+    const filePath = (env.data as { filePath?: string } | undefined)?.filePath;
+    const asset =
+      env.op === 'upsert' && filePath ? assetForPath(filePath) : null;
     for (const [peerId, roots] of this.subscribers) {
       if (roots.size === 0) continue;
       const root =
@@ -196,8 +202,54 @@ export class SharingManager {
           rtype: UPDATE,
           op: 'event',
           key: root,
-          data: { objectId: root, env },
+          data: { objectId: root, env, asset: asset ?? undefined },
         });
     }
+  }
+
+  // --- receiver-side asset localization ------------------------------------
+
+  /** Fetch the snapshot's assets, rewrite node file paths to the local cache,
+   *  then relay to the frontend. On a fetch failure the original (owner) path is
+   *  kept — which still resolves when both servers share an uploads dir. */
+  private async relaySnapshot(
+    from: string,
+    snapshot: ObjectSnapshot
+  ): Promise<void> {
+    const urlByPath = new Map<string, string>();
+    await Promise.all(
+      (snapshot.assets ?? []).map(async (a) => {
+        try {
+          urlByPath.set(a.filePath, await this.blob.ensure(from, a));
+        } catch {
+          /* keep the owner path */
+        }
+      })
+    );
+    if (urlByPath.size > 0)
+      for (const n of snapshot.nodes) {
+        const fp = (n as { filePath?: string }).filePath;
+        if (fp && urlByPath.has(fp))
+          (n as { filePath?: string }).filePath = urlByPath.get(fp);
+      }
+    this.broadcast('mp_shared_snapshot', { peerId: from, snapshot });
+  }
+
+  /** Localize a live update's asset (e.g. a model swap), then relay it. */
+  private async relayUpdate(
+    from: string,
+    objectId: string,
+    env: SyncEnvelope,
+    asset: AssetMeta | undefined
+  ): Promise<void> {
+    const node = env?.data as { filePath?: string } | undefined;
+    if (asset && node?.filePath) {
+      try {
+        node.filePath = await this.blob.ensure(from, asset);
+      } catch {
+        /* keep the owner path */
+      }
+    }
+    this.broadcast('mp_shared_update', { peerId: from, objectId, env });
   }
 }
