@@ -520,6 +520,14 @@ export function useWsSync() {
                 f.nodeId as string,
                 f.blendshapes as Record<string, number>
               );
+            } else if (p.kind === 'pose_ik_targets') {
+              setIkTargets(f.nodeId as string, f as unknown as IkTargetFrame);
+            } else if (p.kind === 'node_transform_preview') {
+              // Smooth in-flight drag of a shared object on the receiver.
+              smoothNodeTransform(
+                f.nodeId as string,
+                f.transform as Record<string, number>
+              );
             }
           } else if (msg.kind === 'mesh_roster') {
             const p = msg.payload as { participants?: string[] };

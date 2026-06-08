@@ -32,7 +32,7 @@ import { TrackClipPlaybackManager } from './track_clips/playback.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { broadcastBus } from './broadcast/bus.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
-import { initIkBroadcast } from './signal/nodes/ik_broadcast.js';
+import { initIkBroadcast, setIkStreamForwarder } from './signal/nodes/ik_broadcast.js';
 import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
 import { initStartClip } from './signal/nodes/start_clip.js';
 import { runtimeOverrideManager } from './runtime_overrides/manager.js';
@@ -105,8 +105,11 @@ async function start() {
   initPoseBroadcast(wsSync);
   initBlendshapesBroadcast(wsSync);
   initIkBroadcast(wsSync);
-  // Forward shared avatars' live pose/blendshapes to subscriber peers.
+  // Forward shared avatars' live pose/blendshapes/IK to subscriber peers.
   broadcastBus.setStreamForwarder((kind, nodeId, payload) =>
+    multiplayerManager.forwardStream(kind, nodeId, payload)
+  );
+  setIkStreamForwarder((kind, nodeId, payload) =>
     multiplayerManager.forwardStream(kind, nodeId, payload)
   );
   initUpdateChecker(getInstallDir(), wsSync);
@@ -232,6 +235,12 @@ async function start() {
           { nodeId: p.nodeId, transform: p.transform },
           sourceWs
         );
+        // Forward to share subscribers so dragging a shared object is smooth on
+        // the receiver (the committed PUT already forwards via sync.document).
+        multiplayerManager.forwardStream('node_transform_preview', p.nodeId, {
+          nodeId: p.nodeId,
+          transform: p.transform,
+        });
       }
     } else if (kind === 'compose_layer_preview') {
       // Same idea for compose layer drag/resize/rotate: relay the patch without
