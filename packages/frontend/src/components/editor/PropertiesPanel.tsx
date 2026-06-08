@@ -3132,19 +3132,20 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'space-between',
                   gap: 8,
                   fontSize: 12,
                   cursor: 'pointer',
                   userSelect: 'none',
                 }}
               >
+                <span style={{ color: autofocus ? '#7ab' : '#888' }}>
+                  {t('effect.dof.autofocus')}
+                </span>
                 <Toggle
                   checked={autofocus}
                   onChange={(v) => save({ autofocus: v })}
                 />
-                <span style={{ color: autofocus ? '#7ab' : '#888' }}>
-                  {t('effect.dof.autofocus')}
-                </span>
               </label>
               {autofocus ? (
                 <>
@@ -4492,7 +4493,8 @@ export function PropertiesPanel() {
           <div
             style={{
               display: 'flex',
-              gap: 16,
+              flexDirection: 'column',
+              gap: 6,
               marginTop: 8,
               fontSize: 12,
               color: '#aaa',
@@ -4504,10 +4506,14 @@ export function PropertiesPanel() {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'space-between',
                   gap: 6,
                   cursor: 'pointer',
                 }}
               >
+                {key === 'castShadow'
+                  ? t('transform.castShadow')
+                  : t('transform.receiveShadow')}
                 <Toggle
                   checked={transform[key]}
                   onChange={(v) => {
@@ -4520,9 +4526,6 @@ export function PropertiesPanel() {
                     saveTransform();
                   }}
                 />
-                {key === 'castShadow'
-                  ? t('transform.castShadow')
-                  : t('transform.receiveShadow')}
               </label>
             ))}
           </div>
@@ -4625,12 +4628,28 @@ export function PropertiesPanel() {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
+                      justifyContent: 'space-between',
                       gap: 6,
                       fontSize: 12,
                       color: '#aaa',
                       cursor: 'pointer',
                     }}
                   >
+                    <span
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      {t('light.castShadow')}
+                      <HelpButton
+                        topic="lighting"
+                        anchor="shadows"
+                        tip={t('help.lightShadows')}
+                        size={12}
+                      />
+                    </span>
                     <Toggle
                       checked={light.castShadow ?? false}
                       onChange={(v) => {
@@ -4638,13 +4657,6 @@ export function PropertiesPanel() {
                         setLight(next);
                         saveLight(next);
                       }}
-                    />
-                    {t('light.castShadow')}
-                    <HelpButton
-                      topic="lighting"
-                      anchor="shadows"
-                      tip={t('help.lightShadows')}
-                      size={12}
                     />
                   </label>
                   {light.castShadow && (
@@ -4906,12 +4918,14 @@ export function PropertiesPanel() {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'space-between',
                   gap: 6,
                   fontSize: 12,
                   color: '#aaa',
                   cursor: 'pointer',
                 }}
               >
+                {t('camera.shadowsEnable')}
                 <Toggle
                   checked={camera.shadowsEnabled}
                   onChange={(v) => {
@@ -4923,7 +4937,6 @@ export function PropertiesPanel() {
                     saveCamera(next);
                   }}
                 />
-                {t('camera.shadowsEnable')}
               </label>
               {camera.shadowsEnabled && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -4961,52 +4974,21 @@ export function PropertiesPanel() {
 
             <div style={sectionHeader}>{t('camera.envHeader')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: '#888',
-                    width: 60,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                  }}
-                >
-                  {t('camera.envIntensity')}
-                  <HelpButton
-                    topic="camera"
-                    anchor="env"
-                    tip={t('help.camEnv')}
-                    size={12}
-                  />
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={2}
-                  step={0.01}
-                  value={camera.envIntensity}
-                  style={{ flex: 1, accentColor: '#2563eb' }}
-                  onChange={(e) => {
-                    const next = {
-                      ...camera,
-                      envIntensity: parseFloat(e.target.value),
-                    };
-                    setCamera(next);
-                    saveCamera(next);
-                  }}
-                />
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: '#aaa',
-                    width: 32,
-                    textAlign: 'right',
-                  }}
-                >
-                  {camera.envIntensity.toFixed(2)}
-                </span>
-              </div>
+              <SliderInput
+                label={t('camera.envIntensity')}
+                value={camera.envIntensity}
+                min={0}
+                max={2}
+                step={0.01}
+                precision={2}
+                help={{ topic: 'camera', anchor: 'env', tip: t('help.camEnv') }}
+                onChange={(v) => setCamera({ ...camera, envIntensity: v })}
+                onCommit={(v) => {
+                  const next = { ...camera, envIntensity: v };
+                  setCamera(next);
+                  saveCamera(next);
+                }}
+              />
               <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
                 {t('camera.envHint')}
               </div>
@@ -7266,6 +7248,7 @@ export function PropertiesPanel() {
               style={{
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'space-between',
                 gap: 8,
                 fontSize: 12,
                 color: '#888',
@@ -7273,11 +7256,11 @@ export function PropertiesPanel() {
                 userSelect: 'none',
               }}
             >
+              {t('avatar.showFbxModel')}
               <Toggle
                 checked={fbxDebugVisible[node.id] ?? false}
                 onChange={(v) => setFbxDebugVisible(node.id, v)}
               />
-              {t('avatar.showFbxModel')}
             </label>
           </>
         )}

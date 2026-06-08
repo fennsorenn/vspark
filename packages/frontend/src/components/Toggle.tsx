@@ -9,6 +9,8 @@ interface ToggleProps {
   disabled?: boolean;
   title?: string;
   'aria-label'?: string;
+  /** Extra wrapper styles, e.g. `marginLeft: 'auto'` to right-align in a row. */
+  style?: React.CSSProperties;
 }
 
 export function Toggle({
@@ -17,6 +19,7 @@ export function Toggle({
   disabled,
   title,
   'aria-label': ariaLabel,
+  style,
 }: ToggleProps) {
   return (
     <button
@@ -42,6 +45,7 @@ export function Toggle({
         background: checked ? '#2563eb' : '#3a3a3a',
         transition: 'background 120ms',
         opacity: disabled ? 0.5 : 1,
+        ...style,
       }}
     >
       <span

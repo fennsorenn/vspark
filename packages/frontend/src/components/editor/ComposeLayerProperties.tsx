@@ -40,6 +40,7 @@ const sectionHeader: CSSProperties = {
 const row: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
+  justifyContent: 'space-between',
   gap: 8,
   marginBottom: 6,
 };
@@ -309,39 +310,20 @@ export function ComposeLayerProperties({
       </div>
 
       <div style={sectionHeader}>{t('properties.sectionLock')}</div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-            fontSize: 12,
-            color: '#bbb',
-            cursor: 'pointer',
-          }}
-        >
-          <Toggle checked={locked} onChange={() => toggleLock('locked')} />
+      <div style={row}>
+        <span style={{ fontSize: 12, color: '#bbb' }}>
           {t('properties.lockLayer2d')}
-        </label>
-        {layer.kind === 'camera_view' && (
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-              fontSize: 12,
-              color: '#bbb',
-              cursor: 'pointer',
-            }}
-          >
-            <Toggle
-              checked={locked3d}
-              onChange={() => toggleLock('locked3d')}
-            />
-            {t('properties.lockLayer3d')}
-          </label>
-        )}
+        </span>
+        <Toggle checked={locked} onChange={() => toggleLock('locked')} />
       </div>
+      {layer.kind === 'camera_view' && (
+        <div style={row}>
+          <span style={{ fontSize: 12, color: '#bbb' }}>
+            {t('properties.lockLayer3d')}
+          </span>
+          <Toggle checked={locked3d} onChange={() => toggleLock('locked3d')} />
+        </div>
+      )}
 
       <div
         style={{
@@ -535,26 +517,16 @@ export function ComposeLayerProperties({
             value,
           })
         }
-        style={{ width: 110 }}
+        style={{ width: '100%' }}
       />
 
       <div style={sectionHeader}>{t('properties.sectionVisibility')}</div>
       <div style={row}>
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 12,
-            color: '#bbb',
-          }}
-        >
-          <Toggle
-            checked={layer.visible}
-            onChange={(v) => commit({ visible: v })}
-          />
-          {t('properties.labelVisible')}
-        </label>
+        <span style={label}>{t('properties.labelVisible')}</span>
+        <Toggle
+          checked={layer.visible}
+          onChange={(v) => commit({ visible: v })}
+        />
       </div>
       <div style={row}>
         <span style={label}>{t('properties.labelOpacity')}</span>
