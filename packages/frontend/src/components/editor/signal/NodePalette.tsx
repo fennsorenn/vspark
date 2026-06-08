@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
 import type { NodeKindMeta, NodePortMeta } from '@vspark/shared/signal';
@@ -8,27 +8,73 @@ import { PALETTE_DRAG_KIND } from './SignalGraphCanvas';
 import { HelpButton } from '../../../help/HelpButton';
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Port chip
+// Port row — mirrors the on-canvas node so the palette previews a node's shape:
+// inputs on the left (pin first), outputs on the right (pin last). The pin is a
+// hollow diamond for value/data ports and a filled dot for event/trigger ports,
+// matching the handles drawn on the real node.
 // ──────────────────────────────────────────────────────────────────────────────
 
-function PortChip({ port }: { port: NodePortMeta }) {
-  const color =
-    SIGNAL_TYPE_COLORS[port.typeTag as keyof typeof SIGNAL_TYPE_COLORS] ??
-    '#888';
+function portColor(typeTag: string): string {
+  return (
+    SIGNAL_TYPE_COLORS[typeTag as keyof typeof SIGNAL_TYPE_COLORS] ?? '#888'
+  );
+}
+
+function PortPin({ port }: { port: NodePortMeta }) {
+  const color = portColor(port.typeTag);
+  const isValue = port.transport === 'value';
   return (
     <span
       style={{
-        fontSize: 9,
-        fontFamily: 'monospace',
-        color,
-        background: `${color}22`,
-        border: `1px solid ${color}55`,
-        borderRadius: 3,
-        padding: '1px 4px',
+        width: 7,
+        height: 7,
+        flexShrink: 0,
+        background: isValue ? 'transparent' : color,
+        border: isValue ? `1.5px solid ${color}` : 'none',
+        borderRadius: isValue ? 1 : '50%',
+        transform: isValue ? 'rotate(45deg)' : undefined,
+      }}
+    />
+  );
+}
+
+function PortRow({
+  port,
+  side,
+}: {
+  port: NodePortMeta;
+  side: 'input' | 'output';
+}) {
+  const color = portColor(port.typeTag);
+  const isRight = side === 'output';
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
+        minWidth: 0,
+        justifyContent: isRight ? 'flex-end' : 'flex-start',
       }}
     >
-      {port.name}: {port.typeTag}
-    </span>
+      {!isRight && <PortPin port={port} />}
+      <span
+        title={`${port.name}: ${port.typeTag}`}
+        style={{
+          fontSize: 9,
+          fontFamily: 'monospace',
+          color: '#bbb',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          minWidth: 0,
+        }}
+      >
+        {port.name}
+        <span style={{ color, opacity: 0.8 }}> {port.typeTag}</span>
+      </span>
+      {isRight && <PortPin port={port} />}
+    </div>
   );
 }
 
@@ -45,6 +91,7 @@ function PaletteCard({
 }) {
   const { display, kind, inputPorts, outputPorts } = meta;
   const headerColor = display?.color ?? '#2a2a3a';
+  const maxPorts = Math.max(inputPorts.length, outputPorts.length);
 
   const handleDragStart = (e: React.DragEvent) => {
     if (readonly) return;
@@ -65,7 +112,8 @@ function PaletteCard({
         cursor: readonly ? 'default' : 'grab',
         userSelect: 'none',
         flexShrink: 0,
-        width: 180,
+        alignSelf: 'flex-start',
+        width: 192,
       }}
     >
       <div
@@ -84,28 +132,49 @@ function PaletteCard({
       </div>
       <div
         style={{
-          padding: '5px 8px',
+          padding: '6px 8px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 3,
+          gap: 5,
         }}
       >
         {display?.description && (
-          <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>
+          <div
+            style={{
+              fontSize: 10,
+              color: '#777',
+              lineHeight: 1.35,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
             {display.description}
           </div>
         )}
-        {inputPorts.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-            {inputPorts.map((p) => (
-              <PortChip key={p.name} port={p} />
-            ))}
-          </div>
-        )}
-        {outputPorts.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-            {outputPorts.map((p) => (
-              <PortChip key={p.name} port={p} />
+        {maxPorts > 0 && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              columnGap: 8,
+              rowGap: 3,
+            }}
+          >
+            {Array.from({ length: maxPorts }).map((_, i) => (
+              <Fragment key={i}>
+                <div style={{ minWidth: 0 }}>
+                  {inputPorts[i] && (
+                    <PortRow port={inputPorts[i]} side="input" />
+                  )}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  {outputPorts[i] && (
+                    <PortRow port={outputPorts[i]} side="output" />
+                  )}
+                </div>
+              </Fragment>
             ))}
           </div>
         )}
