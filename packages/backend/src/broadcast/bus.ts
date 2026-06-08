@@ -41,6 +41,12 @@ interface ProducerSlots {
  */
 export class BroadcastBus {
   private _ws: WSSync | null = null;
+  /** Optional tap on every emitted pose/blendshape frame (keyed by sceneNodeId),
+   *  used by multiplayer to forward shared avatars' live pose to subscribers.
+   *  Injected at startup so the bus stays decoupled from the mesh. */
+  private _forward:
+    | ((kind: string, nodeId: string, payload: Record<string, unknown>) => void)
+    | null = null;
 
   /** sceneId → setInterval handle */
   private readonly _timers = new Map<string, NodeJS.Timeout>();
@@ -56,6 +62,23 @@ export class BroadcastBus {
 
   init(ws: WSSync): void {
     this._ws = ws;
+  }
+
+  /** Install the multiplayer stream forwarder (idempotent). */
+  setStreamForwarder(
+    fn: (kind: string, nodeId: string, payload: Record<string, unknown>) => void
+  ): void {
+    this._forward = fn;
+  }
+
+  /** Broadcast a frame locally and tap the forwarder for shared-avatar fan-out. */
+  private _bcast(
+    kind: string,
+    nodeId: string,
+    payload: Record<string, unknown>
+  ): void {
+    this._ws?.broadcast(kind, payload);
+    this._forward?.(kind, nodeId, payload);
   }
 
   /** Publish bone pose for (sceneNodeId, behaviorId). Slot is fully replaced. */
@@ -104,12 +127,12 @@ export class BroadcastBus {
   }
 
   private _emitFallback(sceneNodeId: string): void {
-    this._ws?.broadcast('vmc_pose', {
+    this._bcast('vmc_pose', sceneNodeId, {
       nodeId: sceneNodeId,
       bones: {},
       animationBlendMode: 'additive' as AnimationBlendMode,
     });
-    this._ws?.broadcast('vmc_blendshapes', {
+    this._bcast('vmc_blendshapes', sceneNodeId, {
       nodeId: sceneNodeId,
       blendshapes: {},
     });
@@ -236,7 +259,7 @@ export class BroadcastBus {
 
     if (bsSlots.length > 0) {
       const merged = _composeBlendshapes(bsSlots);
-      this._ws?.broadcast('vmc_blendshapes', {
+      this._bcast('vmc_blendshapes', sceneNodeId, {
         nodeId: sceneNodeId,
         blendshapes: merged.toRecord(),
       });
@@ -257,7 +280,7 @@ export class BroadcastBus {
     pose: NormalizedPose,
     mode: AnimationBlendMode
   ): void {
-    this._ws?.broadcast('vmc_pose', {
+    this._bcast('vmc_pose', sceneNodeId, {
       nodeId: sceneNodeId,
       bones: pose.toRecord(),
       animationBlendMode: mode,

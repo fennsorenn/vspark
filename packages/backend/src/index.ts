@@ -30,6 +30,7 @@ import { TrackingManager } from './behaviors/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from './behaviors/api_controller/manager.js';
 import { TrackClipPlaybackManager } from './track_clips/playback.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
+import { broadcastBus } from './broadcast/bus.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
 import { initIkBroadcast } from './signal/nodes/ik_broadcast.js';
 import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
@@ -104,6 +105,10 @@ async function start() {
   initPoseBroadcast(wsSync);
   initBlendshapesBroadcast(wsSync);
   initIkBroadcast(wsSync);
+  // Forward shared avatars' live pose/blendshapes to subscriber peers.
+  broadcastBus.setStreamForwarder((kind, nodeId, payload) =>
+    multiplayerManager.forwardStream(kind, nodeId, payload)
+  );
   initUpdateChecker(getInstallDir(), wsSync);
 
   const vmcManager = new VmcManager(wsSync);

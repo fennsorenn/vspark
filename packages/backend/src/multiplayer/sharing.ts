@@ -28,6 +28,8 @@ const UNSUBSCRIBE = '_share_unsubscribe';
 const SNAPSHOT = '_share_snapshot';
 const UPDATE = '_share_update';
 const UNSHARED = '_share_unshared';
+/** Live pose/blendshape frame for a shared avatar (rides the lossy stream channel). */
+const STREAM = '_share_stream';
 
 /** rtypes the sharing manager owns (so the mesh dispatcher routes them here). */
 export const SHARE_RTYPES = new Set([
@@ -205,6 +207,39 @@ export class SharingManager {
           data: { objectId: root, env, asset: asset ?? undefined },
         });
     }
+  }
+
+  /** Owner: forward a live pose/blendshape frame for a shared avatar to its
+   *  subscribers over the lossy `stream` channel. Pose is keyed by the avatar's
+   *  scene-node id, which is the shared-object root, so a direct set membership
+   *  test suffices (no parent walk on the hot path). */
+  forwardStream(
+    kind: string,
+    nodeId: string,
+    payload: Record<string, unknown>
+  ): void {
+    for (const [peerId, roots] of this.subscribers) {
+      if (roots.has(nodeId))
+        this.mesh.sendStream(peerId, {
+          rtype: STREAM,
+          objectId: nodeId,
+          kind,
+          payload,
+        });
+    }
+  }
+
+  /** Receiver: a forwarded live frame arrived on the stream channel → relay to
+   *  the frontend, which applies it to the projected avatar (owner node ids are
+   *  preserved in the projection, so the frame's nodeId maps directly). */
+  handleStreamFrame(from: string, frame: Record<string, unknown>): void {
+    if (frame?.rtype !== STREAM) return;
+    this.broadcast('mp_shared_stream', {
+      peerId: from,
+      objectId: frame.objectId,
+      kind: frame.kind,
+      payload: frame.payload,
+    });
   }
 
   // --- receiver-side asset localization ------------------------------------

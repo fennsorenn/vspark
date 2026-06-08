@@ -499,6 +499,28 @@ export function useWsSync() {
             const p = msg.payload as { peerId: string };
             removePeerSharedProjections(p.peerId);
             useConnectionsStore.getState().clearPeerSharing(p.peerId);
+          } else if (msg.kind === 'mp_shared_stream') {
+            // Live pose/blendshapes for a placed shared avatar. The frame keeps
+            // the owner's node id, which the projection preserves, so it applies
+            // directly to the projected node.
+            const p = msg.payload as {
+              kind: string;
+              payload: Record<string, unknown>;
+            };
+            const f = p.payload ?? {};
+            if (p.kind === 'vmc_pose') {
+              setVmcPose(
+                f.nodeId as string,
+                f.bones as Record<string, [number, number, number, number]>,
+                (f.animationBlendMode as AnimationBlendMode | undefined) ??
+                  'override'
+              );
+            } else if (p.kind === 'vmc_blendshapes') {
+              setVmcBlendshapes(
+                f.nodeId as string,
+                f.blendshapes as Record<string, number>
+              );
+            }
           } else if (msg.kind === 'mesh_roster') {
             const p = msg.payload as { participants?: string[] };
             clientMesh.setRoster(p.participants ?? []);

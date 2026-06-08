@@ -139,6 +139,12 @@ class MultiplayerManager {
       this.sharing?.onPeerDisconnected(peerId);
       clientMeshRelay.onServerDisconnected(peerId);
     });
+    // Lossy stream frames (shared-avatar pose/blendshapes).
+    this.mesh.on(
+      'streamFrame',
+      ({ from, frame }: { from: string; frame: Record<string, unknown> }) =>
+        this.sharing?.handleStreamFrame(from, frame)
+    );
     // Inbound control envelopes: live display name + the sharing protocol.
     this.mesh.on(
       'envelope',
@@ -296,6 +302,16 @@ class MultiplayerManager {
   /** Grantees of an object (for the "Share with" UI). */
   grantees(objectId: string): string[] {
     return listObjectGrantees(objectId);
+  }
+
+  /** Owner: forward a shared avatar's live pose/blendshape frame to subscribers
+   *  (called by the broadcast bus for every emitted frame). */
+  forwardStream(
+    kind: string,
+    nodeId: string,
+    payload: Record<string, unknown>
+  ): void {
+    this.sharing?.forwardStream(kind, nodeId, payload);
   }
 
   /** Replay current share offers to a freshly-connected client (late-join gap). */
