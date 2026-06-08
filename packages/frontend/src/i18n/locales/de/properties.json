@@ -412,6 +412,16 @@
     "chestAmplitude": "Brustamplitude",
     "shoulderLift": "Schulterheben"
   },
+  "manualCalibration": {
+    "description": "Der Multiplikator skaliert, wie weit eine Drehung entlang jeder Achse reicht (2 = doppelt so weit). Der Offset verschiebt den neutralen Nullpunkt, in Grad.",
+    "multiplier": "Multiplikator",
+    "offset": "Offset (°)",
+    "none": "Keine Kalibrierung",
+    "calibrated_one": "{{count}} Knochen kalibriert",
+    "calibrated_other": "{{count}} Knochen kalibriert",
+    "resetBone": "Knochen zurücksetzen",
+    "resetAll": "Alle zurücksetzen"
+  },
   "behaviorFallback": "Keine konfigurierbaren Eigenschaften.",
   "effect": {
     "toneMapping": {
@@ -519,6 +529,7 @@
     "camera": "Kamera-Eigenschaften und Projektionen erkunden",
     "light": "Lichttypen und Schatteneinstellungen erkunden",
     "breathing": "Wie das Atemverhalten funktioniert",
+    "manualCalibration": "Wie die manuelle Posen-Kalibrierung funktioniert",
     "compose": "Compose-Ebenen und Ausgabe-Compositing erkunden",
     "cameraEffects": "Öffnet den Dokumentationsabschnitt für diesen Effekt",
     "propImage": "Bildebenen und Billboards erkunden",

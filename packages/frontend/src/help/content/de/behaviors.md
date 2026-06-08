@@ -6,7 +6,7 @@ dein Mikrofon, deine Tracking-App) und deinem [Avatar](topic:avatar).
 
 Du fügst Verhalten über den **Verhalten**-Tab hinzu und hängst sie an einen
 Knoten. Ein einzelner Avatar kann mehrere Verhalten gleichzeitig ausführen — zum
-Beispiel Tracking *und* Lippensynchronisation.
+Beispiel Tracking _und_ Lippensynchronisation.
 
 ## VMC-Empfänger {#vmc}
 
@@ -42,6 +42,29 @@ erhalten.
 Die Atmung fügt ein dezentes, automatisches Heben und Senken von Brust und
 Schultern hinzu, damit dein Avatar lebendig wirkt, selbst wenn du stillhältst.
 Das Ausmaß der Brust- und Schulterbewegung ist einstellbar.
+
+## Manuelle Kalibrierung {#manual-calibration}
+
+Mit der manuellen Kalibrierung kannst du die eingehende Pose Knochen für Knochen
+von Hand feinjustieren. Für jeden Knochen legst du pro Achse (X, Y, Z) einen
+**Multiplikator** und einen **Offset** fest:
+
+- **Multiplikator** skaliert, wie weit eine Drehung entlang dieser Achse reicht.
+  `1` lässt sie unverändert, `2` dreht den Knochen doppelt so weit, `0,5` halb so
+  weit. Praktisch, wenn eine Tracking-Quelle ein Gelenk zu wenig oder zu stark
+  dreht.
+- **Offset** verschiebt die neutrale Nullstellung, gemessen in Grad. Damit
+  korrigierst du die Ruhepose eines Knochens — etwa um zu hoch sitzende Schultern
+  zu entspannen.
+
+Betroffen sind nur die Knochen, die du tatsächlich änderst; alles andere bleibt
+unverändert. Änderungen wirken live beim Ziehen, sodass du den Avatar reagieren
+siehst. Ein mit einem Punkt markierter Knochen hat eine aktive Kalibrierung;
+**Knochen zurücksetzen** löscht einen Knochen, **Alle zurücksetzen** löscht alles.
+
+Da die Anpassung achsenweise auf Euler-Winkeln arbeitet, können sehr große
+Korrekturen nahe der Senkrechten eines Knochens nichtlinear wirken — sie ist zum
+Feinjustieren gedacht, nicht zum kompletten Neu-Rigging.
 
 ## Kamera & Mikrofon einrichten {#devices}
 
