@@ -67,8 +67,19 @@ export class SharingManager {
   ) {}
 
   onPeerConnected(peerId: string): void {
-    this.subscribers.set(peerId, new Set());
+    // Don't clobber a set a SUBSCRIBE may have already created: the subscribe
+    // envelope can be processed before this handler runs, and a re-fired
+    // peerConnected must not wipe live subscriptions (that race dropped live
+    // updates intermittently while the snapshot still arrived).
+    if (!this.subscribers.has(peerId)) this.subscribers.set(peerId, new Set());
     this.advertise(peerId);
+  }
+
+  /** Ensure a subscriber set exists (a SUBSCRIBE may arrive before peerConnected). */
+  private subscriberSet(peerId: string): Set<string> {
+    let s = this.subscribers.get(peerId);
+    if (!s) this.subscribers.set(peerId, (s = new Set()));
+    return s;
   }
 
   onPeerDisconnected(peerId: string): void {
@@ -143,7 +154,7 @@ export class SharingManager {
       case SUBSCRIBE: {
         const objectId = data.objectId as string;
         if (!isSharedWith(objectId, from)) return; // not granted — ignore
-        this.subscribers.get(from)?.add(objectId);
+        this.subscriberSet(from).add(objectId);
         const snapshot = gatherObjectSnapshot(objectId);
         if (snapshot)
           this.mesh.sendEnvelope(from, {
