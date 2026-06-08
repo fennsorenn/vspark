@@ -17,6 +17,13 @@ export interface IncomingRequest {
   displayName: string;
 }
 
+/** One object a connected peer is offering to share with us. */
+export interface SharedOffer {
+  objectId: string;
+  shareKind: 'object' | 'scene';
+  name: string;
+}
+
 interface ConnectionsState {
   enabled: boolean;
   status: 'idle' | 'connecting' | 'ready' | 'closed';
@@ -27,6 +34,10 @@ interface ConnectionsState {
   /** peerId → display name (for the button tooltip without the full list). */
   nameById: Record<string, string>;
   incoming: IncomingRequest[];
+  /** peerId → objects that peer currently offers us (from mp_shares). */
+  offers: Record<string, SharedOffer[]>;
+  /** peerId → objectIds we've subscribed to (placed in our scene). */
+  subscribed: Record<string, string[]>;
   /** Bumped by WS events so the window refetches the peer list. */
   revision: number;
 
@@ -40,6 +51,9 @@ interface ConnectionsState {
   setConnected: (peerId: string, connected: boolean, name?: string) => void;
   addIncoming: (req: IncomingRequest) => void;
   removeIncoming: (peerId: string) => void;
+  setOffers: (peerId: string, offers: SharedOffer[]) => void;
+  setSubscribed: (peerId: string, objectId: string, on: boolean) => void;
+  clearPeerSharing: (peerId: string) => void;
   bumpRevision: () => void;
 }
 
@@ -51,6 +65,8 @@ export const useConnectionsStore = create<ConnectionsState>((set) => ({
   connectedIds: [],
   nameById: {},
   incoming: [],
+  offers: {},
+  subscribed: {},
   revision: 0,
 
   setMeta: (m) => set(m),
@@ -80,5 +96,25 @@ export const useConnectionsStore = create<ConnectionsState>((set) => ({
     ),
   removeIncoming: (peerId) =>
     set((s) => ({ incoming: s.incoming.filter((r) => r.peerId !== peerId) })),
+  setOffers: (peerId, offers) =>
+    set((s) => ({ offers: { ...s.offers, [peerId]: offers } })),
+  setSubscribed: (peerId, objectId, on) =>
+    set((s) => {
+      const cur = s.subscribed[peerId] ?? [];
+      const next = on
+        ? cur.includes(objectId)
+          ? cur
+          : [...cur, objectId]
+        : cur.filter((id) => id !== objectId);
+      return { subscribed: { ...s.subscribed, [peerId]: next } };
+    }),
+  clearPeerSharing: (peerId) =>
+    set((s) => {
+      const offers = { ...s.offers };
+      const subscribed = { ...s.subscribed };
+      delete offers[peerId];
+      delete subscribed[peerId];
+      return { offers, subscribed };
+    }),
   bumpRevision: () => set((s) => ({ revision: s.revision + 1 })),
 }));

@@ -82,6 +82,9 @@
     "copyNode": "Copy node",
     "pasteNodeAsChild": "Paste node as child",
     "pasteLogicHere": "Paste logic here",
+    "shareWith": "Share with",
+    "shareEveryone": "Everyone connected",
+    "shareNobody": "No one connected",
     "delete": "Delete"
   },
   "logic": {

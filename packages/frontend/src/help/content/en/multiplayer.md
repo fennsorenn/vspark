@@ -34,3 +34,25 @@ manually clears that trust, so they're prompted again next time.
 Your saved contacts, with a dot showing whether you're currently connected.
 **Connect** opens a live link; **Disconnect** closes it; **✕** removes the
 contact entirely (they'll need to pair again to reconnect).
+
+## Connected members {#connected}
+
+Everyone you currently have a live link with appears under **Connected**. Expand
+a member's **Shared with you** section to see the objects they're offering you.
+
+## Sharing objects {#sharing}
+
+Sharing has two sides:
+
+- **Offer an object** — right-click any object in the scene tree and pick
+  **Share with**, then choose a connected member (or **Everyone connected**). A
+  check mark shows who it's currently shared with; click again to revoke.
+- **Place a shared object** — open a connected member's **Shared with you** list
+  and hit **Place**. Their object drops into your scene and follows their live
+  edits. **Remove** takes it back out.
+
+Placed objects are **projections**: they live only while you're connected and
+aren't saved with your project. If the owner stops sharing, disconnects, or you
+reload, they disappear and are restocked from the owner's live copy when you
+place them again. You can't edit someone else's shared object — the owner stays
+in control of it.

@@ -169,6 +169,12 @@ export interface NodeRecord {
   components: Record<string, unknown>;
   properties?: NodeProperties;
   hidden?: boolean;
+  /** True for nodes projected from a peer's shared object (multiplayer). These
+   *  live only in memory, are not persisted, and should be treated read-only:
+   *  they're cleared on reload, unshare, or disconnect and restocked from the
+   *  owner's live snapshot. `remoteOwnerPeerId` is the sharing peer. */
+  remote?: boolean;
+  remoteOwnerPeerId?: string;
 }
 
 export interface SceneRuntimeSettings {

@@ -1418,3 +1418,37 @@ export const setConnectionDisplayName = (projectId: string, name: string) =>
     method: 'PUT',
     body: JSON.stringify({ name }),
   });
+
+// --- object sharing --------------------------------------------------------
+
+/** Peer ids (and maybe '*') an object is currently shared with. */
+export const getObjectGrantees = (objectId: string) =>
+  request<string[]>(`/connections/objects/${objectId}/grantees`);
+/** Grant a peer ('*' = everyone) access to one of my objects. */
+export const shareObject = (
+  objectId: string,
+  granteePeerId: string,
+  shareKind: 'object' | 'scene' = 'object'
+) =>
+  request<{ grantees: string[] }>(`/connections/objects/${objectId}/share`, {
+    method: 'POST',
+    body: JSON.stringify({ granteePeerId, shareKind }),
+  });
+/** Revoke a peer's ('*' = everyone) access to one of my objects. */
+export const unshareObject = (objectId: string, granteePeerId: string) =>
+  request<{ grantees: string[] }>(`/connections/objects/${objectId}/unshare`, {
+    method: 'POST',
+    body: JSON.stringify({ granteePeerId }),
+  });
+/** Receiver: subscribe to (place) a peer's shared object. */
+export const peerSubscribe = (peerId: string, objectId: string) =>
+  request<{ peerId: string; objectId: string }>(
+    `/connections/peers/${peerId}/subscribe`,
+    { method: 'POST', body: JSON.stringify({ objectId }) }
+  );
+/** Receiver: unsubscribe from (remove) a peer's shared object. */
+export const peerUnsubscribe = (peerId: string, objectId: string) =>
+  request<{ peerId: string; objectId: string }>(
+    `/connections/peers/${peerId}/unsubscribe`,
+    { method: 'POST', body: JSON.stringify({ objectId }) }
+  );

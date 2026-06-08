@@ -31,7 +31,9 @@
   },
   "shared": {
     "label": "Mit dir geteilt",
-    "empty": "Noch nichts geteilt."
+    "empty": "Noch nichts geteilt.",
+    "place": "Platzieren",
+    "remove": "Entfernen"
   },
   "pairing": {
     "label": "Kopplung",

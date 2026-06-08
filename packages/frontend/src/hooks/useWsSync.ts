@@ -23,6 +23,12 @@ import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 import { applyRemote } from '../sync/registry';
 import '../sync/resources';
+import {
+  applySnapshot as applySharedSnapshot,
+  applyUpdate as applySharedUpdate,
+  removeProjection as removeSharedProjection,
+  removePeerProjections as removePeerSharedProjections,
+} from '../sync/sharedProjection';
 import { useConnectionsStore } from '../store/connectionsStore';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
@@ -452,6 +458,44 @@ export function useWsSync() {
             useConnectionsStore
               .getState()
               .addIncoming({ peerId: p.peerId, displayName: p.displayName });
+          } else if (msg.kind === 'mp_shares') {
+            // A connected peer advertised the objects it shares with us.
+            const p = msg.payload as {
+              peerId: string;
+              shares: import('../store/connectionsStore').SharedOffer[];
+            };
+            useConnectionsStore
+              .getState()
+              .setOffers(p.peerId, p.shares ?? []);
+          } else if (msg.kind === 'mp_shared_snapshot') {
+            const p = msg.payload as {
+              peerId: string;
+              snapshot: { objectId: string };
+            };
+            applySharedSnapshot(
+              p.peerId,
+              p.snapshot as unknown as Parameters<typeof applySharedSnapshot>[1]
+            );
+            useConnectionsStore
+              .getState()
+              .setSubscribed(p.peerId, p.snapshot.objectId, true);
+          } else if (msg.kind === 'mp_shared_update') {
+            const p = msg.payload as {
+              peerId: string;
+              objectId: string;
+              env: SyncEnvelope;
+            };
+            applySharedUpdate(p.peerId, p.objectId, p.env);
+          } else if (msg.kind === 'mp_shared_unshared') {
+            const p = msg.payload as { peerId: string; objectId: string };
+            removeSharedProjection(p.peerId, p.objectId);
+            useConnectionsStore
+              .getState()
+              .setSubscribed(p.peerId, p.objectId, false);
+          } else if (msg.kind === 'mp_shared_gone') {
+            const p = msg.payload as { peerId: string };
+            removePeerSharedProjections(p.peerId);
+            useConnectionsStore.getState().clearPeerSharing(p.peerId);
           } else if (msg.kind === 'server_update') {
             if (
               (msg.payload as { reloadOnReconnect?: boolean }).reloadOnReconnect

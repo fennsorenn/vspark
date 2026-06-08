@@ -11,6 +11,12 @@ import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
 import { ContextMenu } from './ContextMenu';
 import { HelpButton } from '../../help/HelpButton';
+import { useConnectionsStore } from '../../store/connectionsStore';
+import {
+  getObjectGrantees,
+  shareObject,
+  unshareObject,
+} from '../../api/client';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
   NODE_KIND_DEFS,
@@ -84,7 +90,40 @@ function SceneNodeContextMenu({
   const node = nodes.find((n) => n.id === menu.nodeId)!;
   const [showAddChild, setShowAddChild] = useState(false);
   const [showMoveInto, setShowMoveInto] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [grantees, setGrantees] = useState<string[]>([]);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Sharing targets: peers with a live mesh connection. Hidden entirely when
+  // multiplayer is off or nobody is connected.
+  const mpEnabled = useConnectionsStore((s) => s.enabled);
+  const connectedIds = useConnectionsStore((s) => s.connectedIds);
+  const nameById = useConnectionsStore((s) => s.nameById);
+  const canShare = mpEnabled && !node.remote;
+
+  // Load the object's current grantees when the Share submenu opens.
+  useEffect(() => {
+    if (!showShare) return;
+    let alive = true;
+    void getObjectGrantees(menu.nodeId)
+      .then((g) => alive && setGrantees(g))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [showShare, menu.nodeId]);
+
+  const toggleShare = async (granteePeerId: string) => {
+    const has = grantees.includes(granteePeerId);
+    try {
+      const { grantees: next } = has
+        ? await unshareObject(menu.nodeId, granteePeerId)
+        : await shareObject(menu.nodeId, granteePeerId, 'object');
+      setGrantees(next);
+    } catch {
+      /* ignore */
+    }
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -238,6 +277,95 @@ function SceneNodeContextMenu({
           </div>
         )}
       </div>
+
+      {/* Share with (multiplayer) submenu */}
+      {canShare && (
+        <div
+          style={itemStyle}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLDivElement).style.background = '#2a2a2a';
+            setShowShare(true);
+            setShowAddChild(false);
+            setShowMoveInto(false);
+          }}
+          onMouseLeave={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background =
+              'transparent')
+          }
+        >
+          <span>{t('context.shareWith')}</span>
+          <span style={{ color: '#666' }}>▶</span>
+          {showShare && (
+            <div
+              style={{
+                position: 'absolute',
+                left: '100%',
+                top: 0,
+                background: '#1e1e1e',
+                border: '1px solid #3a3a3a',
+                borderRadius: 6,
+                minWidth: 180,
+                maxHeight: 280,
+                overflowY: 'auto',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+              }}
+            >
+              {connectedIds.length === 0 && (
+                <div style={{ ...itemStyle, color: '#888', cursor: 'default' }}>
+                  {t('context.shareNobody')}
+                </div>
+              )}
+              {connectedIds.length > 0 && (
+                <div
+                  style={itemStyle}
+                  onMouseEnter={(e) =>
+                    ((e.currentTarget as HTMLDivElement).style.background =
+                      '#2a2a2a')
+                  }
+                  onMouseLeave={(e) =>
+                    ((e.currentTarget as HTMLDivElement).style.background =
+                      'transparent')
+                  }
+                  onClick={() => void toggleShare('*')}
+                >
+                  <span>{t('context.shareEveryone')}</span>
+                  <span style={{ color: '#4ade80' }}>
+                    {grantees.includes('*') ? '✓' : ''}
+                  </span>
+                </div>
+              )}
+              {connectedIds.map((peerId) => (
+                <div
+                  key={peerId}
+                  style={itemStyle}
+                  onMouseEnter={(e) =>
+                    ((e.currentTarget as HTMLDivElement).style.background =
+                      '#2a2a2a')
+                  }
+                  onMouseLeave={(e) =>
+                    ((e.currentTarget as HTMLDivElement).style.background =
+                      'transparent')
+                  }
+                  onClick={() => void toggleShare(peerId)}
+                >
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {nameById[peerId] || peerId.slice(0, 12)}
+                  </span>
+                  <span style={{ color: '#4ade80' }}>
+                    {grantees.includes(peerId) ? '✓' : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {node.parentId && (
         <div

@@ -28,8 +28,11 @@ import {
   peerAccept,
   peerReject,
   peerRemove,
+  peerSubscribe,
+  peerUnsubscribe,
   type ConnectionPeer,
 } from '../api/client';
+import { removeProjection as removeSharedProjection } from '../sync/sharedProjection';
 
 const C = {
   bg: '#181818',
@@ -122,7 +125,8 @@ function Collapsible({
   );
 }
 
-/** A connected member with a collapsible "shared by them" sub-section. */
+/** A connected member with a collapsible "shared by them" sub-section listing
+ *  the objects they offer; each can be placed into / removed from the scene. */
 function ConnectedMember({
   peer,
   onDisconnect,
@@ -134,6 +138,39 @@ function ConnectedMember({
 }) {
   const { t } = useTranslation('connections');
   const [open, setOpen] = useState(false);
+  const offers = useConnectionsStore((s) => s.offers[peer.peerId]) ?? EMPTY;
+  const subscribed =
+    useConnectionsStore((s) => s.subscribed[peer.peerId]) ?? EMPTY_IDS;
+  const setSubscribed = useConnectionsStore((s) => s.setSubscribed);
+  const [actBusy, setActBusy] = useState(false);
+
+  const place = (objectId: string) =>
+    void (async () => {
+      setActBusy(true);
+      try {
+        await peerSubscribe(peer.peerId, objectId);
+        // Optimistic — the snapshot arrival also flips this on.
+        setSubscribed(peer.peerId, objectId, true);
+      } catch {
+        /* ignore */
+      } finally {
+        setActBusy(false);
+      }
+    })();
+  const remove = (objectId: string) =>
+    void (async () => {
+      setActBusy(true);
+      try {
+        await peerUnsubscribe(peer.peerId, objectId);
+        removeSharedProjection(peer.peerId, objectId);
+        setSubscribed(peer.peerId, objectId, false);
+      } catch {
+        /* ignore */
+      } finally {
+        setActBusy(false);
+      }
+    })();
+
   return (
     <div
       style={{
@@ -164,23 +201,59 @@ function ConnectedMember({
         onClick={() => setOpen((o) => !o)}
       >
         <span style={{ width: 8 }}>{open ? '▾' : '▸'}</span>
-        {t('shared.label')}
+        {t('shared.label')} {offers.length > 0 && `(${offers.length})`}
       </div>
       {open && (
-        <div
-          style={{
-            paddingLeft: 14,
-            color: C.dim,
-            fontSize: 11,
-            padding: '2px 0 2px 14px',
-          }}
-        >
-          {t('shared.empty')}
+        <div style={{ paddingLeft: 14, paddingTop: 2 }}>
+          {offers.length === 0 && (
+            <div style={{ color: C.dim, fontSize: 11, padding: '2px 0' }}>
+              {t('shared.empty')}
+            </div>
+          )}
+          {offers.map((o) => {
+            const placed = subscribed.includes(o.objectId);
+            return (
+              <div
+                key={o.objectId}
+                style={{ ...S.row, marginBottom: 4, fontSize: 11 }}
+              >
+                <span
+                  style={{
+                    flex: 1,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {o.name || o.objectId.slice(0, 10)}
+                </span>
+                {placed ? (
+                  <button
+                    style={S.btn()}
+                    disabled={actBusy}
+                    onClick={() => remove(o.objectId)}
+                  >
+                    {t('shared.remove')}
+                  </button>
+                ) : (
+                  <button
+                    style={S.btn('primary')}
+                    disabled={actBusy}
+                    onClick={() => place(o.objectId)}
+                  >
+                    {t('shared.place')}
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
+
+const EMPTY: import('../store/connectionsStore').SharedOffer[] = [];
+const EMPTY_IDS: string[] = [];
 
 export function ConnectionsWindow({ visible }: { visible: boolean }) {
   const { t } = useTranslation('connections');

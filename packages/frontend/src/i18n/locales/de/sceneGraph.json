@@ -82,6 +82,9 @@
     "copyNode": "Knoten kopieren",
     "pasteNodeAsChild": "Knoten als Kind einfügen",
     "pasteLogicHere": "Logik hier einfügen",
+    "shareWith": "Teilen mit",
+    "shareEveryone": "Alle Verbundenen",
+    "shareNobody": "Niemand verbunden",
     "delete": "Löschen"
   },
   "logic": {

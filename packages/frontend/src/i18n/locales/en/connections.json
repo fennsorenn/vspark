@@ -31,7 +31,9 @@
   },
   "shared": {
     "label": "Shared with you",
-    "empty": "Nothing shared yet."
+    "empty": "Nothing shared yet.",
+    "place": "Place",
+    "remove": "Remove"
   },
   "pairing": {
     "label": "Pairing",
