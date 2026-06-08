@@ -141,7 +141,7 @@ export function applyBoneMapping(
   label: 'RhyLive Bone Mapper',
   description:
     'Maps Unity HumanBodyBones to VRM bone names and corrects RhyLive coordinate conventions.',
-  tags: ['input', 'mocap'],
+  tags: ["input"],
   color: '#2a5a4a',
 })
 export class RhyliveBoneMapper extends Node {

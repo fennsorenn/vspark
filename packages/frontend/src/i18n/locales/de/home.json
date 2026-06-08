@@ -28,5 +28,6 @@
   },
   "help": {
     "overview": "Erfahre, wie vspark-Projekte funktionieren und wie du loslegen kannst."
-  }
+  },
+  "defaultSceneName": "Hauptszene"
 }

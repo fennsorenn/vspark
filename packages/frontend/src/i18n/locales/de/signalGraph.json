@@ -16,7 +16,20 @@
   "palette": {
     "header": "Knoten",
     "readOnly": "Schreibgeschützter Graph",
-    "empty": "Keine Knoten in dieser Kategorie."
+    "empty": "Keine Knoten in dieser Kategorie.",
+    "searchPlaceholder": "Knoten suchen…",
+    "noMatch": "Keine Knoten entsprechen „{{query}}“.",
+    "tags": {
+      "all": "Alle",
+      "input": "Eingang",
+      "mocap": "Mocap",
+      "math": "Mathe",
+      "output": "Ausgang",
+      "scene": "Szene",
+      "clips": "Clips",
+      "overlive": "Stream",
+      "utility": "Werkzeuge"
+    }
   },
   "logic": {
     "empty": "Keine Logik",

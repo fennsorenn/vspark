@@ -58,6 +58,12 @@ const select: CSSProperties = {
   padding: '3px 6px',
   fontSize: 12,
   outline: 'none',
+  // Fill the control column so selects share consistent left/right edges with
+  // the other fields instead of sizing to their text. In rows that hold two
+  // selects (units, anchor) each one takes an equal half.
+  flex: 1,
+  minWidth: 0,
+  boxSizing: 'border-box',
 };
 
 export function ComposeLayerProperties({
@@ -76,7 +82,9 @@ export function ComposeLayerProperties({
     ? nodes.find((n) => n.id === layer.cameraNodeId)
     : null;
   const scopeLabel = layer.cameraNodeId
-    ? t('properties.scopeCamera', { name: cameraNode?.name ?? t('properties.scopeUnknown') })
+    ? t('properties.scopeCamera', {
+        name: cameraNode?.name ?? t('properties.scopeUnknown'),
+      })
     : t('properties.scopeAllCameras');
 
   const commit = (patch: Partial<ComposeLayerRecord>) => {
@@ -146,7 +154,7 @@ export function ComposeLayerProperties({
     <select
       value={unitOf(unitKey)}
       onChange={(e) => setUnit(field, unitKey, e.target.value as 'px' | '%')}
-      style={{ ...select, width: 48 }}
+      style={select}
       title={t('properties.unitTitle')}
     >
       <option value="px">px</option>
@@ -237,9 +245,20 @@ export function ComposeLayerProperties({
         )}
       </div>
 
-      <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div
+        style={{
+          ...sectionHeader,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
         {t('properties.sectionName')}
-        <HelpButton topic="compose" anchor="layers" tip={t('help.layerProperties')} />
+        <HelpButton
+          topic="compose"
+          anchor="layers"
+          tip={t('help.layerProperties')}
+        />
       </div>
       <input
         type="text"
@@ -284,7 +303,9 @@ export function ComposeLayerProperties({
 
       {layer.kind === 'scene_include' && (
         <>
-          <div style={sectionHeader}>{t('properties.sectionIncludedScene')}</div>
+          <div style={sectionHeader}>
+            {t('properties.sectionIncludedScene')}
+          </div>
           <select
             value={(layer.config.includeSceneId as string | undefined) ?? ''}
             onChange={(e) =>
@@ -480,7 +501,9 @@ export function ComposeLayerProperties({
           <div
             style={{ ...sectionHeader, display: 'flex', alignItems: 'center' }}
           >
-            {layer.kind === 'image' ? t('properties.sectionImageAsset') : t('properties.sectionVideoAsset')}
+            {layer.kind === 'image'
+              ? t('properties.sectionImageAsset')
+              : t('properties.sectionVideoAsset')}
             {pickBtn(layer.kind === 'image' ? 'images' : 'videos')}
           </div>
           <select
@@ -604,7 +627,9 @@ export function ComposeLayerProperties({
               });
             return (
               <>
-                <div style={sectionHeader}>{t('properties.sectionChromaKey')}</div>
+                <div style={sectionHeader}>
+                  {t('properties.sectionChromaKey')}
+                </div>
                 <div style={row}>
                   <span style={label}>{t('properties.labelEnabled')}</span>
                   <input
@@ -632,7 +657,9 @@ export function ComposeLayerProperties({
                       />
                     </div>
                     <div style={row}>
-                      <span style={label}>{t('properties.labelSimilarity')}</span>
+                      <span style={label}>
+                        {t('properties.labelSimilarity')}
+                      </span>
                       <SliderInput
                         value={ck.similarity}
                         min={0}
@@ -644,7 +671,9 @@ export function ComposeLayerProperties({
                       />
                     </div>
                     <div style={row}>
-                      <span style={label}>{t('properties.labelSmoothness')}</span>
+                      <span style={label}>
+                        {t('properties.labelSmoothness')}
+                      </span>
                       <SliderInput
                         value={ck.smoothness}
                         min={0}

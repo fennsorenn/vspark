@@ -17,6 +17,7 @@ import {
   shareObject,
   unshareObject,
 } from '../../api/client';
+import { useConfirm, usePrompt } from '../DialogProvider';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
   NODE_KIND_DEFS,
@@ -235,7 +236,12 @@ function SceneNodeContextMenu({
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           {t('context.moveInto')}
-          <HelpButton topic="scene" anchor="hierarchy" tip={t('help.hierarchy')} size={11} />
+          <HelpButton
+            topic="scene"
+            anchor="hierarchy"
+            tip={t('help.hierarchy')}
+            size={11}
+          />
         </span>
         <span style={{ color: '#666' }}>▶</span>
         {showMoveInto && (
@@ -633,7 +639,9 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
             {hasStatus && (
               <>
                 <span
-                  title={isConnected ? t('vmc.clientConnected') : t('vmc.noClient')}
+                  title={
+                    isConnected ? t('vmc.clientConnected') : t('vmc.noClient')
+                  }
                   style={{
                     width: 6,
                     height: 6,
@@ -667,7 +675,9 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
               </>
             )}
             <button
-              title={comp.enabled ? t('behaviors.disable') : t('behaviors.enable')}
+              title={
+                comp.enabled ? t('behaviors.disable') : t('behaviors.enable')
+              }
               style={{
                 background: 'none',
                 border: 'none',
@@ -828,7 +838,9 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
             },
             {
               kind: 'item',
-              label: ctxMenu.comp.enabled ? t('behaviors.disable') : t('behaviors.enable'),
+              label: ctxMenu.comp.enabled
+                ? t('behaviors.disable')
+                : t('behaviors.enable'),
               onClick: () => handleToggleEnabled(ctxMenu.comp),
             },
             { kind: 'divider' },
@@ -1037,7 +1049,9 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
                 : effect.kind}
             </span>
             <button
-              title={effect.enabled ? t('effects.disable') : t('effects.enable')}
+              title={
+                effect.enabled ? t('effects.disable') : t('effects.enable')
+              }
               style={{
                 background: 'none',
                 border: 'none',
@@ -1145,10 +1159,14 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
                   <span style={{ fontSize: 15 }}>{ek.icon}</span>
                   <div>
                     <div style={{ fontWeight: 500 }}>
-                      {t(`kinds:effect.${ek.kind}.label`, { defaultValue: ek.label })}
+                      {t(`kinds:effect.${ek.kind}.label`, {
+                        defaultValue: ek.label,
+                      })}
                     </div>
                     <div style={{ fontSize: 10, color: '#666', marginTop: 1 }}>
-                      {t(`kinds:effect.${ek.kind}.description`, { defaultValue: ek.description })}
+                      {t(`kinds:effect.${ek.kind}.description`, {
+                        defaultValue: ek.description,
+                      })}
                     </div>
                   </div>
                 </div>
@@ -1170,7 +1188,9 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
             },
             {
               kind: 'item',
-              label: ctxMenu.effect.enabled ? t('effects.disable') : t('effects.enable'),
+              label: ctxMenu.effect.enabled
+                ? t('effects.disable')
+                : t('effects.enable'),
               onClick: () => handleToggleEnabled(ctxMenu.effect),
             },
             { kind: 'divider' },
@@ -1197,6 +1217,8 @@ import type { LogicRecord, ScopedLogicRecord } from '../../api/client';
 function LogicListPanel() {
   const { t } = useTranslation('sceneGraph');
   const { projectId } = useParams<{ projectId: string }>();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const { activeLogicId, setActiveLogic } = useEditorStore();
   const [behaviorLogic, setBehaviorLogic] = useState<GraphDescriptor[]>([]);
   const [projectLogic, setProjectLogic] = useState<LogicRecord[]>([]);
@@ -1264,7 +1286,11 @@ function LogicListPanel() {
 
   const handleCreate = async () => {
     if (!projectId) return;
-    const name = window.prompt(t('logic.promptName'), t('logic.promptDefault'));
+    const name = await prompt({
+      title: t('logic.promptName'),
+      defaultValue: t('logic.promptDefault'),
+      confirmLabel: t('common:actions.create'),
+    });
     if (!name?.trim()) return;
     try {
       const created = await api.createProjectLogic(projectId, name.trim());
@@ -1276,13 +1302,15 @@ function LogicListPanel() {
   };
 
   const handleRename = async (g: LogicRecord) => {
-    const name = window.prompt(t('logic.promptRename'), g.name);
+    const name = await prompt({
+      title: t('logic.promptRename'),
+      defaultValue: g.name,
+      confirmLabel: t('common:actions.rename'),
+    });
     if (!name?.trim() || name.trim() === g.name) return;
     try {
       const updated = await api.updateLogic(g.id, { name: name.trim() });
-      setProjectLogic((prev) =>
-        prev.map((x) => (x.id === g.id ? updated : x))
-      );
+      setProjectLogic((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failRename'));
     }
@@ -1293,16 +1321,21 @@ function LogicListPanel() {
       const updated = await api.updateLogic(g.id, {
         enabled: !g.enabled,
       });
-      setProjectLogic((prev) =>
-        prev.map((x) => (x.id === g.id ? updated : x))
-      );
+      setProjectLogic((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failToggle'));
     }
   };
 
   const handleDelete = async (g: LogicRecord) => {
-    if (!window.confirm(t('logic.confirmDelete', { name: g.name }))) return;
+    if (
+      !(await confirm({
+        message: t('logic.confirmDelete', { name: g.name }),
+        confirmLabel: t('common:actions.delete'),
+        danger: true,
+      }))
+    )
+      return;
     try {
       await api.deleteLogic(g.id);
       setProjectLogic((prev) => prev.filter((x) => x.id !== g.id));
@@ -1528,7 +1561,9 @@ function LogicListPanel() {
                     }}
                   >
                     {g.ownerName} ·{' '}
-                    {g.ownerKind === 'compose_layer' ? t('logic.layer') : t('logic.node')}
+                    {g.ownerKind === 'compose_layer'
+                      ? t('logic.layer')
+                      : t('logic.node')}
                     {g.enabled ? '' : ' ' + t('logic.disabled')}
                   </div>
                 </div>
@@ -1603,7 +1638,8 @@ function LogicListPanel() {
               <div>
                 <div style={{ fontWeight: 500 }}>{g.label}</div>
                 <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
-                  {t('logic.nodes', { count: g.nodes.length })} · {t('logic.readOnly')}
+                  {t('logic.nodes', { count: g.nodes.length })} ·{' '}
+                  {t('logic.readOnly')}
                 </div>
               </div>
             </div>
@@ -1627,7 +1663,9 @@ function LogicListPanel() {
             },
             {
               kind: 'item',
-              label: ctxMenu.graph.enabled ? t('logic.disable') : t('logic.enable'),
+              label: ctxMenu.graph.enabled
+                ? t('logic.disable')
+                : t('logic.enable'),
               onClick: () => handleToggleEnabled(ctxMenu.graph),
             },
             { kind: 'divider' },
@@ -1648,6 +1686,8 @@ function LogicListPanel() {
 export function SceneGraph() {
   const { t } = useTranslation('sceneGraph');
   const { projectId } = useParams<{ projectId: string }>();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const {
     activeSceneId,
     scenes,
@@ -1735,7 +1775,11 @@ export function SceneGraph() {
 
   const handleNewScene = async () => {
     if (!projectId) return;
-    const name = window.prompt(t('scenes.promptName'), t('scenes.promptDefault'));
+    const name = await prompt({
+      title: t('scenes.promptName'),
+      defaultValue: t('scenes.promptDefault'),
+      confirmLabel: t('common:actions.create'),
+    });
     if (!name?.trim()) return;
     try {
       const scene = await api.createScene(projectId, name.trim());
@@ -1752,9 +1796,11 @@ export function SceneGraph() {
 
   const handleDeleteScene = async (scene: (typeof scenes)[number]) => {
     if (
-      !window.confirm(
-        t('scenes.confirmDelete', { name: scene.name })
-      )
+      !(await confirm({
+        message: t('scenes.confirmDelete', { name: scene.name }),
+        confirmLabel: t('common:actions.delete'),
+        danger: true,
+      }))
     )
       return;
     try {
@@ -1792,7 +1838,15 @@ export function SceneGraph() {
 
   const handleDelete = async (nodeId: string) => {
     const node = sceneNodes.find((n) => n.id === nodeId);
-    if (!node || !window.confirm(t('nodes.confirmDelete', { name: node.name }))) return;
+    if (!node) return;
+    if (
+      !(await confirm({
+        message: t('nodes.confirmDelete', { name: node.name }),
+        confirmLabel: t('common:actions.delete'),
+        danger: true,
+      }))
+    )
+      return;
     try {
       await api.deleteNode(nodeId);
       storeDeleteNode(nodeId);
@@ -2046,167 +2100,205 @@ export function SceneGraph() {
             {isCollapsed ? '▶' : '▼'}
           </span>
 
-          <span style={{ fontSize: 14, flexShrink: 0 }}>{icon}</span>
           <span
             style={{
-              flex: 1,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              marginLeft: 4,
-            }}
-          >
-            {node.name}
-          </span>
-
-          {/* Opaque container for a peer's shared object: editable placement,
-              but its contents live on the owner's server (read-only internals). */}
-          {node.kind === 'remote_object' && (
-            <span
-              title={t('remote.tip')}
-              style={{ fontSize: 11, flexShrink: 0, opacity: 0.7 }}
-            >
-              📡
-            </span>
-          )}
-
-          {/* Bones toggle — avatar/model only, shown once VRM is loaded */}
-          {bones && (
-            <button
-              title={showBones ? t('bones.collapse') : t('bones.expand')}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: showBones ? '#8af' : '#444',
-                cursor: 'pointer',
-                fontSize: 11,
-                padding: '0 3px',
-                flexShrink: 0,
-                lineHeight: 1,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleBones(node.id);
-              }}
-            >
-              🦴
-            </button>
-          )}
-
-          {/* Components toggle */}
-          <button
-            title={showBehaviors ? t('components.hide') : t('components.show')}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: showBehaviors ? '#4a8' : compCount > 0 ? '#666' : '#333',
-              cursor: 'pointer',
-              fontSize: 11,
-              padding: '0 3px',
+              fontSize: 16,
               flexShrink: 0,
-              lineHeight: 1,
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleBehaviors(node.id);
+              marginRight: 6,
+              alignSelf: 'center',
             }}
           >
-            ⚙
-            {compCount > 0 ? (
-              <sup style={{ fontSize: 8 }}>{compCount}</sup>
-            ) : null}
-          </button>
+            {icon}
+          </span>
+          {/* Two-row body: name on top, action controls beneath. Keeping the
+              actions on their own row stops them from crowding or being
+              clipped by long node names. */}
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+            }}
+          >
+            <span
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                overflow: 'hidden',
+              }}
+            >
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {node.name}
+              </span>
+              {/* Opaque container for a peer's shared object: editable
+                  placement, but its contents live on the owner's server
+                  (read-only internals). */}
+              {node.kind === 'remote_object' && (
+                <span
+                  title={t('remote.tip')}
+                  style={{ fontSize: 11, flexShrink: 0, opacity: 0.7 }}
+                >
+                  📡
+                </span>
+              )}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {/* Bones toggle — avatar/model only, shown once VRM is loaded */}
+              {bones && (
+                <button
+                  title={showBones ? t('bones.collapse') : t('bones.expand')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: showBones ? '#8af' : '#444',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    padding: '0 3px',
+                    flexShrink: 0,
+                    lineHeight: 1,
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleBones(node.id);
+                  }}
+                >
+                  🦴
+                </button>
+              )}
 
-          {/* Camera-only controls */}
-          {node.kind === 'camera' && (
-            <>
+              {/* Components toggle */}
               <button
                 title={
-                  previewEffectsCamera === node.id
-                    ? t('camera.previewDisable')
-                    : t('camera.previewEnable')
+                  showBehaviors ? t('components.hide') : t('components.show')
                 }
                 style={{
                   background: 'none',
                   border: 'none',
-                  color: previewEffectsCamera === node.id ? '#7ab' : '#444',
+                  color: showBehaviors
+                    ? '#4a8'
+                    : compCount > 0
+                      ? '#666'
+                      : '#333',
                   cursor: 'pointer',
                   fontSize: 11,
-                  padding: '0 2px',
+                  padding: '0 3px',
                   flexShrink: 0,
                   lineHeight: 1,
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setPreviewEffectsCamera(node.id);
+                  toggleBehaviors(node.id);
                 }}
               >
-                ✦
+                ⚙
+                {compCount > 0 ? (
+                  <sup style={{ fontSize: 8 }}>{compCount}</sup>
+                ) : null}
               </button>
-              {projectId && (
-                <a
-                  href={`/viewer/${projectId}/${node.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={t('camera.openViewer')}
-                  style={{
-                    color: '#555',
-                    fontSize: 12,
-                    padding: '0 2px',
-                    flexShrink: 0,
-                    lineHeight: 1,
-                    textDecoration: 'none',
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  ↗
-                </a>
+
+              {/* Camera-only controls */}
+              {node.kind === 'camera' && (
+                <>
+                  <button
+                    title={
+                      previewEffectsCamera === node.id
+                        ? t('camera.previewDisable')
+                        : t('camera.previewEnable')
+                    }
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: previewEffectsCamera === node.id ? '#7ab' : '#444',
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      padding: '0 2px',
+                      flexShrink: 0,
+                      lineHeight: 1,
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPreviewEffectsCamera(node.id);
+                    }}
+                  >
+                    ✦
+                  </button>
+                  {projectId && (
+                    <a
+                      href={`/viewer/${projectId}/${node.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={t('camera.openViewer')}
+                      style={{
+                        color: '#555',
+                        fontSize: 12,
+                        padding: '0 2px',
+                        flexShrink: 0,
+                        lineHeight: 1,
+                        textDecoration: 'none',
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      ↗
+                    </a>
+                  )}
+                </>
               )}
-            </>
-          )}
 
-          {/* Visibility toggle */}
-          <button
-            title={isHidden ? t('visibility.show') : t('visibility.hide')}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: isHidden ? '#444' : '#666',
-              cursor: 'pointer',
-              padding: '0 2px',
-              fontSize: 12,
-              lineHeight: 1,
-              flexShrink: 0,
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleNodeHidden(node.id);
-              api.updateNode(node.id, { hidden: !isHidden }).catch(() => {});
-            }}
-          >
-            {isHidden ? '🙈' : '👁'}
-          </button>
+              {/* Visibility toggle */}
+              <button
+                title={isHidden ? t('visibility.show') : t('visibility.hide')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: isHidden ? '#444' : '#666',
+                  cursor: 'pointer',
+                  padding: '0 2px',
+                  fontSize: 12,
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleNodeHidden(node.id);
+                  api
+                    .updateNode(node.id, { hidden: !isHidden })
+                    .catch(() => {});
+                }}
+              >
+                {isHidden ? '🙈' : '👁'}
+              </button>
 
-          {/* Delete button */}
-          <button
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#555',
-              cursor: 'pointer',
-              padding: '0 2px',
-              fontSize: 14,
-              lineHeight: 1,
-              flexShrink: 0,
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDelete(node.id);
-            }}
-            title={t('nodes.deleteTitle')}
-          >
-            ×
-          </button>
+              {/* Delete button */}
+              <button
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#555',
+                  cursor: 'pointer',
+                  padding: '0 2px',
+                  fontSize: 14,
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDelete(node.id);
+                }}
+                title={t('nodes.deleteTitle')}
+              >
+                🗑
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Inline components section */}
@@ -2259,12 +2351,14 @@ export function SceneGraph() {
                           // Single-action prompt — full menu is overkill
                           // when "paste here" is the only meaningful action
                           // a bone can host.
-                          const yes = window.confirm(
-                            t('bones.pasteConfirm', { bone: formatBoneName(boneName) })
-                          );
-                          if (yes) {
-                            void handlePasteNodeAsChild(node.id, boneName);
-                          }
+                          void confirm({
+                            message: t('bones.pasteConfirm', {
+                              bone: formatBoneName(boneName),
+                            }),
+                          }).then((yes) => {
+                            if (yes)
+                              void handlePasteNodeAsChild(node.id, boneName);
+                          });
                         }}
                         onDragOver={(e) => {
                           e.preventDefault();
@@ -2568,7 +2662,12 @@ export function SceneGraph() {
               }}
             >
               {t('scenes.header')}
-              <HelpButton topic="scene" anchor="nodes" tip={t('help.sceneNodes')} size={12} />
+              <HelpButton
+                topic="scene"
+                anchor="nodes"
+                tip={t('help.sceneNodes')}
+                size={12}
+              />
             </span>
             <button
               style={{

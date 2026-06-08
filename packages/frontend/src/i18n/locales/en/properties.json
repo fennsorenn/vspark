@@ -264,7 +264,8 @@
   "emptyState": {
     "selectNode": "Select a node to edit its properties.",
     "selectLayer": "Select a layer to edit its properties.",
-    "graphsTab": "Editing a graph — select nodes on the canvas."
+    "graphsTab": "Editing a graph — select nodes on the canvas.",
+    "graphsTabNoGraph": "Select or create a logic graph to start editing."
   },
   "pickButton": "Pick from the asset library in the bottom dock",
   "pickLabel": "Pick…",

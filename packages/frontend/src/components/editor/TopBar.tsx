@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { useConnectionsStore } from '../../store/connectionsStore';
@@ -46,6 +46,8 @@ export function TopBar() {
   }, [setMpMeta, setMpPeers]);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
+  // Anchor the Updates popover under whichever control opened it.
+  const updateAnchorRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const ws = new WebSocket(
@@ -263,6 +265,7 @@ export function TopBar() {
             </button>
           )}
           <button
+            ref={updateAnchorRef}
             onClick={() => setUpdateOpen(true)}
             style={{
               background: 'none',
@@ -282,7 +285,12 @@ export function TopBar() {
       </div>
       {mediaMounted && <MediaInputWindow visible={mediaOpen} />}
       {connectionsMounted && <ConnectionsWindow visible={connectionsOpen} />}
-      {updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}
+      {updateOpen && (
+        <UpdateDialog
+          onClose={() => setUpdateOpen(false)}
+          anchorRef={updateAnchorRef}
+        />
+      )}
       {accountsOpen && (
         <OverliveAccountsModal onClose={() => setAccountsOpen(false)} />
       )}

@@ -5,6 +5,7 @@ import { api, type LogicRecord } from '../../api/client';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { HelpButton } from '../../help/HelpButton';
+import { useConfirm, usePrompt } from '../DialogProvider';
 
 /** Inline, expandable list of standalone logic attached to a single scene
  *  node or compose layer — mirrors ClipsSection. Selecting a graph opens it
@@ -15,6 +16,8 @@ export function LogicSection({
   owner: { kind: 'node'; id: string } | { kind: 'layer'; id: string };
 }) {
   const { t } = useTranslation('signalGraph');
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const setActiveLogic = useEditorStore((s) => s.setActiveLogic);
   const activeLogicId = useEditorStore((s) => s.activeLogicId);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
@@ -47,7 +50,11 @@ export function LogicSection({
   }, [owner.kind, owner.id]);
 
   const handleAdd = async () => {
-    const name = window.prompt(t('logic.promptName'), t('logic.promptDefault'));
+    const name = await prompt({
+      title: t('logic.promptName'),
+      defaultValue: t('logic.promptDefault'),
+      confirmLabel: t('common:actions.create'),
+    });
     if (!name?.trim()) return;
     try {
       const created =
@@ -62,7 +69,14 @@ export function LogicSection({
   };
 
   const handleDelete = async (g: LogicRecord) => {
-    if (!window.confirm(t('logic.confirmDelete', { name: g.name }))) return;
+    if (
+      !(await confirm({
+        message: t('logic.confirmDelete', { name: g.name }),
+        confirmLabel: t('common:actions.delete'),
+        danger: true,
+      }))
+    )
+      return;
     try {
       await api.deleteLogic(g.id);
       setLogic((prev) => prev.filter((x) => x.id !== g.id));
@@ -208,7 +222,14 @@ export function LogicSection({
           </div>
         );
       })}
-      <div style={{ padding: '3px 6px', display: 'flex', gap: 6, alignItems: 'center' }}>
+      <div
+        style={{
+          padding: '3px 6px',
+          display: 'flex',
+          gap: 6,
+          alignItems: 'center',
+        }}
+      >
         <button
           onClick={handleAdd}
           style={{
@@ -282,7 +303,9 @@ function buildLogicRowMenu(args: {
     { kind: 'item', label: args.t('logic.ctxCopy'), onClick: args.onCopy },
     {
       kind: 'item',
-      label: args.graph.enabled ? args.t('logic.disable') : args.t('logic.enable'),
+      label: args.graph.enabled
+        ? args.t('logic.disable')
+        : args.t('logic.enable'),
       onClick: args.onToggleEnabled,
     },
     { kind: 'divider' },

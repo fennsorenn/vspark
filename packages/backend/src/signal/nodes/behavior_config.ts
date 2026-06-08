@@ -34,7 +34,7 @@ function resolvePath(obj: unknown, path: string): unknown {
  */
 @SignalNode({
   label: 'Behavior Settings',
-  tags: ['config'],
+  tags: ["utility"],
   color: '#2a2a4a',
   internal: true,
 })

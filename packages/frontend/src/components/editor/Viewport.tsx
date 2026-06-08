@@ -4,11 +4,11 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   OrbitControls,
   Grid,
-  Environment,
   Line,
   TransformControls,
   Billboard,
 } from '@react-three/drei';
+import { SafeEnvironment } from '../SafeEnvironment';
 import {
   EffectComposer,
   Bloom,
@@ -5176,7 +5176,7 @@ export function Viewport() {
         <Grid infiniteGrid fadeDistance={30} fadeStrength={1} />
         {shadowsEnabled && <ShadowCatcher />}
         <ShadowMaterialSync enabled={shadowsEnabled} />
-        <Environment preset="city" />
+        <SafeEnvironment preset="city" />
         <OrbitControls ref={orbitRef} makeDefault />
         <CameraEffects />
       </Canvas>

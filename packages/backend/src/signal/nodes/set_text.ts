@@ -19,7 +19,7 @@ interface SetTextConfig {
   label: 'Set Text',
   description:
     "Writes a runtime override on the target's text.content paramPath.",
-  tags: ['scene', 'compose', 'output'],
+  tags: ["scene"],
   color: '#3a7a5a',
 })
 export class SetText extends Node {

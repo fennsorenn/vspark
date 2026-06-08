@@ -353,7 +353,7 @@ interface HeadCalibration {
   label: 'Pose → Torso/Head Bones',
   description:
     'Converts MediaPipe BlazePose 33-point world landmarks to VRM torso (spine+chest) + head (neck) local rotations. Hips are left at identity so legs stay anchored. Pitch/yaw/roll gain inputs amplify head rotation axes to compensate MediaPipe damping; `restPitch` shifts the nod neutral.',
-  tags: ['tracking', 'mapping'],
+  tags: ["mocap"],
   color: '#4a5a8a',
 })
 export class PoseTorsoHeadToBones extends Node {

@@ -19,7 +19,11 @@ const tabHelp: Partial<
 > = {
   create: { topic: 'scene', anchor: 'nodes', tipKey: 'help.create' },
   models: { topic: 'avatar', anchor: 'loading', tipKey: 'help.models' },
-  animations: { topic: 'avatar', anchor: 'animation', tipKey: 'help.animations' },
+  animations: {
+    topic: 'avatar',
+    anchor: 'animation',
+    tipKey: 'help.animations',
+  },
   images: { topic: 'assets', anchor: 'kinds', tipKey: 'help.assets' },
   videos: { topic: 'assets', anchor: 'kinds', tipKey: 'help.assets' },
   audio: { topic: 'assets', anchor: 'kinds', tipKey: 'help.assets' },
@@ -184,7 +188,8 @@ export function AssetManager() {
     }
     setUploading(false);
     if (firstKind && KIND_TO_TAB[firstKind]) setTab(KIND_TO_TAB[firstKind]);
-    if (failures.length > 0) alert(t('alerts.uploadFailedFiles', { files: failures.join(', ') }));
+    if (failures.length > 0)
+      alert(t('alerts.uploadFailedFiles', { files: failures.join(', ') }));
   };
 
   // Only react to OS file drags (dataTransfer carries "Files"); internal asset/
@@ -612,7 +617,9 @@ export function AssetManager() {
             {t(`kinds:behavior.${ct.kind}.label`, { defaultValue: ct.label })}
           </div>
           <div style={{ fontSize: 11, color: '#666', lineHeight: 1.4 }}>
-            {t(`kinds:behavior.${ct.kind}.description`, { defaultValue: ct.description })}
+            {t(`kinds:behavior.${ct.kind}.description`, {
+              defaultValue: ct.description,
+            })}
           </div>
         </div>
         <button
@@ -630,7 +637,9 @@ export function AssetManager() {
           disabled={alreadyAdded}
           onClick={() => handleAddBehavior(ct.kind)}
           title={
-            alreadyAdded ? t('card.alreadyAdded') : t('card.addToNode', { name: selectedNode!.name })
+            alreadyAdded
+              ? t('card.alreadyAdded')
+              : t('card.addToNode', { name: selectedNode!.name })
           }
         >
           {alreadyAdded ? t('card.added') : t('card.add')}
@@ -951,7 +960,9 @@ export function AssetManager() {
                       {incompatible.length > 0 && (
                         <>
                           <div style={sectionLabel}>
-                            {t('behaviors.otherBehaviors', { kind: selectedNode.kind })}
+                            {t('behaviors.otherBehaviors', {
+                              kind: selectedNode.kind,
+                            })}
                           </div>
                           <div style={cardGrid}>
                             {incompatible.map((ct) =>
@@ -1014,7 +1025,9 @@ export function AssetManager() {
                               marginBottom: 3,
                             }}
                           >
-                            {t(`kinds:effect.${ek.kind}.label`, { defaultValue: ek.label })}
+                            {t(`kinds:effect.${ek.kind}.label`, {
+                              defaultValue: ek.label,
+                            })}
                           </div>
                           <div
                             style={{
@@ -1023,7 +1036,9 @@ export function AssetManager() {
                               lineHeight: 1.4,
                             }}
                           >
-                            {t(`kinds:effect.${ek.kind}.description`, { defaultValue: ek.description })}
+                            {t(`kinds:effect.${ek.kind}.description`, {
+                              defaultValue: ek.description,
+                            })}
                           </div>
                         </div>
                         <button
@@ -1087,7 +1102,7 @@ export function AssetManager() {
                       paddingTop: 20,
                     }}
                   >
-                    {t('empty.noAssets', { tab })}
+                    {t('empty.noAssets', { tab: t(`tabs.${tab}`) })}
                   </div>
                 );
               if (list.length === 0)
@@ -1100,7 +1115,10 @@ export function AssetManager() {
                       paddingTop: 20,
                     }}
                   >
-                    {t('empty.noMatch', { tab, query: assetQuery })}
+                    {t('empty.noMatch', {
+                      tab: t(`tabs.${tab}`),
+                      query: assetQuery,
+                    })}
                   </div>
                 );
               const cardStyle: React.CSSProperties = {
@@ -1194,10 +1212,14 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={t('actions.applyToNodeTitle', { name: selectedNode!.name })}
+                            title={t('actions.applyToNodeTitle', {
+                              name: selectedNode!.name,
+                            })}
                             onClick={() => handleApplyModel(asset)}
                           >
-                            {t('actions.applyToNode', { name: selectedNode!.name })}
+                            {t('actions.applyToNode', {
+                              name: selectedNode!.name,
+                            })}
                           </button>
                         )}
                         {asset.kind === 'animation' && canApplyAnim && (
@@ -1211,10 +1233,14 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={t('actions.applyAnimTitle', { name: selectedNode!.name })}
+                            title={t('actions.applyAnimTitle', {
+                              name: selectedNode!.name,
+                            })}
                             onClick={() => handleApplyAnimation(asset)}
                           >
-                            {t('actions.applyToNode', { name: selectedNode!.name })}
+                            {t('actions.applyToNode', {
+                              name: selectedNode!.name,
+                            })}
                           </button>
                         )}
                         {asset.kind === 'animation' && !canApplyAnim && (
@@ -1250,7 +1276,9 @@ export function AssetManager() {
                                 : handleAddAsBillboard(asset)
                             }
                           >
-                            {composeMode ? t('actions.addAsLayer') : t('actions.addAsBillboard')}
+                            {composeMode
+                              ? t('actions.addAsLayer')
+                              : t('actions.addAsBillboard')}
                           </button>
                         )}
                         {asset.kind === 'image' && canApplyTexture && (
@@ -1264,10 +1292,14 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={t('actions.applyTextureTitle', { name: selectedNode!.name })}
+                            title={t('actions.applyTextureTitle', {
+                              name: selectedNode!.name,
+                            })}
                             onClick={() => handleApplyTexture(asset)}
                           >
-                            {t('actions.applyTexture', { name: selectedNode!.name })}
+                            {t('actions.applyTexture', {
+                              name: selectedNode!.name,
+                            })}
                           </button>
                         )}
                         {asset.kind === 'image' && canApplyCameraBg && (
@@ -1281,7 +1313,9 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={t('actions.setAsBgTitle', { name: selectedNode!.name })}
+                            title={t('actions.setAsBgTitle', {
+                              name: selectedNode!.name,
+                            })}
                             onClick={() => handleApplyCameraBg(asset)}
                           >
                             {t('actions.setAsBg')}
@@ -1298,10 +1332,14 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={t('actions.applyToLayerTitle', { name: selectedComposeLayer!.name })}
+                            title={t('actions.applyToLayerTitle', {
+                              name: selectedComposeLayer!.name,
+                            })}
                             onClick={() => handleApplyMediaSourceToLayer(asset)}
                           >
-                            {t('actions.applyToLayer', { name: selectedComposeLayer!.name })}
+                            {t('actions.applyToLayer', {
+                              name: selectedComposeLayer!.name,
+                            })}
                           </button>
                         )}
                         {asset.kind === 'image' &&
@@ -1340,7 +1378,9 @@ export function AssetManager() {
                                 : handleAddAsVideo(asset)
                             }
                           >
-                            {composeMode ? t('actions.addAsLayer') : t('actions.addAsVideo')}
+                            {composeMode
+                              ? t('actions.addAsLayer')
+                              : t('actions.addAsVideo')}
                           </button>
                         )}
                         {asset.kind === 'video' && canApplyVideo && (
@@ -1354,12 +1394,16 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={t('actions.applyVideoTitle', { name: selectedNode!.name })}
+                            title={t('actions.applyVideoTitle', {
+                              name: selectedNode!.name,
+                            })}
                             onClick={() =>
                               handleApplyMediaSource(asset, 'video')
                             }
                           >
-                            {t('actions.applyToNode', { name: selectedNode!.name })}
+                            {t('actions.applyToNode', {
+                              name: selectedNode!.name,
+                            })}
                           </button>
                         )}
                         {asset.kind === 'video' && canApplyVideoLayer && (
@@ -1373,10 +1417,14 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={t('actions.applyToLayerTitle', { name: selectedComposeLayer!.name })}
+                            title={t('actions.applyToLayerTitle', {
+                              name: selectedComposeLayer!.name,
+                            })}
                             onClick={() => handleApplyMediaSourceToLayer(asset)}
                           >
-                            {t('actions.applyToLayer', { name: selectedComposeLayer!.name })}
+                            {t('actions.applyToLayer', {
+                              name: selectedComposeLayer!.name,
+                            })}
                           </button>
                         )}
                         {asset.kind === 'audio' && (
@@ -1406,12 +1454,16 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={t('actions.applyAudioTitle', { name: selectedNode!.name })}
+                            title={t('actions.applyAudioTitle', {
+                              name: selectedNode!.name,
+                            })}
                             onClick={() =>
                               handleApplyMediaSource(asset, 'audio')
                             }
                           >
-                            {t('actions.applyToNode', { name: selectedNode!.name })}
+                            {t('actions.applyToNode', {
+                              name: selectedNode!.name,
+                            })}
                           </button>
                         )}
                         {asset.kind === 'audio' && canApplyAudioLayer && (
@@ -1425,10 +1477,14 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={t('actions.applyToLayerTitle', { name: selectedComposeLayer!.name })}
+                            title={t('actions.applyToLayerTitle', {
+                              name: selectedComposeLayer!.name,
+                            })}
                             onClick={() => handleApplyMediaSourceToLayer(asset)}
                           >
-                            {t('actions.applyToLayer', { name: selectedComposeLayer!.name })}
+                            {t('actions.applyToLayer', {
+                              name: selectedComposeLayer!.name,
+                            })}
                           </button>
                         )}
                         <button

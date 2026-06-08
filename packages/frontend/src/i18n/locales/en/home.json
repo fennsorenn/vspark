@@ -28,5 +28,6 @@
   },
   "help": {
     "overview": "Learn how vspark projects work and how to get started."
-  }
+  },
+  "defaultSceneName": "Main Scene"
 }

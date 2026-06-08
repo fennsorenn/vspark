@@ -25,7 +25,7 @@ interface MediaControlConfig {
   label: 'Media Control',
   description:
     'Play / pause / stop / seek a video or audio entity (fire-and-forget).',
-  tags: ['media', 'output'],
+  tags: ["output"],
   color: '#7a3a6a',
 })
 export class MediaControl extends Node {

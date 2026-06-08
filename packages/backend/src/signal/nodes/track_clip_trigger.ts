@@ -17,7 +17,7 @@ export function initTrackClipTrigger(mgr: TrackClipPlaybackManager): void {
   label: 'Track Clip Trigger',
   description:
     'Starts playback of a track clip on the configured scene when triggered.',
-  tags: ['output'],
+  tags: ["clips"],
   color: '#3a5a7a',
 })
 export class TrackClipTrigger extends Node {

@@ -23,7 +23,7 @@ export function setIkStreamForwarder(
   label: 'Send IK Targets',
   description:
     'Broadcasts an IkTargetFrame to all WebSocket clients as a pose_ik_targets message. Reference bone is set by the upstream IK targets node config.',
-  tags: ['output'],
+  tags: ["output"],
   color: '#7a3a9a',
 })
 export class IkBroadcast extends Node {

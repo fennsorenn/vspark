@@ -6,7 +6,7 @@ import { valueIn, valueOut } from '@vspark/shared/node_decorators';
   label: 'NOT',
   description:
     'Boolean negation. Outputs !value. Treats null/undefined as false (so output defaults to true).',
-  tags: ['logic'],
+  tags: ["math"],
   color: '#3a3a3a',
 })
 export class NotBool extends Node {

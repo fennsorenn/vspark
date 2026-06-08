@@ -248,7 +248,10 @@ function CollapsibleSection({
           {count != null ? ` (${count})` : ''}
         </span>
         {extra && (
-          <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <span
+            onClick={(e) => e.stopPropagation()}
+            style={{ display: 'inline-flex', alignItems: 'center' }}
+          >
             {extra}
           </span>
         )}
@@ -469,9 +472,21 @@ function MaterialRow({
         >
           {/* Shader toggle */}
           <div style={matRow}>
-            <span style={{ ...matLabel, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span
+              style={{
+                ...matLabel,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
               {t('material.shader')}
-              <HelpButton topic="materials" anchor="mode" tip={t('help.matMode')} size={12} />
+              <HelpButton
+                topic="materials"
+                anchor="mode"
+                tip={t('help.matMode')}
+                size={12}
+              />
             </span>
             <div style={{ display: 'flex', gap: 0 }}>
               {(['mtoon', 'pbr', 'apbr'] as ShaderKind[]).map((s, i, arr) => {
@@ -481,11 +496,7 @@ function MaterialRow({
                   <button
                     key={s}
                     disabled={disabled}
-                    title={
-                      s === 'apbr'
-                        ? t('material.apbrTip')
-                        : undefined
-                    }
+                    title={s === 'apbr' ? t('material.apbrTip') : undefined}
                     onClick={() => patch({ shader: s }, true)}
                     style={{
                       background: active ? '#1a3a5a' : '#1e1e1e',
@@ -515,19 +526,37 @@ function MaterialRow({
           {colorRow(t('material.baseColor'), 'baseColor', d.baseColor)}
           {/* Emissive group — help on the color label (one affordance for color+intensity) */}
           <div style={matRow}>
-            <span style={{ ...matLabel, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span
+              style={{
+                ...matLabel,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
               {t('material.emissive')}
-              <HelpButton topic="materials" anchor="emissive" tip={t('help.matEmissive')} size={12} />
+              <HelpButton
+                topic="materials"
+                anchor="emissive"
+                tip={t('help.matEmissive')}
+                size={12}
+              />
             </span>
             <input
               type="color"
               value={val('emissive', d.emissive)}
               style={matColorInput}
               onChange={(e) =>
-                patch({ emissive: e.target.value } as Partial<MaterialOverride>, false)
+                patch(
+                  { emissive: e.target.value } as Partial<MaterialOverride>,
+                  false
+                )
               }
               onBlur={(e) =>
-                patch({ emissive: e.target.value } as Partial<MaterialOverride>, true)
+                patch(
+                  { emissive: e.target.value } as Partial<MaterialOverride>,
+                  true
+                )
               }
             />
           </div>
@@ -559,7 +588,9 @@ function MaterialRow({
                 fontSize: 11,
               }}
             >
-              <option value="original">{t('material.emissiveMapOriginal')}</option>
+              <option value="original">
+                {t('material.emissiveMapOriginal')}
+              </option>
               <option value="flat">{t('material.emissiveMapFlat')}</option>
               <option value="albedo">{t('material.emissiveMapAlbedo')}</option>
             </select>
@@ -574,7 +605,15 @@ function MaterialRow({
               0.01,
               2
             )}
-          {sliderRow(t('material.normalSmoothing'), 'normalSmoothing', 0, 0, 1, 0.01, 2)}
+          {sliderRow(
+            t('material.normalSmoothing'),
+            'normalSmoothing',
+            0,
+            0,
+            1,
+            0.01,
+            2
+          )}
           <div style={matRow}>
             <span style={matLabel}>{t('material.flatShading')}</span>
             <input
@@ -622,7 +661,15 @@ function MaterialRow({
               0.01,
               2
             )}
-          {sliderRow(t('material.opacity'), 'opacity', d.opacity, 0, 1, 0.01, 2)}
+          {sliderRow(
+            t('material.opacity'),
+            'opacity',
+            d.opacity,
+            0,
+            1,
+            0.01,
+            2
+          )}
 
           {/* MToon-only */}
           {shader === 'mtoon' && (
@@ -675,7 +722,15 @@ function MaterialRow({
                 0.1,
                 1
               )}
-              {sliderRow(t('material.rimLift'), 'rimLift', d.rimLift, 0, 1, 0.01, 2)}
+              {sliderRow(
+                t('material.rimLift'),
+                'rimLift',
+                d.rimLift,
+                0,
+                1,
+                0.01,
+                2
+              )}
               {d.hasOutline && (
                 <>
                   {sliderRow(
@@ -687,7 +742,11 @@ function MaterialRow({
                     0.001,
                     3
                   )}
-                  {colorRow(t('material.outlineColor'), 'outlineColor', d.outlineColor)}
+                  {colorRow(
+                    t('material.outlineColor'),
+                    'outlineColor',
+                    d.outlineColor
+                  )}
                   {sliderRow(
                     t('material.outlineMix'),
                     'outlineLightingMix',
@@ -707,9 +766,21 @@ function MaterialRow({
             <>
               {/* Roughness + Metalness group — one ? on roughness label */}
               <div style={matRow}>
-                <span style={{ ...matLabel, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span
+                  style={{
+                    ...matLabel,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
                   {t('material.roughness')}
-                  <HelpButton topic="materials" anchor="metalrough" tip={t('help.matMetalRough')} size={12} />
+                  <HelpButton
+                    topic="materials"
+                    anchor="metalrough"
+                    tip={t('help.matMetalRough')}
+                    size={12}
+                  />
                 </span>
                 <SliderInput
                   value={val('roughness', d.roughness)}
@@ -718,15 +789,39 @@ function MaterialRow({
                   step={0.01}
                   precision={2}
                   style={{ flex: 1 }}
-                  onChange={(v) => patch({ roughness: v } as Partial<MaterialOverride>, false)}
-                  onCommit={(v) => patch({ roughness: v } as Partial<MaterialOverride>, true)}
+                  onChange={(v) =>
+                    patch({ roughness: v } as Partial<MaterialOverride>, false)
+                  }
+                  onCommit={(v) =>
+                    patch({ roughness: v } as Partial<MaterialOverride>, true)
+                  }
                 />
               </div>
-              {sliderRow(t('material.metalness'), 'metalness', d.metalness, 0, 1, 0.01, 2)}
+              {sliderRow(
+                t('material.metalness'),
+                'metalness',
+                d.metalness,
+                0,
+                1,
+                0.01,
+                2
+              )}
               <div style={matRow}>
-                <span style={{ ...matLabel, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span
+                  style={{
+                    ...matLabel,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
                   {t('material.envIntensity')}
-                  <HelpButton topic="materials" anchor="env" tip={t('help.matEnv')} size={12} />
+                  <HelpButton
+                    topic="materials"
+                    anchor="env"
+                    tip={t('help.matEnv')}
+                    size={12}
+                  />
                 </span>
                 <SliderInput
                   value={val('envMapIntensity', d.envMapIntensity)}
@@ -735,8 +830,18 @@ function MaterialRow({
                   step={0.01}
                   precision={2}
                   style={{ flex: 1 }}
-                  onChange={(v) => patch({ envMapIntensity: v } as Partial<MaterialOverride>, false)}
-                  onCommit={(v) => patch({ envMapIntensity: v } as Partial<MaterialOverride>, true)}
+                  onChange={(v) =>
+                    patch(
+                      { envMapIntensity: v } as Partial<MaterialOverride>,
+                      false
+                    )
+                  }
+                  onCommit={(v) =>
+                    patch(
+                      { envMapIntensity: v } as Partial<MaterialOverride>,
+                      true
+                    )
+                  }
                 />
               </div>
             </>
@@ -770,8 +875,16 @@ function MaterialRow({
                   ▶
                 </span>
                 {t('material.advanced')}
-                <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <HelpButton topic="materials" anchor="advanced" tip={t('help.matAdvanced')} size={12} />
+                <span
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ display: 'inline-flex', alignItems: 'center' }}
+                >
+                  <HelpButton
+                    topic="materials"
+                    anchor="advanced"
+                    tip={t('help.matAdvanced')}
+                    size={12}
+                  />
                 </span>
               </div>
               {advOpen && (
@@ -785,7 +898,11 @@ function MaterialRow({
                     0.01,
                     2
                   )}
-                  {colorRow(t('material.specularTint'), 'specularColor', d.specularColor)}
+                  {colorRow(
+                    t('material.specularTint'),
+                    'specularColor',
+                    d.specularColor
+                  )}
                   {sliderRow(
                     t('material.clearcoat'),
                     'clearcoat',
@@ -804,7 +921,15 @@ function MaterialRow({
                     0.01,
                     2
                   )}
-                  {sliderRow(t('material.sheen'), 'sheen', d.sheen, 0, 1, 0.01, 2)}
+                  {sliderRow(
+                    t('material.sheen'),
+                    'sheen',
+                    d.sheen,
+                    0,
+                    1,
+                    0.01,
+                    2
+                  )}
                   {sliderRow(
                     t('material.sheenRoughness'),
                     'sheenRoughness',
@@ -814,7 +939,11 @@ function MaterialRow({
                     0.01,
                     2
                   )}
-                  {colorRow(t('material.sheenColor'), 'sheenColor', d.sheenColor)}
+                  {colorRow(
+                    t('material.sheenColor'),
+                    'sheenColor',
+                    d.sheenColor
+                  )}
                   {sliderRow(
                     t('material.transmission'),
                     'transmission',
@@ -833,7 +962,15 @@ function MaterialRow({
                     0.01,
                     2
                   )}
-                  {sliderRow(t('material.ior'), 'ior', d.ior, 1, 2.333, 0.001, 3)}
+                  {sliderRow(
+                    t('material.ior'),
+                    'ior',
+                    d.ior,
+                    1,
+                    2.333,
+                    0.001,
+                    3
+                  )}
                   {colorRow(
                     t('material.attenuation'),
                     'attenuationColor',
@@ -922,10 +1059,7 @@ function MaterialSection({ node }: { node: NodeRecord }) {
   const slots = getMaterialSlots(vrm);
   if (slots.length === 0) return null;
   return (
-    <CollapsibleSection
-      title={t('material.header')}
-      count={slots.length}
-    >
+    <CollapsibleSection title={t('material.header')} count={slots.length}>
       <div
         style={{
           fontSize: 10,
@@ -1054,9 +1188,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
 
       <div style={rowStyle}>
         <div style={dotStyle(leftSet)} />
-        <span style={labelStyle}>
-          {t('calibration.leftArmLabel')}
-        </span>
+        <span style={labelStyle}>{t('calibration.leftArmLabel')}</span>
         <button
           style={btnStyle}
           onClick={() =>
@@ -1071,9 +1203,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
 
       <div style={rowStyle}>
         <div style={dotStyle(rightSet)} />
-        <span style={labelStyle}>
-          {t('calibration.rightArmLabel')}
-        </span>
+        <span style={labelStyle}>{t('calibration.rightArmLabel')}</span>
         <button
           style={btnStyle}
           onClick={() =>
@@ -2817,15 +2947,19 @@ function EffectRow({
   const value = (cfg[field] as number) ?? 0;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{label}</span>
-      <NumInput
-        value={value}
-        step={step ?? 0.01}
-        min={min}
-        max={max}
-        onCommit={(v) => onSave({ [field]: v })}
-        style={{ width: 96 }}
-      />
+      <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
+        {label}
+      </span>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex' }}>
+        <NumInput
+          value={value}
+          step={step ?? 0.01}
+          min={min}
+          max={max}
+          onCommit={(v) => onSave({ [field]: v })}
+          style={{ width: '100%' }}
+        />
+      </div>
     </div>
   );
 }
@@ -2862,7 +2996,9 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {kind === 'fx_tone_mapping' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{t('effect.toneMapping.mode')}</span>
+          <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+            {t('effect.toneMapping.mode')}
+          </span>
           <select
             value={(cfg.mode as number) ?? 6}
             onChange={(e) => save({ mode: Number(e.target.value) })}
@@ -3021,8 +3157,12 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                       onChange={(e) => save({ afMode: e.target.value })}
                       style={selectStyle}
                     >
-                      <option value="point">{t('effect.dof.afModePoint')}</option>
-                      <option value="percentile">{t('effect.dof.afModePercentile')}</option>
+                      <option value="point">
+                        {t('effect.dof.afModePoint')}
+                      </option>
+                      <option value="percentile">
+                        {t('effect.dof.afModePercentile')}
+                      </option>
                     </select>
                   </div>
                   {afMode === 'point' && (
@@ -3193,7 +3333,9 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_outline' && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{t('effect.outline.color')}</span>
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+              {t('effect.outline.color')}
+            </span>
             <input
               type="color"
               value={(cfg.color as string) ?? '#000000'}
@@ -3385,7 +3527,9 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{t('effect.ascii.color')}</span>
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+              {t('effect.ascii.color')}
+            </span>
             <input
               type="color"
               value={(cfg.color as string) ?? '#ffffff'}
@@ -3401,7 +3545,9 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{t('effect.ascii.invert')}</span>
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+              {t('effect.ascii.invert')}
+            </span>
             <input
               type="checkbox"
               checked={(cfg.invert as boolean) ?? false}
@@ -3534,7 +3680,9 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
         />
       )}
       <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>
-        {t(`kinds:effect.${ek.kind}.description`, { defaultValue: ek.description })}
+        {t(`kinds:effect.${ek.kind}.description`, {
+          defaultValue: ek.description,
+        })}
       </div>
     </div>
   );
@@ -3652,6 +3800,7 @@ export function PropertiesPanel() {
     composeLayers,
     selectedComposeLayerId,
     leftTab,
+    activeLogicId,
   } = useEditorStore();
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
@@ -3856,9 +4005,15 @@ export function PropertiesPanel() {
   }
 
   // Graphs tab: signal nodes are edited inline on the canvas, so the right
-  // inspector has nothing node-shaped to show here.
+  // inspector has nothing node-shaped to show here. Only claim a graph is being
+  // edited once one is actually open, otherwise the hint contradicts the
+  // canvas' "select or create a graph" prompt.
   if (leftTab === 'graphs') {
-    return emptyState(t('emptyState.graphsTab'));
+    return emptyState(
+      activeLogicId
+        ? t('emptyState.graphsTab')
+        : t('emptyState.graphsTabNoGraph')
+    );
   }
 
   // Scene tab (everything below): the inspector targets 3D scene nodes only.
@@ -3882,11 +4037,24 @@ export function PropertiesPanel() {
         >
           <span style={{ fontSize: 18 }}>{selectedEffectKind.icon}</span>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#e0e0e0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
               {t(`kinds:effect.${selectedEffectKind.kind}.label`, {
                 defaultValue: selectedEffectKind.label,
               })}
-              <HelpButton topic="camera-effects" anchor={EFFECT_KIND_ANCHOR[selectedEffect.kind] ?? 'what'} tip={t('help.cameraEffects')} />
+              <HelpButton
+                topic="camera-effects"
+                anchor={EFFECT_KIND_ANCHOR[selectedEffect.kind] ?? 'what'}
+                tip={t('help.cameraEffects')}
+              />
             </div>
             <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
               {selectedEffectNode.name}
@@ -3958,10 +4126,23 @@ export function PropertiesPanel() {
         >
           <span style={{ fontSize: 18 }}>{selectedCompType.icon}</span>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#e0e0e0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
               {selectedCompType.label}
               {selectedBehavior.kind === 'breathing' && (
-                <HelpButton topic="behaviors" anchor="breathing" tip={t('help.breathing')} />
+                <HelpButton
+                  topic="behaviors"
+                  anchor="breathing"
+                  tip={t('help.breathing')}
+                />
               )}
             </div>
             <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
@@ -4070,9 +4251,7 @@ export function PropertiesPanel() {
         </div>
 
         {/* Transform */}
-        <div style={sectionHeader}>
-          {t('transform.header')}
-        </div>
+        <div style={sectionHeader}>{t('transform.header')}</div>
 
         <VecInput
           groupLabel={t('transform.position')}
@@ -4345,7 +4524,9 @@ export function PropertiesPanel() {
                     saveTransform();
                   }}
                 />
-                {key === 'castShadow' ? t('transform.castShadow') : t('transform.receiveShadow')}
+                {key === 'castShadow'
+                  ? t('transform.castShadow')
+                  : t('transform.receiveShadow')}
               </label>
             ))}
           </div>
@@ -4354,14 +4535,26 @@ export function PropertiesPanel() {
         {/* Light Properties */}
         {node.kind === 'light' && (
           <>
-            <div style={sectionHeader}>
-              {t('light.header')}
-            </div>
+            <div style={sectionHeader}>{t('light.header')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: '#888',
+                    width: 60,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
                   {t('light.type')}
-                  <HelpButton topic="lighting" anchor="type" tip={t('help.lightType')} size={12} />
+                  <HelpButton
+                    topic="lighting"
+                    anchor="type"
+                    tip={t('help.lightType')}
+                    size={12}
+                  />
                 </span>
                 <select
                   style={{ ...textInput, width: 'auto', flex: 1 }}
@@ -4373,7 +4566,9 @@ export function PropertiesPanel() {
                   }}
                 >
                   <option value="point">{t('light.typePoint')}</option>
-                  <option value="directional">{t('light.typeDirectional')}</option>
+                  <option value="directional">
+                    {t('light.typeDirectional')}
+                  </option>
                   <option value="ambient">{t('light.typeAmbient')}</option>
                   <option value="spot">{t('light.typeSpot')}</option>
                 </select>
@@ -4400,15 +4595,29 @@ export function PropertiesPanel() {
                 />
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: '#888',
+                    width: 60,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
                   {t('light.intensity')}
-                  <HelpButton topic="lighting" anchor="intensity" tip={t('help.lightIntensity')} size={12} />
+                  <HelpButton
+                    topic="lighting"
+                    anchor="intensity"
+                    tip={t('help.lightIntensity')}
+                    size={12}
+                  />
                 </span>
                 <NumInput
                   value={light.intensity}
                   step={0.1}
                   min={0}
-                  style={{ width: 96 }}
+                  style={{ flex: 1, minWidth: 0 }}
                   onChange={(v) => setLight({ ...light, intensity: v })}
                   onCommit={(v) => {
                     const next = { ...light, intensity: v };
@@ -4442,7 +4651,12 @@ export function PropertiesPanel() {
                       }}
                     />
                     {t('light.castShadow')}
-                    <HelpButton topic="lighting" anchor="shadows" tip={t('help.lightShadows')} size={12} />
+                    <HelpButton
+                      topic="lighting"
+                      anchor="shadows"
+                      tip={t('help.lightShadows')}
+                      size={12}
+                    />
                   </label>
                   {light.castShadow && (
                     <>
@@ -4492,7 +4706,7 @@ export function PropertiesPanel() {
                         <NumInput
                           value={light.shadowBias ?? -0.0005}
                           step={0.0001}
-                          style={{ width: 96 }}
+                          style={{ flex: 1, minWidth: 0 }}
                           onChange={(v) =>
                             setLight({ ...light, shadowBias: v })
                           }
@@ -4521,7 +4735,7 @@ export function PropertiesPanel() {
                             value={light.shadowCameraSize ?? 10}
                             step={1}
                             min={1}
-                            style={{ width: 96 }}
+                            style={{ flex: 1, minWidth: 0 }}
                             onChange={(v) =>
                               setLight({ ...light, shadowCameraSize: v })
                             }
@@ -4544,14 +4758,26 @@ export function PropertiesPanel() {
         {/* Camera Properties */}
         {node.kind === 'camera' && (
           <>
-            <div style={sectionHeader}>
-              {t('camera.header')}
-            </div>
+            <div style={sectionHeader}>{t('camera.header')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: '#888',
+                    width: 60,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
                   {t('camera.projection')}
-                  <HelpButton topic="camera" anchor="projection" tip={t('help.camProjection')} size={12} />
+                  <HelpButton
+                    topic="camera"
+                    anchor="projection"
+                    tip={t('help.camProjection')}
+                    size={12}
+                  />
                 </span>
                 <select
                   value={camera.projection}
@@ -4565,21 +4791,39 @@ export function PropertiesPanel() {
                   }}
                   style={{ ...textInput, width: 'auto', flex: 1 }}
                 >
-                  <option value="perspective">{t('camera.projectionPerspective')}</option>
-                  <option value="orthographic">{t('camera.projectionOrthographic')}</option>
+                  <option value="perspective">
+                    {t('camera.projectionPerspective')}
+                  </option>
+                  <option value="orthographic">
+                    {t('camera.projectionOrthographic')}
+                  </option>
                 </select>
               </div>
               {camera.projection === 'perspective' ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: '#888',
+                      width: 60,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
                     {t('camera.fov')}
-                    <HelpButton topic="camera" anchor="fov" tip={t('help.camFov')} size={12} />
+                    <HelpButton
+                      topic="camera"
+                      anchor="fov"
+                      tip={t('help.camFov')}
+                      size={12}
+                    />
                   </span>
                   <NumInput
                     value={camera.fov}
                     step={1}
                     suffix="°"
-                    style={{ width: 96 }}
+                    style={{ flex: 1, minWidth: 0 }}
                     onChange={(v) => setCamera({ ...camera, fov: v })}
                     onCommit={(v) => {
                       const next = { ...camera, fov: v };
@@ -4591,16 +4835,28 @@ export function PropertiesPanel() {
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span
-                    style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}
+                    style={{
+                      fontSize: 12,
+                      color: '#888',
+                      width: 60,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
                     title={t('camera.sizeTip')}
                   >
                     {t('camera.size')}
-                    <HelpButton topic="camera" anchor="projection" tip={t('help.camProjection')} size={12} />
+                    <HelpButton
+                      topic="camera"
+                      anchor="projection"
+                      tip={t('help.camProjection')}
+                      size={12}
+                    />
                   </span>
                   <NumInput
                     value={camera.orthoSize}
                     step={0.1}
-                    style={{ width: 96 }}
+                    style={{ flex: 1, minWidth: 0 }}
                     onChange={(v) => setCamera({ ...camera, orthoSize: v })}
                     onCommit={(v) => {
                       const next = { ...camera, orthoSize: v };
@@ -4620,14 +4876,30 @@ export function PropertiesPanel() {
                   key={key}
                   style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                 >
-                  <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: '#888',
+                      width: 60,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
                     {lab}
-                    {key === 'near' && <HelpButton topic="camera" anchor="clipping" tip={t('help.camClipping')} size={12} />}
+                    {key === 'near' && (
+                      <HelpButton
+                        topic="camera"
+                        anchor="clipping"
+                        tip={t('help.camClipping')}
+                        size={12}
+                      />
+                    )}
                   </span>
                   <NumInput
                     value={camera[key]}
                     step={step}
-                    style={{ width: 96 }}
+                    style={{ flex: 1, minWidth: 0 }}
                     onChange={(v) => setCamera({ ...camera, [key]: v })}
                     onCommit={(v) => {
                       const next = { ...camera, [key]: v };
@@ -4702,9 +4974,23 @@ export function PropertiesPanel() {
             <div style={sectionHeader}>{t('camera.envHeader')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', width: 60, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: '#888',
+                    width: 60,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
                   {t('camera.envIntensity')}
-                  <HelpButton topic="camera" anchor="env" tip={t('help.camEnv')} size={12} />
+                  <HelpButton
+                    topic="camera"
+                    anchor="env"
+                    tip={t('help.camEnv')}
+                    size={12}
+                  />
                 </span>
                 <input
                   type="range"
@@ -5029,20 +5315,48 @@ export function PropertiesPanel() {
               padding: '3px 6px',
               fontSize: 12,
               outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
             };
+            // Consistent two-column field row: label on the left, a fixed-width
+            // control column on the right that the control fills, so every row's
+            // inputs share the same left/right edges instead of floating at their
+            // own content width.
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
             return (
               <>
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('billboard.header')}
-                  <HelpButton topic="props" anchor="image" tip={t('help.propImage')} />
+                  <HelpButton
+                    topic="props"
+                    anchor="image"
+                    tip={t('help.propImage')}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -5057,7 +5371,9 @@ export function PropertiesPanel() {
                       <option value="screen">
                         {t('billboard.facingScreen')}
                       </option>
-                      <option value="world">{t('billboard.facingWorld')}</option>
+                      <option value="world">
+                        {t('billboard.facingWorld')}
+                      </option>
                     </select>
                   )}
                   {row(
@@ -5067,8 +5383,12 @@ export function PropertiesPanel() {
                       value={bc.backface as string}
                       onChange={(e) => saveBc({ backface: e.target.value })}
                     >
-                      <option value="none">{t('billboard.backfaceNone')}</option>
-                      <option value="mirror">{t('billboard.backfaceMirror')}</option>
+                      <option value="none">
+                        {t('billboard.backfaceNone')}
+                      </option>
+                      <option value="mirror">
+                        {t('billboard.backfaceMirror')}
+                      </option>
                       <option value="unmirrored">
                         {t('billboard.backfaceUnmirrored')}
                       </option>
@@ -5187,20 +5507,33 @@ export function PropertiesPanel() {
               padding: '3px 6px',
               fontSize: 12,
               outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
             };
+            // Consistent two-column field row: label on the left, a fixed-width
+            // control column on the right that the control fills, so every row's
+            // inputs share the same left/right edges instead of floating at their
+            // own content width.
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
-            const check = (
-              label: string,
-              field: string,
-              checked: boolean
-            ) =>
+            const check = (label: string, field: string, checked: boolean) =>
               row(
                 label,
                 <input
@@ -5220,7 +5553,11 @@ export function PropertiesPanel() {
                   }}
                 >
                   {t('video.sourceHeader')}
-                  <HelpButton topic="props" anchor="video" tip={t('help.propVideo')} />
+                  <HelpButton
+                    topic="props"
+                    anchor="video"
+                    tip={t('help.propVideo')}
+                  />
                   <PickButton onClick={() => flashBottomTab('videos')} />
                 </div>
                 <div
@@ -5245,14 +5582,30 @@ export function PropertiesPanel() {
                     />
                   )}
                 </div>
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('video.playbackHeader')}
-                  <HelpButton topic="props" anchor="video-playback" tip={t('help.videoPlayback')} size={12} />
+                  <HelpButton
+                    topic="props"
+                    anchor="video-playback"
+                    tip={t('help.videoPlayback')}
+                    size={12}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
-                  {check(t('video.autoplay'), 'autoplay', vc.autoplay as boolean)}
+                  {check(
+                    t('video.autoplay'),
+                    'autoplay',
+                    vc.autoplay as boolean
+                  )}
                   {check(t('video.loop'), 'loop', vc.loop as boolean)}
                   {row(
                     t('video.onEnd'),
@@ -5288,8 +5641,12 @@ export function PropertiesPanel() {
                       onChange={(e) => saveVc({ blendMode: e.target.value })}
                     >
                       <option value="normal">{t('video.blendNormal')}</option>
-                      <option value="additive">{t('video.blendAdditive')}</option>
-                      <option value="multiply">{t('video.blendMultiply')}</option>
+                      <option value="additive">
+                        {t('video.blendAdditive')}
+                      </option>
+                      <option value="multiply">
+                        {t('video.blendMultiply')}
+                      </option>
                       <option value="screen">{t('video.blendScreen')}</option>
                     </select>
                   )}
@@ -5306,10 +5663,30 @@ export function PropertiesPanel() {
                       saveVc({ chromaKey: { ...ck, ...p } });
                     return (
                       <>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 12, color: '#888', flex: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 12,
+                              color: '#888',
+                              flex: 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
                             {t('video.chromaKey')}
-                            <HelpButton topic="props" anchor="video-chroma" tip={t('help.videoChroma')} size={12} />
+                            <HelpButton
+                              topic="props"
+                              anchor="video-chroma"
+                              tip={t('help.videoChroma')}
+                              size={12}
+                            />
                           </span>
                           <input
                             type="checkbox"
@@ -5383,9 +5760,7 @@ export function PropertiesPanel() {
                       value={vc.facing as string}
                       onChange={(e) => saveVc({ facing: e.target.value })}
                     >
-                      <option value="screen">
-                        {t('video.facingScreen')}
-                      </option>
+                      <option value="screen">{t('video.facingScreen')}</option>
                       <option value="world">{t('video.facingWorld')}</option>
                     </select>
                   )}
@@ -5397,7 +5772,9 @@ export function PropertiesPanel() {
                       onChange={(e) => saveVc({ backface: e.target.value })}
                     >
                       <option value="none">{t('video.backfaceNone')}</option>
-                      <option value="mirror">{t('video.backfaceMirror')}</option>
+                      <option value="mirror">
+                        {t('video.backfaceMirror')}
+                      </option>
                       <option value="unmirrored">
                         {t('video.backfaceUnmirrored')}
                       </option>
@@ -5472,20 +5849,33 @@ export function PropertiesPanel() {
               padding: '3px 6px',
               fontSize: 12,
               outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
             };
+            // Consistent two-column field row: label on the left, a fixed-width
+            // control column on the right that the control fills, so every row's
+            // inputs share the same left/right edges instead of floating at their
+            // own content width.
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
-            const check = (
-              label: string,
-              field: string,
-              checked: boolean
-            ) =>
+            const check = (label: string, field: string, checked: boolean) =>
               row(
                 label,
                 <input
@@ -5506,7 +5896,11 @@ export function PropertiesPanel() {
                   }}
                 >
                   {t('audio.sourceHeader')}
-                  <HelpButton topic="props" anchor="audio" tip={t('help.propAudio')} />
+                  <HelpButton
+                    topic="props"
+                    anchor="audio"
+                    tip={t('help.propAudio')}
+                  />
                   <PickButton onClick={() => flashBottomTab('audio')} />
                 </div>
                 <div
@@ -5530,10 +5924,26 @@ export function PropertiesPanel() {
                       }
                     />
                   )}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 12, color: '#888', flex: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div
+                    style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: '#888',
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
                       {t('audio.type')}
-                      <HelpButton topic="props" anchor="audio" tip={t('help.audioType')} size={12} />
+                      <HelpButton
+                        topic="props"
+                        anchor="audio"
+                        tip={t('help.audioType')}
+                        size={12}
+                      />
                     </span>
                     <select
                       style={sel}
@@ -5541,7 +5951,9 @@ export function PropertiesPanel() {
                       onChange={(e) => saveAc({ audioType: e.target.value })}
                     >
                       <option value="simple">{t('audio.typeSimple')}</option>
-                      <option value="directional">{t('audio.typeDirectional')}</option>
+                      <option value="directional">
+                        {t('audio.typeDirectional')}
+                      </option>
                     </select>
                   </div>
                 </div>
@@ -5549,7 +5961,11 @@ export function PropertiesPanel() {
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
-                  {check(t('audio.autoplay'), 'autoplay', ac.autoplay as boolean)}
+                  {check(
+                    t('audio.autoplay'),
+                    'autoplay',
+                    ac.autoplay as boolean
+                  )}
                   {check(t('audio.loop'), 'loop', ac.loop as boolean)}
                   <EffectRow
                     label={t('audio.volume')}
@@ -5563,9 +5979,21 @@ export function PropertiesPanel() {
                 </div>
                 {isDirectional && (
                   <>
-                    <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div
+                      style={{
+                        ...sectionHeader,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
                       {t('audio.spatialHeader')}
-                      <HelpButton topic="props" anchor="audio-spatial" tip={t('help.audioSpatial')} size={12} />
+                      <HelpButton
+                        topic="props"
+                        anchor="audio-spatial"
+                        tip={t('help.audioSpatial')}
+                        size={12}
+                      />
                     </div>
                     <div
                       style={{
@@ -5677,20 +6105,48 @@ export function PropertiesPanel() {
               padding: '3px 6px',
               fontSize: 12,
               outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
             };
+            // Consistent two-column field row: label on the left, a fixed-width
+            // control column on the right that the control fills, so every row's
+            // inputs share the same left/right edges instead of floating at their
+            // own content width.
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
             return (
               <>
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('text.header')}
-                  <HelpButton topic="props" anchor="text" tip={t('help.propText')} />
+                  <HelpButton
+                    topic="props"
+                    anchor="text"
+                    tip={t('help.propText')}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -5698,7 +6154,7 @@ export function PropertiesPanel() {
                   {row(
                     t('text.content'),
                     <input
-                      style={{ ...textInput, width: 160 }}
+                      style={{ ...textInput, width: '100%' }}
                       defaultValue={(tc.content as string) ?? ''}
                       key={node.id + '-tc-content'}
                       onBlur={(e) => saveTc({ content: e.target.value })}
@@ -5711,9 +6167,7 @@ export function PropertiesPanel() {
                       value={(tc.facing as string) ?? 'screen'}
                       onChange={(e) => saveTc({ facing: e.target.value })}
                     >
-                      <option value="screen">
-                        {t('text.facingScreen')}
-                      </option>
+                      <option value="screen">{t('text.facingScreen')}</option>
                       <option value="world">{t('text.facingWorld')}</option>
                     </select>
                   )}
@@ -5844,10 +6298,21 @@ export function PropertiesPanel() {
             };
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
             const area: React.CSSProperties = {
@@ -5865,9 +6330,20 @@ export function PropertiesPanel() {
             };
             return (
               <>
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('feed.header')}
-                  <HelpButton topic="props" anchor="feed" tip={t('help.propFeed')} />
+                  <HelpButton
+                    topic="props"
+                    anchor="feed"
+                    tip={t('help.propFeed')}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -5931,7 +6407,9 @@ export function PropertiesPanel() {
                     min={0.01}
                     onSave={saveFc}
                   />
-                  <span style={{ fontSize: 12, color: '#888' }}>{t('feed.template')}</span>
+                  <span style={{ fontSize: 12, color: '#888' }}>
+                    {t('feed.template')}
+                  </span>
                   <textarea
                     style={{ ...area, minHeight: 120 }}
                     defaultValue={(fc.template as string) ?? ''}
@@ -5939,7 +6417,9 @@ export function PropertiesPanel() {
                     spellCheck={false}
                     onBlur={(e) => saveFc({ template: e.target.value })}
                   />
-                  <span style={{ fontSize: 12, color: '#888' }}>{t('feed.css')}</span>
+                  <span style={{ fontSize: 12, color: '#888' }}>
+                    {t('feed.css')}
+                  </span>
                   <textarea
                     style={{ ...area, minHeight: 100 }}
                     defaultValue={(fc.css as string) ?? ''}
@@ -5975,6 +6455,8 @@ export function PropertiesPanel() {
               padding: '3px 6px',
               fontSize: 12,
               outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
             };
             const chk = (field: string) => (
               <input
@@ -5985,10 +6467,21 @@ export function PropertiesPanel() {
             );
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
-                {children}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 6,
+                  }}
+                >
+                  {children}
+                </div>
               </div>
             );
             return (
@@ -6002,7 +6495,11 @@ export function PropertiesPanel() {
                   }}
                 >
                   {t('particle.textureHeader')}
-                  <HelpButton topic="props" anchor="particles" tip={t('help.propParticles')} />
+                  <HelpButton
+                    topic="props"
+                    anchor="particles"
+                    tip={t('help.propParticles')}
+                  />
                   <PickButton onClick={() => flashBottomTab('images')} />
                 </div>
                 <div
@@ -6111,9 +6608,21 @@ export function PropertiesPanel() {
                   )}
                 </div>
 
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('particle.renderingHeader')}
-                  <HelpButton topic="particles" anchor="rendering" tip={t('help.partRendering')} size={12} />
+                  <HelpButton
+                    topic="particles"
+                    anchor="rendering"
+                    tip={t('help.partRendering')}
+                    size={12}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -6125,9 +6634,15 @@ export function PropertiesPanel() {
                       value={pc.blendMode as string}
                       onChange={(e) => savePc({ blendMode: e.target.value })}
                     >
-                      <option value="additive">{t('particle.blendAdditive')}</option>
-                      <option value="normal">{t('particle.blendNormal')}</option>
-                      <option value="multiply">{t('particle.blendMultiply')}</option>
+                      <option value="additive">
+                        {t('particle.blendAdditive')}
+                      </option>
+                      <option value="normal">
+                        {t('particle.blendNormal')}
+                      </option>
+                      <option value="multiply">
+                        {t('particle.blendMultiply')}
+                      </option>
                     </select>
                   )}
                   {row(
@@ -6160,9 +6675,21 @@ export function PropertiesPanel() {
                   {row(t('particle.depthTest'), chk('depthTest'))}
                 </div>
 
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('particle.emissionHeader')}
-                  <HelpButton topic="particles" anchor="emission" tip={t('help.partEmission')} size={12} />
+                  <HelpButton
+                    topic="particles"
+                    anchor="emission"
+                    tip={t('help.partEmission')}
+                    size={12}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -6180,9 +6707,21 @@ export function PropertiesPanel() {
                   {row(t('particle.playOnStart'), chk('playOnStart'))}
                 </div>
 
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('particle.lifetimeHeader')}
-                  <HelpButton topic="particles" anchor="lifetime" tip={t('help.partLifetime')} size={12} />
+                  <HelpButton
+                    topic="particles"
+                    anchor="lifetime"
+                    tip={t('help.partLifetime')}
+                    size={12}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -6206,9 +6745,21 @@ export function PropertiesPanel() {
                   />
                 </div>
 
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('particle.sizeHeader')}
-                  <HelpButton topic="particles" anchor="size" tip={t('help.partSize')} size={12} />
+                  <HelpButton
+                    topic="particles"
+                    anchor="size"
+                    tip={t('help.partSize')}
+                    size={12}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -6256,7 +6807,9 @@ export function PropertiesPanel() {
                         savePc({ sizeOverLifetime: e.target.value })
                       }
                     >
-                      <option value="constant">{t('particle.sizeConstant')}</option>
+                      <option value="constant">
+                        {t('particle.sizeConstant')}
+                      </option>
                       <option value="shrink">{t('particle.sizeShrink')}</option>
                       <option value="grow">{t('particle.sizeGrow')}</option>
                       <option value="pulse">{t('particle.sizePulse')}</option>
@@ -6264,9 +6817,21 @@ export function PropertiesPanel() {
                   )}
                 </div>
 
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('particle.colorHeader')}
-                  <HelpButton topic="particles" anchor="color" tip={t('help.partColor')} size={12} />
+                  <HelpButton
+                    topic="particles"
+                    anchor="color"
+                    tip={t('help.partColor')}
+                    size={12}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -6321,10 +6886,18 @@ export function PropertiesPanel() {
                         savePc({ alphaOverLifetime: e.target.value })
                       }
                     >
-                      <option value="constant">{t('particle.alphaConstant')}</option>
-                      <option value="fade-in">{t('particle.alphaFadeIn')}</option>
-                      <option value="fade-out">{t('particle.alphaFadeOut')}</option>
-                      <option value="fade-in-out">{t('particle.alphaFadeInOut')}</option>
+                      <option value="constant">
+                        {t('particle.alphaConstant')}
+                      </option>
+                      <option value="fade-in">
+                        {t('particle.alphaFadeIn')}
+                      </option>
+                      <option value="fade-out">
+                        {t('particle.alphaFadeOut')}
+                      </option>
+                      <option value="fade-in-out">
+                        {t('particle.alphaFadeInOut')}
+                      </option>
                     </select>
                   )}
                   <EffectRow
@@ -6337,9 +6910,21 @@ export function PropertiesPanel() {
                   />
                 </div>
 
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('particle.directionHeader')}
-                  <HelpButton topic="particles" anchor="direction" tip={t('help.partDirection')} size={12} />
+                  <HelpButton
+                    topic="particles"
+                    anchor="direction"
+                    tip={t('help.partDirection')}
+                    size={12}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -6393,9 +6978,21 @@ export function PropertiesPanel() {
                   />
                 </div>
 
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('particle.originHeader')}
-                  <HelpButton topic="particles" anchor="origin" tip={t('help.partOrigin')} size={12} />
+                  <HelpButton
+                    topic="particles"
+                    anchor="origin"
+                    tip={t('help.partOrigin')}
+                    size={12}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -6426,9 +7023,21 @@ export function PropertiesPanel() {
                   />
                 </div>
 
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('particle.motionHeader')}
-                  <HelpButton topic="particles" anchor="motion" tip={t('help.partMotion')} size={12} />
+                  <HelpButton
+                    topic="particles"
+                    anchor="motion"
+                    tip={t('help.partMotion')}
+                    size={12}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -6464,9 +7073,21 @@ export function PropertiesPanel() {
                   />
                 </div>
 
-                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   {t('particle.rotationHeader')}
-                  <HelpButton topic="particles" anchor="rotation" tip={t('help.partRotation')} size={12} />
+                  <HelpButton
+                    topic="particles"
+                    anchor="rotation"
+                    tip={t('help.partRotation')}
+                    size={12}
+                  />
                 </div>
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -6479,7 +7100,9 @@ export function PropertiesPanel() {
                       onChange={(e) => savePc({ rotationMode: e.target.value })}
                     >
                       <option value="free">{t('particle.rotationFree')}</option>
-                      <option value="velocity">{t('particle.rotationVelocity')}</option>
+                      <option value="velocity">
+                        {t('particle.rotationVelocity')}
+                      </option>
                     </select>
                   )}
                   {pc.rotationMode !== 'velocity' && (
@@ -6555,7 +7178,13 @@ export function PropertiesPanel() {
                   <CollapsibleSection
                     title={t('avatar.defaultExpressionHeader')}
                     count={exprs.length}
-                    extra={<HelpButton topic="avatar" anchor="expressions" tip={t('help.expressions')} />}
+                    extra={
+                      <HelpButton
+                        topic="avatar"
+                        anchor="expressions"
+                        tip={t('help.expressions')}
+                      />
+                    }
                   >
                     <div
                       style={{
@@ -6666,7 +7295,7 @@ export function PropertiesPanel() {
                 step={0.05}
                 min={0}
                 suffix="s"
-                style={{ width: 96 }}
+                style={{ flex: 1, minWidth: 0 }}
                 onChange={(v) => {
                   const properties = {
                     ...node.properties,
@@ -6729,9 +7358,15 @@ export function PropertiesPanel() {
               {node.kind === 'avatar' ? (
                 <>
                   {t('avatar.modelHeader')}
-                  <HelpButton topic="avatar" anchor="loading" tip={t('help.avatar')} />
+                  <HelpButton
+                    topic="avatar"
+                    anchor="loading"
+                    tip={t('help.avatar')}
+                  />
                 </>
-              ) : t('avatar.modelHeader')}
+              ) : (
+                t('avatar.modelHeader')
+              )}
               <PickButton onClick={() => flashBottomTab('models')} />
             </div>
             <datalist id="model-list">
@@ -7037,7 +7672,9 @@ export function PropertiesPanel() {
                           setAnimPlaying(!animPlaying);
                         }}
                       >
-                        {animPlaying ? t('avatar.animPause') : t('avatar.animPlay')}
+                        {animPlaying
+                          ? t('avatar.animPause')
+                          : t('avatar.animPlay')}
                       </button>
                       <button
                         style={{
@@ -7091,7 +7728,9 @@ export function PropertiesPanel() {
         {/* File Path */}
         {node.filePath && (
           <>
-            <div style={{ ...sectionHeader, marginTop: 16 }}>{t('file.header')}</div>
+            <div style={{ ...sectionHeader, marginTop: 16 }}>
+              {t('file.header')}
+            </div>
             <div
               style={{ fontSize: 11, color: '#666', wordBreak: 'break-all' }}
             >
@@ -7121,11 +7760,22 @@ export function PropertiesPanel() {
                 <span style={{ fontSize: 18 }}>{selectedCompType.icon}</span>
                 <div style={{ flex: 1 }}>
                   <div
-                    style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', display: 'flex', alignItems: 'center', gap: 6 }}
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: '#e0e0e0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
                   >
                     {selectedCompType.label}
                     {selectedBehavior.kind === 'breathing' && (
-                      <HelpButton topic="behaviors" anchor="breathing" tip={t('help.breathing')} />
+                      <HelpButton
+                        topic="behaviors"
+                        anchor="breathing"
+                        tip={t('help.breathing')}
+                      />
                     )}
                   </div>
                   <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>

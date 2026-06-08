@@ -14,6 +14,7 @@ import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { createLayer } from './createKinds';
 import { DND_CREATE_LAYER } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
+import { usePrompt } from '../DialogProvider';
 
 const KIND_ICONS: Record<ComposeLayerKind, string> = {
   image: '🖼',
@@ -343,7 +344,11 @@ function LayerRow({
         </span>
         {layer.kind === 'camera_view' && (
           <button
-            title={locked3d ? t('tree.lock3dTitle_locked') : t('tree.lock3dTitle_unlocked')}
+            title={
+              locked3d
+                ? t('tree.lock3dTitle_locked')
+                : t('tree.lock3dTitle_unlocked')
+            }
             style={{
               background: 'none',
               border: 'none',
@@ -361,7 +366,9 @@ function LayerRow({
           </button>
         )}
         <button
-          title={locked ? t('tree.lockTitle_locked') : t('tree.lockTitle_unlocked')}
+          title={
+            locked ? t('tree.lockTitle_locked') : t('tree.lockTitle_unlocked')
+          }
           style={{
             background: 'none',
             border: 'none',
@@ -475,8 +482,7 @@ function ComposeSceneRoot({
     .sort((a, b) => b.sceneOrder - a.sceneOrder);
 
   const handleDeleteScene = async () => {
-    if (!confirm(t('tree.deleteSceneConfirm', { name: scene.name })))
-      return;
+    if (!confirm(t('tree.deleteSceneConfirm', { name: scene.name }))) return;
     useEditorStore.getState().removeComposeScene(scene.id);
     await api.deleteComposeLayer(scene.id).catch(() => {});
   };
@@ -617,6 +623,7 @@ function ComposeSceneRoot({
 
 export function ComposeTree() {
   const { t } = useTranslation('compose');
+  const prompt = usePrompt();
   const { projectId } = useParams<{ projectId: string }>();
   const composeScenes = useEditorStore((s) => s.composeScenes);
   const addComposeScene = useEditorStore((s) => s.addComposeScene);
@@ -624,7 +631,11 @@ export function ComposeTree() {
 
   const handleNewComposeScene = async () => {
     if (!projectId) return;
-    const name = window.prompt(t('tree.promptName'), t('tree.promptDefault'));
+    const name = await prompt({
+      title: t('tree.promptName'),
+      defaultValue: t('tree.promptDefault'),
+      confirmLabel: t('common:actions.create'),
+    });
     if (!name?.trim()) return;
     try {
       const created = await api.createComposeScene(projectId, {
