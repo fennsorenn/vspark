@@ -188,6 +188,10 @@ async function start() {
         env as unknown as Record<string, unknown>
       )
     );
+    // Replay share offers so a tab that opens after a grant still sees them.
+    multiplayerManager.sendSharingSnapshotTo((kind, payload) =>
+      wsSync.sendTo(ws, kind, payload)
+    );
   });
 
   // Handle browser → server media messages

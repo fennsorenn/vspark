@@ -765,7 +765,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setActiveScene: (id) => set({ activeSceneId: id }),
   setSceneSelected: (selected) => set({ sceneSelected: selected }),
   setNodes: (nodes) => set({ nodes }),
-  addNode: (node) => set((s) => ({ nodes: [...s.nodes, node] })),
+  addNode: (node) =>
+    set((s) =>
+      // Idempotent by id: a create's REST response and its WS broadcast can race
+      // (either order), and only the broadcast path deduped before. Guard here so
+      // neither can double-insert.
+      s.nodes.some((n) => n.id === node.id)
+        ? {}
+        : { nodes: [...s.nodes, node] }
+    ),
   updateNode: (id, updates) =>
     set((s) => ({
       nodes: s.nodes.map((n) => (n.id === id ? { ...n, ...updates } : n)),

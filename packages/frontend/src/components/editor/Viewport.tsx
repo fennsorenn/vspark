@@ -4357,8 +4357,10 @@ function renderNodeElement(
         <GodrayCasterNode node={node} />
       </group>
     );
-  // Group nodes are invisible transform containers — children inherit their position
-  if (node.kind === 'group')
+  // Group nodes are invisible transform containers — children inherit their
+  // position. remote_object (a placed peer share) is the same: an opaque, empty
+  // container whose transform drives the projected shared subtree below it.
+  if (node.kind === 'group' || node.kind === 'remote_object')
     return (
       <group key={node.id} visible={visible}>
         <ModelNode node={node}>{childElements}</ModelNode>

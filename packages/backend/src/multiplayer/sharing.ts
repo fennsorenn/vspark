@@ -48,6 +48,9 @@ function nameOf(objectId: string): string {
 export class SharingManager {
   /** peerId → object ids that peer subscribed to (I'm the owner). */
   private readonly subscribers = new Map<string, Set<string>>();
+  /** Receiver side: latest share offers advertised by each connected owner, so
+   *  a late-joining browser tab can be replayed the offers it missed. */
+  private readonly advertised = new Map<string, unknown[]>();
 
   constructor(
     private readonly mesh: ServerMesh,
@@ -61,8 +64,16 @@ export class SharingManager {
 
   onPeerDisconnected(peerId: string): void {
     this.subscribers.delete(peerId);
+    this.advertised.delete(peerId);
     // Receiver side: drop every projection from this peer.
     this.broadcast('mp_shared_gone', { peerId });
+  }
+
+  /** Replay cached offers to a freshly-connected local client (the ADVERTISE
+   *  broadcast fires once, so tabs that open later would otherwise miss it). */
+  sendSnapshotTo(send: Broadcast): void {
+    for (const [peerId, shares] of this.advertised)
+      send('mp_shares', { peerId, shares });
   }
 
   /** Owner → peer: the objects currently granted to them. */
@@ -138,12 +149,12 @@ export class SharingManager {
         this.subscribers.get(from)?.delete(data.objectId as string);
         break;
       // --- receiver side: relay to the frontend ---
-      case ADVERTISE:
-        this.broadcast('mp_shares', {
-          peerId: from,
-          shares: data.shares ?? [],
-        });
+      case ADVERTISE: {
+        const shares = (data.shares ?? []) as unknown[];
+        this.advertised.set(from, shares);
+        this.broadcast('mp_shares', { peerId: from, shares });
         break;
+      }
       case SNAPSHOT:
         this.broadcast('mp_shared_snapshot', {
           peerId: from,

@@ -293,6 +293,13 @@ class MultiplayerManager {
     return listObjectGrantees(objectId);
   }
 
+  /** Replay current share offers to a freshly-connected client (late-join gap). */
+  sendSharingSnapshotTo(
+    send: (kind: string, payload: Record<string, unknown>) => void
+  ): void {
+    this.sharing?.sendSnapshotTo(send);
+  }
+
   /** Receiver: (un)subscribe to a peer's shared object (frontend wrapper place/remove). */
   subscribeShared(peerId: string, objectId: string): void {
     this.sharing?.subscribe(peerId, objectId);

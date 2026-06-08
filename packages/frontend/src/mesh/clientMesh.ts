@@ -214,8 +214,11 @@ class ClientMesh {
 
   private send(kind: string, payload: Record<string, unknown>): void {
     const ws = this.getWs();
+    // Frontend→backend WS messages are flat ({kind, ...fields}); the backend
+    // reads fields straight off the message. (Backend→frontend is wrapped under
+    // `payload`.) Spread, don't nest.
     if (ws && ws.readyState === WebSocket.OPEN)
-      ws.send(JSON.stringify({ kind, payload }));
+      ws.send(JSON.stringify({ kind, ...payload }));
   }
 }
 
