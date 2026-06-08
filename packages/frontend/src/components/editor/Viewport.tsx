@@ -4245,6 +4245,10 @@ function ModelNode({
   useApplyMeshFlags(outerRef, t.opacity, t.castShadow, t.receiveShadow);
   const ext = node.filePath?.split('.').pop()?.toLowerCase();
   const isGlb = Boolean(node.filePath && (ext === 'glb' || ext === 'gltf'));
+  // remote_object is an opaque wrapper around a peer's shared subtree — it has
+  // no model of its own, so skip the no-model placeholder box (it would float
+  // at the container origin alongside the projected content).
+  const isContainer = node.kind === 'remote_object';
 
   useEffect(() => {
     if (!outerRef.current) return;
@@ -4274,7 +4278,7 @@ function ModelNode({
     >
       {isGlb ? (
         <group ref={innerRef} />
-      ) : (
+      ) : isContainer ? null : (
         <mesh>
           <boxGeometry args={[0.5, 0.5, 0.5]} />
           <meshStandardMaterial color="#5588cc" />
