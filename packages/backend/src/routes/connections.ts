@@ -190,4 +190,66 @@ router.post(
   guarded((id) => multiplayerManager.reject(id))
 );
 
+// --- sharing ---------------------------------------------------------------
+
+/** Grantees of an object (peer ids + maybe '*') — for the Share-with menu. */
+router.get('/connections/objects/:objectId/grantees', (req, res) => {
+  res.json({
+    ok: true,
+    data: multiplayerManager.grantees(req.params.objectId),
+  });
+});
+
+/** Grant a peer (or '*') access to an object. */
+router.post('/connections/objects/:objectId/share', (req, res) => {
+  if (!multiplayerManager.isEnabled)
+    return res.status(503).json({
+      ok: false,
+      error: {
+        status: 503,
+        message: 'multiplayer is not enabled',
+        code: 'MULTIPLAYER_DISABLED',
+      },
+    });
+  const granteePeerId = String(req.body?.granteePeerId ?? '');
+  const shareKind = req.body?.shareKind === 'scene' ? 'scene' : 'object';
+  if (!granteePeerId)
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'granteePeerId required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
+  multiplayerManager.share(req.params.objectId, granteePeerId, shareKind);
+  res.json({
+    ok: true,
+    data: { grantees: multiplayerManager.grantees(req.params.objectId) },
+  });
+});
+
+/** Revoke a grant. */
+router.post('/connections/objects/:objectId/unshare', (req, res) => {
+  const granteePeerId = String(req.body?.granteePeerId ?? '');
+  multiplayerManager.unshare(req.params.objectId, granteePeerId);
+  res.json({
+    ok: true,
+    data: { grantees: multiplayerManager.grantees(req.params.objectId) },
+  });
+});
+
+/** Receiver: subscribe / unsubscribe to a peer's shared object. */
+router.post('/connections/peers/:peerId/subscribe', (req, res) => {
+  const objectId = String(req.body?.objectId ?? '');
+  if (objectId) multiplayerManager.subscribeShared(req.params.peerId, objectId);
+  res.json({ ok: true, data: { peerId: req.params.peerId, objectId } });
+});
+router.post('/connections/peers/:peerId/unsubscribe', (req, res) => {
+  const objectId = String(req.body?.objectId ?? '');
+  if (objectId)
+    multiplayerManager.unsubscribeShared(req.params.peerId, objectId);
+  res.json({ ok: true, data: { peerId: req.params.peerId, objectId } });
+});
+
 export default router;

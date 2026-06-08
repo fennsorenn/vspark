@@ -26,9 +26,17 @@ class SyncHub {
   /** This server's peer id — the `origin` tag + HLC tiebreak. Stable per process. */
   private readonly _peerId = randomUUID();
   private readonly _clock = makeHlcClock(this._peerId);
+  /** Listeners notified of every document op (e.g. the multiplayer sharing
+   *  manager, which forwards shared objects' updates to subscribed peers). */
+  private readonly _docListeners: ((env: SyncEnvelope) => void)[] = [];
 
   init(ws: WSSync): void {
     this._ws = ws;
+  }
+
+  /** Observe every document upsert/remove (after it's broadcast locally). */
+  onDocument(cb: (env: SyncEnvelope) => void): void {
+    this._docListeners.push(cb);
   }
 
   private send(env: SyncEnvelope): void {
@@ -36,6 +44,8 @@ class SyncHub {
       SYNC_MESSAGE_KIND,
       env as unknown as Record<string, unknown>
     );
+    if (env.op === 'upsert' || env.op === 'remove')
+      for (const cb of this._docListeners) cb(env);
   }
 
   readonly document = {

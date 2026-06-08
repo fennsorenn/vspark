@@ -18,6 +18,9 @@ import {
   type TurnCreds,
 } from './rendezvous_client.js';
 import { ServerMesh, type MeshSignaling } from './mesh.js';
+import { SharingManager, SHARE_RTYPES } from './sharing.js';
+import { addShare, removeShare, listObjectGrantees } from './shares.js';
+import { sync } from '../sync/index.js';
 import {
   upsertKnownPeer,
   grantSession,
@@ -29,6 +32,7 @@ import {
   setPeerDisplayName,
 } from './peers.js';
 import type { SyncEnvelope } from '@vspark/shared/sync';
+import type { ShareKind } from './shares.js';
 
 /** Control envelope carrying a peer's current display name (the per-project
  *  name updates live, so we exchange it on connect + on change). */
@@ -47,6 +51,7 @@ const TURN_REFRESH_MS = 5 * 60_000;
 class MultiplayerManager {
   private client: RendezvousClient | null = null;
   private mesh: ServerMesh | null = null;
+  private sharing: SharingManager | null = null;
   private enabled = false;
   private broadcast: Broadcast = () => {};
   private iceServers: IceServer[] = [];
@@ -87,6 +92,9 @@ class MultiplayerManager {
         ),
     };
     this.mesh = new ServerMesh(signaling, () => this.iceServers);
+    this.sharing = new SharingManager(this.mesh, this.broadcast);
+    // Forward shared objects' document updates to subscribed peers.
+    sync.onDocument((env) => this.sharing?.forwardDocOp(env));
 
     // Accept policy on inbound offers.
     this.mesh.on('incomingOffer', (peerId: string) => {
@@ -110,11 +118,13 @@ class MultiplayerManager {
       this.broadcast('mp_peer', { peerId, connected: true });
       // Exchange display names so each side shows the other's live (per-project) name.
       this.sendProfile(peerId);
+      this.sharing?.onPeerConnected(peerId);
     });
     this.mesh.on('peerDisconnected', (peerId: string) => {
       this.broadcast('mp_peer', { peerId, connected: false });
+      this.sharing?.onPeerDisconnected(peerId);
     });
-    // Inbound profile (live display name) from a connected peer.
+    // Inbound control envelopes: live display name + the sharing protocol.
     this.mesh.on(
       'envelope',
       ({ from, env }: { from: string; env: SyncEnvelope }) => {
@@ -127,6 +137,12 @@ class MultiplayerManager {
             connected: true,
             displayName: name,
           });
+          // The profile arrives once the peer's channel is fully live, so this is
+          // a reliable point to (re-)advertise our shares (the on-connect send
+          // can race the channel setup).
+          this.sharing?.advertise(from);
+        } else if (SHARE_RTYPES.has(env?.rtype)) {
+          this.sharing?.handleEnvelope(from, env);
         }
       }
     );
@@ -232,6 +248,38 @@ class MultiplayerManager {
   disconnect(peerId: string): void {
     this.mesh?.disconnect(peerId);
     revokeSessionGrant(peerId);
+  }
+
+  // --- sharing ---------------------------------------------------------------
+
+  /** Grant a peer ('*' = all) access to one of my objects + advertise it live. */
+  share(objectId: string, granteePeerId: string, shareKind: ShareKind): void {
+    addShare(shareKind, objectId, granteePeerId);
+    this.sharing?.reAdvertiseAll();
+  }
+
+  /** Revoke a grant + tell connected peers to drop it. */
+  unshare(objectId: string, granteePeerId: string): void {
+    removeShare(objectId, granteePeerId);
+    if (granteePeerId === '*') {
+      for (const id of this.mesh?.connectedPeers() ?? [])
+        this.sharing?.notifyUnshared(id, objectId);
+    } else {
+      this.sharing?.notifyUnshared(granteePeerId, objectId);
+    }
+  }
+
+  /** Grantees of an object (for the "Share with" UI). */
+  grantees(objectId: string): string[] {
+    return listObjectGrantees(objectId);
+  }
+
+  /** Receiver: (un)subscribe to a peer's shared object (frontend wrapper place/remove). */
+  subscribeShared(peerId: string, objectId: string): void {
+    this.sharing?.subscribe(peerId, objectId);
+  }
+  unsubscribeShared(peerId: string, objectId: string): void {
+    this.sharing?.unsubscribe(peerId, objectId);
   }
 
   private async ensureIce(): Promise<void> {
