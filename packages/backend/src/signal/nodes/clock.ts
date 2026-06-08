@@ -12,7 +12,7 @@ import { valueIn, eventOut } from '@vspark/shared/node_decorators';
   label: 'Clock',
   description:
     'Fires a trigger at a configurable interval. Connect the interval value port to control Hz, or set it via config.',
-  tags: ['source'],
+  tags: ["input"],
   color: '#4a7a5a',
 })
 export class Clock extends Node {

@@ -77,7 +77,7 @@ Routes in [packages/backend/src/routes/compose-layers.ts](../../packages/backend
 
 The scenes bundle endpoint also returns `composeLayers` alongside `cameraEffects` so the editor hydrates everything in one request.
 
-Mutations broadcast over WebSocket: `compose_layer_added`, `compose_layer_updated`, `compose_layer_removed`, `compose_layer_reordered`. Frontend handlers live in [hooks/useWsSync.ts](../../packages/frontend/src/hooks/useWsSync.ts).
+Mutations broadcast over WebSocket. **Create and delete now flow through the sync layer** — `sync.document.upsert`/`remove` for rtype `compose_layer` on the single `'sync'` WS kind (applied via the sync apply dispatcher) — replacing the bespoke `compose_layer_added`/`compose_layer_removed` kinds for persistent layers. **Update and reorder still use legacy kinds** `compose_layer_updated` / `compose_layer_reordered`, whose handlers live in [hooks/useWsSync.ts](../../packages/frontend/src/hooks/useWsSync.ts). The legacy `compose_layer_added`/`removed` handlers are kept because the spawn manager still emits them inline for ephemeral tmp layers. See [sync.md](sync.md) and [spawn.md](spawn.md).
 
 When a scene-wide layer is deleted, the route re-anchors any camera-specific layers whose `camera_order` was anchored to that layer's `scene_order` slot. This keeps per-camera positioning sensible across the gap.
 

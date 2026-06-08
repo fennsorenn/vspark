@@ -354,7 +354,7 @@ function convertHand(pts: Landmark[], side: 'left' | 'right'): NormalizedPose {
   label: 'Hand Landmarks → Bones',
   description:
     'Converts MediaPipe 21-point image-space hand landmarks to VRM finger joint quaternions using a hand-local coordinate frame.',
-  tags: ['tracking', 'mapping'],
+  tags: ["mocap"],
   color: '#4a5a8a',
 })
 export class HandLandmarksToBones extends Node {

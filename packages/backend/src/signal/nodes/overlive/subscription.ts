@@ -30,7 +30,7 @@ const EMPTY: SubscriptionOut = {
   label: 'Overlive Subscription',
   description:
     'Fires on new subs, resubs, and gifted subs (recipients). For bulk gifts see Overlive Gift Bomb.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveSubscription extends Node {

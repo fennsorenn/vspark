@@ -7,7 +7,7 @@ import {
 } from '../presets/serialize.js';
 import { instantiatePreset } from '../presets/deserialize.js';
 import { BUILTIN_PRESETS, getBuiltinPreset } from '../presets/builtins.js';
-import { _ws } from './shared.js';
+import { sync } from '../sync/index.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -247,21 +247,57 @@ router.post('/presets/instantiate', (req, res) => {
         typeof boneAttachment === 'string' ? boneAttachment : null,
     });
 
+    // Broadcast every newly-created entity through the unified sync layer so
+    // other clients update live. `result.idMap` values are exactly the rows we
+    // just created; we re-query per table to learn each id's resource type, then
+    // hand it to `sync.document.upsert` (which loads + maps the canonical DTO).
+    // Order: parent entities first (nodes/layers), then attached
+    // behaviours/effects, then track clips. Logic graphs + animation clips are
+    // loaded on demand per client, so they need no live broadcast.
+    const db = getDb();
+    const createdIds = new Set(Object.values(result.idMap));
+    // table/rtype/where are fixed literals (never user input) — safe to interpolate.
+    const upsertCreated = (
+      table: string,
+      rtype: string,
+      where: string,
+      arg: string
+    ) => {
+      const rows = db
+        .prepare(`SELECT id FROM ${table} WHERE ${where} = ?`)
+        .all(arg) as { id: string }[];
+      for (const { id } of rows)
+        if (createdIds.has(id)) sync.document.upsert(rtype, id);
+    };
+
     if (payload.rootKind === 'scene_node' && rootSceneNodeId) {
-      const nodes = getDb()
-        .prepare('SELECT * FROM scene_nodes WHERE root_scene_node_id = ?')
-        .all(rootSceneNodeId);
-      for (const node of nodes) {
-        if (
-          result.idMap[
-            Object.keys(result.idMap).find(
-              (k) => result.idMap[k] === (node as Record<string, unknown>).id
-            ) ?? ''
-          ]
-        ) {
-          _ws?.broadcast('node_added', node as Record<string, unknown>);
-        }
+      const nodeIds = (
+        db
+          .prepare('SELECT id FROM scene_nodes WHERE root_scene_node_id = ?')
+          .all(rootSceneNodeId) as { id: string }[]
+      )
+        .map((r) => r.id)
+        .filter((id) => createdIds.has(id));
+      for (const id of nodeIds) sync.document.upsert('scene_node', id);
+      for (const id of nodeIds) {
+        upsertCreated('behaviors', 'behavior', 'node_id', id);
+        upsertCreated('camera_effects', 'camera_effect', 'node_id', id);
       }
+      for (const id of nodeIds)
+        upsertCreated('track_clips', 'track_clip', 'owner_node_id', id);
+    } else if (payload.rootKind === 'compose_layer' && rootComposeSceneId) {
+      const layerIds = (
+        db
+          .prepare(
+            'SELECT id FROM compose_layers WHERE root_compose_scene_id = ?'
+          )
+          .all(rootComposeSceneId) as { id: string }[]
+      )
+        .map((r) => r.id)
+        .filter((id) => createdIds.has(id));
+      for (const id of layerIds) sync.document.upsert('compose_layer', id);
+      for (const id of layerIds)
+        upsertCreated('track_clips', 'track_clip', 'owner_layer_id', id);
     }
 
     res.json({ ok: true, data: result });

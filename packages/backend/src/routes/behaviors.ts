@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { refreshAllBehaviorManagers } from './shared.js';
+import { sync } from '../sync/index.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -18,9 +19,7 @@ const router: ReturnType<typeof Router> = Router();
  */
 router.get('/scene-nodes/:nodeId/behaviors', (req, res) => {
   const data = getDb()
-    .prepare(
-      'SELECT * FROM behaviors WHERE node_id = ? ORDER BY sort_order'
-    )
+    .prepare('SELECT * FROM behaviors WHERE node_id = ? ORDER BY sort_order')
     .all(req.params.nodeId);
   res.json({ ok: true, data });
 });
@@ -62,19 +61,18 @@ router.post('/scene-nodes/:nodeId/behaviors', (req, res) => {
       sortOrder ?? 0
     );
   refreshAllBehaviorManagers();
-  res
-    .status(201)
-    .json({
-      ok: true,
-      data: {
-        id: compId,
-        node_id: req.params.nodeId,
-        kind,
-        enabled: enabled ?? true,
-        config: config ?? {},
-        sort_order: sortOrder ?? 0,
-      },
-    });
+  sync.document.upsert('behavior', compId);
+  res.status(201).json({
+    ok: true,
+    data: {
+      id: compId,
+      node_id: req.params.nodeId,
+      kind,
+      enabled: enabled ?? true,
+      config: config ?? {},
+      sort_order: sortOrder ?? 0,
+    },
+  });
 });
 
 /**
@@ -124,10 +122,9 @@ router.put('/behaviors/:id', (req, res) => {
  *       200: { description: Deleted; managers re-synced, content: { application/json: { schema: { $ref: '#/components/schemas/EmptyOk' } } } }
  */
 router.delete('/behaviors/:id', (req, res) => {
-  getDb()
-    .prepare('DELETE FROM behaviors WHERE id = ?')
-    .run(req.params.id);
+  getDb().prepare('DELETE FROM behaviors WHERE id = ?').run(req.params.id);
   refreshAllBehaviorManagers();
+  sync.document.remove('behavior', req.params.id);
   res.json({ ok: true, data: {} });
 });
 

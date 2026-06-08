@@ -17,7 +17,7 @@ export function initStartClip(mgr: TrackClipPlaybackManager): void {
   label: 'Start Clip',
   description:
     'Starts playback of a track clip when triggered. Canonical name; supersedes track_clip_trigger.',
-  tags: ['clips', 'output'],
+  tags: ["clips"],
   color: '#3a5a7a',
 })
 export class StartClip extends Node {

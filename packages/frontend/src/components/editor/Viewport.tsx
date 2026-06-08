@@ -4,11 +4,11 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   OrbitControls,
   Grid,
-  Environment,
   Line,
   TransformControls,
   Billboard,
 } from '@react-three/drei';
+import { SafeEnvironment } from '../SafeEnvironment';
 import {
   EffectComposer,
   Bloom,
@@ -40,6 +40,7 @@ import { Text as TroikaText } from 'troika-three-text';
 import DOMPurify from 'dompurify';
 import html2canvas from 'html2canvas';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
+import { compositeScalars, type ScalarLayer } from '../../compositor';
 import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import {
@@ -607,9 +608,9 @@ function getTransform(node: NodeRecord): Transform {
  *  transform with both merged on top of the persisted base. Per-node
  *  subscription keeps the re-render blast radius tight.
  *
- *  Resolution order per field: track-clip override > runtime override > base.
- *  Track-clip wins so an in-progress clip isn't interrupted by a stale runtime
- *  value. See dev-notes/modules/runtime-overrides.md. */
+ *  Resolution order per field: track-clip override > runtime override > base
+ *  (the shared {@link compositeScalars} fold applies the clip layer last, so it
+ *  wins). See dev-notes/plans/unified-sync-layer.md. */
 function useTransformWithOverride(node: NodeRecord): Transform {
   const clipOverride = useEditorStore((s) => s.nodeTransformOverrides[node.id]);
   const runtimeOverride = useEditorStore(
@@ -617,52 +618,50 @@ function useTransformWithOverride(node: NodeRecord): Transform {
   );
   const base = getTransform(node);
   if (!clipOverride && !runtimeOverride) return base;
-  const out: Transform = { ...base };
-  // Track-clip override pass (winner).
-  if (clipOverride?.position?.x !== undefined) out.x = clipOverride.position.x;
-  if (clipOverride?.position?.y !== undefined) out.y = clipOverride.position.y;
-  if (clipOverride?.position?.z !== undefined) out.z = clipOverride.position.z;
-  if (clipOverride?.rotation?.x !== undefined) out.rx = clipOverride.rotation.x;
-  if (clipOverride?.rotation?.y !== undefined) out.ry = clipOverride.rotation.y;
-  if (clipOverride?.rotation?.z !== undefined) out.rz = clipOverride.rotation.z;
-  if (clipOverride?.scale?.x !== undefined) out.sx = clipOverride.scale.x;
-  if (clipOverride?.scale?.y !== undefined) out.sy = clipOverride.scale.y;
-  if (clipOverride?.scale?.z !== undefined) out.sz = clipOverride.scale.z;
-  if (clipOverride?.opacity !== undefined) out.opacity = clipOverride.opacity;
-  // Runtime override pass (loser per-field, only fills what's still base).
-  if (runtimeOverride) {
-    const rx = runtimeOverride['position.x'];
-    if (typeof rx === 'number' && clipOverride?.position?.x === undefined)
-      out.x = rx;
-    const ry = runtimeOverride['position.y'];
-    if (typeof ry === 'number' && clipOverride?.position?.y === undefined)
-      out.y = ry;
-    const rz = runtimeOverride['position.z'];
-    if (typeof rz === 'number' && clipOverride?.position?.z === undefined)
-      out.z = rz;
-    const rrx = runtimeOverride['rotation.x'];
-    if (typeof rrx === 'number' && clipOverride?.rotation?.x === undefined)
-      out.rx = rrx;
-    const rry = runtimeOverride['rotation.y'];
-    if (typeof rry === 'number' && clipOverride?.rotation?.y === undefined)
-      out.ry = rry;
-    const rrz = runtimeOverride['rotation.z'];
-    if (typeof rrz === 'number' && clipOverride?.rotation?.z === undefined)
-      out.rz = rrz;
-    const rsx = runtimeOverride['scale.x'];
-    if (typeof rsx === 'number' && clipOverride?.scale?.x === undefined)
-      out.sx = rsx;
-    const rsy = runtimeOverride['scale.y'];
-    if (typeof rsy === 'number' && clipOverride?.scale?.y === undefined)
-      out.sy = rsy;
-    const rsz = runtimeOverride['scale.z'];
-    if (typeof rsz === 'number' && clipOverride?.scale?.z === undefined)
-      out.sz = rsz;
-    const ro = runtimeOverride['opacity'];
-    if (typeof ro === 'number' && clipOverride?.opacity === undefined)
-      out.opacity = ro;
-  }
-  return out;
+  // Base + both override layers keyed by paramPath, folded low → high.
+  const baseMap = {
+    'position.x': base.x,
+    'position.y': base.y,
+    'position.z': base.z,
+    'rotation.x': base.rx,
+    'rotation.y': base.ry,
+    'rotation.z': base.rz,
+    'scale.x': base.sx,
+    'scale.y': base.sy,
+    'scale.z': base.sz,
+    opacity: base.opacity,
+  };
+  const clipLayer: ScalarLayer = clipOverride
+    ? {
+        'position.x': clipOverride.position?.x,
+        'position.y': clipOverride.position?.y,
+        'position.z': clipOverride.position?.z,
+        'rotation.x': clipOverride.rotation?.x,
+        'rotation.y': clipOverride.rotation?.y,
+        'rotation.z': clipOverride.rotation?.z,
+        'scale.x': clipOverride.scale?.x,
+        'scale.y': clipOverride.scale?.y,
+        'scale.z': clipOverride.scale?.z,
+        opacity: clipOverride.opacity,
+      }
+    : undefined;
+  const r = compositeScalars(baseMap, [
+    runtimeOverride as ScalarLayer,
+    clipLayer,
+  ]);
+  return {
+    ...base,
+    x: r['position.x'],
+    y: r['position.y'],
+    z: r['position.z'],
+    rx: r['rotation.x'],
+    ry: r['rotation.y'],
+    rz: r['rotation.z'],
+    sx: r['scale.x'],
+    sy: r['scale.y'],
+    sz: r['scale.z'],
+    opacity: r.opacity,
+  };
 }
 
 /** Per-frame mesh-material opacity walk. Sets `transparent` + `opacity` on
@@ -2506,11 +2505,10 @@ const SPEAKER_DIVIDER_PTS: Pt3[] = [
 // Two sound-wave arcs to the right of the cone.
 const SPEAKER_WAVE_PTS: Pt3[][] = [0.11, 0.16].map((r) =>
   Array.from({ length: 9 }, (_, i) => {
-    const a = (-Math.PI / 4) + (i / 8) * (Math.PI / 2);
+    const a = -Math.PI / 4 + (i / 8) * (Math.PI / 2);
     return [Math.cos(a) * r + 0.04, Math.sin(a) * r, 0] as Pt3;
   })
 );
-
 
 function LightNode({
   node,
@@ -3232,7 +3230,8 @@ function AudioNode({
   const applyVolume = () => {
     const s = soundRef.current;
     if (!s) return;
-    const v = audibleRef.current && !mutedRef.current ? desiredVolRef.current : 0;
+    const v =
+      audibleRef.current && !mutedRef.current ? desiredVolRef.current : 0;
     s.setVolume(Math.max(0, Math.min(1, v)));
   };
 
@@ -3379,12 +3378,7 @@ function AudioNode({
           {/* Directional sources get the sound-wave arcs; simple ones don't. */}
           {ac.audioType === 'directional' &&
             SPEAKER_WAVE_PTS.map((pts, i) => (
-              <Line
-                key={i}
-                points={pts}
-                color={iconColor}
-                lineWidth={1.5}
-              />
+              <Line key={i} points={pts} color={iconColor} lineWidth={1.5} />
             ))}
         </Billboard>
       )}
@@ -5176,7 +5170,7 @@ export function Viewport() {
         <Grid infiniteGrid fadeDistance={30} fadeStrength={1} />
         {shadowsEnabled && <ShadowCatcher />}
         <ShadowMaterialSync enabled={shadowsEnabled} />
-        <Environment preset="city" />
+        <SafeEnvironment preset="city" />
         <OrbitControls ref={orbitRef} makeDefault />
         <CameraEffects />
       </Canvas>

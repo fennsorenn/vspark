@@ -19,6 +19,7 @@ import type {
 import DOMPurify from 'dompurify';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
 import { CameraCanvas } from './CameraCanvas';
+import { compositeScalars, type ScalarLayer } from '../../compositor';
 import {
   compileTemplate,
   FeedContent,
@@ -58,16 +59,6 @@ function cssLen(
   return config[unitKey] === '%' ? `${value}%` : `${value}px`;
 }
 
-/** Read a numeric runtime override for a paramPath, falling back to undefined
- *  when absent or non-numeric. */
-function runtimeNum(
-  rt: RuntimeOverrideMap | undefined,
-  path: string
-): number | undefined {
-  const v = rt?.[path];
-  return typeof v === 'number' ? v : undefined;
-}
-
 function layerStyle(
   layer: ComposeLayerRecord,
   clipOverride?: {
@@ -80,25 +71,24 @@ function layerStyle(
   },
   runtimeOverride?: RuntimeOverrideMap
 ): CSSProperties {
-  // Resolution order per paramPath: track-clip override > runtime override > base.
-  // Track-clip wins so an in-progress clip isn't interrupted by a stale runtime
-  // value. See dev-notes/modules/runtime-overrides.md.
-  const x = clipOverride?.x ?? runtimeNum(runtimeOverride, 'x') ?? layer.x;
-  const y = clipOverride?.y ?? runtimeNum(runtimeOverride, 'y') ?? layer.y;
-  const rotation =
-    clipOverride?.rotation ??
-    runtimeNum(runtimeOverride, 'rotation') ??
-    layer.rotation;
-  const width =
-    clipOverride?.width ?? runtimeNum(runtimeOverride, 'width') ?? layer.width;
-  const height =
-    clipOverride?.height ??
-    runtimeNum(runtimeOverride, 'height') ??
-    layer.height;
-  const opacity =
-    clipOverride?.opacity ??
-    runtimeNum(runtimeOverride, 'opacity') ??
-    (typeof layer.config.opacity === 'number' ? layer.config.opacity : 1);
+  // Resolution order per paramPath: track-clip override > runtime override > base
+  // (the shared compositeScalars fold applies the clip layer last, so it wins).
+  // See dev-notes/plans/unified-sync-layer.md.
+  const { x, y, rotation, width, height, opacity } = compositeScalars(
+    {
+      x: layer.x,
+      y: layer.y,
+      rotation: layer.rotation,
+      width: layer.width,
+      height: layer.height,
+      opacity:
+        typeof layer.config.opacity === 'number' ? layer.config.opacity : 1,
+    },
+    [
+      runtimeOverride as ScalarLayer,
+      clipOverride as Record<string, number | undefined> | undefined,
+    ]
+  );
 
   const cfg = layer.config;
   const blendMode =
@@ -554,7 +544,8 @@ function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
   const scopeId = `feed-${rawScopeId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
   if (!template) return <Placeholder text={t('stack.emptyTemplate')} />;
-  if (!compiled.render) return <Placeholder text={t('stack.templateSyntaxError')} />;
+  if (!compiled.render)
+    return <Placeholder text={t('stack.templateSyntaxError')} />;
 
   const css = typeof cfg.css === 'string' ? cfg.css : '';
   const scopedCss = css

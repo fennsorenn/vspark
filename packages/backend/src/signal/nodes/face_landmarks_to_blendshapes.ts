@@ -111,7 +111,7 @@ function estimateBlendshapes(pts: Landmark[]): Blendshapes {
   label: 'Face Landmarks → Blendshapes',
   description:
     'Converts MediaPipe 478-point face landmarks to VRM expression weights (mouth vowels, eye blink, brow raise).',
-  tags: ['tracking', 'mapping'],
+  tags: ["mocap"],
   color: '#4a5a8a',
 })
 export class FaceLandmarksToBlendshapes extends Node {

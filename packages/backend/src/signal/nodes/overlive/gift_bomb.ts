@@ -26,7 +26,7 @@ const EMPTY: GiftBombOut = {
   label: 'Overlive Gift Bomb',
   description:
     'Fires once per bulk gift sub event (one gifter, many recipients). For individual recipients see Overlive Subscription.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveGiftBomb extends Node {

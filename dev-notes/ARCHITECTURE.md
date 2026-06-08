@@ -47,6 +47,7 @@ packages/
 | Manual calibration manager | Implemented | `behaviors/manual_calibration/` — pose interceptor for manually fine-tuning an avatar's pose with a per-bone, per-axis euler multiplier + offset. Second interceptor-registering manager (alongside VMC); only acts while some producer broadcasts a pose for the avatar. New node `pose_manual_calibration`. See [component-managers.md](modules/component-managers.md). |
 | VRM skeleton parsing | Implemented | `vrm/skeleton.ts` — GLB/VRM 0.x + 1.x |
 | WebSocket sync | Implemented | `ws/index.ts` — broadcast bus |
+| Unified sync layer | Implemented (Phases 0–2 + 4); Phase 3 API-surface-only | `sync/` + `packages/shared/src/sync.ts` — one `SyncEnvelope` over a single `'sync'` WS kind for all replicated state, with four resource classes (`document`/`field`/`stream`/`event`), dotted-path addressing, a `defineResource` registry + `sync.document/stream/event` producer hub, and HLC stamping with client-side stale-drop. CRUD **create/delete** of `scene_node`/`behavior`/`camera_effect`/`compose_layer`/`track_clip` (+ preset instantiation) now flows through `sync.document.upsert/remove`; updates, the live pose pipeline, and the runtime-override/data-channel buses are still on legacy WS kinds. `field.*` (override/data-channel fold), live-stream migration, and unified layered store are WIP/planned. See [sync.md](modules/sync.md). |
 | Broadcast bus lifecycle refactor | Implemented | `broadcast/bus.ts` — final-fallback frame (empty bones + `animationBlendMode: 'additive'`, empty blendshapes) on last-producer removal; vmc_receiver tracking-loss now removes the producer by `behaviorId`; mediapipe `pose_broadcast`/`blendshapes_broadcast` now wired with `behaviorId`. (The bus keys producers by `behaviorId`, the runtime instance id, renamed from `componentId`.) See [component-managers.md](modules/component-managers.md) and [frontend.md](modules/frontend.md). |
 | `scene_nodes.properties` JSON column | Implemented | Migration 007; per-node properties bag, first use `blendTransitionTime` on VRM avatar nodes; PUT shallow-merges (mirrors scene `runtime_settings`) |
 | Breathing component (6-bone topology) | Implemented | `behaviors/breathing/` — drives chest/upperChest + L/R shoulder lift with counter-rotated upper arms; configurable `chestAmplitude` + `shoulderAmplitude` via `behavior_config` nodes; remaining literals collapsed into per-port `defaultConfig` |
@@ -170,9 +171,13 @@ source-to-avatar shoulder scaling and chest-relative target frame.
 ### Scene state mutations
 
 ```
-REST write → SQLite → WS broadcast (node_added/updated/removed, camera_effect_*)
+REST create/delete → SQLite → sync.document.upsert/remove → WS 'sync' envelope
+  → Frontend useWsSync → applyRemote → Zustand store → React UI
+REST update        → SQLite → legacy WS kind (node_updated, camera_effect_updated, …)
   → Frontend useWsSync → Zustand store → React UI
 ```
+
+Create/delete of the migrated document types (`scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip`) flows through the unified sync layer; updates and the live pose pipeline are still on legacy kinds. See [sync.md](modules/sync.md).
 
 ## Module Docs
 
@@ -196,6 +201,7 @@ REST write → SQLite → WS broadcast (node_added/updated/removed, camera_effec
 - [clipboard.md](modules/clipboard.md) — single discriminated `ClipboardPayload` union (7 kinds) mirrored to OS clipboard + Zustand slice; powers Cmd/Ctrl+C/V across scene nodes, compose layers, logic, in-graph node selections, camera effects, behaviors, and track clips
 - [overlive.md](modules/overlive.md) — Twitch + StreamElements integration via the `overlive` SDK; accounts, OAuth, `Account` port type, 13 event nodes
 - [data-channels.md](modules/data-channels.md) — generic graph→frontend data-channel bus + `set_data` node + template `feed` compose layer; chat ring-buffer + `overlive_chat_feed` as the first use
+- [sync.md](modules/sync.md) — unified state-replication layer: the `SyncEnvelope`, four resource classes, dotted-path addressing, backend producer hub + registry, frontend apply dispatcher + bindings, HLC stale-drop, the compositor read-model, what's migrated vs still on legacy WS kinds, and how to add a syncable resource
 - [runtime-overrides.md](modules/runtime-overrides.md) — scene-scoped parallel-to-track-clip override bus for graph-driven runtime param mutation
 - [spawn.md](modules/spawn.md) — ephemeral clip-clone spawning; tmp scene-node / compose-layer instances driven by `spawn_clip`
 - [paramPaths.md](modules/paramPaths.md) — shared paramPath registry used by clips, runtime overrides, and `set_*_param` nodes

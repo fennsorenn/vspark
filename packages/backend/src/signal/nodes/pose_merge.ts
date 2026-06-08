@@ -6,7 +6,7 @@ import { listIn, valueOut } from '@vspark/shared/node_decorators';
   label: 'Pose Merge',
   description:
     'Merges multiple partial NormalizedPoses into one. Later inputs override earlier ones for any overlapping bones. Identity quaternions (0,0,0,1) from partial poses are skipped.',
-  tags: ['pose'],
+  tags: ["mocap"],
   color: '#5b7a3a',
 })
 export class PoseMerge extends Node {

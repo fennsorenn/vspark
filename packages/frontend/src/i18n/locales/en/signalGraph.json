@@ -16,7 +16,20 @@
   "palette": {
     "header": "Nodes",
     "readOnly": "read-only graph",
-    "empty": "No nodes in this category."
+    "empty": "No nodes in this category.",
+    "searchPlaceholder": "Search nodes…",
+    "noMatch": "No nodes match \"{{query}}\".",
+    "tags": {
+      "all": "All",
+      "input": "Input",
+      "mocap": "Mocap",
+      "math": "Math",
+      "output": "Output",
+      "scene": "Scene",
+      "clips": "Clips",
+      "overlive": "Stream",
+      "utility": "Utility"
+    }
   },
   "logic": {
     "empty": "No logic",

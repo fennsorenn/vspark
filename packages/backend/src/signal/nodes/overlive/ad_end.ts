@@ -12,7 +12,7 @@ const EMPTY: AdEndOut = { durationSeconds: 0 };
 @SignalNode({
   label: 'Overlive Ad End',
   description: 'Fires when an ad break ends.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveAdEnd extends Node {
