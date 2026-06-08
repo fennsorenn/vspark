@@ -158,18 +158,31 @@ export class ServerMesh extends EventEmitter {
     else this.disconnect(peerId);
   }
 
-  /** Reliable document/control envelope. Returns false if the channel isn't open. */
+  /** Reliable document/control envelope. Returns false if the channel isn't open
+   *  or the send throws (e.g. oversized message) — never throws, so a bad send
+   *  can't crash the process. */
   sendEnvelope(peerId: string, env: SyncEnvelope): boolean {
     const dc = this.peers.get(peerId)?.doc;
     if (!dc || dc.readyState !== 'open') return false;
-    dc.send(JSON.stringify(env));
-    return true;
+    try {
+      dc.send(JSON.stringify(env));
+      return true;
+    } catch (e) {
+      dbg('sendEnvelope failed', peerId, env.rtype, e);
+      return false;
+    }
   }
 
-  /** Lossy stream frame (pose). Dropped silently if the channel isn't open. */
+  /** Lossy stream frame (pose). Dropped silently if the channel isn't open or
+   *  the send throws. */
   sendStream(peerId: string, frame: Record<string, unknown>): void {
     const dc = this.peers.get(peerId)?.stream;
-    if (dc && dc.readyState === 'open') dc.send(JSON.stringify(frame));
+    if (!dc || dc.readyState !== 'open') return;
+    try {
+      dc.send(JSON.stringify(frame));
+    } catch (e) {
+      dbg('sendStream failed', peerId, e);
+    }
   }
 
   broadcastEnvelope(env: SyncEnvelope): void {

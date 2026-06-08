@@ -29,8 +29,11 @@ const ERROR = '_blob_error';
 
 export const BLOB_RTYPES = new Set([REQUEST, BEGIN, CHUNK, END, ERROR]);
 
-/** Raw bytes per chunk (base64-encoded on the wire). */
-const CHUNK_BYTES = 48 * 1024;
+/** Raw bytes per chunk. Must stay well under the 64 KB SCTP max-message-size
+ *  after base64 inflation (×4/3) + the JSON envelope: 32 KB raw → ~43.7 KB
+ *  base64 + ~0.2 KB envelope ≈ 44 KB. (48 KB overflowed: its 64 KB base64 +
+ *  envelope exceeded 64 KB and werift threw, crashing the owner.) */
+const CHUNK_BYTES = 32 * 1024;
 /** Pause every N chunks to let the channel drain (crude backpressure). */
 const PACE_EVERY = 16;
 const PACE_MS = 8;
@@ -147,12 +150,15 @@ export class BlobManager {
     });
     for (let seq = 0; seq < total; seq++) {
       const slice = buf.subarray(seq * CHUNK_BYTES, (seq + 1) * CHUNK_BYTES);
-      this.mesh.sendEnvelope(peerId, {
+      const ok = this.mesh.sendEnvelope(peerId, {
         rtype: CHUNK,
         op: 'event',
         key: hash,
         data: { hash, seq, b64: slice.toString('base64') },
       });
+      // A failed send (closed channel / oversized) aborts the transfer; the
+      // receiver times out and falls back to the owner path rather than hanging.
+      if (!ok) return;
       if (seq % PACE_EVERY === PACE_EVERY - 1) await delay(PACE_MS);
     }
     this.mesh.sendEnvelope(peerId, {
