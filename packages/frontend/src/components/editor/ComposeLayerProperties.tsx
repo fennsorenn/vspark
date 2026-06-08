@@ -90,6 +90,10 @@ function UnitSelect({
         display: 'inline-flex',
         alignItems: 'center',
         flexShrink: 0,
+        height: 16,
+        marginLeft: 4,
+        paddingLeft: 6,
+        borderLeft: '1px solid #3a3a3a',
       }}
     >
       <select
@@ -107,7 +111,7 @@ function UnitSelect({
           fontSize: 10,
           outline: 'none',
           cursor: 'pointer',
-          padding: '1px 11px 1px 3px',
+          padding: '1px 11px 1px 0',
           textAlignLast: 'right',
           transition: 'background 100ms, color 100ms',
         }}
