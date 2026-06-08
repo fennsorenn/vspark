@@ -97,8 +97,16 @@ Frontend wiring:
   stale-drop already supports it — server-origin wins ties, reject re-emits the
   prior canonical doc with a higher stamp to reset everyone).
 - Interest/role pruning (full mesh now; seam only).
-- Cross-machine asset transfer, live pose forwarding to share-subscribers
-  (tracked separately in Phase 5 follow-ups).
+- ~~Cross-machine asset transfer~~ — **implemented** (commit 5afd312): content-addressed
+  blob transfer over the backend↔backend `ServerMesh`. When an object is shared, the
+  receiver fetches each referenced asset by sha256 hash (`BlobManager`,
+  `multiplayer/blobTransfer.ts`), caches it under `uploads/_shared/<hash><ext>` served by
+  the existing `/uploads` mount, and `SharingManager` rewrites the projected nodes' file
+  paths to the local cache URL (falling back to the owner path on fetch failure, preserving
+  the shared-uploads-dir one-box case). v1 routes the transfer over the server mesh (the
+  authoritative copy lives on the owner's disk); because it's content-addressed behind a
+  path-rewrite seam, a future client-mesh-direct fetch can drop in behind the same
+  addressing. Live pose forwarding to share-subscribers remains a Phase 5 follow-up.
 - SFU/viewer fan-out for large audiences.
 
 ## Approach (live-tier-first slices)
