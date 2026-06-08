@@ -13,6 +13,18 @@
     "groupComposeLayers": "Compose-Ebenen",
     "groupSceneNodes": "Szenenknoten"
   },
+  "nodeDoc": {
+    "openTitle": "Knoten-Details",
+    "close": "Schließen",
+    "inputs": "Eingänge",
+    "outputs": "Ausgänge",
+    "noInputs": "Keine Eingänge",
+    "noOutputs": "Keine Ausgänge",
+    "noDescription": "Keine Beschreibung.",
+    "value": "Wert · bei Bedarf gelesen",
+    "event": "Ereignis · wird ausgelöst",
+    "list": "Liste"
+  },
   "palette": {
     "header": "Knoten",
     "readOnly": "Schreibgeschützter Graph",

@@ -13,6 +13,18 @@
     "groupComposeLayers": "Compose layers",
     "groupSceneNodes": "Scene nodes"
   },
+  "nodeDoc": {
+    "openTitle": "Node details",
+    "close": "Close",
+    "inputs": "Inputs",
+    "outputs": "Outputs",
+    "noInputs": "No inputs",
+    "noOutputs": "No outputs",
+    "noDescription": "No description.",
+    "value": "value · read on demand",
+    "event": "event · fires when triggered",
+    "list": "list"
+  },
   "palette": {
     "header": "Nodes",
     "readOnly": "read-only graph",
