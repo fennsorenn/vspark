@@ -88,7 +88,7 @@
     "delete": "Löschen"
   },
   "remote": {
-    "tip": "Von einem verbundenen Partner geteilt – schreibgeschützte Projektion, gehört zu dessen Server."
+    "tip": "Geteiltes Objekt von einem verbundenen Partner. Du kannst diesen Container bewegen und platzieren; sein Inhalt gehört dessen Server und wird von dort live aktualisiert."
   },
   "logic": {
     "globalLogic": "Globale Logik",

@@ -88,7 +88,7 @@
     "delete": "Delete"
   },
   "remote": {
-    "tip": "Shared by a connected peer — read-only projection, owned on their server."
+    "tip": "Shared object from a connected peer. You can move and place this container; its contents are owned and updated live by their server."
   },
   "logic": {
     "globalLogic": "Global Logic",

@@ -33,7 +33,8 @@
     "label": "Shared with you",
     "empty": "Nothing shared yet.",
     "place": "Place",
-    "remove": "Remove"
+    "remove": "Remove",
+    "placedName": "Shared object"
   },
   "pairing": {
     "label": "Pairing",

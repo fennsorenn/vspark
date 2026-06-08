@@ -28,11 +28,17 @@ import {
   peerAccept,
   peerReject,
   peerRemove,
-  peerSubscribe,
   peerUnsubscribe,
+  createNode,
+  deleteNode,
   type ConnectionPeer,
 } from '../api/client';
-import { removeProjection as removeSharedProjection } from '../sync/sharedProjection';
+import {
+  removeProjection as removeSharedProjection,
+  findContainer,
+  REMOTE_OBJECT_KIND,
+} from '../sync/sharedProjection';
+import type { SharedOffer } from '../store/connectionsStore';
 
 const C = {
   bg: '#181818',
@@ -142,15 +148,31 @@ function ConnectedMember({
   const subscribed =
     useConnectionsStore((s) => s.subscribed[peer.peerId]) ?? EMPTY_IDS;
   const setSubscribed = useConnectionsStore((s) => s.setSubscribed);
+  const activeSceneId = useEditorStore((s) => s.activeSceneId);
+  const addNodeLocal = useEditorStore((s) => s.addNode);
   const [actBusy, setActBusy] = useState(false);
 
-  const place = (objectId: string) =>
+  const place = (offer: SharedOffer) =>
     void (async () => {
+      if (!activeSceneId || findContainer(peer.peerId, offer.objectId)) return;
       setActBusy(true);
       try {
-        await peerSubscribe(peer.peerId, objectId);
-        // Optimistic — the snapshot arrival also flips this on.
-        setSubscribed(peer.peerId, objectId, true);
+        // Place an opaque, editable container the receiver owns; the shared
+        // subtree projects under it. The actual subscribe (snapshot fetch) is
+        // driven by useSharedSubscriptions once the container exists.
+        const node = await createNode(activeSceneId, {
+          name: offer.name || t('shared.placedName'),
+          kind: REMOTE_OBJECT_KIND,
+          parentId: null,
+          components: {
+            remoteRef: {
+              ownerPeerId: peer.peerId,
+              remoteObjectId: offer.objectId,
+              name: offer.name,
+            },
+          },
+        });
+        addNodeLocal(node);
       } catch {
         /* ignore */
       } finally {
@@ -163,6 +185,8 @@ function ConnectedMember({
       try {
         await peerUnsubscribe(peer.peerId, objectId);
         removeSharedProjection(peer.peerId, objectId);
+        const container = findContainer(peer.peerId, objectId);
+        if (container) await deleteNode(container.id).catch(() => {});
         setSubscribed(peer.peerId, objectId, false);
       } catch {
         /* ignore */
@@ -238,7 +262,7 @@ function ConnectedMember({
                   <button
                     style={S.btn('primary')}
                     disabled={actBusy}
-                    onClick={() => place(o.objectId)}
+                    onClick={() => place(o)}
                   >
                     {t('shared.place')}
                   </button>

@@ -42,6 +42,7 @@ const KIND_ICONS: Record<string, string> = {
   video: '🎞️',
   audio: '🔊',
   feed: '📜',
+  remote_object: '🔗',
 };
 
 // Node kinds the user can add. Sourced from the shared registry so the scene
@@ -99,7 +100,7 @@ function SceneNodeContextMenu({
   const mpEnabled = useConnectionsStore((s) => s.enabled);
   const connectedIds = useConnectionsStore((s) => s.connectedIds);
   const nameById = useConnectionsStore((s) => s.nameById);
-  const canShare = mpEnabled && !node.remote;
+  const canShare = mpEnabled && !node.remote && node.kind !== 'remote_object';
 
   // Load the object's current grantees when the Share submenu opens.
   useEffect(() => {
@@ -1951,7 +1952,11 @@ export function SceneGraph() {
   const renderNode = (node: NodeRecord, depth = 0) => {
     const isSelected = selectedNodeId === node.id;
     const isHidden = node.hidden ?? false;
-    const allChildren = nodes.filter((n) => n.parentId === node.id);
+    // Projected (remote) inner nodes are hidden from the tree — only the opaque
+    // remote_object container they live under is shown + editable.
+    const allChildren = nodes.filter(
+      (n) => n.parentId === node.id && !n.remote
+    );
     const bones =
       node.kind === 'avatar' || node.kind === 'model'
         ? (vrmBonesByNode[node.id] ?? null)
@@ -2054,13 +2059,14 @@ export function SceneGraph() {
             {node.name}
           </span>
 
-          {/* Remote (shared-by-peer) projection: read-only, owned elsewhere. */}
-          {node.remote && (
+          {/* Opaque container for a peer's shared object: editable placement,
+              but its contents live on the owner's server (read-only internals). */}
+          {node.kind === 'remote_object' && (
             <span
               title={t('remote.tip')}
               style={{ fontSize: 11, flexShrink: 0, opacity: 0.7 }}
             >
-              🔒
+              📡
             </span>
           )}
 
@@ -2335,7 +2341,11 @@ export function SceneGraph() {
     const isSelected = isActive && sceneSelected;
     const isCollapsed = collapsedScenes.has(scene.id);
     const rootNodes = nodes.filter(
-      (n) => n.rootSceneNodeId === scene.id && !n.parentId && n.kind !== 'scene'
+      (n) =>
+        n.rootSceneNodeId === scene.id &&
+        !n.parentId &&
+        n.kind !== 'scene' &&
+        !n.remote
     );
 
     return (

@@ -1,20 +1,27 @@
 /**
- * Receiver-side projection of a peer's shared object into the local scene
- * (Phase 5 multiplayer). The owner sends an {@link ObjectSnapshot} (its node
- * subtree, owner-side ids) plus live `scene_node` document updates; we inject
- * those nodes into the editor store flagged `remote` so the existing
- * Viewport/Avatar/SceneGraph render them without any extra rendering path.
+ * Receiver-side projection of a peer's shared object (Phase 5 multiplayer).
  *
- * Remote nodes are purely in-memory: never PUT, dropped on reload, unshare, or
- * disconnect, and restocked from the owner's snapshot on (re)subscribe. We keep
- * the owner's ids verbatim (UUID collisions across servers are negligible) so a
- * live update's `env.key` maps straight onto the projected node.
+ * The recipient places an opaque, editable **container** node (kind
+ * `remote_object`, owned + persisted by the receiver) carrying a
+ * `components.remoteRef = { ownerPeerId, remoteObjectId }`. The owner's shared
+ * subtree (its nodes, owner-side ids) is projected as **ephemeral, in-memory**
+ * nodes parented *under* that container, so:
+ *   - only the container shows in the scene tree and is editable;
+ *   - the shared subtree renders under the container's transform (parented), so
+ *     moving the container moves the shared object, but its internals stay
+ *     hidden + read-only;
+ *   - the projection is dropped on unshare/disconnect/reload and restocked from
+ *     the owner's snapshot on (re)subscribe — the container persists.
  *
+ * Inner nodes keep the owner's ids verbatim (UUID collisions across servers are
+ * negligible) so a live update's `env.key` maps straight onto a projected node.
  * See dev-notes/plans/multiplayer-phase5.md.
  */
 import { useEditorStore } from '../store/editorStore';
 import type { NodeRecord } from '../store/editorStore';
 import type { SyncEnvelope } from '@vspark/shared/sync';
+
+export const REMOTE_OBJECT_KIND = 'remote_object';
 
 interface ObjectSnapshot {
   objectId: string;
@@ -25,7 +32,13 @@ interface ObjectSnapshot {
   assetHashes: string[];
 }
 
-/** peerId → objectId → set of projected node ids (so we can remove cleanly). */
+interface RemoteRef {
+  ownerPeerId: string;
+  remoteObjectId: string;
+  name?: string;
+}
+
+/** peerId → objectId → set of projected (inner) node ids (for clean removal). */
 const projected = new Map<string, Map<string, Set<string>>>();
 
 function track(peerId: string, objectId: string, nodeId: string): void {
@@ -36,38 +49,58 @@ function track(peerId: string, objectId: string, nodeId: string): void {
   ids.add(nodeId);
 }
 
+function refOf(n: NodeRecord): RemoteRef | undefined {
+  return (n.components as { remoteRef?: RemoteRef } | undefined)?.remoteRef;
+}
+
+/** The container node a (peerId, objectId) projection attaches under, if placed. */
+export function findContainer(
+  peerId: string,
+  objectId: string
+): NodeRecord | undefined {
+  return useEditorStore
+    .getState()
+    .nodes.find(
+      (n) =>
+        n.kind === REMOTE_OBJECT_KIND &&
+        refOf(n)?.ownerPeerId === peerId &&
+        refOf(n)?.remoteObjectId === objectId
+    );
+}
+
 /** Whether a given object from a peer is currently projected locally. */
 export function isProjected(peerId: string, objectId: string): boolean {
   return (projected.get(peerId)?.get(objectId)?.size ?? 0) > 0;
 }
 
-/** Rewrite an owner-side node DTO into a local, render-ready remote node:
- *  attach it to the active scene, sever the subtree root from the owner's
- *  parent, and tag it `remote`. */
+/** Rewrite an owner-side node DTO into a local, render-ready inner node: attach
+ *  the subtree root under the container, keep the rest of the tree, tag it
+ *  `remote` (hidden from the tree + read-only). */
 function projectNode(
   dto: Record<string, unknown>,
   peerId: string,
   objectId: string,
-  activeSceneId: string
+  container: NodeRecord
 ): NodeRecord {
   const n = dto as unknown as NodeRecord;
   return {
     ...n,
-    rootSceneNodeId: activeSceneId,
-    parentId: n.id === objectId ? null : n.parentId,
+    rootSceneNodeId: container.rootSceneNodeId,
+    parentId: n.id === objectId ? container.id : n.parentId,
     remote: true,
     remoteOwnerPeerId: peerId,
   };
 }
 
-/** Apply a fresh snapshot: replace any prior projection of this object. */
+/** Apply a fresh snapshot: replace any prior projection of this object. No-op if
+ *  the container hasn't been placed yet. */
 export function applySnapshot(peerId: string, snapshot: ObjectSnapshot): void {
+  const container = findContainer(peerId, snapshot.objectId);
+  if (!container) return;
   const store = useEditorStore.getState();
-  const activeSceneId = store.activeSceneId;
-  if (!activeSceneId) return;
   removeProjection(peerId, snapshot.objectId);
   for (const raw of snapshot.nodes) {
-    const node = projectNode(raw, peerId, snapshot.objectId, activeSceneId);
+    const node = projectNode(raw, peerId, snapshot.objectId, container);
     store.addNode(node);
     track(peerId, snapshot.objectId, node.id);
   }
@@ -81,9 +114,9 @@ export function applyUpdate(
 ): void {
   if (env.rtype !== 'scene_node') return;
   if (!projected.get(peerId)?.has(objectId)) return; // not placed locally
+  const container = findContainer(peerId, objectId);
+  if (!container) return;
   const store = useEditorStore.getState();
-  const activeSceneId = store.activeSceneId;
-  if (!activeSceneId) return;
 
   if (env.op === 'remove') {
     store.deleteNode(env.key);
@@ -95,7 +128,7 @@ export function applyUpdate(
       env.data as Record<string, unknown>,
       peerId,
       objectId,
-      activeSceneId
+      container
     );
     if (store.nodes.some((x) => x.id === node.id)) {
       store.updateNode(node.id, node);
@@ -106,7 +139,8 @@ export function applyUpdate(
   }
 }
 
-/** Remove a single object's projection (unshare, or before re-snapshot). */
+/** Remove a single object's projected subtree (unshare, or before re-snapshot).
+ *  Leaves the container in place (it persists; it restocks on re-subscribe). */
 export function removeProjection(peerId: string, objectId: string): void {
   const ids = projected.get(peerId)?.get(objectId);
   if (!ids) return;
@@ -115,7 +149,8 @@ export function removeProjection(peerId: string, objectId: string): void {
   projected.get(peerId)?.delete(objectId);
 }
 
-/** Remove every projection from a peer (disconnect / peer gone). */
+/** Remove every projected subtree from a peer (disconnect / peer gone). The
+ *  containers stay as placeholders and restock when the peer reconnects. */
 export function removePeerProjections(peerId: string): void {
   const byObject = projected.get(peerId);
   if (!byObject) return;

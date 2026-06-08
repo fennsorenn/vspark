@@ -54,13 +54,15 @@ Teilen hat zwei Seiten:
   **Alle Verbundenen**). Ein Häkchen zeigt, mit wem es geteilt ist; erneutes
   Klicken hebt die Freigabe auf.
 - **Ein geteiltes Objekt platzieren** – öffne die Liste **Mit dir geteilt** eines
-  verbundenen Mitglieds und klicke auf **Platzieren**. Sein Objekt erscheint in
-  deiner Szene und folgt seinen Live-Änderungen. **Entfernen** nimmt es wieder
-  heraus.
+  verbundenen Mitglieds und klicke auf **Platzieren**. Ein 📡 **Container**
+  erscheint in deinem Szenenbaum und enthält sein Objekt; er folgt seinen
+  Live-Änderungen. **Entfernen** nimmt ihn wieder heraus.
 
-Platzierte Objekte sind **Projektionen**: Sie existieren nur, solange du
-verbunden bist, und werden nicht mit deinem Projekt gespeichert. Wenn der
-Eigentümer die Freigabe beendet, die Verbindung trennt oder du neu lädst,
-verschwinden sie und werden aus der Live-Kopie des Eigentümers wiederhergestellt,
-sobald du sie erneut platzierst. Du kannst das geteilte Objekt eines anderen
-nicht bearbeiten – der Eigentümer behält die Kontrolle darüber.
+Das platzierte Element ist ein undurchsichtiger **Container**, der dir gehört: Du
+kannst *ihn* bewegen, drehen und positionieren (das geteilte Objekt folgt, da es
+darin liegt), aber sein Inhalt gehört dem Eigentümer – er erscheint nicht in
+deinem Baum und du kannst ihn nicht bearbeiten. Der Inhalt ist eine Live-
+**Projektion**: Er wird aus der Kopie des Eigentümers wiederhergestellt, solange
+du verbunden bist, und verschwindet, wenn der Eigentümer die Freigabe beendet
+oder die Verbindung trennt (der Container bleibt und füllt sich wieder, sobald er
+zurück ist).

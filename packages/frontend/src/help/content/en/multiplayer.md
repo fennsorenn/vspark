@@ -48,11 +48,12 @@ Sharing has two sides:
   **Share with**, then choose a connected member (or **Everyone connected**). A
   check mark shows who it's currently shared with; click again to revoke.
 - **Place a shared object** — open a connected member's **Shared with you** list
-  and hit **Place**. Their object drops into your scene and follows their live
-  edits. **Remove** takes it back out.
+  and hit **Place**. A 📡 **container** appears in your scene tree holding their
+  object; it follows their live edits. **Remove** takes it back out.
 
-Placed objects are **projections**: they live only while you're connected and
-aren't saved with your project. If the owner stops sharing, disconnects, or you
-reload, they disappear and are restocked from the owner's live copy when you
-place them again. You can't edit someone else's shared object — the owner stays
-in control of it.
+The placed item is an opaque **container** you own: you can move, rotate and
+position *it* (the shared object follows, since it lives inside), but its
+internals are the owner's — they don't show in your tree and you can't edit
+them. The contents are a live **projection**: they're restocked from the owner's
+copy whenever you're connected, and vanish if the owner stops sharing or
+disconnects (the container stays and refills when they're back).

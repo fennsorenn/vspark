@@ -33,7 +33,8 @@
     "label": "Mit dir geteilt",
     "empty": "Noch nichts geteilt.",
     "place": "Platzieren",
-    "remove": "Entfernen"
+    "remove": "Entfernen",
+    "placedName": "Geteiltes Objekt"
   },
   "pairing": {
     "label": "Kopplung",
