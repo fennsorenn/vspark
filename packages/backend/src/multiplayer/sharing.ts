@@ -32,6 +32,8 @@ const UNSHARED = '_share_unshared';
 const STREAM = '_share_stream';
 /** Runtime override set/clear on a shared subtree node (reliable doc channel). */
 const OVERRIDE = '_share_override';
+/** Data-channel set/clear scoped to a shared subtree node (reliable doc channel). */
+const DATACHANNEL = '_share_datachannel';
 
 /** rtypes the sharing manager owns (so the mesh dispatcher routes them here). */
 export const SHARE_RTYPES = new Set([
@@ -42,6 +44,7 @@ export const SHARE_RTYPES = new Set([
   UPDATE,
   UNSHARED,
   OVERRIDE,
+  DATACHANNEL,
 ]);
 
 type Broadcast = (kind: string, payload: Record<string, unknown>) => void;
@@ -195,6 +198,9 @@ export class SharingManager {
       case OVERRIDE:
         this.broadcast('mp_shared_override', { peerId: from, ...data });
         break;
+      case DATACHANNEL:
+        this.broadcast('mp_shared_datachannel', { peerId: from, ...data });
+        break;
     }
   }
 
@@ -261,6 +267,24 @@ export class SharingManager {
           rtype: OVERRIDE,
           op: 'event',
           key: targetId,
+          data: { op, ...payload },
+        });
+    }
+  }
+
+  /** Owner: forward a data-channel set/clear to subscribers when its scope is a
+   *  scene node inside a shared subtree (global scope '' and compose-layer scopes
+   *  are not shared). Reliable doc channel — a dropped set/clear matters. */
+  forwardDataChannel(op: 'set' | 'clear', payload: Record<string, unknown>): void {
+    const scope = payload.scope as string;
+    if (!scope) return; // global — not tied to a shared object
+    for (const [peerId, roots] of this.subscribers) {
+      if (roots.size === 0) continue;
+      if (findOwningRoot(scope, roots))
+        this.mesh.sendEnvelope(peerId, {
+          rtype: DATACHANNEL,
+          op: 'event',
+          key: scope,
           data: { op, ...payload },
         });
     }

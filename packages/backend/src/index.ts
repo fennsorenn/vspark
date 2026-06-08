@@ -149,6 +149,10 @@ async function start() {
   // feed/template compose layer). Sibling of the override bus.
   // See dev-notes/modules/data-channels.md.
   dataChannelManager.init(wsSync);
+  // Forward data channels scoped to a shared node to subscriber peers.
+  dataChannelManager.setDataChannelForwarder((op, payload) =>
+    multiplayerManager.forwardDataChannel(op, payload)
+  );
 
   // Media-control bus — fire-and-forget play/pause/stop/seek commands for
   // video/audio entities (media_control node → frontend media registry).

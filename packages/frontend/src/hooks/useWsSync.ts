@@ -553,6 +553,22 @@ export function useWsSync() {
                 .getState()
                 .clearRuntimeOverride(p.targetKind, p.targetId, p.paramPath);
             }
+          } else if (msg.kind === 'mp_shared_datachannel') {
+            // Data channel scoped to a shared node (scope = owner node id, which
+            // the projection preserves, so the projected feed/template resolves it).
+            const p = msg.payload as {
+              op: 'set' | 'clear';
+              scope: string;
+              fields?: Record<string, unknown>;
+              field?: string;
+            };
+            if (p.op === 'set') {
+              useEditorStore
+                .getState()
+                .mergeDataChannels(p.scope ?? '', p.fields ?? {});
+            } else {
+              useEditorStore.getState().clearDataChannels(p.scope ?? '', p.field);
+            }
           } else if (msg.kind === 'mesh_roster') {
             const p = msg.payload as { participants?: string[] };
             clientMesh.setRoster(p.participants ?? []);

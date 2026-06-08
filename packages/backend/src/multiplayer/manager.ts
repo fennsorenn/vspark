@@ -319,6 +319,14 @@ class MultiplayerManager {
     this.sharing?.forwardOverride(op, payload);
   }
 
+  /** Owner: forward a data-channel set/clear scoped to a shared node. */
+  forwardDataChannel(
+    op: 'set' | 'clear',
+    payload: Record<string, unknown>
+  ): void {
+    this.sharing?.forwardDataChannel(op, payload);
+  }
+
   /** Replay current share offers to a freshly-connected client (late-join gap). */
   sendSharingSnapshotTo(
     send: (kind: string, payload: Record<string, unknown>) => void
