@@ -1,4 +1,4 @@
-import { type CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useEditorStore,
@@ -66,6 +66,71 @@ const select: CSSProperties = {
   minWidth: 0,
   boxSizing: 'border-box',
 };
+
+/** Inline px/% unit picker that sits flush at a numeric field's right edge.
+ *  Transparent until hovered so it reads as a natural suffix of the value,
+ *  with a small caret to signal it's a dropdown. */
+function UnitSelect({
+  value,
+  onChange,
+  title,
+}: {
+  value: 'px' | '%';
+  onChange: (u: 'px' | '%') => void;
+  title?: string;
+}) {
+  const [hover, setHover] = useState(false);
+  const fg = hover ? '#ccc' : '#777';
+  return (
+    <span
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        position: 'relative',
+        display: 'inline-flex',
+        alignItems: 'center',
+        flexShrink: 0,
+      }}
+    >
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as 'px' | '%')}
+        title={title}
+        style={{
+          appearance: 'none',
+          WebkitAppearance: 'none',
+          MozAppearance: 'none',
+          background: hover ? '#ffffff14' : 'transparent',
+          border: 'none',
+          borderRadius: 3,
+          color: fg,
+          fontSize: 10,
+          outline: 'none',
+          cursor: 'pointer',
+          padding: '1px 11px 1px 3px',
+          textAlignLast: 'right',
+          transition: 'background 100ms, color 100ms',
+        }}
+      >
+        <option value="px">px</option>
+        <option value="%">%</option>
+      </select>
+      <span
+        style={{
+          position: 'absolute',
+          right: 2,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          pointerEvents: 'none',
+          fontSize: 7,
+          color: fg,
+        }}
+      >
+        ▾
+      </span>
+    </span>
+  );
+}
 
 export function ComposeLayerProperties({
   layer,
@@ -148,57 +213,17 @@ export function ComposeLayerProperties({
     } as Partial<ComposeLayerRecord>);
   };
 
-  // Compact unit picker rendered inside a numeric field (right edge), so units
-  // live on the value row instead of a separate line. Styled as a small pill
-  // with a caret so it reads as an interactive dropdown rather than static text.
+  // Compact unit picker living inside a numeric field's right edge, so units sit
+  // on the value row instead of a separate line.
   const unitSelectInline = (
     field: 'x' | 'y' | 'width' | 'height',
     unitKey: UnitKey
   ) => (
-    <span
-      style={{
-        position: 'relative',
-        display: 'inline-flex',
-        alignItems: 'center',
-        flexShrink: 0,
-      }}
-    >
-      <select
-        value={unitOf(unitKey)}
-        onChange={(e) => setUnit(field, unitKey, e.target.value as 'px' | '%')}
-        title={t('properties.unitTitle')}
-        style={{
-          appearance: 'none',
-          WebkitAppearance: 'none',
-          MozAppearance: 'none',
-          background: '#ffffff14',
-          border: '1px solid #ffffff24',
-          borderRadius: 3,
-          color: '#bbb',
-          fontSize: 10,
-          outline: 'none',
-          cursor: 'pointer',
-          padding: '1px 13px 1px 5px',
-          textAlignLast: 'center',
-        }}
-      >
-        <option value="px">px</option>
-        <option value="%">%</option>
-      </select>
-      <span
-        style={{
-          position: 'absolute',
-          right: 4,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          pointerEvents: 'none',
-          fontSize: 7,
-          color: '#999',
-        }}
-      >
-        ▾
-      </span>
-    </span>
+    <UnitSelect
+      value={unitOf(unitKey)}
+      onChange={(u) => setUnit(field, unitKey, u)}
+      title={t('properties.unitTitle')}
+    />
   );
 
   // One of the four layer corners. Highlights the active anchor and sets both
