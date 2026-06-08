@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Toggle } from '../Toggle';
 import { useEditorStore } from '../../store/editorStore';
 import { api, ApiError } from '../../api/client';
 import { HelpButton } from '../../help/HelpButton';
@@ -264,7 +265,9 @@ function TimelineEditor({
           onChange={(e) => handlePatchClip({ name: e.target.value })}
           style={inputStyle}
         />
-        <label style={{ color: '#888', fontSize: 11 }}>{t('header.duration')}</label>
+        <label style={{ color: '#888', fontSize: 11 }}>
+          {t('header.duration')}
+        </label>
         <input
           type="number"
           step={0.1}
@@ -278,26 +281,29 @@ function TimelineEditor({
           style={{ ...inputStyle, width: 60 }}
         />
         <label style={{ color: '#888', fontSize: 11 }}>
-          <input
-            type="checkbox"
+          <Toggle
             checked={clip.loop}
-            onChange={(e) => handlePatchClip({ loop: e.target.checked })}
+            onChange={(v) => handlePatchClip({ loop: v })}
           />{' '}
           {t('header.loop')}
         </label>
         <label
           style={{ color: '#888', fontSize: 11 }}
-          title={clip.loop ? t('header.autoplayTitle_enabled') : t('header.autoplayTitle_disabled')}
+          title={
+            clip.loop
+              ? t('header.autoplayTitle_enabled')
+              : t('header.autoplayTitle_disabled')
+          }
         >
-          <input
-            type="checkbox"
-            disabled={!clip.loop}
+          <Toggle
             checked={clip.autoplay}
-            onChange={(e) => handlePatchClip({ autoplay: e.target.checked })}
+            onChange={(v) => handlePatchClip({ autoplay: v })}
           />{' '}
           {t('header.autoplay')}
         </label>
-        <label style={{ color: '#888', fontSize: 11 }}>{t('header.blend')}</label>
+        <label style={{ color: '#888', fontSize: 11 }}>
+          {t('header.blend')}
+        </label>
         <select
           value={clip.mode}
           onChange={(e) =>
@@ -1034,7 +1040,11 @@ function LaneRow({
             [{range.min.toFixed(2)}, {range.max.toFixed(2)}]
           </span>
         </span>
-        <button onClick={onDeleteLane} style={btnDanger} title={t('lane.removeLaneTitle')}>
+        <button
+          onClick={onDeleteLane}
+          style={btnDanger}
+          title={t('lane.removeLaneTitle')}
+        >
           ×
         </button>
       </div>
@@ -1345,7 +1355,11 @@ function KeyframeDot({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onContextMenu={onContextMenu}
-        title={t('keyframe.dotTitle', { t: kf.t.toFixed(2), v: kf.value.toFixed(3), easing: kf.easing })}
+        title={t('keyframe.dotTitle', {
+          t: kf.t.toFixed(2),
+          v: kf.value.toFixed(3),
+          easing: kf.easing,
+        })}
         style={{
           position: 'absolute',
           left: kx - KF_RADIUS,
@@ -1460,7 +1474,10 @@ function EventLane({
           {events.map((e) => (
             <div
               key={e.id}
-              title={t('events.markerTitle', { action: e.action, t: e.t.toFixed(2) })}
+              title={t('events.markerTitle', {
+                action: e.action,
+                t: e.t.toFixed(2),
+              })}
               style={{
                 position: 'absolute',
                 top: 3,
@@ -1539,7 +1556,9 @@ function EventLane({
             {needsValue(e.action) && (
               <>
                 <label style={{ color: '#888', fontSize: 11 }}>
-                  {e.action === 'seek' ? t('events.seekLabel') : t('events.volLabel')}
+                  {e.action === 'seek'
+                    ? t('events.seekLabel')
+                    : t('events.volLabel')}
                 </label>
                 <input
                   type="number"

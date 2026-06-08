@@ -1,4 +1,11 @@
-import { useRef, useEffect, useState, useMemo, useContext } from 'react';
+import {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useContext,
+  Fragment,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
@@ -4331,12 +4338,12 @@ function renderNodeElement(
   const visible = !node.hidden;
   if (node.kind === 'avatar')
     return (
-      <>
-        <group key={node.id} visible={visible}>
+      <Fragment key={node.id}>
+        <group visible={visible}>
           <AvatarNode node={node}>{childElements}</AvatarNode>
         </group>
         {boneFollowers}
-      </>
+      </Fragment>
     );
   if (node.kind === 'light')
     return (

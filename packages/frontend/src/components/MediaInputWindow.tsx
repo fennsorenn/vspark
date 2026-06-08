@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Toggle } from './Toggle';
 import { MicCapture, type VowelTemplates } from '../media/MicCapture';
 import { CameraCapture } from '../media/CameraCapture';
 import { useLipsyncUplink } from '../hooks/useLipsyncUplink';
@@ -274,13 +275,11 @@ export function MediaInputWindow({
   const behaviors = useEditorStore((s) => s.behaviors);
   const resolvedLipsyncId =
     lipsyncBehaviorId ??
-    behaviors.find((c) => c.kind === 'lipsync_processor' && c.enabled)
-      ?.id ??
+    behaviors.find((c) => c.kind === 'lipsync_processor' && c.enabled)?.id ??
     null;
   const resolvedTrackingId =
     trackingBehaviorId ??
-    behaviors.find((c) => c.kind === 'mediapipe_tracker' && c.enabled)
-      ?.id ??
+    behaviors.find((c) => c.kind === 'mediapipe_tracker' && c.enabled)?.id ??
     null;
 
   // ── WS: point wsRef at the shared editor socket (or provided standalone socket) ──
@@ -323,9 +322,7 @@ export function MediaInputWindow({
         rmsRef.current = rms;
       };
       // Apply calibrated vowel templates from the lipsync component config, if any.
-      const lipsyncComp = behaviors.find(
-        (c) => c.id === resolvedLipsyncId
-      );
+      const lipsyncComp = behaviors.find((c) => c.id === resolvedLipsyncId);
       const cfg = lipsyncComp?.config as
         | { vowelTemplates?: Record<string, number[]> }
         | undefined;
@@ -472,13 +469,19 @@ export function MediaInputWindow({
         <div style={S.dot(lipsyncActive || trackingActive)} />
         <span style={S.title}>{t('window.title')}</span>
         {lipsyncStatus === 'active' && (
-          <span style={{ fontSize: 10, color: '#4ade80' }}>{t('status.lipsync')}</span>
+          <span style={{ fontSize: 10, color: '#4ade80' }}>
+            {t('status.lipsync')}
+          </span>
         )}
         {lipsyncStatus === 'no-component' && (
-          <span style={{ fontSize: 10, color: '#fbbf24' }}>{t('status.noComponent')}</span>
+          <span style={{ fontSize: 10, color: '#fbbf24' }}>
+            {t('status.noComponent')}
+          </span>
         )}
         {trackingActive && (
-          <span style={{ fontSize: 10, color: '#60a5fa' }}>{t('status.tracking')}</span>
+          <span style={{ fontSize: 10, color: '#60a5fa' }}>
+            {t('status.tracking')}
+          </span>
         )}
         {!alwaysExpanded && (
           <button
@@ -495,9 +498,21 @@ export function MediaInputWindow({
         <>
           {/* ── LIPSYNC SECTION ── */}
           <div style={S.section}>
-            <div style={{ ...S.sectionTitle, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div
+              style={{
+                ...S.sectionTitle,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
               {t('lipsync.sectionTitle')}
-              <HelpButton topic="behaviors" anchor="lipsync" tip={t('help.lipsync')} size={12} />
+              <HelpButton
+                topic="behaviors"
+                anchor="lipsync"
+                tip={t('help.lipsync')}
+                size={12}
+              />
             </div>
             <div style={S.row}>
               <span style={S.label}>{t('lipsync.deviceLabel')}</span>
@@ -510,7 +525,8 @@ export function MediaInputWindow({
                 <option value="">{t('lipsync.defaultMic')}</option>
                 {micDevices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || t('lipsync.micFallback', { id: d.deviceId.slice(0, 8) })}
+                    {d.label ||
+                      t('lipsync.micFallback', { id: d.deviceId.slice(0, 8) })}
                   </option>
                 ))}
               </select>
@@ -531,9 +547,21 @@ export function MediaInputWindow({
 
           {/* ── TRACKING SECTION ── */}
           <div style={{ ...S.section, borderBottom: 'none' }}>
-            <div style={{ ...S.sectionTitle, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div
+              style={{
+                ...S.sectionTitle,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
               {t('tracking.sectionTitle')}
-              <HelpButton topic="behaviors" anchor="tracking" tip={t('help.tracking')} size={12} />
+              <HelpButton
+                topic="behaviors"
+                anchor="tracking"
+                tip={t('help.tracking')}
+                size={12}
+              />
             </div>
             <div style={S.row}>
               <span style={S.label}>{t('tracking.deviceLabel')}</span>
@@ -546,14 +574,17 @@ export function MediaInputWindow({
                 <option value="">{t('tracking.defaultCam')}</option>
                 {camDevices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || t('tracking.camFallback', { id: d.deviceId.slice(0, 8) })}
+                    {d.label ||
+                      t('tracking.camFallback', { id: d.deviceId.slice(0, 8) })}
                   </option>
                 ))}
               </select>
             </div>
             <div style={S.row}>
               <button style={S.btn(trackingActive)} onClick={toggleTracking}>
-                {trackingActive ? t('tracking.stopBtn') : t('tracking.startBtn')}
+                {trackingActive
+                  ? t('tracking.stopBtn')
+                  : t('tracking.startBtn')}
               </button>
               <label
                 style={{
@@ -565,11 +596,9 @@ export function MediaInputWindow({
                   gap: 4,
                 }}
               >
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={showPreview}
-                  onChange={(e) => setShowPreview(e.target.checked)}
-                  style={{ cursor: 'pointer' }}
+                  onChange={(v) => setShowPreview(v)}
                 />
                 {t('tracking.previewLabel')}
               </label>
@@ -591,13 +620,7 @@ export function MediaInputWindow({
                     gap: 3,
                   }}
                 >
-                  <input
-                    type="checkbox"
-                    checked={val}
-                    disabled={trackingActive}
-                    onChange={(e) => setter(e.target.checked)}
-                    style={{ cursor: 'pointer' }}
-                  />
+                  <Toggle checked={val} onChange={(v) => setter(v)} />
                   {label}
                 </label>
               ))}

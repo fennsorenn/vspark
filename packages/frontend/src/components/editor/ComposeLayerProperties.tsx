@@ -840,6 +840,101 @@ export function ComposeLayerProperties({
         </>
       )}
 
+      {layer.kind === 'text' && (
+        <>
+          <div style={sectionHeader}>{t('properties.sectionText')}</div>
+          <textarea
+            value={(layer.config.content as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, content: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, content: e.target.value },
+                })
+                .catch(() => {})
+            }
+            placeholder={t('properties.textPlaceholder')}
+            rows={3}
+            style={{ ...textInput, resize: 'vertical', fontFamily: 'inherit' }}
+          />
+          <div style={{ ...row, marginTop: 6 }}>
+            <span style={label}>{t('properties.labelFontSize')}</span>
+            <NumInput
+              value={(layer.config.fontSize as number | undefined) ?? 16}
+              step={1}
+              min={1}
+              suffix="px"
+              onCommit={(v) =>
+                commit({ config: { ...layer.config, fontSize: v } })
+              }
+              style={{ flex: 1, minWidth: 0 }}
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>{t('properties.labelColor')}</span>
+            <input
+              type="color"
+              value={(layer.config.color as string | undefined) ?? '#ffffff'}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, color: e.target.value } })
+              }
+              style={{
+                flex: 1,
+                width: '100%',
+                minWidth: 0,
+                height: 24,
+                background: 'none',
+                border: '1px solid #3a3a3a',
+                borderRadius: 4,
+                cursor: 'pointer',
+                padding: 2,
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>{t('properties.labelWeight')}</span>
+            <select
+              value={String(layer.config.weight ?? 'normal')}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, weight: e.target.value } })
+              }
+              style={select}
+            >
+              <option value="normal">{t('properties.weightNormal')}</option>
+              <option value="bold">{t('properties.weightBold')}</option>
+            </select>
+          </div>
+          <div style={row}>
+            <span style={label}>{t('properties.labelAlign')}</span>
+            <select
+              value={(layer.config.align as string | undefined) ?? 'left'}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, align: e.target.value } })
+              }
+              style={select}
+            >
+              <option value="left">{t('properties.alignLeft')}</option>
+              <option value="center">{t('properties.alignCenter')}</option>
+              <option value="right">{t('properties.alignRight')}</option>
+            </select>
+          </div>
+          <div style={row}>
+            <span style={label}>{t('properties.labelAllowHtml')}</span>
+            <Toggle
+              checked={layer.config.allowHtml === true}
+              onChange={(v) =>
+                commit({ config: { ...layer.config, allowHtml: v } })
+              }
+            />
+          </div>
+        </>
+      )}
+
       {layer.kind === 'browser' && (
         <>
           <div style={sectionHeader}>{t('properties.sectionUrl')}</div>

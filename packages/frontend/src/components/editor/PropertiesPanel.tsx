@@ -2840,7 +2840,7 @@ function BreathingProps({ comp }: { comp: Behavior }) {
           step={0.01}
           min={0}
           suffix="rad"
-          style={{ width: 96 }}
+          style={{ flex: 1, minWidth: 0 }}
           onChange={(v) => setChest(v)}
           onCommit={(v) => {
             setChest(v);
@@ -2859,7 +2859,7 @@ function BreathingProps({ comp }: { comp: Behavior }) {
           step={0.01}
           min={0}
           suffix="rad"
-          style={{ width: 96 }}
+          style={{ flex: 1, minWidth: 0 }}
           onChange={(v) => setShoulder(v)}
           onCommit={(v) => {
             setShoulder(v);
@@ -2989,7 +2989,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {kind === 'fx_tone_mapping' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+          <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
             {t('effect.toneMapping.mode')}
           </span>
           <select
@@ -3002,6 +3002,9 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
               borderRadius: 4,
               padding: '3px 6px',
               fontSize: 12,
+              flex: 1,
+              minWidth: 0,
+              boxSizing: 'border-box',
             }}
           >
             {TONE_MAPPING_MODES.map((m) => (
@@ -3109,7 +3112,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
           const labelStyle: React.CSSProperties = {
             fontSize: 12,
             color: '#888',
-            flex: 1,
+            flex: '0 0 42%',
           };
           const selectStyle: React.CSSProperties = {
             background: '#2a2a2a',
@@ -3118,6 +3121,9 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             borderRadius: 4,
             padding: '3px 6px',
             fontSize: 12,
+            flex: 1,
+            minWidth: 0,
+            boxSizing: 'border-box',
           };
           return (
             <>
@@ -3325,7 +3331,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_outline' && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+            <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
               {t('effect.outline.color')}
             </span>
             <input
@@ -3369,7 +3375,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+            <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
               {t('effect.outline.blendMode')}
             </span>
             <select
@@ -3382,6 +3388,9 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                 borderRadius: 4,
                 padding: '3px 6px',
                 fontSize: 12,
+                flex: 1,
+                minWidth: 0,
+                boxSizing: 'border-box',
               }}
             >
               {[
@@ -3478,7 +3487,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
       {kind === 'fx_ascii' && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+            <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
               {t('effect.ascii.characters')}
             </span>
             <input
@@ -3512,7 +3521,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             onSave={save}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+            <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
               {t('effect.ascii.color')}
             </span>
             <input
@@ -3523,7 +3532,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+            <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
               {t('effect.ascii.invert')}
             </span>
             <Toggle
@@ -3571,7 +3580,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                 key={label}
                 style={{ display: 'flex', alignItems: 'center', gap: 8 }}
               >
-                <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                <span style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}>
                   {label}
                 </span>
                 <NumInput
@@ -3583,7 +3592,7 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
                     next[idx] = v;
                     save({ [field]: next });
                   }}
-                  style={{ width: 96 }}
+                  style={{ flex: 1, minWidth: 0 }}
                 />
               </div>
             );
@@ -4301,76 +4310,83 @@ export function PropertiesPanel() {
         />
 
         {/* Rotation is stored in radians on the transform component but edited in degrees;
-            convert at the UI boundary so VecInput stays unit-agnostic. */}
-        <VecInput
-          groupLabel={t('transform.rotation')}
-          labels={['X', 'Y', 'Z']}
-          values={[transform.rx / RAD, transform.ry / RAD, transform.rz / RAD]}
-          step={1}
-          precision={2}
-          onChange={(next, axis) => {
-            isEditingTransform.current = true;
-            const t = {
-              ...transformRef.current,
-              rx: next[0] * RAD,
-              ry: next[1] * RAD,
-              rz: next[2] * RAD,
-            };
-            transformRef.current = t;
-            setTransform(t);
-            const path =
-              axis === 0
-                ? 'rotation.x'
-                : axis === 1
-                  ? 'rotation.y'
-                  : 'rotation.z';
-            useEditorStore
-              .getState()
-              .suppressOverride('scene_node', node.id, path);
-          }}
-          onCommit={() => {
-            isEditingTransform.current = false;
-            saveTransform();
-          }}
-          canRecord={canRecord}
-          onSetAxisKeyframe={(axis) => {
-            const [path, rad] =
-              axis === 0
-                ? (['rotation.x', transformRef.current.rx] as const)
-                : axis === 1
-                  ? (['rotation.y', transformRef.current.ry] as const)
-                  : (['rotation.z', transformRef.current.rz] as const);
-            return recordKeyframe({
-              targetKind: 'scene_node',
-              targetId: node.id,
-              paramPath: path,
-              value: rad,
-            });
-          }}
-          onSetGroupKeyframe={() =>
-            recordKeyframes([
-              {
+            convert at the UI boundary so VecInput stays unit-agnostic. A point
+            light is omnidirectional, so its rotation is hidden. */}
+        {!(node.kind === 'light' && light.lightType === 'point') && (
+          <VecInput
+            groupLabel={t('transform.rotation')}
+            labels={['X', 'Y', 'Z']}
+            values={[
+              transform.rx / RAD,
+              transform.ry / RAD,
+              transform.rz / RAD,
+            ]}
+            step={1}
+            precision={2}
+            onChange={(next, axis) => {
+              isEditingTransform.current = true;
+              const t = {
+                ...transformRef.current,
+                rx: next[0] * RAD,
+                ry: next[1] * RAD,
+                rz: next[2] * RAD,
+              };
+              transformRef.current = t;
+              setTransform(t);
+              const path =
+                axis === 0
+                  ? 'rotation.x'
+                  : axis === 1
+                    ? 'rotation.y'
+                    : 'rotation.z';
+              useEditorStore
+                .getState()
+                .suppressOverride('scene_node', node.id, path);
+            }}
+            onCommit={() => {
+              isEditingTransform.current = false;
+              saveTransform();
+            }}
+            canRecord={canRecord}
+            onSetAxisKeyframe={(axis) => {
+              const [path, rad] =
+                axis === 0
+                  ? (['rotation.x', transformRef.current.rx] as const)
+                  : axis === 1
+                    ? (['rotation.y', transformRef.current.ry] as const)
+                    : (['rotation.z', transformRef.current.rz] as const);
+              return recordKeyframe({
                 targetKind: 'scene_node',
                 targetId: node.id,
-                paramPath: 'rotation.x',
-                value: transformRef.current.rx,
-              },
-              {
-                targetKind: 'scene_node',
-                targetId: node.id,
-                paramPath: 'rotation.y',
-                value: transformRef.current.ry,
-              },
-              {
-                targetKind: 'scene_node',
-                targetId: node.id,
-                paramPath: 'rotation.z',
-                value: transformRef.current.rz,
-              },
-            ])
-          }
-          style={{ marginBottom: 8 }}
-        />
+                paramPath: path,
+                value: rad,
+              });
+            }}
+            onSetGroupKeyframe={() =>
+              recordKeyframes([
+                {
+                  targetKind: 'scene_node',
+                  targetId: node.id,
+                  paramPath: 'rotation.x',
+                  value: transformRef.current.rx,
+                },
+                {
+                  targetKind: 'scene_node',
+                  targetId: node.id,
+                  paramPath: 'rotation.y',
+                  value: transformRef.current.ry,
+                },
+                {
+                  targetKind: 'scene_node',
+                  targetId: node.id,
+                  paramPath: 'rotation.z',
+                  value: transformRef.current.rz,
+                },
+              ])
+            }
+            style={{ marginBottom: 8 }}
+          />
+        )}
 
         <VecInput
           groupLabel={t('transform.scale')}
@@ -4431,36 +4447,40 @@ export function PropertiesPanel() {
           }
         />
 
-        {/* Opacity — walked across descendant materials by the viewport. */}
-        <SliderInput
-          label={t('transform.opacity')}
-          value={transform.opacity}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={(next) => {
-            isEditingTransform.current = true;
-            const t = { ...transformRef.current, opacity: next };
-            transformRef.current = t;
-            setTransform(t);
-            useEditorStore
-              .getState()
-              .suppressOverride('scene_node', node.id, 'opacity');
-          }}
-          onCommit={() => {
-            isEditingTransform.current = false;
-            saveTransform();
-          }}
-          canRecord={canRecord}
-          onSetKeyframe={(value) =>
-            recordKeyframe({
-              targetKind: 'scene_node',
-              targetId: node.id,
-              paramPath: 'opacity',
-              value,
-            })
-          }
-        />
+        {/* Opacity — walked across descendant materials by the viewport. Only
+            meaningful for nodes that render geometry, so it's hidden on
+            cameras, lights and audio emitters. */}
+        {!['camera', 'light', 'audio'].includes(node.kind) && (
+          <SliderInput
+            label={t('transform.opacity')}
+            value={transform.opacity}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={(next) => {
+              isEditingTransform.current = true;
+              const t = { ...transformRef.current, opacity: next };
+              transformRef.current = t;
+              setTransform(t);
+              useEditorStore
+                .getState()
+                .suppressOverride('scene_node', node.id, 'opacity');
+            }}
+            onCommit={() => {
+              isEditingTransform.current = false;
+              saveTransform();
+            }}
+            canRecord={canRecord}
+            onSetKeyframe={(value) =>
+              recordKeyframe({
+                targetKind: 'scene_node',
+                targetId: node.id,
+                paramPath: 'opacity',
+                value,
+              })
+            }
+          />
+        )}
 
         {/* Shadow flags — only meaningful for mesh-bearing kinds. Visible only
             when some camera has shadows enabled. */}
@@ -5163,7 +5183,9 @@ export function PropertiesPanel() {
                   <div
                     style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                   >
-                    <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+                    <span
+                      style={{ fontSize: 12, color: '#888', flex: '0 0 42%' }}
+                    >
                       {t('godray.color')}
                     </span>
                     <input

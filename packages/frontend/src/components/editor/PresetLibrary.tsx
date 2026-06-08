@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Toggle } from '../Toggle';
 import { useEditorStore, type PresetSummary } from '../../store/editorStore';
 import { HelpButton } from '../../help/HelpButton';
 import {
@@ -297,11 +298,7 @@ export function PresetLibrary() {
       <div style={sectionHeader}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           {t('header')}
-          <HelpButton
-            topic="presets"
-            anchor="what"
-            tip={t('help.presets')}
-          />
+          <HelpButton topic="presets" anchor="what" tip={t('help.presets')} />
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button
@@ -313,9 +310,7 @@ export function PresetLibrary() {
             }}
             disabled={!canSave}
             title={
-              canSave
-                ? t('actions.saveTitle')
-                : t('actions.saveDisabledTitle')
+              canSave ? t('actions.saveTitle') : t('actions.saveDisabledTitle')
             }
           >
             {t('actions.save')}
@@ -597,10 +592,9 @@ export function PresetLibrary() {
                 gap: 6,
               }}
             >
-              <input
-                type="checkbox"
+              <Toggle
                 checked={embedAssets}
-                onChange={(e) => setEmbedAssets(e.target.checked)}
+                onChange={(v) => setEmbedAssets(v)}
               />
               {t('saveForm.embedAssets')}
             </label>

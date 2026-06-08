@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Toggle } from '../../Toggle';
 import { useTranslation } from 'react-i18next';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
@@ -30,7 +31,10 @@ function typeColor(type: string): string {
 
 function RelativeTime({ ts }: { ts: number | null }) {
   const { t } = useTranslation('signalGraph');
-  if (!ts) return <span style={{ color: '#444', fontSize: 9 }}>{t('nodeCard.never')}</span>;
+  if (!ts)
+    return (
+      <span style={{ color: '#444', fontSize: 9 }}>{t('nodeCard.never')}</span>
+    );
   const age = Date.now() - ts;
   const text =
     age < 1000
@@ -150,13 +154,7 @@ function StaticInput({
           cursor: 'pointer',
         }}
       >
-        <input
-          type="checkbox"
-          defaultChecked={!!configValue}
-          key={String(configValue)}
-          onChange={(e) => onChange(e.target.checked)}
-          style={{ cursor: 'pointer' }}
-        />
+        <Toggle checked={!!configValue} onChange={(v) => onChange(v)} />
         <span style={{ fontSize: 9, color: '#666' }}>
           {configValue ? 'true' : 'false'}
         </span>
@@ -243,7 +241,9 @@ function SceneEntitySelect({
   const showNodes = typeTag === 'SceneNode' || typeTag === 'SceneEntity';
   const current = typeof configValue === 'string' ? configValue : '';
   const emptyLabel =
-    typeTag === 'SceneEntity' ? t('nodeCard.selectGlobal') : t('nodeCard.selectNone');
+    typeTag === 'SceneEntity'
+      ? t('nodeCard.selectGlobal')
+      : t('nodeCard.selectNone');
   return (
     <select
       value={current}
@@ -394,7 +394,9 @@ function PackFieldsEditor({
   };
   return (
     <div style={{ borderTop: '1px solid #2a2a4a', padding: '4px 10px' }}>
-      <div style={{ fontSize: 9, color: '#777', marginBottom: 3 }}>{t('nodeCard.fields')}</div>
+      <div style={{ fontSize: 9, color: '#777', marginBottom: 3 }}>
+        {t('nodeCard.fields')}
+      </div>
       {fields.map((f) => (
         <div
           key={f}

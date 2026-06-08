@@ -330,94 +330,118 @@ function LayerRow({
           selectNode(null);
         }}
       >
-        <span style={{ width: 14 }}>{KIND_ICONS[layer.kind]}</span>
         <span
           style={{
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            opacity: layer.visible ? 1 : 0.5,
+            fontSize: 16,
+            flexShrink: 0,
+            marginRight: 6,
+            alignSelf: 'center',
           }}
         >
-          {label}
+          {KIND_ICONS[layer.kind]}
         </span>
-        {layer.kind === 'camera_view' && (
-          <button
-            title={
-              locked3d
-                ? t('tree.lock3dTitle_locked')
-                : t('tree.lock3dTitle_unlocked')
-            }
+        {/* Two-row body: name on top, action controls beneath — matches the
+            scene tree so the two trees read consistently. */}
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+          }}
+        >
+          <span
             style={{
-              background: 'none',
-              border: 'none',
-              color: locked3d ? '#e0a838' : '#555',
-              cursor: 'pointer',
-              fontSize: 11,
-              padding: '0 2px',
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleLock('locked3d');
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              opacity: layer.visible ? 1 : 0.5,
             }}
           >
-            {locked3d ? '🔒3D' : '🔓3D'}
-          </button>
-        )}
-        <button
-          title={
-            locked ? t('tree.lockTitle_locked') : t('tree.lockTitle_unlocked')
-          }
-          style={{
-            background: 'none',
-            border: 'none',
-            color: locked ? '#e0a838' : '#555',
-            cursor: 'pointer',
-            fontSize: 12,
-            padding: '0 2px',
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleLock('locked');
-          }}
-        >
-          {locked ? '🔒' : '🔓'}
-        </button>
-        <button
-          title={layer.visible ? t('tree.hideTitle') : t('tree.showTitle')}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: layer.visible ? '#888' : '#555',
-            cursor: 'pointer',
-            fontSize: 12,
-            padding: '0 2px',
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleToggleVisible();
-          }}
-        >
-          {layer.visible ? '👁' : '🙈'}
-        </button>
-        <button
-          title={t('tree.deleteLayerTitle')}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#555',
-            cursor: 'pointer',
-            fontSize: 13,
-            padding: '0 2px',
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleDelete();
-          }}
-        >
-          ×
-        </button>
+            {label}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {layer.kind === 'camera_view' && (
+              <button
+                title={
+                  locked3d
+                    ? t('tree.lock3dTitle_locked')
+                    : t('tree.lock3dTitle_unlocked')
+                }
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: locked3d ? '#e0a838' : '#555',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  padding: '0 2px',
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleLock('locked3d');
+                }}
+              >
+                {locked3d ? '🔒3D' : '🔓3D'}
+              </button>
+            )}
+            <button
+              title={
+                locked
+                  ? t('tree.lockTitle_locked')
+                  : t('tree.lockTitle_unlocked')
+              }
+              style={{
+                background: 'none',
+                border: 'none',
+                color: locked ? '#e0a838' : '#555',
+                cursor: 'pointer',
+                fontSize: 12,
+                padding: '0 2px',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleLock('locked');
+              }}
+            >
+              {locked ? '🔒' : '🔓'}
+            </button>
+            <button
+              title={layer.visible ? t('tree.hideTitle') : t('tree.showTitle')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: layer.visible ? '#888' : '#555',
+                cursor: 'pointer',
+                fontSize: 12,
+                padding: '0 2px',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleVisible();
+              }}
+            >
+              {layer.visible ? '👁' : '🙈'}
+            </button>
+            <button
+              title={t('tree.deleteLayerTitle')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#555',
+                cursor: 'pointer',
+                fontSize: 13,
+                padding: '0 2px',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDelete();
+              }}
+            >
+              🗑
+            </button>
+          </div>
+        </div>
       </div>
       {selected && (
         <>
