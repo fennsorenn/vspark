@@ -324,44 +324,36 @@ export class SharingManager {
     }
   }
 
-  /** Owner: forward a runtime override set/clear on a shared subtree node to its
-   *  subscribers over the reliable doc channel (a dropped `clear` must not stick,
-   *  so this can't ride the lossy stream channel). Overrides are low-frequency,
-   *  so resolving the owning root per subscriber is fine. Only scene_node targets
-   *  are shared (compose layers aren't). */
+  /** Owner: forward a runtime override set/clear on a shared subtree node. These
+   *  key by the target node id and the receiver applies by that id (no
+   *  per-subscriber root context), so they ride the grant-gated namespace
+   *  `router.publish` — routed to exactly the subscribers whose subtree contains
+   *  the target (subscriptionMatches ≡ the old findOwningRoot membership), over
+   *  each one's reliable link (a dropped `clear` must not stick). Only scene_node
+   *  targets are shared (compose layers aren't). */
   forwardOverride(op: 'set' | 'clear', payload: Record<string, unknown>): void {
     if (payload.targetKind !== 'scene_node') return;
     const targetId = payload.targetId as string;
-    for (const peerId of this.router.participants()) {
-      const roots = this.rootsOf(peerId);
-      if (roots.size === 0) continue;
-      if (findOwningRoot(targetId, roots))
-        this.transport.sendEnvelope(peerId, {
-          rtype: OVERRIDE,
-          op: 'event',
-          key: targetId,
-          data: { op, ...payload },
-        });
-    }
+    this.router.publish({
+      rtype: OVERRIDE,
+      op: 'event',
+      key: `scene_node:${targetId}`,
+      data: { op, ...payload },
+    });
   }
 
-  /** Owner: forward a data-channel set/clear to subscribers when its scope is a
-   *  scene node inside a shared subtree (global scope '' and compose-layer scopes
-   *  are not shared). Reliable doc channel — a dropped set/clear matters. */
+  /** Owner: forward a data-channel set/clear scoped to a scene node inside a
+   *  shared subtree (global scope '' and compose-layer scopes aren't shared).
+   *  Same publish-by-key path as overrides (reliable link). */
   forwardDataChannel(op: 'set' | 'clear', payload: Record<string, unknown>): void {
     const scope = payload.scope as string;
     if (!scope) return; // global — not tied to a shared object
-    for (const peerId of this.router.participants()) {
-      const roots = this.rootsOf(peerId);
-      if (roots.size === 0) continue;
-      if (findOwningRoot(scope, roots))
-        this.transport.sendEnvelope(peerId, {
-          rtype: DATACHANNEL,
-          op: 'event',
-          key: scope,
-          data: { op, ...payload },
-        });
-    }
+    this.router.publish({
+      rtype: DATACHANNEL,
+      op: 'event',
+      key: `scene_node:${scope}`,
+      data: { op, ...payload },
+    });
   }
 
   /** Receiver: a forwarded live frame arrived on the stream channel → relay to
