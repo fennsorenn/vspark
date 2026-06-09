@@ -210,8 +210,8 @@ surviving `'*'` grant keeps a peer subscribed).
 | **Symmetric blob transfer over `MeshTransport` (server + browser receivers)** | **Implemented** |
 | **Direct-edge P2P object-share delivery (snapshot + live updates + asset blobs)** | **Implemented** |
 | **Frontend consumption of `_share_*` over the direct WebRTC channel** | **Implemented** |
-| Generalised namespace subscription + grant model (permissioned-sync-mesh) | Planned |
-| Migrating subscriber fan-out off `SharingManager.subscribers` onto the `MeshRouter` core | Planned (not yet live) |
+| `MeshRouter` as the live grant-gated subscription registry (object-share subscribers) | **Implemented** |
+| Namespace `publish()` fan-out (collaborative-editing tier) over the wired router | Planned (links attached, publish unused) |
 | Live config-sync of behaviours/effects | **Non-goal** (output-synced; see below) |
 | Track-clip animation of a shared object (root + child subtree transforms) | **Implemented** |
 
@@ -257,8 +257,22 @@ not just the root). Remaining boundary: **opacity** isn't carried by the transfo
 preview (would need a separate field on the frame) — a later refinement if needed.
 Note the live drag path (`node_transform_preview`) is still root-only by design.
 
-### Not yet live — `MeshRouter` core
+### `MeshRouter` — live subscription registry
 
-The unwired backend `MeshRouter` core remains a separate not-yet-live piece:
-subscriber tracking still uses `SharingManager.subscribers`. Migrating the
-fan-out onto `MeshRouter` is a future refactor.
+The `MeshRouter` (grant store + `SubscriptionHub` + per-participant link
+registry) is now the **live** source of truth for object-share subscriptions:
+
+- **Admit-on-subscribe.** `SUBSCRIBE` → `router.subscribe(participant, {scene_node,
+  objectId, includeDescendants})`, admitted iff a read grant covers the
+  entity×subtree (evaluated against the real grant store + the containment index's
+  `isDescendant`). Replaces the bespoke `subscribers` Map + `isSharedWith` check.
+- **Evict-on-revoke.** `unshare` → `revokeUnauthorized` → `router.revalidate` per
+  participant drops + notifies exactly the subscriptions a grant change unseats
+  (a surviving `'*'` grant keeps a peer).
+- **Forwarding** queries `router.participants()` + `subscriptionsOf` for each
+  subscriber's owned roots; the `_share_*` wire protocol + receiver are unchanged.
+- **Links.** The manager attaches a per-participant transport link on connect
+  (servers via `ServerMesh`, browsers via `BrowserPeerMesh`) and `detach`es on
+  disconnect, so `router.publish(env)` (grant-gated namespace fan-out by key) is
+  ready for the **collaborative-editing tier** — not yet used by object-share,
+  which needs per-subscriber owning-root context the simple publish doesn't carry.
