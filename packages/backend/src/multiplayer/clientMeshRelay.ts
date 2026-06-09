@@ -32,6 +32,13 @@ interface MeshBridge {
 class ClientMeshRelay {
   private ws: WSSync | null = null;
   private bridge: MeshBridge | null = null;
+  /** This backend's own peer id, so signaling addressed to it (a browser dialing
+   *  this backend over WebRTC) is recognized and handed to the browser-facing
+   *  mesh instead of being treated as a client target. */
+  private selfPeerId: string | null = null;
+  /** Sink for SDP/ICE a browser sent to *this backend* (registered by the
+   *  browser-facing ServerMesh's signaling adapter). */
+  private backendSignal: ((from: string, data: unknown) => void) | null = null;
   /** Local browser clients: participant id ↔ their WebSocket. */
   private readonly wsByParticipant = new Map<string, WebSocket>();
   private readonly participantByWs = new Map<WebSocket, string>();
@@ -45,6 +52,33 @@ class ClientMeshRelay {
   /** Wired by the multiplayer manager once the ServerMesh exists. */
   attachBridge(bridge: MeshBridge): void {
     this.bridge = bridge;
+  }
+
+  /** This backend's peer id (so it can be a signaling endpoint, not just a relay). */
+  setSelfPeerId(peerId: string): void {
+    this.selfPeerId = peerId;
+  }
+
+  /** Register the handler for signaling addressed to this backend (the
+   *  browser-facing mesh). */
+  onBackendSignal(cb: (from: string, data: unknown) => void): void {
+    this.backendSignal = cb;
+  }
+
+  /** Send the backend's own SDP/ICE to a (local or remote) browser participant. */
+  sendFromBackend(toClientId: string, data: unknown): void {
+    const local = this.wsByParticipant.get(toClientId);
+    if (local) {
+      this.ws?.sendTo(local, 'mesh_signal', { from: this.selfPeerId, data });
+      return;
+    }
+    const server = participantServer(toClientId);
+    this.bridge?.send(server, {
+      rtype: MESH_RELAY_RTYPE,
+      op: 'event',
+      key: '',
+      data: { to: toClientId, from: this.selfPeerId, data },
+    });
   }
 
   // --- local client lifecycle (driven by index.ts WS hooks) ---------------
@@ -73,12 +107,18 @@ class ClientMeshRelay {
   onSignal(fromWs: WebSocket, to: string, data: unknown): void {
     const from = this.participantByWs.get(fromWs);
     if (!from || !to) return;
+    // A local client dialing this backend itself over WebRTC.
+    if (to === this.selfPeerId) {
+      this.backendSignal?.(from, data);
+      return;
+    }
     const local = this.wsByParticipant.get(to);
     if (local) {
       this.ws?.sendTo(local, 'mesh_signal', { from, data });
       return;
     }
-    // Route to the backend that owns the target client.
+    // Route to the backend that owns the target client (a remote client OR a
+    // remote backend the client is dialing).
     const server = participantServer(to);
     this.bridge?.send(server, {
       rtype: MESH_RELAY_RTYPE,
@@ -100,7 +140,8 @@ class ClientMeshRelay {
     this.pushRosterToClients();
   }
 
-  /** Inbound `_mesh_relay` from a server-peer → deliver to a local client. */
+  /** Inbound `_mesh_relay` from a server-peer → deliver to a local client, or to
+   *  this backend itself (a remote browser dialing this backend). */
   onServerRelay(env: SyncEnvelope): void {
     const { to, from, data } = (env.data ?? {}) as {
       to?: string;
@@ -108,6 +149,10 @@ class ClientMeshRelay {
       data?: unknown;
     };
     if (!to || !from) return;
+    if (to === this.selfPeerId) {
+      this.backendSignal?.(from, data);
+      return;
+    }
     const local = this.wsByParticipant.get(to);
     if (local) this.ws?.sendTo(local, 'mesh_signal', { from, data });
   }
@@ -130,6 +175,10 @@ class ClientMeshRelay {
     const all = new Set<string>(this.localIds());
     for (const set of this.remoteRoster.values())
       for (const id of set) all.add(id);
+    // Remote backends are mesh participants too — clients dial them directly
+    // (the WebRTC edge); a client reaches its *own* backend over WS, so the
+    // frontend skips its own server id.
+    for (const server of this.bridge?.connectedServers() ?? []) all.add(server);
     return [...all];
   }
 
