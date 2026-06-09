@@ -166,8 +166,12 @@ class MultiplayerManager {
       () => this.iceServers
     );
     this.browserMesh.on('peerConnected', (participant: string) => {
-      meshRouter.attach(participant, (env) =>
-        this.browserMesh?.send(participant, env)
+      // Browser edge: single ordered channel, so the lossy link is the same send.
+      meshRouter.attach(
+        participant,
+        (env) => this.browserMesh?.send(participant, env),
+        (frame) =>
+          this.browserMesh?.send(participant, frame as unknown as SyncEnvelope)
       );
       this.broadcast('mp_browser_peer', { participant, connected: true });
     });
@@ -208,7 +212,11 @@ class MultiplayerManager {
     });
     this.mesh.on('peerConnected', (peerId: string) => {
       touchLastSeen(peerId);
-      meshRouter.attach(peerId, (env) => this.mesh?.sendEnvelope(peerId, env));
+      meshRouter.attach(
+        peerId,
+        (env) => this.mesh?.sendEnvelope(peerId, env),
+        (frame) => this.mesh?.sendStream(peerId, frame)
+      );
       this.broadcast('mp_peer', { peerId, connected: true });
       // Exchange display names so each side shows the other's live (per-project) name.
       this.sendProfile(peerId);

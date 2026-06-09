@@ -288,16 +288,14 @@ export class SharingManager {
     nodeId: string,
     payload: Record<string, unknown>
   ): void {
-    for (const peerId of this.router.participants()) {
-      const roots = this.rootsOf(peerId);
-      if (roots.has(nodeId))
-        this.transport.sendStream(peerId, {
-          rtype: STREAM,
-          objectId: nodeId,
-          kind,
-          payload,
-        });
-    }
+    // Pose is keyed at the shared-object root; routing by `scene_node:<root>`
+    // reaches exactly its subscribers over their lossy links.
+    this.router.publishStream(`scene_node:${nodeId}`, {
+      rtype: STREAM,
+      objectId: nodeId,
+      kind,
+      payload,
+    });
   }
 
   /** Owner: forward a (clip-driven) transform of a node inside a shared subtree.
@@ -311,17 +309,14 @@ export class SharingManager {
     nodeId: string,
     transform: Record<string, number>
   ): void {
-    for (const peerId of this.router.participants()) {
-      const roots = this.rootsOf(peerId);
-      if (roots.size === 0) continue;
-      if (findOwningRoot(nodeId, roots))
-        this.transport.sendStream(peerId, {
-          rtype: STREAM,
-          objectId: nodeId,
-          kind: 'node_transform_preview',
-          payload: { nodeId, transform },
-        });
-    }
+    // Routing by `scene_node:<nodeId>` matches subscribers whose subtree contains
+    // it (root or child) — the old findOwningRoot membership — over lossy links.
+    this.router.publishStream(`scene_node:${nodeId}`, {
+      rtype: STREAM,
+      objectId: nodeId,
+      kind: 'node_transform_preview',
+      payload: { nodeId, transform },
+    });
   }
 
   /** Owner: forward a runtime override set/clear on a shared subtree node. These

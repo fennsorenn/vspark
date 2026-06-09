@@ -23,25 +23,31 @@ import {
   type SyncEnvelope,
 } from '@vspark/shared/sync';
 
-/** A participant's transport link — sends one envelope to that participant. */
+/** A participant's reliable transport link — sends one envelope. */
 export type ParticipantLink = (env: SyncEnvelope) => void;
+/** A participant's lossy transport link — sends one stream frame (dropped if the
+ *  channel can't keep up; used for high-frequency pose/transform). */
+export type StreamLink = (frame: Record<string, unknown>) => void;
 
 export class MeshRouter {
   private readonly hub: SubscriptionHub;
   private readonly links = new Map<string, ParticipantLink>();
+  private readonly streamLinks = new Map<string, StreamLink>();
 
   constructor(grantsFor: (participant: string) => Grant[], isDescendant: IsDescendant) {
     this.hub = new SubscriptionHub(grantsFor, isDescendant);
   }
 
-  /** Register/replace a participant's transport link. */
-  attach(participant: string, link: ParticipantLink): void {
+  /** Register/replace a participant's transport links (reliable + optional lossy). */
+  attach(participant: string, link: ParticipantLink, streamLink?: StreamLink): void {
     this.links.set(participant, link);
+    if (streamLink) this.streamLinks.set(participant, streamLink);
   }
 
-  /** Drop a participant (link + all its subscriptions). */
+  /** Drop a participant (links + all its subscriptions). */
   detach(participant: string): void {
     this.links.delete(participant);
+    this.streamLinks.delete(participant);
     this.hub.removeParticipant(participant);
   }
 
@@ -60,10 +66,17 @@ export class MeshRouter {
     return this.hub.revalidate(participant);
   }
 
-  /** Fan an envelope out to every subscribed, attached participant. */
+  /** Fan a reliable envelope out to every subscribed, attached participant. */
   publish(env: SyncEnvelope): void {
     for (const participant of this.hub.route(env.key))
       this.links.get(participant)?.(env);
+  }
+
+  /** Fan a lossy stream frame out to every participant subscribed to `key`, over
+   *  their lossy link (high-frequency pose / transform). */
+  publishStream(key: string, frame: Record<string, unknown>): void {
+    for (const participant of this.hub.route(key))
+      this.streamLinks.get(participant)?.(frame);
   }
 
   subscriptionsOf(participant: string): Subscription[] {
