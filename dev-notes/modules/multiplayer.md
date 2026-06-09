@@ -213,7 +213,7 @@ surviving `'*'` grant keeps a peer subscribed).
 | Generalised namespace subscription + grant model (permissioned-sync-mesh) | Planned |
 | Migrating subscriber fan-out off `SharingManager.subscribers` onto the `MeshRouter` core | Planned (not yet live) |
 | Live config-sync of behaviours/effects | **Non-goal** (output-synced; see below) |
-| Track-clip animation of a shared object (root transform) | **Implemented** |
+| Track-clip animation of a shared object (root + child subtree transforms) | **Implemented** |
 
 ### Resolved — asset transport to a remote browser
 
@@ -250,11 +250,12 @@ evaluate the same clip themselves and would otherwise double-apply); the backend
 reuses the `node_transform_preview` stream kind toward subscribers, so the
 receiver applies it via the existing `smoothNodeTransform` on the projected node.
 
-Boundaries: `forwardStream` keys on the shared-object **root** id, so a clip
-animating a *child inside* the subtree isn't forwarded (same as a drag of a shared
-child); opacity isn't carried by the transform preview. Both would need a
-root-resolving, reliable path (e.g. routing through the override forwarder) — a
-later refinement if needed.
+Children inside the subtree are covered: `shared_node_transform` routes through
+`SharingManager.forwardNodeTransform`, which resolves the owning root via
+`findOwningRoot` (so a clip animating a child of the shared object forwards too,
+not just the root). Remaining boundary: **opacity** isn't carried by the transform
+preview (would need a separate field on the frame) — a later refinement if needed.
+Note the live drag path (`node_transform_preview`) is still root-only by design.
 
 ### Not yet live — `MeshRouter` core
 
