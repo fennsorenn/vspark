@@ -211,7 +211,8 @@ surviving `'*'` grant keeps a peer subscribed).
 | **Direct-edge P2P object-share delivery (snapshot + live updates + asset blobs)** | **Implemented** |
 | **Frontend consumption of `_share_*` over the direct WebRTC channel** | **Implemented** |
 | `MeshRouter` as the live grant-gated subscription registry (object-share subscribers) | **Implemented** |
-| Namespace `publish()` fan-out (collaborative-editing tier) over the wired router | Planned (links attached, publish unused) |
+| `router.publish()` namespace fan-out — live for overrides + data channels | **Implemented** |
+| `publish()` for the remaining classes (per-subscriber-root UPDATE, lossy pose) | Stays on the custom path (see below) |
 | Live config-sync of behaviours/effects | **Non-goal** (output-synced; see below) |
 | Track-clip animation of a shared object (root + child subtree transforms) | **Implemented** |
 
@@ -271,8 +272,18 @@ registry) is now the **live** source of truth for object-share subscriptions:
   (a surviving `'*'` grant keeps a peer).
 - **Forwarding** queries `router.participants()` + `subscriptionsOf` for each
   subscriber's owned roots; the `_share_*` wire protocol + receiver are unchanged.
-- **Links.** The manager attaches a per-participant transport link on connect
-  (servers via `ServerMesh`, browsers via `BrowserPeerMesh`) and `detach`es on
-  disconnect, so `router.publish(env)` (grant-gated namespace fan-out by key) is
-  ready for the **collaborative-editing tier** — not yet used by object-share,
-  which needs per-subscriber owning-root context the simple publish doesn't carry.
+- **Links + live `publish()`.** The manager attaches a per-participant transport
+  link on connect (servers via `ServerMesh`, browsers via `BrowserPeerMesh`) and
+  `detach`es on disconnect. `router.publish(env)` (grant-gated fan-out: route by
+  `env.key` → each matching subscriber's link) is now **live** for the classes
+  that key by the target node id and apply by it — **runtime overrides** and
+  **data channels**. `forwardOverride`/`forwardDataChannel` publish
+  `{key: 'scene_node:<id>'}`; `subscriptionMatches` ≡ the old `findOwningRoot`
+  membership, and the link is each subscriber's reliable channel.
+- **What stays on the custom path:** the `_share_update` doc op needs a
+  *per-subscriber* `objectId` (the subscriber's own subscribed root containing the
+  changed node) in its payload, which a single broadcast `publish` can't carry;
+  pose/clip transforms need the *lossy* channel (`sendStream`), which `publish`'s
+  link doesn't select. Both keep querying `participants()` + `rootsOf` and send
+  via the transport facade. Generalising those is the collab-editing tier's job
+  (it'll likely move the per-subscriber root resolution to the receiver).
