@@ -185,9 +185,18 @@ ride the relay** (`mp_shares`); only the heavy data goes direct.
   `ConnectionsWindow.tsx` unsubscribes over **both** paths on container removal
   (the owner ignores an unheld subscription).
 
-**Known limitation:** a direct-edge-only drop (the owner's server link still up)
-leaves the projection frozen until reconnect. The common teardown paths — server
-disconnect → `mp_shared_gone`, explicit remove — are unaffected.
+**Direct-edge drop → relay fallback.** `shareDirect` tracks which subscriptions
+are served over the edge; when an owner leaves the mesh (`onDirectEdgeGone`, wired
+from `useClientMesh`'s connection-change diff), it drops exactly those projections
+and marks them unsubscribed, so `useSharedSubscriptions` re-subscribes over the
+server relay (the server link may still be up). Relay-path subscriptions to the
+same owner are untouched; a full disconnect still uses the `mp_shared_gone`
+teardown without a spurious re-subscribe.
+
+**Unshare eviction.** `unshare` calls `SharingManager.revokeUnauthorized(objectId)`,
+which notifies every current subscriber that can no longer read it — server peers
+**and** direct-edge browser participants — and only those actually revoked (a
+surviving `'*'` grant keeps a peer subscribed).
 
 ## Status
 
