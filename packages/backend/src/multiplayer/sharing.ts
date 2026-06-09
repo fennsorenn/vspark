@@ -19,6 +19,7 @@ import {
 } from './shares.js';
 import { assetForPath, type AssetMeta } from './blobs.js';
 import { BlobManager } from './blobTransfer.js';
+import { type MeshTransport } from './transport.js';
 import type { SyncEnvelope } from '@vspark/shared/sync';
 
 const ADVERTISE = '_share_advertise';
@@ -48,18 +49,8 @@ export const SHARE_RTYPES = new Set([
 
 type Broadcast = (kind: string, payload: Record<string, unknown>) => void;
 
-/** Transport-agnostic per-participant send. A participant is either a remote
- *  *server* peer (delivered over the {@link ServerMesh}) or a remote *browser*
- *  participant (`serverId#tab`, delivered over the {@link BrowserPeerMesh}); the
- *  facade in the manager resolves the id to its link. Sharing never sees the
- *  transport — it just addresses subscriber ids. */
-export interface MeshTransport {
-  /** Reliable envelope to a participant. False if the link isn't open. */
-  sendEnvelope(participant: string, env: SyncEnvelope): boolean;
-  /** Lossy stream frame to a participant (reliable on the browser edge, which
-   *  has a single ordered channel). */
-  sendStream(participant: string, frame: Record<string, unknown>): void;
-}
+/** Re-exported for call sites that build the facade (the manager). */
+export type { MeshTransport };
 
 function nameOf(objectId: string): string {
   const r = getDb()

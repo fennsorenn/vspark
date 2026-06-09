@@ -1,16 +1,24 @@
 /**
- * Content-addressed blob transfer over the ServerMesh (asset-transfer slice).
+ * Content-addressed blob transfer over the mesh (asset-transfer slice).
  *
  * The owner serves an asset by sha256 hash (chunked, base64 over the reliable
- * `doc` channel); the receiver reassembles, verifies the hash, and writes it to
- * its shared cache. Transfers are deduped per hash and verified end-to-end, so
+ * channel); the receiver reassembles, verifies the hash, and writes it to its
+ * shared cache. Transfers are deduped per hash and verified end-to-end, so
  * fetching from any peer is safe. A dedicated binary channel + backpressure are
  * a refinement; v1 paces base64 chunks on the existing channel.
  *
- * Routed by reserved `_blob_*` rtypes. See dev-notes/plans/live-mesh.md.
+ * Rides the transport-agnostic {@link MeshTransport}, so the owner serves the
+ * exact same `_blob_*` protocol whether the requester is a remote *server* (a
+ * backend cache) or a remote *browser* (a frontend object-URL cache) — asset
+ * transfer is a symmetric mesh capability. The receiver-side reassembly here
+ * writes to disk (the backend cache); a browser runs the mirror receiver over
+ * its own data channel, assembling to an object URL.
+ *
+ * Routed by reserved `_blob_*` rtypes. See
+ * dev-notes/plans/permissioned-sync-mesh.md.
  */
 import { createHash } from 'crypto';
-import type { ServerMesh } from './mesh.js';
+import type { MeshTransport } from './transport.js';
 import type { SyncEnvelope } from '@vspark/shared/sync';
 import {
   resolveByHash,
@@ -58,7 +66,7 @@ export class BlobManager {
   /** hash → in-flight fetch promise (dedupe concurrent requests). */
   private readonly pending = new Map<string, Promise<string>>();
 
-  constructor(private readonly mesh: ServerMesh) {}
+  constructor(private readonly transport: MeshTransport) {}
 
   /** Receiver: ensure `meta.hash` is cached locally, fetching from `peerId` if
    *  needed. Resolves to the public `/uploads/_shared/...` URL. */
@@ -81,7 +89,7 @@ export class BlobManager {
         reject,
         timer,
       });
-      const ok = this.mesh.sendEnvelope(peerId, {
+      const ok = this.transport.sendEnvelope(peerId, {
         rtype: REQUEST,
         op: 'event',
         key: meta.hash,
@@ -132,7 +140,7 @@ export class BlobManager {
   private async serve(peerId: string, hash: string): Promise<void> {
     const found = resolveByHash(hash);
     if (!found) {
-      this.mesh.sendEnvelope(peerId, {
+      this.transport.sendEnvelope(peerId, {
         rtype: ERROR,
         op: 'event',
         key: hash,
@@ -142,7 +150,7 @@ export class BlobManager {
     }
     const buf = readBlob(found.absPath);
     const total = Math.ceil(buf.length / CHUNK_BYTES) || 1;
-    this.mesh.sendEnvelope(peerId, {
+    this.transport.sendEnvelope(peerId, {
       rtype: BEGIN,
       op: 'event',
       key: hash,
@@ -150,7 +158,7 @@ export class BlobManager {
     });
     for (let seq = 0; seq < total; seq++) {
       const slice = buf.subarray(seq * CHUNK_BYTES, (seq + 1) * CHUNK_BYTES);
-      const ok = this.mesh.sendEnvelope(peerId, {
+      const ok = this.transport.sendEnvelope(peerId, {
         rtype: CHUNK,
         op: 'event',
         key: hash,
@@ -161,7 +169,7 @@ export class BlobManager {
       if (!ok) return;
       if (seq % PACE_EVERY === PACE_EVERY - 1) await delay(PACE_MS);
     }
-    this.mesh.sendEnvelope(peerId, {
+    this.transport.sendEnvelope(peerId, {
       rtype: END,
       op: 'event',
       key: hash,

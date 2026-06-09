@@ -19,7 +19,8 @@ import {
 } from './rendezvous_client.js';
 import { ServerMesh, type MeshSignaling } from './mesh.js';
 import { BrowserPeerMesh } from './browserMesh.js';
-import { SharingManager, SHARE_RTYPES, type MeshTransport } from './sharing.js';
+import { SharingManager, SHARE_RTYPES } from './sharing.js';
+import { type MeshTransport } from './transport.js';
 import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
 import {
   clientMeshRelay,
@@ -104,11 +105,11 @@ class MultiplayerManager {
         ),
     };
     this.mesh = new ServerMesh(signaling, () => this.iceServers);
-    this.blob = new BlobManager(this.mesh);
-    // Transport facade: resolve a subscriber participant id to its link — remote
-    // browsers (`serverId#tab`) go over the WebRTC browser edge, remote servers
-    // over the ServerMesh. Read lazily so `browserMesh` (built just below) is in
-    // place by the time sharing actually sends.
+    // Transport facade: resolve a participant id to its link — remote browsers
+    // (`serverId#tab`) go over the WebRTC browser edge, remote servers over the
+    // ServerMesh. Read lazily so `browserMesh` (built just below) is in place by
+    // the time anything actually sends. Both sharing and blob transfer ride it,
+    // so the owner serves the same protocol to a browser or a server alike.
     const transport: MeshTransport = {
       sendEnvelope: (participant, env) =>
         isClientParticipant(participant)
@@ -120,6 +121,7 @@ class MultiplayerManager {
         else this.mesh?.sendStream(participant, frame);
       },
     };
+    this.blob = new BlobManager(transport);
     this.sharing = new SharingManager(transport, this.broadcast, this.blob);
     // Forward shared objects' document updates to subscribed peers.
     sync.onDocument((env) => this.sharing?.forwardDocOp(env));
@@ -154,11 +156,13 @@ class MultiplayerManager {
     this.browserMesh.on(
       'envelope',
       ({ from, env }: { from: string; env: SyncEnvelope }) => {
-        // A remote browser can talk the `_share_*` protocol directly to the
-        // owning backend over this edge (subscribe / unsubscribe). The transport
+        // A remote browser talks the `_share_*` protocol directly to the owning
+        // backend over this edge (subscribe / unsubscribe), and requests asset
+        // blobs over the same `_blob_*` protocol a server would. The transport
         // facade routes our replies back over the same WebRTC channel; source-
         // side grant admission still gates what flows.
         if (SHARE_RTYPES.has(env?.rtype)) this.sharing?.handleEnvelope(from, env);
+        else if (BLOB_RTYPES.has(env?.rtype)) this.blob?.handleEnvelope(from, env);
       }
     );
 
