@@ -218,3 +218,84 @@ export function keyMatches(key: string, prefix: string): boolean {
   if (key === base) return true;
   return key.startsWith(base + ':') || key.startsWith(base + '.');
 }
+
+// --- Grants -----------------------------------------------------------------
+//
+// A grant is two orthogonal axes × rights, matched independently against a key
+// `rtype:id:subPath`:
+//   • entity selection — (rtype, id) + includeDescendants  (id/'*'; a scene is
+//     just the entity whose subtree is the scene)
+//   • path selection   — a dotted sub-path prefix ('' = all paths)
+//   • rights ⊆ {read, update, create, delete}; read/update use the path axis,
+//     create/delete are structural (entity-scoped, path-independent).
+// Per-peer access is the UNION of matching grants. The owning server is the
+// grant authority for its own namespaces (self-grants full RUCD); enforcement is
+// source-side admission. See dev-notes/plans/permissioned-sync-mesh.md.
+
+export type Right = 'read' | 'update' | 'create' | 'delete';
+
+export interface Grant {
+  /** peer id (server OR participant) or '*' */
+  grantee: string;
+  /** entity type, or '*' for any */
+  entityRtype: string;
+  /** entity id, or '*' for any of `entityRtype` */
+  entityId: string;
+  /** also covers everything below `entityId` in the containment tree */
+  includeDescendants: boolean;
+  /** dotted sub-path prefix; '' = all paths */
+  pathPrefix: string;
+  rights: { read?: boolean; update?: boolean; create?: boolean; delete?: boolean };
+}
+
+/** Resolves containment for the descendants axis (injected by the host: the
+ *  scene-node tree, compose tree, …). Returns true if `childId` is at or below
+ *  `ancestorId` within `rtype`. */
+export type IsDescendant = (
+  rtype: string,
+  childId: string,
+  ancestorId: string
+) => boolean;
+
+/** Does a grant's path prefix cover a key's sub-path? '' covers everything. */
+export function pathCovers(prefix: string, subPath: string): boolean {
+  if (prefix === '') return true;
+  if (subPath === prefix) return true;
+  return subPath.startsWith(prefix + '.');
+}
+
+/** Does a single grant authorize `need` on `key`? (entity ∧ path ∧ right) */
+export function grantAllows(
+  g: Grant,
+  key: string,
+  need: Right,
+  isDescendant: IsDescendant
+): boolean {
+  if (!g.rights[need]) return false;
+  const { rtype, id, subPath } = parseKey(key);
+  if (g.entityRtype !== '*' && g.entityRtype !== rtype) return false;
+  const entityOk =
+    g.entityId === '*' ||
+    g.entityId === id ||
+    (g.includeDescendants && isDescendant(rtype, id, g.entityId));
+  if (!entityOk) return false;
+  // create/delete are structural — scoped to the entity, not a field path.
+  if (need === 'create' || need === 'delete') return true;
+  return pathCovers(g.pathPrefix, subPath ?? '');
+}
+
+/** Union over grants: any grant that allows ⇒ allowed. */
+export function evaluateAccess(
+  grants: Grant[],
+  key: string,
+  need: Right,
+  isDescendant: IsDescendant
+): boolean {
+  return grants.some((g) => grantAllows(g, key, need, isDescendant));
+}
+
+/** Grantee ids that cover a requester: itself, its owning server, and '*'. */
+export function granteeCandidates(requester: string): string[] {
+  const server = participantServer(requester);
+  return server === requester ? [requester, '*'] : [requester, server, '*'];
+}
