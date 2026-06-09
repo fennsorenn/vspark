@@ -46,6 +46,10 @@ import { initIdentity } from './multiplayer/identity.js';
 import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
 import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
+import {
+  hydrateContainmentIndex,
+  applyDocToIndex,
+} from './sync/containmentIndex.js';
 import type {
   LipsyncInputMessage,
   TrackingInputMessage,
@@ -89,6 +93,11 @@ async function start() {
   await runMigrations();
 
   setWsSync(wsSync);
+  // Live containment index: hydrate the scene-node tree + keep it current from
+  // document ops. Registered BEFORE the share forwarder so the index is updated
+  // before fan-out resolves owning roots.
+  hydrateContainmentIndex();
+  sync.onDocument(applyDocToIndex);
   // Multiplayer identity (Phase 5): load/generate this server's Ed25519 peer id
   // and clear any expired auto-accept grants.
   initIdentity();

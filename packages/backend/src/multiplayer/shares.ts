@@ -6,6 +6,7 @@
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { extOf } from './blobs.js';
+import { containmentIndex } from '../sync/containmentIndex.js';
 
 export type ShareKind = 'object' | 'scene';
 
@@ -236,6 +237,21 @@ export function findOwningRoot(
   candidateRoots: Set<string>
 ): string | null {
   if (candidateRoots.has(nodeId)) return nodeId;
+  // Prefer the in-memory containment index (parent walk, no per-step DB query).
+  // Returns the nearest ancestor that is a candidate root — same semantics as
+  // the DB walk below.
+  if (containmentIndex.has(nodeId)) {
+    let cur = containmentIndex.parentOf(nodeId) ?? null;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      if (candidateRoots.has(cur)) return cur;
+      cur = containmentIndex.parentOf(cur) ?? null;
+    }
+    return null;
+  }
+  // Fallback for ids the index hasn't seen (e.g. tmp/spawn nodes that don't flow
+  // through sync.document): walk parent_id in SQLite.
   const db = getDb();
   let cur: string | null = nodeId;
   const seen = new Set<string>();
