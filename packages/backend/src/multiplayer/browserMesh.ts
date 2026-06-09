@@ -42,9 +42,16 @@ interface PeerConn {
   remoteSet: boolean;
   offset: ReturnType<typeof makeOffsetTracker>;
   pingTimer?: ReturnType<typeof setInterval>;
+  /** Pending teardown for a transient `'disconnected'` that hasn't recovered. */
+  dropTimer?: ReturnType<typeof setTimeout>;
 }
 
 const PING_MS = 5000;
+/** Grace period before tearing down on a transient `'disconnected'` ICE state —
+ *  it routinely flaps (e.g. right after a large blob transfer) and recovers to
+ *  `'connected'`. Tearing down immediately wiped live subscriptions mid-session.
+ *  `'failed'`/`'closed'` are terminal and bypass this. */
+const DISCONNECT_GRACE_MS = 8000;
 
 const DBG = !!process.env.MESH_DEBUG;
 const dbg = (...a: unknown[]): void => {
@@ -107,6 +114,7 @@ export class BrowserPeerMesh extends EventEmitter {
     this.peers.delete(participant);
     this.pendingIce.delete(participant);
     if (p.pingTimer) clearInterval(p.pingTimer);
+    if (p.dropTimer) clearTimeout(p.dropTimer);
     void p.pc.close().catch(() => {});
     if (p.connected) this.emit('peerDisconnected', participant);
   }
@@ -130,14 +138,28 @@ export class BrowserPeerMesh extends EventEmitter {
     });
     pc.connectionStateChange.subscribe((state: string) => {
       dbg('connState', participant, state);
-      if (
-        (state === 'failed' ||
-          state === 'closed' ||
-          state === 'disconnected') &&
-        // Only tear down if this pc is still the active one for the participant.
-        this.peers.get(participant)?.pc === pc
-      )
-        this.disconnect(participant);
+      const e = this.peers.get(participant);
+      if (e?.pc !== pc) return; // stale pc — ignore
+      if (state === 'failed' || state === 'closed') {
+        this.disconnect(participant); // terminal
+      } else if (state === 'disconnected') {
+        // Transient: arm a grace timer instead of tearing down now. ICE usually
+        // recovers; if it does we clear the timer on the next 'connected'.
+        if (!e.dropTimer)
+          e.dropTimer = setTimeout(() => {
+            const cur = this.peers.get(participant);
+            if (!cur || cur.pc !== pc) return;
+            cur.dropTimer = undefined;
+            const st = (pc as { connectionState?: string }).connectionState;
+            if (st === 'connected' || st === 'completed') return; // recovered
+            this.disconnect(participant);
+          }, DISCONNECT_GRACE_MS);
+      } else if (state === 'connected' || state === 'completed') {
+        if (e.dropTimer) {
+          clearTimeout(e.dropTimer);
+          e.dropTimer = undefined;
+        }
+      }
     });
     // The browser opens the `mesh` channel; we receive it here.
     pc.onDataChannel.subscribe((dc) => this.wireChannel(participant, dc));
