@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
-import type { NodeRecord } from '../store/editorStore';
+import type { StageObject } from '../store/editorStore';
 import type { CameraEffectRecord } from '../api/client';
 import {
   mapBehavior,
@@ -161,7 +161,7 @@ export function useWsSync() {
             smoothNodeTransform(p.nodeId, p.transform);
           } else if (msg.kind === 'node_added') {
             const store = useEditorStore.getState();
-            const node = msg.payload as unknown as NodeRecord;
+            const node = msg.payload as unknown as StageObject;
             // Only add if we have this scene loaded; avoid duplicates
             if (store.nodes.every((n) => n.id !== node.id)) {
               store.addNode(node);

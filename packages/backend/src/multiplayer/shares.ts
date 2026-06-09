@@ -84,7 +84,7 @@ export function isSharedWith(objectId: string, peerId: string): boolean {
 
 // --- subtree snapshot -------------------------------------------------------
 
-interface SceneNodeRow {
+interface StageObjectRow {
   id: string;
   project_id: string;
   root_scene_node_id: string;
@@ -122,7 +122,7 @@ export interface ObjectSnapshot {
   assets: SnapshotAsset[];
 }
 
-function rowToNode(r: SceneNodeRow): Record<string, unknown> {
+function rowToNode(r: StageObjectRow): Record<string, unknown> {
   return {
     id: r.id,
     rootSceneNodeId: r.root_scene_node_id,
@@ -144,21 +144,21 @@ export function gatherObjectSnapshot(objectId: string): ObjectSnapshot | null {
   const db = getDb();
   const root = db
     .prepare('SELECT * FROM scene_nodes WHERE id = ?')
-    .get(objectId) as unknown as SceneNodeRow | undefined;
+    .get(objectId) as unknown as StageObjectRow | undefined;
   if (!root) return null;
 
   // BFS over parent_id within the same root scene.
   const all = db
     .prepare('SELECT * FROM scene_nodes WHERE root_scene_node_id = ?')
-    .all(root.root_scene_node_id) as unknown as SceneNodeRow[];
-  const byParent = new Map<string | null, SceneNodeRow[]>();
+    .all(root.root_scene_node_id) as unknown as StageObjectRow[];
+  const byParent = new Map<string | null, StageObjectRow[]>();
   for (const n of all) {
     const arr = byParent.get(n.parent_id) ?? [];
     arr.push(n);
     byParent.set(n.parent_id, arr);
   }
-  const subtree: SceneNodeRow[] = [];
-  const queue: SceneNodeRow[] = [root];
+  const subtree: StageObjectRow[] = [];
+  const queue: StageObjectRow[] = [root];
   while (queue.length) {
     const n = queue.shift()!;
     subtree.push(n);

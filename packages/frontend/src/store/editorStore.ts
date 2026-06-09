@@ -157,7 +157,7 @@ export interface NodeProperties {
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
 }
 
-export interface NodeRecord {
+export interface StageObject {
   id: string;
   rootSceneNodeId: string;
   projectId: string;
@@ -403,7 +403,7 @@ interface EditorState {
   projectName: string;
   scenes: SceneItem[];
   activeSceneId: string | null;
-  nodes: NodeRecord[];
+  nodes: StageObject[];
   selectedNodeId: string | null;
   sceneSelected: boolean;
   selectedBehaviorId: string | null;
@@ -501,16 +501,16 @@ interface EditorState {
   removeScene: (sceneId: string) => void;
   setActiveScene: (id: string | null) => void;
   setSceneSelected: (selected: boolean) => void;
-  setNodes: (nodes: NodeRecord[]) => void;
-  addNode: (node: NodeRecord) => void;
-  updateNode: (id: string, updates: Partial<NodeRecord>) => void;
+  setNodes: (nodes: StageObject[]) => void;
+  addNode: (node: StageObject) => void;
+  updateNode: (id: string, updates: Partial<StageObject>) => void;
   deleteNode: (id: string) => void;
   selectNode: (id: string | null) => void;
   selectBehavior: (id: string | null) => void;
   setAssets: (assets: AssetFile[]) => void;
   addAsset: (asset: AssetFile) => void;
   deleteAsset: (id: string) => void;
-  activeSceneNodes: () => NodeRecord[];
+  activeSceneNodes: () => StageObject[];
   setBehaviors: (comps: Behavior[]) => void;
   addBehavior: (comp: Behavior) => void;
   updateBehavior: (

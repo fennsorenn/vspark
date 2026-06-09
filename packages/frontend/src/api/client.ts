@@ -47,7 +47,7 @@ function normalizeFilePath(raw: unknown): string | null {
 function mapNode(
   r: Record<string, unknown>,
   rootSceneNodeId?: string
-): NodeRecord {
+): StageObject {
   const components =
     typeof r.components === 'string'
       ? JSON.parse(r.components as string)
@@ -174,7 +174,7 @@ export interface NodeProperties {
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
 }
 
-export interface NodeRecord {
+export interface StageObject {
   id: string;
   rootSceneNodeId: string;
   projectId: string;
@@ -528,7 +528,7 @@ export const getNodes = (sceneId: string) =>
 
 export const createNode = (
   sceneId: string,
-  data: Omit<NodeRecord, 'id' | 'rootSceneNodeId' | 'projectId'>
+  data: Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>
 ) =>
   request<Record<string, unknown>>(`/scenes/${sceneId}/nodes`, {
     method: 'POST',
@@ -545,7 +545,7 @@ export const createNode = (
 
 export const updateNode = (
   id: string,
-  data: Partial<Omit<NodeRecord, 'id' | 'rootSceneNodeId' | 'projectId'>>
+  data: Partial<Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>>
 ) => {
   const body: Record<string, unknown> = {};
   if (data.name !== undefined) body.name = data.name;

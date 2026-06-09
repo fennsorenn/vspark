@@ -18,7 +18,7 @@
  * See dev-notes/plans/multiplayer-phase5.md.
  */
 import { useEditorStore } from '../store/editorStore';
-import type { NodeRecord } from '../store/editorStore';
+import type { StageObject } from '../store/editorStore';
 import type { SyncEnvelope } from '@vspark/shared/sync';
 
 export const REMOTE_OBJECT_KIND = 'remote_object';
@@ -51,7 +51,7 @@ function track(peerId: string, objectId: string, nodeId: string): void {
   ids.add(nodeId);
 }
 
-function refOf(n: NodeRecord): RemoteRef | undefined {
+function refOf(n: StageObject): RemoteRef | undefined {
   return (n.components as { remoteRef?: RemoteRef } | undefined)?.remoteRef;
 }
 
@@ -59,7 +59,7 @@ function refOf(n: NodeRecord): RemoteRef | undefined {
 export function findContainer(
   peerId: string,
   objectId: string
-): NodeRecord | undefined {
+): StageObject | undefined {
   return useEditorStore
     .getState()
     .nodes.find(
@@ -82,9 +82,9 @@ function projectNode(
   dto: Record<string, unknown>,
   peerId: string,
   objectId: string,
-  container: NodeRecord
-): NodeRecord {
-  const n = dto as unknown as NodeRecord;
+  container: StageObject
+): StageObject {
+  const n = dto as unknown as StageObject;
   return {
     ...n,
     rootSceneNodeId: container.rootSceneNodeId,

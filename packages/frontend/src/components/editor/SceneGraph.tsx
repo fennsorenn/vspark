@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import type { NodeRecord, Behavior } from '../../store/editorStore';
+import type { StageObject, Behavior } from '../../store/editorStore';
 import { newBehaviorId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
@@ -76,7 +76,7 @@ function SceneNodeContextMenu({
   canPasteLogic,
 }: {
   menu: CtxMenu;
-  nodes: NodeRecord[];
+  nodes: StageObject[];
   onClose: () => void;
   onAddChild: (parentId: string, type: (typeof NODE_TYPES)[number]) => void;
   onReparent: (nodeId: string, newParentId: string) => void;
@@ -2003,7 +2003,7 @@ export function SceneGraph() {
     setDragNodeId(null);
   };
 
-  const renderNode = (node: NodeRecord, depth = 0) => {
+  const renderNode = (node: StageObject, depth = 0) => {
     const isSelected = selectedNodeId === node.id;
     const isHidden = node.hidden ?? false;
     // Projected (remote) inner nodes are hidden from the tree — only the opaque

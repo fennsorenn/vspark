@@ -1,4 +1,4 @@
-import { useEditorStore, type NodeRecord } from '../../store/editorStore';
+import { useEditorStore, type StageObject } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { AssetFile, ComposeLayerKind } from '../../api/client';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
@@ -114,7 +114,7 @@ export async function createSceneNode(
   def: NodeKindDef,
   parentId: string | null,
   name: string
-): Promise<NodeRecord> {
+): Promise<StageObject> {
   const components: Record<string, unknown> = { ...DEFAULT_COMPONENTS };
   if (def.kind === 'light') {
     components.light = {
@@ -235,7 +235,7 @@ export async function createNodeFromModelAsset(
   asset: AssetFile,
   sceneId: string,
   parentId: string | null = null
-): Promise<NodeRecord> {
+): Promise<StageObject> {
   const ext = asset.name.split('.').pop()?.toLowerCase();
   const kind = ext === 'vrm' ? 'avatar' : 'model';
   const node = await api.createNode(sceneId, {
@@ -256,7 +256,7 @@ export async function createBillboardFromImageAsset(
   asset: AssetFile,
   sceneId: string,
   parentId: string | null = null
-): Promise<NodeRecord> {
+): Promise<StageObject> {
   const node = await api.createNode(sceneId, {
     parentId,
     name: asset.name,
