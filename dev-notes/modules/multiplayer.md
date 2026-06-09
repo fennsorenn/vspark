@@ -213,7 +213,7 @@ surviving `'*'` grant keeps a peer subscribed).
 | Generalised namespace subscription + grant model (permissioned-sync-mesh) | Planned |
 | Migrating subscriber fan-out off `SharingManager.subscribers` onto the `MeshRouter` core | Planned (not yet live) |
 | Live config-sync of behaviours/effects | **Non-goal** (output-synced; see below) |
-| Forwarding track-clip-driven animation of a shared object | Open boundary (not forwarded) |
+| Track-clip animation of a shared object (root transform) | **Implemented** |
 
 ### Resolved — asset transport to a remote browser
 
@@ -236,11 +236,25 @@ forwarded to subscribers (`forwardStream` / `forwardOverride` /
 config** — forwarding behaviour config edits live would change nothing on an
 output-driven receiver. Config rides the initial snapshot for completeness only.
 
-**Open boundary — track clips.** Unlike behaviours, track-clip evaluation runs on
-the **frontend** (`useTrackClipEvaluator`) and writes local override slots; it
-does *not* go through the forwarded override bus or persist `scene_node` ops. A
-shared object animated purely by a local clip therefore won't animate on the
-receiver. Left as an explicit product decision rather than silently synced.
+**Track-clip animation of shared objects — IMPLEMENTED.** Clip evaluation runs on
+the **frontend** (`useTrackClipEvaluator`) and writes local override slots — no
+graph output, no persisted edit — so it can't ride the override/doc forwarders.
+Instead the evaluator forwards clip-driven transforms over the
+`node_transform_preview` stream: each frame it emits the live transform for
+animated nodes (throttled ~30 Hz, gated on a connected contact), and re-emits the
+**base** transform for a few frames when a node stops so the receiver smooths back
+(the preview path has no auto-clear; repeating guards the revert against a dropped
+frame on the lossy channel). A forward-only `shared_node_transform` WS kind
+forwards to subscribers **without** the local co-editor broadcast (co-editors
+evaluate the same clip themselves and would otherwise double-apply); the backend
+reuses the `node_transform_preview` stream kind toward subscribers, so the
+receiver applies it via the existing `smoothNodeTransform` on the projected node.
+
+Boundaries: `forwardStream` keys on the shared-object **root** id, so a clip
+animating a *child inside* the subtree isn't forwarded (same as a drag of a shared
+child); opacity isn't carried by the transform preview. Both would need a
+root-resolving, reliable path (e.g. routing through the override forwarder) — a
+later refinement if needed.
 
 ### Not yet live — `MeshRouter` core
 
