@@ -12,7 +12,11 @@
  * participant id initiates; the larger only ever answers. See
  * dev-notes/plans/live-mesh.md.
  */
-import { makeOffsetTracker } from '@vspark/shared/sync';
+import {
+  isClientParticipant,
+  makeOffsetTracker,
+  participantServer,
+} from '@vspark/shared/sync';
 
 type Signal =
   | { kind: 'offer' | 'answer'; sdp: RTCSessionDescriptionInit }
@@ -54,13 +58,24 @@ class ClientMesh {
     if (this.selfId) this.send('mesh_hello', { participantId: this.selfId });
   }
 
-  /** Apply the latest roster: dial new smaller-id peers, drop departed ones. */
+  /** Apply the latest roster: open links to new participants, drop departed ones.
+   *
+   *  - **remote backends** (ids without a `#tab` suffix) answer only, so we
+   *    always initiate toward them — except our *own* server, which we reach
+   *    over the WebSocket, never WebRTC.
+   *  - **other browsers** use the deterministic glare rule: the smaller id dials,
+   *    the larger waits for the offer. */
   setRoster(participants: string[]): void {
     const present = new Set(participants);
+    const myServer = participantServer(this.selfId);
     for (const id of participants) {
       if (id === this.selfId || this.peers.has(id)) continue;
-      if (this.selfId < id) void this.dial(id); // we initiate
-      // else: wait for their offer
+      if (!isClientParticipant(id)) {
+        if (id !== myServer) void this.dial(id); // remote backend — always dial
+      } else if (this.selfId < id) {
+        void this.dial(id); // browser↔browser — we initiate
+      }
+      // else: a larger-id browser peer — wait for their offer
     }
     for (const id of [...this.peers.keys()])
       if (!present.has(id)) this.drop(id);
