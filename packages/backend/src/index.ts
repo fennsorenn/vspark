@@ -259,6 +259,21 @@ async function start() {
           transform: p.transform,
         });
       }
+    } else if (kind === 'shared_node_transform') {
+      // Clip-driven transform of a *shared* object: forward to subscribers only,
+      // never broadcast locally — the owner's own co-editor tabs evaluate the
+      // same clip themselves, so a local relay would be redundant and could fight
+      // their local override. Reuses the `node_transform_preview` stream kind so
+      // the receiver applies it via the existing smoother.
+      const p = payload as {
+        nodeId?: string;
+        transform?: Record<string, number>;
+      };
+      if (typeof p.nodeId === 'string' && p.transform)
+        multiplayerManager.forwardStream('node_transform_preview', p.nodeId, {
+          nodeId: p.nodeId,
+          transform: p.transform,
+        });
     } else if (kind === 'compose_layer_preview') {
       // Same idea for compose layer drag/resize/rotate: relay the patch without
       // touching the DB; the final REST PUT will write+broadcast the canonical row.

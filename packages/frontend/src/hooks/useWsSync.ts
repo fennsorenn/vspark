@@ -51,6 +51,20 @@ export function sendNodeTransformPreview(
   );
 }
 
+/** Forward a clip-driven transform of a *shared* object to subscribers only (no
+ *  local co-editor broadcast — they evaluate the same clip themselves). The
+ *  backend reuses the `node_transform_preview` stream kind toward subscribers. */
+export function sendSharedNodeTransform(
+  nodeId: string,
+  transform: Record<string, number>
+) {
+  const ws = editorWsRef.current;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(
+    JSON.stringify({ kind: 'shared_node_transform', nodeId, transform })
+  );
+}
+
 /** Send a live in-flight compose-layer patch (position/size/rotation) so other
  *  editors see the change before the user releases the mouse. */
 export function sendComposeLayerPreview(
