@@ -109,6 +109,15 @@ export function grantsForRequester(requester: string): Grant[] {
   ).map(rowToGrant);
 }
 
+/** All grants on a specific entity (for "who is this shared with" UIs). */
+export function grantsForEntity(entityRtype: string, entityId: string): Grant[] {
+  return (
+    getDb()
+      .prepare('SELECT * FROM grants WHERE entity_rtype = ? AND entity_id = ?')
+      .all(entityRtype, entityId) as unknown as GrantRow[]
+  ).map(rowToGrant);
+}
+
 /** Source-side admission: may `requester` perform `need` on `key`?
  *  `isDescendant` resolves the containment (descendants) axis. */
 export function canAccess(

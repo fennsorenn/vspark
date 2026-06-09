@@ -3,10 +3,16 @@
  * object's scene-node subtree. A grant says "peer X (or '*') may subscribe to my
  * object O". See dev-notes/plans/multiplayer-phase5.md.
  */
-import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { extOf } from './blobs.js';
 import { containmentIndex } from '../sync/containmentIndex.js';
+import {
+  addGrant,
+  removeGrant,
+  canAccess,
+  grantsForRequester,
+  grantsForEntity,
+} from '../sync/grants.js';
 
 export type ShareKind = 'object' | 'scene';
 
@@ -18,69 +24,59 @@ export interface ShareGrant {
   createdAt: string;
 }
 
-interface ShareRow {
-  id: string;
-  share_kind: ShareKind;
-  object_id: string;
-  grantee_peer_id: string;
-  created_at: string;
-}
+// Object sharing is now expressed as grants (entity = the shared scene_node +
+// its subtree, read). These wrappers keep the existing call sites + the
+// shareKind concept while delegating to the generalized grant store. See
+// dev-notes/plans/permissioned-sync-mesh.md.
 
-const map = (r: ShareRow): ShareGrant => ({
-  id: r.id,
-  shareKind: r.share_kind,
-  objectId: r.object_id,
-  granteePeerId: r.grantee_peer_id,
-  createdAt: r.created_at,
-});
-
+/** A scene/object share = a read grant on the scene_node entity + its subtree. */
 export function addShare(
-  shareKind: ShareKind,
+  _shareKind: ShareKind,
   objectId: string,
   granteePeerId: string
 ): void {
-  getDb()
-    .prepare(
-      `INSERT INTO shares (id, share_kind, object_id, grantee_peer_id)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT (share_kind, object_id, grantee_peer_id) DO NOTHING`
-    )
-    .run(randomUUID(), shareKind, objectId, granteePeerId);
+  addGrant({
+    grantee: granteePeerId,
+    entityRtype: 'scene_node',
+    entityId: objectId,
+    includeDescendants: true,
+    pathPrefix: '',
+    rights: { read: true },
+  });
 }
 
 export function removeShare(objectId: string, granteePeerId: string): void {
-  getDb()
-    .prepare('DELETE FROM shares WHERE object_id = ? AND grantee_peer_id = ?')
-    .run(objectId, granteePeerId);
+  removeGrant(granteePeerId, 'scene_node', objectId);
 }
 
 /** Grantees for an object (for the "Share with" UI checkmarks). */
 export function listObjectGrantees(objectId: string): string[] {
-  return (
-    getDb()
-      .prepare('SELECT grantee_peer_id FROM shares WHERE object_id = ?')
-      .all(objectId) as { grantee_peer_id: string }[]
-  ).map((r) => r.grantee_peer_id);
+  return grantsForEntity('scene_node', objectId)
+    .filter((g) => g.rights.read)
+    .map((g) => g.grantee);
 }
 
 /** Everything granted to a peer (peer-specific + '*'), for advertise. */
 export function listSharesForPeer(peerId: string): ShareGrant[] {
-  return (
-    getDb()
-      .prepare(
-        "SELECT * FROM shares WHERE grantee_peer_id = ? OR grantee_peer_id = '*'"
-      )
-      .all(peerId) as unknown as ShareRow[]
-  ).map(map);
+  return grantsForRequester(peerId)
+    .filter((g) => g.rights.read && g.entityRtype === 'scene_node')
+    .map((g) => ({
+      id: `${g.grantee}:${g.entityId}`,
+      shareKind: 'object' as ShareKind,
+      objectId: g.entityId,
+      granteePeerId: g.grantee,
+      createdAt: '',
+    }));
 }
 
 export function isSharedWith(objectId: string, peerId: string): boolean {
-  const r = getDb()
-    .prepare(
-      "SELECT 1 FROM shares WHERE object_id = ? AND (grantee_peer_id = ? OR grantee_peer_id = '*') LIMIT 1"
-    )
-    .get(objectId, peerId);
-  return !!r;
+  // Exact-entity read grant on the object root (covers peer-specific + '*').
+  return canAccess(
+    peerId,
+    `scene_node:${objectId}`,
+    'read',
+    containmentIndex.isDescendant
+  );
 }
 
 // --- subtree snapshot -------------------------------------------------------
