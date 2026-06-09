@@ -2,7 +2,7 @@
 
 - **Date (UTC):** <timestamp>
 - **Commit:** <short-sha>
-- **Base:** origin/dev
+- **Base:** origin/<base-branch>   <!-- base branch is defined in project.md -->
 - **Overall:** ✅ PASS / ❌ FAIL / ⚠️ PARTIAL
 
 ## Scope
@@ -11,7 +11,7 @@ What the diff touched and how it was classified (API / Frontend / both /
 docs-only). One or two sentences plus a short file list.
 
 ```
-<git diff --stat output>
+<git diff --stat origin/<base-branch>...HEAD>
 ```
 
 ## Test plan
