@@ -1,9 +1,16 @@
 # Plan: Multiplayer Phase 6 — owner-authoritative multi-writer
 
-> Branch: `claude/preset-object-sync-wn2HT` · Status: **design — needs sign-off before coding**
+> Branch: `feature/multiplayer-phase6`, **off `claude/preset-object-sync-wn2HT`**
+> (not `dev` — `dev` doesn't have the multiplayer tier yet). · Status:
+> **decided — implementing**
 > Builds on [permissioned-sync-mesh.md](permissioned-sync-mesh.md) and the
 > shipped read/live-preview tier (object-share + `MeshRouter`). This adds the
 > *write* tier: a remote client editing a shared Object, persisted by the owner.
+>
+> **Decided:** v1 includes **create/delete** (full structural edits), edits are
+> **optimistic with rollback**, and this lives on a branch off the multiplayer
+> feature branch. (The recommendations below were overridden in favour of the
+> fuller scope.)
 >
 > Naming: UI word is **Object**, code identifier stays `scene_node` (per
 > [vocabulary-rename.md](vocabulary-rename.md)).
@@ -37,16 +44,23 @@ peers.
 - Keep the core extractable (the owner-apply path should be a thin vspark adapter
   over a generic "validate → persist → emit" step).
 
-## Out of scope (defer to a v2)
+## In scope (v1, decided)
 
-- **Structural edits** (create / delete of nodes inside a shared subtree) — they
-  add id-allocation and subtree-membership-of-a-not-yet-existing-node questions.
-  **v1 is `update` only** (transform / properties / material / model-swap of
-  nodes already in the shared snapshot).
+- **`update` + `create` + `delete`** of `scene_node`s inside a shared subtree.
+  Create/delete use writer-generated UUIDs (collision-free) and AuthZ via the
+  `create`/`delete` rights; a create's parent must resolve into the shared
+  subtree (owning-root check, same `findOwningRoot`/`isDescendant` the read tier
+  uses).
+- **Optimistic apply + rollback** on the writer: apply to the local projection
+  immediately, reconcile/replace when the owner's authoritative echo arrives, and
+  **roll back** if the owner rejects (no grant) or times out. Keep a small
+  pending-write log keyed by the entity id + the writer's HLC so the echo can be
+  matched and the optimistic state reverted to the last authoritative snapshot.
+
+## Out of scope (defer to a later pass)
+
 - Writes to **behaviours / camera-effects / compose-layers / clips** of a shared
   Object (v1 is `scene_node` documents only).
-- **Optimistic local apply** on the writer (v1 takes the owner round-trip; the
-  edit shows when the authoritative echo returns). Optimism + rollback is a v2.
 - Offline edit queue / multi-hop relay write routing.
 
 ## Files in scope
@@ -88,35 +102,42 @@ peers.
    the route and the new handler both call it, then `sync.document.touch`. One
    authoritative write path, no behavioural change to local edits.
 3. **`_share_write` (receiver → owner).** Carries `{ env }` where `env` is a
-   `scene_node` `upsert`. Owner `handleEnvelope`:
-   `canAccess(from, 'scene_node:'+env.key, 'update', isDescendant)` → if denied,
-   drop (optionally NACK); if allowed, `persistSceneNode(env.data)` →
-   `sync.document.touch('scene_node', env.key)`. The **existing** `forwardDocOp`
-   then echoes the authoritative DTO to *all* subscribers, originator included.
-4. **Receiver edit routing.** On committing an edit to a `remote` node the peer
-   can write, send `_share_write` instead of the local PUT. The change renders
-   when the owner's `_share_update` echo arrives (round-trip; v1).
+   `scene_node` `upsert` **or** `remove` (for create the writer mints the UUID;
+   for remove it carries the `route` ancestor hint like the read tier). Owner
+   `handleEnvelope`: `canAccess(from, 'scene_node:'+env.key, need, isDescendant)`
+   with `need` = `create`/`update`/`delete` by op (a create also checks the
+   parent resolves into a granted subtree) → denied ⇒ **NACK** (`_share_write_nak`
+   carrying the rejected entity id so the writer rolls back); allowed ⇒
+   `persistSceneNode(env)` (upsert or delete) → `sync.document.touch/remove`. The
+   **existing** `forwardDocOp` then echoes the authoritative result to *all*
+   subscribers, originator included.
+4. **Receiver edit routing + optimism.** On a create/update/delete of a `remote`
+   node the peer can write: (a) apply optimistically to the local projection;
+   (b) record a pending write (entity id + writer HLC + pre-image for rollback);
+   (c) send `_share_write` to the owner. The owner's `_share_update` echo (or a
+   `remove`) **clears** the matching pending write and replaces the optimistic
+   state with the authoritative DTO. A `_share_write_nak` (or timeout) **rolls
+   back** to the pre-image.
 5. **Reconciliation.** Owner serialises writes (single-threaded) and stamps the
-   echo with its HLC (`sync.document` already does). Two concurrent remote
-   writers → owner applies in arrival order, last write wins per entity; all
-   clients converge on the owner's echo. Client apply already drops stale by HLC
-   in `registry.ts:24`; mirror that guard in `applySharedUpdate` so a late echo
-   can't overwrite a newer one (**Decision 4**).
-6. **Revocation.** `update` revoke reuses `revokeUnauthorized`/`revalidate`; a
-   peer that loses write keeps read (or loses both) per the share toggle.
+   echo with its HLC (`sync.document` already does). Concurrent writers → owner
+   applies in arrival order, last write wins per entity; clients converge on the
+   echo. Mirror the `registry.ts:24` HLC stale-drop guard in `applySharedUpdate`
+   so a late echo can't clobber a newer one, and so an owner echo always beats a
+   peer's stale optimistic state.
+6. **Revocation.** `update`/`create`/`delete` revoke reuses
+   `revokeUnauthorized`/`revalidate`; a peer that loses write keeps read (or
+   loses both) per the share toggle.
 
-## Open decisions (need your call before coding)
+## Decided
 
-1. **v1 scope** — `update` only (recommended), or include create/delete now?
-2. **Round-trip vs optimistic** — v1 round-trip (recommended; simpler/correct) or
-   optimistic-with-rollback immediately?
-3. **Owner persist mechanism** — extract `persistSceneNode` shared with the REST
-   route (recommended, least duplication), or a separate `persist` hook on
-   `ResourceDescriptor`, or a standalone apply module?
-4. **Conflict policy** — owner arrival-order + HLC-guarded client apply
-   (recommended), or full per-field LWW merge on the owner?
-5. **Write-share UX** — per-grantee read/can-edit toggle in the existing share
-   submenu (recommended), or a separate "collaborators" surface?
+- **Scope:** `update` + `create` + `delete` (writer-minted UUIDs).
+- **Responsiveness:** optimistic apply + rollback (pending-write log).
+- **Owner persist:** extract `persistSceneNode` shared with the REST route (one
+  authoritative write path; least duplication).
+- **Conflict:** owner arrival-order authority + HLC-guarded client apply.
+- **Write-share UX:** per-grantee read / can-edit toggle in the existing share
+  submenu.
+- **Branch:** `feature/multiplayer-phase6` off `claude/preset-object-sync-wn2HT`.
 
 ## Acceptance / verification
 
@@ -132,5 +153,6 @@ peers.
 
 ## Output
 
-Open a PR into `dev` when done (this is a new tier; consider a fresh
-`feature/multiplayer-phase6` branch off `dev` rather than continuing this one).
+Built on `feature/multiplayer-phase6` (off `claude/preset-object-sync-wn2HT`).
+It merges back into the multiplayer feature branch, since it depends on the
+unmerged multiplayer tier — not directly into `dev`.
