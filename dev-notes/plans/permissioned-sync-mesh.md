@@ -244,4 +244,23 @@ namespace-subscription special case (subscribe to `scene_node:<root>` + subtree)
 ## Output
 Captured for design alignment. Build order is the read/preview tier first
 (generalise namespaces + grants over the existing mesh), with the backend↔remote-
-client WebRTC edge and persisted-write tier as subsequent slices. No code yet.
+client WebRTC edge and persisted-write tier as subsequent slices.
+
+### Progress
+
+- **Backend↔remote-browser WebRTC edge — IMPLEMENTED** (transport/connectivity
+  only). `BrowserPeerMesh` (`packages/backend/src/multiplayer/browserMesh.ts`) is
+  an answer-only werift answerer speaking the client mesh's single-`mesh`-channel
+  protocol; `SharingManager` is now transport-agnostic via a `MeshTransport`
+  facade (browsers over `BrowserPeerMesh`, servers over `ServerMesh`); the
+  frontend `clientMesh.setRoster` dials remote backends. The signaling relay
+  gained backend-as-endpoint support. See [../modules/multiplayer.md](../modules/multiplayer.md).
+- **Still to do:** migrate object-share *delivery* (snapshot + live updates) onto
+  this direct edge, plus frontend consumption of `_share_*` envelopes arriving
+  over the direct WebRTC channel.
+- **Open blocker — asset transport to a remote browser.** Today assets localize
+  at the receiver's backend (content-addressed via `BlobManager` into a
+  shared/HTTP `uploads/_shared/` dir served by `/uploads`). Over a direct browser
+  edge there is no receiver backend in the path, so either blobs stream over the
+  data channel into browser-side object URLs, or the snapshot/asset path stays on
+  the server-relay while only live data uses the edge. Undecided.
