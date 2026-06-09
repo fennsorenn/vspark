@@ -21,6 +21,9 @@ import { ServerMesh, type MeshSignaling } from './mesh.js';
 import { BrowserPeerMesh } from './browserMesh.js';
 import { SharingManager, SHARE_RTYPES } from './sharing.js';
 import { type MeshTransport } from './transport.js';
+import { MeshRouter } from '../sync/meshRouter.js';
+import { grantsForRequester } from '../sync/grants.js';
+import { containmentIndex } from '../sync/containmentIndex.js';
 import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
 import {
   clientMeshRelay,
@@ -63,6 +66,9 @@ class MultiplayerManager {
    *  backend be a full mesh participant of remote browser tabs, not just other
    *  backends. */
   private browserMesh: BrowserPeerMesh | null = null;
+  /** Live grant-gated subscription registry (object-share subscribers + the
+   *  foundation for namespace pub/sub). */
+  private meshRouter: MeshRouter | null = null;
   private sharing: SharingManager | null = null;
   private blob: BlobManager | null = null;
   private enabled = false;
@@ -122,7 +128,20 @@ class MultiplayerManager {
       },
     };
     this.blob = new BlobManager(transport);
-    this.sharing = new SharingManager(transport, this.broadcast, this.blob);
+    // Live grant-gated subscription registry: admit-on-subscribe against this
+    // server's real grant store + the containment index. The object-share path
+    // holds its subscribers here (replacing a bespoke map); links are attached on
+    // connect so `publish()` is ready for the future namespace-pub/sub tier.
+    const meshRouter = new MeshRouter(grantsForRequester, (rtype, id2, anc) =>
+      containmentIndex.isDescendant(rtype, id2, anc)
+    );
+    this.meshRouter = meshRouter;
+    this.sharing = new SharingManager(
+      transport,
+      this.broadcast,
+      this.blob,
+      meshRouter
+    );
     // Forward shared objects' document updates to subscribed peers.
     sync.onDocument((env) => this.sharing?.forwardDocOp(env));
     // Bridge the client-mesh signaling relay onto the server mesh.
@@ -147,10 +166,14 @@ class MultiplayerManager {
       () => this.iceServers
     );
     this.browserMesh.on('peerConnected', (participant: string) => {
+      meshRouter.attach(participant, (env) =>
+        this.browserMesh?.send(participant, env)
+      );
       this.broadcast('mp_browser_peer', { participant, connected: true });
     });
     this.browserMesh.on('peerDisconnected', (participant: string) => {
       this.sharing?.onPeerDisconnected(participant);
+      meshRouter.detach(participant); // drops its link + subscriptions
       this.broadcast('mp_browser_peer', { participant, connected: false });
     });
     this.browserMesh.on(
@@ -185,6 +208,7 @@ class MultiplayerManager {
     });
     this.mesh.on('peerConnected', (peerId: string) => {
       touchLastSeen(peerId);
+      meshRouter.attach(peerId, (env) => this.mesh?.sendEnvelope(peerId, env));
       this.broadcast('mp_peer', { peerId, connected: true });
       // Exchange display names so each side shows the other's live (per-project) name.
       this.sendProfile(peerId);
@@ -194,6 +218,7 @@ class MultiplayerManager {
     this.mesh.on('peerDisconnected', (peerId: string) => {
       this.broadcast('mp_peer', { peerId, connected: false });
       this.sharing?.onPeerDisconnected(peerId);
+      meshRouter.detach(peerId); // drops its link + subscriptions
       clientMeshRelay.onServerDisconnected(peerId);
     });
     // Lossy stream frames (shared-avatar pose/blendshapes).

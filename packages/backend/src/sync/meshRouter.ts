@@ -69,4 +69,9 @@ export class MeshRouter {
   subscriptionsOf(participant: string): Subscription[] {
     return this.hub.subscriptionsOf(participant);
   }
+
+  /** Participants holding at least one admitted subscription. */
+  participants(): string[] {
+    return this.hub.participants();
+  }
 }

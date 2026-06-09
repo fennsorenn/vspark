@@ -12,17 +12,18 @@
  * exits through the pose / runtime-override / data-channel buses — all forwarded
  * here — so the receiver's inert, output-driven projection needs no behaviour
  * execution. Their config rides the initial snapshot for completeness only.
- * (Known boundary: track-clip animation evaluates on the frontend and is *not*
- * forwarded, so a shared object driven purely by a local clip won't animate on
- * the receiver.)
+ * (Track-clip animation is the one frontend-evaluated case that *is* forwarded —
+ * as a transform stream via `forwardNodeTransform`, not config.)
  *
- * Control messages ride the mesh `doc` channel as SyncEnvelopes with reserved
- * `_share_*` rtypes. See dev-notes/plans/multiplayer-phase5.md.
+ * Subscriptions are held in the live grant-gated {@link MeshRouter} (admit-on-
+ * subscribe against the real grant store + containment index), not a bespoke map;
+ * forwarding queries it for each subscriber's owned roots. Control messages ride
+ * the mesh `doc` channel as SyncEnvelopes with reserved `_share_*` rtypes. See
+ * dev-notes/plans/permissioned-sync-mesh.md.
  */
 import { getDb } from '../db/index.js';
 import {
   listSharesForPeer,
-  isSharedWith,
   gatherObjectSnapshot,
   findOwningRoot,
   type ObjectSnapshot,
@@ -30,7 +31,8 @@ import {
 import { assetForPath, type AssetMeta } from './blobs.js';
 import { BlobManager } from './blobTransfer.js';
 import { type MeshTransport } from './transport.js';
-import type { SyncEnvelope } from '@vspark/shared/sync';
+import type { MeshRouter } from '../sync/meshRouter.js';
+import type { Subscription, SyncEnvelope } from '@vspark/shared/sync';
 
 const ADVERTISE = '_share_advertise';
 const SUBSCRIBE = '_share_subscribe';
@@ -70,8 +72,10 @@ function nameOf(objectId: string): string {
 }
 
 export class SharingManager {
-  /** peerId → object ids that peer subscribed to (I'm the owner). */
-  private readonly subscribers = new Map<string, Set<string>>();
+  /** Connected *server* peers (advertise targets). Subscriptions themselves live
+   *  in the router; this is just "who do I push offers to" (browsers learn offers
+   *  via their own server's relay, so they aren't tracked here). */
+  private readonly connected = new Set<string>();
   /** Receiver side: latest share offers advertised by each connected owner, so
    *  a late-joining browser tab can be replayed the offers it missed. */
   private readonly advertised = new Map<string, unknown[]>();
@@ -79,29 +83,39 @@ export class SharingManager {
   constructor(
     private readonly transport: MeshTransport,
     private readonly broadcast: Broadcast,
-    private readonly blob: BlobManager
+    private readonly blob: BlobManager,
+    /** Live grant-gated subscription registry (admit-on-subscribe + the owned
+     *  roots each subscriber pulls). */
+    private readonly router: MeshRouter
   ) {}
 
+  /** A subscription to an Object = its scene_node entity + subtree, all paths. */
+  private subFor(objectId: string): Subscription {
+    return {
+      entityRtype: 'scene_node',
+      entityId: objectId,
+      includeDescendants: true,
+      pathPrefix: '',
+    };
+  }
+
+  /** The object roots a participant is subscribed to (the old `subscribers` set). */
+  private rootsOf(participant: string): Set<string> {
+    return new Set(
+      this.router.subscriptionsOf(participant).map((s) => s.entityId)
+    );
+  }
+
   onPeerConnected(peerId: string): void {
-    // Don't clobber a set a SUBSCRIBE may have already created: the subscribe
-    // envelope can be processed before this handler runs, and a re-fired
-    // peerConnected must not wipe live subscriptions (that race dropped live
-    // updates intermittently while the snapshot still arrived).
-    if (!this.subscribers.has(peerId)) this.subscribers.set(peerId, new Set());
+    this.connected.add(peerId);
     this.advertise(peerId);
   }
 
-  /** Ensure a subscriber set exists (a SUBSCRIBE may arrive before peerConnected). */
-  private subscriberSet(peerId: string): Set<string> {
-    let s = this.subscribers.get(peerId);
-    if (!s) this.subscribers.set(peerId, (s = new Set()));
-    return s;
-  }
-
   onPeerDisconnected(peerId: string): void {
-    this.subscribers.delete(peerId);
+    this.connected.delete(peerId);
     this.advertised.delete(peerId);
-    // Receiver side: drop every projection from this peer.
+    // Subscriptions are dropped by the manager's router.detach(peerId). Receiver
+    // side: drop every projection from this peer.
     this.broadcast('mp_shared_gone', { peerId });
   }
 
@@ -129,12 +143,12 @@ export class SharingManager {
 
   /** Re-advertise to all connected peers (after a grant was added). */
   reAdvertiseAll(): void {
-    for (const peerId of this.subscribers.keys()) this.advertise(peerId);
+    for (const peerId of this.connected) this.advertise(peerId);
   }
 
   /** Owner: a grant was revoked → drop the subscription + tell the peer. */
   notifyUnshared(peerId: string, objectId: string): void {
-    this.subscribers.get(peerId)?.delete(objectId);
+    this.router.unsubscribe(peerId, this.subFor(objectId));
     this.transport.sendEnvelope(peerId, {
       rtype: UNSHARED,
       op: 'event',
@@ -144,15 +158,21 @@ export class SharingManager {
     this.advertise(peerId);
   }
 
-  /** Owner: a grant on `objectId` changed — evict + notify every current
-   *  subscriber that can no longer read it. Covers both remote *server* peers
-   *  and *browser* participants subscribed directly over the WebRTC edge (a
-   *  server-only sweep missed the latter), and only drops those actually revoked
-   *  (a surviving '*' grant keeps a peer subscribed). */
-  revokeUnauthorized(objectId: string): void {
-    for (const [participant, objects] of this.subscribers)
-      if (objects.has(objectId) && !isSharedWith(objectId, participant))
-        this.notifyUnshared(participant, objectId);
+  /** Owner: a grant changed — re-validate every subscriber against the current
+   *  grants and notify those whose subscriptions were evicted. Covers remote
+   *  *server* peers and *browser* participants alike (the router holds both), and
+   *  only drops the now-uncovered ones (a surviving '*' grant keeps a peer). */
+  revokeUnauthorized(_objectId: string): void {
+    for (const participant of this.router.participants())
+      for (const sub of this.router.revalidate(participant)) {
+        this.transport.sendEnvelope(participant, {
+          rtype: UNSHARED,
+          op: 'event',
+          key: sub.entityId,
+          data: { objectId: sub.entityId },
+        });
+        this.advertise(participant);
+      }
   }
 
   /** Receiver: subscribe to a peer's object (the frontend placed a wrapper). */
@@ -180,8 +200,9 @@ export class SharingManager {
     switch (env.rtype) {
       case SUBSCRIBE: {
         const objectId = data.objectId as string;
-        if (!isSharedWith(objectId, from)) return; // not granted — ignore
-        this.subscriberSet(from).add(objectId);
+        // Admit iff a read grant covers it (source-side admission). Returns false
+        // when not granted — ignore.
+        if (!this.router.subscribe(from, this.subFor(objectId))) return;
         const snapshot = gatherObjectSnapshot(objectId);
         if (snapshot)
           this.transport.sendEnvelope(from, {
@@ -193,7 +214,7 @@ export class SharingManager {
         break;
       }
       case UNSUBSCRIBE:
-        this.subscribers.get(from)?.delete(data.objectId as string);
+        this.router.unsubscribe(from, this.subFor(data.objectId as string));
         break;
       // --- receiver side: relay to the frontend ---
       case ADVERTISE: {
@@ -241,7 +262,8 @@ export class SharingManager {
     const filePath = (env.data as { filePath?: string } | undefined)?.filePath;
     const asset =
       env.op === 'upsert' && filePath ? assetForPath(filePath) : null;
-    for (const [peerId, roots] of this.subscribers) {
+    for (const peerId of this.router.participants()) {
+      const roots = this.rootsOf(peerId);
       if (roots.size === 0) continue;
       const root =
         env.op === 'remove'
@@ -266,7 +288,8 @@ export class SharingManager {
     nodeId: string,
     payload: Record<string, unknown>
   ): void {
-    for (const [peerId, roots] of this.subscribers) {
+    for (const peerId of this.router.participants()) {
+      const roots = this.rootsOf(peerId);
       if (roots.has(nodeId))
         this.transport.sendStream(peerId, {
           rtype: STREAM,
@@ -288,7 +311,8 @@ export class SharingManager {
     nodeId: string,
     transform: Record<string, number>
   ): void {
-    for (const [peerId, roots] of this.subscribers) {
+    for (const peerId of this.router.participants()) {
+      const roots = this.rootsOf(peerId);
       if (roots.size === 0) continue;
       if (findOwningRoot(nodeId, roots))
         this.transport.sendStream(peerId, {
@@ -308,7 +332,8 @@ export class SharingManager {
   forwardOverride(op: 'set' | 'clear', payload: Record<string, unknown>): void {
     if (payload.targetKind !== 'scene_node') return;
     const targetId = payload.targetId as string;
-    for (const [peerId, roots] of this.subscribers) {
+    for (const peerId of this.router.participants()) {
+      const roots = this.rootsOf(peerId);
       if (roots.size === 0) continue;
       if (findOwningRoot(targetId, roots))
         this.transport.sendEnvelope(peerId, {
@@ -326,7 +351,8 @@ export class SharingManager {
   forwardDataChannel(op: 'set' | 'clear', payload: Record<string, unknown>): void {
     const scope = payload.scope as string;
     if (!scope) return; // global — not tied to a shared object
-    for (const [peerId, roots] of this.subscribers) {
+    for (const peerId of this.router.participants()) {
+      const roots = this.rootsOf(peerId);
       if (roots.size === 0) continue;
       if (findOwningRoot(scope, roots))
         this.transport.sendEnvelope(peerId, {

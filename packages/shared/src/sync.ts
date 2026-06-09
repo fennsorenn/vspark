@@ -425,6 +425,11 @@ export class SubscriptionHub {
   subscriptionsOf(participant: string): Subscription[] {
     return [...(this.subs.get(participant) ?? [])];
   }
+
+  /** Participants holding at least one admitted subscription. */
+  participants(): string[] {
+    return [...this.subs.keys()];
+  }
 }
 
 // --- Typed containment hierarchy (re-exported; see ./containment) -----------
