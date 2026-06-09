@@ -12,7 +12,8 @@ backups/
 *.tsbuildinfo
 .vscode/
 .idea/
-.claude/
+.claude/*
+!.claude/skills/
 .DS_Store
 itellar
 **/uploads/**
