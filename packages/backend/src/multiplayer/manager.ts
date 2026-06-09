@@ -345,15 +345,11 @@ class MultiplayerManager {
     this.sharing?.reAdvertiseAll();
   }
 
-  /** Revoke a grant + tell connected peers to drop it. */
+  /** Revoke a grant + tell every affected subscriber (server peers and direct
+   *  browser participants alike) to drop it. */
   unshare(objectId: string, granteePeerId: string): void {
     removeShare(objectId, granteePeerId);
-    if (granteePeerId === '*') {
-      for (const id of this.mesh?.connectedPeers() ?? [])
-        this.sharing?.notifyUnshared(id, objectId);
-    } else {
-      this.sharing?.notifyUnshared(granteePeerId, objectId);
-    }
+    this.sharing?.revokeUnauthorized(objectId);
   }
 
   /** Grantees of an object (for the "Share with" UI). */

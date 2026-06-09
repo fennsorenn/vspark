@@ -134,6 +134,17 @@ export class SharingManager {
     this.advertise(peerId);
   }
 
+  /** Owner: a grant on `objectId` changed — evict + notify every current
+   *  subscriber that can no longer read it. Covers both remote *server* peers
+   *  and *browser* participants subscribed directly over the WebRTC edge (a
+   *  server-only sweep missed the latter), and only drops those actually revoked
+   *  (a surviving '*' grant keeps a peer subscribed). */
+  revokeUnauthorized(objectId: string): void {
+    for (const [participant, objects] of this.subscribers)
+      if (objects.has(objectId) && !isSharedWith(objectId, participant))
+        this.notifyUnshared(participant, objectId);
+  }
+
   /** Receiver: subscribe to a peer's object (the frontend placed a wrapper). */
   subscribe(peerId: string, objectId: string): void {
     this.transport.sendEnvelope(peerId, {
