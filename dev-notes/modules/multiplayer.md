@@ -20,11 +20,14 @@ Design context: [plans/multiplayer-phase5.md](../plans/multiplayer-phase5.md),
 | `mesh.ts` | `ServerMesh` — server↔server WebRTC. Opens `doc`+`stream` channels, waits for `doc`. Events: `incomingOffer`, `peerConnected`, `peerDisconnected`, `streamFrame`, `envelope`. |
 | `browserMesh.ts` | **`BrowserPeerMesh`** — backend↔remote-browser WebRTC edge (see below). |
 | `clientMeshRelay.ts` | Signaling relay (browser↔browser + browser↔backend) and the cross-server participant roster. |
+| `transport.ts` | The neutral `MeshTransport` interface (`sendEnvelope` / `sendStream`). Both object-share **and** blob transfer ride it, so neither couples to a concrete mesh. |
 | `sharing.ts` | `SharingManager` — object-share protocol (`_share_*`), transport-agnostic via `MeshTransport`. |
 | `shares.ts` | `shares` table DAO + `gatherObjectSnapshot` / `findOwningRoot`. |
-| `blobs.ts`, `blobTransfer.ts` | Content-addressed asset transfer (`BlobManager`, `_blob_*` rtypes) over `ServerMesh`. |
-| `manager.ts` | `MultiplayerManager` singleton — wires identity → rendezvous → meshes → sharing; accept policy; broadcasts `mp_*` WS events. |
-| `frontend .../mesh/clientMesh.ts` | Browser-side WebRTC mesh participant. |
+| `blobs.ts`, `blobTransfer.ts` | Content-addressed asset transfer (`BlobManager`, `_blob_*` rtypes) over any `MeshTransport` — symmetric across server and browser receivers. |
+| `manager.ts` | `MultiplayerManager` singleton — wires identity → rendezvous → meshes → sharing; accept policy; broadcasts `mp_*` WS events; dispatches inbound `_blob_*` from browsers into the owner's `BlobManager`. |
+| `frontend .../mesh/clientMesh.ts` | Browser-side WebRTC mesh participant; envelope send/sink (`sendEnvelope` / `onEnvelope` / `isConnected`). |
+| `frontend .../mesh/blobReceiver.ts` | Browser-side mirror of the backend blob receiver — same `_blob_*` protocol, caches to object URLs. |
+| `frontend .../sync/shareDirect.ts` | Receiver-side consumption of `_share_*` over the direct edge (mirrors the WS `mp_shared_*` path); browser-side asset localization via `blobReceiver`. |
 
 Participant ids: backends use the Ed25519 `peerId`; browser tabs use
 `${serverPeerId}#${tabUuid}` (`isClientParticipant` = has a `#tab` suffix,
@@ -87,6 +90,9 @@ channel isn't open), `isConnected`, `connectedParticipants`, `offsetFor`,
   `SharingManager.handleEnvelope` — a remote browser can subscribe/unsubscribe
   directly to the owning backend over this edge; replies route back over the same
   channel via the transport facade.
+- Inbound `_blob_*` envelopes from a browser dispatch into the owner's
+  `BlobManager` — the owner serves a content-addressed asset to a browser exactly
+  as it serves another backend (see *Asset transfer* below).
 
 ### Signaling relay extension (`clientMeshRelay.ts`)
 
@@ -102,10 +108,10 @@ includes connected remote backends so clients learn to dial them.
 suffix) as always-initiator, skipping the browser's own server (reached over WS).
 Browser↔browser keeps the deterministic smaller-id-initiates glare rule.
 
-## Object sharing (`SharingManager`) — transport-agnostic
+## `MeshTransport` (`transport.ts`)
 
-`SharingManager` no longer holds a `ServerMesh`. It sends through the exported
-`MeshTransport` interface:
+Both object-share and blob transfer ride a single neutral interface, extracted to
+its own module so nothing couples to a concrete mesh:
 
 ```ts
 interface MeshTransport {
@@ -114,16 +120,70 @@ interface MeshTransport {
 }
 ```
 
-The manager supplies a facade that resolves a participant id to its link via
-`isClientParticipant`: browser participants (`serverId#tab`) go over
-`BrowserPeerMesh`, servers over `ServerMesh`. The existing server-relay path is
-behaviour-preserving.
+`SharingManager` no longer holds a `ServerMesh`; the manager supplies a facade
+that resolves a participant id to its link via `isClientParticipant`: browser
+participants (`serverId#tab`) go over `BrowserPeerMesh`, servers over
+`ServerMesh`. The existing server-relay path is behaviour-preserving.
+
+## Object sharing (`SharingManager`) — transport-agnostic
 
 Protocol rtypes (`SHARE_RTYPES`): `_share_advertise` / `_subscribe` /
 `_unsubscribe` / `_snapshot` / `_update` / `_unshared` / `_stream` / `_override`
 / `_datachannel`. The owner tracks subscribers, sends the snapshot on subscribe,
 forwards live document updates of shared subtrees, and advertises grants on
 connect/change.
+
+## Asset transfer is a symmetric mesh capability — IMPLEMENTED
+
+Content-addressed blob transfer (`BlobManager`, `_blob_*` rtypes: REQUEST →
+BEGIN / CHUNK… / END / ERROR) now rides the `MeshTransport`, not a `ServerMesh`.
+The owner serves an asset by sha256 hash identically to **any** participant — a
+remote backend's disk cache or a remote browser's object-URL cache. The sink is
+the only difference, never the protocol:
+
+- **Backend receiver** (`blobTransfer.ts`): reassembles → verifies sha256 →
+  writes to the shared `uploads/_shared/<hash><ext>` disk cache.
+- **Browser receiver** (`frontend .../mesh/blobReceiver.ts`): the mirror image —
+  reassembles base64 chunks → verifies sha256 via Web Crypto → caches as
+  `URL.createObjectURL`. Deduped per hash, `ensureBlob(owner, meta)` resolves to
+  an object URL, 60 s fetch timeout, 256 MB cap.
+
+`manager.ts` dispatches inbound `_blob_*` from a browser into the owner's
+`BlobManager`. Headless-verified: the owner serves a browser-participant id and
+the browser-style assembler reproduces the bytes with a matching sha256 (4/4).
+Server↔server behaviour is preserved.
+
+## Direct-edge object-share delivery (P2P) — IMPLEMENTED
+
+When a browser holds a direct mesh edge to a remote owner, the heavy data —
+snapshot, live `scene_node` updates, pose/blendshape/IK stream, runtime
+overrides, data channels, and asset blobs — flows **peer-to-peer** over that
+edge, skipping the relay hop through the receiver's own server. **Offers still
+ride the relay** (`mp_shares`); only the heavy data goes direct.
+
+- **`clientMesh.ts`** gained `sendEnvelope(id, env)`, an `onEnvelope` sink, and
+  `isConnected(id)`; inbound rtype messages route to the sink (`ping`/`pong`
+  stays internal).
+- **`shareDirect.ts`** is the receiver-side consumer of `_share_*` over the edge,
+  mirroring the WS `mp_shared_*` path (it calls the same `sharedProjection` /
+  pose / override / data-channel store methods). Because there is **no receiver
+  backend in the path**, it does browser-side asset localization itself: fetch
+  each asset by hash via `blobReceiver` → object URL → rewrite node `filePath`s
+  (the browser equivalent of the backend's relaySnapshot/relayUpdate). On a fetch
+  failure it keeps the owner path (still resolves when both servers share an
+  uploads dir). Exports `subscribeDirect` / `unsubscribeDirect` / `hasDirectEdge`.
+- **`useClientMesh.ts`** wires a mesh-envelope dispatcher into
+  `clientMesh.configure`: `_blob_*` → `blobReceiver.handleBlobEnvelope`,
+  `_share_*` → `shareDirect.handleShareEnvelope`.
+- **`useSharedSubscriptions.ts`** prefers the direct edge (`subscribeDirect`) when
+  the owner is mesh-connected, falling back to the server relay (`peerSubscribe`)
+  otherwise. **Exactly one path subscribes** → no double-delivery.
+  `ConnectionsWindow.tsx` unsubscribes over **both** paths on container removal
+  (the owner ignores an unheld subscription).
+
+**Known limitation:** a direct-edge-only drop (the owner's server link still up)
+leaves the projection frozen until reconnect. The common teardown paths — server
+disconnect → `mp_shared_gone`, explicit remove — are unaffected.
 
 ## Status
 
