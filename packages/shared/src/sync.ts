@@ -299,3 +299,11 @@ export function granteeCandidates(requester: string): string[] {
   const server = participantServer(requester);
   return server === requester ? [requester, '*'] : [requester, server, '*'];
 }
+
+// --- Typed containment hierarchy (re-exported; see ./containment) -----------
+export {
+  ContainmentIndex,
+  type ContainmentSchema,
+  type SchemaProvider,
+  type StructuralCheck,
+} from './containment';
