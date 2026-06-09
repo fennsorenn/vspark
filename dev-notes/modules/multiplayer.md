@@ -212,6 +212,8 @@ surviving `'*'` grant keeps a peer subscribed).
 | **Frontend consumption of `_share_*` over the direct WebRTC channel** | **Implemented** |
 | Generalised namespace subscription + grant model (permissioned-sync-mesh) | Planned |
 | Migrating subscriber fan-out off `SharingManager.subscribers` onto the `MeshRouter` core | Planned (not yet live) |
+| Live config-sync of behaviours/effects | **Non-goal** (output-synced; see below) |
+| Forwarding track-clip-driven animation of a shared object | Open boundary (not forwarded) |
 
 ### Resolved — asset transport to a remote browser
 
@@ -221,6 +223,24 @@ object URLs**, via the symmetric `_blob_*` protocol (see *Asset transfer*). Asse
 transfer is now a mesh capability shared by backend and browser receivers; only
 the sink differs (disk vs object URL). See
 [plans/permissioned-sync-mesh.md](../plans/permissioned-sync-mesh.md).
+
+### Non-goal — live config-sync of behaviours/effects
+
+A behaviour (signal graph) runs only on the **owner's** backend; the receiver's
+projection is frontend-only, `remote: true`, inert (the receiver's backend never
+instantiates graphs for projected nodes — graphs come from its own
+`node_components`). Everything a graph produces that affects rendered state exits
+through the **pose / runtime-override / data-channel** buses, all of which are
+forwarded to subscribers (`forwardStream` / `forwardOverride` /
+`forwardDataChannel`). So a shared behaviour is synced **by its output, not its
+config** — forwarding behaviour config edits live would change nothing on an
+output-driven receiver. Config rides the initial snapshot for completeness only.
+
+**Open boundary — track clips.** Unlike behaviours, track-clip evaluation runs on
+the **frontend** (`useTrackClipEvaluator`) and writes local override slots; it
+does *not* go through the forwarded override bus or persist `scene_node` ops. A
+shared object animated purely by a local clip therefore won't animate on the
+receiver. Left as an explicit product decision rather than silently synced.
 
 ### Not yet live — `MeshRouter` core
 

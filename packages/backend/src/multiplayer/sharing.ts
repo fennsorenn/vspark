@@ -3,8 +3,18 @@
  * subscribers, send the snapshot on subscribe, forward live document updates of
  * shared subtrees, advertise grants on connect/change. Receiver side: relay the
  * advertise / snapshot / update / unshared control messages to the frontend
- * (which materialises the projected nodes). Asset transfer and live pose
- * forwarding are follow-ups (assets resolve via a shared uploads dir on one box).
+ * (which materialises the projected nodes). Live pose + asset transfer are wired
+ * (pose/blendshape/IK over the stream forwarders; content-addressed blobs over
+ * `_blob_*`).
+ *
+ * Behaviours/effects are *not* config-synced live, by design: a behaviour (signal
+ * graph) runs only on the owner; whatever it produces that affects rendered state
+ * exits through the pose / runtime-override / data-channel buses — all forwarded
+ * here — so the receiver's inert, output-driven projection needs no behaviour
+ * execution. Their config rides the initial snapshot for completeness only.
+ * (Known boundary: track-clip animation evaluates on the frontend and is *not*
+ * forwarded, so a shared object driven purely by a local clip won't animate on
+ * the receiver.)
  *
  * Control messages ride the mesh `doc` channel as SyncEnvelopes with reserved
  * `_share_*` rtypes. See dev-notes/plans/multiplayer-phase5.md.
@@ -223,8 +233,9 @@ export class SharingManager {
    *  transform / model edits) resolve the owning root via parent_id; removes use
    *  the envelope's `route` ancestor hint, since the row is already gone. A live
    *  model swap also carries the new asset's metadata so the receiver can fetch
-   *  it. Behaviours/effects/clips ride the initial snapshot — live updates for
-   *  those are a follow-up. */
+   *  it. Behaviours/effects ride the initial snapshot only — their live effect is
+   *  synced as graph *output* (pose / overrides / data channels), not config (see
+   *  the file header). */
   forwardDocOp(env: SyncEnvelope): void {
     if (env.rtype !== 'scene_node') return;
     const filePath = (env.data as { filePath?: string } | undefined)?.filePath;
