@@ -29,6 +29,11 @@ export interface BlobMeta {
 
 const FETCH_TIMEOUT_MS = 60_000;
 const MAX_BLOB_BYTES = 256 * 1024 * 1024;
+/** Wait for the owner's data channel to open before giving up on the request, so
+ *  an asset fetch that resolves a beat before the edge is ready still rides the
+ *  edge (rather than failing → falling back to the owner/relay path). */
+const SEND_RETRY_MS = 250;
+const SEND_MAX_ATTEMPTS = 40; // ~10s, well under FETCH_TIMEOUT_MS
 
 interface Incoming {
   mime: string;
@@ -68,17 +73,28 @@ export function ensureBlob(owner: string, meta: BlobMeta): Promise<string> {
       reject,
       timer,
     });
-    const ok = clientMesh.sendEnvelope(owner, {
-      rtype: REQUEST,
-      op: 'event',
-      key: meta.hash,
-      data: { hash: meta.hash },
-    });
-    if (!ok) {
-      clearTimeout(timer);
-      incoming.delete(meta.hash);
-      reject(new Error('mesh channel not open'));
-    }
+    // Send the REQUEST, waiting for the owner's channel to open: the snapshot's
+    // assets can resolve a moment before the edge is fully ready, and a one-shot
+    // send-or-fail there would drop the transfer to the owner/relay path.
+    let attempts = 0;
+    const trySend = (): void => {
+      if (!incoming.has(meta.hash)) return; // already finished/failed
+      const sent = clientMesh.sendEnvelope(owner, {
+        rtype: REQUEST,
+        op: 'event',
+        key: meta.hash,
+        data: { hash: meta.hash },
+      });
+      if (sent) return;
+      if (++attempts > SEND_MAX_ATTEMPTS) {
+        clearTimeout(timer);
+        incoming.delete(meta.hash);
+        reject(new Error('mesh channel not open'));
+        return;
+      }
+      setTimeout(trySend, SEND_RETRY_MS);
+    };
+    trySend();
   }).finally(() => pending.delete(meta.hash));
 
   pending.set(meta.hash, p);
