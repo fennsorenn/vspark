@@ -16,6 +16,7 @@ import {
   isClientParticipant,
   makeOffsetTracker,
   participantServer,
+  type SyncEnvelope,
 } from '@vspark/shared/sync';
 
 type Signal =
@@ -38,6 +39,9 @@ class ClientMesh {
   private selfId = '';
   private getWs: () => WebSocket | null = () => null;
   private onChange: (ids: string[]) => void = () => {};
+  /** Sink for data envelopes (rtype messages) arriving over a peer's channel —
+   *  the object-share + blob-transfer protocols ride this. */
+  private onEnvelope: (from: string, env: SyncEnvelope) => void = () => {};
   private iceServers: RTCIceServer[] = [];
   private readonly peers = new Map<string, MeshPeer>();
 
@@ -45,12 +49,32 @@ class ClientMesh {
     selfId: string;
     getWs: () => WebSocket | null;
     onChange: (ids: string[]) => void;
+    onEnvelope?: (from: string, env: SyncEnvelope) => void;
     iceServers?: RTCIceServer[];
   }): void {
     this.selfId = opts.selfId;
     this.getWs = opts.getWs;
     this.onChange = opts.onChange;
+    if (opts.onEnvelope) this.onEnvelope = opts.onEnvelope;
     if (opts.iceServers) this.iceServers = opts.iceServers;
+  }
+
+  /** Send a data envelope to a connected participant over its mesh channel.
+   *  Returns false (never throws) if the channel isn't open. */
+  sendEnvelope(id: string, env: SyncEnvelope): boolean {
+    const dc = this.peers.get(id)?.dc;
+    if (!dc || dc.readyState !== 'open') return false;
+    try {
+      dc.send(JSON.stringify(env));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Whether we hold a live data channel to a participant. */
+  isConnected(id: string): boolean {
+    return this.peers.get(id)?.connected ?? false;
   }
 
   /** Announce our participant id to the backend (call on every WS (re)open). */
@@ -187,7 +211,7 @@ class ClientMesh {
   }
 
   private onMessage(id: string, raw: string): void {
-    let msg: { kind?: string; t0?: number; tr?: number };
+    let msg: { kind?: string; t0?: number; tr?: number; rtype?: string };
     try {
       msg = JSON.parse(raw);
     } catch {
@@ -201,8 +225,10 @@ class ClientMesh {
       );
     } else if (msg.kind === '__pong' && typeof msg.t0 === 'number') {
       peer.offset.observe(msg.t0, msg.tr ?? Date.now(), Date.now());
+    } else if (typeof msg.rtype === 'string') {
+      // Data envelope (object-share / blob transfer) — hand to the sink.
+      this.onEnvelope(id, msg as SyncEnvelope);
     }
-    // Live `stream`/`field` envelopes are routed here in the next slice.
   }
 
   private flushIce(id: string): void {
