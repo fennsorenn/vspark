@@ -373,8 +373,13 @@ class MultiplayerManager {
   // --- sharing ---------------------------------------------------------------
 
   /** Grant a peer ('*' = all) access to one of my objects + advertise it live. */
-  share(objectId: string, granteePeerId: string, shareKind: ShareKind): void {
-    addShare(shareKind, objectId, granteePeerId);
+  share(
+    objectId: string,
+    granteePeerId: string,
+    shareKind: ShareKind,
+    canWrite = false
+  ): void {
+    addShare(shareKind, objectId, granteePeerId, canWrite);
     this.sharing?.reAdvertiseAll();
   }
 

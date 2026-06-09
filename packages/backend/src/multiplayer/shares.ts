@@ -21,6 +21,8 @@ export interface ShareGrant {
   shareKind: ShareKind;
   objectId: string;
   granteePeerId: string;
+  /** Whether this grantee may also edit (update/create/delete) the subtree. */
+  canWrite: boolean;
   createdAt: string;
 }
 
@@ -29,11 +31,14 @@ export interface ShareGrant {
 // shareKind concept while delegating to the generalized grant store. See
 // dev-notes/plans/permissioned-sync-mesh.md.
 
-/** A scene/object share = a read grant on the scene_node entity + its subtree. */
+/** A scene/object share = a read grant on the scene_node entity + its subtree.
+ *  `canWrite` additionally grants update/create/delete (the Phase 6 write tier) —
+ *  a single "can edit" toggle covers all three structural rights. */
 export function addShare(
   _shareKind: ShareKind,
   objectId: string,
-  granteePeerId: string
+  granteePeerId: string,
+  canWrite = false
 ): void {
   addGrant({
     grantee: granteePeerId,
@@ -41,7 +46,12 @@ export function addShare(
     entityId: objectId,
     includeDescendants: true,
     pathPrefix: '',
-    rights: { read: true },
+    rights: {
+      read: true,
+      update: canWrite,
+      create: canWrite,
+      delete: canWrite,
+    },
   });
 }
 
@@ -65,6 +75,7 @@ export function listSharesForPeer(peerId: string): ShareGrant[] {
       shareKind: 'object' as ShareKind,
       objectId: g.entityId,
       granteePeerId: g.grantee,
+      canWrite: !!g.rights.update,
       createdAt: '',
     }));
 }

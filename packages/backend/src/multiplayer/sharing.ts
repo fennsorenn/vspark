@@ -32,7 +32,15 @@ import { assetForPath, type AssetMeta } from './blobs.js';
 import { BlobManager } from './blobTransfer.js';
 import { type MeshTransport } from './transport.js';
 import type { MeshRouter } from '../sync/meshRouter.js';
-import type { Subscription, SyncEnvelope } from '@vspark/shared/sync';
+import { canAccess } from '../sync/grants.js';
+import { containmentIndex } from '../sync/containmentIndex.js';
+import {
+  applySceneNodeUpsert,
+  applySceneNodeRemove,
+  sceneNodeExists,
+  type SceneNodeDto,
+} from './sceneNodeWrite.js';
+import type { Right, Subscription, SyncEnvelope } from '@vspark/shared/sync';
 
 const ADVERTISE = '_share_advertise';
 const SUBSCRIBE = '_share_subscribe';
@@ -46,6 +54,10 @@ const STREAM = '_share_stream';
 const OVERRIDE = '_share_override';
 /** Data-channel set/clear scoped to a shared subtree node (reliable doc channel). */
 const DATACHANNEL = '_share_datachannel';
+/** Receiver → owner: a remote write request on a shared subtree node (Phase 6). */
+const WRITE = '_share_write';
+/** Owner → receiver: a write was rejected (no grant), so roll back the optimism. */
+const WRITE_NAK = '_share_write_nak';
 
 /** rtypes the sharing manager owns (so the mesh dispatcher routes them here). */
 export const SHARE_RTYPES = new Set([
@@ -57,6 +69,8 @@ export const SHARE_RTYPES = new Set([
   UNSHARED,
   OVERRIDE,
   DATACHANNEL,
+  WRITE,
+  WRITE_NAK,
 ]);
 
 type Broadcast = (kind: string, payload: Record<string, unknown>) => void;
@@ -246,7 +260,54 @@ export class SharingManager {
       case DATACHANNEL:
         this.broadcast('mp_shared_datachannel', { peerId: from, ...data });
         break;
+      // --- owner side: a granted remote peer's write request ---
+      case WRITE:
+        this.handleWrite(from, data.env as SyncEnvelope);
+        break;
+      // --- receiver side: the owner rejected our write → roll back ---
+      case WRITE_NAK:
+        this.broadcast('mp_shared_write_nak', {
+          peerId: from,
+          objectId: data.objectId,
+          id: data.id,
+        });
+        break;
     }
+  }
+
+  /** Owner: authorize + apply a remote scene_node write, or NAK it. Create is
+   *  authorized against the parent (the new id isn't in the tree yet); update and
+   *  delete against the node id. AuthZ via the grant store, so writes outside a
+   *  granted subtree are rejected. On success the persist emits, and the existing
+   *  `forwardDocOp` echoes the authoritative result to every subscriber. */
+  private handleWrite(from: string, env: SyncEnvelope): void {
+    if (env?.rtype !== 'scene_node') return;
+    const id = env.key;
+    const isDesc = containmentIndex.isDescendant;
+    let need: Right;
+    let authKey: string;
+    if (env.op === 'remove') {
+      need = 'delete';
+      authKey = `scene_node:${id}`;
+    } else if (sceneNodeExists(id)) {
+      need = 'update';
+      authKey = `scene_node:${id}`;
+    } else {
+      need = 'create';
+      const parentId = (env.data as { parentId?: string } | undefined)?.parentId;
+      authKey = `scene_node:${parentId ?? ''}`;
+    }
+    if (!canAccess(from, authKey, need, isDesc)) {
+      this.transport.sendEnvelope(from, {
+        rtype: WRITE_NAK,
+        op: 'event',
+        key: id,
+        data: { objectId: id, id },
+      });
+      return;
+    }
+    if (env.op === 'remove') applySceneNodeRemove(id, env.scope, env.route);
+    else applySceneNodeUpsert(env.data as SceneNodeDto);
   }
 
   /** Owner: forward a document op to every subscriber whose subtree contains it.

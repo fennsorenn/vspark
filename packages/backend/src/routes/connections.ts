@@ -213,6 +213,7 @@ router.post('/connections/objects/:objectId/share', (req, res) => {
     });
   const granteePeerId = String(req.body?.granteePeerId ?? '');
   const shareKind = req.body?.shareKind === 'scene' ? 'scene' : 'object';
+  const canWrite = req.body?.canWrite === true;
   if (!granteePeerId)
     return res.status(400).json({
       ok: false,
@@ -222,7 +223,12 @@ router.post('/connections/objects/:objectId/share', (req, res) => {
         code: 'VALIDATION_ERROR',
       },
     });
-  multiplayerManager.share(req.params.objectId, granteePeerId, shareKind);
+  multiplayerManager.share(
+    req.params.objectId,
+    granteePeerId,
+    shareKind,
+    canWrite
+  );
   res.json({
     ok: true,
     data: { grantees: multiplayerManager.grantees(req.params.objectId) },
