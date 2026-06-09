@@ -367,6 +367,15 @@ class MultiplayerManager {
     this.sharing?.forwardStream(kind, nodeId, payload);
   }
 
+  /** Owner: forward a clip-driven transform of a shared subtree node (resolves
+   *  the owning root, so children inside the subtree match, not just the root). */
+  forwardNodeTransform(
+    nodeId: string,
+    transform: Record<string, number>
+  ): void {
+    this.sharing?.forwardNodeTransform(nodeId, transform);
+  }
+
   /** Owner: forward a runtime override on a shared scene node to subscribers. */
   forwardOverride(op: 'set' | 'clear', payload: Record<string, unknown>): void {
     this.sharing?.forwardOverride(op, payload);

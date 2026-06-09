@@ -277,6 +277,29 @@ export class SharingManager {
     }
   }
 
+  /** Owner: forward a (clip-driven) transform of a node inside a shared subtree.
+   *  Unlike the root-keyed pose path, this resolves the owning root, so a clip
+   *  animating a *child* of the shared object matches too (not just the root).
+   *  Rides the lossy stream channel as a `node_transform_preview` frame — the
+   *  receiver applies it via `smoothNodeTransform` on the projected node (owner
+   *  ids are preserved). Reverts are re-sent a few frames by the caller, so a
+   *  dropped frame here doesn't strand the node. */
+  forwardNodeTransform(
+    nodeId: string,
+    transform: Record<string, number>
+  ): void {
+    for (const [peerId, roots] of this.subscribers) {
+      if (roots.size === 0) continue;
+      if (findOwningRoot(nodeId, roots))
+        this.transport.sendStream(peerId, {
+          rtype: STREAM,
+          objectId: nodeId,
+          kind: 'node_transform_preview',
+          payload: { nodeId, transform },
+        });
+    }
+  }
+
   /** Owner: forward a runtime override set/clear on a shared subtree node to its
    *  subscribers over the reliable doc channel (a dropped `clear` must not stick,
    *  so this can't ride the lossy stream channel). Overrides are low-frequency,

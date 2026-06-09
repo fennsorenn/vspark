@@ -270,10 +270,9 @@ async function start() {
         transform?: Record<string, number>;
       };
       if (typeof p.nodeId === 'string' && p.transform)
-        multiplayerManager.forwardStream('node_transform_preview', p.nodeId, {
-          nodeId: p.nodeId,
-          transform: p.transform,
-        });
+        // Root-resolving forward: a clip may animate a child *inside* the shared
+        // subtree, not only the object root.
+        multiplayerManager.forwardNodeTransform(p.nodeId, p.transform);
     } else if (kind === 'compose_layer_preview') {
       // Same idea for compose layer drag/resize/rotate: relay the patch without
       // touching the DB; the final REST PUT will write+broadcast the canonical row.
