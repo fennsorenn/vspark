@@ -10,7 +10,6 @@
  * `_share_*` rtypes. See dev-notes/plans/multiplayer-phase5.md.
  */
 import { getDb } from '../db/index.js';
-import { ServerMesh } from './mesh.js';
 import {
   listSharesForPeer,
   isSharedWith,
@@ -49,6 +48,19 @@ export const SHARE_RTYPES = new Set([
 
 type Broadcast = (kind: string, payload: Record<string, unknown>) => void;
 
+/** Transport-agnostic per-participant send. A participant is either a remote
+ *  *server* peer (delivered over the {@link ServerMesh}) or a remote *browser*
+ *  participant (`serverId#tab`, delivered over the {@link BrowserPeerMesh}); the
+ *  facade in the manager resolves the id to its link. Sharing never sees the
+ *  transport — it just addresses subscriber ids. */
+export interface MeshTransport {
+  /** Reliable envelope to a participant. False if the link isn't open. */
+  sendEnvelope(participant: string, env: SyncEnvelope): boolean;
+  /** Lossy stream frame to a participant (reliable on the browser edge, which
+   *  has a single ordered channel). */
+  sendStream(participant: string, frame: Record<string, unknown>): void;
+}
+
 function nameOf(objectId: string): string {
   const r = getDb()
     .prepare('SELECT name FROM scene_nodes WHERE id = ?')
@@ -64,7 +76,7 @@ export class SharingManager {
   private readonly advertised = new Map<string, unknown[]>();
 
   constructor(
-    private readonly mesh: ServerMesh,
+    private readonly transport: MeshTransport,
     private readonly broadcast: Broadcast,
     private readonly blob: BlobManager
   ) {}
@@ -106,7 +118,7 @@ export class SharingManager {
       shareKind: s.shareKind,
       name: nameOf(s.objectId),
     }));
-    this.mesh.sendEnvelope(peerId, {
+    this.transport.sendEnvelope(peerId, {
       rtype: ADVERTISE,
       op: 'event',
       key: '',
@@ -122,7 +134,7 @@ export class SharingManager {
   /** Owner: a grant was revoked → drop the subscription + tell the peer. */
   notifyUnshared(peerId: string, objectId: string): void {
     this.subscribers.get(peerId)?.delete(objectId);
-    this.mesh.sendEnvelope(peerId, {
+    this.transport.sendEnvelope(peerId, {
       rtype: UNSHARED,
       op: 'event',
       key: objectId,
@@ -133,7 +145,7 @@ export class SharingManager {
 
   /** Receiver: subscribe to a peer's object (the frontend placed a wrapper). */
   subscribe(peerId: string, objectId: string): void {
-    this.mesh.sendEnvelope(peerId, {
+    this.transport.sendEnvelope(peerId, {
       rtype: SUBSCRIBE,
       op: 'event',
       key: objectId,
@@ -142,7 +154,7 @@ export class SharingManager {
   }
 
   unsubscribe(peerId: string, objectId: string): void {
-    this.mesh.sendEnvelope(peerId, {
+    this.transport.sendEnvelope(peerId, {
       rtype: UNSUBSCRIBE,
       op: 'event',
       key: objectId,
@@ -160,7 +172,7 @@ export class SharingManager {
         this.subscriberSet(from).add(objectId);
         const snapshot = gatherObjectSnapshot(objectId);
         if (snapshot)
-          this.mesh.sendEnvelope(from, {
+          this.transport.sendEnvelope(from, {
             rtype: SNAPSHOT,
             op: 'event',
             key: objectId,
@@ -223,7 +235,7 @@ export class SharingManager {
           ? ((env.route ?? []).find((id) => roots.has(id)) ?? null)
           : findOwningRoot(env.key, roots);
       if (root)
-        this.mesh.sendEnvelope(peerId, {
+        this.transport.sendEnvelope(peerId, {
           rtype: UPDATE,
           op: 'event',
           key: root,
@@ -243,7 +255,7 @@ export class SharingManager {
   ): void {
     for (const [peerId, roots] of this.subscribers) {
       if (roots.has(nodeId))
-        this.mesh.sendStream(peerId, {
+        this.transport.sendStream(peerId, {
           rtype: STREAM,
           objectId: nodeId,
           kind,
@@ -263,7 +275,7 @@ export class SharingManager {
     for (const [peerId, roots] of this.subscribers) {
       if (roots.size === 0) continue;
       if (findOwningRoot(targetId, roots))
-        this.mesh.sendEnvelope(peerId, {
+        this.transport.sendEnvelope(peerId, {
           rtype: OVERRIDE,
           op: 'event',
           key: targetId,
@@ -281,7 +293,7 @@ export class SharingManager {
     for (const [peerId, roots] of this.subscribers) {
       if (roots.size === 0) continue;
       if (findOwningRoot(scope, roots))
-        this.mesh.sendEnvelope(peerId, {
+        this.transport.sendEnvelope(peerId, {
           rtype: DATACHANNEL,
           op: 'event',
           key: scope,

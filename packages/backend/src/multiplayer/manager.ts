@@ -18,7 +18,8 @@ import {
   type TurnCreds,
 } from './rendezvous_client.js';
 import { ServerMesh, type MeshSignaling } from './mesh.js';
-import { SharingManager, SHARE_RTYPES } from './sharing.js';
+import { BrowserPeerMesh } from './browserMesh.js';
+import { SharingManager, SHARE_RTYPES, type MeshTransport } from './sharing.js';
 import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
 import {
   clientMeshRelay,
@@ -37,7 +38,7 @@ import {
   touchLastSeen,
   setPeerDisplayName,
 } from './peers.js';
-import type { SyncEnvelope } from '@vspark/shared/sync';
+import { isClientParticipant, type SyncEnvelope } from '@vspark/shared/sync';
 import type { ShareKind } from './shares.js';
 
 /** Control envelope carrying a peer's current display name (the per-project
@@ -57,6 +58,10 @@ const TURN_REFRESH_MS = 5 * 60_000;
 class MultiplayerManager {
   private client: RendezvousClient | null = null;
   private mesh: ServerMesh | null = null;
+  /** WebRTC edge to remote *browsers* (the client mesh's protocol). Lets this
+   *  backend be a full mesh participant of remote browser tabs, not just other
+   *  backends. */
+  private browserMesh: BrowserPeerMesh | null = null;
   private sharing: SharingManager | null = null;
   private blob: BlobManager | null = null;
   private enabled = false;
@@ -100,7 +105,22 @@ class MultiplayerManager {
     };
     this.mesh = new ServerMesh(signaling, () => this.iceServers);
     this.blob = new BlobManager(this.mesh);
-    this.sharing = new SharingManager(this.mesh, this.broadcast, this.blob);
+    // Transport facade: resolve a subscriber participant id to its link — remote
+    // browsers (`serverId#tab`) go over the WebRTC browser edge, remote servers
+    // over the ServerMesh. Read lazily so `browserMesh` (built just below) is in
+    // place by the time sharing actually sends.
+    const transport: MeshTransport = {
+      sendEnvelope: (participant, env) =>
+        isClientParticipant(participant)
+          ? (this.browserMesh?.send(participant, env) ?? false)
+          : (this.mesh?.sendEnvelope(participant, env) ?? false),
+      sendStream: (participant, frame) => {
+        if (isClientParticipant(participant))
+          this.browserMesh?.send(participant, frame as unknown as SyncEnvelope);
+        else this.mesh?.sendStream(participant, frame);
+      },
+    };
+    this.sharing = new SharingManager(transport, this.broadcast, this.blob);
     // Forward shared objects' document updates to subscribed peers.
     sync.onDocument((env) => this.sharing?.forwardDocOp(env));
     // Bridge the client-mesh signaling relay onto the server mesh.
@@ -108,6 +128,39 @@ class MultiplayerManager {
       send: (server, env) => this.mesh?.sendEnvelope(server, env),
       connectedServers: () => this.mesh?.connectedPeers() ?? [],
     });
+
+    // Browser-facing WebRTC edge: this backend answers offers from remote
+    // browsers, signaled through the relay (which dispatches signaling addressed
+    // to our own peer id to `onBackendSignal`). Browsers always dial us.
+    clientMeshRelay.setSelfPeerId(id.peerId);
+    const browserSignaling: MeshSignaling = {
+      send: (to, data) => clientMeshRelay.sendFromBackend(to, data),
+      onSignal: (cb) =>
+        clientMeshRelay.onBackendSignal((from, data) =>
+          cb(from, data as never)
+        ),
+    };
+    this.browserMesh = new BrowserPeerMesh(
+      browserSignaling,
+      () => this.iceServers
+    );
+    this.browserMesh.on('peerConnected', (participant: string) => {
+      this.broadcast('mp_browser_peer', { participant, connected: true });
+    });
+    this.browserMesh.on('peerDisconnected', (participant: string) => {
+      this.sharing?.onPeerDisconnected(participant);
+      this.broadcast('mp_browser_peer', { participant, connected: false });
+    });
+    this.browserMesh.on(
+      'envelope',
+      ({ from, env }: { from: string; env: SyncEnvelope }) => {
+        // A remote browser can talk the `_share_*` protocol directly to the
+        // owning backend over this edge (subscribe / unsubscribe). The transport
+        // facade routes our replies back over the same WebRTC channel; source-
+        // side grant admission still gates what flows.
+        if (SHARE_RTYPES.has(env?.rtype)) this.sharing?.handleEnvelope(from, env);
+      }
+    );
 
     // Accept policy on inbound offers.
     this.mesh.on('incomingOffer', (peerId: string) => {
