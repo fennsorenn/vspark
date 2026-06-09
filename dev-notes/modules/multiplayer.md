@@ -1,9 +1,13 @@
 # Multiplayer / Mesh
 
 Peer-to-peer connectivity between vspark instances: server↔server WebRTC, a
-signaling relay for browser clients, object sharing over the mesh, and (new) a
+signaling relay for browser clients, object sharing over the mesh, a
 **backend↔remote-browser WebRTC edge** so backends can be full mesh participants
-of remote browser tabs — not just other backends.
+of remote browser tabs (not just other backends), and **direct-edge P2P
+object-share delivery** — snapshot, live updates, and asset blobs stream straight
+from owner to a remote browser when an edge exists, skipping the relay hop. Asset
+transfer is a **symmetric mesh capability** (same `_blob_*` protocol for backend
+and browser receivers; only the sink differs).
 
 Source: `packages/backend/src/multiplayer/` + `packages/frontend/src/mesh/clientMesh.ts`.
 Design context: [plans/multiplayer-phase5.md](../plans/multiplayer-phase5.md),
@@ -193,21 +197,24 @@ disconnect → `mp_shared_gone`, explicit remove — are unaffected.
 | Object share over server mesh (snapshot + live doc updates + assets) | Implemented |
 | Browser↔browser `clientMesh` (channel + clock offset) | Implemented (live-mesh slice 2) |
 | Signaling relay backend-as-endpoint + cross-server roster | Implemented |
-| **Backend↔remote-browser WebRTC edge (transport/connectivity)** | **Implemented** |
-| Object-share *delivery* (snapshot + live updates) migrated onto the direct edge | WIP / planned |
-| Frontend consumption of `_share_*` envelopes over the direct WebRTC channel | WIP / planned |
+| Backend↔remote-browser WebRTC edge (transport/connectivity) | Implemented |
+| **Symmetric blob transfer over `MeshTransport` (server + browser receivers)** | **Implemented** |
+| **Direct-edge P2P object-share delivery (snapshot + live updates + asset blobs)** | **Implemented** |
+| **Frontend consumption of `_share_*` over the direct WebRTC channel** | **Implemented** |
 | Generalised namespace subscription + grant model (permissioned-sync-mesh) | Planned |
+| Migrating subscriber fan-out off `SharingManager.subscribers` onto the `MeshRouter` core | Planned (not yet live) |
 
-### Open decision — asset transport to a remote browser
+### Resolved — asset transport to a remote browser
 
-The blocker for migrating object-share *delivery* onto the direct edge: today
-shared assets localize at the **receiver's backend** (content-addressed by
-sha256, fetched via `BlobManager` into a shared/HTTP `uploads/_shared/<hash><ext>`
-dir served by the `/uploads` mount). Over a direct browser edge there is **no
-receiver backend in the path**, so either:
+The earlier blocker (no receiver backend in a direct browser edge) is resolved by
+the user's choice: **blobs stream P2P over the data channel into browser-side
+object URLs**, via the symmetric `_blob_*` protocol (see *Asset transfer*). Asset
+transfer is now a mesh capability shared by backend and browser receivers; only
+the sink differs (disk vs object URL). See
+[plans/permissioned-sync-mesh.md](../plans/permissioned-sync-mesh.md).
 
-- blobs stream over the data channel into **browser-side object URLs**, or
-- the snapshot/asset path stays on the server-relay while only **live data**
-  (pose/blendshapes/overrides) uses the direct edge.
+### Not yet live — `MeshRouter` core
 
-Unresolved; see [plans/permissioned-sync-mesh.md](../plans/permissioned-sync-mesh.md).
+The unwired backend `MeshRouter` core remains a separate not-yet-live piece:
+subscriber tracking still uses `SharingManager.subscribers`. Migrating the
+fan-out onto `MeshRouter` is a future refactor.
