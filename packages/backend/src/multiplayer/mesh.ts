@@ -37,7 +37,14 @@ interface PeerConn {
   initiator: boolean;
   /** Remote description applied — ICE candidates can only be added after this. */
   remoteSet: boolean;
+  /** Pending teardown for a transient `'disconnected'` that hasn't recovered. */
+  dropTimer?: ReturnType<typeof setTimeout>;
 }
+
+/** Grace period before tearing down on a transient `'disconnected'` connection
+ *  state — it flaps and recovers to `'connected'`; immediate teardown wiped live
+ *  share subscriptions mid-session. `'failed'`/`'closed'` are terminal. */
+const DISCONNECT_GRACE_MS = 8000;
 
 /**
  * Events: `incomingOffer`(peerId — awaiting accept/reject), `peerConnected`(peerId),
@@ -140,6 +147,7 @@ export class ServerMesh extends EventEmitter {
     this.peers.delete(peerId);
     this.pendingIce.delete(peerId);
     this.pendingOffers.delete(peerId);
+    if (p.dropTimer) clearTimeout(p.dropTimer);
     void p.pc.close().catch(() => {});
     if (p.connected) this.emit('peerDisconnected', peerId);
   }
@@ -218,14 +226,31 @@ export class ServerMesh extends EventEmitter {
     });
     pc.connectionStateChange.subscribe((state: string) => {
       dbg('connState', peerId, state);
-      if (
-        (state === 'failed' || state === 'closed' || state === 'disconnected') &&
-        // Only tear down if this pc is still the active one for the peer — a
-        // stale pc closing (e.g. after a fast reconnect reused the id) must not
-        // kill the freshly-established connection.
-        this.peers.get(peerId)?.pc === pc
-      )
-        this.disconnect(peerId);
+      // Only act if this pc is still the active one for the peer — a stale pc
+      // closing (e.g. after a fast reconnect reused the id) must not kill the
+      // freshly-established connection.
+      const e = this.peers.get(peerId);
+      if (e?.pc !== pc) return;
+      if (state === 'failed' || state === 'closed') {
+        this.disconnect(peerId); // terminal
+      } else if (state === 'disconnected') {
+        // Transient: arm a grace timer rather than tearing down now (ICE usually
+        // recovers). Cleared on the next 'connected'; re-checks pc state on fire.
+        if (!e.dropTimer)
+          e.dropTimer = setTimeout(() => {
+            const cur = this.peers.get(peerId);
+            if (!cur || cur.pc !== pc) return;
+            cur.dropTimer = undefined;
+            const st = (pc as { connectionState?: string }).connectionState;
+            if (st === 'connected' || st === 'completed') return; // recovered
+            this.disconnect(peerId);
+          }, DISCONNECT_GRACE_MS);
+      } else if (state === 'connected' || state === 'completed') {
+        if (e.dropTimer) {
+          clearTimeout(e.dropTimer);
+          e.dropTimer = undefined;
+        }
+      }
     });
     // Answerer receives its channels here.
     pc.onDataChannel.subscribe((dc) => this.wireChannel(peerId, dc));
