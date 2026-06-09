@@ -12,6 +12,7 @@ import { useEditorStore } from '../store/editorStore';
 import { useConnectionsStore } from '../store/connectionsStore';
 import { peerSubscribe } from '../api/client';
 import { REMOTE_OBJECT_KIND } from '../sync/sharedProjection';
+import { hasDirectEdge, subscribeDirect } from '../sync/shareDirect';
 
 interface RemoteRef {
   ownerPeerId?: string;
@@ -21,6 +22,7 @@ interface RemoteRef {
 export function useSharedSubscriptions(): void {
   const nodes = useEditorStore((s) => s.nodes);
   const connectedIds = useConnectionsStore((s) => s.connectedIds);
+  const meshConnected = useConnectionsStore((s) => s.meshConnected);
   const subscribed = useConnectionsStore((s) => s.subscribed);
   const setSubscribed = useConnectionsStore((s) => s.setSubscribed);
 
@@ -37,7 +39,11 @@ export function useSharedSubscriptions(): void {
       // Mark first so this effect doesn't re-fire a duplicate before the
       // snapshot round-trips; the owner ignores SUBSCRIBE if no longer granted.
       setSubscribed(owner, objectId, true);
+      // Prefer the direct WebRTC edge to the owner (snapshot + live data + asset
+      // blobs flow peer-to-peer, no relay hop); fall back to the server relay if
+      // the edge isn't up. Exactly one path subscribes, so no double-delivery.
+      if (hasDirectEdge(owner) && subscribeDirect(owner, objectId)) continue;
       void peerSubscribe(owner, objectId).catch(() => {});
     }
-  }, [nodes, connectedIds, subscribed, setSubscribed]);
+  }, [nodes, connectedIds, meshConnected, subscribed, setSubscribed]);
 }

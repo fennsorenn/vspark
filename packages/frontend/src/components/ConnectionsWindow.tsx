@@ -38,6 +38,7 @@ import {
   findContainer,
   REMOTE_OBJECT_KIND,
 } from '../sync/sharedProjection';
+import { unsubscribeDirect } from '../sync/shareDirect';
 import type { SharedOffer } from '../store/connectionsStore';
 
 const C = {
@@ -183,6 +184,10 @@ function ConnectedMember({
     void (async () => {
       setActBusy(true);
       try {
+        // Unsubscribe over both paths — the owner ignores an unsubscribe for a
+        // subscription it doesn't hold, so this is safe regardless of which path
+        // (direct edge or server relay) the subscription actually used.
+        unsubscribeDirect(peer.peerId, objectId);
         await peerUnsubscribe(peer.peerId, objectId);
         removeSharedProjection(peer.peerId, objectId);
         const container = findContainer(peer.peerId, objectId);
