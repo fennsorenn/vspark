@@ -9,13 +9,13 @@
  *
  * See dev-notes/plans/live-mesh.md.
  */
-import { useEffect } from 'react';
-import { makeClientParticipantId } from '@vspark/shared/sync';
+import { useEffect, useRef } from 'react';
+import { makeClientParticipantId, isClientParticipant } from '@vspark/shared/sync';
 import type { SyncEnvelope } from '@vspark/shared/sync';
 import { getConnectionIdentity } from '../api/client';
 import { clientMesh } from '../mesh/clientMesh';
 import { handleBlobEnvelope } from '../mesh/blobReceiver';
-import { handleShareEnvelope } from '../sync/shareDirect';
+import { handleShareEnvelope, onDirectEdgeGone } from '../sync/shareDirect';
 import { editorWsRef } from './useWsSync';
 import { useConnectionsStore } from '../store/connectionsStore';
 
@@ -32,6 +32,7 @@ function dispatchMeshEnvelope(from: string, env: SyncEnvelope): void {
 
 export function useClientMesh(): void {
   const setMeshConnected = useConnectionsStore((s) => s.setMeshConnected);
+  const prevMeshRef = useRef<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,7 +42,17 @@ export function useClientMesh(): void {
         clientMesh.configure({
           selfId: makeClientParticipantId(id.peerId, TAB_UUID),
           getWs: () => editorWsRef.current,
-          onChange: (ids) => setMeshConnected(ids),
+          onChange: (ids) => {
+            // A remote *backend* that left the mesh = a dropped direct edge to an
+            // owner. Tear down just its direct-edge subscriptions so they re-
+            // subscribe over the server relay (the server link may still be up).
+            const prev = prevMeshRef.current;
+            prevMeshRef.current = ids;
+            for (const pid of prev)
+              if (!ids.includes(pid) && !isClientParticipant(pid))
+                onDirectEdgeGone(pid);
+            setMeshConnected(ids);
+          },
           onEnvelope: dispatchMeshEnvelope,
         });
         // The WS may already be open (identity fetch is async) — say hello now;
