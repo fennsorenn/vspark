@@ -300,6 +300,133 @@ export function granteeCandidates(requester: string): string[] {
   return server === requester ? [requester, '*'] : [requester, server, '*'];
 }
 
+// --- Subscriptions ----------------------------------------------------------
+//
+// A subscription is a peer's *interest* — same (entity × path) shape as a grant,
+// minus rights. It's admitted only if a read grant fully covers it
+// (`grantCoversSubscription`), so the write path can route by pure interest match
+// with no per-message permission recheck. Revalidation drops subscriptions whose
+// covering grant was revoked (evict-on-revoke). The descendants axis is resolved
+// by the injected containment {@link IsDescendant}. See
+// dev-notes/plans/permissioned-sync-mesh.md.
+
+export interface Subscription {
+  entityRtype: string;
+  entityId: string;
+  includeDescendants: boolean;
+  pathPrefix: string;
+}
+
+/** Does a read grant cover an *entire* subscription (breadth containment), so it
+ *  can be admitted once and never rechecked per write? */
+export function grantCoversSubscription(
+  g: Grant,
+  sub: Subscription,
+  isDescendant: IsDescendant
+): boolean {
+  if (!g.rights.read) return false;
+  if (g.entityRtype !== '*' && g.entityRtype !== sub.entityRtype) return false;
+  const entityCovered =
+    g.entityId === '*' ||
+    (g.includeDescendants
+      ? g.entityId === sub.entityId ||
+        isDescendant(sub.entityRtype, sub.entityId, g.entityId)
+      : g.entityId === sub.entityId && !sub.includeDescendants);
+  if (!entityCovered) return false;
+  // grant's path prefix must be at or above the subscription's (covers it).
+  return pathCovers(g.pathPrefix, sub.pathPrefix);
+}
+
+/** Does a write to `key` fall within a subscription's interest? (reuses the
+ *  grant matcher treating the subscription as a read grant). */
+export function subscriptionMatches(
+  sub: Subscription,
+  key: string,
+  isDescendant: IsDescendant
+): boolean {
+  return grantAllows(
+    { ...sub, grantee: '', rights: { read: true } },
+    key,
+    'read',
+    isDescendant
+  );
+}
+
+function sameSubscription(a: Subscription, b: Subscription): boolean {
+  return (
+    a.entityRtype === b.entityRtype &&
+    a.entityId === b.entityId &&
+    a.includeDescendants === b.includeDescendants &&
+    a.pathPrefix === b.pathPrefix
+  );
+}
+
+/** Holds admitted subscriptions per participant and routes writes to them.
+ *  `grantsFor` + `isDescendant` are injected (the server's grant store + the
+ *  containment index), keeping this reusable and unit-testable. */
+export class SubscriptionHub {
+  private readonly subs = new Map<string, Subscription[]>();
+
+  constructor(
+    private readonly grantsFor: (participant: string) => Grant[],
+    private readonly isDescendant: IsDescendant
+  ) {}
+
+  /** Admit a subscription iff a read grant covers it. Returns whether admitted. */
+  subscribe(participant: string, sub: Subscription): boolean {
+    const grants = this.grantsFor(participant);
+    if (!grants.some((g) => grantCoversSubscription(g, sub, this.isDescendant)))
+      return false;
+    const list = this.subs.get(participant) ?? [];
+    if (!list.some((s) => sameSubscription(s, sub))) list.push(sub);
+    this.subs.set(participant, list);
+    return true;
+  }
+
+  unsubscribe(participant: string, sub: Subscription): void {
+    const list = this.subs.get(participant);
+    if (!list) return;
+    const next = list.filter((s) => !sameSubscription(s, sub));
+    if (next.length) this.subs.set(participant, next);
+    else this.subs.delete(participant);
+  }
+
+  removeParticipant(participant: string): void {
+    this.subs.delete(participant);
+  }
+
+  /** Participants who should receive a write to `key` (pure interest match). */
+  route(key: string): string[] {
+    const out: string[] = [];
+    for (const [p, list] of this.subs)
+      if (list.some((s) => subscriptionMatches(s, key, this.isDescendant)))
+        out.push(p);
+    return out;
+  }
+
+  /** Re-check a participant's admitted subscriptions against current grants;
+   *  evict any no longer covered. Returns the dropped subscriptions. */
+  revalidate(participant: string): Subscription[] {
+    const list = this.subs.get(participant);
+    if (!list) return [];
+    const grants = this.grantsFor(participant);
+    const kept: Subscription[] = [];
+    const dropped: Subscription[] = [];
+    for (const s of list)
+      (grants.some((g) => grantCoversSubscription(g, s, this.isDescendant))
+        ? kept
+        : dropped
+      ).push(s);
+    if (kept.length) this.subs.set(participant, kept);
+    else this.subs.delete(participant);
+    return dropped;
+  }
+
+  subscriptionsOf(participant: string): Subscription[] {
+    return [...(this.subs.get(participant) ?? [])];
+  }
+}
+
 // --- Typed containment hierarchy (re-exported; see ./containment) -----------
 export {
   ContainmentIndex,
