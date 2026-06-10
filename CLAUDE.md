@@ -139,7 +139,8 @@ Before starting any new feature branch — and before any non-trivial task — r
 
 Work happens on feature branches, never directly on `dev` or `main`.
 
-- Branch naming: `feature/<relevant-name>` or `bugfix/<relevant-name>` — use a short, descriptive name for the actual work. **Never** name a branch `claude/<gibberish>` (or any auto-generated/random slug); rename it to a meaningful `feature/…` before committing.
+- Branch naming: for a branch **you** create, use `feature/<relevant-name>` or `bugfix/<relevant-name>` — a short, descriptive name for the actual work. Don't invent a `claude/<gibberish>`-style auto-generated slug for a branch you make yourself.
+- **If the web/cloud harness started you on an auto-generated `claude/<gibberish>` branch, work on it directly — do NOT rename it.** The managed git proxy pins the session to that branch and returns HTTP 403 on any attempt to delete it, so renaming doesn't get rid of the ugly branch — it just creates a duplicate `feature/…` branch *alongside* the un-deletable `claude/…` one (double bookkeeping). Accept the generated name for the session and push your work to it.
 - Create a branch at the start of any non-trivial task if one doesn't exist yet. **But don't start a new branch when you're already on a `feature/…` branch** — keep working on it unless the new task meaningfully diverges from what that branch is about (a different feature/concern), in which case branch off `dev` for the new work.
 - Feature branches merge into `dev` directly (no PR required)
 - Merges from `dev` into `main` always go via a PR
