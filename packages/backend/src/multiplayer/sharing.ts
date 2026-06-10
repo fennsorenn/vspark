@@ -35,7 +35,8 @@ import type { MeshRouter } from '../sync/meshRouter.js';
 import { canAccess } from '../sync/grants.js';
 import { containmentIndex } from '../sync/containmentIndex.js';
 import {
-  applySceneNodeUpsert,
+  applySceneNodeUpdate,
+  applySceneNodeCreate,
   applySceneNodeRemove,
   sceneNodeExists,
   type SceneNodeDto,
@@ -295,31 +296,36 @@ export class SharingManager {
   private handleWrite(from: string, env: SyncEnvelope): void {
     if (env?.rtype !== 'scene_node') return;
     const id = env.key;
-    const isDesc = containmentIndex.isDescendant;
-    let need: Right;
-    let authKey: string;
-    if (env.op === 'remove') {
-      need = 'delete';
-      authKey = `scene_node:${id}`;
-    } else if (sceneNodeExists(id)) {
-      need = 'update';
-      authKey = `scene_node:${id}`;
-    } else {
-      need = 'create';
-      const parentId = (env.data as { parentId?: string } | undefined)?.parentId;
-      authKey = `scene_node:${parentId ?? ''}`;
-    }
-    if (!canAccess(from, authKey, need, isDesc)) {
+    // Reject → tell the subscriber to roll its optimistic edit back.
+    const nak = (): void => {
       this.transport.sendEnvelope(from, {
         rtype: WRITE_NAK,
         op: 'event',
         key: id,
         data: { objectId: id, id },
       });
-      return;
+    };
+    // A malformed/failed write must NAK (rollback), never crash the owner —
+    // this handles untrusted input from any granted peer.
+    try {
+      const isDesc = containmentIndex.isDescendant;
+      const isRemove = env.op === 'remove';
+      const isCreate = !isRemove && !sceneNodeExists(id);
+      const need: Right = isRemove ? 'delete' : isCreate ? 'create' : 'update';
+      // Create authorizes against the parent (the new id isn't in the tree yet);
+      // update/delete against the node id. AuthZ scopes writes to granted subtrees.
+      const authKey = isCreate
+        ? `scene_node:${(env.data as { parentId?: string } | undefined)?.parentId ?? ''}`
+        : `scene_node:${id}`;
+      if (!canAccess(from, authKey, need, isDesc)) return nak();
+      if (isRemove) applySceneNodeRemove(id, env.scope, env.route);
+      else if (isCreate) {
+        if (!applySceneNodeCreate(env.data as SceneNodeDto)) return nak();
+      } else applySceneNodeUpdate(env.data as SceneNodeDto);
+    } catch (e) {
+      console.error('[sharing] remote write failed', id, e);
+      nak();
     }
-    if (env.op === 'remove') applySceneNodeRemove(id, env.scope, env.route);
-    else applySceneNodeUpsert(env.data as SceneNodeDto);
   }
 
   /** Owner: forward a document op to every subscriber whose subtree contains it.

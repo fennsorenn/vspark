@@ -36,34 +36,58 @@ export function sceneNodeExists(id: string): boolean {
     .get(id);
 }
 
-/** Full upsert of a scene_node from a remote write, then emit so subscribers get
- *  the authoritative echo. INSERT-or-REPLACE semantics (the wire carries the
- *  complete post-edit document). */
-export function applySceneNodeUpsert(dto: SceneNodeDto): void {
+/** Content-only update of an existing node. **Structure is owner-authoritative**:
+ *  project_id / root_scene_node_id / parent_id are preserved, never taken from
+ *  the wire — the receiver's projection rewrites the root's parent/root to its
+ *  local container and the subscriber doesn't even send projectId/rootSceneNodeId.
+ *  Covers the v1 edit surface: transform, material/properties, model swap, name,
+ *  visibility. Then emit (broadcasts to the owner's own clients + forwards to
+ *  subscribers). */
+export function applySceneNodeUpdate(dto: SceneNodeDto): void {
+  getDb()
+    .prepare(
+      `UPDATE scene_nodes SET
+         name = ?, kind = ?, file_path = ?, components = ?, properties = ?,
+         hidden = ?, updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .run(
+      dto.name,
+      dto.kind,
+      dto.filePath ?? null,
+      JSON.stringify(dto.components ?? {}),
+      JSON.stringify(dto.properties ?? {}),
+      dto.hidden ? 1 : 0,
+      dto.id
+    );
+  sync.document.upsert('scene_node', dto.id);
+}
+
+/** Create a new node from a remote write. Structure is **derived from the
+ *  parent** (owner-authoritative project_id + root_scene_node_id), not trusted
+ *  from the wire; the subscriber supplies a fresh id, the parent's owner-side id,
+ *  and content. Returns false if the parent vanished. Then emit. */
+export function applySceneNodeCreate(dto: SceneNodeDto): boolean {
+  const parent = getDb()
+    .prepare(
+      'SELECT project_id, root_scene_node_id FROM scene_nodes WHERE id = ?'
+    )
+    .get(dto.parentId ?? '') as
+    | { project_id: string; root_scene_node_id: string }
+    | undefined;
+  if (!parent) return false;
   getDb()
     .prepare(
       `INSERT INTO scene_nodes
          (id, project_id, root_scene_node_id, parent_id, bone_attachment,
-          name, kind, file_path, components, properties, hidden, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(id) DO UPDATE SET
-         project_id = excluded.project_id,
-         root_scene_node_id = excluded.root_scene_node_id,
-         parent_id = excluded.parent_id,
-         bone_attachment = excluded.bone_attachment,
-         name = excluded.name,
-         kind = excluded.kind,
-         file_path = excluded.file_path,
-         components = excluded.components,
-         properties = excluded.properties,
-         hidden = excluded.hidden,
-         updated_at = datetime('now')`
+          name, kind, file_path, components, properties, hidden)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       dto.id,
-      dto.projectId,
-      dto.rootSceneNodeId,
-      dto.parentId ?? null,
+      parent.project_id,
+      parent.root_scene_node_id,
+      dto.parentId,
       dto.boneAttachment ?? null,
       dto.name,
       dto.kind,
@@ -72,9 +96,8 @@ export function applySceneNodeUpsert(dto: SceneNodeDto): void {
       JSON.stringify(dto.properties ?? {}),
       dto.hidden ? 1 : 0
     );
-  // `touch` re-emits the canonical DTO to doc listeners (the share forwarder)
-  // without a redundant local WS broadcast.
-  sync.document.touch('scene_node', dto.id);
+  sync.document.upsert('scene_node', dto.id);
+  return true;
 }
 
 /** Delete a scene_node from a remote write, then emit the removal. `route` is the
