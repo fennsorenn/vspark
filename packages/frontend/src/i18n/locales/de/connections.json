@@ -1,0 +1,60 @@
+{
+  "window": {
+    "title": "Verbindungen"
+  },
+  "disabled": "Mehrspieler ist nicht aktiviert. Lege eine Rendezvous-URL fest, um es zu aktivieren.",
+  "status": {
+    "idle": "Inaktiv",
+    "connecting": "Verbinde…",
+    "ready": "Mit Rendezvous verbunden",
+    "closed": "Getrennt"
+  },
+  "help": {
+    "tip": "Mit anderen Servern koppeln und verbinden, um Avatare live zu teilen."
+  },
+  "name": {
+    "label": "Dein Name (dieses Projekt)",
+    "placeholder": "Name, den andere sehen"
+  },
+  "identity": {
+    "label": "Deine Server-ID",
+    "copy": "Kopieren"
+  },
+  "mesh": {
+    "label_one": "Direktes Mesh: {{count}} Peer",
+    "label_other": "Direktes Mesh: {{count}} Peers"
+  },
+  "requests": {
+    "label": "Eingehende Anfragen",
+    "accept": "Annehmen",
+    "reject": "Ablehnen"
+  },
+  "connected": {
+    "label": "Verbunden",
+    "empty": "Niemand verbunden."
+  },
+  "shared": {
+    "label": "Mit dir geteilt",
+    "empty": "Noch nichts geteilt.",
+    "place": "Platzieren",
+    "remove": "Entfernen",
+    "placedName": "Geteiltes Objekt"
+  },
+  "pairing": {
+    "label": "Kopplung",
+    "create": "Code erstellen",
+    "copyCode": "Kopieren",
+    "codePlaceholder": "Kopplungscode eingeben",
+    "join": "Beitreten"
+  },
+  "contacts": {
+    "label": "Kontakte",
+    "empty": "Noch keine Kontakte – kopple dich unter „Kopplung“.",
+    "connect": "Verbinden",
+    "disconnect": "Trennen",
+    "remove": "Kontakt entfernen (entkoppeln)",
+    "confirmRemove": "Entkoppeln?",
+    "connected": "Verbunden",
+    "disconnected": "Offline"
+  }
+}

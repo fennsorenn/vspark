@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
-import type { NodeRecord } from '../store/editorStore';
+import type { StageObject } from '../store/editorStore';
 import type { CameraEffectRecord } from '../api/client';
 import {
   mapBehavior,
@@ -23,8 +23,16 @@ import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 import { applyRemote } from '../sync/registry';
 import '../sync/resources';
+import {
+  applySnapshot as applySharedSnapshot,
+  applyUpdate as applySharedUpdate,
+  removeProjection as removeSharedProjection,
+  removePeerProjections as removePeerSharedProjections,
+} from '../sync/sharedProjection';
+import { useConnectionsStore } from '../store/connectionsStore';
+import { clientMesh } from '../mesh/clientMesh';
 
-const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+const WS_URL =`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 const RECONNECT_MS = 3000;
 
 /** Module-level ref so any component can send messages on the shared editor WS. */
@@ -40,6 +48,20 @@ export function sendNodeTransformPreview(
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(
     JSON.stringify({ kind: 'node_transform_preview', nodeId, transform })
+  );
+}
+
+/** Forward a clip-driven transform of a *shared* object to subscribers only (no
+ *  local co-editor broadcast — they evaluate the same clip themselves). The
+ *  backend reuses the `node_transform_preview` stream kind toward subscribers. */
+export function sendSharedNodeTransform(
+  nodeId: string,
+  transform: Record<string, number>
+) {
+  const ws = editorWsRef.current;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(
+    JSON.stringify({ kind: 'shared_node_transform', nodeId, transform })
   );
 }
 
@@ -71,6 +93,8 @@ export function useWsSync() {
       editorWsRef.current = ws;
 
       ws.onopen = () => {
+        // Re-announce this tab to the client-mesh signaling relay.
+        clientMesh.sendHello();
         if (pendingReloadRef.current) {
           pendingReloadRef.current = false;
           useEditorStore.getState().setPendingReload(false);
@@ -151,7 +175,7 @@ export function useWsSync() {
             smoothNodeTransform(p.nodeId, p.transform);
           } else if (msg.kind === 'node_added') {
             const store = useEditorStore.getState();
-            const node = msg.payload as unknown as NodeRecord;
+            const node = msg.payload as unknown as StageObject;
             // Only add if we have this scene loaded; avoid duplicates
             if (store.nodes.every((n) => n.id !== node.id)) {
               store.addNode(node);
@@ -424,6 +448,151 @@ export function useWsSync() {
               }>;
             };
             useEditorStore.getState().replaceDataChannels(p.entries ?? []);
+          } else if (msg.kind === 'mp_status') {
+            useConnectionsStore
+              .getState()
+              .setStatus(
+                msg.payload.status as 'idle' | 'connecting' | 'ready' | 'closed'
+              );
+          } else if (msg.kind === 'mp_peer') {
+            const p = msg.payload as {
+              peerId: string;
+              connected?: boolean;
+              paired?: boolean;
+              displayName?: string;
+            };
+            if (typeof p.connected === 'boolean')
+              useConnectionsStore
+                .getState()
+                .setConnected(p.peerId, p.connected, p.displayName);
+            // New pairing (or unknown peer) → refetch the authoritative list.
+            useConnectionsStore.getState().bumpRevision();
+          } else if (msg.kind === 'mp_presence') {
+            // Presence reflected via lastSeen refresh on the next list fetch.
+            useConnectionsStore.getState().bumpRevision();
+          } else if (msg.kind === 'mp_connect_request') {
+            const p = msg.payload as { peerId: string; displayName: string };
+            useConnectionsStore
+              .getState()
+              .addIncoming({ peerId: p.peerId, displayName: p.displayName });
+          } else if (msg.kind === 'mp_shares') {
+            // A connected peer advertised the objects it shares with us.
+            const p = msg.payload as {
+              peerId: string;
+              shares: import('../store/connectionsStore').SharedOffer[];
+            };
+            useConnectionsStore
+              .getState()
+              .setOffers(p.peerId, p.shares ?? []);
+          } else if (msg.kind === 'mp_shared_snapshot') {
+            const p = msg.payload as {
+              peerId: string;
+              snapshot: { objectId: string };
+            };
+            applySharedSnapshot(
+              p.peerId,
+              p.snapshot as unknown as Parameters<typeof applySharedSnapshot>[1]
+            );
+            useConnectionsStore
+              .getState()
+              .setSubscribed(p.peerId, p.snapshot.objectId, true);
+          } else if (msg.kind === 'mp_shared_update') {
+            const p = msg.payload as {
+              peerId: string;
+              objectId: string;
+              env: SyncEnvelope;
+            };
+            applySharedUpdate(p.peerId, p.objectId, p.env);
+          } else if (msg.kind === 'mp_shared_unshared') {
+            const p = msg.payload as { peerId: string; objectId: string };
+            removeSharedProjection(p.peerId, p.objectId);
+            useConnectionsStore
+              .getState()
+              .setSubscribed(p.peerId, p.objectId, false);
+          } else if (msg.kind === 'mp_shared_gone') {
+            const p = msg.payload as { peerId: string };
+            removePeerSharedProjections(p.peerId);
+            useConnectionsStore.getState().clearPeerSharing(p.peerId);
+          } else if (msg.kind === 'mp_shared_stream') {
+            // Live pose/blendshapes for a placed shared avatar. The frame keeps
+            // the owner's node id, which the projection preserves, so it applies
+            // directly to the projected node.
+            const p = msg.payload as {
+              kind: string;
+              payload: Record<string, unknown>;
+            };
+            const f = p.payload ?? {};
+            if (p.kind === 'vmc_pose') {
+              setVmcPose(
+                f.nodeId as string,
+                f.bones as Record<string, [number, number, number, number]>,
+                (f.animationBlendMode as AnimationBlendMode | undefined) ??
+                  'override'
+              );
+            } else if (p.kind === 'vmc_blendshapes') {
+              setVmcBlendshapes(
+                f.nodeId as string,
+                f.blendshapes as Record<string, number>
+              );
+            } else if (p.kind === 'pose_ik_targets') {
+              setIkTargets(f.nodeId as string, f as unknown as IkTargetFrame);
+            } else if (p.kind === 'node_transform_preview') {
+              // Smooth in-flight drag of a shared object on the receiver.
+              smoothNodeTransform(
+                f.nodeId as string,
+                f.transform as Record<string, number>
+              );
+            }
+          } else if (msg.kind === 'mp_shared_override') {
+            // Graph-driven runtime override on a shared node (owner ids are
+            // preserved by the projection, so it applies to the projected node).
+            const p = msg.payload as {
+              op: 'set' | 'clear';
+              targetKind: 'scene_node' | 'compose_layer';
+              targetId: string;
+              paramPath?: string;
+              value?: number | string | boolean;
+            };
+            if (p.op === 'set' && p.paramPath != null && p.value != null) {
+              useEditorStore
+                .getState()
+                .setRuntimeOverride(
+                  p.targetKind,
+                  p.targetId,
+                  p.paramPath,
+                  p.value
+                );
+            } else if (p.op === 'clear') {
+              useEditorStore
+                .getState()
+                .clearRuntimeOverride(p.targetKind, p.targetId, p.paramPath);
+            }
+          } else if (msg.kind === 'mp_shared_datachannel') {
+            // Data channel scoped to a shared node (scope = owner node id, which
+            // the projection preserves, so the projected feed/template resolves it).
+            const p = msg.payload as {
+              op: 'set' | 'clear';
+              scope: string;
+              fields?: Record<string, unknown>;
+              field?: string;
+            };
+            if (p.op === 'set') {
+              useEditorStore
+                .getState()
+                .mergeDataChannels(p.scope ?? '', p.fields ?? {});
+            } else {
+              useEditorStore.getState().clearDataChannels(p.scope ?? '', p.field);
+            }
+          } else if (msg.kind === 'mesh_roster') {
+            const p = msg.payload as { participants?: string[] };
+            clientMesh.setRoster(p.participants ?? []);
+          } else if (msg.kind === 'mesh_signal') {
+            const p = msg.payload as { from?: string; data?: unknown };
+            if (p.from)
+              void clientMesh.handleSignal(
+                p.from,
+                p.data as Parameters<typeof clientMesh.handleSignal>[1]
+              );
           } else if (msg.kind === 'server_update') {
             if (
               (msg.payload as { reloadOnReconnect?: boolean }).reloadOnReconnect

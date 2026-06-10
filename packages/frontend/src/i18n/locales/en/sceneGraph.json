@@ -82,7 +82,13 @@
     "copyNode": "Copy node",
     "pasteNodeAsChild": "Paste node as child",
     "pasteLogicHere": "Paste logic here",
+    "shareWith": "Share with",
+    "shareEveryone": "Everyone connected",
+    "shareNobody": "No one connected",
     "delete": "Delete"
+  },
+  "remote": {
+    "tip": "Shared object from a connected peer. You can move and place this container; its contents are owned and updated live by their server."
   },
   "logic": {
     "globalLogic": "Global Logic",

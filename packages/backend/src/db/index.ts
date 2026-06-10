@@ -36,6 +36,10 @@ import m023 from './migrations/023_rename_behavior_context_kinds.js';
 import m024 from './migrations/024_rename_preset_graphs_key.js';
 import m025 from './migrations/025_rename_automations_table_to_logic.js';
 import m026 from './migrations/026_rename_preset_logic_key.js';
+import m027 from './migrations/027_multiplayer_identity.js';
+import m028 from './migrations/028_project_mp_display_name.js';
+import m029 from './migrations/029_shares.js';
+import m030 from './migrations/030_grants.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -46,9 +50,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // In dev (tsx): __dirname is src/db/ → DB lives at src/vspark.db (one level up)
 // In bundle:    __dirname is the install dir containing bundle.cjs → DB lives there
 const IS_BUNDLED = !__dirname.includes('/src/');
-const DB_PATH = IS_BUNDLED
-  ? join(__dirname, 'vspark.db')
-  : join(__dirname, '..', 'vspark.db');
+// VSPARK_DB_PATH override lets two instances use separate DBs on one box
+// (multiplayer testing). Defaults to the install/src location.
+const DB_PATH =
+  process.env.VSPARK_DB_PATH ??
+  (IS_BUNDLED
+    ? join(__dirname, 'vspark.db')
+    : join(__dirname, '..', 'vspark.db'));
 
 type Migration =
   | { name: string; sql: string }
@@ -81,6 +89,10 @@ const MIGRATIONS: Migration[] = [
   { name: '024_rename_preset_graphs_key.ts', run: m024 },
   { name: '025_rename_automations_table_to_logic.sql', sql: m025 },
   { name: '026_rename_preset_logic_key.ts', run: m026 },
+  { name: '027_multiplayer_identity.sql', sql: m027 },
+  { name: '028_project_mp_display_name.sql', sql: m028 },
+  { name: '029_shares.sql', sql: m029 },
+  { name: '030_grants.sql', sql: m030 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

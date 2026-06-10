@@ -47,7 +47,7 @@ function normalizeFilePath(raw: unknown): string | null {
 function mapNode(
   r: Record<string, unknown>,
   rootSceneNodeId?: string
-): NodeRecord {
+): StageObject {
   const components =
     typeof r.components === 'string'
       ? JSON.parse(r.components as string)
@@ -174,7 +174,7 @@ export interface NodeProperties {
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
 }
 
-export interface NodeRecord {
+export interface StageObject {
   id: string;
   rootSceneNodeId: string;
   projectId: string;
@@ -528,7 +528,7 @@ export const getNodes = (sceneId: string) =>
 
 export const createNode = (
   sceneId: string,
-  data: Omit<NodeRecord, 'id' | 'rootSceneNodeId' | 'projectId'>
+  data: Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>
 ) =>
   request<Record<string, unknown>>(`/scenes/${sceneId}/nodes`, {
     method: 'POST',
@@ -545,7 +545,7 @@ export const createNode = (
 
 export const updateNode = (
   id: string,
-  data: Partial<Omit<NodeRecord, 'id' | 'rootSceneNodeId' | 'projectId'>>
+  data: Partial<Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>>
 ) => {
   const body: Record<string, unknown> = {};
   if (data.name !== undefined) body.name = data.name;
@@ -1345,3 +1345,110 @@ export const api = {
   updateLogic,
   deleteLogic,
 };
+
+// --- Multiplayer / connections (Phase 5) -----------------------------------
+
+export interface ConnectionIdentity {
+  peerId: string;
+  publicKey: string;
+}
+export interface ConnectionStatus {
+  enabled: boolean;
+  status: 'idle' | 'connecting' | 'ready' | 'closed';
+  peerId: string | null;
+  connected: string[];
+}
+export interface ConnectionPeer {
+  peerId: string;
+  publicKey: string;
+  displayName: string;
+  pairedAt: string;
+  lastSeen: string | null;
+  blocked: boolean;
+  sessionGranted: boolean;
+  connected: boolean;
+}
+
+export const getConnectionIdentity = () =>
+  request<ConnectionIdentity>('/connections/identity');
+export const getConnectionStatus = () =>
+  request<ConnectionStatus>('/connections/status');
+export const getConnectionPeers = () =>
+  request<ConnectionPeer[]>('/connections/peers');
+export const pairCreate = () =>
+  request<{ code: string }>('/connections/pair/create', { method: 'POST' });
+export const pairJoin = (code: string) =>
+  request<ConnectionPeer>('/connections/pair/join', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+export const peerConnect = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/connect`, {
+    method: 'POST',
+  });
+export const peerDisconnect = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/disconnect`, {
+    method: 'POST',
+  });
+export const peerAccept = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/accept`, {
+    method: 'POST',
+  });
+export const peerReject = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/reject`, {
+    method: 'POST',
+  });
+export const peerUpdate = (
+  peerId: string,
+  patch: { displayName?: string; blocked?: boolean }
+) =>
+  request<ConnectionPeer>(`/connections/peers/${peerId}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+export const peerRemove = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}`, {
+    method: 'DELETE',
+  });
+
+export const getConnectionDisplayName = (projectId: string) =>
+  request<{ displayName: string }>(`/connections/display-name/${projectId}`);
+export const setConnectionDisplayName = (projectId: string, name: string) =>
+  request<{ displayName: string }>(`/connections/display-name/${projectId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  });
+
+// --- object sharing --------------------------------------------------------
+
+/** Peer ids (and maybe '*') an object is currently shared with. */
+export const getObjectGrantees = (objectId: string) =>
+  request<string[]>(`/connections/objects/${objectId}/grantees`);
+/** Grant a peer ('*' = everyone) access to one of my objects. */
+export const shareObject = (
+  objectId: string,
+  granteePeerId: string,
+  shareKind: 'object' | 'scene' = 'object'
+) =>
+  request<{ grantees: string[] }>(`/connections/objects/${objectId}/share`, {
+    method: 'POST',
+    body: JSON.stringify({ granteePeerId, shareKind }),
+  });
+/** Revoke a peer's ('*' = everyone) access to one of my objects. */
+export const unshareObject = (objectId: string, granteePeerId: string) =>
+  request<{ grantees: string[] }>(`/connections/objects/${objectId}/unshare`, {
+    method: 'POST',
+    body: JSON.stringify({ granteePeerId }),
+  });
+/** Receiver: subscribe to (place) a peer's shared object. */
+export const peerSubscribe = (peerId: string, objectId: string) =>
+  request<{ peerId: string; objectId: string }>(
+    `/connections/peers/${peerId}/subscribe`,
+    { method: 'POST', body: JSON.stringify({ objectId }) }
+  );
+/** Receiver: unsubscribe from (remove) a peer's shared object. */
+export const peerUnsubscribe = (peerId: string, objectId: string) =>
+  request<{ peerId: string; objectId: string }>(
+    `/connections/peers/${peerId}/unsubscribe`,
+    { method: 'POST', body: JSON.stringify({ objectId }) }
+  );

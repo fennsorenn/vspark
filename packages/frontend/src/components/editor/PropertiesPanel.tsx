@@ -10,7 +10,7 @@ import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { api, fireSignalEvent, updateScene } from '../../api/client';
-import type { NodeRecord, Behavior } from '../../store/editorStore';
+import type { StageObject, Behavior } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeLayerProperties } from './ComposeLayerProperties';
 import type { AssetFile } from '../../api/client';
@@ -113,7 +113,7 @@ interface CameraProps {
 
 const RAD = Math.PI / 180;
 
-function getTransform(node: NodeRecord): Transform {
+function getTransform(node: StageObject): Transform {
   const t = node.components?.transform as Partial<Transform> | undefined;
   return {
     x: t?.x ?? 0,
@@ -131,7 +131,7 @@ function getTransform(node: NodeRecord): Transform {
   };
 }
 
-function getLightProps(node: NodeRecord): LightProps {
+function getLightProps(node: StageObject): LightProps {
   const l = node.components?.light as Partial<LightProps> | undefined;
   return {
     lightType: l?.lightType ?? 'point',
@@ -146,7 +146,7 @@ function getLightProps(node: NodeRecord): LightProps {
   };
 }
 
-function getCameraProps(node: NodeRecord): CameraProps {
+function getCameraProps(node: StageObject): CameraProps {
   const c = node.components?.camera as Partial<CameraProps> | undefined;
   return {
     projection: c?.projection ?? 'perspective',
@@ -308,7 +308,7 @@ function MaterialRow({
   node,
   slot,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   slot: ReturnType<typeof getMaterialSlots>[number];
 }) {
   const { t } = useTranslation('properties');
@@ -1042,7 +1042,7 @@ function MaterialRow({
 }
 
 /** Lists every material on the loaded VRM with per-material shader controls. */
-function MaterialSection({ node }: { node: NodeRecord }) {
+function MaterialSection({ node }: { node: StageObject }) {
   const { t } = useTranslation('properties');
   // Re-render when the VRM (re)loads — bones are set on load, cleared on unload.
   const loadedBones = useEditorStore((s) => s.vrmBonesByNode[node.id]);

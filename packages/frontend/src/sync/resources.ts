@@ -16,7 +16,7 @@
 import { bindResource } from './registry';
 import {
   useEditorStore,
-  type NodeRecord,
+  type StageObject,
   type Behavior,
 } from '../store/editorStore';
 import type {
@@ -32,7 +32,7 @@ bindResource('scene_node', {
       s.deleteNode(key);
       return;
     }
-    const node = data as NodeRecord;
+    const node = data as StageObject;
     if (s.nodes.some((n) => n.id === node.id)) s.updateNode(node.id, node);
     else s.addNode(node);
   },

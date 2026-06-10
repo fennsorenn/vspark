@@ -157,7 +157,7 @@ export interface NodeProperties {
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
 }
 
-export interface NodeRecord {
+export interface StageObject {
   id: string;
   rootSceneNodeId: string;
   projectId: string;
@@ -169,6 +169,12 @@ export interface NodeRecord {
   components: Record<string, unknown>;
   properties?: NodeProperties;
   hidden?: boolean;
+  /** True for nodes projected from a peer's shared object (multiplayer). These
+   *  live only in memory, are not persisted, and should be treated read-only:
+   *  they're cleared on reload, unshare, or disconnect and restocked from the
+   *  owner's live snapshot. `remoteOwnerPeerId` is the sharing peer. */
+  remote?: boolean;
+  remoteOwnerPeerId?: string;
 }
 
 export interface SceneRuntimeSettings {
@@ -397,7 +403,7 @@ interface EditorState {
   projectName: string;
   scenes: SceneItem[];
   activeSceneId: string | null;
-  nodes: NodeRecord[];
+  nodes: StageObject[];
   selectedNodeId: string | null;
   sceneSelected: boolean;
   selectedBehaviorId: string | null;
@@ -495,16 +501,16 @@ interface EditorState {
   removeScene: (sceneId: string) => void;
   setActiveScene: (id: string | null) => void;
   setSceneSelected: (selected: boolean) => void;
-  setNodes: (nodes: NodeRecord[]) => void;
-  addNode: (node: NodeRecord) => void;
-  updateNode: (id: string, updates: Partial<NodeRecord>) => void;
+  setNodes: (nodes: StageObject[]) => void;
+  addNode: (node: StageObject) => void;
+  updateNode: (id: string, updates: Partial<StageObject>) => void;
   deleteNode: (id: string) => void;
   selectNode: (id: string | null) => void;
   selectBehavior: (id: string | null) => void;
   setAssets: (assets: AssetFile[]) => void;
   addAsset: (asset: AssetFile) => void;
   deleteAsset: (id: string) => void;
-  activeSceneNodes: () => NodeRecord[];
+  activeSceneNodes: () => StageObject[];
   setBehaviors: (comps: Behavior[]) => void;
   addBehavior: (comp: Behavior) => void;
   updateBehavior: (
@@ -759,7 +765,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setActiveScene: (id) => set({ activeSceneId: id }),
   setSceneSelected: (selected) => set({ sceneSelected: selected }),
   setNodes: (nodes) => set({ nodes }),
-  addNode: (node) => set((s) => ({ nodes: [...s.nodes, node] })),
+  addNode: (node) =>
+    set((s) =>
+      // Idempotent by id: a create's REST response and its WS broadcast can race
+      // (either order), and only the broadcast path deduped before. Guard here so
+      // neither can double-insert.
+      s.nodes.some((n) => n.id === node.id)
+        ? {}
+        : { nodes: [...s.nodes, node] }
+    ),
   updateNode: (id, updates) =>
     set((s) => ({
       nodes: s.nodes.map((n) => (n.id === id ? { ...n, ...updates } : n)),

@@ -82,7 +82,13 @@
     "copyNode": "Knoten kopieren",
     "pasteNodeAsChild": "Knoten als Kind einfügen",
     "pasteLogicHere": "Logik hier einfügen",
+    "shareWith": "Teilen mit",
+    "shareEveryone": "Alle Verbundenen",
+    "shareNobody": "Niemand verbunden",
     "delete": "Löschen"
+  },
+  "remote": {
+    "tip": "Geteiltes Objekt von einem verbundenen Partner. Du kannst diesen Container bewegen und platzieren; sein Inhalt gehört dessen Server und wird von dort live aktualisiert."
   },
   "logic": {
     "globalLogic": "Globale Logik",

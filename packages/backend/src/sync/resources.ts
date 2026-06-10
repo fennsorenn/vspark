@@ -15,7 +15,7 @@ import { defineResource } from './registry.js';
 import { rowToLayer, type LayerRow } from '../routes/compose-layers.js';
 import { loadClip } from '../routes/track-clips.js';
 
-interface SceneNodeRow {
+interface StageObjectRow {
   id: string;
   project_id: string;
   root_scene_node_id: string;
@@ -29,8 +29,8 @@ interface SceneNodeRow {
   hidden: number;
 }
 
-/** scene_nodes row → the camelCase shape the frontend store/NodeRecord expects. */
-function rowToNode(r: SceneNodeRow) {
+/** scene_nodes row → the camelCase shape the frontend store/StageObject expects. */
+function rowToNode(r: StageObjectRow) {
   return {
     id: r.id,
     rootSceneNodeId: r.root_scene_node_id,
@@ -69,7 +69,7 @@ defineResource<ReturnType<typeof rowToNode>>({
   load: (id) => {
     const r = getDb()
       .prepare('SELECT * FROM scene_nodes WHERE id = ?')
-      .get(id) as unknown as SceneNodeRow | undefined;
+      .get(id) as unknown as StageObjectRow | undefined;
     return r ? rowToNode(r) : undefined;
   },
 });

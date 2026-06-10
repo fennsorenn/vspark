@@ -1,0 +1,6 @@
+# Auto-HTTPS reverse proxy for the rendezvous. Caddy obtains + renews a
+# Let's Encrypt cert for RDV_DOMAIN automatically. WebSocket upgrades are
+# proxied transparently, so `wss://RDV_DOMAIN` reaches the rendezvous.
+{$RDV_DOMAIN} {
+	reverse_proxy rendezvous:8787
+}

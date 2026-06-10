@@ -9,6 +9,16 @@ export function initIkBroadcast(ws: WSSync): void {
   _ws = ws;
 }
 
+/** Optional tap on every emitted IK frame, for multiplayer fan-out to subscribers. */
+let _forward:
+  | ((kind: string, nodeId: string, payload: Record<string, unknown>) => void)
+  | null = null;
+export function setIkStreamForwarder(
+  fn: (kind: string, nodeId: string, payload: Record<string, unknown>) => void
+): void {
+  _forward = fn;
+}
+
 @SignalNode({
   label: 'Send IK Targets',
   description:
@@ -30,6 +40,8 @@ export class IkBroadcast extends Node {
     const nodeId = this.nodeId();
     const targets = this.targets();
     if (!nodeId || !targets) return;
-    _ws?.broadcast('pose_ik_targets', { ...targets, nodeId });
+    const payload = { ...targets, nodeId };
+    _ws?.broadcast('pose_ik_targets', payload);
+    _forward?.('pose_ik_targets', nodeId, payload);
   }
 }

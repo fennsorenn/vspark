@@ -13,7 +13,13 @@
  * optional until then.
  */
 
-/** How a resource is delivered/persisted. See the design doc's "Delivery classes". */
+/** How a resource is delivered/persisted. See the design doc's "Delivery classes".
+ *
+ *  `event` is retained for back-compat but **deprecated**: the live-mesh design
+ *  folds events into temporal `field` state — a retained, keyed
+ *  "started at timestamp X" anchor (see {@link TemporalAnchor}) that late
+ *  joiners render in sync rather than a fire-and-forget command. New temporal
+ *  state should use `field`. See dev-notes/plans/live-mesh.md. */
 export type ResourceClass = 'document' | 'field' | 'stream' | 'event';
 
 /** Mutation verbs carried on the wire. Not every class uses every op:
@@ -47,6 +53,11 @@ export interface SyncEnvelope {
   v?: HLC;
   /** originating peer id — echo + loop suppression (Phase 4+). */
   origin?: string;
+  /** Fan-out routing hint for `remove` ops: the deleted entity's ancestor id
+   *  chain (self first, up to the tree root), captured *before* deletion so
+   *  subtree-scoped subscribers can still be resolved once the row is gone.
+   *  Ignored by consumers that route by key. */
+  route?: string[];
 }
 
 /** WS message kind that wraps every unified-sync envelope, so it coexists with
@@ -80,6 +91,91 @@ export function makeHlcClock(peerId: string): () => HLC {
     }
     return { t: lastT, c: lastC, n: peerId };
   };
+}
+
+// --- Participants -----------------------------------------------------------
+//
+// In the live P2P mesh a "participant" is any endpoint: a backend server or a
+// browser client. Backends use their stable Ed25519 peer id; a client gets
+// `${serverPeerId}#${ephemeralClientUuid}` (one per tab). The participant id is
+// the HLC `origin`/`n` and the loop-suppression tag, so it must be unique per
+// endpoint. See dev-notes/plans/live-mesh.md.
+
+const CLIENT_SEP = '#';
+
+/** Mint a per-tab client participant id under its server's peer id. */
+export function makeClientParticipantId(
+  serverPeerId: string,
+  clientUuid: string
+): string {
+  return `${serverPeerId}${CLIENT_SEP}${clientUuid}`;
+}
+
+/** Whether a participant id belongs to a browser client (vs a backend server). */
+export function isClientParticipant(id: string): boolean {
+  return id.includes(CLIENT_SEP);
+}
+
+/** The owning server's peer id for any participant (itself if it's a server). */
+export function participantServer(id: string): string {
+  const i = id.indexOf(CLIENT_SEP);
+  return i < 0 ? id : id.slice(0, i);
+}
+
+// --- Shared clock -----------------------------------------------------------
+//
+// A flat mesh has no single clock, but temporal state ("started at T") needs a
+// common base. Each participant tracks a smoothed offset *per origin* from
+// ping/pong over the data channel; a remote anchor is converted to local time
+// with `localizeAnchor(anchorT, offset)`. This generalises the per-server
+// `clockOffsetMs = serverNow − Date.now()` to per-origin offsets.
+
+/** A retained temporal value: "this began (or was anchored) at `anchorT`, in the
+ *  origin's clock". Consumers derive the current frame from
+ *  `localNow − localizeAnchor(anchorT, offset[origin])`. `paused` carries a
+ *  fixed position instead of a running anchor. */
+export interface TemporalAnchor {
+  /** wall-clock millis in the originating participant's clock */
+  anchorT: number;
+  /** when set, playback is held at this position (seconds) rather than running */
+  pausedAtT?: number;
+}
+
+/** Estimate `offset = remoteClock − localClock` from one ping round-trip:
+ *  ping sent at `localSendT`, pong (carrying the peer's `remoteT`) received at
+ *  `localRecvT`. Assumes symmetric latency (remoteT sampled mid-flight). */
+export function estimateClockOffset(
+  localSendT: number,
+  remoteT: number,
+  localRecvT: number
+): number {
+  return remoteT - (localSendT + localRecvT) / 2;
+}
+
+/** A smoothed per-origin clock-offset tracker. `observe()` folds in a fresh
+ *  round-trip estimate; `offset()` returns the current best estimate (0 until
+ *  the first observation). EMA-smoothed to ride out jitter. */
+export function makeOffsetTracker(alpha = 0.2): {
+  observe: (localSendT: number, remoteT: number, localRecvT: number) => void;
+  offset: () => number;
+} {
+  let off = 0;
+  let seeded = false;
+  return {
+    observe: (s, r, e) => {
+      const sample = estimateClockOffset(s, r, e);
+      off = seeded ? off + alpha * (sample - off) : sample;
+      seeded = true;
+    },
+    offset: () => off,
+  };
+}
+
+/** Convert an origin-clock anchor timestamp into local-clock millis. With
+ *  `offset = originClock − localClock`, the local equivalent of an origin
+ *  timestamp is `anchorT − offset`. */
+export function localizeAnchor(anchorT: number, offsetMs: number): number {
+  return anchorT - offsetMs;
 }
 
 // --- Dotted-path addressing -------------------------------------------------
@@ -122,3 +218,224 @@ export function keyMatches(key: string, prefix: string): boolean {
   if (key === base) return true;
   return key.startsWith(base + ':') || key.startsWith(base + '.');
 }
+
+// --- Grants -----------------------------------------------------------------
+//
+// A grant is two orthogonal axes × rights, matched independently against a key
+// `rtype:id:subPath`:
+//   • entity selection — (rtype, id) + includeDescendants  (id/'*'; a scene is
+//     just the entity whose subtree is the scene)
+//   • path selection   — a dotted sub-path prefix ('' = all paths)
+//   • rights ⊆ {read, update, create, delete}; read/update use the path axis,
+//     create/delete are structural (entity-scoped, path-independent).
+// Per-peer access is the UNION of matching grants. The owning server is the
+// grant authority for its own namespaces (self-grants full RUCD); enforcement is
+// source-side admission. See dev-notes/plans/permissioned-sync-mesh.md.
+
+export type Right = 'read' | 'update' | 'create' | 'delete';
+
+export interface Grant {
+  /** peer id (server OR participant) or '*' */
+  grantee: string;
+  /** entity type, or '*' for any */
+  entityRtype: string;
+  /** entity id, or '*' for any of `entityRtype` */
+  entityId: string;
+  /** also covers everything below `entityId` in the containment tree */
+  includeDescendants: boolean;
+  /** dotted sub-path prefix; '' = all paths */
+  pathPrefix: string;
+  rights: { read?: boolean; update?: boolean; create?: boolean; delete?: boolean };
+}
+
+/** Resolves containment for the descendants axis (injected by the host: the
+ *  scene-node tree, compose tree, …). Returns true if `childId` is at or below
+ *  `ancestorId` within `rtype`. */
+export type IsDescendant = (
+  rtype: string,
+  childId: string,
+  ancestorId: string
+) => boolean;
+
+/** Does a grant's path prefix cover a key's sub-path? '' covers everything. */
+export function pathCovers(prefix: string, subPath: string): boolean {
+  if (prefix === '') return true;
+  if (subPath === prefix) return true;
+  return subPath.startsWith(prefix + '.');
+}
+
+/** Does a single grant authorize `need` on `key`? (entity ∧ path ∧ right) */
+export function grantAllows(
+  g: Grant,
+  key: string,
+  need: Right,
+  isDescendant: IsDescendant
+): boolean {
+  if (!g.rights[need]) return false;
+  const { rtype, id, subPath } = parseKey(key);
+  if (g.entityRtype !== '*' && g.entityRtype !== rtype) return false;
+  const entityOk =
+    g.entityId === '*' ||
+    g.entityId === id ||
+    (g.includeDescendants && isDescendant(rtype, id, g.entityId));
+  if (!entityOk) return false;
+  // create/delete are structural — scoped to the entity, not a field path.
+  if (need === 'create' || need === 'delete') return true;
+  return pathCovers(g.pathPrefix, subPath ?? '');
+}
+
+/** Union over grants: any grant that allows ⇒ allowed. */
+export function evaluateAccess(
+  grants: Grant[],
+  key: string,
+  need: Right,
+  isDescendant: IsDescendant
+): boolean {
+  return grants.some((g) => grantAllows(g, key, need, isDescendant));
+}
+
+/** Grantee ids that cover a requester: itself, its owning server, and '*'. */
+export function granteeCandidates(requester: string): string[] {
+  const server = participantServer(requester);
+  return server === requester ? [requester, '*'] : [requester, server, '*'];
+}
+
+// --- Subscriptions ----------------------------------------------------------
+//
+// A subscription is a peer's *interest* — same (entity × path) shape as a grant,
+// minus rights. It's admitted only if a read grant fully covers it
+// (`grantCoversSubscription`), so the write path can route by pure interest match
+// with no per-message permission recheck. Revalidation drops subscriptions whose
+// covering grant was revoked (evict-on-revoke). The descendants axis is resolved
+// by the injected containment {@link IsDescendant}. See
+// dev-notes/plans/permissioned-sync-mesh.md.
+
+export interface Subscription {
+  entityRtype: string;
+  entityId: string;
+  includeDescendants: boolean;
+  pathPrefix: string;
+}
+
+/** Does a read grant cover an *entire* subscription (breadth containment), so it
+ *  can be admitted once and never rechecked per write? */
+export function grantCoversSubscription(
+  g: Grant,
+  sub: Subscription,
+  isDescendant: IsDescendant
+): boolean {
+  if (!g.rights.read) return false;
+  if (g.entityRtype !== '*' && g.entityRtype !== sub.entityRtype) return false;
+  const entityCovered =
+    g.entityId === '*' ||
+    (g.includeDescendants
+      ? g.entityId === sub.entityId ||
+        isDescendant(sub.entityRtype, sub.entityId, g.entityId)
+      : g.entityId === sub.entityId && !sub.includeDescendants);
+  if (!entityCovered) return false;
+  // grant's path prefix must be at or above the subscription's (covers it).
+  return pathCovers(g.pathPrefix, sub.pathPrefix);
+}
+
+/** Does a write to `key` fall within a subscription's interest? (reuses the
+ *  grant matcher treating the subscription as a read grant). */
+export function subscriptionMatches(
+  sub: Subscription,
+  key: string,
+  isDescendant: IsDescendant
+): boolean {
+  return grantAllows(
+    { ...sub, grantee: '', rights: { read: true } },
+    key,
+    'read',
+    isDescendant
+  );
+}
+
+function sameSubscription(a: Subscription, b: Subscription): boolean {
+  return (
+    a.entityRtype === b.entityRtype &&
+    a.entityId === b.entityId &&
+    a.includeDescendants === b.includeDescendants &&
+    a.pathPrefix === b.pathPrefix
+  );
+}
+
+/** Holds admitted subscriptions per participant and routes writes to them.
+ *  `grantsFor` + `isDescendant` are injected (the server's grant store + the
+ *  containment index), keeping this reusable and unit-testable. */
+export class SubscriptionHub {
+  private readonly subs = new Map<string, Subscription[]>();
+
+  constructor(
+    private readonly grantsFor: (participant: string) => Grant[],
+    private readonly isDescendant: IsDescendant
+  ) {}
+
+  /** Admit a subscription iff a read grant covers it. Returns whether admitted. */
+  subscribe(participant: string, sub: Subscription): boolean {
+    const grants = this.grantsFor(participant);
+    if (!grants.some((g) => grantCoversSubscription(g, sub, this.isDescendant)))
+      return false;
+    const list = this.subs.get(participant) ?? [];
+    if (!list.some((s) => sameSubscription(s, sub))) list.push(sub);
+    this.subs.set(participant, list);
+    return true;
+  }
+
+  unsubscribe(participant: string, sub: Subscription): void {
+    const list = this.subs.get(participant);
+    if (!list) return;
+    const next = list.filter((s) => !sameSubscription(s, sub));
+    if (next.length) this.subs.set(participant, next);
+    else this.subs.delete(participant);
+  }
+
+  removeParticipant(participant: string): void {
+    this.subs.delete(participant);
+  }
+
+  /** Participants who should receive a write to `key` (pure interest match). */
+  route(key: string): string[] {
+    const out: string[] = [];
+    for (const [p, list] of this.subs)
+      if (list.some((s) => subscriptionMatches(s, key, this.isDescendant)))
+        out.push(p);
+    return out;
+  }
+
+  /** Re-check a participant's admitted subscriptions against current grants;
+   *  evict any no longer covered. Returns the dropped subscriptions. */
+  revalidate(participant: string): Subscription[] {
+    const list = this.subs.get(participant);
+    if (!list) return [];
+    const grants = this.grantsFor(participant);
+    const kept: Subscription[] = [];
+    const dropped: Subscription[] = [];
+    for (const s of list)
+      (grants.some((g) => grantCoversSubscription(g, s, this.isDescendant))
+        ? kept
+        : dropped
+      ).push(s);
+    if (kept.length) this.subs.set(participant, kept);
+    else this.subs.delete(participant);
+    return dropped;
+  }
+
+  subscriptionsOf(participant: string): Subscription[] {
+    return [...(this.subs.get(participant) ?? [])];
+  }
+
+  /** Participants holding at least one admitted subscription. */
+  participants(): string[] {
+    return [...this.subs.keys()];
+  }
+}
+
+// --- Typed containment hierarchy (re-exported; see ./containment) -----------
+export {
+  ContainmentIndex,
+  type ContainmentSchema,
+  type SchemaProvider,
+  type StructuralCheck,
+} from './containment';

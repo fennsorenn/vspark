@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import type { NodeRecord, Behavior } from '../../store/editorStore';
+import type { StageObject, Behavior } from '../../store/editorStore';
 import { newBehaviorId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
@@ -11,6 +11,12 @@ import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
 import { ContextMenu } from './ContextMenu';
 import { HelpButton } from '../../help/HelpButton';
+import { useConnectionsStore } from '../../store/connectionsStore';
+import {
+  getObjectGrantees,
+  shareObject,
+  unshareObject,
+} from '../../api/client';
 import { useConfirm, usePrompt } from '../DialogProvider';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
@@ -37,6 +43,7 @@ const KIND_ICONS: Record<string, string> = {
   video: '🎞️',
   audio: '🔊',
   feed: '📜',
+  remote_object: '🔗',
 };
 
 // Node kinds the user can add. Sourced from the shared registry so the scene
@@ -69,7 +76,7 @@ function SceneNodeContextMenu({
   canPasteLogic,
 }: {
   menu: CtxMenu;
-  nodes: NodeRecord[];
+  nodes: StageObject[];
   onClose: () => void;
   onAddChild: (parentId: string, type: (typeof NODE_TYPES)[number]) => void;
   onReparent: (nodeId: string, newParentId: string) => void;
@@ -85,7 +92,40 @@ function SceneNodeContextMenu({
   const node = nodes.find((n) => n.id === menu.nodeId)!;
   const [showAddChild, setShowAddChild] = useState(false);
   const [showMoveInto, setShowMoveInto] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [grantees, setGrantees] = useState<string[]>([]);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Sharing targets: peers with a live mesh connection. Hidden entirely when
+  // multiplayer is off or nobody is connected.
+  const mpEnabled = useConnectionsStore((s) => s.enabled);
+  const connectedIds = useConnectionsStore((s) => s.connectedIds);
+  const nameById = useConnectionsStore((s) => s.nameById);
+  const canShare = mpEnabled && !node.remote && node.kind !== 'remote_object';
+
+  // Load the object's current grantees when the Share submenu opens.
+  useEffect(() => {
+    if (!showShare) return;
+    let alive = true;
+    void getObjectGrantees(menu.nodeId)
+      .then((g) => alive && setGrantees(g))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [showShare, menu.nodeId]);
+
+  const toggleShare = async (granteePeerId: string) => {
+    const has = grantees.includes(granteePeerId);
+    try {
+      const { grantees: next } = has
+        ? await unshareObject(menu.nodeId, granteePeerId)
+        : await shareObject(menu.nodeId, granteePeerId, 'object');
+      setGrantees(next);
+    } catch {
+      /* ignore */
+    }
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -244,6 +284,95 @@ function SceneNodeContextMenu({
           </div>
         )}
       </div>
+
+      {/* Share with (multiplayer) submenu */}
+      {canShare && (
+        <div
+          style={itemStyle}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLDivElement).style.background = '#2a2a2a';
+            setShowShare(true);
+            setShowAddChild(false);
+            setShowMoveInto(false);
+          }}
+          onMouseLeave={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background =
+              'transparent')
+          }
+        >
+          <span>{t('context.shareWith')}</span>
+          <span style={{ color: '#666' }}>▶</span>
+          {showShare && (
+            <div
+              style={{
+                position: 'absolute',
+                left: '100%',
+                top: 0,
+                background: '#1e1e1e',
+                border: '1px solid #3a3a3a',
+                borderRadius: 6,
+                minWidth: 180,
+                maxHeight: 280,
+                overflowY: 'auto',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+              }}
+            >
+              {connectedIds.length === 0 && (
+                <div style={{ ...itemStyle, color: '#888', cursor: 'default' }}>
+                  {t('context.shareNobody')}
+                </div>
+              )}
+              {connectedIds.length > 0 && (
+                <div
+                  style={itemStyle}
+                  onMouseEnter={(e) =>
+                    ((e.currentTarget as HTMLDivElement).style.background =
+                      '#2a2a2a')
+                  }
+                  onMouseLeave={(e) =>
+                    ((e.currentTarget as HTMLDivElement).style.background =
+                      'transparent')
+                  }
+                  onClick={() => void toggleShare('*')}
+                >
+                  <span>{t('context.shareEveryone')}</span>
+                  <span style={{ color: '#4ade80' }}>
+                    {grantees.includes('*') ? '✓' : ''}
+                  </span>
+                </div>
+              )}
+              {connectedIds.map((peerId) => (
+                <div
+                  key={peerId}
+                  style={itemStyle}
+                  onMouseEnter={(e) =>
+                    ((e.currentTarget as HTMLDivElement).style.background =
+                      '#2a2a2a')
+                  }
+                  onMouseLeave={(e) =>
+                    ((e.currentTarget as HTMLDivElement).style.background =
+                      'transparent')
+                  }
+                  onClick={() => void toggleShare(peerId)}
+                >
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {nameById[peerId] || peerId.slice(0, 12)}
+                  </span>
+                  <span style={{ color: '#4ade80' }}>
+                    {grantees.includes(peerId) ? '✓' : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {node.parentId && (
         <div
@@ -1874,10 +2003,14 @@ export function SceneGraph() {
     setDragNodeId(null);
   };
 
-  const renderNode = (node: NodeRecord, depth = 0) => {
+  const renderNode = (node: StageObject, depth = 0) => {
     const isSelected = selectedNodeId === node.id;
     const isHidden = node.hidden ?? false;
-    const allChildren = nodes.filter((n) => n.parentId === node.id);
+    // Projected (remote) inner nodes are hidden from the tree — only the opaque
+    // remote_object container they live under is shown + editable.
+    const allChildren = nodes.filter(
+      (n) => n.parentId === node.id && !n.remote
+    );
     const bones =
       node.kind === 'avatar' || node.kind === 'model'
         ? (vrmBonesByNode[node.id] ?? null)
@@ -1991,12 +2124,32 @@ export function SceneGraph() {
           >
             <span
               style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
                 overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
               }}
             >
-              {node.name}
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {node.name}
+              </span>
+              {/* Opaque container for a peer's shared object: editable
+                  placement, but its contents live on the owner's server
+                  (read-only internals). */}
+              {node.kind === 'remote_object' && (
+                <span
+                  title={t('remote.tip')}
+                  style={{ fontSize: 11, flexShrink: 0, opacity: 0.7 }}
+                >
+                  📡
+                </span>
+              )}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               {/* Bones toggle — avatar/model only, shown once VRM is loaded */}
@@ -2282,7 +2435,11 @@ export function SceneGraph() {
     const isSelected = isActive && sceneSelected;
     const isCollapsed = collapsedScenes.has(scene.id);
     const rootNodes = nodes.filter(
-      (n) => n.rootSceneNodeId === scene.id && !n.parentId && n.kind !== 'scene'
+      (n) =>
+        n.rootSceneNodeId === scene.id &&
+        !n.parentId &&
+        n.kind !== 'scene' &&
+        !n.remote
     );
 
     return (

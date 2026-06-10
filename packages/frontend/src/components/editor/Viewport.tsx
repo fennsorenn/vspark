@@ -52,7 +52,7 @@ import { VRMLoaderPlugin } from '@pixiv/three-vrm';
 import type { VRM, VRMHumanBoneName, VRMPose } from '@pixiv/three-vrm';
 import { useEditorStore } from '../../store/editorStore';
 import type {
-  NodeRecord,
+  StageObject,
   Behavior,
   ApiAnimationState,
 } from '../../store/editorStore';
@@ -586,7 +586,7 @@ interface Transform {
   receiveShadow: boolean;
 }
 
-function getTransform(node: NodeRecord): Transform {
+function getTransform(node: StageObject): Transform {
   const t = node.components?.transform as Partial<Transform> | undefined;
   return {
     x: t?.x ?? 0,
@@ -611,7 +611,7 @@ function getTransform(node: NodeRecord): Transform {
  *  Resolution order per field: track-clip override > runtime override > base
  *  (the shared {@link compositeScalars} fold applies the clip layer last, so it
  *  wins). See dev-notes/plans/unified-sync-layer.md. */
-function useTransformWithOverride(node: NodeRecord): Transform {
+function useTransformWithOverride(node: StageObject): Transform {
   const clipOverride = useEditorStore((s) => s.nodeTransformOverrides[node.id]);
   const runtimeOverride = useEditorStore(
     (s) => s.runtimeNodeOverrides[node.id]
@@ -837,7 +837,7 @@ function AvatarNode({
   node,
   children,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   children?: React.ReactNode;
 }) {
   const outerRef = useRef<THREE.Group>(null);
@@ -2514,7 +2514,7 @@ function LightNode({
   node,
   viewerMode,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   viewerMode?: boolean;
 }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -2631,7 +2631,7 @@ function LightNode({
   );
 }
 
-function CameraNode({ node }: { node: NodeRecord }) {
+function CameraNode({ node }: { node: StageObject }) {
   const { selectedNodeId } = useEditorStore();
   const isSelected = selectedNodeId === node.id;
   const groupRef = useRef<THREE.Group>(null);
@@ -2813,7 +2813,7 @@ const BILLBOARD_DEFAULTS: BillboardConfig = {
   textureUrl: null,
 };
 
-function BillboardNode({ node }: { node: NodeRecord }) {
+function BillboardNode({ node }: { node: StageObject }) {
   const outerRef = useRef<THREE.Group>(null);
   const billboardRef = useRef<THREE.Group>(null);
   const frontRef = useRef<THREE.Mesh>(null);
@@ -2973,7 +2973,7 @@ function VideoNode({
   node,
   viewerMode,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   viewerMode?: boolean;
 }) {
   const outerRef = useRef<THREE.Group>(null);
@@ -3206,7 +3206,7 @@ function AudioNode({
   node,
   viewerMode,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   viewerMode?: boolean;
 }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -3447,7 +3447,7 @@ function makeInstancedParticleMaterial(
 
 /** Read the live text content for a text scene node, preferring the runtime
  *  override on `text.content` over the persisted `components.text.content`. */
-function useTextContent(node: NodeRecord): string {
+function useTextContent(node: StageObject): string {
   const override = useEditorStore((s) => {
     const v = s.runtimeNodeOverrides[node.id]?.['text.content'];
     return typeof v === 'string' ? v : undefined;
@@ -3459,7 +3459,7 @@ function useTextContent(node: NodeRecord): string {
 }
 
 /** SDF text via troika-three-text. Crisp at any distance, no HTML. */
-function TextTroikaNode({ node }: { node: NodeRecord }) {
+function TextTroikaNode({ node }: { node: StageObject }) {
   const outerRef = useRef<THREE.Group>(null);
   const billboardRef = useRef<THREE.Group>(null);
   const textRef = useRef<TroikaText | null>(null);
@@ -3533,7 +3533,7 @@ function TextTroikaNode({ node }: { node: NodeRecord }) {
 /** Text rendered into a CanvasTexture on a plane. Supports allowHtml via
  *  html2canvas (for emote rendering); otherwise rasterises plain text directly
  *  on a 2D canvas. */
-function TextCanvasNode({ node }: { node: NodeRecord }) {
+function TextCanvasNode({ node }: { node: StageObject }) {
   const outerRef = useRef<THREE.Group>(null);
   const billboardRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
@@ -3635,6 +3635,13 @@ function TextCanvasNode({ node }: { node: NodeRecord }) {
             // producing a tainted (un-rasterisable) canvas.
             useCORS: true,
             allowTaint: false,
+            // html2canvas clones the WHOLE document (not just `host`) and runs
+            // getContext('2d') on every <canvas> it finds. That permanently
+            // locks any live R3F WebGL canvas to a 2D context, so its next
+            // getContext('webgl2') throws "existing context of a different
+            // type" and crashes the viewport. Our host subtree has no canvas
+            // of its own, so skipping all canvases is safe.
+            ignoreElements: (el) => el.tagName === 'CANVAS',
           });
           if (!cancelled) {
             ctx.drawImage(rendered, 0, 0);
@@ -3713,7 +3720,7 @@ function FeedCanvasNode({
   node,
   viewerMode,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   viewerMode?: boolean;
 }) {
   const outerRef = useRef<THREE.Group>(null);
@@ -3859,6 +3866,11 @@ function FeedCanvasNode({
         logging: false,
         useCORS: true,
         allowTaint: false,
+        // html2canvas clones the whole document and runs getContext('2d') on
+        // every <canvas>, which permanently locks a live R3F WebGL canvas to a
+        // 2D context and crashes the viewport on its next getContext('webgl2').
+        // Our host subtree has no canvas of its own, so skip all canvases.
+        ignoreElements: (el) => el.tagName === 'CANVAS',
       });
       if (cancelled) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -3934,7 +3946,7 @@ function FeedCanvasNode({
   );
 }
 
-function ParticleNode({ node }: { node: NodeRecord }) {
+function ParticleNode({ node }: { node: StageObject }) {
   const outerRef = useRef<THREE.Group>(null);
   // InstancedMesh for local-space; a scene-root InstancedMesh for world-space
   const localMeshRef = useRef<THREE.InstancedMesh>(null);
@@ -4197,7 +4209,7 @@ function ParticleNode({ node }: { node: NodeRecord }) {
   );
 }
 
-function GodrayCasterNode({ node }: { node: NodeRecord }) {
+function GodrayCasterNode({ node }: { node: StageObject }) {
   const outerRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const t = useTransformWithOverride(node);
@@ -4236,7 +4248,7 @@ function ModelNode({
   node,
   children,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   children?: React.ReactNode;
 }) {
   const outerRef = useRef<THREE.Group>(null);
@@ -4245,6 +4257,10 @@ function ModelNode({
   useApplyMeshFlags(outerRef, t.opacity, t.castShadow, t.receiveShadow);
   const ext = node.filePath?.split('.').pop()?.toLowerCase();
   const isGlb = Boolean(node.filePath && (ext === 'glb' || ext === 'gltf'));
+  // remote_object is an opaque wrapper around a peer's shared subtree — it has
+  // no model of its own, so skip the no-model placeholder box (it would float
+  // at the container origin alongside the projected content).
+  const isContainer = node.kind === 'remote_object';
 
   useEffect(() => {
     if (!outerRef.current) return;
@@ -4274,7 +4290,7 @@ function ModelNode({
     >
       {isGlb ? (
         <group ref={innerRef} />
-      ) : (
+      ) : isContainer ? null : (
         <mesh>
           <boxGeometry args={[0.5, 0.5, 0.5]} />
           <meshStandardMaterial color="#5588cc" />
@@ -4299,8 +4315,8 @@ function SceneInstanceContent({ sourceSceneId }: { sourceSceneId: string }) {
 }
 
 function renderNodeElement(
-  node: NodeRecord,
-  allNodes?: NodeRecord[],
+  node: StageObject,
+  allNodes?: StageObject[],
   viewerMode?: boolean
 ): React.ReactNode {
   const freeChildren = allNodes
@@ -4357,8 +4373,10 @@ function renderNodeElement(
         <GodrayCasterNode node={node} />
       </group>
     );
-  // Group nodes are invisible transform containers — children inherit their position
-  if (node.kind === 'group')
+  // Group nodes are invisible transform containers — children inherit their
+  // position. remote_object (a placed peer share) is the same: an opaque, empty
+  // container whose transform drives the projected shared subtree below it.
+  if (node.kind === 'group' || node.kind === 'remote_object')
     return (
       <group key={node.id} visible={visible}>
         <ModelNode node={node}>{childElements}</ModelNode>
@@ -4431,9 +4449,9 @@ export function SceneNodes({
   // so they break the chain. Recompute effective visibility by walking the
   // parentId chain in `nodes` (cycles guarded by a visited set).
   const byId = new Map(nodes.map((n) => [n.id, n] as const));
-  const isAncestorHidden = (n: NodeRecord): boolean => {
+  const isAncestorHidden = (n: StageObject): boolean => {
     const seen = new Set<string>();
-    let cur: NodeRecord | undefined = n.parentId
+    let cur: StageObject | undefined = n.parentId
       ? byId.get(n.parentId)
       : undefined;
     while (cur && !seen.has(cur.id)) {
@@ -4443,7 +4461,7 @@ export function SceneNodes({
     }
     return false;
   };
-  const effectiveVisible = (n: NodeRecord) => !n.hidden && !isAncestorHidden(n);
+  const effectiveVisible = (n: StageObject) => !n.hidden && !isAncestorHidden(n);
 
   return (
     <>
