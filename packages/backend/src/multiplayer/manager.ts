@@ -49,9 +49,6 @@ import type { ShareKind } from './shares.js';
 /** Control envelope carrying a peer's current display name (the per-project
  *  name updates live, so we exchange it on connect + on change). */
 const PROFILE_RTYPE = 'peer_profile';
-/** Sent over a live edge when one side removes the other as a contact, so the
- *  remote drops the pairing too (mutual unpair) instead of keeping a dead row. */
-const UNPAIR_RTYPE = 'peer_unpair';
 
 type Broadcast = (kind: string, payload: Record<string, unknown>) => void;
 
@@ -256,12 +253,6 @@ class MultiplayerManager {
           // a reliable point to (re-)advertise our shares (the on-connect send
           // can race the channel setup).
           this.sharing?.advertise(from);
-        } else if (env?.rtype === UNPAIR_RTYPE) {
-          // The peer removed us as a contact — drop it on our side too and tell
-          // our clients so the Connections window refetches.
-          removeKnownPeer(from);
-          revokeSessionGrant(from);
-          this.broadcast('mp_peer', { peerId: from, connected: false });
         } else if (SHARE_RTYPES.has(env?.rtype)) {
           this.sharing?.handleEnvelope(from, env);
         } else if (BLOB_RTYPES.has(env?.rtype)) {
@@ -279,6 +270,13 @@ class MultiplayerManager {
       upsertKnownPeer(peer);
       this.client?.refreshPresence();
       this.broadcast('mp_peer', { peerId: peer.peerId, paired: true });
+    });
+    // The peer removed us as a contact — drop it on our side too + refetch.
+    this.client.on('unpairRequest', ({ from }: { from: string }) => {
+      revokeSessionGrant(from);
+      this.mesh?.disconnect(from);
+      removeKnownPeer(from);
+      this.broadcast('mp_peer', { peerId: from, connected: false });
     });
     this.client.on(
       'presence',
@@ -384,16 +382,13 @@ class MultiplayerManager {
     revokeSessionGrant(peerId);
   }
 
-  /** Remove a contact (unpair). Notifies the peer over any live edge so it drops
-   *  us too, tears down the connection, forgets the pairing, and tells our own
-   *  clients so the Connections window refetches (it otherwise stayed stale). */
+  /** Remove a contact (unpair). Notifies the peer (rendezvous-relayed, so it
+   *  lands even with no mesh edge — unpair almost always happens from the
+   *  disconnected Contacts list) so it drops us too, tears down any connection,
+   *  forgets the pairing, and tells our own clients so the Connections window
+   *  refetches (it otherwise stayed stale). */
   removePeer(peerId: string): void {
-    // Best-effort mutual unpair: only lands if a live edge is open.
-    this.mesh?.sendEnvelope(peerId, {
-      rtype: UNPAIR_RTYPE,
-      op: 'event',
-      key: getIdentity().peerId,
-    });
+    this.client?.sendUnpair(peerId);
     this.disconnect(peerId);
     removeKnownPeer(peerId);
     this.broadcast('mp_peer', { peerId, connected: false });
