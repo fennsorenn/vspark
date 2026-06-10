@@ -17,3 +17,5 @@ backups/
 .DS_Store
 itellar
 **/uploads/**
+# smoketest scratch (two-peer mesh: frontend-B vite proxy → backend B)
+packages/frontend/vite.config.b.ts
