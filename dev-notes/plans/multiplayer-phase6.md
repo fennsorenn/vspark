@@ -139,6 +139,41 @@ peers.
   submenu.
 - **Branch:** `feature/multiplayer-phase6` off `claude/preset-object-sync-wn2HT`.
 
+## Frontend implementation map (gathered — exact wiring)
+
+Backend foundation is **done** (`b2f1b10`): `_share_write`/`_share_write_nak`,
+owner AuthZ + `sceneNodeWrite.ts` (content-only update / parent-derived create /
+delete), `canWrite` advertised per offer, `connectionsStore.canWriteObject`.
+Remaining is all frontend + the relay forwarding:
+
+- **Commit sites funnel through `api/client.ts`** — `updateNode` (PUT
+  `/scene-nodes/:id`, ~546), `createNode` (POST `/scenes/:id/nodes`, ~529),
+  `deleteNode` (DELETE, ~567). Editor call sites: gizmo commit `Viewport.tsx`
+  `onEnd` ~4524, Properties panel ~3982/3996, scene-graph add/delete
+  `SceneGraph.tsx` ~1768/1793. → **Central routing seam:** a registered hook in
+  `api/client.ts` (`setRemoteWriteRouter`) so those three first ask "writable
+  remote node?"; if so route `_share_write`, skip REST. No commit-site edits.
+- **`remoteEdit.ts` (new):** the router — look up node (`editorStore`), confirm
+  `node.remote` + `canWriteObject(owner, owningRoot)`, build the `scene_node` env
+  (update→local fields, owner ignores structure; create→fresh uuid + parent owner
+  id; delete→owner-ancestor `route`), record a pending write, `sendShareWrite`.
+- **`shareDirect.ts`:** `sendShareWrite(owner, env)` over the edge; relay fallback
+  (frontend→own backend WS→owner) needs a small backend relay: receiver-backend
+  forwards `_share_write` to the owner over `ServerMesh` + relays the NAK back.
+- **Reconciliation (`sharedProjection.ts`):** authoritative-DTO map (set in
+  `applySnapshot`/`applyUpdate`); owner echo clears the pending write;
+  `_share_write_nak`/timeout rolls back (update→re-apply DTO, create→delete,
+  delete→re-add). Add an HLC stale-drop guard in `applyUpdate` (mirror
+  `registry.ts:24`).
+- **Selection enablement (`SceneGraph.tsx`):** read-only today is *tree-visibility
+  only* (`!n.remote` at ~1958/2348). For a **writable** object, un-hide its
+  projected subtree so its nodes are selectable and the existing gizmo/Properties
+  panel edit them (commits auto-route via the seam). Read-only stays hidden.
+- **`useWsSync.ts`:** handle `mp_shared_write_nak` (relay path) → rollback;
+  register the router at startup.
+- **Share UI:** per-grantee read/can-edit toggle in the share submenu → POST
+  `/connections/objects/:id/share` with `{ canWrite }` (route landed). + i18n + help.
+
 ## Acceptance / verification
 
 - `pnpm lint` clean across packages.

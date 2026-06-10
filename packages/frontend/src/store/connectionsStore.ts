@@ -22,6 +22,8 @@ export interface SharedOffer {
   objectId: string;
   shareKind: 'object' | 'scene';
   name: string;
+  /** Whether the owner granted us edit (update/create/delete) rights too. */
+  canWrite?: boolean;
 }
 
 interface ConnectionsState {
@@ -123,3 +125,11 @@ export const useConnectionsStore = create<ConnectionsState>((set) => ({
   setMeshConnected: (ids) => set({ meshConnected: ids }),
   bumpRevision: () => set((s) => ({ revision: s.revision + 1 })),
 }));
+
+/** Whether the owner granted us edit rights on a shared object (Phase 6). Read
+ *  from the offer list, outside React (edit-commit paths call it imperatively). */
+export function canWriteObject(ownerPeerId: string, objectId: string): boolean {
+  return !!useConnectionsStore
+    .getState()
+    .offers[ownerPeerId]?.find((o) => o.objectId === objectId)?.canWrite;
+}
