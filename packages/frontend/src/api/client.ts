@@ -526,6 +526,20 @@ export const getNodes = (sceneId: string) =>
     rows.map((r) => mapNode(r, sceneId))
   );
 
+/** Phase 6: a registered hook that diverts edits of a *writable remote* node to
+ *  its owner over the mesh instead of this server's REST API. Returns true if it
+ *  handled the op (REST is then skipped). Keeps api/client decoupled from the
+ *  stores + mesh modules; set at startup, null when remote-edit isn't active. */
+export type RemoteWriteRouter = (
+  op: 'update' | 'delete',
+  id: string,
+  data?: Partial<Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>>
+) => boolean;
+let remoteWriteRouter: RemoteWriteRouter | null = null;
+export function setRemoteWriteRouter(r: RemoteWriteRouter | null): void {
+  remoteWriteRouter = r;
+}
+
 export const createNode = (
   sceneId: string,
   data: Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>
@@ -547,6 +561,7 @@ export const updateNode = (
   id: string,
   data: Partial<Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>>
 ) => {
+  if (remoteWriteRouter?.('update', id, data)) return Promise.resolve();
   const body: Record<string, unknown> = {};
   if (data.name !== undefined) body.name = data.name;
   if (data.parentId !== undefined) body.parentId = data.parentId;
@@ -565,7 +580,9 @@ export const updateNode = (
 };
 
 export const deleteNode = (id: string) =>
-  request<void>(`/scene-nodes/${id}`, { method: 'DELETE' });
+  remoteWriteRouter?.('delete', id)
+    ? Promise.resolve()
+    : request<void>(`/scene-nodes/${id}`, { method: 'DELETE' });
 
 // Assets
 export const getAssets = (projectId: string) =>

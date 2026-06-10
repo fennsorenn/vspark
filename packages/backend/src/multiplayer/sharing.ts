@@ -146,6 +146,7 @@ export class SharingManager {
       objectId: s.objectId,
       shareKind: s.shareKind,
       name: nameOf(s.objectId),
+      canWrite: s.canWrite,
     }));
     this.transport.sendEnvelope(peerId, {
       rtype: ADVERTISE,

@@ -23,11 +23,13 @@ import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 import { applyRemote } from '../sync/registry';
 import '../sync/resources';
+import '../sync/remoteEdit'; // registers the writable-remote-node edit router
 import {
   applySnapshot as applySharedSnapshot,
   applyUpdate as applySharedUpdate,
   removeProjection as removeSharedProjection,
   removePeerProjections as removePeerSharedProjections,
+  rollbackWrite,
 } from '../sync/sharedProjection';
 import { useConnectionsStore } from '../store/connectionsStore';
 import { clientMesh } from '../mesh/clientMesh';
@@ -509,6 +511,10 @@ export function useWsSync() {
             useConnectionsStore
               .getState()
               .setSubscribed(p.peerId, p.objectId, false);
+          } else if (msg.kind === 'mp_shared_write_nak') {
+            // Owner rejected our optimistic write (relay path) → roll back.
+            const p = msg.payload as { id?: string; objectId?: string };
+            rollbackWrite((p.id ?? p.objectId) as string);
           } else if (msg.kind === 'mp_shared_gone') {
             const p = msg.payload as { peerId: string };
             removePeerSharedProjections(p.peerId);

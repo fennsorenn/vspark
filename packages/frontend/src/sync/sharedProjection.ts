@@ -19,7 +19,7 @@
  */
 import { useEditorStore } from '../store/editorStore';
 import type { StageObject } from '../store/editorStore';
-import type { SyncEnvelope } from '@vspark/shared/sync';
+import { compareHLC, type HLC, type SyncEnvelope } from '@vspark/shared/sync';
 
 export const REMOTE_OBJECT_KIND = 'remote_object';
 
@@ -42,6 +42,23 @@ interface RemoteRef {
 
 /** peerId → objectId → set of projected (inner) node ids (for clean removal). */
 const projected = new Map<string, Map<string, Set<string>>>();
+
+// --- Phase 6 write reconciliation ------------------------------------------
+//
+// The last *owner-authoritative* DTO per inner node (from snapshot/echo), so an
+// optimistic local edit can be rolled back to truth on a rejection.
+const authoritativeDtos = new Map<string, Record<string, unknown>>();
+// In-flight optimistic writes by node id, so the owner's echo clears them and a
+// `_share_write_nak` rolls them back.
+interface PendingWrite {
+  peerId: string;
+  objectId: string;
+  op: 'update' | 'create' | 'delete';
+}
+const pendingWrites = new Map<string, PendingWrite>();
+// Last applied HLC per inner node — drop stale/duplicate echoes (mirrors the
+// unified-sync registry's stale-drop).
+const lastVersion = new Map<string, HLC>();
 
 function track(peerId: string, objectId: string, nodeId: string): void {
   let byObject = projected.get(peerId);
@@ -105,6 +122,7 @@ export function applySnapshot(peerId: string, snapshot: ObjectSnapshot): void {
     const node = projectNode(raw, peerId, snapshot.objectId, container);
     store.addNode(node);
     track(peerId, snapshot.objectId, node.id);
+    authoritativeDtos.set(node.id, raw); // baseline for rollback
   }
 }
 
@@ -120,12 +138,24 @@ export function applyUpdate(
   if (!container) return;
   const store = useEditorStore.getState();
 
+  // Stale-drop: an older echo (e.g. our own optimistic write racing a newer
+  // authoritative one) must not clobber newer state.
+  if (env.v) {
+    const prev = lastVersion.get(env.key);
+    if (prev && compareHLC(env.v, prev) <= 0) return;
+    lastVersion.set(env.key, env.v);
+  }
+  // This authoritative echo supersedes any optimistic write we had in flight.
+  pendingWrites.delete(env.key);
+
   if (env.op === 'remove') {
     store.deleteNode(env.key);
     projected.get(peerId)?.get(objectId)?.delete(env.key);
+    authoritativeDtos.delete(env.key);
     return;
   }
   if (env.op === 'upsert' && env.data) {
+    authoritativeDtos.set(env.key, env.data as Record<string, unknown>);
     const node = projectNode(
       env.data as Record<string, unknown>,
       peerId,
@@ -138,6 +168,73 @@ export function applyUpdate(
       store.addNode(node);
       track(peerId, objectId, node.id);
     }
+  }
+}
+
+/** Which subscribed object root (objectId) a projected inner node belongs to. */
+export function owningProjectionRoot(
+  peerId: string,
+  nodeId: string
+): string | undefined {
+  const byObject = projected.get(peerId);
+  if (!byObject) return undefined;
+  for (const [objectId, ids] of byObject) if (ids.has(nodeId)) return objectId;
+  return undefined;
+}
+
+/** Owner-side ancestor chain [nodeId … objectId] for a `remove` route hint —
+ *  walks projected parents up to the subscribed root. */
+export function ancestorRoute(
+  peerId: string,
+  objectId: string,
+  nodeId: string
+): string[] {
+  const ids = projected.get(peerId)?.get(objectId);
+  const store = useEditorStore.getState();
+  const route: string[] = [];
+  const seen = new Set<string>();
+  let cur: string | null | undefined = nodeId;
+  while (cur && ids?.has(cur) && !seen.has(cur)) {
+    seen.add(cur);
+    route.push(cur);
+    cur = store.nodes.find((x) => x.id === cur)?.parentId;
+  }
+  if (!route.includes(objectId)) route.push(objectId);
+  return route;
+}
+
+/** Record an in-flight optimistic write so the owner echo clears it / a NAK
+ *  rolls it back. */
+export function recordPendingWrite(
+  peerId: string,
+  objectId: string,
+  nodeId: string,
+  op: PendingWrite['op']
+): void {
+  pendingWrites.set(nodeId, { peerId, objectId, op });
+}
+
+/** Roll an optimistic write back to the last authoritative state after the owner
+ *  rejected it (`_share_write_nak`) or it timed out. */
+export function rollbackWrite(nodeId: string): void {
+  const p = pendingWrites.get(nodeId);
+  if (!p) return;
+  pendingWrites.delete(nodeId);
+  const store = useEditorStore.getState();
+  if (p.op === 'create') {
+    store.deleteNode(nodeId);
+    projected.get(p.peerId)?.get(p.objectId)?.delete(nodeId);
+    return;
+  }
+  // update / delete → restore the authoritative DTO.
+  const dto = authoritativeDtos.get(nodeId);
+  const container = findContainer(p.peerId, p.objectId);
+  if (!dto || !container) return;
+  const node = projectNode(dto, p.peerId, p.objectId, container);
+  if (store.nodes.some((x) => x.id === nodeId)) store.updateNode(nodeId, node);
+  else {
+    store.addNode(node);
+    track(p.peerId, p.objectId, nodeId);
   }
 }
 
