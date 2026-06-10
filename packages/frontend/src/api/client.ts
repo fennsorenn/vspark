@@ -1445,11 +1445,12 @@ export const getObjectGrantees = (objectId: string) =>
 export const shareObject = (
   objectId: string,
   granteePeerId: string,
-  shareKind: 'object' | 'scene' = 'object'
+  shareKind: 'object' | 'scene' = 'object',
+  canWrite = false
 ) =>
   request<{ grantees: string[] }>(`/connections/objects/${objectId}/share`, {
     method: 'POST',
-    body: JSON.stringify({ granteePeerId, shareKind }),
+    body: JSON.stringify({ granteePeerId, shareKind, canWrite }),
   });
 /** Revoke a peer's ('*' = everyone) access to one of my objects. */
 export const unshareObject = (objectId: string, granteePeerId: string) =>

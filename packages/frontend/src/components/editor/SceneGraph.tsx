@@ -11,7 +11,20 @@ import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
 import { ContextMenu } from './ContextMenu';
 import { HelpButton } from '../../help/HelpButton';
-import { useConnectionsStore } from '../../store/connectionsStore';
+import {
+  useConnectionsStore,
+  canWriteObject,
+} from '../../store/connectionsStore';
+import { owningProjectionRoot } from '../../sync/sharedProjection';
+
+/** A projected remote node the local user has edit rights on — shown + editable
+ *  in the tree (Phase 6 multiplayer), unlike read-only projections which stay
+ *  hidden under their opaque container. */
+function isWritableRemote(n: StageObject): boolean {
+  if (!n.remote || !n.remoteOwnerPeerId) return false;
+  const root = owningProjectionRoot(n.remoteOwnerPeerId, n.id);
+  return !!root && canWriteObject(n.remoteOwnerPeerId, root);
+}
 import {
   getObjectGrantees,
   shareObject,
@@ -94,6 +107,8 @@ function SceneNodeContextMenu({
   const [showMoveInto, setShowMoveInto] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [grantees, setGrantees] = useState<string[]>([]);
+  /** When set, sharing also grants edit (update/create/delete) rights. */
+  const [shareWithEdit, setShareWithEdit] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   // Sharing targets: peers with a live mesh connection. Hidden entirely when
@@ -120,7 +135,7 @@ function SceneNodeContextMenu({
     try {
       const { grantees: next } = has
         ? await unshareObject(menu.nodeId, granteePeerId)
-        : await shareObject(menu.nodeId, granteePeerId, 'object');
+        : await shareObject(menu.nodeId, granteePeerId, 'object', shareWithEdit);
       setGrantees(next);
     } catch {
       /* ignore */
@@ -320,6 +335,20 @@ function SceneNodeContextMenu({
               {connectedIds.length === 0 && (
                 <div style={{ ...itemStyle, color: '#888', cursor: 'default' }}>
                   {t('context.shareNobody')}
+                </div>
+              )}
+              {connectedIds.length > 0 && (
+                <div
+                  style={{
+                    ...itemStyle,
+                    borderBottom: '1px solid #3a3a3a',
+                    color: shareWithEdit ? '#4ade80' : '#aaa',
+                  }}
+                  onClick={() => setShareWithEdit((v) => !v)}
+                  title={t('context.shareCanEditHint')}
+                >
+                  <span>{t('context.shareCanEdit')}</span>
+                  <span>{shareWithEdit ? '☑' : '☐'}</span>
                 </div>
               )}
               {connectedIds.length > 0 && (
@@ -2007,9 +2036,11 @@ export function SceneGraph() {
     const isSelected = selectedNodeId === node.id;
     const isHidden = node.hidden ?? false;
     // Projected (remote) inner nodes are hidden from the tree — only the opaque
-    // remote_object container they live under is shown + editable.
+    // remote_object container they live under is shown + editable. Exception
+    // (Phase 6): a projected subtree the local user has *edit* rights on is shown
+    // + selectable, so its nodes can be edited (commits route to the owner).
     const allChildren = nodes.filter(
-      (n) => n.parentId === node.id && !n.remote
+      (n) => n.parentId === node.id && (!n.remote || isWritableRemote(n))
     );
     const bones =
       node.kind === 'avatar' || node.kind === 'model'

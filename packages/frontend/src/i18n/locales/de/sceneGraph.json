@@ -83,6 +83,8 @@
     "pasteNodeAsChild": "Knoten als Kind einfügen",
     "pasteLogicHere": "Logik hier einfügen",
     "shareWith": "Teilen mit",
+    "shareCanEdit": "Bearbeiten erlauben",
+    "shareCanEditHint": "Zusätzlich Bearbeitungsrechte gewähren — andere können dieses Objekt ändern, und die Änderungen werden auf deinem Gerät gespeichert.",
     "shareEveryone": "Alle Verbundenen",
     "shareNobody": "Niemand verbunden",
     "delete": "Löschen"

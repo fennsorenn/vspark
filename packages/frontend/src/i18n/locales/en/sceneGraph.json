@@ -83,6 +83,8 @@
     "pasteNodeAsChild": "Paste node as child",
     "pasteLogicHere": "Paste logic here",
     "shareWith": "Share with",
+    "shareCanEdit": "Allow editing",
+    "shareCanEditHint": "Grant edit rights too — others can change this object and the changes persist on your machine.",
     "shareEveryone": "Everyone connected",
     "shareNobody": "No one connected",
     "delete": "Delete"
