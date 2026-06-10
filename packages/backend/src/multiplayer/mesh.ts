@@ -116,9 +116,14 @@ export class ServerMesh extends EventEmitter {
       .map(([id]) => id);
   }
 
-  /** Initiate a connection to a peer (offerer). No-op if one already exists. */
+  /** Initiate a connection to a peer (offerer). No-op only if a *live*
+   *  connection already exists; a stale/half-open slot (a previous dial whose
+   *  data channel never opened — e.g. the peer never accepted, or ICE stalled)
+   *  is torn down and re-dialled, so an explicit Connect never silently no-ops. */
   async connect(peerId: string): Promise<void> {
-    if (this.peers.has(peerId)) return;
+    const existing = this.peers.get(peerId);
+    if (existing?.connected) return;
+    if (existing) this.disconnect(peerId);
     const pc = this.newPc(peerId, true);
     const entry: PeerConn = {
       pc,
