@@ -1,7 +1,27 @@
 # Plan: Collaborative scene sharing (peer-to-peer, persisted on both)
 
-> Branch: `feature/multiplayer-phase6`. Status: **planned.** Builds on the
-> multiplayer object-share + Phase 6 write tier, but is a distinct model.
+> Branch: `feature/multiplayer-phase6`. Status: **backend engine done + API-
+> verified; frontend + reconnect-reconcile remaining.** Builds on the multiplayer
+> object-share + Phase 6 write tier, but is a distinct model.
+
+## Progress
+
+- **Done + verified (API level, two connected backends):** migration 031
+  (collab link + tombstones); `collabScene.ts` (mount-persist, two-way
+  `forwardCollabOp`/`applyCollabOp` with echo guard + HLC LWW, `upsertCollabNode`
+  that sets structure from the scene not a parent); `gatherSceneSnapshot`;
+  manager wiring (`shareCollabScene`/`mountCollabScene` + offer→subscribe→snapshot
+  handshake); REST `share-collab` + `collab/mount`. Verified: mount copies the
+  whole scene to the receiver, and create/update/delete from **either** peer
+  persist on **both**.
+- **Remaining:** frontend (route the scene-row "Share with" to the collab share;
+  show the `mp_collab_offer` + a Mount button; reload scenes on
+  `mp_collab_mounted`; reflect live `applyCollabOp` edits in the editor — the
+  receiver's apply emits `sync.document` but the editor still hydrates scene_nodes
+  via REST, so it needs either a sync-layer consumer or a coarse "collab changed →
+  refetch scene" event); **reconnect reconciliation** (re-snapshot + LWW merge,
+  author-wins ties, tombstones); i18n + help. Replace the old read-only scene
+  projection (`5128c6b`).
 
 ## Why this is different from object sharing
 
