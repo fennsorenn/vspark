@@ -73,7 +73,12 @@ router.put('/connections/peers/:peerId', (req, res) => {
 });
 
 router.delete('/connections/peers/:peerId', (req, res) => {
-  removeKnownPeer(req.params.peerId);
+  // When multiplayer is live, route through the manager so it also tears down
+  // any connection, notifies the peer (mutual unpair), and pushes the change to
+  // our clients. Fall back to a bare DB removal when multiplayer is disabled.
+  if (multiplayerManager.isEnabled)
+    multiplayerManager.removePeer(req.params.peerId);
+  else removeKnownPeer(req.params.peerId);
   res.json({ ok: true, data: { peerId: req.params.peerId } });
 });
 
