@@ -46,7 +46,8 @@ Sharing has two sides:
 
 - **Offer an object** — right-click any object in the scene tree and pick
   **Share with**, then choose a connected member (or **Everyone connected**). A
-  check mark shows who it's currently shared with; click again to revoke.
+  check mark shows who it's currently shared with; click again to revoke. You can
+  also right-click a **scene** row to share the whole scene the same way.
 - **Place a shared object** — open a connected member's **Shared with you** list
   and hit **Place**. A 📡 **container** appears in your scene tree holding their
   object; it follows their live edits. **Remove** takes it back out.

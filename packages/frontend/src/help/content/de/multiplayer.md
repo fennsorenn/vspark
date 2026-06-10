@@ -52,7 +52,8 @@ Teilen hat zwei Seiten:
 - **Ein Objekt anbieten** – klicke mit der rechten Maustaste auf ein Objekt im
   Szenenbaum und wähle **Teilen mit**, dann ein verbundenes Mitglied (oder
   **Alle Verbundenen**). Ein Häkchen zeigt, mit wem es geteilt ist; erneutes
-  Klicken hebt die Freigabe auf.
+  Klicken hebt die Freigabe auf. Du kannst auch mit der rechten Maustaste auf
+  eine **Szenen**-Zeile klicken, um die ganze Szene auf dieselbe Weise zu teilen.
 - **Ein geteiltes Objekt platzieren** – öffne die Liste **Mit dir geteilt** eines
   verbundenen Mitglieds und klicke auf **Platzieren**. Ein 📡 **Container**
   erscheint in deinem Szenenbaum und enthält sein Objekt; er folgt seinen

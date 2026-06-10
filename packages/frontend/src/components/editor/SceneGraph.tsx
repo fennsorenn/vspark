@@ -58,6 +58,220 @@ interface CtxMenu {
   y: number;
 }
 
+/** The "Share with ▶" item + its fly-out, reused by the object menu
+ *  (`shareKind: 'object'`) and the scene menu (`shareKind: 'scene'`). Owns its
+ *  grantee list + the "Allow editing" toggle; the parent owns the open state so
+ *  it can keep sibling submenus mutually exclusive. `entityId` is the
+ *  scene_node id being shared (an object root or a scene root — the backend
+ *  treats both as a read/write grant on that node + its subtree). */
+function ShareWithMenuItem({
+  entityId,
+  shareKind,
+  itemStyle,
+  open,
+  onOpen,
+}: {
+  entityId: string;
+  shareKind: 'object' | 'scene';
+  itemStyle: React.CSSProperties;
+  open: boolean;
+  onOpen: () => void;
+}) {
+  const { t } = useTranslation('sceneGraph');
+  const connectedIds = useConnectionsStore((s) => s.connectedIds);
+  const nameById = useConnectionsStore((s) => s.nameById);
+  const [grantees, setGrantees] = useState<string[]>([]);
+  /** When set, sharing also grants edit (update/create/delete) rights. */
+  const [shareWithEdit, setShareWithEdit] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    void getObjectGrantees(entityId)
+      .then((g) => alive && setGrantees(g))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [open, entityId]);
+
+  const toggleShare = async (granteePeerId: string) => {
+    const has = grantees.includes(granteePeerId);
+    try {
+      const { grantees: next } = has
+        ? await unshareObject(entityId, granteePeerId)
+        : await shareObject(entityId, granteePeerId, shareKind, shareWithEdit);
+      setGrantees(next);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const hover = (e: React.MouseEvent<HTMLDivElement>, on: boolean) =>
+    ((e.currentTarget as HTMLDivElement).style.background = on
+      ? '#2a2a2a'
+      : 'transparent');
+
+  return (
+    <div
+      style={itemStyle}
+      onMouseEnter={(e) => {
+        hover(e, true);
+        onOpen();
+      }}
+      onMouseLeave={(e) => hover(e, false)}
+    >
+      <span>{t('context.shareWith')}</span>
+      <span style={{ color: '#666' }}>▶</span>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            left: '100%',
+            top: 0,
+            background: '#1e1e1e',
+            border: '1px solid #3a3a3a',
+            borderRadius: 6,
+            minWidth: 180,
+            maxHeight: 280,
+            overflowY: 'auto',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+          }}
+        >
+          {connectedIds.length === 0 && (
+            <div style={{ ...itemStyle, color: '#888', cursor: 'default' }}>
+              {t('context.shareNobody')}
+            </div>
+          )}
+          {connectedIds.length > 0 && (
+            <div
+              style={{
+                ...itemStyle,
+                borderBottom: '1px solid #3a3a3a',
+                color: shareWithEdit ? '#4ade80' : '#aaa',
+              }}
+              onClick={() => setShareWithEdit((v) => !v)}
+              title={t('context.shareCanEditHint')}
+            >
+              <span>{t('context.shareCanEdit')}</span>
+              <span>{shareWithEdit ? '☑' : '☐'}</span>
+            </div>
+          )}
+          {connectedIds.length > 0 && (
+            <div
+              style={itemStyle}
+              onMouseEnter={(e) => hover(e, true)}
+              onMouseLeave={(e) => hover(e, false)}
+              onClick={() => void toggleShare('*')}
+            >
+              <span>{t('context.shareEveryone')}</span>
+              <span style={{ color: '#4ade80' }}>
+                {grantees.includes('*') ? '✓' : ''}
+              </span>
+            </div>
+          )}
+          {connectedIds.map((peerId) => (
+            <div
+              key={peerId}
+              style={itemStyle}
+              onMouseEnter={(e) => hover(e, true)}
+              onMouseLeave={(e) => hover(e, false)}
+              onClick={() => void toggleShare(peerId)}
+            >
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {nameById[peerId] || peerId.slice(0, 12)}
+              </span>
+              <span style={{ color: '#4ade80' }}>
+                {grantees.includes(peerId) ? '✓' : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Right-click menu for a *scene* root row — currently just sharing the whole
+ *  scene with connected peers (the backend treats a scene share as a grant on
+ *  the scene node + its subtree, same as an object). */
+function SceneContextMenu({
+  sceneId,
+  x,
+  y,
+  onClose,
+}: {
+  sceneId: string;
+  x: number;
+  y: number;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation('sceneGraph');
+  const mpEnabled = useConnectionsStore((s) => s.enabled);
+  const [showShare, setShowShare] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  const itemStyle: React.CSSProperties = {
+    padding: '7px 14px',
+    fontSize: 13,
+    color: '#e0e0e0',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    userSelect: 'none',
+  };
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        top: y,
+        left: x,
+        background: '#1e1e1e',
+        border: '1px solid #3a3a3a',
+        borderRadius: 6,
+        zIndex: 9999,
+        minWidth: 180,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+        fontFamily: 'system-ui, sans-serif',
+        // fly-out submenu escapes to the right; must not be clipped.
+        overflow: 'visible',
+      }}
+    >
+      {mpEnabled ? (
+        <ShareWithMenuItem
+          entityId={sceneId}
+          shareKind="scene"
+          itemStyle={itemStyle}
+          open={showShare}
+          onOpen={() => setShowShare(true)}
+        />
+      ) : (
+        <div style={{ ...itemStyle, color: '#888', cursor: 'default' }}>
+          {t('context.shareDisabled')}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Scene-tree-specific right-click menu. Older than the generic
  *  ContextMenu in ./ContextMenu.tsx; renamed away from `ContextMenu` so
  *  the two don't collide. Worth eventually rewriting on top of the
@@ -94,41 +308,12 @@ function SceneNodeContextMenu({
   const [showAddChild, setShowAddChild] = useState(false);
   const [showMoveInto, setShowMoveInto] = useState(false);
   const [showShare, setShowShare] = useState(false);
-  const [grantees, setGrantees] = useState<string[]>([]);
-  /** When set, sharing also grants edit (update/create/delete) rights. */
-  const [shareWithEdit, setShareWithEdit] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Sharing targets: peers with a live mesh connection. Hidden entirely when
-  // multiplayer is off or nobody is connected.
+  // Sharing is offered (the ShareWithMenuItem) only when multiplayer is on and
+  // this is a local, shareable node (not a projected remote object).
   const mpEnabled = useConnectionsStore((s) => s.enabled);
-  const connectedIds = useConnectionsStore((s) => s.connectedIds);
-  const nameById = useConnectionsStore((s) => s.nameById);
   const canShare = mpEnabled && !node.remote && node.kind !== 'remote_object';
-
-  // Load the object's current grantees when the Share submenu opens.
-  useEffect(() => {
-    if (!showShare) return;
-    let alive = true;
-    void getObjectGrantees(menu.nodeId)
-      .then((g) => alive && setGrantees(g))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [showShare, menu.nodeId]);
-
-  const toggleShare = async (granteePeerId: string) => {
-    const has = grantees.includes(granteePeerId);
-    try {
-      const { grantees: next } = has
-        ? await unshareObject(menu.nodeId, granteePeerId)
-        : await shareObject(menu.nodeId, granteePeerId, 'object', shareWithEdit);
-      setGrantees(next);
-    } catch {
-      /* ignore */
-    }
-  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -149,7 +334,9 @@ function SceneNodeContextMenu({
     minWidth: 180,
     boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
     fontFamily: 'system-ui, sans-serif',
-    overflow: 'hidden',
+    // NB: must stay `visible` — the Add Child / Move Into / Share with fly-out
+    // submenus are positioned at `left: 100%`, so `hidden` would clip them away.
+    overflow: 'visible',
   };
 
   const itemStyle: React.CSSProperties = {
@@ -290,105 +477,17 @@ function SceneNodeContextMenu({
 
       {/* Share with (multiplayer) submenu */}
       {canShare && (
-        <div
-          style={itemStyle}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLDivElement).style.background = '#2a2a2a';
+        <ShareWithMenuItem
+          entityId={menu.nodeId}
+          shareKind="object"
+          itemStyle={itemStyle}
+          open={showShare}
+          onOpen={() => {
             setShowShare(true);
             setShowAddChild(false);
             setShowMoveInto(false);
           }}
-          onMouseLeave={(e) =>
-            ((e.currentTarget as HTMLDivElement).style.background =
-              'transparent')
-          }
-        >
-          <span>{t('context.shareWith')}</span>
-          <span style={{ color: '#666' }}>▶</span>
-          {showShare && (
-            <div
-              style={{
-                position: 'absolute',
-                left: '100%',
-                top: 0,
-                background: '#1e1e1e',
-                border: '1px solid #3a3a3a',
-                borderRadius: 6,
-                minWidth: 180,
-                maxHeight: 280,
-                overflowY: 'auto',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
-              }}
-            >
-              {connectedIds.length === 0 && (
-                <div style={{ ...itemStyle, color: '#888', cursor: 'default' }}>
-                  {t('context.shareNobody')}
-                </div>
-              )}
-              {connectedIds.length > 0 && (
-                <div
-                  style={{
-                    ...itemStyle,
-                    borderBottom: '1px solid #3a3a3a',
-                    color: shareWithEdit ? '#4ade80' : '#aaa',
-                  }}
-                  onClick={() => setShareWithEdit((v) => !v)}
-                  title={t('context.shareCanEditHint')}
-                >
-                  <span>{t('context.shareCanEdit')}</span>
-                  <span>{shareWithEdit ? '☑' : '☐'}</span>
-                </div>
-              )}
-              {connectedIds.length > 0 && (
-                <div
-                  style={itemStyle}
-                  onMouseEnter={(e) =>
-                    ((e.currentTarget as HTMLDivElement).style.background =
-                      '#2a2a2a')
-                  }
-                  onMouseLeave={(e) =>
-                    ((e.currentTarget as HTMLDivElement).style.background =
-                      'transparent')
-                  }
-                  onClick={() => void toggleShare('*')}
-                >
-                  <span>{t('context.shareEveryone')}</span>
-                  <span style={{ color: '#4ade80' }}>
-                    {grantees.includes('*') ? '✓' : ''}
-                  </span>
-                </div>
-              )}
-              {connectedIds.map((peerId) => (
-                <div
-                  key={peerId}
-                  style={itemStyle}
-                  onMouseEnter={(e) =>
-                    ((e.currentTarget as HTMLDivElement).style.background =
-                      '#2a2a2a')
-                  }
-                  onMouseLeave={(e) =>
-                    ((e.currentTarget as HTMLDivElement).style.background =
-                      'transparent')
-                  }
-                  onClick={() => void toggleShare(peerId)}
-                >
-                  <span
-                    style={{
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {nameById[peerId] || peerId.slice(0, 12)}
-                  </span>
-                  <span style={{ color: '#4ade80' }}>
-                    {grantees.includes(peerId) ? '✓' : ''}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        />
       )}
 
       {node.parentId && (
@@ -1745,6 +1844,11 @@ export function SceneGraph() {
     new Set()
   );
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
+  const [sceneCtxMenu, setSceneCtxMenu] = useState<{
+    sceneId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [dragNodeId, setDragNodeId] = useState<string | null>(null);
   const [dragOverBone, setDragOverBone] = useState<{
     nodeId: string;
@@ -2490,6 +2594,10 @@ export function SceneGraph() {
             setSceneSelected(true);
             selectNode(null);
           }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setSceneCtxMenu({ sceneId: scene.id, x: e.clientX, y: e.clientY });
+          }}
         >
           <span
             style={{
@@ -2745,6 +2853,14 @@ export function SceneGraph() {
               onPasteLogic={(id) => void handlePasteLogicAtNode(id)}
               canPasteNode={canPasteSceneNodeClipboard}
               canPasteLogic={canPasteLogicClipboard}
+            />
+          )}
+          {sceneCtxMenu && (
+            <SceneContextMenu
+              sceneId={sceneCtxMenu.sceneId}
+              x={sceneCtxMenu.x}
+              y={sceneCtxMenu.y}
+              onClose={() => setSceneCtxMenu(null)}
             />
           )}
         </>
