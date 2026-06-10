@@ -383,6 +383,12 @@ class MultiplayerManager {
     this.sharing?.reAdvertiseAll();
   }
 
+  /** Relay one of this server's browser clients' Phase 6 write requests to the
+   *  owning peer over the mesh (used when the browser has no direct edge). */
+  relayWrite(owner: string, env: SyncEnvelope): void {
+    this.sharing?.relayWrite(owner, env);
+  }
+
   /** Revoke a grant + tell every affected subscriber (server peers and direct
    *  browser participants alike) to drop it. */
   unshare(objectId: string, granteePeerId: string): void {

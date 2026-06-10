@@ -209,6 +209,17 @@ export class SharingManager {
     });
   }
 
+  /** Receiver-side relay: forward one of our frontend's write requests to the
+   *  owning peer (used when the browser has no direct edge to the owner). */
+  relayWrite(owner: string, env: SyncEnvelope): void {
+    this.transport.sendEnvelope(owner, {
+      rtype: WRITE,
+      op: 'event',
+      key: env.key,
+      data: { env },
+    });
+  }
+
   /** Dispatch a `_share_*` control envelope. */
   handleEnvelope(from: string, env: SyncEnvelope): void {
     const data = (env.data ?? {}) as Record<string, unknown>;

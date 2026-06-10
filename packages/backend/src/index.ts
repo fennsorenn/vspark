@@ -40,7 +40,7 @@ import { dataChannelManager } from './data_channels/manager.js';
 import { mediaControlManager } from './media_control/manager.js';
 import { spawnManager } from './spawn/manager.js';
 import { sync } from './sync/index.js';
-import { SYNC_MESSAGE_KIND } from '@vspark/shared/sync';
+import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 import './sync/resources.js';
 import { initIdentity } from './multiplayer/identity.js';
 import { pruneExpiredGrants } from './multiplayer/peers.js';
@@ -273,6 +273,12 @@ async function start() {
         // Root-resolving forward: a clip may animate a child *inside* the shared
         // subtree, not only the object root.
         multiplayerManager.forwardNodeTransform(p.nodeId, p.transform);
+    } else if (kind === 'mp_share_write') {
+      // Phase 6 relay: a browser client with no direct edge asks us to forward a
+      // write to the owning peer over the mesh. The owner authorizes + persists.
+      const p = payload as { owner?: string; env?: SyncEnvelope };
+      if (typeof p.owner === 'string' && p.env)
+        multiplayerManager.relayWrite(p.owner, p.env);
     } else if (kind === 'compose_layer_preview') {
       // Same idea for compose layer drag/resize/rotate: relay the patch without
       // touching the DB; the final REST PUT will write+broadcast the canonical row.

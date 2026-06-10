@@ -23,7 +23,7 @@ import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 import { applyRemote } from '../sync/registry';
 import '../sync/resources';
-import '../sync/remoteEdit'; // registers the writable-remote-node edit router
+import { setShareWriteRelay } from '../sync/remoteEdit'; // also registers the edit router
 import {
   applySnapshot as applySharedSnapshot,
   applyUpdate as applySharedUpdate,
@@ -39,6 +39,14 @@ const RECONNECT_MS = 3000;
 
 /** Module-level ref so any component can send messages on the shared editor WS. */
 export const editorWsRef = { current: null as WebSocket | null };
+
+// Relay path for Phase 6 remote writes when there's no direct edge: forward the
+// `_share_write` to this server, which relays it to the owner over the mesh.
+setShareWriteRelay((owner, env) => {
+  const ws = editorWsRef.current;
+  if (ws?.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify({ kind: 'mp_share_write', payload: { owner, env } }));
+});
 
 /** Send a live in-flight transform update so other connected editors can preview
  *  the motion without waiting for the final PUT. Silently no-ops if the WS isn't open. */

@@ -36,9 +36,17 @@ function nodeDto(n: StageObject): Record<string, unknown> {
   };
 }
 
+/** Relay fallback (frontend→own backend→owner over the server mesh), registered
+ *  by useWsSync to avoid an import cycle. Used when there's no direct edge. */
+let relaySender: ((owner: string, env: SyncEnvelope) => void) | null = null;
+export function setShareWriteRelay(
+  fn: ((owner: string, env: SyncEnvelope) => void) | null
+): void {
+  relaySender = fn;
+}
+
 function send(owner: string, env: SyncEnvelope): void {
-  // Direct edge for now; relay fallback (frontend→backend→owner) lands next.
-  sendShareWriteDirect(owner, env);
+  if (!sendShareWriteDirect(owner, env)) relaySender?.(owner, env);
 }
 
 /** Diverts an edit of a writable remote node to its owner. Returns true when it
