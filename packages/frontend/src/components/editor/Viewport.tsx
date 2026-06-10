@@ -3635,6 +3635,13 @@ function TextCanvasNode({ node }: { node: StageObject }) {
             // producing a tainted (un-rasterisable) canvas.
             useCORS: true,
             allowTaint: false,
+            // html2canvas clones the WHOLE document (not just `host`) and runs
+            // getContext('2d') on every <canvas> it finds. That permanently
+            // locks any live R3F WebGL canvas to a 2D context, so its next
+            // getContext('webgl2') throws "existing context of a different
+            // type" and crashes the viewport. Our host subtree has no canvas
+            // of its own, so skipping all canvases is safe.
+            ignoreElements: (el) => el.tagName === 'CANVAS',
           });
           if (!cancelled) {
             ctx.drawImage(rendered, 0, 0);
@@ -3859,6 +3866,11 @@ function FeedCanvasNode({
         logging: false,
         useCORS: true,
         allowTaint: false,
+        // html2canvas clones the whole document and runs getContext('2d') on
+        // every <canvas>, which permanently locks a live R3F WebGL canvas to a
+        // 2D context and crashes the viewport on its next getContext('webgl2').
+        // Our host subtree has no canvas of its own, so skip all canvases.
+        ignoreElements: (el) => el.tagName === 'CANVAS',
       });
       if (cancelled) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
