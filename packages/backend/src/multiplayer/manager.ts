@@ -316,6 +316,10 @@ class MultiplayerManager {
     const peer = await this.client.pairJoin(code);
     upsertKnownPeer(peer);
     this.client.refreshPresence();
+    // Symmetric with the creator's `pairRequest` path: tell our own clients a new
+    // contact landed so the Connections window refetches live (otherwise the
+    // joiner only sees the new contact after a reload).
+    this.broadcast('mp_peer', { peerId: peer.peerId, paired: true });
     return peer;
   }
 
