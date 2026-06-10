@@ -49,13 +49,28 @@ const projected = new Map<string, Map<string, Set<string>>>();
 // optimistic local edit can be rolled back to truth on a rejection.
 const authoritativeDtos = new Map<string, Record<string, unknown>>();
 // In-flight optimistic writes by node id, so the owner's echo clears them and a
-// `_share_write_nak` rolls them back.
+// `_share_write_nak` — or a timeout — rolls them back.
 interface PendingWrite {
   peerId: string;
   objectId: string;
   op: 'update' | 'create' | 'delete';
+  /** Fires `rollbackWrite` if no authoritative echo/NAK lands in time. */
+  timer: ReturnType<typeof setTimeout>;
 }
 const pendingWrites = new Map<string, PendingWrite>();
+// How long to wait for the owner's authoritative echo (or NAK) before treating an
+// optimistic write as failed and reverting it — covers a silently-dropped edge or
+// an owner that never answers, where no NAK is ever delivered.
+const WRITE_TIMEOUT_MS = 10_000;
+
+/** Drop a resolved pending write (echo/NAK/rollback landed): cancel its timer so
+ *  it can't fire a late rollback against already-reconciled state. */
+function clearPending(nodeId: string): void {
+  const p = pendingWrites.get(nodeId);
+  if (!p) return;
+  clearTimeout(p.timer);
+  pendingWrites.delete(nodeId);
+}
 // Last applied HLC per inner node — drop stale/duplicate echoes (mirrors the
 // unified-sync registry's stale-drop).
 const lastVersion = new Map<string, HLC>();
@@ -161,7 +176,7 @@ export function applyUpdate(
     lastVersion.set(env.key, env.v);
   }
   // This authoritative echo supersedes any optimistic write we had in flight.
-  pendingWrites.delete(env.key);
+  clearPending(env.key);
 
   if (env.op === 'remove') {
     store.deleteNode(env.key);
@@ -218,15 +233,18 @@ export function ancestorRoute(
   return route;
 }
 
-/** Record an in-flight optimistic write so the owner echo clears it / a NAK
- *  rolls it back. */
+/** Record an in-flight optimistic write so the owner echo clears it, or a NAK /
+ *  timeout rolls it back. Supersedes any prior in-flight write on the same node
+ *  (its timer is replaced). */
 export function recordPendingWrite(
   peerId: string,
   objectId: string,
   nodeId: string,
   op: PendingWrite['op']
 ): void {
-  pendingWrites.set(nodeId, { peerId, objectId, op });
+  clearPending(nodeId);
+  const timer = setTimeout(() => rollbackWrite(nodeId), WRITE_TIMEOUT_MS);
+  pendingWrites.set(nodeId, { peerId, objectId, op, timer });
 }
 
 /** Roll an optimistic write back to the last authoritative state after the owner
@@ -234,7 +252,7 @@ export function recordPendingWrite(
 export function rollbackWrite(nodeId: string): void {
   const p = pendingWrites.get(nodeId);
   if (!p) return;
-  pendingWrites.delete(nodeId);
+  clearPending(nodeId);
   const store = useEditorStore.getState();
   if (p.op === 'create') {
     store.deleteNode(nodeId);
@@ -261,6 +279,10 @@ export function removeProjection(peerId: string, objectId: string): void {
   const store = useEditorStore.getState();
   for (const id of ids) store.deleteNode(id);
   projected.get(peerId)?.delete(objectId);
+  // Cancel any in-flight write timers for this object so they don't fire a
+  // rollback against a projection that's already gone.
+  for (const [nodeId, p] of pendingWrites)
+    if (p.peerId === peerId && p.objectId === objectId) clearPending(nodeId);
 }
 
 /** Remove every projected subtree from a peer (disconnect / peer gone). The
@@ -272,4 +294,6 @@ export function removePeerProjections(peerId: string): void {
   for (const ids of byObject.values())
     for (const id of ids) store.deleteNode(id);
   projected.delete(peerId);
+  for (const [nodeId, p] of pendingWrites)
+    if (p.peerId === peerId) clearPending(nodeId);
 }
