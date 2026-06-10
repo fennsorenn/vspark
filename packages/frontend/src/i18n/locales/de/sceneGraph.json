@@ -90,7 +90,8 @@
     "delete": "Löschen"
   },
   "remote": {
-    "tip": "Geteiltes Objekt von einem verbundenen Partner. Du kannst diesen Container bewegen und platzieren; sein Inhalt gehört dessen Server und wird von dort live aktualisiert."
+    "tip": "Geteiltes Objekt von einem verbundenen Partner. Du kannst diesen Container bewegen und platzieren; sein Inhalt gehört dessen Server und wird von dort live aktualisiert.",
+    "assetBlocked": "Assets können einem geteilten Objekt nicht hinzugefügt werden — die Datei liegt nur auf deinem Gerät, und der Eigentümer kann sie nicht laden. Füge das Asset stattdessen auf dem besitzenden Server hinzu."
   },
   "logic": {
     "globalLogic": "Globale Logik",

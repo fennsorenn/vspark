@@ -22,6 +22,16 @@ import {
 } from './sharedProjection';
 import { sendShareWriteDirect } from './shareDirect';
 
+/** A projected remote node the local user has *edit* rights on — selectable +
+ *  editable in the tree (its commits route to the owner), unlike read-only
+ *  projections which stay hidden under their opaque container. Shared by the
+ *  scene tree and the drag-drop create path so both gate identically. */
+export function isWritableRemoteNode(n: StageObject): boolean {
+  if (!n.remote || !n.remoteOwnerPeerId) return false;
+  const root = owningProjectionRoot(n.remoteOwnerPeerId, n.id);
+  return !!root && canWriteObject(n.remoteOwnerPeerId, root);
+}
+
 /** The owner only applies content (structure is owner-authoritative), so send the
  *  node's editable fields; parentId is informational for create. */
 function nodeDto(n: StageObject): Record<string, unknown> {

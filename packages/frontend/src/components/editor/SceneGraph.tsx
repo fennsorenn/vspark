@@ -11,20 +11,8 @@ import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
 import { ContextMenu } from './ContextMenu';
 import { HelpButton } from '../../help/HelpButton';
-import {
-  useConnectionsStore,
-  canWriteObject,
-} from '../../store/connectionsStore';
-import { owningProjectionRoot } from '../../sync/sharedProjection';
-
-/** A projected remote node the local user has edit rights on — shown + editable
- *  in the tree (Phase 6 multiplayer), unlike read-only projections which stay
- *  hidden under their opaque container. */
-function isWritableRemote(n: StageObject): boolean {
-  if (!n.remote || !n.remoteOwnerPeerId) return false;
-  const root = owningProjectionRoot(n.remoteOwnerPeerId, n.id);
-  return !!root && canWriteObject(n.remoteOwnerPeerId, root);
-}
+import { useConnectionsStore } from '../../store/connectionsStore';
+import { isWritableRemoteNode as isWritableRemote } from '../../sync/remoteEdit';
 import {
   getObjectGrantees,
   shareObject,

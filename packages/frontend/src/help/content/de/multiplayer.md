@@ -66,3 +66,25 @@ deinem Baum und du kannst ihn nicht bearbeiten. Der Inhalt ist eine Live-
 du verbunden bist, und verschwindet, wenn der Eigentümer die Freigabe beendet
 oder die Verbindung trennt (der Container bleibt und füllt sich wieder, sobald er
 zurück ist).
+
+## Ein geteiltes Objekt bearbeiten {#editing}
+
+Standardmäßig ist ein geteiltes Objekt für die Personen, mit denen du es teilst,
+**schreibgeschützt**. Wenn du eines anbietest, hat das Menü **Teilen mit** einen
+Schalter **Bearbeiten erlauben**: Aktiviere ihn, *bevor* du ein Mitglied
+auswählst, um ihm zusätzlich zum Ansehen auch Bearbeitungsrechte zu geben.
+
+Ein Mitglied mit Bearbeitungsrecht sieht die inneren Knoten des geteilten Objekts
+in seinem eigenen Baum (nicht nur den undurchsichtigen Container) und kann sie
+auswählen, bewegen, umfärben, umbenennen, **untergeordnete Objekte hinzufügen**
+und **löschen**. Jede solche Änderung ist eine *Anfrage* an dich, den Eigentümer:
+Sie wird zuerst auf **deine** Kopie angewendet (dein Gerät bleibt die alleinige
+Quelle der Wahrheit) und dann live an alle zurückgespiegelt, die das Objekt haben
+– auch an den Bearbeiter. Die Freigabe aufzuheben oder **Bearbeiten erlauben**
+auszuschalten stoppt weitere Änderungen sofort.
+
+Eine Einschränkung in dieser Version: Bearbeiter können nur **Struktur und
+Eigenschaften** des Objekts ändern, aber keine **Assets** (Modelle, Bilder, Audio)
+daran anhängen. Diese Dateien liegen nur auf dem Gerät des Bearbeiters, daher wird
+das Ablegen eines Assets auf einem geteilten Objekt abgelehnt – füge Assets
+stattdessen auf dem besitzenden Server hinzu.

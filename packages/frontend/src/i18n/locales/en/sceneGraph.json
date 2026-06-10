@@ -90,7 +90,8 @@
     "delete": "Delete"
   },
   "remote": {
-    "tip": "Shared object from a connected peer. You can move and place this container; its contents are owned and updated live by their server."
+    "tip": "Shared object from a connected peer. You can move and place this container; its contents are owned and updated live by their server.",
+    "assetBlocked": "Assets can't be added to a shared object — the file lives only on your machine, and its owner can't load it. Add the asset on the owning server instead."
   },
   "logic": {
     "globalLogic": "Global Logic",
