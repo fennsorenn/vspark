@@ -198,6 +198,106 @@ which notifies every current subscriber that can no longer read it — server pe
 **and** direct-edge browser participants — and only those actually revoked (a
 surviving `'*'` grant keeps a peer subscribed).
 
+## Phase 6 — owner-authoritative multi-writer (write tier) — IMPLEMENTED
+
+The read/live-preview tier above makes a remote projection read-only and
+ephemeral. Phase 6 adds the **write tier**: a granted remote peer can EDIT a
+shared Object and have the change **persist at the owner** and propagate to all
+subscribers, staying **owner-authoritative** — the owner's SQLite is the single
+source of truth; a remote write is a *request* the owner validates, applies, and
+echoes. Implemented + user-verified end-to-end on both transports (direct WebRTC
+edge and server relay). Design context: [plans/multiplayer-phase6.md](../plans/multiplayer-phase6.md).
+
+### `_share_write` / `_share_write_nak` protocol
+
+Two new rtypes added to `SHARE_RTYPES`:
+
+- **`_share_write`** (receiver → owner): carries a `scene_node` env — an `upsert`
+  (create or update) or a `remove` (delete, with the owner-ancestor `route` hint
+  like the read tier).
+- **`_share_write_nak`** (owner → receiver): carries the rejected entity id so the
+  writer rolls its optimistic edit back. Sent on a denied write (no grant) or a
+  failed/malformed apply.
+
+### Owner side — AuthZ + persistence
+
+Owner `handleWrite` (`sharing.ts`) authorizes the write against the grant store
+via `canAccess`, with the `need` and the checked key derived from the op:
+
+- **create** → authorize against the **parent** id (the new node's own id isn't in
+  the tree yet), `need = create`;
+- **update** → the node id, `need = update`;
+- **delete** → the node id, `need = delete`.
+
+Writes outside a granted subtree are rejected. The whole apply is wrapped in
+try/catch: a malformed or failing write sends a NAK (rollback) instead of crashing
+the owner process.
+
+Persistence lives in `sceneNodeWrite.ts` (new):
+
+- **`applySceneNodeUpdate`** — **content-only** UPDATE (name / kind / file_path /
+  components / properties / hidden). It deliberately **preserves**
+  `project_id` / `root_scene_node_id` / `parent_id`, which are
+  owner-authoritative and **NOT trusted from the wire**.
+- **`applySceneNodeCreate`** — derives `project_id` / `root_scene_node_id` from the
+  parent row; returns `false` (→ NAK) if the parent is gone.
+- **`applySceneNodeRemove`**, **`sceneNodeExists`** — delete + existence check.
+
+All emit via `sync.document.upsert/remove`, so the existing `forwardDocOp` echoes
+the authoritative result to **every** subscriber (including the owner's own
+clients), exactly as the read tier's live updates do.
+
+### Write shares — grant + advertise
+
+A single **"can edit"** toggle grants `update + create + delete` together. It is
+threaded `addShare(canWrite)` → `manager.share` → the
+`/connections/objects/:id/share` REST route (`canWrite` body field) and advertised
+**per-offer** as `canWrite`. `connectionsStore` gained `SharedOffer.canWrite` +
+`canWriteObject(owner, objectId)`.
+
+### Receiver side — routing seam + optimism/rollback
+
+- **Central routing seam** (`frontend/src/api/client.ts`): `setRemoteWriteRouter`
+  lets `updateNode` / `deleteNode` of a writable-remote node divert to the owner
+  with **no commit-site changes** (the gizmo/Properties/scene-graph call sites are
+  untouched).
+- **`frontend/src/sync/remoteEdit.ts`** (new) is the router: it confirms
+  `node.remote` + `canWriteObject`, builds the `scene_node` env, records a pending
+  write, and sends.
+- **Transport.** `shareDirect.ts` `sendShareWriteDirect` is the direct edge; the
+  **relay fallback** goes via a `setShareWriteRelay` hook registered by
+  `useWsSync` (posts `mp_share_write` → backend `index.ts` handler →
+  `manager.relayWrite` → `SharingManager.relayWrite`, which forwards to the owner
+  over the mesh).
+- **Reconciliation** (`sync/sharedProjection.ts`): an authoritative-DTO map; an
+  **HLC stale-drop guard** in `applyUpdate` (so a late echo can't clobber a newer
+  one, and an owner echo always beats a peer's stale optimistic state); a
+  pending-write log; and `rollbackWrite` (update → re-apply the DTO, create →
+  delete, delete → re-add). A `_share_write_nak` (direct via `shareDirect`; relay
+  via `mp_shared_write_nak` in `useWsSync`) rolls the optimistic edit back.
+
+### Writable-subtree un-hide + share toggle (UI)
+
+Read-only projections stay hidden under their opaque container. For an object the
+local user has **edit rights** on (`isWritableRemote` = remote + `canWriteObject`),
+`SceneGraph.tsx` now **shows** the projected subtree so its inner nodes are
+selectable and edited with the existing gizmo / Properties panel — coordinates are
+node-local (the container's placement is not baked in). The share submenu gained an
+**"Allow editing"** toggle (en/de i18n added in `sceneGraph.json`).
+
+### Known gap — create-routing unwired (frontend)
+
+Adding a **new child** under a writable remote node still hits local REST and
+fails with an alert (no corruption). The **backend** create path exists and is
+tested; only the frontend `createNode` seam is unwired. This is the one remaining
+piece before the write tier is feature-complete.
+
+### Verified (user)
+
+Gizmo move on a subscriber persists at the owner and survives an owner reload;
+coordinates are node-local; delete persists; read-only shares keep the subtree
+hidden and reject writes; denied/malformed writes NAK without crashing the owner.
+
 ## Status
 
 | Concern | Status |
@@ -215,6 +315,8 @@ surviving `'*'` grant keeps a peer subscribed).
 | `_share_update` doc op (needs per-subscriber owning-root) | Stays on the custom path (see below) |
 | Live config-sync of behaviours/effects | **Non-goal** (output-synced; see below) |
 | Track-clip animation of a shared object (root + child subtree transforms) | **Implemented** |
+| **Phase 6 — owner-authoritative write tier: `update`/`delete` of a shared `scene_node`** | **Implemented + user-verified** (`_share_write`/NAK, owner AuthZ + content-only-update / parent-derived-create persistence, both transports, optimistic + rollback, crash-safe) |
+| **Phase 6 — `create` of a new child under a writable remote node** | Backend implemented + tested; **frontend `createNode` seam unwired** (hits local REST, alerts, no corruption) |
 
 ### Resolved — asset transport to a remote browser
 

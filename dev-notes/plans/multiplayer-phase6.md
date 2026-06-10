@@ -2,7 +2,10 @@
 
 > Branch: `feature/multiplayer-phase6`, **off `claude/preset-object-sync-wn2HT`**
 > (not `dev` — `dev` doesn't have the multiplayer tier yet). · Status:
-> **decided — implementing**
+> **implemented + user-verified (update/delete, both transports — direct edge +
+> server relay); create-routing on the frontend still pending** (the backend
+> create path is implemented + tested, only the `createNode` seam is unwired).
+> The sections below are kept as the historical design record.
 > Builds on [permissioned-sync-mesh.md](permissioned-sync-mesh.md) and the
 > shipped read/live-preview tier (object-share + `MeshRouter`). This adds the
 > *write* tier: a remote client editing a shared Object, persisted by the owner.
