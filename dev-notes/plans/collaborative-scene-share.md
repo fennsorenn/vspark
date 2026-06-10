@@ -58,6 +58,10 @@ applied LWW. The scene's `root_scene_node_id` is the shared scene id; only
   applies LWW (newer wins, missing-on-one-side = create, deleted = tombstone).
   Tombstones (a `deleted_at`/version) are needed so a delete isn't resurrected by
   a stale create on reconnect — **design tombstones in from the start.**
+- **Reconnect tiebreaker:** when the two sides diverged while disconnected and a
+  node's versions can't be cleanly ordered (equal/concurrent HLC), the **original
+  author — the peer that shared the scene — wins.** Live edits stay pure LWW; this
+  only breaks ties during the reconnect merge.
 
 ### 4. Lifecycle
 - Unshare/disconnect: stop forwarding; **keep** both scenes. The collab link
