@@ -236,6 +236,109 @@ export function gatherObjectSnapshot(objectId: string): ObjectSnapshot | null {
   };
 }
 
+/** Snapshot a WHOLE scene (collaborative scene sharing) rather than a parent_id
+ *  subtree: a scene's top-level nodes have `parent_id = NULL` and are linked by
+ *  `root_scene_node_id`, so the object snapshot's parent-walk misses them. This
+ *  gathers the scene node + every node whose `root_scene_node_id` is the scene,
+ *  ordered root-first then parent-before-child so a receiver can INSERT in order.
+ *  Behaviours/effects/assets are gathered exactly as gatherObjectSnapshot. */
+export function gatherSceneSnapshot(sceneId: string): ObjectSnapshot | null {
+  const db = getDb();
+  const root = db
+    .prepare('SELECT * FROM scene_nodes WHERE id = ?')
+    .get(sceneId) as unknown as StageObjectRow | undefined;
+  if (!root) return null;
+  const members = db
+    .prepare(
+      'SELECT * FROM scene_nodes WHERE root_scene_node_id = ? AND id != ?'
+    )
+    .all(sceneId, sceneId) as unknown as StageObjectRow[];
+
+  const byParent = new Map<string | null, StageObjectRow[]>();
+  for (const n of members) {
+    const arr = byParent.get(n.parent_id) ?? [];
+    arr.push(n);
+    byParent.set(n.parent_id, arr);
+  }
+  // Root first; its "children" are the scene's top-level nodes (parent_id NULL
+  // or pointing at the scene). Then BFS by parent_id so parents precede children.
+  const subtree: StageObjectRow[] = [root];
+  const queue: StageObjectRow[] = [
+    ...(byParent.get(null) ?? []),
+    ...(byParent.get(sceneId) ?? []),
+  ];
+  const seen = new Set<string>([sceneId]);
+  while (queue.length) {
+    const n = queue.shift()!;
+    if (seen.has(n.id)) continue;
+    seen.add(n.id);
+    subtree.push(n);
+    for (const c of byParent.get(n.id) ?? []) queue.push(c);
+  }
+
+  const ids = subtree.map((n) => n.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const behaviors =
+    ids.length > 0
+      ? (db
+          .prepare(`SELECT * FROM behaviors WHERE node_id IN (${placeholders})`)
+          .all(...ids) as Record<string, unknown>[])
+      : [];
+  const cameraEffects =
+    ids.length > 0
+      ? (db
+          .prepare(
+            `SELECT * FROM camera_effects WHERE node_id IN (${placeholders})`
+          )
+          .all(...ids) as Record<string, unknown>[])
+      : [];
+  const paths = subtree.map((n) => n.file_path ?? '').filter(Boolean);
+  const assets = (
+    paths.length > 0
+      ? (db
+          .prepare(
+            `SELECT stored_path, hash, mime_type, size FROM asset_files
+             WHERE stored_path IN (${paths.map(() => '?').join(',')})`
+          )
+          .all(...paths) as {
+          stored_path: string;
+          hash: string;
+          mime_type: string;
+          size: number;
+        }[])
+      : []
+  )
+    .filter((r) => r.hash)
+    .map((r) => ({
+      filePath: r.stored_path,
+      hash: r.hash,
+      ext: extOf(r.stored_path),
+      mime: r.mime_type,
+      size: r.size,
+    }));
+
+  return {
+    objectId: sceneId,
+    rootName: root.name,
+    nodes: subtree.map(rowToNode),
+    behaviors: behaviors.map((b) => ({
+      id: b.id,
+      nodeId: b.node_id,
+      kind: b.kind,
+      enabled: (b.enabled as number) === 1,
+      config: JSON.parse((b.config as string) || '{}'),
+    })),
+    cameraEffects: cameraEffects.map((e) => ({
+      id: e.id,
+      nodeId: e.node_id,
+      kind: e.kind,
+      enabled: (e.enabled as number) === 1,
+      config: JSON.parse((e.config as string) || '{}'),
+    })),
+    assets,
+  };
+}
+
 /** Which subtree-root objectId (if any) a given node belongs to, given the set
  *  of candidate roots. Walks up parent_id. Used to route live updates to the
  *  right subscribed object. */

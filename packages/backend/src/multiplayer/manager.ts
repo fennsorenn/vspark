@@ -22,8 +22,21 @@ import { BrowserPeerMesh } from './browserMesh.js';
 import { SharingManager, SHARE_RTYPES } from './sharing.js';
 import { type MeshTransport } from './transport.js';
 import { MeshRouter } from '../sync/meshRouter.js';
-import { grantsForRequester } from '../sync/grants.js';
+import { grantsForRequester, canAccess } from '../sync/grants.js';
 import { containmentIndex } from '../sync/containmentIndex.js';
+import { getDb } from '../db/index.js';
+import { gatherObjectSnapshot, gatherSceneSnapshot, type ObjectSnapshot } from './shares.js';
+import {
+  registerCollabScene,
+  indexCollabScene,
+  mountSharedScene,
+  forwardCollabOp,
+  applyCollabOp,
+  COLLAB_OP_RTYPE,
+  COLLAB_OFFER_RTYPE,
+  COLLAB_SUBSCRIBE_RTYPE,
+  COLLAB_SNAPSHOT_RTYPE,
+} from './collabScene.js';
 import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
 import {
   clientMeshRelay,
@@ -73,6 +86,9 @@ class MultiplayerManager {
   private sharing: SharingManager | null = null;
   private blob: BlobManager | null = null;
   private enabled = false;
+  /** sceneId → target projectId while a collab-scene mount is in flight (between
+   *  our subscribe request and the owner's snapshot reply). */
+  private readonly pendingCollabMount = new Map<string, string>();
   private broadcast: Broadcast = () => {};
   private iceServers: IceServer[] = [];
   private iceFetchedAt = 0;
@@ -143,8 +159,12 @@ class MultiplayerManager {
       this.blob,
       meshRouter
     );
-    // Forward shared objects' document updates to subscribed peers.
-    sync.onDocument((env) => this.sharing?.forwardDocOp(env));
+    // Forward shared objects' document updates to subscribed peers, and mirror
+    // collaborative-scene edits to their peers (peer-to-peer, persisted on both).
+    sync.onDocument((env) => {
+      this.sharing?.forwardDocOp(env);
+      forwardCollabOp(env, (peer, e) => this.mesh?.sendEnvelope(peer, e));
+    });
     // Bridge the client-mesh signaling relay onto the server mesh.
     clientMeshRelay.attachBridge({
       send: (server, env) => this.mesh?.sendEnvelope(server, env),
@@ -261,6 +281,27 @@ class MultiplayerManager {
           clientMeshRelay.onServerRelay(env);
         } else if (env?.rtype === MESH_ROSTER_RTYPE) {
           clientMeshRelay.onServerRoster(from, env);
+        } else if (env?.rtype === COLLAB_OP_RTYPE) {
+          // A collaborative-scene peer's edit: apply LWW to our persisted copy.
+          // applyCollabOp re-emits via sync.document, which fans out to our own
+          // clients (so the local editor updates) without echoing back.
+          const d = (env.data ?? {}) as {
+            sceneId?: string;
+            env?: SyncEnvelope;
+          };
+          if (d.sceneId && d.env) applyCollabOp(d.sceneId, d.env);
+        } else if (env?.rtype === COLLAB_OFFER_RTYPE) {
+          const d = (env.data ?? {}) as { sceneId?: string; name?: string };
+          if (d.sceneId)
+            this.broadcast('mp_collab_offer', {
+              peerId: from,
+              sceneId: d.sceneId,
+              name: d.name ?? 'Shared scene',
+            });
+        } else if (env?.rtype === COLLAB_SUBSCRIBE_RTYPE) {
+          this.handleCollabSubscribe(from, env);
+        } else if (env?.rtype === COLLAB_SNAPSHOT_RTYPE) {
+          this.handleCollabSnapshot(from, env);
         }
       }
     );
@@ -423,6 +464,80 @@ class MultiplayerManager {
   /** Grantees of an object (for the "Share with" UI). */
   grantees(objectId: string): string[] {
     return listObjectGrantees(objectId);
+  }
+
+  // --- collaborative scene sharing (peer-to-peer, persisted on both) ---------
+
+  /** Owner: offer a scene for collaborative editing. Grants the peer read+write,
+   *  records our 'author' link, indexes the scene for fan-out, and (if connected)
+   *  pushes an offer the peer can mount. */
+  shareCollabScene(sceneId: string, granteePeerId: string): void {
+    const row = getDb()
+      .prepare("SELECT project_id, name FROM scene_nodes WHERE id = ? AND kind = 'scene'")
+      .get(sceneId) as { project_id: string; name: string } | undefined;
+    if (!row) return;
+    addShare('scene', sceneId, granteePeerId, true);
+    registerCollabScene(sceneId, granteePeerId, 'author', row.project_id);
+    indexCollabScene(sceneId);
+    this.mesh?.sendEnvelope(granteePeerId, {
+      rtype: COLLAB_OFFER_RTYPE,
+      op: 'event',
+      key: sceneId,
+      data: { sceneId, name: row.name },
+    });
+  }
+
+  /** Receiver: ask the owner to send a collab scene so we can mount it into
+   *  `projectId`. Remembers the target project until the snapshot arrives. */
+  mountCollabScene(ownerPeerId: string, sceneId: string, projectId: string): void {
+    this.pendingCollabMount.set(sceneId, projectId);
+    this.mesh?.sendEnvelope(ownerPeerId, {
+      rtype: COLLAB_SUBSCRIBE_RTYPE,
+      op: 'event',
+      key: sceneId,
+      data: { sceneId },
+    });
+  }
+
+  /** Owner side: a peer asked for a collab scene — authorize via the grant, then
+   *  send the full snapshot. */
+  private handleCollabSubscribe(from: string, env: SyncEnvelope): void {
+    const sceneId = (env.data as { sceneId?: string })?.sceneId ?? env.key;
+    if (
+      !canAccess(
+        from,
+        `scene_node:${sceneId}`,
+        'read',
+        containmentIndex.isDescendant
+      )
+    )
+      return;
+    const row = getDb()
+      .prepare('SELECT project_id FROM scene_nodes WHERE id = ?')
+      .get(sceneId) as { project_id: string } | undefined;
+    const snapshot = gatherSceneSnapshot(sceneId);
+    if (!snapshot || !row) return;
+    registerCollabScene(sceneId, from, 'author', row.project_id);
+    indexCollabScene(sceneId);
+    this.mesh?.sendEnvelope(from, {
+      rtype: COLLAB_SNAPSHOT_RTYPE,
+      op: 'event',
+      key: sceneId,
+      data: { sceneId, snapshot },
+    });
+  }
+
+  /** Receiver side: persist the snapshot as a real scene + start syncing. */
+  private handleCollabSnapshot(from: string, env: SyncEnvelope): void {
+    const d = (env.data ?? {}) as { sceneId?: string; snapshot?: ObjectSnapshot };
+    const sceneId = d.sceneId ?? env.key;
+    const projectId = this.pendingCollabMount.get(sceneId);
+    if (!d.snapshot || !projectId) return;
+    this.pendingCollabMount.delete(sceneId);
+    mountSharedScene(d.snapshot, projectId, from);
+    indexCollabScene(sceneId);
+    // Tell our clients to reload scenes (the mount went straight to SQLite).
+    this.broadcast('mp_collab_mounted', { peerId: from, sceneId, projectId });
   }
 
   /** Owner: forward a shared avatar's live pose/blendshape frame to subscribers
