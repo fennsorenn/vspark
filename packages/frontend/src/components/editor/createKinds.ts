@@ -1,5 +1,6 @@
 import { useEditorStore, type StageObject } from '../../store/editorStore';
 import { api } from '../../api/client';
+import { createRemoteChild } from '../../sync/remoteEdit';
 import type { AssetFile, ComposeLayerKind } from '../../api/client';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 import {
@@ -210,6 +211,16 @@ export async function createSceneNode(
       color: '#ffffff',
       billboard: true,
     };
+  }
+
+  // If the parent is a writable *remote* node, this is a create on a shared
+  // object: route it to the owner (Phase 6) instead of our local REST API.
+  const parent = parentId
+    ? useEditorStore.getState().nodes.find((n) => n.id === parentId)
+    : null;
+  if (parent) {
+    const remoteNode = createRemoteChild(parent, def.kind, name, components);
+    if (remoteNode) return remoteNode;
   }
 
   const node = await api.createNode(sceneId, {

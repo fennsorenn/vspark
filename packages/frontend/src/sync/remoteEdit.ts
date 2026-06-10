@@ -18,6 +18,7 @@ import {
   owningProjectionRoot,
   ancestorRoute,
   recordPendingWrite,
+  addProjectedNode,
 } from './sharedProjection';
 import { sendShareWriteDirect } from './shareDirect';
 
@@ -81,6 +82,49 @@ export function routeRemoteWrite(
     data: nodeDto({ ...node, ...(data ?? {}) } as StageObject),
   });
   return true;
+}
+
+/** Create a child under a writable *remote* node: mint a UUID, add it to the
+ *  projection optimistically, and send a `_share_write` upsert to the owner (which
+ *  derives the new node's structure from its parent). Returns the optimistic node
+ *  (so the caller can select it), or null if the parent isn't writable-remote —
+ *  in which case the caller falls through to the normal local create. */
+export function createRemoteChild(
+  parent: StageObject,
+  kind: string,
+  name: string,
+  components: Record<string, unknown>
+): StageObject | null {
+  const owner = parent.remoteOwnerPeerId;
+  if (!parent.remote || !owner) return null;
+  const root = owningProjectionRoot(owner, parent.id);
+  if (!root || !canWriteObject(owner, root)) return null;
+
+  const id = crypto.randomUUID();
+  const node: StageObject = {
+    id,
+    parentId: parent.id, // owner-side id — the owner derives structure from it
+    rootSceneNodeId: parent.rootSceneNodeId,
+    projectId: parent.projectId,
+    name,
+    kind,
+    filePath: null,
+    boneAttachment: null,
+    components,
+    properties: {},
+    hidden: false,
+    remote: true,
+    remoteOwnerPeerId: owner,
+  };
+  addProjectedNode(owner, root, node as unknown as Record<string, unknown>); // optimistic
+  recordPendingWrite(owner, root, id, 'create');
+  send(owner, {
+    rtype: 'scene_node',
+    op: 'upsert',
+    key: id,
+    data: nodeDto(node),
+  });
+  return node;
 }
 
 setRemoteWriteRouter(routeRemoteWrite);

@@ -126,6 +126,21 @@ export function applySnapshot(peerId: string, snapshot: ObjectSnapshot): void {
   }
 }
 
+/** Optimistically add a locally-minted node to a projected subtree (Phase 6
+ *  create): project it under the container, add + track it. No authoritative DTO
+ *  is recorded yet — the owner's echo (or a NAK rollback) is the source of truth. */
+export function addProjectedNode(
+  peerId: string,
+  objectId: string,
+  dto: Record<string, unknown>
+): void {
+  const container = findContainer(peerId, objectId);
+  if (!container) return;
+  const node = projectNode(dto, peerId, objectId, container);
+  useEditorStore.getState().addNode(node);
+  track(peerId, objectId, node.id);
+}
+
 /** Apply a live `scene_node` document op forwarded by the owner. */
 export function applyUpdate(
   peerId: string,
