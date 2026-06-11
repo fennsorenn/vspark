@@ -1,8 +1,8 @@
 # Plan: Collaborative scene sharing (peer-to-peer, persisted on both)
 
-> Branch: `feature/multiplayer-phase6`. Status: **backend engine done + API-
-> verified; frontend + reconnect-reconcile remaining.** Builds on the multiplayer
-> object-share + Phase 6 write tier, but is a distinct model.
+> Branch: `feature/multiplayer-phase6`. Status: **core feature done + verified
+> (API + browser); reconnect-reconcile + help remaining.** Builds on the
+> multiplayer object-share + Phase 6 write tier, but is a distinct model.
 
 ## Progress
 
@@ -14,14 +14,17 @@
   handshake); REST `share-collab` + `collab/mount`. Verified: mount copies the
   whole scene to the receiver, and create/update/delete from **either** peer
   persist on **both**.
-- **Remaining:** frontend (route the scene-row "Share with" to the collab share;
-  show the `mp_collab_offer` + a Mount button; reload scenes on
-  `mp_collab_mounted`; reflect live `applyCollabOp` edits in the editor — the
-  receiver's apply emits `sync.document` but the editor still hydrates scene_nodes
-  via REST, so it needs either a sync-layer consumer or a coarse "collab changed →
-  refetch scene" event); **reconnect reconciliation** (re-snapshot + LWW merge,
-  author-wins ties, tombstones); i18n + help. Replace the old read-only scene
-  projection (`5128c6b`).
+- **Done + verified (browser, two editors):** scene-row "Share with" routes to
+  the collab share; `mp_collab_offer` surfaces a Mount button in the Connections
+  window; mounting reloads + focuses the new scene; live edits from one peer
+  appear in the other's editor (via the existing `scene_node` sync layer —
+  `resources.ts` already applies upsert/remove). `unshare` now also tears down the
+  collab link. en/de i18n added.
+- **Remaining:** **reconnect reconciliation** (re-snapshot + LWW merge,
+  author-wins ties, tombstones — currently a peer that edits while disconnected
+  won't re-converge until a re-share/re-mount); a help/docs section for the
+  feature; and a UI affordance to leave/stop a collaboration from the receiver
+  side. The old read-only scene projection (`5128c6b`) is superseded by this.
 
 ## Why this is different from object sharing
 

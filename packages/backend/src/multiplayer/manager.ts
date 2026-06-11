@@ -28,6 +28,7 @@ import { getDb } from '../db/index.js';
 import { gatherObjectSnapshot, gatherSceneSnapshot, type ObjectSnapshot } from './shares.js';
 import {
   registerCollabScene,
+  removeCollabScene,
   indexCollabScene,
   mountSharedScene,
   forwardCollabOp,
@@ -455,9 +456,12 @@ class MultiplayerManager {
   }
 
   /** Revoke a grant + tell every affected subscriber (server peers and direct
-   *  browser participants alike) to drop it. */
+   *  browser participants alike) to drop it. Also tears down any collaborative-
+   *  scene link to that peer so live sync stops (the peer keeps its persisted
+   *  copy — unshare ends the collaboration, it doesn't delete their scene). */
   unshare(objectId: string, granteePeerId: string): void {
     removeShare(objectId, granteePeerId);
+    removeCollabScene(objectId, granteePeerId);
     this.sharing?.revokeUnauthorized(objectId);
   }
 
