@@ -25,11 +25,9 @@ import {
 // COLLAB_STREAM_RTYPE ('_collab_stream') is gone: live frames for collab
 // nodes ride the @vspark/mesh preview channel now (backend/src/mesh/streams.ts).
 
-// COLLAB_PLAYBACK_RTYPE ('_collab_playback') is gone too: clip playback
-// control rides the mesh `control` channel (backend/src/mesh/streams.ts).
-
-/** Control rtype for collaborative scene sharing (over the mesh doc channel). */
-export const COLLAB_RUNTIME_RTYPE = '_collab_runtime'; // runtime data (Set Data, spawn, …)
+// COLLAB_PLAYBACK_RTYPE ('_collab_playback') and COLLAB_RUNTIME_RTYPE
+// ('_collab_runtime') are gone too: clip playback + runtime events ride the
+// mesh `control` channel (backend/src/mesh/streams.ts).
 
 export type ClipPlaybackAction = 'trigger' | 'stop' | 'pause' | 'resume' | 'seek';
 export const COLLAB_SUBSCRIBE_RTYPE = '_collab_subscribe'; // grantee→owner: "send it"
@@ -97,32 +95,16 @@ export function collabPeersForScene(sceneId: string): CollabLink[] {
   }));
 }
 
-/** Unique peers we collaborate with on any scene — runtime data (chat feeds,
- *  spawned clips, …) is project-global, so it fans out to all of them. */
-export function allCollabPeers(): string[] {
+/** Every distinct collab scene id this server holds — the publish targets for
+ *  runtime events over the mesh (mesh/streams.ts keys one event per scene;
+ *  runtime data like chat feeds and spawned clips is project-global, so it
+ *  fans out to every shared scene, deduped per receiver by eventId). */
+export function allCollabSceneIds(): string[] {
   return (
     getDb()
-      .prepare('SELECT DISTINCT peer_id FROM collab_scenes')
-      .all() as { peer_id: string }[]
-  ).map((r) => r.peer_id);
-}
-
-/** Mirror one runtime WS broadcast (kind + payload) to every collab peer, who
- *  re-applies it locally. */
-export function forwardCollabRuntime(
-  kind: string,
-  payload: Record<string, unknown>,
-  send: (peerId: string, env: SyncEnvelope) => void
-): void {
-  const peers = allCollabPeers();
-  if (peers.length === 0) return;
-  for (const peerId of peers)
-    send(peerId, {
-      rtype: COLLAB_RUNTIME_RTYPE,
-      op: 'event',
-      key: kind,
-      data: { kind, payload },
-    });
+      .prepare('SELECT DISTINCT scene_id FROM collab_scenes')
+      .all() as { scene_id: string }[]
+  ).map((r) => r.scene_id);
 }
 
 /** Every collab-scene link this server holds (for the scene-graph chain badge). */

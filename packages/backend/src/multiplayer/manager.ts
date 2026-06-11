@@ -20,7 +20,9 @@ import {
 import {
   publishNodeStream,
   publishClipPlayback,
+  publishCollabRuntime,
   setClipPlaybackApplier,
+  setCollabRuntimeApplier,
 } from '../mesh/streams.js';
 import {
   RendezvousClient,
@@ -45,7 +47,6 @@ import {
   mountSharedScene,
   collabSceneForNode,
   clipCollabScene,
-  forwardCollabRuntime,
   persistCollabAssets,
   indexAllCollabScenes,
   listAllCollabScenes,
@@ -53,7 +54,6 @@ import {
   collabPeersForScene,
   COLLAB_SUBSCRIBE_RTYPE,
   COLLAB_SNAPSHOT_RTYPE,
-  COLLAB_RUNTIME_RTYPE,
   type ClipPlaybackAction,
 } from './collabScene.js';
 import { _trackClipPlayback } from '../routes/shared.js';
@@ -162,10 +162,13 @@ class MultiplayerManager {
     // forwarding (edits + pose/preview streams) works after a restart.
     indexAllCollabScenes();
     if (broadcast) this.broadcast = broadcast;
-    // Remote clip playback controls arrive over the mesh `control` channel;
-    // the bridge applies them on our local playback manager.
+    // Remote clip playback + runtime events arrive over the mesh `control`
+    // channel; the bridges apply them locally (guarded against re-relay).
     setClipPlaybackApplier((clipId, action, t) =>
       this.applyClipPlayback(clipId, action, t)
+    );
+    setCollabRuntimeApplier((kind, payload) =>
+      this.applyCollabRuntime(kind, payload)
     );
 
     this.client = new RendezvousClient(
@@ -365,13 +368,6 @@ class MultiplayerManager {
           this.handleCollabSubscribe(from, env);
         } else if (env?.rtype === COLLAB_SNAPSHOT_RTYPE) {
           void this.handleCollabSnapshot(from, env);
-        } else if (env?.rtype === COLLAB_RUNTIME_RTYPE) {
-          // A collab peer's runtime broadcast (Set Data, override, spawn, media).
-          const d = (env.data ?? {}) as {
-            kind?: string;
-            payload?: Record<string, unknown>;
-          };
-          if (d.kind && d.payload) this.applyCollabRuntime(d.kind, d.payload);
         }
       }
     );
@@ -725,9 +721,7 @@ class MultiplayerManager {
     } else if (!COLLAB_RELAY_KINDS.has(kind)) {
       return;
     }
-    forwardCollabRuntime(kind, payload, (peer, env) =>
-      this.mesh?.sendEnvelope(peer, env)
-    );
+    publishCollabRuntime(kind, payload);
   }
 
   /** Apply a peer's relayed runtime broadcast. Data channels + overrides go
