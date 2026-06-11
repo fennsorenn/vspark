@@ -1,6 +1,6 @@
 # Sync Layer (unified state-replication)
 
-> **WIP: This module is being refactored onto a new `@vspark/mesh` package.** See [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the target design and refactor roadmap. Content below reflects the current state on the branch; expect substantial restructuring.
+> **Status: Legacy layer; core refactored into `@vspark/mesh`.** The unified envelope design lives on in the mesh package's API (collections, channels, HLC, acks). App-level integration is WIP: REST routes and frontend bindings remain to be migrated. See [mesh.md](mesh.md) and [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the target design and integration roadmap. Content below documents the current implementation for reference.
 
 **Status: Phases 0–2 + 4 implemented; Phase 3 API-surface-only; field-fold / live-stream migration / manager-fold deferred.**
 

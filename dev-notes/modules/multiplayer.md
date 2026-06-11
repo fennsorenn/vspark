@@ -1,6 +1,6 @@
 # Multiplayer / Mesh
 
-> **WIP: This module is being refactored onto a new `@vspark/mesh` package.** See [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the target design and refactor roadmap. Content below reflects the current state on the branch; expect substantial restructuring.
+> **WIP: App integration layer.** The core replicated store is factored into new packages `@vspark/mesh`, `@vspark/mesh-react`, and `@vspark/mesh-transports` (see [mesh.md](mesh.md)). Content below describes the current peer-to-peer connectivity and object-sharing implementations; they are being consolidated with the mesh core under a unified grants + subscriptions model. See [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the target design and integration roadmap.
 
 Peer-to-peer connectivity between vspark instances: server↔server WebRTC, a
 signaling relay for browser clients, object sharing over the mesh, a
