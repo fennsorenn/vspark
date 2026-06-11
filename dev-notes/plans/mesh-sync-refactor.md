@@ -569,10 +569,13 @@ re-subscribe, pose stream still legacy.
   (single-use wrapper finalizes after first `.get()`) → advertise 500 once a
   peer held ≥2 share grants; now one batched IN query.
 - **Known issues / deferred:**
-  - werift never reports `disconnected` when the remote dies silently → a
-    stale slot blocks single-side reconnects (`mesh.ts:314` offer-drop +
-    half-open `connect()` no-op). Legacy transport issue, predates the
-    cutover. Candidate fix: drive teardown from rendezvous presence.
+  - ~~werift stale slot blocks single-side reconnects~~ **FIXED + live-verified
+    4/4**: an offer from a peer we hold as `connected` proves our slot is
+    stale (a live peer never re-dials — `connect()` no-ops), so `onSignal`
+    now tears the slot down (peerDisconnected + pc.close, pendingIce kept)
+    and answers the fresh dial. Verified: kill -9 one backend, restart, one
+    POST connect → pair + placed-share data plane recover in <10s without
+    touching the survivor; half-open glare handling unchanged.
   - Backends don't auto-dial paired peers at boot (user-initiated connect by
     design); the standing session grant auto-accepts, so one side's Connect
     suffices after restarts.

@@ -311,7 +311,22 @@ export class ServerMesh extends EventEmitter {
   private async onSignal(from: string, data: SignalData): Promise<void> {
     dbg('onSignal', from, data.kind);
     if (data.kind === 'offer') {
-      if (this.peers.has(from)) return; // glare / already connecting — ignore
+      const existing = this.peers.get(from);
+      if (existing) {
+        if (!existing.connected) return; // glare / already connecting — ignore
+        // A connected peer never re-dials (its connect() no-ops while a live
+        // slot exists), so an offer from one proves OUR slot is stale: the
+        // remote died silently and restarted, and werift never reported the
+        // death (no 'failed'/'disconnected' fires on a vanished peer). Tear
+        // the slot down and treat this as a fresh dial. Deliberately NOT
+        // disconnect(): that would wipe pendingIce, which may already hold
+        // the new dial's early candidates.
+        dbg('stale slot — offer from connected peer, re-answering', from);
+        this.peers.delete(from);
+        if (existing.dropTimer) clearTimeout(existing.dropTimer);
+        void existing.pc.close().catch(() => {});
+        this.emit('peerDisconnected', from);
+      }
       // Buffer the offer and let the manager apply the accept policy
       // (prompt-once-per-session). It calls acceptOffer/rejectOffer.
       this.pendingOffers.set(from, { sdp: data.sdp });
