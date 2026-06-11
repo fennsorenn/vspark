@@ -45,8 +45,11 @@ bindResource('behavior', {
       s.removeBehavior(key);
       return;
     }
+    // Upsert: an existing behavior must be replaced, not skipped — otherwise a
+    // remote config/enabled edit is silently dropped.
     const b = data as Behavior;
-    if (s.behaviors.every((x) => x.id !== b.id)) s.addBehavior(b);
+    if (s.behaviors.some((x) => x.id === b.id)) s.updateBehavior(b.id, b);
+    else s.addBehavior(b);
   },
 });
 
