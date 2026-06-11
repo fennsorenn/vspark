@@ -73,21 +73,32 @@ export class Replica<T extends object> {
   /** id → path → value. Channel identity is routing-only; overlays merge. */
   private readonly overlays = new Map<string, Map<string, unknown>>();
   private readonly parked = new Map<string, ParkedPatch[]>();
+  /** Composed-read cache: keeps `get()` referentially stable between changes
+   *  (React's useSyncExternalStore requires stable snapshots). Invalidated on
+   *  every mutation of the id. */
+  private readonly composed = new Map<string, T>();
 
   // --- reads -----------------------------------------------------------------
 
-  /** Retained doc composed with ephemeral overlays (overlay wins). */
+  /** Retained doc composed with ephemeral overlays (overlay wins). Stable
+   *  reference until the next change to this id. */
   get(id: string): T | undefined {
+    const hit = this.composed.get(id);
+    if (hit) return hit;
     const ov = this.overlays.get(id);
     let base = this.docs.get(id) as T | undefined;
-    if (!ov || ov.size === 0) return base;
-    if (ov.has('')) base = ov.get('') as T;
-    if (base === undefined) return undefined;
-    let out = base;
-    const paths = [...ov.keys()]
-      .filter((p) => p !== '')
-      .sort((a, b) => a.split('.').length - b.split('.').length);
-    for (const p of paths) out = setPath(out, p, ov.get(p));
+    let out: T | undefined;
+    if (!ov || ov.size === 0) out = base;
+    else {
+      if (ov.has('')) base = ov.get('') as T;
+      if (base === undefined) return undefined;
+      out = base;
+      const paths = [...ov.keys()]
+        .filter((p) => p !== '')
+        .sort((a, b) => a.split('.').length - b.split('.').length);
+      for (const p of paths) out = setPath(out, p, ov.get(p));
+    }
+    if (out !== undefined) this.composed.set(id, out);
     return out;
   }
 
@@ -149,6 +160,7 @@ export class Replica<T extends object> {
     }
 
     this.docs.set(id, next);
+    this.composed.delete(id);
     this.rootStamps.set(id, v);
     this.tombs.delete(id);
     this.overlays.delete(id);
@@ -207,6 +219,7 @@ export class Replica<T extends object> {
     const tomb = this.tombs.get(id);
     if (tomb && compareHLC(v, tomb.v) <= 0) return null;
     this.docs.delete(id);
+    this.composed.delete(id);
     this.rootStamps.delete(id);
     this.pathStamps.delete(id);
     this.overlays.delete(id);
@@ -227,6 +240,7 @@ export class Replica<T extends object> {
     if (!ov) this.overlays.set(id, (ov = new Map()));
     if (path === '') ov.clear(); // root overlay supersedes partial ones
     ov.set(path, value);
+    this.composed.delete(id);
     return {
       op: 'ephemeral',
       id,
@@ -265,6 +279,7 @@ export class Replica<T extends object> {
   /** Wholesale rollback to a captured state. Bypasses LWW (the caller gated
    *  on `newestStamp`); emits a restored change for observers. */
   restoreState(id: string, s: DocState<T>, meta: ApplyMeta): AppliedChange<T> {
+    this.composed.delete(id);
     if (s.doc === undefined) {
       this.docs.delete(id);
       this.rootStamps.delete(id);
@@ -312,6 +327,7 @@ export class Replica<T extends object> {
     const eff = this.effectiveStamp(id, path);
     if (eff && compareHLC(v, eff) <= 0) return false;
     this.docs.set(id, setPath(this.docs.get(id) as T, path, value));
+    this.composed.delete(id);
     let stamps = this.pathStamps.get(id);
     if (!stamps) this.pathStamps.set(id, (stamps = new Map()));
     // This write covers descendants with older stamps.
@@ -331,6 +347,7 @@ export class Replica<T extends object> {
     for (const p of [...ov.keys()])
       if (pathAtOrAbove(path, p) || pathAtOrAbove(p, path)) ov.delete(p);
     if (ov.size === 0) this.overlays.delete(id);
+    this.composed.delete(id);
   }
 
   private park(id: string, p: ParkedPatch): void {
