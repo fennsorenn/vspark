@@ -46,6 +46,7 @@ import './sync/resources.js';
 import { initIdentity, getIdentity } from './multiplayer/identity.js';
 import { initBackendMesh, getMeshPeer, meshUpgrade } from './mesh/index.js';
 import { ServerMeshTransport } from './mesh/serverMeshTransport.js';
+import { initMeshCollab } from './mesh/collab.js';
 import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
 import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
@@ -126,8 +127,13 @@ async function start() {
   // collab traffic and mesh wire messages coexist during the migration.
   {
     const serverMesh = multiplayerManager.getServerMesh();
-    if (serverMesh)
-      getMeshPeer()?.addTransport(new ServerMeshTransport(serverMesh));
+    const meshPeer = getMeshPeer();
+    if (serverMesh && meshPeer) {
+      meshPeer.addTransport(new ServerMeshTransport(serverMesh));
+      // Collab links: standing grants + mutual subscriptions, re-armed on
+      // every connect (snapshot-on-subscribe replaces the legacy reconcile).
+      initMeshCollab(meshPeer);
+    }
   }
   // Unified sync layer: producer hub over the shared WS transport.
   // Inert until resources register + routes emit (phased migration).

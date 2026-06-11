@@ -11,6 +11,8 @@
  * See dev-notes/plans/multiplayer-phase5.md.
  */
 import { getIdentity, signBytes } from './identity.js';
+import { getMeshPeer } from '../mesh/index.js';
+import { syncCollabLinks } from '../mesh/collab.js';
 import {
   RendezvousClient,
   type PairedPeer,
@@ -31,28 +33,19 @@ import {
   removeCollabScene,
   indexCollabScene,
   mountSharedScene,
-  forwardCollabOp,
-  applyCollabOp,
-  applyCollabAssetOp,
   forwardCollabStream,
   forwardClipPlayback,
   forwardCollabRuntime,
   persistCollabAssets,
   indexAllCollabScenes,
-  gatherReconcile,
-  applyReconcile,
-  collabScenesForPeer,
   listAllCollabScenes,
   type CollabLink,
   collabPeersForScene,
-  COLLAB_OP_RTYPE,
   COLLAB_STREAM_RTYPE,
   COLLAB_SUBSCRIBE_RTYPE,
   COLLAB_SNAPSHOT_RTYPE,
-  COLLAB_RECONCILE_RTYPE,
   COLLAB_PLAYBACK_RTYPE,
   COLLAB_RUNTIME_RTYPE,
-  type ReconcilePayload,
   type ClipPlaybackAction,
 } from './collabScene.js';
 import { _trackClipPlayback } from '../routes/shared.js';
@@ -218,9 +211,11 @@ class MultiplayerManager {
     );
     // Forward shared objects' document updates to subscribed peers, and mirror
     // collaborative-scene edits to their peers (peer-to-peer, persisted on both).
+    // Collab-scene live ops now ride the @vspark/mesh peer (legacy bridge in
+    // backend/src/mesh mirrors every sync.document op into it; subscriptions
+    // are armed per collab link). Only the object-share fan-out stays here.
     sync.onDocument((env) => {
       this.sharing?.forwardDocOp(env);
-      forwardCollabOp(env, (peer, e) => this.mesh?.sendEnvelope(peer, e));
     });
     // Bridge the client-mesh signaling relay onto the server mesh.
     clientMeshRelay.attachBridge({
@@ -346,9 +341,6 @@ class MultiplayerManager {
           if (!this.profileExchanged.has(from)) {
             this.profileExchanged.add(from);
             this.sendProfile(from);
-            // Channel is proven live — reconcile any collab scenes we share with
-            // this peer (converge edits made while disconnected).
-            this.sendReconcile(from);
           }
           this.sharing?.advertise(from);
         } else if (SHARE_RTYPES.has(env?.rtype)) {
@@ -359,48 +351,10 @@ class MultiplayerManager {
           clientMeshRelay.onServerRelay(env);
         } else if (env?.rtype === MESH_ROSTER_RTYPE) {
           clientMeshRelay.onServerRoster(from, env);
-        } else if (env?.rtype === COLLAB_OP_RTYPE) {
-          // A collaborative-scene peer's edit: apply LWW to our persisted copy.
-          // applyCollabOp re-emits via sync.document, which fans out to our own
-          // clients (so the local editor updates) without echoing back. If the op
-          // carries asset metadata (a model/texture), fetch + localize it first so
-          // a mid-session model swap renders + persists locally.
-          const d = (env.data ?? {}) as {
-            sceneId?: string;
-            env?: SyncEnvelope;
-            asset?: AssetMeta;
-          };
-          if (d.sceneId && d.env) {
-            if (d.asset && this.blob)
-              void applyCollabAssetOp(d.sceneId, d.env, d.asset, (a) =>
-                this.blob!.ensure(from, a)
-              );
-            else applyCollabOp(d.sceneId, d.env);
-          }
         } else if (env?.rtype === COLLAB_SUBSCRIBE_RTYPE) {
           this.handleCollabSubscribe(from, env);
         } else if (env?.rtype === COLLAB_SNAPSHOT_RTYPE) {
           void this.handleCollabSnapshot(from, env);
-        } else if (env?.rtype === COLLAB_RECONCILE_RTYPE) {
-          // A peer's full collab-scene state on (re)connect — merge LWW so edits
-          // made while we were disconnected converge both ways.
-          const payload = env.data as ReconcilePayload | undefined;
-          const blob = this.blob;
-          if (payload?.sceneId && blob)
-            void applyReconcile(from, payload, (a) => blob.ensure(from, a)).then(
-              (changed) => {
-                if (!changed) return;
-                const link = collabPeersForScene(payload.sceneId).find(
-                  (l) => l.peerId === from
-                );
-                if (link)
-                  this.broadcast('mp_collab_mounted', {
-                    peerId: from,
-                    sceneId: payload.sceneId,
-                    projectId: link.projectId,
-                  });
-              }
-            );
         } else if (env?.rtype === COLLAB_PLAYBACK_RTYPE) {
           // A collab peer's clip play/pause/seek — replicate on our own playback
           // manager (which has the synced clip), anchored to our local clock.
@@ -541,28 +495,6 @@ class MultiplayerManager {
    *  doc channel can still be opening when the first profile arrives (dialer and
    *  answerer open asymmetrically), so retry with backoff until it accepts the
    *  send — reconcile is idempotent, so a retried/duplicate send is harmless. */
-  private sendReconcile(peerId: string, attempt = 0): void {
-    const links = collabScenesForPeer(peerId);
-    if (links.length === 0) return;
-    let allSent = true;
-    for (const link of links) {
-      const payload = gatherReconcile(link.sceneId);
-      if (!payload) continue;
-      const sent = this.mesh?.sendEnvelope(peerId, {
-        rtype: COLLAB_RECONCILE_RTYPE,
-        op: 'event',
-        key: link.sceneId,
-        data: payload,
-      });
-      if (!sent) allSent = false;
-    }
-    if (!allSent && attempt < 6)
-      setTimeout(
-        () => this.sendReconcile(peerId, attempt + 1),
-        500 * (attempt + 1)
-      );
-  }
-
   /** Manual disconnect — revokes the session grant (next inbound re-prompts).
    *  Sends a graceful `bye` so the peer tears down its side (and drops our
    *  shared-object projections) immediately rather than hanging until a
@@ -647,6 +579,9 @@ class MultiplayerManager {
     addShare('scene', sceneId, granteePeerId, true);
     registerCollabScene(sceneId, granteePeerId, 'author', row.project_id);
     indexCollabScene(sceneId);
+    // Mesh: standing RUCD grant + mutual subscription for the new link.
+    const mp = getMeshPeer();
+    if (mp) syncCollabLinks(mp);
     this.sharing?.reAdvertiseAll();
   }
 
@@ -682,6 +617,10 @@ class MultiplayerManager {
     if (!snapshot || !row) return;
     registerCollabScene(sceneId, from, 'author', row.project_id);
     indexCollabScene(sceneId);
+    {
+      const mp = getMeshPeer();
+      if (mp) syncCollabLinks(mp);
+    }
     this.mesh?.sendEnvelope(from, {
       rtype: COLLAB_SNAPSHOT_RTYPE,
       op: 'event',
@@ -708,6 +647,12 @@ class MultiplayerManager {
         this.blob!.ensure(from, a)
       );
     mountSharedScene(d.snapshot, projectId, from);
+    // Mesh: grant the owner back + subscribe (live ops + future reconciles
+    // ride the mesh; this legacy snapshot path remains for asset transfer).
+    {
+      const mp = getMeshPeer();
+      if (mp) syncCollabLinks(mp);
+    }
     indexCollabScene(sceneId);
     // Tell our clients to reload scenes (the mount went straight to SQLite).
     this.broadcast('mp_collab_mounted', { peerId: from, sceneId, projectId });
