@@ -378,6 +378,7 @@ router.put('/compose-layers/:id', (req, res) => {
     });
   const data = rowToLayer(row);
   _ws?.broadcast('compose_layer_updated', data);
+  sync.document.upsert('compose_layer', data.id);
   res.json({ ok: true, data });
 });
 
@@ -451,6 +452,7 @@ router.delete('/compose-layers/:id', (req, res) => {
   sync.document.remove('compose_layer', id);
   if (reanchored.length > 0) {
     _ws?.broadcast('compose_layer_reordered', { updates: reanchored });
+    for (const u of reanchored) sync.document.upsert('compose_layer', u.id);
   }
   res.json({ ok: true, data: { id, reanchored } });
 });
@@ -492,6 +494,7 @@ router.post('/compose-layers/reorder', (req, res) => {
     ).run(u.sceneOrder, u.cameraOrder, u.id);
   }
   _ws?.broadcast('compose_layer_reordered', { updates });
+  for (const u of updates) sync.document.upsert('compose_layer', u.id);
   res.json({ ok: true, data: { updates } });
 });
 

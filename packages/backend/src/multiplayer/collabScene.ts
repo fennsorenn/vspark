@@ -285,6 +285,10 @@ export function mountSharedScene(
     );
   }
   applyCollabClips(sceneId, (snapshot.clips ?? []) as unknown as ClipDto[]);
+  applyCollabCameraEffects(
+    sceneId,
+    (snapshot.cameraEffects ?? []) as unknown as CameraEffectDto[]
+  );
   registerCollabScene(sceneId, peerId, 'mounted', projectId);
 }
 
@@ -576,6 +580,202 @@ function forwardCollabClipOp(
     });
 }
 
+// --- camera effects (node-scoped) + compose layers (project-global) ----------
+//
+// Both are persisted config that ride sync.document, so they sync through the
+// same forward/apply path as scene_node/track_clip rather than the lossy runtime
+// relay. A camera effect belongs to a scene_node (node_id → scene). Compose
+// layers aren't tied to a stage scene, so they fan out to every collab peer
+// (compose isn't collaboratively scene-scoped yet — synced for consistency).
+
+const effectScene = new Map<string, string>(); // effectId → sceneId
+
+interface CameraEffectDto {
+  id: string;
+  nodeId: string;
+  kind: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+}
+
+function resolveEffectScene(
+  effectId: string,
+  data: unknown
+): string | undefined {
+  const cached = effectScene.get(effectId);
+  if (cached) return cached;
+  const nodeId =
+    (data as { nodeId?: string } | undefined)?.nodeId ??
+    (
+      getDb()
+        .prepare('SELECT node_id FROM camera_effects WHERE id = ?')
+        .get(effectId) as { node_id: string } | undefined
+    )?.node_id;
+  if (!nodeId) return undefined;
+  return (
+    nodeScene.get(nodeId) ??
+    (
+      getDb()
+        .prepare('SELECT root_scene_node_id FROM scene_nodes WHERE id = ?')
+        .get(nodeId) as { root_scene_node_id: string } | undefined
+    )?.root_scene_node_id
+  );
+}
+
+function applyCameraEffectDto(dto: CameraEffectDto): void {
+  getDb()
+    .prepare(
+      `INSERT INTO camera_effects (id, node_id, kind, enabled, config)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         kind = excluded.kind, enabled = excluded.enabled, config = excluded.config`
+    )
+    .run(
+      dto.id,
+      dto.nodeId,
+      dto.kind,
+      dto.enabled ? 1 : 0,
+      JSON.stringify(dto.config ?? {})
+    );
+  sync.document.upsert('camera_effect', dto.id);
+}
+
+function deleteCameraEffect(id: string): void {
+  getDb().prepare('DELETE FROM camera_effects WHERE id = ?').run(id);
+  sync.document.remove('camera_effect', id);
+}
+
+/** Write a collab scene's camera effects at mount time (in the snapshot). */
+export function applyCollabCameraEffects(
+  sceneId: string,
+  effects: CameraEffectDto[]
+): void {
+  for (const e of effects) {
+    try {
+      applyCameraEffectDto(e);
+      effectScene.set(e.id, sceneId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[collab] failed to apply camera effect ${e.id}:`, err);
+    }
+  }
+}
+
+function forwardCollabEffectOp(
+  env: SyncEnvelope,
+  send: (peerId: string, env: SyncEnvelope) => void
+): void {
+  if (applyingFromPeer.has(env.key)) return;
+  let sceneId: string | undefined;
+  if (env.op === 'remove') {
+    sceneId = effectScene.get(env.key);
+    effectScene.delete(env.key);
+  } else {
+    sceneId = resolveEffectScene(env.key, env.data);
+    if (sceneId) effectScene.set(env.key, sceneId);
+  }
+  if (!sceneId || !isCollabScene(sceneId)) return;
+  for (const link of collabPeersForScene(sceneId))
+    send(link.peerId, {
+      rtype: COLLAB_OP_RTYPE,
+      op: 'event',
+      key: sceneId,
+      data: { sceneId, env },
+    });
+}
+
+interface ComposeLayerDto {
+  id: string;
+  projectId: string;
+  rootComposeSceneId: string | null;
+  cameraNodeId: string | null;
+  parentId: string | null;
+  name: string;
+  kind: string;
+  assetId: string | null;
+  config: Record<string, unknown>;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  anchorH: string;
+  anchorV: string;
+  sceneOrder: number;
+  cameraOrder: number;
+  visible: boolean;
+}
+
+function applyComposeLayerDto(dto: ComposeLayerDto): void {
+  try {
+    getDb()
+      .prepare(
+        `INSERT INTO compose_layers
+           (id, project_id, root_compose_scene_id, camera_node_id, parent_id,
+            name, kind, asset_id, config, x, y, width, height, rotation,
+            anchor_h, anchor_v, scene_order, camera_order, visible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           root_compose_scene_id = excluded.root_compose_scene_id,
+           camera_node_id = excluded.camera_node_id, parent_id = excluded.parent_id,
+           name = excluded.name, kind = excluded.kind, asset_id = excluded.asset_id,
+           config = excluded.config, x = excluded.x, y = excluded.y,
+           width = excluded.width, height = excluded.height, rotation = excluded.rotation,
+           anchor_h = excluded.anchor_h, anchor_v = excluded.anchor_v,
+           scene_order = excluded.scene_order, camera_order = excluded.camera_order,
+           visible = excluded.visible`
+      )
+      .run(
+        dto.id,
+        dto.projectId,
+        dto.rootComposeSceneId ?? null,
+        dto.cameraNodeId ?? null,
+        dto.parentId ?? null,
+        dto.name,
+        dto.kind,
+        dto.assetId ?? null,
+        JSON.stringify(dto.config ?? {}),
+        dto.x,
+        dto.y,
+        dto.width,
+        dto.height,
+        dto.rotation,
+        dto.anchorH,
+        dto.anchorV,
+        dto.sceneOrder,
+        dto.cameraOrder,
+        dto.visible ? 1 : 0
+      );
+    sync.document.upsert('compose_layer', dto.id);
+  } catch (err) {
+    // Compose isn't collab-scene-scoped yet, so a peer may lack the target
+    // project — log + skip rather than crash the apply.
+    // eslint-disable-next-line no-console
+    console.error(`[collab] failed to apply compose layer ${dto.id}:`, err);
+  }
+}
+
+function deleteComposeLayer(id: string): void {
+  getDb().prepare('DELETE FROM compose_layers WHERE id = ?').run(id);
+  sync.document.remove('compose_layer', id);
+}
+
+function forwardCollabComposeOp(
+  env: SyncEnvelope,
+  send: (peerId: string, env: SyncEnvelope) => void
+): void {
+  if (applyingFromPeer.has(env.key)) return;
+  const peers = allCollabPeers();
+  if (peers.length === 0) return;
+  for (const peerId of peers)
+    send(peerId, {
+      rtype: COLLAB_OP_RTYPE,
+      op: 'event',
+      key: '*compose*',
+      data: { sceneId: '*compose*', env },
+    });
+}
+
 /** A local scene_node op fired — mirror it to every collab peer of its scene.
  *  No-op for non-collab scenes or ops we're mid-applying from a peer (echo). */
 export function forwardCollabOp(
@@ -583,6 +783,8 @@ export function forwardCollabOp(
   send: (peerId: string, env: SyncEnvelope) => void
 ): void {
   if (env.rtype === 'track_clip') return forwardCollabClipOp(env, send);
+  if (env.rtype === 'camera_effect') return forwardCollabEffectOp(env, send);
+  if (env.rtype === 'compose_layer') return forwardCollabComposeOp(env, send);
   if (env.rtype !== 'scene_node') return;
   if (applyingFromPeer.has(env.key)) return; // don't echo a peer's op back
   let sceneId: string | undefined;
@@ -623,7 +825,34 @@ export function applyCollabOp(
   env: SyncEnvelope,
   forceFilePath = false
 ): boolean {
+  // Compose layers are project-global (not tied to a collab scene) — apply first.
+  if (env.rtype === 'compose_layer') {
+    applyingFromPeer.add(env.key);
+    try {
+      if (env.op === 'remove') deleteComposeLayer(env.key);
+      else if (env.op === 'upsert' && env.data)
+        applyComposeLayerDto(env.data as ComposeLayerDto);
+      return true;
+    } finally {
+      applyingFromPeer.delete(env.key);
+    }
+  }
   if (!isCollabScene(sceneId)) return false;
+  if (env.rtype === 'camera_effect') {
+    applyingFromPeer.add(env.key);
+    try {
+      if (env.op === 'remove') {
+        deleteCameraEffect(env.key);
+        effectScene.delete(env.key);
+      } else if (env.op === 'upsert' && env.data) {
+        applyCameraEffectDto(env.data as CameraEffectDto);
+        effectScene.set(env.key, sceneId);
+      }
+      return true;
+    } finally {
+      applyingFromPeer.delete(env.key);
+    }
+  }
   if (env.rtype === 'track_clip') {
     applyingFromPeer.add(env.key);
     try {

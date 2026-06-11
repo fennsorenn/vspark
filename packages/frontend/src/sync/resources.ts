@@ -73,10 +73,18 @@ bindResource('compose_layer', {
       else s.removeComposeLayer(key);
       return;
     }
-    // addComposeScene/addComposeLayer dedupe by id internally.
+    // Upsert: add/* dedupe by id, so an existing layer must be replaced or a
+    // remote edit (move, reorder, rename) is dropped.
     const layer = data as ComposeLayerRecord;
-    if (layer.kind === 'compose_scene') s.addComposeScene(layer);
-    else s.addComposeLayer(layer);
+    if (layer.kind === 'compose_scene') {
+      if (s.composeScenes.some((cs) => cs.id === layer.id))
+        s.updateComposeSceneLocal(layer);
+      else s.addComposeScene(layer);
+    } else if (s.composeLayers.some((l) => l.id === layer.id)) {
+      s.updateComposeLayerLocal(layer.id, layer);
+    } else {
+      s.addComposeLayer(layer);
+    }
   },
 });
 

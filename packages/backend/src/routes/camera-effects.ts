@@ -106,6 +106,9 @@ router.put('/camera-effects/:id', (req, res) => {
     enabled,
     config,
   });
+  // Canonical doc re-sync (unified sync layer + collab mirroring; the broadcast
+  // above stays for local smoothing).
+  sync.document.upsert('camera_effect', req.params.id);
   res.json({ ok: true, data: { id: req.params.id } });
 });
 

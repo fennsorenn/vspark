@@ -553,6 +553,7 @@ interface EditorState {
 
   setComposeScenes: (scenes: ComposeLayerRecord[]) => void;
   addComposeScene: (scene: ComposeLayerRecord) => void;
+  updateComposeSceneLocal: (scene: ComposeLayerRecord) => void;
   selectComposeScene: (id: string | null) => void;
   setComposeLayers: (layers: ComposeLayerRecord[]) => void;
   addComposeLayer: (layer: ComposeLayerRecord) => void;
@@ -931,6 +932,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ? {}
         : { composeScenes: [...s.composeScenes, scene] }
     ),
+  updateComposeSceneLocal: (scene) =>
+    set((s) => ({
+      composeScenes: s.composeScenes.map((cs) =>
+        cs.id === scene.id ? scene : cs
+      ),
+    })),
   selectComposeScene: (id) => set({ activeComposeSceneId: id }),
   setComposeLayers: (layers) => set({ composeLayers: layers }),
   addComposeLayer: (layer) =>
