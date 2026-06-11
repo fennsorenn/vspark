@@ -1,6 +1,6 @@
 # Mesh — Replicated Store (@vspark/mesh, @vspark/mesh-react, @vspark/mesh-transports)
 
-**Status:** Core package implemented with 25 vitest tests; three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend + frontend parallel-run wiring complete; app integration WIP.
+**Status:** Core package implemented with 28 vitest tests; three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend + frontend parallel-run wiring complete; app integration WIP (REST/frontend bindings remaining).
 
 A **schema-agnostic in-memory replicated store** with symmetric read/write API on both frontend and backend, HLC last-write-wins convergence, grant-gated access control, and authority-driven ack lifecycle. No durability in the package itself; durable peers hydrate from persistent store and persist incoming mutations via observe taps. Designed to replace both the legacy sync layer and the entity-aware collab-scene sharing model.
 
@@ -254,8 +254,8 @@ const peer = useMemo(() => createMeshPeer({
 
 ## Integration roadmap
 
-**Completed (through step C — dead-code removal):**
-- Core package (@vspark/mesh) — 25 tests, all APIs.
+**Completed (through step D — object-share doc plane):**
+- Core package (@vspark/mesh) — 28 tests, all APIs. New: snapshot relay topology + one-way place isolation tests. `handleSubOk` now relays snapshot-applied docs/tombstones onward to the peer's own subscribers (tabs subscribed before a reconcile were previously blind to snapshot state).
 - React hooks (@vspark/mesh-react) — all hooks.
 - Transports (@vspark/mesh-transports) — WS pair shipped; WebRTC pending.
 - Backend hydration + persistence (five collections, generic onCommitted taps).
@@ -265,15 +265,17 @@ const peer = useMemo(() => createMeshPeer({
 - **ServerMeshTransport:** mesh over legacy WebRTC channels namespaced `_mesh2` (`packages/backend/src/mesh/serverMeshTransport.ts`).
 - **Grants + subscription arming:** `packages/backend/src/mesh/collab.ts`.
 - **Tombstone persistence:** `mesh_tombstones` table (migration 032), HLC storage, 30-day prune.
-
-**In Progress (step D):**
-- **Object-share document plane migration:** Place grants + one-way subscriptions on mesh, receiver mirrors share grants into mesh grants store, receiver persistence skips foreign (projected) docs.
-- Asset transfer, Phase-6 write tier, offer/advertise UI remain on legacy protocol; live mesh streams stay legacy for now.
+- **Object-share document plane (step D) — DONE, verified 8/8 two-backend live** (commits ccbfa80 + 8d6bda5). See [plans/mesh-sync-refactor.md §9 status](../plans/mesh-sync-refactor.md) for the full verification log.
+  - `packages/backend/src/mesh/shares.ts` — new: mirrors legacy share grants into the mesh grant store (cross-type subtree grants); revoke evicts the receiver's subscription. `initMeshShares()` wired into index.ts boot.
+  - `packages/backend/src/mesh/index.ts` — per-rtype `persists(dto)` predicates: foreign docs (mismatched owner projectId or missing parent rows) skip the persistence tap entirely — replica-only fan-out to tabs, never touching SQLite. Only removes persist/tombstone if a local row existed.
+  - `packages/backend/src/multiplayer/sharing.ts` — `forwardDocOp` and the `_share_update` relay deleted; `_share_snapshot` demoted to asset manifest + stream-routing registration (broadcast now includes `assetUrls: ownerPath→localURL`); `_share_unshared` also drops the receiver's placed mesh subscription. `subscribeShared(peerId, objectId, streams)` — mesh sub always; legacy subscribe only when `streams=true`. REST `/connections/peers/:peerId/subscribe` gained the `streams` flag. Pre-existing bug fixed in `shares.ts listSharesForPeer`: reused PreparedStatement (single-use wrapper finalizes after first `.get()`) caused advertise 500 once a peer held ≥2 share grants; replaced with a single batched IN query.
+  - `packages/frontend/src/sync/meshProjection.ts` — new: feeds the existing `sharedProjection` store from the mesh `scene_node` collection (observes `'**'`, projects subtrees of placed containers gated on `connectionsStore.subscribed`, incremental `applyUpdate` with Phase-6 stale-drop/pending-write reconciliation, `registerAssetUrls()` localizes file paths and re-projects). `useWsSync`'s `mp_shared_snapshot` handler now only records `assetUrls` + subscribed state; `mp_shared_update` handler removed. Started from Editor.tsx alongside `initMeshPeer`.
+  - `packages/frontend/src/sync/shareDirect.ts` — now carries only streams + blob fetches.
 
 **Remaining:**
 - REST mutation routes writing through the store (instead of direct DB writes).
 - Frontend store migration: UI bindings to mesh-react hooks instead of Zustand reads.
-- Known issues: werift stale-slot blocks single-side reconnect (legacy transport, pre-existing); model-swap assets don't ride mesh yet.
+- Known issues: werift stale-slot blocks single-side reconnect (legacy transport, pre-existing); model-swap assets don't ride mesh yet; Phase-6 writes (`_share_write`/NAK), pose/override/data-channel streams, blob/asset transfer, advertise/offer flow remain legacy.
 
 ## Key files
 

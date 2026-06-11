@@ -1,6 +1,6 @@
 # Multiplayer / Mesh
 
-> **WIP: Object-share migration + REST/frontend bindings.** Collab-scene LIVE OPS + RECONCILE have moved onto `@vspark/mesh` grants + subscriptions (see [mesh.md](mesh.md)). Now: Step D — object-share document plane (place grants) migrating onto mesh with receiver one-way subscriptions. Remaining work: REST mutation routes writing through the mesh store, frontend store migration to mesh-react bindings. See [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the full design and architecture context.
+> **WIP: REST/frontend bindings.** Collab-scene LIVE OPS + RECONCILE and the object-share document plane have both moved onto `@vspark/mesh` grants + subscriptions (steps A–D complete; see [mesh.md](mesh.md) and [plans/mesh-sync-refactor.md §9](../plans/mesh-sync-refactor.md)). Remaining work: REST mutation routes writing through the mesh store, frontend store migration to mesh-react bindings. Asset/blob transfer, Phase-6 write tier, and the offer/advertise UI remain on the legacy protocol for now.
 
 Peer-to-peer connectivity between vspark instances: server↔server WebRTC, a
 signaling relay for browser clients, object sharing over the mesh, a
@@ -200,16 +200,28 @@ which notifies every current subscriber that can no longer read it — server pe
 **and** direct-edge browser participants — and only those actually revoked (a
 surviving `'*'` grant keeps a peer subscribed).
 
-## Step D — Object-share migration (In Progress)
+## Step D — Object-share document plane on the mesh — IMPLEMENTED
 
-Migrating the object-share **document plane** (read-only place shares) onto the mesh with grant-gated subscriptions, while keeping asset transfer, Phase-6 writes, and the offer/advertise UI on the legacy protocol for now.
+The object-share **document plane** (placed shares: snapshot docs + live
+updates) rides `@vspark/mesh` grants + subscriptions; live-verified 8/8 with
+two backends (see [plans/mesh-sync-refactor.md §9](../plans/mesh-sync-refactor.md)).
+Asset transfer, Phase-6 writes, streams, and the offer/advertise UI stay on
+the legacy protocol for now.
 
-**Changes:**
-- **Owner:** mirrors each share grant into the mesh grants store (read-only on the placed object subtree).
-- **Receiver backend:** arms one-way mesh subscriptions per placed object via the same admission path as collab-scene.
-- **Receiver persistence:** taps the mesh collection observer; skips foreign (projected) docs, persisting only locally-owned mutations.
-- **Frontend:** projects shared objects from mesh collection observation (instead of legacy `_share_snapshot` / `_share_update` relay over WS).
-- **Unchanged (legacy):** asset/blob transfer (`_blob_*` rtypes), Phase-6 write tier (`_share_write` / NAK), offer/advertise UI (`mp_shares` WS kinds).
+- **Owner:** every legacy share grant mirrors into the mesh grant store as a
+  cross-type subtree grant (`mesh/shares.ts`); revoking (unshare) evicts the
+  receiver's incoming subscription, so fan-out stops immediately.
+- **Receiver backend:** arms a one-way mesh subscription per placed object
+  (deny-retried; pruned on owner disconnect). Foreign docs skip the
+  persistence tap via per-rtype `persists()` predicates — replica-only,
+  fanned out to this server's tabs over `/mesh`, never touching SQLite.
+- **Frontend:** `sync/meshProjection.ts` projects shared objects from mesh
+  collection observation; `_share_snapshot` is now only the asset manifest
+  (`assetUrls`) + stream-routing registration; the `_share_update` relay and
+  owner-side `forwardDocOp` are deleted.
+- **Phase-6 writes still legacy:** the receiver edits optimistically and
+  sends `_share_write`; the owner persists and the authoritative echo
+  returns over the placed mesh subscription (via the sync.document bridge).
 
 ## Phase 6 — owner-authoritative multi-writer (write tier) — IMPLEMENTED
 
