@@ -1,3 +1,5 @@
+// SCRATCH — not committed. Frontend B for two-peer multiplayer testing.
+// Mirrors vite.config.ts but serves on 5174 and proxies to backend B (3002).
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { fileURLToPath, URL } from 'url';
@@ -6,28 +8,18 @@ function shared(file: string) {
   return fileURLToPath(new URL(`../shared/src/${file}`, import.meta.url));
 }
 
-// Port overrides let a second frontend instance proxy to a second backend for
-// two-peer multiplayer testing (see .vscode/launch.json "Multiplayer …" configs).
-const devPort = Number(process.env.VITE_DEV_PORT) || 5173;
-const backendPort = Number(process.env.VITE_BACKEND_PORT) || 3001;
-
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: devPort,
+    port: 5174,
     host: '0.0.0.0',
     proxy: {
-      '/api': `http://localhost:${backendPort}`,
-      '/ws': { target: `ws://localhost:${backendPort}`, ws: true },
-      '/uploads': `http://localhost:${backendPort}`,
+      '/api': 'http://localhost:3002',
+      '/ws': { target: 'ws://localhost:3002', ws: true },
+      '/uploads': 'http://localhost:3002',
     },
   },
-  build: {
-    outDir: '../../packages/backend/dist/public',
-    emptyOutDir: true,
-  },
   resolve: {
-    // More-specific aliases must come before less-specific ones.
     alias: [
       { find: '@vspark/shared/signal_types', replacement: shared('signal_types.ts') },
       { find: '@vspark/shared/signal', replacement: shared('signal.ts') },

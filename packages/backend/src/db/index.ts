@@ -153,6 +153,9 @@ export function getDb(): WasmDb {
 
 export async function initDb(): Promise<void> {
   if (_db) return;
+  // node-sqlite3-wasm creates the DB file but not its parent dir; ensure it
+  // exists so a custom VSPARK_DB_PATH (e.g. multiplayer test DBs) can open.
+  mkdirSync(dirname(DB_PATH), { recursive: true });
   const db = new Database(DB_PATH);
   _db = new WasmDb(db);
 }
