@@ -12,10 +12,12 @@
  * forward/apply and reconnect reconciliation build on top (see the plan).
  * See dev-notes/plans/collaborative-scene-share.md.
  */
+import { randomUUID } from 'crypto';
+import { basename } from 'path';
 import { getDb } from '../db/index.js';
 import { sync } from '../sync/index.js';
 import { compareHLC, type HLC, type SyncEnvelope } from '@vspark/shared/sync';
-import type { ObjectSnapshot } from './shares.js';
+import type { ObjectSnapshot, SnapshotAsset } from './shares.js';
 import { applySceneNodeRemove, type SceneNodeDto } from './sceneNodeWrite.js';
 
 /** Lossy stream frame (pose / blendshapes / IK / drag preview) for a collab node.
@@ -127,6 +129,59 @@ interface SnapshotNode {
   components: Record<string, unknown>;
   properties: Record<string, unknown>;
   hidden?: boolean;
+}
+
+/** Localize a collab scene's assets before mounting: fetch each blob from the
+ *  owner (so the file lands on disk), record it as a managed `asset_files` row in
+ *  the mount-target project, and rewrite the snapshot nodes' file paths to the
+ *  local copy — so the mounted scene both PERSISTS (backend) and RENDERS
+ *  (frontend). `ensure` fetches a blob and returns its `/uploads/_shared/…` URL.
+ *  An asset that fails to transfer keeps the owner path (renders only if present),
+ *  so a missing asset never blocks the rest of the mount. */
+export async function persistCollabAssets(
+  snapshot: ObjectSnapshot,
+  projectId: string,
+  ensure: (a: SnapshotAsset) => Promise<string>
+): Promise<void> {
+  const assets = snapshot.assets ?? [];
+  if (assets.length === 0) return;
+  const db = getDb();
+  const localByAuthorPath = new Map<string, string>();
+  await Promise.all(
+    assets.map(async (a) => {
+      try {
+        const url = await ensure(a); // /uploads/_shared/<hash><ext>; file on disk
+        // Keep the leading slash so it matches normal asset stored_paths and the
+        // node's rewritten file_path (== the served URL).
+        const storedPath = url;
+        const exists = db
+          .prepare(
+            'SELECT 1 FROM asset_files WHERE project_id = ? AND hash = ? LIMIT 1'
+          )
+          .get(projectId, a.hash);
+        if (!exists)
+          db.prepare(
+            `INSERT INTO asset_files
+               (id, project_id, original_name, stored_path, mime_type, size, hash, is_deduplicated)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+          ).run(
+            randomUUID(),
+            projectId,
+            basename(a.filePath),
+            storedPath,
+            a.mime,
+            a.size,
+            a.hash
+          );
+        localByAuthorPath.set(a.filePath, url);
+      } catch {
+        /* asset unavailable on the owner — keep the author path */
+      }
+    })
+  );
+  for (const n of snapshot.nodes as { filePath?: string }[])
+    if (n.filePath && localByAuthorPath.has(n.filePath))
+      n.filePath = localByAuthorPath.get(n.filePath);
 }
 
 /** Mount a received scene snapshot as a real, persisted scene in `projectId`,
@@ -284,7 +339,13 @@ export function applyCollabOp(sceneId: string, env: SyncEnvelope): boolean {
  *  scene, not derived from a parent (a scene's top-level nodes have parent_id
  *  NULL, so the parent-derived object-write path can't create them): project_id
  *  comes from our collab link, root_scene_node_id is the scene, parent_id is taken
- *  verbatim (shared id space). Then emit so our own clients update. */
+ *  verbatim (shared id space). Then emit so our own clients update.
+ *
+ *  `file_path` is intentionally NOT overwritten on update: asset paths are
+ *  peer-local (each side localizes a shared asset to its own /uploads/_shared
+ *  copy at mount), so taking the peer's path would point at a file we don't have
+ *  and break the avatar. A new node keeps the op's path (best effort; mid-session
+ *  model adds aren't asset-transferred yet — see the plan). */
 function upsertCollabNode(sceneId: string, dto: SceneNodeDto): void {
   const link = getDb()
     .prepare('SELECT project_id FROM collab_scenes WHERE scene_id = ? LIMIT 1')
@@ -298,7 +359,7 @@ function upsertCollabNode(sceneId: string, dto: SceneNodeDto): void {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          parent_id = excluded.parent_id, name = excluded.name,
-         kind = excluded.kind, file_path = excluded.file_path,
+         kind = excluded.kind,
          components = excluded.components, properties = excluded.properties,
          hidden = excluded.hidden, updated_at = datetime('now')`
     )

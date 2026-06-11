@@ -34,6 +34,7 @@ import {
   forwardCollabOp,
   applyCollabOp,
   forwardCollabStream,
+  persistCollabAssets,
   indexAllCollabScenes,
   COLLAB_OP_RTYPE,
   COLLAB_STREAM_RTYPE,
@@ -320,7 +321,7 @@ class MultiplayerManager {
         } else if (env?.rtype === COLLAB_SUBSCRIBE_RTYPE) {
           this.handleCollabSubscribe(from, env);
         } else if (env?.rtype === COLLAB_SNAPSHOT_RTYPE) {
-          this.handleCollabSnapshot(from, env);
+          void this.handleCollabSnapshot(from, env);
         }
       }
     );
@@ -544,13 +545,23 @@ class MultiplayerManager {
     });
   }
 
-  /** Receiver side: persist the snapshot as a real scene + start syncing. */
-  private handleCollabSnapshot(from: string, env: SyncEnvelope): void {
+  /** Receiver side: fetch + persist the scene's assets, then persist the snapshot
+   *  as a real scene + start syncing. */
+  private async handleCollabSnapshot(
+    from: string,
+    env: SyncEnvelope
+  ): Promise<void> {
     const d = (env.data ?? {}) as { sceneId?: string; snapshot?: ObjectSnapshot };
     const sceneId = d.sceneId ?? env.key;
     const projectId = this.pendingCollabMount.get(sceneId);
     if (!d.snapshot || !projectId) return;
     this.pendingCollabMount.delete(sceneId);
+    // Transfer + persist the scene's assets (VRM models, textures, …) so the
+    // mounted copy renders locally, rewriting node paths to the local files.
+    if (this.blob)
+      await persistCollabAssets(d.snapshot, projectId, (a) =>
+        this.blob!.ensure(from, a)
+      );
     mountSharedScene(d.snapshot, projectId, from);
     indexCollabScene(sceneId);
     // Tell our clients to reload scenes (the mount went straight to SQLite).
