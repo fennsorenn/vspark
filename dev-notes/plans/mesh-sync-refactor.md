@@ -166,3 +166,271 @@ generic per-namespace subscription + tombstone table).
   special-casing.
 - `data_channel`/runtime relay fans project-global data to all collab peers
   (coarse). Namespaced grants would scope it properly.
+
+## 8. Agreed target interface (design session 2026-06-11)
+
+Refines §3 after a design discussion. Headline decisions:
+
+1. **No durability in the package.** The mesh store is a pure in-memory replica
+   + pub/sub on every peer. The backend hydrates it from SQLite on boot and
+   persists changes via an observe tap — plain app code, not a package port.
+   Version stamps round-trip through that tap so convergence survives restarts.
+2. **Peers are symmetric in how they handle data** (identical read/write API
+   everywhere); authority, reachability and durability are *roles* carried by
+   config + app code, hidden under the surface. The backend's own browser tabs
+   become ordinary participants on a local-WS transport — one delivery path,
+   which deletes `sync.document.touch` and `COLLAB_RELAY_KINDS`.
+3. **Channels** generalize the transient/committed split. Every write is tagged
+   with a named channel whose delivery semantics (transport, stamping,
+   retention, acking) are declared up front. Subscriptions select channels —
+   the backend simply doesn't subscribe to ephemeral channels, so transient
+   data never reaches persistence. The stream class folds into "a collection
+   whose only channel is ephemeral".
+4. **Single ack authority per collection**, three-outcome acks
+   (accept / accept-with-correction / reject-with-current-value), writes gated
+   while the authority is known down, recency-gated **local-only** revert on
+   ack timeout.
+5. **Channels ≠ layers.** Composition of multiple sources driving one value
+   (base / clip / override) stays an app-level convention on sub-paths with one
+   shared deterministic resolver. A channel carries the *same* logical value at
+   different fidelity/durability. Do not model `clip` as a channel.
+
+### 8.1 Package layout
+
+```
+packages/mesh/             core — no IO, no React, no DB, no app schema
+                           (absorbs shared/sync.ts: envelope, HLC, grants,
+                            SubscriptionHub, containment; adds replica,
+                            channels, ack lifecycle, snapshot/orphan logic)
+packages/mesh-transports/  rendezvous client, ServerMesh (WebRTC backend↔backend),
+                           browser-peer link, local-clients WS (server side),
+                           backend-link WS (browser side)
+packages/mesh-react/       hooks (useSyncExternalStore-based)
+packages/rendezvous/       unchanged
+```
+
+The app keeps: collection definitions (schemas, parent fns), hydration +
+persistence taps, the grant-management UI, layer-resolution helpers, blob
+storage behind the blob port.
+
+### 8.2 Peer creation — identical on frontend and backend
+
+```ts
+const mesh = createMeshPeer({
+  identity: { peerId: string; displayName?: string },
+  transports: MeshTransport[],
+  containment: ContainmentSchema,        // rtype nesting (existing shared code)
+});
+
+mesh.id: string
+mesh.status(): MeshStatus                 // per-peer link state, pending ack counts
+mesh.onStatus(cb): Unsubscribe
+mesh.close(): void
+```
+
+### 8.3 Channels
+
+```ts
+mesh.channel(name: string, {
+  transport: 'reliable' | 'lossy';
+  stamped:   boolean;       // HLC stamps, per-path LWW, tombstones
+  retained:  boolean;       // stored in replica + snapshots; ≤1 per collection
+  ack?:      'authority';   // only valid on a retained channel
+});
+
+// built-ins:
+//   'committed' → reliable, stamped, retained, ack:'authority'
+//   'preview'   → lossy, unstamped, ephemeral
+```
+
+Invariants:
+- **At most one retained channel per collection.** Retained = what the replica
+  stores, snapshots serialize, acks guard, durable peers persist. Ephemeral
+  channels are per-key overlays (last-seen value, never persisted).
+- **Subscribing to an ephemeral channel auto-includes the retained one** —
+  opting out of model updates is never what anyone means.
+- A collection with *no* retained channel is a pure stream (pose frames):
+  no snapshot, no acks, no tombstones.
+
+### 8.4 Collections and values
+
+```ts
+const nodes = mesh.collection<StageObject>('scene_node', {
+  parent?:    (doc) => ({ rtype, id } | null);  // feeds the containment index
+  validate?:  (data: unknown) => StageObject;   // applied to INCOMING remote ops
+  channels?:  string[];                         // default ['committed','preview']
+  authority?: 'self' | PeerId;                  // who acks; 'self' on the home peer
+});
+
+// reads — synchronous, local replica (retained state + ephemeral overlay)
+nodes.get(id)            nodes.all()
+nodes.children(id)       nodes.subtree(rootId)
+
+// writes — same call on every peer: apply local → fan out → ack lifecycle
+nodes.create(doc): WriteHandle
+nodes.update(id, partial): WriteHandle            // path-level patches, merged
+nodes.set(id, path, value, opts?: { channel?: string }): WriteHandle
+nodes.remove(id): WriteHandle
+
+// hydration (durable peers, boot): apply with a restored stamp; LWW vs anything
+// newer already in the replica; fans out like any write; never acked
+nodes.put(doc, { v: HLC }): void
+nodes.putTombstone(id, v: HLC): void
+
+// observation
+nodes.observe(selector, cb): Unsubscribe
+//   selector: id | { subtree: id } | '**'
+//   Change<T> = { op:'upsert'|'patch'|'remove', id, path?, doc?, v?, origin, channel }
+nodes.onCommitted(cb): Unsubscribe   // sugar: remote-origin, retained-channel only
+nodes.canWrite(): boolean            // false while the ack authority is unreachable
+
+// single-cell sugar (scalar / quat / arbitrary JSON like the feed object):
+const vol = mesh.value<number>('mixer_volume', mixerId, { validate });
+vol.get(); vol.set(v, opts?); vol.observe(cb);
+
+// pure stream example (no retained channel):
+const pose = mesh.value<PoseFrame>('vmc_pose', avatarId, {
+  channels: ['frames'],   // 'frames' declared lossy/unstamped/ephemeral
+});
+```
+
+### 8.5 Write lifecycle and acks
+
+```ts
+interface WriteHandle {
+  ack: Promise<
+    | { status: 'acked' }
+    | { status: 'corrected'; value: unknown }   // authority clamped/normalized;
+                                                // correction supersedes everywhere
+    | { status: 'rejected'; current?: unknown; reason: string }
+    | { status: 'reverted' }                    // ack timeout → local revert
+    | { status: 'unguarded' }                   // non-acked channel: resolves at once
+  >;
+}
+```
+
+- **Ack means applied+persisted**, not received: the authority acks after its
+  observe/persist tap for the op returns without throwing; a throw nacks.
+- **Nack carries the authority's current value** — no separate re-fetch round
+  trip. Correction = authority applies the corrected value and re-emits it as
+  its own stamped write.
+- **Timeout** (authority died mid-flight — the race gating can't cover):
+  recency-gated revert from the pending-buffer pre-image, *only if the current
+  value still carries the write's stamp*, and **local-only** — no compensating
+  broadcast (it would itself be unackable). Reconnect reconciliation from the
+  authority is the real repair; brief divergence among non-authority peers
+  during an outage is accepted.
+- **Gating:** while the authority is known unreachable, guarded writes are
+  rejected synchronously and not applied locally; UIs consult `canWrite()` /
+  `useMeshStatus` to disable controls. Ephemeral-channel writes always flow.
+- No offline write queue — deliberately out of scope (gate instead).
+
+### 8.6 Sharing — grants and subscriptions (one model)
+
+The existing grant machinery from `shared/sync.ts` is kept as-is (entity × path
+× rights, union semantics, source-side admission) and becomes the ONLY sharing
+mechanism: "place" = read grant, "mount" = read+write grant. Object-share and
+collab-scene collapse into it.
+
+```ts
+mesh.grants.grant(grantee, {
+  entityRtype, entityId, includeDescendants, pathPrefix,
+  rights: { read?, update?, create?, delete? },
+}): GrantId
+mesh.grants.revoke(grantId)
+mesh.grants.observe(cb)        // durable peer persists grants like data
+
+const sub = await mesh.subscribe({
+  entityRtype, entityId, includeDescendants, pathPrefix,
+  channels?: string[],         // ephemeral picks auto-include the retained channel
+});
+// admitted iff covered by a read grant → snapshot (retained state, HLC
+// watermark), then live ops. Rejects if not covered.
+sub.unsubscribe();
+```
+
+Defense in depth: receiving peers also run `validate` and re-check write grants
+on apply — a remote op never reaches a persistence tap unvalidated.
+
+### 8.7 Hydration & persistence — the whole backend story, in app code
+
+```ts
+// boot
+for (const row of db.allSceneNodes()) nodes.put(rowToNode(row), { v: row.syncV });
+for (const t of db.tombstones('scene_node')) nodes.putTombstone(t.id, t.v);
+
+// persist tap (this replaces applyClipDto & friends, generically)
+nodes.onCommitted(({ op, id, doc, v }) => {
+  if (op === 'remove') { db.deleteSceneNode(id); db.tombstone('scene_node', id, v); }
+  else db.saveSceneNode(doc, v);          // v stored alongside the row (one column)
+});
+```
+
+Stamp round-tripping is the one place durability touches the design: HLC
+versions, tombstones and grants must survive a durable peer's restart or
+reconnect reconciliation degrades (resurrections, clobbered offline edits).
+The package treats stamps as data it hands in and out — never as internal
+state. A generic `(rtype, id, hlc)` tombstone table replaces
+`collab_tombstones`; tombstones + the version map are GC'd by age (a peer
+offline longer than the window may resurrect a deletion — accepted).
+
+### 8.8 React bindings (`@vspark/mesh-react`)
+
+```ts
+const node = useMeshDoc(nodes, id);
+const tree = useMeshSubtree(nodes, rootId);
+const [pos, setPos] = useMeshValue(nodes, id, 'transform.position');
+//   read: retained value overlaid by fresh ephemeral frames (drag previews render free)
+//   write: setPos(v, { channel: 'preview' }) while dragging; setPos(v) on release
+const { connected, canWrite, pendingAcks } = useMeshStatus(nodes);
+```
+
+Recommendation: the mesh replica **becomes the store** for synced state
+(`useSyncExternalStore`); the Zustand `editorStore` keeps only local UI state.
+The mirror approach (`bindResource`) is where the recurring
+add-dedupes-then-drops-updates bug class lives; if kept transitionally, make
+apply upsert-by-default in the registry, not per resource.
+
+### 8.9 Transport SPI and blob port
+
+```ts
+interface MeshTransport {
+  start(h: { onPeer, onMessage, onFrame }): void;
+  peers(): PeerId[];
+  send(peer, bytes): void;        // reliable, ordered per pair
+  sendLossy(peer, bytes): void;   // may alias send (plain WS)
+  stop(): void;
+}
+```
+
+Provided: `serverMeshTransport` (WebRTC backend↔backend), `browserPeerTransport`
+(WebRTC to remote tabs), `localClientsTransport` (WS, server side),
+`backendLinkTransport` (WS, browser side). Blob/asset transfer stays a separate
+content-addressed port beside the store; documents reference blobs by hash.
+
+### 8.10 Semantics & invariants
+
+- **Convergence:** LWW per dotted path via HLC. Whole-doc upserts only for
+  create + snapshot; edits travel as path patches (fixes the
+  concurrent-edit-clobber and stale-upsert classes). List order via fracIndex.
+- **Snapshots:** serialized replica slice (retained channels only) with an HLC
+  watermark; live ops arriving during snapshot apply are buffered and replayed
+  if newer.
+- **Orphan parking:** ops whose parent ref is unresolved are buffered and
+  applied when the parent arrives (cross-key ordering is best-effort:
+  per-sender FIFO on the reliable channel + parking + reconcile).
+- **Envelope cleanup:** `scope` and `route` drop off the wire — routing is
+  key + containment only. The deprecated `event` class is removed; temporal
+  state uses retained anchors as per live-mesh.md.
+- **Authority is unique per collection** (the home peer that persists it);
+  grant minting and acking live there. API symmetry, role asymmetry.
+
+### 8.11 Deliberate non-features
+
+- No CRDT merging (LWW per path is the model; fits poses/transforms/configs).
+- No offline write queue (gate writes instead).
+- No cross-key transactions (parking + reconcile only).
+- No layer semantics in the package (app convention on sub-paths + shared
+  resolver; the package merely doesn't prevent it).
+- Opaque JSON values (feed object) are whole-value LWW — anything needing
+  concurrent editing must be path-addressable. State this rule in the docs.
