@@ -43,7 +43,8 @@ import { spawnManager } from './spawn/manager.js';
 import { sync } from './sync/index.js';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 import './sync/resources.js';
-import { initIdentity } from './multiplayer/identity.js';
+import { initIdentity, getIdentity } from './multiplayer/identity.js';
+import { initBackendMesh, meshUpgrade } from './mesh/index.js';
 import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
 import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
@@ -76,6 +77,11 @@ app.get('/api-docs.json', (_req, res) => res.json(openApiDoc));
 app.get('/health', (_req, res) => {
   res.json({ ok: true, connected: wsSync.connectedCount });
 });
+// Mesh handshake bootstrap: a tab mints its participant id under this peer id
+// (`${serverPeerId}#${tabUuid}`) before opening the /mesh socket.
+app.get('/api/mesh/identity', (_req, res) => {
+  res.json({ serverPeerId: getIdentity().peerId });
+});
 
 // Serve built frontend — only present in production bundle
 const PUBLIC_DIR = join(__dirname, 'public');
@@ -87,6 +93,8 @@ if (existsSync(PUBLIC_DIR)) {
 server.on('upgrade', (req, socket, head) => {
   if (req.url?.startsWith('/ws')) {
     wsSync.upgrade(req, socket, head);
+  } else if (req.url?.startsWith('/mesh')) {
+    meshUpgrade(req, socket, head);
   }
 });
 
@@ -103,6 +111,9 @@ async function start() {
   // and clear any expired auto-accept grants.
   initIdentity();
   pruneExpiredGrants();
+  // Mesh store (parallel-run): hydrate collections + serve tabs on /mesh.
+  // The legacy sync/multiplayer paths stay live until features migrate over.
+  initBackendMesh();
   // Connect to the rendezvous if configured (else multiplayer stays disabled).
   multiplayerManager.init(
     process.env.MULTIPLAYER_RENDEZVOUS_URL,

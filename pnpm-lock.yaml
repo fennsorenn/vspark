@@ -35,6 +35,12 @@ importers:
       '@overlive/twitch-oauth':
         specifier: ^0.1.0
         version: 0.1.0
+      '@vspark/mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@vspark/mesh-transports':
+        specifier: workspace:*
+        version: link:../mesh-transports
       '@vspark/shared':
         specifier: workspace:*
         version: link:../shared
