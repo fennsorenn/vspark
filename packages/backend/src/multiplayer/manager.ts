@@ -32,6 +32,7 @@ import {
   registerCollabScene,
   removeCollabScene,
   indexCollabScene,
+  indexCollabNode,
   mountSharedScene,
   forwardCollabStream,
   forwardClipPlayback,
@@ -216,6 +217,14 @@ class MultiplayerManager {
     // are armed per collab link). Only the object-share fan-out stays here.
     sync.onDocument((env) => {
       this.sharing?.forwardDocOp(env);
+      // Keep the collab stream-routing map (nodeScene) current for nodes
+      // added after mount — pose/preview streams to collab peers still ride
+      // the legacy lossy channel and route through it.
+      if (env.rtype === 'scene_node' && env.op === 'upsert') {
+        const root = (env.data as { rootSceneNodeId?: string } | undefined)
+          ?.rootSceneNodeId;
+        if (root) indexCollabNode(env.key, root);
+      }
     });
     // Bridge the client-mesh signaling relay onto the server mesh.
     clientMeshRelay.attachBridge({

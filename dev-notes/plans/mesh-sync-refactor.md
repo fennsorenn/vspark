@@ -537,3 +537,28 @@ D. Object-share onto the same path (read-grant subscribe), then
 **Verify after B (two backends):** share→mount, bidirectional node edit,
 clip keyframe edit, effect edit, delete + offline-delete reconcile via
 re-subscribe, pose stream still legacy.
+
+### §9 status (2026-06-11, post-cutover verification)
+
+- **Step A (bridge) — DONE.** Verified single-server: REST CRUD mirrors into
+  the mesh, tombstones persist (mesh_tombstones), no loops.
+- **Step B (cut) — DONE and live-verified 8/8** with two backends over a
+  local rendezvous (commit d53a1c0): mount with projectId localization,
+  bidirectional live edits, provisional admission of brand-new child nodes,
+  top-level deletes (identical HLC tombstone rows both sides), zero op
+  storms, both-restart reconcile, and an offline edit converging via
+  snapshot-on-subscribe (~7s incl. WebRTC connect). Five verification bugs
+  fixed in d53a1c0; regression test added for subtree create admission.
+- **Step C (dead-code removal) — in progress.**
+- **Known issues / deferred:**
+  - werift never reports `disconnected` when the remote dies silently → a
+    stale slot blocks single-side reconnects (`mesh.ts:314` offer-drop +
+    half-open `connect()` no-op). Legacy transport issue, predates the
+    cutover. Candidate fix: drive teardown from rendezvous presence.
+  - Backends don't auto-dial paired peers at boot (user-initiated connect by
+    design); the standing session grant auto-accepts, so one side's Connect
+    suffices after restarts.
+  - Mid-session model swaps don't carry assets over the mesh (receiver keeps
+    its local filePath by design until the blob port rides the mesh).
+  - Compose layers, clip playback, runtime relay (Set Data/overrides/media),
+    object-share: still legacy (steps D+).

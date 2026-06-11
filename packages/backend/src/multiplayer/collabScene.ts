@@ -16,35 +16,23 @@ import { randomUUID } from 'crypto';
 import { basename } from 'path';
 import { getDb } from '../db/index.js';
 import { sync } from '../sync/index.js';
-import { compareHLC, type HLC, type SyncEnvelope } from '@vspark/shared/sync';
+import { type SyncEnvelope } from '@vspark/shared/sync';
 import {
-  gatherSceneSnapshot,
   type ObjectSnapshot,
   type SnapshotAsset,
 } from './shares.js';
-import { assetForPath, type AssetMeta } from './blobs.js';
-import { applySceneNodeRemove, type SceneNodeDto } from './sceneNodeWrite.js';
 
 /** Lossy stream frame (pose / blendshapes / IK / drag preview) for a collab node.
  *  Rides the mesh stream channel, not the doc channel. */
 export const COLLAB_STREAM_RTYPE = '_collab_stream';
 
 /** Control rtypes for collaborative scene sharing (over the mesh doc channel). */
-export const COLLAB_OP_RTYPE = '_collab_op'; // one scene_node edit, peer→peer
-export const COLLAB_RECONCILE_RTYPE = '_collab_reconcile'; // full state, on reconnect
 export const COLLAB_PLAYBACK_RTYPE = '_collab_playback'; // clip play/pause/seek control
 export const COLLAB_RUNTIME_RTYPE = '_collab_runtime'; // runtime data (Set Data, spawn, …)
 
 export type ClipPlaybackAction = 'trigger' | 'stop' | 'pause' | 'resume' | 'seek';
-export const COLLAB_OFFER_RTYPE = '_collab_offer'; // owner→grantee: "mount this scene?"
 export const COLLAB_SUBSCRIBE_RTYPE = '_collab_subscribe'; // grantee→owner: "send it"
 export const COLLAB_SNAPSHOT_RTYPE = '_collab_snapshot'; // owner→grantee: the scene
-export const COLLAB_RTYPES = new Set<string>([
-  COLLAB_OP_RTYPE,
-  COLLAB_OFFER_RTYPE,
-  COLLAB_SUBSCRIBE_RTYPE,
-  COLLAB_SNAPSHOT_RTYPE,
-]);
 
 export type CollabRole = 'author' | 'mounted';
 
@@ -95,27 +83,6 @@ export function collabPeersForScene(sceneId: string): CollabLink[] {
         'SELECT scene_id, peer_id, role, project_id FROM collab_scenes WHERE scene_id = ?'
       )
       .all(sceneId) as {
-      scene_id: string;
-      peer_id: string;
-      role: CollabRole;
-      project_id: string;
-    }[]
-  ).map((r) => ({
-    sceneId: r.scene_id,
-    peerId: r.peer_id,
-    role: r.role,
-    projectId: r.project_id,
-  }));
-}
-
-/** All collab scenes linked to a peer (for reconnect reconciliation). */
-export function collabScenesForPeer(peerId: string): CollabLink[] {
-  return (
-    getDb()
-      .prepare(
-        'SELECT scene_id, peer_id, role, project_id FROM collab_scenes WHERE peer_id = ?'
-      )
-      .all(peerId) as {
       scene_id: string;
       peer_id: string;
       role: CollabRole;
@@ -190,13 +157,6 @@ interface SnapshotNode {
   hidden?: boolean;
 }
 
-/** Localize a collab scene's assets before mounting: fetch each blob from the
- *  owner (so the file lands on disk), record it as a managed `asset_files` row in
- *  the mount-target project, and rewrite the snapshot nodes' file paths to the
- *  local copy — so the mounted scene both PERSISTS (backend) and RENDERS
- *  (frontend). `ensure` fetches a blob and returns its `/uploads/_shared/…` URL.
- *  An asset that fails to transfer keeps the owner path (renders only if present),
- *  so a missing asset never blocks the rest of the mount. */
 /** Record a fetched collab asset as a managed `asset_files` row in `projectId`
  *  (idempotent by project + hash). `url` is the local `/uploads/_shared/…` URL —
  *  kept with its leading slash so it matches normal asset stored_paths and the
@@ -292,31 +252,22 @@ export function mountSharedScene(
   registerCollabScene(sceneId, peerId, 'mounted', projectId);
 }
 
-// --- live two-way sync ------------------------------------------------------
-//
-// Both peers persist + edit; every local scene_node op in a collab scene is
-// mirrored to the peer and applied last-write-wins. Two guards keep it sane:
-//   - `applyingFromPeer`: an op being applied from a peer must NOT be forwarded
-//     back (sceneNodeWrite re-emits it through sync.onDocument) — else it echoes.
-//   - `lastVersion`: per-node HLC; a peer op older-or-equal is dropped (LWW).
-const lastVersion = new Map<string, HLC>();
-const applyingFromPeer = new Set<string>();
 /** nodeId → sceneId, so a `remove` (whose row is already gone) still resolves
- *  its scene for fan-out. Filled on mount + every upsert. */
+ *  its scene for fan-out. Filled on mount + index.
+ *  NOTE: forwardCollabOp (removed — migrated to @vspark/mesh) was the live-edit
+ *  writer that kept this current for new nodes beyond mount/index time. It is now
+ *  seeded only at indexCollabScene / mountSharedScene. New nodes added after mount
+ *  won't appear until the next index (reconnect or restart). */
 const nodeScene = new Map<string, string>();
 
-/** Resolve the collab scene a node belongs to (its `root_scene_node_id`), via
- *  the cache first (works after the row is deleted), then the DB. */
-function sceneOf(nodeId: string): string | undefined {
-  const cached = nodeScene.get(nodeId);
-  if (cached) return cached;
-  const row = getDb()
-    .prepare('SELECT root_scene_node_id FROM scene_nodes WHERE id = ?')
-    .get(nodeId) as { root_scene_node_id: string } | undefined;
-  return row?.root_scene_node_id;
+/** Seed the node→scene map for an already-mounted/known scene so removes resolve. */
+/** Keep the stream-routing map current for a single node (called from the
+ *  manager's sync.onDocument hook — the deleted legacy forwardCollabOp used
+ *  to do this as a side effect). No-op unless the root is a collab scene. */
+export function indexCollabNode(nodeId: string, rootSceneNodeId: string): void {
+  if (isCollabScene(rootSceneNodeId)) nodeScene.set(nodeId, rootSceneNodeId);
 }
 
-/** Seed the node→scene map for an already-mounted/known scene so removes resolve. */
 export function indexCollabScene(sceneId: string): void {
   const rows = getDb()
     .prepare('SELECT id FROM scene_nodes WHERE root_scene_node_id = ?')
@@ -332,38 +283,6 @@ export function indexAllCollabScenes(): void {
     .prepare('SELECT DISTINCT scene_id FROM collab_scenes')
     .all() as { scene_id: string }[];
   for (const s of scenes) indexCollabScene(s.scene_id);
-}
-
-// --- reconnect reconciliation helpers ---------------------------------------
-//
-// Versions are derived from scene_nodes.updated_at (already bumped on every
-// write) rather than a separate HLC column — coarse (second granularity) but
-// persistent across disconnect/restart, which the in-memory live HLC isn't.
-// Deletes are recorded as collab_tombstones so a stale create can't resurrect
-// them. The original author (collab role 'author') wins exact-time ties.
-
-/** Parse a SQLite `datetime('now')` string (UTC) to epoch ms. */
-function sqlTimeMs(s: string): number {
-  const ms = Date.parse(s.replace(' ', 'T') + 'Z');
-  return Number.isNaN(ms) ? 0 : ms;
-}
-
-/** Record (or refresh) a tombstone for a removed collab node. */
-function recordTombstone(sceneId: string, nodeId: string, versionMs: number): void {
-  getDb()
-    .prepare(
-      `INSERT INTO collab_tombstones (scene_id, node_id, version)
-       VALUES (?, ?, ?)
-       ON CONFLICT(scene_id, node_id)
-       DO UPDATE SET version = excluded.version, deleted_at = datetime('now')`
-    )
-    .run(sceneId, nodeId, String(versionMs));
-}
-
-function clearTombstone(sceneId: string, nodeId: string): void {
-  getDb()
-    .prepare('DELETE FROM collab_tombstones WHERE scene_id = ? AND node_id = ?')
-    .run(sceneId, nodeId);
 }
 
 /** Forward a lossy stream frame (pose / blendshapes / IK / drag preview) for a
@@ -391,7 +310,13 @@ export function forwardCollabStream(
 // node's root_scene_node_id. clipScene caches that so a `remove` resolves after
 // the row is gone. Layer-owned clips (compose scenes) aren't collab-synced yet.
 
-/** nodeId-keyed map mirror for clips: clipId → sceneId. */
+/** clipId → sceneId. Used by forwardClipPlayback to resolve which scene a clip
+ *  belongs to so it can fan-out to the right peers.
+ *  NOTE: forwardCollabClipOp (removed — migrated to @vspark/mesh) was the live-edit
+ *  writer that kept this current for newly created/removed clips beyond mount/index
+ *  time. It is now seeded only at applyCollabClips (mount) and indexCollabSceneClips
+ *  (indexCollabScene / boot). Clips created after mount won't be in the map until
+ *  the next index. resolveClipScene falls back to a DB query on cache miss. */
 const clipScene = new Map<string, string>();
 
 interface ClipKeyframeDto {
@@ -517,11 +442,6 @@ function applyClipDto(dto: ClipDto): void {
   sync.document.upsert('track_clip', dto.id);
 }
 
-function deleteClip(clipId: string): void {
-  getDb().prepare('DELETE FROM track_clips WHERE id = ?').run(clipId);
-  sync.document.remove('track_clip', clipId);
-}
-
 /** Write a collab scene's clips at mount/reconcile time, indexing them. A bad
  *  clip is logged and skipped rather than aborting the whole scene mount. */
 export function applyCollabClips(sceneId: string, clips: ClipDto[]): void {
@@ -556,39 +476,7 @@ export function forwardClipPlayback(
     });
 }
 
-/** Mirror a local track_clip op to every collab peer of the clip's scene. */
-function forwardCollabClipOp(
-  env: SyncEnvelope,
-  send: (peerId: string, env: SyncEnvelope) => void
-): void {
-  if (applyingFromPeer.has(env.key)) return;
-  let sceneId: string | undefined;
-  if (env.op === 'remove') {
-    sceneId = clipScene.get(env.key);
-    clipScene.delete(env.key);
-  } else {
-    sceneId = resolveClipScene(env.key);
-    if (sceneId) clipScene.set(env.key, sceneId);
-  }
-  if (!sceneId || !isCollabScene(sceneId)) return;
-  for (const link of collabPeersForScene(sceneId))
-    send(link.peerId, {
-      rtype: COLLAB_OP_RTYPE,
-      op: 'event',
-      key: sceneId,
-      data: { sceneId, env },
-    });
-}
-
-// --- camera effects (node-scoped) + compose layers (project-global) ----------
-//
-// Both are persisted config that ride sync.document, so they sync through the
-// same forward/apply path as scene_node/track_clip rather than the lossy runtime
-// relay. A camera effect belongs to a scene_node (node_id → scene). Compose
-// layers aren't tied to a stage scene, so they fan out to every collab peer
-// (compose isn't collaboratively scene-scoped yet — synced for consistency).
-
-const effectScene = new Map<string, string>(); // effectId → sceneId
+// --- camera effects (node-scoped) -------------------------------------------
 
 interface CameraEffectDto {
   id: string;
@@ -596,30 +484,6 @@ interface CameraEffectDto {
   kind: string;
   enabled: boolean;
   config: Record<string, unknown>;
-}
-
-function resolveEffectScene(
-  effectId: string,
-  data: unknown
-): string | undefined {
-  const cached = effectScene.get(effectId);
-  if (cached) return cached;
-  const nodeId =
-    (data as { nodeId?: string } | undefined)?.nodeId ??
-    (
-      getDb()
-        .prepare('SELECT node_id FROM camera_effects WHERE id = ?')
-        .get(effectId) as { node_id: string } | undefined
-    )?.node_id;
-  if (!nodeId) return undefined;
-  return (
-    nodeScene.get(nodeId) ??
-    (
-      getDb()
-        .prepare('SELECT root_scene_node_id FROM scene_nodes WHERE id = ?')
-        .get(nodeId) as { root_scene_node_id: string } | undefined
-    )?.root_scene_node_id
-  );
 }
 
 function applyCameraEffectDto(dto: CameraEffectDto): void {
@@ -640,11 +504,6 @@ function applyCameraEffectDto(dto: CameraEffectDto): void {
   sync.document.upsert('camera_effect', dto.id);
 }
 
-function deleteCameraEffect(id: string): void {
-  getDb().prepare('DELETE FROM camera_effects WHERE id = ?').run(id);
-  sync.document.remove('camera_effect', id);
-}
-
 /** Write a collab scene's camera effects at mount time (in the snapshot). */
 export function applyCollabCameraEffects(
   sceneId: string,
@@ -653,453 +512,9 @@ export function applyCollabCameraEffects(
   for (const e of effects) {
     try {
       applyCameraEffectDto(e);
-      effectScene.set(e.id, sceneId);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(`[collab] failed to apply camera effect ${e.id}:`, err);
     }
   }
-}
-
-function forwardCollabEffectOp(
-  env: SyncEnvelope,
-  send: (peerId: string, env: SyncEnvelope) => void
-): void {
-  if (applyingFromPeer.has(env.key)) return;
-  let sceneId: string | undefined;
-  if (env.op === 'remove') {
-    sceneId = effectScene.get(env.key);
-    effectScene.delete(env.key);
-  } else {
-    sceneId = resolveEffectScene(env.key, env.data);
-    if (sceneId) effectScene.set(env.key, sceneId);
-  }
-  if (!sceneId || !isCollabScene(sceneId)) return;
-  for (const link of collabPeersForScene(sceneId))
-    send(link.peerId, {
-      rtype: COLLAB_OP_RTYPE,
-      op: 'event',
-      key: sceneId,
-      data: { sceneId, env },
-    });
-}
-
-interface ComposeLayerDto {
-  id: string;
-  projectId: string;
-  rootComposeSceneId: string | null;
-  cameraNodeId: string | null;
-  parentId: string | null;
-  name: string;
-  kind: string;
-  assetId: string | null;
-  config: Record<string, unknown>;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  anchorH: string;
-  anchorV: string;
-  sceneOrder: number;
-  cameraOrder: number;
-  visible: boolean;
-}
-
-function applyComposeLayerDto(dto: ComposeLayerDto): void {
-  try {
-    getDb()
-      .prepare(
-        `INSERT INTO compose_layers
-           (id, project_id, root_compose_scene_id, camera_node_id, parent_id,
-            name, kind, asset_id, config, x, y, width, height, rotation,
-            anchor_h, anchor_v, scene_order, camera_order, visible)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           root_compose_scene_id = excluded.root_compose_scene_id,
-           camera_node_id = excluded.camera_node_id, parent_id = excluded.parent_id,
-           name = excluded.name, kind = excluded.kind, asset_id = excluded.asset_id,
-           config = excluded.config, x = excluded.x, y = excluded.y,
-           width = excluded.width, height = excluded.height, rotation = excluded.rotation,
-           anchor_h = excluded.anchor_h, anchor_v = excluded.anchor_v,
-           scene_order = excluded.scene_order, camera_order = excluded.camera_order,
-           visible = excluded.visible`
-      )
-      .run(
-        dto.id,
-        dto.projectId,
-        dto.rootComposeSceneId ?? null,
-        dto.cameraNodeId ?? null,
-        dto.parentId ?? null,
-        dto.name,
-        dto.kind,
-        dto.assetId ?? null,
-        JSON.stringify(dto.config ?? {}),
-        dto.x,
-        dto.y,
-        dto.width,
-        dto.height,
-        dto.rotation,
-        dto.anchorH,
-        dto.anchorV,
-        dto.sceneOrder,
-        dto.cameraOrder,
-        dto.visible ? 1 : 0
-      );
-    sync.document.upsert('compose_layer', dto.id);
-  } catch (err) {
-    // Compose isn't collab-scene-scoped yet, so a peer may lack the target
-    // project — log + skip rather than crash the apply.
-    // eslint-disable-next-line no-console
-    console.error(`[collab] failed to apply compose layer ${dto.id}:`, err);
-  }
-}
-
-function deleteComposeLayer(id: string): void {
-  getDb().prepare('DELETE FROM compose_layers WHERE id = ?').run(id);
-  sync.document.remove('compose_layer', id);
-}
-
-function forwardCollabComposeOp(
-  env: SyncEnvelope,
-  send: (peerId: string, env: SyncEnvelope) => void
-): void {
-  if (applyingFromPeer.has(env.key)) return;
-  const peers = allCollabPeers();
-  if (peers.length === 0) return;
-  for (const peerId of peers)
-    send(peerId, {
-      rtype: COLLAB_OP_RTYPE,
-      op: 'event',
-      key: '*compose*',
-      data: { sceneId: '*compose*', env },
-    });
-}
-
-/** A local scene_node op fired — mirror it to every collab peer of its scene.
- *  No-op for non-collab scenes or ops we're mid-applying from a peer (echo). */
-export function forwardCollabOp(
-  env: SyncEnvelope,
-  send: (peerId: string, env: SyncEnvelope) => void
-): void {
-  if (env.rtype === 'track_clip') return forwardCollabClipOp(env, send);
-  if (env.rtype === 'camera_effect') return forwardCollabEffectOp(env, send);
-  if (env.rtype === 'compose_layer') return forwardCollabComposeOp(env, send);
-  if (env.rtype !== 'scene_node') return;
-  if (applyingFromPeer.has(env.key)) return; // don't echo a peer's op back
-  let sceneId: string | undefined;
-  if (env.op === 'remove') {
-    sceneId = nodeScene.get(env.key);
-    nodeScene.delete(env.key);
-    if (sceneId)
-      recordTombstone(sceneId, env.key, env.v ? env.v.t : Date.now());
-  } else {
-    sceneId = sceneOf(env.key);
-    if (sceneId) nodeScene.set(env.key, sceneId);
-  }
-  if (!sceneId || !isCollabScene(sceneId)) return;
-  if (env.v) lastVersion.set(env.key, env.v);
-  // If the op carries a file_path with a known asset, ride its metadata along so
-  // the peer can fetch + localize it (model swaps, or just re-localizing an
-  // avatar edit to the peer's own copy).
-  const filePath =
-    env.op === 'upsert'
-      ? (env.data as { filePath?: string } | undefined)?.filePath
-      : undefined;
-  const asset = filePath ? assetForPath(filePath) : null;
-  for (const link of collabPeersForScene(sceneId))
-    send(link.peerId, {
-      rtype: COLLAB_OP_RTYPE,
-      op: 'event',
-      key: sceneId,
-      data: { sceneId, env, asset: asset ?? undefined },
-    });
-}
-
-/** Apply a peer's collab scene_node op to our own persisted copy, last-write-wins.
- *  Reuses the Phase-6 node-write primitives; structure stays owner-local (create
- *  derives project/root from the local parent). Guarded so the re-emit isn't
- *  forwarded back. Returns true if applied. */
-export function applyCollabOp(
-  sceneId: string,
-  env: SyncEnvelope,
-  forceFilePath = false
-): boolean {
-  // Compose layers are project-global (not tied to a collab scene) — apply first.
-  if (env.rtype === 'compose_layer') {
-    applyingFromPeer.add(env.key);
-    try {
-      if (env.op === 'remove') deleteComposeLayer(env.key);
-      else if (env.op === 'upsert' && env.data)
-        applyComposeLayerDto(env.data as ComposeLayerDto);
-      return true;
-    } finally {
-      applyingFromPeer.delete(env.key);
-    }
-  }
-  if (!isCollabScene(sceneId)) return false;
-  if (env.rtype === 'camera_effect') {
-    applyingFromPeer.add(env.key);
-    try {
-      if (env.op === 'remove') {
-        deleteCameraEffect(env.key);
-        effectScene.delete(env.key);
-      } else if (env.op === 'upsert' && env.data) {
-        applyCameraEffectDto(env.data as CameraEffectDto);
-        effectScene.set(env.key, sceneId);
-      }
-      return true;
-    } finally {
-      applyingFromPeer.delete(env.key);
-    }
-  }
-  if (env.rtype === 'track_clip') {
-    applyingFromPeer.add(env.key);
-    try {
-      if (env.op === 'remove') {
-        deleteClip(env.key);
-        clipScene.delete(env.key);
-      } else if (env.op === 'upsert' && env.data) {
-        applyClipDto(env.data as ClipDto);
-        clipScene.set(env.key, sceneId);
-      }
-      return true;
-    } finally {
-      applyingFromPeer.delete(env.key);
-    }
-  }
-  if (env.rtype !== 'scene_node') return false;
-  if (env.v) {
-    const prev = lastVersion.get(env.key);
-    if (prev && compareHLC(env.v, prev) <= 0) return false; // stale (LWW)
-    lastVersion.set(env.key, env.v);
-  }
-  applyingFromPeer.add(env.key);
-  try {
-    if (env.op === 'remove') {
-      applySceneNodeRemove(env.key, undefined, env.route);
-      nodeScene.delete(env.key);
-      recordTombstone(sceneId, env.key, env.v ? env.v.t : Date.now());
-    } else if (env.op === 'upsert' && env.data) {
-      nodeScene.set(env.key, sceneId);
-      upsertCollabNode(sceneId, env.data as SceneNodeDto, forceFilePath);
-    }
-    return true;
-  } finally {
-    applyingFromPeer.delete(env.key);
-  }
-}
-
-/** Apply a collab op that carries asset metadata (a node with a model/texture):
- *  fetch + persist the asset locally (cached if we already have it), rewrite the
- *  op's file_path to our own copy, then apply forcing the file_path update — so a
- *  mid-session model swap propagates and every avatar edit re-localizes to a path
- *  we can actually serve. A transfer failure falls back to a plain apply (which
- *  preserves our existing local path). */
-export async function applyCollabAssetOp(
-  sceneId: string,
-  env: SyncEnvelope,
-  asset: AssetMeta,
-  ensure: (a: AssetMeta) => Promise<string>
-): Promise<void> {
-  const dto = env.data as SceneNodeDto | undefined;
-  if (dto) {
-    try {
-      const url = await ensure(asset); // /uploads/_shared/<hash><ext>
-      const link = getDb()
-        .prepare('SELECT project_id FROM collab_scenes WHERE scene_id = ? LIMIT 1')
-        .get(sceneId) as { project_id: string } | undefined;
-      if (link)
-        recordCollabAsset(
-          link.project_id,
-          url,
-          asset.hash,
-          asset.mime,
-          asset.size,
-          basename(dto.filePath ?? `${asset.hash}${asset.ext}`)
-        );
-      dto.filePath = url; // localize to our copy
-      applyCollabOp(sceneId, env, true);
-      return;
-    } catch {
-      /* transfer failed — fall through to a plain apply (keeps local path) */
-    }
-  }
-  applyCollabOp(sceneId, env);
-}
-
-export interface ReconcilePayload {
-  sceneId: string;
-  snapshot: ObjectSnapshot;
-  /** nodeId → updated_at epoch ms (the per-node version for LWW). */
-  versions: Record<string, number>;
-  tombstones: Array<{ nodeId: string; version: number }>;
-}
-
-/** Gather this server's full state for a collab scene to (re)send on connect:
- *  every node + its version, plus tombstones for deleted nodes. */
-export function gatherReconcile(sceneId: string): ReconcilePayload | null {
-  const snapshot = gatherSceneSnapshot(sceneId);
-  if (!snapshot) return null;
-  const db = getDb();
-  const rows = db
-    .prepare('SELECT id, updated_at FROM scene_nodes WHERE root_scene_node_id = ?')
-    .all(sceneId) as { id: string; updated_at: string }[];
-  const versions: Record<string, number> = {};
-  for (const r of rows) versions[r.id] = sqlTimeMs(r.updated_at);
-  const tombs = db
-    .prepare('SELECT node_id, version FROM collab_tombstones WHERE scene_id = ?')
-    .all(sceneId) as { node_id: string; version: string }[];
-  return {
-    sceneId,
-    snapshot,
-    versions,
-    tombstones: tombs.map((t) => ({ nodeId: t.node_id, version: Number(t.version) })),
-  };
-}
-
-/** Merge a peer's reconcile state into ours after a (re)connect, last-write-wins
- *  by node version (updated_at ms); the original author wins exact-time ties.
- *  Tombstones delete a node we still hold (unless our copy is newer), and block a
- *  stale create from resurrecting it. Assets are localized like a mount. Returns
- *  true if anything changed (so the caller can refresh the editor). */
-export async function applyReconcile(
-  from: string,
-  payload: ReconcilePayload,
-  ensure: (a: SnapshotAsset) => Promise<string>
-): Promise<boolean> {
-  const { sceneId, snapshot, versions, tombstones } = payload;
-  const link = collabPeersForScene(sceneId).find((l) => l.peerId === from);
-  if (!link) return false; // we don't collaborate on this scene with this peer
-  const iAmAuthor = link.role === 'author'; // author wins exact-time ties
-  const db = getDb();
-  await persistCollabAssets(snapshot, link.projectId, ensure);
-  let changed = false;
-  const localVer = (id: string): number => {
-    const r = db
-      .prepare(
-        'SELECT updated_at FROM scene_nodes WHERE id = ? AND root_scene_node_id = ?'
-      )
-      .get(id, sceneId) as { updated_at: string } | undefined;
-    return r ? sqlTimeMs(r.updated_at) : -1;
-  };
-
-  for (const node of snapshot.nodes as unknown as SceneNodeDto[]) {
-    const incV = versions[node.id] ?? 0;
-    const tomb = db
-      .prepare(
-        'SELECT version FROM collab_tombstones WHERE scene_id = ? AND node_id = ?'
-      )
-      .get(sceneId, node.id) as { version: string } | undefined;
-    if (tomb && Number(tomb.version) >= incV) continue; // our delete wins
-    const localV = localVer(node.id);
-    const incomingWins =
-      localV < 0 || incV > localV || (incV === localV && !iAmAuthor);
-    if (!incomingWins) continue;
-    applyingFromPeer.add(node.id);
-    try {
-      upsertCollabNode(sceneId, node, true, incV);
-    } finally {
-      applyingFromPeer.delete(node.id);
-    }
-    clearTombstone(sceneId, node.id);
-    nodeScene.set(node.id, sceneId);
-    changed = true;
-  }
-
-  for (const t of tombstones) {
-    const localV = localVer(t.nodeId);
-    if (localV < 0) {
-      recordTombstone(sceneId, t.nodeId, t.version); // already gone; remember it
-      continue;
-    }
-    const delWins = t.version > localV || (t.version === localV && !iAmAuthor);
-    if (!delWins) continue; // our copy is newer → keep it (resurrect)
-    applyingFromPeer.add(t.nodeId);
-    try {
-      applySceneNodeRemove(t.nodeId, undefined, undefined);
-    } finally {
-      applyingFromPeer.delete(t.nodeId);
-    }
-    recordTombstone(sceneId, t.nodeId, t.version);
-    nodeScene.delete(t.nodeId);
-    changed = true;
-  }
-
-  // Clips added while disconnected: write any we don't already have. Existing
-  // clips are left alone (no per-clip version yet — see the plan).
-  for (const clip of (snapshot.clips ?? []) as unknown as ClipDto[]) {
-    const exists = db
-      .prepare('SELECT 1 FROM track_clips WHERE id = ? LIMIT 1')
-      .get(clip.id);
-    if (exists) continue;
-    applyingFromPeer.add(clip.id);
-    try {
-      applyClipDto(clip);
-      clipScene.set(clip.id, sceneId);
-    } finally {
-      applyingFromPeer.delete(clip.id);
-    }
-    changed = true;
-  }
-  return changed;
-}
-
-/** Upsert a node into our local copy of a collab scene. Structure is set from the
- *  scene, not derived from a parent (a scene's top-level nodes have parent_id
- *  NULL, so the parent-derived object-write path can't create them): project_id
- *  comes from our collab link, root_scene_node_id is the scene, parent_id is taken
- *  verbatim (shared id space). Then emit so our own clients update.
- *
- *  `file_path` is NOT overwritten on a plain update: asset paths are peer-local
- *  (each side localizes a shared asset to its own /uploads/_shared copy), so
- *  taking the peer's path would point at a file we don't have and break the
- *  avatar. `forceFilePath` is set only by the asset-op path, which has already
- *  fetched + rewritten the path to OUR local copy (model swaps / re-localization).
- *  A create always takes the op's path (the INSERT). */
-function upsertCollabNode(
-  sceneId: string,
-  dto: SceneNodeDto,
-  forceFilePath = false,
-  updatedAtMs?: number
-): void {
-  const link = getDb()
-    .prepare('SELECT project_id FROM collab_scenes WHERE scene_id = ? LIMIT 1')
-    .get(sceneId) as { project_id: string } | undefined;
-  if (!link) return;
-  // Reconcile passes the source edit time so both sides converge to the same
-  // updated_at (a fresh datetime('now') would look newer and re-trigger the
-  // origin to re-apply — a ping-pong). Live edits use NULL → datetime('now').
-  const ua =
-    updatedAtMs != null
-      ? new Date(updatedAtMs).toISOString().slice(0, 19).replace('T', ' ')
-      : null;
-  getDb()
-    .prepare(
-      `INSERT INTO scene_nodes
-         (id, project_id, root_scene_node_id, parent_id, bone_attachment,
-          name, kind, file_path, components, properties, hidden, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
-       ON CONFLICT(id) DO UPDATE SET
-         parent_id = excluded.parent_id, name = excluded.name,
-         kind = excluded.kind,${forceFilePath ? ' file_path = excluded.file_path,' : ''}
-         components = excluded.components, properties = excluded.properties,
-         hidden = excluded.hidden, updated_at = COALESCE(?, datetime('now'))`
-    )
-    .run(
-      dto.id,
-      link.project_id,
-      sceneId,
-      dto.parentId ?? null,
-      dto.boneAttachment ?? null,
-      dto.name,
-      dto.kind,
-      dto.filePath ?? null,
-      JSON.stringify(dto.components ?? {}),
-      JSON.stringify(dto.properties ?? {}),
-      dto.hidden ? 1 : 0,
-      ua,
-      ua
-    );
-  sync.document.upsert('scene_node', dto.id);
 }
