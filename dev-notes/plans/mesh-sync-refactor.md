@@ -607,5 +607,41 @@ re-subscribe, pose stream still legacy.
     authoritative echo returns over the placed mesh subscription. Migrating
     them to guarded mesh writes needs per-doc (not per-collection) authority
     — revisit with the REST write-through step.
-  - Compose layers, clip playback, pose/preview streams, runtime relay (Set
-    Data/overrides/media), advertise/offer flow: still legacy.
+  - Compose layers (containment scope), advertise/offer flow, asset/blob
+    transfer, object-share streams (`_share_stream`, kept for direct
+    browser edges), Phase-6 writes: still legacy. Collab streams, clip
+    playback, and runtime events are on the mesh (see above).
+
+## 10. REST write-through (next step — spec)
+
+Goal: REST mutation routes become edge adapters that write THROUGH the mesh
+store instead of writing SQLite directly + emitting sync.document (which the
+legacy bridge then mirrors with a fresh stamp). One write path, one stamp
+authority, and the bridge shrinks to read-side compatibility.
+
+Shape (per rtype, ~1900 route lines across the five):
+1. Route keeps ALL of its validation / side effects (file moves, instance
+   checks, ordering); it builds the canonical full DTO (or merge partial
+   onto `col.get(id)` for PATCH-like routes) and calls
+   `col.set(id, '', dto)` / `col.remove(id)` (authority 'self' → the
+   onCommitted tap persists via the resource registry's save/remove and
+   emits sync.document.upsert for legacy tabs — both already in place).
+2. The route responds with `col.get(id)` (canonical post-validate state).
+3. Delete the route's direct SQL writes + its sync.document emissions (the
+   tap emits). Watch for routes whose SQL does MORE than r.save covers
+   (track_clips: lanes/keyframes aggregates — r.save is delete+reinsert of
+   the whole aggregate, so build the full DTO first).
+4. Order: behaviors (131 lines, simplest) → camera-effects → scene-nodes →
+   compose-layers → track-clips. Keep each rtype's cutover its own commit;
+   verify CRUD via REST + a live two-backend collab echo after each.
+5. Hazards: (a) the bridge's sync.onDocument mirror must NOT double-apply —
+   tap-emitted sync.document events are already guarded by applyingFromMesh;
+   (b) scene POST creates many entities atomically (route emits touch today)
+   — write each through the store in dependency order; (c) REST responses
+   used to return route-built shapes — diff against col.get(id) output for
+   parity; (d) blob/file-path side effects stay in the route, BEFORE the
+   store write, so the DTO carries final paths.
+
+After write-through, Phase-6 writes can move onto guarded mesh writes by
+giving collections per-doc authority resolution (doc → owning peer), and the
+frontend can drop optimistic+NAK for ack-based outcomes.

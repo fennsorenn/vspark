@@ -1,6 +1,6 @@
 # Mesh — Replicated Store (@vspark/mesh, @vspark/mesh-react, @vspark/mesh-transports)
 
-**Status:** Core package implemented with 28 vitest tests; three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend + frontend parallel-run wiring complete; app integration WIP (REST/frontend bindings remaining).
+**Status:** Core package implemented with 29 vitest tests; three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend + frontend parallel-run wiring complete; app integration WIP (REST/frontend bindings remaining).
 
 A **schema-agnostic in-memory replicated store** with symmetric read/write API on both frontend and backend, HLC last-write-wins convergence, grant-gated access control, and authority-driven ack lifecycle. No durability in the package itself; durable peers hydrate from persistent store and persist incoming mutations via observe taps. Designed to replace both the legacy sync layer and the entity-aware collab-scene sharing model.
 
@@ -119,6 +119,11 @@ const nodes = mesh.collection<Node>('scene_node', {
 // Built-in channels:
 //   'committed' → reliable, stamped (HLC), retained (snapshot), ack:'authority'
 //   'preview'   → lossy, unstamped, ephemeral (drag previews, IK targets)
+//
+// App-defined channels (declared in packages/backend/src/mesh/streams.ts):
+//   'control'   → reliable, unstamped, unretained — for event traffic (playback
+//                 controls, runtime relay) where ordering matters but there is no
+//                 state to snapshot or persist
 ```
 
 A write targets a channel via `set(id, path, value, { channel: 'preview' })`. Writes to the retained channel flow through ack authority; ephemeral writes always flow (no authority gating).
@@ -254,8 +259,8 @@ const peer = useMemo(() => createMeshPeer({
 
 ## Integration roadmap
 
-**Completed (through step D — object-share doc plane):**
-- Core package (@vspark/mesh) — 28 tests, all APIs. New: snapshot relay topology + one-way place isolation tests. `handleSubOk` now relays snapshot-applied docs/tombstones onward to the peer's own subscribers (tabs subscribed before a reconcile were previously blind to snapshot state).
+**Completed (through collab live-ops migration):**
+- Core package (@vspark/mesh) — 29 tests, all APIs. New: snapshot relay topology + one-way place isolation tests + pure-stream containment routing test. `handleSubOk` now relays snapshot-applied docs/tombstones onward to the peer's own subscribers (tabs subscribed before a reconcile were previously blind to snapshot state).
 - React hooks (@vspark/mesh-react) — all hooks.
 - Transports (@vspark/mesh-transports) — WS pair shipped; WebRTC pending.
 - Backend hydration + persistence (five collections, generic onCommitted taps).
@@ -271,11 +276,19 @@ const peer = useMemo(() => createMeshPeer({
   - `packages/backend/src/multiplayer/sharing.ts` — `forwardDocOp` and the `_share_update` relay deleted; `_share_snapshot` demoted to asset manifest + stream-routing registration (broadcast now includes `assetUrls: ownerPath→localURL`); `_share_unshared` also drops the receiver's placed mesh subscription. `subscribeShared(peerId, objectId, streams)` — mesh sub always; legacy subscribe only when `streams=true`. REST `/connections/peers/:peerId/subscribe` gained the `streams` flag. Pre-existing bug fixed in `shares.ts listSharesForPeer`: reused PreparedStatement (single-use wrapper finalizes after first `.get()`) caused advertise 500 once a peer held ≥2 share grants; replaced with a single batched IN query.
   - `packages/frontend/src/sync/meshProjection.ts` — new: feeds the existing `sharedProjection` store from the mesh `scene_node` collection (observes `'**'`, projects subtrees of placed containers gated on `connectionsStore.subscribed`, incremental `applyUpdate` with Phase-6 stale-drop/pending-write reconciliation, `registerAssetUrls()` localizes file paths and re-projects). `useWsSync`'s `mp_shared_snapshot` handler now only records `assetUrls` + subscribed state; `mp_shared_update` handler removed. Started from Editor.tsx alongside `initMeshPeer`.
   - `packages/frontend/src/sync/shareDirect.ts` — now carries only streams + blob fetches.
+- **Collab live streams (b4d55c5, 2530c3f) — DONE, verified 5/5 two-backend live:**
+  - `packages/backend/src/mesh/streams.ts` (new) — `node_stream` pure-stream collection (no retained channel; lossy `preview` channel keyed by node id) for pose/blendshape/IK/drag-preview frames on collab-scene nodes. Existing collab `'*'`-subtree subscriptions route frames via cross-type containment (`collabSceneForNode()` gates sender + bridge). Receiving backends bridge remote frames onto `/ws` under the original kind. `_collab_stream` + `forwardCollabStream` deleted. Object-share streams stay on legacy `_share_stream` (direct browser edges).
+- **Collab clip playback (b4d55c5, 2530c3f) — DONE, verified 5/5 two-backend live:**
+  - `clip_control` collection (also in `streams.ts`) on a new `control` channel (reliable, unstamped, unretained — events not state), keyed by clip id (containment: clip → owning node → scene). Receiver applies on its local `TrackClipPlaybackManager` via an injected applier. `_collab_playback` + `forwardClipPlayback` deleted.
+- **Collab runtime events (e181d9d) — DONE, verified 4/4 two-backend live:**
+  - `runtime_control` collection (also in `streams.ts`) on the `control` channel, one publish per shared collab scene id (no containment anchor for global/spawn scopes), deduped per receiver by `eventId`. Set Data / runtime overrides / media control / spawn broadcasts now ride this path. `_collab_runtime` + `forwardCollabRuntime` + `allCollabPeers` deleted. `COLLAB_RELAY_KINDS` stays as sender whitelist. Legacy collab protocol is now only `_collab_subscribe`/`_collab_snapshot` (mount + asset transfer).
+- **Werift stale-slot reconnect wedge — FIXED, verified 4/4.** `ServerMesh.onSignal` tears down a connected slot when that peer sends a fresh offer (a live peer never re-dials), then answers. See [plans/mesh-sync-refactor.md §9](../plans/mesh-sync-refactor.md).
 
 **Remaining:**
 - REST mutation routes writing through the store (instead of direct DB writes).
 - Frontend store migration: UI bindings to mesh-react hooks instead of Zustand reads.
-- Known issues: model-swap assets don't ride mesh yet; Phase-6 writes (`_share_write`/NAK), pose/override/data-channel streams, blob/asset transfer, advertise/offer flow remain legacy. (The werift stale-slot single-side reconnect wedge is FIXED: `ServerMesh.onSignal` tears down a connected slot when that peer sends a fresh offer — a live peer never re-dials — live-verified 4/4.)
+- Known issues: model-swap assets don't ride mesh yet; Phase-6 writes (`_share_write`/NAK), blob/asset transfer, advertise/offer flow remain legacy.
+- Frontend behavior sync binding (`packages/frontend/src/sync/resources.ts`) — fixed (09cca24): remote updates are now applied instead of being skipped when the id already exists in the store (the recurring add-dedupes-then-drops-updates class noted in §8.8).
 
 ## Key files
 
@@ -283,6 +296,7 @@ const peer = useMemo(() => createMeshPeer({
 - `packages/mesh-react/src/` — hooks.
 - `packages/mesh-transports/src/` — WsServerTransport, WsBackendTransport.
 - `packages/backend/src/mesh/index.ts` — backend bindings, hydration, persistence.
+- `packages/backend/src/mesh/streams.ts` — `node_stream`, `clip_control`, `runtime_control` collections + the `control` channel; collab live-ops bridging helpers.
 - `packages/frontend/src/mesh/peer.ts` — frontend peer creation + wiring.
 - `packages/frontend/src/mesh/bindings.ts` — containment schema (PARENTS, RTYPES).
 - [plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) — full design spec (§8).

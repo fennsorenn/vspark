@@ -1,6 +1,6 @@
 # Multiplayer / Mesh
 
-> **WIP: REST/frontend bindings.** Collab-scene LIVE OPS + RECONCILE and the object-share document plane have both moved onto `@vspark/mesh` grants + subscriptions (steps A–D complete; see [mesh.md](mesh.md) and [plans/mesh-sync-refactor.md §9](../plans/mesh-sync-refactor.md)). Remaining work: REST mutation routes writing through the mesh store, frontend store migration to mesh-react bindings. Asset/blob transfer, Phase-6 write tier, and the offer/advertise UI remain on the legacy protocol for now.
+> **WIP: REST/frontend bindings.** Collab-scene LIVE OPS + RECONCILE, object-share document plane (steps A–D), and all collab live-ops (pose/blendshape/IK/drag-preview streams, clip playback controls, runtime events) have moved onto `@vspark/mesh` grants + subscriptions + the `control` channel. `_collab_stream`, `_collab_playback`, and `_collab_runtime` and their forwarding helpers are deleted; the legacy collab protocol is now only `_collab_subscribe`/`_collab_snapshot`. See [mesh.md](mesh.md) and [plans/mesh-sync-refactor.md §9](../plans/mesh-sync-refactor.md). Remaining work: REST mutation routes writing through the mesh store, frontend store migration to mesh-react bindings. Asset/blob transfer, Phase-6 write tier, and the offer/advertise UI remain on the legacy protocol.
 
 Peer-to-peer connectivity between vspark instances: server↔server WebRTC, a
 signaling relay for browser clients, object sharing over the mesh, a
