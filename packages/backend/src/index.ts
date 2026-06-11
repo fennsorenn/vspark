@@ -13,6 +13,7 @@ import {
   setApiControllerManager,
   setWsSync,
   setTrackClipPlaybackManager,
+  setClipPlaybackForwarder,
 } from './routes/index.js';
 import {
   updateRoutes,
@@ -141,6 +142,14 @@ async function start() {
   const trackClipPlayback = new TrackClipPlaybackManager(wsSync);
   trackClipPlayback.hydrateAutoplay();
   setTrackClipPlaybackManager(trackClipPlayback);
+  // Mirror user-initiated clip playback control to collab-scene peers.
+  setClipPlaybackForwarder((clipId, action, t) =>
+    multiplayerManager.relayClipPlayback(
+      clipId,
+      action as Parameters<typeof multiplayerManager.relayClipPlayback>[1],
+      t
+    )
+  );
   initTrackClipTrigger(trackClipPlayback);
   initStartClip(trackClipPlayback);
 

@@ -32,6 +32,9 @@ export const COLLAB_STREAM_RTYPE = '_collab_stream';
 /** Control rtypes for collaborative scene sharing (over the mesh doc channel). */
 export const COLLAB_OP_RTYPE = '_collab_op'; // one scene_node edit, peer→peer
 export const COLLAB_RECONCILE_RTYPE = '_collab_reconcile'; // full state, on reconnect
+export const COLLAB_PLAYBACK_RTYPE = '_collab_playback'; // clip play/pause/seek control
+
+export type ClipPlaybackAction = 'trigger' | 'stop' | 'pause' | 'resume' | 'seek';
 export const COLLAB_OFFER_RTYPE = '_collab_offer'; // owner→grantee: "mount this scene?"
 export const COLLAB_SUBSCRIBE_RTYPE = '_collab_subscribe'; // grantee→owner: "send it"
 export const COLLAB_SNAPSHOT_RTYPE = '_collab_snapshot'; // owner→grantee: the scene
@@ -461,6 +464,26 @@ export function applyCollabClips(sceneId: string, clips: ClipDto[]): void {
     applyClipDto(c);
     clipScene.set(c.id, sceneId);
   }
+}
+
+/** Mirror a local clip playback control (play/pause/seek) to every collab peer
+ *  of the clip's scene, so playback stays in step. Each peer anchors locally on
+ *  receipt (no clock sync needed); seek carries the playhead. */
+export function forwardClipPlayback(
+  clipId: string,
+  action: ClipPlaybackAction,
+  t: number | undefined,
+  send: (peerId: string, env: SyncEnvelope) => void
+): void {
+  const sceneId = resolveClipScene(clipId);
+  if (!sceneId || !isCollabScene(sceneId)) return;
+  for (const link of collabPeersForScene(sceneId))
+    send(link.peerId, {
+      rtype: COLLAB_PLAYBACK_RTYPE,
+      op: 'event',
+      key: clipId,
+      data: { clipId, action, t },
+    });
 }
 
 /** Mirror a local track_clip op to every collab peer of the clip's scene. */

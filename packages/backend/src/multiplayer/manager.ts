@@ -35,6 +35,7 @@ import {
   applyCollabOp,
   applyCollabAssetOp,
   forwardCollabStream,
+  forwardClipPlayback,
   persistCollabAssets,
   indexAllCollabScenes,
   gatherReconcile,
@@ -46,8 +47,11 @@ import {
   COLLAB_SUBSCRIBE_RTYPE,
   COLLAB_SNAPSHOT_RTYPE,
   COLLAB_RECONCILE_RTYPE,
+  COLLAB_PLAYBACK_RTYPE,
   type ReconcilePayload,
+  type ClipPlaybackAction,
 } from './collabScene.js';
+import { _trackClipPlayback } from '../routes/shared.js';
 import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
 import type { AssetMeta } from './blobs.js';
 import {
@@ -362,6 +366,16 @@ class MultiplayerManager {
                   });
               }
             );
+        } else if (env?.rtype === COLLAB_PLAYBACK_RTYPE) {
+          // A collab peer's clip play/pause/seek — replicate on our own playback
+          // manager (which has the synced clip), anchored to our local clock.
+          const d = (env.data ?? {}) as {
+            clipId?: string;
+            action?: ClipPlaybackAction;
+            t?: number;
+          };
+          if (d.clipId && d.action)
+            this.applyClipPlayback(d.clipId, d.action, d.t);
         }
       }
     );
@@ -647,6 +661,34 @@ class MultiplayerManager {
     forwardCollabStream(kind, nodeId, payload, (peer, frame) =>
       this.mesh?.sendStream(peer, frame)
     );
+  }
+
+  /** Relay a local clip playback control to collab peers (called by the playback
+   *  routes). The peer replicates it on its own playback manager. */
+  relayClipPlayback(
+    clipId: string,
+    action: ClipPlaybackAction,
+    t?: number
+  ): void {
+    forwardClipPlayback(clipId, action, t, (peer, env) =>
+      this.mesh?.sendEnvelope(peer, env)
+    );
+  }
+
+  /** Replicate a peer's clip playback control locally (no re-forward — only
+   *  user-initiated route actions relay, so this can't echo). */
+  private applyClipPlayback(
+    clipId: string,
+    action: ClipPlaybackAction,
+    t?: number
+  ): void {
+    const pb = _trackClipPlayback;
+    if (!pb) return;
+    if (action === 'trigger') pb.trigger(clipId);
+    else if (action === 'stop') pb.stop(clipId);
+    else if (action === 'pause') pb.pause(clipId);
+    else if (action === 'resume') pb.resume(clipId);
+    else if (action === 'seek' && t != null) pb.seek(clipId, t);
   }
 
   /** Forward a clip-driven transform of a shared subtree node to object-share

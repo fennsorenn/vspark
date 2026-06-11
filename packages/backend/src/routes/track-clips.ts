@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
-import { _ws, _trackClipPlayback } from './shared.js';
+import { _ws, _trackClipPlayback, _clipPlaybackForwarder } from './shared.js';
 import { sync } from '../sync/index.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -537,6 +537,7 @@ router.post('/track-clips/:id/trigger', (req, res) => {
     });
   }
   _trackClipPlayback.trigger(req.params.id);
+  _clipPlaybackForwarder?.(req.params.id, 'trigger');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -563,6 +564,7 @@ router.post('/track-clips/:id/stop', (req, res) => {
     });
   }
   _trackClipPlayback.stop(req.params.id);
+  _clipPlaybackForwarder?.(req.params.id, 'stop');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -589,6 +591,7 @@ router.post('/track-clips/:id/pause', (req, res) => {
     });
   }
   _trackClipPlayback.pause(req.params.id);
+  _clipPlaybackForwarder?.(req.params.id, 'pause');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -615,6 +618,7 @@ router.post('/track-clips/:id/resume', (req, res) => {
     });
   }
   _trackClipPlayback.resume(req.params.id);
+  _clipPlaybackForwarder?.(req.params.id, 'resume');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -660,6 +664,7 @@ router.post('/track-clips/:id/seek', (req, res) => {
     });
   }
   _trackClipPlayback.seek(req.params.id, t);
+  _clipPlaybackForwarder?.(req.params.id, 'seek', t);
   res.json({ ok: true, data: { id: req.params.id, t } });
 });
 

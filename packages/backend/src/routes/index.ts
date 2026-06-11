@@ -45,4 +45,5 @@ export {
   setApiControllerManager,
   setWsSync,
   setTrackClipPlaybackManager,
+  setClipPlaybackForwarder,
 } from './shared.js';
