@@ -87,7 +87,12 @@ bindResource('track_clip', {
       s.removeTrackClip(key);
       return;
     }
-    // addTrackClip dedupes by id internally.
-    s.addTrackClip(data as TrackClipRecord);
+    // Upsert: a remote edit (new keyframes, rename, lane change …) re-sends the
+    // whole clip. addTrackClip dedupes by id, so an existing clip must be
+    // *replaced* — otherwise the update (e.g. a freshly added keyframe) is lost.
+    const clip = data as TrackClipRecord;
+    if (s.trackClips.some((c) => c.id === clip.id))
+      s.updateTrackClipLocal(clip);
+    else s.addTrackClip(clip);
   },
 });
