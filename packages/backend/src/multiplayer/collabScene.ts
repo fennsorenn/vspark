@@ -18,6 +18,7 @@ import { getDb } from '../db/index.js';
 import { sync } from '../sync/index.js';
 import { compareHLC, type HLC, type SyncEnvelope } from '@vspark/shared/sync';
 import type { ObjectSnapshot, SnapshotAsset } from './shares.js';
+import { assetForPath, type AssetMeta } from './blobs.js';
 import { applySceneNodeRemove, type SceneNodeDto } from './sceneNodeWrite.js';
 
 /** Lossy stream frame (pose / blendshapes / IK / drag preview) for a collab node.
@@ -138,6 +139,32 @@ interface SnapshotNode {
  *  (frontend). `ensure` fetches a blob and returns its `/uploads/_shared/…` URL.
  *  An asset that fails to transfer keeps the owner path (renders only if present),
  *  so a missing asset never blocks the rest of the mount. */
+/** Record a fetched collab asset as a managed `asset_files` row in `projectId`
+ *  (idempotent by project + hash). `url` is the local `/uploads/_shared/…` URL —
+ *  kept with its leading slash so it matches normal asset stored_paths and the
+ *  node's rewritten file_path (== the served URL). */
+function recordCollabAsset(
+  projectId: string,
+  url: string,
+  hash: string,
+  mime: string,
+  size: number,
+  originalName: string
+): void {
+  const db = getDb();
+  if (
+    db
+      .prepare('SELECT 1 FROM asset_files WHERE project_id = ? AND hash = ? LIMIT 1')
+      .get(projectId, hash)
+  )
+    return;
+  db.prepare(
+    `INSERT INTO asset_files
+       (id, project_id, original_name, stored_path, mime_type, size, hash, is_deduplicated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+  ).run(randomUUID(), projectId, originalName, url, mime, size, hash);
+}
+
 export async function persistCollabAssets(
   snapshot: ObjectSnapshot,
   projectId: string,
@@ -145,34 +172,12 @@ export async function persistCollabAssets(
 ): Promise<void> {
   const assets = snapshot.assets ?? [];
   if (assets.length === 0) return;
-  const db = getDb();
   const localByAuthorPath = new Map<string, string>();
   await Promise.all(
     assets.map(async (a) => {
       try {
         const url = await ensure(a); // /uploads/_shared/<hash><ext>; file on disk
-        // Keep the leading slash so it matches normal asset stored_paths and the
-        // node's rewritten file_path (== the served URL).
-        const storedPath = url;
-        const exists = db
-          .prepare(
-            'SELECT 1 FROM asset_files WHERE project_id = ? AND hash = ? LIMIT 1'
-          )
-          .get(projectId, a.hash);
-        if (!exists)
-          db.prepare(
-            `INSERT INTO asset_files
-               (id, project_id, original_name, stored_path, mime_type, size, hash, is_deduplicated)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
-          ).run(
-            randomUUID(),
-            projectId,
-            basename(a.filePath),
-            storedPath,
-            a.mime,
-            a.size,
-            a.hash
-          );
+        recordCollabAsset(projectId, url, a.hash, a.mime, a.size, basename(a.filePath));
         localByAuthorPath.set(a.filePath, url);
       } catch {
         /* asset unavailable on the owner — keep the author path */
@@ -300,12 +305,20 @@ export function forwardCollabOp(
   }
   if (!sceneId || !isCollabScene(sceneId)) return;
   if (env.v) lastVersion.set(env.key, env.v);
+  // If the op carries a file_path with a known asset, ride its metadata along so
+  // the peer can fetch + localize it (model swaps, or just re-localizing an
+  // avatar edit to the peer's own copy).
+  const filePath =
+    env.op === 'upsert'
+      ? (env.data as { filePath?: string } | undefined)?.filePath
+      : undefined;
+  const asset = filePath ? assetForPath(filePath) : null;
   for (const link of collabPeersForScene(sceneId))
     send(link.peerId, {
       rtype: COLLAB_OP_RTYPE,
       op: 'event',
       key: sceneId,
-      data: { sceneId, env },
+      data: { sceneId, env, asset: asset ?? undefined },
     });
 }
 
@@ -313,7 +326,11 @@ export function forwardCollabOp(
  *  Reuses the Phase-6 node-write primitives; structure stays owner-local (create
  *  derives project/root from the local parent). Guarded so the re-emit isn't
  *  forwarded back. Returns true if applied. */
-export function applyCollabOp(sceneId: string, env: SyncEnvelope): boolean {
+export function applyCollabOp(
+  sceneId: string,
+  env: SyncEnvelope,
+  forceFilePath = false
+): boolean {
   if (env.rtype !== 'scene_node' || !isCollabScene(sceneId)) return false;
   if (env.v) {
     const prev = lastVersion.get(env.key);
@@ -327,12 +344,50 @@ export function applyCollabOp(sceneId: string, env: SyncEnvelope): boolean {
       nodeScene.delete(env.key);
     } else if (env.op === 'upsert' && env.data) {
       nodeScene.set(env.key, sceneId);
-      upsertCollabNode(sceneId, env.data as SceneNodeDto);
+      upsertCollabNode(sceneId, env.data as SceneNodeDto, forceFilePath);
     }
     return true;
   } finally {
     applyingFromPeer.delete(env.key);
   }
+}
+
+/** Apply a collab op that carries asset metadata (a node with a model/texture):
+ *  fetch + persist the asset locally (cached if we already have it), rewrite the
+ *  op's file_path to our own copy, then apply forcing the file_path update — so a
+ *  mid-session model swap propagates and every avatar edit re-localizes to a path
+ *  we can actually serve. A transfer failure falls back to a plain apply (which
+ *  preserves our existing local path). */
+export async function applyCollabAssetOp(
+  sceneId: string,
+  env: SyncEnvelope,
+  asset: AssetMeta,
+  ensure: (a: AssetMeta) => Promise<string>
+): Promise<void> {
+  const dto = env.data as SceneNodeDto | undefined;
+  if (dto) {
+    try {
+      const url = await ensure(asset); // /uploads/_shared/<hash><ext>
+      const link = getDb()
+        .prepare('SELECT project_id FROM collab_scenes WHERE scene_id = ? LIMIT 1')
+        .get(sceneId) as { project_id: string } | undefined;
+      if (link)
+        recordCollabAsset(
+          link.project_id,
+          url,
+          asset.hash,
+          asset.mime,
+          asset.size,
+          basename(dto.filePath ?? `${asset.hash}${asset.ext}`)
+        );
+      dto.filePath = url; // localize to our copy
+      applyCollabOp(sceneId, env, true);
+      return;
+    } catch {
+      /* transfer failed — fall through to a plain apply (keeps local path) */
+    }
+  }
+  applyCollabOp(sceneId, env);
 }
 
 /** Upsert a node into our local copy of a collab scene. Structure is set from the
@@ -341,12 +396,17 @@ export function applyCollabOp(sceneId: string, env: SyncEnvelope): boolean {
  *  comes from our collab link, root_scene_node_id is the scene, parent_id is taken
  *  verbatim (shared id space). Then emit so our own clients update.
  *
- *  `file_path` is intentionally NOT overwritten on update: asset paths are
- *  peer-local (each side localizes a shared asset to its own /uploads/_shared
- *  copy at mount), so taking the peer's path would point at a file we don't have
- *  and break the avatar. A new node keeps the op's path (best effort; mid-session
- *  model adds aren't asset-transferred yet — see the plan). */
-function upsertCollabNode(sceneId: string, dto: SceneNodeDto): void {
+ *  `file_path` is NOT overwritten on a plain update: asset paths are peer-local
+ *  (each side localizes a shared asset to its own /uploads/_shared copy), so
+ *  taking the peer's path would point at a file we don't have and break the
+ *  avatar. `forceFilePath` is set only by the asset-op path, which has already
+ *  fetched + rewritten the path to OUR local copy (model swaps / re-localization).
+ *  A create always takes the op's path (the INSERT). */
+function upsertCollabNode(
+  sceneId: string,
+  dto: SceneNodeDto,
+  forceFilePath = false
+): void {
   const link = getDb()
     .prepare('SELECT project_id FROM collab_scenes WHERE scene_id = ? LIMIT 1')
     .get(sceneId) as { project_id: string } | undefined;
@@ -359,7 +419,7 @@ function upsertCollabNode(sceneId: string, dto: SceneNodeDto): void {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          parent_id = excluded.parent_id, name = excluded.name,
-         kind = excluded.kind,
+         kind = excluded.kind,${forceFilePath ? ' file_path = excluded.file_path,' : ''}
          components = excluded.components, properties = excluded.properties,
          hidden = excluded.hidden, updated_at = datetime('now')`
     )

@@ -33,6 +33,7 @@ import {
   mountSharedScene,
   forwardCollabOp,
   applyCollabOp,
+  applyCollabAssetOp,
   forwardCollabStream,
   persistCollabAssets,
   indexAllCollabScenes,
@@ -42,6 +43,7 @@ import {
   COLLAB_SNAPSHOT_RTYPE,
 } from './collabScene.js';
 import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
+import type { AssetMeta } from './blobs.js';
 import {
   clientMeshRelay,
   MESH_RELAY_RTYPE,
@@ -312,12 +314,21 @@ class MultiplayerManager {
         } else if (env?.rtype === COLLAB_OP_RTYPE) {
           // A collaborative-scene peer's edit: apply LWW to our persisted copy.
           // applyCollabOp re-emits via sync.document, which fans out to our own
-          // clients (so the local editor updates) without echoing back.
+          // clients (so the local editor updates) without echoing back. If the op
+          // carries asset metadata (a model/texture), fetch + localize it first so
+          // a mid-session model swap renders + persists locally.
           const d = (env.data ?? {}) as {
             sceneId?: string;
             env?: SyncEnvelope;
+            asset?: AssetMeta;
           };
-          if (d.sceneId && d.env) applyCollabOp(d.sceneId, d.env);
+          if (d.sceneId && d.env) {
+            if (d.asset && this.blob)
+              void applyCollabAssetOp(d.sceneId, d.env, d.asset, (a) =>
+                this.blob!.ensure(from, a)
+              );
+            else applyCollabOp(d.sceneId, d.env);
+          }
         } else if (env?.rtype === COLLAB_SUBSCRIBE_RTYPE) {
           this.handleCollabSubscribe(from, env);
         } else if (env?.rtype === COLLAB_SNAPSHOT_RTYPE) {
