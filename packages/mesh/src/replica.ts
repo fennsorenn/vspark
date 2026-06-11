@@ -164,7 +164,7 @@ export class Replica<T extends object> {
     this.rootStamps.set(id, v);
     this.tombs.delete(id);
     this.overlays.delete(id);
-    this.replayParked(id, meta);
+    this.replayParked(id);
     return { op: 'upsert', id, doc: this.get(id), v, ...metaFields(meta) };
   }
 
@@ -357,7 +357,7 @@ export class Replica<T extends object> {
     if (list.length > MAX_PARKED_PER_ID) list.shift();
   }
 
-  private replayParked(id: string, meta: ApplyMeta): void {
+  private replayParked(id: string): void {
     const list = this.parked.get(id);
     if (!list) return;
     this.parked.delete(id);

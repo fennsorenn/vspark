@@ -51,6 +51,11 @@ export default defineConfig({
         ws: true,
         configure: resilientProxy,
       },
+      '/mesh': {
+        target: `ws://localhost:${backendPort}`,
+        ws: true,
+        configure: resilientProxy,
+      },
       '/uploads': {
         target: `http://localhost:${backendPort}`,
         configure: resilientProxy,

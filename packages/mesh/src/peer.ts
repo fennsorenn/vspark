@@ -735,7 +735,7 @@ export class MeshPeer implements PeerCore {
     );
     const authority = col.cfg.authority ?? 'self';
     if (authority !== 'self' && this.links.has(authority)) targets.add(authority);
-    this.deliver(col, env, targets);
+    this.deliver(env, targets);
   }
 
   /** Forward a remote env onward (authority relays to its other subscribers). */
@@ -751,10 +751,10 @@ export class MeshPeer implements PeerCore {
     );
     targets.delete(senderId);
     targets.delete(env.origin);
-    this.deliver(col, env, targets);
+    this.deliver(env, targets);
   }
 
-  private deliver(col: AnyCollection, env: OpEnvelope, targets: Set<string>): void {
+  private deliver(env: OpEnvelope, targets: Set<string>): void {
     const ch = this.channels.get(env.ch);
     const lossy = ch?.transport === 'lossy';
     for (const t of targets) {

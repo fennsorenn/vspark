@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:worker": "node scripts/build-mediapipe-worker.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",
@@ -16,6 +17,9 @@
     "@react-three/fiber": "^8.15.0",
     "@react-three/postprocessing": "^2.15.0",
     "@types/three": "^0.168.0",
+    "@vspark/mesh": "workspace:*",
+    "@vspark/mesh-react": "workspace:*",
+    "@vspark/mesh-transports": "workspace:*",
     "@xyflow/react": "^12.10.2",
     "dompurify": "^3.4.7",
     "htm": "^3.1.1",
