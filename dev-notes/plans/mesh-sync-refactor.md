@@ -425,7 +425,34 @@ content-addressed port beside the store; documents reference blobs by hash.
 - **Authority is unique per collection** (the home peer that persists it);
   grant minting and acking live there. API symmetry, role asymmetry.
 
-### 8.11 Deliberate non-features
+### 8.11 REST API stays — as an edge adapter
+
+The existing REST routes are kept through the refactor (external clients use
+them). What changes is *how they write*: a mutation handler becomes a thin
+adapter that validates the request and writes into the mesh collection as the
+local peer — it does NOT write the DB directly or broadcast.
+
+```ts
+// e.g. PATCH /api/scene-nodes/:id
+const handle = nodes.update(req.params.id, body);
+const result = await handle.ack;            // backend is the authority: ack = persist tap ran
+// acked → 200 with canonical DTO · corrected → 200 with the corrected value
+// rejected → 4xx with reason
+```
+
+Because the backend is the collection's authority and better-sqlite3 is
+synchronous, awaiting the local ack gives REST the same durability semantics it
+has today (200 ⇒ persisted), and the write fans out to all subscribed peers
+like any other — an external client's edit shows up live everywhere with zero
+extra code. Reads serve from DB or replica (identical by construction).
+
+The app frontend still migrates off REST for synced state (that's what kills
+the upsert-dedupe hacks); REST remains the door for everything that isn't a
+mesh peer. The invariant to protect: **REST is a producer into the store, never
+a parallel persistence/broadcast path** — that parallel path is exactly the §2
+drift this refactor removes.
+
+### 8.12 Deliberate non-features
 
 - No CRDT merging (LWW per path is the model; fits poses/transforms/configs).
 - No offline write queue (gate writes instead).
