@@ -326,6 +326,59 @@ describe('one-way place (read grant + subscribe, no write rights)', () => {
   });
 });
 
+describe('pure-stream collections (preview-only, routed by containment)', () => {
+  it('frames keyed by another collection\'s ids ride subtree subscriptions', async () => {
+    const lb = createLoopbackPair('A', 'B');
+    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
+    const b = createMeshPeer({ identity: { peerId: 'B' }, transports: [lb.b] });
+    const parent = (n: Node) =>
+      n.parentId ? { rtype: 'node', id: n.parentId } : null;
+    const na = a.collection<Node>('node', { parent });
+    b.collection<Node>('node', { parent, authority: 'A' });
+    interface Frame {
+      id: string;
+      kind: string;
+      [k: string]: unknown;
+    }
+    const sa = a.collection<Frame>('stream', { channels: ['preview'] });
+    const sb = b.collection<Frame>('stream', { channels: ['preview'] });
+    const seen: Frame[] = [];
+    sb.observe('**', (c) => {
+      if (c.doc) seen.push(c.doc);
+    });
+
+    na.create({ id: 'root', name: 'scene', parentId: null });
+    na.create({ id: 'avatar', name: 'av', parentId: 'root' });
+    a.grants.grant({
+      grantee: 'B',
+      entityRtype: '*',
+      entityId: 'root',
+      includeDescendants: true,
+      pathPrefix: '',
+      rights: { read: true },
+    });
+    await b.subscribe('A', {
+      entityRtype: '*',
+      entityId: 'root',
+      includeDescendants: true,
+      pathPrefix: '',
+    });
+
+    // Frame keyed by a scene-node id: containment (from the 'node' collection)
+    // routes it through the subtree subscription; nothing is retained.
+    sa.set('avatar', '', { id: 'avatar', kind: 'pose' }, { channel: 'preview' });
+    await lb.flush();
+    expect(seen.map((f) => f.kind)).toEqual(['pose']);
+    expect(sb.get('avatar')?.kind).toBe('pose'); // overlay composed
+    expect(sb.replica.raw('avatar')).toBeUndefined(); // never retained
+
+    // A frame keyed OUTSIDE the granted subtree never crosses.
+    sa.set('elsewhere', '', { id: 'elsewhere', kind: 'x' }, { channel: 'preview' });
+    await lb.flush();
+    expect(sb.get('elsewhere')).toBeUndefined();
+  });
+});
+
 describe('snapshot relay (subscribe-through topology)', () => {
   it("a server's tabs receive docs the server itself got via snapshot", async () => {
     // T(tab) — S(server) — O(owner): T subscribes to S first; S then

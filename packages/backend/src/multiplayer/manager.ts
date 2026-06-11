@@ -17,6 +17,7 @@ import {
   subscribeSharedObject,
   unsubscribeSharedObject,
 } from '../mesh/shares.js';
+import { publishNodeStream } from '../mesh/streams.js';
 import {
   RendezvousClient,
   type PairedPeer,
@@ -38,7 +39,7 @@ import {
   indexCollabScene,
   indexCollabNode,
   mountSharedScene,
-  forwardCollabStream,
+  collabSceneForNode,
   forwardClipPlayback,
   forwardCollabRuntime,
   persistCollabAssets,
@@ -46,7 +47,6 @@ import {
   listAllCollabScenes,
   type CollabLink,
   collabPeersForScene,
-  COLLAB_STREAM_RTYPE,
   COLLAB_SUBSCRIBE_RTYPE,
   COLLAB_SNAPSHOT_RTYPE,
   COLLAB_PLAYBACK_RTYPE,
@@ -314,19 +314,11 @@ class MultiplayerManager {
       clientMeshRelay.onServerDisconnected(peerId);
     });
     // Lossy stream frames (shared-avatar pose/blendshapes/drag previews).
+    // Collab-scene frames now arrive over the mesh preview channel (bridged
+    // to /ws in mesh/streams.ts); only the object-share stream remains here.
     this.mesh.on(
       'streamFrame',
       ({ from, frame }: { from: string; frame: Record<string, unknown> }) => {
-        // Collaborative scene: re-broadcast the frame to our own clients under its
-        // original kind (vmc_pose / node_transform_preview / …). The node ids are
-        // shared, so the frame applies straight to our mounted copy.
-        if (frame?.rtype === COLLAB_STREAM_RTYPE) {
-          this.broadcast(
-            frame.kind as string,
-            frame.payload as Record<string, unknown>
-          );
-          return;
-        }
         this.sharing?.handleStreamFrame(from, frame);
       }
     );
@@ -686,9 +678,9 @@ class MultiplayerManager {
     payload: Record<string, unknown>
   ): void {
     this.sharing?.forwardStream(kind, nodeId, payload);
-    forwardCollabStream(kind, nodeId, payload, (peer, frame) =>
-      this.mesh?.sendStream(peer, frame)
-    );
+    // Collab-scene frames ride the mesh preview channel (mesh/streams.ts);
+    // the existing '*'-subtree collab subscriptions route them by node id.
+    if (collabSceneForNode(nodeId)) publishNodeStream(nodeId, kind, payload);
   }
 
   /** Relay a local clip playback control to collab peers (called by the playback

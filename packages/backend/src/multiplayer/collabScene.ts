@@ -22,9 +22,8 @@ import {
   type SnapshotAsset,
 } from './shares.js';
 
-/** Lossy stream frame (pose / blendshapes / IK / drag preview) for a collab node.
- *  Rides the mesh stream channel, not the doc channel. */
-export const COLLAB_STREAM_RTYPE = '_collab_stream';
+// COLLAB_STREAM_RTYPE ('_collab_stream') is gone: live frames for collab
+// nodes ride the @vspark/mesh preview channel now (backend/src/mesh/streams.ts).
 
 /** Control rtypes for collaborative scene sharing (over the mesh doc channel). */
 export const COLLAB_PLAYBACK_RTYPE = '_collab_playback'; // clip play/pause/seek control
@@ -285,21 +284,13 @@ export function indexAllCollabScenes(): void {
   for (const s of scenes) indexCollabScene(s.scene_id);
 }
 
-/** Forward a lossy stream frame (pose / blendshapes / IK / drag preview) for a
- *  collab-scene node to every collab peer, so the mounted copy animates live.
- *  HOT PATH (per pose frame, per avatar): resolves the scene from the in-memory
- *  index only — a node not in the index isn't collaborative, so this returns in
- *  O(1) without touching the DB for the common (non-shared) avatar. */
-export function forwardCollabStream(
-  kind: string,
-  nodeId: string,
-  payload: Record<string, unknown>,
-  send: (peerId: string, frame: Record<string, unknown>) => void
-): void {
-  const sceneId = nodeScene.get(nodeId);
-  if (!sceneId) return;
-  for (const link of collabPeersForScene(sceneId))
-    send(link.peerId, { rtype: COLLAB_STREAM_RTYPE, kind, nodeId, payload });
+/** The collab scene a node belongs to, if any — the sender gate + receiver
+ *  bridge filter for live streams over the mesh (mesh/streams.ts). HOT PATH
+ *  (per pose frame, per avatar): in-memory index only — a node not in the
+ *  index isn't collaborative, so this returns in O(1) without touching the
+ *  DB for the common (non-shared) avatar. */
+export function collabSceneForNode(nodeId: string): string | undefined {
+  return nodeScene.get(nodeId);
 }
 
 // --- timeline clips ---------------------------------------------------------

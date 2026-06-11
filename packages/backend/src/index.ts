@@ -48,6 +48,7 @@ import { initBackendMesh, getMeshPeer, meshUpgrade } from './mesh/index.js';
 import { ServerMeshTransport } from './mesh/serverMeshTransport.js';
 import { initMeshCollab } from './mesh/collab.js';
 import { initMeshShares } from './mesh/shares.js';
+import { initMeshStreams } from './mesh/streams.js';
 import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
 import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
@@ -117,6 +118,12 @@ async function start() {
   // Mesh store (parallel-run): hydrate collections + serve tabs on /mesh.
   // The legacy sync/multiplayer paths stay live until features migrate over.
   initBackendMesh();
+  // Live collab streams (pose/preview frames) over the mesh preview channel;
+  // remote frames for our collab scenes bridge back onto /ws.
+  {
+    const mp = getMeshPeer();
+    if (mp) initMeshStreams(mp, (kind, payload) => wsSync.broadcast(kind, payload));
+  }
   // Connect to the rendezvous if configured (else multiplayer stays disabled).
   multiplayerManager.init(
     process.env.MULTIPLAYER_RENDEZVOUS_URL,
