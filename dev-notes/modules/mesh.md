@@ -275,7 +275,7 @@ const peer = useMemo(() => createMeshPeer({
 **Remaining:**
 - REST mutation routes writing through the store (instead of direct DB writes).
 - Frontend store migration: UI bindings to mesh-react hooks instead of Zustand reads.
-- Known issues: werift stale-slot blocks single-side reconnect (legacy transport, pre-existing); model-swap assets don't ride mesh yet; Phase-6 writes (`_share_write`/NAK), pose/override/data-channel streams, blob/asset transfer, advertise/offer flow remain legacy.
+- Known issues: model-swap assets don't ride mesh yet; Phase-6 writes (`_share_write`/NAK), pose/override/data-channel streams, blob/asset transfer, advertise/offer flow remain legacy. (The werift stale-slot single-side reconnect wedge is FIXED: `ServerMesh.onSignal` tears down a connected slot when that peer sends a fresh offer — a live peer never re-dials — live-verified 4/4.)
 
 ## Key files
 
