@@ -405,11 +405,21 @@ function indexCollabSceneClips(sceneId: string): void {
   for (const r of rows) clipScene.set(r.id, sceneId);
 }
 
-/** Write a full clip from its DTO (delete + reinsert clip/lanes/keyframes/events;
- *  cascade clears the children). started_at is dropped — playback anchors are
- *  peer-local (synced separately) — and the re-emit updates our own clients. */
+/** Write a full clip from its DTO (delete + reinsert clip/lanes/keyframes/events).
+ *  Children are cleared EXPLICITLY rather than via FK cascade — migrations toggle
+ *  `foreign_keys`, and a re-mount/re-apply must be idempotent regardless. Without
+ *  this, re-applying a clip hits a UNIQUE constraint on the stale lane ids.
+ *  started_at is dropped (playback anchors are peer-local, synced separately) and
+ *  the re-emit updates our own clients. */
 function applyClipDto(dto: ClipDto): void {
   const db = getDb();
+  const oldLanes = db
+    .prepare('SELECT id FROM track_clip_lanes WHERE clip_id = ?')
+    .all(dto.id) as { id: string }[];
+  for (const l of oldLanes)
+    db.prepare('DELETE FROM track_clip_keyframes WHERE lane_id = ?').run(l.id);
+  db.prepare('DELETE FROM track_clip_lanes WHERE clip_id = ?').run(dto.id);
+  db.prepare('DELETE FROM track_clip_events WHERE clip_id = ?').run(dto.id);
   db.prepare('DELETE FROM track_clips WHERE id = ?').run(dto.id);
   db.prepare(
     `INSERT INTO track_clips
@@ -458,11 +468,17 @@ function deleteClip(clipId: string): void {
   sync.document.remove('track_clip', clipId);
 }
 
-/** Write a collab scene's clips at mount/reconcile time, indexing them. */
+/** Write a collab scene's clips at mount/reconcile time, indexing them. A bad
+ *  clip is logged and skipped rather than aborting the whole scene mount. */
 export function applyCollabClips(sceneId: string, clips: ClipDto[]): void {
   for (const c of clips) {
-    applyClipDto(c);
-    clipScene.set(c.id, sceneId);
+    try {
+      applyClipDto(c);
+      clipScene.set(c.id, sceneId);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error(`[collab] failed to apply clip ${c.id}:`, e);
+    }
   }
 }
 
