@@ -69,21 +69,32 @@ export function listObjectGrantees(objectId: string): string[] {
 /** Everything granted to a peer (peer-specific + '*'), for advertise. */
 export function listSharesForPeer(peerId: string): ShareGrant[] {
   const db = getDb();
-  const isScene = db.prepare(
-    "SELECT 1 FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+  const grants = grantsForRequester(peerId).filter(
+    (g) => g.rights.read && g.entityRtype === 'scene_node'
   );
-  return grantsForRequester(peerId)
-    .filter((g) => g.rights.read && g.entityRtype === 'scene_node')
-    .map((g) => ({
-      id: `${g.grantee}:${g.entityId}`,
-      // A grant on a scene root is a collaborative-scene offer (mount), not an
-      // object projection (place) — the receiver UI branches on this.
-      shareKind: (isScene.get(g.entityId) ? 'scene' : 'object') as ShareKind,
-      objectId: g.entityId,
-      granteePeerId: g.grantee,
-      canWrite: !!g.rights.update,
-      createdAt: '',
-    }));
+  if (grants.length === 0) return [];
+
+  // Determine which entity IDs are scene roots in one query to avoid
+  // re-using a finalized PreparedStatement across map iterations.
+  const ids = grants.map((g) => g.entityId);
+  const placeholders = ids.map(() => '?').join(',');
+  const sceneIds = new Set(
+    db
+      .prepare(`SELECT id FROM scene_nodes WHERE kind = 'scene' AND id IN (${placeholders})`)
+      .all(...ids)
+      .map((r) => r.id as string)
+  );
+
+  return grants.map((g) => ({
+    id: `${g.grantee}:${g.entityId}`,
+    // A grant on a scene root is a collaborative-scene offer (mount), not an
+    // object projection (place) — the receiver UI branches on this.
+    shareKind: (sceneIds.has(g.entityId) ? 'scene' : 'object') as ShareKind,
+    objectId: g.entityId,
+    granteePeerId: g.grantee,
+    canWrite: !!g.rights.update,
+    createdAt: '',
+  }));
 }
 
 export function isSharedWith(objectId: string, peerId: string): boolean {
