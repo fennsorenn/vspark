@@ -29,6 +29,7 @@ import {
   peerReject,
   peerRemove,
   peerUnsubscribe,
+  mountCollabScene,
   createNode,
   deleteNode,
   type ConnectionPeer,
@@ -39,7 +40,7 @@ import {
   REMOTE_OBJECT_KIND,
 } from '../sync/sharedProjection';
 import { unsubscribeDirect } from '../sync/shareDirect';
-import type { SharedOffer } from '../store/connectionsStore';
+import type { SharedOffer, CollabOffer } from '../store/connectionsStore';
 
 const C = {
   bg: '#181818',
@@ -149,9 +150,28 @@ function ConnectedMember({
   const subscribed =
     useConnectionsStore((s) => s.subscribed[peer.peerId]) ?? EMPTY_IDS;
   const setSubscribed = useConnectionsStore((s) => s.setSubscribed);
+  const collabOffers =
+    useConnectionsStore((s) => s.collabOffers[peer.peerId]) ?? EMPTY_COLLAB;
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
+  const projectId = useEditorStore((s) => s.projectId);
   const addNodeLocal = useEditorStore((s) => s.addNode);
   const [actBusy, setActBusy] = useState(false);
+
+  const mount = (offer: CollabOffer) =>
+    void (async () => {
+      if (!projectId) return;
+      setActBusy(true);
+      try {
+        // Persist the peer's scene as a real, editable, live-synced scene in our
+        // current project. The backend replies mp_collab_mounted, which reloads
+        // our scenes and focuses it.
+        await mountCollabScene(peer.peerId, offer.sceneId, projectId);
+      } catch {
+        /* ignore */
+      } finally {
+        setActBusy(false);
+      }
+    })();
 
   const place = (offer: SharedOffer) =>
     void (async () => {
@@ -277,11 +297,39 @@ function ConnectedMember({
           })}
         </div>
       )}
+      {collabOffers.length > 0 && (
+        <div style={{ paddingLeft: 14, paddingTop: 4 }}>
+          <div style={{ color: C.dim, fontSize: 11, paddingBottom: 2 }}>
+            {t('collab.label')}
+          </div>
+          {collabOffers.map((o) => (
+            <div
+              key={o.sceneId}
+              style={{ ...S.row, marginBottom: 4, fontSize: 11 }}
+            >
+              <span
+                style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}
+              >
+                🎬 {o.name || o.sceneId.slice(0, 10)}
+              </span>
+              <button
+                style={S.btn('primary')}
+                disabled={actBusy || !projectId}
+                onClick={() => mount(o)}
+                title={t('collab.mountHint')}
+              >
+                {t('collab.mount')}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 const EMPTY: import('../store/connectionsStore').SharedOffer[] = [];
+const EMPTY_COLLAB: import('../store/connectionsStore').CollabOffer[] = [];
 const EMPTY_IDS: string[] = [];
 
 export function ConnectionsWindow({ visible }: { visible: boolean }) {

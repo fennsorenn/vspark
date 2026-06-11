@@ -40,6 +40,11 @@
     "remove": "Remove",
     "placedName": "Shared object"
   },
+  "collab": {
+    "label": "Collaborative scenes",
+    "mount": "Mount",
+    "mountHint": "Add this scene to your current project as an editable, live-synced copy"
+  },
   "pairing": {
     "label": "Pairing",
     "create": "Create code",

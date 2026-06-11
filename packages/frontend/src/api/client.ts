@@ -1470,3 +1470,25 @@ export const peerUnsubscribe = (peerId: string, objectId: string) =>
     `/connections/peers/${peerId}/unsubscribe`,
     { method: 'POST', body: JSON.stringify({ objectId }) }
   );
+
+// --- collaborative scene sharing (peer-to-peer, persisted on both) ---------
+
+/** Owner: offer a scene for collaborative editing (both peers persist + edit). */
+export const shareCollabScene = (sceneId: string, granteePeerId: string) =>
+  request<{ sceneId: string; granteePeerId: string }>(
+    `/connections/scenes/${sceneId}/share-collab`,
+    { method: 'POST', body: JSON.stringify({ granteePeerId }) }
+  );
+/** Receiver: mount an offered collaborative scene into a local project. */
+export const mountCollabScene = (
+  ownerPeerId: string,
+  sceneId: string,
+  projectId: string
+) =>
+  request<{ ownerPeerId: string; sceneId: string; projectId: string }>(
+    `/connections/collab/mount`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ ownerPeerId, sceneId, projectId }),
+    }
+  );

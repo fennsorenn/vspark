@@ -9,6 +9,7 @@ import {
   mapTrackClipLane,
   mapTrackClipKeyframe,
   mapTrackClipEvent,
+  getScenes,
 } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
 import { smoothNodeTransform, smoothComposeLayer } from '../previewSmoother';
@@ -494,6 +495,43 @@ export function useWsSync() {
             useConnectionsStore
               .getState()
               .setOffers(p.peerId, p.shares ?? []);
+          } else if (msg.kind === 'mp_collab_offer') {
+            // A peer offered a scene for collaborative (persisted, two-way)
+            // editing — surface it so we can mount it into a local project.
+            const p = msg.payload as {
+              peerId: string;
+              sceneId: string;
+              name: string;
+            };
+            useConnectionsStore
+              .getState()
+              .addCollabOffer(p.peerId, { sceneId: p.sceneId, name: p.name });
+          } else if (msg.kind === 'mp_collab_mounted') {
+            // A collaborative scene was just persisted into one of our projects
+            // (straight to SQLite, so no per-node sync events) — reload that
+            // project's scenes so the new one appears, then focus it. Live edits
+            // after this flow through the normal scene_node sync layer.
+            const p = msg.payload as {
+              peerId: string;
+              sceneId: string;
+              projectId: string;
+            };
+            useConnectionsStore
+              .getState()
+              .clearCollabOffer(p.peerId, p.sceneId);
+            const ed = useEditorStore.getState();
+            if (ed.projectId === p.projectId) {
+              void getScenes(p.projectId)
+                .then((data) => {
+                  const s = useEditorStore.getState();
+                  s.setScenes(data.scenes);
+                  s.setNodes(data.nodes);
+                  s.setBehaviors(data.behaviors);
+                  s.setCameraEffects(data.cameraEffects);
+                  s.setActiveScene(p.sceneId);
+                })
+                .catch(() => {});
+            }
           } else if (msg.kind === 'mp_shared_snapshot') {
             const p = msg.payload as {
               peerId: string;
