@@ -40,7 +40,14 @@ interface RtypeBinding {
   parent?: (dto: Dto) => { rtype: string; id: string } | null;
   /** Incoming-doc transform/gate (localize project scope, keep local paths). */
   validate?: (data: unknown) => Dto;
+  /** Whether a committed doc belongs to THIS server's data (persist it) or is
+   *  a remote projection riding a placed-object subscription (replica-only:
+   *  fans out to our tabs, never touches SQLite). §9 step D. */
+  persists?: (dto: Dto) => boolean;
 }
+
+const rowExists = (table: string, id: unknown): boolean =>
+  !!getDb().prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id as string);
 
 const childOfNode = (d: Dto) =>
   typeof d.nodeId === 'string' ? { rtype: 'scene_node', id: d.nodeId } : null;
@@ -80,9 +87,22 @@ const BINDINGS: RtypeBinding[] = [
         d.filePath = cur.file_path;
       return d;
     },
+    // Placed-share projections keep the OWNER's projectId (no collab link to
+    // re-scope it) — that marks them foreign, so they stay replica-only.
+    persists: (d) => rowExists('projects', d.projectId),
   },
-  { rtype: 'behavior', table: 'behaviors', parent: childOfNode },
-  { rtype: 'camera_effect', table: 'camera_effects', parent: childOfNode },
+  {
+    rtype: 'behavior',
+    table: 'behaviors',
+    parent: childOfNode,
+    persists: (d) => rowExists('scene_nodes', d.nodeId),
+  },
+  {
+    rtype: 'camera_effect',
+    table: 'camera_effects',
+    parent: childOfNode,
+    persists: (d) => rowExists('scene_nodes', d.nodeId),
+  },
   {
     rtype: 'compose_layer',
     table: 'compose_layers',
@@ -90,6 +110,7 @@ const BINDINGS: RtypeBinding[] = [
       typeof d.parentId === 'string'
         ? { rtype: 'compose_layer', id: d.parentId }
         : null,
+    persists: (d) => rowExists('projects', d.projectId),
   },
   {
     rtype: 'track_clip',
@@ -102,6 +123,12 @@ const BINDINGS: RtypeBinding[] = [
         : typeof d.ownerLayerId === 'string'
           ? { rtype: 'compose_layer', id: d.ownerLayerId }
           : null,
+    persists: (d) =>
+      typeof d.ownerNodeId === 'string'
+        ? rowExists('scene_nodes', d.ownerNodeId)
+        : typeof d.ownerLayerId === 'string'
+          ? rowExists('compose_layers', d.ownerLayerId)
+          : false,
   },
 ];
 
@@ -224,15 +251,19 @@ function bindCollection(
   // change live. The guard keeps the bridge mirror from looping it back.
   // Removes also persist their HLC tombstone so a restart can't resurrect
   // entities deleted while a peer was offline.
+  // Foreign docs (a placed object's projection — §9 step D) skip all of it:
+  // they live in the replica only, fanned out to tabs over the mesh.
   col.onCommitted((c) => {
     const key = `${b.rtype}:${c.id}`;
     applyingFromMesh.add(key);
     try {
       if (c.op === 'remove') {
+        if (b.persists && !rowExists(b.table, c.id)) return; // never persisted
         r.remove?.(c.id);
         if (c.v) saveTombstone(b.rtype, c.id, c.v);
         sync.document.remove(b.rtype, c.id);
       } else if (c.doc) {
+        if (b.persists && !b.persists(c.doc)) return;
         r.save?.(c.doc);
         clearTombstone(b.rtype, c.id);
         sync.document.upsert(b.rtype, c.id);

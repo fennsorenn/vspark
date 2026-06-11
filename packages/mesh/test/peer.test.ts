@@ -281,6 +281,102 @@ describe('mesh peer pair', () => {
   });
 });
 
+describe('one-way place (read grant + subscribe, no write rights)', () => {
+  function placeRig() {
+    const lb = createLoopbackPair('O', 'R');
+    const o = createMeshPeer({ identity: { peerId: 'O' }, transports: [lb.a] });
+    const r = createMeshPeer({ identity: { peerId: 'R' }, transports: [lb.b] });
+    const parent = (n: Node) =>
+      n.parentId ? { rtype: 'node', id: n.parentId } : null;
+    const no = o.collection<Node>('node', { parent, authority: 'self' });
+    const nr = r.collection<Node>('node', { parent, authority: 'self' });
+    no.create({ id: 'obj', name: 'avatar', parentId: null });
+    no.create({ id: 'limb', name: 'arm', parentId: 'obj' });
+    o.grants.grant({
+      grantee: 'R',
+      entityRtype: '*',
+      entityId: 'obj',
+      includeDescendants: true,
+      pathPrefix: '',
+      rights: { read: true },
+    });
+    return { o, r, no, nr, flush: lb.flush };
+  }
+
+  it("owner's docs + live edits flow; the receiver's writes never reach back", async () => {
+    const t = placeRig();
+    await t.r.subscribe('O', {
+      entityRtype: '*',
+      entityId: 'obj',
+      includeDescendants: true,
+      pathPrefix: '',
+    });
+    expect(t.nr.get('limb')?.name).toBe('arm'); // snapshot
+
+    t.no.set('limb', 'name', 'leg'); // live op rides the subscription
+    await t.flush();
+    expect(t.nr.get('limb')?.name).toBe('leg');
+
+    // Receiver-local write: applies locally (its own replica is its business)
+    // but the owner has no subscription to R and R holds no write grant — the
+    // op must not land on O.
+    t.nr.set('limb', 'name', 'rogue');
+    await t.flush();
+    expect(t.no.get('limb')?.name).toBe('leg');
+  });
+});
+
+describe('snapshot relay (subscribe-through topology)', () => {
+  it("a server's tabs receive docs the server itself got via snapshot", async () => {
+    // T(tab) — S(server) — O(owner): T subscribes to S first; S then
+    // subscribes to O. O's snapshot must flow through to T.
+    const st = createLoopbackPair('S', 'T');
+    const so = createLoopbackPair('S', 'O');
+    const s = createMeshPeer({ identity: { peerId: 'S' }, transports: [st.a] });
+    const t = createMeshPeer({ identity: { peerId: 'T' }, transports: [st.b] });
+    const o = createMeshPeer({ identity: { peerId: 'O' }, transports: [so.b] });
+    s.addTransport(so.a);
+
+    const parent = (n: Node) =>
+      n.parentId ? { rtype: 'node', id: n.parentId } : null;
+    const ns = s.collection<Node>('node', { parent });
+    const nt = t.collection<Node>('node', { parent, authority: 'S' });
+    const no = o.collection<Node>('node', { parent });
+
+    no.create({ id: 'obj', name: 'shared', parentId: null });
+    s.grants.grant({
+      grantee: 'T',
+      entityRtype: '*',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { read: true, update: true, create: true, delete: true },
+    });
+    o.grants.grant({
+      grantee: 'S',
+      entityRtype: '*',
+      entityId: 'obj',
+      includeDescendants: true,
+      pathPrefix: '',
+      rights: { read: true },
+    });
+
+    await t.subscribe('S', subAll()); // tab first — replica empty
+    expect(nt.get('obj')).toBeUndefined();
+
+    await s.subscribe('O', {
+      entityRtype: '*',
+      entityId: 'obj',
+      includeDescendants: true,
+      pathPrefix: '',
+    });
+    expect(ns.get('obj')?.name).toBe('shared');
+    await st.flush();
+    await so.flush();
+    expect(nt.get('obj')?.name).toBe('shared'); // snapshot relayed onward
+  });
+});
+
 describe('subtree-scoped collab (grant on a root, not the rtype)', () => {
   it('admits creates of brand-new children under the granted subtree', async () => {
     const lb = createLoopbackPair('A', 'B');

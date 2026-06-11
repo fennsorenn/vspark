@@ -1,11 +1,13 @@
 /**
- * Object-share protocol over the mesh (Phase 5, Strategy A). Owner side: track
- * subscribers, send the snapshot on subscribe, forward live document updates of
- * shared subtrees, advertise grants on connect/change. Receiver side: relay the
- * advertise / snapshot / update / unshared control messages to the frontend
- * (which materialises the projected nodes). Live pose + asset transfer are wired
- * (pose/blendshape/IK over the stream forwarders; content-addressed blobs over
- * `_blob_*`).
+ * Object-share protocol over the legacy mesh (Phase 5, Strategy A) — now only
+ * the parts that have NOT migrated to @vspark/mesh (§9 step D migrated the
+ * document plane: snapshot docs + live updates ride a one-way mesh
+ * subscription admitted by the mirrored share grant; the frontend projects
+ * them from its mesh replica). What remains here: advertise/unshared offers,
+ * the legacy SUBSCRIBE (which registers stream routing AND answers with the
+ * snapshot as the ASSET manifest — its docs are ignored by current
+ * receivers), live pose/blendshape/IK + overrides + data channels, Phase-6
+ * writes (WRITE/WRITE_NAK), and content-addressed blobs over `_blob_*`.
  *
  * Behaviours/effects are *not* config-synced live, by design: a behaviour (signal
  * graph) runs only on the owner; whatever it produces that affects rendered state
@@ -25,10 +27,9 @@ import { getDb } from '../db/index.js';
 import {
   listSharesForPeer,
   gatherObjectSnapshot,
-  findOwningRoot,
   type ObjectSnapshot,
 } from './shares.js';
-import { assetForPath, type AssetMeta } from './blobs.js';
+import { unsubscribeSharedObject } from '../mesh/shares.js';
 import { BlobManager } from './blobTransfer.js';
 import { type MeshTransport } from './transport.js';
 import type { MeshRouter } from '../sync/meshRouter.js';
@@ -46,8 +47,9 @@ import type { Right, Subscription, SyncEnvelope } from '@vspark/shared/sync';
 const ADVERTISE = '_share_advertise';
 const SUBSCRIBE = '_share_subscribe';
 const UNSUBSCRIBE = '_share_unsubscribe';
+/** Asset manifest + stream-routing registration reply. The embedded node docs
+ *  are vestigial — the document plane rides @vspark/mesh since §9 step D. */
 const SNAPSHOT = '_share_snapshot';
-const UPDATE = '_share_update';
 const UNSHARED = '_share_unshared';
 /** Live pose/blendshape frame for a shared avatar (rides the lossy stream channel). */
 const STREAM = '_share_stream';
@@ -66,7 +68,6 @@ export const SHARE_RTYPES = new Set([
   SUBSCRIBE,
   UNSUBSCRIBE,
   SNAPSHOT,
-  UPDATE,
   UNSHARED,
   OVERRIDE,
   DATACHANNEL,
@@ -112,13 +113,6 @@ export class SharingManager {
       includeDescendants: true,
       pathPrefix: '',
     };
-  }
-
-  /** The object roots a participant is subscribed to (the old `subscribers` set). */
-  private rootsOf(participant: string): Set<string> {
-    return new Set(
-      this.router.subscriptionsOf(participant).map((s) => s.entityId)
-    );
   }
 
   onPeerConnected(peerId: string): void {
@@ -253,15 +247,10 @@ export class SharingManager {
       case SNAPSHOT:
         void this.relaySnapshot(from, data.snapshot as ObjectSnapshot);
         break;
-      case UPDATE:
-        void this.relayUpdate(
-          from,
-          data.objectId as string,
-          data.env as SyncEnvelope,
-          data.asset as AssetMeta | undefined
-        );
-        break;
       case UNSHARED:
+        // Drop our placed mesh subscription too — the owner's revoke already
+        // evicted it on their side; this clears our local handle.
+        unsubscribeSharedObject(from, data.objectId as string);
         this.broadcast('mp_shared_unshared', {
           peerId: from,
           objectId: data.objectId,
@@ -291,8 +280,9 @@ export class SharingManager {
   /** Owner: authorize + apply a remote scene_node write, or NAK it. Create is
    *  authorized against the parent (the new id isn't in the tree yet); update and
    *  delete against the node id. AuthZ via the grant store, so writes outside a
-   *  granted subtree are rejected. On success the persist emits, and the existing
-   *  `forwardDocOp` echoes the authoritative result to every subscriber. */
+   *  granted subtree are rejected. On success the persist emits sync.document,
+   *  whose mesh bridge mirrors it — the authoritative echo reaches every
+   *  subscriber over their placed mesh subscription. */
   private handleWrite(from: string, env: SyncEnvelope): void {
     if (env?.rtype !== 'scene_node') return;
     const id = env.key;
@@ -325,36 +315,6 @@ export class SharingManager {
     } catch (e) {
       console.error('[sharing] remote write failed', id, e);
       nak();
-    }
-  }
-
-  /** Owner: forward a document op to every subscriber whose subtree contains it.
-   *  Forwards scene_node ops (the avatar tree): upserts (create + property /
-   *  transform / model edits) resolve the owning root via parent_id; removes use
-   *  the envelope's `route` ancestor hint, since the row is already gone. A live
-   *  model swap also carries the new asset's metadata so the receiver can fetch
-   *  it. Behaviours/effects ride the initial snapshot only — their live effect is
-   *  synced as graph *output* (pose / overrides / data channels), not config (see
-   *  the file header). */
-  forwardDocOp(env: SyncEnvelope): void {
-    if (env.rtype !== 'scene_node') return;
-    const filePath = (env.data as { filePath?: string } | undefined)?.filePath;
-    const asset =
-      env.op === 'upsert' && filePath ? assetForPath(filePath) : null;
-    for (const peerId of this.router.participants()) {
-      const roots = this.rootsOf(peerId);
-      if (roots.size === 0) continue;
-      const root =
-        env.op === 'remove'
-          ? ((env.route ?? []).find((id) => roots.has(id)) ?? null)
-          : findOwningRoot(env.key, roots);
-      if (root)
-        this.transport.sendEnvelope(peerId, {
-          rtype: UPDATE,
-          op: 'event',
-          key: root,
-          data: { objectId: root, env, asset: asset ?? undefined },
-        });
     }
   }
 
@@ -445,9 +405,12 @@ export class SharingManager {
 
   // --- receiver-side asset localization ------------------------------------
 
-  /** Fetch the snapshot's assets, rewrite node file paths to the local cache,
-   *  then relay to the frontend. On a fetch failure the original (owner) path is
-   *  kept — which still resolves when both servers share an uploads dir. */
+  /** Fetch the snapshot's assets into the local cache, then relay the
+   *  owner-path → local-URL map to the frontend (which rewrites file paths
+   *  when projecting mesh docs). On a fetch failure the owner path is kept —
+   *  which still resolves when both servers share an uploads dir. The
+   *  snapshot's node docs are vestigial (the doc plane rides @vspark/mesh)
+   *  but are still broadcast for older tabs. */
   private async relaySnapshot(
     from: string,
     snapshot: ObjectSnapshot
@@ -468,24 +431,10 @@ export class SharingManager {
         if (fp && urlByPath.has(fp))
           (n as { filePath?: string }).filePath = urlByPath.get(fp);
       }
-    this.broadcast('mp_shared_snapshot', { peerId: from, snapshot });
-  }
-
-  /** Localize a live update's asset (e.g. a model swap), then relay it. */
-  private async relayUpdate(
-    from: string,
-    objectId: string,
-    env: SyncEnvelope,
-    asset: AssetMeta | undefined
-  ): Promise<void> {
-    const node = env?.data as { filePath?: string } | undefined;
-    if (asset && node?.filePath) {
-      try {
-        node.filePath = await this.blob.ensure(from, asset);
-      } catch {
-        /* keep the owner path */
-      }
-    }
-    this.broadcast('mp_shared_update', { peerId: from, objectId, env });
+    this.broadcast('mp_shared_snapshot', {
+      peerId: from,
+      snapshot,
+      assetUrls: Object.fromEntries(urlByPath),
+    });
   }
 }

@@ -27,12 +27,11 @@ import { applyRemote } from '../sync/registry';
 import '../sync/resources';
 import { setShareWriteRelay } from '../sync/remoteEdit'; // also registers the edit router
 import {
-  applySnapshot as applySharedSnapshot,
-  applyUpdate as applySharedUpdate,
   removeProjection as removeSharedProjection,
   removePeerProjections as removePeerSharedProjections,
   rollbackWrite,
 } from '../sync/sharedProjection';
+import { registerAssetUrls } from '../sync/meshProjection';
 import { useConnectionsStore } from '../store/connectionsStore';
 import { clientMesh } from '../mesh/clientMesh';
 
@@ -527,24 +526,18 @@ export function useWsSync() {
               .then((l) => useConnectionsStore.getState().setCollabScenes(l))
               .catch(() => {});
           } else if (msg.kind === 'mp_shared_snapshot') {
+            // Asset manifest for a placed object: the doc plane rides the
+            // mesh (sync/meshProjection feeds the projection); this carries
+            // the owner-path → local-URL map our server localized.
             const p = msg.payload as {
               peerId: string;
               snapshot: { objectId: string };
+              assetUrls?: Record<string, string>;
             };
-            applySharedSnapshot(
-              p.peerId,
-              p.snapshot as unknown as Parameters<typeof applySharedSnapshot>[1]
-            );
+            registerAssetUrls(p.peerId, p.assetUrls ?? {});
             useConnectionsStore
               .getState()
               .setSubscribed(p.peerId, p.snapshot.objectId, true);
-          } else if (msg.kind === 'mp_shared_update') {
-            const p = msg.payload as {
-              peerId: string;
-              objectId: string;
-              env: SyncEnvelope;
-            };
-            applySharedUpdate(p.peerId, p.objectId, p.env);
           } else if (msg.kind === 'mp_shared_unshared') {
             const p = msg.payload as { peerId: string; objectId: string };
             removeSharedProjection(p.peerId, p.objectId);

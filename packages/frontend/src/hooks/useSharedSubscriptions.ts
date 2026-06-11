@@ -39,11 +39,13 @@ export function useSharedSubscriptions(): void {
       // Mark first so this effect doesn't re-fire a duplicate before the
       // snapshot round-trips; the owner ignores SUBSCRIBE if no longer granted.
       setSubscribed(owner, objectId, true);
-      // Prefer the direct WebRTC edge to the owner (snapshot + live data + asset
-      // blobs flow peer-to-peer, no relay hop); fall back to the server relay if
-      // the edge isn't up. Exactly one path subscribes, so no double-delivery.
-      if (hasDirectEdge(owner) && subscribeDirect(owner, objectId)) continue;
-      void peerSubscribe(owner, objectId).catch(() => {});
+      // Document plane: our server always arms a mesh subscription on the
+      // owner (the projection reads from the mesh replica). Streams + assets
+      // stay legacy: served over the direct WebRTC edge when one is up,
+      // otherwise relayed by our server (streams=true) — one path each, so
+      // no double-delivery.
+      const direct = hasDirectEdge(owner) && subscribeDirect(owner, objectId);
+      void peerSubscribe(owner, objectId, !direct).catch(() => {});
     }
   }, [nodes, connectedIds, meshConnected, subscribed, setSubscribed]);
 }

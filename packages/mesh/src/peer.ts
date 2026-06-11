@@ -619,6 +619,9 @@ export class MeshPeer implements PeerCore {
     entry.status = 'active';
     this.clock.observe(msg.watermark);
 
+    // Snapshot state is new state for OUR subscribers too — relay each applied
+    // change onward exactly like a live op (a tab subscribed before its server
+    // reconciled would otherwise never see the snapshot's docs).
     for (const d of msg.docs) {
       const col = this.collections.get(d.rtype);
       if (!col?.retainedChannel) continue;
@@ -639,11 +642,20 @@ export class MeshPeer implements PeerCore {
         } catch (e) {
           console.error(`[mesh] snapshot tap failed for ${d.rtype}:${d.id}:`, e);
         }
+        this.relay(
+          col,
+          this.snapshotEnv(col, 'upsert', d.id, data, v, senderId),
+          senderId,
+          undefined,
+          undefined
+        );
       }
     }
     for (const t of msg.tombstones) {
       const col = this.collections.get(t.rtype);
       if (!col?.retainedChannel) continue;
+      const preRecipients = this.recipients(col, t.id, undefined, col.retainedChannel);
+      const preChain = col.ancestorChain(t.id);
       const change = col.applyOp('remove', t.id, undefined, undefined, t.v, {
         origin: senderId,
         channel: col.retainedChannel,
@@ -654,6 +666,13 @@ export class MeshPeer implements PeerCore {
         } catch (e) {
           console.error(`[mesh] snapshot tap failed for ${t.rtype}:${t.id}:`, e);
         }
+        this.relay(
+          col,
+          this.snapshotEnv(col, 'remove', t.id, undefined, t.v, senderId),
+          senderId,
+          preRecipients,
+          preChain
+        );
       }
     }
 
@@ -816,6 +835,27 @@ export class MeshPeer implements PeerCore {
   }
 
   // --- helpers ----------------------------------------------------------------------------------
+
+  /** Op envelope for relaying one snapshot-applied doc/tombstone onward. */
+  private snapshotEnv(
+    col: AnyCollection,
+    op: 'upsert' | 'remove',
+    id: string,
+    data: unknown,
+    v: HLC,
+    origin: string
+  ): OpEnvelope {
+    return {
+      t: 'op',
+      rtype: col.rtype,
+      op,
+      id,
+      data,
+      v,
+      origin,
+      ch: col.retainedChannel!,
+    };
+  }
 
   private envelope(
     col: AnyCollection,

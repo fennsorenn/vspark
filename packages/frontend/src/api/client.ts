@@ -1458,11 +1458,13 @@ export const unshareObject = (objectId: string, granteePeerId: string) =>
     method: 'POST',
     body: JSON.stringify({ granteePeerId }),
   });
-/** Receiver: subscribe to (place) a peer's shared object. */
-export const peerSubscribe = (peerId: string, objectId: string) =>
+/** Receiver: subscribe to (place) a peer's shared object. The backend always
+ *  arms the mesh document subscription; `streams=false` skips the legacy
+ *  stream/asset relay (the tab serves those itself over a direct edge). */
+export const peerSubscribe = (peerId: string, objectId: string, streams = true) =>
   request<{ peerId: string; objectId: string }>(
     `/connections/peers/${peerId}/subscribe`,
-    { method: 'POST', body: JSON.stringify({ objectId }) }
+    { method: 'POST', body: JSON.stringify({ objectId, streams }) }
   );
 /** Receiver: unsubscribe from (remove) a peer's shared object. */
 export const peerUnsubscribe = (peerId: string, objectId: string) =>

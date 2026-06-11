@@ -47,6 +47,7 @@ import { initIdentity, getIdentity } from './multiplayer/identity.js';
 import { initBackendMesh, getMeshPeer, meshUpgrade } from './mesh/index.js';
 import { ServerMeshTransport } from './mesh/serverMeshTransport.js';
 import { initMeshCollab } from './mesh/collab.js';
+import { initMeshShares } from './mesh/shares.js';
 import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
 import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
@@ -133,6 +134,9 @@ async function start() {
       // Collab links: standing grants + mutual subscriptions, re-armed on
       // every connect (snapshot-on-subscribe replaces the legacy reconcile).
       initMeshCollab(meshPeer);
+      // Object shares: mirror persisted share grants into the mesh + prune
+      // placed-object subscriptions when their owner drops (§9 step D).
+      initMeshShares(meshPeer);
     }
   }
   // Unified sync layer: producer hub over the shared WS transport.

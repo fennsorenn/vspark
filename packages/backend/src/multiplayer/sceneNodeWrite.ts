@@ -2,9 +2,9 @@
  * Owner-authoritative application of a remote scene_node write (multiplayer
  * Phase 6). A granted remote peer's edit arrives as a `_share_write` envelope;
  * the owner validates it (see {@link ./sharing}) and applies it here — a full
- * upsert or a delete against its own SQLite — then emits via the unified sync hub
- * so the existing share fan-out (`forwardDocOp`) echoes the canonical result to
- * every subscriber, the originator included.
+ * upsert or a delete against its own SQLite — then emits via the unified sync
+ * hub, whose mesh bridge echoes the canonical result to every subscriber's
+ * placed mesh subscription, the originator included.
  *
  * This is a focused full-DTO write, deliberately *not* the partial-update REST
  * path (`routes/scene-nodes.ts`): the wire carries the complete node document,

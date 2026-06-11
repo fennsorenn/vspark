@@ -14,6 +14,10 @@ import { getIdentity, signBytes } from './identity.js';
 import { getMeshPeer, mirrorIntoMesh } from '../mesh/index.js';
 import { syncCollabLinks } from '../mesh/collab.js';
 import {
+  subscribeSharedObject,
+  unsubscribeSharedObject,
+} from '../mesh/shares.js';
+import {
   RendezvousClient,
   type PairedPeer,
   type RvStatus,
@@ -210,13 +214,10 @@ class MultiplayerManager {
       this.blob,
       meshRouter
     );
-    // Forward shared objects' document updates to subscribed peers, and mirror
-    // collaborative-scene edits to their peers (peer-to-peer, persisted on both).
-    // Collab-scene live ops now ride the @vspark/mesh peer (legacy bridge in
-    // backend/src/mesh mirrors every sync.document op into it; subscriptions
-    // are armed per collab link). Only the object-share fan-out stays here.
+    // Document fan-out (collab AND object-share) rides the @vspark/mesh peer:
+    // the legacy bridge in backend/src/mesh mirrors every sync.document op
+    // into it, and subscriptions (collab links / placed objects) route it.
     sync.onDocument((env) => {
-      this.sharing?.forwardDocOp(env);
       // Keep the collab stream-routing map (nodeScene) current for nodes
       // added after mount — pose/preview streams to collab peers still ride
       // the legacy lossy channel and route through it.
@@ -813,11 +814,18 @@ class MultiplayerManager {
     this.sharing?.sendSnapshotTo(send);
   }
 
-  /** Receiver: (un)subscribe to a peer's shared object (frontend wrapper place/remove). */
-  subscribeShared(peerId: string, objectId: string): void {
-    this.sharing?.subscribe(peerId, objectId);
+  /** Receiver: (un)subscribe to a peer's shared object (frontend wrapper
+   *  place/remove). The document plane always rides a one-way mesh
+   *  subscription (snapshot + live ops → our replica → our tabs). The legacy
+   *  `_share_subscribe` is sent only when this server should ALSO relay
+   *  streams + localized assets (`streams=false` when the browser holds a
+   *  direct edge to the owner and serves those itself). */
+  subscribeShared(peerId: string, objectId: string, streams = true): void {
+    subscribeSharedObject(peerId, objectId);
+    if (streams) this.sharing?.subscribe(peerId, objectId);
   }
   unsubscribeShared(peerId: string, objectId: string): void {
+    unsubscribeSharedObject(peerId, objectId);
     this.sharing?.unsubscribe(peerId, objectId);
   }
 

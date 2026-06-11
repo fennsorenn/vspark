@@ -303,10 +303,14 @@ router.get('/connections/collab-scenes', (_req, res) => {
   res.json({ ok: true, data: multiplayerManager.collabScenes() });
 });
 
-/** Receiver: subscribe / unsubscribe to a peer's shared object. */
+/** Receiver: subscribe / unsubscribe to a peer's shared object. `streams`
+ *  (default true) controls whether this server also relays streams + assets
+ *  over the legacy path — false when the tab holds a direct edge. */
 router.post('/connections/peers/:peerId/subscribe', (req, res) => {
   const objectId = String(req.body?.objectId ?? '');
-  if (objectId) multiplayerManager.subscribeShared(req.params.peerId, objectId);
+  const streams = req.body?.streams !== false;
+  if (objectId)
+    multiplayerManager.subscribeShared(req.params.peerId, objectId, streams);
   res.json({ ok: true, data: { peerId: req.params.peerId, objectId } });
 });
 router.post('/connections/peers/:peerId/unsubscribe', (req, res) => {

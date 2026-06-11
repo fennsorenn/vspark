@@ -12,6 +12,7 @@ import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
 import { useSharedSubscriptions } from '../hooks/useSharedSubscriptions';
 import { useClientMesh } from '../hooks/useClientMesh';
 import { initMeshPeer } from '../mesh/peer';
+import { startMeshProjection } from '../sync/meshProjection';
 import { TopBar } from '../components/editor/TopBar';
 import { SceneGraph } from '../components/editor/SceneGraph';
 import { Viewport } from '../components/editor/Viewport';
@@ -32,10 +33,13 @@ export function Editor() {
   useTrackClipEvaluator();
   useSharedSubscriptions();
   useClientMesh();
-  // Mesh store (parallel-run): mirror the document collections into this tab.
-  // No UI reads from it yet — features migrate onto @vspark/mesh-react one by
-  // one (dev-notes/plans/mesh-sync-refactor.md §8).
-  useEffect(() => void initMeshPeer().catch(console.warn), []);
+  // Mesh store: mirror the document collections into this tab, and feed
+  // shared-object projections from them (the doc plane of "place" rides the
+  // mesh since §9 step D; dev-notes/plans/mesh-sync-refactor.md).
+  useEffect(() => {
+    void initMeshPeer().catch(console.warn);
+    startMeshProjection();
+  }, []);
   const { t } = useTranslation('editor');
   const { projectId } = useParams<{ projectId: string }>();
   const {

@@ -15,6 +15,7 @@ import {
   grantsForEntity,
   listAllGrants,
 } from '../sync/grants.js';
+import { mirrorShareGrant, dropShareGrant } from '../mesh/shares.js';
 
 export type ShareKind = 'object' | 'scene';
 
@@ -42,23 +43,28 @@ export function addShare(
   granteePeerId: string,
   canWrite = false
 ): void {
+  const rights = {
+    read: true,
+    update: canWrite,
+    create: canWrite,
+    delete: canWrite,
+  };
   addGrant({
     grantee: granteePeerId,
     entityRtype: 'scene_node',
     entityId: objectId,
     includeDescendants: true,
     pathPrefix: '',
-    rights: {
-      read: true,
-      update: canWrite,
-      create: canWrite,
-      delete: canWrite,
-    },
+    rights,
   });
+  // Mesh mirror: admits the grantee's one-way placed-object subscription
+  // (the document plane of "place" rides the mesh — §9 step D).
+  mirrorShareGrant(granteePeerId, objectId, rights);
 }
 
 export function removeShare(objectId: string, granteePeerId: string): void {
   removeGrant(granteePeerId, 'scene_node', objectId);
+  dropShareGrant(granteePeerId, objectId); // evicts their mesh subscription
 }
 
 /** Grantees for an object (for the "Share with" UI checkmarks). */

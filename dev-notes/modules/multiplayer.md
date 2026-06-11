@@ -1,6 +1,6 @@
 # Multiplayer / Mesh
 
-> **WIP: REST + frontend bindings.** Collab-scene LIVE OPS + RECONCILE have moved onto `@vspark/mesh` grants + subscriptions (see [mesh.md](mesh.md)). File now covers mount/assets/streams/relays only (~530 lines, down from 1106). Remaining work: REST mutation routes writing through the mesh store, frontend store migration to mesh-react bindings. See [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the full design and architecture context.
+> **WIP: Object-share migration + REST/frontend bindings.** Collab-scene LIVE OPS + RECONCILE have moved onto `@vspark/mesh` grants + subscriptions (see [mesh.md](mesh.md)). Now: Step D — object-share document plane (place grants) migrating onto mesh with receiver one-way subscriptions. Remaining work: REST mutation routes writing through the mesh store, frontend store migration to mesh-react bindings. See [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the full design and architecture context.
 
 Peer-to-peer connectivity between vspark instances: server↔server WebRTC, a
 signaling relay for browser clients, object sharing over the mesh, a
@@ -199,6 +199,17 @@ teardown without a spurious re-subscribe.
 which notifies every current subscriber that can no longer read it — server peers
 **and** direct-edge browser participants — and only those actually revoked (a
 surviving `'*'` grant keeps a peer subscribed).
+
+## Step D — Object-share migration (In Progress)
+
+Migrating the object-share **document plane** (read-only place shares) onto the mesh with grant-gated subscriptions, while keeping asset transfer, Phase-6 writes, and the offer/advertise UI on the legacy protocol for now.
+
+**Changes:**
+- **Owner:** mirrors each share grant into the mesh grants store (read-only on the placed object subtree).
+- **Receiver backend:** arms one-way mesh subscriptions per placed object via the same admission path as collab-scene.
+- **Receiver persistence:** taps the mesh collection observer; skips foreign (projected) docs, persisting only locally-owned mutations.
+- **Frontend:** projects shared objects from mesh collection observation (instead of legacy `_share_snapshot` / `_share_update` relay over WS).
+- **Unchanged (legacy):** asset/blob transfer (`_blob_*` rtypes), Phase-6 write tier (`_share_write` / NAK), offer/advertise UI (`mp_shares` WS kinds).
 
 ## Phase 6 — owner-authoritative multi-writer (write tier) — IMPLEMENTED
 

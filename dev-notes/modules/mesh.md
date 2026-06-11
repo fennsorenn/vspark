@@ -266,6 +266,10 @@ const peer = useMemo(() => createMeshPeer({
 - **Grants + subscription arming:** `packages/backend/src/mesh/collab.ts`.
 - **Tombstone persistence:** `mesh_tombstones` table (migration 032), HLC storage, 30-day prune.
 
+**In Progress (step D):**
+- **Object-share document plane migration:** Place grants + one-way subscriptions on mesh, receiver mirrors share grants into mesh grants store, receiver persistence skips foreign (projected) docs.
+- Asset transfer, Phase-6 write tier, offer/advertise UI remain on legacy protocol; live mesh streams stay legacy for now.
+
 **Remaining:**
 - REST mutation routes writing through the store (instead of direct DB writes).
 - Frontend store migration: UI bindings to mesh-react hooks instead of Zustand reads.
