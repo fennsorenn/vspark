@@ -16,6 +16,7 @@ import { isWritableRemoteNode as isWritableRemote } from '../../sync/remoteEdit'
 import {
   getObjectGrantees,
   shareObject,
+  shareCollabScene,
   unshareObject,
 } from '../../api/client';
 import { useConfirm, usePrompt } from '../DialogProvider';
@@ -98,6 +99,14 @@ function ShareWithMenuItem({
   const toggleShare = async (granteePeerId: string) => {
     const has = grantees.includes(granteePeerId);
     try {
+      // A scene share is collaborative (peer-to-peer, persisted + editable on
+      // both) rather than the read-only object projection: offer it via the
+      // collab endpoint. Un-sharing still revokes the grant the normal way.
+      if (shareKind === 'scene' && !has) {
+        await shareCollabScene(entityId, granteePeerId);
+        setGrantees((g) => [...g, granteePeerId]);
+        return;
+      }
       const { grantees: next } = has
         ? await unshareObject(entityId, granteePeerId)
         : await shareObject(entityId, granteePeerId, shareKind, shareWithEdit);

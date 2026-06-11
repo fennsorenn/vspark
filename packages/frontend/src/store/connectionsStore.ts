@@ -26,6 +26,13 @@ export interface SharedOffer {
   canWrite?: boolean;
 }
 
+/** A collaborative scene a peer has offered us — mount it into a local project
+ *  to get a real, editable, live-synced copy (peer-to-peer, persisted on both). */
+export interface CollabOffer {
+  sceneId: string;
+  name: string;
+}
+
 interface ConnectionsState {
   enabled: boolean;
   status: 'idle' | 'connecting' | 'ready' | 'closed';
@@ -40,6 +47,8 @@ interface ConnectionsState {
   offers: Record<string, SharedOffer[]>;
   /** peerId → objectIds we've subscribed to (placed in our scene). */
   subscribed: Record<string, string[]>;
+  /** peerId → collaborative scenes that peer has offered us to mount. */
+  collabOffers: Record<string, CollabOffer[]>;
   /** Participant ids we hold a live direct (client-mesh) data channel to. */
   meshConnected: string[];
   /** Bumped by WS events so the window refetches the peer list. */
@@ -57,6 +66,8 @@ interface ConnectionsState {
   removeIncoming: (peerId: string) => void;
   setOffers: (peerId: string, offers: SharedOffer[]) => void;
   setSubscribed: (peerId: string, objectId: string, on: boolean) => void;
+  addCollabOffer: (peerId: string, offer: CollabOffer) => void;
+  clearCollabOffer: (peerId: string, sceneId: string) => void;
   clearPeerSharing: (peerId: string) => void;
   setMeshConnected: (ids: string[]) => void;
   bumpRevision: () => void;
@@ -73,6 +84,7 @@ export const useConnectionsStore = create<ConnectionsState>((set) => ({
   offers: {},
   subscribed: {},
   meshConnected: [],
+  collabOffers: {},
   revision: 0,
 
   setMeta: (m) => set(m),
@@ -114,13 +126,32 @@ export const useConnectionsStore = create<ConnectionsState>((set) => ({
         : cur.filter((id) => id !== objectId);
       return { subscribed: { ...s.subscribed, [peerId]: next } };
     }),
+  addCollabOffer: (peerId, offer) =>
+    set((s) => {
+      const cur = s.collabOffers[peerId] ?? [];
+      if (cur.some((o) => o.sceneId === offer.sceneId)) return {};
+      return { collabOffers: { ...s.collabOffers, [peerId]: [...cur, offer] } };
+    }),
+  clearCollabOffer: (peerId, sceneId) =>
+    set((s) => {
+      const cur = s.collabOffers[peerId];
+      if (!cur) return {};
+      return {
+        collabOffers: {
+          ...s.collabOffers,
+          [peerId]: cur.filter((o) => o.sceneId !== sceneId),
+        },
+      };
+    }),
   clearPeerSharing: (peerId) =>
     set((s) => {
       const offers = { ...s.offers };
       const subscribed = { ...s.subscribed };
+      const collabOffers = { ...s.collabOffers };
       delete offers[peerId];
       delete subscribed[peerId];
-      return { offers, subscribed };
+      delete collabOffers[peerId];
+      return { offers, subscribed, collabOffers };
     }),
   setMeshConnected: (ids) => set({ meshConnected: ids }),
   bumpRevision: () => set((s) => ({ revision: s.revision + 1 })),

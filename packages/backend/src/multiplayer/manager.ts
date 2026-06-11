@@ -22,8 +22,22 @@ import { BrowserPeerMesh } from './browserMesh.js';
 import { SharingManager, SHARE_RTYPES } from './sharing.js';
 import { type MeshTransport } from './transport.js';
 import { MeshRouter } from '../sync/meshRouter.js';
-import { grantsForRequester } from '../sync/grants.js';
+import { grantsForRequester, canAccess } from '../sync/grants.js';
 import { containmentIndex } from '../sync/containmentIndex.js';
+import { getDb } from '../db/index.js';
+import { gatherObjectSnapshot, gatherSceneSnapshot, type ObjectSnapshot } from './shares.js';
+import {
+  registerCollabScene,
+  removeCollabScene,
+  indexCollabScene,
+  mountSharedScene,
+  forwardCollabOp,
+  applyCollabOp,
+  COLLAB_OP_RTYPE,
+  COLLAB_OFFER_RTYPE,
+  COLLAB_SUBSCRIBE_RTYPE,
+  COLLAB_SNAPSHOT_RTYPE,
+} from './collabScene.js';
 import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
 import {
   clientMeshRelay,
@@ -49,9 +63,6 @@ import type { ShareKind } from './shares.js';
 /** Control envelope carrying a peer's current display name (the per-project
  *  name updates live, so we exchange it on connect + on change). */
 const PROFILE_RTYPE = 'peer_profile';
-/** Sent over a live edge when one side removes the other as a contact, so the
- *  remote drops the pairing too (mutual unpair) instead of keeping a dead row. */
-const UNPAIR_RTYPE = 'peer_unpair';
 
 type Broadcast = (kind: string, payload: Record<string, unknown>) => void;
 
@@ -76,6 +87,9 @@ class MultiplayerManager {
   private sharing: SharingManager | null = null;
   private blob: BlobManager | null = null;
   private enabled = false;
+  /** sceneId → target projectId while a collab-scene mount is in flight (between
+   *  our subscribe request and the owner's snapshot reply). */
+  private readonly pendingCollabMount = new Map<string, string>();
   private broadcast: Broadcast = () => {};
   private iceServers: IceServer[] = [];
   private iceFetchedAt = 0;
@@ -146,8 +160,12 @@ class MultiplayerManager {
       this.blob,
       meshRouter
     );
-    // Forward shared objects' document updates to subscribed peers.
-    sync.onDocument((env) => this.sharing?.forwardDocOp(env));
+    // Forward shared objects' document updates to subscribed peers, and mirror
+    // collaborative-scene edits to their peers (peer-to-peer, persisted on both).
+    sync.onDocument((env) => {
+      this.sharing?.forwardDocOp(env);
+      forwardCollabOp(env, (peer, e) => this.mesh?.sendEnvelope(peer, e));
+    });
     // Bridge the client-mesh signaling relay onto the server mesh.
     clientMeshRelay.attachBridge({
       send: (server, env) => this.mesh?.sendEnvelope(server, env),
@@ -256,12 +274,6 @@ class MultiplayerManager {
           // a reliable point to (re-)advertise our shares (the on-connect send
           // can race the channel setup).
           this.sharing?.advertise(from);
-        } else if (env?.rtype === UNPAIR_RTYPE) {
-          // The peer removed us as a contact — drop it on our side too and tell
-          // our clients so the Connections window refetches.
-          removeKnownPeer(from);
-          revokeSessionGrant(from);
-          this.broadcast('mp_peer', { peerId: from, connected: false });
         } else if (SHARE_RTYPES.has(env?.rtype)) {
           this.sharing?.handleEnvelope(from, env);
         } else if (BLOB_RTYPES.has(env?.rtype)) {
@@ -270,6 +282,27 @@ class MultiplayerManager {
           clientMeshRelay.onServerRelay(env);
         } else if (env?.rtype === MESH_ROSTER_RTYPE) {
           clientMeshRelay.onServerRoster(from, env);
+        } else if (env?.rtype === COLLAB_OP_RTYPE) {
+          // A collaborative-scene peer's edit: apply LWW to our persisted copy.
+          // applyCollabOp re-emits via sync.document, which fans out to our own
+          // clients (so the local editor updates) without echoing back.
+          const d = (env.data ?? {}) as {
+            sceneId?: string;
+            env?: SyncEnvelope;
+          };
+          if (d.sceneId && d.env) applyCollabOp(d.sceneId, d.env);
+        } else if (env?.rtype === COLLAB_OFFER_RTYPE) {
+          const d = (env.data ?? {}) as { sceneId?: string; name?: string };
+          if (d.sceneId)
+            this.broadcast('mp_collab_offer', {
+              peerId: from,
+              sceneId: d.sceneId,
+              name: d.name ?? 'Shared scene',
+            });
+        } else if (env?.rtype === COLLAB_SUBSCRIBE_RTYPE) {
+          this.handleCollabSubscribe(from, env);
+        } else if (env?.rtype === COLLAB_SNAPSHOT_RTYPE) {
+          this.handleCollabSnapshot(from, env);
         }
       }
     );
@@ -279,6 +312,13 @@ class MultiplayerManager {
       upsertKnownPeer(peer);
       this.client?.refreshPresence();
       this.broadcast('mp_peer', { peerId: peer.peerId, paired: true });
+    });
+    // The peer removed us as a contact — drop it on our side too + refetch.
+    this.client.on('unpairRequest', ({ from }: { from: string }) => {
+      revokeSessionGrant(from);
+      this.mesh?.disconnect(from);
+      removeKnownPeer(from);
+      this.broadcast('mp_peer', { peerId: from, connected: false });
     });
     this.client.on(
       'presence',
@@ -384,16 +424,13 @@ class MultiplayerManager {
     revokeSessionGrant(peerId);
   }
 
-  /** Remove a contact (unpair). Notifies the peer over any live edge so it drops
-   *  us too, tears down the connection, forgets the pairing, and tells our own
-   *  clients so the Connections window refetches (it otherwise stayed stale). */
+  /** Remove a contact (unpair). Notifies the peer (rendezvous-relayed, so it
+   *  lands even with no mesh edge — unpair almost always happens from the
+   *  disconnected Contacts list) so it drops us too, tears down any connection,
+   *  forgets the pairing, and tells our own clients so the Connections window
+   *  refetches (it otherwise stayed stale). */
   removePeer(peerId: string): void {
-    // Best-effort mutual unpair: only lands if a live edge is open.
-    this.mesh?.sendEnvelope(peerId, {
-      rtype: UNPAIR_RTYPE,
-      op: 'event',
-      key: getIdentity().peerId,
-    });
+    this.client?.sendUnpair(peerId);
     this.disconnect(peerId);
     removeKnownPeer(peerId);
     this.broadcast('mp_peer', { peerId, connected: false });
@@ -419,15 +456,92 @@ class MultiplayerManager {
   }
 
   /** Revoke a grant + tell every affected subscriber (server peers and direct
-   *  browser participants alike) to drop it. */
+   *  browser participants alike) to drop it. Also tears down any collaborative-
+   *  scene link to that peer so live sync stops (the peer keeps its persisted
+   *  copy — unshare ends the collaboration, it doesn't delete their scene). */
   unshare(objectId: string, granteePeerId: string): void {
     removeShare(objectId, granteePeerId);
+    removeCollabScene(objectId, granteePeerId);
     this.sharing?.revokeUnauthorized(objectId);
   }
 
   /** Grantees of an object (for the "Share with" UI). */
   grantees(objectId: string): string[] {
     return listObjectGrantees(objectId);
+  }
+
+  // --- collaborative scene sharing (peer-to-peer, persisted on both) ---------
+
+  /** Owner: offer a scene for collaborative editing. Grants the peer read+write,
+   *  records our 'author' link, indexes the scene for fan-out, and (if connected)
+   *  pushes an offer the peer can mount. */
+  shareCollabScene(sceneId: string, granteePeerId: string): void {
+    const row = getDb()
+      .prepare("SELECT project_id, name FROM scene_nodes WHERE id = ? AND kind = 'scene'")
+      .get(sceneId) as { project_id: string; name: string } | undefined;
+    if (!row) return;
+    addShare('scene', sceneId, granteePeerId, true);
+    registerCollabScene(sceneId, granteePeerId, 'author', row.project_id);
+    indexCollabScene(sceneId);
+    this.mesh?.sendEnvelope(granteePeerId, {
+      rtype: COLLAB_OFFER_RTYPE,
+      op: 'event',
+      key: sceneId,
+      data: { sceneId, name: row.name },
+    });
+  }
+
+  /** Receiver: ask the owner to send a collab scene so we can mount it into
+   *  `projectId`. Remembers the target project until the snapshot arrives. */
+  mountCollabScene(ownerPeerId: string, sceneId: string, projectId: string): void {
+    this.pendingCollabMount.set(sceneId, projectId);
+    this.mesh?.sendEnvelope(ownerPeerId, {
+      rtype: COLLAB_SUBSCRIBE_RTYPE,
+      op: 'event',
+      key: sceneId,
+      data: { sceneId },
+    });
+  }
+
+  /** Owner side: a peer asked for a collab scene — authorize via the grant, then
+   *  send the full snapshot. */
+  private handleCollabSubscribe(from: string, env: SyncEnvelope): void {
+    const sceneId = (env.data as { sceneId?: string })?.sceneId ?? env.key;
+    if (
+      !canAccess(
+        from,
+        `scene_node:${sceneId}`,
+        'read',
+        containmentIndex.isDescendant
+      )
+    )
+      return;
+    const row = getDb()
+      .prepare('SELECT project_id FROM scene_nodes WHERE id = ?')
+      .get(sceneId) as { project_id: string } | undefined;
+    const snapshot = gatherSceneSnapshot(sceneId);
+    if (!snapshot || !row) return;
+    registerCollabScene(sceneId, from, 'author', row.project_id);
+    indexCollabScene(sceneId);
+    this.mesh?.sendEnvelope(from, {
+      rtype: COLLAB_SNAPSHOT_RTYPE,
+      op: 'event',
+      key: sceneId,
+      data: { sceneId, snapshot },
+    });
+  }
+
+  /** Receiver side: persist the snapshot as a real scene + start syncing. */
+  private handleCollabSnapshot(from: string, env: SyncEnvelope): void {
+    const d = (env.data ?? {}) as { sceneId?: string; snapshot?: ObjectSnapshot };
+    const sceneId = d.sceneId ?? env.key;
+    const projectId = this.pendingCollabMount.get(sceneId);
+    if (!d.snapshot || !projectId) return;
+    this.pendingCollabMount.delete(sceneId);
+    mountSharedScene(d.snapshot, projectId, from);
+    indexCollabScene(sceneId);
+    // Tell our clients to reload scenes (the mount went straight to SQLite).
+    this.broadcast('mp_collab_mounted', { peerId: from, sceneId, projectId });
   }
 
   /** Owner: forward a shared avatar's live pose/blendshape frame to subscribers

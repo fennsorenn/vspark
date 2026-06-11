@@ -179,11 +179,15 @@ wss.on('connection', (raw: WebSocket) => {
       }
 
       case 'signal':
-      case 'connect_request': {
+      case 'connect_request':
+      case 'unpair': {
         const to = msg.to as string;
         const target = to ? peers.get(to) : undefined;
         if (!target) {
-          send(ws, { type: 'error', code: 'peer_offline', peerId: to });
+          // Best-effort for unpair: an offline peer simply isn't told (it keeps
+          // the stale contact until it removes us). Don't error the sender.
+          if (msg.type !== 'unpair')
+            send(ws, { type: 'error', code: 'peer_offline', peerId: to });
           return;
         }
         send(target, {

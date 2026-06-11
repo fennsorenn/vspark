@@ -40,6 +40,11 @@
     "remove": "Entfernen",
     "placedName": "Geteiltes Objekt"
   },
+  "collab": {
+    "label": "Gemeinsame Szenen",
+    "mount": "Einbinden",
+    "mountHint": "Diese Szene als bearbeitbare, live synchronisierte Kopie zu deinem aktuellen Projekt hinzufügen"
+  },
   "pairing": {
     "label": "Kopplung",
     "create": "Code erstellen",

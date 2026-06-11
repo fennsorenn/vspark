@@ -147,6 +147,12 @@ export class RendezvousClient extends EventEmitter {
     this.sendRaw({ type: 'connect_request', to });
   }
 
+  /** Tell a peer we removed it as a contact, so it drops the pairing too. Routed
+   *  via the rendezvous so it reaches an online peer even with no mesh edge. */
+  sendUnpair(to: string): void {
+    this.sendRaw({ type: 'unpair', to });
+  }
+
   // --- internals ----------------------------------------------------------
 
   private setStatus(s: RvStatus): void {
@@ -232,6 +238,9 @@ export class RendezvousClient extends EventEmitter {
         break;
       case 'connect_request':
         this.emit('connectRequest', { from: m.from });
+        break;
+      case 'unpair':
+        this.emit('unpairRequest', { from: m.from });
         break;
       case 'peer_online':
         this.emit('presence', { peerId: m.peerId, online: true });

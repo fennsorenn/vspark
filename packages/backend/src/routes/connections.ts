@@ -250,6 +250,43 @@ router.post('/connections/objects/:objectId/unshare', (req, res) => {
   });
 });
 
+/** Owner: offer a scene for collaborative (peer-to-peer, persisted-on-both)
+ *  editing. Distinct from object sharing's read-only projection. */
+router.post('/connections/scenes/:sceneId/share-collab', (req, res) => {
+  if (!multiplayerManager.isEnabled)
+    return res.status(503).json({
+      ok: false,
+      error: { status: 503, message: 'multiplayer is not enabled', code: 'MULTIPLAYER_DISABLED' },
+    });
+  const granteePeerId = String(req.body?.granteePeerId ?? '');
+  if (!granteePeerId)
+    return res.status(400).json({
+      ok: false,
+      error: { status: 400, message: 'granteePeerId required', code: 'VALIDATION_ERROR' },
+    });
+  multiplayerManager.shareCollabScene(req.params.sceneId, granteePeerId);
+  res.json({ ok: true, data: { sceneId: req.params.sceneId, granteePeerId } });
+});
+
+/** Receiver: mount an offered collaborative scene into a local project. */
+router.post('/connections/collab/mount', (req, res) => {
+  if (!multiplayerManager.isEnabled)
+    return res.status(503).json({
+      ok: false,
+      error: { status: 503, message: 'multiplayer is not enabled', code: 'MULTIPLAYER_DISABLED' },
+    });
+  const ownerPeerId = String(req.body?.ownerPeerId ?? '');
+  const sceneId = String(req.body?.sceneId ?? '');
+  const projectId = String(req.body?.projectId ?? '');
+  if (!ownerPeerId || !sceneId || !projectId)
+    return res.status(400).json({
+      ok: false,
+      error: { status: 400, message: 'ownerPeerId, sceneId, projectId required', code: 'VALIDATION_ERROR' },
+    });
+  multiplayerManager.mountCollabScene(ownerPeerId, sceneId, projectId);
+  res.json({ ok: true, data: { ownerPeerId, sceneId, projectId } });
+});
+
 /** Receiver: subscribe / unsubscribe to a peer's shared object. */
 router.post('/connections/peers/:peerId/subscribe', (req, res) => {
   const objectId = String(req.body?.objectId ?? '');
