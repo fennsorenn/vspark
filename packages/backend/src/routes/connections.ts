@@ -287,6 +287,22 @@ router.post('/connections/collab/mount', (req, res) => {
   res.json({ ok: true, data: { ownerPeerId, sceneId, projectId } });
 });
 
+/** Owner: everything this server currently shares with others. */
+router.get('/connections/shares', (_req, res) => {
+  res.json({ ok: true, data: multiplayerManager.sharedByMe() });
+});
+
+/** Owner: stop sharing an object/scene with everyone. */
+router.post('/connections/objects/:objectId/unshare-all', (req, res) => {
+  multiplayerManager.unshareAll(req.params.objectId);
+  res.json({ ok: true, data: { objectId: req.params.objectId } });
+});
+
+/** Every collaborative-scene link (for the scene-graph chain badge). */
+router.get('/connections/collab-scenes', (_req, res) => {
+  res.json({ ok: true, data: multiplayerManager.collabScenes() });
+});
+
 /** Receiver: subscribe / unsubscribe to a peer's shared object. */
 router.post('/connections/peers/:peerId/subscribe', (req, res) => {
   const objectId = String(req.body?.objectId ?? '');

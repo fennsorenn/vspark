@@ -42,6 +42,9 @@ interface ConnectionsState {
   subscribed: Record<string, string[]>;
   /** Participant ids we hold a live direct (client-mesh) data channel to. */
   meshConnected: string[];
+  /** Collab-scene links (sceneId → peer + author/mounted role) for the scene-
+   *  graph chain badge. Keyed by sceneId. */
+  collabScenes: Record<string, { peerId: string; role: 'author' | 'mounted' }>;
   /** Bumped by WS events so the window refetches the peer list. */
   revision: number;
 
@@ -59,6 +62,9 @@ interface ConnectionsState {
   setSubscribed: (peerId: string, objectId: string, on: boolean) => void;
   clearPeerSharing: (peerId: string) => void;
   setMeshConnected: (ids: string[]) => void;
+  setCollabScenes: (
+    links: { sceneId: string; peerId: string; role: 'author' | 'mounted' }[]
+  ) => void;
   bumpRevision: () => void;
 }
 
@@ -73,6 +79,7 @@ export const useConnectionsStore = create<ConnectionsState>((set) => ({
   offers: {},
   subscribed: {},
   meshConnected: [],
+  collabScenes: {},
   revision: 0,
 
   setMeta: (m) => set(m),
@@ -123,6 +130,12 @@ export const useConnectionsStore = create<ConnectionsState>((set) => ({
       return { offers, subscribed };
     }),
   setMeshConnected: (ids) => set({ meshConnected: ids }),
+  setCollabScenes: (links) =>
+    set({
+      collabScenes: Object.fromEntries(
+        links.map((l) => [l.sceneId, { peerId: l.peerId, role: l.role }])
+      ),
+    }),
   bumpRevision: () => set((s) => ({ revision: s.revision + 1 })),
 }));
 

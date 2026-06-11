@@ -45,6 +45,11 @@
     "mount": "Mount",
     "mountHint": "Add this scene to your current project as an editable, live-synced copy"
   },
+  "sharedByYou": {
+    "label": "Shared by you",
+    "empty": "You're not sharing anything.",
+    "unshare": "Unshare"
+  },
   "pairing": {
     "label": "Pairing",
     "create": "Create code",

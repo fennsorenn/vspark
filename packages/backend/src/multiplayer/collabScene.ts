@@ -128,6 +128,27 @@ export function collabScenesForPeer(peerId: string): CollabLink[] {
   }));
 }
 
+/** Every collab-scene link this server holds (for the scene-graph chain badge). */
+export function listAllCollabScenes(): CollabLink[] {
+  return (
+    getDb()
+      .prepare(
+        'SELECT scene_id, peer_id, role, project_id FROM collab_scenes'
+      )
+      .all() as {
+      scene_id: string;
+      peer_id: string;
+      role: CollabRole;
+      project_id: string;
+    }[]
+  ).map((r) => ({
+    sceneId: r.scene_id,
+    peerId: r.peer_id,
+    role: r.role,
+    projectId: r.project_id,
+  }));
+}
+
 interface SnapshotNode {
   id: string;
   parentId: string | null;

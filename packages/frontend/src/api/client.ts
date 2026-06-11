@@ -1479,6 +1479,30 @@ export const shareCollabScene = (sceneId: string, granteePeerId: string) =>
     `/connections/scenes/${sceneId}/share-collab`,
     { method: 'POST', body: JSON.stringify({ granteePeerId }) }
   );
+/** Owner: everything this server currently shares with others. */
+export interface SharedByMe {
+  objectId: string;
+  name: string;
+  shareKind: 'object' | 'scene';
+  grantees: string[];
+}
+export const getSharedByMe = () =>
+  request<SharedByMe[]>('/connections/shares');
+/** Owner: stop sharing an object/scene with everyone. */
+export const unshareAllObject = (objectId: string) =>
+  request<{ objectId: string }>(
+    `/connections/objects/${objectId}/unshare-all`,
+    { method: 'POST' }
+  );
+/** Collab-scene links (sceneId + peer + author/mounted role) for the chain badge. */
+export interface CollabSceneLink {
+  sceneId: string;
+  peerId: string;
+  role: 'author' | 'mounted';
+}
+export const getCollabScenes = () =>
+  request<CollabSceneLink[]>('/connections/collab-scenes');
+
 /** Receiver: mount an offered collaborative scene into a local project. */
 export const mountCollabScene = (
   ownerPeerId: string,

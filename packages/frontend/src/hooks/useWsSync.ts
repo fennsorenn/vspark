@@ -10,6 +10,7 @@ import {
   mapTrackClipKeyframe,
   mapTrackClipEvent,
   getScenes,
+  getCollabScenes,
 } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
 import { smoothNodeTransform, smoothComposeLayer } from '../previewSmoother';
@@ -478,6 +479,10 @@ export function useWsSync() {
                 .setConnected(p.peerId, p.connected, p.displayName);
             // New pairing (or unknown peer) → refetch the authoritative list.
             useConnectionsStore.getState().bumpRevision();
+            // Connection state changed → refresh collab-scene links (chain badge).
+            void getCollabScenes()
+              .then((l) => useConnectionsStore.getState().setCollabScenes(l))
+              .catch(() => {});
           } else if (msg.kind === 'mp_presence') {
             // Presence reflected via lastSeen refresh on the next list fetch.
             useConnectionsStore.getState().bumpRevision();
@@ -518,6 +523,9 @@ export function useWsSync() {
                 })
                 .catch(() => {});
             }
+            void getCollabScenes()
+              .then((l) => useConnectionsStore.getState().setCollabScenes(l))
+              .catch(() => {});
           } else if (msg.kind === 'mp_shared_snapshot') {
             const p = msg.payload as {
               peerId: string;

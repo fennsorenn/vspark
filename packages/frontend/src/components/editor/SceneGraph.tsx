@@ -17,7 +17,7 @@ import {
   getObjectGrantees,
   shareObject,
   shareCollabScene,
-  unshareObject,
+  getCollabScenes,
 } from '../../api/client';
 import { useConfirm, usePrompt } from '../DialogProvider';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
@@ -96,21 +96,18 @@ function ShareWithMenuItem({
     };
   }, [open, entityId]);
 
-  const toggleShare = async (granteePeerId: string) => {
-    const has = grantees.includes(granteePeerId);
+  // Share only — clicking an already-shared peer is a no-op. Un-sharing lives in
+  // the Connections window ("Shared by you" section), not here. A scene share is
+  // collaborative (the collab endpoint); an object share is a read-only projection.
+  const share = async (granteePeerId: string) => {
+    if (grantees.includes(granteePeerId)) return;
     try {
-      // A scene share is collaborative (peer-to-peer, persisted + editable on
-      // both) rather than the read-only object projection: offer it via the
-      // collab endpoint. Un-sharing still revokes the grant the normal way.
-      if (shareKind === 'scene' && !has) {
+      if (shareKind === 'scene') {
         await shareCollabScene(entityId, granteePeerId);
-        setGrantees((g) => [...g, granteePeerId]);
-        return;
+      } else {
+        await shareObject(entityId, granteePeerId, shareKind, shareWithEdit);
       }
-      const { grantees: next } = has
-        ? await unshareObject(entityId, granteePeerId)
-        : await shareObject(entityId, granteePeerId, shareKind, shareWithEdit);
-      setGrantees(next);
+      setGrantees((g) => [...g, granteePeerId]);
     } catch {
       /* ignore */
     }
@@ -171,7 +168,7 @@ function ShareWithMenuItem({
               style={itemStyle}
               onMouseEnter={(e) => hover(e, true)}
               onMouseLeave={(e) => hover(e, false)}
-              onClick={() => void toggleShare('*')}
+              onClick={() => void share('*')}
             >
               <span>{t('context.shareEveryone')}</span>
               <span style={{ color: '#4ade80' }}>
@@ -185,7 +182,7 @@ function ShareWithMenuItem({
               style={itemStyle}
               onMouseEnter={(e) => hover(e, true)}
               onMouseLeave={(e) => hover(e, false)}
-              onClick={() => void toggleShare(peerId)}
+              onClick={() => void share(peerId)}
             >
               <span
                 style={{
@@ -1813,6 +1810,15 @@ export function SceneGraph() {
   const { projectId } = useParams<{ projectId: string }>();
   const confirm = useConfirm();
   const prompt = usePrompt();
+  // Collab-scene chain badge: which scenes are shared + their role/peer.
+  const collabScenes = useConnectionsStore((s) => s.collabScenes);
+  const collabConnectedIds = useConnectionsStore((s) => s.connectedIds);
+  const setCollabScenes = useConnectionsStore((s) => s.setCollabScenes);
+  useEffect(() => {
+    void getCollabScenes()
+      .then(setCollabScenes)
+      .catch(() => {});
+  }, [setCollabScenes]);
   const {
     activeSceneId,
     scenes,
@@ -2637,6 +2643,41 @@ export function SceneGraph() {
           >
             {scene.name}
           </span>
+          {/* Collab-scene chain badge: blue = I'm sharing it, green = received +
+              peer connected, red = received + disconnected. */}
+          {(() => {
+            const link = collabScenes[scene.id];
+            if (!link) return null;
+            const color =
+              link.role === 'author'
+                ? '#60a5fa'
+                : collabConnectedIds.includes(link.peerId)
+                  ? '#4ade80'
+                  : '#f87171';
+            const title =
+              link.role === 'author'
+                ? t('collab.badgeSharing')
+                : collabConnectedIds.includes(link.peerId)
+                  ? t('collab.badgeConnected')
+                  : t('collab.badgeDisconnected');
+            return (
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={color}
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ flexShrink: 0, marginRight: 3 }}
+              >
+                <title>{title}</title>
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+            );
+          })()}
           {/* Per-scene add-node button — routes to the bottom-dock Create
               palette and flashes it as a hint, rather than opening its own
               menu. The palette adds to whichever scene is active. */}

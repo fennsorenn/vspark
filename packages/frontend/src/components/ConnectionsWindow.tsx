@@ -10,7 +10,7 @@
  * Live updates arrive via the mp_* WS messages → connectionsStore; this
  * component drives the REST actions. See dev-notes/plans/multiplayer-phase5.md.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConnectionsStore } from '../store/connectionsStore';
 import { useEditorStore } from '../store/editorStore';
@@ -30,9 +30,13 @@ import {
   peerRemove,
   peerUnsubscribe,
   mountCollabScene,
+  getSharedByMe,
+  unshareAllObject,
+  getCollabScenes,
   createNode,
   deleteNode,
   type ConnectionPeer,
+  type SharedByMe,
 } from '../api/client';
 import {
   removeProjection as removeSharedProjection,
@@ -331,6 +335,76 @@ function ConnectedMember({
 const EMPTY: import('../store/connectionsStore').SharedOffer[] = [];
 const EMPTY_IDS: string[] = [];
 
+/** Objects/scenes this server shares with others, each with an unshare button. */
+function SharedByYou() {
+  const { t } = useTranslation('connections');
+  const revision = useConnectionsStore((s) => s.revision);
+  const nameById = useConnectionsStore((s) => s.nameById);
+  const setCollabScenes = useConnectionsStore((s) => s.setCollabScenes);
+  const [shares, setShares] = useState<SharedByMe[]>([]);
+  const [busy, setBusy] = useState(false);
+  const refresh = useCallback(() => {
+    void getSharedByMe()
+      .then(setShares)
+      .catch(() => {});
+  }, []);
+  useEffect(refresh, [refresh, revision]);
+
+  const unshare = (objectId: string) =>
+    void (async () => {
+      setBusy(true);
+      try {
+        await unshareAllObject(objectId);
+        refresh();
+        void getCollabScenes()
+          .then(setCollabScenes)
+          .catch(() => {});
+      } finally {
+        setBusy(false);
+      }
+    })();
+
+  return (
+    <>
+      <div style={S.section}>
+        {t('sharedByYou.label')} {shares.length > 0 && `(${shares.length})`}
+      </div>
+      {shares.length === 0 && (
+        <div style={{ color: C.dim, fontSize: 11, padding: '2px 0' }}>
+          {t('sharedByYou.empty')}
+        </div>
+      )}
+      {shares.map((s) => (
+        <div
+          key={s.objectId}
+          style={{ ...S.row, marginBottom: 4, fontSize: 11 }}
+        >
+          <span
+            style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            title={s.grantees
+              .map((g) => nameById[g] || g.slice(0, 8))
+              .join(', ')}
+          >
+            {s.shareKind === 'scene' ? '🎬 ' : '📦 '}
+            {s.name}
+            <span style={{ color: C.dim }}>
+              {' → '}
+              {s.grantees.map((g) => nameById[g] || g.slice(0, 6)).join(', ')}
+            </span>
+          </span>
+          <button
+            style={S.btn('danger')}
+            disabled={busy}
+            onClick={() => unshare(s.objectId)}
+          >
+            {t('sharedByYou.unshare')}
+          </button>
+        </div>
+      ))}
+    </>
+  );
+}
+
 export function ConnectionsWindow({ visible }: { visible: boolean }) {
   const { t } = useTranslation('connections');
   const projectId = useEditorStore((s) => s.projectId);
@@ -340,7 +414,6 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
   const {
     enabled,
     status,
-    identityPeerId,
     peers,
     incoming,
     revision,
@@ -490,32 +563,6 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
               onKeyDown={(e) => e.key === 'Enter' && saveName()}
             />
 
-            {/* Identity */}
-            <div style={S.section}>{t('identity.label')}</div>
-            <div style={S.row}>
-              <code
-                style={{
-                  flex: 1,
-                  color: C.blue,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-                title={identityPeerId ?? ''}
-              >
-                {identityPeerId ? identityPeerId.slice(0, 18) + '…' : '—'}
-              </code>
-              <button
-                style={S.btn()}
-                onClick={() =>
-                  identityPeerId &&
-                  navigator.clipboard?.writeText(identityPeerId)
-                }
-                title={t('identity.copy')}
-              >
-                {t('identity.copy')}
-              </button>
-            </div>
-
             {/* Direct mesh status (live P2P data channels) */}
             <div style={{ ...S.row, marginTop: 6, color: C.dim }}>
               <span style={S.dot(meshConnected.length > 0)} />
@@ -576,6 +623,9 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
                 onDisconnect={() => run(() => peerDisconnect(p.peerId))}
               />
             ))}
+
+            {/* Objects/scenes I share with others (+ unshare) */}
+            <SharedByYou />
 
             {/* Pairing (collapsed) */}
             <Collapsible title={t('pairing.label')}>

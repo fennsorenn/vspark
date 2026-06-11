@@ -41,6 +41,8 @@ import {
   gatherReconcile,
   applyReconcile,
   collabScenesForPeer,
+  listAllCollabScenes,
+  type CollabLink,
   collabPeersForScene,
   COLLAB_OP_RTYPE,
   COLLAB_STREAM_RTYPE,
@@ -59,7 +61,13 @@ import {
   MESH_RELAY_RTYPE,
   MESH_ROSTER_RTYPE,
 } from './clientMeshRelay.js';
-import { addShare, removeShare, listObjectGrantees } from './shares.js';
+import {
+  addShare,
+  removeShare,
+  listObjectGrantees,
+  listSharedByMe,
+  type SharedByMe,
+} from './shares.js';
 import { sync } from '../sync/index.js';
 import {
   upsertKnownPeer,
@@ -568,6 +576,22 @@ class MultiplayerManager {
   /** Grantees of an object (for the "Share with" UI). */
   grantees(objectId: string): string[] {
     return listObjectGrantees(objectId);
+  }
+
+  /** Stop sharing an object with everyone (Connections-window unshare button). */
+  unshareAll(objectId: string): void {
+    for (const grantee of listObjectGrantees(objectId))
+      this.unshare(objectId, grantee);
+  }
+
+  /** Everything this server currently shares with others. */
+  sharedByMe(): SharedByMe[] {
+    return listSharedByMe();
+  }
+
+  /** Every collab-scene link (for the scene-graph chain badge). */
+  collabScenes(): CollabLink[] {
+    return listAllCollabScenes();
   }
 
   // --- collaborative scene sharing (peer-to-peer, persisted on both) ---------

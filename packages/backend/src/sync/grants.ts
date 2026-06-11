@@ -109,6 +109,13 @@ export function grantsForRequester(requester: string): Grant[] {
   ).map(rowToGrant);
 }
 
+/** Every grant this server has issued (for the "shared by me" list). */
+export function listAllGrants(): Grant[] {
+  return (
+    getDb().prepare('SELECT * FROM grants').all() as unknown as GrantRow[]
+  ).map(rowToGrant);
+}
+
 /** All grants on a specific entity (for "who is this shared with" UIs). */
 export function grantsForEntity(entityRtype: string, entityId: string): Grant[] {
   return (

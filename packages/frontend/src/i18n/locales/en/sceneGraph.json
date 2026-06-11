@@ -4,6 +4,11 @@
     "compose": "Compose",
     "logic": "Logic"
   },
+  "collab": {
+    "badgeSharing": "You're sharing this scene",
+    "badgeConnected": "Shared scene — peer connected",
+    "badgeDisconnected": "Shared scene — peer disconnected"
+  },
   "scenes": {
     "header": "Scenes",
     "newButton": "+ Scene",

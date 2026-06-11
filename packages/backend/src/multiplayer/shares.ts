@@ -13,6 +13,7 @@ import {
   canAccess,
   grantsForRequester,
   grantsForEntity,
+  listAllGrants,
 } from '../sync/grants.js';
 
 export type ShareKind = 'object' | 'scene';
@@ -65,6 +66,40 @@ export function listObjectGrantees(objectId: string): string[] {
   return grantsForEntity('scene_node', objectId)
     .filter((g) => g.rights.read)
     .map((g) => g.grantee);
+}
+
+export interface SharedByMe {
+  objectId: string;
+  name: string;
+  shareKind: ShareKind;
+  grantees: string[];
+}
+
+/** Every object/scene this server shares with others, grouped by object (for the
+ *  Connections window "Shared by you" list). Skips grants whose object is gone. */
+export function listSharedByMe(): SharedByMe[] {
+  const byObject = new Map<string, Set<string>>();
+  for (const g of listAllGrants()) {
+    if (g.entityRtype !== 'scene_node' || !g.rights.read) continue;
+    const set = byObject.get(g.entityId) ?? new Set<string>();
+    set.add(g.grantee);
+    byObject.set(g.entityId, set);
+  }
+  const db = getDb();
+  const out: SharedByMe[] = [];
+  for (const [objectId, grantees] of byObject) {
+    const row = db
+      .prepare('SELECT name, kind FROM scene_nodes WHERE id = ?')
+      .get(objectId) as { name: string; kind: string } | undefined;
+    if (!row) continue;
+    out.push({
+      objectId,
+      name: row.name,
+      shareKind: row.kind === 'scene' ? 'scene' : 'object',
+      grantees: [...grantees],
+    });
+  }
+  return out;
 }
 
 /** Everything granted to a peer (peer-specific + '*'), for advertise. */

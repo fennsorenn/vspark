@@ -45,6 +45,11 @@
     "mount": "Einbinden",
     "mountHint": "Diese Szene als bearbeitbare, live synchronisierte Kopie zu deinem aktuellen Projekt hinzufügen"
   },
+  "sharedByYou": {
+    "label": "Von dir geteilt",
+    "empty": "Du teilst nichts.",
+    "unshare": "Nicht mehr teilen"
+  },
   "pairing": {
     "label": "Kopplung",
     "create": "Code erstellen",
