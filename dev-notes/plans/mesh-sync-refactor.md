@@ -512,11 +512,16 @@ rides the legacy WebRTC doc/stream channels, namespaced as `rtype:'_mesh2'`
    a real containment scope.
 
 **Step order (keep green at each step):**
-A. track_clip parent fns; legacyBridge (mirror + tap-upsert + echo guard);
-   collab grant/subscription hydration + reconnect re-subscribe in
-   backend/src/mesh. Verify: two-backend live ops via mesh while legacy still
-   runs (mesh replicas converge; no double-apply because legacy still owns
-   apply — bridge put skips taps).
+A. track_clip parent fns; legacyBridge (mirror + tap-upsert + echo guard).
+   DONE. **Loop hazard (traced)**: mutual mesh subscriptions must NOT go live
+   while legacy forwardCollabOp still runs — A's bridge put → B applies → B
+   tap re-emits via sync.document.upsert (fresh stamp) → B's legacy
+   forwardCollabOp sends _collab_op back → A re-applies → A re-emits → ∞
+   (identical data, ever-fresher stamps). The applyingFromMesh guard only
+   covers the same-process echo, not the cross-backend round trip. Therefore
+   grant hydration is safe to land early (no traffic), but SUBSCRIPTION
+   hydration + mutual mount subscribe land in the SAME commit as the legacy
+   cut (B).
 B. shareCollabScene/mountCollabScene gain mesh grants + mutual subscribe;
    THEN cut legacy: remove forwardCollabOp hook + _collab_op/_subscribe/
    _snapshot/_reconcile dispatch in manager.ts envelope handler for

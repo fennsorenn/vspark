@@ -24,6 +24,7 @@ import { WsServerTransport } from '@vspark/mesh-transports/wsServer';
 import { getDb } from '../db/index.js';
 import { getIdentity } from '../multiplayer/identity.js';
 import { getResource } from '../sync/registry.js';
+import { sync } from '../sync/index.js';
 import '../sync/resources.js'; // side effect: register the descriptors
 
 type Dto = Record<string, unknown>;
@@ -56,8 +57,24 @@ const BINDINGS: RtypeBinding[] = [
         ? { rtype: 'compose_layer', id: d.parentId }
         : null,
   },
-  { rtype: 'track_clip', table: 'track_clips' },
+  {
+    rtype: 'track_clip',
+    table: 'track_clips',
+    // Clip → its owning node/layer, so scene-subtree grants and subscriptions
+    // cover clips cross-type (the §9 cutover relies on this).
+    parent: (d) =>
+      typeof d.ownerNodeId === 'string'
+        ? { rtype: 'scene_node', id: d.ownerNodeId }
+        : typeof d.ownerLayerId === 'string'
+          ? { rtype: 'compose_layer', id: d.ownerLayerId }
+          : null,
+  },
 ];
+
+/** Echo guard for the legacy bridge: ids currently being persisted from a
+ *  mesh apply — the sync.onDocument mirror skips them so the tap's own
+ *  legacy upsert can't loop back into the mesh. */
+const applyingFromMesh = new Set<string>();
 
 let _peer: MeshPeer | null = null;
 let _transport: WsServerTransport | null = null;
@@ -113,10 +130,35 @@ function bindCollection(
   });
   if (!r?.load) return col;
 
-  // Persistence tap: committed mesh state → SQLite, generically.
+  // Persistence tap: committed mesh state → SQLite, generically — then echo
+  // through the legacy sync hub so this backend's own (legacy) tabs see the
+  // change live. The guard keeps the bridge mirror from looping it back.
   col.onCommitted((c) => {
-    if (c.op === 'remove') r.remove?.(c.id);
-    else if (c.doc) r.save?.(c.doc);
+    const key = `${b.rtype}:${c.id}`;
+    applyingFromMesh.add(key);
+    try {
+      if (c.op === 'remove') {
+        r.remove?.(c.id);
+        sync.document.remove(b.rtype, c.id);
+      } else if (c.doc) {
+        r.save?.(c.doc);
+        sync.document.upsert(b.rtype, c.id);
+      }
+    } finally {
+      applyingFromMesh.delete(key);
+    }
+  });
+
+  // Legacy bridge (parallel-run keystone, §9.3): every legacy mutation
+  // (REST routes persist + emit sync.document) is mirrored into the mesh
+  // replica so it stays current and fans out to mesh subscribers. `put`
+  // skips the persistence tap — the row is already in SQLite.
+  sync.onDocument((env) => {
+    if (env.rtype !== b.rtype) return;
+    if (applyingFromMesh.has(`${b.rtype}:${env.key}`)) return;
+    const v = env.v ?? { t: Date.now(), c: 0, n: peerId };
+    if (env.op === 'remove') col.putTombstone(env.key, v);
+    else if (env.data) col.put(env.data as Dto, { v });
   });
 
   // Hydrate with stamps derived from the row's timestamp column.

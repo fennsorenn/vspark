@@ -51,6 +51,12 @@ const PARENTS: Partial<
     typeof d.parentId === 'string'
       ? { rtype: 'compose_layer', id: d.parentId }
       : null,
+  track_clip: (d) =>
+    typeof d.ownerNodeId === 'string'
+      ? { rtype: 'scene_node', id: d.ownerNodeId }
+      : typeof d.ownerLayerId === 'string'
+        ? { rtype: 'compose_layer', id: d.ownerLayerId }
+        : null,
 };
 
 let _init: Promise<MeshHandles> | null = null;
