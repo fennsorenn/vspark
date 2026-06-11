@@ -11,15 +11,45 @@ function shared(file: string) {
 const devPort = Number(process.env.VITE_DEV_PORT) || 5173;
 const backendPort = Number(process.env.VITE_BACKEND_PORT) || 3001;
 
+// When frontend + backend launch together (e.g. the MP compound), Vite's proxy
+// can hit the backend before it's listening → ECONNREFUSED. Swallow that and
+// reply 503 instead of crashing the request; the app's fetch/WS layers retry
+// once the backend is up. Only ECONNREFUSED is suppressed — other errors throw.
+type ProxyOptions = NonNullable<
+  NonNullable<import('vite').ServerOptions['proxy']>[string]
+>;
+const tolerateBackendStartup: ProxyOptions['configure'] = (proxy) => {
+  proxy.on('error', (err, _req, res) => {
+    if ((err as NodeJS.ErrnoException).code !== 'ECONNREFUSED') throw err;
+    console.warn(`[proxy] backend :${backendPort} not up yet — retrying once ready`);
+    // res is a ServerResponse for HTTP, or a Socket for WS upgrades.
+    if ('writeHead' in res && !res.headersSent) {
+      res.writeHead(503).end('backend starting');
+    } else if ('destroy' in res) {
+      res.destroy();
+    }
+  });
+};
+
 export default defineConfig({
   plugins: [react()],
   server: {
     port: devPort,
     host: '0.0.0.0',
     proxy: {
-      '/api': `http://localhost:${backendPort}`,
-      '/ws': { target: `ws://localhost:${backendPort}`, ws: true },
-      '/uploads': `http://localhost:${backendPort}`,
+      '/api': {
+        target: `http://localhost:${backendPort}`,
+        configure: tolerateBackendStartup,
+      },
+      '/ws': {
+        target: `ws://localhost:${backendPort}`,
+        ws: true,
+        configure: tolerateBackendStartup,
+      },
+      '/uploads': {
+        target: `http://localhost:${backendPort}`,
+        configure: tolerateBackendStartup,
+      },
     },
   },
   build: {
