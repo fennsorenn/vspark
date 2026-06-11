@@ -579,6 +579,14 @@ re-subscribe, pose stream still legacy.
   Verified: A→B and B→A frame relay, non-collab isolation, trigger/pause/
   stop mirroring with re-anchored playhead, zero legacy rtypes in logs.
   Object-share streams stay on `_share_stream` (direct browser edges).
+- **Runtime events (collab) — DONE and live-verified 4/4** (e181d9d):
+  Set Data / overrides / media / spawn broadcasts ride a `runtime_control`
+  collection on the `control` channel, one publish per shared scene id
+  (these events have no containment anchor), deduped per receiver by
+  eventId. Verified: 12ms A→B `data_channel_set`, exactly-once with two
+  shared scenes, non-whitelisted kinds don't cross, zero `_collab_runtime`
+  in logs. The legacy collab protocol is now just `_collab_subscribe` /
+  `_collab_snapshot` (mount + asset transfer).
 - **Known issues / deferred:**
   - ~~werift stale slot blocks single-side reconnects~~ **FIXED + live-verified
     4/4**: an offer from a peer we hold as `connected` proves our slot is
