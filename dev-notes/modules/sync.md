@@ -1,5 +1,7 @@
 # Sync Layer (unified state-replication)
 
+> **WIP: This module is being refactored onto a new `@vspark/mesh` package.** See [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the target design and refactor roadmap. Content below reflects the current state on the branch; expect substantial restructuring.
+
 **Status: Phases 0–2 + 4 implemented; Phase 3 API-surface-only; field-fold / live-stream migration / manager-fold deferred.**
 
 A single abstraction for all replicated state — replacing the per-entity pattern of "one backend `broadcast` call + one frontend `else if` branch + duplicated snake↔camel mappers". Adding a syncable thing becomes **one descriptor (backend) + one binding (frontend)**. Designed to extend to server-to-server replication later without reworking producers/consumers.

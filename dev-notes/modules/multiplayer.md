@@ -1,5 +1,7 @@
 # Multiplayer / Mesh
 
+> **WIP: This module is being refactored onto a new `@vspark/mesh` package.** See [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the target design and refactor roadmap. Content below reflects the current state on the branch; expect substantial restructuring.
+
 Peer-to-peer connectivity between vspark instances: server↔server WebRTC, a
 signaling relay for browser clients, object sharing over the mesh, a
 **backend↔remote-browser WebRTC edge** so backends can be full mesh participants
