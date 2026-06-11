@@ -223,6 +223,11 @@ export function getMeshPeer(): MeshPeer | null {
   return _peer;
 }
 
+/** A bound document collection (for REST routes writing through the store). */
+export function getMeshCollection(rtype: string): Collection<Dto> | undefined {
+  return COLLECTIONS.get(rtype);
+}
+
 /** HTTP 'upgrade' branch for the /mesh path. */
 export function meshUpgrade(
   req: IncomingMessage,

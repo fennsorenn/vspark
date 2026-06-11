@@ -62,6 +62,7 @@ interface BehaviorRow {
   kind: string;
   enabled: number;
   config: string;
+  sort_order: number;
 }
 
 interface CameraEffectRow {
@@ -136,19 +137,28 @@ defineResource({
       kind: r.kind,
       enabled: r.enabled === 1,
       config: JSON.parse(r.config || '{}'),
+      sortOrder: r.sort_order ?? 0,
     };
   },
   save: (dto) => {
-    const d = dto as { id: string; nodeId: string; kind: string; enabled: boolean; config: Record<string, unknown> };
+    const d = dto as {
+      id: string;
+      nodeId: string;
+      kind: string;
+      enabled: boolean;
+      config: Record<string, unknown>;
+      sortOrder?: number;
+    };
     getDb()
       .prepare(
-        `INSERT INTO behaviors (id, node_id, kind, enabled, config)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO behaviors (id, node_id, kind, enabled, config, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            node_id    = excluded.node_id,
            kind       = excluded.kind,
            enabled    = excluded.enabled,
            config     = excluded.config,
+           sort_order = excluded.sort_order,
            updated_at = datetime('now')`
       )
       .run(
@@ -156,7 +166,8 @@ defineResource({
         d.nodeId,
         d.kind,
         d.enabled ? 1 : 0,
-        JSON.stringify(d.config ?? {})
+        JSON.stringify(d.config ?? {}),
+        d.sortOrder ?? 0
       );
   },
   remove: (id) => {

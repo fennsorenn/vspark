@@ -1,8 +1,13 @@
+/**
+ * Camera-effect routes — written THROUGH the mesh store (§10): the route
+ * builds the canonical DTO and writes the collection; the onCommitted tap
+ * persists + emits sync.document, and the write fans out with one stamp.
+ */
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
+import { getMeshCollection } from '../mesh/index.js';
 import { _ws } from './shared.js';
-import { sync } from '../sync/index.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -41,33 +46,39 @@ router.get('/scene-nodes/:nodeId/effects', (req, res) => {
  *       201: { description: Effect created; broadcast as camera_effect_added over WebSocket }
  *       400: { description: Missing kind, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
-router.post('/scene-nodes/:nodeId/effects', (req, res) => {
+router.post('/scene-nodes/:nodeId/effects', async (req, res) => {
   const { id, kind, enabled, config } = req.body;
   if (!kind)
     return res
       .status(400)
       .json({ ok: false, error: { message: 'kind is required' } });
+  const col = getMeshCollection('camera_effect');
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
   const effectId = id ?? randomUUID();
-  getDb()
-    .prepare(
-      'INSERT INTO camera_effects (id, node_id, kind, enabled, config) VALUES (?, ?, ?, ?, ?)'
-    )
-    .run(
-      effectId,
-      req.params.nodeId,
-      kind,
-      enabled ? 1 : 0,
-      JSON.stringify(config ?? {})
-    );
-  const data = {
+  const outcome = await col.set(effectId, '', {
     id: effectId,
-    node_id: req.params.nodeId,
+    nodeId: req.params.nodeId,
     kind,
     enabled: enabled ?? true,
     config: config ?? {},
-  };
-  sync.document.upsert('camera_effect', effectId);
-  res.status(201).json({ ok: true, data });
+  }).ack;
+  if (outcome.status === 'rejected')
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: outcome.reason } });
+  res.status(201).json({
+    ok: true,
+    data: {
+      id: effectId,
+      node_id: req.params.nodeId,
+      kind,
+      enabled: enabled ?? true,
+      config: config ?? {},
+    },
+  });
 });
 
 /**
@@ -86,29 +97,29 @@ router.post('/scene-nodes/:nodeId/effects', (req, res) => {
  *     responses:
  *       200: { description: Updated; broadcast as camera_effect_updated over WebSocket }
  */
-router.put('/camera-effects/:id', (req, res) => {
+router.put('/camera-effects/:id', async (req, res) => {
   const { enabled, config } = req.body;
-  getDb()
-    .prepare(
-      `UPDATE camera_effects SET
-      enabled = COALESCE(?, enabled),
-      config  = COALESCE(?, config),
-      updated_at = datetime('now')
-    WHERE id = ?`
-    )
-    .run(
-      enabled != null ? (enabled ? 1 : 0) : null,
-      config != null ? JSON.stringify(config) : null,
-      req.params.id
-    );
+  const col = getMeshCollection('camera_effect');
+  const cur = col?.get(req.params.id);
+  if (!col || !cur)
+    return res
+      .status(404)
+      .json({ ok: false, error: { message: 'camera effect not found' } });
+  const outcome = await col.set(req.params.id, '', {
+    ...cur,
+    ...(enabled != null ? { enabled: !!enabled } : {}),
+    ...(config != null ? { config } : {}),
+  }).ack;
+  if (outcome.status === 'rejected')
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: outcome.reason } });
+  // Local smoothing broadcast (the canonical doc re-sync rides the store tap).
   _ws?.broadcast('camera_effect_updated', {
     id: req.params.id,
     enabled,
     config,
   });
-  // Canonical doc re-sync (unified sync layer + collab mirroring; the broadcast
-  // above stays for local smoothing).
-  sync.document.upsert('camera_effect', req.params.id);
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -123,9 +134,13 @@ router.put('/camera-effects/:id', (req, res) => {
  *     responses:
  *       200: { description: Deleted; broadcast as camera_effect_removed over WebSocket }
  */
-router.delete('/camera-effects/:id', (req, res) => {
-  getDb().prepare('DELETE FROM camera_effects WHERE id = ?').run(req.params.id);
-  sync.document.remove('camera_effect', req.params.id);
+router.delete('/camera-effects/:id', async (req, res) => {
+  const col = getMeshCollection('camera_effect');
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  await col.remove(req.params.id).ack;
   res.json({ ok: true, data: {} });
 });
 
