@@ -33,6 +33,7 @@ export const COLLAB_STREAM_RTYPE = '_collab_stream';
 export const COLLAB_OP_RTYPE = '_collab_op'; // one scene_node edit, peer→peer
 export const COLLAB_RECONCILE_RTYPE = '_collab_reconcile'; // full state, on reconnect
 export const COLLAB_PLAYBACK_RTYPE = '_collab_playback'; // clip play/pause/seek control
+export const COLLAB_RUNTIME_RTYPE = '_collab_runtime'; // runtime data (Set Data, spawn, …)
 
 export type ClipPlaybackAction = 'trigger' | 'stop' | 'pause' | 'resume' | 'seek';
 export const COLLAB_OFFER_RTYPE = '_collab_offer'; // owner→grantee: "mount this scene?"
@@ -126,6 +127,34 @@ export function collabScenesForPeer(peerId: string): CollabLink[] {
     role: r.role,
     projectId: r.project_id,
   }));
+}
+
+/** Unique peers we collaborate with on any scene — runtime data (chat feeds,
+ *  spawned clips, …) is project-global, so it fans out to all of them. */
+export function allCollabPeers(): string[] {
+  return (
+    getDb()
+      .prepare('SELECT DISTINCT peer_id FROM collab_scenes')
+      .all() as { peer_id: string }[]
+  ).map((r) => r.peer_id);
+}
+
+/** Mirror one runtime WS broadcast (kind + payload) to every collab peer, who
+ *  re-applies it locally. */
+export function forwardCollabRuntime(
+  kind: string,
+  payload: Record<string, unknown>,
+  send: (peerId: string, env: SyncEnvelope) => void
+): void {
+  const peers = allCollabPeers();
+  if (peers.length === 0) return;
+  for (const peerId of peers)
+    send(peerId, {
+      rtype: COLLAB_RUNTIME_RTYPE,
+      op: 'event',
+      key: kind,
+      data: { kind, payload },
+    });
 }
 
 /** Every collab-scene link this server holds (for the scene-graph chain badge). */

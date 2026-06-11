@@ -49,6 +49,12 @@ export class SpawnManager {
    *  reports when a clip finishes. */
   private readonly _byClipId = new Map<string, ActiveSpawn>();
 
+  /** Whether a clip id is a live ephemeral spawn (for collab relay: its play
+   *  frames must be mirrored raw, since the receiver only has the cloned copy). */
+  isEphemeralClip(clipId: string): boolean {
+    return this._byClipId.has(clipId);
+  }
+
   init(ws: WSSync, playback: TrackClipPlaybackManager): void {
     this._ws = ws;
     this._playback = playback;

@@ -115,6 +115,11 @@ async function start() {
   initPoseBroadcast(wsSync);
   initBlendshapesBroadcast(wsSync);
   initIkBroadcast(wsSync);
+  // Mirror runtime WS broadcasts (Set Data, overrides, spawn, media) to collab
+  // peers — the relay filters by kind.
+  wsSync.setCollabRelay((kind, payload) =>
+    multiplayerManager.relayCollabRuntime(kind, payload)
+  );
   // Forward shared avatars' live pose/blendshapes/IK to subscriber peers.
   broadcastBus.setStreamForwarder((kind, nodeId, payload) =>
     multiplayerManager.forwardStream(kind, nodeId, payload)

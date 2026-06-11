@@ -9,9 +9,22 @@ export class WSSync {
     payload: unknown,
     ws: WebSocket
   ) => void)[] = [];
+  /** Optional tap: every broadcast is offered to this relay so the multiplayer
+   *  layer can mirror runtime data (data channels, overrides, spawned clips, …)
+   *  to collab peers. The relay itself filters by kind. */
+  private collabRelay:
+    | ((kind: string, payload: Record<string, unknown>) => void)
+    | null = null;
 
   constructor() {
     this.wss = new WebSocketServer({ noServer: true });
+  }
+
+  /** Install the collab broadcast relay (injected at startup). */
+  setCollabRelay(
+    relay: (kind: string, payload: Record<string, unknown>) => void
+  ) {
+    this.collabRelay = relay;
   }
 
   /** Register a callback that fires whenever a new WebSocket client connects. */
@@ -68,6 +81,8 @@ export class WSSync {
         client.send(msg);
       }
     }
+    // Offer to the collab relay (mirror runtime data to peers; it filters by kind).
+    this.collabRelay?.(kind, payload);
   }
 
   get connectedCount() {

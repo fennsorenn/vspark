@@ -36,6 +36,7 @@ import {
   applyCollabAssetOp,
   forwardCollabStream,
   forwardClipPlayback,
+  forwardCollabRuntime,
   persistCollabAssets,
   indexAllCollabScenes,
   gatherReconcile,
@@ -50,10 +51,15 @@ import {
   COLLAB_SNAPSHOT_RTYPE,
   COLLAB_RECONCILE_RTYPE,
   COLLAB_PLAYBACK_RTYPE,
+  COLLAB_RUNTIME_RTYPE,
   type ReconcilePayload,
   type ClipPlaybackAction,
 } from './collabScene.js';
 import { _trackClipPlayback } from '../routes/shared.js';
+import { dataChannelManager } from '../data_channels/manager.js';
+import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
+import { spawnManager } from '../spawn/manager.js';
+import type { ParamTargetKind } from '@vspark/shared/paramPaths';
 import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
 import type { AssetMeta } from './blobs.js';
 import {
@@ -87,6 +93,25 @@ import type { ShareKind } from './shares.js';
  *  name updates live, so we exchange it on connect + on change). */
 const PROFILE_RTYPE = 'peer_profile';
 
+/** Runtime WS broadcast kinds that have NO sync.document / stream mesh path and
+ *  must be mirrored to collab peers verbatim: Set Data bus, runtime overrides,
+ *  media control, and the ephemeral entities/clips a Spawn node produces (regular
+ *  node/clip CRUD goes through sync.document, so those kinds are excluded to avoid
+ *  double-forwarding). Clip play frames are handled per-clip in the relay. */
+const COLLAB_RELAY_KINDS = new Set<string>([
+  'data_channel_set',
+  'data_channel_clear',
+  'runtime_override_set',
+  'runtime_override_clear',
+  'media_control',
+  'node_added',
+  'node_removed',
+  'compose_layer_added',
+  'compose_layer_removed',
+  'track_clip_added',
+  'track_clip_removed',
+]);
+
 type Broadcast = (kind: string, payload: Record<string, unknown>) => void;
 
 interface IceServer {
@@ -116,6 +141,8 @@ class MultiplayerManager {
   /** Peers we've received a profile from this connection — so the courtesy
    *  re-send (covering a raced on-connect profile) fires at most once. */
   private readonly profileExchanged = new Set<string>();
+  /** Guard: while applying a peer's relayed runtime broadcast, don't re-relay it. */
+  private applyingCollabRuntime = false;
   private broadcast: Broadcast = () => {};
   private iceServers: IceServer[] = [];
   private iceFetchedAt = 0;
@@ -384,6 +411,13 @@ class MultiplayerManager {
           };
           if (d.clipId && d.action)
             this.applyClipPlayback(d.clipId, d.action, d.t);
+        } else if (env?.rtype === COLLAB_RUNTIME_RTYPE) {
+          // A collab peer's runtime broadcast (Set Data, override, spawn, media).
+          const d = (env.data ?? {}) as {
+            kind?: string;
+            payload?: Record<string, unknown>;
+          };
+          if (d.kind && d.payload) this.applyCollabRuntime(d.kind, d.payload);
         }
       }
     );
@@ -713,6 +747,69 @@ class MultiplayerManager {
     else if (action === 'pause') pb.pause(clipId);
     else if (action === 'resume') pb.resume(clipId);
     else if (action === 'seek' && t != null) pb.seek(clipId, t);
+  }
+
+  /** Tap on every local WS broadcast (set via wsSync.setCollabRelay): mirror the
+   *  runtime kinds that have no other mesh path to collab peers. Regular clip play
+   *  frames are relayed (re-anchored) via relayClipPlayback, so here we relay
+   *  track_clip play frames only for ephemeral spawn clips (the receiver has just
+   *  the clone). The echo guard stops a re-applied broadcast bouncing back. */
+  relayCollabRuntime(kind: string, payload: Record<string, unknown>): void {
+    if (this.applyingCollabRuntime || !this.mesh) return;
+    if (
+      kind === 'track_clip_started' ||
+      kind === 'track_clip_paused' ||
+      kind === 'track_clip_stopped'
+    ) {
+      const clipId = (payload.clipId ?? payload.id) as string | undefined;
+      if (!clipId || !spawnManager.isEphemeralClip(clipId)) return;
+    } else if (!COLLAB_RELAY_KINDS.has(kind)) {
+      return;
+    }
+    forwardCollabRuntime(kind, payload, (peer, env) =>
+      this.mesh?.sendEnvelope(peer, env)
+    );
+  }
+
+  /** Apply a peer's relayed runtime broadcast. Data channels + overrides go
+   *  through their managers (so the bus/override state — and reconnect snapshots —
+   *  stay consistent); everything else (media, spawned entities/clips/play) is
+   *  re-broadcast to our own clients. Guarded so it can't bounce back. */
+  private applyCollabRuntime(
+    kind: string,
+    payload: Record<string, unknown>
+  ): void {
+    this.applyingCollabRuntime = true;
+    try {
+      if (kind === 'data_channel_set') {
+        dataChannelManager.set(
+          payload.scope as string,
+          (payload.fields ?? {}) as Record<string, unknown>
+        );
+      } else if (kind === 'data_channel_clear') {
+        dataChannelManager.clear(
+          payload.scope as string,
+          payload.field as string | undefined
+        );
+      } else if (kind === 'runtime_override_set') {
+        runtimeOverrideManager.set(
+          payload.targetKind as ParamTargetKind,
+          payload.targetId as string,
+          payload.paramPath as string,
+          payload.value
+        );
+      } else if (kind === 'runtime_override_clear') {
+        runtimeOverrideManager.clear(
+          payload.targetKind as ParamTargetKind,
+          payload.targetId as string,
+          payload.paramPath as string | undefined
+        );
+      } else {
+        this.broadcast(kind, payload);
+      }
+    } finally {
+      this.applyingCollabRuntime = false;
+    }
   }
 
   /** Forward a clip-driven transform of a shared subtree node to object-share
