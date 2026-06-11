@@ -37,10 +37,16 @@ import {
   forwardCollabStream,
   persistCollabAssets,
   indexAllCollabScenes,
+  gatherReconcile,
+  applyReconcile,
+  collabScenesForPeer,
+  collabPeersForScene,
   COLLAB_OP_RTYPE,
   COLLAB_STREAM_RTYPE,
   COLLAB_SUBSCRIBE_RTYPE,
   COLLAB_SNAPSHOT_RTYPE,
+  COLLAB_RECONCILE_RTYPE,
+  type ReconcilePayload,
 } from './collabScene.js';
 import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
 import type { AssetMeta } from './blobs.js';
@@ -301,6 +307,9 @@ class MultiplayerManager {
           if (!this.profileExchanged.has(from)) {
             this.profileExchanged.add(from);
             this.sendProfile(from);
+            // Channel is proven live — reconcile any collab scenes we share with
+            // this peer (converge edits made while disconnected).
+            this.sendReconcile(from);
           }
           this.sharing?.advertise(from);
         } else if (SHARE_RTYPES.has(env?.rtype)) {
@@ -333,6 +342,26 @@ class MultiplayerManager {
           this.handleCollabSubscribe(from, env);
         } else if (env?.rtype === COLLAB_SNAPSHOT_RTYPE) {
           void this.handleCollabSnapshot(from, env);
+        } else if (env?.rtype === COLLAB_RECONCILE_RTYPE) {
+          // A peer's full collab-scene state on (re)connect — merge LWW so edits
+          // made while we were disconnected converge both ways.
+          const payload = env.data as ReconcilePayload | undefined;
+          const blob = this.blob;
+          if (payload?.sceneId && blob)
+            void applyReconcile(from, payload, (a) => blob.ensure(from, a)).then(
+              (changed) => {
+                if (!changed) return;
+                const link = collabPeersForScene(payload.sceneId).find(
+                  (l) => l.peerId === from
+                );
+                if (link)
+                  this.broadcast('mp_collab_mounted', {
+                    peerId: from,
+                    sceneId: payload.sceneId,
+                    projectId: link.projectId,
+                  });
+              }
+            );
         }
       }
     );
@@ -443,6 +472,33 @@ class MultiplayerManager {
       key: getIdentity().peerId,
       data: { displayName: this.currentDisplayName },
     });
+  }
+
+  /** Send our full state for every collab scene we share with `peerId`, so a
+   *  reconnect re-converges edits made on either side while disconnected. The
+   *  doc channel can still be opening when the first profile arrives (dialer and
+   *  answerer open asymmetrically), so retry with backoff until it accepts the
+   *  send — reconcile is idempotent, so a retried/duplicate send is harmless. */
+  private sendReconcile(peerId: string, attempt = 0): void {
+    const links = collabScenesForPeer(peerId);
+    if (links.length === 0) return;
+    let allSent = true;
+    for (const link of links) {
+      const payload = gatherReconcile(link.sceneId);
+      if (!payload) continue;
+      const sent = this.mesh?.sendEnvelope(peerId, {
+        rtype: COLLAB_RECONCILE_RTYPE,
+        op: 'event',
+        key: link.sceneId,
+        data: payload,
+      });
+      if (!sent) allSent = false;
+    }
+    if (!allSent && attempt < 6)
+      setTimeout(
+        () => this.sendReconcile(peerId, attempt + 1),
+        500 * (attempt + 1)
+      );
   }
 
   /** Manual disconnect — revokes the session grant (next inbound re-prompts).

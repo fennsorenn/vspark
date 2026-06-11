@@ -17,7 +17,11 @@ import { basename } from 'path';
 import { getDb } from '../db/index.js';
 import { sync } from '../sync/index.js';
 import { compareHLC, type HLC, type SyncEnvelope } from '@vspark/shared/sync';
-import type { ObjectSnapshot, SnapshotAsset } from './shares.js';
+import {
+  gatherSceneSnapshot,
+  type ObjectSnapshot,
+  type SnapshotAsset,
+} from './shares.js';
 import { assetForPath, type AssetMeta } from './blobs.js';
 import { applySceneNodeRemove, type SceneNodeDto } from './sceneNodeWrite.js';
 
@@ -27,6 +31,7 @@ export const COLLAB_STREAM_RTYPE = '_collab_stream';
 
 /** Control rtypes for collaborative scene sharing (over the mesh doc channel). */
 export const COLLAB_OP_RTYPE = '_collab_op'; // one scene_node edit, peer→peer
+export const COLLAB_RECONCILE_RTYPE = '_collab_reconcile'; // full state, on reconnect
 export const COLLAB_OFFER_RTYPE = '_collab_offer'; // owner→grantee: "mount this scene?"
 export const COLLAB_SUBSCRIBE_RTYPE = '_collab_subscribe'; // grantee→owner: "send it"
 export const COLLAB_SNAPSHOT_RTYPE = '_collab_snapshot'; // owner→grantee: the scene
@@ -270,6 +275,38 @@ export function indexAllCollabScenes(): void {
   for (const s of scenes) indexCollabScene(s.scene_id);
 }
 
+// --- reconnect reconciliation helpers ---------------------------------------
+//
+// Versions are derived from scene_nodes.updated_at (already bumped on every
+// write) rather than a separate HLC column — coarse (second granularity) but
+// persistent across disconnect/restart, which the in-memory live HLC isn't.
+// Deletes are recorded as collab_tombstones so a stale create can't resurrect
+// them. The original author (collab role 'author') wins exact-time ties.
+
+/** Parse a SQLite `datetime('now')` string (UTC) to epoch ms. */
+function sqlTimeMs(s: string): number {
+  const ms = Date.parse(s.replace(' ', 'T') + 'Z');
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+/** Record (or refresh) a tombstone for a removed collab node. */
+function recordTombstone(sceneId: string, nodeId: string, versionMs: number): void {
+  getDb()
+    .prepare(
+      `INSERT INTO collab_tombstones (scene_id, node_id, version)
+       VALUES (?, ?, ?)
+       ON CONFLICT(scene_id, node_id)
+       DO UPDATE SET version = excluded.version, deleted_at = datetime('now')`
+    )
+    .run(sceneId, nodeId, String(versionMs));
+}
+
+function clearTombstone(sceneId: string, nodeId: string): void {
+  getDb()
+    .prepare('DELETE FROM collab_tombstones WHERE scene_id = ? AND node_id = ?')
+    .run(sceneId, nodeId);
+}
+
 /** Forward a lossy stream frame (pose / blendshapes / IK / drag preview) for a
  *  collab-scene node to every collab peer, so the mounted copy animates live.
  *  HOT PATH (per pose frame, per avatar): resolves the scene from the in-memory
@@ -299,6 +336,8 @@ export function forwardCollabOp(
   if (env.op === 'remove') {
     sceneId = nodeScene.get(env.key);
     nodeScene.delete(env.key);
+    if (sceneId)
+      recordTombstone(sceneId, env.key, env.v ? env.v.t : Date.now());
   } else {
     sceneId = sceneOf(env.key);
     if (sceneId) nodeScene.set(env.key, sceneId);
@@ -342,6 +381,7 @@ export function applyCollabOp(
     if (env.op === 'remove') {
       applySceneNodeRemove(env.key, undefined, env.route);
       nodeScene.delete(env.key);
+      recordTombstone(sceneId, env.key, env.v ? env.v.t : Date.now());
     } else if (env.op === 'upsert' && env.data) {
       nodeScene.set(env.key, sceneId);
       upsertCollabNode(sceneId, env.data as SceneNodeDto, forceFilePath);
@@ -390,6 +430,106 @@ export async function applyCollabAssetOp(
   applyCollabOp(sceneId, env);
 }
 
+export interface ReconcilePayload {
+  sceneId: string;
+  snapshot: ObjectSnapshot;
+  /** nodeId → updated_at epoch ms (the per-node version for LWW). */
+  versions: Record<string, number>;
+  tombstones: Array<{ nodeId: string; version: number }>;
+}
+
+/** Gather this server's full state for a collab scene to (re)send on connect:
+ *  every node + its version, plus tombstones for deleted nodes. */
+export function gatherReconcile(sceneId: string): ReconcilePayload | null {
+  const snapshot = gatherSceneSnapshot(sceneId);
+  if (!snapshot) return null;
+  const db = getDb();
+  const rows = db
+    .prepare('SELECT id, updated_at FROM scene_nodes WHERE root_scene_node_id = ?')
+    .all(sceneId) as { id: string; updated_at: string }[];
+  const versions: Record<string, number> = {};
+  for (const r of rows) versions[r.id] = sqlTimeMs(r.updated_at);
+  const tombs = db
+    .prepare('SELECT node_id, version FROM collab_tombstones WHERE scene_id = ?')
+    .all(sceneId) as { node_id: string; version: string }[];
+  return {
+    sceneId,
+    snapshot,
+    versions,
+    tombstones: tombs.map((t) => ({ nodeId: t.node_id, version: Number(t.version) })),
+  };
+}
+
+/** Merge a peer's reconcile state into ours after a (re)connect, last-write-wins
+ *  by node version (updated_at ms); the original author wins exact-time ties.
+ *  Tombstones delete a node we still hold (unless our copy is newer), and block a
+ *  stale create from resurrecting it. Assets are localized like a mount. Returns
+ *  true if anything changed (so the caller can refresh the editor). */
+export async function applyReconcile(
+  from: string,
+  payload: ReconcilePayload,
+  ensure: (a: SnapshotAsset) => Promise<string>
+): Promise<boolean> {
+  const { sceneId, snapshot, versions, tombstones } = payload;
+  const link = collabPeersForScene(sceneId).find((l) => l.peerId === from);
+  if (!link) return false; // we don't collaborate on this scene with this peer
+  const iAmAuthor = link.role === 'author'; // author wins exact-time ties
+  const db = getDb();
+  await persistCollabAssets(snapshot, link.projectId, ensure);
+  let changed = false;
+  const localVer = (id: string): number => {
+    const r = db
+      .prepare(
+        'SELECT updated_at FROM scene_nodes WHERE id = ? AND root_scene_node_id = ?'
+      )
+      .get(id, sceneId) as { updated_at: string } | undefined;
+    return r ? sqlTimeMs(r.updated_at) : -1;
+  };
+
+  for (const node of snapshot.nodes as unknown as SceneNodeDto[]) {
+    const incV = versions[node.id] ?? 0;
+    const tomb = db
+      .prepare(
+        'SELECT version FROM collab_tombstones WHERE scene_id = ? AND node_id = ?'
+      )
+      .get(sceneId, node.id) as { version: string } | undefined;
+    if (tomb && Number(tomb.version) >= incV) continue; // our delete wins
+    const localV = localVer(node.id);
+    const incomingWins =
+      localV < 0 || incV > localV || (incV === localV && !iAmAuthor);
+    if (!incomingWins) continue;
+    applyingFromPeer.add(node.id);
+    try {
+      upsertCollabNode(sceneId, node, true, incV);
+    } finally {
+      applyingFromPeer.delete(node.id);
+    }
+    clearTombstone(sceneId, node.id);
+    nodeScene.set(node.id, sceneId);
+    changed = true;
+  }
+
+  for (const t of tombstones) {
+    const localV = localVer(t.nodeId);
+    if (localV < 0) {
+      recordTombstone(sceneId, t.nodeId, t.version); // already gone; remember it
+      continue;
+    }
+    const delWins = t.version > localV || (t.version === localV && !iAmAuthor);
+    if (!delWins) continue; // our copy is newer → keep it (resurrect)
+    applyingFromPeer.add(t.nodeId);
+    try {
+      applySceneNodeRemove(t.nodeId, undefined, undefined);
+    } finally {
+      applyingFromPeer.delete(t.nodeId);
+    }
+    recordTombstone(sceneId, t.nodeId, t.version);
+    nodeScene.delete(t.nodeId);
+    changed = true;
+  }
+  return changed;
+}
+
 /** Upsert a node into our local copy of a collab scene. Structure is set from the
  *  scene, not derived from a parent (a scene's top-level nodes have parent_id
  *  NULL, so the parent-derived object-write path can't create them): project_id
@@ -405,23 +545,31 @@ export async function applyCollabAssetOp(
 function upsertCollabNode(
   sceneId: string,
   dto: SceneNodeDto,
-  forceFilePath = false
+  forceFilePath = false,
+  updatedAtMs?: number
 ): void {
   const link = getDb()
     .prepare('SELECT project_id FROM collab_scenes WHERE scene_id = ? LIMIT 1')
     .get(sceneId) as { project_id: string } | undefined;
   if (!link) return;
+  // Reconcile passes the source edit time so both sides converge to the same
+  // updated_at (a fresh datetime('now') would look newer and re-trigger the
+  // origin to re-apply — a ping-pong). Live edits use NULL → datetime('now').
+  const ua =
+    updatedAtMs != null
+      ? new Date(updatedAtMs).toISOString().slice(0, 19).replace('T', ' ')
+      : null;
   getDb()
     .prepare(
       `INSERT INTO scene_nodes
          (id, project_id, root_scene_node_id, parent_id, bone_attachment,
-          name, kind, file_path, components, properties, hidden)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          name, kind, file_path, components, properties, hidden, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
        ON CONFLICT(id) DO UPDATE SET
          parent_id = excluded.parent_id, name = excluded.name,
          kind = excluded.kind,${forceFilePath ? ' file_path = excluded.file_path,' : ''}
          components = excluded.components, properties = excluded.properties,
-         hidden = excluded.hidden, updated_at = datetime('now')`
+         hidden = excluded.hidden, updated_at = COALESCE(?, datetime('now'))`
     )
     .run(
       dto.id,
@@ -434,7 +582,9 @@ function upsertCollabNode(
       dto.filePath ?? null,
       JSON.stringify(dto.components ?? {}),
       JSON.stringify(dto.properties ?? {}),
-      dto.hidden ? 1 : 0
+      dto.hidden ? 1 : 0,
+      ua,
+      ua
     );
   sync.document.upsert('scene_node', dto.id);
 }
