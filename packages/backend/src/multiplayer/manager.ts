@@ -649,19 +649,16 @@ class MultiplayerManager {
     );
   }
 
-  /** Forward a clip-driven transform of a shared/collab subtree node (resolves
-   *  the owning root, so children inside the subtree match, not just the root). */
+  /** Forward a clip-driven transform of a shared subtree node to object-share
+   *  subscribers (read-only projections that can't evaluate the clip themselves).
+   *  NOT sent to collaborative-scene peers: they have the synced clip + playback
+   *  state and evaluate it locally, so forwarding the result would double-drive
+   *  and fight their own evaluation. */
   forwardNodeTransform(
     nodeId: string,
     transform: Record<string, number>
   ): void {
     this.sharing?.forwardNodeTransform(nodeId, transform);
-    forwardCollabStream(
-      'node_transform_preview',
-      nodeId,
-      { nodeId, transform },
-      (peer, frame) => this.mesh?.sendStream(peer, frame)
-    );
   }
 
   /** Owner: forward a runtime override on a shared scene node to subscribers. */

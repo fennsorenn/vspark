@@ -5,6 +5,7 @@
  */
 import { getDb } from '../db/index.js';
 import { extOf } from './blobs.js';
+import { loadClip } from '../routes/track-clips.js';
 import { containmentIndex } from '../sync/containmentIndex.js';
 import {
   addGrant,
@@ -131,6 +132,9 @@ export interface ObjectSnapshot {
   nodes: Record<string, unknown>[];
   behaviors: Record<string, unknown>[];
   cameraEffects: Record<string, unknown>[];
+  /** Timeline clips owned by the scene's nodes (collab scenes only) — synced as
+   *  data so each peer evaluates them locally. */
+  clips?: Record<string, unknown>[];
   /** Assets referenced by the subtree, content-addressed for transfer; the
    *  receiver fetches each by hash and rewrites node file paths to its cache. */
   assets: SnapshotAsset[];
@@ -323,10 +327,24 @@ export function gatherSceneSnapshot(sceneId: string): ObjectSnapshot | null {
       size: r.size,
     }));
 
+  // Timeline clips owned by the scene's nodes (full DTOs for collab sync).
+  const clipIds =
+    ids.length > 0
+      ? (db
+          .prepare(
+            `SELECT id FROM track_clips WHERE owner_node_id IN (${placeholders})`
+          )
+          .all(...ids) as { id: string }[])
+      : [];
+  const clips = clipIds
+    .map((c) => loadClip(c.id))
+    .filter((c): c is NonNullable<typeof c> => !!c);
+
   return {
     objectId: sceneId,
     rootName: root.name,
     nodes: subtree.map(rowToNode),
+    clips,
     behaviors: behaviors.map((b) => ({
       id: b.id,
       nodeId: b.node_id,

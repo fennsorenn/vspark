@@ -277,6 +277,9 @@ router.put('/track-clips/:id', (req, res) => {
       },
     });
   _ws?.broadcast('track_clip_updated', data as Record<string, unknown>);
+  // Re-sync the canonical clip document so the unified sync layer + collab-scene
+  // mirroring pick up the change (the legacy broadcast stays for local smoothing).
+  sync.document.upsert('track_clip', id);
   res.json({ ok: true, data });
 });
 
@@ -343,6 +346,7 @@ router.post('/track-clips/:clipId/lanes', (req, res) => {
     'track_clip_lane_added',
     data as unknown as Record<string, unknown>
   );
+  sync.document.upsert('track_clip', req.params.clipId);
   res.status(201).json({ ok: true, data });
 });
 
@@ -405,6 +409,7 @@ router.put('/track-clip-lanes/:id', (req, res) => {
     'track_clip_lane_updated',
     data as unknown as Record<string, unknown>
   );
+  sync.document.upsert('track_clip', data.clipId);
   res.json({ ok: true, data });
 });
 
@@ -429,6 +434,7 @@ router.delete('/track-clip-lanes/:id', (req, res) => {
     id,
     clipId: row?.clip_id ?? null,
   });
+  if (row?.clip_id) sync.document.upsert('track_clip', row.clip_id);
   res.json({ ok: true, data: { id } });
 });
 
@@ -466,8 +472,8 @@ router.put('/track-clip-lanes/:id/keyframes', (req, res) => {
   // the INSERTs blow up with a FOREIGN KEY violation (500). Returning 404 lets
   // the frontend drop the stale lane from its state cleanly.
   const laneRow = db
-    .prepare('SELECT id FROM track_clip_lanes WHERE id = ?')
-    .get(laneId) as { id: string } | undefined;
+    .prepare('SELECT id, clip_id FROM track_clip_lanes WHERE id = ?')
+    .get(laneId) as { id: string; clip_id: string } | undefined;
   if (!laneRow) {
     return res.status(404).json({
       ok: false,
@@ -504,6 +510,7 @@ router.put('/track-clip-lanes/:id/keyframes', (req, res) => {
     .all(laneId) as KeyframeRow[];
   const data = { laneId, keyframes: rows.map(mapKeyframe) };
   _ws?.broadcast('track_clip_keyframes_replaced', data);
+  sync.document.upsert('track_clip', laneRow.clip_id);
   res.json({ ok: true, data });
 });
 
@@ -710,6 +717,7 @@ router.put('/track-clips/:id/events', (req, res) => {
     .all(clipId) as EventRow[];
   const data = { clipId, events: rows.map(mapEvent) };
   _ws?.broadcast('track_clip_events_replaced', data);
+  sync.document.upsert('track_clip', clipId);
   res.json({ ok: true, data });
 });
 

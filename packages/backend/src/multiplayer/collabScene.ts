@@ -231,6 +231,7 @@ export function mountSharedScene(
       n.hidden ? 1 : 0
     );
   }
+  applyCollabClips(sceneId, (snapshot.clips ?? []) as unknown as ClipDto[]);
   registerCollabScene(sceneId, peerId, 'mounted', projectId);
 }
 
@@ -264,6 +265,7 @@ export function indexCollabScene(sceneId: string): void {
     .prepare('SELECT id FROM scene_nodes WHERE root_scene_node_id = ?')
     .all(sceneId) as { id: string }[];
   for (const r of rows) nodeScene.set(r.id, sceneId);
+  indexCollabSceneClips(sceneId);
 }
 
 /** Re-seed the node→scene map for every persisted collab scene. Called on boot so
@@ -324,12 +326,174 @@ export function forwardCollabStream(
     send(link.peerId, { rtype: COLLAB_STREAM_RTYPE, kind, nodeId, payload });
 }
 
+// --- timeline clips ---------------------------------------------------------
+//
+// Clips (and their keyframes/lanes/events) sync as DATA like behaviours/logic,
+// not as the resulting transform params — each peer evaluates the synced clip
+// locally. A clip is owned by a scene_node (owner_node_id); its scene is that
+// node's root_scene_node_id. clipScene caches that so a `remove` resolves after
+// the row is gone. Layer-owned clips (compose scenes) aren't collab-synced yet.
+
+/** nodeId-keyed map mirror for clips: clipId → sceneId. */
+const clipScene = new Map<string, string>();
+
+interface ClipKeyframeDto {
+  id: string;
+  t: number;
+  value: number;
+  easing: string;
+  inHandleTFraction: number;
+  inHandleVFraction: number;
+  outHandleTFraction: number;
+  outHandleVFraction: number;
+}
+interface ClipLaneDto {
+  id: string;
+  targetKind: string;
+  targetId: string;
+  paramPath: string;
+  defaultValue: number;
+  keyframes: ClipKeyframeDto[];
+}
+interface ClipEventDto {
+  id: string;
+  t: number;
+  action: string;
+  targetKind: string;
+  targetId: string;
+  payload: Record<string, unknown> | null;
+}
+interface ClipDto {
+  id: string;
+  ownerNodeId: string | null;
+  ownerLayerId: string | null;
+  name: string;
+  duration: number;
+  loop: boolean;
+  mode: string;
+  autoplay: boolean;
+  lanes: ClipLaneDto[];
+  events: ClipEventDto[];
+}
+
+/** Resolve a clip's collab scene (its owner node's root scene), cache-first. */
+function resolveClipScene(clipId: string): string | undefined {
+  const cached = clipScene.get(clipId);
+  if (cached) return cached;
+  const clip = getDb()
+    .prepare('SELECT owner_node_id FROM track_clips WHERE id = ?')
+    .get(clipId) as { owner_node_id: string | null } | undefined;
+  if (!clip?.owner_node_id) return undefined; // layer-owned clips: not synced yet
+  const node = getDb()
+    .prepare('SELECT root_scene_node_id FROM scene_nodes WHERE id = ?')
+    .get(clip.owner_node_id) as { root_scene_node_id: string } | undefined;
+  return node?.root_scene_node_id;
+}
+
+/** Seed clipScene for every clip owned by a scene's nodes (mount/index/boot). */
+function indexCollabSceneClips(sceneId: string): void {
+  const rows = getDb()
+    .prepare(
+      `SELECT c.id FROM track_clips c
+       JOIN scene_nodes n ON n.id = c.owner_node_id
+       WHERE n.root_scene_node_id = ?`
+    )
+    .all(sceneId) as { id: string }[];
+  for (const r of rows) clipScene.set(r.id, sceneId);
+}
+
+/** Write a full clip from its DTO (delete + reinsert clip/lanes/keyframes/events;
+ *  cascade clears the children). started_at is dropped — playback anchors are
+ *  peer-local (synced separately) — and the re-emit updates our own clients. */
+function applyClipDto(dto: ClipDto): void {
+  const db = getDb();
+  db.prepare('DELETE FROM track_clips WHERE id = ?').run(dto.id);
+  db.prepare(
+    `INSERT INTO track_clips
+       (id, owner_node_id, owner_layer_id, name, duration, loop, mode, autoplay, started_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+  ).run(
+    dto.id,
+    dto.ownerNodeId ?? null,
+    dto.ownerLayerId ?? null,
+    dto.name,
+    dto.duration,
+    dto.loop ? 1 : 0,
+    dto.mode,
+    dto.autoplay ? 1 : 0
+  );
+  for (const lane of dto.lanes ?? []) {
+    db.prepare(
+      `INSERT INTO track_clip_lanes (id, clip_id, target_kind, target_id, param_path, default_value)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(lane.id, dto.id, lane.targetKind, lane.targetId, lane.paramPath, lane.defaultValue);
+    for (const kf of lane.keyframes ?? [])
+      db.prepare(
+        `INSERT INTO track_clip_keyframes
+           (id, lane_id, t, value, easing, in_handle_t_fraction, in_handle_v_fraction,
+            out_handle_t_fraction, out_handle_v_fraction)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        kf.id, lane.id, kf.t, kf.value, kf.easing,
+        kf.inHandleTFraction, kf.inHandleVFraction,
+        kf.outHandleTFraction, kf.outHandleVFraction
+      );
+  }
+  for (const ev of dto.events ?? [])
+    db.prepare(
+      `INSERT INTO track_clip_events (id, clip_id, t, action, target_kind, target_id, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      ev.id, dto.id, ev.t, ev.action, ev.targetKind, ev.targetId,
+      ev.payload ? JSON.stringify(ev.payload) : null
+    );
+  sync.document.upsert('track_clip', dto.id);
+}
+
+function deleteClip(clipId: string): void {
+  getDb().prepare('DELETE FROM track_clips WHERE id = ?').run(clipId);
+  sync.document.remove('track_clip', clipId);
+}
+
+/** Write a collab scene's clips at mount/reconcile time, indexing them. */
+export function applyCollabClips(sceneId: string, clips: ClipDto[]): void {
+  for (const c of clips) {
+    applyClipDto(c);
+    clipScene.set(c.id, sceneId);
+  }
+}
+
+/** Mirror a local track_clip op to every collab peer of the clip's scene. */
+function forwardCollabClipOp(
+  env: SyncEnvelope,
+  send: (peerId: string, env: SyncEnvelope) => void
+): void {
+  if (applyingFromPeer.has(env.key)) return;
+  let sceneId: string | undefined;
+  if (env.op === 'remove') {
+    sceneId = clipScene.get(env.key);
+    clipScene.delete(env.key);
+  } else {
+    sceneId = resolveClipScene(env.key);
+    if (sceneId) clipScene.set(env.key, sceneId);
+  }
+  if (!sceneId || !isCollabScene(sceneId)) return;
+  for (const link of collabPeersForScene(sceneId))
+    send(link.peerId, {
+      rtype: COLLAB_OP_RTYPE,
+      op: 'event',
+      key: sceneId,
+      data: { sceneId, env },
+    });
+}
+
 /** A local scene_node op fired — mirror it to every collab peer of its scene.
  *  No-op for non-collab scenes or ops we're mid-applying from a peer (echo). */
 export function forwardCollabOp(
   env: SyncEnvelope,
   send: (peerId: string, env: SyncEnvelope) => void
 ): void {
+  if (env.rtype === 'track_clip') return forwardCollabClipOp(env, send);
   if (env.rtype !== 'scene_node') return;
   if (applyingFromPeer.has(env.key)) return; // don't echo a peer's op back
   let sceneId: string | undefined;
@@ -370,7 +534,23 @@ export function applyCollabOp(
   env: SyncEnvelope,
   forceFilePath = false
 ): boolean {
-  if (env.rtype !== 'scene_node' || !isCollabScene(sceneId)) return false;
+  if (!isCollabScene(sceneId)) return false;
+  if (env.rtype === 'track_clip') {
+    applyingFromPeer.add(env.key);
+    try {
+      if (env.op === 'remove') {
+        deleteClip(env.key);
+        clipScene.delete(env.key);
+      } else if (env.op === 'upsert' && env.data) {
+        applyClipDto(env.data as ClipDto);
+        clipScene.set(env.key, sceneId);
+      }
+      return true;
+    } finally {
+      applyingFromPeer.delete(env.key);
+    }
+  }
+  if (env.rtype !== 'scene_node') return false;
   if (env.v) {
     const prev = lastVersion.get(env.key);
     if (prev && compareHLC(env.v, prev) <= 0) return false; // stale (LWW)
@@ -525,6 +705,23 @@ export async function applyReconcile(
     }
     recordTombstone(sceneId, t.nodeId, t.version);
     nodeScene.delete(t.nodeId);
+    changed = true;
+  }
+
+  // Clips added while disconnected: write any we don't already have. Existing
+  // clips are left alone (no per-clip version yet — see the plan).
+  for (const clip of (snapshot.clips ?? []) as unknown as ClipDto[]) {
+    const exists = db
+      .prepare('SELECT 1 FROM track_clips WHERE id = ? LIMIT 1')
+      .get(clip.id);
+    if (exists) continue;
+    applyingFromPeer.add(clip.id);
+    try {
+      applyClipDto(clip);
+      clipScene.set(clip.id, sceneId);
+    } finally {
+      applyingFromPeer.delete(clip.id);
+    }
     changed = true;
   }
   return changed;
