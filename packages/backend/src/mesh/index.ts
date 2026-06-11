@@ -38,6 +38,8 @@ interface RtypeBinding {
   rtype: string;
   table: string;
   parent?: (dto: Dto) => { rtype: string; id: string } | null;
+  /** Incoming-doc transform/gate (localize project scope, keep local paths). */
+  validate?: (data: unknown) => Dto;
 }
 
 const childOfNode = (d: Dto) =>
@@ -47,10 +49,37 @@ const BINDINGS: RtypeBinding[] = [
   {
     rtype: 'scene_node',
     table: 'scene_nodes',
+    // Top-level nodes have parent_id NULL and hang off the scene root via
+    // root_scene_node_id (the scene root itself is its own root → null).
     parent: (d) =>
       typeof d.parentId === 'string'
         ? { rtype: 'scene_node', id: d.parentId }
-        : null,
+        : typeof d.rootSceneNodeId === 'string' && d.rootSceneNodeId !== d.id
+          ? { rtype: 'scene_node', id: d.rootSceneNodeId }
+          : null,
+    // Bug-5 fix: incoming collab docs carry the SENDER's project id (FK fail
+    // here) and the sender's local file path. Re-scope to our collab_scenes
+    // link and keep our local file path (model-swap assets don't ride the
+    // mesh yet — §9 known gap).
+    validate: (data) => {
+      const d = { ...(data as Dto) };
+      const rootId =
+        typeof d.rootSceneNodeId === 'string' ? d.rootSceneNodeId : undefined;
+      if (!rootId) return d;
+      const link = getDb()
+        .prepare(
+          'SELECT project_id FROM collab_scenes WHERE scene_id = ? LIMIT 1'
+        )
+        .get(rootId) as { project_id: string } | undefined;
+      if (!link) return d;
+      d.projectId = link.project_id;
+      const cur = getDb()
+        .prepare('SELECT file_path FROM scene_nodes WHERE id = ?')
+        .get(d.id as string) as { file_path: string | null } | undefined;
+      if (cur?.file_path && cur.file_path !== d.filePath)
+        d.filePath = cur.file_path;
+      return d;
+    },
   },
   { rtype: 'behavior', table: 'behaviors', parent: childOfNode },
   { rtype: 'camera_effect', table: 'camera_effects', parent: childOfNode },
@@ -83,6 +112,31 @@ const applyingFromMesh = new Set<string>();
 
 let _peer: MeshPeer | null = null;
 let _transport: WsServerTransport | null = null;
+const COLLECTIONS = new Map<string, Collection<Dto>>();
+/** rtype → timestamp column used for bootstrap stamps (cached at bind time). */
+const TS_COLS = new Map<string, string | undefined>();
+
+/** Mirror one persisted row into the mesh replica with its row-derived
+ *  (old) stamp — used after a legacy mount so the mirrored content can't
+ *  out-stamp the author's live state and echo-clobber it. */
+export function mirrorIntoMesh(rtype: string, id: string): void {
+  const col = COLLECTIONS.get(rtype);
+  const b = BINDINGS.find((x) => x.rtype === rtype);
+  const r = getResource(rtype);
+  if (!col || !b || !r?.load) return;
+  const dto = r.load(id);
+  if (!dto) return;
+  const tsCol = TS_COLS.get(rtype);
+  const row = tsCol
+    ? (getDb()
+        .prepare(
+          `SELECT strftime('%s', ${tsCol}) AS ts FROM ${b.table} WHERE id = ?`
+        )
+        .get(id) as { ts: string | number | null } | undefined)
+    : undefined;
+  const t = row?.ts ? Number(row.ts) * 1000 : 0;
+  col.put(dto, { v: { t, c: 0, n: getIdentity().peerId } });
+}
 
 /** Resurrect window: tombstones older than this are pruned — a peer offline
  *  longer may resurrect a deletion on reconnect (accepted trade-off, §8.7). */
@@ -159,8 +213,10 @@ function bindCollection(
   const r = getResource(b.rtype);
   const col = peer.collection<Dto>(b.rtype, {
     parent: b.parent,
+    validate: b.validate,
     authority: 'self',
   });
+  COLLECTIONS.set(b.rtype, col);
   if (!r?.load) return col;
 
   // Persistence tap: committed mesh state → SQLite, generically — then echo
@@ -209,6 +265,7 @@ function bindCollection(
   const tsCol = ['updated_at', 'created_at'].find((name) =>
     columns.some((c) => c.name === name)
   );
+  TS_COLS.set(b.rtype, tsCol);
   const rows = db
     .prepare(
       tsCol

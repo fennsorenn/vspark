@@ -44,7 +44,9 @@ const PARENTS: Partial<
   scene_node: (d) =>
     typeof d.parentId === 'string'
       ? { rtype: 'scene_node', id: d.parentId }
-      : null,
+      : typeof d.rootSceneNodeId === 'string' && d.rootSceneNodeId !== d.id
+        ? { rtype: 'scene_node', id: d.rootSceneNodeId }
+        : null,
   behavior: childOfNode,
   camera_effect: childOfNode,
   compose_layer: (d) =>

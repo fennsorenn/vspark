@@ -280,3 +280,53 @@ describe('mesh peer pair', () => {
     ).toBeNull();
   });
 });
+
+describe('subtree-scoped collab (grant on a root, not the rtype)', () => {
+  it('admits creates of brand-new children under the granted subtree', async () => {
+    const lb = createLoopbackPair('A', 'B');
+    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
+    const b = createMeshPeer({ identity: { peerId: 'B' }, transports: [lb.b] });
+    const parent = (n: Node) =>
+      n.parentId ? { rtype: 'node', id: n.parentId } : null;
+    const na = a.collection<Node>('node', { parent, authority: 'self' });
+    const nb = b.collection<Node>('node', { parent, authority: 'A' });
+    const db = new Map<string, Node>();
+    na.onCommitted((c) => {
+      if (c.op === 'remove') db.delete(c.id);
+      else db.set(c.id, c.doc as Node);
+    });
+
+    na.create({ id: 'root', name: 'scene', parentId: null });
+    na.create({ id: 'child', name: 'existing', parentId: 'root' });
+    // Subtree grant — like a collab-scene link, NOT an entityId '*' grant.
+    a.grants.grant({
+      grantee: 'B',
+      entityRtype: '*',
+      entityId: 'root',
+      includeDescendants: true,
+      pathPrefix: '',
+      rights: { read: true, update: true, create: true, delete: true },
+    });
+    await b.subscribe('A', {
+      entityRtype: '*',
+      entityId: 'root',
+      includeDescendants: true,
+      pathPrefix: '',
+    });
+    expect(nb.get('child')?.name).toBe('existing'); // snapshot covered subtree
+
+    // The bug-3 case: a brand-new id, unknown to A's containment index, is
+    // admitted because its parent reference places it inside the grant.
+    const h = nb.create({ id: 'c-new', name: 'made-by-B', parentId: 'child' });
+    expect((await h.ack).status).toBe('acked');
+    expect(na.get('c-new')?.name).toBe('made-by-B');
+    expect(db.get('c-new')?.name).toBe('made-by-B');
+
+    // …and a create OUTSIDE the subtree is still denied.
+    const h2 = nb.create({ id: 'rogue', name: 'nope', parentId: null });
+    const outcome = await h2.ack;
+    expect(outcome.status).not.toBe('acked');
+    expect(na.get('rogue')).toBeUndefined();
+    expect(db.has('rogue')).toBe(false);
+  });
+});

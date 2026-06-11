@@ -11,7 +11,7 @@
  * See dev-notes/plans/multiplayer-phase5.md.
  */
 import { getIdentity, signBytes } from './identity.js';
-import { getMeshPeer } from '../mesh/index.js';
+import { getMeshPeer, mirrorIntoMesh } from '../mesh/index.js';
 import { syncCollabLinks } from '../mesh/collab.js';
 import {
   RendezvousClient,
@@ -647,8 +647,17 @@ class MultiplayerManager {
         this.blob!.ensure(from, a)
       );
     mountSharedScene(d.snapshot, projectId, from);
-    // Mesh: grant the owner back + subscribe (live ops + future reconciles
-    // ride the mesh; this legacy snapshot path remains for asset transfer).
+    // Mesh: mirror the mounted (localized) rows into the replica with their
+    // row-derived stamps — old stamps, so the mirror can't out-stamp the
+    // author's live state — then grant the owner back + subscribe (live ops
+    // + reconciles ride the mesh; this legacy snapshot path remains for
+    // asset transfer).
+    for (const n of d.snapshot.nodes ?? [])
+      mirrorIntoMesh('scene_node', (n as { id: string }).id);
+    for (const c of d.snapshot.clips ?? [])
+      mirrorIntoMesh('track_clip', (c as { id: string }).id);
+    for (const e of d.snapshot.cameraEffects ?? [])
+      mirrorIntoMesh('camera_effect', (e as { id: string }).id);
     {
       const mp = getMeshPeer();
       if (mp) syncCollabLinks(mp);

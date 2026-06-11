@@ -402,7 +402,28 @@ export class MeshPeer implements PeerCore {
     if (!col || !ch) return;
     if (env.origin === this.id) return; // loop suppression
 
+    // Creates of unknown ids aren't in the containment index yet, so subtree
+    // grants/subscriptions can't match them. Provisionally index the node from
+    // the op's parent reference; rolled back if admission/validation/LWW
+    // rejects the op (apply re-indexes it properly on success).
+    let provisional = false;
+    if (env.op === 'upsert' && !col.replica.has(env.id)) {
+      try {
+        const parentRef = col.cfg.parent?.(env.data as never);
+        if (parentRef) {
+          this.indexUpsert(env.rtype, env.id, parentRef.id);
+          provisional = true;
+        }
+      } catch {
+        /* malformed doc — admission/validation rejects it below */
+      }
+    }
+    const dropProvisional = () => {
+      if (provisional) this.indexRemove(env.id);
+    };
+
     if (!this.opAllowed(senderId, env, col)) {
+      dropProvisional();
       if (env.ack)
         this.sendTo(senderId, {
           t: 'ack',
@@ -436,6 +457,7 @@ export class MeshPeer implements PeerCore {
         corrected = !deepEqual(validated, env.data);
         data = validated;
       } catch (e) {
+        dropProvisional();
         if (env.ack)
           this.sendTo(senderId, {
             t: 'ack',
@@ -497,11 +519,14 @@ export class MeshPeer implements PeerCore {
           ? { ...env, data, v, origin: this.id, ack: undefined }
           : { ...env, ack: undefined };
         this.relay(col, fwd, senderId, preRecipients, preChain);
-      }
+      } else dropProvisional();
       return;
     }
 
-    if (!change) return;
+    if (!change) {
+      dropProvisional();
+      return;
+    }
     // Non-authority peers persist remote committed state through taps too
     // (the symmetric-mount case); failures here can't nack, so they log.
     try {
@@ -597,8 +622,14 @@ export class MeshPeer implements PeerCore {
     for (const d of msg.docs) {
       const col = this.collections.get(d.rtype);
       if (!col?.retainedChannel) continue;
+      let data = d.doc;
+      try {
+        data = col.validateDoc(d.doc);
+      } catch {
+        continue; // snapshot doc fails validation — skip it
+      }
       const v = d.v ?? { t: 0, c: 0, n: senderId };
-      const change = col.applyOp('upsert', d.id, undefined, d.doc, v, {
+      const change = col.applyOp('upsert', d.id, undefined, data, v, {
         origin: senderId,
         channel: col.retainedChannel,
       });

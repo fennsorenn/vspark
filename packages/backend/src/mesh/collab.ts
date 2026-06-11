@@ -40,9 +40,19 @@ export function grantCollabScene(
   peer.grants.grant(sceneGrant(granteePeerId, sceneId));
 }
 
+/** First-mount race: we may subscribe before the remote side has issued our
+ *  grant (it grants on mount / on snapshot receipt) — retry denials. */
+const SUBSCRIBE_RETRY_MS = 3000;
+const SUBSCRIBE_MAX_RETRIES = 40;
+
 /** Subscribe to one collab link's peer now (if connected) and keep it armed
  *  across reconnects. */
-function armLink(peer: MeshPeer, remotePeerId: string, sceneId: string): void {
+function armLink(
+  peer: MeshPeer,
+  remotePeerId: string,
+  sceneId: string,
+  attempt = 0
+): void {
   const key = `${remotePeerId}:${sceneId}`;
   if (subscribed.has(key)) return;
   if (!peer.status().peers.some((p) => p.id === remotePeerId)) return;
@@ -56,7 +66,17 @@ function armLink(peer: MeshPeer, remotePeerId: string, sceneId: string): void {
     })
     .catch((e) => {
       subscribed.delete(key);
-      console.warn(`[mesh] collab subscribe ${sceneId} @ ${remotePeerId}:`, e);
+      if (attempt < SUBSCRIBE_MAX_RETRIES) {
+        setTimeout(
+          () => armLink(peer, remotePeerId, sceneId, attempt + 1),
+          SUBSCRIBE_RETRY_MS
+        );
+      } else {
+        console.warn(
+          `[mesh] collab subscribe ${sceneId} @ ${remotePeerId} gave up:`,
+          e
+        );
+      }
     });
 }
 
