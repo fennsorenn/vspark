@@ -34,7 +34,6 @@ import {
   forwardCollabOp,
   applyCollabOp,
   COLLAB_OP_RTYPE,
-  COLLAB_OFFER_RTYPE,
   COLLAB_SUBSCRIBE_RTYPE,
   COLLAB_SNAPSHOT_RTYPE,
 } from './collabScene.js';
@@ -90,6 +89,9 @@ class MultiplayerManager {
   /** sceneId → target projectId while a collab-scene mount is in flight (between
    *  our subscribe request and the owner's snapshot reply). */
   private readonly pendingCollabMount = new Map<string, string>();
+  /** Peers we've received a profile from this connection — so the courtesy
+   *  re-send (covering a raced on-connect profile) fires at most once. */
+  private readonly profileExchanged = new Set<string>();
   private broadcast: Broadcast = () => {};
   private iceServers: IceServer[] = [];
   private iceFetchedAt = 0;
@@ -246,6 +248,7 @@ class MultiplayerManager {
       clientMeshRelay.onServerConnected(peerId);
     });
     this.mesh.on('peerDisconnected', (peerId: string) => {
+      this.profileExchanged.delete(peerId);
       this.broadcast('mp_peer', { peerId, connected: false });
       this.sharing?.onPeerDisconnected(peerId);
       meshRouter.detach(peerId); // drops its link + subscriptions
@@ -272,7 +275,13 @@ class MultiplayerManager {
           });
           // The profile arrives once the peer's channel is fully live, so this is
           // a reliable point to (re-)advertise our shares (the on-connect send
-          // can race the channel setup).
+          // can race the channel setup). For the same reason our own on-connect
+          // sendProfile may have raced and never reached them — re-send it once
+          // (the first receipt per connection) so names converge both ways.
+          if (!this.profileExchanged.has(from)) {
+            this.profileExchanged.add(from);
+            this.sendProfile(from);
+          }
           this.sharing?.advertise(from);
         } else if (SHARE_RTYPES.has(env?.rtype)) {
           this.sharing?.handleEnvelope(from, env);
@@ -291,14 +300,6 @@ class MultiplayerManager {
             env?: SyncEnvelope;
           };
           if (d.sceneId && d.env) applyCollabOp(d.sceneId, d.env);
-        } else if (env?.rtype === COLLAB_OFFER_RTYPE) {
-          const d = (env.data ?? {}) as { sceneId?: string; name?: string };
-          if (d.sceneId)
-            this.broadcast('mp_collab_offer', {
-              peerId: from,
-              sceneId: d.sceneId,
-              name: d.name ?? 'Shared scene',
-            });
         } else if (env?.rtype === COLLAB_SUBSCRIBE_RTYPE) {
           this.handleCollabSubscribe(from, env);
         } else if (env?.rtype === COLLAB_SNAPSHOT_RTYPE) {
@@ -472,9 +473,9 @@ class MultiplayerManager {
 
   // --- collaborative scene sharing (peer-to-peer, persisted on both) ---------
 
-  /** Owner: offer a scene for collaborative editing. Grants the peer read+write,
-   *  records our 'author' link, indexes the scene for fan-out, and (if connected)
-   *  pushes an offer the peer can mount. */
+  /** Owner: offer a scene for collaborative editing. Grants the peer read+write
+   *  (which the sharing manager advertises as a scene offer the peer can mount)
+   *  and records our 'author' link + indexes the scene for fan-out. */
   shareCollabScene(sceneId: string, granteePeerId: string): void {
     const row = getDb()
       .prepare("SELECT project_id, name FROM scene_nodes WHERE id = ? AND kind = 'scene'")
@@ -483,12 +484,7 @@ class MultiplayerManager {
     addShare('scene', sceneId, granteePeerId, true);
     registerCollabScene(sceneId, granteePeerId, 'author', row.project_id);
     indexCollabScene(sceneId);
-    this.mesh?.sendEnvelope(granteePeerId, {
-      rtype: COLLAB_OFFER_RTYPE,
-      op: 'event',
-      key: sceneId,
-      data: { sceneId, name: row.name },
-    });
+    this.sharing?.reAdvertiseAll();
   }
 
   /** Receiver: ask the owner to send a collab scene so we can mount it into

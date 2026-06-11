@@ -495,17 +495,6 @@ export function useWsSync() {
             useConnectionsStore
               .getState()
               .setOffers(p.peerId, p.shares ?? []);
-          } else if (msg.kind === 'mp_collab_offer') {
-            // A peer offered a scene for collaborative (persisted, two-way)
-            // editing — surface it so we can mount it into a local project.
-            const p = msg.payload as {
-              peerId: string;
-              sceneId: string;
-              name: string;
-            };
-            useConnectionsStore
-              .getState()
-              .addCollabOffer(p.peerId, { sceneId: p.sceneId, name: p.name });
           } else if (msg.kind === 'mp_collab_mounted') {
             // A collaborative scene was just persisted into one of our projects
             // (straight to SQLite, so no per-node sync events) — reload that
@@ -516,9 +505,6 @@ export function useWsSync() {
               sceneId: string;
               projectId: string;
             };
-            useConnectionsStore
-              .getState()
-              .clearCollabOffer(p.peerId, p.sceneId);
             const ed = useEditorStore.getState();
             if (ed.projectId === p.projectId) {
               void getScenes(p.projectId)

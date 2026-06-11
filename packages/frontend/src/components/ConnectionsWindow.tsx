@@ -40,7 +40,7 @@ import {
   REMOTE_OBJECT_KIND,
 } from '../sync/sharedProjection';
 import { unsubscribeDirect } from '../sync/shareDirect';
-import type { SharedOffer, CollabOffer } from '../store/connectionsStore';
+import type { SharedOffer } from '../store/connectionsStore';
 
 const C = {
   bg: '#181818',
@@ -150,14 +150,12 @@ function ConnectedMember({
   const subscribed =
     useConnectionsStore((s) => s.subscribed[peer.peerId]) ?? EMPTY_IDS;
   const setSubscribed = useConnectionsStore((s) => s.setSubscribed);
-  const collabOffers =
-    useConnectionsStore((s) => s.collabOffers[peer.peerId]) ?? EMPTY_COLLAB;
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
   const projectId = useEditorStore((s) => s.projectId);
   const addNodeLocal = useEditorStore((s) => s.addNode);
   const [actBusy, setActBusy] = useState(false);
 
-  const mount = (offer: CollabOffer) =>
+  const mount = (sceneId: string) =>
     void (async () => {
       if (!projectId) return;
       setActBusy(true);
@@ -165,7 +163,7 @@ function ConnectedMember({
         // Persist the peer's scene as a real, editable, live-synced scene in our
         // current project. The backend replies mp_collab_mounted, which reloads
         // our scenes and focuses it.
-        await mountCollabScene(peer.peerId, offer.sceneId, projectId);
+        await mountCollabScene(peer.peerId, sceneId, projectId);
       } catch {
         /* ignore */
       } finally {
@@ -260,6 +258,35 @@ function ConnectedMember({
             </div>
           )}
           {offers.map((o) => {
+            // A scene offer is collaborative (peer-to-peer, persisted + editable
+            // on both) — mount it into our project rather than "placing" a
+            // read-only projection. Object offers keep the place/remove flow.
+            if (o.shareKind === 'scene') {
+              return (
+                <div
+                  key={o.objectId}
+                  style={{ ...S.row, marginBottom: 4, fontSize: 11 }}
+                >
+                  <span
+                    style={{
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    🎬 {o.name || o.objectId.slice(0, 10)}
+                  </span>
+                  <button
+                    style={S.btn('primary')}
+                    disabled={actBusy || !projectId}
+                    onClick={() => mount(o.objectId)}
+                    title={t('collab.mountHint')}
+                  >
+                    {t('collab.mount')}
+                  </button>
+                </div>
+              );
+            }
             const placed = subscribed.includes(o.objectId);
             return (
               <div
@@ -297,39 +324,11 @@ function ConnectedMember({
           })}
         </div>
       )}
-      {collabOffers.length > 0 && (
-        <div style={{ paddingLeft: 14, paddingTop: 4 }}>
-          <div style={{ color: C.dim, fontSize: 11, paddingBottom: 2 }}>
-            {t('collab.label')}
-          </div>
-          {collabOffers.map((o) => (
-            <div
-              key={o.sceneId}
-              style={{ ...S.row, marginBottom: 4, fontSize: 11 }}
-            >
-              <span
-                style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}
-              >
-                🎬 {o.name || o.sceneId.slice(0, 10)}
-              </span>
-              <button
-                style={S.btn('primary')}
-                disabled={actBusy || !projectId}
-                onClick={() => mount(o)}
-                title={t('collab.mountHint')}
-              >
-                {t('collab.mount')}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
 
 const EMPTY: import('../store/connectionsStore').SharedOffer[] = [];
-const EMPTY_COLLAB: import('../store/connectionsStore').CollabOffer[] = [];
 const EMPTY_IDS: string[] = [];
 
 export function ConnectionsWindow({ visible }: { visible: boolean }) {

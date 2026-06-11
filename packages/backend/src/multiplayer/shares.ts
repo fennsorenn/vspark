@@ -68,11 +68,17 @@ export function listObjectGrantees(objectId: string): string[] {
 
 /** Everything granted to a peer (peer-specific + '*'), for advertise. */
 export function listSharesForPeer(peerId: string): ShareGrant[] {
+  const db = getDb();
+  const isScene = db.prepare(
+    "SELECT 1 FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+  );
   return grantsForRequester(peerId)
     .filter((g) => g.rights.read && g.entityRtype === 'scene_node')
     .map((g) => ({
       id: `${g.grantee}:${g.entityId}`,
-      shareKind: 'object' as ShareKind,
+      // A grant on a scene root is a collaborative-scene offer (mount), not an
+      // object projection (place) — the receiver UI branches on this.
+      shareKind: (isScene.get(g.entityId) ? 'scene' : 'object') as ShareKind,
       objectId: g.entityId,
       granteePeerId: g.grantee,
       canWrite: !!g.rights.update,

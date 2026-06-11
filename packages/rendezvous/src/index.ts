@@ -48,6 +48,17 @@ const pairCodes = new Map<
   { peerId: string; publicKey: string; displayName: string; expiresAt: number }
 >();
 
+/** Pair requests buffered for a creator whose socket may have raced/reconnected
+ *  at join time (the live `send` silently drops if the socket isn't OPEN). Keyed
+ *  by creator peerId; flushed on that peer's next `hello`. TTL-bounded so a stale
+ *  request can't re-add a contact the user later removed. Idempotent app-side, so
+ *  a redundant live+buffered delivery is harmless. */
+const PENDING_PAIR_TTL_MS = 60_000;
+const pendingPairs = new Map<
+  string,
+  { msg: Msg; expiresAt: number }[]
+>();
+
 function send(ws: WebSocket, msg: Msg): void {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
@@ -123,6 +134,14 @@ wss.on('connection', (raw: WebSocket) => {
           typeof displayName === 'string' ? displayName : '';
         peers.set(peerId, ws);
         send(ws, { type: 'hello_ok', peerId });
+        // Flush any pair requests buffered while this peer was away (covers a
+        // pair_join whose live relay raced this peer's reconnect).
+        const pending = pendingPairs.get(peerId);
+        if (pending) {
+          pendingPairs.delete(peerId);
+          const now = Date.now();
+          for (const p of pending) if (p.expiresAt > now) send(ws, p.msg);
+        }
         notifyWatchers(peerId, true);
         return;
       }
@@ -163,12 +182,19 @@ wss.on('connection', (raw: WebSocket) => {
           return;
         }
         // Relay each side's identity to the other; consent + storage is app-side.
-        send(creator, {
+        const pairRequest: Msg = {
           type: 'pair_request',
           peerId: ws.peerId,
           publicKey: msg.publicKey ?? '',
           displayName: msg.displayName ?? '',
-        });
+        };
+        send(creator, pairRequest);
+        // Also buffer it: the live send above is dropped if the creator's socket
+        // raced/reconnected, leaving the contact saved on the joiner only. The
+        // creator picks it up on its next hello.
+        const buf = pendingPairs.get(entry.peerId) ?? [];
+        buf.push({ msg: pairRequest, expiresAt: Date.now() + PENDING_PAIR_TTL_MS });
+        pendingPairs.set(entry.peerId, buf);
         send(ws, {
           type: 'pair_info',
           peerId: entry.peerId,
