@@ -49,6 +49,8 @@ All subscribe to the replica via `useSyncExternalStore` and auto-unsubscribe on 
 
 **Recency-gated revert on ack timeout.** Authority unreachable mid-flight: reverted *only if the current value still carries the write's HLC stamp* — a read-only check that's safe under concurrent writes. Revert is *local-only* (no compensating broadcast); reconnect reconciliation from the authority is the real repair. Brief divergence among non-authority peers during an outage is accepted.
 
+**Legacy bridge echo guard.** The legacy sync.document ↔ mesh replica mirror taps sync.document.upsert to watch for writes from the mesh side; when a write originates from the mesh (`origin === peerId`), the bridge skips applying it back to the document (detected via `applyFromMesh` ids). This prevents echo feedback while the two layers converge.
+
 ## Collection API
 
 ### Reads (synchronous, local replica)
@@ -250,21 +252,24 @@ const peer = useMemo(() => createMeshPeer({
 
 4. Bind writes: replace Zustand mutations with `collection.create` / `collection.update` / `collection.remove` calls.
 
-## Integration roadmap (remaining)
+## Integration roadmap
 
-**Completed:**
+**Completed (through step C — dead-code removal):**
 - Core package (@vspark/mesh) — 25 tests, all APIs.
 - React hooks (@vspark/mesh-react) — all hooks.
-- Transports (@vspark/mesh-transports) — WS pair; WebRTC pending.
+- Transports (@vspark/mesh-transports) — WS pair shipped; WebRTC pending.
 - Backend hydration + persistence (five collections, generic onCommitted taps).
-- Frontend per-tab peer + auto-subscribe (wired, not in UI yet).
+- Frontend per-tab peer + auto-subscribe (wired, mounted in Editor).
+- **Collab-scene LIVE OPS + RECONCILE:** standing RUCD mesh grant on scene subtree, mutual subscription re-armed per connect, snapshot-on-subscribe replaces reconcile. Verified 8/8 two-backend live.
+- **Legacy bridge:** sync.document ↔ mesh replica mirror (`packages/backend/src/mesh/index.ts`) with echo guard.
+- **ServerMeshTransport:** mesh over legacy WebRTC channels namespaced `_mesh2` (`packages/backend/src/mesh/serverMeshTransport.ts`).
+- **Grants + subscription arming:** `packages/backend/src/mesh/collab.ts`.
+- **Tombstone persistence:** `mesh_tombstones` table (migration 032), HLC storage, 30-day prune.
 
-**Planned (next):**
+**Remaining:**
 - REST mutation routes writing through the store (instead of direct DB writes).
 - Frontend store migration: UI bindings to mesh-react hooks instead of Zustand reads.
-- HLC persistence: sync_v column + generic tombstone table for full convergence/reconcile.
-- WebRTC transport adapters (wrapping ServerMesh and BrowserPeerMesh).
-- Collab-scene / object-share unification onto mesh grants and subscriptions.
+- Known issues: werift stale-slot blocks single-side reconnect (legacy transport, pre-existing); model-swap assets don't ride mesh yet.
 
 ## Key files
 

@@ -1,6 +1,6 @@
 # Multiplayer / Mesh
 
-> **WIP: App integration layer.** The core replicated store is factored into new packages `@vspark/mesh`, `@vspark/mesh-react`, and `@vspark/mesh-transports` (see [mesh.md](mesh.md)). Content below describes the current peer-to-peer connectivity and object-sharing implementations; they are being consolidated with the mesh core under a unified grants + subscriptions model. See [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the target design and integration roadmap.
+> **WIP: REST + frontend bindings.** Collab-scene LIVE OPS + RECONCILE have moved onto `@vspark/mesh` grants + subscriptions (see [mesh.md](mesh.md)). File now covers mount/assets/streams/relays only (~530 lines, down from 1106). Remaining work: REST mutation routes writing through the mesh store, frontend store migration to mesh-react bindings. See [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the full design and architecture context.
 
 Peer-to-peer connectivity between vspark instances: server↔server WebRTC, a
 signaling relay for browser clients, object sharing over the mesh, a
