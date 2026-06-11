@@ -568,6 +568,17 @@ re-subscribe, pose stream still legacy.
   Found+fixed pre-existing: `listSharesForPeer` reused a PreparedStatement
   (single-use wrapper finalizes after first `.get()`) → advertise 500 once a
   peer held ≥2 share grants; now one batched IN query.
+- **Streams + clip playback (collab) — DONE and live-verified 5/5**
+  (b4d55c5, 2530c3f): pose/preview frames ride a `node_stream` pure-stream
+  collection (lossy `preview` channel) keyed by node id — the existing
+  collab '*'-subtree subscriptions route them via containment; receivers
+  bridge remote frames for their collab scenes onto /ws under the original
+  kind. Clip playback controls ride a `clip_control` collection on a new
+  reliable unstamped `control` channel keyed by clip id. `_collab_stream`,
+  `_collab_playback`, forwardCollabStream, forwardClipPlayback deleted.
+  Verified: A→B and B→A frame relay, non-collab isolation, trigger/pause/
+  stop mirroring with re-anchored playhead, zero legacy rtypes in logs.
+  Object-share streams stay on `_share_stream` (direct browser edges).
 - **Known issues / deferred:**
   - ~~werift stale slot blocks single-side reconnects~~ **FIXED + live-verified
     4/4**: an offer from a peer we hold as `connected` proves our slot is
