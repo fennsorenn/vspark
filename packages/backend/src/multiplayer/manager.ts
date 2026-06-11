@@ -17,7 +17,11 @@ import {
   subscribeSharedObject,
   unsubscribeSharedObject,
 } from '../mesh/shares.js';
-import { publishNodeStream } from '../mesh/streams.js';
+import {
+  publishNodeStream,
+  publishClipPlayback,
+  setClipPlaybackApplier,
+} from '../mesh/streams.js';
 import {
   RendezvousClient,
   type PairedPeer,
@@ -40,7 +44,7 @@ import {
   indexCollabNode,
   mountSharedScene,
   collabSceneForNode,
-  forwardClipPlayback,
+  clipCollabScene,
   forwardCollabRuntime,
   persistCollabAssets,
   indexAllCollabScenes,
@@ -49,7 +53,6 @@ import {
   collabPeersForScene,
   COLLAB_SUBSCRIBE_RTYPE,
   COLLAB_SNAPSHOT_RTYPE,
-  COLLAB_PLAYBACK_RTYPE,
   COLLAB_RUNTIME_RTYPE,
   type ClipPlaybackAction,
 } from './collabScene.js';
@@ -159,6 +162,11 @@ class MultiplayerManager {
     // forwarding (edits + pose/preview streams) works after a restart.
     indexAllCollabScenes();
     if (broadcast) this.broadcast = broadcast;
+    // Remote clip playback controls arrive over the mesh `control` channel;
+    // the bridge applies them on our local playback manager.
+    setClipPlaybackApplier((clipId, action, t) =>
+      this.applyClipPlayback(clipId, action, t)
+    );
 
     this.client = new RendezvousClient(
       url,
@@ -357,16 +365,6 @@ class MultiplayerManager {
           this.handleCollabSubscribe(from, env);
         } else if (env?.rtype === COLLAB_SNAPSHOT_RTYPE) {
           void this.handleCollabSnapshot(from, env);
-        } else if (env?.rtype === COLLAB_PLAYBACK_RTYPE) {
-          // A collab peer's clip play/pause/seek — replicate on our own playback
-          // manager (which has the synced clip), anchored to our local clock.
-          const d = (env.data ?? {}) as {
-            clipId?: string;
-            action?: ClipPlaybackAction;
-            t?: number;
-          };
-          if (d.clipId && d.action)
-            this.applyClipPlayback(d.clipId, d.action, d.t);
         } else if (env?.rtype === COLLAB_RUNTIME_RTYPE) {
           // A collab peer's runtime broadcast (Set Data, override, spawn, media).
           const d = (env.data ?? {}) as {
@@ -684,15 +682,14 @@ class MultiplayerManager {
   }
 
   /** Relay a local clip playback control to collab peers (called by the playback
-   *  routes). The peer replicates it on its own playback manager. */
+   *  routes). Rides the mesh `control` channel (reliable events); each peer
+   *  replicates it on its own playback manager. */
   relayClipPlayback(
     clipId: string,
     action: ClipPlaybackAction,
     t?: number
   ): void {
-    forwardClipPlayback(clipId, action, t, (peer, env) =>
-      this.mesh?.sendEnvelope(peer, env)
-    );
+    if (clipCollabScene(clipId)) publishClipPlayback(clipId, action, t);
   }
 
   /** Replicate a peer's clip playback control locally (no re-forward — only

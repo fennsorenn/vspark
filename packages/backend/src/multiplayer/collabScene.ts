@@ -25,8 +25,10 @@ import {
 // COLLAB_STREAM_RTYPE ('_collab_stream') is gone: live frames for collab
 // nodes ride the @vspark/mesh preview channel now (backend/src/mesh/streams.ts).
 
-/** Control rtypes for collaborative scene sharing (over the mesh doc channel). */
-export const COLLAB_PLAYBACK_RTYPE = '_collab_playback'; // clip play/pause/seek control
+// COLLAB_PLAYBACK_RTYPE ('_collab_playback') is gone too: clip playback
+// control rides the mesh `control` channel (backend/src/mesh/streams.ts).
+
+/** Control rtype for collaborative scene sharing (over the mesh doc channel). */
 export const COLLAB_RUNTIME_RTYPE = '_collab_runtime'; // runtime data (Set Data, spawn, …)
 
 export type ClipPlaybackAction = 'trigger' | 'stop' | 'pause' | 'resume' | 'seek';
@@ -447,24 +449,12 @@ export function applyCollabClips(sceneId: string, clips: ClipDto[]): void {
   }
 }
 
-/** Mirror a local clip playback control (play/pause/seek) to every collab peer
- *  of the clip's scene, so playback stays in step. Each peer anchors locally on
- *  receipt (no clock sync needed); seek carries the playhead. */
-export function forwardClipPlayback(
-  clipId: string,
-  action: ClipPlaybackAction,
-  t: number | undefined,
-  send: (peerId: string, env: SyncEnvelope) => void
-): void {
+/** The collab scene a clip belongs to (undefined if its scene isn't shared) —
+ *  the sender gate + receiver filter for playback control over the mesh
+ *  (mesh/streams.ts). Cache-first; falls back to a DB walk. */
+export function clipCollabScene(clipId: string): string | undefined {
   const sceneId = resolveClipScene(clipId);
-  if (!sceneId || !isCollabScene(sceneId)) return;
-  for (const link of collabPeersForScene(sceneId))
-    send(link.peerId, {
-      rtype: COLLAB_PLAYBACK_RTYPE,
-      op: 'event',
-      key: clipId,
-      data: { clipId, action, t },
-    });
+  return sceneId && isCollabScene(sceneId) ? sceneId : undefined;
 }
 
 // --- camera effects (node-scoped) -------------------------------------------
