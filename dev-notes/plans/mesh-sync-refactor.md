@@ -461,3 +461,74 @@ drift this refactor removes.
   resolver; the package merely doesn't prevent it).
 - Opaque JSON values (feed object) are whole-value LWW — anything needing
   concurrent editing must be path-addressable. State this rule in the docs.
+
+## 9. Collab cutover plan (from the legacy-protocol survey)
+
+Protocol survey artifacts: legacy wire kinds (`_share_*`, `_collab_*`,
+`COLLAB_RELAY_KINDS`), entry points, state, reconcile, lifecycle — see the
+session survey; key facts baked into the steps below.
+
+**Already done:** `ServerMeshTransport` (backend/src/mesh/serverMeshTransport.ts)
+rides the legacy WebRTC doc/stream channels, namespaced as `rtype:'_mesh2'`
+(doc) / `k:'_mesh2'` (stream) so both protocols coexist; attached after
+`multiplayerManager.init` via `MeshPeer.addTransport`.
+
+**Design decisions:**
+1. **Backend↔backend collab is unguarded + mutually subscribed.** Both peers
+   are durable authorities of their own store; acks only guard tab→backend
+   writes. Mount = mutual RUCD grant + mutual subscribe on the scene subtree
+   (`entityRtype:'scene_node', entityId:sceneId, includeDescendants:true`).
+   Place (object share) = one-way read grant + subscribe. Grant level is the
+   only difference — the original design goal.
+2. **track_clip needs a containment parent** (clip→scene_node via its node
+   column) so subtree grants/subscriptions cover clips, effects, behaviors
+   cross-type. Add to backend BINDINGS + frontend PARENTS.
+3. **Legacy-bridge (parallel-run keystone):** REST mutations bypass the mesh
+   replica today. Bridge module (backend/src/mesh/legacyBridge.ts):
+   - `sync.onDocument(env)` → `col.put(load(id), {v: env.v ?? clock})` /
+     `putTombstone` — mirrors every legacy mutation into the mesh (put skips
+     taps, fans out to subscribers).
+   - The backend persistence tap, after `r.save(doc)`, calls
+     `sync.document.upsert(rtype, id)` so the receiving backend's own tabs see
+     remote mesh edits via the legacy WS path.
+   - **Echo guard**: an `applying` set (rtype:id) — the tap adds before
+     upsert, the bridge skips guarded ids. (Legacy `applyingFromPeer` pattern.)
+4. **Cut over, don't duplicate:** the moment mesh carries collab ops, the
+   legacy `forwardCollabOp` wiring in manager.ts (sync.onDocument hook) and
+   the `_collab_op/_collab_subscribe/_collab_snapshot/_collab_reconcile`
+   handlers must be disabled for those rtypes, or every edit double-applies
+   via both pipelines (ping-pong risk).
+5. **Reconcile = re-subscribe.** Mesh snapshot-on-subscribe replaces
+   `_collab_reconcile`: on mesh peer connect, the backend re-subscribes for
+   every `collab_scenes` row (`role='mounted'` → subscribe to owner;
+   `role='author'` → subscribe back to the granted peer), and re-issues
+   grants. Grants are in-memory in MeshPeer — hydrate them at init from
+   `collab_scenes` + the legacy share grant store.
+6. **Keep on legacy for now** (migrate later, separately): asset/blob
+   transfer (`_blob_*` port), `_collab_playback` + spawn/ephemeral clips,
+   `_collab_runtime` whitelist (Set Data / overrides / media) — these are
+   runtime/event traffic, not document state; they map to mesh
+   streams/values in a later step. Compose layers stay legacy until they get
+   a real containment scope.
+
+**Step order (keep green at each step):**
+A. track_clip parent fns; legacyBridge (mirror + tap-upsert + echo guard);
+   collab grant/subscription hydration + reconnect re-subscribe in
+   backend/src/mesh. Verify: two-backend live ops via mesh while legacy still
+   runs (mesh replicas converge; no double-apply because legacy still owns
+   apply — bridge put skips taps).
+B. shareCollabScene/mountCollabScene gain mesh grants + mutual subscribe;
+   THEN cut legacy: remove forwardCollabOp hook + _collab_op/_subscribe/
+   _snapshot/_reconcile dispatch in manager.ts envelope handler for
+   scene_node/track_clip/camera_effect (compose_layer stays via
+   _collab_runtime for now). mountSharedScene's node/clip/effect writers die;
+   mount keeps registerCollabScene + asset blob prefetch.
+C. Delete dead collabScene.ts code (lastVersion/applyingFromPeer/nodeScene/
+   clipScene/effectScene maps, apply*Dto, gatherReconcile/applyReconcile),
+   collab tombstones move to mesh putTombstone + a generic table later.
+D. Object-share onto the same path (read-grant subscribe), then
+   COLLAB_RELAY_KINDS shrink/delete.
+
+**Verify after B (two backends):** share→mount, bidirectional node edit,
+clip keyframe edit, effect edit, delete + offline-delete reconcile via
+re-subscribe, pose stream still legacy.

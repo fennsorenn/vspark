@@ -44,7 +44,8 @@ import { sync } from './sync/index.js';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 import './sync/resources.js';
 import { initIdentity, getIdentity } from './multiplayer/identity.js';
-import { initBackendMesh, meshUpgrade } from './mesh/index.js';
+import { initBackendMesh, getMeshPeer, meshUpgrade } from './mesh/index.js';
+import { ServerMeshTransport } from './mesh/serverMeshTransport.js';
 import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
 import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
@@ -120,6 +121,14 @@ async function start() {
     process.env.MULTIPLAYER_DISPLAY_NAME,
     (kind, payload) => wsSync.broadcast(kind, payload)
   );
+  // Ride the WebRTC server mesh (when multiplayer is enabled): backend mesh
+  // peers reach each other over the same data channels, namespaced so legacy
+  // collab traffic and mesh wire messages coexist during the migration.
+  {
+    const serverMesh = multiplayerManager.getServerMesh();
+    if (serverMesh)
+      getMeshPeer()?.addTransport(new ServerMeshTransport(serverMesh));
+  }
   // Unified sync layer: producer hub over the shared WS transport.
   // Inert until resources register + routes emit (phased migration).
   sync.init(wsSync);

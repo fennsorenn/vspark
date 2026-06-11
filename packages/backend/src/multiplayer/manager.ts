@@ -471,6 +471,12 @@ class MultiplayerManager {
     return this.mesh?.isConnected(peerId) ?? false;
   }
 
+  /** The WebRTC server mesh (null until init). The new @vspark/mesh peer rides
+   *  it via ServerMeshTransport during the parallel-run. */
+  getServerMesh(): ServerMesh | null {
+    return this.mesh;
+  }
+
   async pairCreate(): Promise<string> {
     if (!this.client) throw new Error('multiplayer is not enabled');
     return this.client.pairCreate();

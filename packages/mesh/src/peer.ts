@@ -123,13 +123,19 @@ export class MeshPeer implements PeerCore {
     this.cfg = cfg;
     this.id = cfg.identity.peerId;
     this.clock = new HlcClock(this.id);
-    this.transports = cfg.transports ?? [];
-    for (const t of this.transports)
-      t.start({
-        peerConnected: (peerId, link) => this.onPeerConnected(peerId, link),
-        peerDisconnected: (peerId) => this.onPeerDisconnected(peerId),
-        message: (peerId, msg) => this.onMessage(peerId, msg),
-      });
+    this.transports = [];
+    for (const t of cfg.transports ?? []) this.addTransport(t);
+  }
+
+  /** Attach (and start) an additional transport — for links that only come up
+   *  after peer creation (e.g. the WebRTC server mesh once signaling is configured). */
+  addTransport(t: MeshTransport): void {
+    this.transports.push(t);
+    t.start({
+      peerConnected: (peerId, link) => this.onPeerConnected(peerId, link),
+      peerDisconnected: (peerId) => this.onPeerDisconnected(peerId),
+      message: (peerId, msg) => this.onMessage(peerId, msg),
+    });
   }
 
   // --- public API ----------------------------------------------------------------
