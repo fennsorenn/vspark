@@ -33,7 +33,10 @@ import {
   mountSharedScene,
   forwardCollabOp,
   applyCollabOp,
+  forwardCollabStream,
+  indexAllCollabScenes,
   COLLAB_OP_RTYPE,
+  COLLAB_STREAM_RTYPE,
   COLLAB_SUBSCRIBE_RTYPE,
   COLLAB_SNAPSHOT_RTYPE,
 } from './collabScene.js';
@@ -106,6 +109,9 @@ class MultiplayerManager {
     const id = getIdentity();
     this.enabled = true;
     this.currentDisplayName = displayName || 'vspark';
+    // Rebuild the collab node→scene index from the persisted links so live
+    // forwarding (edits + pose/preview streams) works after a restart.
+    indexAllCollabScenes();
     if (broadcast) this.broadcast = broadcast;
 
     this.client = new RendezvousClient(
@@ -254,11 +260,22 @@ class MultiplayerManager {
       meshRouter.detach(peerId); // drops its link + subscriptions
       clientMeshRelay.onServerDisconnected(peerId);
     });
-    // Lossy stream frames (shared-avatar pose/blendshapes).
+    // Lossy stream frames (shared-avatar pose/blendshapes/drag previews).
     this.mesh.on(
       'streamFrame',
-      ({ from, frame }: { from: string; frame: Record<string, unknown> }) =>
-        this.sharing?.handleStreamFrame(from, frame)
+      ({ from, frame }: { from: string; frame: Record<string, unknown> }) => {
+        // Collaborative scene: re-broadcast the frame to our own clients under its
+        // original kind (vmc_pose / node_transform_preview / …). The node ids are
+        // shared, so the frame applies straight to our mounted copy.
+        if (frame?.rtype === COLLAB_STREAM_RTYPE) {
+          this.broadcast(
+            frame.kind as string,
+            frame.payload as Record<string, unknown>
+          );
+          return;
+        }
+        this.sharing?.handleStreamFrame(from, frame);
+      }
     );
     // Inbound control envelopes: live display name + the sharing protocol.
     this.mesh.on(
@@ -540,23 +557,33 @@ class MultiplayerManager {
     this.broadcast('mp_collab_mounted', { peerId: from, sceneId, projectId });
   }
 
-  /** Owner: forward a shared avatar's live pose/blendshape frame to subscribers
-   *  (called by the broadcast bus for every emitted frame). */
+  /** Forward a live pose/blendshape/preview frame for a node — to object-share
+   *  subscribers AND to collaborative-scene peers (called by the broadcast bus
+   *  for every emitted frame, so the collab check is O(1) cache-only). */
   forwardStream(
     kind: string,
     nodeId: string,
     payload: Record<string, unknown>
   ): void {
     this.sharing?.forwardStream(kind, nodeId, payload);
+    forwardCollabStream(kind, nodeId, payload, (peer, frame) =>
+      this.mesh?.sendStream(peer, frame)
+    );
   }
 
-  /** Owner: forward a clip-driven transform of a shared subtree node (resolves
+  /** Forward a clip-driven transform of a shared/collab subtree node (resolves
    *  the owning root, so children inside the subtree match, not just the root). */
   forwardNodeTransform(
     nodeId: string,
     transform: Record<string, number>
   ): void {
     this.sharing?.forwardNodeTransform(nodeId, transform);
+    forwardCollabStream(
+      'node_transform_preview',
+      nodeId,
+      { nodeId, transform },
+      (peer, frame) => this.mesh?.sendStream(peer, frame)
+    );
   }
 
   /** Owner: forward a runtime override on a shared scene node to subscribers. */

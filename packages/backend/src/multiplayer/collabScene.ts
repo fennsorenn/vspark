@@ -18,6 +18,10 @@ import { compareHLC, type HLC, type SyncEnvelope } from '@vspark/shared/sync';
 import type { ObjectSnapshot } from './shares.js';
 import { applySceneNodeRemove, type SceneNodeDto } from './sceneNodeWrite.js';
 
+/** Lossy stream frame (pose / blendshapes / IK / drag preview) for a collab node.
+ *  Rides the mesh stream channel, not the doc channel. */
+export const COLLAB_STREAM_RTYPE = '_collab_stream';
+
 /** Control rtypes for collaborative scene sharing (over the mesh doc channel). */
 export const COLLAB_OP_RTYPE = '_collab_op'; // one scene_node edit, peer→peer
 export const COLLAB_OFFER_RTYPE = '_collab_offer'; // owner→grantee: "mount this scene?"
@@ -195,6 +199,32 @@ export function indexCollabScene(sceneId: string): void {
     .prepare('SELECT id FROM scene_nodes WHERE root_scene_node_id = ?')
     .all(sceneId) as { id: string }[];
   for (const r of rows) nodeScene.set(r.id, sceneId);
+}
+
+/** Re-seed the node→scene map for every persisted collab scene. Called on boot so
+ *  the in-memory index survives a restart (the links persist, the map doesn't). */
+export function indexAllCollabScenes(): void {
+  const scenes = getDb()
+    .prepare('SELECT DISTINCT scene_id FROM collab_scenes')
+    .all() as { scene_id: string }[];
+  for (const s of scenes) indexCollabScene(s.scene_id);
+}
+
+/** Forward a lossy stream frame (pose / blendshapes / IK / drag preview) for a
+ *  collab-scene node to every collab peer, so the mounted copy animates live.
+ *  HOT PATH (per pose frame, per avatar): resolves the scene from the in-memory
+ *  index only — a node not in the index isn't collaborative, so this returns in
+ *  O(1) without touching the DB for the common (non-shared) avatar. */
+export function forwardCollabStream(
+  kind: string,
+  nodeId: string,
+  payload: Record<string, unknown>,
+  send: (peerId: string, frame: Record<string, unknown>) => void
+): void {
+  const sceneId = nodeScene.get(nodeId);
+  if (!sceneId) return;
+  for (const link of collabPeersForScene(sceneId))
+    send(link.peerId, { rtype: COLLAB_STREAM_RTYPE, kind, nodeId, payload });
 }
 
 /** A local scene_node op fired — mirror it to every collab peer of its scene.
