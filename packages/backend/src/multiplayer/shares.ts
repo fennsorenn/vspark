@@ -110,22 +110,34 @@ export function listSharedByMe(): SharedByMe[] {
 
 /** Everything granted to a peer (peer-specific + '*'), for advertise. */
 export function listSharesForPeer(peerId: string): ShareGrant[] {
-  const db = getDb();
-  const isScene = db.prepare(
-    "SELECT 1 FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+  const grants = grantsForRequester(peerId).filter(
+    (g) => g.rights.read && g.entityRtype === 'scene_node'
   );
-  return grantsForRequester(peerId)
-    .filter((g) => g.rights.read && g.entityRtype === 'scene_node')
-    .map((g) => ({
-      id: `${g.grantee}:${g.entityId}`,
-      // A grant on a scene root is a collaborative-scene offer (mount), not an
-      // object projection (place) — the receiver UI branches on this.
-      shareKind: (isScene.get(g.entityId) ? 'scene' : 'object') as ShareKind,
-      objectId: g.entityId,
-      granteePeerId: g.grantee,
-      canWrite: !!g.rights.update,
-      createdAt: '',
-    }));
+  // One batched lookup: the PreparedStatement wrapper finalizes after a single
+  // use, so a per-grant `.get()` on a shared statement throws on the 2nd grant.
+  const ids = grants.map((g) => g.entityId);
+  const sceneIds = new Set(
+    ids.length > 0
+      ? (
+          getDb()
+            .prepare(
+              `SELECT id FROM scene_nodes
+               WHERE kind = 'scene' AND id IN (${ids.map(() => '?').join(',')})`
+            )
+            .all(...ids) as { id: string }[]
+        ).map((r) => r.id)
+      : []
+  );
+  return grants.map((g) => ({
+    id: `${g.grantee}:${g.entityId}`,
+    // A grant on a scene root is a collaborative-scene offer (mount), not an
+    // object projection (place) — the receiver UI branches on this.
+    shareKind: (sceneIds.has(g.entityId) ? 'scene' : 'object') as ShareKind,
+    objectId: g.entityId,
+    granteePeerId: g.grantee,
+    canWrite: !!g.rights.update,
+    createdAt: '',
+  }));
 }
 
 export function isSharedWith(objectId: string, peerId: string): boolean {

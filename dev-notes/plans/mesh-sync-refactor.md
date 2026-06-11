@@ -549,7 +549,25 @@ re-subscribe, pose stream still legacy.
   storms, both-restart reconcile, and an offline edit converging via
   snapshot-on-subscribe (~7s incl. WebRTC connect). Five verification bugs
   fixed in d53a1c0; regression test added for subtree create admission.
-- **Step C (dead-code removal) — in progress.**
+- **Step C (dead-code removal) — DONE** (25a9e35; collabScene.ts 1106→~530
+  lines, nodeScene re-index kept via `indexCollabNode`). Re-verified 8/8.
+- **Step D (object-share doc plane) — DONE and live-verified 8/8** with two
+  backends (commit ccbfa80 + the listSharesForPeer fix): place = legacy
+  share grant mirrored into mesh grants (mesh/shares.ts) + one-way receiver
+  subscription; receiver persistence tap skips foreign docs via per-rtype
+  `persists()` predicates (replica-only projection); frontend
+  `sync/meshProjection.ts` feeds the projection store from the mesh
+  `scene_node` collection. Core fix shipped with it: `handleSubOk` relays
+  snapshot-applied docs/tombstones to the peer's own subscribers (tabs
+  subscribed before a reconcile were blind). Verified: snapshot-through-
+  relay ordering (tab attached first), ~40ms live edits, zero receiver
+  persistence + no FK errors, subtree create/remove, unshare eviction,
+  re-share fresh snapshot, collab persistence regression (persists() has no
+  false negatives). Legacy `_share_snapshot` now = asset manifest +
+  stream-routing registration; `forwardDocOp`/`_share_update` deleted.
+  Found+fixed pre-existing: `listSharesForPeer` reused a PreparedStatement
+  (single-use wrapper finalizes after first `.get()`) → advertise 500 once a
+  peer held ≥2 share grants; now one batched IN query.
 - **Known issues / deferred:**
   - werift never reports `disconnected` when the remote dies silently → a
     stale slot blocks single-side reconnects (`mesh.ts:314` offer-drop +
@@ -559,6 +577,13 @@ re-subscribe, pose stream still legacy.
     design); the standing session grant auto-accepts, so one side's Connect
     suffices after restarts.
   - Mid-session model swaps don't carry assets over the mesh (receiver keeps
-    its local filePath by design until the blob port rides the mesh).
-  - Compose layers, clip playback, runtime relay (Set Data/overrides/media),
-    object-share: still legacy (steps D+).
+    its local filePath / owner path until the blob port rides the mesh; for
+    placed objects the initial assets still arrive via the legacy snapshot
+    manifest + `assetUrls` re-projection).
+  - Phase-6 writes (`_share_write`/`_share_write_nak`) stay legacy: the
+    receiver tab edits optimistically, the owner persists, and the
+    authoritative echo returns over the placed mesh subscription. Migrating
+    them to guarded mesh writes needs per-doc (not per-collection) authority
+    — revisit with the REST write-through step.
+  - Compose layers, clip playback, pose/preview streams, runtime relay (Set
+    Data/overrides/media), advertise/offer flow: still legacy.
