@@ -1,5 +1,7 @@
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type ProxyOptions } from 'vite';
+import type { ServerResponse } from 'http';
+import type { Socket } from 'net';
 import { fileURLToPath, URL } from 'url';
 
 function shared(file: string) {
@@ -11,22 +13,25 @@ function shared(file: string) {
 const devPort = Number(process.env.VITE_DEV_PORT) || 5173;
 const backendPort = Number(process.env.VITE_BACKEND_PORT) || 3001;
 
-// When frontend + backend launch together (e.g. the MP compound), Vite's proxy
-// can hit the backend before it's listening → ECONNREFUSED. Swallow that and
-// reply 503 instead of crashing the request; the app's fetch/WS layers retry
-// once the backend is up. Only ECONNREFUSED is suppressed — other errors throw.
-type ProxyOptions = NonNullable<
-  NonNullable<import('vite').ServerOptions['proxy']>[string]
->;
-const tolerateBackendStartup: ProxyOptions['configure'] = (proxy) => {
-  proxy.on('error', (err, _req, res) => {
-    if ((err as NodeJS.ErrnoException).code !== 'ECONNREFUSED') throw err;
-    console.warn(`[proxy] backend :${backendPort} not up yet — retrying once ready`);
-    // res is a ServerResponse for HTTP, or a Socket for WS upgrades.
-    if ('writeHead' in res && !res.headersSent) {
-      res.writeHead(503).end('backend starting');
-    } else if ('destroy' in res) {
-      res.destroy();
+// Keep `vite` alive when the proxy target hiccups: the backend restarting
+// (ECONNREFUSED) or a client/socket dropping mid-request or mid-WS-stream
+// (ECONNRESET / EPIPE / "socket has been ended") surfaces as a proxy `error`
+// event. Without a handler that swallows it, the error bubbles up as an uncaught
+// exception and kills the whole dev server. Log it once, best-effort close the
+// client side, and carry on.
+const resilientProxy: ProxyOptions['configure'] = (proxy) => {
+  proxy.on('error', (err: NodeJS.ErrnoException, _req, target) => {
+    console.warn(`[vite proxy] ${err.code ?? err.message} → :${backendPort}`);
+    try {
+      if (target && 'writeHead' in target) {
+        const res = target as ServerResponse;
+        if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain' });
+        res.end('proxy error');
+      } else if (target && 'destroy' in target) {
+        (target as Socket).destroy();
+      }
+    } catch {
+      /* socket already gone — nothing to clean up */
     }
   });
 };
@@ -39,16 +44,16 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: `http://localhost:${backendPort}`,
-        configure: tolerateBackendStartup,
+        configure: resilientProxy,
       },
       '/ws': {
         target: `ws://localhost:${backendPort}`,
         ws: true,
-        configure: tolerateBackendStartup,
+        configure: resilientProxy,
       },
       '/uploads': {
         target: `http://localhost:${backendPort}`,
-        configure: tolerateBackendStartup,
+        configure: resilientProxy,
       },
     },
   },
