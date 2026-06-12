@@ -648,8 +648,18 @@ Shape (per rtype, ~1900 route lines across the five):
    incoming-only transform: gate on the foreign-doc discriminator, not
    unconditionally.
 
-Slice 1 (DONE, 768ea2d): behaviors + camera-effects. Also fixed: behavior
-PUT emitted no sync event at all; behavior sortOrder dropped by save.
+Slice 1 (DONE, 768ea2d, verified 5/5): behaviors + camera-effects. Also
+fixed: behavior PUT emitted no sync event at all; behavior sortOrder
+dropped by save.
+Slice 2 (DONE, bfa3839, verified 6/6): scene-node POST/PUT/DELETE.
+Field-presence semantics preserved; hazard-e validate gate confirmed both
+ways (local model swap not reverted on author; foreign docs still
+re-scoped). DELETE's ancestor-route capture removed. scenes.ts bulk
+creation (templates) still emits touch via the bridge — fold it in when
+compose/track slices land.
+Remaining slices: compose-layers (ordering/re-anchoring SQL stays in the
+route, full DTOs written per affected layer), track-clips (aggregate:
+load full clip DTO, mutate, set whole doc; playback routes untouched).
 
 After write-through, Phase-6 writes can move onto guarded mesh writes by
 giving collections per-doc authority resolution (doc → owning peer), and the
