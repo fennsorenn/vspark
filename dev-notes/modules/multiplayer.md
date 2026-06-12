@@ -1,6 +1,6 @@
 # Multiplayer / Mesh
 
-> **WIP: REST/frontend bindings.** Collab-scene LIVE OPS + RECONCILE, object-share document plane (steps A–D), and all collab live-ops (pose/blendshape/IK/drag-preview streams, clip playback controls, runtime events) have moved onto `@vspark/mesh` grants + subscriptions + the `control` channel. `_collab_stream`, `_collab_playback`, and `_collab_runtime` and their forwarding helpers are deleted; the legacy collab protocol is now only `_collab_subscribe`/`_collab_snapshot`. See [mesh.md](mesh.md) and [plans/mesh-sync-refactor.md §9](../plans/mesh-sync-refactor.md). Remaining work: REST mutation routes writing through the mesh store, frontend store migration to mesh-react bindings. Asset/blob transfer, Phase-6 write tier, and the offer/advertise UI remain on the legacy protocol.
+> **WIP: REST/frontend bindings.** Collab-scene LIVE OPS + RECONCILE, object-share document plane (steps A–D), and all collab live-ops (pose/blendshape/IK/drag-preview streams, clip playback controls, runtime events) have moved onto `@vspark/mesh` grants + subscriptions + the `control` channel. `_collab_stream`, `_collab_playback`, and `_collab_runtime` and their forwarding helpers are deleted; the legacy collab protocol is now only `_collab_subscribe`/`_collab_snapshot`. Mid-session mesh asset transfer is DONE: mesh doc arrivals with unresolvable file paths trigger `_blob_meta` + `_blob_*` fetch via `mesh/assets.ts` (see below). See [mesh.md](mesh.md) and [plans/mesh-sync-refactor.md §9](../plans/mesh-sync-refactor.md). Remaining work: REST mutation routes writing through the mesh store, frontend store migration to mesh-react bindings. Phase-6 write tier and the offer/advertise UI remain on the legacy protocol.
 
 Peer-to-peer connectivity between vspark instances: server↔server WebRTC, a
 signaling relay for browser clients, object sharing over the mesh, a
@@ -158,6 +158,24 @@ the only difference, never the protocol:
 `BlobManager`. Headless-verified: the owner serves a browser-participant id and
 the browser-style assembler reproduces the bytes with a matching sha256 (4/4).
 Server↔server behaviour is preserved.
+
+### `_blob_meta` / `_blob_meta_ok` — path-to-metadata lookup (new)
+
+An additional two-message exchange in `blobTransfer.ts` added alongside the chunked transfer:
+
+- **`_blob_meta`** (receiver → owner): "resolve this owner file **path** to asset metadata (hash / ext / mime / size)".
+- **`_blob_meta_ok`** (owner → receiver): carries the resolved `BlobMeta` from `BlobManager.metaForPath`.
+
+This is needed when a receiver learns an asset by its owner-local *file path* (from a mesh doc) but doesn't yet have the content-hash required to issue a `_blob_*` REQUEST. The `_blob_meta` round-trip fetches the hash and size first; the full blob then rides the normal chunked transfer. The blob is cached under `uploads/_shared/<hash><ext>` as usual.
+
+### Mesh doc arrivals as asset triggers — `mesh/assets.ts`
+
+`packages/backend/src/mesh/assets.ts` (`initMeshAssets`) is the integration point between incoming mesh documents and the blob transfer layer. When a `scene_node` doc arrives over the mesh with a `filePath` the local server cannot resolve, `assets.ts` issues a `_blob_meta` + `_blob_*` sequence to fetch the content, then:
+
+- **COLLAB path**: re-points the node through the mesh store with the cached `/uploads/_shared/<hash><ext>` URL and records an `asset_files` row (called from the `scene_node` `validate` transform in `packages/backend/src/mesh/index.ts`).
+- **PLACE path**: broadcasts `mp_shared_assets {peerId, assetUrls:{ownerPath: localUrl}}` over `/ws` so the frontend projection feeder (`sync/meshProjection.ts` `registerAssetUrls`) can re-project with the localized path (wired as a collection observer in `initMeshAssets`).
+
+Blob access and the `/ws` broadcast are injected by the multiplayer manager (`setAssetTransfer`), so `mesh/assets.ts` is inert if multiplayer is not initialized. Wired at boot from `packages/backend/src/index.ts` after `initMeshStreams`. See [mesh.md](mesh.md) for the full invariant description (per-server paths, content-converges, no ping-pong).
 
 ## Direct-edge object-share delivery (P2P) — IMPLEMENTED
 

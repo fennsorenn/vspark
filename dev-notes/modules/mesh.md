@@ -294,12 +294,20 @@ const peer = useMemo(() => createMeshPeer({
 - **Compose containment scope DONE** (a0d4da0): top-level compose layers anchor to their compose scene via `rootComposeSceneId` (scene_node-style fallback) in both backend BINDINGS (`packages/backend/src/mesh/index.ts`) and frontend PARENTS (`packages/frontend/src/mesh/bindings.ts`). Closes the 'compose layers need a containment scope' deferred item from §9 status; compose subtrees are now correctly grant-routed.
   - See [plans/mesh-sync-refactor.md §11](../plans/mesh-sync-refactor.md) for the full slice spec and verification log.
 
+- **Mid-session mesh asset transfer — DONE, verified 4/4** (commits c756b77 + two fixes). Closes the model-swap/first-assign gap for both the COLLAB and PLACE paths.
+  - `packages/backend/src/mesh/assets.ts` (new) — `initMeshAssets()` wired from `packages/backend/src/index.ts` after `initMeshStreams`. Inert without multiplayer (blob access and `/ws` broadcast injected via `setAssetTransfer` by the multiplayer manager). Two paths:
+    - **COLLAB path**: triggered from the `scene_node` collection's `validate` transform in `packages/backend/src/mesh/index.ts`. When a foreign collab doc arrives with a `filePath` the local server can't resolve, `assets.ts` queues a follow-up; after the blob is cached, the node is written back through the mesh store (so the COLLAB persistence tap records the `/uploads/_shared/<hash><ext>` URL) and an `asset_files` row is recorded (`recordCollabAsset`).
+    - **PLACE path**: a scene_node observer (`initMeshAssets`) watches foreign (placed-projection) docs inside placed subtrees; after caching it broadcasts `mp_shared_assets {peerId, assetUrls:{ownerPath: localUrl}}` on `/ws`, and the frontend projection feeder (`sync/meshProjection.ts` `registerAssetUrls`) re-projects.
+  - **`_blob_meta` / `_blob_meta_ok`** protocol addition in `packages/backend/src/multiplayer/blobTransfer.ts`: a receiver→owner "resolve this owner file PATH to asset metadata (hash/ext/mime/size)" round-trip (`BlobManager.metaForPath`). The blob itself then rides the existing chunked `_blob_*` transfer into `uploads/_shared/<hash><ext>`.
+  - **Content-hash guard** (`alreadyHaveContent`): the author recognises a peer's `_shared/<hash>` write-back as content it already holds (matched by hash under any path), so it doesn't re-fetch or re-point its own local path. Net: paths stay per-server, content converges, no ping-pong.
+  - Covers both mid-session **model swap** (a node that had a previous model gets a new one) and **first assignment** (a node that had no model receives its first). Nodes present at mount time still localize via the existing snapshot path (`persistCollabAssets`); `assets.ts` is the live mid-session complement.
+  - Frontend handler: `mp_shared_assets` case in `packages/frontend/src/hooks/useWsSync.ts`.
+
 **Remaining:**
 - `scene_node` store feeder (step 4) — still on the legacy `'sync'` envelope; entangled with Avatar/Viewport rendering and the placed-object projection feeder (`meshProjection.ts`).
 - Component reads → mesh-react hooks (`useMeshDoc` / `useMeshSubtree` / etc.) and writes → `collection.set` (guarded, with ack outcomes surfaced as toasts).
 - Phase-6 guarded writes (`_share_write`/NAK) onto guarded mesh writes (per-doc authority).
-- Blob/asset transfer, advertise/offer flow: still legacy.
-- Model-swap assets don't ride mesh yet (receiver keeps its local filePath until the blob port is migrated).
+- Advertise/offer flow: still legacy.
 
 ## Key files
 
@@ -308,6 +316,7 @@ const peer = useMemo(() => createMeshPeer({
 - `packages/mesh-transports/src/` — WsServerTransport, WsBackendTransport.
 - `packages/backend/src/mesh/index.ts` — backend bindings, hydration, persistence.
 - `packages/backend/src/mesh/streams.ts` — `node_stream`, `clip_control`, `runtime_control` collections + the `control` channel; collab live-ops bridging helpers.
+- `packages/backend/src/mesh/assets.ts` — `initMeshAssets()`: mid-session asset fetch for mesh docs with unresolvable file paths (COLLAB + PLACE paths; inert without multiplayer).
 - `packages/frontend/src/mesh/peer.ts` — frontend peer creation + wiring.
 - `packages/frontend/src/mesh/bindings.ts` — containment schema (PARENTS, RTYPES).
 - [plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) — full design spec (§8).
