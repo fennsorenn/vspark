@@ -181,16 +181,21 @@ const BINDINGS: RtypeBinding[] = [
       const d = { ...(data as Dto) };
       const incoming = typeof d.sourceFilePath === 'string' ? d.sourceFilePath : null;
       if (!incoming) return d;
-      const cur = getDb()
-        .prepare('SELECT source_file_path FROM animation_clips WHERE id = ?')
-        .get(d.id as string) as { source_file_path: string } | undefined;
-      if (!cur || cur.source_file_path === incoming) return d;
+      // Our own managed path (an exact asset_files stored_path — covers legit
+      // local edits AND a receiver's /_shared cache entry, which the
+      // follow-up registers) → accept as-is, nothing to fetch.
       if (
         getDb()
           .prepare('SELECT 1 FROM asset_files WHERE stored_path = ? LIMIT 1')
           .get(incoming)
       )
-        return d; // our own managed path — accept
+        return d;
+      // Foreign path — queue the content fetch in EVERY case, including a
+      // clip that's new to this server (the mount-snapshot / live-import
+      // case: there's no local row yet, the doc takes the foreign path
+      // verbatim until the follow-up re-points it). The follow-up dedupes
+      // per (id, path) and skips content we already hold, so repeated
+      // arrivals of the same path are no-ops.
       const node = getDb()
         .prepare('SELECT root_scene_node_id FROM scene_nodes WHERE id = ?')
         .get(d.sourceNodeId as string) as
@@ -202,7 +207,13 @@ const BINDINGS: RtypeBinding[] = [
           incoming,
           node.root_scene_node_id
         );
-      d.sourceFilePath = cur.source_file_path;
+      // An existing row keeps ITS local path (the incoming value is a peer's
+      // name for the content — ours arrives/exists via the follow-up).
+      const cur = getDb()
+        .prepare('SELECT source_file_path FROM animation_clips WHERE id = ?')
+        .get(d.id as string) as { source_file_path: string } | undefined;
+      if (cur && cur.source_file_path !== incoming)
+        d.sourceFilePath = cur.source_file_path;
       return d;
     },
   },
