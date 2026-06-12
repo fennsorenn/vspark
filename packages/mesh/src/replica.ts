@@ -311,6 +311,15 @@ export class Replica<T extends object> {
     return [...this.tombs].map(([id, t]) => ({ id, v: t.v }));
   }
 
+  /** Forget a deletion marker (same class of operation as tombstone GC/prune).
+   *  Used when a deletion must stop competing in LWW — e.g. a re-mounted
+   *  collab scene treats the author's snapshot as a fresh epoch, voiding any
+   *  deletions the receiver made to its detached local copy. Returns whether
+   *  a tombstone existed. */
+  clearTombstone(id: string): boolean {
+    return this.tombs.delete(id);
+  }
+
   applyTombstone(id: string, v: HLC, meta: ApplyMeta): AppliedChange<T> | null {
     return this.remove(id, v, meta);
   }

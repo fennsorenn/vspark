@@ -654,6 +654,23 @@ export class MeshPeer implements PeerCore {
     for (const t of msg.tombstones) {
       const col = this.collections.get(t.rtype);
       if (!col?.retainedChannel) continue;
+      // Snapshots ship the sender's WHOLE tombstone set per collection (the
+      // sender can't tree-match a removed entity — its containment entry is
+      // gone). Scope-filter on OUR side instead: only apply a tombstone whose
+      // target we actually hold INSIDE this subscription's scope. Out-of-scope
+      // docs (e.g. another scene that happens to share ids with something the
+      // sender deleted — a previously-shared copy) must not be killed by an
+      // unrelated subscription's snapshot; ids we don't hold are no-ops we
+      // need not record (recording would re-export the foreign tombstone).
+      if (
+        !col.replica.has(t.id) ||
+        !subscriptionMatches(
+          entry.sub,
+          makeKey(t.rtype, t.id),
+          this.index.isDescendant
+        )
+      )
+        continue;
       const preRecipients = this.recipients(col, t.id, undefined, col.retainedChannel);
       const preChain = col.ancestorChain(t.id);
       const change = col.applyOp('remove', t.id, undefined, undefined, t.v, {

@@ -11,7 +11,11 @@
  * See dev-notes/plans/multiplayer-phase5.md.
  */
 import { getIdentity, signBytes } from './identity.js';
-import { getMeshPeer, mirrorIntoMesh } from '../mesh/index.js';
+import {
+  getMeshPeer,
+  mirrorIntoMesh,
+  purgeMeshTombstones,
+} from '../mesh/index.js';
 import { syncCollabLinks, teardownCollabScene } from '../mesh/collab.js';
 import {
   subscribeSharedObject,
@@ -686,6 +690,29 @@ class MultiplayerManager {
         this.blob!.ensure(from, a)
       );
     mountSharedScene(d.snapshot, projectId, from);
+    // Epoch reset BEFORE granting/subscribing: mounting accepts the author's
+    // snapshot as the baseline, so any tombstones we hold for these ids (we
+    // may have deleted a detached copy of this scene after an earlier
+    // unshare) are voided — otherwise they out-stamp the author's docs and
+    // our reply snapshot would delete the author's scene. Safe ordering: the
+    // author's subscription to us can't succeed until syncCollabLinks below
+    // issues the grant, so the purge always lands first.
+    purgeMeshTombstones(
+      'scene_node',
+      (d.snapshot.nodes ?? []).map((n) => (n as { id: string }).id)
+    );
+    purgeMeshTombstones(
+      'track_clip',
+      (d.snapshot.clips ?? []).map((c) => (c as { id: string }).id)
+    );
+    purgeMeshTombstones(
+      'camera_effect',
+      (d.snapshot.cameraEffects ?? []).map((e) => (e as { id: string }).id)
+    );
+    purgeMeshTombstones(
+      'behavior',
+      (d.snapshot.behaviors ?? []).map((b) => (b as { id: string }).id)
+    );
     // Mesh: mirror the mounted (localized) rows into the replica with their
     // row-derived stamps — old stamps, so the mirror can't out-stamp the
     // author's live state — then grant the owner back + subscribe (live ops

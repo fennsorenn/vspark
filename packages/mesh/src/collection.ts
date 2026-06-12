@@ -184,6 +184,14 @@ export class Collection<T extends object> {
     });
   }
 
+  /** Forget a deletion marker (LOCAL only — nothing fans out). The epoch-reset
+   *  counterpart of putTombstone: a deletion that must no longer compete in
+   *  LWW (e.g. the receiver's pre-re-mount deletions of a collab scene) is
+   *  dropped so subsequent puts/snapshots apply. Returns whether one existed. */
+  clearTombstone(id: string): boolean {
+    return this.replica.clearTombstone(id);
+  }
+
   // --- observation -------------------------------------------------------------
 
   observe(sel: Selector, cb: (change: AppliedChange<T>) => void): () => void {

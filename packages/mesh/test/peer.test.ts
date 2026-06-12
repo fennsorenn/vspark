@@ -379,6 +379,88 @@ describe('pure-stream collections (preview-only, routed by containment)', () => 
   });
 });
 
+describe('tombstone scoping + epoch reset', () => {
+  const parent = (n: Node) =>
+    n.parentId ? { rtype: 'node', id: n.parentId } : null;
+  const subtreeSub = (rootId: string) => ({
+    entityRtype: '*',
+    entityId: rootId,
+    includeDescendants: true,
+    pathPrefix: '',
+  });
+  const subtreeGrant = (grantee: string, rootId: string) => ({
+    grantee,
+    entityRtype: '*',
+    entityId: rootId,
+    includeDescendants: true,
+    pathPrefix: '',
+    rights: { read: true, update: true, create: true, delete: true },
+  });
+
+  it("a snapshot's out-of-scope tombstones can't kill docs of another subtree", async () => {
+    const lb = createLoopbackPair('A', 'B');
+    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
+    const b = createMeshPeer({ identity: { peerId: 'B' }, transports: [lb.b] });
+    const na = a.collection<Node>('node', { parent });
+    const nb = b.collection<Node>('node', { parent });
+
+    // B independently holds scene X (e.g. a preserved copy of a dissolved
+    // collaboration) with the SAME ids A once had and has since deleted.
+    nb.put({ id: 'x-root', name: 'X', parentId: null }, { v: { t: 10, c: 0, n: 'B' } });
+    nb.put({ id: 'x-child', name: 'xc', parentId: 'x-root' }, { v: { t: 10, c: 0, n: 'B' } });
+    // A's tombstones for those ids are NEWER than B's docs.
+    na.putTombstone('x-root', { t: 99, c: 0, n: 'A' });
+    na.putTombstone('x-child', { t: 99, c: 0, n: 'A' });
+    // A also serves an unrelated scene Y that B now subscribes to.
+    na.create({ id: 'y-root', name: 'Y', parentId: null });
+    na.create({ id: 'y-child', name: 'yc', parentId: 'y-root' });
+    a.grants.grant(subtreeGrant('B', 'y-root'));
+
+    await b.subscribe('A', subtreeSub('y-root'));
+    expect(nb.get('y-child')?.name).toBe('yc'); // snapshot delivered Y
+    // The coarse tombstone set for X rode the snapshot but is OUT of the
+    // subscription's scope — B's X docs must survive.
+    expect(nb.get('x-root')?.name).toBe('X');
+    expect(nb.get('x-child')?.name).toBe('xc');
+  });
+
+  it('in-scope snapshot tombstones still propagate (offline-delete reconcile)', async () => {
+    const lb = createLoopbackPair('A', 'B');
+    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
+    const b = createMeshPeer({ identity: { peerId: 'B' }, transports: [lb.b] });
+    const na = a.collection<Node>('node', { parent });
+    const nb = b.collection<Node>('node', { parent });
+
+    // Shared scene S on both sides; A deleted a child while B was offline.
+    na.create({ id: 's-root', name: 'S', parentId: null });
+    nb.put({ id: 's-root', name: 'S', parentId: null }, { v: { t: 10, c: 0, n: 'A' } });
+    nb.put({ id: 's-gone', name: 'dead', parentId: 's-root' }, { v: { t: 10, c: 0, n: 'A' } });
+    na.putTombstone('s-gone', { t: 99, c: 0, n: 'A' });
+    a.grants.grant(subtreeGrant('B', 's-root'));
+
+    await b.subscribe('A', subtreeSub('s-root'));
+    expect(nb.get('s-gone')).toBeUndefined(); // in-scope tombstone applied
+    expect(nb.get('s-root')?.name).toBe('S');
+  });
+
+  it('clearTombstone voids a deletion so older-stamped state applies again', () => {
+    const lb = createLoopbackPair('A', 'B');
+    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
+    const na = a.collection<Node>('node', { parent });
+
+    na.put({ id: 'n1', name: 'v1', parentId: null }, { v: { t: 10, c: 0, n: 'A' } });
+    na.remove('n1'); // fresh-stamped tombstone — re-put with the old stamp loses
+    na.put({ id: 'n1', name: 'v1', parentId: null }, { v: { t: 10, c: 0, n: 'A' } });
+    expect(na.get('n1')).toBeUndefined();
+    expect(na.replica.tombstones().some((t) => t.id === 'n1')).toBe(true);
+
+    expect(na.clearTombstone('n1')).toBe(true); // epoch reset
+    na.put({ id: 'n1', name: 'v1', parentId: null }, { v: { t: 10, c: 0, n: 'A' } });
+    expect(na.get('n1')?.name).toBe('v1');
+    expect(na.replica.tombstones().some((t) => t.id === 'n1')).toBe(false); // not re-exported
+  });
+});
+
 describe('snapshot relay (subscribe-through topology)', () => {
   it("a server's tabs receive docs the server itself got via snapshot", async () => {
     // T(tab) — S(server) — O(owner): T subscribes to S first; S then

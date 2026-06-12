@@ -251,6 +251,20 @@ export function getMeshCollection(rtype: string): Collection<Dto> | undefined {
   return COLLECTIONS.get(rtype);
 }
 
+/** Epoch reset: forget deletion markers for the given ids — replica AND the
+ *  persisted mesh_tombstones rows (so a restart can't resurrect them either).
+ *  Used when a collab scene is (re-)mounted: the author's snapshot is the
+ *  accepted baseline, so any deletions this server made to a detached copy of
+ *  those ids must stop competing in LWW (they'd otherwise out-stamp the
+ *  author's docs and delete the author's scene through the mutual sync). */
+export function purgeMeshTombstones(rtype: string, ids: string[]): void {
+  const col = COLLECTIONS.get(rtype);
+  for (const id of ids) {
+    col?.clearTombstone(id);
+    clearTombstone(rtype, id);
+  }
+}
+
 /** HTTP 'upgrade' branch for the /mesh path. */
 export function meshUpgrade(
   req: IncomingMessage,
