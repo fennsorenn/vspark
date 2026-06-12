@@ -231,14 +231,19 @@ export class SpawnManager {
       'track_clip_added',
       tmpClip as unknown as Record<string, unknown>
     );
+    // Register the ephemeral clip BEFORE triggering it: triggerEphemeral
+    // synchronously broadcasts `track_clip_started`, and the collab relay only
+    // forwards that play-frame for clips `isEphemeralClip()` reports as live.
+    // Registering after the trigger left the start frame un-relayed, so a
+    // spawned clip mounted on collab peers but never animated there.
+    const active: ActiveSpawn = { tmpId, tmpClipId, kind };
+    this._byClipId.set(tmpClipId, active);
+
     this._playback.triggerEphemeral(
       tmpClipId,
       clipRow.duration,
       clipRow.loop === 1
     );
-
-    const active: ActiveSpawn = { tmpId, tmpClipId, kind };
-    this._byClipId.set(tmpClipId, active);
 
     return { tmpNodeId: tmpId, tmpClipId, kind };
   }
