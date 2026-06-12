@@ -712,6 +712,13 @@ two live tabs): behaviors + camera-effects feed the editorStore from the
 mesh replica via sync/meshStoreFeeder.ts; their legacy bindings removed;
 the viewer page gained its own mesh peer. Foreign (placed-projection)
 docs filtered by the parent node's remote flag.
+Slice 3 (DONE, c4e4f04, browser-verified 6/6): track_clip +
+compose_layer (incl. the compose_scene kind branch) joined the feeder —
+live create/rename/delete across tabs, single rows (no double-apply).
+Only scene_node remains on the legacy envelope (step 4). Note: the
+"reads" migration so far re-points the store's TRANSPORT (envelope →
+replica observation); components still read the store. Moving component
+READS to mesh-react hooks + writes to col.set stays open per surface.
 
 Hazards: (a) reads-first per slice — never flip reads+writes together;
 (b) the tab replica misses DB timestamps (display: fall back to REST GET
