@@ -1,12 +1,12 @@
 /**
  * Mesh → editorStore feeder (§11 frontend bindings, reads-first).
  *
- * Feeds the editorStore's synced slices from the tab's mesh replica,
- * replacing the legacy 'sync'-envelope bindings rtype by rtype (the
- * migrated rtypes — behavior, camera_effect, compose_layer, track_clip —
- * are removed from ./resources; scene_node remains legacy until §11 step
- * 4). The mesh replica already does HLC LWW internally, so observe() only
+ * Feeds the editorStore's synced slices from the tab's mesh replica — all
+ * five document rtypes; the legacy 'sync'-envelope bindings are retired.
+ * The mesh replica already does HLC LWW internally, so observe() only
  * ever fires for applied changes — no client-side stale-drop needed.
+ * Smoothing-sensitive patches (node_transform_preview, compose_layer_
+ * preview, node_updated) still ride their dedicated /ws messages.
  *
  * Foreign docs: the tab replica also holds behaviors/effects of PLACED
  * remote objects (their subtree subscription is cross-type). Projections
@@ -19,7 +19,11 @@
  * Started from the Editor AND the Viewer page (both render live state).
  */
 import { initMeshPeer } from '../mesh/peer';
-import { useEditorStore, type Behavior } from '../store/editorStore';
+import {
+  useEditorStore,
+  type Behavior,
+  type StageObject,
+} from '../store/editorStore';
 import type { CameraEffectRecord, ComposeLayerRecord, TrackClipRecord } from '../api/client';
 
 let started = false;
@@ -37,6 +41,26 @@ export function startMeshStoreFeeder(): void {
   started = true;
   void initMeshPeer()
     .then((h) => {
+      h.collections.scene_node.observe('**', (c) => {
+        if (c.op === 'ephemeral') return;
+        const s = useEditorStore.getState();
+        if (c.op === 'remove') {
+          // Projected (remote) nodes are owned by the projection feeder
+          // (sync/meshProjection.ts) — only local nodes are removed here.
+          const existing = s.nodes.find((n) => n.id === c.id);
+          if (existing && !existing.remote) s.deleteNode(c.id);
+          return;
+        }
+        const node = c.doc as unknown as StageObject | undefined;
+        if (!node) return;
+        // Foreign docs (placed projections) carry the OWNER's projectId —
+        // the projection feeder mirrors those under their container. Docs of
+        // other local projects are skipped too (the legacy envelope used to
+        // let them sit invisibly in the store).
+        if (s.projectId && node.projectId !== s.projectId) return;
+        if (s.nodes.some((n) => n.id === node.id)) s.updateNode(node.id, node);
+        else s.addNode(node);
+      });
       h.collections.behavior.observe('**', (c) => {
         if (c.op === 'ephemeral') return;
         const s = useEditorStore.getState();

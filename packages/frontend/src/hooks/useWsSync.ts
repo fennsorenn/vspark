@@ -23,8 +23,11 @@ import type {
 } from '@vspark/shared/types';
 import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
+// Legacy 'sync'-envelope bindings are fully retired (§11): all five document
+// rtypes feed the store from the tab's mesh replica (sync/meshStoreFeeder.ts).
+// The envelope handler below stays as a harmless no-op dispatcher in case a
+// binding ever returns; the server still emits envelopes for other consumers.
 import { applyRemote } from '../sync/registry';
-import '../sync/resources';
 import { setShareWriteRelay } from '../sync/remoteEdit'; // also registers the edit router
 import {
   removeProjection as removeSharedProjection,
