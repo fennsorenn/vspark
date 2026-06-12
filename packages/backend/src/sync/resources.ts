@@ -413,6 +413,96 @@ defineResource({
 // Declared so the four-class API surface is complete and these names are
 // reserved. Lossy/latest-wins, no load/scope/snapshot. The live broadcasts
 // (pose_broadcast / blendshapes_broadcast / ik_broadcast) still emit their
+interface AnimationClipRow {
+  id: string;
+  name: string;
+  source_node_id: string;
+  source_file_path: string;
+  clip_index: number;
+  label: string;
+  start_time: number;
+  end_time: number;
+  duration: number;
+  fps: number;
+  created_at: string;
+}
+
+defineResource({
+  rtype: 'animation_clip',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare('SELECT * FROM animation_clips WHERE id = ?')
+      .get(id) as unknown as AnimationClipRow | undefined;
+    if (!r) return undefined;
+    return {
+      id: r.id,
+      name: r.name,
+      sourceNodeId: r.source_node_id,
+      sourceFilePath: r.source_file_path,
+      clipIndex: r.clip_index,
+      label: r.label,
+      startTime: r.start_time,
+      endTime: r.end_time,
+      duration: r.duration,
+      fps: r.fps,
+      createdAt: r.created_at,
+    };
+  },
+  save: (dto) => {
+    const d = dto as {
+      id: string;
+      name: string;
+      sourceNodeId: string;
+      sourceFilePath: string;
+      clipIndex: number;
+      label: string;
+      startTime: number;
+      endTime: number;
+      duration: number;
+      fps: number;
+      createdAt?: string;
+    };
+    const db = getDb();
+    // created_at fallback chain: DTO → prior row → now (replica DTOs built by
+    // write-through routes carry no timestamps; an edit must not reset it).
+    const prior = db
+      .prepare('SELECT created_at FROM animation_clips WHERE id = ?')
+      .get(d.id) as { created_at: string } | undefined;
+    db.prepare(
+      `INSERT INTO animation_clips
+         (id, name, source_node_id, source_file_path, clip_index, label,
+          start_time, end_time, duration, fps, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+       ON CONFLICT(id) DO UPDATE SET
+         name             = excluded.name,
+         source_node_id   = excluded.source_node_id,
+         source_file_path = excluded.source_file_path,
+         clip_index       = excluded.clip_index,
+         label            = excluded.label,
+         start_time       = excluded.start_time,
+         end_time         = excluded.end_time,
+         duration         = excluded.duration,
+         fps              = excluded.fps`
+    ).run(
+      d.id,
+      d.name,
+      d.sourceNodeId,
+      d.sourceFilePath,
+      d.clipIndex ?? 0,
+      d.label ?? d.name,
+      d.startTime ?? 0,
+      d.endTime ?? d.duration,
+      d.duration,
+      d.fps ?? 30,
+      d.createdAt ?? prior?.created_at ?? null
+    );
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM animation_clips WHERE id = ?').run(id);
+  },
+});
+
 // legacy WS kinds; migrating that 90 Hz hot path onto sync.stream.publish is
 // deferred until it can be runtime-verified (see the design doc, Phase 3).
 defineResource({ rtype: 'vmc_pose', cls: 'stream' });

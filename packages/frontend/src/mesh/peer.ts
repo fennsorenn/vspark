@@ -33,6 +33,7 @@ const RTYPES = [
   'camera_effect',
   'compose_layer',
   'track_clip',
+  'animation_clip',
 ] as const;
 
 const childOfNode = (d: Dto) =>
@@ -61,6 +62,10 @@ const PARENTS: Partial<
       : typeof d.ownerLayerId === 'string'
         ? { rtype: 'compose_layer', id: d.ownerLayerId }
         : null,
+  animation_clip: (d) =>
+    typeof d.sourceNodeId === 'string'
+      ? { rtype: 'scene_node', id: d.sourceNodeId }
+      : null,
 };
 
 let _init: Promise<MeshHandles> | null = null;

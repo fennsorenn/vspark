@@ -43,7 +43,13 @@ interface AssetTransfer {
 
 let _transfer: AssetTransfer | null = null;
 let _col: Collection<Dto> | null = null;
+let _animCol: Collection<Dto> | null = null;
 let _peer: MeshPeer | null = null;
+
+/** Bind the animation_clip collection (its follow-up re-points sourceFilePath). */
+export function setAnimationClipCollection(col: Collection<Dto>): void {
+  _animCol = col;
+}
 /** In-flight/attempted follow-ups (`${nodeId}\0${path}`) — one try per pair. */
 const attempted = new Set<string>();
 const ATTEMPT_CAP = 2048;
@@ -97,9 +103,33 @@ export function queueCollabAssetFollowUp(
   ownerPath: string,
   sceneId: string
 ): void {
-  if (!_transfer || !_col) return;
+  collabFollowUp(_col, 'filePath', nodeId, ownerPath, sceneId);
+}
+
+/** COLLAB: same follow-up for an animation clip's source file (FBX/BVH). The
+ *  animation_clip validate keeps the local source_file_path and queues this
+ *  when a foreign doc references content we don't hold. */
+export function queueAnimationAssetFollowUp(
+  clipId: string,
+  ownerPath: string,
+  sceneId: string
+): void {
+  collabFollowUp(_animCol, 'sourceFilePath', clipId, ownerPath, sceneId);
+}
+
+/** Shared collab follow-up: fetch `ownerPath`'s content from one of the
+ *  scene's collab peers, record the asset row, and re-point the doc's path
+ *  field to the local /uploads/_shared URL through the store. */
+function collabFollowUp(
+  col: Collection<Dto> | null,
+  pathField: string,
+  docId: string,
+  ownerPath: string,
+  sceneId: string
+): void {
+  if (!_transfer || !col) return;
   if (alreadyHaveContent(ownerPath)) return; // resolvable / content already held
-  if (!markAttempted(`${nodeId}\0${ownerPath}`)) return;
+  if (!markAttempted(`${docId}\0${ownerPath}`)) return;
   void (async () => {
     for (const link of collabPeersForScene(sceneId)) {
       try {
@@ -118,9 +148,9 @@ export function queueCollabAssetFollowUp(
             meta.size,
             basename(ownerPath)
           );
-        const cur = _col!.get(nodeId);
-        if (cur && cur.filePath !== url)
-          await _col!.set(nodeId, '', { ...cur, filePath: url }).ack;
+        const cur = col.get(docId);
+        if (cur && cur[pathField] !== url)
+          await col.set(docId, '', { ...cur, [pathField]: url }).ack;
         return;
       } catch (e) {
         console.warn(

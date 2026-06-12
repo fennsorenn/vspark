@@ -310,7 +310,7 @@ router.get('/scene-nodes/:nodeId/clips', (req, res) => {
  *       200: { description: Existing clip updated }
  *       201: { description: New clip registered }
  */
-router.post('/scene-nodes/:nodeId/clips', (req, res) => {
+router.post('/scene-nodes/:nodeId/clips', async (req, res) => {
   const {
     name,
     sourceFilePath,
@@ -323,46 +323,37 @@ router.post('/scene-nodes/:nodeId/clips', (req, res) => {
   } = req.body;
   const nodeId = req.params.nodeId;
   const db = getDb();
-  // Upsert by (source_node_id, source_file_path, clip_index): refresh duration on re-probe.
+  const col = getMeshCollection('animation_clip');
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  // Upsert by (source_node_id, source_file_path, clip_index): refresh duration
+  // on re-probe. Written through the mesh store (§10) so imported animations
+  // sync to collab peers like every other document rtype.
   const existing = db
     .prepare(
       'SELECT id FROM animation_clips WHERE source_node_id = ? AND source_file_path = ? AND clip_index = ?'
     )
     .get(nodeId, sourceFilePath, clipIndex ?? 0) as { id: string } | undefined;
-  if (existing) {
-    db.prepare(
-      `UPDATE animation_clips SET
-        name = ?, label = ?, start_time = ?, end_time = ?, duration = ?, fps = ?
-      WHERE id = ?`
-    ).run(
-      name,
-      label ?? name,
-      startTime ?? 0,
-      endTime ?? duration,
-      duration,
-      fps ?? 30,
-      existing.id
-    );
-    return res.json({
-      ok: true,
-      data: { id: existing.id, name, updated: true },
-    });
-  }
-  const id = randomUUID();
-  db.prepare(
-    'INSERT INTO animation_clips (id, name, source_node_id, source_file_path, clip_index, label, start_time, end_time, duration, fps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(
+  const id = existing?.id ?? randomUUID();
+  const outcome = await col.set(id, '', {
     id,
     name,
-    nodeId,
+    sourceNodeId: nodeId,
     sourceFilePath,
-    clipIndex ?? 0,
-    label ?? name,
-    startTime ?? 0,
-    endTime ?? duration,
+    clipIndex: clipIndex ?? 0,
+    label: label ?? name,
+    startTime: startTime ?? 0,
+    endTime: endTime ?? duration,
     duration,
-    fps ?? 30
-  );
+    fps: fps ?? 30,
+  }).ack;
+  if (outcome.status === 'rejected')
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: outcome.reason } });
+  if (existing) return res.json({ ok: true, data: { id, name, updated: true } });
   res.status(201).json({ ok: true, data: { id, name } });
 });
 

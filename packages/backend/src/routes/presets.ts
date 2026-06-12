@@ -255,7 +255,7 @@ router.post('/presets/instantiate', (req, res) => {
     // and silently skipped all emissions when it didn't match. Order: parent
     // entities first (nodes/layers), then attached behaviours/effects, then
     // track clips (lanes/keyframes/events ride the track_clip aggregate).
-    // Logic graphs + animation clips have no sync rtype yet — still local-only.
+    // Logic graphs have no sync rtype yet — still local-only.
     const db = getDb();
     const createdIds = [...new Set(Object.values(result.idMap))];
     // table/rtype are fixed literals (never user input) — safe to interpolate.
@@ -282,6 +282,7 @@ router.post('/presets/instantiate', (req, res) => {
       emitTable('behaviors', 'behavior');
       emitTable('camera_effects', 'camera_effect');
       emitTable('track_clips', 'track_clip');
+      emitTable('animation_clips', 'animation_clip');
     }
 
     res.json({ ok: true, data: result });

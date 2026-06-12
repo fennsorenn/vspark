@@ -30,7 +30,11 @@ import { getDb } from '../db/index.js';
 import { getIdentity } from '../multiplayer/identity.js';
 import { getResource } from '../sync/registry.js';
 import { sync } from '../sync/index.js';
-import { queueCollabAssetFollowUp } from './assets.js';
+import {
+  queueCollabAssetFollowUp,
+  queueAnimationAssetFollowUp,
+  setAnimationClipCollection,
+} from './assets.js';
 import '../sync/resources.js'; // side effect: register the descriptors
 
 type Dto = Record<string, unknown>;
@@ -153,6 +157,55 @@ const BINDINGS: RtypeBinding[] = [
           ? rowExists('compose_layers', d.ownerLayerId)
           : false,
   },
+  {
+    rtype: 'animation_clip',
+    table: 'animation_clips',
+    // FBX/BVH imports → their source node, so scene-subtree grants and
+    // subscriptions cover them cross-type like track clips.
+    parent: (d) =>
+      typeof d.sourceNodeId === 'string'
+        ? { rtype: 'scene_node', id: d.sourceNodeId }
+        : null,
+    persists: (d) => rowExists('scene_nodes', d.sourceNodeId),
+    // Path localization. animation_clips has no project column, so foreignness
+    // is discriminated by CONTENT resolvability instead (scene_node uses its
+    // collab-link projectId):
+    //  - incoming path is one of OUR managed asset paths (exact stored_path
+    //    row — covers legit local edits AND a receiver's own /_shared cache
+    //    entry, which recordCollabAsset registers) → accept it;
+    //  - otherwise, an existing row keeps ITS local path: the incoming value
+    //    is either a peer's name for content we already hold (their /_shared
+    //    URL) or content we lack — in which case the asset follow-up fetches
+    //    it and re-points the row once the blob lands.
+    validate: (data) => {
+      const d = { ...(data as Dto) };
+      const incoming = typeof d.sourceFilePath === 'string' ? d.sourceFilePath : null;
+      if (!incoming) return d;
+      const cur = getDb()
+        .prepare('SELECT source_file_path FROM animation_clips WHERE id = ?')
+        .get(d.id as string) as { source_file_path: string } | undefined;
+      if (!cur || cur.source_file_path === incoming) return d;
+      if (
+        getDb()
+          .prepare('SELECT 1 FROM asset_files WHERE stored_path = ? LIMIT 1')
+          .get(incoming)
+      )
+        return d; // our own managed path — accept
+      const node = getDb()
+        .prepare('SELECT root_scene_node_id FROM scene_nodes WHERE id = ?')
+        .get(d.sourceNodeId as string) as
+        | { root_scene_node_id: string }
+        | undefined;
+      if (node)
+        queueAnimationAssetFollowUp(
+          d.id as string,
+          incoming,
+          node.root_scene_node_id
+        );
+      d.sourceFilePath = cur.source_file_path;
+      return d;
+    },
+  },
 ];
 
 /** Echo guard for the legacy bridge: ids currently being persisted from a
@@ -227,6 +280,10 @@ export function initBackendMesh(): MeshPeer {
   });
 
   for (const b of BINDINGS) bindCollection(peer, peerId, b);
+  // The animation-clip asset follow-up re-points sourceFilePath through the
+  // store once a fetched blob lands.
+  const animCol = COLLECTIONS.get('animation_clip');
+  if (animCol) setAnimationClipCollection(animCol);
 
   // This server's own tabs hold full rights on everything it serves.
   peer.grants.grant({
