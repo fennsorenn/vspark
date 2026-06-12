@@ -13,6 +13,7 @@ import { useSharedSubscriptions } from '../hooks/useSharedSubscriptions';
 import { useClientMesh } from '../hooks/useClientMesh';
 import { initMeshPeer } from '../mesh/peer';
 import { startMeshProjection } from '../sync/meshProjection';
+import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import { TopBar } from '../components/editor/TopBar';
 import { SceneGraph } from '../components/editor/SceneGraph';
 import { Viewport } from '../components/editor/Viewport';
@@ -39,6 +40,7 @@ export function Editor() {
   useEffect(() => {
     void initMeshPeer().catch(console.warn);
     startMeshProjection();
+    startMeshStoreFeeder();
   }, []);
   const { t } = useTranslation('editor');
   const { projectId } = useParams<{ projectId: string }>();

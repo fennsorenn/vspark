@@ -4,26 +4,23 @@
  * Importing this module registers each resource's `apply` (rtype → store slice)
  * via {@link bindResource}. Imported for side effects by `useWsSync`.
  *
- * Phase 1: the five CRUD document types, create + delete. The server sends
- * canonical camelCase DTOs (the same shape `getScenes` produces), so bindings
- * store them directly — no per-message mapper. `upsert` dedupes by id so the
- * initiating client (which already added the entity from its REST response)
- * doesn't double-insert. Smoothing-sensitive *updates* (compose-layer commits,
- * node transforms) still ride their legacy messages until Phase 2.
+ * MIGRATION (§11, dev-notes/plans/mesh-sync-refactor.md): rtypes move off
+ * these legacy 'sync'-envelope bindings onto the mesh store feeder
+ * ({@link ./meshStoreFeeder}) one by one — `behavior` and `camera_effect`
+ * already have. The server still emits their envelopes (other consumers may
+ * read them), but this tab applies them from its mesh replica instead.
+ *
+ * The remaining bindings store canonical camelCase DTOs directly — no
+ * per-message mapper. `upsert` dedupes by id so the initiating client (which
+ * already added the entity from its REST response) doesn't double-insert.
+ * Smoothing-sensitive *updates* (compose-layer commits, node transforms)
+ * still ride their legacy messages.
  *
  * Design: dev-notes/plans/unified-sync-layer.md
  */
 import { bindResource } from './registry';
-import {
-  useEditorStore,
-  type StageObject,
-  type Behavior,
-} from '../store/editorStore';
-import type {
-  CameraEffectRecord,
-  ComposeLayerRecord,
-  TrackClipRecord,
-} from '../api/client';
+import { useEditorStore, type StageObject } from '../store/editorStore';
+import type { ComposeLayerRecord, TrackClipRecord } from '../api/client';
 
 bindResource('scene_node', {
   apply: (op, key, data) => {
@@ -35,35 +32,6 @@ bindResource('scene_node', {
     const node = data as StageObject;
     if (s.nodes.some((n) => n.id === node.id)) s.updateNode(node.id, node);
     else s.addNode(node);
-  },
-});
-
-bindResource('behavior', {
-  apply: (op, key, data) => {
-    const s = useEditorStore.getState();
-    if (op === 'remove') {
-      s.removeBehavior(key);
-      return;
-    }
-    // Upsert: an existing behavior must be replaced, not skipped — otherwise a
-    // remote config/enabled edit is silently dropped.
-    const b = data as Behavior;
-    if (s.behaviors.some((x) => x.id === b.id)) s.updateBehavior(b.id, b);
-    else s.addBehavior(b);
-  },
-});
-
-bindResource('camera_effect', {
-  apply: (op, key, data) => {
-    const s = useEditorStore.getState();
-    if (op === 'remove') {
-      s.removeCameraEffect(key);
-      return;
-    }
-    const e = data as CameraEffectRecord;
-    if (s.cameraEffects.some((x) => x.id === e.id))
-      s.updateCameraEffect(e.id, { enabled: e.enabled, config: e.config });
-    else s.addCameraEffect(e);
   },
 });
 
