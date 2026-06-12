@@ -544,9 +544,24 @@ class MultiplayerManager {
    *  scene link to that peer so live sync stops (the peer keeps its persisted
    *  copy — unshare ends the collaboration, it doesn't delete their scene). */
   unshare(objectId: string, granteePeerId: string): void {
-    removeShare(objectId, granteePeerId);
+    removeShare(objectId, granteePeerId); // legacy grant + its mesh mirror
+    // Collab link (if this was a shared scene): revoke the collab mesh grant
+    // and drop OUR subscription to the peer — together with the share-mirror
+    // revoke above, sync stops in BOTH directions. No-op for object shares.
+    const mp = getMeshPeer();
+    if (mp && granteePeerId !== '*')
+      teardownCollabScene(mp, granteePeerId, objectId);
     removeCollabScene(objectId, granteePeerId);
     this.sharing?.revokeUnauthorized(objectId);
+    // Tell the grantee explicitly: collab receivers hold no legacy router
+    // subscription anymore (the doc plane rides the mesh), so the
+    // revokeUnauthorized eviction sweep won't reach them — without this the
+    // peer keeps its mount link + stale offer ("Shared with you").
+    if (granteePeerId !== '*') {
+      this.sharing?.notifyUnshared(granteePeerId, objectId);
+    } else {
+      this.sharing?.reAdvertiseAll();
+    }
   }
 
   /** Grantees of an object (for the "Share with" UI). */

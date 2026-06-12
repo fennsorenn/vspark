@@ -30,6 +30,12 @@ import {
   type ObjectSnapshot,
 } from './shares.js';
 import { unsubscribeSharedObject } from '../mesh/shares.js';
+import { getMeshPeer } from '../mesh/index.js';
+import { teardownCollabScene } from '../mesh/collab.js';
+import {
+  collabPeersForScene,
+  removeCollabScene,
+} from './collabScene.js';
 import { BlobManager } from './blobTransfer.js';
 import { type MeshTransport } from './transport.js';
 import type { MeshRouter } from '../sync/meshRouter.js';
@@ -247,15 +253,26 @@ export class SharingManager {
       case SNAPSHOT:
         void this.relaySnapshot(from, data.snapshot as ObjectSnapshot);
         break;
-      case UNSHARED:
+      case UNSHARED: {
+        const objectId = data.objectId as string;
         // Drop our placed mesh subscription too — the owner's revoke already
         // evicted it on their side; this clears our local handle.
-        unsubscribeSharedObject(from, data.objectId as string);
+        unsubscribeSharedObject(from, objectId);
+        // A mounted collab scene: the author ended the collaboration. Drop our
+        // link row + our grant/subscription for it, so the scene stays behind
+        // as a regular, local, unmounted scene (content kept, sync stopped)
+        // and syncCollabLinks won't re-arm it on the next reconnect.
+        if (collabPeersForScene(objectId).some((l) => l.peerId === from)) {
+          const mp = getMeshPeer();
+          if (mp) teardownCollabScene(mp, from, objectId);
+          removeCollabScene(objectId, from);
+        }
         this.broadcast('mp_shared_unshared', {
           peerId: from,
-          objectId: data.objectId,
+          objectId,
         });
         break;
+      }
       case OVERRIDE:
         this.broadcast('mp_shared_override', { peerId: from, ...data });
         break;

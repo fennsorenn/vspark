@@ -556,6 +556,11 @@ export function useWsSync() {
             useConnectionsStore
               .getState()
               .setSubscribed(p.peerId, p.objectId, false);
+            // A mounted collab scene may have been dissolved into a regular
+            // local scene — refresh the links so the chain badge clears.
+            void getCollabScenes()
+              .then((l) => useConnectionsStore.getState().setCollabScenes(l))
+              .catch(() => {});
           } else if (msg.kind === 'mp_shared_write_nak') {
             // Owner rejected our optimistic write (relay path) → roll back.
             const p = msg.payload as { id?: string; objectId?: string };
