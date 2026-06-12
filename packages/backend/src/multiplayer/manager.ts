@@ -12,7 +12,7 @@
  */
 import { getIdentity, signBytes } from './identity.js';
 import { getMeshPeer, mirrorIntoMesh } from '../mesh/index.js';
-import { syncCollabLinks } from '../mesh/collab.js';
+import { syncCollabLinks, teardownCollabScene } from '../mesh/collab.js';
 import {
   subscribeSharedObject,
   unsubscribeSharedObject,
@@ -599,6 +599,19 @@ class MultiplayerManager {
       key: sceneId,
       data: { sceneId },
     });
+  }
+
+  /** Disconnect a local collab scene from every peer it links to: revoke the
+   *  mesh grants + drop the subscriptions (so subsequent local edits/deletes
+   *  no longer fan out to those peers) and remove the collab_scenes rows. Call
+   *  this BEFORE deleting the scene locally so the deletion stays local — the
+   *  peers keep their own copies intact. Idempotent / no-op without a mesh. */
+  unmountCollabScene(sceneId: string): void {
+    const mp = getMeshPeer();
+    for (const link of collabPeersForScene(sceneId)) {
+      if (mp) teardownCollabScene(mp, link.peerId, sceneId);
+      removeCollabScene(sceneId, link.peerId);
+    }
   }
 
   /** Owner side: a peer asked for a collab scene — authorize via the grant, then

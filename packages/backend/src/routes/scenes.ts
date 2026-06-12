@@ -4,6 +4,7 @@ import { getDb } from '../db/index.js';
 import { broadcastBus } from '../broadcast/bus.js';
 import { _ws } from './shared.js';
 import { sync } from '../sync/index.js';
+import { multiplayerManager } from '../multiplayer/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -426,6 +427,12 @@ router.delete('/scenes/:sceneId', (req, res) => {
       error: { status: 404, message: 'scene not found', code: 'NOT_FOUND' },
     });
   }
+
+  // If this scene is collaboratively shared/mounted, disconnect the collab
+  // links FIRST (revoke the mesh grants + drop the subscriptions) so the
+  // node deletions below stay local — deleting a mounted scene must remove
+  // only the local copy, leaving every peer's copy intact.
+  multiplayerManager.unmountCollabScene(sceneId);
 
   // Every node in the scene (the scene node itself + its descendants) shares
   // root_scene_node_id = sceneId. Collect them so we can clean up the rows that

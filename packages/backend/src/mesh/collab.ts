@@ -9,7 +9,7 @@
  * tap. The legacy snapshot/mount path is kept ONLY for the initial mount
  * (asset transfer + path rewriting ride it); live ops + reconcile are mesh.
  */
-import type { Grant, MeshPeer } from '@vspark/mesh';
+import type { Grant, MeshPeer, MeshSubscription } from '@vspark/mesh';
 import { listAllCollabScenes } from '../multiplayer/collabScene.js';
 
 const RUCD = { read: true, update: true, create: true, delete: true };
@@ -25,8 +25,9 @@ function sceneGrant(granteePeerId: string, sceneId: string): Grant {
   };
 }
 
-const granted = new Set<string>(); // `${peerId}:${sceneId}` — dedupe per process
-const subscribed = new Set<string>();
+const granted = new Map<string, string>(); // `${peerId}:${sceneId}` → grant id
+const subscribed = new Set<string>(); // in-flight/active subscription dedupe
+const subs = new Map<string, MeshSubscription>(); // active subscription handles
 
 /** Issue the mesh grant for one collab link (idempotent per process). */
 export function grantCollabScene(
@@ -36,8 +37,7 @@ export function grantCollabScene(
 ): void {
   const key = `${granteePeerId}:${sceneId}`;
   if (granted.has(key)) return;
-  granted.add(key);
-  peer.grants.grant(sceneGrant(granteePeerId, sceneId));
+  granted.set(key, peer.grants.grant(sceneGrant(granteePeerId, sceneId)));
 }
 
 /** First-mount race: we may subscribe before the remote side has issued our
@@ -64,6 +64,11 @@ function armLink(
       includeDescendants: true,
       pathPrefix: '',
     })
+    .then((sub) => {
+      // Torn down while the subscribe was in flight → drop it immediately.
+      if (subscribed.has(key)) subs.set(key, sub);
+      else sub.unsubscribe();
+    })
     .catch((e) => {
       subscribed.delete(key);
       if (attempt < SUBSCRIBE_MAX_RETRIES) {
@@ -78,6 +83,34 @@ function armLink(
         );
       }
     });
+}
+
+/** Tear down one collab link's mesh state: revoke our grant to the peer (which
+ *  drops THEIR subscription to us, so our subsequent edits/deletes stop fanning
+ *  out to them) and drop our subscription to them. Used when a local collab
+ *  scene is deleted — disconnecting the collaboration without propagating the
+ *  local deletion to the peer (their copy stays intact). */
+export function teardownCollabScene(
+  peer: MeshPeer,
+  remotePeerId: string,
+  sceneId: string
+): void {
+  const key = `${remotePeerId}:${sceneId}`;
+  const gid = granted.get(key);
+  if (gid) {
+    peer.grants.revoke(gid);
+    granted.delete(key);
+  }
+  const sub = subs.get(key);
+  if (sub) {
+    try {
+      sub.unsubscribe();
+    } catch {
+      /* link already gone */
+    }
+    subs.delete(key);
+  }
+  subscribed.delete(key);
 }
 
 /** (Re-)sync grants + subscriptions against the current collab links. Called

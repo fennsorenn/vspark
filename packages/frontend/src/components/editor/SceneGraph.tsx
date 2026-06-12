@@ -108,6 +108,11 @@ function ShareWithMenuItem({
         await shareObject(entityId, granteePeerId, shareKind, shareWithEdit);
       }
       setGrantees((g) => [...g, granteePeerId]);
+      // Refresh the Connections window's "Shared by you" list: it stays mounted
+      // and only refetches on a revision change (peer events don't fire on a
+      // local share), so without this a freshly shared scene/object wouldn't
+      // appear there until the next peer event or reload.
+      useConnectionsStore.getState().bumpRevision();
     } catch {
       /* ignore */
     }
