@@ -657,9 +657,22 @@ ways (local model swap not reverted on author; foreign docs still
 re-scoped). DELETE's ancestor-route capture removed. scenes.ts bulk
 creation (templates) still emits touch via the bridge — fold it in when
 compose/track slices land.
-Remaining slices: compose-layers (ordering/re-anchoring SQL stays in the
-route, full DTOs written per affected layer), track-clips (aggregate:
-load full clip DTO, mutate, set whole doc; playback routes untouched).
+Slices 3+4 (DONE, 27be0b2 + 86a6e8c, verified 6/6 after one fix):
+compose-layers (ordering/re-anchoring computed in the route, full DTOs
+written per affected layer — reorder + delete-re-anchor verified) and
+track-clips (aggregate: replica DTO mutated in memory, whole doc set;
+keyframe/event replacement sorted by t; lane routes 404 on unknown
+ids; playback routes untouched; collab echo verified A→B incl. delete).
+Fix from verification: created_at fell back DTO → prior row → now in
+the aggregate save (replica DTOs carry no timestamps).
+
+**All five rtypes now write through the store.** The legacy bridge's
+remaining job is read-side compatibility: scenes.ts bulk emissions
+(template scene creation: touch per created node/layer) and any other
+sync.document callers still mirror INTO the mesh via the bridge; route
+mutations no longer emit directly. Next: Phase-6 writes onto guarded
+mesh writes (per-doc authority), frontend mesh-react bindings, blob
+port, compose containment scope.
 
 After write-through, Phase-6 writes can move onto guarded mesh writes by
 giving collections per-doc authority resolution (doc → owning peer), and the
