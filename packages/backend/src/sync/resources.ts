@@ -342,6 +342,12 @@ defineResource({
       }>;
     };
     const db = getDb();
+    // created_at fallback chain: DTO → the prior row (replica DTOs built by
+    // the write-through routes don't carry timestamps, and the reinsert must
+    // not reset creation time on every edit) → now (genuinely new clip).
+    const prior = db
+      .prepare('SELECT created_at FROM track_clips WHERE id = ?')
+      .get(d.id) as { created_at: string } | undefined;
     // Clear children explicitly (mirrors applyClipDto; avoids stale-id UNIQUE violations).
     const oldLanes = db
       .prepare('SELECT id FROM track_clip_lanes WHERE clip_id = ?')
@@ -367,7 +373,7 @@ defineResource({
       d.mode,
       d.autoplay ? 1 : 0,
       d.startedAt ?? null,
-      d.createdAt ?? null
+      d.createdAt ?? prior?.created_at ?? null
     );
     for (const lane of d.lanes ?? []) {
       db.prepare(
