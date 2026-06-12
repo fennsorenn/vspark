@@ -109,10 +109,17 @@ const BINDINGS: RtypeBinding[] = [
   {
     rtype: 'compose_layer',
     table: 'compose_layers',
+    // Top-level layers have parent_id NULL and hang off their compose scene
+    // via root_compose_scene_id (the compose scene root itself → null) — the
+    // same fallback shape as scene_node, giving compose content a real
+    // containment scope for subtree grants/subscriptions.
     parent: (d) =>
       typeof d.parentId === 'string'
         ? { rtype: 'compose_layer', id: d.parentId }
-        : null,
+        : typeof d.rootComposeSceneId === 'string' &&
+            d.rootComposeSceneId !== d.id
+          ? { rtype: 'compose_layer', id: d.rootComposeSceneId }
+          : null,
     persists: (d) => rowExists('projects', d.projectId),
   },
   {

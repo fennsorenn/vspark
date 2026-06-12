@@ -52,7 +52,9 @@ const PARENTS: Partial<
   compose_layer: (d) =>
     typeof d.parentId === 'string'
       ? { rtype: 'compose_layer', id: d.parentId }
-      : null,
+      : typeof d.rootComposeSceneId === 'string' && d.rootComposeSceneId !== d.id
+        ? { rtype: 'compose_layer', id: d.rootComposeSceneId }
+        : null,
   track_clip: (d) =>
     typeof d.ownerNodeId === 'string'
       ? { rtype: 'scene_node', id: d.ownerNodeId }
