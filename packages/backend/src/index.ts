@@ -44,11 +44,17 @@ import { sync } from './sync/index.js';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 import './sync/resources.js';
 import { initIdentity, getIdentity } from './multiplayer/identity.js';
-import { initBackendMesh, getMeshPeer, meshUpgrade } from './mesh/index.js';
+import {
+  initBackendMesh,
+  getMeshPeer,
+  getMeshCollection,
+  meshUpgrade,
+} from './mesh/index.js';
 import { ServerMeshTransport } from './mesh/serverMeshTransport.js';
 import { initMeshCollab } from './mesh/collab.js';
 import { initMeshShares } from './mesh/shares.js';
 import { initMeshStreams } from './mesh/streams.js';
+import { initMeshAssets } from './mesh/assets.js';
 import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
 import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
@@ -119,10 +125,15 @@ async function start() {
   // The legacy sync/multiplayer paths stay live until features migrate over.
   initBackendMesh();
   // Live collab streams (pose/preview frames) over the mesh preview channel;
-  // remote frames for our collab scenes bridge back onto /ws.
+  // remote frames for our collab scenes bridge back onto /ws. Asset follow-up
+  // watches scene_node docs for unresolvable file paths (mesh/assets.ts).
   {
     const mp = getMeshPeer();
-    if (mp) initMeshStreams(mp, (kind, payload) => wsSync.broadcast(kind, payload));
+    if (mp) {
+      initMeshStreams(mp, (kind, payload) => wsSync.broadcast(kind, payload));
+      const sceneNodes = getMeshCollection('scene_node');
+      if (sceneNodes) initMeshAssets(mp, sceneNodes);
+    }
   }
   // Connect to the rendezvous if configured (else multiplayer stays disabled).
   multiplayerManager.init(

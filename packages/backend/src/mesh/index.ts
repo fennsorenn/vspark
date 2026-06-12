@@ -30,6 +30,7 @@ import { getDb } from '../db/index.js';
 import { getIdentity } from '../multiplayer/identity.js';
 import { getResource } from '../sync/registry.js';
 import { sync } from '../sync/index.js';
+import { queueCollabAssetFollowUp } from './assets.js';
 import '../sync/resources.js'; // side effect: register the descriptors
 
 type Dto = Record<string, unknown>;
@@ -86,8 +87,14 @@ const BINDINGS: RtypeBinding[] = [
       const cur = getDb()
         .prepare('SELECT file_path FROM scene_nodes WHERE id = ?')
         .get(d.id as string) as { file_path: string | null } | undefined;
-      if (cur?.file_path && cur.file_path !== d.filePath)
+      if (cur?.file_path && cur.file_path !== d.filePath) {
+        // The peer's path is unusable here until its blob is cached — keep
+        // the local path now and let the asset follow-up fetch + re-point
+        // the row once the content lands (mesh/assets.ts).
+        if (typeof d.filePath === 'string' && d.filePath)
+          queueCollabAssetFollowUp(d.id as string, d.filePath, rootId);
         d.filePath = cur.file_path;
+      }
       return d;
     },
     // Placed-share projections keep the OWNER's projectId (no collab link to

@@ -24,6 +24,7 @@ import {
   setClipPlaybackApplier,
   setCollabRuntimeApplier,
 } from '../mesh/streams.js';
+import { setAssetTransfer } from '../mesh/assets.js';
 import {
   RendezvousClient,
   type PairedPeer,
@@ -211,6 +212,13 @@ class MultiplayerManager {
       },
     };
     this.blob = new BlobManager(transport);
+    // Mesh asset follow-up (mesh/assets.ts) fetches blobs for doc-carried
+    // paths through this manager's BlobManager.
+    setAssetTransfer({
+      metaForPath: (p, path) => this.blob!.metaForPath(p, path),
+      ensure: (p, meta) => this.blob!.ensure(p, meta),
+      broadcast: (kind, payload) => this.broadcast(kind, payload),
+    });
     // Live grant-gated subscription registry: admit-on-subscribe against this
     // server's real grant store + the containment index. The object-share path
     // holds its subscribers here (replacing a bespoke map); links are attached on

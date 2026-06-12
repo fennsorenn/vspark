@@ -26,6 +26,7 @@ import {
   writeCached,
   cachedUrl,
   hasCached,
+  assetForPath,
   type AssetMeta,
 } from './blobs.js';
 
@@ -34,8 +35,13 @@ const BEGIN = '_blob_begin';
 const CHUNK = '_blob_chunk';
 const END = '_blob_end';
 const ERROR = '_blob_error';
+/** Receiver → owner: resolve an owner FILE PATH to asset metadata (hash/ext/
+ *  mime/size), so mesh-doc-driven follow-up fetches (which only see the path
+ *  on the document) can fetch by hash. */
+const META = '_blob_meta';
+const META_OK = '_blob_meta_ok';
 
-export const BLOB_RTYPES = new Set([REQUEST, BEGIN, CHUNK, END, ERROR]);
+export const BLOB_RTYPES = new Set([REQUEST, BEGIN, CHUNK, END, ERROR, META, META_OK]);
 
 /** Raw bytes per chunk. Must stay well under the 64 KB SCTP max-message-size
  *  after base64 inflation (×4/3) + the JSON envelope: 32 KB raw → ~43.7 KB
@@ -60,13 +66,56 @@ interface Incoming {
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+const META_TIMEOUT_MS = 10_000;
+
 export class BlobManager {
   /** hash → in-flight receive state (we're the receiver). */
   private readonly incoming = new Map<string, Incoming>();
   /** hash → in-flight fetch promise (dedupe concurrent requests). */
   private readonly pending = new Map<string, Promise<string>>();
+  /** `${peerId}\0${path}` → in-flight meta request. */
+  private readonly pendingMeta = new Map<
+    string,
+    {
+      resolve: (m: AssetMeta | null) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
 
   constructor(private readonly transport: MeshTransport) {}
+
+  /** Receiver: resolve an OWNER file path to its asset metadata (null when the
+   *  owner has no asset_files row for it). Rejects on timeout/closed channel. */
+  metaForPath(peerId: string, filePath: string): Promise<AssetMeta | null> {
+    const key = `${peerId}\0${filePath}`;
+    const existing = this.pendingMeta.get(key);
+    if (existing)
+      return new Promise((resolve) => {
+        const prior = existing.resolve;
+        existing.resolve = (m) => {
+          prior(m);
+          resolve(m);
+        };
+      });
+    return new Promise<AssetMeta | null>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingMeta.delete(key);
+        reject(new Error(`asset meta timed out: ${filePath}`));
+      }, META_TIMEOUT_MS);
+      this.pendingMeta.set(key, { resolve, timer });
+      const ok = this.transport.sendEnvelope(peerId, {
+        rtype: META,
+        op: 'event',
+        key: filePath,
+        data: { path: filePath },
+      });
+      if (!ok) {
+        clearTimeout(timer);
+        this.pendingMeta.delete(key);
+        reject(new Error('mesh channel not open'));
+      }
+    });
+  }
 
   /** Receiver: ensure `meta.hash` is cached locally, fetching from `peerId` if
    *  needed. Resolves to the public `/uploads/_shared/...` URL. */
@@ -132,6 +181,25 @@ export class BlobManager {
       case ERROR:
         this.fail(data.hash as string, (data.message as string) ?? 'remote error');
         break;
+      // Owner: answer a path → meta lookup.
+      case META:
+        this.transport.sendEnvelope(from, {
+          rtype: META_OK,
+          op: 'event',
+          key: data.path as string,
+          data: { path: data.path, meta: assetForPath(data.path as string) },
+        });
+        break;
+      // Receiver: resolve the matching in-flight meta request.
+      case META_OK: {
+        const key = `${from}\0${data.path as string}`;
+        const req = this.pendingMeta.get(key);
+        if (!req) return;
+        this.pendingMeta.delete(key);
+        clearTimeout(req.timer);
+        req.resolve((data.meta as AssetMeta | null) ?? null);
+        break;
+      }
     }
   }
 

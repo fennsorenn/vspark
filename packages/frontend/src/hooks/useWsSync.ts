@@ -541,6 +541,15 @@ export function useWsSync() {
             useConnectionsStore
               .getState()
               .setSubscribed(p.peerId, p.snapshot.objectId, true);
+          } else if (msg.kind === 'mp_shared_assets') {
+            // Live asset follow-up: our server cached a placed object's
+            // (model-swap) blob — register the mapping so the projection
+            // re-renders with the local URL.
+            const p = msg.payload as {
+              peerId: string;
+              assetUrls?: Record<string, string>;
+            };
+            registerAssetUrls(p.peerId, p.assetUrls ?? {});
           } else if (msg.kind === 'mp_shared_unshared') {
             const p = msg.payload as { peerId: string; objectId: string };
             removeSharedProjection(p.peerId, p.objectId);

@@ -144,7 +144,7 @@ interface SnapshotNode {
  *  (idempotent by project + hash). `url` is the local `/uploads/_shared/…` URL —
  *  kept with its leading slash so it matches normal asset stored_paths and the
  *  node's rewritten file_path (== the served URL). */
-function recordCollabAsset(
+export function recordCollabAsset(
   projectId: string,
   url: string,
   hash: string,

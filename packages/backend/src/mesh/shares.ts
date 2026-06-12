@@ -132,6 +132,20 @@ export function unsubscribeSharedObject(owner: string, objectId: string): void {
   }
 }
 
+/** The owner peer of the placed object whose subtree contains `nodeId`, if
+ *  any — used by the asset follow-up to know whom to fetch a foreign doc's
+ *  asset from. */
+export function placedOwnerOf(
+  nodeId: string,
+  isDescendant: (childId: string, ancestorId: string) => boolean
+): string | undefined {
+  for (const k of placed.keys()) {
+    const [owner, objectId] = k.split('\0');
+    if (nodeId === objectId || isDescendant(nodeId, objectId)) return owner;
+  }
+  return undefined;
+}
+
 /** Prune placed subscriptions whose owner disconnected, so the frontend's
  *  re-subscribe on reconnect arms a fresh one (snapshot = reconcile). */
 function pruneStalePlaced(peer: MeshPeer): void {
