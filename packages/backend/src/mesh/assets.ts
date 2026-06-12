@@ -63,12 +63,30 @@ export function setAssetTransfer(t: AssetTransfer): void {
   _transfer = t;
 }
 
-/** A locally-servable path needs no fetch: a managed asset row, or an
- *  already-cached shared blob. */
-function isLocalPath(filePath: string): boolean {
-  return !!getDb()
-    .prepare('SELECT 1 FROM asset_files WHERE stored_path = ? LIMIT 1')
-    .get(filePath);
+/** A content-addressed shared URL embeds its blob's sha256. */
+const SHARED_HASH_RE = /_shared\/([0-9a-f]{64})/;
+
+/** Whether this server already holds the content `filePath` refers to — so a
+ *  fetch + re-point would be redundant. Covers (a) a managed asset row at this
+ *  exact path, and (b) a `_shared/<hash>` URL whose hash we already hold under
+ *  ANY path. (b) is what stops a peer's `_shared` write-back from bouncing the
+ *  author into re-fetching its own asset and re-pointing its row: the author
+ *  keeps its local path, content already converged. */
+function alreadyHaveContent(filePath: string): boolean {
+  const db = getDb();
+  if (
+    db
+      .prepare('SELECT 1 FROM asset_files WHERE stored_path = ? LIMIT 1')
+      .get(filePath)
+  )
+    return true;
+  const m = SHARED_HASH_RE.exec(filePath);
+  return (
+    !!m &&
+    !!db
+      .prepare('SELECT 1 FROM asset_files WHERE hash = ? LIMIT 1')
+      .get(m[1])
+  );
 }
 
 /** COLLAB: called from the scene_node validate transform when a foreign doc's
@@ -80,7 +98,7 @@ export function queueCollabAssetFollowUp(
   sceneId: string
 ): void {
   if (!_transfer || !_col) return;
-  if (isLocalPath(ownerPath)) return; // already resolvable — nothing to fetch
+  if (alreadyHaveContent(ownerPath)) return; // resolvable / content already held
   if (!markAttempted(`${nodeId}\0${ownerPath}`)) return;
   void (async () => {
     for (const link of collabPeersForScene(sceneId)) {
