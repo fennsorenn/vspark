@@ -715,10 +715,15 @@ docs filtered by the parent node's remote flag.
 Slice 3 (DONE, c4e4f04, browser-verified 6/6): track_clip +
 compose_layer (incl. the compose_scene kind branch) joined the feeder —
 live create/rename/delete across tabs, single rows (no double-apply).
-Only scene_node remains on the legacy envelope (step 4). Note: the
-"reads" migration so far re-points the store's TRANSPORT (envelope →
-replica observation); components still read the store. Moving component
-READS to mesh-react hooks + writes to col.set stays open per surface.
+Slice 4 (DONE, ed47972, browser-verified 6/6): scene_node joined; the
+legacy 'sync'-envelope bindings file is DELETED — all five rtypes feed
+the store from the tab's mesh replica. Discriminators verified: other-
+project docs stay out of the store; removes skip remote (projected)
+nodes. Note: this migration re-points the store's TRANSPORT (envelope →
+replica observation); components still read the Zustand store. Moving
+component READS to mesh-react hooks + writes to col.set stays open per
+surface, as do Phase-6 guarded writes (per-doc authority), the blob
+port, and the advertise/offer flow.
 
 Hazards: (a) reads-first per slice — never flip reads+writes together;
 (b) the tab replica misses DB timestamps (display: fall back to REST GET
