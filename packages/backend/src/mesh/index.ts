@@ -65,13 +65,19 @@ const BINDINGS: RtypeBinding[] = [
         : typeof d.rootSceneNodeId === 'string' && d.rootSceneNodeId !== d.id
           ? { rtype: 'scene_node', id: d.rootSceneNodeId }
           : null,
-    // Bug-5 fix: incoming collab docs carry the SENDER's project id (FK fail
-    // here) and the sender's local file path. Re-scope to our collab_scenes
-    // link and keep our local file path (model-swap assets don't ride the
-    // mesh yet — §9 known gap). Both adjustments fire ONLY for foreign docs
-    // (projectId ≠ our link's project): local writes also pass through this
-    // validate now that REST routes write through the store (§10 hazard e),
-    // and a local model swap must not be reverted.
+    // Incoming collab docs carry the SENDER's project id (FK fail here) and
+    // the sender's local file path (unusable here until its blob is cached).
+    // Re-scope the project to our collab link and queue an asset follow-up
+    // (mesh/assets.ts) for any path we can't resolve — whether it's a swap
+    // from a prior path OR a first model assignment to a node that had none.
+    // The follow-up fetches the content over the blob protocol and re-points
+    // the row to our local /uploads/_shared URL once it lands. We keep our
+    // existing local path in the interim if we have one (so a converged
+    // _shared URL isn't clobbered); a node with no prior path takes the owner
+    // path verbatim until the follow-up corrects it. Fires ONLY for foreign
+    // docs (projectId ≠ our link's project): local writes pass through this
+    // validate too now that REST routes write through the store (§10 hazard
+    // e), and a local model swap must not be reverted.
     validate: (data) => {
       const d = { ...(data as Dto) };
       const rootId =
@@ -84,16 +90,16 @@ const BINDINGS: RtypeBinding[] = [
         .get(rootId) as { project_id: string } | undefined;
       if (!link || d.projectId === link.project_id) return d;
       d.projectId = link.project_id;
-      const cur = getDb()
-        .prepare('SELECT file_path FROM scene_nodes WHERE id = ?')
-        .get(d.id as string) as { file_path: string | null } | undefined;
-      if (cur?.file_path && cur.file_path !== d.filePath) {
-        // The peer's path is unusable here until its blob is cached — keep
-        // the local path now and let the asset follow-up fetch + re-point
-        // the row once the content lands (mesh/assets.ts).
-        if (typeof d.filePath === 'string' && d.filePath)
-          queueCollabAssetFollowUp(d.id as string, d.filePath, rootId);
-        d.filePath = cur.file_path;
+      const incoming = typeof d.filePath === 'string' ? d.filePath : null;
+      if (incoming) {
+        // queueCollabAssetFollowUp skips when we already hold the content
+        // (managed asset at this path, or a _shared/<hash> we already have),
+        // so this is safe to call unconditionally.
+        queueCollabAssetFollowUp(d.id as string, incoming, rootId);
+        const cur = getDb()
+          .prepare('SELECT file_path FROM scene_nodes WHERE id = ?')
+          .get(d.id as string) as { file_path: string | null } | undefined;
+        if (cur?.file_path && cur.file_path !== incoming) d.filePath = cur.file_path;
       }
       return d;
     },
