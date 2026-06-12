@@ -63,13 +63,12 @@ Incoming message handlers:
 | `vmc_tracking_state` | `setVmcTracking(behaviorId, tracking)` |
 | `vmc_pose` | Writes pose data into store for Viewport to consume |
 | `vmc_blendshapes` | Writes blendshape weights into store |
-| `node_updated` | Patches node in store |
-| `node_added` | Adds node to store (dedup check) |
-| `node_removed` | Removes node from store |
-| `camera_effect_added/updated/removed` | Updates effects slice |
+| `sync` (envelope) | Routed through `applyRemote` — currently only `scene_node` (node_added/updated/removed). Behaviors, camera_effects, compose_layers, and track_clips have migrated to the mesh feeder (see below). |
 | `server_update` | Sets `updateAvailable` + `updateInfo` in store |
 
 **pendingReload-on-reconnect**: a `pendingReloadRef` (not store state — avoids re-render) is set when a `server_update` message carries `reloadOnReconnect: true`. On the next `ws.onopen`, if the ref is set, the page is reloaded. Normal reconnects are unaffected.
+
+**Mesh store feeder — `sync/meshStoreFeeder.ts`** (commits 0d21329, c4e4f04): four of five synced rtypes now feed the store via the tab's mesh replica rather than WS envelopes. The feeder calls `collection.observe('**')` on each collection and writes upserts/removes directly into the Zustand store slices. Migrated: `behavior`, `camera_effect`, `compose_layer` (incl. `compose_scene` kind branch), `track_clip`. The remaining rtype (`scene_node`) stays on the legacy envelope until step 4 of the §11 plan. Foreign docs (placed-object subscriptions) are filtered by the parent node's `remote` flag. The feeder is started from both Editor.tsx and ViewerPage. See [sync.md](sync.md) and [mesh.md](mesh.md).
 
 ## Browser uplinks
 

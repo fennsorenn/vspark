@@ -66,9 +66,10 @@ It's a string convention, not a query engine.
 `packages/frontend/src/sync/`:
 
 - **`registry.ts`** — `bindResource(rtype, { apply })` + the single `applyRemote(env)` dispatcher. `useWsSync` routes every `'sync'` envelope through `applyRemote`, replacing the per-message if/else chain as resources migrate. Unknown rtypes are ignored (so the new path coexists with not-yet-migrated legacy messages).
-- **`resources.ts`** — the client bindings. Each `apply(op, key, data, env)` writes one resource into the Zustand store. The server sends canonical camelCase DTOs, so bindings store them directly — **no per-message mapper**. `upsert` dedupes by id so the initiating client (which already added the entity from its REST response) doesn't double-insert. Imported for side effects by `useWsSync`.
+- **`resources.ts`** — the client bindings for rtypes **still on the legacy `'sync'` envelope**. Currently only `scene_node` remains (its binding was kept because it is entangled with Avatar/Viewport and the placed-object projection feeder). Each `apply(op, key, data, env)` writes one resource into the Zustand store directly — **no per-message mapper**. `upsert` dedupes by id so the initiating client (which already added the entity from its REST response) doesn't double-insert. Imported for side effects by `useWsSync`.
+- **`meshStoreFeeder.ts`** (new, commits 0d21329 + c4e4f04) — feeds the editorStore from the tab's mesh replica for the **four migrated rtypes**: `behavior`, `camera_effect`, `compose_layer` (incl. the `compose_scene` kind branch), and `track_clip`. Observes each collection via `collection.observe('**')` and writes upserts/removes into the corresponding store slices. The replica handles HLC LWW internally, so the client-side stale-drop (`lastVersion` from `registry.ts`) is unused for these rtypes. Foreign docs (placed-object subscriptions) are filtered by the parent node's `remote` flag so projection docs stay inert. Started from Editor.tsx and ViewerPage alongside `initMeshPeer`.
 
-`useWsSync.ts` wiring: `import { SYNC_MESSAGE_KIND } from '@vspark/shared/sync'; import { applyRemote } from '../sync/registry'; import '../sync/resources';` — the `'sync'` branch calls `applyRemote(msg.payload)`.
+`useWsSync.ts` wiring: `import { SYNC_MESSAGE_KIND } from '@vspark/shared/sync'; import { applyRemote } from '../sync/registry'; import '../sync/resources';` — the `'sync'` branch calls `applyRemote(msg.payload)`. Only `scene_node` now flows through this path; the other four rtypes' envelopes are superseded by the feeder.
 
 ## HLC stale-drop (Phase 4)
 
@@ -99,7 +100,13 @@ No new WS message kind, no new `useWsSync` branch, no new mapper. New entities s
 - **Preset instantiation** (`routes/presets.ts`) still emits created entities via `sync.document.upsert` directly; these mirror into the mesh via the legacy bridge.
 - **Template bulk creation** (`scenes.ts`) still emits `sync.document.upsert` (touch) per created node/layer; likewise mirrored. Folding these into the mesh write path is deferred.
 
-**Still on legacy WS kinds:**
+**Frontend consumer migration (mesh store feeder, slices 1–3, commits 0d21329 + c4e4f04):**
+
+The `'sync'`-envelope bindings for `behavior`, `camera_effect`, `compose_layer`, and `track_clip` have been removed from `sync/resources.ts`. These rtypes now feed the editorStore via `sync/meshStoreFeeder.ts` (mesh replica observation). The TRANSPORT changed (envelope → replica observe); component reads of the store and write patterns are not yet changed.
+
+- **Only `scene_node` remains on the legacy envelope** — its `sync/resources.ts` binding is kept because it is entangled with Avatar/Viewport and the placed-object projection feeder (`meshProjection.ts`). Migrating it is step 4 of [§11](../plans/mesh-sync-refactor.md).
+
+**Still on legacy WS kinds (transport-level):**
 
 - **Live pose pipeline** — `vmc_pose` / `vmc_blendshapes` / `ik_targets` still emit their legacy kinds at ~60–90 Hz; the stream rtypes are registered but `sync.stream.publish` is not yet on the hot path (deferred until runtime-verifiable).
 - **Spawn manager** — still emits `node_added` / `compose_layer_added` / `track_clip_added` (and removals) inline with full data, so those legacy handlers are **kept** even for the migrated document types. See [spawn.md](spawn.md).
