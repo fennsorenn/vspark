@@ -284,11 +284,15 @@ const peer = useMemo(() => createMeshPeer({
   - `runtime_control` collection (also in `streams.ts`) on the `control` channel, one publish per shared collab scene id (no containment anchor for global/spawn scopes), deduped per receiver by `eventId`. Set Data / runtime overrides / media control / spawn broadcasts now ride this path. `_collab_runtime` + `forwardCollabRuntime` + `allCollabPeers` deleted. `COLLAB_RELAY_KINDS` stays as sender whitelist. Legacy collab protocol is now only `_collab_subscribe`/`_collab_snapshot` (mount + asset transfer).
 - **Werift stale-slot reconnect wedge — FIXED, verified 4/4.** `ServerMesh.onSignal` tears down a connected slot when that peer sends a fresh offer (a live peer never re-dials), then answers. See [plans/mesh-sync-refactor.md §9](../plans/mesh-sync-refactor.md).
 
-**Remaining:**
-- REST mutation routes writing through the store (instead of direct DB writes).
-- Frontend store migration: UI bindings to mesh-react hooks instead of Zustand reads.
-- Known issues: model-swap assets don't ride mesh yet; Phase-6 writes (`_share_write`/NAK), blob/asset transfer, advertise/offer flow remain legacy.
+- **REST write-through — DONE, verified live (commits 768ea2d, bfa3839, 27be0b2, 86a6e8c):** all five mutation rtypes (behaviors, camera-effects, scene-nodes, compose-layers, track-clips) now call `collection.set(id, '', dto)` / `collection.remove(id)` in their REST routes. Routes keep all validation, ordering, and side effects, and build the canonical camelCase DTO before writing. The `onCommitted` tap persists via the resource registry (`sync/resources.ts` `save`/`remove`) and emits `sync.document.upsert/remove` for legacy tabs. Direct SQL writes and route-side `sync.document` emissions are deleted — one write path, one HLC stamp. Track clips are a single aggregate doc: routes mutate the replica DTO in memory (lanes/keyframes/events) and `set` the whole doc; the save is delete-then-reinsert with `created_at` falling back DTO → prior row → now (86a6e8c). Bug fixes shipped: behavior PUT previously emitted no sync event; behavior `sortOrder` now rides the DTO; scene-node collab `validate` fires only for foreign docs (projectId differs from the collab link) so local model swaps on collab-author scenes are not reverted; lane routes 404 on unknown clip/lane instead of FK 500s. Replica docs lack DB-generated created/updated timestamps (display-only; the tap's sync envelopes re-load the row so legacy tabs get them). The legacy bridge's remaining job is read-side compatibility only (template bulk creation and any remaining `sync.document` callers still mirror into the mesh via the bridge).
 - Frontend behavior sync binding (`packages/frontend/src/sync/resources.ts`) — fixed (09cca24): remote updates are now applied instead of being skipped when the id already exists in the store (the recurring add-dedupes-then-drops-updates class noted in §8.8).
+
+**Remaining:**
+- Frontend store migration: UI bindings to mesh-react hooks instead of Zustand reads.
+- Phase-6 guarded writes (`_share_write`/NAK) onto guarded mesh writes (per-doc authority).
+- Blob/asset transfer, advertise/offer flow: still legacy.
+- Compose containment scope (compose layers not yet scene-subtree-scoped for grants/subscriptions).
+- Model-swap assets don't ride mesh yet (receiver keeps its local filePath until the blob port is migrated).
 
 ## Key files
 
