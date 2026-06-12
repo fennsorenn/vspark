@@ -640,7 +640,16 @@ Shape (per rtype, ~1900 route lines across the five):
    — write each through the store in dependency order; (c) REST responses
    used to return route-built shapes — diff against col.get(id) output for
    parity; (d) blob/file-path side effects stay in the route, BEFORE the
-   store write, so the DTO carries final paths.
+   store write, so the DTO carries final paths; (e) **scene_node validate
+   runs on LOCAL writes too** once routes write through the store — its
+   collab file-path preservation must only fire when the doc's projectId
+   was actually foreign (re-scoped), or a local REST model swap on a
+   collab-author scene gets silently reverted. Same for any future
+   incoming-only transform: gate on the foreign-doc discriminator, not
+   unconditionally.
+
+Slice 1 (DONE, 768ea2d): behaviors + camera-effects. Also fixed: behavior
+PUT emitted no sync event at all; behavior sortOrder dropped by save.
 
 After write-through, Phase-6 writes can move onto guarded mesh writes by
 giving collections per-doc authority resolution (doc → owning peer), and the
