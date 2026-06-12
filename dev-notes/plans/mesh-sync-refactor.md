@@ -598,17 +598,24 @@ re-subscribe, pose stream still legacy.
   - Backends don't auto-dial paired peers at boot (user-initiated connect by
     design); the standing session grant auto-accepts, so one side's Connect
     suffices after restarts.
-  - Mid-session model swaps don't carry assets over the mesh (receiver keeps
-    its local filePath / owner path until the blob port rides the mesh; for
-    placed objects the initial assets still arrive via the legacy snapshot
-    manifest + `assetUrls` re-projection).
+  - ~~Mid-session model swaps don't carry assets over the mesh~~ **FIXED +
+    live-verified** (mesh/assets.ts): a scene_node doc arriving with an
+    unresolvable filePath triggers a follow-up — `_blob_meta` resolves the
+    path to content-addressed metadata at the sender, the blob rides the
+    existing chunked `_blob_*` transfer into `/uploads/_shared/<hash>`.
+    COLLAB (validate-triggered) re-points the row through the store + records
+    an asset_files row; PLACE (observer-triggered) broadcasts
+    `mp_shared_assets` and the projection feeder re-projects. Covers swap AND
+    first model assignment. The author keeps its own local path (content-hash
+    guard skips re-fetching content it already holds), so paths stay
+    per-server while content converges. Verified: collab first-assign + swap +
+    author-path-keeping + place + no-ping-pong, all PASS.
   - Phase-6 writes (`_share_write`/`_share_write_nak`) stay legacy: the
     receiver tab edits optimistically, the owner persists, and the
     authoritative echo returns over the placed mesh subscription. Migrating
     them to guarded mesh writes needs per-doc (not per-collection) authority
     — revisit with the REST write-through step.
-  - Compose layers (containment scope), advertise/offer flow, asset/blob
-    transfer, object-share streams (`_share_stream`, kept for direct
+  - Advertise/offer flow, object-share streams (`_share_stream`, kept for direct
     browser edges), Phase-6 writes: still legacy. Collab streams, clip
     playback, and runtime events are on the mesh (see above).
 
