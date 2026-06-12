@@ -677,3 +677,41 @@ port, compose containment scope.
 After write-through, Phase-6 writes can move onto guarded mesh writes by
 giving collections per-doc authority resolution (doc → owning peer), and the
 frontend can drop optimistic+NAK for ack-based outcomes.
+
+(Compose containment scope: DONE, a0d4da0 — root layers anchor to their
+compose scene via rootComposeSceneId, scene_node-style fallback.)
+
+## 11. Frontend mesh bindings (next step — spec)
+
+Goal: UI reads come from the tab's mesh replica via @vspark/mesh-react;
+writes go `collection.set` (guarded against the server) instead of REST +
+optimistic Zustand mutation. The editorStore shrinks to UI-only state
+(selection, panels, viewport); `sync/registry.ts` bindResource mirrors and
+the legacy 'sync' WS envelopes retire per-rtype as their readers migrate.
+
+Order (lowest blast radius first; one slice per commit, run the app after
+each — `verify`/`smoketest` skills with Playwright, since UI regressions
+don't show in headless REST runs):
+1. **behaviors panel** — reads `useMeshSubtree(behaviors, nodeId)`-ish per
+   node, writes col.set with ack outcome surfaced (toast on rejected).
+   Simplest panel, already has the freshest sync path.
+2. **camera effects panel** — same shape.
+3. **track-clips timeline** — aggregate doc maps 1:1 onto the editor's
+   clip state; keyframe drag stays on the local preview path, commit =
+   col.set of the aggregate (replaces the keyframes REST PUT — or keep
+   REST and only migrate READS first; reads-first is the safer default
+   for every slice).
+4. **scene tree + node properties** — the big one; Avatar/Viewport keep
+   reading the Zustand store, which becomes a projection OF the mesh
+   docs (one writer: a store-feeder like sync/meshProjection.ts but for
+   local docs) before components migrate to hooks one by one.
+5. **compose view** — after 4 proves the feeder pattern.
+
+Hazards: (a) reads-first per slice — never flip reads+writes together;
+(b) the tab replica misses DB timestamps (display: fall back to REST GET
+or live with it); (c) smoothing paths (node_transform_preview,
+compose_layer_preview) stay on /ws + previewSmoother — only committed
+state moves; (d) mesh subscription arming races page load — gate panels
+on useMeshStatus or keep initial REST hydration as the fallback read
+until the snapshot lands (initial REST load stays regardless — it seeds
+faster than the WS subscribe round-trip).
