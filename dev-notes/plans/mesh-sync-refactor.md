@@ -707,6 +707,12 @@ don't show in headless REST runs):
    local docs) before components migrate to hooks one by one.
 5. **compose view** — after 4 proves the feeder pattern.
 
+Slices 1+2 (DONE, 0d21329, browser-verified 5/5 with Playwright across
+two live tabs): behaviors + camera-effects feed the editorStore from the
+mesh replica via sync/meshStoreFeeder.ts; their legacy bindings removed;
+the viewer page gained its own mesh peer. Foreign (placed-projection)
+docs filtered by the parent node's remote flag.
+
 Hazards: (a) reads-first per slice — never flip reads+writes together;
 (b) the tab replica misses DB timestamps (display: fall back to REST GET
 or live with it); (c) smoothing paths (node_transform_preview,

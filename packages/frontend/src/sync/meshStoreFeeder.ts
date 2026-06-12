@@ -3,9 +3,10 @@
  *
  * Feeds the editorStore's synced slices from the tab's mesh replica,
  * replacing the legacy 'sync'-envelope bindings rtype by rtype (the
- * migrated rtypes are removed from ./resources). The mesh replica already
- * does HLC LWW internally, so observe() only ever fires for applied
- * changes — no client-side stale-drop needed.
+ * migrated rtypes — behavior, camera_effect, compose_layer, track_clip —
+ * are removed from ./resources; scene_node remains legacy until §11 step
+ * 4). The mesh replica already does HLC LWW internally, so observe() only
+ * ever fires for applied changes — no client-side stale-drop needed.
  *
  * Foreign docs: the tab replica also holds behaviors/effects of PLACED
  * remote objects (their subtree subscription is cross-type). Projections
@@ -19,7 +20,7 @@
  */
 import { initMeshPeer } from '../mesh/peer';
 import { useEditorStore, type Behavior } from '../store/editorStore';
-import type { CameraEffectRecord } from '../api/client';
+import type { CameraEffectRecord, ComposeLayerRecord, TrackClipRecord } from '../api/client';
 
 let started = false;
 
@@ -60,6 +61,43 @@ export function startMeshStoreFeeder(): void {
         if (s.cameraEffects.some((x) => x.id === e.id))
           s.updateCameraEffect(e.id, { enabled: e.enabled, config: e.config });
         else s.addCameraEffect(e);
+      });
+      h.collections.compose_layer.observe('**', (c) => {
+        if (c.op === 'ephemeral') return;
+        const s = useEditorStore.getState();
+        if (c.op === 'remove') {
+          if (s.composeScenes.some((cs) => cs.id === c.id))
+            s.removeComposeScene(c.id);
+          else s.removeComposeLayer(c.id);
+          return;
+        }
+        const layer = c.doc as unknown as ComposeLayerRecord | undefined;
+        if (!layer) return;
+        if (layer.kind === 'compose_scene') {
+          if (s.composeScenes.some((cs) => cs.id === layer.id))
+            s.updateComposeSceneLocal(layer);
+          else s.addComposeScene(layer);
+        } else if (s.composeLayers.some((l) => l.id === layer.id)) {
+          s.updateComposeLayerLocal(layer.id, layer);
+        } else {
+          s.addComposeLayer(layer);
+        }
+      });
+      h.collections.track_clip.observe('**', (c) => {
+        if (c.op === 'ephemeral') return;
+        const s = useEditorStore.getState();
+        if (c.op === 'remove') {
+          s.removeTrackClip(c.id);
+          return;
+        }
+        // A remote edit (new keyframes, rename, lane change …) re-sends the
+        // whole aggregate; an existing clip must be REPLACED, not skipped.
+        const clip = c.doc as unknown as TrackClipRecord | undefined;
+        if (!clip || parentIsRemote((clip as { ownerNodeId?: unknown }).ownerNodeId))
+          return;
+        if (s.trackClips.some((x) => x.id === clip.id))
+          s.updateTrackClipLocal(clip);
+        else s.addTrackClip(clip);
       });
     })
     .catch((err) => console.warn('[mesh] store feeder init failed:', err));
