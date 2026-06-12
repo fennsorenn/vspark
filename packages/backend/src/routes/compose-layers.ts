@@ -2,10 +2,18 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
-import { sync } from '../sync/index.js';
+import { getMeshCollection } from '../mesh/index.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
+
+// Write-through (§10): routes keep their validation + ordering computation,
+// then write full canonical DTOs into the mesh collection; the onCommitted
+// tap persists (resource registry) + emits sync.document. The replica doc
+// lacks the DB-generated created/updated timestamps (display-only — the tap's
+// sync envelopes re-load the row, so legacy tabs still get them).
+type LayerDto = Record<string, unknown>;
+const layersCol = () => getMeshCollection('compose_layer');
 
 export type LayerRow = {
   id: string;
@@ -99,7 +107,7 @@ router.get('/projects/:projectId/compose-scenes', (req, res) => {
  *     responses:
  *       201: { description: Created; broadcast as compose_layer_added }
  */
-router.post('/projects/:projectId/compose-scenes', (req, res) => {
+router.post('/projects/:projectId/compose-scenes', async (req, res) => {
   const projectId = req.params.projectId;
   const { id, name, config, width, height, visible } = req.body ?? {};
   if (!name) {
@@ -113,38 +121,41 @@ router.post('/projects/:projectId/compose-scenes', (req, res) => {
     });
   }
   const layerId = id ?? randomUUID();
-  const db = getDb();
-
-  db.prepare(
-    `INSERT INTO compose_layers
-       (id, project_id, root_compose_scene_id, camera_node_id, parent_id,
-        name, kind, asset_id, config,
-        x, y, width, height, rotation, anchor_h, anchor_v,
-        scene_order, camera_order, visible)
-     VALUES (?, ?, NULL, NULL, NULL, ?, 'compose_scene', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    layerId,
+  const col = layersCol();
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  const outcome = await col.set(layerId, '', {
+    id: layerId,
     projectId,
+    rootComposeSceneId: null,
+    cameraNodeId: null,
+    parentId: null,
     name,
-    JSON.stringify(config ?? {}),
-    0,
-    0,
-    width ?? 1920,
-    height ?? 1080,
-    0,
-    'left',
-    'top',
-    0,
-    0,
-    visible === false ? 0 : 1
-  );
+    kind: 'compose_scene',
+    assetId: null,
+    config: config ?? {},
+    x: 0,
+    y: 0,
+    width: width ?? 1920,
+    height: height ?? 1080,
+    rotation: 0,
+    anchorH: 'left',
+    anchorV: 'top',
+    sceneOrder: 0,
+    cameraOrder: 0,
+    visible: visible !== false,
+  } as LayerDto).ack;
+  if (outcome.status === 'rejected')
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: outcome.reason } });
 
-  const row = db
+  const row = getDb()
     .prepare('SELECT * FROM compose_layers WHERE id = ?')
     .get(layerId) as LayerRow;
-  const data = rowToLayer(row);
-  sync.document.upsert('compose_layer', layerId);
-  res.status(201).json({ ok: true, data });
+  res.status(201).json({ ok: true, data: rowToLayer(row) });
 });
 
 // ---------------------------------------------------------------------------
@@ -187,7 +198,7 @@ router.get('/compose-scenes/:composeSceneId/layers', (req, res) => {
  *     responses:
  *       201: { description: Created; broadcast as compose_layer_added }
  */
-router.post('/compose-scenes/:composeSceneId/layers', (req, res) => {
+router.post('/compose-scenes/:composeSceneId/layers', async (req, res) => {
   const composeSceneId = req.params.composeSceneId;
   const db = getDb();
 
@@ -253,41 +264,41 @@ router.post('/compose-scenes/:composeSceneId/layers', (req, res) => {
     resolvedCameraOrder = cameraNodeId ? 1 : 0;
   }
 
-  db.prepare(
-    `INSERT INTO compose_layers
-       (id, project_id, root_compose_scene_id, camera_node_id, parent_id,
-        name, kind, asset_id, config,
-        x, y, width, height, rotation, anchor_h, anchor_v,
-        scene_order, camera_order, visible)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    layerId,
-    composeScene.project_id,
-    composeSceneId,
-    cameraNodeId ?? null,
-    parentId ?? null,
+  const col = layersCol();
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  const outcome = await col.set(layerId, '', {
+    id: layerId,
+    projectId: composeScene.project_id,
+    rootComposeSceneId: composeSceneId,
+    cameraNodeId: cameraNodeId ?? null,
+    parentId: parentId ?? null,
     name,
     kind,
-    assetId ?? null,
-    JSON.stringify(config ?? {}),
-    x ?? 0,
-    y ?? 0,
-    width ?? 320,
-    height ?? 180,
-    rotation ?? 0,
-    anchorH ?? 'left',
-    anchorV ?? 'top',
-    resolvedSceneOrder,
-    resolvedCameraOrder,
-    visible === false ? 0 : 1
-  );
+    assetId: assetId ?? null,
+    config: config ?? {},
+    x: x ?? 0,
+    y: y ?? 0,
+    width: width ?? 320,
+    height: height ?? 180,
+    rotation: rotation ?? 0,
+    anchorH: anchorH ?? 'left',
+    anchorV: anchorV ?? 'top',
+    sceneOrder: resolvedSceneOrder,
+    cameraOrder: resolvedCameraOrder,
+    visible: visible !== false,
+  } as LayerDto).ack;
+  if (outcome.status === 'rejected')
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: outcome.reason } });
 
   const row = db
     .prepare('SELECT * FROM compose_layers WHERE id = ?')
     .get(layerId) as LayerRow;
-  const data = rowToLayer(row);
-  sync.document.upsert('compose_layer', layerId);
-  res.status(201).json({ ok: true, data });
+  res.status(201).json({ ok: true, data: rowToLayer(row) });
 });
 
 // ---------------------------------------------------------------------------
@@ -310,64 +321,12 @@ router.post('/compose-scenes/:composeSceneId/layers', (req, res) => {
  *     responses:
  *       200: { description: Updated; broadcast as compose_layer_updated }
  */
-router.put('/compose-layers/:id', (req, res) => {
+router.put('/compose-layers/:id', async (req, res) => {
   const id = req.params.id;
   const patch = req.body ?? {};
-  const db = getDb();
-
-  // Build a dynamic UPDATE. Only set columns whose patch field is present.
-  const cols: string[] = [];
-  const vals: unknown[] = [];
-  const map: Record<string, string> = {
-    name: 'name',
-    assetId: 'asset_id',
-    x: 'x',
-    y: 'y',
-    width: 'width',
-    height: 'height',
-    rotation: 'rotation',
-    anchorH: 'anchor_h',
-    anchorV: 'anchor_v',
-    sceneOrder: 'scene_order',
-    cameraOrder: 'camera_order',
-  };
-  for (const [k, col] of Object.entries(map)) {
-    if (patch[k] !== undefined) {
-      cols.push(`${col} = ?`);
-      vals.push(patch[k]);
-    }
-  }
-  if ('parentId' in patch) {
-    cols.push('parent_id = ?');
-    vals.push(patch.parentId ?? null);
-  }
-  if ('rootComposeSceneId' in patch) {
-    cols.push('root_compose_scene_id = ?');
-    vals.push(patch.rootComposeSceneId ?? null);
-  }
-  if (patch.config !== undefined) {
-    cols.push('config = ?');
-    vals.push(JSON.stringify(patch.config));
-  }
-  if (patch.visible !== undefined) {
-    cols.push('visible = ?');
-    vals.push(patch.visible ? 1 : 0);
-  }
-
-  if (cols.length === 0) {
-    return res.json({ ok: true, data: { id } });
-  }
-  cols.push("updated_at = datetime('now')");
-  vals.push(id);
-
-  db.prepare(`UPDATE compose_layers SET ${cols.join(', ')} WHERE id = ?`).run(
-    ...vals
-  );
-
-  const row = db
-    .prepare('SELECT * FROM compose_layers WHERE id = ?')
-    .get(id) as LayerRow | undefined;
-  if (!row)
+  const col = layersCol();
+  const cur = col?.get(id) as LayerDto | undefined;
+  if (!col || !cur)
     return res.status(404).json({
       ok: false,
       error: {
@@ -376,9 +335,56 @@ router.put('/compose-layers/:id', (req, res) => {
         code: 'NOT_FOUND',
       },
     });
+
+  // Field-presence semantics preserved from the dynamic-UPDATE version: most
+  // fields only when !== undefined; parentId/rootComposeSceneId honor an
+  // explicit null when the key is present.
+  const next: LayerDto = { ...cur };
+  let changed = false;
+  for (const k of [
+    'name',
+    'assetId',
+    'x',
+    'y',
+    'width',
+    'height',
+    'rotation',
+    'anchorH',
+    'anchorV',
+    'sceneOrder',
+    'cameraOrder',
+    'config',
+  ]) {
+    if (patch[k] !== undefined) {
+      next[k] = patch[k];
+      changed = true;
+    }
+  }
+  if ('parentId' in patch) {
+    next.parentId = patch.parentId ?? null;
+    changed = true;
+  }
+  if ('rootComposeSceneId' in patch) {
+    next.rootComposeSceneId = patch.rootComposeSceneId ?? null;
+    changed = true;
+  }
+  if (patch.visible !== undefined) {
+    next.visible = !!patch.visible;
+    changed = true;
+  }
+  if (!changed) return res.json({ ok: true, data: { id } });
+
+  const outcome = await col.set(id, '', next).ack;
+  if (outcome.status === 'rejected')
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: outcome.reason } });
+
+  const row = getDb()
+    .prepare('SELECT * FROM compose_layers WHERE id = ?')
+    .get(id) as LayerRow;
   const data = rowToLayer(row);
   _ws?.broadcast('compose_layer_updated', data);
-  sync.document.upsert('compose_layer', data.id);
   res.json({ ok: true, data });
 });
 
@@ -393,16 +399,21 @@ router.put('/compose-layers/:id', (req, res) => {
  *     responses:
  *       200: { description: Deleted; broadcast as compose_layer_removed }
  */
-router.delete('/compose-layers/:id', (req, res) => {
+router.delete('/compose-layers/:id', async (req, res) => {
   const id = req.params.id;
   const db = getDb();
+  const col = layersCol();
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
 
   const row = db
     .prepare('SELECT * FROM compose_layers WHERE id = ?')
     .get(id) as LayerRow | undefined;
   if (!row) return res.json({ ok: true, data: {} });
 
-  db.prepare('DELETE FROM compose_layers WHERE id = ?').run(id);
+  await col.remove(id).ack;
 
   // If this was a scene-wide layer, re-anchor camera layers that sat in its scene_order slot.
   const reanchored: { id: string; sceneOrder: number; cameraOrder: number }[] =
@@ -436,9 +447,8 @@ router.delete('/compose-layers/:id', (req, res) => {
       };
       const newSceneOrder = lower?.s ?? higher?.s ?? 0; // 0 = SCENE_RENDER_SLOT fallback
       for (const cr of camRows) {
-        db.prepare(
-          `UPDATE compose_layers SET scene_order = ?, updated_at = datetime('now') WHERE id = ?`
-        ).run(newSceneOrder, cr.id);
+        const cur = col.get(cr.id) as LayerDto | undefined;
+        if (cur) await col.set(cr.id, '', { ...cur, sceneOrder: newSceneOrder }).ack;
         reanchored.push({
           id: cr.id,
           sceneOrder: newSceneOrder,
@@ -449,11 +459,8 @@ router.delete('/compose-layers/:id', (req, res) => {
   }
 
   runtimeOverrideManager.clearAllForTarget('compose_layer', id);
-  sync.document.remove('compose_layer', id);
-  if (reanchored.length > 0) {
+  if (reanchored.length > 0)
     _ws?.broadcast('compose_layer_reordered', { updates: reanchored });
-    for (const u of reanchored) sync.document.upsert('compose_layer', u.id);
-  }
   res.json({ ok: true, data: { id, reanchored } });
 });
 
@@ -471,7 +478,7 @@ router.delete('/compose-layers/:id', (req, res) => {
  *     responses:
  *       200: { description: Updated; broadcast as compose_layer_reordered }
  */
-router.post('/compose-layers/reorder', (req, res) => {
+router.post('/compose-layers/reorder', async (req, res) => {
   const updates = (req.body?.updates ?? []) as {
     id: string;
     sceneOrder: number;
@@ -487,14 +494,21 @@ router.post('/compose-layers/reorder', (req, res) => {
       },
     });
   }
-  const db = getDb();
+  const col = layersCol();
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
   for (const u of updates) {
-    db.prepare(
-      `UPDATE compose_layers SET scene_order = ?, camera_order = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(u.sceneOrder, u.cameraOrder, u.id);
+    const cur = col.get(u.id) as LayerDto | undefined;
+    if (!cur) continue; // unknown id — skip, mirroring the old UPDATE no-op
+    await col.set(u.id, '', {
+      ...cur,
+      sceneOrder: u.sceneOrder,
+      cameraOrder: u.cameraOrder,
+    }).ack;
   }
   _ws?.broadcast('compose_layer_reordered', { updates });
-  for (const u of updates) sync.document.upsert('compose_layer', u.id);
   res.json({ ok: true, data: { updates } });
 });
 

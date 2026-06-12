@@ -2,9 +2,53 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws, _trackClipPlayback, _clipPlaybackForwarder } from './shared.js';
-import { sync } from '../sync/index.js';
+import { getMeshCollection } from '../mesh/index.js';
 
 const router: ReturnType<typeof Router> = Router();
+
+// Write-through (§10): a track clip is ONE aggregate document (clip + lanes +
+// keyframes + events). Mutation routes load the current DTO from the replica,
+// apply the change in memory, and set the whole aggregate; the onCommitted
+// tap persists it (delete-then-reinsert, started_at/created_at round-trip)
+// and emits sync.document. Playback control routes don't touch the document.
+type ClipDto = {
+  id: string;
+  lanes: LaneDto[];
+  events: EventDto[];
+  [k: string]: unknown;
+};
+type LaneDto = {
+  id: string;
+  clipId: string;
+  targetKind: string;
+  targetId: string;
+  paramPath: string;
+  defaultValue: number;
+  keyframes: KeyframeDto[];
+};
+type KeyframeDto = {
+  id: string;
+  t: number;
+  value: number;
+  easing: string;
+  inHandleTFraction: number | null;
+  inHandleVFraction: number | null;
+  outHandleTFraction: number | null;
+  outHandleVFraction: number | null;
+};
+type EventDto = {
+  id: string;
+  t: number;
+  action: string;
+  targetKind: string;
+  targetId: string;
+  payload: Record<string, unknown> | null;
+};
+const clipsCol = () => getMeshCollection('track_clip');
+
+function storeNotReady(res: import('express').Response) {
+  res.status(500).json({ ok: false, error: { message: 'store not ready' } });
+}
 
 type ClipRow = {
   id: string;
@@ -162,32 +206,31 @@ router.get('/compose-layers/:layerId/track-clips', (req, res) => {
   res.json({ ok: true, data });
 });
 
-/** Insert a clip owned by either a scene node or a compose layer (exactly one).
- *  Returns the loaded clip bundle, or null on validation failure. */
-function insertClip(
+/** Create a clip owned by either a scene node or a compose layer (exactly one)
+ *  through the store. Returns the loaded clip bundle, or null on validation
+ *  failure. */
+async function insertClip(
   body: Record<string, unknown>,
   owner: { ownerNodeId: string } | { ownerLayerId: string }
 ) {
   const { id, name, duration, loop, mode, autoplay } = body;
   if (typeof name !== 'string' || !name) return null;
+  const col = clipsCol();
+  if (!col) return null;
   const clipId = (id as string) ?? randomUUID();
-  const ownerNodeId = 'ownerNodeId' in owner ? owner.ownerNodeId : null;
-  const ownerLayerId = 'ownerLayerId' in owner ? owner.ownerLayerId : null;
-  getDb()
-    .prepare(
-      `INSERT INTO track_clips (id, owner_node_id, owner_layer_id, name, duration, loop, mode, autoplay)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      clipId,
-      ownerNodeId,
-      ownerLayerId,
-      name,
-      (duration as number) ?? 2,
-      loop ? 1 : 0,
-      (mode as string) ?? 'override',
-      autoplay ? 1 : 0
-    );
+  await col.set(clipId, '', {
+    id: clipId,
+    ownerNodeId: 'ownerNodeId' in owner ? owner.ownerNodeId : null,
+    ownerLayerId: 'ownerLayerId' in owner ? owner.ownerLayerId : null,
+    name,
+    duration: (duration as number) ?? 2,
+    loop: !!loop,
+    mode: (mode as string) ?? 'override',
+    autoplay: !!autoplay,
+    startedAt: null,
+    lanes: [],
+    events: [],
+  }).ack;
   return loadClip(clipId);
 }
 
@@ -203,18 +246,20 @@ function nameRequired(res: import('express').Response) {
 }
 
 /** Create a track clip owned by a scene node. */
-router.post('/scene-nodes/:nodeId/track-clips', (req, res) => {
-  const data = insertClip(req.body ?? {}, { ownerNodeId: req.params.nodeId });
+router.post('/scene-nodes/:nodeId/track-clips', async (req, res) => {
+  const data = await insertClip(req.body ?? {}, {
+    ownerNodeId: req.params.nodeId,
+  });
   if (!data) return nameRequired(res);
-  sync.document.upsert('track_clip', data.id);
   res.status(201).json({ ok: true, data });
 });
 
 /** Create a track clip owned by a compose layer. */
-router.post('/compose-layers/:layerId/track-clips', (req, res) => {
-  const data = insertClip(req.body ?? {}, { ownerLayerId: req.params.layerId });
+router.post('/compose-layers/:layerId/track-clips', async (req, res) => {
+  const data = await insertClip(req.body ?? {}, {
+    ownerLayerId: req.params.layerId,
+  });
   if (!data) return nameRequired(res);
-  sync.document.upsert('track_clip', data.id);
   res.status(201).json({ ok: true, data });
 });
 
@@ -234,40 +279,12 @@ router.post('/compose-layers/:layerId/track-clips', (req, res) => {
  *     responses:
  *       200: { description: Updated; broadcast as track_clip_updated }
  */
-router.put('/track-clips/:id', (req, res) => {
+router.put('/track-clips/:id', async (req, res) => {
   const id = req.params.id;
   const patch = req.body ?? {};
-  const cols: string[] = [];
-  const vals: unknown[] = [];
-  if (patch.name !== undefined) {
-    cols.push('name = ?');
-    vals.push(patch.name);
-  }
-  if (patch.duration !== undefined) {
-    cols.push('duration = ?');
-    vals.push(patch.duration);
-  }
-  if (patch.loop !== undefined) {
-    cols.push('loop = ?');
-    vals.push(patch.loop ? 1 : 0);
-  }
-  if (patch.mode !== undefined) {
-    cols.push('mode = ?');
-    vals.push(patch.mode);
-  }
-  if (patch.autoplay !== undefined) {
-    cols.push('autoplay = ?');
-    vals.push(patch.autoplay ? 1 : 0);
-  }
-  if (cols.length > 0) {
-    vals.push(id);
-    getDb()
-      .prepare(`UPDATE track_clips SET ${cols.join(', ')} WHERE id = ?`)
-      .run(...vals);
-    _trackClipPlayback?.onClipUpdated(id);
-  }
-  const data = loadClip(id);
-  if (!data)
+  const col = clipsCol();
+  const cur = col?.get(id) as ClipDto | undefined;
+  if (!col || !cur)
     return res.status(404).json({
       ok: false,
       error: {
@@ -276,10 +293,28 @@ router.put('/track-clips/:id', (req, res) => {
         code: 'NOT_FOUND',
       },
     });
+  const next: ClipDto = { ...cur };
+  let changed = false;
+  for (const k of ['name', 'duration', 'mode'] as const) {
+    if (patch[k] !== undefined) {
+      next[k] = patch[k];
+      changed = true;
+    }
+  }
+  if (patch.loop !== undefined) {
+    next.loop = !!patch.loop;
+    changed = true;
+  }
+  if (patch.autoplay !== undefined) {
+    next.autoplay = !!patch.autoplay;
+    changed = true;
+  }
+  if (changed) {
+    await col.set(id, '', next).ack;
+    _trackClipPlayback?.onClipUpdated(id);
+  }
+  const data = loadClip(id);
   _ws?.broadcast('track_clip_updated', data as Record<string, unknown>);
-  // Re-sync the canonical clip document so the unified sync layer + collab-scene
-  // mirroring pick up the change (the legacy broadcast stays for local smoothing).
-  sync.document.upsert('track_clip', id);
   res.json({ ok: true, data });
 });
 
@@ -294,11 +329,12 @@ router.put('/track-clips/:id', (req, res) => {
  *     responses:
  *       200: { description: Deleted; broadcast as track_clip_removed }
  */
-router.delete('/track-clips/:id', (req, res) => {
+router.delete('/track-clips/:id', async (req, res) => {
   const id = req.params.id;
+  const col = clipsCol();
+  if (!col) return storeNotReady(res);
   _trackClipPlayback?.onClipDeleted(id);
-  getDb().prepare('DELETE FROM track_clips WHERE id = ?').run(id);
-  sync.document.remove('track_clip', id);
+  await col.remove(id).ack;
   res.json({ ok: true, data: { id } });
 });
 
@@ -318,7 +354,7 @@ router.delete('/track-clips/:id', (req, res) => {
  *     responses:
  *       201: { description: Created; broadcast as track_clip_lane_added }
  */
-router.post('/track-clips/:clipId/lanes', (req, res) => {
+router.post('/track-clips/:clipId/lanes', async (req, res) => {
   const clipId = req.params.clipId;
   const { id, targetKind, targetId, paramPath, defaultValue } = req.body ?? {};
   if (!targetKind || !targetId || !paramPath) {
@@ -331,22 +367,30 @@ router.post('/track-clips/:clipId/lanes', (req, res) => {
       },
     });
   }
-  const laneId = id ?? randomUUID();
-  getDb()
-    .prepare(
-      `INSERT INTO track_clip_lanes (id, clip_id, target_kind, target_id, param_path, default_value)
-     VALUES (?, ?, ?, ?, ?, ?)`
-    )
-    .run(laneId, clipId, targetKind, targetId, paramPath, defaultValue ?? 0);
-  const row = getDb()
-    .prepare('SELECT * FROM track_clip_lanes WHERE id = ?')
-    .get(laneId) as LaneRow;
-  const data = mapLane(row, []);
+  const col = clipsCol();
+  const cur = col?.get(clipId) as ClipDto | undefined;
+  if (!col || !cur)
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  const data: LaneDto = {
+    id: id ?? randomUUID(),
+    clipId,
+    targetKind,
+    targetId,
+    paramPath,
+    defaultValue: defaultValue ?? 0,
+    keyframes: [],
+  };
+  await col.set(clipId, '', {
+    ...cur,
+    lanes: [...(cur.lanes ?? []), data],
+  }).ack;
   _ws?.broadcast(
     'track_clip_lane_added',
     data as unknown as Record<string, unknown>
   );
-  sync.document.upsert('track_clip', req.params.clipId);
   res.status(201).json({ ok: true, data });
 });
 
@@ -366,50 +410,37 @@ router.post('/track-clips/:clipId/lanes', (req, res) => {
  *     responses:
  *       200: { description: Updated; broadcast as track_clip_lane_updated }
  */
-router.put('/track-clip-lanes/:id', (req, res) => {
+router.put('/track-clip-lanes/:id', async (req, res) => {
   const id = req.params.id;
   const patch = req.body ?? {};
-  const cols: string[] = [];
-  const vals: unknown[] = [];
-  if (patch.targetKind !== undefined) {
-    cols.push('target_kind = ?');
-    vals.push(patch.targetKind);
-  }
-  if (patch.targetId !== undefined) {
-    cols.push('target_id = ?');
-    vals.push(patch.targetId);
-  }
-  if (patch.paramPath !== undefined) {
-    cols.push('param_path = ?');
-    vals.push(patch.paramPath);
-  }
-  if (patch.defaultValue !== undefined) {
-    cols.push('default_value = ?');
-    vals.push(patch.defaultValue);
-  }
-  if (cols.length > 0) {
-    vals.push(id);
-    getDb()
-      .prepare(`UPDATE track_clip_lanes SET ${cols.join(', ')} WHERE id = ?`)
-      .run(...vals);
-  }
-  const row = getDb()
-    .prepare('SELECT * FROM track_clip_lanes WHERE id = ?')
-    .get(id) as LaneRow | undefined;
-  if (!row)
+  const owner = getDb()
+    .prepare('SELECT clip_id FROM track_clip_lanes WHERE id = ?')
+    .get(id) as { clip_id: string } | undefined;
+  const col = clipsCol();
+  const cur = owner ? (col?.get(owner.clip_id) as ClipDto | undefined) : undefined;
+  const lane = cur?.lanes?.find((l) => l.id === id);
+  if (!col || !cur || !lane)
     return res.status(404).json({
       ok: false,
       error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' },
     });
-  const kfs = getDb()
-    .prepare('SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t')
-    .all(id) as KeyframeRow[];
-  const data = mapLane(row, kfs);
+  const data: LaneDto = { ...lane };
+  for (const k of [
+    'targetKind',
+    'targetId',
+    'paramPath',
+    'defaultValue',
+  ] as const) {
+    if (patch[k] !== undefined) (data as Record<string, unknown>)[k] = patch[k];
+  }
+  await col.set(cur.id, '', {
+    ...cur,
+    lanes: cur.lanes.map((l) => (l.id === id ? data : l)),
+  }).ack;
   _ws?.broadcast(
     'track_clip_lane_updated',
     data as unknown as Record<string, unknown>
   );
-  sync.document.upsert('track_clip', data.clipId);
   res.json({ ok: true, data });
 });
 
@@ -424,17 +455,22 @@ router.put('/track-clip-lanes/:id', (req, res) => {
  *     responses:
  *       200: { description: Deleted; broadcast as track_clip_lane_removed }
  */
-router.delete('/track-clip-lanes/:id', (req, res) => {
+router.delete('/track-clip-lanes/:id', async (req, res) => {
   const id = req.params.id;
   const row = getDb()
     .prepare('SELECT clip_id FROM track_clip_lanes WHERE id = ?')
     .get(id) as { clip_id: string } | undefined;
-  getDb().prepare('DELETE FROM track_clip_lanes WHERE id = ?').run(id);
+  const col = clipsCol();
+  const cur = row ? (col?.get(row.clip_id) as ClipDto | undefined) : undefined;
+  if (col && cur)
+    await col.set(cur.id, '', {
+      ...cur,
+      lanes: (cur.lanes ?? []).filter((l) => l.id !== id),
+    }).ack;
   _ws?.broadcast('track_clip_lane_removed', {
     id,
     clipId: row?.clip_id ?? null,
   });
-  if (row?.clip_id) sync.document.upsert('track_clip', row.clip_id);
   res.json({ ok: true, data: { id } });
 });
 
@@ -454,7 +490,7 @@ router.delete('/track-clip-lanes/:id', (req, res) => {
  *     responses:
  *       200: { description: Replaced; broadcast as track_clip_keyframes_replaced }
  */
-router.put('/track-clip-lanes/:id/keyframes', (req, res) => {
+router.put('/track-clip-lanes/:id/keyframes', async (req, res) => {
   const laneId = req.params.id;
   const keyframes = (req.body?.keyframes ?? []) as Array<{
     id?: string;
@@ -466,51 +502,40 @@ router.put('/track-clip-lanes/:id/keyframes', (req, res) => {
     outHandleTFraction?: number | null;
     outHandleVFraction?: number | null;
   }>;
-  const db = getDb();
-
-  // Validate the lane exists up-front: otherwise the DELETE silently no-ops and
-  // the INSERTs blow up with a FOREIGN KEY violation (500). Returning 404 lets
-  // the frontend drop the stale lane from its state cleanly.
-  const laneRow = db
+  // 404 on a stale lane lets the frontend drop it from its state cleanly.
+  const laneRow = getDb()
     .prepare('SELECT id, clip_id FROM track_clip_lanes WHERE id = ?')
     .get(laneId) as { id: string; clip_id: string } | undefined;
-  if (!laneRow) {
+  const col = clipsCol();
+  const cur = laneRow
+    ? (col?.get(laneRow.clip_id) as ClipDto | undefined)
+    : undefined;
+  if (!col || !cur || !cur.lanes?.some((l) => l.id === laneId)) {
     return res.status(404).json({
       ok: false,
       error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' },
     });
   }
-
-  db.prepare('DELETE FROM track_clip_keyframes WHERE lane_id = ?').run(laneId);
-  // NOTE: db.prepare() returns a PreparedStatement that auto-finalizes after
-  // each .run(), so we can't hoist this out of the loop and re-use it. The
-  // keyframe list per commit is small (a handful at most), so re-preparing
-  // per row is fine. If this becomes a hot path, fix the wrapper instead.
-  for (const k of keyframes) {
-    db.prepare(
-      `INSERT INTO track_clip_keyframes
-         (id, lane_id, t, value, easing,
-          in_handle_t_fraction, in_handle_v_fraction,
-          out_handle_t_fraction, out_handle_v_fraction)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      k.id ?? randomUUID(),
-      laneId,
-      k.t,
-      k.value,
-      k.easing ?? 'linear',
-      k.inHandleTFraction ?? null,
-      k.inHandleVFraction ?? null,
-      k.outHandleTFraction ?? null,
-      k.outHandleVFraction ?? null
-    );
-  }
-  const rows = db
-    .prepare('SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t')
-    .all(laneId) as KeyframeRow[];
-  const data = { laneId, keyframes: rows.map(mapKeyframe) };
+  const next: KeyframeDto[] = keyframes
+    .map((k) => ({
+      id: k.id ?? randomUUID(),
+      t: k.t,
+      value: k.value,
+      easing: k.easing ?? 'linear',
+      inHandleTFraction: k.inHandleTFraction ?? null,
+      inHandleVFraction: k.inHandleVFraction ?? null,
+      outHandleTFraction: k.outHandleTFraction ?? null,
+      outHandleVFraction: k.outHandleVFraction ?? null,
+    }))
+    .sort((a, b) => a.t - b.t);
+  await col.set(cur.id, '', {
+    ...cur,
+    lanes: cur.lanes.map((l) =>
+      l.id === laneId ? { ...l, keyframes: next } : l
+    ),
+  }).ack;
+  const data = { laneId, keyframes: next };
   _ws?.broadcast('track_clip_keyframes_replaced', data);
-  sync.document.upsert('track_clip', laneRow.clip_id);
   res.json({ ok: true, data });
 });
 
@@ -679,7 +704,7 @@ router.post('/track-clips/:id/seek', (req, res) => {
  *     responses:
  *       200: { description: Replaced; broadcast as track_clip_events_replaced }
  */
-router.put('/track-clips/:id/events', (req, res) => {
+router.put('/track-clips/:id/events', async (req, res) => {
   const clipId = req.params.id;
   const events = (req.body?.events ?? []) as Array<{
     id?: string;
@@ -689,40 +714,27 @@ router.put('/track-clips/:id/events', (req, res) => {
     targetId: string;
     payload?: Record<string, unknown> | null;
   }>;
-  const db = getDb();
-
-  const clipRow = db
-    .prepare('SELECT id FROM track_clips WHERE id = ?')
-    .get(clipId) as { id: string } | undefined;
-  if (!clipRow) {
+  const col = clipsCol();
+  const cur = col?.get(clipId) as ClipDto | undefined;
+  if (!col || !cur) {
     return res.status(404).json({
       ok: false,
       error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
     });
   }
-
-  db.prepare('DELETE FROM track_clip_events WHERE clip_id = ?').run(clipId);
-  for (const e of events) {
-    db.prepare(
-      `INSERT INTO track_clip_events
-         (id, clip_id, t, action, target_kind, target_id, payload)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      e.id ?? randomUUID(),
-      clipId,
-      e.t ?? 0,
-      e.action ?? 'play',
-      e.targetKind ?? 'scene_node',
-      e.targetId,
-      e.payload != null ? JSON.stringify(e.payload) : null
-    );
-  }
-  const rows = db
-    .prepare('SELECT * FROM track_clip_events WHERE clip_id = ? ORDER BY t')
-    .all(clipId) as EventRow[];
-  const data = { clipId, events: rows.map(mapEvent) };
+  const next: EventDto[] = events
+    .map((e) => ({
+      id: e.id ?? randomUUID(),
+      t: e.t ?? 0,
+      action: e.action ?? 'play',
+      targetKind: e.targetKind ?? 'scene_node',
+      targetId: e.targetId,
+      payload: e.payload ?? null,
+    }))
+    .sort((a, b) => a.t - b.t);
+  await col.set(clipId, '', { ...cur, events: next }).ack;
+  const data = { clipId, events: next };
   _ws?.broadcast('track_clip_events_replaced', data);
-  sync.document.upsert('track_clip', clipId);
   res.json({ ok: true, data });
 });
 
