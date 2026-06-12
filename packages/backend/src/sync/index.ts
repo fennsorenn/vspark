@@ -45,7 +45,18 @@ class SyncHub {
       env as unknown as Record<string, unknown>
     );
     if (env.op === 'upsert' || env.op === 'remove')
-      for (const cb of this._docListeners) cb(env);
+      for (const cb of this._docListeners)
+        // One listener throwing must not abort the others (the mesh bridge
+        // mirror, containment index, and share fan-out are independent) nor
+        // bubble into the route that emitted the document.
+        try {
+          cb(env);
+        } catch (e) {
+          console.error(
+            `[sync] document listener failed for ${env.rtype}:${env.key}:`,
+            e
+          );
+        }
   }
 
   readonly document = {

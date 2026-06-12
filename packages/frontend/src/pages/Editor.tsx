@@ -125,7 +125,8 @@ export function Editor() {
           payload,
           state.projectId!,
           state.activeSceneId!,
-          state.selectedNodeId
+          null, // rootComposeSceneId
+          state.selectedNodeId // parentId — drop under the selection, if any
         );
         const data = await api.getScenes(state.projectId!);
         useEditorStore.getState().setNodes(data.nodes);
