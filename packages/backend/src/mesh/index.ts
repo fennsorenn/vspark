@@ -67,7 +67,10 @@ const BINDINGS: RtypeBinding[] = [
     // Bug-5 fix: incoming collab docs carry the SENDER's project id (FK fail
     // here) and the sender's local file path. Re-scope to our collab_scenes
     // link and keep our local file path (model-swap assets don't ride the
-    // mesh yet — §9 known gap).
+    // mesh yet — §9 known gap). Both adjustments fire ONLY for foreign docs
+    // (projectId ≠ our link's project): local writes also pass through this
+    // validate now that REST routes write through the store (§10 hazard e),
+    // and a local model swap must not be reverted.
     validate: (data) => {
       const d = { ...(data as Dto) };
       const rootId =
@@ -78,7 +81,7 @@ const BINDINGS: RtypeBinding[] = [
           'SELECT project_id FROM collab_scenes WHERE scene_id = ? LIMIT 1'
         )
         .get(rootId) as { project_id: string } | undefined;
-      if (!link) return d;
+      if (!link || d.projectId === link.project_id) return d;
       d.projectId = link.project_id;
       const cur = getDb()
         .prepare('SELECT file_path FROM scene_nodes WHERE id = ?')
