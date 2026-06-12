@@ -753,9 +753,16 @@ class MultiplayerManager {
           payload.field as string | undefined
         );
       } else if (kind === 'runtime_override_set') {
+        // Defensive: a spawned tmp target may not be registered yet if its
+        // override raced ahead of node_added — register from the payload's
+        // sceneId so the bus's scene lookup resolves (otherwise the override
+        // is dropped and the spawn shows stale/empty content on the peer).
+        const tid = payload.targetId as string;
+        if (tid?.startsWith('__spawn:') && typeof payload.sceneId === 'string')
+          runtimeOverrideManager.registerTarget(tid, payload.sceneId);
         runtimeOverrideManager.set(
           payload.targetKind as ParamTargetKind,
-          payload.targetId as string,
+          tid,
           payload.paramPath as string,
           payload.value
         );
@@ -765,6 +772,28 @@ class MultiplayerManager {
           payload.targetId as string,
           payload.paramPath as string | undefined
         );
+      } else if (kind === 'node_added' || kind === 'compose_layer_added') {
+        // A spawned ephemeral entity from a peer. Register its tmp id with the
+        // override bus so that set_text / set_*_param writes targeting it (which
+        // arrive as runtime_override_set) resolve here too — the spawn never
+        // persists to SQLite, so the bus's scene lookup would otherwise fail
+        // and silently drop every override on the projected spawn (empty
+        // textbox on the peer). The spawning backend registers locally in
+        // SpawnManager.spawn; this mirrors that for the receiver.
+        const id = payload.id as string | undefined;
+        const sceneId = (payload.rootSceneNodeId ??
+          payload.rootComposeSceneId) as string | undefined;
+        if (id?.startsWith('__spawn:') && sceneId)
+          runtimeOverrideManager.registerTarget(id, sceneId);
+        this.broadcast(kind, payload);
+      } else if (kind === 'node_removed' || kind === 'compose_layer_removed') {
+        const id = payload.id as string | undefined;
+        if (id?.startsWith('__spawn:'))
+          runtimeOverrideManager.clearAllForTarget(
+            kind === 'node_removed' ? 'scene_node' : 'compose_layer',
+            id
+          );
+        this.broadcast(kind, payload);
       } else {
         this.broadcast(kind, payload);
       }
