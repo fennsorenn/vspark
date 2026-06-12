@@ -610,6 +610,13 @@ class MultiplayerManager {
     const mp = getMeshPeer();
     for (const link of collabPeersForScene(sceneId)) {
       if (mp) teardownCollabScene(mp, link.peerId, sceneId);
+      // The AUTHOR also holds a share grant for the peer (addShare on
+      // share-collab) whose mesh mirror independently admits the peer's
+      // subscription — revoke it too, or the local delete still fans out to
+      // the peer through that grant (the collab grant alone isn't the only
+      // cover). A no-op on the mounted side (it never shared). Also clears
+      // the scene from "Shared by you".
+      removeShare(sceneId, link.peerId);
       removeCollabScene(sceneId, link.peerId);
     }
   }
