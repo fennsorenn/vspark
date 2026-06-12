@@ -740,3 +740,61 @@ state moves; (d) mesh subscription arming races page load — gate panels
 on useMeshStatus or keep initial REST hydration as the fallback read
 until the snapshot lands (initial REST load stays regardless — it seeds
 faster than the WS subscribe round-trip).
+
+## 12. Phase-6 guarded writes — analysis (deferred, NOT a quick per-doc-authority change)
+
+Migrating placed-object edits (`_share_write`/`_share_write_nak` in
+frontend/sync/remoteEdit.ts) onto the mesh ack protocol is bigger than it
+first looks. Two findings from tracing the topology:
+
+1. **Per-doc authority is needed but insufficient.** A receiver tab's
+   scene_node collection has authority = its own serverPeerId (local nodes
+   guard to its own backend). Placed (projected) docs are owner-authoritative
+   — a different authority per doc. So `Collection.authority` would have to
+   become a resolver `(doc) => 'self' | peerId` (default `() => 'self'`),
+   consulted at every authority site in peer.ts (localWrite, handleOp guarded
+   path, fanout's "data flows home", canWrite). The frontend resolver would
+   map doc → owner via the projection tracking (add `placedOwnerOfNode(id)` to
+   sharedProjection). That part is mechanical.
+
+2. **The blocker: placed writes are TWO HOPS.** A tab has a mesh link only to
+   its OWN backend, never to the remote owner. The placed doc plane reaches a
+   tab as: owner-backend → receiver-backend (placed subscription) →
+   receiver's tabs. A guarded write from a tab to a placed node must thread
+   its ack across that relay (tab → backend → owner → backend → tab). The
+   mesh core's guarded-write protocol is SINGLE-HOP: `fanout` only adds the
+   authority to targets when it holds a direct link, and a non-authority
+   receiver merely relays by subscription match — it does not re-issue the op
+   as a guarded write with a fresh ack id and splice the eventual ack back to
+   the original requester. Generic multi-hop ack routing in the core is a
+   substantial, risk-bearing extension to the ack lifecycle the whole system
+   depends on.
+
+The legacy `_share_write` path is purpose-built for exactly this 2-hop
+owner-authoritative request/response (optimistic edit → owner authorizes via
+the grant store + persists + the authoritative result echoes over the placed
+subscription; NAK or timeout rolls back). It is implemented and user-verified
+(multiplayer-phase6.md). It works.
+
+**Recommendation: keep Phase-6 on the legacy path** unless multi-hop guarded
+writes become valuable for another reason. The payoff of migrating (protocol
+consolidation) does not justify a core ack-routing change of this size and
+risk. If pursued later, design multi-hop acks as a first-class core feature
+(relay-with-ack-threading), not a bolt-on — and spec it separately with its
+own test matrix before touching peer.ts.
+
+### Remaining mesh work, by value
+
+- **Component reads → mesh-react hooks** (per surface): real but incremental
+  polish. The store feeder already delivers live updates, so this is a
+  read-path cleanup (Zustand → useMeshDoc/Subtree) with marginal user-visible
+  benefit. Do it opportunistically when touching a panel, not as a sweep.
+- **Advertise/offer flow** (`_share_advertise`/`mp_shares`): small, UI-coupled
+  (Connections window offer list), works fine. Low value.
+- **Object-share streams** (`_share_stream`): deliberately legacy — they ride
+  direct browser↔owner WebRTC edges (no relay hop), which the mesh's
+  server-routed subscriptions don't replicate. Keep.
+
+The high-value mesh migration arc (doc planes, collab live-ops, REST
+write-through, frontend transport, asset transfer, reconnect reliability) is
+complete and verified.
