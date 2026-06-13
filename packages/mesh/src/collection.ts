@@ -35,8 +35,10 @@ export interface CollectionConfig<T extends object> {
   /** Validates/normalizes INCOMING data (remote ops and local writes alike).
    *  Throw to reject. The RETURN VALUE is what gets applied — returning a
    *  transformed value (clamping, normalization) is how the authority issues
-   *  ack corrections. */
-  validate?: (data: unknown) => T;
+   *  ack corrections. `originId` is the peer the op originated on (this peer's
+   *  own id for local writes), so a validator can localize peer-relative fields
+   *  (e.g. translate a clock-anchored timestamp onto this peer's clock). */
+  validate?: (data: unknown, originId?: string) => T;
   /** Allowed channels (default ['committed', 'preview']). At most one may be
    *  retained; a collection with none is a pure stream. */
   channels?: string[];
@@ -275,9 +277,11 @@ export class Collection<T extends object> {
     for (const tap of this.taps) tap(change);
   }
 
-  /** @internal Validation hook; returns the (possibly transformed) value. */
-  validateDoc(data: unknown): T {
-    return this.cfg.validate ? this.cfg.validate(data) : (data as T);
+  /** @internal Validation hook; returns the (possibly transformed) value.
+   *  `originId` is the peer the op originated on (passed through to the
+   *  validator so it can localize peer-relative fields). */
+  validateDoc(data: unknown, originId?: string): T {
+    return this.cfg.validate ? this.cfg.validate(data, originId) : (data as T);
   }
 
   /** @internal Notify observers of a (possibly restored) change. */

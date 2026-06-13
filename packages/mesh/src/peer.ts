@@ -382,7 +382,7 @@ export class MeshPeer implements PeerCore {
     let corrected = false;
     if (w.op === 'upsert') {
       try {
-        const validated = col.validateDoc(w.data);
+        const validated = col.validateDoc(w.data, this.id);
         corrected = !deepEqual(validated, w.data);
         data = validated;
       } catch (e) {
@@ -569,7 +569,7 @@ export class MeshPeer implements PeerCore {
     let corrected = false;
     if (env.op === 'upsert') {
       try {
-        const validated = col.validateDoc(env.data);
+        const validated = col.validateDoc(env.data, env.origin);
         corrected = !deepEqual(validated, env.data);
         data = validated;
       } catch (e) {
@@ -752,7 +752,7 @@ export class MeshPeer implements PeerCore {
       if (!col?.retainedChannel) continue;
       let data = d.doc;
       try {
-        data = col.validateDoc(d.doc);
+        data = col.validateDoc(d.doc, senderId);
       } catch {
         continue; // snapshot doc fails validation — skip it
       }

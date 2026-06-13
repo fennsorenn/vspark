@@ -43,8 +43,10 @@ interface RtypeBinding {
   rtype: string;
   table: string;
   parent?: (dto: Dto) => { rtype: string; id: string } | null;
-  /** Incoming-doc transform/gate (localize project scope, keep local paths). */
-  validate?: (data: unknown) => Dto;
+  /** Incoming-doc transform/gate (localize project scope, keep local paths).
+   *  `originId` is the peer the op came from (our own id for local writes) —
+   *  used to localize peer-relative fields like clock-anchored timestamps. */
+  validate?: (data: unknown, originId?: string) => Dto;
   /** Whether a committed doc belongs to THIS server's data (persist it) or is
    *  a remote projection riding a placed-object subscription (replica-only:
    *  fans out to our tabs, never touches SQLite). §9 step D. */
@@ -222,11 +224,23 @@ const BINDINGS: RtypeBinding[] = [
     table: 'scheduled_animations',
     // Timeline entry → its avatar node, so it rides the scene-subtree
     // grants/subscriptions cross-type. No per-server path: clipId is universal
-    // and startEpoch is clock-anchored (clock localization lands in step 1b).
+    // and hash-transferred. startEpoch is anchored on the AUTHOR's clock, so a
+    // foreign doc is translated onto ours via the mesh peer-clock API (identity
+    // for our own writes, where originId is our own peer). Our tabs then read
+    // it against their local clock exactly like a locally-authored timeline.
+    // (Clocks are a synchronized-clocks stub today, so this is numerically a
+    // no-op — the call site is final, per dev-notes/plans/avatar-animation.md.)
     parent: (d) =>
       typeof d.avatarNodeId === 'string'
         ? { rtype: 'scene_node', id: d.avatarNodeId }
         : null,
+    validate: (data, originId) => {
+      const d = { ...(data as Dto) };
+      const peer = getMeshPeer();
+      if (peer && originId && typeof d.startEpoch === 'number')
+        d.startEpoch = Math.round(peer.toLocalTime(originId, d.startEpoch));
+      return d;
+    },
     persists: (d) => rowExists('scene_nodes', d.avatarNodeId),
   },
 ];
