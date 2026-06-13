@@ -80,10 +80,27 @@ export interface AckMsg {
   reason?: string;
 }
 
+/** Clock-sync probe (NTP-style): the receiver answers immediately with a
+ *  pong echoing `tSent` plus its own receive-time clock reading. */
+export interface PingMsg {
+  t: 'ping';
+  seq: number;
+  tSent: number;
+}
+
+export interface PongMsg {
+  t: 'pong';
+  seq: number;
+  tSent: number;
+  tRemote: number;
+}
+
 export type MeshMessage =
   | OpEnvelope
   | SubscribeMsg
   | SubOkMsg
   | SubErrMsg
   | UnsubMsg
-  | AckMsg;
+  | AckMsg
+  | PingMsg
+  | PongMsg;

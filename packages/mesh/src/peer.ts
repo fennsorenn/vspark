@@ -37,6 +37,7 @@ import type {
   AckMsg,
   MeshMessage,
   OpEnvelope,
+  PongMsg,
   SnapshotDoc,
   SnapshotTombstone,
   SubOkMsg,
@@ -50,6 +51,8 @@ export interface MeshPeerConfig {
   ackTimeoutMs?: number;
   /** Outgoing-subscription handshake timeout (ms). */
   subscribeTimeoutMs?: number;
+  /** Wall-clock source for the peer-clock sampler (tests inject skew). */
+  now?: () => number;
 }
 
 export interface MeshStatus {
@@ -95,6 +98,22 @@ interface GrantEntry extends Grant {
   gid: string;
 }
 
+interface ClockState {
+  seq: number;
+  samples: { offset: number; rtt: number }[];
+  offset: number;
+  rtt: number | undefined;
+  timers: (ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>)[];
+}
+
+/** Connect-time convergence burst: N extra pings, this many ms apart. */
+const CLOCK_BURST = 4;
+const CLOCK_BURST_MS = 250;
+/** Steady-state drift-tracking cadence. */
+const CLOCK_INTERVAL_MS = 10_000;
+/** Sliding sample window for the minimum-delay filter. */
+const CLOCK_WINDOW = 8;
+
 const uuid = (): string => globalThis.crypto.randomUUID();
 
 export class MeshPeer implements PeerCore {
@@ -118,11 +137,15 @@ export class MeshPeer implements PeerCore {
   private readonly pendingAcks = new Map<string, PendingAck>();
   private readonly statusObservers: ((s: MeshStatus) => void)[] = [];
   private readonly transports: MeshTransport[];
+  /** Per-link clock-sync state (offset/rtt estimates + sampler timers). */
+  private readonly clocks = new Map<string, ClockState>();
+  private readonly now: () => number;
 
   constructor(cfg: MeshPeerConfig) {
     this.cfg = cfg;
     this.id = cfg.identity.peerId;
     this.clock = new HlcClock(this.id);
+    this.now = cfg.now ?? (() => Date.now());
     this.transports = [];
     for (const t of cfg.transports ?? []) this.addTransport(t);
   }
@@ -217,16 +240,26 @@ export class MeshPeer implements PeerCore {
 
   // --- peer clock translation ------------------------------------------------------
   //
-  // STUB (API shape is final): returns offset 0, i.e. assumes synchronized
-  // wall clocks across peers. The NTP-style sampler (ping/pong per link,
-  // lowest-RTT-sample offset estimation) replaces the body without changing
-  // call sites. Consumers should translate timestamps HOP-WISE: each relay
-  // rewrites a remote timestamp into its own clock before forwarding, so
-  // only per-link offsets are ever needed (no offset composition).
+  // NTP-style per-link sampler: a ping carries our send time; the pong echoes
+  // it plus the peer's receive-time clock reading. Each sample estimates
+  // `offset = tRemote + rtt/2 − now`; the estimate used is the sample with
+  // the LOWEST rtt in a sliding window (minimum-delay filter — low-rtt
+  // samples have the tightest asymmetry error bound). A short burst on
+  // connect converges fast; a slow steady-state cadence tracks drift.
+  // Consumers translate timestamps HOP-WISE: each relay rewrites a remote
+  // timestamp into its own clock before forwarding, so only per-link offsets
+  // are ever needed (no offset composition).
 
-  /** Estimated `peerClock − localClock` for a connected peer (ms). */
-  clockOffset(_peerId: string): number {
-    return 0;
+  /** Estimated `peerClock − localClock` for a connected peer (ms). Falls back
+   *  to 0 (synchronized-clocks assumption) until the first sample lands or
+   *  for unknown peers. */
+  clockOffset(peerId: string): number {
+    return this.clocks.get(peerId)?.offset ?? 0;
+  }
+
+  /** Best-sample round-trip time to a peer (ms), if measured. */
+  clockRtt(peerId: string): number | undefined {
+    return this.clocks.get(peerId)?.rtt;
   }
 
   /** Translate a timestamp taken on `peerId`'s clock into this peer's clock. */
@@ -237,6 +270,52 @@ export class MeshPeer implements PeerCore {
   /** Translate a local timestamp into `peerId`'s clock. */
   toPeerTime(peerId: string, localTs: number): number {
     return localTs + this.clockOffset(peerId);
+  }
+
+  private startClockSync(peerId: string): void {
+    this.stopClockSync(peerId);
+    const state: ClockState = {
+      seq: 0,
+      samples: [],
+      offset: 0,
+      rtt: undefined,
+      timers: [],
+    };
+    this.clocks.set(peerId, state);
+    const ping = (): void => {
+      state.seq++;
+      this.sendTo(peerId, { t: 'ping', seq: state.seq, tSent: this.now() });
+    };
+    ping();
+    // Convergence burst, then steady-state drift tracking.
+    for (let i = 1; i <= CLOCK_BURST; i++)
+      state.timers.push(setTimeout(ping, i * CLOCK_BURST_MS));
+    const interval = setInterval(ping, CLOCK_INTERVAL_MS);
+    state.timers.push(interval);
+    // Don't hold a Node process open for drift tracking (no-op in browsers).
+    for (const t of state.timers)
+      (t as { unref?: () => void }).unref?.();
+  }
+
+  private stopClockSync(peerId: string): void {
+    const state = this.clocks.get(peerId);
+    if (!state) return;
+    for (const t of state.timers) clearTimeout(t as ReturnType<typeof setTimeout>);
+    this.clocks.delete(peerId);
+  }
+
+  private handlePong(senderId: string, msg: PongMsg): void {
+    const state = this.clocks.get(senderId);
+    if (!state) return;
+    const now = this.now();
+    const rtt = now - msg.tSent;
+    if (rtt < 0) return; // clock stepped mid-flight — discard
+    state.samples.push({ offset: msg.tRemote + rtt / 2 - now, rtt });
+    if (state.samples.length > CLOCK_WINDOW) state.samples.shift();
+    let best = state.samples[0];
+    for (const s of state.samples) if (s.rtt < best.rtt) best = s;
+    state.offset = best.offset;
+    state.rtt = best.rtt;
   }
 
   onStatus(cb: (s: MeshStatus) => void): () => void {
@@ -251,6 +330,7 @@ export class MeshPeer implements PeerCore {
     for (const t of this.transports) t.stop();
     for (const p of this.pendingAcks.values()) clearTimeout(p.timer);
     this.pendingAcks.clear();
+    for (const peerId of [...this.clocks.keys()]) this.stopClockSync(peerId);
   }
 
   // --- PeerCore (collection-facing) -------------------------------------------------
@@ -376,12 +456,14 @@ export class MeshPeer implements PeerCore {
 
   private onPeerConnected(peerId: string, link: PeerLink): void {
     this.links.set(peerId, link);
+    this.startClockSync(peerId);
     this.notifyStatus();
   }
 
   private onPeerDisconnected(peerId: string): void {
     this.links.delete(peerId);
     this.inSubs.delete(peerId);
+    this.stopClockSync(peerId);
     for (const s of this.outSubs.values())
       if (s.peer === peerId && s.status === 'active') s.status = 'stale';
     this.notifyStatus();
@@ -415,6 +497,16 @@ export class MeshPeer implements PeerCore {
       }
       case 'ack':
         return this.handleAck(senderId, msg);
+      case 'ping':
+        // Answer immediately — any handling delay inflates the rtt estimate.
+        return this.sendTo(senderId, {
+          t: 'pong',
+          seq: msg.seq,
+          tSent: msg.tSent,
+          tRemote: this.now(),
+        });
+      case 'pong':
+        return this.handlePong(senderId, msg);
     }
   }
 

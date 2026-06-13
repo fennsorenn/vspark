@@ -379,6 +379,41 @@ describe('pure-stream collections (preview-only, routed by containment)', () => 
   });
 });
 
+describe('peer clock sync', () => {
+  it('converges on an injected skew and translates timestamps both ways', async () => {
+    const lb = createLoopbackPair('A', 'B');
+    const SKEW = 5000; // B's wall clock runs 5s ahead of A's
+    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
+    const b = createMeshPeer({
+      identity: { peerId: 'B' },
+      transports: [lb.b],
+      now: () => Date.now() + SKEW,
+    });
+    await lb.flush(); // connect handshake + first ping/pong exchange
+    try {
+      // Loopback rtt is ~0, so a single sample is already tight.
+      expect(Math.abs(a.clockOffset('B') - SKEW)).toBeLessThan(50);
+      expect(Math.abs(b.clockOffset('A') + SKEW)).toBeLessThan(50); // symmetric
+      // A timestamp taken on B maps back into A's frame (and round-trips).
+      const tOnB = Date.now() + SKEW;
+      expect(Math.abs(a.toLocalTime('B', tOnB) - Date.now())).toBeLessThan(50);
+      expect(a.toPeerTime('B', a.toLocalTime('B', tOnB))).toBe(tOnB);
+      expect(a.clockRtt('B')).toBeGreaterThanOrEqual(0);
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+
+  it('falls back to offset 0 for unknown peers', () => {
+    const lb = createLoopbackPair('A', 'B');
+    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
+    expect(a.clockOffset('nobody')).toBe(0);
+    expect(a.toLocalTime('nobody', 123)).toBe(123);
+    a.close();
+  });
+});
+
 describe('tombstone scoping + epoch reset', () => {
   const parent = (n: Node) =>
     n.parentId ? { rtype: 'node', id: n.parentId } : null;
