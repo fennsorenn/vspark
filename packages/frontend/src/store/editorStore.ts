@@ -21,6 +21,17 @@ export interface ApiAnimationState {
   startedAt: number | null;
 }
 
+/** One entry on an avatar's animation timeline (a scheduled_animation doc). */
+export interface ScheduledAnimation {
+  id: string;
+  avatarNodeId: string;
+  clipId: string;
+  /** Clock-anchored start time (ms). Translated to this client's clock. */
+  startEpoch: number;
+  speed: number;
+  loop: boolean;
+}
+
 export type {
   AssetFile,
   BehaviorKindMeta,
@@ -412,6 +423,10 @@ interface EditorState {
   vmcStatus: Record<string, boolean>; // behaviorId → connected
   vmcTracking: Record<string, boolean>; // behaviorId → tracking active
   apiAnimationByNode: Record<string, ApiAnimationState>; // nodeId → current api-driven animation queue
+  /** Avatar animation timeline (scheduled_animation docs), keyed by entry id.
+   *  Fed from the mesh replica; the avatar's animation effect reads the entries
+   *  for its node, ordered by startEpoch. */
+  scheduledAnimations: Record<string, ScheduledAnimation>;
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
@@ -522,6 +537,8 @@ interface EditorState {
   setVmcStatus: (behaviorId: string, connected: boolean) => void;
   setVmcTracking: (behaviorId: string, tracking: boolean) => void;
   setApiAnimation: (nodeId: string, state: ApiAnimationState | null) => void;
+  upsertScheduledAnimation: (entry: ScheduledAnimation) => void;
+  removeScheduledAnimation: (id: string) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
   clearVrmBonesForNode: (nodeId: string) => void;
   setVrmExpressionsForNode: (nodeId: string, expressions: string[]) => void;
@@ -687,6 +704,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vmcStatus: {},
   vmcTracking: {},
   apiAnimationByNode: {},
+  scheduledAnimations: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
   vrmMorphTargetsByNode: {},
@@ -840,6 +858,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (state === null) delete next[nodeId];
       else next[nodeId] = state;
       return { apiAnimationByNode: next };
+    }),
+  upsertScheduledAnimation: (entry) =>
+    set((s) => ({
+      scheduledAnimations: { ...s.scheduledAnimations, [entry.id]: entry },
+    })),
+  removeScheduledAnimation: (id) =>
+    set((s) => {
+      if (!(id in s.scheduledAnimations)) return {};
+      const next = { ...s.scheduledAnimations };
+      delete next[id];
+      return { scheduledAnimations: next };
     }),
   setVrmBonesForNode: (nodeId, bones) =>
     set((s) => ({ vrmBonesByNode: { ...s.vrmBonesByNode, [nodeId]: bones } })),

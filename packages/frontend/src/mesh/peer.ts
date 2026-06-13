@@ -34,6 +34,7 @@ const RTYPES = [
   'compose_layer',
   'track_clip',
   'animation_clip',
+  'scheduled_animation',
 ] as const;
 
 const childOfNode = (d: Dto) =>
@@ -65,6 +66,10 @@ const PARENTS: Partial<
   animation_clip: (d) =>
     typeof d.sourceNodeId === 'string'
       ? { rtype: 'scene_node', id: d.sourceNodeId }
+      : null,
+  scheduled_animation: (d) =>
+    typeof d.avatarNodeId === 'string'
+      ? { rtype: 'scene_node', id: d.avatarNodeId }
       : null,
 };
 

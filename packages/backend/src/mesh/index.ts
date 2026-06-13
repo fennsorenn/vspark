@@ -217,6 +217,18 @@ const BINDINGS: RtypeBinding[] = [
       return d;
     },
   },
+  {
+    rtype: 'scheduled_animation',
+    table: 'scheduled_animations',
+    // Timeline entry → its avatar node, so it rides the scene-subtree
+    // grants/subscriptions cross-type. No per-server path: clipId is universal
+    // and startEpoch is clock-anchored (clock localization lands in step 1b).
+    parent: (d) =>
+      typeof d.avatarNodeId === 'string'
+        ? { rtype: 'scene_node', id: d.avatarNodeId }
+        : null,
+    persists: (d) => rowExists('scene_nodes', d.avatarNodeId),
+  },
 ];
 
 /** Echo guard for the legacy bridge: ids currently being persisted from a

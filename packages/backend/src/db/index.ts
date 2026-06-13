@@ -42,6 +42,7 @@ import m029 from './migrations/029_shares.js';
 import m030 from './migrations/030_grants.js';
 import m031 from './migrations/031_collab_scenes.js';
 import m032 from './migrations/032_mesh_tombstones.js';
+import m033 from './migrations/033_scheduled_animations.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -97,6 +98,7 @@ const MIGRATIONS: Migration[] = [
   { name: '030_grants.sql', sql: m030 },
   { name: '031_collab_scenes.sql', sql: m031 },
   { name: '032_mesh_tombstones.sql', sql: m032 },
+  { name: '033_scheduled_animations.sql', sql: m033 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

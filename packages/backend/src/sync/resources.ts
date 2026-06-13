@@ -413,6 +413,8 @@ defineResource({
 // Declared so the four-class API surface is complete and these names are
 // reserved. Lossy/latest-wins, no load/scope/snapshot. The live broadcasts
 // (pose_broadcast / blendshapes_broadcast / ik_broadcast) still emit their
+// legacy WS kinds; migrating that 90 Hz hot path onto sync.stream.publish is
+// deferred until it can be runtime-verified (see the design doc, Phase 3).
 interface AnimationClipRow {
   id: string;
   name: string;
@@ -500,6 +502,73 @@ defineResource({
   },
   remove: (id) => {
     getDb().prepare('DELETE FROM animation_clips WHERE id = ?').run(id);
+  },
+});
+
+interface ScheduledAnimationRow {
+  id: string;
+  avatar_node_id: string;
+  clip_id: string;
+  start_epoch: number;
+  speed: number;
+  loop: number;
+  created_at: string;
+}
+
+defineResource({
+  rtype: 'scheduled_animation',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare('SELECT * FROM scheduled_animations WHERE id = ?')
+      .get(id) as unknown as ScheduledAnimationRow | undefined;
+    if (!r) return undefined;
+    return {
+      id: r.id,
+      avatarNodeId: r.avatar_node_id,
+      clipId: r.clip_id,
+      startEpoch: r.start_epoch,
+      speed: r.speed,
+      loop: r.loop === 1,
+      createdAt: r.created_at,
+    };
+  },
+  save: (dto) => {
+    const d = dto as {
+      id: string;
+      avatarNodeId: string;
+      clipId: string;
+      startEpoch: number;
+      speed?: number;
+      loop?: boolean;
+      createdAt?: string;
+    };
+    const db = getDb();
+    const prior = db
+      .prepare('SELECT created_at FROM scheduled_animations WHERE id = ?')
+      .get(d.id) as { created_at: string } | undefined;
+    db.prepare(
+      `INSERT INTO scheduled_animations
+         (id, avatar_node_id, clip_id, start_epoch, speed, loop, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+       ON CONFLICT(id) DO UPDATE SET
+         avatar_node_id = excluded.avatar_node_id,
+         clip_id        = excluded.clip_id,
+         start_epoch    = excluded.start_epoch,
+         speed          = excluded.speed,
+         loop           = excluded.loop`
+    ).run(
+      d.id,
+      d.avatarNodeId,
+      d.clipId,
+      d.startEpoch,
+      d.speed ?? 1,
+      d.loop ? 1 : 0,
+      d.createdAt ?? prior?.created_at ?? null
+    );
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM scheduled_animations WHERE id = ?').run(id);
   },
 });
 
