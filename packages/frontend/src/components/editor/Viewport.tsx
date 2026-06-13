@@ -945,7 +945,9 @@ function AvatarNode({
   }, [apiAnim, apiAnimTick]);
   const animUrl = apiResolved?.url ?? animComp?.idleUrl ?? null;
   const animSpeed = animComp?.speed ?? 1;
-  const animOffset = apiResolved?.offset ?? animComp?.offset ?? 0;
+  // The seek offset is re-resolved from a fresh clock inside the async load
+  // callback (see the VRM animation effect), since this render-time value goes
+  // stale across the load.
 
   // --- VRM load ---
   useEffect(() => {
@@ -1950,8 +1952,20 @@ function AvatarNode({
       vrmMixerRef.current = vrmMixer;
       const vrmAction = vrmMixer.clipAction(vrmClip);
       vrmAction.reset().play();
-      vrmAction.time = animOffset % vrmDuration;
-      fbxAction.time = animOffset % clip.duration;
+      // Re-resolve the playhead from a FRESH clock + live store here, not the
+      // `animOffset` captured when this effect started: VRM + FBX loading is
+      // async and can take seconds, so the captured value is stale by the
+      // load latency. `startedAt` survives a model swap (keyed by node.id),
+      // so reading it now makes the seek phase-accurate — every collab client
+      // lands on the same playhead regardless of its own load time.
+      const liveApi =
+        useEditorStore.getState().apiAnimationByNode[node.id] ?? null;
+      const liveOffset =
+        (liveApi ? _resolveApiAnimation(liveApi, Date.now()) : null)?.offset ??
+        animComp?.offset ??
+        0;
+      vrmAction.time = liveOffset % vrmDuration;
+      fbxAction.time = liveOffset % clip.duration;
       vrmAction.timeScale = animSpeed;
       fbxAction.timeScale = animSpeed;
 
