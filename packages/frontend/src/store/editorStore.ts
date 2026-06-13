@@ -32,6 +32,17 @@ export interface ScheduledAnimation {
   loop: boolean;
 }
 
+/** A content-addressed animation clip (an animation_clip doc). The avatar
+ *  animation driver resolves a timeline/idle `clipId` to its source asset URL
+ *  (already localized per-server) and authored `duration`. Fed from the mesh
+ *  replica, keyed by clip id. */
+export interface AnimationClipMeta {
+  id: string;
+  sourceNodeId: string;
+  sourceFilePath: string;
+  duration: number;
+}
+
 export type {
   AssetFile,
   BehaviorKindMeta,
@@ -427,6 +438,9 @@ interface EditorState {
    *  Fed from the mesh replica; the avatar's animation effect reads the entries
    *  for its node, ordered by startEpoch. */
   scheduledAnimations: Record<string, ScheduledAnimation>;
+  /** Animation clips (animation_clip docs), keyed by clip id. Resolves a
+   *  timeline/idle clipId to its source asset URL + duration. */
+  animationClips: Record<string, AnimationClipMeta>;
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
@@ -539,6 +553,8 @@ interface EditorState {
   setApiAnimation: (nodeId: string, state: ApiAnimationState | null) => void;
   upsertScheduledAnimation: (entry: ScheduledAnimation) => void;
   removeScheduledAnimation: (id: string) => void;
+  upsertAnimationClip: (entry: AnimationClipMeta) => void;
+  removeAnimationClip: (id: string) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
   clearVrmBonesForNode: (nodeId: string) => void;
   setVrmExpressionsForNode: (nodeId: string, expressions: string[]) => void;
@@ -705,6 +721,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vmcTracking: {},
   apiAnimationByNode: {},
   scheduledAnimations: {},
+  animationClips: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
   vrmMorphTargetsByNode: {},
@@ -869,6 +886,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const next = { ...s.scheduledAnimations };
       delete next[id];
       return { scheduledAnimations: next };
+    }),
+  upsertAnimationClip: (entry) =>
+    set((s) => ({
+      animationClips: { ...s.animationClips, [entry.id]: entry },
+    })),
+  removeAnimationClip: (id) =>
+    set((s) => {
+      if (!(id in s.animationClips)) return {};
+      const next = { ...s.animationClips };
+      delete next[id];
+      return { animationClips: next };
     }),
   setVrmBonesForNode: (nodeId, bones) =>
     set((s) => ({ vrmBonesByNode: { ...s.vrmBonesByNode, [nodeId]: bones } })),

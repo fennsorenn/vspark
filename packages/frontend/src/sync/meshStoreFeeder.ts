@@ -24,6 +24,7 @@ import {
   type Behavior,
   type StageObject,
   type ScheduledAnimation,
+  type AnimationClipMeta,
 } from '../store/editorStore';
 import type { CameraEffectRecord, ComposeLayerRecord, TrackClipRecord } from '../api/client';
 
@@ -134,6 +135,25 @@ export function startMeshStoreFeeder(): void {
         const e = c.doc as unknown as ScheduledAnimation | undefined;
         if (!e || parentIsRemote(e.avatarNodeId)) return;
         s.upsertScheduledAnimation(e);
+      });
+      h.collections.animation_clip.observe('**', (c) => {
+        if (c.op === 'ephemeral') return;
+        const s = useEditorStore.getState();
+        if (c.op === 'remove') {
+          s.removeAnimationClip(c.id);
+          return;
+        }
+        const e = c.doc as unknown as AnimationClipMeta | undefined;
+        // Clips ride their source node's subtree; mirror even when that node
+        // is a remote projection — the driver only needs id → url + duration,
+        // and a scheduled entry on a placed avatar may reference it.
+        if (!e) return;
+        s.upsertAnimationClip({
+          id: e.id,
+          sourceNodeId: e.sourceNodeId,
+          sourceFilePath: e.sourceFilePath,
+          duration: e.duration,
+        });
       });
     })
     .catch((err) => console.warn('[mesh] store feeder init failed:', err));
