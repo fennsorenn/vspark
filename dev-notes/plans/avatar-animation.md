@@ -1,8 +1,21 @@
 # Avatar animation — shared, scheduled, content-addressed playback
 
-**Status:** planned (2026-06-13). Replaces the unsynchronized idle-animation
+**Status:** implemented (2026-06-13). Replaces the unsynchronized idle-animation
 playback and the bespoke `api_animation` WS relay with a proper, collab-shared
 avatar animation model.
+
+**Implemented:** steps 1 (schema + sync, incl. 1b clock localization), 2
+(clock-anchored frontend driver), and 3 (api_controller writes the schedule;
+`api_animation` WS path retired; idle migrated to a content-addressed
+`properties.animation.idle = {clipId, speed}` with a frontend lazy migration;
+panel transport reduced to speed — local pause/seek dropped under the anchored
+model). Verified single-instance: the api_controller queue writes correct
+`scheduled_animation` rows (startEpoch progression, loop flag, prune-on-requeue,
+clear-on-empty) and the editor + idle UI render clean. **Deferred to a later
+pass:** crossfade/blend transitions, a global timeline transport (pause/seek over
+the whole schedule), preload of upcoming clips before their start, and the
+two-backend collab clock-sync verification (the clock is still the synchronized
+stub, so localization is numerically a no-op today — the call sites are final).
 
 ## Problem
 
