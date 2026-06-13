@@ -189,7 +189,7 @@ async function start() {
   const trackingManager = new TrackingManager();
   setTrackingManager(trackingManager);
 
-  const apiControllerManager = new ApiControllerManager(wsSync);
+  const apiControllerManager = new ApiControllerManager();
   setApiControllerManager(apiControllerManager);
 
   const trackClipPlayback = new TrackClipPlaybackManager(wsSync);
@@ -255,9 +255,6 @@ async function start() {
 
   // Rebroadcast current state to any newly-connecting client.
   wsSync.onClientConnected((ws) => {
-    apiControllerManager.rebroadcastTo((kind, payload) =>
-      wsSync.sendTo(ws, kind, payload)
-    );
     trackClipPlayback.sendSnapshotTo((kind, payload) =>
       wsSync.sendTo(ws, kind, payload)
     );

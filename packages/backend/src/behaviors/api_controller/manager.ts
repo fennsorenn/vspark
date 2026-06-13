@@ -1,7 +1,6 @@
 import { Blendshapes } from '@vspark/shared/signal';
 import type {
   ApiAnimationLoopMode,
-  ApiAnimationMessage,
   ApiAnimationQueueEntry,
 } from '@vspark/shared';
 import { randomUUID } from 'crypto';
@@ -9,7 +8,6 @@ import { BehaviorKind } from '../decorator.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import { getDb } from '../../db/index.js';
 import { getMeshCollection } from '../../mesh/index.js';
-import type { WSSync } from '../../ws/index.js';
 
 interface BehaviorState {
   sceneNodeId: string;
@@ -41,11 +39,6 @@ const DEFAULT_DURATION_SEC = 5;
 export class ApiControllerManager {
   private readonly _state = new Map<string, BehaviorState>();
   private readonly _expressionsByNode = new Map<string, string[]>();
-  private readonly _ws: WSSync;
-
-  constructor(ws: WSSync) {
-    this._ws = ws;
-  }
 
   // ── expressions cache (populated by frontend reports over WS) ──────────────
 
@@ -145,16 +138,15 @@ export class ApiControllerManager {
     st.loopMode = loopMode;
     st.startedAt = resolved.length > 0 ? Date.now() : null;
 
-    this._broadcast(behaviorId, st);
     this._writeSchedule(st.sceneNodeId, resolved, loopMode, st.startedAt);
   }
 
   /** Project the resolved queue onto the avatar's scheduled_animation timeline
-   *  (the synced, clock-anchored playback model). Replaces this avatar's
-   *  entries: each clip gets a startEpoch from the running duration sum, and
-   *  the final clip loops when loopMode holds/loops it. The api_animation
-   *  broadcast above stays for now; the frontend driver consuming this timeline
-   *  lands in the next step. See dev-notes/plans/avatar-animation.md. */
+   *  (the synced, clock-anchored playback model that drives playback). Replaces
+   *  this avatar's entries: each clip gets a startEpoch from the running
+   *  duration sum, and the final clip loops when loopMode holds/loops it. The
+   *  in-memory queue/startedAt on BehaviorState is kept only for the REST
+   *  `/state` status read. See dev-notes/plans/avatar-animation.md. */
   private _writeSchedule(
     avatarNodeId: string,
     clips: ApiAnimationQueueEntry[],
@@ -215,44 +207,7 @@ export class ApiControllerManager {
     );
   }
 
-  // ── reconnect / rebroadcast ────────────────────────────────────────────────
-
-  /** Re-emit current animation queues to a single ws client (called on new connection). */
-  rebroadcastTo(
-    send: (kind: string, payload: Record<string, unknown>) => void
-  ): void {
-    for (const [behaviorId, st] of this._state) {
-      send(
-        'api_animation',
-        this._buildMessage(behaviorId, st) as unknown as Record<
-          string,
-          unknown
-        >
-      );
-    }
-  }
-
   // ── internals ──────────────────────────────────────────────────────────────
-
-  private _broadcast(behaviorId: string, st: BehaviorState): void {
-    this._ws.broadcast(
-      'api_animation',
-      this._buildMessage(behaviorId, st) as unknown as Record<string, unknown>
-    );
-  }
-
-  private _buildMessage(
-    behaviorId: string,
-    st: BehaviorState
-  ): ApiAnimationMessage {
-    return {
-      nodeId: st.sceneNodeId,
-      behaviorId,
-      queue: st.queue,
-      loopMode: st.loopMode,
-      startedAt: st.startedAt,
-    };
-  }
 
   private _resolveClip(
     sceneNodeId: string,

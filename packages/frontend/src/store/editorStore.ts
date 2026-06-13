@@ -9,17 +9,7 @@ import type {
   TrackClipKeyframeRecord,
   TrackClipEventRecord,
 } from '../api/client';
-import type {
-  UpdateChannel,
-  ApiAnimationLoopMode,
-  ApiAnimationQueueEntry,
-} from '@vspark/shared';
-
-export interface ApiAnimationState {
-  queue: ApiAnimationQueueEntry[];
-  loopMode: ApiAnimationLoopMode;
-  startedAt: number | null;
-}
+import type { UpdateChannel } from '@vspark/shared';
 
 /** One entry on an avatar's animation timeline (a scheduled_animation doc). */
 export interface ScheduledAnimation {
@@ -433,7 +423,6 @@ interface EditorState {
   behaviors: Behavior[];
   vmcStatus: Record<string, boolean>; // behaviorId → connected
   vmcTracking: Record<string, boolean>; // behaviorId → tracking active
-  apiAnimationByNode: Record<string, ApiAnimationState>; // nodeId → current api-driven animation queue
   /** Avatar animation timeline (scheduled_animation docs), keyed by entry id.
    *  Fed from the mesh replica; the avatar's animation effect reads the entries
    *  for its node, ordered by startEpoch. */
@@ -550,7 +539,6 @@ interface EditorState {
   behaviorsFor: (nodeId: string) => Behavior[];
   setVmcStatus: (behaviorId: string, connected: boolean) => void;
   setVmcTracking: (behaviorId: string, tracking: boolean) => void;
-  setApiAnimation: (nodeId: string, state: ApiAnimationState | null) => void;
   upsertScheduledAnimation: (entry: ScheduledAnimation) => void;
   removeScheduledAnimation: (id: string) => void;
   upsertAnimationClip: (entry: AnimationClipMeta) => void;
@@ -719,7 +707,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   behaviors: [],
   vmcStatus: {},
   vmcTracking: {},
-  apiAnimationByNode: {},
   scheduledAnimations: {},
   animationClips: {},
   vrmBonesByNode: {},
@@ -869,13 +856,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({
       vmcTracking: { ...s.vmcTracking, [behaviorId]: tracking },
     })),
-  setApiAnimation: (nodeId, state) =>
-    set((s) => {
-      const next = { ...s.apiAnimationByNode };
-      if (state === null) delete next[nodeId];
-      else next[nodeId] = state;
-      return { apiAnimationByNode: next };
-    }),
   upsertScheduledAnimation: (entry) =>
     set((s) => ({
       scheduledAnimations: { ...s.scheduledAnimations, [entry.id]: entry },

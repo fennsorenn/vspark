@@ -18,7 +18,6 @@ import { setIkTargets } from '../ikTargetStore';
 import type {
   IkTargetFrame,
   AnimationBlendMode,
-  ApiAnimationMessage,
   MediaCommand,
 } from '@vspark/shared/types';
 import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
@@ -159,18 +158,6 @@ export function useWsSync() {
             setIkTargets(
               msg.payload.nodeId as string,
               msg.payload as unknown as IkTargetFrame
-            );
-          } else if (msg.kind === 'api_animation') {
-            const p = msg.payload as unknown as ApiAnimationMessage;
-            useEditorStore.getState().setApiAnimation(
-              p.nodeId,
-              p.queue.length > 0 && p.startedAt != null
-                ? {
-                    queue: p.queue,
-                    loopMode: p.loopMode,
-                    startedAt: p.startedAt,
-                  }
-                : null
             );
           } else if (msg.kind === 'node_updated') {
             const { id, ...updates } = msg.payload as { id: string } & Record<
