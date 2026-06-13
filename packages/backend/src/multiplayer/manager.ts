@@ -172,8 +172,8 @@ class MultiplayerManager {
     setClipPlaybackApplier((clipId, action, t) =>
       this.applyClipPlayback(clipId, action, t)
     );
-    setCollabRuntimeApplier((kind, payload) =>
-      this.applyCollabRuntime(kind, payload)
+    setCollabRuntimeApplier((kind, payload, from) =>
+      this.applyCollabRuntime(kind, payload, from)
     );
 
     this.client = new RendezvousClient(
@@ -788,6 +788,12 @@ class MultiplayerManager {
     ) {
       const clipId = (payload.clipId ?? payload.id) as string | undefined;
       if (!clipId || !spawnManager.isEphemeralClip(clipId)) return;
+    } else if (kind === 'api_animation') {
+      // Animation-queue playback state (api_controller): node-scoped, so
+      // relay only when the target node is in a shared scene. The receiver
+      // localizes file paths + re-anchors startedAt onto its own clock.
+      const nodeId = payload.nodeId as string | undefined;
+      if (!nodeId || !collabSceneForNode(nodeId)) return;
     } else if (!COLLAB_RELAY_KINDS.has(kind)) {
       return;
     }
@@ -800,11 +806,40 @@ class MultiplayerManager {
    *  re-broadcast to our own clients. Guarded so it can't bounce back. */
   private applyCollabRuntime(
     kind: string,
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    from?: string
   ): void {
     this.applyingCollabRuntime = true;
     try {
-      if (kind === 'data_channel_set') {
+      if (kind === 'api_animation') {
+        // Animation-queue playback from a collab peer. Two rewrites before
+        // re-broadcasting to our tabs:
+        //  - each queue entry's sourceUrl is the SENDER's file path — resolve
+        //    our own animation_clips row by animationId (the doc plane synced
+        //    it with our localized /uploads/_shared path);
+        //  - startedAt is in the sender's wall clock — translate it onto OUR
+        //    clock via the mesh peer-clock API, so our tabs schedule the
+        //    queue exactly like a locally-started one (hop-wise translation;
+        //    currently a synchronized-clocks stub, the call site is final).
+        const mp = getMeshPeer();
+        const queue = ((payload.queue ?? []) as Record<string, unknown>[]).map(
+          (entry) => {
+            const row = getDb()
+              .prepare(
+                'SELECT source_file_path FROM animation_clips WHERE id = ?'
+              )
+              .get(entry.animationId as string) as
+              | { source_file_path: string }
+              | undefined;
+            return row ? { ...entry, sourceUrl: row.source_file_path } : entry;
+          }
+        );
+        const startedAt =
+          typeof payload.startedAt === 'number' && mp && from
+            ? mp.toLocalTime(from, payload.startedAt)
+            : payload.startedAt;
+        this.broadcast(kind, { ...payload, queue, startedAt });
+      } else if (kind === 'data_channel_set') {
         dataChannelManager.set(
           payload.scope as string,
           (payload.fields ?? {}) as Record<string, unknown>

@@ -67,7 +67,7 @@ let _applyClipPlayback:
   | ((clipId: string, action: ClipPlaybackAction, t?: number) => void)
   | null = null;
 let _applyRuntime:
-  | ((kind: string, payload: Record<string, unknown>) => void)
+  | ((kind: string, payload: Record<string, unknown>, from: string) => void)
   | null = null;
 /** FIFO dedupe of applied runtime eventIds (multi-scene + multi-hop echoes). */
 const seenRuntimeEvents = new Set<string>();
@@ -81,7 +81,7 @@ export function setClipPlaybackApplier(
 }
 
 export function setCollabRuntimeApplier(
-  fn: (kind: string, payload: Record<string, unknown>) => void
+  fn: (kind: string, payload: Record<string, unknown>, from: string) => void
 ): void {
   _applyRuntime = fn;
 }
@@ -129,7 +129,10 @@ export function initMeshStreams(
       const first = seenRuntimeEvents.values().next().value;
       if (first) seenRuntimeEvents.delete(first);
     }
-    _applyRuntime?.(c.doc.kind, c.doc.payload);
+    // `origin` is the event's source peer (== the link sender in the
+    // 2-server collab topology) — appliers use it for hop-wise clock
+    // translation of wall-clock fields.
+    _applyRuntime?.(c.doc.kind, c.doc.payload, c.origin);
   });
 }
 
