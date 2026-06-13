@@ -4,9 +4,11 @@ import type {
   ApiAnimationMessage,
   ApiAnimationQueueEntry,
 } from '@vspark/shared';
+import { randomUUID } from 'crypto';
 import { BehaviorKind } from '../decorator.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import { getDb } from '../../db/index.js';
+import { getMeshCollection } from '../../mesh/index.js';
 import type { WSSync } from '../../ws/index.js';
 
 interface BehaviorState {
@@ -144,6 +146,43 @@ export class ApiControllerManager {
     st.startedAt = resolved.length > 0 ? Date.now() : null;
 
     this._broadcast(behaviorId, st);
+    this._writeSchedule(st.sceneNodeId, resolved, loopMode, st.startedAt);
+  }
+
+  /** Project the resolved queue onto the avatar's scheduled_animation timeline
+   *  (the synced, clock-anchored playback model). Replaces this avatar's
+   *  entries: each clip gets a startEpoch from the running duration sum, and
+   *  the final clip loops when loopMode holds/loops it. The api_animation
+   *  broadcast above stays for now; the frontend driver consuming this timeline
+   *  lands in the next step. See dev-notes/plans/avatar-animation.md. */
+  private _writeSchedule(
+    avatarNodeId: string,
+    clips: ApiAnimationQueueEntry[],
+    loopMode: ApiAnimationLoopMode,
+    startedAt: number | null
+  ): void {
+    const col = getMeshCollection('scheduled_animation');
+    if (!col) return;
+    // Clear this avatar's existing timeline.
+    for (const doc of col.all())
+      if ((doc as { avatarNodeId?: string }).avatarNodeId === avatarNodeId)
+        void col.remove((doc as { id: string }).id).ack;
+    if (clips.length === 0 || startedAt == null) return;
+    let epoch = startedAt;
+    clips.forEach((c, i) => {
+      const isLast = i === clips.length - 1;
+      const loop = isLast && (loopMode === 'last' || loopMode === 'queue');
+      const id = randomUUID();
+      void col.set(id, '', {
+        id,
+        avatarNodeId,
+        clipId: c.animationId,
+        startEpoch: Math.round(epoch),
+        speed: 1,
+        loop,
+      }).ack;
+      epoch += Math.max(0.001, c.duration) * 1000;
+    });
   }
 
   // ── blendshapes ────────────────────────────────────────────────────────────
