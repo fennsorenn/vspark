@@ -1400,6 +1400,17 @@ function AvatarNode({
       }
 
       // --- Phase 2: VRM bind world Qs (chain product, no scene rotation) ---
+      // The bind reference below is read from each bone's *live* local
+      // quaternion, so the rig must be at its rest pose when we bake. If a clip
+      // was already playing (e.g. switching idle A→B without clearing first),
+      // the bones still hold A's last pose and B would retarget against a
+      // distorted reference. Reset both pose layers (whichever the prior clip
+      // drove) to the model's rest pose so a direct switch bakes identically to
+      // a fresh load, then refresh world matrices for the world-space reads.
+      vrm.humanoid.resetNormalizedPose();
+      vrm.humanoid.resetRawPose();
+      vrm.humanoid.update();
+      vrm.scene.updateMatrixWorld(true);
       const allVRMBoneNames = [
         ...new Set(Object.values(FBX_BONE_TO_VRM) as VRMHumanBoneName[]),
       ];
