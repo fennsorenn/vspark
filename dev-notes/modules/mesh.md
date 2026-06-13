@@ -111,7 +111,7 @@ Channels are declared when creating the collection:
 
 ```ts
 const nodes = mesh.collection<Node>('scene_node', {
-  validate?: (data: unknown) => Node,
+  validate?: (data: unknown, originId?: string) => Node,  // originId = origin peer (peer-clock localization)
   channels?: string[],  // default ['committed', 'preview']
   authority?: 'self' | PeerId,
 });
@@ -136,6 +136,18 @@ On subscription with an unmet grant, the subscriber receives:
 3. Live ops after the watermark.
 
 Applying a remote op validates the source has write permission (via the grant store) and runs the resource's `validate` function before touching the replica.
+
+### Peer-clock localization (validate origin id)
+
+`validate` receives the **origin peer id** as a second argument, so a collection can localize peer-relative fields (clock-anchored timestamps) when a foreign doc arrives:
+
+```ts
+validate?: (data: unknown, originId?: string) => T   // packages/mesh/src/collection.ts
+```
+
+`Collection.validateDoc(data, originId?)` forwards it. `MeshPeer` (`packages/mesh/src/peer.ts`) threads the origin through every apply path: `this.id` for local writes, `env.origin` for remote ops, and `senderId` for snapshots. The peer also exposes a peer-clock API `toLocalTime(originId, t)` that maps a timestamp authored on `originId`'s clock onto the local clock (identity when `originId` is this peer, since local writes are already local).
+
+First use: the `scheduled_animation` collection's `validate` rewrites `startEpoch` via `peer.toLocalTime(originId, startEpoch)` so a timeline authored on one peer activates at the same wall-clock instant everywhere (see [animation.md](animation.md)). The clock is a synchronized-clocks stub today, so the translation is numerically a no-op, but the mechanism and call sites are final.
 
 ## Data shapes
 
@@ -180,6 +192,7 @@ Location: `packages/backend/src/mesh/index.ts`.
 - `camera_effect` (parent: owning scene)
 - `compose_layer` (parent: owning scene)
 - `track_clip` (parent: owning scene)
+- `scheduled_animation` (parent: owning avatar `scene_node`) — per-avatar clip timeline; see [animation.md](animation.md). Its `validate` localizes the author-anchored `startEpoch` onto the receiver clock (peer-clock localization, below).
 
 **Hydration (boot):**
 ```ts
@@ -203,7 +216,7 @@ nodes.onCommitted(({ op, id, doc, v }) => {
 });
 ```
 
-All five collections are wired identically. A generic `(rtype, id, hlc)` tombstone table replaces the legacy `collab_tombstones`; tombstones are GC'd by age (offline peer may resurrect a deletion — accepted policy).
+All collections are wired identically (`scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip`, `scheduled_animation`). A generic `(rtype, id, hlc)` tombstone table replaces the legacy `collab_tombstones`; tombstones are GC'd by age (offline peer may resurrect a deletion — accepted policy).
 
 ## Frontend parallel-run wiring
 

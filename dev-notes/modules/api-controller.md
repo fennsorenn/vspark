@@ -16,7 +16,7 @@ It is the first behavior with a **public REST control surface** — its routes l
 - [packages/backend/src/routes/expressions.ts](../../packages/backend/src/routes/expressions.ts) — read-only expression + animation listings
 - [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) — `apiControllerAnimationSchema`, `apiControllerAnimationQueueSchema`, `apiControllerBlendshapesSchema`
 - [packages/frontend/src/components/editor/PropertiesPanel.tsx](../../packages/frontend/src/components/editor/PropertiesPanel.tsx) — `ApiControllerProps` (copy-URL UI)
-- [packages/frontend/src/components/editor/Viewport.tsx](../../packages/frontend/src/components/editor/Viewport.tsx) — auto-registers FBX clip durations on VRM load; consumes `api_animation` to play queued clips
+- [packages/frontend/src/components/editor/Viewport.tsx](../../packages/frontend/src/components/editor/Viewport.tsx) — auto-registers FBX clip durations on VRM load; plays the avatar's `scheduled_animation` timeline via the clock-anchored driver (no longer consumes an `api_animation` message)
 
 ## Architecture choice — no signal graph
 
@@ -37,7 +37,13 @@ interface BehaviorState {
 }
 ```
 
-`startedAt` is the server's wall-clock at the moment the queue was set. Frontend playback uses `(now - startedAt)` together with each entry's `duration` to determine the current clip and offset, so multiple browsers see synchronized playback.
+`startedAt` is the server's wall-clock at the moment the queue was set. The in-memory queue/`startedAt` state is now kept **only for the REST `/state` read** — playback itself rides the synced `scheduled_animation` timeline, not this state.
+
+### Projecting the queue onto the timeline
+
+`_writeSchedule` PROJECTS the in-memory queue onto the avatar's `scheduled_animation` collection (see [animation.md](animation.md)): each clip gets a `startEpoch` from the running sum of durations/speed; the last clip loops under `loopMode` `last`/`queue`. The write replaces the avatar's prior entries; an empty queue clears them. Clients then resolve playback from the timeline against the synced clock, so all browsers (and collab peers) stay in phase without any per-frame push.
+
+The old `api_animation` WS broadcast/relay path is **retired end-to-end**: the manager broadcast, the reconnect rebroadcast in `index.ts`, the multiplayer collab relay + clock-translate branch in `multiplayer/manager.ts`, the frontend `useWsSync` handler, and the `apiAnimationByNode` store slice are all gone. Clip switches now happen client-side at each entry's scheduled time (no "switch now" seam).
 
 ## Clip resolution
 

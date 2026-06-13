@@ -90,6 +90,7 @@ carried the original copy; this table is the durable source of truth.)
 | Layer | Ebene |
 | Asset | Asset |
 | Animation | Animation |
+| Idle (animation) | Leerlauf |
 | Expression | Mimik |
 | Material | Material |
 | Track clip | Track-Clip |
