@@ -172,6 +172,9 @@ export interface NodeProperties {
   /** VRM avatar: per-material shader/param overrides (MToon ⇄ PBR), keyed by a
    *  stable material identity. See components/editor/materialOverrides.ts. */
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
+  /** Avatar animation config. `idle` is the content-addressed base loop
+   *  (animation_clip id + speed); the scheduled timeline layers over it. */
+  animation?: { idle?: { clipId: string; speed: number } };
 }
 
 export interface StageObject {

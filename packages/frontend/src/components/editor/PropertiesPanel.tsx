@@ -14,7 +14,6 @@ import type { StageObject, Behavior } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeLayerProperties } from './ComposeLayerProperties';
 import type { AssetFile } from '../../api/client';
-import { animRegistry } from '../../animRegistry';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 
@@ -3806,6 +3805,7 @@ export function PropertiesPanel() {
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
   const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
+  const animationClips = useEditorStore((s) => s.animationClips);
   const selectedBehavior =
     behaviors.find((c) => c.id === selectedBehaviorId) ?? null;
   const selectedCompType = selectedBehavior
@@ -3875,10 +3875,6 @@ export function PropertiesPanel() {
     shadowQuality: 'medium',
     envIntensity: 1,
   });
-  const [animPlaying, setAnimPlaying] = useState(true);
-  const [animTime, setAnimTime] = useState(0);
-  const [hasAnim, setHasAnim] = useState(false);
-  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!node) return;
@@ -3915,39 +3911,40 @@ export function PropertiesPanel() {
     transformRef.current = t;
   }, [nodeTransformStr]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    setAnimPlaying(true);
-    setAnimTime(0);
-    setHasAnim(false);
-    if (!node?.id) return;
-    if (animRegistry.has(node.id)) {
-      setHasAnim(true);
-      return;
-    }
-    const iv = setInterval(() => {
-      if (animRegistry.has(node.id)) {
-        setHasAnim(true);
-        clearInterval(iv);
-      }
-    }, 100);
-    return () => clearInterval(iv);
-  }, [node?.id]);
-
-  useEffect(() => {
-    const entry = node ? animRegistry.get(node.id) : null;
-    if (!entry || !animPlaying) {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      return;
-    }
-    const tick = () => {
-      setAnimTime(entry.action.time / entry.duration);
-      rafRef.current = requestAnimationFrame(tick);
+  // Idle animation, resolved across the legacy (components.animation.idleUrl)
+  // and content-addressed (properties.animation.idle.clipId) shapes. Editing
+  // always writes the legacy shape and clears the migrated idle, so the
+  // Viewport re-derives a fresh clip id (one edit path; collab-correct once
+  // migrated). The clip-id url resolves through the synced animation_clips.
+  const idleProp = (
+    node?.properties as
+      | { animation?: { idle?: { clipId?: string; speed?: number } } }
+      | undefined
+  )?.animation?.idle;
+  const legacyIdle = node?.components?.animation as
+    | { idleUrl?: string; speed?: number }
+    | undefined;
+  const idleUrlDisplay =
+    (idleProp?.clipId
+      ? animationClips[idleProp.clipId]?.sourceFilePath
+      : undefined) ??
+    legacyIdle?.idleUrl ??
+    '';
+  const idleSpeedDisplay = legacyIdle?.speed ?? idleProp?.speed ?? 1;
+  const writeIdle = (idleUrl: string | null, speed: number) => {
+    if (!node) return;
+    const animation = idleUrl ? { idleUrl, speed } : undefined;
+    const components = { ...node.components, animation };
+    const prevProps = (node.properties as Record<string, unknown>) ?? {};
+    const prevAnim =
+      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
+    const properties = {
+      ...prevProps,
+      animation: { ...prevAnim, idle: undefined },
     };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [node?.id, animPlaying]);
+    api.updateNode(node.id, { components, properties }).catch(() => {});
+    storeUpdateNode(node.id, { components, properties });
+  };
 
   const panelShell = (children: React.ReactNode) => (
     <div
@@ -7456,14 +7453,10 @@ export function PropertiesPanel() {
           </>
         )}
 
-        {/* Animation */}
-        {/* TODO: Overhaul this section in a dedicated pass. The Speed/Offset
-            number inputs and the seek slider were intentionally left on the
-            raw <input type="number"|"range"> primitives during the
-            NumInput/VecInput/SliderInput unification because the playback
-            transport + custom "current/total" readout aren't a clean fit for
-            the shared components yet. Revisit when the FBX animation flow gets
-            its planned UX update. */}
+        {/* Animation. Idle is a content-addressed clip (auto-migrated from the
+            legacy URL). Speed is on the raw number input pending the planned
+            NumInput unification; the clock-anchored transport has no local
+            seek/pause (playback is driven by the synced timeline). */}
         {(node.kind === 'avatar' || node.kind === 'model') && (
           <>
             <div
@@ -7493,21 +7486,13 @@ export function PropertiesPanel() {
                     ? t('avatar.animPlaceholder')
                     : t('avatar.animNoAssets')
                 }
-                defaultValue={
-                  (node.components?.animation as { idleUrl?: string })
-                    ?.idleUrl ?? ''
-                }
-                key={node.id}
+                defaultValue={idleUrlDisplay}
+                key={`${node.id}-${idleUrlDisplay}`}
                 onBlur={(e) => {
-                  const idleUrl = e.target.value.trim() || null;
-                  const animation = idleUrl ? { idleUrl } : undefined;
-                  const components = { ...node.components, animation };
-                  api.updateNode(node.id, { components }).catch(() => {});
-                  storeUpdateNode(node.id, { components });
+                  writeIdle(e.target.value.trim() || null, idleSpeedDisplay);
                 }}
               />
-              {(node.components?.animation as { idleUrl?: string })
-                ?.idleUrl && (
+              {idleUrlDisplay && (
                 <button
                   title={t('avatar.animClear')}
                   style={{
@@ -7520,20 +7505,15 @@ export function PropertiesPanel() {
                     flexShrink: 0,
                   }}
                   onClick={() => {
-                    const components = {
-                      ...node.components,
-                      animation: undefined,
-                    };
-                    api.updateNode(node.id, { components }).catch(() => {});
-                    storeUpdateNode(node.id, { components });
+                    writeIdle(null, idleSpeedDisplay);
                   }}
                 >
                   ×
                 </button>
               )}
             </div>
-            {/* Speed and offset */}
-            {(node.components?.animation as { idleUrl?: string })?.idleUrl && (
+            {/* Speed */}
+            {idleUrlDisplay && (
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <label
                   style={{
@@ -7551,177 +7531,17 @@ export function PropertiesPanel() {
                     style={{ ...textInput }}
                     step={0.1}
                     min={0}
-                    defaultValue={
-                      (node.components?.animation as { speed?: number })
-                        ?.speed ?? 1
-                    }
-                    key={`${node.id}-speed`}
+                    defaultValue={idleSpeedDisplay}
+                    key={`${node.id}-speed-${idleSpeedDisplay}`}
                     onBlur={(e) => {
                       const speed = parseFloat(e.target.value);
                       if (isNaN(speed) || speed < 0) return;
-                      const animation = {
-                        ...(node.components?.animation as object),
-                        speed,
-                      };
-                      const components = { ...node.components, animation };
-                      api.updateNode(node.id, { components }).catch(() => {});
-                      storeUpdateNode(node.id, { components });
-                    }}
-                  />
-                </label>
-                <label
-                  style={{
-                    flex: 1,
-                    fontSize: 12,
-                    color: '#888',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 3,
-                  }}
-                >
-                  {t('avatar.animOffset')}
-                  <input
-                    type="number"
-                    style={{ ...textInput }}
-                    step={0.1}
-                    min={0}
-                    defaultValue={
-                      (node.components?.animation as { offset?: number })
-                        ?.offset ?? 0
-                    }
-                    key={`${node.id}-offset`}
-                    onBlur={(e) => {
-                      const offset = parseFloat(e.target.value);
-                      if (isNaN(offset) || offset < 0) return;
-                      const animation = {
-                        ...(node.components?.animation as object),
-                        offset,
-                      };
-                      const components = { ...node.components, animation };
-                      api.updateNode(node.id, { components }).catch(() => {});
-                      storeUpdateNode(node.id, { components });
+                      writeIdle(idleUrlDisplay || null, speed);
                     }}
                   />
                 </label>
               </div>
             )}
-            {/* Animation playback controls */}
-            {hasAnim &&
-              (() => {
-                const entry = animRegistry.get(node.id);
-                if (!entry) return null;
-                const pauseBoth = (paused: boolean) => {
-                  entry.action.paused = paused;
-                  entry.fbxAction.paused = paused;
-                };
-                const stopBoth = () => {
-                  entry.action.stop();
-                  entry.mixer.update(0);
-                  entry.fbxAction.stop();
-                  entry.fbxMixer.update(0);
-                  const LOG_BONES = new Set([
-                    'thigh_l',
-                    'thigh_r',
-                    'upperarm_l',
-                    'upperarm_r',
-                  ]);
-                  const _wq = new (entry.fbxScene.quaternion
-                    .constructor as typeof import('three').Quaternion)();
-                  entry.fbxScene.traverse((o) => {
-                    if (LOG_BONES.has(o.name)) {
-                      const q = o.quaternion;
-                      o.getWorldQuaternion(_wq);
-                      console.log(
-                        `[A-pose] ${o.name} localQ=(${q.x.toFixed(4)},${q.y.toFixed(4)},${q.z.toFixed(4)},${q.w.toFixed(4)}) worldQ=(${_wq.x.toFixed(4)},${_wq.y.toFixed(4)},${_wq.z.toFixed(4)},${_wq.w.toFixed(4)})`
-                      );
-                    }
-                  });
-                };
-                const seekBoth = (t: number) => {
-                  entry.action.paused = true;
-                  entry.action.time = t * entry.duration;
-                  entry.mixer.update(0);
-                  entry.fbxAction.paused = true;
-                  entry.fbxAction.time = t * entry.duration;
-                  entry.fbxMixer.update(0);
-                };
-                return (
-                  <div
-                    style={{
-                      marginTop: 10,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 6,
-                    }}
-                  >
-                    <div
-                      style={{ display: 'flex', gap: 6, alignItems: 'center' }}
-                    >
-                      <button
-                        style={{
-                          background: '#2a2a2a',
-                          border: '1px solid #3a3a3a',
-                          color: '#e0e0e0',
-                          borderRadius: 4,
-                          padding: '3px 10px',
-                          cursor: 'pointer',
-                          fontSize: 12,
-                        }}
-                        onClick={() => {
-                          pauseBoth(animPlaying);
-                          setAnimPlaying(!animPlaying);
-                        }}
-                      >
-                        {animPlaying
-                          ? t('avatar.animPause')
-                          : t('avatar.animPlay')}
-                      </button>
-                      <button
-                        style={{
-                          background: '#2a2a2a',
-                          border: '1px solid #3a3a3a',
-                          color: '#e0e0e0',
-                          borderRadius: 4,
-                          padding: '3px 10px',
-                          cursor: 'pointer',
-                          fontSize: 12,
-                        }}
-                        onClick={() => {
-                          stopBoth();
-                          setAnimPlaying(false);
-                          setAnimTime(0);
-                        }}
-                      >
-                        {t('avatar.animRest')}
-                      </button>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.001}
-                      value={animTime}
-                      style={{ width: '100%', accentColor: '#2563eb' }}
-                      onChange={(e) => {
-                        const t = parseFloat(e.target.value);
-                        setAnimTime(t);
-                        seekBoth(t);
-                        setAnimPlaying(false);
-                      }}
-                    />
-                    <div
-                      style={{
-                        fontSize: 10,
-                        color: '#666',
-                        textAlign: 'right',
-                      }}
-                    >
-                      {(animTime * entry.duration).toFixed(2)}s /{' '}
-                      {entry.duration.toFixed(2)}s
-                    </div>
-                  </div>
-                );
-              })()}
           </>
         )}
 

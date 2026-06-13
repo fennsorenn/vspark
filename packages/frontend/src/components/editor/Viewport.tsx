@@ -1020,6 +1020,34 @@ function AvatarNode({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animLayerKey]);
 
+  // --- Idle migration: legacy idleUrl → content-addressed clip id ---
+  // Once the matching animation_clip is registered (auto-registration probe),
+  // upgrade components.animation.idleUrl → properties.animation.idle.clipId so
+  // the idle loop is universal and syncs to collab peers (the legacy path was
+  // the author's local URL, unresolvable elsewhere). Until then the legacy URL
+  // still plays via the resolver fallback above. Owner-only; never on a
+  // projected remote avatar.
+  const legacyIdleUrl = legacyAnim?.idleUrl ?? null;
+  useEffect(() => {
+    if (node.remote || !legacyIdleUrl || animIdle?.clipId) return;
+    const clip = Object.values(animationClips).find(
+      (c) => c.sourceFilePath === legacyIdleUrl
+    );
+    if (!clip) return; // clip not registered yet — re-runs when it lands
+    const speed = legacyAnim?.speed ?? 1;
+    const prevProps = (node.properties as Record<string, unknown>) ?? {};
+    const prevAnim =
+      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
+    const properties = {
+      ...prevProps,
+      animation: { ...prevAnim, idle: { clipId: clip.id, speed } },
+    };
+    const components = { ...node.components, animation: undefined };
+    useEditorStore.getState().updateNode(node.id, { properties, components });
+    api.updateNode(node.id, { properties, components }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legacyIdleUrl, animIdle?.clipId, animationClips, node.id, node.remote]);
+
   // --- VRM load ---
   useEffect(() => {
     if (!node.filePath) return;

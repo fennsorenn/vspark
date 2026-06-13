@@ -26,6 +26,11 @@ wird. Sie stammt aus zwei Hauptquellen:
   Tanzen), die du auslösen kannst. Sie sind nützlich für Momente, in denen du
   nicht aktiv getrackt wirst.
 
+Die **Leerlauf-Animation** ist eine Basisschleife, die fortlaufend läuft, solange
+nichts anderes den Avatar steuert. Sie ist an eine gemeinsame Uhr gekoppelt,
+sodass alle Betrachter — auch Mitbearbeiter — sie an derselben Stelle der
+Schleife sehen.
+
 Wenn beides aktiv ist, überblendet vspark sie, damit der Übergang sanft wirkt
 statt zu springen. Die Überblendzeit lässt sich pro Avatar einstellen.
 
