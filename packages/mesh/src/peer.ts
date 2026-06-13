@@ -215,6 +215,30 @@ export class MeshPeer implements PeerCore {
     };
   }
 
+  // --- peer clock translation ------------------------------------------------------
+  //
+  // STUB (API shape is final): returns offset 0, i.e. assumes synchronized
+  // wall clocks across peers. The NTP-style sampler (ping/pong per link,
+  // lowest-RTT-sample offset estimation) replaces the body without changing
+  // call sites. Consumers should translate timestamps HOP-WISE: each relay
+  // rewrites a remote timestamp into its own clock before forwarding, so
+  // only per-link offsets are ever needed (no offset composition).
+
+  /** Estimated `peerClock − localClock` for a connected peer (ms). */
+  clockOffset(_peerId: string): number {
+    return 0;
+  }
+
+  /** Translate a timestamp taken on `peerId`'s clock into this peer's clock. */
+  toLocalTime(peerId: string, remoteTs: number): number {
+    return remoteTs - this.clockOffset(peerId);
+  }
+
+  /** Translate a local timestamp into `peerId`'s clock. */
+  toPeerTime(peerId: string, localTs: number): number {
+    return localTs + this.clockOffset(peerId);
+  }
+
   onStatus(cb: (s: MeshStatus) => void): () => void {
     this.statusObservers.push(cb);
     return () => {
