@@ -650,7 +650,16 @@ export class MeshPeer implements PeerCore {
     } catch (e) {
       console.error(`[mesh] tap failed for ${env.rtype}:${env.id}:`, e);
     }
-    this.relay(col, env, senderId, preRecipients, preChain);
+    // Relay the VALIDATED data, not the raw env: validate() localizes
+    // per-server fields (e.g. a collab doc's projectId is re-scoped to OUR
+    // link's project), and that localized doc is what our own subscribers —
+    // notably this server's browser tabs, which trust our re-scoping and gate
+    // on projectId — must receive. Downstream collab peers re-validate, so
+    // they localize again regardless. Forwarding the raw env instead leaks
+    // the sender's projectId and the tab's feeder silently drops the doc
+    // (objects only appear on reload). data === env.data except for validated
+    // upserts, so this is a no-op for patch/remove.
+    this.relay(col, { ...env, data }, senderId, preRecipients, preChain);
   }
 
   /** Accept an op if it matches one of OUR active subscriptions to the sender,

@@ -379,6 +379,48 @@ describe('pure-stream collections (preview-only, routed by containment)', () => 
   });
 });
 
+describe('relay carries the validated (localized) doc to subscribers', () => {
+  it('a re-scoped field reaches a plain subscriber, not the raw sender value', async () => {
+    // B mounts A's content (re-scoping projectId on receive — the collab
+    // localization), and T (B's "tab") subscribes to B. T must see B's
+    // re-scoped projectId, not A's.
+    const ab = createLoopbackPair('A', 'B');
+    const bt = createLoopbackPair('B', 'T');
+    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [ab.a] });
+    const b = createMeshPeer({ identity: { peerId: 'B' }, transports: [ab.b] });
+    const t = createMeshPeer({ identity: { peerId: 'T' }, transports: [bt.b] });
+    b.addTransport(bt.a);
+
+    interface Doc { id: string; projectId: string; parentId?: string | null; [k: string]: unknown }
+    const parent = (d: Doc) => (d.parentId ? { rtype: 'node', id: d.parentId } : null);
+    const na = a.collection<Doc>('node', { parent });
+    // B re-scopes every incoming doc's projectId to 'B-proj' (the collab localize).
+    const nb = b.collection<Doc>('node', {
+      parent,
+      validate: (data) => ({ ...(data as Doc), projectId: 'B-proj' }),
+    });
+    const nt = t.collection<Doc>('node', { parent, authority: 'B' });
+
+    // A grants B (collab subtree), B grants T (its tab — full rights).
+    a.grants.grant({ grantee: 'B', entityRtype: '*', entityId: '*', includeDescendants: false, pathPrefix: '', rights: { read: true } });
+    b.grants.grant({ grantee: 'T', entityRtype: '*', entityId: '*', includeDescendants: false, pathPrefix: '', rights: { read: true, update: true, create: true, delete: true } });
+    await t.subscribe('B', { entityRtype: 'node', entityId: '*', includeDescendants: false, pathPrefix: '' });
+    await b.subscribe('A', { entityRtype: 'node', entityId: '*', includeDescendants: false, pathPrefix: '' });
+
+    // A creates a node with A's project id; it flows A → B (re-scope) → T.
+    na.create({ id: 'n1', projectId: 'A-proj', parentId: null });
+    await ab.flush();
+    await bt.flush();
+
+    expect(nb.get('n1')?.projectId).toBe('B-proj'); // B localized
+    // The bug: T received A-proj (raw env) and a projectId-gating consumer
+    // dropped it. The fix relays B's validated doc, so T sees B-proj.
+    expect(nt.get('n1')?.projectId).toBe('B-proj');
+
+    a.close(); b.close(); t.close();
+  });
+});
+
 describe('peer clock sync', () => {
   it('converges on an injected skew and translates timestamps both ways', async () => {
     const lb = createLoopbackPair('A', 'B');
