@@ -587,6 +587,26 @@ re-subscribe, pose stream still legacy.
   shared scenes, non-whitelisted kinds don't cross, zero `_collab_runtime`
   in logs. The legacy collab protocol is now just `_collab_subscribe` /
   `_collab_snapshot` (mount + asset transfer).
+- **Animation clips + queue playback (collab) — DONE, live-verified**
+  (4/4 + 5/5 + 4/4): `animation_clip` is a synced rtype (rows ride the
+  scene subscriptions; source FBX/BVH files transfer via the asset
+  follow-up, content-resolvability as the foreignness discriminator since
+  the table has no project column). The api_controller `api_animation`
+  queue state relays through the runtime channel, gated on
+  collabSceneForNode; receivers re-resolve each entry's sourceUrl from
+  their own localized rows and re-anchor startedAt via the mesh
+  peer-clock API.
+- **Mesh peer clock sync — DONE** (34 mesh tests): NTP-style per-link
+  sampler (ping/pong wire pair; offset = tRemote + rtt/2 − now; lowest-rtt
+  sample of a sliding window; connect burst + 10s drift cadence; unref'd
+  timers; state per link, cleared on disconnect). API:
+  `clockOffset(peer)` / `clockRtt(peer)` / `toLocalTime` / `toPeerTime`,
+  falling back to offset 0 for unknown peers. Consumption rule: translate
+  timestamps HOP-WISE — each relay rewrites into its own clock before
+  forwarding, so per-link offsets suffice (no composition). First
+  consumer: the api_animation relay. Candidates to adopt next:
+  media_control, track-clip startedAt/serverNow re-anchoring, and folding
+  the browser-edge makeOffsetTracker into it.
 - **Known issues / deferred:**
   - ~~werift stale slot blocks single-side reconnects~~ **FIXED + live-verified
     4/4**: an offer from a peer we hold as `connected` proves our slot is
