@@ -2,7 +2,7 @@
   "window": {
     "title": "Connections"
   },
-  "disabled": "Multiplayer is not enabled. Set a rendezvous URL to enable it.",
+  "disabled": "Multiplayer is turned off on this server.",
   "status": {
     "idle": "Idle",
     "connecting": "Connecting…",

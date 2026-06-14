@@ -2,7 +2,7 @@
   "window": {
     "title": "Verbindungen"
   },
-  "disabled": "Mehrspieler ist nicht aktiviert. Lege eine Rendezvous-URL fest, um es zu aktivieren.",
+  "disabled": "Mehrspieler ist auf diesem Server deaktiviert.",
   "status": {
     "idle": "Inaktiv",
     "connecting": "Verbinde…",

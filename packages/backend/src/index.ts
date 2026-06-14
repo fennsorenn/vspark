@@ -57,6 +57,7 @@ import { initMeshStreams } from './mesh/streams.js';
 import { initMeshAssets } from './mesh/assets.js';
 import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
+import { resolveRendezvousUrl } from './multiplayer/config.js';
 import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
 import {
   hydrateContainmentIndex,
@@ -135,9 +136,11 @@ async function start() {
       if (sceneNodes) initMeshAssets(mp, sceneNodes);
     }
   }
-  // Connect to the rendezvous if configured (else multiplayer stays disabled).
+  // Connect to the rendezvous. Defaults to the public instance (see
+  // multiplayer/config.ts); set MULTIPLAYER_RENDEZVOUS_URL to override, or to
+  // an empty string to disable multiplayer.
   multiplayerManager.init(
-    process.env.MULTIPLAYER_RENDEZVOUS_URL,
+    resolveRendezvousUrl(),
     process.env.MULTIPLAYER_DISPLAY_NAME,
     (kind, payload) => wsSync.broadcast(kind, payload)
   );

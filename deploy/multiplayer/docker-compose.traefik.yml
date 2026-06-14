@@ -1,0 +1,72 @@
+# vspark multiplayer bundle — variant for a host that ALREADY runs a Traefik v3
+# reverse proxy (Docker provider + automatic Let's Encrypt). Use this instead of
+# the default docker-compose.yml when ports 80/443 are already owned by Traefik.
+#
+# Difference from docker-compose.yml: the bundled **Caddy is removed** — Traefik
+# terminates TLS and routes wss://${RDV_DOMAIN} to the rendezvous via the labels
+# below (matching how other apps register with that Traefik). The rendezvous
+# joins the external `traefik_proxy` network rather than publishing 80/443.
+#
+# coturn is UNCHANGED: it cannot ride an L7 proxy (raw UDP + a relay port range),
+# so it stays in host networking and binds the host ports directly. Open the
+# coturn ports on the host firewall / cloud security group yourself:
+#   3478/tcp, 3478/udp, and the relay range 49160-49200/udp.
+#
+# Assumptions about the existing Traefik (adjust the labels if yours differs):
+#   - an HTTPS entrypoint named `websecure`
+#   - a certresolver named `le`
+#   - an external Docker network named `traefik_proxy` it watches
+#
+# Setup:
+#   1. cp .env.example .env  and fill it in (RDV_DOMAIN, PUBLIC_IP, TURN_SECRET, …)
+#   2. point your DNS A record (RDV_DOMAIN) at this host
+#   3. docker compose -f docker-compose.traefik.yml up -d --build
+#
+# See README.md and dev-notes/plans/multiplayer-phase5.md.
+
+services:
+  rendezvous:
+    build:
+      context: ../../packages/rendezvous
+    restart: unless-stopped
+    environment:
+      PORT: 8787
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_URLS: ${TURN_URLS}
+      STUN_URLS: ${STUN_URLS:-stun:stun.l.google.com:19302}
+    networks:
+      - traefik_proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:-traefik_proxy}
+      - traefik.http.routers.vsparkrdv.rule=Host(`${RDV_DOMAIN}`)
+      - traefik.http.routers.vsparkrdv.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.vsparkrdv.tls.certresolver=${TRAEFIK_CERTRESOLVER:-le}
+      - traefik.http.routers.vsparkrdv.service=vsparkrdv
+      - traefik.http.services.vsparkrdv.loadbalancer.server.port=8787
+
+  coturn:
+    image: coturn/coturn:4.6-alpine
+    restart: unless-stopped
+    network_mode: host # TURN needs the real host ports + relay range
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: >
+      -c /etc/coturn/turnserver.conf
+      --use-auth-secret
+      --static-auth-secret=${TURN_SECRET}
+      --realm=${RDV_DOMAIN}
+      --external-ip=${PUBLIC_IP}
+    deploy:
+      resources:
+        limits:
+          cpus: '${TURN_CPU_LIMIT:-1.0}'
+          memory: ${TURN_MEM_LIMIT:-256M}
+
+networks:
+  # The reverse-proxy network your existing Traefik already watches. It must
+  # exist already (created by your Traefik stack): docker network create is NOT
+  # done here — that's why it's external.
+  traefik_proxy:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik_proxy}
