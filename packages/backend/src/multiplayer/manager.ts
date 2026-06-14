@@ -241,6 +241,15 @@ class MultiplayerManager {
     // the legacy bridge in backend/src/mesh mirrors every sync.document op
     // into it, and subscriptions (collab links / placed objects) route it.
     sync.onDocument((env) => {
+      // [collab-dbg] Set COLLAB_DEBUG=1 to trace which scene_node ops this
+      // server actually applies, and where they came from (env.origin). On the
+      // sharer this reveals whether a receiver's edit reaches it at all.
+      if (process.env.COLLAB_DEBUG) {
+        const pid = (env.data as { projectId?: string } | undefined)?.projectId;
+        console.log(
+          `[collab-dbg] onDocument rtype=${env.rtype} op=${env.op} id=${env.key} origin=${env.origin ?? '(local)'} projectId=${pid ?? '-'}`
+        );
+      }
       // Keep the collab stream-routing map (nodeScene) current for nodes
       // added after mount — pose/preview streams to collab peers still ride
       // the legacy lossy channel and route through it.

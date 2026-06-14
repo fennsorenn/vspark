@@ -65,12 +65,20 @@ function armLink(
       pathPrefix: '',
     })
     .then((sub) => {
+      if (process.env.COLLAB_DEBUG)
+        console.log(
+          `[collab-dbg] subscribed to ${remotePeerId} for scene ${sceneId} (attempt ${attempt}) — receiver→author ops can now flow`
+        );
       // Torn down while the subscribe was in flight → drop it immediately.
       if (subscribed.has(key)) subs.set(key, sub);
       else sub.unsubscribe();
     })
     .catch((e) => {
       subscribed.delete(key);
+      if (process.env.COLLAB_DEBUG)
+        console.log(
+          `[collab-dbg] subscribe to ${remotePeerId} for scene ${sceneId} DENIED (attempt ${attempt}): ${String((e as Error)?.message ?? e)}`
+        );
       if (attempt < SUBSCRIBE_MAX_RETRIES) {
         setTimeout(
           () => armLink(peer, remotePeerId, sceneId, attempt + 1),
@@ -118,6 +126,10 @@ export function teardownCollabScene(
 export function syncCollabLinks(peer: MeshPeer): void {
   const connected = new Set(peer.status().peers.map((p) => p.id));
   for (const link of listAllCollabScenes()) {
+    if (process.env.COLLAB_DEBUG)
+      console.log(
+        `[collab-dbg] syncLink role=${link.role} peer=${link.peerId} scene=${link.sceneId} connected=${connected.has(link.peerId)} — granting peer + arming subscription`
+      );
     grantCollabScene(peer, link.peerId, link.sceneId);
     const key = `${link.peerId}:${link.sceneId}`;
     if (!connected.has(link.peerId)) {
