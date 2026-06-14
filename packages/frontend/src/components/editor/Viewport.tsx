@@ -1,4 +1,11 @@
-import { useRef, useEffect, useState, useMemo, useContext } from 'react';
+import {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useContext,
+  useCallback,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
@@ -1223,13 +1230,42 @@ function AvatarNode({
     };
   }, [vrmLoaded, node.id, node.kind, assetsForProbe]);
 
+  // Stop and drop whatever clip is currently driving this avatar: halt both
+  // mixers, remove the debug correction axes, clear the FBX display, and evict
+  // the shared animRegistry entry (which is what useFrame reads). Called at the
+  // swap point and on unmount — never from the load effect's dep-change cleanup,
+  // so a clip switch keeps playing until its replacement is ready.
+  const teardownActiveAnim = useCallback(() => {
+    fbxMixerRef.current?.stopAllAction();
+    fbxMixerRef.current = null;
+    vrmMixerRef.current?.stopAllAction();
+    vrmMixerRef.current = null;
+    corrAxesRef.current.forEach((g) => g.removeFromParent());
+    corrAxesRef.current = [];
+    fbxGroupRef.current?.clear();
+    fbxHelperRef.current?.clear();
+    animRegistry.delete(node.id);
+  }, [node.id]);
+
   // --- Animation load ---
   useEffect(() => {
-    if (!animUrl || !node.filePath || !vrmLoaded) return;
+    // Nothing to play (no VRM yet, VRM reloading, idle cleared, or a non-FBX
+    // url) → drop the active clip now; a rest pose here is correct. When we DO
+    // have a clip to switch to, we deliberately leave the current one running
+    // and swap it inside the loader callback once the replacement is baked, so
+    // no frame ever renders with an empty registry (which forces the humanoid
+    // back to rest — the visible flash between two idle animations).
+    if (!animUrl || !node.filePath || !vrmLoaded) {
+      teardownActiveAnim();
+      return;
+    }
     let cancelled = false;
 
     const ext = animUrl.split('?')[0].split('.').pop()?.toLowerCase();
-    if (ext !== 'fbx') return;
+    if (ext !== 'fbx') {
+      teardownActiveAnim();
+      return;
+    }
 
     new FBXLoader().load(animUrl, (fbx) => {
       if (cancelled) return;
@@ -1237,6 +1273,12 @@ function AvatarNode({
       if (!clip) return;
       const vrm = vrmRef.current;
       if (!vrm) return;
+
+      // Swap point: stop the outgoing clip in the same synchronous callback that
+      // bakes and installs the incoming one, so the two never straddle a
+      // rendered frame. (Guards above return early without tearing down, so a
+      // failed/empty load leaves the current clip playing untouched.)
+      teardownActiveAnim();
 
       // Snapshot bone local quaternions at load time (A-pose / bind pose for animation-only FBX).
       const loadTimeQ: Record<string, THREE.Quaternion> = {};
@@ -2080,19 +2122,18 @@ function AvatarNode({
       });
     });
 
+    // Only cancel the in-flight load on a dep change. Tearing the active clip
+    // down here is what caused the rest-pose flash: it ran the instant animUrl
+    // changed, before the replacement had loaded. Teardown now happens at the
+    // swap point (above) and on unmount (below) instead.
     return () => {
       cancelled = true;
-      fbxMixerRef.current?.stopAllAction();
-      fbxMixerRef.current = null;
-      vrmMixerRef.current?.stopAllAction();
-      vrmMixerRef.current = null;
-      corrAxesRef.current.forEach((g) => g.removeFromParent());
-      corrAxesRef.current = [];
-      fbxGroupRef.current?.clear();
-      fbxHelperRef.current?.clear();
-      animRegistry.delete(node.id);
     };
-  }, [node.filePath, animUrl, vrmLoaded]);
+  }, [node.filePath, animUrl, vrmLoaded, teardownActiveAnim]);
+
+  // Evict this avatar's clip from the shared registry on unmount (the load
+  // effect's cleanup no longer does — it only cancels in-flight loads).
+  useEffect(() => teardownActiveAnim, [teardownActiveAnim]);
 
   const _boneStartWP = useRef(new THREE.Vector3());
   const _boneEndWP = useRef(new THREE.Vector3());
