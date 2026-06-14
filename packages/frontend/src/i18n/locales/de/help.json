@@ -1,0 +1,22 @@
+{
+  "window": {
+    "title": "Hilfe & Dokumentation",
+    "popOut": "In separatem Fenster öffnen",
+    "close": "Schließen",
+    "resize": "Zum Ändern der Größe ziehen"
+  },
+  "nav": {
+    "topics": "Themen"
+  },
+  "button": {
+    "aria": "Hilfe",
+    "clickHint": "für Details klicken"
+  },
+  "page": {
+    "backToApp": "Zurück zur App"
+  },
+  "error": {
+    "missing": "Keine Dokumentation für „{{topic}}“ gefunden.",
+    "noTopic": "Wähle ein Thema, um die Dokumentation zu lesen."
+  }
+}

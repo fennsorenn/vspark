@@ -92,7 +92,7 @@ Stored as a single JSON blob in `scene_nodes.components`. Each key is a sub-comp
 }
 ```
 
-This is not the same as `node_components` (the separate motion capture/breathing/etc. table). The `components` JSON column is for intrinsic per-kind data (transform, light params, camera settings); `node_components` rows are for behavioral drivers.
+This is not the same as the `behaviors` table (the separate motion capture/breathing/etc. table, renamed from `node_components` in migration 022). The `components` JSON column (the ECS `Component` union — `TransformComponent`/`LightComponent`/etc. — which keeps the "Component" name) is for intrinsic per-kind data (transform, light params, camera settings); `behaviors` rows are for behavioral drivers (now called **Behaviors**).
 
 ## Backend routes
 
@@ -107,9 +107,10 @@ PUT    /scene-nodes/:nodeId                body: { name?, kind?, filePath?, pare
 DELETE /scene-nodes/:nodeId
 ```
 
-`POST /scenes/:sceneId/nodes` broadcasts `node_added` to all WebSocket clients.  
-`PUT /scene-nodes/:nodeId` broadcasts `node_updated`.  
-`DELETE /scene-nodes/:nodeId` broadcasts `node_removed` (cascade handles children in DB, but the broadcast is only for the deleted node).
+`POST /scenes/:sceneId/nodes` and `DELETE /scene-nodes/:nodeId` now broadcast **through the sync layer** — `sync.document.upsert`/`remove` for rtype `scene_node` on the single `'sync'` WS kind — instead of the bespoke `node_added`/`node_removed` kinds. The frontend applies them via the sync apply dispatcher (`upsert` dedupes by id; `remove` deletes the node). `DELETE` cascades children in the DB but emits a removal only for the deleted node. See [sync.md](sync.md).  
+`PUT /scene-nodes/:nodeId` still broadcasts the legacy `node_updated` (updates are not yet migrated).  
+
+Note: the spawn manager still emits inline `node_added` / `node_removed` for ephemeral tmp nodes, so those legacy handlers remain in place. See [spawn.md](spawn.md).
 
 ## Frontend — `SceneGraph.tsx`
 
@@ -139,11 +140,11 @@ Tree panel on the left side of the editor. Renders the active scene's node hiera
 
 ### Inline sections
 
-**NodeComponentsSection**: shows ordered list of `node_components` rows for the selected node (sorted by `sort_order`). Excludes camera effects. Supports enable toggle and remove.
+**BehaviorsSection** (component renamed from `NodeComponentsSection`): shows ordered list of `behaviors` rows for the selected node (sorted by `sort_order`). Excludes camera effects. Supports enable toggle and remove.
 
 **CameraEffectsSection**: shown only for camera nodes. Lists `camera_effects` rows for this node. Supports enable toggle and remove.
 
-**GraphListPanel**: browsable list of active signal graphs (VMC pipeline, breathing, etc.). Selecting a graph sets `activeGraphId` in the store, which opens the signal graph canvas.
+**LogicListPanel** (renamed from `GraphListPanel`): browsable list of the project's Logic and behavior signal graphs (VMC pipeline, breathing, etc.). Selecting a logic sets `activeLogicId` in the store, which opens the `SignalGraphCanvas` (the signal-graph substrate editor).
 
 ## Frontend — `Viewport.tsx` (`SceneNodes` component)
 

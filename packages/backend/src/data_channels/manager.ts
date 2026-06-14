@@ -39,12 +39,23 @@ interface SnapshotEntry {
 
 export class DataChannelManager {
   private _ws: WSSync | null = null;
+  /** Optional tap for multiplayer fan-out of data channels scoped to a shared node. */
+  private _forward:
+    | ((op: 'set' | 'clear', payload: Record<string, unknown>) => void)
+    | null = null;
 
   /** scope → (field → last-published value). scope '' is GLOBAL. */
   private readonly _scopes = new Map<string, Map<string, unknown>>();
 
   init(ws: WSSync): void {
     this._ws = ws;
+  }
+
+  /** Install the multiplayer data-channel forwarder (injected at startup). */
+  setDataChannelForwarder(
+    fn: (op: 'set' | 'clear', payload: Record<string, unknown>) => void
+  ): void {
+    this._forward = fn;
   }
 
   private _scopeKey(scope: unknown): string {
@@ -69,6 +80,7 @@ export class DataChannelManager {
     const bucket = this._bucket(key);
     for (const name of names) bucket.set(name, fields[name]);
     this._ws?.broadcast('data_channel_set', { scope: key, fields });
+    this._forward?.('set', { scope: key, fields });
   }
 
   /** Like `set`, but only fills fields not already present. Broadcasts only the
@@ -86,6 +98,7 @@ export class DataChannelManager {
     }
     if (Object.keys(added).length > 0) {
       this._ws?.broadcast('data_channel_set', { scope: key, fields: added });
+      this._forward?.('set', { scope: key, fields: added });
     }
   }
 
@@ -97,11 +110,13 @@ export class DataChannelManager {
     if (field === undefined) {
       this._scopes.delete(key);
       this._ws?.broadcast('data_channel_clear', { scope: key });
+      this._forward?.('clear', { scope: key });
       return;
     }
     if (!bucket.delete(field)) return;
     if (bucket.size === 0) this._scopes.delete(key);
     this._ws?.broadcast('data_channel_clear', { scope: key, field });
+    this._forward?.('clear', { scope: key, field });
   }
 
   /** Drop every scope. Mainly for tests / full reset. */

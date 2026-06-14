@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="210" viewBox="0 0 300 210" font-family="system-ui, sans-serif" role="img" aria-label="X Y Z coordinate axes">
+  <defs>
+    <marker id="ax" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="context-stroke"/></marker>
+  </defs>
+  <g stroke-width="2.5" marker-end="url(#ax)" fill="none">
+    <line x1="150" y1="140" x2="252" y2="140" stroke="#e06c75"/>
+    <line x1="150" y1="140" x2="150" y2="40" stroke="#98c379"/>
+    <line x1="150" y1="140" x2="84" y2="194" stroke="#61afef"/>
+  </g>
+  <circle cx="150" cy="140" r="4" fill="#c8d2e0"/>
+  <text x="262" y="145" fill="#e06c75" font-size="15" font-weight="600">X</text>
+  <text x="142" y="34" fill="#98c379" font-size="15" font-weight="600">Y</text>
+  <text x="64" y="206" fill="#61afef" font-size="15" font-weight="600">Z</text>
+</svg>

@@ -19,7 +19,7 @@ const EMPTY: RaidOut = {
 @SignalNode({
   label: 'Overlive Raid',
   description: 'Fires when another channel raids the configured account.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveRaid extends Node {

@@ -1,0 +1,30 @@
+{
+  "loading": "Wird geladen…",
+  "media": {
+    "label": "Medien",
+    "title": "Medieneingänge (Mikrofon / Kamera)",
+    "openNewTab": "Medieneingang in neuem Tab öffnen"
+  },
+  "connections": {
+    "label": "Verbindungen",
+    "title": "Mehrspieler-Verbindungen (mit anderen Servern koppeln & verbinden)",
+    "none": "Keine aktiven Verbindungen"
+  },
+  "status": {
+    "connected": "Verbunden",
+    "disconnected": "Getrennt"
+  },
+  "accounts": {
+    "label": "Konten",
+    "title": "Stream-Konten (Twitch / StreamElements)"
+  },
+  "update": {
+    "label": "Update",
+    "availableTitle": "Ein Update ist verfügbar",
+    "settingsTitle": "Updates & Release-Kanal",
+    "versionLabel": "Version"
+  },
+  "help": {
+    "tip": "Hilfe & Dokumentation öffnen"
+  }
+}

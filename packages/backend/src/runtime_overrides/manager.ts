@@ -53,6 +53,13 @@ interface SnapshotEntry {
 export class RuntimeOverrideManager {
   private _ws: WSSync | null = null;
   private _persist: RuntimePersistFn | null = null;
+  /** Optional tap for multiplayer fan-out of overrides on shared scene nodes. */
+  private _forward:
+    | ((
+        op: 'set' | 'clear',
+        payload: Record<string, unknown>
+      ) => void)
+    | null = null;
 
   /** sceneId → `${targetKind}:${targetId}:${paramPath}` → entry */
   private readonly _bySceneId = new Map<string, Map<string, OverrideEntry>>();
@@ -62,6 +69,13 @@ export class RuntimeOverrideManager {
   init(ws: WSSync, persist?: RuntimePersistFn | null): void {
     this._ws = ws;
     this._persist = persist ?? null;
+  }
+
+  /** Install the multiplayer override forwarder (injected at startup). */
+  setOverrideForwarder(
+    fn: (op: 'set' | 'clear', payload: Record<string, unknown>) => void
+  ): void {
+    this._forward = fn;
   }
 
   /** Pre-register a (target → scene) mapping so the bus doesn't have to look
@@ -120,6 +134,7 @@ export class RuntimeOverrideManager {
       paramPath,
       value: coerced,
     });
+    this._forward?.('set', { targetKind, targetId, paramPath, value: coerced });
 
     if (opts.persist && this._persist) {
       // Persist asynchronously; never block the override or interrupt the
@@ -164,6 +179,11 @@ export class RuntimeOverrideManager {
 
     this._ws?.broadcast('runtime_override_clear', {
       sceneId,
+      targetKind,
+      targetId,
+      ...(paramPath ? { paramPath } : {}),
+    });
+    this._forward?.('clear', {
       targetKind,
       targetId,
       ...(paramPath ? { paramPath } : {}),

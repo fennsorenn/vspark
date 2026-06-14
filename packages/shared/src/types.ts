@@ -99,7 +99,7 @@ export interface SceneNodeProperties {
 }
 
 // A node in a scene tree
-export interface SceneNode {
+export interface StageObject {
   id: string;
   projectId: string;
   rootSceneNodeId: string;
@@ -130,7 +130,7 @@ export interface Scene {
   createdAt: string;
   updatedAt: string;
   runtimeSettings: SceneRuntimeSettings;
-  nodes: SceneNode[];
+  nodes: StageObject[];
 }
 
 export interface Project {
@@ -191,13 +191,13 @@ export interface ComposeLayer {
   updatedAt: string;
 }
 
-// --- Graphs (signal graphs with owner scoping) ---
+// --- Logic (user-built signal graphs with owner scoping) ---
 
-export type GraphOwnerKind = 'project' | 'scene_node' | 'compose_layer';
+export type LogicOwnerKind = 'project' | 'scene_node' | 'compose_layer';
 
-export interface Graph {
+export interface Logic {
   id: string;
-  ownerKind: GraphOwnerKind;
+  ownerKind: LogicOwnerKind;
   ownerId: string;
   name: string;
   enabled: boolean;
@@ -456,6 +456,7 @@ export type WSMessageKind =
   | 'tracking_status'
   | 'pose_ik_targets'
   | 'server_update'
+  | 'behavior_added'
   | 'compose_layer_added'
   | 'compose_layer_updated'
   | 'compose_layer_removed'
@@ -514,20 +515,20 @@ export interface Landmark {
 
 export interface LipsyncInputMessage {
   kind: 'lipsync_input';
-  componentId: string;
+  behaviorId: string;
   visemes: Record<string, number>;
 }
 
 export interface LipsyncStatusMessage {
   kind: 'lipsync_status';
-  componentId: string;
+  behaviorId: string;
   active: boolean;
   error?: string;
 }
 
 export interface TrackingInputMessage {
   kind: 'tracking_input';
-  componentId: string;
+  behaviorId: string;
   face?: Landmark[]; // 478 points
   leftHand?: Landmark[]; // 21 points
   rightHand?: Landmark[]; // 21 points
@@ -536,7 +537,7 @@ export interface TrackingInputMessage {
 
 export interface TrackingStatusMessage {
   kind: 'tracking_status';
-  componentId: string;
+  behaviorId: string;
   active: boolean;
   error?: string;
 }
@@ -563,7 +564,7 @@ export interface AvatarExpressionsReportMessage {
 
 export interface ApiAnimationMessage {
   nodeId: string;
-  componentId: string;
+  behaviorId: string;
   queue: ApiAnimationQueueEntry[];
   loopMode: ApiAnimationLoopMode;
   /** ms epoch when the queue started; null when stopped. */

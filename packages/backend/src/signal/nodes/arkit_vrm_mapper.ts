@@ -20,7 +20,7 @@ export interface ArkitVrmMapperConfig {
   label: 'ARKit → VRM Mapper',
   description:
     'Maps raw ARKit 52-shape weights to VRM expression names, or passes them through unchanged for direct morph-target driving.',
-  tags: ['mapping', 'face'],
+  tags: ["mocap"],
   color: '#5a3a2a',
 })
 export class ArkitVrmMapper extends Node {

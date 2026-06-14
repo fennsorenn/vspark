@@ -1,0 +1,75 @@
+{
+  "empty": {
+    "noClips": "Keine Clips",
+    "selectClip": "Wähle einen Clip von einem Knoten oder einer Ebene in der linken Leiste aus, um ihn hier zu bearbeiten.",
+    "noLanes": "Noch keine Spuren. Klicke unten auf + Spur hinzufügen.",
+    "noEvents": "Keine Ereignismarkierungen. Füge eine hinzu, um einen Medienbefehl an einem Zeitpunkt im Clip auszulösen."
+  },
+  "section": {
+    "addClip": "+ Clip hinzufügen",
+    "pasteClip": "⧉ Clip einfügen",
+    "pasteClipTitle": "Clip aus der Zwischenablage hier einfügen",
+    "ctx": {
+      "copyClip": "Clip kopieren",
+      "deleteClip": "Clip löschen"
+    },
+    "errors": {
+      "pasteFailed": "Clip konnte nicht eingefügt werden"
+    }
+  },
+  "header": {
+    "duration": "Dauer",
+    "loop": "Wiederholen",
+    "autoplay": "Autostart",
+    "autoplayTitle_enabled": "Nach Neustart automatisch fortsetzen",
+    "autoplayTitle_disabled": "Zuerst Wiederholen aktivieren",
+    "blend": "Modus",
+    "blendOverride": "Ersetzen",
+    "blendRelative": "Addieren"
+  },
+  "transport": {
+    "play": "▶ Abspielen",
+    "pause": "❚❚ Pause",
+    "stop": "■ Stoppen",
+    "resume": "▶ Fortsetzen"
+  },
+  "scrub": {
+    "playhead": "Abspielposition: {{t}}s",
+    "dragTitle": "Ziehen zum Spulen"
+  },
+  "keyframe": {
+    "noSelection": "Klicke auf einen Keyframe, um Easing, Wert und Bezier-Griffe zu bearbeiten.",
+    "deleteKeyframe": "Keyframe löschen",
+    "easingLabel": "Easing",
+    "easingLinear": "linear",
+    "easingStep": "Stufe",
+    "easingBezier": "Bezier",
+    "dotTitle": "t={{t}}s  v={{v}}  ({{easing}})\nRechtsklick zum Löschen",
+    "outHandle": "Ausgehender Griff",
+    "inHandle": "Eingehender Griff"
+  },
+  "lane": {
+    "removeLaneTitle": "Spur entfernen",
+    "addLane": "+ Spur hinzufügen",
+    "cancel": "Abbrechen",
+    "add": "Hinzufügen",
+    "targetSceneNode": "Szenenknoten",
+    "targetComposeLayer": "Compose-Ebene",
+    "selectTargetPlaceholder": "— Ziel auswählen —"
+  },
+  "events": {
+    "laneLabel": "🎬 Ereignisse",
+    "markerTitle": "{{action}} @ {{t}}s",
+    "removeMarkerTitle": "Markierung entfernen",
+    "selectTargetPlaceholder": "— Ziel auswählen —",
+    "addEvent": "+ Ereignis hinzufügen",
+    "addEventTitle_noTargets": "Zuerst ein Video- oder Audio-Element hinzufügen",
+    "addEventTitle": "Ereignismarkierung an der Abspielposition hinzufügen",
+    "seekLabel": "bis(s)",
+    "volLabel": "Lautst."
+  },
+  "help": {
+    "timeline": "Avatar- oder Szenenparameter mit Track-Clips, Spuren und Keyframes über die Zeit animieren.",
+    "clipsSection": "Track-Clips dieses Knotens verwalten – Clips erstellen, auswählen und zur Bearbeitung öffnen."
+  }
+}

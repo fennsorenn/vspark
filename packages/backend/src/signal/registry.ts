@@ -7,8 +7,8 @@ import { getNodeDisplay } from '@vspark/shared/signal';
 import { getPortMeta, type PortMeta } from '@vspark/shared/node';
 import { typeTagToResolved } from '@vspark/shared/signal_types';
 import { INFER_BY_KIND } from '@vspark/shared/infer_nodes';
-import { ComponentId } from './nodes/component_id.js';
-import { ComponentConfigNode } from './nodes/component_config.js';
+import { BehaviorId } from './nodes/behavior_id.js';
+import { BehaviorConfigNode } from './nodes/behavior_config.js';
 import { SceneEntity } from './nodes/scene_entity.js';
 import { ManualTrigger } from './nodes/manual_trigger.js';
 import { ArmIkCalibration } from './nodes/arm_ik_calibration.js';
@@ -76,8 +76,8 @@ import { OverliveStreamOffline } from './nodes/overlive/stream_offline.js';
 
 const ALL_NODE_CLASSES: SignalNodeClass[] = [
   // Context / value nodes (internal — hidden from user palette)
-  ComponentId,
-  ComponentConfigNode,
+  BehaviorId,
+  BehaviorConfigNode,
   SceneEntity,
   ManualTrigger,
   ArmIkCalibration,

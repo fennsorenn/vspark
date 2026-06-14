@@ -1,0 +1,54 @@
+{
+  "window": {
+    "title": "Medieneingaben"
+  },
+  "status": {
+    "lipsync": "Lippensynchronisation",
+    "noComponent": "Keine Komponente",
+    "tracking": "Tracking"
+  },
+  "titleBar": {
+    "collapse": "Einklappen",
+    "expand": "Ausklappen"
+  },
+  "lipsync": {
+    "sectionTitle": "LIPPENSYNCHRONISATION",
+    "deviceLabel": "Gerät",
+    "defaultMic": "Standard-Mikrofon",
+    "micFallback": "Mikrofon {{id}}",
+    "startBtn": "● Starten",
+    "stopBtn": "■ Stoppen",
+    "noComponent": "Keine lipsync_processor-Komponente auf einem Knoten gefunden."
+  },
+  "tracking": {
+    "sectionTitle": "TRACKING",
+    "deviceLabel": "Gerät",
+    "defaultCam": "Standard-Kamera",
+    "camFallback": "Kamera {{id}}",
+    "startBtn": "● Starten",
+    "stopBtn": "■ Stoppen",
+    "previewLabel": "Vorschau",
+    "faceLabel": "Gesicht",
+    "poseLabel": "Pose",
+    "handsLabel": "Hände",
+    "noComponent": "Keine mediapipe_tracker-Komponente auf einem Knoten gefunden."
+  },
+  "errors": {
+    "micError": "Mikrofon-Fehler: {{message}}",
+    "cameraError": "Kamera-Fehler: {{message}}"
+  },
+  "page": {
+    "pageLabel": "vspark · Medieneingabe",
+    "loading": "Wird geladen…",
+    "loadError": "Projekt konnte nicht geladen werden: {{message}}"
+  },
+  "fileDrop": {
+    "dropPrompt": "VRM- / GLB-Dateien hier ablegen",
+    "browseBtn": "Dateien durchsuchen"
+  },
+  "help": {
+    "tracking": "Bewegungserfassung nutzt deine Webcam, um Gesicht, Hände und Körperhaltung zu erkennen. Klicken für mehr Informationen.",
+    "lipsync": "Lippensynchronisation liest dein Mikrofon aus und animiert den Mund deines Avatars. Klicken für mehr Informationen.",
+    "devices": "Wähle Kamera und Mikrofon, erteile Browser-Berechtigungen und kalibriere. Klicken für mehr Informationen."
+  }
+}

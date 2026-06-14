@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   useEditorStore,
   type ComposeLayerRecord,
@@ -7,11 +8,13 @@ import {
 import { api } from '../../api/client';
 import type { ComposeLayerKind } from '../../api/client';
 import { ClipsSection } from './ClipsSection';
-import { GraphsSection } from './GraphsSection';
+import { LogicSection } from './LogicSection';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { createLayer } from './createKinds';
 import { DND_CREATE_LAYER } from './dnd';
+import { HelpButton } from '../../help/HelpButton';
+import { usePrompt } from '../DialogProvider';
 
 const KIND_ICONS: Record<ComposeLayerKind, string> = {
   image: '🖼',
@@ -59,12 +62,13 @@ function rowStyle(selected: boolean): CSSProperties {
  *  while the Compose tab is active) and flashes it as a hint, after making this
  *  compose scene the active one so the palette adds layers to it. */
 function AddLayerButton({ composeSceneId }: { composeSceneId: string }) {
+  const { t } = useTranslation('compose');
   const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
   const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   return (
     <button
       style={addBtn}
-      title="Add layer — opens the Create palette"
+      title={t('tree.addLayerTitle')}
       onClick={(e) => {
         e.stopPropagation();
         selectComposeScene(composeSceneId);
@@ -119,6 +123,7 @@ function LayerRow({
   layersByParent: Map<string | null, ComposeLayerRecord[]>;
   depth: number;
 }) {
+  const { t } = useTranslation('compose');
   const nodes = useEditorStore((s) => s.nodes);
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
@@ -155,7 +160,7 @@ function LayerRow({
         : layer.name;
 
   const handleDelete = async () => {
-    if (!confirm(`Delete layer "${layer.name}"?`)) return;
+    if (!confirm(t('tree.deleteLayerConfirm', { name: layer.name }))) return;
     useEditorStore.getState().removeComposeLayer(layer.id);
     await api.deleteComposeLayer(layer.id).catch(() => {});
   };
@@ -173,7 +178,7 @@ function LayerRow({
         setClipboard
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to copy layer');
+      alert(e instanceof Error ? e.message : t('tree.errors.copyFailed'));
     }
   };
 
@@ -202,21 +207,21 @@ function LayerRow({
       const bundle = await api.getScenes(projectId);
       useEditorStore.setState({ composeLayers: bundle.composeLayers });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste layer');
+      alert(e instanceof Error ? e.message : t('tree.errors.pasteFailed'));
     }
   };
 
-  const handlePasteGraphAtLayer = async () => {
+  const handlePasteLogicAtLayer = async () => {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createLayerGraph(layer.id, payload.name);
-      await api.updateGraph(created.id, {
+      const created = await api.createLayerLogic(layer.id, payload.name);
+      await api.updateLogic(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+      alert(e instanceof Error ? e.message : t('tree.errors.pasteGraphFailed'));
     }
   };
 
@@ -227,33 +232,33 @@ function LayerRow({
   };
   const buildContextMenuItems = (): ContextMenuItem[] => {
     const canPasteLayer = clipboardPayload?.kind === 'compose-layer';
-    const canPasteGraph = clipboardPayload?.kind === 'graph';
+    const canPasteLogic = clipboardPayload?.kind === 'graph';
     const items: ContextMenuItem[] = [
       {
         kind: 'item',
-        label: 'Copy layer',
+        label: t('tree.ctx.copyLayer'),
         onClick: () => void handleCopyLayer(),
       },
     ];
     if (canPasteLayer) {
       items.push({
         kind: 'item',
-        label: 'Paste layer as child',
+        label: t('tree.ctx.pasteLayerAsChild'),
         onClick: () => void handlePasteLayer(),
       });
     }
-    if (canPasteGraph) {
+    if (canPasteLogic) {
       items.push({
         kind: 'item',
-        label: 'Paste graph here',
-        onClick: () => void handlePasteGraphAtLayer(),
+        label: t('tree.ctx.pasteLogicHere'),
+        onClick: () => void handlePasteLogicAtLayer(),
       });
     }
     items.push(
       { kind: 'divider' },
       {
         kind: 'item',
-        label: 'Delete',
+        label: t('tree.ctx.delete'),
         onClick: () => void handleDelete(),
         danger: true,
       }
@@ -339,7 +344,11 @@ function LayerRow({
         </span>
         {layer.kind === 'camera_view' && (
           <button
-            title={locked3d ? 'Unlock 3D interaction' : 'Lock 3D interaction'}
+            title={
+              locked3d
+                ? t('tree.lock3dTitle_locked')
+                : t('tree.lock3dTitle_unlocked')
+            }
             style={{
               background: 'none',
               border: 'none',
@@ -357,7 +366,9 @@ function LayerRow({
           </button>
         )}
         <button
-          title={locked ? 'Unlock layer' : 'Lock layer (2D)'}
+          title={
+            locked ? t('tree.lockTitle_locked') : t('tree.lockTitle_unlocked')
+          }
           style={{
             background: 'none',
             border: 'none',
@@ -374,7 +385,7 @@ function LayerRow({
           {locked ? '🔒' : '🔓'}
         </button>
         <button
-          title={layer.visible ? 'Hide' : 'Show'}
+          title={layer.visible ? t('tree.hideTitle') : t('tree.showTitle')}
           style={{
             background: 'none',
             border: 'none',
@@ -391,7 +402,7 @@ function LayerRow({
           {layer.visible ? '👁' : '🙈'}
         </button>
         <button
-          title="Delete layer"
+          title={t('tree.deleteLayerTitle')}
           style={{
             background: 'none',
             border: 'none',
@@ -411,7 +422,7 @@ function LayerRow({
       {selected && (
         <>
           <ClipsSection owner={{ kind: 'layer', id: layer.id }} />
-          <GraphsSection owner={{ kind: 'layer', id: layer.id }} />
+          <LogicSection owner={{ kind: 'layer', id: layer.id }} />
         </>
       )}
       {children
@@ -446,6 +457,7 @@ function ComposeSceneRoot({
   scene: ComposeLayerRecord;
   projectId?: string;
 }) {
+  const { t } = useTranslation('compose');
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
   const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
   const composeLayers = useEditorStore((s) => s.composeLayers);
@@ -470,8 +482,7 @@ function ComposeSceneRoot({
     .sort((a, b) => b.sceneOrder - a.sceneOrder);
 
   const handleDeleteScene = async () => {
-    if (!confirm(`Delete compose scene "${scene.name}" and all its layers?`))
-      return;
+    if (!confirm(t('tree.deleteSceneConfirm', { name: scene.name }))) return;
     useEditorStore.getState().removeComposeScene(scene.id);
     await api.deleteComposeLayer(scene.id).catch(() => {});
   };
@@ -549,7 +560,7 @@ function ComposeSceneRoot({
             href={`/viewer/${projectId}/compose/${scene.id}`}
             target="_blank"
             rel="noreferrer"
-            title="Open broadcast viewer"
+            title={t('tree.openBroadcastViewer')}
             style={{
               color: '#555',
               fontSize: 12,
@@ -564,7 +575,7 @@ function ComposeSceneRoot({
           </a>
         )}
         <button
-          title="Delete compose scene"
+          title={t('tree.deleteSceneTitle')}
           style={{
             background: 'none',
             border: 'none',
@@ -592,7 +603,7 @@ function ComposeSceneRoot({
               fontStyle: 'italic',
             }}
           >
-            No layers
+            {t('tree.noLayers')}
           </div>
         ) : (
           roots.map((l) => (
@@ -611,6 +622,8 @@ function ComposeSceneRoot({
 // ---- Main -------------------------------------------------------------------
 
 export function ComposeTree() {
+  const { t } = useTranslation('compose');
+  const prompt = usePrompt();
   const { projectId } = useParams<{ projectId: string }>();
   const composeScenes = useEditorStore((s) => s.composeScenes);
   const addComposeScene = useEditorStore((s) => s.addComposeScene);
@@ -618,7 +631,11 @@ export function ComposeTree() {
 
   const handleNewComposeScene = async () => {
     if (!projectId) return;
-    const name = window.prompt('Compose scene name:', 'Output');
+    const name = await prompt({
+      title: t('tree.promptName'),
+      defaultValue: t('tree.promptDefault'),
+      confirmLabel: t('common:actions.create'),
+    });
     if (!name?.trim()) return;
     try {
       const created = await api.createComposeScene(projectId, {
@@ -627,7 +644,7 @@ export function ComposeTree() {
       addComposeScene(created);
       selectComposeScene(created.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create compose scene');
+      alert(e instanceof Error ? e.message : t('tree.errors.createFailed'));
     }
   };
 
@@ -659,14 +676,15 @@ export function ComposeTree() {
             letterSpacing: 0.5,
           }}
         >
-          Compose Scenes
+          {t('tree.header')}
         </span>
+        <HelpButton topic="compose" anchor="overview" tip={t('help.compose')} />
         <button
           style={addBtn}
           onClick={handleNewComposeScene}
-          title="New compose scene"
+          title={t('tree.newSceneTitle')}
         >
-          + Scene
+          {t('tree.newScene')}
         </button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
@@ -680,9 +698,9 @@ export function ComposeTree() {
               lineHeight: 1.5,
             }}
           >
-            No compose scenes yet.
+            {t('tree.emptyScenes')}
             <br />
-            Click + Scene to create one.
+            {t('tree.emptyScenesCta')}
           </div>
         ) : (
           composeScenes.map((scene) => (

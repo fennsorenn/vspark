@@ -12,7 +12,7 @@ import type { Blendshapes } from '@vspark/shared/signal';
   label: 'Lipsync Source',
   description:
     'Entry point for viseme weights pushed from the browser mic analyser. Fired by LipsyncManager on each analysis frame.',
-  tags: ['input'],
+  tags: ["input"],
   color: '#4a7a5a',
   internal: true,
 })

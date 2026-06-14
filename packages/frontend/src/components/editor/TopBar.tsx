@@ -1,24 +1,53 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
-import { api } from '../../api/client';
+import { useConnectionsStore } from '../../store/connectionsStore';
+import { api, getConnectionStatus, getConnectionPeers } from '../../api/client';
+import { useTranslation } from 'react-i18next';
 import { MediaInputWindow } from '../MediaInputWindow';
+import { ConnectionsWindow } from '../ConnectionsWindow';
 import { UpdateDialog } from './UpdateDialog';
 import { OverliveAccountsModal } from './OverliveAccountsModal';
+import { LanguageSwitcher } from '../LanguageSwitcher';
+import { HelpButton } from '../../help/HelpButton';
 
 export function TopBar() {
   const navigate = useNavigate();
-  const {
-    projectId,
-    projectName,
-    updateAvailable,
-    setUpdateAvailable,
-  } = useEditorStore();
+  const { t } = useTranslation('topbar');
+  const { projectId, projectName, updateAvailable, setUpdateAvailable } =
+    useEditorStore();
   const [connected, setConnected] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [mediaMounted, setMediaMounted] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [connectionsMounted, setConnectionsMounted] = useState(false);
+  const mpConnectedIds = useConnectionsStore((s) => s.connectedIds);
+  const mpNameById = useConnectionsStore((s) => s.nameById);
+  const mpIncoming = useConnectionsStore((s) => s.incoming);
+  const setMpMeta = useConnectionsStore((s) => s.setMeta);
+  const setMpPeers = useConnectionsStore((s) => s.setPeers);
+
+  // Seed multiplayer state so the button reflects connections without opening
+  // the window (WS mp_* events keep it live afterwards).
+  useEffect(() => {
+    void getConnectionStatus()
+      .then((st) => {
+        setMpMeta({
+          enabled: st.enabled,
+          status: st.status,
+          identityPeerId: st.peerId,
+        });
+        if (st.enabled)
+          void getConnectionPeers()
+            .then(setMpPeers)
+            .catch(() => {});
+      })
+      .catch(() => {});
+  }, [setMpMeta, setMpPeers]);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
+  // Anchor the Updates popover under whichever control opened it.
+  const updateAnchorRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const ws = new WebSocket(
@@ -81,7 +110,7 @@ export function TopBar() {
         </button>
         <span style={{ color: '#444' }}>|</span>
         <span style={{ color: '#e0e0e0', fontWeight: 500 }}>
-          {projectName || 'Loading…'}
+          {projectName || t('loading')}
         </span>
 
         {/* Spacer */}
@@ -106,9 +135,74 @@ export function TopBar() {
               setMediaOpen((v) => !v);
               setMediaMounted(true);
             }}
-            title="Media Inputs (mic / camera)"
+            title={t('media.title')}
           >
-            🎤 Media
+            🎤 {t('media.label')}
+          </button>
+          <button
+            style={{
+              position: 'relative',
+              background: connectionsOpen ? '#1a2a3a' : '#2a2a2a',
+              border: `1px solid ${connectionsOpen ? '#60a5fa' : '#3a3a3a'}`,
+              color: connectionsOpen ? '#60a5fa' : '#ccc',
+              borderRadius: 5,
+              padding: '3px 10px',
+              cursor: 'pointer',
+              fontSize: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+            onClick={() => {
+              setConnectionsOpen((v) => !v);
+              setConnectionsMounted(true);
+            }}
+            title={
+              mpConnectedIds.length > 0
+                ? mpConnectedIds
+                    .map((id) => mpNameById[id] || id.slice(0, 8))
+                    .join('\n')
+                : t('connections.none')
+            }
+          >
+            {/* chain icon tinted by connection status: green = ≥1 connected */}
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke={mpConnectedIds.length > 0 ? '#4ade80' : '#888'}
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
+              <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
+            </svg>
+            {t('connections.label')}
+            {mpIncoming.length > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: -6,
+                  right: -6,
+                  minWidth: 16,
+                  height: 16,
+                  padding: '0 4px',
+                  borderRadius: 8,
+                  background: '#ef4444',
+                  color: '#fff',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {mpIncoming.length}
+              </span>
+            )}
           </button>
           <button
             style={{
@@ -122,7 +216,7 @@ export function TopBar() {
             onClick={() =>
               projectId && window.open(`/media-input/${projectId}`, '_blank')
             }
-            title="Open Media Input in new tab"
+            title={t('media.openNewTab')}
           >
             ↗
           </button>
@@ -136,7 +230,7 @@ export function TopBar() {
             }}
           >
             <span style={{ fontSize: 10 }}>{connected ? '●' : '○'}</span>
-            {connected ? 'Connected' : 'Disconnected'}
+            {connected ? t('status.connected') : t('status.disconnected')}
           </div>
           <button
             style={{
@@ -149,9 +243,9 @@ export function TopBar() {
               fontSize: 12,
             }}
             onClick={() => setAccountsOpen(true)}
-            title="Stream accounts (Twitch / StreamElements)"
+            title={t('accounts.title')}
           >
-            🟣 Accounts
+            🟣 {t('accounts.label')}
           </button>
           {updateAvailable && (
             <button
@@ -165,12 +259,13 @@ export function TopBar() {
                 cursor: 'pointer',
                 fontSize: 12,
               }}
-              title="An update is available"
+              title={t('update.availableTitle')}
             >
-              ↑ Update
+              ↑ {t('update.label')}
             </button>
           )}
           <button
+            ref={updateAnchorRef}
             onClick={() => setUpdateOpen(true)}
             style={{
               background: 'none',
@@ -180,14 +275,22 @@ export function TopBar() {
               fontSize: 11,
               padding: '0 2px',
             }}
-            title="Updates & release channel"
+            title={t('update.settingsTitle')}
           >
-            ⚙ ver
+            ⚙ {t('update.versionLabel')}
           </button>
+          <LanguageSwitcher compact />
+          <HelpButton topic="overview" tip={t('help.tip')} size={18} />
         </div>
       </div>
       {mediaMounted && <MediaInputWindow visible={mediaOpen} />}
-      {updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}
+      {connectionsMounted && <ConnectionsWindow visible={connectionsOpen} />}
+      {updateOpen && (
+        <UpdateDialog
+          onClose={() => setUpdateOpen(false)}
+          anchorRef={updateAnchorRef}
+        />
+      )}
       {accountsOpen && (
         <OverliveAccountsModal onClose={() => setAccountsOpen(false)} />
       )}

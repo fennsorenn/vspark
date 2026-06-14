@@ -21,7 +21,7 @@ interface UnpackState {
   label: 'Unpack Event',
   description:
     'Split an event into a trigger plus one pull output per payload field. Falls back to a single value output for non-record payloads.',
-  tags: ['utility'],
+  tags: ["utility"],
   color: '#3a3a5a',
 })
 export class UnpackEvent extends Node {

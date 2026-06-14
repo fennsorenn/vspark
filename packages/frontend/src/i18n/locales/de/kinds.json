@@ -1,0 +1,59 @@
+{
+  "node": {
+    "group": "Gruppe",
+    "avatar": "Avatar",
+    "model": "Modell",
+    "prop": "Requisite",
+    "light_point": "Punktlicht",
+    "light_directional": "Gerichtetes Licht",
+    "camera": "Kamera",
+    "godray_caster": "Lichtstrahlen",
+    "particle": "Partikel",
+    "billboard": "Billboard",
+    "video": "Video",
+    "audio_simple": "Audio (einfach)",
+    "audio_directional": "Audio (räumlich)",
+    "text_troika": "Einfacher Text",
+    "text_canvas": "Rich-Text",
+    "feed": "Feed (3D-Datenoverlay)"
+  },
+  "layer": {
+    "camera_view": "Kameraansicht",
+    "scene_include": "Szene einbinden",
+    "image": "Bild",
+    "video": "Video",
+    "audio": "Audio",
+    "browser": "Browser",
+    "text": "Text",
+    "feed": "Feed",
+    "group": "Gruppe"
+  },
+  "effect": {
+    "fx_tone_mapping": { "label": "Tone Mapping", "description": "Steuert, wie HDR-Werte auf die Anzeige abgebildet werden" },
+    "fx_brightness_contrast": { "label": "Helligkeit / Kontrast", "description": "Passt Gesamthelligkeit und Kontrast an" },
+    "fx_hue_saturation": { "label": "Farbton / Sättigung", "description": "Verschiebt den Farbton und skaliert die Farbsättigung" },
+    "fx_sepia": { "label": "Sepia", "description": "Warmer bräunlicher Filmlook" },
+    "fx_bloom": { "label": "Bloom", "description": "Leuchtende Lichter strahlen aus hellen Bereichen" },
+    "fx_depth_of_field": { "label": "Tiefenschärfe", "description": "Bokeh-Unschärfe außerhalb der Schärfeebene" },
+    "fx_chromatic_aberration": { "label": "Chromatische Aberration", "description": "RGB-Farbsäume an Kanten, wie bei einer echten Linse" },
+    "fx_ssao": { "label": "Umgebungsverdeckung", "description": "Bildschirmbasierte Kontaktschatten in Vertiefungen" },
+    "fx_outline": { "label": "Kantenkontur", "description": "Konturen durch Tiefenpuffer-Kantenerkennung" },
+    "fx_vignette": { "label": "Vignette", "description": "Abgedunkelte Ränder rund um das Bild" },
+    "fx_noise": { "label": "Rauschen", "description": "Filmkorn-Overlay" },
+    "fx_scanline": { "label": "Scanline", "description": "CRT-Zeilen-Overlay" },
+    "fx_pixelation": { "label": "Pixelierung", "description": "Retro-Pixel-Look" },
+    "fx_ascii": { "label": "ASCII", "description": "Stellt die Szene als ASCII-Zeichen dar" },
+    "fx_dot_screen": { "label": "Punktraster", "description": "Halbton-Punktmuster-Overlay" },
+    "fx_glitch": { "label": "Glitch", "description": "Digitale Glitch-Verzerrung" },
+    "fx_smaa": { "label": "SMAA", "description": "Subpixel-morphologisches Antialiasing" },
+    "fx_tilt_shift": { "label": "Tilt-Shift", "description": "Miniatur-/Tilt-Shift-Unschärfe" },
+    "fx_water": { "label": "Wasser", "description": "Wellenartige Wasserverzerrung" }
+  },
+  "behavior": {
+    "vmc_receiver": { "label": "VMC-Empfänger", "description": "Empfängt Motion-Capture-Daten von RhyLive oder einer beliebigen VMC-kompatiblen App über UDP." },
+    "breathing": { "label": "Atmung", "description": "Fügt Brust- und Wirbelsäulenknochen prozedurale Atembewegung mittels eines Sinus-Oszillators hinzu." },
+    "lipsync_processor": { "label": "Lippensynchronisation", "description": "Empfängt Mikrofon-Visemgewichte vom Browser und steuert VRM-Blendshapes in Echtzeit." },
+    "mediapipe_tracker": { "label": "MediaPipe-Tracking", "description": "Empfängt Gesichts-, Hand- und Körperhaltungs-Landmarken von der Browser-Kamera und steuert VRM-Knochen und -Blendshapes in Echtzeit." },
+    "api_controller": { "label": "API-Controller", "description": "Steuert den Avatar per REST: Animationen und Blendshape-Mimik setzen oder einreihen." }
+  }
+}

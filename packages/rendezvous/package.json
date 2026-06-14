@@ -1,0 +1,22 @@
+{
+  "name": "@vspark/rendezvous",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Public signaling + presence + pairing + TURN-credential service for vspark multiplayer (Phase 5).",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

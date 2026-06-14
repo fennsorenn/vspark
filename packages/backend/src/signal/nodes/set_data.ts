@@ -30,7 +30,7 @@ interface SetDataConfig {
   label: 'Set Data',
   description:
     'Publishes named fields (one per labeled input) to the data-channel bus for the feed/template layer. Optional scope targets a single layer/node.',
-  tags: ['output', 'compose'],
+  tags: ["scene"],
   color: '#3a7a5a',
 })
 export class SetData extends Node {

@@ -14,7 +14,7 @@ type LandmarkList = SignalTypeMap['LandmarkList'];
   label: 'MediaPipe Source',
   description:
     'Entry point for MediaPipe Holistic landmark data pushed from the browser camera. Fired by TrackingManager for each frame.',
-  tags: ['input'],
+  tags: ["input"],
   color: '#4a5a8a',
   internal: true,
 })

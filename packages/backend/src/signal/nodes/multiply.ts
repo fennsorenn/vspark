@@ -6,7 +6,7 @@ import { valueIn, valueOut } from '@vspark/shared/node_decorators';
   label: 'Multiply',
   description:
     'Outputs a × b. Either input can be a literal (set on the unconnected handle) or come from another node.',
-  tags: ['math'],
+  tags: ["math"],
   color: '#4a7a5a',
 })
 export class Multiply extends Node {

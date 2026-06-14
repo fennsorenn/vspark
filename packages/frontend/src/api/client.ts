@@ -47,7 +47,7 @@ function normalizeFilePath(raw: unknown): string | null {
 function mapNode(
   r: Record<string, unknown>,
   rootSceneNodeId?: string
-): NodeRecord {
+): StageObject {
   const components =
     typeof r.components === 'string'
       ? JSON.parse(r.components as string)
@@ -172,9 +172,12 @@ export interface NodeProperties {
   /** VRM avatar: per-material shader/param overrides (MToon ⇄ PBR), keyed by a
    *  stable material identity. See components/editor/materialOverrides.ts. */
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
+  /** Avatar animation config. `idle` is the content-addressed base loop
+   *  (animation_clip id + speed); the scheduled timeline layers over it. */
+  animation?: { idle?: { clipId: string; speed: number } };
 }
 
-export interface NodeRecord {
+export interface StageObject {
   id: string;
   rootSceneNodeId: string;
   projectId: string;
@@ -200,7 +203,7 @@ export interface AssetFile {
   kind: AssetKind;
 }
 
-export interface NodeComponentRecord {
+export interface BehaviorRecord {
   id: string;
   nodeId: string;
   kind: string;
@@ -326,7 +329,7 @@ export const updateProject = (id: string, name: string, description?: string) =>
     body: JSON.stringify({ name, description }),
   });
 
-function mapNodeComponent(r: Record<string, unknown>): NodeComponentRecord {
+export function mapBehavior(r: Record<string, unknown>): BehaviorRecord {
   return {
     id: r.id as string,
     nodeId: (r.node_id ?? r.nodeId ?? '') as string,
@@ -473,12 +476,12 @@ export function mapComposeLayer(
   };
 }
 
-// Scenes — backend returns { scenes, nodes, nodeComponents, cameraEffects, composeLayers, trackClips }
+// Scenes — backend returns { scenes, nodes, behaviors, cameraEffects, composeLayers, trackClips }
 export const getScenes = (projectId: string) =>
   request<{
     scenes: Record<string, unknown>[];
     nodes: Record<string, unknown>[];
-    nodeComponents?: Record<string, unknown>[];
+    behaviors?: Record<string, unknown>[];
     cameraEffects?: Record<string, unknown>[];
     composeLayers?: Record<string, unknown>[];
     trackClips?: Record<string, unknown>[];
@@ -486,14 +489,14 @@ export const getScenes = (projectId: string) =>
     ({
       scenes,
       nodes,
-      nodeComponents,
+      behaviors,
       cameraEffects,
       composeLayers,
       trackClips,
     }) => ({
       scenes: scenes.map(mapScene),
       nodes: nodes.map((n) => mapNode(n)),
-      nodeComponents: (nodeComponents ?? []).map(mapNodeComponent),
+      behaviors: (behaviors ?? []).map(mapBehavior),
       cameraEffects: (cameraEffects ?? []).map(mapCameraEffect),
       composeLayers: (composeLayers ?? []).map(mapComposeLayer),
       trackClips: (trackClips ?? []).map(mapTrackClip),
@@ -526,9 +529,23 @@ export const getNodes = (sceneId: string) =>
     rows.map((r) => mapNode(r, sceneId))
   );
 
+/** Phase 6: a registered hook that diverts edits of a *writable remote* node to
+ *  its owner over the mesh instead of this server's REST API. Returns true if it
+ *  handled the op (REST is then skipped). Keeps api/client decoupled from the
+ *  stores + mesh modules; set at startup, null when remote-edit isn't active. */
+export type RemoteWriteRouter = (
+  op: 'update' | 'delete',
+  id: string,
+  data?: Partial<Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>>
+) => boolean;
+let remoteWriteRouter: RemoteWriteRouter | null = null;
+export function setRemoteWriteRouter(r: RemoteWriteRouter | null): void {
+  remoteWriteRouter = r;
+}
+
 export const createNode = (
   sceneId: string,
-  data: Omit<NodeRecord, 'id' | 'rootSceneNodeId' | 'projectId'>
+  data: Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>
 ) =>
   request<Record<string, unknown>>(`/scenes/${sceneId}/nodes`, {
     method: 'POST',
@@ -545,8 +562,9 @@ export const createNode = (
 
 export const updateNode = (
   id: string,
-  data: Partial<Omit<NodeRecord, 'id' | 'rootSceneNodeId' | 'projectId'>>
+  data: Partial<Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>>
 ) => {
+  if (remoteWriteRouter?.('update', id, data)) return Promise.resolve();
   const body: Record<string, unknown> = {};
   if (data.name !== undefined) body.name = data.name;
   if (data.parentId !== undefined) body.parentId = data.parentId;
@@ -565,7 +583,9 @@ export const updateNode = (
 };
 
 export const deleteNode = (id: string) =>
-  request<void>(`/scene-nodes/${id}`, { method: 'DELETE' });
+  remoteWriteRouter?.('delete', id)
+    ? Promise.resolve()
+    : request<void>(`/scene-nodes/${id}`, { method: 'DELETE' });
 
 // Assets
 export const getAssets = (projectId: string) =>
@@ -603,11 +623,11 @@ export const deleteAsset = (id: string) =>
   request<void>(`/assets/${id}`, { method: 'DELETE' });
 
 // Node Components
-export const createNodeComponent = (
+export const createBehavior = (
   nodeId: string,
-  comp: Omit<NodeComponentRecord, 'nodeId'>
+  comp: Omit<BehaviorRecord, 'nodeId'>
 ) =>
-  request<Record<string, unknown>>(`/scene-nodes/${nodeId}/components`, {
+  request<Record<string, unknown>>(`/scene-nodes/${nodeId}/behaviors`, {
     method: 'POST',
     body: JSON.stringify({
       id: comp.id,
@@ -615,19 +635,19 @@ export const createNodeComponent = (
       enabled: comp.enabled,
       config: comp.config,
     }),
-  }).then(mapNodeComponent);
+  }).then(mapBehavior);
 
-export const updateNodeComponent = (
+export const updateBehavior = (
   id: string,
   patch: { enabled?: boolean; config?: Record<string, unknown> }
 ) =>
-  request<void>(`/node-components/${id}`, {
+  request<void>(`/behaviors/${id}`, {
     method: 'PUT',
     body: JSON.stringify(patch),
   });
 
-export const deleteNodeComponent = (id: string) =>
-  request<void>(`/node-components/${id}`, { method: 'DELETE' });
+export const deleteBehavior = (id: string) =>
+  request<void>(`/behaviors/${id}`, { method: 'DELETE' });
 
 // Camera Effects
 export const createCameraEffect = (
@@ -868,9 +888,9 @@ export const getLocalIps = () =>
 
 /** Returns the uncalibrated NormalizedPose at the body_calibration node's
  *  input for this component.  Bone keys are VRMBoneNames. */
-export const getBodyCalibState = (componentId: string) =>
+export const getBodyCalibState = (behaviorId: string) =>
   request<{ bones: Record<string, [number, number, number, number]> }>(
-    `/node-components/${componentId}/body-calib-state`
+    `/behaviors/${behaviorId}/body-calib-state`
   ).then((d) => d.bones);
 
 export const getSignalGraphs = () =>
@@ -879,7 +899,7 @@ export const getSignalGraphs = () =>
 export const getSignalNodeKinds = () =>
   request<import('@vspark/shared/signal').NodeKindMeta[]>('/signal/node-kinds');
 
-export interface ComponentKindMeta {
+export interface BehaviorKindMeta {
   kind: string;
   label: string;
   icon: string;
@@ -888,8 +908,8 @@ export interface ComponentKindMeta {
   defaultConfig: Record<string, unknown>;
 }
 
-export const getComponentKinds = () =>
-  request<ComponentKindMeta[]>('/component-kinds');
+export const getBehaviorKinds = () =>
+  request<BehaviorKindMeta[]>('/behavior-kinds');
 
 // Update / config
 export const getUpdateStatus = () =>
@@ -927,24 +947,24 @@ export const fireSignalEvent = (
 
 // ─── Project graphs ──────────────────────────────────────────────────────────
 
-export const getProjectGraphs = (projectId: string) =>
-  request<GraphRecord[]>(`/projects/${projectId}/graphs`);
+export const getProjectLogic = (projectId: string) =>
+  request<LogicRecord[]>(`/projects/${projectId}/logic`);
 
-export const createProjectGraph = (projectId: string, name: string) =>
-  request<GraphRecord>(`/projects/${projectId}/graphs`, {
+export const createProjectLogic = (projectId: string, name: string) =>
+  request<LogicRecord>(`/projects/${projectId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
 
 /** A scene-node- or compose-layer-scoped graph, tagged with its owner's
  *  display name for listing in the Graphs panel's Scoped section. */
-export interface ScopedGraphRecord extends GraphRecord {
+export interface ScopedLogicRecord extends LogicRecord {
   ownerName: string;
   ownerNodeKind?: string;
 }
 
-export const getProjectScopedGraphs = (projectId: string) =>
-  request<ScopedGraphRecord[]>(`/projects/${projectId}/scoped-graphs`);
+export const getProjectScopedLogic = (projectId: string) =>
+  request<ScopedLogicRecord[]>(`/projects/${projectId}/scoped-logic`);
 
 // ─── Overlive: app credentials ───────────────────────────────────────────────
 
@@ -1130,7 +1150,7 @@ export interface PresetRecord extends PresetSummary {
   payload: unknown;
 }
 
-export interface GraphRecord {
+export interface LogicRecord {
   id: string;
   ownerKind: string;
   ownerId: string;
@@ -1222,27 +1242,27 @@ export const instantiatePreset = (
 
 /** Generic graph fetch by id — works for any owner kind. Used by the canvas
  *  so it can open a graph without first knowing its scope. */
-export const getGraph = (id: string) => request<GraphRecord>(`/graphs/${id}`);
+export const getLogic = (id: string) => request<LogicRecord>(`/logic/${id}`);
 
-export const getNodeGraphs = (nodeId: string) =>
-  request<GraphRecord[]>(`/scene-nodes/${nodeId}/graphs`);
+export const getNodeLogic = (nodeId: string) =>
+  request<LogicRecord[]>(`/scene-nodes/${nodeId}/logic`);
 
-export const createNodeGraph = (nodeId: string, name: string) =>
-  request<GraphRecord>(`/scene-nodes/${nodeId}/graphs`, {
+export const createNodeLogic = (nodeId: string, name: string) =>
+  request<LogicRecord>(`/scene-nodes/${nodeId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
 
-export const getLayerGraphs = (layerId: string) =>
-  request<GraphRecord[]>(`/compose-layers/${layerId}/graphs`);
+export const getLayerLogic = (layerId: string) =>
+  request<LogicRecord[]>(`/compose-layers/${layerId}/logic`);
 
-export const createLayerGraph = (layerId: string, name: string) =>
-  request<GraphRecord>(`/compose-layers/${layerId}/graphs`, {
+export const createLayerLogic = (layerId: string, name: string) =>
+  request<LogicRecord>(`/compose-layers/${layerId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
 
-export const updateGraph = (
+export const updateLogic = (
   id: string,
   patch: Partial<{
     name: string;
@@ -1250,13 +1270,13 @@ export const updateGraph = (
     descriptor: import('@vspark/shared/signal').GraphDescriptor;
   }>
 ) =>
-  request<GraphRecord>(`/graphs/${id}`, {
+  request<LogicRecord>(`/logic/${id}`, {
     method: 'PUT',
     body: JSON.stringify(patch),
   });
 
-export const deleteGraph = (id: string) =>
-  request<Record<string, never>>(`/graphs/${id}`, { method: 'DELETE' });
+export const deleteLogic = (id: string) =>
+  request<Record<string, never>>(`/logic/${id}`, { method: 'DELETE' });
 
 export const api = {
   getUpdateStatus,
@@ -1279,9 +1299,9 @@ export const api = {
   getAssets,
   uploadAsset,
   deleteAsset,
-  createNodeComponent,
-  updateNodeComponent,
-  deleteNodeComponent,
+  createBehavior,
+  updateBehavior,
+  deleteBehavior,
   createCameraEffect,
   updateCameraEffect,
   deleteCameraEffect,
@@ -1314,10 +1334,10 @@ export const api = {
   getSignalNodeKinds,
   getSignalGraphStates,
   fireSignalEvent,
-  getComponentKinds,
-  getProjectGraphs,
-  createProjectGraph,
-  getProjectScopedGraphs,
+  getBehaviorKinds,
+  getProjectLogic,
+  createProjectLogic,
+  getProjectScopedLogic,
   getOverliveAppCredentials,
   createOverliveAppCredential,
   updateOverliveAppCredential,
@@ -1337,11 +1357,167 @@ export const api = {
   deletePreset,
   serializePreset,
   instantiatePreset,
-  getGraph,
-  getNodeGraphs,
-  createNodeGraph,
-  getLayerGraphs,
-  createLayerGraph,
-  updateGraph,
-  deleteGraph,
+  getLogic,
+  getNodeLogic,
+  createNodeLogic,
+  getLayerLogic,
+  createLayerLogic,
+  updateLogic,
+  deleteLogic,
 };
+
+// --- Multiplayer / connections (Phase 5) -----------------------------------
+
+export interface ConnectionIdentity {
+  peerId: string;
+  publicKey: string;
+}
+export interface ConnectionStatus {
+  enabled: boolean;
+  status: 'idle' | 'connecting' | 'ready' | 'closed';
+  peerId: string | null;
+  connected: string[];
+}
+export interface ConnectionPeer {
+  peerId: string;
+  publicKey: string;
+  displayName: string;
+  pairedAt: string;
+  lastSeen: string | null;
+  blocked: boolean;
+  sessionGranted: boolean;
+  connected: boolean;
+}
+
+export const getConnectionIdentity = () =>
+  request<ConnectionIdentity>('/connections/identity');
+export const getConnectionStatus = () =>
+  request<ConnectionStatus>('/connections/status');
+export const getConnectionPeers = () =>
+  request<ConnectionPeer[]>('/connections/peers');
+export const pairCreate = () =>
+  request<{ code: string }>('/connections/pair/create', { method: 'POST' });
+export const pairJoin = (code: string) =>
+  request<ConnectionPeer>('/connections/pair/join', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+export const peerConnect = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/connect`, {
+    method: 'POST',
+  });
+export const peerDisconnect = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/disconnect`, {
+    method: 'POST',
+  });
+export const peerAccept = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/accept`, {
+    method: 'POST',
+  });
+export const peerReject = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/reject`, {
+    method: 'POST',
+  });
+export const peerUpdate = (
+  peerId: string,
+  patch: { displayName?: string; blocked?: boolean }
+) =>
+  request<ConnectionPeer>(`/connections/peers/${peerId}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+export const peerRemove = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}`, {
+    method: 'DELETE',
+  });
+
+export const getConnectionDisplayName = (projectId: string) =>
+  request<{ displayName: string }>(`/connections/display-name/${projectId}`);
+export const setConnectionDisplayName = (projectId: string, name: string) =>
+  request<{ displayName: string }>(`/connections/display-name/${projectId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  });
+
+// --- object sharing --------------------------------------------------------
+
+/** Peer ids (and maybe '*') an object is currently shared with. */
+export const getObjectGrantees = (objectId: string) =>
+  request<string[]>(`/connections/objects/${objectId}/grantees`);
+/** Grant a peer ('*' = everyone) access to one of my objects. */
+export const shareObject = (
+  objectId: string,
+  granteePeerId: string,
+  shareKind: 'object' | 'scene' = 'object',
+  canWrite = false
+) =>
+  request<{ grantees: string[] }>(`/connections/objects/${objectId}/share`, {
+    method: 'POST',
+    body: JSON.stringify({ granteePeerId, shareKind, canWrite }),
+  });
+/** Revoke a peer's ('*' = everyone) access to one of my objects. */
+export const unshareObject = (objectId: string, granteePeerId: string) =>
+  request<{ grantees: string[] }>(`/connections/objects/${objectId}/unshare`, {
+    method: 'POST',
+    body: JSON.stringify({ granteePeerId }),
+  });
+/** Receiver: subscribe to (place) a peer's shared object. The backend always
+ *  arms the mesh document subscription; `streams=false` skips the legacy
+ *  stream/asset relay (the tab serves those itself over a direct edge). */
+export const peerSubscribe = (peerId: string, objectId: string, streams = true) =>
+  request<{ peerId: string; objectId: string }>(
+    `/connections/peers/${peerId}/subscribe`,
+    { method: 'POST', body: JSON.stringify({ objectId, streams }) }
+  );
+/** Receiver: unsubscribe from (remove) a peer's shared object. */
+export const peerUnsubscribe = (peerId: string, objectId: string) =>
+  request<{ peerId: string; objectId: string }>(
+    `/connections/peers/${peerId}/unsubscribe`,
+    { method: 'POST', body: JSON.stringify({ objectId }) }
+  );
+
+// --- collaborative scene sharing (peer-to-peer, persisted on both) ---------
+
+/** Owner: offer a scene for collaborative editing (both peers persist + edit). */
+export const shareCollabScene = (sceneId: string, granteePeerId: string) =>
+  request<{ sceneId: string; granteePeerId: string }>(
+    `/connections/scenes/${sceneId}/share-collab`,
+    { method: 'POST', body: JSON.stringify({ granteePeerId }) }
+  );
+/** Owner: everything this server currently shares with others. */
+export interface SharedByMe {
+  objectId: string;
+  name: string;
+  shareKind: 'object' | 'scene';
+  grantees: string[];
+}
+export const getSharedByMe = () =>
+  request<SharedByMe[]>('/connections/shares');
+/** Owner: stop sharing an object/scene with everyone. */
+export const unshareAllObject = (objectId: string) =>
+  request<{ objectId: string }>(
+    `/connections/objects/${objectId}/unshare-all`,
+    { method: 'POST' }
+  );
+/** Collab-scene links (sceneId + peer + author/mounted role) for the chain badge. */
+export interface CollabSceneLink {
+  sceneId: string;
+  peerId: string;
+  role: 'author' | 'mounted';
+}
+export const getCollabScenes = () =>
+  request<CollabSceneLink[]>('/connections/collab-scenes');
+
+/** Receiver: mount an offered collaborative scene into a local project. */
+export const mountCollabScene = (
+  ownerPeerId: string,
+  sceneId: string,
+  projectId: string
+) =>
+  request<{ ownerPeerId: string; sceneId: string; projectId: string }>(
+    `/connections/collab/mount`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ ownerPeerId, sceneId, projectId }),
+    }
+  );

@@ -1,0 +1,141 @@
+# Sync Layer (unified state-replication)
+
+> **Status: Legacy layer; core refactored into `@vspark/mesh`.** The unified envelope design lives on in the mesh package's API (collections, channels, HLC, acks). **REST write-through is complete** (commits 768ea2d–86a6e8c): all five mutation rtypes now write through `collection.set/remove`; `sync.document` is emitted by the `onCommitted` tap, not the routes. The legacy bridge's remaining role is read-side: `sync.document` callers that still emit directly (template bulk creation, preset instantiation) mirror into the mesh via the bridge. Frontend bindings (Zustand → mesh-react) remain pending. See [mesh.md](mesh.md) and [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the target design and integration roadmap. Content below documents the current implementation for reference.
+
+**Status: Phases 0–2 + 4 implemented; Phase 3 API-surface-only; field-fold / live-stream migration / manager-fold deferred.**
+
+A single abstraction for all replicated state — replacing the per-entity pattern of "one backend `broadcast` call + one frontend `else if` branch + duplicated snake↔camel mappers". Adding a syncable thing becomes **one descriptor (backend) + one binding (frontend)**. Designed to extend to server-to-server replication later without reworking producers/consumers.
+
+Coexists with the legacy bespoke WS message kinds during the migration: anything not yet registered keeps riding its old message. See the design docs [unified-sync-layer.md](../plans/unified-sync-layer.md) and [unified-sync-layer-diagrams.md](../plans/unified-sync-layer-diagrams.md).
+
+## Resource classes
+
+A resource declares one of four **delivery classes** (`ResourceClass` in `packages/shared/src/sync.ts`):
+
+| Class      | Ops                 | Persisted    | Snapshot                       | HLC | Use                                                                                  |
+| ---------- | ------------------- | ------------ | ------------------------------ | --- | ------------------------------------------------------------------------------------ |
+| `document` | `upsert` / `remove` | yes (SQLite) | (via REST load on mount today) | yes | CRUD entities — scene nodes, behaviors, camera effects, compose layers, track clips  |
+| `field`    | `patch` / `remove`  | optional     | yes (planned)                  | yes | overlay/override params (runtime overrides, data channels) — **not yet implemented** |
+| `stream`   | `frame`             | no           | no                             | no  | high-frequency lossy frames (pose, blendshapes, IK) — **API surface only**           |
+| `event`    | `event`             | no           | no                             | no  | fire-and-forget commands (media control)                                             |
+
+## The envelope
+
+One wire shape for everything (`SyncEnvelope`), wrapped in a single WS message kind `SYNC_MESSAGE_KIND = 'sync'`:
+
+```ts
+interface SyncEnvelope {
+  rtype: string; // resource type, e.g. 'scene_node'
+  op: SyncOp; // upsert | remove | patch | frame | event
+  scope?: string; // routing key for selective fan-out + snapshot grouping (e.g. sceneId)
+  key: string; // entity id, composite field key, or stream key
+  data?: unknown; // canonical DTO / value / frame (omitted for remove)
+  v?: HLC; // ordering/convergence stamp (documents/fields; omitted for streams)
+  origin?: string; // originating peer id — echo + loop suppression
+}
+```
+
+## Dotted-path addressing
+
+A value's identity is `<rtype>:<id>[:<subPath>]`. The first two `:`-segments are the identity (rtype + UUID id, both dot-free); an optional dotted sub-path (a paramPath like `position.x`) follows. Dots live **only** inside the sub-path, so splitting is unambiguous. Helpers in `sync.ts`:
+
+- `makeKey(rtype, id, subPath?)` / `parseKey(key)` — build/split addresses.
+- `keyMatches(key, prefix)` — prefix-subscription match for selective fan-out. `''`/`'*'`/`'**'` match everything; a trailing `.*`/`.**`/`*` means "this segment and below"; plain prefixes match on `:`/`.` boundaries so `scene_node:ab` doesn't match `scene_node:abc`.
+
+It's a string convention, not a query engine.
+
+## Backend — producer hub + registry
+
+`packages/backend/src/sync/`:
+
+- **`registry.ts`** — `defineResource(descriptor)` / `getResource(rtype)`. A `ResourceDescriptor` is the **only** place vspark-specific knowledge lives:
+  - `rtype`, `cls` (the resource class)
+  - `scope?(dto)` — routing scope (e.g. `rootSceneNodeId`); `undefined` = global fan-out
+  - `load?(id)` — document only: read the row and map it to the canonical camelCase DTO (the same shape the REST `getScenes` mappers produce), or `undefined` if the row is gone.
+- **`index.ts`** — the `sync` hub singleton. `init(ws)` from the server entrypoint. Each producer call looks up the descriptor, builds the envelope, and hands it to the transport (the shared `WSSync` bus). The hub holds the process `peerId` (`origin` + HLC tiebreak) and the HLC clock.
+  - `sync.document.upsert(rtype, id)` — `load`s + maps the DTO, broadcasts an HLC-stamped `upsert`.
+  - `sync.document.remove(rtype, id, scope?)` — broadcasts an HLC-stamped `remove` (the stamp doubles as a tombstone).
+  - `sync.stream.publish(rtype, key, frame, scope?)` — one lossy frame, no HLC/persistence/snapshot.
+  - `sync.event.emit(rtype, data, scope?)` — fire-and-forget command.
+  - `sync.field.*` — not yet present (Phase 2 fold of the override/data-channel buses).
+  - `sendSnapshotTo(send)` — currently a no-op; clients still hydrate documents via the REST load on mount. Field/stream snapshot providers land later.
+- **`resources.ts`** — the descriptors. Imported for side effects from the server entrypoint. Registers `scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip` as `document`s, and `vmc_pose`, `vmc_blendshapes`, `pose_ik_targets` as `stream`s (names reserved; no `load`/`scope`).
+
+## Frontend — apply dispatcher + bindings
+
+`packages/frontend/src/sync/`:
+
+- **`registry.ts`** — `bindResource(rtype, { apply })` + the single `applyRemote(env)` dispatcher. `useWsSync` routes every `'sync'` envelope through `applyRemote`, replacing the per-message if/else chain as resources migrate. Unknown rtypes are ignored (so the new path coexists with not-yet-migrated legacy messages).
+- **`resources.ts`** — the client bindings for rtypes **still on the legacy `'sync'` envelope**. Currently only `scene_node` remains (its binding was kept because it is entangled with Avatar/Viewport and the placed-object projection feeder). Each `apply(op, key, data, env)` writes one resource into the Zustand store directly — **no per-message mapper**. `upsert` dedupes by id so the initiating client (which already added the entity from its REST response) doesn't double-insert. Imported for side effects by `useWsSync`.
+- **`meshStoreFeeder.ts`** (new, commits 0d21329 + c4e4f04) — feeds the editorStore from the tab's mesh replica for the **four migrated rtypes**: `behavior`, `camera_effect`, `compose_layer` (incl. the `compose_scene` kind branch), and `track_clip`. Observes each collection via `collection.observe('**')` and writes upserts/removes into the corresponding store slices. The replica handles HLC LWW internally, so the client-side stale-drop (`lastVersion` from `registry.ts`) is unused for these rtypes. Foreign docs (placed-object subscriptions) are filtered by the parent node's `remote` flag so projection docs stay inert. Started from Editor.tsx and ViewerPage alongside `initMeshPeer`.
+
+`useWsSync.ts` wiring: `import { SYNC_MESSAGE_KIND } from '@vspark/shared/sync'; import { applyRemote } from '../sync/registry'; import '../sync/resources';` — the `'sync'` branch calls `applyRemote(msg.payload)`. Only `scene_node` now flows through this path; the other four rtypes' envelopes are superseded by the feeder.
+
+## HLC stale-drop (Phase 4)
+
+Document emits carry a **hybrid logical clock** stamp (`HLC = { t: wall-ms, c: tiebreak counter, n: peer id }`) plus `origin`. `makeHlcClock(peerId)` guarantees strictly increasing `(t,c)` even if the wall clock stalls/jumps back. `compareHLC` gives a total order (wall-clock, then counter, then peer id).
+
+The client keeps the last applied stamp per `rtype:key` in `lastVersion`. An incoming envelope whose stamp is **older-or-equal** to the recorded one is dropped (`compareHLC(env.v, prev) <= 0`) — this discards out-of-order / duplicate delivery and stops a stale `upsert` from resurrecting a removed entity (the removal's stamp stays recorded as a tombstone). Streams omit `v`, so they bypass this entirely (latest-wins by arrival). Multi-peer clock merge arrives with the server mesh (a later phase).
+
+## Compositor (Phase 2 read-model)
+
+`packages/frontend/src/compositor.ts` — `compositeScalars(base, layers)` centralises the clip > runtime > base precedence that was duplicated in Viewport's `useTransformWithOverride` and ComposeLayerStack's `layerStyle`. Today every layer is `replace` (highest present numeric field wins — applying the clip layer last means it wins); add/multiply/weighted blends and pose compositing layer on later. The two consumers were refactored onto it (behaviour-preserving). See [runtime-overrides.md](runtime-overrides.md) and [track-clips.md](track-clips.md) for the two override surfaces it folds.
+
+## Adding a new syncable resource
+
+For the five migrated document rtypes (`scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip`), REST routes no longer call `sync.document.upsert/remove` directly. Instead they call `collection.set/remove` on the `@vspark/mesh` store; the `onCommitted` tap in `packages/backend/src/mesh/index.ts` calls `sync.document.upsert/remove` on their behalf (and persists to SQLite). The legacy bridge handles the reverse: legacy `sync.document` emissions mirror into the mesh replica.
+
+For a **new** CRUD document using the legacy path (not yet on mesh), two edits:
+
+1. **Backend** — `defineResource({ rtype, cls: 'document', scope?, load })` in `packages/backend/src/sync/resources.ts`, where `load` reads the row and returns the canonical camelCase DTO. Call `sync.document.upsert(rtype, id)` from the CREATE route and `sync.document.remove(rtype, id)` from the DELETE route.
+2. **Frontend** — `bindResource(rtype, { apply })` in `packages/frontend/src/sync/resources.ts`, dedup-on-`upsert` and `remove`-on-remove into the right store slice.
+
+No new WS message kind, no new `useWsSync` branch, no new mapper. New entities should prefer the mesh-write-through path (see [mesh.md](mesh.md)) over the legacy route-emit path.
+
+## Migrated vs. still on legacy WS kinds
+
+**Migrated to mesh write-through (REST write-through, completed 768ea2d–86a6e8c):**
+
+- **CREATE / UPDATE / DELETE** of `scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip` — REST routes now call `collection.set/remove` on the `@vspark/mesh` store. The `onCommitted` tap in `packages/backend/src/mesh/index.ts` persists to SQLite and emits `sync.document.upsert/remove`, which fans out over the `'sync'` WS envelope. Routes no longer emit sync events directly.
+- **Preset instantiation** (`routes/presets.ts`) still emits created entities via `sync.document.upsert` directly; these mirror into the mesh via the legacy bridge.
+- **Template bulk creation** (`scenes.ts`) still emits `sync.document.upsert` (touch) per created node/layer; likewise mirrored. Folding these into the mesh write path is deferred.
+
+**Frontend consumer migration (mesh store feeder, slices 1–3, commits 0d21329 + c4e4f04):**
+
+The `'sync'`-envelope bindings for `behavior`, `camera_effect`, `compose_layer`, and `track_clip` have been removed from `sync/resources.ts`. These rtypes now feed the editorStore via `sync/meshStoreFeeder.ts` (mesh replica observation). The TRANSPORT changed (envelope → replica observe); component reads of the store and write patterns are not yet changed.
+
+- **Only `scene_node` remains on the legacy envelope** — its `sync/resources.ts` binding is kept because it is entangled with Avatar/Viewport and the placed-object projection feeder (`meshProjection.ts`). Migrating it is step 4 of [§11](../plans/mesh-sync-refactor.md).
+
+**Still on legacy WS kinds (transport-level):**
+
+- **Live pose pipeline** — `vmc_pose` / `vmc_blendshapes` / `ik_targets` still emit their legacy kinds at ~60–90 Hz; the stream rtypes are registered but `sync.stream.publish` is not yet on the hot path (deferred until runtime-verifiable).
+- **Spawn manager** — still emits `node_added` / `compose_layer_added` / `track_clip_added` (and removals) inline with full data, so those legacy handlers are **kept** even for the migrated document types. See [spawn.md](spawn.md).
+- **Runtime overrides** (`runtime_override_*`) and **data channels** (`data_channel_*`) — still on their own managers/messages; folding them into `sync.field.*` is deferred.
+
+## Deferred / not yet done
+
+- Folding `RuntimeOverrideManager` + `DataChannelManager` into `sync.field.*`.
+- A unified dotted-path layered store on the client.
+- Removing `suppressedOverrides`.
+- Migrating the live pose pipeline onto `sync.stream.publish`.
+- Field/stream snapshot providers in `sendSnapshotTo`.
+
+## Cross-references
+
+- [unified-sync-layer.md](../plans/unified-sync-layer.md) / [unified-sync-layer-diagrams.md](../plans/unified-sync-layer-diagrams.md) — design rationale, decisions, diagrams, use-case walkthroughs.
+- [runtime-overrides.md](runtime-overrides.md) — the override bus that `sync.field.*` will eventually absorb; its read path now goes through the compositor.
+- [data-channels.md](data-channels.md) — the data-channel bus, the other future `field` resource.
+- [track-clips.md](track-clips.md) — track-clip overrides; the clip layer the compositor folds (clip wins on overlap).
+- [compose.md](compose.md) — compose-layer CRUD now flows through sync; updates/reorder stay on legacy kinds.
+- [spawn.md](spawn.md) — why the legacy `*_added`/`*_removed` handlers are kept.
+
+## Files
+
+- `packages/shared/src/sync.ts` — envelope, `ResourceClass`, addressing helpers, `HLC` + `compareHLC` + `makeHlcClock`, `SYNC_MESSAGE_KIND`
+- `packages/backend/src/sync/registry.ts` — `defineResource` / `getResource` / `allResources`
+- `packages/backend/src/sync/index.ts` — the `sync` producer hub
+- `packages/backend/src/sync/resources.ts` — backend descriptors
+- `packages/frontend/src/sync/registry.ts` — `bindResource` / `applyRemote` + HLC stale-drop
+- `packages/frontend/src/sync/resources.ts` — client bindings
+- `packages/frontend/src/compositor.ts` — `compositeScalars` read-model
+- `packages/frontend/src/hooks/useWsSync.ts` — `'sync'` envelope routing

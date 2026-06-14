@@ -15,7 +15,7 @@ import { eventIn, valueIn, listIn } from '@vspark/shared/node_decorators';
   label: 'Log',
   description:
     'Logs the trigger event payload and the current value-input to the backend console.',
-  tags: ['utility', 'debug'],
+  tags: ["utility"],
   color: '#3a3a3a',
 })
 export class LogNode extends Node {

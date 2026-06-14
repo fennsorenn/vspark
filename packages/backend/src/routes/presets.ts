@@ -7,7 +7,7 @@ import {
 } from '../presets/serialize.js';
 import { instantiatePreset } from '../presets/deserialize.js';
 import { BUILTIN_PRESETS, getBuiltinPreset } from '../presets/builtins.js';
-import { _ws } from './shared.js';
+import { sync } from '../sync/index.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -247,21 +247,42 @@ router.post('/presets/instantiate', (req, res) => {
         typeof boneAttachment === 'string' ? boneAttachment : null,
     });
 
-    if (payload.rootKind === 'scene_node' && rootSceneNodeId) {
-      const nodes = getDb()
-        .prepare('SELECT * FROM scene_nodes WHERE root_scene_node_id = ?')
-        .all(rootSceneNodeId);
-      for (const node of nodes) {
-        if (
-          result.idMap[
-            Object.keys(result.idMap).find(
-              (k) => result.idMap[k] === (node as Record<string, unknown>).id
-            ) ?? ''
-          ]
-        ) {
-          _ws?.broadcast('node_added', node as Record<string, unknown>);
-        }
+    // Broadcast every newly-created entity through the unified sync layer so
+    // other clients (and collab peers) update live. `result.idMap` values are
+    // exactly the rows we just created across every table, so we emit by id
+    // membership per table — NOT by re-querying a root column, which depended
+    // on the (sometimes-falsy / mis-passed) rootSceneNodeId/rootComposeSceneId
+    // and silently skipped all emissions when it didn't match. Order: parent
+    // entities first (nodes/layers), then attached behaviours/effects, then
+    // track clips (lanes/keyframes/events ride the track_clip aggregate).
+    // Logic graphs have no sync rtype yet — still local-only.
+    const db = getDb();
+    const createdIds = [...new Set(Object.values(result.idMap))];
+    // table/rtype are fixed literals (never user input) — safe to interpolate.
+    const emitTable = (table: string, rtype: string) => {
+      for (let i = 0; i < createdIds.length; i += 400) {
+        const batch = createdIds.slice(i, i + 400);
+        const ph = batch.map(() => '?').join(',');
+        const rows = db
+          .prepare(`SELECT id FROM ${table} WHERE id IN (${ph})`)
+          .all(...batch) as { id: string }[];
+        for (const { id } of rows)
+          // Resilient: one entity's emit failing (a doc listener throwing)
+          // must not abort the rest or fail the already-committed instantiate.
+          try {
+            sync.document.upsert(rtype, id);
+          } catch (e) {
+            console.error(`[presets] sync emit failed for ${rtype}:${id}:`, e);
+          }
       }
+    };
+    if (createdIds.length > 0) {
+      emitTable('scene_nodes', 'scene_node');
+      emitTable('compose_layers', 'compose_layer');
+      emitTable('behaviors', 'behavior');
+      emitTable('camera_effects', 'camera_effect');
+      emitTable('track_clips', 'track_clip');
+      emitTable('animation_clips', 'animation_clip');
     }
 
     res.json({ ok: true, data: result });

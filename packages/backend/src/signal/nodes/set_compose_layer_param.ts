@@ -12,10 +12,10 @@ interface SetComposeLayerParamConfig {
 
 /** Compose-layer counterpart to set_scene_node_param. */
 @SignalNode({
-  label: 'Set Compose Layer Param',
+  label: 'Set Layer Property',
   description:
     'Writes a runtime override for a compose-layer param (e.g. x, opacity, width).',
-  tags: ['compose', 'output'],
+  tags: ["scene"],
   color: '#3a7a5a',
 })
 export class SetComposeLayerParam extends Node {

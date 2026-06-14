@@ -49,7 +49,7 @@ Opacity application uses the new `useApplyOpacity(groupRef, opacity)` hook (per-
 ## Open behaviours (chosen)
 
 - **Scope.** Scene-scoped at the manager level. All set/clear/snapshot operations carry `sceneId`.
-- **Persist-mode failure.** If `persist: true` is requested but the write-through path fails (or the hook isn't wired), the in-bus value is kept and a `console.warn` is logged. No automatic rollback — graphs that need a persisted edit should treat this as best-effort.
+- **Persist-mode failure.** If `persist: true` is requested but the write-through path fails (or the hook isn't wired), the in-bus value is kept and a `console.warn` is logged. No automatic rollback — logic that need a persisted edit should treat this as best-effort.
 
 ## Cross-references
 

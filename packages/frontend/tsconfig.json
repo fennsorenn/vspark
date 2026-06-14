@@ -25,7 +25,9 @@
       "@vspark/shared/node": ["../shared/src/node.ts"],
       "@vspark/shared/inference": ["../shared/src/inference.ts"],
       "@vspark/shared/infer_nodes": ["../shared/src/infer_nodes.ts"],
-      "@vspark/shared/arkit": ["../shared/src/arkit_tables.ts"]
+      "@vspark/shared/arkit": ["../shared/src/arkit_tables.ts"],
+      "@vspark/shared/paramPaths": ["../shared/src/paramPaths.ts"],
+      "@vspark/shared/sync": ["../shared/src/sync.ts"]
     }
   },
   "include": ["src"]

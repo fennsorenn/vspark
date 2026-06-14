@@ -1,0 +1,1 @@
+export default "-- 025_rename_automations_table_to_logic: the standalone-graph feature was\n-- renamed \"Automation\" -> \"Logic\" in the UI/code; the table follows.\n-- Data-preserving ALTER (indexes + FK refs carried across). Runs once.\n-- Chain on existing DBs: graphs (014) -> automations (022) -> logic (025).\nALTER TABLE automations RENAME TO logic;\n";

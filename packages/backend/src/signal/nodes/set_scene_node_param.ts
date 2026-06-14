@@ -25,10 +25,10 @@ interface SetSceneNodeParamConfig {
  * fire. Wired in Phase 1.6.
  */
 @SignalNode({
-  label: 'Set Scene Node Param',
+  label: 'Set Object Property',
   description:
     'Writes a runtime override for a scene-node param (e.g. position.x, opacity).',
-  tags: ['scene', 'output'],
+  tags: ["scene"],
   color: '#3a7a5a',
 })
 export class SetSceneNodeParam extends Node {

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="220" viewBox="0 0 520 220" font-family="system-ui, sans-serif" role="img" aria-label="Near and far clipping planes: only objects between them are drawn">
+  <style>
+    .accent{stroke:#6ea8fe;stroke-width:2;fill:none}
+    .plane{stroke:#6ea8fe;stroke-width:1.6;stroke-dasharray:5 4;fill:none}
+    .cam{fill:#2b3242;stroke:#8a93a6;stroke-width:1.5}
+    .vis{fill:#2b3242;stroke:#6ea8fe;stroke-width:1.5}
+    .clip{fill:#2b3242;stroke:#5b6472;stroke-width:1.2;opacity:0.35}
+    .lbl{fill:#9aa6ba;font-size:11px;text-anchor:middle}
+    .plbl{fill:#6ea8fe;font-size:13px;font-weight:600;text-anchor:middle}
+  </style>
+
+  <!-- camera + frustum -->
+  <rect class="cam" x="14" y="98" width="22" height="24" rx="3"/>
+  <rect class="cam" x="36" y="103" width="8" height="14"/>
+  <path class="accent" d="M44,110 L478,52 M44,110 L478,168"/>
+
+  <!-- near + far planes -->
+  <line class="plane" x1="150" y1="86" x2="150" y2="134"/>
+  <text class="plbl" x="150" y="150">N</text>
+  <line class="plane" x1="400" y1="60" x2="400" y2="160"/>
+  <text class="plbl" x="400" y="176">F</text>
+
+  <!-- object before near plane: clipped -->
+  <rect class="clip" x="96" y="98" width="20" height="20" rx="2"/>
+  <!-- objects between near and far: visible -->
+  <rect class="vis" x="220" y="92" width="22" height="34" rx="2"/>
+  <circle class="vis" cx="320" cy="110" r="14"/>
+  <!-- object beyond far plane: clipped -->
+  <rect class="clip" x="438" y="96" width="22" height="30" rx="2"/>
+
+  <text class="lbl" x="106" y="139" font-size="14" fill="#c2616b">✕</text>
+  <text class="lbl" x="449" y="141" font-size="14" fill="#c2616b">✕</text>
+</svg>

@@ -1,13 +1,15 @@
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Canvas } from '@react-three/fiber';
-import { PerspectiveCamera, Environment } from '@react-three/drei';
+import { PerspectiveCamera } from '@react-three/drei';
+import { SafeEnvironment } from '../components/SafeEnvironment';
 import { FittedOrthoCamera } from '../components/editor/FittedOrthoCamera';
 import * as THREE from 'three';
 import { useEditorStore } from '../store/editorStore';
 import { api } from '../api/client';
 import { useWsSync } from '../hooks/useWsSync';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
+import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import {
   SceneNodes,
   CameraEffects,
@@ -42,6 +44,9 @@ function getT(components: Record<string, unknown> | undefined) {
 export function ViewerPage() {
   useWsSync();
   useTrackClipEvaluator();
+  // Live behavior/effect updates ride the tab's mesh replica now (§11) —
+  // the viewer needs its own peer just like the editor.
+  useEffect(() => startMeshStoreFeeder(), []);
   const { projectId, nodeId, composeSceneId } = useParams<{
     projectId: string;
     nodeId?: string;
@@ -52,7 +57,7 @@ export function ViewerPage() {
     setScenes,
     setActiveScene,
     setNodes,
-    setNodeComponents,
+    setBehaviors,
     setCameraEffects,
     setComposeLayers,
     setComposeScenes,
@@ -98,13 +103,13 @@ export function ViewerPage() {
         ({
           scenes,
           nodes: sceneNodes,
-          nodeComponents,
+          behaviors,
           cameraEffects,
           composeLayers,
           trackClips,
         }) => {
           setScenes(scenes);
-          setNodeComponents(nodeComponents);
+          setBehaviors(behaviors);
           setCameraEffects(cameraEffects);
           // Split compose_scene containers from regular layers (mirrors Editor).
           setComposeScenes(
@@ -132,7 +137,7 @@ export function ViewerPage() {
     setScenes,
     setActiveScene,
     setNodes,
-    setNodeComponents,
+    setBehaviors,
     setCameraEffects,
     setComposeLayers,
     setComposeScenes,
@@ -251,7 +256,7 @@ export function ViewerPage() {
         <SceneNodes omitKinds={['camera']} viewerMode sceneId={camSceneId} />
         {shadowsEnabled && <ShadowCatcher />}
         <ShadowMaterialSync enabled={shadowsEnabled} />
-        <Environment preset="city" environmentIntensity={envIntensity} />
+        <SafeEnvironment preset="city" environmentIntensity={envIntensity} />
         {nodeId && <CameraEffects forceNodeId={nodeId} sceneId={camSceneId} />}
       </Canvas>
     </div>

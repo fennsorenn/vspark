@@ -1,0 +1,105 @@
+{
+  "title": "Stream Accounts",
+  "close": "Close",
+  "twitchApps": {
+    "heading": "Twitch Apps",
+    "registerApp": "+ Register App",
+    "empty": "No Twitch apps registered. Click Register App to walk through setup at dev.twitch.tv.",
+    "accountCount": "{{n}} account(s)"
+  },
+  "accounts": {
+    "heading": "Accounts",
+    "addTwitch": "+ Twitch",
+    "addStreamElements": "+ StreamElements",
+    "emptyNoApp": "Register a Twitch app first, then click + Twitch.",
+    "emptyHasApp": "No accounts connected yet. Click + Twitch to authenticate, or + StreamElements to paste a JWT.",
+    "emptyGeneral": "No accounts connected yet.",
+    "default": "default",
+    "defaultTitle": "Default account — overlive nodes with no account picked fall back to this one",
+    "reconnect": "Reconnect",
+    "removeTitle": "Remove account"
+  },
+  "status": {
+    "connected": "Connected",
+    "connecting": "Connecting…",
+    "reconnecting": "Reconnecting…",
+    "disconnected": "Disconnected",
+    "error": "Error",
+    "needs_reauth": "Needs Reauth"
+  },
+  "footer": "Credentials are stored locally in your project database.",
+  "alerts": {
+    "oauthFailed": "Twitch sign-in failed: {{message}}",
+    "popupBlocked": "Could not open OAuth popup — please disable your popup blocker for this site.",
+    "oauthError": "Failed to start OAuth",
+    "noAppCredential": "This account has no app credential — recreate it from scratch.",
+    "removeAccountConfirm": "Remove {{label}}?",
+    "removeAccountFailed": "Failed to delete account",
+    "setDefaultFailed": "Failed to set default account",
+    "removeAppConfirm": "Remove app „{{label}}“?",
+    "removeAppInUse": "{{n}} account(s) reference this app — they'll keep working until tokens expire, then will need a new app to reconnect.",
+    "removeAppFailed": "Failed to delete app"
+  },
+  "registerApp": {
+    "title": "Register Twitch App",
+    "copyFromProject": "Copy from another project",
+    "selectProject": "— select —",
+    "copy": "Copy",
+    "copyEmpty": "That project has no Twitch apps to copy.",
+    "copyFailed": "Copy failed",
+    "instructions": {
+      "step1Open": "Open",
+      "step1Link": "dev.twitch.tv/console/apps",
+      "step1Click": "and click",
+      "step1Action": "Register Your Application",
+      "step2Set": "Set",
+      "step2Field": "OAuth Redirect URLs",
+      "step2To": "to exactly:",
+      "step3Choose": "Choose",
+      "step3Field": "Category",
+      "step3Value": "Application Integration",
+      "step3Note": "(or whichever fits — Twitch uses this for analytics, not scopes).",
+      "step4Save": "Save the app, then click",
+      "step4Manage": "Manage",
+      "step4Copy": ". Copy the",
+      "step4ClientId": "Client ID",
+      "step4Below": "below; click",
+      "step4NewSecret": "New Secret",
+      "step4For": "for the",
+      "step4ClientSecret": "Client Secret"
+    },
+    "fields": {
+      "label": "Label",
+      "labelPlaceholder": "My Twitch App",
+      "clientId": "Client ID",
+      "clientIdPlaceholder": "abc123…",
+      "clientSecret": "Client Secret",
+      "clientSecretPlaceholder": "••••••••",
+      "redirectUri": "Redirect URI"
+    },
+    "allRequired": "All fields are required.",
+    "createFailed": "Failed to create app credential",
+    "cancel": "Cancel",
+    "save": "Save"
+  },
+  "registerSe": {
+    "title": "Add StreamElements Account",
+    "hint": "Get your JWT and channel ID from",
+    "hintLink": "streamelements.com/dashboard/account/channels",
+    "fields": {
+      "label": "Label",
+      "jwt": "JWT",
+      "channelId": "Channel ID"
+    },
+    "allRequired": "All fields are required.",
+    "saveFailed": "Failed to add account",
+    "cancel": "Cancel",
+    "save": "Save"
+  },
+  "pickApp": {
+    "title": "Which Twitch app?"
+  },
+  "help": {
+    "streamAccounts": "Connect Twitch or StreamElements here so vspark can react to live stream events in your Logic automations."
+  }
+}

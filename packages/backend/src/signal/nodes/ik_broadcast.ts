@@ -9,11 +9,21 @@ export function initIkBroadcast(ws: WSSync): void {
   _ws = ws;
 }
 
+/** Optional tap on every emitted IK frame, for multiplayer fan-out to subscribers. */
+let _forward:
+  | ((kind: string, nodeId: string, payload: Record<string, unknown>) => void)
+  | null = null;
+export function setIkStreamForwarder(
+  fn: (kind: string, nodeId: string, payload: Record<string, unknown>) => void
+): void {
+  _forward = fn;
+}
+
 @SignalNode({
-  label: 'IK Broadcast',
+  label: 'Send IK Targets',
   description:
     'Broadcasts an IkTargetFrame to all WebSocket clients as a pose_ik_targets message. Reference bone is set by the upstream IK targets node config.',
-  tags: ['output'],
+  tags: ["output"],
   color: '#7a3a9a',
 })
 export class IkBroadcast extends Node {
@@ -30,6 +40,8 @@ export class IkBroadcast extends Node {
     const nodeId = this.nodeId();
     const targets = this.targets();
     if (!nodeId || !targets) return;
-    _ws?.broadcast('pose_ik_targets', { ...targets, nodeId });
+    const payload = { ...targets, nodeId };
+    _ws?.broadcast('pose_ik_targets', payload);
+    _forward?.('pose_ik_targets', nodeId, payload);
   }
 }

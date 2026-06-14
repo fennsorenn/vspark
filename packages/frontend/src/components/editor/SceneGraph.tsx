@@ -1,20 +1,31 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import type { NodeRecord, NodeComponent } from '../../store/editorStore';
-import { newComponentId } from '../../store/editorStore';
+import type { StageObject, Behavior } from '../../store/editorStore';
+import { newBehaviorId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
-import { GraphsSection } from './GraphsSection';
+import { LogicSection } from './LogicSection';
 import { ContextMenu } from './ContextMenu';
+import { HelpButton } from '../../help/HelpButton';
+import { useConnectionsStore } from '../../store/connectionsStore';
+import { isWritableRemoteNode as isWritableRemote } from '../../sync/remoteEdit';
+import {
+  getObjectGrantees,
+  shareObject,
+  shareCollabScene,
+  getCollabScenes,
+} from '../../api/client';
+import { useConfirm, usePrompt } from '../DialogProvider';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
   NODE_KIND_DEFS,
   createSceneNode,
   nextNodeName,
-  componentCompatibleWith,
+  behaviorCompatibleWith,
   type NodeKindDef,
 } from './createKinds';
 import { handleSceneNodeDrop } from './dnd';
@@ -34,6 +45,7 @@ const KIND_ICONS: Record<string, string> = {
   video: '🎞️',
   audio: '🔊',
   feed: '📜',
+  remote_object: '🔗',
 };
 
 // Node kinds the user can add. Sourced from the shared registry so the scene
@@ -45,6 +57,230 @@ interface CtxMenu {
   nodeId: string;
   x: number;
   y: number;
+}
+
+/** The "Share with ▶" item + its fly-out, reused by the object menu
+ *  (`shareKind: 'object'`) and the scene menu (`shareKind: 'scene'`). Owns its
+ *  grantee list + the "Allow editing" toggle; the parent owns the open state so
+ *  it can keep sibling submenus mutually exclusive. `entityId` is the
+ *  scene_node id being shared (an object root or a scene root — the backend
+ *  treats both as a read/write grant on that node + its subtree). */
+function ShareWithMenuItem({
+  entityId,
+  shareKind,
+  itemStyle,
+  open,
+  onOpen,
+}: {
+  entityId: string;
+  shareKind: 'object' | 'scene';
+  itemStyle: React.CSSProperties;
+  open: boolean;
+  onOpen: () => void;
+}) {
+  const { t } = useTranslation('sceneGraph');
+  const connectedIds = useConnectionsStore((s) => s.connectedIds);
+  const nameById = useConnectionsStore((s) => s.nameById);
+  const [grantees, setGrantees] = useState<string[]>([]);
+  /** When set, sharing also grants edit (update/create/delete) rights. */
+  const [shareWithEdit, setShareWithEdit] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    void getObjectGrantees(entityId)
+      .then((g) => alive && setGrantees(g))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [open, entityId]);
+
+  // Share only — clicking an already-shared peer is a no-op. Un-sharing lives in
+  // the Connections window ("Shared by you" section), not here. A scene share is
+  // collaborative (the collab endpoint); an object share is a read-only projection.
+  const share = async (granteePeerId: string) => {
+    if (grantees.includes(granteePeerId)) return;
+    try {
+      if (shareKind === 'scene') {
+        await shareCollabScene(entityId, granteePeerId);
+      } else {
+        await shareObject(entityId, granteePeerId, shareKind, shareWithEdit);
+      }
+      setGrantees((g) => [...g, granteePeerId]);
+      // Refresh the Connections window's "Shared by you" list: it stays mounted
+      // and only refetches on a revision change (peer events don't fire on a
+      // local share), so without this a freshly shared scene/object wouldn't
+      // appear there until the next peer event or reload.
+      useConnectionsStore.getState().bumpRevision();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const hover = (e: React.MouseEvent<HTMLDivElement>, on: boolean) =>
+    ((e.currentTarget as HTMLDivElement).style.background = on
+      ? '#2a2a2a'
+      : 'transparent');
+
+  return (
+    <div
+      style={itemStyle}
+      onMouseEnter={(e) => {
+        hover(e, true);
+        onOpen();
+      }}
+      onMouseLeave={(e) => hover(e, false)}
+    >
+      <span>{t('context.shareWith')}</span>
+      <span style={{ color: '#666' }}>▶</span>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            left: '100%',
+            top: 0,
+            background: '#1e1e1e',
+            border: '1px solid #3a3a3a',
+            borderRadius: 6,
+            minWidth: 180,
+            maxHeight: 280,
+            overflowY: 'auto',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+          }}
+        >
+          {connectedIds.length === 0 && (
+            <div style={{ ...itemStyle, color: '#888', cursor: 'default' }}>
+              {t('context.shareNobody')}
+            </div>
+          )}
+          {connectedIds.length > 0 && (
+            <div
+              style={{
+                ...itemStyle,
+                borderBottom: '1px solid #3a3a3a',
+                color: shareWithEdit ? '#4ade80' : '#aaa',
+              }}
+              onClick={() => setShareWithEdit((v) => !v)}
+              title={t('context.shareCanEditHint')}
+            >
+              <span>{t('context.shareCanEdit')}</span>
+              <span>{shareWithEdit ? '☑' : '☐'}</span>
+            </div>
+          )}
+          {connectedIds.length > 0 && (
+            <div
+              style={itemStyle}
+              onMouseEnter={(e) => hover(e, true)}
+              onMouseLeave={(e) => hover(e, false)}
+              onClick={() => void share('*')}
+            >
+              <span>{t('context.shareEveryone')}</span>
+              <span style={{ color: '#4ade80' }}>
+                {grantees.includes('*') ? '✓' : ''}
+              </span>
+            </div>
+          )}
+          {connectedIds.map((peerId) => (
+            <div
+              key={peerId}
+              style={itemStyle}
+              onMouseEnter={(e) => hover(e, true)}
+              onMouseLeave={(e) => hover(e, false)}
+              onClick={() => void share(peerId)}
+            >
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {nameById[peerId] || peerId.slice(0, 12)}
+              </span>
+              <span style={{ color: '#4ade80' }}>
+                {grantees.includes(peerId) ? '✓' : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Right-click menu for a *scene* root row — currently just sharing the whole
+ *  scene with connected peers (the backend treats a scene share as a grant on
+ *  the scene node + its subtree, same as an object). */
+function SceneContextMenu({
+  sceneId,
+  x,
+  y,
+  onClose,
+}: {
+  sceneId: string;
+  x: number;
+  y: number;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation('sceneGraph');
+  const mpEnabled = useConnectionsStore((s) => s.enabled);
+  const [showShare, setShowShare] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  const itemStyle: React.CSSProperties = {
+    padding: '7px 14px',
+    fontSize: 13,
+    color: '#e0e0e0',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    userSelect: 'none',
+  };
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        top: y,
+        left: x,
+        background: '#1e1e1e',
+        border: '1px solid #3a3a3a',
+        borderRadius: 6,
+        zIndex: 9999,
+        minWidth: 180,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+        fontFamily: 'system-ui, sans-serif',
+        // fly-out submenu escapes to the right; must not be clipped.
+        overflow: 'visible',
+      }}
+    >
+      {mpEnabled ? (
+        <ShareWithMenuItem
+          entityId={sceneId}
+          shareKind="scene"
+          itemStyle={itemStyle}
+          open={showShare}
+          onOpen={() => setShowShare(true)}
+        />
+      ) : (
+        <div style={{ ...itemStyle, color: '#888', cursor: 'default' }}>
+          {t('context.shareDisabled')}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Scene-tree-specific right-click menu. Older than the generic
@@ -61,12 +297,12 @@ function SceneNodeContextMenu({
   onDelete,
   onCopy,
   onPasteNode,
-  onPasteGraph,
+  onPasteLogic,
   canPasteNode,
-  canPasteGraph,
+  canPasteLogic,
 }: {
   menu: CtxMenu;
-  nodes: NodeRecord[];
+  nodes: StageObject[];
   onClose: () => void;
   onAddChild: (parentId: string, type: (typeof NODE_TYPES)[number]) => void;
   onReparent: (nodeId: string, newParentId: string) => void;
@@ -74,14 +310,21 @@ function SceneNodeContextMenu({
   onDelete: (nodeId: string) => void;
   onCopy: (nodeId: string) => void;
   onPasteNode: (parentNodeId: string) => void;
-  onPasteGraph: (nodeId: string) => void;
+  onPasteLogic: (nodeId: string) => void;
   canPasteNode: boolean;
-  canPasteGraph: boolean;
+  canPasteLogic: boolean;
 }) {
+  const { t } = useTranslation('sceneGraph');
   const node = nodes.find((n) => n.id === menu.nodeId)!;
   const [showAddChild, setShowAddChild] = useState(false);
   const [showMoveInto, setShowMoveInto] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Sharing is offered (the ShareWithMenuItem) only when multiplayer is on and
+  // this is a local, shareable node (not a projected remote object).
+  const mpEnabled = useConnectionsStore((s) => s.enabled);
+  const canShare = mpEnabled && !node.remote && node.kind !== 'remote_object';
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -102,7 +345,9 @@ function SceneNodeContextMenu({
     minWidth: 180,
     boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
     fontFamily: 'system-ui, sans-serif',
-    overflow: 'hidden',
+    // NB: must stay `visible` — the Add Child / Move Into / Share with fly-out
+    // submenus are positioned at `left: 100%`, so `hidden` would clip them away.
+    overflow: 'visible',
   };
 
   const itemStyle: React.CSSProperties = {
@@ -137,7 +382,7 @@ function SceneNodeContextMenu({
           ((e.currentTarget as HTMLDivElement).style.background = 'transparent')
         }
       >
-        <span>Add Child</span>
+        <span>{t('context.addChild')}</span>
         <span style={{ color: '#666' }}>▶</span>
         {showAddChild && (
           <div
@@ -153,9 +398,9 @@ function SceneNodeContextMenu({
               overflow: 'hidden',
             }}
           >
-            {NODE_TYPES.map((t) => (
+            {NODE_TYPES.map((def) => (
               <div
-                key={t.label}
+                key={def.i18nKey}
                 style={itemStyle}
                 onMouseEnter={(e) =>
                   ((e.currentTarget as HTMLDivElement).style.background =
@@ -166,11 +411,12 @@ function SceneNodeContextMenu({
                     'transparent')
                 }
                 onClick={() => {
-                  onAddChild(menu.nodeId, t);
+                  onAddChild(menu.nodeId, def);
                   onClose();
                 }}
               >
-                {KIND_ICONS[t.kind] ?? '🔹'} {t.label}
+                {KIND_ICONS[def.kind] ?? '🔹'}{' '}
+                {t(`kinds:node.${def.i18nKey}`, { defaultValue: def.label })}
               </div>
             ))}
           </div>
@@ -189,7 +435,15 @@ function SceneNodeContextMenu({
           ((e.currentTarget as HTMLDivElement).style.background = 'transparent')
         }
       >
-        <span>Move Into</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {t('context.moveInto')}
+          <HelpButton
+            topic="scene"
+            anchor="hierarchy"
+            tip={t('help.hierarchy')}
+            size={11}
+          />
+        </span>
         <span style={{ color: '#666' }}>▶</span>
         {showMoveInto && (
           <div
@@ -232,6 +486,21 @@ function SceneNodeContextMenu({
         )}
       </div>
 
+      {/* Share with (multiplayer) submenu */}
+      {canShare && (
+        <ShareWithMenuItem
+          entityId={menu.nodeId}
+          shareKind="object"
+          itemStyle={itemStyle}
+          open={showShare}
+          onOpen={() => {
+            setShowShare(true);
+            setShowAddChild(false);
+            setShowMoveInto(false);
+          }}
+        />
+      )}
+
       {node.parentId && (
         <div
           style={itemStyle}
@@ -247,7 +516,7 @@ function SceneNodeContextMenu({
             onClose();
           }}
         >
-          Unparent
+          {t('context.unparent')}
         </div>
       )}
 
@@ -266,7 +535,7 @@ function SceneNodeContextMenu({
           onClose();
         }}
       >
-        Copy node
+        {t('context.copyNode')}
       </div>
 
       {canPasteNode && (
@@ -284,11 +553,11 @@ function SceneNodeContextMenu({
             onClose();
           }}
         >
-          Paste node as child
+          {t('context.pasteNodeAsChild')}
         </div>
       )}
 
-      {canPasteGraph && (
+      {canPasteLogic && (
         <div
           style={itemStyle}
           onMouseEnter={(e) =>
@@ -299,11 +568,11 @@ function SceneNodeContextMenu({
               'transparent')
           }
           onClick={() => {
-            onPasteGraph(menu.nodeId);
+            onPasteLogic(menu.nodeId);
             onClose();
           }}
         >
-          Paste graph here
+          {t('context.pasteLogicHere')}
         </div>
       )}
 
@@ -322,40 +591,41 @@ function SceneNodeContextMenu({
           onClose();
         }}
       >
-        Delete
+        {t('context.delete')}
       </div>
     </div>
   );
 }
 
 // ---------- Inline components section ----------
-function NodeComponentsSection({ nodeId }: { nodeId: string }) {
+function BehaviorsSection({ nodeId }: { nodeId: string }) {
+  const { t } = useTranslation('sceneGraph');
   /** Open context menu state. Null when no menu is currently up. */
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
-    comp: NodeComponent;
+    comp: Behavior;
   } | null>(null);
-  const nodeComponentsFor = useEditorStore((s) => s.nodeComponentsFor);
+  const behaviorsFor = useEditorStore((s) => s.behaviorsFor);
   const nodeKind = useEditorStore(
     (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
   );
-  const addNodeComponent = useEditorStore((s) => s.addNodeComponent);
-  const updateNodeComponent = useEditorStore((s) => s.updateNodeComponent);
-  const removeNodeComponent = useEditorStore((s) => s.removeNodeComponent);
-  const selectedComponentId = useEditorStore((s) => s.selectedComponentId);
-  const selectComponent = useEditorStore((s) => s.selectComponent);
+  const addBehavior = useEditorStore((s) => s.addBehavior);
+  const updateBehavior = useEditorStore((s) => s.updateBehavior);
+  const removeBehavior = useEditorStore((s) => s.removeBehavior);
+  const selectedBehaviorId = useEditorStore((s) => s.selectedBehaviorId);
+  const selectBehavior = useEditorStore((s) => s.selectBehavior);
   const vmcStatus = useEditorStore((s) => s.vmcStatus);
   const vmcTracking = useEditorStore((s) => s.vmcTracking);
-  const componentKinds = useEditorStore((s) => s.componentKinds);
+  const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteComponent = clipboardPayload?.kind === 'node-component';
-  const components = nodeComponentsFor(nodeId).filter(
+  const canPasteBehavior = clipboardPayload?.kind === 'node-component';
+  const components = behaviorsFor(nodeId).filter(
     (c) => !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
   );
 
-  const handleCopyComponent = async (comp: NodeComponent) => {
+  const handleCopyBehavior = async (comp: Behavior) => {
     await copyToClipboard(
       {
         kind: 'node-component',
@@ -369,19 +639,19 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
     );
   };
 
-  const handlePasteComponent = async () => {
+  const handlePasteBehavior = async () => {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'node-component') return;
-    const comp: NodeComponent = {
-      id: newComponentId(),
+    const comp: Behavior = {
+      id: newBehaviorId(),
       nodeId,
       kind: payload.component.kind,
       enabled: payload.component.enabled,
       config: { ...payload.component.config },
     };
-    addNodeComponent(comp);
+    addBehavior(comp);
     try {
-      await api.createNodeComponent(nodeId, comp);
+      await api.createBehavior(nodeId, comp);
     } catch {
       /* non-fatal */
     }
@@ -399,37 +669,37 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [showAddMenu]);
 
-  const handleAdd = async (ct: (typeof componentKinds)[number]) => {
+  const handleAdd = async (ct: (typeof behaviorKinds)[number]) => {
     setShowAddMenu(false);
-    const comp: NodeComponent = {
-      id: newComponentId(),
+    const comp: Behavior = {
+      id: newBehaviorId(),
       nodeId,
       kind: ct.kind,
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addNodeComponent(comp);
+    addBehavior(comp);
     try {
-      await api.createNodeComponent(nodeId, comp);
+      await api.createBehavior(nodeId, comp);
     } catch {
       /* non-fatal — state already updated locally */
     }
   };
 
-  const handleToggleEnabled = async (comp: NodeComponent) => {
+  const handleToggleEnabled = async (comp: Behavior) => {
     const next = !comp.enabled;
-    updateNodeComponent(comp.id, { enabled: next });
+    updateBehavior(comp.id, { enabled: next });
     try {
-      await api.updateNodeComponent(comp.id, { enabled: next });
+      await api.updateBehavior(comp.id, { enabled: next });
     } catch {
       /* non-fatal */
     }
   };
 
-  const handleRemove = async (comp: NodeComponent) => {
-    removeNodeComponent(comp.id);
+  const handleRemove = async (comp: Behavior) => {
+    removeBehavior(comp.id);
     try {
-      await api.deleteNodeComponent(comp.id);
+      await api.deleteBehavior(comp.id);
     } catch {
       /* non-fatal */
     }
@@ -456,12 +726,12 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
             fontStyle: 'italic',
           }}
         >
-          No components
+          {t('behaviors.empty')}
         </div>
       )}
       {components.map((comp) => {
-        const ct = componentKinds.find((c) => c.kind === comp.kind);
-        const isSelected = selectedComponentId === comp.id;
+        const ct = behaviorKinds.find((c) => c.kind === comp.kind);
+        const isSelected = selectedBehaviorId === comp.id;
         const hasStatus = comp.kind === 'vmc_receiver';
         const isConnected = hasStatus && vmcStatus[comp.id] === true;
         const isTracking = hasStatus && vmcTracking[comp.id] === true;
@@ -478,7 +748,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               cursor: 'pointer',
               background: isSelected ? '#1a3a5a' : 'transparent',
             }}
-            onClick={() => selectComponent(isSelected ? null : comp.id)}
+            onClick={() => selectBehavior(isSelected ? null : comp.id)}
             onContextMenu={(e) => {
               e.preventDefault();
               setCtxMenu({ x: e.clientX, y: e.clientY, comp });
@@ -496,7 +766,9 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
             {hasStatus && (
               <>
                 <span
-                  title={isConnected ? 'Client connected' : 'No client'}
+                  title={
+                    isConnected ? t('vmc.clientConnected') : t('vmc.noClient')
+                  }
                   style={{
                     width: 6,
                     height: 6,
@@ -510,9 +782,9 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
                   title={
                     isConnected
                       ? isTracking
-                        ? 'Tracking active'
-                        : 'Tracking lost'
-                      : 'Not connected'
+                        ? t('vmc.trackingActive')
+                        : t('vmc.trackingLost')
+                      : t('vmc.notConnected')
                   }
                   style={{
                     width: 6,
@@ -530,7 +802,9 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               </>
             )}
             <button
-              title={comp.enabled ? 'Disable' : 'Enable'}
+              title={
+                comp.enabled ? t('behaviors.disable') : t('behaviors.enable')
+              }
               style={{
                 background: 'none',
                 border: 'none',
@@ -574,12 +848,12 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
           }}
           onClick={() => setShowAddMenu((v) => !v)}
         >
-          + Add Component
+          {t('behaviors.addButton')}
         </button>
-        {canPasteComponent && (
+        {canPasteBehavior && (
           <button
-            title="Paste component from clipboard onto this node"
-            onClick={handlePasteComponent}
+            title={t('behaviors.pasteTitle')}
+            onClick={handlePasteBehavior}
             style={{
               background: 'none',
               border: '1px dashed #3a5a4a',
@@ -590,7 +864,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               padding: '2px 8px',
             }}
           >
-            ⧉ Paste
+            {t('behaviors.pasteButton')}
           </button>
         )}
         {showAddMenu && (
@@ -614,7 +888,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
               // Show components compatible with this node's kind first, then a
               // separated "Other" group for the rest (still addable).
               const item = (
-                ct: (typeof componentKinds)[number],
+                ct: (typeof behaviorKinds)[number],
                 dimmed: boolean
               ) => (
                 <div
@@ -648,11 +922,11 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
                   </div>
                 </div>
               );
-              const compatible = componentKinds.filter((ct) =>
-                componentCompatibleWith(ct.applicableTo, nodeKind)
+              const compatible = behaviorKinds.filter((ct) =>
+                behaviorCompatibleWith(ct.applicableTo, nodeKind)
               );
-              const incompatible = componentKinds.filter(
-                (ct) => !componentCompatibleWith(ct.applicableTo, nodeKind)
+              const incompatible = behaviorKinds.filter(
+                (ct) => !behaviorCompatibleWith(ct.applicableTo, nodeKind)
               );
               return (
                 <>
@@ -668,7 +942,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
                         borderTop: '1px solid #2a2a2a',
                       }}
                     >
-                      Other
+                      {t('behaviors.other')}
                     </div>
                   )}
                   {incompatible.map((ct) => item(ct, true))}
@@ -686,18 +960,20 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
           items={[
             {
               kind: 'item',
-              label: 'Copy component',
-              onClick: () => void handleCopyComponent(ctxMenu.comp),
+              label: t('behaviors.ctxCopy'),
+              onClick: () => void handleCopyBehavior(ctxMenu.comp),
             },
             {
               kind: 'item',
-              label: ctxMenu.comp.enabled ? 'Disable' : 'Enable',
+              label: ctxMenu.comp.enabled
+                ? t('behaviors.disable')
+                : t('behaviors.enable'),
               onClick: () => handleToggleEnabled(ctxMenu.comp),
             },
             { kind: 'divider' },
             {
               kind: 'item',
-              label: 'Remove component',
+              label: t('behaviors.ctxRemove'),
               onClick: () => handleRemove(ctxMenu.comp),
               danger: true,
             },
@@ -710,6 +986,7 @@ function NodeComponentsSection({ nodeId }: { nodeId: string }) {
 
 // ---------- Inline camera effects section ----------
 function CameraEffectsSection({ nodeId }: { nodeId: string }) {
+  const { t } = useTranslation('sceneGraph');
   const cameraEffectsFor = useEditorStore((s) => s.cameraEffectsFor);
   const addCameraEffect = useEditorStore((s) => s.addCameraEffect);
   const updateCameraEffect = useEditorStore((s) => s.updateCameraEffect);
@@ -750,7 +1027,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
     // Refuse silently if this kind is already present (mirrors handleAdd).
     if (effects.some((e) => e.kind === payload.effect.kind)) return;
     const effect = {
-      id: newComponentId(),
+      id: newBehaviorId(),
       nodeId,
       kind: payload.effect.kind,
       enabled: payload.effect.enabled,
@@ -780,7 +1057,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
     setShowAddMenu(false);
     if (effects.some((e) => e.kind === ek.kind)) return;
     const effect = {
-      id: newComponentId(),
+      id: newBehaviorId(),
       nodeId,
       kind: ek.kind,
       enabled: true,
@@ -845,7 +1122,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
           borderBottom: '1px solid #1a1a2a',
         }}
       >
-        Effects
+        {t('effects.header')}
       </div>
       {effects.length === 0 && (
         <div
@@ -856,7 +1133,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
             fontStyle: 'italic',
           }}
         >
-          No effects
+          {t('effects.empty')}
         </div>
       )}
       {effects.map((effect) => {
@@ -894,10 +1171,14 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
                 color: effect.enabled ? (isSelected ? '#fff' : '#ccc') : '#555',
               }}
             >
-              {ek?.label ?? effect.kind}
+              {ek
+                ? t(`kinds:effect.${ek.kind}.label`, { defaultValue: ek.label })
+                : effect.kind}
             </span>
             <button
-              title={effect.enabled ? 'Disable' : 'Enable'}
+              title={
+                effect.enabled ? t('effects.disable') : t('effects.enable')
+              }
               style={{
                 background: 'none',
                 border: 'none',
@@ -939,11 +1220,11 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
           }}
           onClick={() => setShowAddMenu((v) => !v)}
         >
-          + Add Effect
+          {t('effects.addButton')}
         </button>
         {canPasteEffect && (
           <button
-            title="Paste effect from clipboard onto this camera"
+            title={t('effects.pasteTitle')}
             onClick={handlePasteEffect}
             style={{
               background: 'none',
@@ -955,7 +1236,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
               padding: '2px 8px',
             }}
           >
-            ⧉ Paste
+            {t('effects.pasteButton')}
           </button>
         )}
         {showAddMenu && (
@@ -1004,9 +1285,15 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
                 >
                   <span style={{ fontSize: 15 }}>{ek.icon}</span>
                   <div>
-                    <div style={{ fontWeight: 500 }}>{ek.label}</div>
+                    <div style={{ fontWeight: 500 }}>
+                      {t(`kinds:effect.${ek.kind}.label`, {
+                        defaultValue: ek.label,
+                      })}
+                    </div>
                     <div style={{ fontSize: 10, color: '#666', marginTop: 1 }}>
-                      {ek.description}
+                      {t(`kinds:effect.${ek.kind}.description`, {
+                        defaultValue: ek.description,
+                      })}
                     </div>
                   </div>
                 </div>
@@ -1023,18 +1310,20 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
           items={[
             {
               kind: 'item',
-              label: 'Copy effect',
+              label: t('effects.ctxCopy'),
               onClick: () => void handleCopyEffect(ctxMenu.effect),
             },
             {
               kind: 'item',
-              label: ctxMenu.effect.enabled ? 'Disable' : 'Enable',
+              label: ctxMenu.effect.enabled
+                ? t('effects.disable')
+                : t('effects.enable'),
               onClick: () => handleToggleEnabled(ctxMenu.effect),
             },
             { kind: 'divider' },
             {
               kind: 'item',
-              label: 'Remove effect',
+              label: t('effects.ctxRemove'),
               onClick: () => handleRemove(ctxMenu.effect),
               danger: true,
             },
@@ -1050,52 +1339,55 @@ const formatBoneName = (name: string) =>
 
 // ---------- Graph list panel ----------
 import type { GraphDescriptor } from '@vspark/shared/signal';
-import type { GraphRecord, ScopedGraphRecord } from '../../api/client';
+import type { LogicRecord, ScopedLogicRecord } from '../../api/client';
 
-function GraphListPanel() {
+function LogicListPanel() {
+  const { t } = useTranslation('sceneGraph');
   const { projectId } = useParams<{ projectId: string }>();
-  const { activeGraphId, setActiveGraph } = useEditorStore();
-  const [componentGraphs, setComponentGraphs] = useState<GraphDescriptor[]>([]);
-  const [projectGraphs, setProjectGraphs] = useState<GraphRecord[]>([]);
-  const [scopedGraphs, setScopedGraphs] = useState<ScopedGraphRecord[]>([]);
-  const [scopedGraphsOpen, setScopedGraphsOpen] = useState(true);
-  const [componentGraphsOpen, setComponentGraphsOpen] = useState(false);
+  const confirm = useConfirm();
+  const prompt = usePrompt();
+  const { activeLogicId, setActiveLogic } = useEditorStore();
+  const [behaviorLogic, setBehaviorLogic] = useState<GraphDescriptor[]>([]);
+  const [projectLogic, setProjectLogic] = useState<LogicRecord[]>([]);
+  const [scopedLogic, setScopedLogic] = useState<ScopedLogicRecord[]>([]);
+  const [scopedLogicOpen, setScopedLogicOpen] = useState(true);
+  const [behaviorLogicOpen, setBehaviorLogicOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
-  const canPasteGraph = clipboardPayload?.kind === 'graph';
+  const canPasteLogic = clipboardPayload?.kind === 'graph';
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
-    graph: GraphRecord;
+    graph: LogicRecord;
   } | null>(null);
 
   const refresh = () => {
     api
       .getSignalGraphs()
-      .then(setComponentGraphs)
+      .then(setBehaviorLogic)
       .catch(() => {});
     if (projectId) {
       api
-        .getProjectGraphs(projectId)
-        .then(setProjectGraphs)
+        .getProjectLogic(projectId)
+        .then(setProjectLogic)
         .catch(() => {});
       api
-        .getProjectScopedGraphs(projectId)
-        .then(setScopedGraphs)
+        .getProjectScopedLogic(projectId)
+        .then(setScopedLogic)
         .catch(() => {});
     }
   };
 
-  const handleToggleScopedEnabled = async (g: ScopedGraphRecord) => {
+  const handleToggleScopedEnabled = async (g: ScopedLogicRecord) => {
     try {
-      const updated = await api.updateGraph(g.id, { enabled: !g.enabled });
-      setScopedGraphs((prev) =>
+      const updated = await api.updateLogic(g.id, { enabled: !g.enabled });
+      setScopedLogic((prev) =>
         prev.map((x) =>
           x.id === g.id ? { ...x, enabled: updated.enabled } : x
         )
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle graph');
+      alert(e instanceof Error ? e.message : t('logic.failToggle'));
     }
   };
 
@@ -1121,55 +1413,66 @@ function GraphListPanel() {
 
   const handleCreate = async () => {
     if (!projectId) return;
-    const name = window.prompt('New graph name:', 'Untitled Graph');
+    const name = await prompt({
+      title: t('logic.promptName'),
+      defaultValue: t('logic.promptDefault'),
+      confirmLabel: t('common:actions.create'),
+    });
     if (!name?.trim()) return;
     try {
-      const created = await api.createProjectGraph(projectId, name.trim());
-      setProjectGraphs((prev) => [...prev, created]);
-      setActiveGraph(created.id);
+      const created = await api.createProjectLogic(projectId, name.trim());
+      setProjectLogic((prev) => [...prev, created]);
+      setActiveLogic(created.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create graph');
+      alert(e instanceof Error ? e.message : t('logic.failCreate'));
     }
   };
 
-  const handleRename = async (g: GraphRecord) => {
-    const name = window.prompt('Rename graph:', g.name);
+  const handleRename = async (g: LogicRecord) => {
+    const name = await prompt({
+      title: t('logic.promptRename'),
+      defaultValue: g.name,
+      confirmLabel: t('common:actions.rename'),
+    });
     if (!name?.trim() || name.trim() === g.name) return;
     try {
-      const updated = await api.updateGraph(g.id, { name: name.trim() });
-      setProjectGraphs((prev) =>
-        prev.map((x) => (x.id === g.id ? updated : x))
-      );
+      const updated = await api.updateLogic(g.id, { name: name.trim() });
+      setProjectLogic((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to rename graph');
+      alert(e instanceof Error ? e.message : t('logic.failRename'));
     }
   };
 
-  const handleToggleEnabled = async (g: GraphRecord) => {
+  const handleToggleEnabled = async (g: LogicRecord) => {
     try {
-      const updated = await api.updateGraph(g.id, {
+      const updated = await api.updateLogic(g.id, {
         enabled: !g.enabled,
       });
-      setProjectGraphs((prev) =>
-        prev.map((x) => (x.id === g.id ? updated : x))
-      );
+      setProjectLogic((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to toggle graph');
+      alert(e instanceof Error ? e.message : t('logic.failToggle'));
     }
   };
 
-  const handleDelete = async (g: GraphRecord) => {
-    if (!window.confirm(`Delete graph "${g.name}"?`)) return;
+  const handleDelete = async (g: LogicRecord) => {
+    if (
+      !(await confirm({
+        message: t('logic.confirmDelete', { name: g.name }),
+        confirmLabel: t('common:actions.delete'),
+        danger: true,
+      }))
+    )
+      return;
     try {
-      await api.deleteGraph(g.id);
-      setProjectGraphs((prev) => prev.filter((x) => x.id !== g.id));
-      if (activeGraphId === g.id) setActiveGraph(null);
+      await api.deleteLogic(g.id);
+      setProjectLogic((prev) => prev.filter((x) => x.id !== g.id));
+      if (activeLogicId === g.id) setActiveLogic(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete graph');
+      alert(e instanceof Error ? e.message : t('logic.failDelete'));
     }
   };
 
-  const handleCopy = async (g: GraphRecord) => {
+  const handleCopy = async (g: LogicRecord) => {
     await copyToClipboard(
       {
         kind: 'graph',
@@ -1186,15 +1489,15 @@ function GraphListPanel() {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createProjectGraph(projectId, payload.name);
-      const updated = await api.updateGraph(created.id, {
+      const created = await api.createProjectLogic(projectId, payload.name);
+      const updated = await api.updateLogic(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
-      setProjectGraphs((prev) => [...prev, updated]);
-      setActiveGraph(updated.id);
+      setProjectLogic((prev) => [...prev, updated]);
+      setActiveLogic(updated.id);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+      alert(e instanceof Error ? e.message : t('logic.failPaste'));
     }
   };
 
@@ -1214,11 +1517,11 @@ function GraphListPanel() {
           letterSpacing: 0.5,
         }}
       >
-        <span>Project Graphs</span>
+        <span>{t('logic.globalLogic')}</span>
         <div style={{ display: 'flex', gap: 4 }}>
-          {canPasteGraph && (
+          {canPasteLogic && (
             <button
-              title="Paste graph from clipboard as a project graph"
+              title={t('logic.pasteTitle')}
               onClick={handlePaste}
               style={{
                 background: 'none',
@@ -1234,7 +1537,7 @@ function GraphListPanel() {
             </button>
           )}
           <button
-            title="New graph"
+            title={t('logic.newTitle')}
             onClick={handleCreate}
             style={{
               background: '#2563eb',
@@ -1251,7 +1554,7 @@ function GraphListPanel() {
           </button>
         </div>
       </div>
-      {projectGraphs.length === 0 ? (
+      {projectLogic.length === 0 ? (
         <div
           style={{
             color: '#444',
@@ -1260,16 +1563,16 @@ function GraphListPanel() {
             fontStyle: 'italic',
           }}
         >
-          No project graphs yet.
+          {t('logic.noProjectGraphs')}
         </div>
       ) : (
-        projectGraphs.map((g) => {
-          const active = g.id === activeGraphId;
+        projectLogic.map((g) => {
+          const active = g.id === activeLogicId;
           return (
             <div
               key={g.id}
               style={rowStyle(active)}
-              onClick={() => setActiveGraph(active ? null : g.id)}
+              onClick={() => setActiveLogic(active ? null : g.id)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setCtxMenu({ x: e.clientX, y: e.clientY, graph: g });
@@ -1288,12 +1591,12 @@ function GraphListPanel() {
                   {g.name}
                 </div>
                 <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
-                  {g.descriptor.nodes.length} nodes{' '}
-                  {g.enabled ? '' : '· disabled'}
+                  {t('logic.nodes', { count: g.descriptor.nodes.length })}{' '}
+                  {g.enabled ? '' : t('logic.disabled')}
                 </div>
               </div>
               <button
-                title={g.enabled ? 'Disable' : 'Enable'}
+                title={g.enabled ? t('logic.disable') : t('logic.enable')}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleToggleEnabled(g);
@@ -1333,16 +1636,16 @@ function GraphListPanel() {
           cursor: 'pointer',
           userSelect: 'none',
         }}
-        onClick={() => setScopedGraphsOpen((v) => !v)}
+        onClick={() => setScopedLogicOpen((v) => !v)}
       >
-        <span style={{ color: '#555' }}>{scopedGraphsOpen ? '▼' : '▶'}</span>
-        <span>Scoped Graphs</span>
+        <span style={{ color: '#555' }}>{scopedLogicOpen ? '▼' : '▶'}</span>
+        <span>{t('logic.scopedLogic')}</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
-          ({scopedGraphs.length})
+          ({scopedLogic.length})
         </span>
       </div>
-      {scopedGraphsOpen &&
-        (scopedGraphs.length === 0 ? (
+      {scopedLogicOpen &&
+        (scopedLogic.length === 0 ? (
           <div
             style={{
               color: '#444',
@@ -1351,16 +1654,16 @@ function GraphListPanel() {
               fontStyle: 'italic',
             }}
           >
-            No scoped graphs. Add one from a scene node or compose layer.
+            {t('logic.noScopedGraphs')}
           </div>
         ) : (
-          scopedGraphs.map((g) => {
-            const active = g.id === activeGraphId;
+          scopedLogic.map((g) => {
+            const active = g.id === activeLogicId;
             return (
               <div
                 key={g.id}
                 style={rowStyle(active)}
-                onClick={() => setActiveGraph(active ? null : g.id)}
+                onClick={() => setActiveLogic(active ? null : g.id)}
               >
                 <span style={{ opacity: g.enabled ? 0.9 : 0.35 }}>⊕</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1385,12 +1688,14 @@ function GraphListPanel() {
                     }}
                   >
                     {g.ownerName} ·{' '}
-                    {g.ownerKind === 'compose_layer' ? 'layer' : 'node'}
-                    {g.enabled ? '' : ' · disabled'}
+                    {g.ownerKind === 'compose_layer'
+                      ? t('logic.layer')
+                      : t('logic.node')}
+                    {g.enabled ? '' : ' ' + t('logic.disabled')}
                   </div>
                 </div>
                 <button
-                  title={g.enabled ? 'Disable' : 'Enable'}
+                  title={g.enabled ? t('logic.disable') : t('logic.enable')}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleToggleScopedEnabled(g);
@@ -1412,7 +1717,7 @@ function GraphListPanel() {
           })
         ))}
 
-      {/* Component-owned graphs (read-only) */}
+      {/* Behavior-owned graphs (read-only) */}
       <div
         style={{
           display: 'flex',
@@ -1427,16 +1732,16 @@ function GraphListPanel() {
           cursor: 'pointer',
           userSelect: 'none',
         }}
-        onClick={() => setComponentGraphsOpen((v) => !v)}
+        onClick={() => setBehaviorLogicOpen((v) => !v)}
       >
-        <span style={{ color: '#555' }}>{componentGraphsOpen ? '▼' : '▶'}</span>
-        <span>Component Graphs</span>
+        <span style={{ color: '#555' }}>{behaviorLogicOpen ? '▼' : '▶'}</span>
+        <span>{t('logic.behaviorLogic')}</span>
         <span style={{ color: '#444', fontWeight: 400 }}>
-          ({componentGraphs.length})
+          ({behaviorLogic.length})
         </span>
       </div>
-      {componentGraphsOpen &&
-        (componentGraphs.length === 0 ? (
+      {behaviorLogicOpen &&
+        (behaviorLogic.length === 0 ? (
           <div
             style={{
               color: '#444',
@@ -1445,22 +1750,23 @@ function GraphListPanel() {
               fontStyle: 'italic',
             }}
           >
-            No active component graphs.
+            {t('logic.noBehaviorGraphs')}
           </div>
         ) : (
-          componentGraphs.map((g) => (
+          behaviorLogic.map((g) => (
             <div
               key={g.id}
-              style={rowStyle(g.id === activeGraphId)}
+              style={rowStyle(g.id === activeLogicId)}
               onClick={() =>
-                setActiveGraph(g.id === activeGraphId ? null : g.id)
+                setActiveLogic(g.id === activeLogicId ? null : g.id)
               }
             >
               <span style={{ opacity: 0.6 }}>⬡</span>
               <div>
                 <div style={{ fontWeight: 500 }}>{g.label}</div>
                 <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
-                  {g.nodes.length} nodes · read-only
+                  {t('logic.nodes', { count: g.nodes.length })} ·{' '}
+                  {t('logic.readOnly')}
                 </div>
               </div>
             </div>
@@ -1474,23 +1780,25 @@ function GraphListPanel() {
           items={[
             {
               kind: 'item',
-              label: 'Copy graph',
+              label: t('logic.ctxCopy'),
               onClick: () => void handleCopy(ctxMenu.graph),
             },
             {
               kind: 'item',
-              label: 'Rename…',
+              label: t('logic.ctxRename'),
               onClick: () => handleRename(ctxMenu.graph),
             },
             {
               kind: 'item',
-              label: ctxMenu.graph.enabled ? 'Disable' : 'Enable',
+              label: ctxMenu.graph.enabled
+                ? t('logic.disable')
+                : t('logic.enable'),
               onClick: () => handleToggleEnabled(ctxMenu.graph),
             },
             { kind: 'divider' },
             {
               kind: 'item',
-              label: 'Delete',
+              label: t('logic.ctxDelete'),
               onClick: () => handleDelete(ctxMenu.graph),
               danger: true,
             },
@@ -1503,7 +1811,19 @@ function GraphListPanel() {
 
 // ---------- Main SceneGraph ----------
 export function SceneGraph() {
+  const { t } = useTranslation('sceneGraph');
   const { projectId } = useParams<{ projectId: string }>();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
+  // Collab-scene chain badge: which scenes are shared + their role/peer.
+  const collabScenes = useConnectionsStore((s) => s.collabScenes);
+  const collabConnectedIds = useConnectionsStore((s) => s.connectedIds);
+  const setCollabScenes = useConnectionsStore((s) => s.setCollabScenes);
+  useEffect(() => {
+    void getCollabScenes()
+      .then(setCollabScenes)
+      .catch(() => {});
+  }, [setCollabScenes]);
   const {
     activeSceneId,
     scenes,
@@ -1512,7 +1832,7 @@ export function SceneGraph() {
     selectNode,
     deleteNode: storeDeleteNode,
     updateNode: storeUpdateNode,
-    nodeComponents,
+    behaviors,
     vrmBonesByNode,
     setHoveredBone,
     boneListExpanded,
@@ -1533,17 +1853,22 @@ export function SceneGraph() {
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteSceneNodeClipboard = clipboardPayload?.kind === 'scene-node';
-  const canPasteGraphClipboard = clipboardPayload?.kind === 'graph';
+  const canPasteLogicClipboard = clipboardPayload?.kind === 'graph';
   // Collapsed scene roots (scene id set).
   const [collapsedScenes, setCollapsedScenes] = useState<Set<string>>(
     new Set()
   );
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [collapsedBones, setCollapsedBones] = useState<Set<string>>(new Set()); // key: `${nodeId}:${boneName}`
-  const [expandedComponents, setExpandedComponents] = useState<Set<string>>(
+  const [expandedBehaviors, setExpandedBehaviors] = useState<Set<string>>(
     new Set()
   );
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
+  const [sceneCtxMenu, setSceneCtxMenu] = useState<{
+    sceneId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [dragNodeId, setDragNodeId] = useState<string | null>(null);
   const [dragOverBone, setDragOverBone] = useState<{
     nodeId: string;
@@ -1575,8 +1900,8 @@ export function SceneGraph() {
       return n;
     });
 
-  const toggleComponents = (id: string) =>
-    setExpandedComponents((s) => {
+  const toggleBehaviors = (id: string) =>
+    setExpandedBehaviors((s) => {
       const n = new Set(s);
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
@@ -1591,7 +1916,11 @@ export function SceneGraph() {
 
   const handleNewScene = async () => {
     if (!projectId) return;
-    const name = window.prompt('Scene name:', 'New Scene');
+    const name = await prompt({
+      title: t('scenes.promptName'),
+      defaultValue: t('scenes.promptDefault'),
+      confirmLabel: t('common:actions.create'),
+    });
     if (!name?.trim()) return;
     try {
       const scene = await api.createScene(projectId, name.trim());
@@ -1602,22 +1931,24 @@ export function SceneGraph() {
       useEditorStore.getState().setNodes(data.nodes);
       setActiveScene(scene.id);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to create scene');
+      alert(e instanceof Error ? e.message : t('scenes.failCreate'));
     }
   };
 
   const handleDeleteScene = async (scene: (typeof scenes)[number]) => {
     if (
-      !window.confirm(
-        `Delete scene "${scene.name}" and all its nodes? This cannot be undone.`
-      )
+      !(await confirm({
+        message: t('scenes.confirmDelete', { name: scene.name }),
+        confirmLabel: t('common:actions.delete'),
+        danger: true,
+      }))
     )
       return;
     try {
       await api.deleteScene(scene.id);
       useEditorStore.getState().removeScene(scene.id);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to delete scene');
+      alert(e instanceof Error ? e.message : t('scenes.failDelete'));
     }
   };
 
@@ -1642,18 +1973,26 @@ export function SceneGraph() {
       setSceneSelected(false);
       requestFocusName();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to create node');
+      alert(e instanceof Error ? e.message : t('nodes.failCreate'));
     }
   };
 
   const handleDelete = async (nodeId: string) => {
     const node = sceneNodes.find((n) => n.id === nodeId);
-    if (!node || !window.confirm(`Delete "${node.name}"?`)) return;
+    if (!node) return;
+    if (
+      !(await confirm({
+        message: t('nodes.confirmDelete', { name: node.name }),
+        confirmLabel: t('common:actions.delete'),
+        danger: true,
+      }))
+    )
+      return;
     try {
       await api.deleteNode(nodeId);
       storeDeleteNode(nodeId);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to delete node');
+      alert(e instanceof Error ? e.message : t('nodes.failDelete'));
     }
   };
 
@@ -1674,7 +2013,7 @@ export function SceneGraph() {
         setClipboard
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to copy node (serialize)');
+      alert(e instanceof Error ? e.message : t('nodes.failCopy'));
     }
   };
 
@@ -1711,21 +2050,21 @@ export function SceneGraph() {
       );
       await refreshSceneNodes();
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste node');
+      alert(e instanceof Error ? e.message : t('nodes.failPaste'));
     }
   };
 
-  const handlePasteGraphAtNode = async (nodeId: string) => {
+  const handlePasteLogicAtNode = async (nodeId: string) => {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createNodeGraph(nodeId, payload.name);
-      await api.updateGraph(created.id, {
+      const created = await api.createNodeLogic(nodeId, payload.name);
+      await api.updateLogic(created.id, {
         descriptor: payload.descriptor,
         enabled: true,
       });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to paste graph');
+      alert(e instanceof Error ? e.message : t('logic.failPaste'));
     }
   };
 
@@ -1754,7 +2093,7 @@ export function SceneGraph() {
           return n;
         });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to move node');
+      alert(e instanceof Error ? e.message : t('nodes.failMove'));
     }
   };
 
@@ -1805,10 +2144,16 @@ export function SceneGraph() {
     setDragNodeId(null);
   };
 
-  const renderNode = (node: NodeRecord, depth = 0) => {
+  const renderNode = (node: StageObject, depth = 0) => {
     const isSelected = selectedNodeId === node.id;
     const isHidden = node.hidden ?? false;
-    const allChildren = nodes.filter((n) => n.parentId === node.id);
+    // Projected (remote) inner nodes are hidden from the tree — only the opaque
+    // remote_object container they live under is shown + editable. Exception
+    // (Phase 6): a projected subtree the local user has *edit* rights on is shown
+    // + selectable, so its nodes can be edited (commits route to the owner).
+    const allChildren = nodes.filter(
+      (n) => n.parentId === node.id && (!n.remote || isWritableRemote(n))
+    );
     const bones =
       node.kind === 'avatar' || node.kind === 'model'
         ? (vrmBonesByNode[node.id] ?? null)
@@ -1824,8 +2169,8 @@ export function SceneGraph() {
       (bones && attachedChildren.length > 0) ||
       (bones && showBones && bones.length > 0);
     const isCollapsed = collapsedNodes.has(node.id);
-    const showComponents = expandedComponents.has(node.id);
-    const compCount = nodeComponents.filter(
+    const showBehaviors = expandedBehaviors.has(node.id);
+    const compCount = behaviors.filter(
       (c) =>
         c.nodeId === node.id &&
         !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
@@ -1898,167 +2243,216 @@ export function SceneGraph() {
             {isCollapsed ? '▶' : '▼'}
           </span>
 
-          <span style={{ fontSize: 14, flexShrink: 0 }}>{icon}</span>
           <span
             style={{
-              flex: 1,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              marginLeft: 4,
+              fontSize: 16,
+              flexShrink: 0,
+              marginRight: 6,
+              alignSelf: 'center',
             }}
           >
-            {node.name}
+            {icon}
           </span>
-
-          {/* Bones toggle — avatar/model only, shown once VRM is loaded */}
-          {bones && (
-            <button
-              title={showBones ? 'Collapse empty bones' : 'Expand all bones'}
+          {/* Two-row body: name on top, action controls beneath. Keeping the
+              actions on their own row stops them from crowding or being
+              clipped by long node names. */}
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+            }}
+          >
+            <span
               style={{
-                background: 'none',
-                border: 'none',
-                color: showBones ? '#8af' : '#444',
-                cursor: 'pointer',
-                fontSize: 11,
-                padding: '0 3px',
-                flexShrink: 0,
-                lineHeight: 1,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleBones(node.id);
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                overflow: 'hidden',
               }}
             >
-              🦴
-            </button>
-          )}
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {node.name}
+              </span>
+              {/* Opaque container for a peer's shared object: editable
+                  placement, but its contents live on the owner's server
+                  (read-only internals). */}
+              {node.kind === 'remote_object' && (
+                <span
+                  title={t('remote.tip')}
+                  style={{ fontSize: 11, flexShrink: 0, opacity: 0.7 }}
+                >
+                  📡
+                </span>
+              )}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {/* Bones toggle — avatar/model only, shown once VRM is loaded */}
+              {bones && (
+                <button
+                  title={showBones ? t('bones.collapse') : t('bones.expand')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: showBones ? '#8af' : '#444',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    padding: '0 3px',
+                    flexShrink: 0,
+                    lineHeight: 1,
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleBones(node.id);
+                  }}
+                >
+                  🦴
+                </button>
+              )}
 
-          {/* Components toggle */}
-          <button
-            title={showComponents ? 'Hide components' : 'Show components'}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: showComponents ? '#4a8' : compCount > 0 ? '#666' : '#333',
-              cursor: 'pointer',
-              fontSize: 11,
-              padding: '0 3px',
-              flexShrink: 0,
-              lineHeight: 1,
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleComponents(node.id);
-            }}
-          >
-            ⚙
-            {compCount > 0 ? (
-              <sup style={{ fontSize: 8 }}>{compCount}</sup>
-            ) : null}
-          </button>
-
-          {/* Camera-only controls */}
-          {node.kind === 'camera' && (
-            <>
+              {/* Components toggle */}
               <button
                 title={
-                  previewEffectsCamera === node.id
-                    ? 'Disable effect preview'
-                    : 'Preview effects in viewport'
+                  showBehaviors ? t('components.hide') : t('components.show')
                 }
                 style={{
                   background: 'none',
                   border: 'none',
-                  color: previewEffectsCamera === node.id ? '#7ab' : '#444',
+                  color: showBehaviors
+                    ? '#4a8'
+                    : compCount > 0
+                      ? '#666'
+                      : '#333',
                   cursor: 'pointer',
                   fontSize: 11,
-                  padding: '0 2px',
+                  padding: '0 3px',
                   flexShrink: 0,
                   lineHeight: 1,
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setPreviewEffectsCamera(node.id);
+                  toggleBehaviors(node.id);
                 }}
               >
-                ✦
+                ⚙
+                {compCount > 0 ? (
+                  <sup style={{ fontSize: 8 }}>{compCount}</sup>
+                ) : null}
               </button>
-              {projectId && (
-                <a
-                  href={`/viewer/${projectId}/${node.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Open viewer"
-                  style={{
-                    color: '#555',
-                    fontSize: 12,
-                    padding: '0 2px',
-                    flexShrink: 0,
-                    lineHeight: 1,
-                    textDecoration: 'none',
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  ↗
-                </a>
+
+              {/* Camera-only controls */}
+              {node.kind === 'camera' && (
+                <>
+                  <button
+                    title={
+                      previewEffectsCamera === node.id
+                        ? t('camera.previewDisable')
+                        : t('camera.previewEnable')
+                    }
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: previewEffectsCamera === node.id ? '#7ab' : '#444',
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      padding: '0 2px',
+                      flexShrink: 0,
+                      lineHeight: 1,
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPreviewEffectsCamera(node.id);
+                    }}
+                  >
+                    ✦
+                  </button>
+                  {projectId && (
+                    <a
+                      href={`/viewer/${projectId}/${node.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={t('camera.openViewer')}
+                      style={{
+                        color: '#555',
+                        fontSize: 12,
+                        padding: '0 2px',
+                        flexShrink: 0,
+                        lineHeight: 1,
+                        textDecoration: 'none',
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      ↗
+                    </a>
+                  )}
+                </>
               )}
-            </>
-          )}
 
-          {/* Visibility toggle */}
-          <button
-            title={isHidden ? 'Show' : 'Hide'}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: isHidden ? '#444' : '#666',
-              cursor: 'pointer',
-              padding: '0 2px',
-              fontSize: 12,
-              lineHeight: 1,
-              flexShrink: 0,
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleNodeHidden(node.id);
-              api.updateNode(node.id, { hidden: !isHidden }).catch(() => {});
-            }}
-          >
-            {isHidden ? '🙈' : '👁'}
-          </button>
+              {/* Visibility toggle */}
+              <button
+                title={isHidden ? t('visibility.show') : t('visibility.hide')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: isHidden ? '#444' : '#666',
+                  cursor: 'pointer',
+                  padding: '0 2px',
+                  fontSize: 12,
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleNodeHidden(node.id);
+                  api
+                    .updateNode(node.id, { hidden: !isHidden })
+                    .catch(() => {});
+                }}
+              >
+                {isHidden ? '🙈' : '👁'}
+              </button>
 
-          {/* Delete button */}
-          <button
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#555',
-              cursor: 'pointer',
-              padding: '0 2px',
-              fontSize: 14,
-              lineHeight: 1,
-              flexShrink: 0,
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDelete(node.id);
-            }}
-            title="Delete node"
-          >
-            ×
-          </button>
+              {/* Delete button */}
+              <button
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#555',
+                  cursor: 'pointer',
+                  padding: '0 2px',
+                  fontSize: 14,
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDelete(node.id);
+                }}
+                title={t('nodes.deleteTitle')}
+              >
+                🗑
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Inline components section */}
-        {showComponents && (
+        {showBehaviors && (
           <div style={{ paddingLeft: 8 + depth * 16 }}>
-            <NodeComponentsSection nodeId={node.id} />
+            <BehaviorsSection nodeId={node.id} />
             {node.kind === 'camera' && (
               <CameraEffectsSection nodeId={node.id} />
             )}
             <ClipsSection owner={{ kind: 'node', id: node.id }} />
-            <GraphsSection owner={{ kind: 'node', id: node.id }} />
+            <LogicSection owner={{ kind: 'node', id: node.id }} />
           </div>
         )}
 
@@ -2100,12 +2494,14 @@ export function SceneGraph() {
                           // Single-action prompt — full menu is overkill
                           // when "paste here" is the only meaningful action
                           // a bone can host.
-                          const yes = window.confirm(
-                            `Paste node onto bone "${formatBoneName(boneName)}"?`
-                          );
-                          if (yes) {
-                            void handlePasteNodeAsChild(node.id, boneName);
-                          }
+                          void confirm({
+                            message: t('bones.pasteConfirm', {
+                              bone: formatBoneName(boneName),
+                            }),
+                          }).then((yes) => {
+                            if (yes)
+                              void handlePasteNodeAsChild(node.id, boneName);
+                          });
                         }}
                         onDragOver={(e) => {
                           e.preventDefault();
@@ -2182,7 +2578,11 @@ export function SceneGraph() {
     const isSelected = isActive && sceneSelected;
     const isCollapsed = collapsedScenes.has(scene.id);
     const rootNodes = nodes.filter(
-      (n) => n.rootSceneNodeId === scene.id && !n.parentId && n.kind !== 'scene'
+      (n) =>
+        n.rootSceneNodeId === scene.id &&
+        !n.parentId &&
+        n.kind !== 'scene' &&
+        !n.remote
     );
 
     return (
@@ -2214,6 +2614,10 @@ export function SceneGraph() {
             setSceneSelected(true);
             selectNode(null);
           }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setSceneCtxMenu({ sceneId: scene.id, x: e.clientX, y: e.clientY });
+          }}
         >
           <span
             style={{
@@ -2244,11 +2648,46 @@ export function SceneGraph() {
           >
             {scene.name}
           </span>
+          {/* Collab-scene chain badge: blue = I'm sharing it, green = received +
+              peer connected, red = received + disconnected. */}
+          {(() => {
+            const link = collabScenes[scene.id];
+            if (!link) return null;
+            const color =
+              link.role === 'author'
+                ? '#60a5fa'
+                : collabConnectedIds.includes(link.peerId)
+                  ? '#4ade80'
+                  : '#f87171';
+            const title =
+              link.role === 'author'
+                ? t('collab.badgeSharing')
+                : collabConnectedIds.includes(link.peerId)
+                  ? t('collab.badgeConnected')
+                  : t('collab.badgeDisconnected');
+            return (
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={color}
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ flexShrink: 0, marginRight: 3 }}
+              >
+                <title>{title}</title>
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+            );
+          })()}
           {/* Per-scene add-node button — routes to the bottom-dock Create
               palette and flashes it as a hint, rather than opening its own
               menu. The palette adds to whichever scene is active. */}
           <button
-            title="Add node — opens the Create palette"
+            title={t('nodes.addNodeTitle')}
             style={{
               background: '#2563eb',
               border: 'none',
@@ -2272,7 +2711,7 @@ export function SceneGraph() {
           </button>
           {/* Delete scene */}
           <button
-            title="Delete scene"
+            title={t('nodes.deleteScene')}
             style={{
               background: 'none',
               border: 'none',
@@ -2296,7 +2735,7 @@ export function SceneGraph() {
         {isSelected && (
           <>
             <ClipsSection owner={{ kind: 'node', id: scene.id }} />
-            <GraphsSection owner={{ kind: 'node', id: scene.id }} />
+            <LogicSection owner={{ kind: 'node', id: scene.id }} />
           </>
         )}
 
@@ -2311,7 +2750,7 @@ export function SceneGraph() {
                 fontStyle: 'italic',
               }}
             >
-              Empty scene
+              {t('scenes.emptyScene')}
             </div>
           ) : (
             rootNodes.map((n) => renderNode(n, 1))
@@ -2359,24 +2798,24 @@ export function SceneGraph() {
           style={tabStyle(dockTab === 'scene')}
           onClick={() => setDockTab('scene')}
         >
-          Scene
+          {t('tabs.stage')}
         </button>
         <button
           style={tabStyle(dockTab === 'compose')}
           onClick={() => setDockTab('compose')}
-          title="Compose"
+          title={t('tabs.compose')}
         >
-          Compose
+          {t('tabs.compose')}
         </button>
         <button
           style={tabStyle(dockTab === 'graphs')}
           onClick={() => setDockTab('graphs')}
         >
-          Graphs
+          {t('tabs.logic')}
         </button>
       </div>
 
-      {dockTab === 'graphs' && <GraphListPanel />}
+      {dockTab === 'graphs' && <LogicListPanel />}
       {dockTab === 'compose' && <ComposeTree />}
 
       {dockTab === 'scene' && (
@@ -2399,9 +2838,18 @@ export function SceneGraph() {
                 color: '#666',
                 textTransform: 'uppercase',
                 letterSpacing: 0.5,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
               }}
             >
-              Scenes
+              {t('scenes.header')}
+              <HelpButton
+                topic="scene"
+                anchor="nodes"
+                tip={t('help.sceneNodes')}
+                size={12}
+              />
             </span>
             <button
               style={{
@@ -2415,9 +2863,9 @@ export function SceneGraph() {
                 fontWeight: 500,
               }}
               onClick={handleNewScene}
-              title="New scene"
+              title={t('scenes.newButton_title')}
             >
-              + Scene
+              {t('scenes.newButton')}
             </button>
           </div>
 
@@ -2436,7 +2884,7 @@ export function SceneGraph() {
                   textAlign: 'center',
                 }}
               >
-                No scenes yet. Click + Scene
+                {t('scenes.empty')}
               </div>
             ) : (
               scenes.map((scene) => renderSceneRoot(scene))
@@ -2457,9 +2905,17 @@ export function SceneGraph() {
               onPasteNode={(parentId) =>
                 void handlePasteNodeAsChild(parentId, null)
               }
-              onPasteGraph={(id) => void handlePasteGraphAtNode(id)}
+              onPasteLogic={(id) => void handlePasteLogicAtNode(id)}
               canPasteNode={canPasteSceneNodeClipboard}
-              canPasteGraph={canPasteGraphClipboard}
+              canPasteLogic={canPasteLogicClipboard}
+            />
+          )}
+          {sceneCtxMenu && (
+            <SceneContextMenu
+              sceneId={sceneCtxMenu.sceneId}
+              x={sceneCtxMenu.x}
+              y={sceneCtxMenu.y}
+              onClose={() => setSceneCtxMenu(null)}
             />
           )}
         </>

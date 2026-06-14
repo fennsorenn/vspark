@@ -1,13 +1,21 @@
-import { useRef, useEffect, useState, useMemo, useContext } from 'react';
+import {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useContext,
+  useCallback,
+} from 'react';
+import { useTranslation } from 'react-i18next';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   OrbitControls,
   Grid,
-  Environment,
   Line,
   TransformControls,
   Billboard,
 } from '@react-three/drei';
+import { SafeEnvironment } from '../SafeEnvironment';
 import {
   EffectComposer,
   Bloom,
@@ -39,6 +47,7 @@ import { Text as TroikaText } from 'troika-three-text';
 import DOMPurify from 'dompurify';
 import html2canvas from 'html2canvas';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
+import { compositeScalars, type ScalarLayer } from '../../compositor';
 import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import {
@@ -50,13 +59,14 @@ import { VRMLoaderPlugin } from '@pixiv/three-vrm';
 import type { VRM, VRMHumanBoneName, VRMPose } from '@pixiv/three-vrm';
 import { useEditorStore } from '../../store/editorStore';
 import type {
-  NodeRecord,
-  NodeComponent,
-  ApiAnimationState,
+  StageObject,
+  Behavior,
+  ScheduledAnimation,
+  AnimationClipMeta,
 } from '../../store/editorStore';
 import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync';
 
-import { animRegistry } from '../../animRegistry';
+import type { AnimEntry } from '../../animRegistry';
 import {
   getVmcPose,
   getVmcPoseTime,
@@ -584,7 +594,7 @@ interface Transform {
   receiveShadow: boolean;
 }
 
-function getTransform(node: NodeRecord): Transform {
+function getTransform(node: StageObject): Transform {
   const t = node.components?.transform as Partial<Transform> | undefined;
   return {
     x: t?.x ?? 0,
@@ -606,62 +616,60 @@ function getTransform(node: NodeRecord): Transform {
  *  transform with both merged on top of the persisted base. Per-node
  *  subscription keeps the re-render blast radius tight.
  *
- *  Resolution order per field: track-clip override > runtime override > base.
- *  Track-clip wins so an in-progress clip isn't interrupted by a stale runtime
- *  value. See dev-notes/modules/runtime-overrides.md. */
-function useTransformWithOverride(node: NodeRecord): Transform {
+ *  Resolution order per field: track-clip override > runtime override > base
+ *  (the shared {@link compositeScalars} fold applies the clip layer last, so it
+ *  wins). See dev-notes/plans/unified-sync-layer.md. */
+function useTransformWithOverride(node: StageObject): Transform {
   const clipOverride = useEditorStore((s) => s.nodeTransformOverrides[node.id]);
   const runtimeOverride = useEditorStore(
     (s) => s.runtimeNodeOverrides[node.id]
   );
   const base = getTransform(node);
   if (!clipOverride && !runtimeOverride) return base;
-  const out: Transform = { ...base };
-  // Track-clip override pass (winner).
-  if (clipOverride?.position?.x !== undefined) out.x = clipOverride.position.x;
-  if (clipOverride?.position?.y !== undefined) out.y = clipOverride.position.y;
-  if (clipOverride?.position?.z !== undefined) out.z = clipOverride.position.z;
-  if (clipOverride?.rotation?.x !== undefined) out.rx = clipOverride.rotation.x;
-  if (clipOverride?.rotation?.y !== undefined) out.ry = clipOverride.rotation.y;
-  if (clipOverride?.rotation?.z !== undefined) out.rz = clipOverride.rotation.z;
-  if (clipOverride?.scale?.x !== undefined) out.sx = clipOverride.scale.x;
-  if (clipOverride?.scale?.y !== undefined) out.sy = clipOverride.scale.y;
-  if (clipOverride?.scale?.z !== undefined) out.sz = clipOverride.scale.z;
-  if (clipOverride?.opacity !== undefined) out.opacity = clipOverride.opacity;
-  // Runtime override pass (loser per-field, only fills what's still base).
-  if (runtimeOverride) {
-    const rx = runtimeOverride['position.x'];
-    if (typeof rx === 'number' && clipOverride?.position?.x === undefined)
-      out.x = rx;
-    const ry = runtimeOverride['position.y'];
-    if (typeof ry === 'number' && clipOverride?.position?.y === undefined)
-      out.y = ry;
-    const rz = runtimeOverride['position.z'];
-    if (typeof rz === 'number' && clipOverride?.position?.z === undefined)
-      out.z = rz;
-    const rrx = runtimeOverride['rotation.x'];
-    if (typeof rrx === 'number' && clipOverride?.rotation?.x === undefined)
-      out.rx = rrx;
-    const rry = runtimeOverride['rotation.y'];
-    if (typeof rry === 'number' && clipOverride?.rotation?.y === undefined)
-      out.ry = rry;
-    const rrz = runtimeOverride['rotation.z'];
-    if (typeof rrz === 'number' && clipOverride?.rotation?.z === undefined)
-      out.rz = rrz;
-    const rsx = runtimeOverride['scale.x'];
-    if (typeof rsx === 'number' && clipOverride?.scale?.x === undefined)
-      out.sx = rsx;
-    const rsy = runtimeOverride['scale.y'];
-    if (typeof rsy === 'number' && clipOverride?.scale?.y === undefined)
-      out.sy = rsy;
-    const rsz = runtimeOverride['scale.z'];
-    if (typeof rsz === 'number' && clipOverride?.scale?.z === undefined)
-      out.sz = rsz;
-    const ro = runtimeOverride['opacity'];
-    if (typeof ro === 'number' && clipOverride?.opacity === undefined)
-      out.opacity = ro;
-  }
-  return out;
+  // Base + both override layers keyed by paramPath, folded low → high.
+  const baseMap = {
+    'position.x': base.x,
+    'position.y': base.y,
+    'position.z': base.z,
+    'rotation.x': base.rx,
+    'rotation.y': base.ry,
+    'rotation.z': base.rz,
+    'scale.x': base.sx,
+    'scale.y': base.sy,
+    'scale.z': base.sz,
+    opacity: base.opacity,
+  };
+  const clipLayer: ScalarLayer = clipOverride
+    ? {
+        'position.x': clipOverride.position?.x,
+        'position.y': clipOverride.position?.y,
+        'position.z': clipOverride.position?.z,
+        'rotation.x': clipOverride.rotation?.x,
+        'rotation.y': clipOverride.rotation?.y,
+        'rotation.z': clipOverride.rotation?.z,
+        'scale.x': clipOverride.scale?.x,
+        'scale.y': clipOverride.scale?.y,
+        'scale.z': clipOverride.scale?.z,
+        opacity: clipOverride.opacity,
+      }
+    : undefined;
+  const r = compositeScalars(baseMap, [
+    runtimeOverride as ScalarLayer,
+    clipLayer,
+  ]);
+  return {
+    ...base,
+    x: r['position.x'],
+    y: r['position.y'],
+    z: r['position.z'],
+    rx: r['rotation.x'],
+    ry: r['rotation.y'],
+    rz: r['rotation.z'],
+    sx: r['scale.x'],
+    sy: r['scale.y'],
+    sz: r['scale.z'],
+    opacity: r.opacity,
+  };
 }
 
 /** Per-frame mesh-material opacity walk. Sets `transparent` + `opacity` on
@@ -779,65 +787,103 @@ function _sendExpressionsReport(nodeId: string, expressions: string[]): void {
   );
 }
 
-/**
- * Resolve which clip in an api-driven queue should be playing right now.
- * Returns the clip URL + time offset within that clip, and how many ms until the next clip starts
- * (null if no advancement scheduled, i.e. holding/looping final clip indefinitely).
- */
-function _resolveApiAnimation(
-  state: ApiAnimationState,
-  nowMs: number
-): { url: string; offset: number; msUntilNext: number | null } | null {
-  const { queue, loopMode, startedAt } = state;
-  if (queue.length === 0 || startedAt == null) return null;
-  const elapsedSec = Math.max(0, (nowMs - startedAt) / 1000);
-  const totalSec = queue.reduce((s, e) => s + Math.max(0.001, e.duration), 0);
+/** Playback layer driving a clock-anchored playhead. `startEpoch` is in this
+ *  client's clock; 0 means "anchored to the epoch" (the idle base loop, so every
+ *  client lands on the same phase). */
+interface ActiveAnimLayer {
+  startEpoch: number;
+  speed: number;
+  loop: boolean;
+}
 
-  // Determine effective elapsed within the cycle, given loopMode.
-  let phase = elapsedSec;
-  if (elapsedSec < totalSec) {
-    // Still in initial pass.
-    phase = elapsedSec;
-  } else if (loopMode === 'queue') {
-    phase = elapsedSec % totalSec;
-  } else if (loopMode === 'last') {
-    // Hold at start of last clip, then loop within it.
-    const last = queue[queue.length - 1];
-    const lastDur = Math.max(0.001, last.duration);
-    const tailStart = totalSec - lastDur;
-    const inLast = (elapsedSec - tailStart) % lastDur;
-    return { url: last.sourceUrl, offset: inLast, msUntilNext: null };
-  } else {
-    // 'none' — hold last frame of last clip.
-    const last = queue[queue.length - 1];
+/** The playhead (seconds into the clip) for a layer at `nowMs`, given the clip's
+ *  effective `duration`. Looping wraps modulo duration; a finite layer clamps
+ *  (holds the last frame past its end). Speed is baked into the elapsed time, so
+ *  the mixer is advanced with `update(0)` — never free-run. */
+function _anchoredTime(
+  nowMs: number,
+  layer: ActiveAnimLayer,
+  duration: number
+): number {
+  if (duration <= 0) return 0;
+  const elapsed = ((nowMs - layer.startEpoch) / 1000) * layer.speed;
+  if (layer.loop) {
+    const m = elapsed % duration;
+    return m < 0 ? m + duration : m;
+  }
+  return Math.min(Math.max(elapsed, 0), duration);
+}
+
+/**
+ * Resolve which clip should play on an avatar right now from its idle config +
+ * scheduled timeline, anchored to the synced clock (`nowMs`). The active entry
+ * is the latest scheduled entry that has started, resolves to a known clip, and
+ * (for a finite, non-looping entry) hasn't ended; otherwise the idle base loop.
+ * Returns the clip URL to load, the playback layer, and ms until the active
+ * entry next changes (for re-resolution scheduling) — any field may be null.
+ */
+function _resolveAvatarAnimation(
+  nodeId: string,
+  idle: { url: string; speed: number } | null,
+  scheduled: ScheduledAnimation[],
+  clips: Record<string, AnimationClipMeta>,
+  nowMs: number
+): { url: string | null; layer: ActiveAnimLayer | null; msUntilNext: number | null } {
+  let active: { entry: ScheduledAnimation; clip: AnimationClipMeta } | null =
+    null;
+  let nextStartMs: number | null = null;
+  for (const e of scheduled) {
+    if (e.avatarNodeId !== nodeId) continue;
+    const clip = clips[e.clipId];
+    if (!clip) continue; // not yet synced/preloaded — re-resolves when it lands
+    if (e.startEpoch > nowMs) {
+      if (nextStartMs == null || e.startEpoch < nextStartMs)
+        nextStartMs = e.startEpoch;
+      continue;
+    }
+    const speed = e.speed > 0 ? e.speed : 1;
+    const endMs = e.startEpoch + (clip.duration / speed) * 1000;
+    if (!e.loop && endMs <= nowMs) continue; // finished, non-looping
+    if (!active || e.startEpoch > active.entry.startEpoch)
+      active = { entry: e, clip };
+  }
+
+  if (active) {
+    const speed = active.entry.speed > 0 ? active.entry.speed : 1;
+    const endMs = active.entry.loop
+      ? null
+      : active.entry.startEpoch + (active.clip.duration / speed) * 1000;
+    const bounds = [endMs, nextStartMs].filter((x): x is number => x != null);
     return {
-      url: last.sourceUrl,
-      offset: Math.max(0, last.duration - 0.001),
-      msUntilNext: null,
+      url: active.clip.sourceFilePath,
+      layer: {
+        startEpoch: active.entry.startEpoch,
+        speed,
+        loop: active.entry.loop,
+      },
+      msUntilNext:
+        bounds.length > 0 ? Math.max(0, Math.min(...bounds) - nowMs) : null,
     };
   }
 
-  // Find the clip within `phase`.
-  let acc = 0;
-  for (const entry of queue) {
-    const dur = Math.max(0.001, entry.duration);
-    if (phase < acc + dur) {
-      const offset = phase - acc;
-      const msUntilNext = Math.max(0, (acc + dur - phase) * 1000);
-      return { url: entry.sourceUrl, offset, msUntilNext };
-    }
-    acc += dur;
+  const msUntilNext =
+    nextStartMs != null ? Math.max(0, nextStartMs - nowMs) : null;
+  if (idle) {
+    // Idle base loop anchored to the epoch (shared phase across clients).
+    return {
+      url: idle.url,
+      layer: { startEpoch: 0, speed: idle.speed > 0 ? idle.speed : 1, loop: true },
+      msUntilNext,
+    };
   }
-  // Should be unreachable.
-  const last = queue[queue.length - 1];
-  return { url: last.sourceUrl, offset: 0, msUntilNext: null };
+  return { url: null, layer: null, msUntilNext };
 }
 
 function AvatarNode({
   node,
   children,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   children?: React.ReactNode;
 }) {
   const outerRef = useRef<THREE.Group>(null);
@@ -848,14 +894,21 @@ function AvatarNode({
   const boneCylRef = useRef<THREE.Mesh>(null);
   const fbxMixerRef = useRef<THREE.AnimationMixer | null>(null);
   const vrmMixerRef = useRef<THREE.AnimationMixer | null>(null);
+  // Per-instance animation state read by this avatar's useFrame. Kept on a ref
+  // (not a shared node.id-keyed map) so multiple AvatarNode instances for the
+  // same avatar — the scene viewport plus every compose camera view — each drive
+  // their own mixers instead of clobbering and evicting a single shared entry.
+  const animEntryRef = useRef<AnimEntry | null>(null);
   const vrmRef = useRef<VRM | null>(null);
   const corrAxesRef = useRef<THREE.Object3D[]>([]);
-  const vmcCompRef = useRef<NodeComponent | null>(null);
-  const lipsyncCompRef = useRef<NodeComponent | null>(null);
+  const vmcCompRef = useRef<Behavior | null>(null);
+  const lipsyncCompRef = useRef<Behavior | null>(null);
   const vmcRetargetRef = useRef<VmcRetarget | null>(null);
   const boneFiltersRef = useRef(new BoneFilterBank());
   const poseWasActiveRef = useRef(false);
   const blendWeightRef = useRef(0); // 0 = animation, 1 = VMC
+  // Active animation layer driving the clock-anchored playhead (read in useFrame).
+  const activeLayerRef = useRef<ActiveAnimLayer | null>(null);
   const [vrmLoaded, setVrmLoaded] = useState(false);
   const t = useTransformWithOverride(node);
   useApplyMeshFlags(outerRef, t.opacity, t.castShadow, t.receiveShadow);
@@ -885,7 +938,7 @@ function AvatarNode({
   const vmcComp = useEditorStore(
     (s) =>
       s
-        .nodeComponentsFor(node.id)
+        .behaviorsFor(node.id)
         .find(
           (c) =>
             (c.kind === 'vmc_receiver' || c.kind === 'mediapipe_tracker') &&
@@ -900,7 +953,7 @@ function AvatarNode({
   const lipsyncComp = useEditorStore(
     (s) =>
       s
-        .nodeComponentsFor(node.id)
+        .behaviorsFor(node.id)
         .find(
           (c) =>
             (c.kind === 'lipsync_processor' ||
@@ -925,27 +978,87 @@ function AvatarNode({
   type MorphEntry = { mesh: THREE.SkinnedMesh; index: number };
   const morphMapRef = useRef<Map<string, MorphEntry[]>>(new Map());
 
-  const animComp = node.components?.animation as
-    | { idleUrl?: string; speed?: number; offset?: number }
+  // --- Avatar animation resolution (clock-anchored, two-layer) ---
+  // Idle base loop + a scheduled timeline (scheduled_animation docs), both
+  // content-addressed by animation_clip id and anchored to the synced clock.
+  // Idle prefers the new properties.animation.idle = { clipId, speed }; it falls
+  // back to the legacy components.animation.idleUrl until that's migrated.
+  const animIdle = (node.properties as { animation?: { idle?: { clipId?: string; speed?: number } } } | undefined)
+    ?.animation?.idle;
+  const legacyAnim = node.components?.animation as
+    | { idleUrl?: string; speed?: number }
     | undefined;
-  const apiAnim = useEditorStore((s) => s.apiAnimationByNode[node.id] ?? null);
-  // Tick that re-fires when the active clip in the api-driven queue should change.
-  const [apiAnimTick, setApiAnimTick] = useState(0);
-  const apiResolved = apiAnim
-    ? _resolveApiAnimation(apiAnim, Date.now())
-    : null;
+  const scheduledMap = useEditorStore((s) => s.scheduledAnimations);
+  const animationClips = useEditorStore((s) => s.animationClips);
+  const scheduledForNode = useMemo(
+    () => Object.values(scheduledMap).filter((e) => e.avatarNodeId === node.id),
+    [scheduledMap, node.id]
+  );
+  const idleClip = animIdle?.clipId ? animationClips[animIdle.clipId] : undefined;
+  const idle = idleClip
+    ? { url: idleClip.sourceFilePath, speed: animIdle?.speed ?? 1 }
+    : legacyAnim?.idleUrl
+      ? { url: legacyAnim.idleUrl, speed: legacyAnim.speed ?? 1 }
+      : null;
+
+  // Tick that re-fires when the active timeline entry should change.
+  const [animTick, setAnimTick] = useState(0);
+  const animResolved = _resolveAvatarAnimation(
+    node.id,
+    idle,
+    scheduledForNode,
+    animationClips,
+    Date.now()
+  );
   useEffect(() => {
-    if (!apiResolved || apiResolved.msUntilNext == null) return;
+    if (animResolved.msUntilNext == null) return;
     const handle = setTimeout(
-      () => setApiAnimTick((n) => n + 1),
-      Math.max(0, apiResolved.msUntilNext)
+      () => setAnimTick((n) => n + 1),
+      Math.max(0, animResolved.msUntilNext)
     );
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiAnim, apiAnimTick]);
-  const animUrl = apiResolved?.url ?? animComp?.idleUrl ?? null;
-  const animSpeed = animComp?.speed ?? 1;
-  const animOffset = apiResolved?.offset ?? animComp?.offset ?? 0;
+  }, [animResolved.url, animResolved.msUntilNext, animTick]);
+  const animUrl = animResolved.url;
+  // Hand the active layer to the per-frame anchored drive. Keep the ref current
+  // even when the clip is the same but its start/speed/loop changed (e.g. the
+  // queue was re-scheduled onto the same clip).
+  const animLayer = animResolved.layer;
+  const animLayerKey = animLayer
+    ? `${animLayer.startEpoch}:${animLayer.speed}:${animLayer.loop}`
+    : '';
+  useEffect(() => {
+    activeLayerRef.current = animLayer;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animLayerKey]);
+
+  // --- Idle migration: legacy idleUrl → content-addressed clip id ---
+  // Once the matching animation_clip is registered (auto-registration probe),
+  // upgrade components.animation.idleUrl → properties.animation.idle.clipId so
+  // the idle loop is universal and syncs to collab peers (the legacy path was
+  // the author's local URL, unresolvable elsewhere). Until then the legacy URL
+  // still plays via the resolver fallback above. Owner-only; never on a
+  // projected remote avatar.
+  const legacyIdleUrl = legacyAnim?.idleUrl ?? null;
+  useEffect(() => {
+    if (node.remote || !legacyIdleUrl || animIdle?.clipId) return;
+    const clip = Object.values(animationClips).find(
+      (c) => c.sourceFilePath === legacyIdleUrl
+    );
+    if (!clip) return; // clip not registered yet — re-runs when it lands
+    const speed = legacyAnim?.speed ?? 1;
+    const prevProps = (node.properties as Record<string, unknown>) ?? {};
+    const prevAnim =
+      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
+    const properties = {
+      ...prevProps,
+      animation: { ...prevAnim, idle: { clipId: clip.id, speed } },
+    };
+    const components = { ...node.components, animation: undefined };
+    useEditorStore.getState().updateNode(node.id, { properties, components });
+    api.updateNode(node.id, { properties, components }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legacyIdleUrl, animIdle?.clipId, animationClips, node.id, node.remote]);
 
   // --- VRM load ---
   useEffect(() => {
@@ -1122,13 +1235,42 @@ function AvatarNode({
     };
   }, [vrmLoaded, node.id, node.kind, assetsForProbe]);
 
+  // Stop and drop whatever clip is currently driving this avatar: halt both
+  // mixers, remove the debug correction axes, clear the FBX display, and clear
+  // this instance's animation entry (what useFrame reads). Called at the swap
+  // point and on unmount — never from the load effect's dep-change cleanup, so a
+  // clip switch keeps playing until its replacement is ready.
+  const teardownActiveAnim = useCallback(() => {
+    fbxMixerRef.current?.stopAllAction();
+    fbxMixerRef.current = null;
+    vrmMixerRef.current?.stopAllAction();
+    vrmMixerRef.current = null;
+    corrAxesRef.current.forEach((g) => g.removeFromParent());
+    corrAxesRef.current = [];
+    fbxGroupRef.current?.clear();
+    fbxHelperRef.current?.clear();
+    animEntryRef.current = null;
+  }, []);
+
   // --- Animation load ---
   useEffect(() => {
-    if (!animUrl || !node.filePath || !vrmLoaded) return;
+    // Nothing to play (no VRM yet, VRM reloading, idle cleared, or a non-FBX
+    // url) → drop the active clip now; a rest pose here is correct. When we DO
+    // have a clip to switch to, we deliberately leave the current one running
+    // and swap it inside the loader callback once the replacement is baked, so
+    // no frame ever renders with an empty registry (which forces the humanoid
+    // back to rest — the visible flash between two idle animations).
+    if (!animUrl || !node.filePath || !vrmLoaded) {
+      teardownActiveAnim();
+      return;
+    }
     let cancelled = false;
 
     const ext = animUrl.split('?')[0].split('.').pop()?.toLowerCase();
-    if (ext !== 'fbx') return;
+    if (ext !== 'fbx') {
+      teardownActiveAnim();
+      return;
+    }
 
     new FBXLoader().load(animUrl, (fbx) => {
       if (cancelled) return;
@@ -1136,6 +1278,12 @@ function AvatarNode({
       if (!clip) return;
       const vrm = vrmRef.current;
       if (!vrm) return;
+
+      // Swap point: stop the outgoing clip in the same synchronous callback that
+      // bakes and installs the incoming one, so the two never straddle a
+      // rendered frame. (Guards above return early without tearing down, so a
+      // failed/empty load leaves the current clip playing untouched.)
+      teardownActiveAnim();
 
       // Snapshot bone local quaternions at load time (A-pose / bind pose for animation-only FBX).
       const loadTimeQ: Record<string, THREE.Quaternion> = {};
@@ -1299,6 +1447,17 @@ function AvatarNode({
       }
 
       // --- Phase 2: VRM bind world Qs (chain product, no scene rotation) ---
+      // The bind reference below is read from each bone's *live* local
+      // quaternion, so the rig must be at its rest pose when we bake. If a clip
+      // was already playing (e.g. switching idle A→B without clearing first),
+      // the bones still hold A's last pose and B would retarget against a
+      // distorted reference. Reset both pose layers (whichever the prior clip
+      // drove) to the model's rest pose so a direct switch bakes identically to
+      // a fresh load, then refresh world matrices for the world-space reads.
+      vrm.humanoid.resetNormalizedPose();
+      vrm.humanoid.resetRawPose();
+      vrm.humanoid.update();
+      vrm.scene.updateMatrixWorld(true);
       const allVRMBoneNames = [
         ...new Set(Object.values(FBX_BONE_TO_VRM) as VRMHumanBoneName[]),
       ];
@@ -1950,41 +2109,36 @@ function AvatarNode({
       vrmMixerRef.current = vrmMixer;
       const vrmAction = vrmMixer.clipAction(vrmClip);
       vrmAction.reset().play();
-      vrmAction.time = animOffset % vrmDuration;
-      fbxAction.time = animOffset % clip.duration;
-      vrmAction.timeScale = animSpeed;
-      fbxAction.timeScale = animSpeed;
+      // No initial seek here: the per-frame anchored drive (useFrame) sets
+      // action.time from the active layer's startEpoch against the synced clock,
+      // so the playhead is phase-accurate on the very first frame regardless of
+      // this client's (possibly seconds-long) load latency. timeScale stays 1 —
+      // speed is baked into the anchored time, and the mixer is stepped with
+      // update(0) so it never free-runs out of phase.
 
-      animRegistry.set(node.id, {
+      animEntryRef.current = {
         action: vrmAction,
         mixer: vrmMixer,
+        vrmDuration,
         fbxAction,
         fbxMixer,
         fbxScene: fbx,
         duration: clip.duration,
-      });
+      };
     });
 
+    // Only cancel the in-flight load on a dep change. Tearing the active clip
+    // down here is what caused the rest-pose flash: it ran the instant animUrl
+    // changed, before the replacement had loaded. Teardown now happens at the
+    // swap point (above) and on unmount (below) instead.
     return () => {
       cancelled = true;
-      fbxMixerRef.current?.stopAllAction();
-      fbxMixerRef.current = null;
-      vrmMixerRef.current?.stopAllAction();
-      vrmMixerRef.current = null;
-      corrAxesRef.current.forEach((g) => g.removeFromParent());
-      corrAxesRef.current = [];
-      fbxGroupRef.current?.clear();
-      fbxHelperRef.current?.clear();
-      animRegistry.delete(node.id);
     };
-  }, [node.filePath, animUrl, vrmLoaded]);
+  }, [node.filePath, animUrl, vrmLoaded, teardownActiveAnim]);
 
-  useEffect(() => {
-    const entry = animRegistry.get(node.id);
-    if (!entry) return;
-    entry.action.timeScale = animSpeed;
-    entry.fbxAction.timeScale = animSpeed;
-  }, [animSpeed, node.id]);
+  // Evict this avatar's clip from the shared registry on unmount (the load
+  // effect's cleanup no longer does — it only cancels in-flight loads).
+  useEffect(() => teardownActiveAnim, [teardownActiveAnim]);
 
   const _boneStartWP = useRef(new THREE.Vector3());
   const _boneEndWP = useRef(new THREE.Vector3());
@@ -2078,10 +2232,24 @@ function AvatarNode({
     const blend = blendWeightRef.current;
 
     // ── Step 1: animation (always runs, gives us the "animation raw pose") ──────
-    fbxMixerRef.current?.update(delta);
-    if (vrm) {
+    // Clock-anchored drive: set each action's playhead from the active layer
+    // against the synced clock, then step the mixer with update(0). The mixer
+    // never free-runs, so every client (and every reload) stays in phase.
+    const layer = activeLayerRef.current;
+    const reg = animEntryRef.current;
+    if (reg && layer) {
+      const now = Date.now();
+      reg.fbxAction.time = _anchoredTime(now, layer, reg.duration);
+      reg.fbxMixer.update(0);
+      if (vrm) {
+        (vrm.humanoid as unknown as { update?: () => void }).update?.();
+        reg.action.time = _anchoredTime(now, layer, reg.vrmDuration);
+        reg.mixer.update(0);
+      }
+    } else if (vrm) {
+      // No clip active (or still loading) — keep the humanoid normalized so any
+      // held/broadcast pose stays applied.
       (vrm.humanoid as unknown as { update?: () => void }).update?.();
-      vrmMixerRef.current?.update(delta);
     }
 
     // ── Step 2: broadcast pose composition (skipped entirely when blend === 0) ──
@@ -2505,17 +2673,16 @@ const SPEAKER_DIVIDER_PTS: Pt3[] = [
 // Two sound-wave arcs to the right of the cone.
 const SPEAKER_WAVE_PTS: Pt3[][] = [0.11, 0.16].map((r) =>
   Array.from({ length: 9 }, (_, i) => {
-    const a = (-Math.PI / 4) + (i / 8) * (Math.PI / 2);
+    const a = -Math.PI / 4 + (i / 8) * (Math.PI / 2);
     return [Math.cos(a) * r + 0.04, Math.sin(a) * r, 0] as Pt3;
   })
 );
-
 
 function LightNode({
   node,
   viewerMode,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   viewerMode?: boolean;
 }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -2632,7 +2799,7 @@ function LightNode({
   );
 }
 
-function CameraNode({ node }: { node: NodeRecord }) {
+function CameraNode({ node }: { node: StageObject }) {
   const { selectedNodeId } = useEditorStore();
   const isSelected = selectedNodeId === node.id;
   const groupRef = useRef<THREE.Group>(null);
@@ -2814,7 +2981,7 @@ const BILLBOARD_DEFAULTS: BillboardConfig = {
   textureUrl: null,
 };
 
-function BillboardNode({ node }: { node: NodeRecord }) {
+function BillboardNode({ node }: { node: StageObject }) {
   const outerRef = useRef<THREE.Group>(null);
   const billboardRef = useRef<THREE.Group>(null);
   const frontRef = useRef<THREE.Mesh>(null);
@@ -2974,7 +3141,7 @@ function VideoNode({
   node,
   viewerMode,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   viewerMode?: boolean;
 }) {
   const outerRef = useRef<THREE.Group>(null);
@@ -3207,7 +3374,7 @@ function AudioNode({
   node,
   viewerMode,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   viewerMode?: boolean;
 }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -3231,7 +3398,8 @@ function AudioNode({
   const applyVolume = () => {
     const s = soundRef.current;
     if (!s) return;
-    const v = audibleRef.current && !mutedRef.current ? desiredVolRef.current : 0;
+    const v =
+      audibleRef.current && !mutedRef.current ? desiredVolRef.current : 0;
     s.setVolume(Math.max(0, Math.min(1, v)));
   };
 
@@ -3378,12 +3546,7 @@ function AudioNode({
           {/* Directional sources get the sound-wave arcs; simple ones don't. */}
           {ac.audioType === 'directional' &&
             SPEAKER_WAVE_PTS.map((pts, i) => (
-              <Line
-                key={i}
-                points={pts}
-                color={iconColor}
-                lineWidth={1.5}
-              />
+              <Line key={i} points={pts} color={iconColor} lineWidth={1.5} />
             ))}
         </Billboard>
       )}
@@ -3452,7 +3615,7 @@ function makeInstancedParticleMaterial(
 
 /** Read the live text content for a text scene node, preferring the runtime
  *  override on `text.content` over the persisted `components.text.content`. */
-function useTextContent(node: NodeRecord): string {
+function useTextContent(node: StageObject): string {
   const override = useEditorStore((s) => {
     const v = s.runtimeNodeOverrides[node.id]?.['text.content'];
     return typeof v === 'string' ? v : undefined;
@@ -3464,7 +3627,7 @@ function useTextContent(node: NodeRecord): string {
 }
 
 /** SDF text via troika-three-text. Crisp at any distance, no HTML. */
-function TextTroikaNode({ node }: { node: NodeRecord }) {
+function TextTroikaNode({ node }: { node: StageObject }) {
   const outerRef = useRef<THREE.Group>(null);
   const billboardRef = useRef<THREE.Group>(null);
   const textRef = useRef<TroikaText | null>(null);
@@ -3538,7 +3701,7 @@ function TextTroikaNode({ node }: { node: NodeRecord }) {
 /** Text rendered into a CanvasTexture on a plane. Supports allowHtml via
  *  html2canvas (for emote rendering); otherwise rasterises plain text directly
  *  on a 2D canvas. */
-function TextCanvasNode({ node }: { node: NodeRecord }) {
+function TextCanvasNode({ node }: { node: StageObject }) {
   const outerRef = useRef<THREE.Group>(null);
   const billboardRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
@@ -3718,7 +3881,7 @@ function FeedCanvasNode({
   node,
   viewerMode,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   viewerMode?: boolean;
 }) {
   const outerRef = useRef<THREE.Group>(null);
@@ -3939,7 +4102,7 @@ function FeedCanvasNode({
   );
 }
 
-function ParticleNode({ node }: { node: NodeRecord }) {
+function ParticleNode({ node }: { node: StageObject }) {
   const outerRef = useRef<THREE.Group>(null);
   // InstancedMesh for local-space; a scene-root InstancedMesh for world-space
   const localMeshRef = useRef<THREE.InstancedMesh>(null);
@@ -4202,7 +4365,7 @@ function ParticleNode({ node }: { node: NodeRecord }) {
   );
 }
 
-function GodrayCasterNode({ node }: { node: NodeRecord }) {
+function GodrayCasterNode({ node }: { node: StageObject }) {
   const outerRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const t = useTransformWithOverride(node);
@@ -4241,7 +4404,7 @@ function ModelNode({
   node,
   children,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   children?: React.ReactNode;
 }) {
   const outerRef = useRef<THREE.Group>(null);
@@ -4250,6 +4413,10 @@ function ModelNode({
   useApplyMeshFlags(outerRef, t.opacity, t.castShadow, t.receiveShadow);
   const ext = node.filePath?.split('.').pop()?.toLowerCase();
   const isGlb = Boolean(node.filePath && (ext === 'glb' || ext === 'gltf'));
+  // remote_object is an opaque wrapper around a peer's shared subtree — it has
+  // no model of its own, so skip the no-model placeholder box (it would float
+  // at the container origin alongside the projected content).
+  const isContainer = node.kind === 'remote_object';
 
   useEffect(() => {
     if (!outerRef.current) return;
@@ -4279,7 +4446,7 @@ function ModelNode({
     >
       {isGlb ? (
         <group ref={innerRef} />
-      ) : (
+      ) : isContainer ? null : (
         <mesh>
           <boxGeometry args={[0.5, 0.5, 0.5]} />
           <meshStandardMaterial color="#5588cc" />
@@ -4304,8 +4471,8 @@ function SceneInstanceContent({ sourceSceneId }: { sourceSceneId: string }) {
 }
 
 function renderNodeElement(
-  node: NodeRecord,
-  allNodes?: NodeRecord[],
+  node: StageObject,
+  allNodes?: StageObject[],
   viewerMode?: boolean
 ): React.ReactNode {
   const freeChildren = allNodes
@@ -4362,8 +4529,10 @@ function renderNodeElement(
         <GodrayCasterNode node={node} />
       </group>
     );
-  // Group nodes are invisible transform containers — children inherit their position
-  if (node.kind === 'group')
+  // Group nodes are invisible transform containers — children inherit their
+  // position. remote_object (a placed peer share) is the same: an opaque, empty
+  // container whose transform drives the projected shared subtree below it.
+  if (node.kind === 'group' || node.kind === 'remote_object')
     return (
       <group key={node.id} visible={visible}>
         <ModelNode node={node}>{childElements}</ModelNode>
@@ -4383,6 +4552,12 @@ function renderNodeElement(
       </group>
     );
   }
+  // Scene-root nodes (kind 'scene') ride the mesh so their properties reach the
+  // frontend (broadcastTickHz, collab link), but they have no visual: a scene
+  // root is its own root, so it slips past the active-scene filter and would
+  // otherwise fall through to the default ModelNode placeholder (a stray cube at
+  // the origin). It carries no model and no transform of its own — render nothing.
+  if (node.kind === 'scene') return null;
   // particle, billboard, and text nodes are rendered flat in SceneNodes to keep
   // their React position stable across reparents (preserves particle pools,
   // billboard textures, troika SDF caches, and html2canvas-backed textures).
@@ -4436,9 +4611,9 @@ export function SceneNodes({
   // so they break the chain. Recompute effective visibility by walking the
   // parentId chain in `nodes` (cycles guarded by a visited set).
   const byId = new Map(nodes.map((n) => [n.id, n] as const));
-  const isAncestorHidden = (n: NodeRecord): boolean => {
+  const isAncestorHidden = (n: StageObject): boolean => {
     const seen = new Set<string>();
-    let cur: NodeRecord | undefined = n.parentId
+    let cur: StageObject | undefined = n.parentId
       ? byId.get(n.parentId)
       : undefined;
     while (cur && !seen.has(cur.id)) {
@@ -4448,7 +4623,7 @@ export function SceneNodes({
     }
     return false;
   };
-  const effectiveVisible = (n: NodeRecord) => !n.hidden && !isAncestorHidden(n);
+  const effectiveVisible = (n: StageObject) => !n.hidden && !isAncestorHidden(n);
 
   return (
     <>
@@ -4555,10 +4730,10 @@ function TransformGizmo({
   );
 }
 
-const GIZMO_BUTTONS: { mode: GizmoMode; icon: string; title: string }[] = [
-  { mode: 'translate', icon: '↔', title: 'Translate' },
-  { mode: 'rotate', icon: '○', title: 'Rotate' },
-  { mode: 'scale', icon: '□', title: 'Scale' },
+const GIZMO_BUTTONS: { mode: GizmoMode; icon: string; titleKey: string }[] = [
+  { mode: 'translate', icon: '↔', titleKey: 'viewport.gizmo.translate' },
+  { mode: 'rotate', icon: '○', titleKey: 'viewport.gizmo.rotate' },
+  { mode: 'scale', icon: '□', titleKey: 'viewport.gizmo.scale' },
 ];
 
 function GizmoToolbar({
@@ -4568,6 +4743,7 @@ function GizmoToolbar({
   mode: GizmoMode;
   setMode: (m: GizmoMode) => void;
 }) {
+  const { t } = useTranslation('misc');
   return (
     <div
       style={{
@@ -4583,10 +4759,10 @@ function GizmoToolbar({
         zIndex: 10,
       }}
     >
-      {GIZMO_BUTTONS.map(({ mode: m, icon, title }) => (
+      {GIZMO_BUTTONS.map(({ mode: m, icon, titleKey }) => (
         <button
           key={m}
-          title={title}
+          title={t(titleKey)}
           onClick={() => setMode(m)}
           style={{
             width: 30,
@@ -5174,7 +5350,7 @@ export function Viewport() {
         <Grid infiniteGrid fadeDistance={30} fadeStrength={1} />
         {shadowsEnabled && <ShadowCatcher />}
         <ShadowMaterialSync enabled={shadowsEnabled} />
-        <Environment preset="city" />
+        <SafeEnvironment preset="city" />
         <OrbitControls ref={orbitRef} makeDefault />
         <CameraEffects />
       </Canvas>
@@ -5188,11 +5364,12 @@ export function Viewport() {
  *  viewport. Off by default so authoring stays quiet; the viewer/output always
  *  plays audio regardless of this. */
 function AudioPreviewToggle() {
+  const { t } = useTranslation('misc');
   const on = useEditorStore((s) => s.editorAudioPreviewEnabled);
   const setOn = useEditorStore((s) => s.setEditorAudioPreviewEnabled);
   return (
     <button
-      title={on ? 'Audio preview on (click to mute editor)' : 'Audio muted in editor (click to preview)'}
+      title={on ? t('viewport.audio.on') : t('viewport.audio.off')}
       onClick={() => setOn(!on)}
       style={{
         position: 'absolute',

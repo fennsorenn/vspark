@@ -1,0 +1,75 @@
+{
+  "empty": {
+    "noClips": "No clips",
+    "selectClip": "Select a clip from a node or layer in the left dock to edit it here.",
+    "noLanes": "No lanes yet. Click + Add Lane below.",
+    "noEvents": "No event markers. Add one to fire a media command at a point in the clip."
+  },
+  "section": {
+    "addClip": "+ Add Clip",
+    "pasteClip": "⧉ Paste Clip",
+    "pasteClipTitle": "Paste the clip from clipboard onto this owner",
+    "ctx": {
+      "copyClip": "Copy clip",
+      "deleteClip": "Delete clip"
+    },
+    "errors": {
+      "pasteFailed": "Failed to paste clip"
+    }
+  },
+  "header": {
+    "duration": "Duration",
+    "loop": "loop",
+    "autoplay": "autoplay",
+    "autoplayTitle_enabled": "Resume on backend boot",
+    "autoplayTitle_disabled": "Enable loop first",
+    "blend": "Blend",
+    "blendOverride": "Replace",
+    "blendRelative": "Add"
+  },
+  "transport": {
+    "play": "▶ Play",
+    "pause": "❚❚ Pause",
+    "stop": "■ Stop",
+    "resume": "▶ Resume"
+  },
+  "scrub": {
+    "playhead": "playhead: {{t}}s",
+    "dragTitle": "Drag to scrub"
+  },
+  "keyframe": {
+    "noSelection": "Click a keyframe to edit its easing, value, and bezier handles.",
+    "deleteKeyframe": "Delete keyframe",
+    "easingLabel": "easing",
+    "easingLinear": "linear",
+    "easingStep": "step",
+    "easingBezier": "bezier",
+    "dotTitle": "t={{t}}s  v={{v}}  ({{easing}})\nright-click to delete",
+    "outHandle": "out handle",
+    "inHandle": "in handle"
+  },
+  "lane": {
+    "removeLaneTitle": "Remove lane",
+    "addLane": "+ Add Lane",
+    "cancel": "Cancel",
+    "add": "Add",
+    "targetSceneNode": "Scene node",
+    "targetComposeLayer": "Compose layer",
+    "selectTargetPlaceholder": "— select target —"
+  },
+  "events": {
+    "laneLabel": "🎬 events",
+    "markerTitle": "{{action}} @ {{t}}s",
+    "removeMarkerTitle": "Remove marker",
+    "selectTargetPlaceholder": "— select target —",
+    "addEvent": "+ Add Event",
+    "addEventTitle_noTargets": "Add a video or audio entity first",
+    "addEventTitle": "Add an event marker at the playhead",
+    "seekLabel": "to(s)",
+    "volLabel": "vol"
+  },
+  "help": {
+    "timeline": "Animate avatar or scene parameters over time with Track-Clips, lanes and keyframes.",
+    "clipsSection": "Manage Track-Clips attached to this node — create, select and open clips for editing."
+  }
+}

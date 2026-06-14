@@ -13,7 +13,7 @@ import type { BoneRotations, Blendshapes } from '@vspark/shared/signal';
   label: 'VMC Packet Source',
   description:
     'Receives UDP packets from a VMC-compatible app. Fires bone and ARKit data as events.',
-  tags: ['input', 'mocap'],
+  tags: ["input"],
   color: '#1a3a5a',
 })
 export class VmcPacketSource extends Node {

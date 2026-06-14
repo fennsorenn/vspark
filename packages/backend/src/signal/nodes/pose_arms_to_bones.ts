@@ -233,7 +233,7 @@ function convertArms(rawPts: Landmark[]): NormalizedPose {
   label: 'Pose → Arm Bones',
   description:
     'Converts MediaPipe BlazePose world landmarks to VRM arm local rotations (upper+lower arm, both sides). Swing-only — wrist twist is not derived from landmarks. Use as an alternative to IK-driven arm tracking.',
-  tags: ['tracking', 'mapping'],
+  tags: ["mocap"],
   color: '#4a6a8a',
 })
 export class PoseArmsToBones extends Node {

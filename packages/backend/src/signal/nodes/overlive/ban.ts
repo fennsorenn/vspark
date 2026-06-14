@@ -24,7 +24,7 @@ const EMPTY: BanOut = {
 @SignalNode({
   label: 'Overlive Ban',
   description: 'Fires on bans and timeouts. timeoutSeconds = 0 when permanent.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveBan extends Node {

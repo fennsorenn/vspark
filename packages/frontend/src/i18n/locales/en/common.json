@@ -1,0 +1,14 @@
+{
+  "appName": "vspark",
+  "actions": {
+    "close": "Close",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "create": "Create",
+    "rename": "Rename",
+    "add": "Add",
+    "remove": "Remove",
+    "ok": "OK"
+  }
+}

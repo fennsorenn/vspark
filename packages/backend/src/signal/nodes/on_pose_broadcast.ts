@@ -15,10 +15,10 @@ interface OnPoseBroadcastState {
  * out-of-band by `OnPoseBroadcast.register(...)`.
  */
 @SignalNode({
-  label: 'On Pose Broadcast',
+  label: 'Intercept Pose',
   description:
     'Intercepts the pose before it is broadcast. Wire trigger into your processing pipeline and frame into a Pose Interceptor Broadcast node at the end. Priority controls order; higher runs first.',
-  tags: ['interceptor'],
+  tags: ["output"],
   color: '#4a6a9f',
 })
 export class OnPoseBroadcast extends Node {

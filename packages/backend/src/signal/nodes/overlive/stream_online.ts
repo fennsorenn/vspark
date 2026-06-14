@@ -15,7 +15,7 @@ const EMPTY: StreamOnlineOut = { title: '', category: '', language: '' };
   label: 'Overlive Stream Online',
   description:
     'Fires when the configured account goes live. Title may be empty until the platform populates stream info.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveStreamOnline extends Node {

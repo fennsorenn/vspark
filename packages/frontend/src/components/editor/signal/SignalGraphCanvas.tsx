@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useCallback, useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ReactFlow,
   Background,
@@ -32,7 +33,7 @@ import { InferGraph } from '@vspark/shared/inference';
 import { inferForKind } from '@vspark/shared/infer_nodes';
 import { transportOf, type ResolvedPort } from '@vspark/shared/signal_types';
 import type { PortMeta } from '@vspark/shared/node';
-import type { GraphOwnerKind } from '@vspark/shared/types';
+import type { LogicOwnerKind } from '@vspark/shared/types';
 import { SignalNodeCard } from './SignalNodeCard';
 import type { SignalNodeData } from './SignalNodeCard';
 import { FlashEdge } from './FlashEdge';
@@ -40,6 +41,7 @@ import type { FlashEdgeData } from './FlashEdge';
 import { useEditorStore } from '../../../store/editorStore';
 import { api, getSignalGraphStates } from '../../../api/client';
 import { copyToClipboard, pasteFromClipboard } from '../../../clipboard';
+import { HelpButton } from '../../../help/HelpButton';
 
 /** Mint a short, unique-enough node id for pasted nodes. Graph descriptor
  *  node ids are arbitrary strings (not constrained to UUIDs); using a
@@ -92,7 +94,7 @@ function staticPortsOf(meta: NodeKindMeta | undefined): PortMeta[] {
 function buildMirror(
   descriptor: GraphDescriptor,
   kindMap: Map<string, NodeKindMeta>,
-  ownerKind?: GraphOwnerKind
+  ownerKind?: LogicOwnerKind
 ): InferGraph {
   const g = new InferGraph(
     inferForKind,
@@ -329,9 +331,10 @@ export function SignalGraphCanvas(props: Props) {
 }
 
 function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
+  const { t } = useTranslation('signalGraph');
   const setSelectedSignalNode = useEditorStore((s) => s.setSelectedSignalNode);
-  const setActiveGraphWritable = useEditorStore(
-    (s) => s.setActiveGraphWritable
+  const setActiveLogicWritable = useEditorStore(
+    (s) => s.setActiveLogicWritable
   );
   const { screenToFlowPosition } = useReactFlow();
 
@@ -349,7 +352,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   const [writable, setWritable] = useState(false);
   // Owner scope of the loaded graph — threaded into inference so scope-aware
   // nodes (scene_entity) resolve the right port types in the editor.
-  const [ownerKind, setOwnerKind] = useState<GraphOwnerKind | undefined>(
+  const [ownerKind, setOwnerKind] = useState<LogicOwnerKind | undefined>(
     undefined
   );
   // Transient banner shown when a drag connection is refused by type inference.
@@ -398,21 +401,21 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     return () => clearTimeout(t);
   }, [rejectMsg]);
 
-  // Load descriptor — first check component-owned graphs (read-only), then
+  // Load descriptor — first check behavior-owned graphs (read-only), then
   // fall back to standalone project graphs (writable).
   useEffect(() => {
     if (!graphId) return;
     let cancelled = false;
     (async () => {
       try {
-        const componentGraphs = await api.getSignalGraphs();
-        const match = componentGraphs.find((g) => g.id === graphId);
+        const behaviorLogic = await api.getSignalGraphs();
+        const match = behaviorLogic.find((g) => g.id === graphId);
         if (match) {
           if (!cancelled) {
             writableRef.current = false;
             setWritable(false);
-            setActiveGraphWritable(false);
-            // Component-owned graphs are always attached to a scene node.
+            setActiveLogicWritable(false);
+            // Behavior-owned graphs are always attached to a scene node.
             setOwnerKind('scene_node');
             setDescriptor(match);
           }
@@ -422,10 +425,10 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
         /* ignore */
       }
       // Fall back to standalone graphs (project / scene_node / compose_layer)
-      // via the generic getGraph endpoint. All three owner kinds are writable
+      // via the generic getLogic endpoint. All three owner kinds are writable
       // via the same PUT /graphs/:id route.
       try {
-        const g = await api.getGraph(graphId);
+        const g = await api.getLogic(graphId);
         if (g && !cancelled) {
           const d: GraphDescriptor = {
             ...g.descriptor,
@@ -436,8 +439,8 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
           writableRef.current = true;
           editableRef.current = d;
           setWritable(true);
-          setActiveGraphWritable(true);
-          setOwnerKind((g.ownerKind as GraphOwnerKind) || undefined);
+          setActiveLogicWritable(true);
+          setOwnerKind((g.ownerKind as LogicOwnerKind) || undefined);
           setDescriptor(d);
         }
       } catch {
@@ -447,14 +450,14 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [graphId, setActiveGraphWritable]);
+  }, [graphId, setActiveLogicWritable]);
 
   // Clear writable flag on unmount (so leaving the graph view also clears).
   useEffect(
     () => () => {
-      setActiveGraphWritable(false);
+      setActiveLogicWritable(false);
     },
-    [setActiveGraphWritable]
+    [setActiveLogicWritable]
   );
 
   // Poll graph states at ~500ms for live monitoring.
@@ -567,7 +570,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       persistTimer.current = setTimeout(() => {
         // Strip the wrapper fields the backend doesn't store on the row.
         void api
-          .updateGraph(graphId, {
+          .updateLogic(graphId, {
             descriptor: {
               id: next.id,
               label: next.label,
@@ -593,7 +596,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       const next = editableRef.current;
       if (writableRef.current && next) {
         void api
-          .updateGraph(graphId, {
+          .updateLogic(graphId, {
             descriptor: {
               id: next.id,
               label: next.label,
@@ -956,11 +959,26 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
         height: '100%',
         background: '#0d0d0d',
         outline: 'none',
+        position: 'relative',
       }}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onMouseEnter={() => wrapperRef.current?.focus()}
     >
+      <div
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          zIndex: 10,
+        }}
+      >
+        <HelpButton
+          topic="logic"
+          anchor="nodes"
+          tip={t('help.nodes')}
+        />
+      </div>
       {rejectMsg && (
         <div
           style={{
@@ -980,7 +998,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
             pointerEvents: 'none',
           }}
         >
-          ⚠ Connection refused: {rejectMsg}
+          ⚠ {t('canvas.connectionRefused', { reason: rejectMsg })}
         </div>
       )}
       <ReactFlow

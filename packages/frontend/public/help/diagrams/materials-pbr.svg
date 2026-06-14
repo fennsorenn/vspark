@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="460" height="210" viewBox="0 0 460 210" font-family="system-ui, sans-serif" role="img" aria-label="Metalness and roughness sphere chart">
+  <defs>
+    <radialGradient id="d0" cx="38%" cy="32%" r="72%"><stop offset="0%" stop-color="#f2f4f7"/><stop offset="8%" stop-color="#6b7280"/><stop offset="100%" stop-color="#30343b"/></radialGradient>
+    <radialGradient id="m0" cx="38%" cy="30%" r="78%"><stop offset="0%" stop-color="#eaf1fb"/><stop offset="5%" stop-color="#7d93b6"/><stop offset="88%" stop-color="#3a455c"/><stop offset="100%" stop-color="#9fb3d4"/></radialGradient>
+    <radialGradient id="d1" cx="38%" cy="32%" r="72%"><stop offset="0%" stop-color="#f2f4f7"/><stop offset="26%" stop-color="#6b7280"/><stop offset="100%" stop-color="#30343b"/></radialGradient>
+    <radialGradient id="m1" cx="38%" cy="30%" r="78%"><stop offset="0%" stop-color="#eaf1fb"/><stop offset="21%" stop-color="#7d93b6"/><stop offset="88%" stop-color="#3a455c"/><stop offset="100%" stop-color="#9fb3d4"/></radialGradient>
+    <radialGradient id="d2" cx="38%" cy="32%" r="72%"><stop offset="0%" stop-color="#f2f4f7"/><stop offset="44%" stop-color="#6b7280"/><stop offset="100%" stop-color="#30343b"/></radialGradient>
+    <radialGradient id="m2" cx="38%" cy="30%" r="78%"><stop offset="0%" stop-color="#eaf1fb"/><stop offset="38%" stop-color="#7d93b6"/><stop offset="88%" stop-color="#3a455c"/><stop offset="100%" stop-color="#9fb3d4"/></radialGradient>
+    <radialGradient id="d3" cx="38%" cy="32%" r="72%"><stop offset="0%" stop-color="#f2f4f7"/><stop offset="63%" stop-color="#6b7280"/><stop offset="100%" stop-color="#30343b"/></radialGradient>
+    <radialGradient id="m3" cx="38%" cy="30%" r="78%"><stop offset="0%" stop-color="#eaf1fb"/><stop offset="55%" stop-color="#7d93b6"/><stop offset="88%" stop-color="#3a455c"/><stop offset="100%" stop-color="#9fb3d4"/></radialGradient>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#9aa6ba"/></marker>
+  </defs>
+  <circle cx="80" cy="72" r="30" fill="url(#d0)" stroke="#20242c"/>
+  <circle cx="80" cy="156" r="30" fill="url(#m0)" stroke="#20242c"/>
+  <circle cx="180" cy="72" r="30" fill="url(#d1)" stroke="#20242c"/>
+  <circle cx="180" cy="156" r="30" fill="url(#m1)" stroke="#20242c"/>
+  <circle cx="280" cy="72" r="30" fill="url(#d2)" stroke="#20242c"/>
+  <circle cx="280" cy="156" r="30" fill="url(#m2)" stroke="#20242c"/>
+  <circle cx="380" cy="72" r="30" fill="url(#d3)" stroke="#20242c"/>
+  <circle cx="380" cy="156" r="30" fill="url(#m3)" stroke="#20242c"/>
+  <line x1="60" y1="198" x2="400" y2="198" stroke="#9aa6ba" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="42" y1="186" x2="42" y2="46" stroke="#9aa6ba" stroke-width="1.4" marker-end="url(#ar)"/>
+</svg>

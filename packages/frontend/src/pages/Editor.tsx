@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   api,
   serializePreset,
@@ -8,6 +9,11 @@ import {
 import { useEditorStore } from '../store/editorStore';
 import { useWsSync } from '../hooks/useWsSync';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
+import { useSharedSubscriptions } from '../hooks/useSharedSubscriptions';
+import { useClientMesh } from '../hooks/useClientMesh';
+import { initMeshPeer } from '../mesh/peer';
+import { startMeshProjection } from '../sync/meshProjection';
+import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import { TopBar } from '../components/editor/TopBar';
 import { SceneGraph } from '../components/editor/SceneGraph';
 import { Viewport } from '../components/editor/Viewport';
@@ -16,6 +22,7 @@ import { AssetManager } from '../components/editor/AssetManager';
 import { SignalGraphCanvas } from '../components/editor/signal/SignalGraphCanvas';
 import { NodePalette } from '../components/editor/signal/NodePalette';
 import { ComposeView } from '../components/editor/ComposeView';
+import { HelpWindow } from '../help/HelpWindow';
 import {
   handleSceneNodeDrop,
   hasCreatePayload,
@@ -25,6 +32,17 @@ import type { NodeKindMeta } from '@vspark/shared/signal';
 export function Editor() {
   useWsSync();
   useTrackClipEvaluator();
+  useSharedSubscriptions();
+  useClientMesh();
+  // Mesh store: mirror the document collections into this tab, and feed
+  // shared-object projections from them (the doc plane of "place" rides the
+  // mesh since §9 step D; dev-notes/plans/mesh-sync-refactor.md).
+  useEffect(() => {
+    void initMeshPeer().catch(console.warn);
+    startMeshProjection();
+    startMeshStoreFeeder();
+  }, []);
+  const { t } = useTranslation('editor');
   const { projectId } = useParams<{ projectId: string }>();
   const {
     setProject,
@@ -32,8 +50,8 @@ export function Editor() {
     setActiveScene,
     setNodes,
     setAssets,
-    setNodeComponents,
-    setComponentKinds,
+    setBehaviors,
+    setBehaviorKinds,
     setCameraEffects,
     setComposeLayers,
     setComposeScenes,
@@ -41,9 +59,9 @@ export function Editor() {
     setTrackClips,
     setOverliveAccounts,
     setPresets,
-    activeGraphId,
+    activeLogicId,
     leftTab,
-    activeGraphWritable,
+    activeLogicWritable,
   } = useEditorStore();
   const [kindMeta, setKindMeta] = useState<NodeKindMeta[]>([]);
 
@@ -53,10 +71,10 @@ export function Editor() {
       .then(setKindMeta)
       .catch(() => {});
     api
-      .getComponentKinds()
-      .then(setComponentKinds)
+      .getBehaviorKinds()
+      .then(setBehaviorKinds)
       .catch(() => {});
-  }, [setComponentKinds]);
+  }, [setBehaviorKinds]);
 
   // Load presets when project changes
   useEffect(() => {
@@ -107,7 +125,8 @@ export function Editor() {
           payload,
           state.projectId!,
           state.activeSceneId!,
-          state.selectedNodeId
+          null, // rootComposeSceneId
+          state.selectedNodeId // parentId — drop under the selection, if any
         );
         const data = await api.getScenes(state.projectId!);
         useEditorStore.getState().setNodes(data.nodes);
@@ -138,13 +157,13 @@ export function Editor() {
         ({
           scenes,
           nodes,
-          nodeComponents,
+          behaviors,
           cameraEffects,
           composeLayers,
           trackClips,
         }) => {
           setScenes(scenes);
-          setNodeComponents(nodeComponents);
+          setBehaviors(behaviors);
           setCameraEffects(cameraEffects);
           // Separate compose_scene layers from regular layers
           const composeSceneItems = composeLayers.filter(
@@ -183,7 +202,7 @@ export function Editor() {
     setActiveScene,
     setNodes,
     setAssets,
-    setNodeComponents,
+    setBehaviors,
     setCameraEffects,
     setComposeLayers,
     setTrackClips,
@@ -236,10 +255,10 @@ export function Editor() {
             <Viewport />
           </div>
           {leftTab === 'graphs' &&
-            (activeGraphId ? (
+            (activeLogicId ? (
               <div style={{ position: 'absolute', inset: 0 }}>
                 <SignalGraphCanvas
-                  graphId={activeGraphId}
+                  graphId={activeLogicId}
                   kindMeta={kindMeta}
                 />
               </div>
@@ -256,7 +275,7 @@ export function Editor() {
                   background: '#0a0a0a',
                 }}
               >
-                Select or create a graph from the Graphs panel.
+                {t('logic.emptyCanvas')}
               </div>
             ))}
           {leftTab === 'compose' && <ComposeView />}
@@ -264,10 +283,11 @@ export function Editor() {
         <PropertiesPanel />
       </div>
       {leftTab === 'graphs' ? (
-        <NodePalette kindMeta={kindMeta} graphReadonly={!activeGraphWritable} />
+        <NodePalette kindMeta={kindMeta} graphReadonly={!activeLogicWritable} />
       ) : (
         <AssetManager />
       )}
+      <HelpWindow />
     </div>
   );
 }

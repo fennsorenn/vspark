@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { broadcastBus } from '../broadcast/bus.js';
 import { _ws } from './shared.js';
+import { sync } from '../sync/index.js';
+import { multiplayerManager } from '../multiplayer/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -11,7 +13,7 @@ const router: ReturnType<typeof Router> = Router();
  * /api/projects/{projectId}/scenes:
  *   get:
  *     tags: [scenes]
- *     summary: List all scenes for a project, with their nodes, node-components and camera-effects
+ *     summary: List all scenes for a project, with their nodes, behaviors and camera-effects
  *     parameters:
  *       - in: path
  *         name: projectId
@@ -31,7 +33,7 @@ const router: ReturnType<typeof Router> = Router();
  *                   properties:
  *                     scenes:         { type: array, items: { type: object } }
  *                     nodes:          { type: array, items: { type: object } }
- *                     nodeComponents: { type: array, items: { type: object } }
+ *                     behaviors: { type: array, items: { type: object } }
  *                     cameraEffects:  { type: array, items: { type: object } }
  */
 router.get('/projects/:projectId/scenes', (req, res) => {
@@ -53,7 +55,7 @@ router.get('/projects/:projectId/scenes', (req, res) => {
   }));
 
   const nodes: unknown[] = [];
-  const nodeComponents: unknown[] = [];
+  const behaviors: unknown[] = [];
   const cameraEffects: unknown[] = [];
   const trackClips: unknown[] = [];
 
@@ -69,10 +71,10 @@ router.get('/projects/:projectId/scenes', (req, res) => {
     for (const n of sceneNodes as { id: string }[]) {
       const comps = db
         .prepare(
-          'SELECT * FROM node_components WHERE node_id = ? ORDER BY sort_order'
+          'SELECT * FROM behaviors WHERE node_id = ? ORDER BY sort_order'
         )
         .all(n.id);
-      nodeComponents.push(...comps);
+      behaviors.push(...comps);
       const effects = db
         .prepare('SELECT * FROM camera_effects WHERE node_id = ?')
         .all(n.id);
@@ -143,7 +145,7 @@ router.get('/projects/:projectId/scenes', (req, res) => {
     data: {
       scenes,
       nodes,
-      nodeComponents,
+      behaviors,
       cameraEffects,
       composeLayers,
       trackClips,
@@ -194,9 +196,12 @@ router.post('/projects/:projectId/scenes', (req, res) => {
      VALUES (?, ?, ?, NULL, ?, 'scene', '{}')`
   ).run(id, id, projectId, name);
 
+  const createdNodeIds: string[] = [id];
+  const createdLayerIds: string[] = [];
   if (populate) {
     // Default camera
     const camId = randomUUID();
+    createdNodeIds.push(camId);
     db.prepare(
       `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
        VALUES (?, ?, ?, NULL, 'Camera', 'camera', ?, '{}')`
@@ -221,11 +226,12 @@ router.post('/projects/:projectId/scenes', (req, res) => {
     );
 
     // Default key light
+    const keyLightId = randomUUID();
     db.prepare(
       `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
        VALUES (?, ?, ?, NULL, 'Key Light', 'light', ?, ?)`
     ).run(
-      randomUUID(),
+      keyLightId,
       id,
       projectId,
       JSON.stringify({
@@ -252,11 +258,12 @@ router.post('/projects/:projectId/scenes', (req, res) => {
     );
 
     // Default fill light
+    const fillLightId = randomUUID();
     db.prepare(
       `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
        VALUES (?, ?, ?, NULL, 'Fill Light', 'light', ?, ?)`
     ).run(
-      randomUUID(),
+      fillLightId,
       id,
       projectId,
       JSON.stringify({
@@ -282,8 +289,11 @@ router.post('/projects/:projectId/scenes', (req, res) => {
       '{}'
     );
 
+    createdNodeIds.push(keyLightId, fillLightId);
     // Default compose scene
     const composeSceneId = randomUUID();
+    const cameraViewId = randomUUID();
+    createdLayerIds.push(composeSceneId, cameraViewId);
     db.prepare(
       `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
          x, y, width, height, rotation, anchor_h, anchor_v, scene_order, camera_order, visible)
@@ -295,8 +305,13 @@ router.post('/projects/:projectId/scenes', (req, res) => {
       `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
          x, y, width, height, rotation, anchor_h, anchor_v, scene_order, camera_order, visible)
        VALUES (?, ?, ?, ?, NULL, 'Camera View', 'camera_view', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', 0, 0, 1)`
-    ).run(randomUUID(), projectId, composeSceneId, camId);
+    ).run(cameraViewId, projectId, composeSceneId, camId);
   }
+
+  // Mirror the created rows into the unified sync layer (mesh bridge + share
+  // fan-out). `touch` skips the local WS broadcast — clients load via REST.
+  for (const nid of createdNodeIds) sync.document.touch('scene_node', nid);
+  for (const lid of createdLayerIds) sync.document.touch('compose_layer', lid);
 
   res
     .status(201)
@@ -377,6 +392,9 @@ router.put('/scenes/:sceneId', (req, res) => {
     patch.runtimeSettings = JSON.parse(updated.properties || '{}');
   }
   _ws?.broadcast('scene_updated', patch);
+  // Mirror into the unified sync layer (mesh bridge + share fan-out) without
+  // re-broadcasting locally — clients already got scene_updated above.
+  sync.document.touch('scene_node', sceneId);
 
   res.json({ ok: true, data: patch });
 });
@@ -410,6 +428,12 @@ router.delete('/scenes/:sceneId', (req, res) => {
     });
   }
 
+  // If this scene is collaboratively shared/mounted, disconnect the collab
+  // links FIRST (revoke the mesh grants + drop the subscriptions) so the
+  // node deletions below stay local — deleting a mounted scene must remove
+  // only the local copy, leaving every peer's copy intact.
+  multiplayerManager.unmountCollabScene(sceneId);
+
   // Every node in the scene (the scene node itself + its descendants) shares
   // root_scene_node_id = sceneId. Collect them so we can clean up the rows that
   // reference them (components, effects, camera_view compose layers).
@@ -424,7 +448,7 @@ router.delete('/scenes/:sceneId', (req, res) => {
   db.exec('PRAGMA foreign_keys = OFF');
   try {
     for (const nid of nodeIds) {
-      db.prepare('DELETE FROM node_components WHERE node_id = ?').run(nid);
+      db.prepare('DELETE FROM behaviors WHERE node_id = ?').run(nid);
       db.prepare('DELETE FROM camera_effects WHERE node_id = ?').run(nid);
       // Drop camera_view compose layers that targeted this scene's cameras.
       db.prepare('DELETE FROM compose_layers WHERE camera_node_id = ?').run(
@@ -442,6 +466,9 @@ router.delete('/scenes/:sceneId', (req, res) => {
   }
 
   _ws?.broadcast('scene_removed', { id: sceneId });
+  // Tombstone every deleted node in the unified sync layer (mesh bridge +
+  // share fan-out) — otherwise the mesh replica keeps the scene alive.
+  for (const nid of nodeIds) sync.document.remove('scene_node', nid);
   res.json({ ok: true, data: {} });
 });
 

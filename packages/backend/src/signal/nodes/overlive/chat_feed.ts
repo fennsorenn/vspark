@@ -38,7 +38,7 @@ const DEFAULT_MAX_LENGTH = 50;
   label: 'Overlive Chat Feed',
   description:
     'Accumulating chat history. Fires `update` and exposes the recent messages list as the buffer changes.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveChatFeed extends Node {

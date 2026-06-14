@@ -6,7 +6,7 @@ import { valueIn, valueOut } from '@vspark/shared/node_decorators';
   label: 'Euler → Quaternion',
   description:
     'Converts pitch/yaw/roll angles (radians) to a unit quaternion using ZYX intrinsic convention. Connect per-axis sine waves to drive procedural rotations.',
-  tags: ['math'],
+  tags: ["math"],
   color: '#4a7a5a',
 })
 export class EulerToQuaternion extends Node {

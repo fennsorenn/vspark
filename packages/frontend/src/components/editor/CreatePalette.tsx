@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import {
   NODE_KIND_DEFS,
@@ -9,6 +10,7 @@ import {
   type LayerKindDef,
 } from './createKinds';
 import { DND_CREATE_NODE, DND_CREATE_LAYER } from './dnd';
+import { HelpButton } from '../../help/HelpButton';
 
 const grid: React.CSSProperties = {
   display: 'grid',
@@ -42,11 +44,13 @@ function Tile({
   label,
   onClick,
   onDragStart,
+  tileTitle,
 }: {
   icon: string;
   label: string;
   onClick: () => void;
   onDragStart?: (e: React.DragEvent) => void;
+  tileTitle: string;
 }) {
   return (
     <button
@@ -54,7 +58,7 @@ function Tile({
       draggable={!!onDragStart}
       onDragStart={onDragStart}
       onClick={onClick}
-      title="Click to add, or drag onto the scene / viewport"
+      title={tileTitle}
       onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#2563eb')}
       onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#2a2a2a')}
     >
@@ -69,6 +73,7 @@ function Tile({
  *  a tile creates the entity with a deduplicated default name and selects it.
  *  Replaces the old per-scene "+" dropdowns. */
 export function CreatePalette() {
+  const { t } = useTranslation('sceneGraph');
   const leftTab = useEditorStore((s) => s.leftTab);
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
@@ -89,7 +94,7 @@ export function CreatePalette() {
       setSceneSelected(false);
       requestFocusName();
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create node');
+      alert(e instanceof Error ? e.message : t('palette.failCreate'));
     }
   };
 
@@ -104,20 +109,21 @@ export function CreatePalette() {
       <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
         {!activeComposeSceneId ? (
           <div style={hintStyle}>
-            No compose scene selected. Create or select one in the Compose tab.
+            {t('palette.noComposeScene')}
           </div>
         ) : (
           <>
             <div style={{ color: '#777', fontSize: 11, marginBottom: 8 }}>
-              Add layer to{' '}
-              <span style={{ color: '#aaa' }}>{target?.name ?? 'scene'}</span>
+              {t('palette.addLayerTo')}{' '}
+              <span style={{ color: '#aaa' }}>{target?.name ?? t('palette.scene')}</span>
             </div>
             <div style={grid}>
               {LAYER_KIND_DEFS.map((def) => (
                 <Tile
                   key={def.kind}
                   icon={def.icon}
-                  label={def.label}
+                  label={t(`kinds:layer.${def.kind}`, { defaultValue: def.label })}
+                  tileTitle={t('palette.tileTitle')}
                   onClick={() => handleAddLayer(def)}
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = 'copy';
@@ -140,27 +146,48 @@ export function CreatePalette() {
     <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
       {!activeSceneId ? (
         <div style={hintStyle}>
-          No scene selected. Create or select one in the Scene tab.
+          {t('palette.noScene')}
         </div>
       ) : (
         <>
           <div style={{ color: '#777', fontSize: 11, marginBottom: 8 }}>
-            Add to{' '}
-            <span style={{ color: '#aaa' }}>{target?.name ?? 'scene'}</span>
+            {t('palette.addTo')}{' '}
+            <span style={{ color: '#aaa' }}>{target?.name ?? t('palette.scene')}</span>
           </div>
           <div style={grid}>
-            {NODE_KIND_DEFS.map((def) => (
-              <Tile
-                key={def.label}
-                icon={def.icon}
-                label={def.label}
-                onClick={() => handleAddNode(def)}
-                onDragStart={(e) => {
-                  e.dataTransfer.effectAllowed = 'copy';
-                  e.dataTransfer.setData(DND_CREATE_NODE, JSON.stringify(def));
-                }}
-              />
-            ))}
+            {NODE_KIND_DEFS.map((def) => {
+              const helpProps =
+                def.kind === 'avatar'
+                  ? { helpTopic: 'avatar', helpAnchor: 'loading', helpTip: t('help.avatar') }
+                  : def.kind === 'camera'
+                    ? { helpTopic: 'scene', helpAnchor: 'cameras', helpTip: t('help.camera') }
+                    : def.kind === 'light'
+                      ? { helpTopic: 'scene', helpAnchor: 'lights', helpTip: t('help.lights') }
+                      : null;
+              return (
+                <div key={def.i18nKey} style={{ position: 'relative' }}>
+                  <Tile
+                    icon={def.icon}
+                    label={t(`kinds:node.${def.i18nKey}`, { defaultValue: def.label })}
+                    tileTitle={t('palette.tileTitle')}
+                    onClick={() => handleAddNode(def)}
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = 'copy';
+                      e.dataTransfer.setData(DND_CREATE_NODE, JSON.stringify(def));
+                    }}
+                  />
+                  {helpProps && (
+                    <HelpButton
+                      topic={helpProps.helpTopic}
+                      anchor={helpProps.helpAnchor}
+                      tip={helpProps.helpTip}
+                      size={13}
+                      style={{ position: 'absolute', top: 6, right: 6 }}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         </>
       )}

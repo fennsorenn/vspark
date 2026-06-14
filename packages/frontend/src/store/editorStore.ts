@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type {
   AssetFile,
-  ComponentKindMeta,
+  BehaviorKindMeta,
   CameraEffectRecord,
   ComposeLayerRecord,
   TrackClipRecord,
@@ -9,21 +9,33 @@ import type {
   TrackClipKeyframeRecord,
   TrackClipEventRecord,
 } from '../api/client';
-import type {
-  UpdateChannel,
-  ApiAnimationLoopMode,
-  ApiAnimationQueueEntry,
-} from '@vspark/shared';
+import type { UpdateChannel } from '@vspark/shared';
 
-export interface ApiAnimationState {
-  queue: ApiAnimationQueueEntry[];
-  loopMode: ApiAnimationLoopMode;
-  startedAt: number | null;
+/** One entry on an avatar's animation timeline (a scheduled_animation doc). */
+export interface ScheduledAnimation {
+  id: string;
+  avatarNodeId: string;
+  clipId: string;
+  /** Clock-anchored start time (ms). Translated to this client's clock. */
+  startEpoch: number;
+  speed: number;
+  loop: boolean;
+}
+
+/** A content-addressed animation clip (an animation_clip doc). The avatar
+ *  animation driver resolves a timeline/idle `clipId` to its source asset URL
+ *  (already localized per-server) and authored `duration`. Fed from the mesh
+ *  replica, keyed by clip id. */
+export interface AnimationClipMeta {
+  id: string;
+  sourceNodeId: string;
+  sourceFilePath: string;
+  duration: number;
 }
 
 export type {
   AssetFile,
-  ComponentKindMeta,
+  BehaviorKindMeta,
   CameraEffectRecord,
   ComposeLayerRecord,
   TrackClipRecord,
@@ -155,9 +167,12 @@ export interface NodeProperties {
   /** VRM avatar: per-material shader/param overrides (MToon ⇄ PBR), keyed by a
    *  stable material identity. See components/editor/materialOverrides.ts. */
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
+  /** Avatar animation config. `idle` is the content-addressed base loop
+   *  (animation_clip id + speed); the scheduled timeline layers over it. */
+  animation?: { idle?: { clipId: string; speed: number } };
 }
 
-export interface NodeRecord {
+export interface StageObject {
   id: string;
   rootSceneNodeId: string;
   projectId: string;
@@ -169,6 +184,12 @@ export interface NodeRecord {
   components: Record<string, unknown>;
   properties?: NodeProperties;
   hidden?: boolean;
+  /** True for nodes projected from a peer's shared object (multiplayer). These
+   *  live only in memory, are not persisted, and should be treated read-only:
+   *  they're cleared on reload, unshare, or disconnect and restocked from the
+   *  owner's live snapshot. `remoteOwnerPeerId` is the sharing peer. */
+  remote?: boolean;
+  remoteOwnerPeerId?: string;
 }
 
 export interface SceneRuntimeSettings {
@@ -181,7 +202,7 @@ export interface SceneItem {
   runtimeSettings: SceneRuntimeSettings;
 }
 
-export interface NodeComponent {
+export interface Behavior {
   id: string;
   nodeId: string;
   kind: string;
@@ -201,7 +222,7 @@ export interface PresetSummary {
 }
 
 let _compSeq = 0;
-export const newComponentId = () => `comp-${++_compSeq}-${Date.now()}`;
+export const newBehaviorId = () => `comp-${++_compSeq}-${Date.now()}`;
 
 export interface CameraEffectKind {
   kind: string;
@@ -397,28 +418,34 @@ interface EditorState {
   projectName: string;
   scenes: SceneItem[];
   activeSceneId: string | null;
-  nodes: NodeRecord[];
+  nodes: StageObject[];
   selectedNodeId: string | null;
   sceneSelected: boolean;
-  selectedComponentId: string | null;
+  selectedBehaviorId: string | null;
   assets: AssetFile[];
-  nodeComponents: NodeComponent[];
-  vmcStatus: Record<string, boolean>; // componentId → connected
-  vmcTracking: Record<string, boolean>; // componentId → tracking active
-  apiAnimationByNode: Record<string, ApiAnimationState>; // nodeId → current api-driven animation queue
+  behaviors: Behavior[];
+  vmcStatus: Record<string, boolean>; // behaviorId → connected
+  vmcTracking: Record<string, boolean>; // behaviorId → tracking active
+  /** Avatar animation timeline (scheduled_animation docs), keyed by entry id.
+   *  Fed from the mesh replica; the avatar's animation effect reads the entries
+   *  for its node, ordered by startEpoch. */
+  scheduledAnimations: Record<string, ScheduledAnimation>;
+  /** Animation clips (animation_clip docs), keyed by clip id. Resolves a
+   *  timeline/idle clipId to its source asset URL + duration. */
+  animationClips: Record<string, AnimationClipMeta>;
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
   hoveredBoneName: string | null;
-  componentKinds: ComponentKindMeta[];
+  behaviorKinds: BehaviorKindMeta[];
   /** Overlive login accounts for the current project. Populated lazily by Editor.tsx;
    *  consumed by signal-graph Account port dropdowns. */
   overliveAccounts: import('../api/client').OverliveAccountRecord[];
-  activeGraphId: string | null;
+  activeLogicId: string | null;
   /** True when the active graph is a writable standalone project graph;
-   *  false when it's a component-owned (read-only) graph or no graph is active.
+   *  false when it's a behavior-owned (read-only) graph or no graph is active.
    *  Set by SignalGraphCanvas after it resolves the descriptor source. */
-  activeGraphWritable: boolean;
+  activeLogicWritable: boolean;
   selectedSignalNodeId: string | null;
   boneListExpanded: Record<string, boolean>; // nodeId → bone list open in SceneGraph
   fbxDebugVisible: Record<string, boolean>; // nodeId → FBX debug model shown
@@ -495,27 +522,30 @@ interface EditorState {
   removeScene: (sceneId: string) => void;
   setActiveScene: (id: string | null) => void;
   setSceneSelected: (selected: boolean) => void;
-  setNodes: (nodes: NodeRecord[]) => void;
-  addNode: (node: NodeRecord) => void;
-  updateNode: (id: string, updates: Partial<NodeRecord>) => void;
+  setNodes: (nodes: StageObject[]) => void;
+  addNode: (node: StageObject) => void;
+  updateNode: (id: string, updates: Partial<StageObject>) => void;
   deleteNode: (id: string) => void;
   selectNode: (id: string | null) => void;
-  selectComponent: (id: string | null) => void;
+  selectBehavior: (id: string | null) => void;
   setAssets: (assets: AssetFile[]) => void;
   addAsset: (asset: AssetFile) => void;
   deleteAsset: (id: string) => void;
-  activeSceneNodes: () => NodeRecord[];
-  setNodeComponents: (comps: NodeComponent[]) => void;
-  addNodeComponent: (comp: NodeComponent) => void;
-  updateNodeComponent: (
+  activeSceneNodes: () => StageObject[];
+  setBehaviors: (comps: Behavior[]) => void;
+  addBehavior: (comp: Behavior) => void;
+  updateBehavior: (
     id: string,
-    updates: Partial<Omit<NodeComponent, 'id' | 'nodeId'>>
+    updates: Partial<Omit<Behavior, 'id' | 'nodeId'>>
   ) => void;
-  removeNodeComponent: (id: string) => void;
-  nodeComponentsFor: (nodeId: string) => NodeComponent[];
-  setVmcStatus: (componentId: string, connected: boolean) => void;
-  setVmcTracking: (componentId: string, tracking: boolean) => void;
-  setApiAnimation: (nodeId: string, state: ApiAnimationState | null) => void;
+  removeBehavior: (id: string) => void;
+  behaviorsFor: (nodeId: string) => Behavior[];
+  setVmcStatus: (behaviorId: string, connected: boolean) => void;
+  setVmcTracking: (behaviorId: string, tracking: boolean) => void;
+  upsertScheduledAnimation: (entry: ScheduledAnimation) => void;
+  removeScheduledAnimation: (id: string) => void;
+  upsertAnimationClip: (entry: AnimationClipMeta) => void;
+  removeAnimationClip: (id: string) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
   clearVrmBonesForNode: (nodeId: string) => void;
   setVrmExpressionsForNode: (nodeId: string, expressions: string[]) => void;
@@ -523,12 +553,12 @@ interface EditorState {
   setVrmMorphTargetsForNode: (nodeId: string, names: string[]) => void;
   clearVrmMorphTargetsForNode: (nodeId: string) => void;
   setHoveredBone: (name: string | null) => void;
-  setComponentKinds: (kinds: ComponentKindMeta[]) => void;
+  setBehaviorKinds: (kinds: BehaviorKindMeta[]) => void;
   setOverliveAccounts: (
     accounts: import('../api/client').OverliveAccountRecord[]
   ) => void;
-  setActiveGraph: (id: string | null) => void;
-  setActiveGraphWritable: (writable: boolean) => void;
+  setActiveLogic: (id: string | null) => void;
+  setActiveLogicWritable: (writable: boolean) => void;
   setSelectedSignalNode: (id: string | null) => void;
   setBoneListExpanded: (nodeId: string, expanded: boolean) => void;
   setFbxDebugVisible: (nodeId: string, visible: boolean) => void;
@@ -547,6 +577,7 @@ interface EditorState {
 
   setComposeScenes: (scenes: ComposeLayerRecord[]) => void;
   addComposeScene: (scene: ComposeLayerRecord) => void;
+  updateComposeSceneLocal: (scene: ComposeLayerRecord) => void;
   selectComposeScene: (id: string | null) => void;
   setComposeLayers: (layers: ComposeLayerRecord[]) => void;
   addComposeLayer: (layer: ComposeLayerRecord) => void;
@@ -674,20 +705,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   nodes: [],
   selectedNodeId: null,
   sceneSelected: false,
-  selectedComponentId: null,
+  selectedBehaviorId: null,
   assets: [],
-  nodeComponents: [],
+  behaviors: [],
   vmcStatus: {},
   vmcTracking: {},
-  apiAnimationByNode: {},
+  scheduledAnimations: {},
+  animationClips: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
   vrmMorphTargetsByNode: {},
   hoveredBoneName: null,
-  componentKinds: [],
+  behaviorKinds: [],
   overliveAccounts: [],
-  activeGraphWritable: false,
-  activeGraphId: null,
+  activeLogicWritable: false,
+  activeLogicId: null,
   selectedSignalNodeId: null,
   boneListExpanded: {},
   fbxDebugVisible: {},
@@ -738,7 +770,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         scenes: remainingScenes,
         nodes: s.nodes.filter((n) => n.rootSceneNodeId !== sceneId),
-        nodeComponents: s.nodeComponents.filter(
+        behaviors: s.behaviors.filter(
           (c) => !removedNodeIds.has(c.nodeId)
         ),
         cameraEffects: s.cameraEffects.filter(
@@ -759,7 +791,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setActiveScene: (id) => set({ activeSceneId: id }),
   setSceneSelected: (selected) => set({ sceneSelected: selected }),
   setNodes: (nodes) => set({ nodes }),
-  addNode: (node) => set((s) => ({ nodes: [...s.nodes, node] })),
+  addNode: (node) =>
+    set((s) =>
+      // Idempotent by id: a create's REST response and its WS broadcast can race
+      // (either order), and only the broadcast path deduped before. Guard here so
+      // neither can double-insert.
+      s.nodes.some((n) => n.id === node.id)
+        ? {}
+        : { nodes: [...s.nodes, node] }
+    ),
   updateNode: (id, updates) =>
     set((s) => ({
       nodes: s.nodes.map((n) => (n.id === id ? { ...n, ...updates } : n)),
@@ -767,15 +807,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   deleteNode: (id) =>
     set((s) => {
       const removedComps = new Set(
-        s.nodeComponents.filter((c) => c.nodeId === id).map((c) => c.id)
+        s.behaviors.filter((c) => c.nodeId === id).map((c) => c.id)
       );
       return {
         nodes: s.nodes.filter((n) => n.id !== id),
         selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
-        selectedComponentId: removedComps.has(s.selectedComponentId ?? '')
+        selectedBehaviorId: removedComps.has(s.selectedBehaviorId ?? '')
           ? null
-          : s.selectedComponentId,
-        nodeComponents: s.nodeComponents.filter((c) => c.nodeId !== id),
+          : s.selectedBehaviorId,
+        behaviors: s.behaviors.filter((c) => c.nodeId !== id),
       };
     }),
   selectNode: (id) =>
@@ -783,11 +823,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedNodeId: id,
       // Only clear the scene selection when actually selecting a node, not when clearing.
       sceneSelected: id != null ? false : s.sceneSelected,
-      selectedComponentId: null,
+      selectedBehaviorId: null,
       selectedEffect: null,
     })),
-  selectComponent: (id) =>
-    set({ selectedComponentId: id, selectedEffect: null }),
+  selectBehavior: (id) =>
+    set({ selectedBehaviorId: id, selectedEffect: null }),
   setAssets: (assets) => set({ assets }),
   addAsset: (asset) => set((s) => ({ assets: [...s.assets, asset] })),
   deleteAsset: (id) =>
@@ -796,35 +836,50 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { nodes, activeSceneId } = get();
     return nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
   },
-  setNodeComponents: (comps) => set({ nodeComponents: comps }),
-  addNodeComponent: (comp) =>
-    set((s) => ({ nodeComponents: [...s.nodeComponents, comp] })),
-  updateNodeComponent: (id, updates) =>
+  setBehaviors: (comps) => set({ behaviors: comps }),
+  addBehavior: (comp) =>
+    set((s) => ({ behaviors: [...s.behaviors, comp] })),
+  updateBehavior: (id, updates) =>
     set((s) => ({
-      nodeComponents: s.nodeComponents.map((c) =>
+      behaviors: s.behaviors.map((c) =>
         c.id === id ? { ...c, ...updates } : c
       ),
     })),
-  removeNodeComponent: (id) =>
+  removeBehavior: (id) =>
     set((s) => ({
-      nodeComponents: s.nodeComponents.filter((c) => c.id !== id),
-      selectedComponentId:
-        s.selectedComponentId === id ? null : s.selectedComponentId,
+      behaviors: s.behaviors.filter((c) => c.id !== id),
+      selectedBehaviorId:
+        s.selectedBehaviorId === id ? null : s.selectedBehaviorId,
     })),
-  nodeComponentsFor: (nodeId) =>
-    get().nodeComponents.filter((c) => c.nodeId === nodeId),
-  setVmcStatus: (componentId, connected) =>
-    set((s) => ({ vmcStatus: { ...s.vmcStatus, [componentId]: connected } })),
-  setVmcTracking: (componentId, tracking) =>
+  behaviorsFor: (nodeId) =>
+    get().behaviors.filter((c) => c.nodeId === nodeId),
+  setVmcStatus: (behaviorId, connected) =>
+    set((s) => ({ vmcStatus: { ...s.vmcStatus, [behaviorId]: connected } })),
+  setVmcTracking: (behaviorId, tracking) =>
     set((s) => ({
-      vmcTracking: { ...s.vmcTracking, [componentId]: tracking },
+      vmcTracking: { ...s.vmcTracking, [behaviorId]: tracking },
     })),
-  setApiAnimation: (nodeId, state) =>
+  upsertScheduledAnimation: (entry) =>
+    set((s) => ({
+      scheduledAnimations: { ...s.scheduledAnimations, [entry.id]: entry },
+    })),
+  removeScheduledAnimation: (id) =>
     set((s) => {
-      const next = { ...s.apiAnimationByNode };
-      if (state === null) delete next[nodeId];
-      else next[nodeId] = state;
-      return { apiAnimationByNode: next };
+      if (!(id in s.scheduledAnimations)) return {};
+      const next = { ...s.scheduledAnimations };
+      delete next[id];
+      return { scheduledAnimations: next };
+    }),
+  upsertAnimationClip: (entry) =>
+    set((s) => ({
+      animationClips: { ...s.animationClips, [entry.id]: entry },
+    })),
+  removeAnimationClip: (id) =>
+    set((s) => {
+      if (!(id in s.animationClips)) return {};
+      const next = { ...s.animationClips };
+      delete next[id];
+      return { animationClips: next };
     }),
   setVrmBonesForNode: (nodeId, bones) =>
     set((s) => ({ vrmBonesByNode: { ...s.vrmBonesByNode, [nodeId]: bones } })),
@@ -858,19 +913,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { vrmMorphTargetsByNode: next };
     }),
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
-  setComponentKinds: (kinds) => set({ componentKinds: kinds }),
+  setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
-  setActiveGraphWritable: (writable) => set({ activeGraphWritable: writable }),
-  setActiveGraph: (id) => {
+  setActiveLogicWritable: (writable) => set({ activeLogicWritable: writable }),
+  setActiveLogic: (id) => {
     // Opening a graph (from any list — including scoped graphs in the scene /
     // compose trees) follows the main view to the Graphs tab, so the canvas is
     // what's actually shown. Clearing the active graph leaves the current tab
     // alone (the toggle-off path shouldn't yank the user away).
     if (id != null) lsSet(LS.leftTab, 'graphs');
     set((s) => ({
-      activeGraphId: id,
+      activeLogicId: id,
       selectedSignalNodeId: null,
-      activeGraphWritable: false,
+      activeLogicWritable: false,
       leftTab: id != null ? 'graphs' : s.leftTab,
     }));
   },
@@ -907,7 +962,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       previewEffectsCamera: s.previewEffectsCamera === nodeId ? null : nodeId,
     })),
   selectEffect: (nodeId, kind) =>
-    set({ selectedEffect: { nodeId, kind }, selectedComponentId: null }),
+    set({ selectedEffect: { nodeId, kind }, selectedBehaviorId: null }),
   clearSelectedEffect: () => set({ selectedEffect: null }),
 
   setComposeScenes: (scenes) => set({ composeScenes: scenes }),
@@ -917,6 +972,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ? {}
         : { composeScenes: [...s.composeScenes, scene] }
     ),
+  updateComposeSceneLocal: (scene) =>
+    set((s) => ({
+      composeScenes: s.composeScenes.map((cs) =>
+        cs.id === scene.id ? scene : cs
+      ),
+    })),
   selectComposeScene: (id) => set({ activeComposeSceneId: id }),
   setComposeLayers: (layers) => set({ composeLayers: layers }),
   addComposeLayer: (layer) =>

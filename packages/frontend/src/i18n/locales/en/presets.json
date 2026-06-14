@@ -1,0 +1,45 @@
+{
+  "header": "Preset Library",
+  "actions": {
+    "save": "Save",
+    "saveTitle": "Save the selected node/layer as a preset",
+    "saveDisabledTitle": "Select a node or layer first",
+    "copy": "Copy",
+    "copyTitle": "Copy selected to clipboard",
+    "paste": "Paste",
+    "pasteTitle": "Paste from clipboard",
+    "import": "Import",
+    "importTitle": "Import .json preset"
+  },
+  "groups": {
+    "builtin": "Built-in",
+    "project": "Project"
+  },
+  "card": {
+    "useTitle": "Instantiate into the current scene",
+    "use": "Use",
+    "useCompose": "Instantiate into current compose scene",
+    "use3d": "Instantiate into current 3D scene",
+    "export": "Export",
+    "exportTitle": "Export as .json",
+    "delete": "Del",
+    "deleteTitle": "Delete preset"
+  },
+  "empty": {
+    "noPresets": "No presets saved yet.",
+    "selectNode": " Select a node and save it as a preset.",
+    "selectFirst": " Select a node first."
+  },
+  "saveForm": {
+    "title": "Save as Preset",
+    "namePlaceholder": "Preset name",
+    "descriptionPlaceholder": "Description (optional)",
+    "embedAssets": "Embed assets (portable across projects)",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…"
+  },
+  "help": {
+    "presets": "Save any node or layer as a reusable preset and drop it into any scene with one click."
+  }
+}

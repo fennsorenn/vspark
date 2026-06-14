@@ -1,4 +1,4 @@
-# API Controller (node component)
+# API Controller (behavior)
 
 REST-driven driver for VRM avatars. External systems can:
 
@@ -6,28 +6,29 @@ REST-driven driver for VRM avatars. External systems can:
 - set blendshape expressions (preset shorthand or explicit weight map)
 - read live state
 
-It is the first node component with a **public REST control surface** — its routes live under `/api/projects/:projectId/nodes/:nodeId/api-controller/...` rather than the generic component CRUD path.
+It is the first behavior with a **public REST control surface** — its routes live under `/api/projects/:projectId/nodes/:nodeId/api-controller/...` rather than the generic behavior CRUD path.
 
 ## Files
 
-- [packages/backend/src/node_components/api_controller/manager.ts](../../packages/backend/src/node_components/api_controller/manager.ts) — `ApiControllerManager`
-- [packages/backend/src/node_components/api_controller/register.ts](../../packages/backend/src/node_components/api_controller/register.ts) — `@ComponentKind` registration
+- [packages/backend/src/behaviors/api_controller/manager.ts](../../packages/backend/src/behaviors/api_controller/manager.ts) — `ApiControllerManager`
+- [packages/backend/src/behaviors/api_controller/register.ts](../../packages/backend/src/behaviors/api_controller/register.ts) — `@BehaviorKind` registration (decorator renamed from `@ComponentKind`)
 - [packages/backend/src/routes/api-controller.ts](../../packages/backend/src/routes/api-controller.ts) — REST routes
 - [packages/backend/src/routes/expressions.ts](../../packages/backend/src/routes/expressions.ts) — read-only expression + animation listings
 - [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) — `apiControllerAnimationSchema`, `apiControllerAnimationQueueSchema`, `apiControllerBlendshapesSchema`
 - [packages/frontend/src/components/editor/PropertiesPanel.tsx](../../packages/frontend/src/components/editor/PropertiesPanel.tsx) — `ApiControllerProps` (copy-URL UI)
-- [packages/frontend/src/components/editor/Viewport.tsx](../../packages/frontend/src/components/editor/Viewport.tsx) — auto-registers FBX clip durations on VRM load; consumes `api_animation` to play queued clips
+- [packages/frontend/src/components/editor/Viewport.tsx](../../packages/frontend/src/components/editor/Viewport.tsx) — auto-registers FBX clip durations on VRM load; plays the avatar's `scheduled_animation` timeline via the clock-anchored driver (no longer consumes an `api_animation` message)
 
 ## Architecture choice — no signal graph
 
-Unlike VMC, breathing, lipsync and tracking, this manager does **not** instantiate a signal graph. It keeps a plain `Map<componentId, ComponentState>` in memory and writes to the broadcast bus directly. There is no `_nodeState` persistence — state lives only as long as the process. Clients re-sync via `rebroadcastTo()` on WS reconnect.
+Unlike VMC, breathing, lipsync and tracking, this manager does **not** instantiate a signal graph. It keeps a plain `Map<behaviorId, BehaviorState>` in memory and writes to the broadcast bus directly. There is no `_nodeState` persistence — state lives only as long as the process. Clients re-sync via `rebroadcastTo()` on WS reconnect.
 
 This is intentional: there's no upstream data source to process — REST mutations and a clip lookup are all that's needed. A graph would be empty plumbing.
 
-## State per component
+## State per behavior
+
 
 ```ts
-interface ComponentState {
+interface BehaviorState {
   sceneNodeId: string
   queue:       ApiAnimationQueueEntry[]  // { animationId, sourceUrl, duration }[]
   loopMode:    'none' | 'last' | 'queue'
@@ -36,7 +37,13 @@ interface ComponentState {
 }
 ```
 
-`startedAt` is the server's wall-clock at the moment the queue was set. Frontend playback uses `(now - startedAt)` together with each entry's `duration` to determine the current clip and offset, so multiple browsers see synchronized playback.
+`startedAt` is the server's wall-clock at the moment the queue was set. The in-memory queue/`startedAt` state is now kept **only for the REST `/state` read** — playback itself rides the synced `scheduled_animation` timeline, not this state.
+
+### Projecting the queue onto the timeline
+
+`_writeSchedule` PROJECTS the in-memory queue onto the avatar's `scheduled_animation` collection (see [animation.md](animation.md)): each clip gets a `startEpoch` from the running sum of durations/speed; the last clip loops under `loopMode` `last`/`queue`. The write replaces the avatar's prior entries; an empty queue clears them. Clients then resolve playback from the timeline against the synced clock, so all browsers (and collab peers) stay in phase without any per-frame push.
+
+The old `api_animation` WS broadcast/relay path is **retired end-to-end**: the manager broadcast, the reconnect rebroadcast in `index.ts`, the multiplayer collab relay + clock-translate branch in `multiplayer/manager.ts`, the frontend `useWsSync` handler, and the `apiAnimationByNode` store slice are all gone. Clip switches now happen client-side at each entry's scheduled time (no "switch now" seam).
 
 ## Clip resolution
 
@@ -52,7 +59,7 @@ See [animation.md](animation.md) for the FBX retargeting pipeline that actually 
 
 ## Blendshape pipeline
 
-`setBlendshapes` / `clearBlendshapes` publish to `broadcastBus.publishBlendshapes(sceneNodeId, componentId, blendshapes)`. The broadcast bus additively composes weights across all blendshape sources for a node (lipsync, this component, …) and emits a single `vmc_blendshapes` WS frame per node, so api_controller weights coexist with lipsync output without overwriting it.
+`setBlendshapes` / `clearBlendshapes` publish to `broadcastBus.publishBlendshapes(sceneNodeId, behaviorId, blendshapes)`. The broadcast bus additively composes weights across all blendshape sources for a node (lipsync, this behavior, …) and emits a single `vmc_blendshapes` WS frame per node, so api_controller weights coexist with lipsync output without overwriting it.
 
 ## Expression cache
 

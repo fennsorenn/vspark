@@ -1,0 +1,45 @@
+{
+  "header": "Vorlagenbibliothek",
+  "actions": {
+    "save": "Speichern",
+    "saveTitle": "Ausgewählten Knoten/Ebene als Vorlage speichern",
+    "saveDisabledTitle": "Zuerst einen Knoten oder eine Ebene auswählen",
+    "copy": "Kopieren",
+    "copyTitle": "Auswahl in Zwischenablage kopieren",
+    "paste": "Einfügen",
+    "pasteTitle": "Aus Zwischenablage einfügen",
+    "import": "Importieren",
+    "importTitle": "JSON-Vorlage importieren"
+  },
+  "groups": {
+    "builtin": "Integriert",
+    "project": "Projekt"
+  },
+  "card": {
+    "useTitle": "In die aktuelle Szene einfügen",
+    "use": "Verwenden",
+    "useCompose": "In die aktuelle Compose-Szene einfügen",
+    "use3d": "In die aktuelle 3D-Szene einfügen",
+    "export": "Exportieren",
+    "exportTitle": "Als JSON exportieren",
+    "delete": "Löschen",
+    "deleteTitle": "Vorlage löschen"
+  },
+  "empty": {
+    "noPresets": "Noch keine Vorlagen gespeichert.",
+    "selectNode": " Knoten auswählen und als Vorlage speichern.",
+    "selectFirst": " Zuerst einen Knoten auswählen."
+  },
+  "saveForm": {
+    "title": "Als Vorlage speichern",
+    "namePlaceholder": "Name der Vorlage",
+    "descriptionPlaceholder": "Beschreibung (optional)",
+    "embedAssets": "Assets einbetten (projektübergreifend verwendbar)",
+    "cancel": "Abbrechen",
+    "save": "Speichern",
+    "saving": "Speichern…"
+  },
+  "help": {
+    "presets": "Speichere jeden Knoten oder jede Ebene als wiederverwendbare Vorlage und füge sie mit einem Klick in jede Szene ein."
+  }
+}

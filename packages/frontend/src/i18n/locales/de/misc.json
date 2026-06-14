@@ -1,0 +1,19 @@
+{
+  "viewport": {
+    "gizmo": {
+      "translate": "Verschieben",
+      "rotate": "Drehen",
+      "scale": "Skalieren"
+    },
+    "audio": {
+      "on": "Audiovorschau aktiv (klicken zum Stummschalten)",
+      "off": "Audio im Editor stummgeschaltet (klicken zur Vorschau)"
+    }
+  },
+  "numericInputs": {
+    "setKeyframe": "Keyframe am Abspielkopf setzen",
+    "setKeyframeAll": "Keyframe am Abspielkopf setzen (alle Komponenten)",
+    "setGroupBtn": "◆ Gruppe setzen",
+    "doubleClickEdit": "Doppelklick zum Bearbeiten"
+  }
+}

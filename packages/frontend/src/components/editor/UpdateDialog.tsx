@@ -1,20 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { UpdateChannel } from '@vspark/shared';
+import { HelpButton } from '../../help/HelpButton';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 const CHANNELS: UpdateChannel[] = ['stable', 'recent', 'experimental'];
-const CHANNEL_LABELS: Record<UpdateChannel, string> = {
-  stable: 'Stable',
-  recent: 'Recent (beta)',
-  experimental: 'Experimental (alpha)',
-};
 
 interface Props {
   onClose: () => void;
+  /** Control that opened the dialog; the popover anchors under it. */
+  anchorRef?: React.RefObject<HTMLElement>;
 }
 
-export function UpdateDialog({ onClose }: Props) {
+const DIALOG_WIDTH = 340;
+
+export function UpdateDialog({ onClose, anchorRef }: Props) {
+  const { t } = useTranslation('update');
   const { updateAvailable, updateInfo } = useEditorStore((s) => ({
     updateAvailable: s.updateAvailable,
     updateInfo: s.updateInfo,
@@ -29,6 +32,23 @@ export function UpdateDialog({ onClose }: Props) {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Anchor the popover under the control that opened it (the anchor is already
+  // mounted by the time this dialog renders on click), clamped to the viewport.
+  // Falls back to the top-right corner when no anchor is supplied.
+  const [pos] = useState(() => {
+    const r = anchorRef?.current?.getBoundingClientRect();
+    if (!r) return { top: 60, right: 16 };
+    const right = window.innerWidth - r.right;
+    const clamped = Math.min(
+      Math.max(8, right),
+      window.innerWidth - DIALOG_WIDTH - 8
+    );
+    return { top: r.bottom + 6, right: Math.max(8, clamped) };
+  });
+
+  // Close on Esc, but not mid-download so a stray keypress can't abandon it.
+  useEscapeKey(onClose, !downloading);
 
   useEffect(() => {
     // Load current version + channel on open
@@ -46,20 +66,18 @@ export function UpdateDialog({ onClose }: Props) {
     try {
       await api.putConfig({ channel: newChannel });
       const status = await api.getUpdateStatus();
-      useEditorStore
-        .getState()
-        .setUpdateAvailable(
-          status.updateAvailable,
-          status.updateAvailable && status.latestVersion
-            ? {
-                latestVersion: status.latestVersion,
-                releaseNotes: status.releaseNotes,
-                channel: status.channel,
-              }
-            : null
-        );
+      useEditorStore.getState().setUpdateAvailable(
+        status.updateAvailable,
+        status.updateAvailable && status.latestVersion
+          ? {
+              latestVersion: status.latestVersion,
+              releaseNotes: status.releaseNotes,
+              channel: status.channel,
+            }
+          : null
+      );
     } catch (e) {
-      setError('Failed to update channel');
+      setError(t('error.channel'));
     }
   };
 
@@ -86,12 +104,12 @@ export function UpdateDialog({ onClose }: Props) {
           }
         } catch {
           clearInterval(pollRef.current!);
-          setError('Download failed');
+          setError(t('error.downloadFailed'));
           setDownloading(false);
         }
       }, 500);
     } catch {
-      setError('Failed to start download');
+      setError(t('error.startFailed'));
       setDownloading(false);
     }
   };
@@ -106,9 +124,9 @@ export function UpdateDialog({ onClose }: Props) {
     <div
       style={{
         position: 'fixed',
-        top: 60,
-        right: 16,
-        width: 340,
+        top: pos.top,
+        right: pos.right,
+        width: DIALOG_WIDTH,
         background: '#181818',
         border: '1px solid #333',
         borderRadius: 8,
@@ -129,8 +147,21 @@ export function UpdateDialog({ onClose }: Props) {
           borderBottom: '1px solid #2a2a2a',
         }}
       >
-        <span style={{ fontWeight: 600, fontSize: 14 }}>
-          {updateAvailable ? '↑ Update Available' : 'Updates'}
+        <span
+          style={{
+            fontWeight: 600,
+            fontSize: 14,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          {updateAvailable ? t('header.available') : t('header.updates')}
+          <HelpButton
+            topic="overview"
+            anchor="updates"
+            tip={t('help.updates')}
+          />
         </span>
         <button
           onClick={onClose}
@@ -167,14 +198,14 @@ export function UpdateDialog({ onClose }: Props) {
           }}
         >
           <span>
-            Current:{' '}
+            {t('version.current')}{' '}
             <strong style={{ color: '#e0e0e0' }}>{currentVersion}</strong>
           </span>
           {updateAvailable && updateInfo && (
             <>
               <span style={{ color: '#555' }}>→</span>
               <span>
-                Latest:{' '}
+                {t('version.latest')}{' '}
                 <strong style={{ color: '#f59e0b' }}>
                   {updateInfo.latestVersion}
                 </strong>
@@ -183,7 +214,7 @@ export function UpdateDialog({ onClose }: Props) {
           )}
           {!updateAvailable && (
             <span style={{ color: '#4ade80', marginLeft: 4 }}>
-              ✓ Up to date
+              {t('version.upToDate')}
             </span>
           )}
         </div>
@@ -218,7 +249,7 @@ export function UpdateDialog({ onClose }: Props) {
               letterSpacing: '0.05em',
             }}
           >
-            Release channel
+            {t('channel.label')}
           </label>
           <select
             value={channel}
@@ -236,7 +267,7 @@ export function UpdateDialog({ onClose }: Props) {
           >
             {CHANNELS.map((c) => (
               <option key={c} value={c}>
-                {CHANNEL_LABELS[c]}
+                {t(`channel.${c}`)}
               </option>
             ))}
           </select>
@@ -269,8 +300,14 @@ export function UpdateDialog({ onClose }: Props) {
             </div>
             <div style={{ fontSize: 11, color: '#888' }}>
               {pct !== null
-                ? `${pct}% — ${fmtMB(progress.downloaded)} / ${fmtMB(progress.total!)}`
-                : `${fmtMB(progress.downloaded)} downloaded`}
+                ? t('progress.withTotal', {
+                    pct,
+                    downloaded: fmtMB(progress.downloaded),
+                    total: fmtMB(progress.total!),
+                  })
+                : t('progress.downloaded', {
+                    downloaded: fmtMB(progress.downloaded),
+                  })}
             </div>
           </div>
         )}
@@ -296,7 +333,7 @@ export function UpdateDialog({ onClose }: Props) {
               fontSize: 13,
             }}
           >
-            Later
+            {t('actions.later')}
           </button>
           {updateAvailable && (
             <button
@@ -314,9 +351,9 @@ export function UpdateDialog({ onClose }: Props) {
             >
               {downloading
                 ? pct !== null
-                  ? `Downloading ${pct}%`
-                  : 'Downloading…'
-                : 'Update Now'}
+                  ? t('actions.downloadingPct', { pct })
+                  : t('actions.downloading')
+                : t('actions.updateNow')}
             </button>
           )}
         </div>

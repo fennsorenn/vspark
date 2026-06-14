@@ -27,10 +27,15 @@ Actions: `setUpdateAvailable(info)`, `setPendingReload(value)`.
 - `scenes: SceneItem[]`, `activeSceneId`
 - `nodes: NodeRecord[]`, `selectedNodeId`
 
-**Component state**
-- `nodeComponents: NodeComponent[]`, `selectedComponentId`
-- `vmcStatus: Record<componentId, boolean>` — receiver connected
-- `vmcTracking: Record<componentId, boolean>` — motion detected
+**Behavior state**
+- `behaviors: Behavior[]`, `selectedBehaviorId`
+- `vmcStatus: Record<behaviorId, boolean>` — receiver connected
+- `vmcTracking: Record<behaviorId, boolean>` — motion detected
+
+**Avatar animation** (synced clip playback; see [animation.md](animation.md))
+- `scheduledAnimations` — per-avatar `scheduled_animation` timeline entries (fed by the mesh feeder)
+- `animationClips` — registered `animation_clip` rows used to resolve a `clipId` → localized source URL + duration
+- Idle is content-addressed on the node itself: `node.properties.animation.idle = { clipId, speed }`
 
 **VRM skeleton**
 - `vrmBonesByNode: Record<nodeId, string[]>`
@@ -39,9 +44,9 @@ Actions: `setUpdateAvailable(info)`, `setPendingReload(value)`.
 
 Default per-avatar expression weights are stored on the scene node itself, not in a dedicated slice: `node.properties.defaultExpressions` (`Record<expressionName, number>`, only non-zero weights kept). Mirrored on the store `NodeProperties` and the api-client `NodeProperties`; the shared field is `SceneNodeProperties.defaultExpressions`.
 
-**Signal graph**
-- `activeGraphId`, `selectedSignalNodeId`
-- `componentKinds`
+**Logic / signal graph**
+- `activeLogicId` (the active Logic; substrate canvas still `SignalGraphCanvas`), `selectedSignalNodeId`
+- `behaviorKinds`
 
 **Clipboard**
 - `clipboardPayload: ClipboardPayload | null` — sync mirror of the OS clipboard for context-menu gating; see [clipboard.md](clipboard.md).
@@ -59,25 +64,24 @@ Maintains a persistent WS connection to `/ws` (auto-selects `wss` on HTTPS). Aut
 Incoming message handlers:
 | Kind | Effect |
 |------|--------|
-| `vmc_status` | `setVmcStatus(componentId, connected)` |
-| `vmc_tracking_state` | `setVmcTracking(componentId, tracking)` |
+| `vmc_status` | `setVmcStatus(behaviorId, connected)` |
+| `vmc_tracking_state` | `setVmcTracking(behaviorId, tracking)` |
 | `vmc_pose` | Writes pose data into store for Viewport to consume |
 | `vmc_blendshapes` | Writes blendshape weights into store |
-| `node_updated` | Patches node in store |
-| `node_added` | Adds node to store (dedup check) |
-| `node_removed` | Removes node from store |
-| `camera_effect_added/updated/removed` | Updates effects slice |
+| `sync` (envelope) | Routed through `applyRemote` — currently only `scene_node` (node_added/updated/removed). Behaviors, camera_effects, compose_layers, and track_clips have migrated to the mesh feeder (see below). |
 | `server_update` | Sets `updateAvailable` + `updateInfo` in store |
 
 **pendingReload-on-reconnect**: a `pendingReloadRef` (not store state — avoids re-render) is set when a `server_update` message carries `reloadOnReconnect: true`. On the next `ws.onopen`, if the ref is set, the page is reloaded. Normal reconnects are unaffected.
 
+**Mesh store feeder — `sync/meshStoreFeeder.ts`** (commits 0d21329, c4e4f04): four of five synced rtypes now feed the store via the tab's mesh replica rather than WS envelopes. The feeder calls `collection.observe('**')` on each collection and writes upserts/removes directly into the Zustand store slices. Migrated: `behavior`, `camera_effect`, `compose_layer` (incl. `compose_scene` kind branch), `track_clip`, and `scheduled_animation` (the avatar clip timeline → `scheduledAnimations` slice; see [animation.md](animation.md)). The remaining rtype (`scene_node`) stays on the legacy envelope until step 4 of the §11 plan. Foreign docs (placed-object subscriptions) are filtered by the parent node's `remote` flag. The feeder is started from both Editor.tsx and ViewerPage. See [sync.md](sync.md) and [mesh.md](mesh.md).
+
 ## Browser uplinks
 
 ### `hooks/useLipsyncUplink.ts`
-Polls mic analysis at ~30fps (33ms throttle). Reads `mic.getVisemes()` and sends `{ kind: 'lipsync_input', componentId, visemes }` over WS.
+Polls mic analysis at ~30fps (33ms throttle). Reads `mic.getVisemes()` and sends `{ kind: 'lipsync_input', behaviorId, visemes }` over WS.
 
 ### `hooks/useTrackingUplink.ts`
-Wires MediaPipe camera result callback. On each frame, sends `{ kind: 'tracking_input', componentId, ...result }` over WS. Rate is set by MediaPipe's native output (~30fps).
+Wires MediaPipe camera result callback. On each frame, sends `{ kind: 'tracking_input', behaviorId, ...result }` over WS. Rate is set by MediaPipe's native output (~30fps).
 
 ## 3D Viewport — `components/editor/Viewport.tsx`
 
@@ -93,7 +97,7 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 **Per-frame work** (`useFrame`):
 1. Read `vmc_pose` from store → apply quaternions to VRM bones
 2. Apply expressions/blendshapes (see below)
-3. Advance timeline animations
+3. Advance clip animation via the **clock-anchored avatar driver** (`_resolveAvatarAnimation` + `_anchoredTime`): the mixer is stepped with `update(0)` and each action's `time` is driven from the active `scheduled_animation` entry (or the idle base loop) against the synced clock, so it never free-runs and stays in phase across clients. See [animation.md](animation.md).
 4. Simulate particles
 
 **Expression/blendshape application** (pre-`expressionManager.update()` pass): default expression weights (`node.properties.defaultExpressions`) are applied first via `vrm.expressionManager.setValue` as a per-frame baseline, then the latest broadcast blendshapes (`getVmcBlendshapes`) are overlaid on top. So live broadcasts (VMC, lipsync, tracking) override the defaults per-key, and the defaults re-assert when the bus emits an empty record (no active producer). The morph-target-name guard (`!morphMap.has(name)`) is preserved.
@@ -139,32 +143,32 @@ TopBar checks update status on mount (`GET /api/update-status`). When an update 
 Node hierarchy tree. Context menu: Add Child, Move Into, Unparent, Delete. Expandable bone list per avatar node with VRM expression/bone visualization. Hidden node toggle.
 
 ### Main view ↔ tab binding
-The center view is bound strictly to the left-dock tab (`leftTab`, `Editor.tsx`): **Scene** → 3D `Viewport` (kept mounted, just hidden under other tabs, to preserve the WebGL context), **Graphs** → `SignalGraphCanvas` (or a placeholder when no graph is open), **Compose** → `ComposeView`. The bottom dock shows the signal `NodePalette` on the Graphs tab and the `AssetManager` otherwise. Opening any graph routes through `setActiveGraph`, which also switches `leftTab` to `'graphs'` (see [project-graphs.md](project-graphs.md)).
+The center view is bound strictly to the left-dock tab (`leftTab`, `Editor.tsx`): **Scene** → 3D `Viewport` (kept mounted, just hidden under other tabs, to preserve the WebGL context), **Logic** (the tab labelled "Logic"; `leftTab` value is still `'graphs'`) → `SignalGraphCanvas` (or a placeholder when no logic is open), **Compose** → `ComposeView`. The bottom dock shows the signal `NodePalette` on the Logic tab and the `AssetManager` otherwise. Opening any logic routes through `setActiveLogic`, which also switches `leftTab` to `'graphs'` (see [project-graphs.md](project-graphs.md)).
 
-The right-hand `PropertiesPanel` is likewise tab-scoped: **Scene** targets 3D scene nodes (and their components / camera effects / scene settings) only, **Compose** targets compose layers, **Graphs** shows a placeholder (signal nodes are edited inline on the canvas). A leftover selection from another tab never leaks into the inspector.
+The right-hand `PropertiesPanel` is likewise tab-scoped: **Scene** targets 3D scene nodes (and their behaviors / camera effects / scene settings) only, **Compose** targets compose layers, **Logic** shows a placeholder (signal nodes are edited inline on the canvas). A leftover selection from another tab never leaks into the inspector.
 
 ### Left dock — Compose tab
-Second tab in the editor's left dock alongside Scene Graph (and Graphs). `leftTab` state (`'scene' | 'compose' | 'graphs'`) lives in the store. The tab is disabled until at least one camera node exists. Selecting it swaps the centre viewport to `ComposeView`, which renders the chosen camera's output: 3D canvas sandwiched between two `ComposeLayerStack` DOM stacks (behind / in front), reusing `<SceneNodes>` + `<CameraEffects>` so it matches `ViewerPage`. The same `ComposeLayerStack` runs in `ViewerPage` (in `mode='viewer'`) so the streamed output matches the editor preview. Per-layer fields are edited via `ComposeLayerProperties` in `PropertiesPanel`. See [compose.md](compose.md) for the data model, ordering scheme, and anchor-aware drag/resize math.
+Second tab in the editor's left dock alongside Scene Graph (and Logic). `leftTab` state (`'scene' | 'compose' | 'graphs'`; the `'graphs'` value drives the "Logic" tab) lives in the store. The tab is disabled until at least one camera node exists. Selecting it swaps the centre viewport to `ComposeView`, which renders the chosen camera's output: 3D canvas sandwiched between two `ComposeLayerStack` DOM stacks (behind / in front), reusing `<SceneNodes>` + `<CameraEffects>` so it matches `ViewerPage`. The same `ComposeLayerStack` runs in `ViewerPage` (in `mode='viewer'`) so the streamed output matches the editor preview. Per-layer fields are edited via `ComposeLayerProperties` in `PropertiesPanel`. See [compose.md](compose.md) for the data model, ordering scheme, and anchor-aware drag/resize math.
 
 ### `PropertiesPanel.tsx`
 Inspector for the selected node. Sections:
 - **Transform**: position, rotation, scale with drag-to-adjust (ns-resize NumInput)
 - **Light**: type, color, intensity
 - **Camera**: fov, near, far
-- **Components**: per-kind config editors for VMC receiver, breathing, lipsync, tracking; calibration wizard (head neutral, arm reach captures)
-- **Avatar**: VRM-node controls — idle-animation URL (with `<datalist>`) + speed/offset + playback transport; **Default Expression** sliders; read-only **Morph Targets** list
+- **Behaviors** (tab labelled "Behaviors"): per-kind config editors for VMC receiver, breathing, lipsync, tracking; calibration wizard (head neutral, arm reach captures)
+- **Avatar**: VRM-node controls — content-addressed idle picker (`properties.animation.idle = { clipId, speed }`, speed only — offset + local pause/seek/stop transport were removed under the synced timeline; see [animation.md](animation.md)); **Default Expression** sliders; read-only **Morph Targets** list
 - **Animation clips**: clip selection and playback
 - **Camera effects**: add/configure post-processing per camera
 - **Particle emitter**: emitter config
 - **FBX debug**: toggle debug model visibility
 
 **Blend-time relocation + breathing UI (implemented)**:
-- `blendTime` removed from the vmc_receiver component UI.
+- `blendTime` removed from the vmc_receiver behavior UI.
 - New **Blend transition** input on VRM avatar nodes writes to `node.properties.blendTransitionTime` (persisted via the `scene_nodes.properties` JSON column, migration 007). Default 0.5s. Controls the Viewport ramp between blend modes and between apply/don't-apply.
-- New `BreathingProps` panel for breathing components: **Chest amplitude** + **Shoulder lift** fields, writing to component config `chestAmplitude` / `shoulderAmplitude`. See [component-managers.md](component-managers.md) BreathingManager.
+- New `BreathingProps` panel for breathing behaviors: **Chest amplitude** + **Shoulder lift** fields, writing to behavior config `chestAmplitude` / `shoulderAmplitude`. See [component-managers.md](component-managers.md) BreathingManager.
 
 **Avatar section (implemented)**:
-- The inline animation-asset list (the grid of clickable animation buttons) was removed. Animations are picked via the bottom-dock **Animations** tab; the Avatar section's **Pick…** button only flashes that tab. The idle-animation URL input (with `<datalist>`), speed/offset inputs, and playback transport remain.
+- The inline animation-asset list (the grid of clickable animation buttons) was removed. Animations are picked via the bottom-dock **Animations** tab; the Avatar section's **Pick…** button only flashes that tab. The idle picker now writes a content-addressed `properties.animation.idle = { clipId, speed }` (it reads either the new shape or the legacy `components.animation.idleUrl`, but editing always writes the legacy shape + clears the migrated idle so the frontend lazy migration re-derives a fresh clip id — a single edit path). The offset input and the local pause/seek/stop transport were dropped; playback is driven by the synced `scheduled_animation` timeline. See [animation.md](animation.md).
 - The previously read-only **Expressions** list is now a **Default Expression** control: one 0..1 `SliderInput` per VRM expression. Weights are stored on `node.properties.defaultExpressions` (only non-zero kept) and persisted via `api.updateNode({ properties: { defaultExpressions } })`, which the backend shallow-merges (same mechanism as `blendTransitionTime`). The read-only **Morph Targets** list is unchanged.
 
 **Material section (implemented)**:
@@ -173,7 +177,8 @@ Inspector for the selected node. Sections:
 ### `AssetManager.tsx` (bottom dock)
 The bottom dock. Tabs (`BottomDockTab` in the store, persisted to localStorage
 alongside `leftTab` + dock height): **Create, Models, Animations, Images,
-Components, Effects, Clips, Presets**. File upload sends base64 to
+Behaviors, Effects, Timeline, Presets** (the "Behaviors" and "Timeline" tabs were
+formerly labelled "Components" and "Clips"). File upload sends base64 to
 `POST /api/projects/:id/assets`. Collections render as responsive tile grids.
 
 - **Create palette** (`CreatePalette.tsx`) — node kinds (when the left dock is
@@ -183,7 +188,7 @@ Components, Effects, Clips, Presets**. File upload sends base64 to
   CSS flash on the active tab).
 - **Shared kind registry** (`createKinds.ts`) — `NODE_KIND_DEFS` / `LAYER_KIND_DEFS`
   + `createSceneNode` / `createLayer` / `createNodeFromModelAsset` /
-  `createBillboardFromImageAsset` / `nextNodeName` / `componentCompatibleWith`,
+  `createBillboardFromImageAsset` / `nextNodeName` / `behaviorCompatibleWith`,
   consumed by the scene tree, compose tree, and Create palette so all three add
   entities the same way. Creation auto-names (deduped), selects the new entity,
   and `requestFocusName()` focuses the Properties name field for inline rename.
@@ -193,9 +198,9 @@ Components, Effects, Clips, Presets**. File upload sends base64 to
   `DND_CREATE_LAYER` / `DND_ASSET`) so they don't collide with the internal
   reparent drag; `handleSceneNodeDrop` is the shared drop handler.
 - **Tab relevance** — tabs relevant to the current selection get an accent
-  (non-destructive; nothing hidden/disabled). Components are split into
-  compatible vs "Other" via `componentCompatibleWith` (same split fixes the
-  scene-tree inline add-component menu's prior over-filter).
+  (non-destructive; nothing hidden/disabled). Behaviors are split into
+  compatible vs "Other" via `behaviorCompatibleWith` (same split
+  fixes the scene-tree inline add-behavior menu's prior over-filter).
 - **Thumbnails** — `AssetThumb.tsx` previews images directly and lazily renders
   cached 3D thumbnails for models via the shared offscreen renderer in
   `modelThumb.ts`. Animation assets render their skeleton (`THREE.SkeletonHelper`,

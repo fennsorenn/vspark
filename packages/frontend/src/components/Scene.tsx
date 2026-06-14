@@ -1,4 +1,5 @@
-import { Environment, ContactShadows } from '@react-three/drei';
+import { ContactShadows } from '@react-three/drei';
+import { SafeEnvironment } from './SafeEnvironment';
 
 export function Scene() {
   return (
@@ -7,7 +8,7 @@ export function Scene() {
       <directionalLight position={[5, 10, 7]} intensity={1.2} castShadow />
       <directionalLight position={[-5, 5, -5]} intensity={0.3} />
       <pointLight position={[0, 8, 0]} intensity={0.5} />
-      <Environment preset="city" />
+      <SafeEnvironment preset="city" />
       <ContactShadows
         position={[0, -1, 0]}
         opacity={0.6}

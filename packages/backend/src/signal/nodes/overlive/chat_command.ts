@@ -35,7 +35,7 @@ const EMPTY: ChatCommandOut = {
   label: 'Overlive Chat Command',
   description:
     'Fires when a chat message starts with the command prefix. Set "command" to filter to a single command name.',
-  tags: ['overlive', 'input'],
+  tags: ["overlive"],
   color: '#9146ff',
 })
 export class OverliveChatCommand extends Node {

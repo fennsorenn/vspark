@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import './FileDrop.css';
 
 interface FileDropProps {
@@ -7,6 +8,7 @@ interface FileDropProps {
 }
 
 export function FileDrop({ onVrm, onAnim }: FileDropProps) {
+  const { t } = useTranslation('media');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -43,7 +45,7 @@ export function FileDrop({ onVrm, onAnim }: FileDropProps) {
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
     >
-      <p>Drop .vrm / .glb files here</p>
+      <p>{t('fileDrop.dropPrompt')}</p>
       <input
         ref={inputRef}
         type="file"
@@ -52,7 +54,7 @@ export function FileDrop({ onVrm, onAnim }: FileDropProps) {
         onChange={handleFiles}
         style={{ display: 'none' }}
       />
-      <button onClick={() => inputRef.current?.click()}>Browse Files</button>
+      <button onClick={() => inputRef.current?.click()}>{t('fileDrop.browseBtn')}</button>
     </div>
   );
 }

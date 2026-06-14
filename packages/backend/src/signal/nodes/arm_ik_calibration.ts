@@ -307,7 +307,7 @@ export interface ArmIkConfig {
   label: 'Arm IK Calibration',
   description:
     'Calibrates arm reach by touching index finger to eye corner. Uses two-bone IK to correct reach at runtime.',
-  tags: ['calibration'],
+  tags: ["mocap"],
   color: '#5a3a9f',
 })
 export class ArmIkCalibration extends Node {

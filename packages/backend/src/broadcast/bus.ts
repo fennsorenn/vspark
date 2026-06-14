@@ -19,7 +19,7 @@ interface BlendshapeSlot {
   blendshapes: Blendshapes;
 }
 
-/** Per-(sceneNodeId, componentId) slot state held by the bus. */
+/** Per-(sceneNodeId, behaviorId) slot state held by the bus. */
 interface ProducerSlots {
   /** Most recent bone publication, if any. */
   bones?: BoneSlot;
@@ -31,7 +31,7 @@ interface ProducerSlots {
  * The Broadcast Bus is the single emission point for pose + blendshape WS messages.
  *
  * Producers (signal-graph broadcast nodes) call publishBones / publishBlendshapes
- * with their (sceneNodeId, componentId). On each scene's tick, the bus composes
+ * with their (sceneNodeId, behaviorId). On each scene's tick, the bus composes
  * all active slots for nodes in that scene, runs the pose interceptor chain on
  * the merged pose, and emits `vmc_pose` / `vmc_blendshapes` over the WebSocket.
  *
@@ -41,12 +41,18 @@ interface ProducerSlots {
  */
 export class BroadcastBus {
   private _ws: WSSync | null = null;
+  /** Optional tap on every emitted pose/blendshape frame (keyed by sceneNodeId),
+   *  used by multiplayer to forward shared avatars' live pose to subscribers.
+   *  Injected at startup so the bus stays decoupled from the mesh. */
+  private _forward:
+    | ((kind: string, nodeId: string, payload: Record<string, unknown>) => void)
+    | null = null;
 
   /** sceneId → setInterval handle */
   private readonly _timers = new Map<string, NodeJS.Timeout>();
   /** sceneId → current tick rate */
   private readonly _tickRates = new Map<string, number>();
-  /** sceneId → sceneNodeId → componentId → slots */
+  /** sceneId → sceneNodeId → behaviorId → slots */
   private readonly _slots = new Map<
     string,
     Map<string, Map<string, ProducerSlots>>
@@ -58,26 +64,43 @@ export class BroadcastBus {
     this._ws = ws;
   }
 
-  /** Publish bone pose for (sceneNodeId, componentId). Slot is fully replaced. */
+  /** Install the multiplayer stream forwarder (idempotent). */
+  setStreamForwarder(
+    fn: (kind: string, nodeId: string, payload: Record<string, unknown>) => void
+  ): void {
+    this._forward = fn;
+  }
+
+  /** Broadcast a frame locally and tap the forwarder for shared-avatar fan-out. */
+  private _bcast(
+    kind: string,
+    nodeId: string,
+    payload: Record<string, unknown>
+  ): void {
+    this._ws?.broadcast(kind, payload);
+    this._forward?.(kind, nodeId, payload);
+  }
+
+  /** Publish bone pose for (sceneNodeId, behaviorId). Slot is fully replaced. */
   publishBones(
     sceneNodeId: string,
-    componentId: string,
+    behaviorId: string,
     pose: NormalizedPose,
     priority: number,
     animationBlendMode: AnimationBlendMode
   ): void {
-    const slot = this._slot(sceneNodeId, componentId);
+    const slot = this._slot(sceneNodeId, behaviorId);
     if (!slot) return;
     slot.bones = { pose, priority, animationBlendMode };
   }
 
-  /** Publish blendshapes for (sceneNodeId, componentId). Slot is fully replaced. */
+  /** Publish blendshapes for (sceneNodeId, behaviorId). Slot is fully replaced. */
   publishBlendshapes(
     sceneNodeId: string,
-    componentId: string,
+    behaviorId: string,
     blendshapes: Blendshapes
   ): void {
-    const slot = this._slot(sceneNodeId, componentId);
+    const slot = this._slot(sceneNodeId, behaviorId);
     if (!slot) return;
     slot.blendshapes = { blendshapes };
   }
@@ -89,11 +112,11 @@ export class BroadcastBus {
    *  frame on that sceneNode — empty bones with `animationBlendMode: 'additive'` and empty
    *  blendshapes — so the frontend ramps back to pure animation rather than holding the
    *  last live frame. The empty nodeMap entry is then dropped. */
-  removeComponent(componentId: string): void {
+  removeBehavior(behaviorId: string): void {
     for (const sceneMap of this._slots.values()) {
       for (const [sceneNodeId, nodeMap] of sceneMap) {
-        if (!nodeMap.has(componentId)) continue;
-        nodeMap.delete(componentId);
+        if (!nodeMap.has(behaviorId)) continue;
+        nodeMap.delete(behaviorId);
         if (nodeMap.size === 0) {
           this._emitFallback(sceneNodeId);
           sceneMap.delete(sceneNodeId);
@@ -104,12 +127,12 @@ export class BroadcastBus {
   }
 
   private _emitFallback(sceneNodeId: string): void {
-    this._ws?.broadcast('vmc_pose', {
+    this._bcast('vmc_pose', sceneNodeId, {
       nodeId: sceneNodeId,
       bones: {},
       animationBlendMode: 'additive' as AnimationBlendMode,
     });
-    this._ws?.broadcast('vmc_blendshapes', {
+    this._bcast('vmc_blendshapes', sceneNodeId, {
       nodeId: sceneNodeId,
       blendshapes: {},
     });
@@ -136,7 +159,7 @@ export class BroadcastBus {
 
   private _slot(
     sceneNodeId: string,
-    componentId: string
+    behaviorId: string
   ): ProducerSlots | null {
     const sceneId = this._resolveSceneId(sceneNodeId);
     if (!sceneId) return null;
@@ -150,10 +173,10 @@ export class BroadcastBus {
       nodeMap = new Map();
       sceneMap.set(sceneNodeId, nodeMap);
     }
-    let slot = nodeMap.get(componentId);
+    let slot = nodeMap.get(behaviorId);
     if (!slot) {
       slot = {};
-      nodeMap.set(componentId, slot);
+      nodeMap.set(behaviorId, slot);
     }
     // Lazily start the scene ticker the first time it sees activity.
     if (!this._timers.has(sceneId)) {
@@ -236,7 +259,7 @@ export class BroadcastBus {
 
     if (bsSlots.length > 0) {
       const merged = _composeBlendshapes(bsSlots);
-      this._ws?.broadcast('vmc_blendshapes', {
+      this._bcast('vmc_blendshapes', sceneNodeId, {
         nodeId: sceneNodeId,
         blendshapes: merged.toRecord(),
       });
@@ -257,7 +280,7 @@ export class BroadcastBus {
     pose: NormalizedPose,
     mode: AnimationBlendMode
   ): void {
-    this._ws?.broadcast('vmc_pose', {
+    this._bcast('vmc_pose', sceneNodeId, {
       nodeId: sceneNodeId,
       bones: pose.toRecord(),
       animationBlendMode: mode,

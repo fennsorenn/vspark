@@ -7,7 +7,7 @@
 > fire fire-and-forget media commands at marker times, dispatched client-side to the
 > media registry. See [Event/Marker Lane](#eventmarker-lane) below and [media.md](media.md).
 
-Timeline-based parameter animation. A **track clip** is a short, triggerable, optionally-looping clip that animates scalar parameters on scene nodes or compose layers. Authored in the `'clips'` tab of the bottom dock; played back with a backend-authoritative playhead so multiple clients (editor + `ViewerPage`) stay in sync. Supports play / pause / resume / stop / seek (scrub).
+Timeline-based parameter animation. A **track clip** is a short, triggerable, optionally-looping clip that animates scalar parameters on scene nodes or compose layers. Authored in the bottom-dock tab whose `bottomTab` id is `'clips'` (UI label is **Timeline** after the vocab rename; the tab-id string was kept); played back with a backend-authoritative playhead so multiple clients (editor + `ViewerPage`) stay in sync. Supports play / pause / resume / stop / seek (scrub).
 
 ## How this differs from `animation_clips`
 
@@ -137,6 +137,8 @@ In `WSMessageKind`:
 `track_clip_added`, `track_clip_updated`, `track_clip_removed`, `track_clip_lane_added`, `track_clip_lane_updated`, `track_clip_lane_removed`, `track_clip_keyframes_replaced`, `track_clip_events_replaced`, `track_clip_started`, `track_clip_stopped`, `track_clip_paused`, `track_clip_playback_snapshot`.
 
 Handled in `packages/frontend/src/hooks/useWsSync.ts` following the compose-layer pattern. The snapshot handler reads either `startedAt` or `pausedAtT` per entry.
+
+**Clip create/delete now flow through the sync layer** — `sync.document.upsert`/`remove` for rtype `track_clip` on the single `'sync'` WS kind — instead of the bespoke `track_clip_added`/`track_clip_removed` kinds for persistent clips. The legacy `track_clip_added`/`removed` handlers are kept because the spawn manager still emits them inline for ephemeral spawned clips. Lanes, keyframes, events, and playback messages above stay on their legacy kinds. See [sync.md](sync.md) and [spawn.md](spawn.md).
 
 ## Frontend Evaluator
 

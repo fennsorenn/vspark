@@ -23,7 +23,7 @@ const MIN_VIS = 0.5;
   label: 'Hand Height Compare',
   description:
     'Outputs which wrist (left/right) is currently higher in the pose landmarks. Useful for one-hand calibration where the higher hand is the user-chosen reference.',
-  tags: ['tracking'],
+  tags: ["mocap"],
   color: '#2a4a6a',
 })
 export class HandHeightCompare extends Node {
