@@ -4,8 +4,11 @@ Connect your vspark server to another person's server to **share avatars live** 
 their tracked avatar appears in your scene, driven in real time, with no port
 forwarding on either side.
 
-Connections go through a small public **rendezvous** server (set by your host);
-the actual avatar/pose data flows **peer-to-peer** between the two servers.
+Connections go through a small public **rendezvous** server. vspark ships with a
+default one, so this works out of the box — your host can point at a different
+one, or turn multiplayer off entirely. The actual avatar/pose data flows
+**peer-to-peer** between the two servers; the rendezvous only helps them find
+each other.
 
 ## Your server ID {#identity}
 

@@ -21,8 +21,9 @@ for identity (peers authenticate each other end-to-end by Ed25519 key).
 3. **Ports:** open inbound `80`, `443` (Caddy), `3478/udp+tcp` and the relay range
    `49160-49200/udp` (coturn). coturn runs in host-network mode for the relay.
 4. **Run:** `docker compose up -d --build`.
-5. In each vspark server's Connections settings, set the rendezvous URL to
-   `wss://RDV_DOMAIN`.
+5. Point each vspark server at it by setting `MULTIPLAYER_RENDEZVOUS_URL=wss://RDV_DOMAIN`
+   (see *Pointing vspark servers at a rendezvous* below). Skip this if you're using
+   the shipped public default.
 
 ## Already running Traefik? (existing reverse proxy)
 
@@ -41,6 +42,22 @@ and watches an external network `traefik_proxy`; override via `TRAEFIK_*` in
 (raw UDP + relay range), so it still binds host ports directly and you must open
 `3478/tcp+udp` and `49160-49200/udp` on the host firewall / cloud security group
 yourself (Traefik does nothing for those).
+
+## Pointing vspark servers at a rendezvous
+
+A vspark server chooses its rendezvous via the **`MULTIPLAYER_RENDEZVOUS_URL`**
+backend env var (resolved in `packages/backend/src/multiplayer/config.ts`):
+
+| `MULTIPLAYER_RENDEZVOUS_URL` | Behaviour |
+| --- | --- |
+| *unset* | Uses the **shipped public default** (`wss://vspark-rdv.fennsorenn.com`) — multiplayer works out of the box. |
+| `wss://your-host` | Points at your own rendezvous (e.g. this bundle). |
+| *empty string* | **Disables** multiplayer entirely (no outbound connection). |
+
+The public default is deliberately reversible: it's a DNS name, so it can be
+repointed or retired without a client update. To run your own instead of the
+default, host this bundle and set the env var to your `wss://RDV_DOMAIN` on each
+server.
 
 ## Keeping TURN cheap
 

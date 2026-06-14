@@ -39,6 +39,23 @@ Participant ids: backends use the Ed25519 `peerId`; browser tabs use
 `${serverPeerId}#${tabUuid}` (`isClientParticipant` = has a `#tab` suffix,
 `participantServer(id)` strips it).
 
+## Rendezvous URL config (`config.ts`)
+
+Which rendezvous a server uses is resolved by `resolveRendezvousUrl()` in
+`multiplayer/config.ts`, called once at boot in `index.ts` and passed to
+`manager.init` (which treats an empty/undefined url as "multiplayer disabled"):
+
+- `MULTIPLAYER_RENDEZVOUS_URL` **unset** → `DEFAULT_RENDEZVOUS_URL`
+  (`wss://vspark-rdv.fennsorenn.com`) — the shipped public default, on by default.
+- `MULTIPLAYER_RENDEZVOUS_URL=<url>` → override (point at your own rendezvous).
+- `MULTIPLAYER_RENDEZVOUS_URL=` (empty) → disabled (explicit opt-out; the `??`
+  only falls back on `undefined`, so an empty string passes through and disables).
+
+The default is intentionally a DNS name we control, so the public default can be
+repointed or retired in DNS without a client release. Operator-facing docs:
+[deploy/multiplayer/README.md](../../deploy/multiplayer/README.md); end-user
+framing in the in-app help (`help/content/{en,de}/multiplayer.md`).
+
 ## Transport topology
 
 Every participant has a logical edge to every other; only the per-edge transport
