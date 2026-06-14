@@ -55,13 +55,31 @@ export function startMeshStoreFeeder(): void {
         }
         const node = c.doc as unknown as StageObject | undefined;
         if (!node) return;
-        // Foreign docs (placed projections) carry the OWNER's projectId —
-        // the projection feeder mirrors those under their container. Docs of
-        // other local projects are skipped too (the legacy envelope used to
-        // let them sit invisibly in the store).
+        const existing = s.nodes.find((n) => n.id === node.id);
+        if (existing) {
+          // A placed remote-object projection is owned by the projection feeder
+          // (sync/sharedProjection.ts) — leave it alone here.
+          if (existing.remote) return;
+          // Already a local node here → apply the edit by IDENTITY, not by
+          // projectId. A mounted collab scene localizes projectId per peer
+          // (mountSharedScene), so an edit fanned from the other peer carries
+          // THEIR projectId; a raw `node.projectId !== s.projectId` check would
+          // drop every shared-scene edit (this broke receiver→author sync).
+          // Preserve our local structure (projectId/rootSceneNodeId), take the
+          // rest — content is owner-authoritative on the wire.
+          s.updateNode(node.id, {
+            ...node,
+            projectId: existing.projectId,
+            rootSceneNodeId: existing.rootSceneNodeId,
+          });
+          return;
+        }
+        // A node we don't hold yet: adopt it only if it belongs to the open
+        // project. Foreign docs (other local projects, and placed projections —
+        // which carry the OWNER's projectId and are mirrored by the projection
+        // feeder) stay out of the store.
         if (s.projectId && node.projectId !== s.projectId) return;
-        if (s.nodes.some((n) => n.id === node.id)) s.updateNode(node.id, node);
-        else s.addNode(node);
+        s.addNode(node);
       });
       h.collections.behavior.observe('**', (c) => {
         if (c.op === 'ephemeral') return;
