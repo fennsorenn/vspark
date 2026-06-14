@@ -79,7 +79,12 @@ const UPLOADS_DIR = join(process.cwd(), 'uploads');
 mkdirSync(UPLOADS_DIR, { recursive: true });
 
 app.use(express.json({ limit: '150mb' }));
-app.use('/uploads', express.static(UPLOADS_DIR));
+// `fallthrough: false` so a missing upload returns a real 404 instead of
+// dropping through to the SPA catch-all below (which would answer with
+// index.html + 200). The thumbnail cache HEAD-checks these URLs to decide
+// whether to (re)generate; a 200-with-HTML miss made it treat every absent
+// thumbnail as present, so thumbnails never rendered in the bundled build.
+app.use('/uploads', express.static(UPLOADS_DIR, { fallthrough: false }));
 app.use('/api', apiRoutes);
 app.use('/api', updateRoutes);
 app.use('/api', configRoutes);
