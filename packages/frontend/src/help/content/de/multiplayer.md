@@ -4,9 +4,11 @@ Verbinde deinen vspark-Server mit dem Server einer anderen Person, um **Avatare
 live zu teilen** – ihr getrackter Avatar erscheint in deiner Szene, in Echtzeit
 gesteuert, ganz ohne Portfreigabe auf beiden Seiten.
 
-Verbindungen laufen über einen kleinen öffentlichen **Rendezvous**-Server (von
-deinem Host festgelegt); die eigentlichen Avatar-/Pose-Daten fließen **direkt
-zwischen den beiden Servern** (peer-to-peer).
+Verbindungen laufen über einen kleinen öffentlichen **Rendezvous**-Server. vspark
+bringt standardmäßig einen mit, sodass es sofort funktioniert – dein Host kann
+einen anderen festlegen oder Mehrspieler ganz ausschalten. Die eigentlichen
+Avatar-/Pose-Daten fließen **direkt zwischen den beiden Servern** (peer-to-peer);
+der Rendezvous-Server hilft ihnen nur, sich zu finden.
 
 ## Deine Server-ID {#identity}
 
