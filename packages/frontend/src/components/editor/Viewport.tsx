@@ -4552,6 +4552,12 @@ function renderNodeElement(
       </group>
     );
   }
+  // Scene-root nodes (kind 'scene') ride the mesh so their properties reach the
+  // frontend (broadcastTickHz, collab link), but they have no visual: a scene
+  // root is its own root, so it slips past the active-scene filter and would
+  // otherwise fall through to the default ModelNode placeholder (a stray cube at
+  // the origin). It carries no model and no transform of its own — render nothing.
+  if (node.kind === 'scene') return null;
   // particle, billboard, and text nodes are rendered flat in SceneNodes to keep
   // their React position stable across reparents (preserves particle pools,
   // billboard textures, troika SDF caches, and html2canvas-backed textures).
