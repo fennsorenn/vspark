@@ -32,6 +32,11 @@ Actions: `setUpdateAvailable(info)`, `setPendingReload(value)`.
 - `vmcStatus: Record<behaviorId, boolean>` — receiver connected
 - `vmcTracking: Record<behaviorId, boolean>` — motion detected
 
+**Avatar animation** (synced clip playback; see [animation.md](animation.md))
+- `scheduledAnimations` — per-avatar `scheduled_animation` timeline entries (fed by the mesh feeder)
+- `animationClips` — registered `animation_clip` rows used to resolve a `clipId` → localized source URL + duration
+- Idle is content-addressed on the node itself: `node.properties.animation.idle = { clipId, speed }`
+
 **VRM skeleton**
 - `vrmBonesByNode: Record<nodeId, string[]>`
 - `vrmExpressionsByNode: Record<nodeId, string[]>`
@@ -63,13 +68,12 @@ Incoming message handlers:
 | `vmc_tracking_state` | `setVmcTracking(behaviorId, tracking)` |
 | `vmc_pose` | Writes pose data into store for Viewport to consume |
 | `vmc_blendshapes` | Writes blendshape weights into store |
-| `node_updated` | Patches node in store |
-| `node_added` | Adds node to store (dedup check) |
-| `node_removed` | Removes node from store |
-| `camera_effect_added/updated/removed` | Updates effects slice |
+| `sync` (envelope) | Routed through `applyRemote` — currently only `scene_node` (node_added/updated/removed). Behaviors, camera_effects, compose_layers, and track_clips have migrated to the mesh feeder (see below). |
 | `server_update` | Sets `updateAvailable` + `updateInfo` in store |
 
 **pendingReload-on-reconnect**: a `pendingReloadRef` (not store state — avoids re-render) is set when a `server_update` message carries `reloadOnReconnect: true`. On the next `ws.onopen`, if the ref is set, the page is reloaded. Normal reconnects are unaffected.
+
+**Mesh store feeder — `sync/meshStoreFeeder.ts`** (commits 0d21329, c4e4f04): four of five synced rtypes now feed the store via the tab's mesh replica rather than WS envelopes. The feeder calls `collection.observe('**')` on each collection and writes upserts/removes directly into the Zustand store slices. Migrated: `behavior`, `camera_effect`, `compose_layer` (incl. `compose_scene` kind branch), `track_clip`, and `scheduled_animation` (the avatar clip timeline → `scheduledAnimations` slice; see [animation.md](animation.md)). The remaining rtype (`scene_node`) stays on the legacy envelope until step 4 of the §11 plan. Foreign docs (placed-object subscriptions) are filtered by the parent node's `remote` flag. The feeder is started from both Editor.tsx and ViewerPage. See [sync.md](sync.md) and [mesh.md](mesh.md).
 
 ## Browser uplinks
 
@@ -93,7 +97,7 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 **Per-frame work** (`useFrame`):
 1. Read `vmc_pose` from store → apply quaternions to VRM bones
 2. Apply expressions/blendshapes (see below)
-3. Advance timeline animations
+3. Advance clip animation via the **clock-anchored avatar driver** (`_resolveAvatarAnimation` + `_anchoredTime`): the mixer is stepped with `update(0)` and each action's `time` is driven from the active `scheduled_animation` entry (or the idle base loop) against the synced clock, so it never free-runs and stays in phase across clients. See [animation.md](animation.md).
 4. Simulate particles
 
 **Expression/blendshape application** (pre-`expressionManager.update()` pass): default expression weights (`node.properties.defaultExpressions`) are applied first via `vrm.expressionManager.setValue` as a per-frame baseline, then the latest broadcast blendshapes (`getVmcBlendshapes`) are overlaid on top. So live broadcasts (VMC, lipsync, tracking) override the defaults per-key, and the defaults re-assert when the bus emits an empty record (no active producer). The morph-target-name guard (`!morphMap.has(name)`) is preserved.
@@ -152,7 +156,7 @@ Inspector for the selected node. Sections:
 - **Light**: type, color, intensity
 - **Camera**: fov, near, far
 - **Behaviors** (tab labelled "Behaviors"): per-kind config editors for VMC receiver, breathing, lipsync, tracking; calibration wizard (head neutral, arm reach captures)
-- **Avatar**: VRM-node controls — idle-animation URL (with `<datalist>`) + speed/offset + playback transport; **Default Expression** sliders; read-only **Morph Targets** list
+- **Avatar**: VRM-node controls — content-addressed idle picker (`properties.animation.idle = { clipId, speed }`, speed only — offset + local pause/seek/stop transport were removed under the synced timeline; see [animation.md](animation.md)); **Default Expression** sliders; read-only **Morph Targets** list
 - **Animation clips**: clip selection and playback
 - **Camera effects**: add/configure post-processing per camera
 - **Particle emitter**: emitter config
@@ -164,7 +168,7 @@ Inspector for the selected node. Sections:
 - New `BreathingProps` panel for breathing behaviors: **Chest amplitude** + **Shoulder lift** fields, writing to behavior config `chestAmplitude` / `shoulderAmplitude`. See [component-managers.md](component-managers.md) BreathingManager.
 
 **Avatar section (implemented)**:
-- The inline animation-asset list (the grid of clickable animation buttons) was removed. Animations are picked via the bottom-dock **Animations** tab; the Avatar section's **Pick…** button only flashes that tab. The idle-animation URL input (with `<datalist>`), speed/offset inputs, and playback transport remain.
+- The inline animation-asset list (the grid of clickable animation buttons) was removed. Animations are picked via the bottom-dock **Animations** tab; the Avatar section's **Pick…** button only flashes that tab. The idle picker now writes a content-addressed `properties.animation.idle = { clipId, speed }` (it reads either the new shape or the legacy `components.animation.idleUrl`, but editing always writes the legacy shape + clears the migrated idle so the frontend lazy migration re-derives a fresh clip id — a single edit path). The offset input and the local pause/seek/stop transport were dropped; playback is driven by the synced `scheduled_animation` timeline. See [animation.md](animation.md).
 - The previously read-only **Expressions** list is now a **Default Expression** control: one 0..1 `SliderInput` per VRM expression. Weights are stored on `node.properties.defaultExpressions` (only non-zero kept) and persisted via `api.updateNode({ properties: { defaultExpressions } })`, which the backend shallow-merges (same mechanism as `blendTransitionTime`). The read-only **Morph Targets** list is unchanged.
 
 **Material section (implemented)**:

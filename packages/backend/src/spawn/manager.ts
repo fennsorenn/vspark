@@ -26,6 +26,7 @@ import { getDb } from '../db/index.js';
 import type { WSSync } from '../ws/index.js';
 import type { TrackClipPlaybackManager } from '../track_clips/playback.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
+import { nodeWorldTransform } from './worldTransform.js';
 
 export type SpawnedKind = 'scene_node' | 'compose_layer';
 
@@ -48,6 +49,12 @@ export class SpawnManager {
   /** Active spawns keyed by tmpClipId — that's what the playback manager
    *  reports when a clip finishes. */
   private readonly _byClipId = new Map<string, ActiveSpawn>();
+
+  /** Whether a clip id is a live ephemeral spawn (for collab relay: its play
+   *  frames must be mirrored raw, since the receiver only has the cloned copy). */
+  isEphemeralClip(clipId: string): boolean {
+    return this._byClipId.has(clipId);
+  }
 
   init(ws: WSSync, playback: TrackClipPlaybackManager): void {
     this._ws = ws;
@@ -225,14 +232,19 @@ export class SpawnManager {
       'track_clip_added',
       tmpClip as unknown as Record<string, unknown>
     );
+    // Register the ephemeral clip BEFORE triggering it: triggerEphemeral
+    // synchronously broadcasts `track_clip_started`, and the collab relay only
+    // forwards that play-frame for clips `isEphemeralClip()` reports as live.
+    // Registering after the trigger left the start frame un-relayed, so a
+    // spawned clip mounted on collab peers but never animated there.
+    const active: ActiveSpawn = { tmpId, tmpClipId, kind };
+    this._byClipId.set(tmpClipId, active);
+
     this._playback.triggerEphemeral(
       tmpClipId,
       clipRow.duration,
       clipRow.loop === 1
     );
-
-    const active: ActiveSpawn = { tmpId, tmpClipId, kind };
-    this._byClipId.set(tmpClipId, active);
 
     return { tmpNodeId: tmpId, tmpClipId, kind };
   }
@@ -260,18 +272,32 @@ export class SpawnManager {
       console.warn(`[spawn] scene_node ${sourceId} not found`);
       return null;
     }
+    // Bake the source's ancestor-composed WORLD transform into the clone, then
+    // render it at the scene root (parentId null). Detaching from the source's
+    // parent keeps the spawn visible when its template is hidden (a hidden
+    // parent group wouldn't render its children), but scene-node transforms are
+    // applied per-node LOCALLY via group nesting — so a flat copy of a CHILD's
+    // local transform would lose every ancestor's translate/rotate/scale and
+    // land at the wrong place (often the origin / off-screen). Spatial fields
+    // only; opacity/shadow flags (also on components.transform) are preserved.
+    const components = _parseJson(row.components) as Record<string, unknown>;
+    const world = nodeWorldTransform(sourceId);
+    const prevT = (components.transform ?? {}) as Record<string, unknown>;
+    components.transform = {
+      ...prevT,
+      x: world.x, y: world.y, z: world.z,
+      rx: world.rx, ry: world.ry, rz: world.rz,
+      sx: world.sx, sy: world.sy, sz: world.sz,
+    };
     const record = {
       id: tmpId,
       rootSceneNodeId: row.root_scene_node_id,
       name: `${row.name} (spawn)`,
       kind: row.kind,
-      // Always render at the scene root so the spawn is visible regardless of
-      // the source's parent; transforms on the source still apply via the
-      // cloned components.
       parentId: null,
       boneAttachment: null,
       filePath: row.file_path,
-      components: _parseJson(row.components),
+      components,
       properties: _parseJson(row.properties),
       // Spawned entities are always unhidden even if the source was hidden
       // (templates are typically hidden so they don't render alongside spawns).

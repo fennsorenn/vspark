@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
-import { sync } from '../sync/index.js';
+import { getMeshCollection } from '../mesh/index.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -44,7 +44,7 @@ router.get('/scenes/:sceneId/nodes', (req, res) => {
  *       201: { description: Node created; broadcast as node_added over WebSocket }
  *       400: { description: Missing name or kind, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
-router.post('/scenes/:sceneId/nodes', (req, res) => {
+router.post('/scenes/:sceneId/nodes', async (req, res) => {
   const {
     name,
     parentId,
@@ -142,20 +142,14 @@ router.post('/scenes/:sceneId/nodes', (req, res) => {
     }
   }
 
-  db.prepare(
-    'INSERT INTO scene_nodes (id, project_id, root_scene_node_id, parent_id, bone_attachment, name, kind, file_path, components, properties) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(
-    id,
-    sceneRow.project_id,
-    rootSceneNodeId,
-    parentId ?? null,
-    boneAttachment ?? null,
-    name,
-    kind,
-    filePath ?? null,
-    JSON.stringify(components ?? {}),
-    JSON.stringify(properties ?? {})
-  );
+  // Write through the mesh store (§10): the onCommitted tap persists +
+  // emits the canonical sync.document upsert; the write fans out to mesh
+  // subscribers (collab peers, tabs) with one stamp.
+  const col = getMeshCollection('scene_node');
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
   const node = {
     id,
     rootSceneNodeId,
@@ -167,8 +161,15 @@ router.post('/scenes/:sceneId/nodes', (req, res) => {
     components: components ?? {},
     properties: properties ?? {},
   };
-  // Unified sync layer: broadcast the canonical document to other clients.
-  sync.document.upsert('scene_node', id);
+  const outcome = await col.set(id, '', {
+    ...node,
+    projectId: sceneRow.project_id,
+    hidden: false,
+  }).ack;
+  if (outcome.status === 'rejected')
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: outcome.reason } });
   res.status(201).json({ ok: true, data: node });
 });
 
@@ -191,61 +192,45 @@ router.post('/scenes/:sceneId/nodes', (req, res) => {
  *     responses:
  *       200: { description: Updated; patch broadcast as node_updated over WebSocket }
  */
-router.put('/scene-nodes/:id', (req, res) => {
+router.put('/scene-nodes/:id', async (req, res) => {
   const { name, kind, filePath, components } = req.body;
-  const db = getDb();
-  db.prepare(
-    `UPDATE scene_nodes SET
-      name = COALESCE(?, name),
-      kind = COALESCE(?, kind),
-      file_path = COALESCE(?, file_path),
-      components = COALESCE(?, components),
-      updated_at = datetime('now')
-    WHERE id = ?`
-  ).run(
-    name ?? null,
-    kind ?? null,
-    filePath ?? null,
-    components != null ? JSON.stringify(components) : null,
-    req.params.id
-  );
+  const col = getMeshCollection('scene_node');
+  const cur = col?.get(req.params.id) as Record<string, unknown> | undefined;
+  if (!col || !cur)
+    return res
+      .status(404)
+      .json({ ok: false, error: { message: 'scene node not found' } });
 
-  // parentId and bone_attachment both support explicit null, so handle separately
-  if ('parentId' in req.body) {
-    db.prepare(
-      `UPDATE scene_nodes SET parent_id = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(req.body.parentId ?? null, req.params.id);
-  }
-  if ('boneAttachment' in req.body) {
-    db.prepare(
-      `UPDATE scene_nodes SET bone_attachment = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(req.body.boneAttachment ?? null, req.params.id);
-  }
-  if ('hidden' in req.body) {
-    db.prepare(
-      `UPDATE scene_nodes SET hidden = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(req.body.hidden ? 1 : 0, req.params.id);
-  }
-
-  // Properties: shallow-merged JSON column.
+  // Field-presence semantics preserved from the SQL version: name/kind/
+  // filePath/components only when non-null; parentId/boneAttachment/hidden
+  // when the key is present (explicit null/false allowed); properties
+  // shallow-merge onto the current bag.
+  const next: Record<string, unknown> = { ...cur };
+  if (name != null) next.name = name;
+  if (kind != null) next.kind = kind;
+  if (filePath != null) next.filePath = filePath;
+  if (components != null) next.components = components;
+  if ('parentId' in req.body) next.parentId = req.body.parentId ?? null;
+  if ('boneAttachment' in req.body)
+    next.boneAttachment = req.body.boneAttachment ?? null;
+  if ('hidden' in req.body) next.hidden = Boolean(req.body.hidden);
   let mergedProperties: Record<string, unknown> | undefined;
   if (req.body.properties != null && typeof req.body.properties === 'object') {
-    const row = db
-      .prepare('SELECT properties FROM scene_nodes WHERE id = ?')
-      .get(req.params.id) as { properties: string } | undefined;
-    const current = row
-      ? (JSON.parse(row.properties || '{}') as Record<string, unknown>)
-      : {};
     mergedProperties = {
-      ...current,
+      ...((cur.properties as Record<string, unknown>) ?? {}),
       ...(req.body.properties as Record<string, unknown>),
     };
-    db.prepare(
-      `UPDATE scene_nodes SET properties = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(JSON.stringify(mergedProperties), req.params.id);
+    next.properties = mergedProperties;
   }
 
-  // Broadcast to all other connected clients (viewer pages, etc.)
+  const outcome = await col.set(req.params.id, '', next).ack;
+  if (outcome.status === 'rejected')
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: outcome.reason } });
+
+  // Broadcast the patch to all other connected clients (viewer pages, etc.) —
+  // local + smoothing-aware; the canonical doc re-sync rides the store tap.
   const patch: Record<string, unknown> = { id: req.params.id };
   if (name != null) patch.name = name;
   if ('parentId' in req.body) patch.parentId = req.body.parentId ?? null;
@@ -272,10 +257,18 @@ router.put('/scene-nodes/:id', (req, res) => {
  *     responses:
  *       200: { description: Deleted; broadcast as node_removed over WebSocket }
  */
-router.delete('/scene-nodes/:id', (req, res) => {
-  getDb().prepare('DELETE FROM scene_nodes WHERE id = ?').run(req.params.id);
+router.delete('/scene-nodes/:id', async (req, res) => {
+  // Mesh remove: the tap deletes the row (FK cascade takes the subtree),
+  // persists the HLC tombstone, and emits sync.document.remove. The old
+  // ancestor-route capture fed the deleted legacy share fan-out — the mesh
+  // resolves remove routing from its containment index before the entry dies.
+  const col = getMeshCollection('scene_node');
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  await col.remove(req.params.id).ack;
   runtimeOverrideManager.clearAllForTarget('scene_node', req.params.id);
-  sync.document.remove('scene_node', req.params.id);
   res.json({ ok: true, data: {} });
 });
 
@@ -317,7 +310,7 @@ router.get('/scene-nodes/:nodeId/clips', (req, res) => {
  *       200: { description: Existing clip updated }
  *       201: { description: New clip registered }
  */
-router.post('/scene-nodes/:nodeId/clips', (req, res) => {
+router.post('/scene-nodes/:nodeId/clips', async (req, res) => {
   const {
     name,
     sourceFilePath,
@@ -330,46 +323,37 @@ router.post('/scene-nodes/:nodeId/clips', (req, res) => {
   } = req.body;
   const nodeId = req.params.nodeId;
   const db = getDb();
-  // Upsert by (source_node_id, source_file_path, clip_index): refresh duration on re-probe.
+  const col = getMeshCollection('animation_clip');
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  // Upsert by (source_node_id, source_file_path, clip_index): refresh duration
+  // on re-probe. Written through the mesh store (§10) so imported animations
+  // sync to collab peers like every other document rtype.
   const existing = db
     .prepare(
       'SELECT id FROM animation_clips WHERE source_node_id = ? AND source_file_path = ? AND clip_index = ?'
     )
     .get(nodeId, sourceFilePath, clipIndex ?? 0) as { id: string } | undefined;
-  if (existing) {
-    db.prepare(
-      `UPDATE animation_clips SET
-        name = ?, label = ?, start_time = ?, end_time = ?, duration = ?, fps = ?
-      WHERE id = ?`
-    ).run(
-      name,
-      label ?? name,
-      startTime ?? 0,
-      endTime ?? duration,
-      duration,
-      fps ?? 30,
-      existing.id
-    );
-    return res.json({
-      ok: true,
-      data: { id: existing.id, name, updated: true },
-    });
-  }
-  const id = randomUUID();
-  db.prepare(
-    'INSERT INTO animation_clips (id, name, source_node_id, source_file_path, clip_index, label, start_time, end_time, duration, fps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(
+  const id = existing?.id ?? randomUUID();
+  const outcome = await col.set(id, '', {
     id,
     name,
-    nodeId,
+    sourceNodeId: nodeId,
     sourceFilePath,
-    clipIndex ?? 0,
-    label ?? name,
-    startTime ?? 0,
-    endTime ?? duration,
+    clipIndex: clipIndex ?? 0,
+    label: label ?? name,
+    startTime: startTime ?? 0,
+    endTime: endTime ?? duration,
     duration,
-    fps ?? 30
-  );
+    fps: fps ?? 30,
+  }).ack;
+  if (outcome.status === 'rejected')
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: outcome.reason } });
+  if (existing) return res.json({ ok: true, data: { id, name, updated: true } });
   res.status(201).json({ ok: true, data: { id, name } });
 });
 

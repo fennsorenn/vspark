@@ -12,7 +12,12 @@ backups/
 *.tsbuildinfo
 .vscode/
 .idea/
-.claude/
+.claude/*
+!.claude/skills/
 .DS_Store
 itellar
 **/uploads/**
+# downloaded test fixtures (see test-assets/README.md)
+test-assets/.cache/
+# smoketest scratch (two-peer mesh: frontend-B vite proxy → backend B)
+packages/frontend/vite.config.b.ts

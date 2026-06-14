@@ -4,6 +4,11 @@
     "compose": "Komposition",
     "logic": "Logik"
   },
+  "collab": {
+    "badgeSharing": "Du teilst diese Szene",
+    "badgeConnected": "Geteilte Szene – Peer verbunden",
+    "badgeDisconnected": "Geteilte Szene – Peer getrennt"
+  },
   "scenes": {
     "header": "Szenen",
     "newButton": "+ Szene",
@@ -82,7 +87,17 @@
     "copyNode": "Knoten kopieren",
     "pasteNodeAsChild": "Knoten als Kind einfügen",
     "pasteLogicHere": "Logik hier einfügen",
+    "shareWith": "Teilen mit",
+    "shareCanEdit": "Bearbeiten erlauben",
+    "shareCanEditHint": "Zusätzlich Bearbeitungsrechte gewähren — andere können dieses Objekt ändern, und die Änderungen werden auf deinem Gerät gespeichert.",
+    "shareEveryone": "Alle Verbundenen",
+    "shareNobody": "Niemand verbunden",
+    "shareDisabled": "Multiplayer ist aus",
     "delete": "Löschen"
+  },
+  "remote": {
+    "tip": "Geteiltes Objekt von einem verbundenen Partner. Du kannst diesen Container bewegen und platzieren; sein Inhalt gehört dessen Server und wird von dort live aktualisiert.",
+    "assetBlocked": "Assets können einem geteilten Objekt nicht hinzugefügt werden — die Datei liegt nur auf deinem Gerät, und der Eigentümer kann sie nicht laden. Füge das Asset stattdessen auf dem besitzenden Server hinzu."
   },
   "logic": {
     "globalLogic": "Globale Logik",

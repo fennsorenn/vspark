@@ -247,11 +247,7 @@
     "animPlaceholder": "Suchen oder URL einfügen…",
     "animNoAssets": "Noch keine Animationen hochgeladen",
     "animClear": "Animation entfernen",
-    "animSpeed": "Geschwindigkeit",
-    "animOffset": "Versatz (s)",
-    "animPause": "⏸ Pause",
-    "animPlay": "▶ Abspielen",
-    "animRest": "⏹ Ruhepose"
+    "animSpeed": "Geschwindigkeit"
   },
   "file": {
     "header": "Datei"

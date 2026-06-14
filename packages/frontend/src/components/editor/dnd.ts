@@ -1,5 +1,7 @@
+import i18n from 'i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
+import { isWritableRemoteNode } from '../../sync/remoteEdit';
 import {
   createSceneNode,
   createNodeFromModelAsset,
@@ -60,6 +62,19 @@ export async function handleSceneNodeDrop(
   if (assetId) {
     const asset = store.assets.find((a) => a.id === assetId);
     if (!asset) return true;
+
+    // Phase 6: a shared object is owned by a remote peer that can't resolve our
+    // local `/uploads` URL — and asset transfer to the owner is out of v1 scope
+    // (scene_node documents only). Block asset drops onto a writable-remote
+    // parent cleanly instead of creating a local orphan that never reaches the
+    // owner. (Plain asset-less node kinds still route via createSceneNode.)
+    const dropTarget = parentId
+      ? store.nodes.find((n) => n.id === parentId)
+      : null;
+    if (dropTarget && isWritableRemoteNode(dropTarget)) {
+      alert(i18n.t('sceneGraph:remote.assetBlocked'));
+      return true;
+    }
 
     // Animations aren't standalone nodes — they only make sense applied to an
     // avatar/model. Accept the drop only when it lands on such a node and set

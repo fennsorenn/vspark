@@ -247,11 +247,7 @@
     "animPlaceholder": "Search or paste URL…",
     "animNoAssets": "No animations uploaded yet",
     "animClear": "Clear animation",
-    "animSpeed": "Speed",
-    "animOffset": "Offset (s)",
-    "animPause": "⏸ Pause",
-    "animPlay": "▶ Play",
-    "animRest": "⏹ Rest"
+    "animSpeed": "Speed"
   },
   "file": {
     "header": "File"

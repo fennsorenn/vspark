@@ -1,8 +1,16 @@
+/**
+ * Behavior routes — the first rtype written THROUGH the mesh store (§10 of
+ * dev-notes/plans/mesh-sync-refactor.md): the route validates + builds the
+ * canonical DTO and writes the collection; the collection's onCommitted tap
+ * persists (resource registry save/remove) and emits sync.document for
+ * legacy tabs, and the write fans out to mesh subscribers with ONE stamp.
+ * No direct SQL writes, no route-side sync emissions.
+ */
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
+import { getMeshCollection } from '../mesh/index.js';
 import { refreshAllBehaviorManagers } from './shared.js';
-import { sync } from '../sync/index.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -41,27 +49,29 @@ router.get('/scene-nodes/:nodeId/behaviors', (req, res) => {
  *       201: { description: Behavior attached; all behavior managers re-synced }
  *       400: { description: Missing kind, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
-router.post('/scene-nodes/:nodeId/behaviors', (req, res) => {
+router.post('/scene-nodes/:nodeId/behaviors', async (req, res) => {
   const { id, kind, enabled, config, sortOrder } = req.body;
   if (!kind)
     return res
       .status(400)
       .json({ ok: false, error: { message: 'kind is required' } });
+  const col = getMeshCollection('behavior');
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
   const compId = id ?? randomUUID();
-  getDb()
-    .prepare(
-      'INSERT INTO behaviors (id, node_id, kind, enabled, config, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
-    )
-    .run(
-      compId,
-      req.params.nodeId,
-      kind,
-      enabled ? 1 : 0,
-      JSON.stringify(config ?? {}),
-      sortOrder ?? 0
-    );
+  const outcome = await col.set(compId, '', {
+    id: compId,
+    nodeId: req.params.nodeId,
+    kind,
+    enabled: enabled ?? true,
+    config: config ?? {},
+    sortOrder: sortOrder ?? 0,
+  }).ack;
+  if (outcome.status === 'rejected')
+    return res.status(500).json({ ok: false, error: { message: outcome.reason } });
   refreshAllBehaviorManagers();
-  sync.document.upsert('behavior', compId);
   res.status(201).json({
     ok: true,
     data: {
@@ -91,21 +101,21 @@ router.post('/scene-nodes/:nodeId/behaviors', (req, res) => {
  *     responses:
  *       200: { description: Updated; all behavior managers re-synced }
  */
-router.put('/behaviors/:id', (req, res) => {
+router.put('/behaviors/:id', async (req, res) => {
   const { enabled, config } = req.body;
-  getDb()
-    .prepare(
-      `UPDATE behaviors SET
-      enabled = COALESCE(?, enabled),
-      config  = COALESCE(?, config),
-      updated_at = datetime('now')
-    WHERE id = ?`
-    )
-    .run(
-      enabled != null ? (enabled ? 1 : 0) : null,
-      config != null ? JSON.stringify(config) : null,
-      req.params.id
-    );
+  const col = getMeshCollection('behavior');
+  const cur = col?.get(req.params.id);
+  if (!col || !cur)
+    return res
+      .status(404)
+      .json({ ok: false, error: { message: 'behavior not found' } });
+  const outcome = await col.set(req.params.id, '', {
+    ...cur,
+    ...(enabled != null ? { enabled: !!enabled } : {}),
+    ...(config != null ? { config } : {}),
+  }).ack;
+  if (outcome.status === 'rejected')
+    return res.status(500).json({ ok: false, error: { message: outcome.reason } });
   refreshAllBehaviorManagers();
   res.json({ ok: true, data: { id: req.params.id } });
 });
@@ -121,10 +131,14 @@ router.put('/behaviors/:id', (req, res) => {
  *     responses:
  *       200: { description: Deleted; managers re-synced, content: { application/json: { schema: { $ref: '#/components/schemas/EmptyOk' } } } }
  */
-router.delete('/behaviors/:id', (req, res) => {
-  getDb().prepare('DELETE FROM behaviors WHERE id = ?').run(req.params.id);
+router.delete('/behaviors/:id', async (req, res) => {
+  const col = getMeshCollection('behavior');
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  await col.remove(req.params.id).ack;
   refreshAllBehaviorManagers();
-  sync.document.remove('behavior', req.params.id);
   res.json({ ok: true, data: {} });
 });
 

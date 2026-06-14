@@ -248,56 +248,41 @@ router.post('/presets/instantiate', (req, res) => {
     });
 
     // Broadcast every newly-created entity through the unified sync layer so
-    // other clients update live. `result.idMap` values are exactly the rows we
-    // just created; we re-query per table to learn each id's resource type, then
-    // hand it to `sync.document.upsert` (which loads + maps the canonical DTO).
-    // Order: parent entities first (nodes/layers), then attached
-    // behaviours/effects, then track clips. Logic graphs + animation clips are
-    // loaded on demand per client, so they need no live broadcast.
+    // other clients (and collab peers) update live. `result.idMap` values are
+    // exactly the rows we just created across every table, so we emit by id
+    // membership per table — NOT by re-querying a root column, which depended
+    // on the (sometimes-falsy / mis-passed) rootSceneNodeId/rootComposeSceneId
+    // and silently skipped all emissions when it didn't match. Order: parent
+    // entities first (nodes/layers), then attached behaviours/effects, then
+    // track clips (lanes/keyframes/events ride the track_clip aggregate).
+    // Logic graphs have no sync rtype yet — still local-only.
     const db = getDb();
-    const createdIds = new Set(Object.values(result.idMap));
-    // table/rtype/where are fixed literals (never user input) — safe to interpolate.
-    const upsertCreated = (
-      table: string,
-      rtype: string,
-      where: string,
-      arg: string
-    ) => {
-      const rows = db
-        .prepare(`SELECT id FROM ${table} WHERE ${where} = ?`)
-        .all(arg) as { id: string }[];
-      for (const { id } of rows)
-        if (createdIds.has(id)) sync.document.upsert(rtype, id);
-    };
-
-    if (payload.rootKind === 'scene_node' && rootSceneNodeId) {
-      const nodeIds = (
-        db
-          .prepare('SELECT id FROM scene_nodes WHERE root_scene_node_id = ?')
-          .all(rootSceneNodeId) as { id: string }[]
-      )
-        .map((r) => r.id)
-        .filter((id) => createdIds.has(id));
-      for (const id of nodeIds) sync.document.upsert('scene_node', id);
-      for (const id of nodeIds) {
-        upsertCreated('behaviors', 'behavior', 'node_id', id);
-        upsertCreated('camera_effects', 'camera_effect', 'node_id', id);
+    const createdIds = [...new Set(Object.values(result.idMap))];
+    // table/rtype are fixed literals (never user input) — safe to interpolate.
+    const emitTable = (table: string, rtype: string) => {
+      for (let i = 0; i < createdIds.length; i += 400) {
+        const batch = createdIds.slice(i, i + 400);
+        const ph = batch.map(() => '?').join(',');
+        const rows = db
+          .prepare(`SELECT id FROM ${table} WHERE id IN (${ph})`)
+          .all(...batch) as { id: string }[];
+        for (const { id } of rows)
+          // Resilient: one entity's emit failing (a doc listener throwing)
+          // must not abort the rest or fail the already-committed instantiate.
+          try {
+            sync.document.upsert(rtype, id);
+          } catch (e) {
+            console.error(`[presets] sync emit failed for ${rtype}:${id}:`, e);
+          }
       }
-      for (const id of nodeIds)
-        upsertCreated('track_clips', 'track_clip', 'owner_node_id', id);
-    } else if (payload.rootKind === 'compose_layer' && rootComposeSceneId) {
-      const layerIds = (
-        db
-          .prepare(
-            'SELECT id FROM compose_layers WHERE root_compose_scene_id = ?'
-          )
-          .all(rootComposeSceneId) as { id: string }[]
-      )
-        .map((r) => r.id)
-        .filter((id) => createdIds.has(id));
-      for (const id of layerIds) sync.document.upsert('compose_layer', id);
-      for (const id of layerIds)
-        upsertCreated('track_clips', 'track_clip', 'owner_layer_id', id);
+    };
+    if (createdIds.length > 0) {
+      emitTable('scene_nodes', 'scene_node');
+      emitTable('compose_layers', 'compose_layer');
+      emitTable('behaviors', 'behavior');
+      emitTable('camera_effects', 'camera_effect');
+      emitTable('track_clips', 'track_clip');
+      emitTable('animation_clips', 'animation_clip');
     }
 
     res.json({ ok: true, data: result });

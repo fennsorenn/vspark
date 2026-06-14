@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import type { NodeRecord, Behavior } from '../../store/editorStore';
+import type { StageObject, Behavior } from '../../store/editorStore';
 import { newBehaviorId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
@@ -11,6 +11,14 @@ import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
 import { ContextMenu } from './ContextMenu';
 import { HelpButton } from '../../help/HelpButton';
+import { useConnectionsStore } from '../../store/connectionsStore';
+import { isWritableRemoteNode as isWritableRemote } from '../../sync/remoteEdit';
+import {
+  getObjectGrantees,
+  shareObject,
+  shareCollabScene,
+  getCollabScenes,
+} from '../../api/client';
 import { useConfirm, usePrompt } from '../DialogProvider';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
@@ -37,6 +45,7 @@ const KIND_ICONS: Record<string, string> = {
   video: '🎞️',
   audio: '🔊',
   feed: '📜',
+  remote_object: '🔗',
 };
 
 // Node kinds the user can add. Sourced from the shared registry so the scene
@@ -48,6 +57,230 @@ interface CtxMenu {
   nodeId: string;
   x: number;
   y: number;
+}
+
+/** The "Share with ▶" item + its fly-out, reused by the object menu
+ *  (`shareKind: 'object'`) and the scene menu (`shareKind: 'scene'`). Owns its
+ *  grantee list + the "Allow editing" toggle; the parent owns the open state so
+ *  it can keep sibling submenus mutually exclusive. `entityId` is the
+ *  scene_node id being shared (an object root or a scene root — the backend
+ *  treats both as a read/write grant on that node + its subtree). */
+function ShareWithMenuItem({
+  entityId,
+  shareKind,
+  itemStyle,
+  open,
+  onOpen,
+}: {
+  entityId: string;
+  shareKind: 'object' | 'scene';
+  itemStyle: React.CSSProperties;
+  open: boolean;
+  onOpen: () => void;
+}) {
+  const { t } = useTranslation('sceneGraph');
+  const connectedIds = useConnectionsStore((s) => s.connectedIds);
+  const nameById = useConnectionsStore((s) => s.nameById);
+  const [grantees, setGrantees] = useState<string[]>([]);
+  /** When set, sharing also grants edit (update/create/delete) rights. */
+  const [shareWithEdit, setShareWithEdit] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    void getObjectGrantees(entityId)
+      .then((g) => alive && setGrantees(g))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [open, entityId]);
+
+  // Share only — clicking an already-shared peer is a no-op. Un-sharing lives in
+  // the Connections window ("Shared by you" section), not here. A scene share is
+  // collaborative (the collab endpoint); an object share is a read-only projection.
+  const share = async (granteePeerId: string) => {
+    if (grantees.includes(granteePeerId)) return;
+    try {
+      if (shareKind === 'scene') {
+        await shareCollabScene(entityId, granteePeerId);
+      } else {
+        await shareObject(entityId, granteePeerId, shareKind, shareWithEdit);
+      }
+      setGrantees((g) => [...g, granteePeerId]);
+      // Refresh the Connections window's "Shared by you" list: it stays mounted
+      // and only refetches on a revision change (peer events don't fire on a
+      // local share), so without this a freshly shared scene/object wouldn't
+      // appear there until the next peer event or reload.
+      useConnectionsStore.getState().bumpRevision();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const hover = (e: React.MouseEvent<HTMLDivElement>, on: boolean) =>
+    ((e.currentTarget as HTMLDivElement).style.background = on
+      ? '#2a2a2a'
+      : 'transparent');
+
+  return (
+    <div
+      style={itemStyle}
+      onMouseEnter={(e) => {
+        hover(e, true);
+        onOpen();
+      }}
+      onMouseLeave={(e) => hover(e, false)}
+    >
+      <span>{t('context.shareWith')}</span>
+      <span style={{ color: '#666' }}>▶</span>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            left: '100%',
+            top: 0,
+            background: '#1e1e1e',
+            border: '1px solid #3a3a3a',
+            borderRadius: 6,
+            minWidth: 180,
+            maxHeight: 280,
+            overflowY: 'auto',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+          }}
+        >
+          {connectedIds.length === 0 && (
+            <div style={{ ...itemStyle, color: '#888', cursor: 'default' }}>
+              {t('context.shareNobody')}
+            </div>
+          )}
+          {connectedIds.length > 0 && (
+            <div
+              style={{
+                ...itemStyle,
+                borderBottom: '1px solid #3a3a3a',
+                color: shareWithEdit ? '#4ade80' : '#aaa',
+              }}
+              onClick={() => setShareWithEdit((v) => !v)}
+              title={t('context.shareCanEditHint')}
+            >
+              <span>{t('context.shareCanEdit')}</span>
+              <span>{shareWithEdit ? '☑' : '☐'}</span>
+            </div>
+          )}
+          {connectedIds.length > 0 && (
+            <div
+              style={itemStyle}
+              onMouseEnter={(e) => hover(e, true)}
+              onMouseLeave={(e) => hover(e, false)}
+              onClick={() => void share('*')}
+            >
+              <span>{t('context.shareEveryone')}</span>
+              <span style={{ color: '#4ade80' }}>
+                {grantees.includes('*') ? '✓' : ''}
+              </span>
+            </div>
+          )}
+          {connectedIds.map((peerId) => (
+            <div
+              key={peerId}
+              style={itemStyle}
+              onMouseEnter={(e) => hover(e, true)}
+              onMouseLeave={(e) => hover(e, false)}
+              onClick={() => void share(peerId)}
+            >
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {nameById[peerId] || peerId.slice(0, 12)}
+              </span>
+              <span style={{ color: '#4ade80' }}>
+                {grantees.includes(peerId) ? '✓' : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Right-click menu for a *scene* root row — currently just sharing the whole
+ *  scene with connected peers (the backend treats a scene share as a grant on
+ *  the scene node + its subtree, same as an object). */
+function SceneContextMenu({
+  sceneId,
+  x,
+  y,
+  onClose,
+}: {
+  sceneId: string;
+  x: number;
+  y: number;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation('sceneGraph');
+  const mpEnabled = useConnectionsStore((s) => s.enabled);
+  const [showShare, setShowShare] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  const itemStyle: React.CSSProperties = {
+    padding: '7px 14px',
+    fontSize: 13,
+    color: '#e0e0e0',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    userSelect: 'none',
+  };
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        top: y,
+        left: x,
+        background: '#1e1e1e',
+        border: '1px solid #3a3a3a',
+        borderRadius: 6,
+        zIndex: 9999,
+        minWidth: 180,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+        fontFamily: 'system-ui, sans-serif',
+        // fly-out submenu escapes to the right; must not be clipped.
+        overflow: 'visible',
+      }}
+    >
+      {mpEnabled ? (
+        <ShareWithMenuItem
+          entityId={sceneId}
+          shareKind="scene"
+          itemStyle={itemStyle}
+          open={showShare}
+          onOpen={() => setShowShare(true)}
+        />
+      ) : (
+        <div style={{ ...itemStyle, color: '#888', cursor: 'default' }}>
+          {t('context.shareDisabled')}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Scene-tree-specific right-click menu. Older than the generic
@@ -69,7 +302,7 @@ function SceneNodeContextMenu({
   canPasteLogic,
 }: {
   menu: CtxMenu;
-  nodes: NodeRecord[];
+  nodes: StageObject[];
   onClose: () => void;
   onAddChild: (parentId: string, type: (typeof NODE_TYPES)[number]) => void;
   onReparent: (nodeId: string, newParentId: string) => void;
@@ -85,7 +318,13 @@ function SceneNodeContextMenu({
   const node = nodes.find((n) => n.id === menu.nodeId)!;
   const [showAddChild, setShowAddChild] = useState(false);
   const [showMoveInto, setShowMoveInto] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Sharing is offered (the ShareWithMenuItem) only when multiplayer is on and
+  // this is a local, shareable node (not a projected remote object).
+  const mpEnabled = useConnectionsStore((s) => s.enabled);
+  const canShare = mpEnabled && !node.remote && node.kind !== 'remote_object';
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -106,7 +345,9 @@ function SceneNodeContextMenu({
     minWidth: 180,
     boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
     fontFamily: 'system-ui, sans-serif',
-    overflow: 'hidden',
+    // NB: must stay `visible` — the Add Child / Move Into / Share with fly-out
+    // submenus are positioned at `left: 100%`, so `hidden` would clip them away.
+    overflow: 'visible',
   };
 
   const itemStyle: React.CSSProperties = {
@@ -244,6 +485,21 @@ function SceneNodeContextMenu({
           </div>
         )}
       </div>
+
+      {/* Share with (multiplayer) submenu */}
+      {canShare && (
+        <ShareWithMenuItem
+          entityId={menu.nodeId}
+          shareKind="object"
+          itemStyle={itemStyle}
+          open={showShare}
+          onOpen={() => {
+            setShowShare(true);
+            setShowAddChild(false);
+            setShowMoveInto(false);
+          }}
+        />
+      )}
 
       {node.parentId && (
         <div
@@ -1559,6 +1815,15 @@ export function SceneGraph() {
   const { projectId } = useParams<{ projectId: string }>();
   const confirm = useConfirm();
   const prompt = usePrompt();
+  // Collab-scene chain badge: which scenes are shared + their role/peer.
+  const collabScenes = useConnectionsStore((s) => s.collabScenes);
+  const collabConnectedIds = useConnectionsStore((s) => s.connectedIds);
+  const setCollabScenes = useConnectionsStore((s) => s.setCollabScenes);
+  useEffect(() => {
+    void getCollabScenes()
+      .then(setCollabScenes)
+      .catch(() => {});
+  }, [setCollabScenes]);
   const {
     activeSceneId,
     scenes,
@@ -1599,6 +1864,11 @@ export function SceneGraph() {
     new Set()
   );
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
+  const [sceneCtxMenu, setSceneCtxMenu] = useState<{
+    sceneId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [dragNodeId, setDragNodeId] = useState<string | null>(null);
   const [dragOverBone, setDragOverBone] = useState<{
     nodeId: string;
@@ -1874,10 +2144,16 @@ export function SceneGraph() {
     setDragNodeId(null);
   };
 
-  const renderNode = (node: NodeRecord, depth = 0) => {
+  const renderNode = (node: StageObject, depth = 0) => {
     const isSelected = selectedNodeId === node.id;
     const isHidden = node.hidden ?? false;
-    const allChildren = nodes.filter((n) => n.parentId === node.id);
+    // Projected (remote) inner nodes are hidden from the tree — only the opaque
+    // remote_object container they live under is shown + editable. Exception
+    // (Phase 6): a projected subtree the local user has *edit* rights on is shown
+    // + selectable, so its nodes can be edited (commits route to the owner).
+    const allChildren = nodes.filter(
+      (n) => n.parentId === node.id && (!n.remote || isWritableRemote(n))
+    );
     const bones =
       node.kind === 'avatar' || node.kind === 'model'
         ? (vrmBonesByNode[node.id] ?? null)
@@ -1991,12 +2267,32 @@ export function SceneGraph() {
           >
             <span
               style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
                 overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
               }}
             >
-              {node.name}
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {node.name}
+              </span>
+              {/* Opaque container for a peer's shared object: editable
+                  placement, but its contents live on the owner's server
+                  (read-only internals). */}
+              {node.kind === 'remote_object' && (
+                <span
+                  title={t('remote.tip')}
+                  style={{ fontSize: 11, flexShrink: 0, opacity: 0.7 }}
+                >
+                  📡
+                </span>
+              )}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               {/* Bones toggle — avatar/model only, shown once VRM is loaded */}
@@ -2282,7 +2578,11 @@ export function SceneGraph() {
     const isSelected = isActive && sceneSelected;
     const isCollapsed = collapsedScenes.has(scene.id);
     const rootNodes = nodes.filter(
-      (n) => n.rootSceneNodeId === scene.id && !n.parentId && n.kind !== 'scene'
+      (n) =>
+        n.rootSceneNodeId === scene.id &&
+        !n.parentId &&
+        n.kind !== 'scene' &&
+        !n.remote
     );
 
     return (
@@ -2314,6 +2614,10 @@ export function SceneGraph() {
             setSceneSelected(true);
             selectNode(null);
           }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setSceneCtxMenu({ sceneId: scene.id, x: e.clientX, y: e.clientY });
+          }}
         >
           <span
             style={{
@@ -2344,6 +2648,41 @@ export function SceneGraph() {
           >
             {scene.name}
           </span>
+          {/* Collab-scene chain badge: blue = I'm sharing it, green = received +
+              peer connected, red = received + disconnected. */}
+          {(() => {
+            const link = collabScenes[scene.id];
+            if (!link) return null;
+            const color =
+              link.role === 'author'
+                ? '#60a5fa'
+                : collabConnectedIds.includes(link.peerId)
+                  ? '#4ade80'
+                  : '#f87171';
+            const title =
+              link.role === 'author'
+                ? t('collab.badgeSharing')
+                : collabConnectedIds.includes(link.peerId)
+                  ? t('collab.badgeConnected')
+                  : t('collab.badgeDisconnected');
+            return (
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={color}
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ flexShrink: 0, marginRight: 3 }}
+              >
+                <title>{title}</title>
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+            );
+          })()}
           {/* Per-scene add-node button — routes to the bottom-dock Create
               palette and flashes it as a hint, rather than opening its own
               menu. The palette adds to whichever scene is active. */}
@@ -2569,6 +2908,14 @@ export function SceneGraph() {
               onPasteLogic={(id) => void handlePasteLogicAtNode(id)}
               canPasteNode={canPasteSceneNodeClipboard}
               canPasteLogic={canPasteLogicClipboard}
+            />
+          )}
+          {sceneCtxMenu && (
+            <SceneContextMenu
+              sceneId={sceneCtxMenu.sceneId}
+              x={sceneCtxMenu.x}
+              y={sceneCtxMenu.y}
+              onClose={() => setSceneCtxMenu(null)}
             />
           )}
         </>

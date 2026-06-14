@@ -9,6 +9,7 @@ import { useEditorStore } from '../store/editorStore';
 import { api } from '../api/client';
 import { useWsSync } from '../hooks/useWsSync';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
+import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import {
   SceneNodes,
   CameraEffects,
@@ -43,6 +44,9 @@ function getT(components: Record<string, unknown> | undefined) {
 export function ViewerPage() {
   useWsSync();
   useTrackClipEvaluator();
+  // Live behavior/effect updates ride the tab's mesh replica now (§11) —
+  // the viewer needs its own peer just like the editor.
+  useEffect(() => startMeshStoreFeeder(), []);
   const { projectId, nodeId, composeSceneId } = useParams<{
     projectId: string;
     nodeId?: string;

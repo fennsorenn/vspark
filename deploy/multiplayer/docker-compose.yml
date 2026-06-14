@@ -1,0 +1,60 @@
+# vspark multiplayer coordination bundle — drop on a public server.
+#
+#   rendezvous : signaling + presence + pairing + TURN-cred minting (the only
+#                piece your collaborators' servers connect out to)
+#   coturn     : STUN + TURN (NAT hole-punch + relay fallback), load-capped
+#   caddy      : automatic-HTTPS reverse proxy (wss:// for the rendezvous)
+#
+# 1. cp .env.example .env  and fill it in
+# 2. point your DNS A record (RDV_DOMAIN) at this host
+# 3. docker compose up -d --build
+#
+# See dev-notes/plans/multiplayer-phase5.md.
+
+services:
+  rendezvous:
+    build:
+      context: ../../packages/rendezvous
+    restart: unless-stopped
+    environment:
+      PORT: 8787
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_URLS: ${TURN_URLS}
+      STUN_URLS: ${STUN_URLS:-stun:stun.l.google.com:19302}
+    expose:
+      - '8787'
+
+  coturn:
+    image: coturn/coturn:4.6-alpine
+    restart: unless-stopped
+    network_mode: host # TURN needs the real host ports + relay range
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: >
+      -c /etc/coturn/turnserver.conf
+      --use-auth-secret
+      --static-auth-secret=${TURN_SECRET}
+      --realm=${RDV_DOMAIN}
+      --external-ip=${PUBLIC_IP}
+    deploy:
+      resources:
+        limits:
+          cpus: '${TURN_CPU_LIMIT:-1.0}'
+          memory: ${TURN_MEM_LIMIT:-256M}
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      RDV_DOMAIN: ${RDV_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

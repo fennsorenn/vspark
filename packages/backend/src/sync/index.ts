@@ -26,9 +26,17 @@ class SyncHub {
   /** This server's peer id — the `origin` tag + HLC tiebreak. Stable per process. */
   private readonly _peerId = randomUUID();
   private readonly _clock = makeHlcClock(this._peerId);
+  /** Listeners notified of every document op (e.g. the multiplayer sharing
+   *  manager, which forwards shared objects' updates to subscribed peers). */
+  private readonly _docListeners: ((env: SyncEnvelope) => void)[] = [];
 
   init(ws: WSSync): void {
     this._ws = ws;
+  }
+
+  /** Observe every document upsert/remove (after it's broadcast locally). */
+  onDocument(cb: (env: SyncEnvelope) => void): void {
+    this._docListeners.push(cb);
   }
 
   private send(env: SyncEnvelope): void {
@@ -36,6 +44,19 @@ class SyncHub {
       SYNC_MESSAGE_KIND,
       env as unknown as Record<string, unknown>
     );
+    if (env.op === 'upsert' || env.op === 'remove')
+      for (const cb of this._docListeners)
+        // One listener throwing must not abort the others (the mesh bridge
+        // mirror, containment index, and share fan-out are independent) nor
+        // bubble into the route that emitted the document.
+        try {
+          cb(env);
+        } catch (e) {
+          console.error(
+            `[sync] document listener failed for ${env.rtype}:${env.key}:`,
+            e
+          );
+        }
   }
 
   readonly document = {
@@ -57,16 +78,46 @@ class SyncHub {
       });
     },
     /** Broadcast an HLC-stamped removal. The stamp doubles as a tombstone marker
-     *  on the client (a stale upsert with an older stamp won't resurrect it). */
-    remove: (rtype: string, id: string, scope?: string): void => {
+     *  on the client (a stale upsert with an older stamp won't resurrect it).
+     *  `route` is the deleted node's ancestor chain (captured before deletion) so
+     *  subtree-scoped doc listeners (share fan-out) can resolve the owning root
+     *  even though the row no longer exists. */
+    remove: (
+      rtype: string,
+      id: string,
+      scope?: string,
+      route?: string[]
+    ): void => {
       this.send({
         rtype,
         op: 'remove',
         key: id,
         scope,
+        route,
         v: this._clock(),
         origin: this._peerId,
       });
+    },
+
+    /** Forward a document update to doc listeners (share fan-out) WITHOUT
+     *  re-broadcasting to local WS clients. Used by routes that already emit a
+     *  legacy (smoothing-aware) update to their own clients but still need the
+     *  canonical doc carried across the mesh to subscribers. */
+    touch: (rtype: string, id: string): void => {
+      const r = getResource(rtype);
+      if (!r?.load) return;
+      const dto = r.load(id);
+      if (!dto) return;
+      const env: SyncEnvelope = {
+        rtype,
+        op: 'upsert',
+        key: id,
+        scope: r.scope?.(dto),
+        data: dto,
+        v: this._clock(),
+        origin: this._peerId,
+      };
+      for (const cb of this._docListeners) cb(env);
     },
   };
 

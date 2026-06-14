@@ -9,6 +9,11 @@ import {
 import { useEditorStore } from '../store/editorStore';
 import { useWsSync } from '../hooks/useWsSync';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
+import { useSharedSubscriptions } from '../hooks/useSharedSubscriptions';
+import { useClientMesh } from '../hooks/useClientMesh';
+import { initMeshPeer } from '../mesh/peer';
+import { startMeshProjection } from '../sync/meshProjection';
+import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import { TopBar } from '../components/editor/TopBar';
 import { SceneGraph } from '../components/editor/SceneGraph';
 import { Viewport } from '../components/editor/Viewport';
@@ -27,6 +32,16 @@ import type { NodeKindMeta } from '@vspark/shared/signal';
 export function Editor() {
   useWsSync();
   useTrackClipEvaluator();
+  useSharedSubscriptions();
+  useClientMesh();
+  // Mesh store: mirror the document collections into this tab, and feed
+  // shared-object projections from them (the doc plane of "place" rides the
+  // mesh since §9 step D; dev-notes/plans/mesh-sync-refactor.md).
+  useEffect(() => {
+    void initMeshPeer().catch(console.warn);
+    startMeshProjection();
+    startMeshStoreFeeder();
+  }, []);
   const { t } = useTranslation('editor');
   const { projectId } = useParams<{ projectId: string }>();
   const {
@@ -110,7 +125,8 @@ export function Editor() {
           payload,
           state.projectId!,
           state.activeSceneId!,
-          state.selectedNodeId
+          null, // rootComposeSceneId
+          state.selectedNodeId // parentId — drop under the selection, if any
         );
         const data = await api.getScenes(state.projectId!);
         useEditorStore.getState().setNodes(data.nodes);

@@ -14,6 +14,8 @@ import {
   resolveClipTime,
 } from '../components/editor/trackClipEvaluator';
 import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
+import { useConnectionsStore } from '../store/connectionsStore';
+import { sendSharedNodeTransform } from './useWsSync';
 import type { MediaCommand, MediaAction } from '@vspark/shared';
 
 // Per-clip last evaluated playhead time, kept across rAF ticks (module scope so
@@ -40,6 +42,99 @@ interface NodeAccumulator {
   rotation?: Record<'x' | 'y' | 'z', number | undefined>;
   scale?: Record<'x' | 'y' | 'z', number | undefined>;
   opacity?: number;
+}
+
+// --- shared-object clip animation forwarding --------------------------------
+//
+// A track clip animating a *shared* object's transform must reach subscribers,
+// but clip evaluation is frontend-local (no graph output, no persisted edit), so
+// it rides the existing `node_transform_preview` stream: emit the live transform
+// each frame for animated nodes, and emit the *base* transform once when a node
+// stops animating so the receiver smooths back (the preview path has no auto-
+// clear). The backend's forwardStream filters to actually-subscribed roots, so
+// emitting for any animated node when a peer is connected is safe; we just gate
+// on connectivity to avoid per-frame WS chatter when no one's listening.
+//
+// Boundary: forwardStream keys on the shared-object *root* id, so a clip
+// animating a child *inside* a shared subtree isn't forwarded (same as a drag of
+// a shared child). Opacity isn't carried by the transform preview either.
+const forwardedClipNodes = new Set<string>();
+/** Nodes that just stopped animating → re-emit base for a few frames so the
+ *  revert isn't lost on the lossy stream channel (server-relay subscribers;
+ *  the browser-direct edge is reliable). id → frames left. */
+const revertingClipNodes = new Map<string, number>();
+const REVERT_REPEATS = 4;
+const EMPTY_ACC = new Map<string, NodeAccumulator>();
+let lastClipEmitAt = 0;
+const CLIP_EMIT_MS = 33; // ~30 Hz, matching the drag-preview cadence
+
+/** The node's persisted transform as a flat `{x,y,z,rx,…,sz}` payload, with any
+ *  animated axes from `acc` (absolute values) overlaid. */
+function buildFlatTransform(
+  node: { components: Record<string, unknown> },
+  acc?: NodeAccumulator
+): Record<string, number> {
+  const t = (node.components?.transform ?? {}) as FlatTransform;
+  const flat: Record<string, number> = {
+    x: t.x ?? 0,
+    y: t.y ?? 0,
+    z: t.z ?? 0,
+    rx: t.rx ?? 0,
+    ry: t.ry ?? 0,
+    rz: t.rz ?? 0,
+    sx: t.sx ?? 1,
+    sy: t.sy ?? 1,
+    sz: t.sz ?? 1,
+  };
+  const overlay = (
+    group: Record<'x' | 'y' | 'z', number | undefined> | undefined,
+    prefix: string
+  ): void => {
+    if (!group) return;
+    for (const a of ['x', 'y', 'z'] as const)
+      if (group[a] !== undefined) flat[prefix + a] = group[a]!;
+  };
+  overlay(acc?.position, '');
+  overlay(acc?.rotation, 'r');
+  overlay(acc?.scale, 's');
+  return flat;
+}
+
+function syncSharedClipTransforms(
+  s: ReturnType<typeof useEditorStore.getState>,
+  nodeAcc: Map<string, NodeAccumulator>,
+  cleared: Iterable<string>
+): void {
+  // Only when a contact is connected (a potential subscriber). The backend
+  // narrows to actually-shared roots; this just avoids idle WS traffic.
+  if (useConnectionsStore.getState().connectedIds.length === 0) {
+    forwardedClipNodes.clear();
+    revertingClipNodes.clear();
+    return;
+  }
+  // Nodes that stopped animating this frame → schedule a base-transform revert.
+  for (const id of cleared)
+    if (forwardedClipNodes.delete(id)) revertingClipNodes.set(id, REVERT_REPEATS);
+  // Emit pending reverts every frame (unthrottled) until exhausted, so a dropped
+  // frame on the lossy channel doesn't leave the receiver stuck at the last pose.
+  for (const [id, left] of revertingClipNodes) {
+    const node = s.nodes.find((n) => n.id === id);
+    if (node) sendSharedNodeTransform(id, buildFlatTransform(node));
+    if (left <= 1) revertingClipNodes.delete(id);
+    else revertingClipNodes.set(id, left - 1);
+  }
+  // Active animations (throttled).
+  const now =
+    typeof performance !== 'undefined' ? performance.now() : Date.now();
+  if (now - lastClipEmitAt < CLIP_EMIT_MS) return;
+  lastClipEmitAt = now;
+  for (const [id, acc] of nodeAcc) {
+    const node = s.nodes.find((n) => n.id === id);
+    if (!node) continue;
+    revertingClipNodes.delete(id); // re-animated → cancel any pending revert
+    sendSharedNodeTransform(id, buildFlatTransform(node, acc));
+    forwardedClipNodes.add(id);
+  }
 }
 
 /** Per-frame evaluator. Reads `trackClipPlayback` + `trackClips`, computes scalar
@@ -81,6 +176,9 @@ export function useTrackClipEvaluator(): void {
           for (const id of Object.keys(s.composeLayerOverrides))
             s.setComposeLayerOverride(id, null);
         }
+        // Revert any shared objects we were animating back to their base on
+        // subscribers (nothing playing → all forwarded nodes are cleared).
+        syncSharedClipTransforms(s, EMPTY_ACC, [...forwardedClipNodes]);
         return;
       }
 
@@ -151,6 +249,10 @@ export function useTrackClipEvaluator(): void {
       }
       for (const nodeId of prevNodeIds)
         s.setNodeTransformOverride(nodeId, null);
+
+      // Forward clip-driven transforms of shared objects to subscribers, and
+      // revert nodes that stopped animating this frame (prevNodeIds) to base.
+      syncSharedClipTransforms(s, nodeAcc, prevNodeIds);
 
       const prevLayerIds = new Set(Object.keys(s.composeLayerOverrides));
       for (const [layerId, override] of layerAcc) {

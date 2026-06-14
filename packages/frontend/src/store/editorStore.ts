@@ -9,16 +9,28 @@ import type {
   TrackClipKeyframeRecord,
   TrackClipEventRecord,
 } from '../api/client';
-import type {
-  UpdateChannel,
-  ApiAnimationLoopMode,
-  ApiAnimationQueueEntry,
-} from '@vspark/shared';
+import type { UpdateChannel } from '@vspark/shared';
 
-export interface ApiAnimationState {
-  queue: ApiAnimationQueueEntry[];
-  loopMode: ApiAnimationLoopMode;
-  startedAt: number | null;
+/** One entry on an avatar's animation timeline (a scheduled_animation doc). */
+export interface ScheduledAnimation {
+  id: string;
+  avatarNodeId: string;
+  clipId: string;
+  /** Clock-anchored start time (ms). Translated to this client's clock. */
+  startEpoch: number;
+  speed: number;
+  loop: boolean;
+}
+
+/** A content-addressed animation clip (an animation_clip doc). The avatar
+ *  animation driver resolves a timeline/idle `clipId` to its source asset URL
+ *  (already localized per-server) and authored `duration`. Fed from the mesh
+ *  replica, keyed by clip id. */
+export interface AnimationClipMeta {
+  id: string;
+  sourceNodeId: string;
+  sourceFilePath: string;
+  duration: number;
 }
 
 export type {
@@ -155,9 +167,12 @@ export interface NodeProperties {
   /** VRM avatar: per-material shader/param overrides (MToon ⇄ PBR), keyed by a
    *  stable material identity. See components/editor/materialOverrides.ts. */
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
+  /** Avatar animation config. `idle` is the content-addressed base loop
+   *  (animation_clip id + speed); the scheduled timeline layers over it. */
+  animation?: { idle?: { clipId: string; speed: number } };
 }
 
-export interface NodeRecord {
+export interface StageObject {
   id: string;
   rootSceneNodeId: string;
   projectId: string;
@@ -169,6 +184,12 @@ export interface NodeRecord {
   components: Record<string, unknown>;
   properties?: NodeProperties;
   hidden?: boolean;
+  /** True for nodes projected from a peer's shared object (multiplayer). These
+   *  live only in memory, are not persisted, and should be treated read-only:
+   *  they're cleared on reload, unshare, or disconnect and restocked from the
+   *  owner's live snapshot. `remoteOwnerPeerId` is the sharing peer. */
+  remote?: boolean;
+  remoteOwnerPeerId?: string;
 }
 
 export interface SceneRuntimeSettings {
@@ -397,7 +418,7 @@ interface EditorState {
   projectName: string;
   scenes: SceneItem[];
   activeSceneId: string | null;
-  nodes: NodeRecord[];
+  nodes: StageObject[];
   selectedNodeId: string | null;
   sceneSelected: boolean;
   selectedBehaviorId: string | null;
@@ -405,7 +426,13 @@ interface EditorState {
   behaviors: Behavior[];
   vmcStatus: Record<string, boolean>; // behaviorId → connected
   vmcTracking: Record<string, boolean>; // behaviorId → tracking active
-  apiAnimationByNode: Record<string, ApiAnimationState>; // nodeId → current api-driven animation queue
+  /** Avatar animation timeline (scheduled_animation docs), keyed by entry id.
+   *  Fed from the mesh replica; the avatar's animation effect reads the entries
+   *  for its node, ordered by startEpoch. */
+  scheduledAnimations: Record<string, ScheduledAnimation>;
+  /** Animation clips (animation_clip docs), keyed by clip id. Resolves a
+   *  timeline/idle clipId to its source asset URL + duration. */
+  animationClips: Record<string, AnimationClipMeta>;
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
@@ -495,16 +522,16 @@ interface EditorState {
   removeScene: (sceneId: string) => void;
   setActiveScene: (id: string | null) => void;
   setSceneSelected: (selected: boolean) => void;
-  setNodes: (nodes: NodeRecord[]) => void;
-  addNode: (node: NodeRecord) => void;
-  updateNode: (id: string, updates: Partial<NodeRecord>) => void;
+  setNodes: (nodes: StageObject[]) => void;
+  addNode: (node: StageObject) => void;
+  updateNode: (id: string, updates: Partial<StageObject>) => void;
   deleteNode: (id: string) => void;
   selectNode: (id: string | null) => void;
   selectBehavior: (id: string | null) => void;
   setAssets: (assets: AssetFile[]) => void;
   addAsset: (asset: AssetFile) => void;
   deleteAsset: (id: string) => void;
-  activeSceneNodes: () => NodeRecord[];
+  activeSceneNodes: () => StageObject[];
   setBehaviors: (comps: Behavior[]) => void;
   addBehavior: (comp: Behavior) => void;
   updateBehavior: (
@@ -515,7 +542,10 @@ interface EditorState {
   behaviorsFor: (nodeId: string) => Behavior[];
   setVmcStatus: (behaviorId: string, connected: boolean) => void;
   setVmcTracking: (behaviorId: string, tracking: boolean) => void;
-  setApiAnimation: (nodeId: string, state: ApiAnimationState | null) => void;
+  upsertScheduledAnimation: (entry: ScheduledAnimation) => void;
+  removeScheduledAnimation: (id: string) => void;
+  upsertAnimationClip: (entry: AnimationClipMeta) => void;
+  removeAnimationClip: (id: string) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
   clearVrmBonesForNode: (nodeId: string) => void;
   setVrmExpressionsForNode: (nodeId: string, expressions: string[]) => void;
@@ -547,6 +577,7 @@ interface EditorState {
 
   setComposeScenes: (scenes: ComposeLayerRecord[]) => void;
   addComposeScene: (scene: ComposeLayerRecord) => void;
+  updateComposeSceneLocal: (scene: ComposeLayerRecord) => void;
   selectComposeScene: (id: string | null) => void;
   setComposeLayers: (layers: ComposeLayerRecord[]) => void;
   addComposeLayer: (layer: ComposeLayerRecord) => void;
@@ -679,7 +710,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   behaviors: [],
   vmcStatus: {},
   vmcTracking: {},
-  apiAnimationByNode: {},
+  scheduledAnimations: {},
+  animationClips: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
   vrmMorphTargetsByNode: {},
@@ -759,7 +791,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setActiveScene: (id) => set({ activeSceneId: id }),
   setSceneSelected: (selected) => set({ sceneSelected: selected }),
   setNodes: (nodes) => set({ nodes }),
-  addNode: (node) => set((s) => ({ nodes: [...s.nodes, node] })),
+  addNode: (node) =>
+    set((s) =>
+      // Idempotent by id: a create's REST response and its WS broadcast can race
+      // (either order), and only the broadcast path deduped before. Guard here so
+      // neither can double-insert.
+      s.nodes.some((n) => n.id === node.id)
+        ? {}
+        : { nodes: [...s.nodes, node] }
+    ),
   updateNode: (id, updates) =>
     set((s) => ({
       nodes: s.nodes.map((n) => (n.id === id ? { ...n, ...updates } : n)),
@@ -819,12 +859,27 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({
       vmcTracking: { ...s.vmcTracking, [behaviorId]: tracking },
     })),
-  setApiAnimation: (nodeId, state) =>
+  upsertScheduledAnimation: (entry) =>
+    set((s) => ({
+      scheduledAnimations: { ...s.scheduledAnimations, [entry.id]: entry },
+    })),
+  removeScheduledAnimation: (id) =>
     set((s) => {
-      const next = { ...s.apiAnimationByNode };
-      if (state === null) delete next[nodeId];
-      else next[nodeId] = state;
-      return { apiAnimationByNode: next };
+      if (!(id in s.scheduledAnimations)) return {};
+      const next = { ...s.scheduledAnimations };
+      delete next[id];
+      return { scheduledAnimations: next };
+    }),
+  upsertAnimationClip: (entry) =>
+    set((s) => ({
+      animationClips: { ...s.animationClips, [entry.id]: entry },
+    })),
+  removeAnimationClip: (id) =>
+    set((s) => {
+      if (!(id in s.animationClips)) return {};
+      const next = { ...s.animationClips };
+      delete next[id];
+      return { animationClips: next };
     }),
   setVrmBonesForNode: (nodeId, bones) =>
     set((s) => ({ vrmBonesByNode: { ...s.vrmBonesByNode, [nodeId]: bones } })),
@@ -917,6 +972,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ? {}
         : { composeScenes: [...s.composeScenes, scene] }
     ),
+  updateComposeSceneLocal: (scene) =>
+    set((s) => ({
+      composeScenes: s.composeScenes.map((cs) =>
+        cs.id === scene.id ? scene : cs
+      ),
+    })),
   selectComposeScene: (id) => set({ activeComposeSceneId: id }),
   setComposeLayers: (layers) => set({ composeLayers: layers }),
   addComposeLayer: (layer) =>

@@ -1,0 +1,70 @@
+{
+  "window": {
+    "title": "Connections"
+  },
+  "disabled": "Multiplayer is not enabled. Set a rendezvous URL to enable it.",
+  "status": {
+    "idle": "Idle",
+    "connecting": "Connecting…",
+    "ready": "Connected to rendezvous",
+    "closed": "Disconnected"
+  },
+  "help": {
+    "tip": "Pair and connect with other servers to share avatars live."
+  },
+  "name": {
+    "label": "Your name (this project)",
+    "placeholder": "Name others see you as"
+  },
+  "identity": {
+    "label": "Your server ID",
+    "copy": "Copy"
+  },
+  "mesh": {
+    "label_one": "Direct mesh: {{count}} peer",
+    "label_other": "Direct mesh: {{count}} peers"
+  },
+  "requests": {
+    "label": "Incoming requests",
+    "accept": "Accept",
+    "reject": "Reject"
+  },
+  "connected": {
+    "label": "Connected",
+    "empty": "No one connected."
+  },
+  "shared": {
+    "label": "Shared with you",
+    "empty": "Nothing shared yet.",
+    "place": "Place",
+    "remove": "Remove",
+    "placedName": "Shared object"
+  },
+  "collab": {
+    "label": "Collaborative scenes",
+    "mount": "Mount",
+    "mountHint": "Add this scene to your current project as an editable, live-synced copy"
+  },
+  "sharedByYou": {
+    "label": "Shared by you",
+    "empty": "You're not sharing anything.",
+    "unshare": "Unshare"
+  },
+  "pairing": {
+    "label": "Pairing",
+    "create": "Create code",
+    "copyCode": "Copy",
+    "codePlaceholder": "Enter pairing code",
+    "join": "Join"
+  },
+  "contacts": {
+    "label": "Contacts",
+    "empty": "No contacts yet — pair with someone in Pairing.",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "remove": "Remove contact (unpair)",
+    "confirmRemove": "Unpair?",
+    "connected": "Connected",
+    "disconnected": "Offline"
+  }
+}

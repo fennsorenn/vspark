@@ -2,7 +2,7 @@ import { Canvas } from '@react-three/fiber';
 import { PerspectiveCamera } from '@react-three/drei';
 import { SafeEnvironment } from '../SafeEnvironment';
 import * as THREE from 'three';
-import type { NodeRecord } from '../../store/editorStore';
+import type { StageObject } from '../../store/editorStore';
 import {
   SceneNodes,
   CameraEffects,
@@ -52,7 +52,7 @@ export function CameraCanvas({
   composeLayerId,
   active = true,
 }: {
-  cameraNode: NodeRecord;
+  cameraNode: StageObject;
   sceneId: string;
   /** Identifies this camera_view for interaction routing. */
   composeLayerId?: string;

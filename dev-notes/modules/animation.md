@@ -189,6 +189,40 @@ Per frame:
 
 **Pose timeout**: If no VMC frame has been received for `poseTimeout` seconds (default 2s), blend weight ramps back to 0. OneEuroFilter resets to prevent stale filtered values carrying over when mocap reconnects.
 
+## Shared, scheduled, content-addressed playback
+
+**Status:** implemented (2026-06-13). See [plans/avatar-animation.md](../plans/avatar-animation.md) for the design + deferred items.
+
+An avatar's clip animation is **collab-shared and clock-anchored** rather than free-running per client. Two layers, both content-addressed by `animation_clip` id (clip ids are universal across peers; the source FBX/BVH transfers by hash via the mesh asset follow-up, and the clip row carries `duration`):
+
+- **Idle (base loop)** — avatar node state: `properties.animation.idle = { clipId, speed }`. Anchored to epoch 0 so every client shares the same loop phase.
+- **Schedule (priority timeline)** — a synced doc collection `scheduled_animation` (a per-avatar timeline of clip entries; same pattern as `track_clip`/`animation_clip` — parents to the avatar node, rides its subtree subscription, never appears in the scene tree).
+
+### `scheduled_animation` rtype
+
+Migration `033_scheduled_animations`: `id, avatar_node_id (FK→scene_nodes ON DELETE CASCADE), clip_id, start_epoch, speed, loop, created_at`. Resource descriptor (load/save/remove) in `packages/backend/src/sync/resources.ts`; mesh binding in `packages/backend/src/mesh/index.ts` (`parent → scene_node:avatarNodeId`, `persists` when the avatar row exists). Frontend: a `scheduledAnimations` store slice fed by the mesh feeder (`sync/meshStoreFeeder.ts`), plus a `PARENTS`/`RTYPES` entry. See [mesh.md](mesh.md) for the collection mechanics.
+
+**Clock localization.** `start_epoch` is anchored on the *author's* mesh clock. The collection's `validate(data, originId)` translates a foreign doc's `startEpoch` onto the receiver's clock via the mesh peer-clock API `peer.toLocalTime(originId, startEpoch)`. This is the general mechanism for localizing peer-relative fields; the mesh threads `originId` (the origin peer id) into `validate` for local writes, remote ops, and snapshots — see [mesh.md](mesh.md) (peer-clock localization). The clock is a synchronized-clocks stub today, so the translation is numerically a no-op, but the call sites are final.
+
+### Frontend clock-anchored driver — `Viewport.tsx` (AvatarNode)
+
+The old free-running mixer advance (`mixer.update(delta)`) + one-shot seek is replaced by a two-layer resolver stepped with `update(0)` so the mixer never free-runs:
+
+- `_resolveAvatarAnimation` picks the active layer: the latest-started `scheduled_animation` entry still inside its window (`startEpoch ≤ syncedNow`, and for a non-loop finite entry `startEpoch + duration/speed > syncedNow`), else the idle base loop.
+- `_anchoredTime` computes each action's playhead from the active layer against the synced clock (`Date.now()`): `action.time = (syncedNow − activeStartEpoch) · speed`, mod duration (loop) or clamped (non-loop hold). The idle loop anchors to epoch 0 for a shared phase.
+
+A clipId is resolved to a localized source URL + duration through the `animationClips` + `scheduledAnimations` store slices fed by the mesh feeder; `animRegistry` gained `vrmDuration` for the lookup.
+
+### Idle migration (content-addressed)
+
+Idle moved from the legacy `components.animation.idleUrl` to `properties.animation.idle = { clipId, speed }` (typed on `NodeProperties` in `api/client.ts` + `editorStore.ts`). A frontend **lazy migration** in Viewport upgrades existing avatars once the matching `animation_clip` is registered (the resolver falls back to the legacy URL until then). The PropertiesPanel idle picker reads either shape; **editing always writes the legacy shape + clears the migrated idle**, so the migration re-derives a fresh clip id (single edit path). The offset field and the local pause/seek/stop transport controls were removed — playback is now driven by the synced timeline, so the panel transport is reduced to speed.
+
+The `api_controller` behavior PROJECTS its animation queue onto this timeline; the old `api_animation` WS path is retired. See [api-controller.md](api-controller.md).
+
+### Deferred
+
+Crossfade/blend between clips; a global timeline transport (pause/seek over the whole schedule); preload of upcoming clips before their start; two-backend collab clock-sync verification (the clock is a synchronized stub today). Tracked in [plans/avatar-animation.md](../plans/avatar-animation.md).
+
 ## Two clip systems
 
 This module covers `animation_clips` — imported FBX/BVH clips retargeted to VRM and played via Three.js `AnimationMixer`. A second, unrelated clip system also exists: `track_clips` (see [track-clips.md](track-clips.md)), authored in the editor timeline to animate scalar params on scene nodes / compose layers via a frontend rAF evaluator. The two share no storage, no playback machinery, and no UI surface.
@@ -234,8 +268,9 @@ Supports VRM 1.0 (`VRMC_vrm.humanoid.humanBones` as `Record<name, {node}>`) and 
 The Animation section in `PropertiesPanel.tsx` shows:
 - List of `animation_clips` for the selected node
 - Per-clip: label, trim in/out points, fps display
-- Playback: play/pause/loop controls, current time scrubber
 - Add clip: triggers FBX/BVH file selection → `POST /scene-nodes/:nodeId/clips`
+
+The avatar idle picker writes `properties.animation.idle = { clipId, speed }` (speed only — the offset field and the local pause/seek/stop transport were removed under the synced-timeline model). See the shared/scheduled playback section above.
 
 ## Hard-won correctness notes
 

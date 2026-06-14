@@ -1,0 +1,26 @@
+{
+  "name": "@vspark/mesh-transports",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./wsServer": "./src/wsServer.ts",
+    "./wsClient": "./src/wsClient.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vspark/mesh": "workspace:*",
+    "@vspark/shared": "workspace:*",
+    "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.18.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1"
+  }
+}

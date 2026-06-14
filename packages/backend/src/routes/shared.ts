@@ -47,6 +47,18 @@ export function setTrackClipPlaybackManager(m: TrackClipPlaybackManager) {
   _trackClipPlayback = m;
 }
 
+/** Relay a user-initiated clip playback control to collab peers. Injected by the
+ *  entrypoint (avoids a routes→multiplayer import cycle); only the playback routes
+ *  call it, so collab-applied playback can't echo back. */
+export let _clipPlaybackForwarder:
+  | ((clipId: string, action: string, t?: number) => void)
+  | null = null;
+export function setClipPlaybackForwarder(
+  f: (clipId: string, action: string, t?: number) => void
+) {
+  _clipPlaybackForwarder = f;
+}
+
 // --- Component row mapping + refresh helpers ---
 
 export function _mapBehaviorRow(r: Record<string, unknown>) {

@@ -24,6 +24,10 @@ two main sources:
 - **Animation clips** — pre-recorded movements (idle, waving, dancing) that you
   can trigger. These are useful for moments when you aren't actively tracking.
 
+The **idle animation** is a base loop that plays continuously whenever nothing
+else is driving the avatar. It is timed against a shared clock, so every viewer
+— including collaborators — sees it at the same point in the loop.
+
 When both are active, vspark blends them so the transition looks smooth rather
 than snapping. The blend time is adjustable per avatar.
 

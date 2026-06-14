@@ -4,6 +4,11 @@
     "compose": "Compose",
     "logic": "Logic"
   },
+  "collab": {
+    "badgeSharing": "You're sharing this scene",
+    "badgeConnected": "Shared scene — peer connected",
+    "badgeDisconnected": "Shared scene — peer disconnected"
+  },
   "scenes": {
     "header": "Scenes",
     "newButton": "+ Scene",
@@ -82,7 +87,17 @@
     "copyNode": "Copy node",
     "pasteNodeAsChild": "Paste node as child",
     "pasteLogicHere": "Paste logic here",
+    "shareWith": "Share with",
+    "shareCanEdit": "Allow editing",
+    "shareCanEditHint": "Grant edit rights too — others can change this object and the changes persist on your machine.",
+    "shareEveryone": "Everyone connected",
+    "shareNobody": "No one connected",
+    "shareDisabled": "Multiplayer is off",
     "delete": "Delete"
+  },
+  "remote": {
+    "tip": "Shared object from a connected peer. You can move and place this container; its contents are owned and updated live by their server.",
+    "assetBlocked": "Assets can't be added to a shared object — the file lives only on your machine, and its owner can't load it. Add the asset on the owning server instead."
   },
   "logic": {
     "globalLogic": "Global Logic",

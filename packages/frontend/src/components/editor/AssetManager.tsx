@@ -482,13 +482,28 @@ export function AssetManager() {
 
   const handleApplyAnimation = async (asset: AssetFile) => {
     if (!selectedNode) return;
+    // Write the legacy idle shape AND clear any migrated
+    // properties.animation.idle. The resolver (and the properties panel) prefer
+    // the migrated { clipId } over the legacy idleUrl, so leaving a stale clipId
+    // behind would silently pin the avatar to the *previous* idle — the new url
+    // would land in the ignored legacy slot. Clearing it lets the Viewport
+    // re-derive a fresh clip id for this url, exactly like the panel's edit path.
+    const prevProps = (selectedNode.properties as Record<string, unknown>) ?? {};
+    const prevAnim =
+      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
+    const prevSpeed =
+      (prevAnim.idle as { speed?: number } | undefined)?.speed ??
+      (selectedNode.components?.animation as { speed?: number } | undefined)
+        ?.speed ??
+      1;
     const components = {
       ...selectedNode.components,
-      animation: { idleUrl: asset.url },
+      animation: { idleUrl: asset.url, speed: prevSpeed },
     };
+    const properties = { ...prevProps, animation: { ...prevAnim, idle: undefined } };
     try {
-      await api.updateNode(selectedNode.id, { components });
-      storeUpdateNode(selectedNode.id, { components });
+      await api.updateNode(selectedNode.id, { components, properties });
+      storeUpdateNode(selectedNode.id, { components, properties });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
     }

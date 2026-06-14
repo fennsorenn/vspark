@@ -99,7 +99,7 @@ export interface SceneNodeProperties {
 }
 
 // A node in a scene tree
-export interface SceneNode {
+export interface StageObject {
   id: string;
   projectId: string;
   rootSceneNodeId: string;
@@ -130,7 +130,7 @@ export interface Scene {
   createdAt: string;
   updatedAt: string;
   runtimeSettings: SceneRuntimeSettings;
-  nodes: SceneNode[];
+  nodes: StageObject[];
 }
 
 export interface Project {

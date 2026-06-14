@@ -47,7 +47,7 @@ function normalizeFilePath(raw: unknown): string | null {
 function mapNode(
   r: Record<string, unknown>,
   rootSceneNodeId?: string
-): NodeRecord {
+): StageObject {
   const components =
     typeof r.components === 'string'
       ? JSON.parse(r.components as string)
@@ -172,9 +172,12 @@ export interface NodeProperties {
   /** VRM avatar: per-material shader/param overrides (MToon ⇄ PBR), keyed by a
    *  stable material identity. See components/editor/materialOverrides.ts. */
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
+  /** Avatar animation config. `idle` is the content-addressed base loop
+   *  (animation_clip id + speed); the scheduled timeline layers over it. */
+  animation?: { idle?: { clipId: string; speed: number } };
 }
 
-export interface NodeRecord {
+export interface StageObject {
   id: string;
   rootSceneNodeId: string;
   projectId: string;
@@ -526,9 +529,23 @@ export const getNodes = (sceneId: string) =>
     rows.map((r) => mapNode(r, sceneId))
   );
 
+/** Phase 6: a registered hook that diverts edits of a *writable remote* node to
+ *  its owner over the mesh instead of this server's REST API. Returns true if it
+ *  handled the op (REST is then skipped). Keeps api/client decoupled from the
+ *  stores + mesh modules; set at startup, null when remote-edit isn't active. */
+export type RemoteWriteRouter = (
+  op: 'update' | 'delete',
+  id: string,
+  data?: Partial<Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>>
+) => boolean;
+let remoteWriteRouter: RemoteWriteRouter | null = null;
+export function setRemoteWriteRouter(r: RemoteWriteRouter | null): void {
+  remoteWriteRouter = r;
+}
+
 export const createNode = (
   sceneId: string,
-  data: Omit<NodeRecord, 'id' | 'rootSceneNodeId' | 'projectId'>
+  data: Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>
 ) =>
   request<Record<string, unknown>>(`/scenes/${sceneId}/nodes`, {
     method: 'POST',
@@ -545,8 +562,9 @@ export const createNode = (
 
 export const updateNode = (
   id: string,
-  data: Partial<Omit<NodeRecord, 'id' | 'rootSceneNodeId' | 'projectId'>>
+  data: Partial<Omit<StageObject, 'id' | 'rootSceneNodeId' | 'projectId'>>
 ) => {
+  if (remoteWriteRouter?.('update', id, data)) return Promise.resolve();
   const body: Record<string, unknown> = {};
   if (data.name !== undefined) body.name = data.name;
   if (data.parentId !== undefined) body.parentId = data.parentId;
@@ -565,7 +583,9 @@ export const updateNode = (
 };
 
 export const deleteNode = (id: string) =>
-  request<void>(`/scene-nodes/${id}`, { method: 'DELETE' });
+  remoteWriteRouter?.('delete', id)
+    ? Promise.resolve()
+    : request<void>(`/scene-nodes/${id}`, { method: 'DELETE' });
 
 // Assets
 export const getAssets = (projectId: string) =>
@@ -1345,3 +1365,159 @@ export const api = {
   updateLogic,
   deleteLogic,
 };
+
+// --- Multiplayer / connections (Phase 5) -----------------------------------
+
+export interface ConnectionIdentity {
+  peerId: string;
+  publicKey: string;
+}
+export interface ConnectionStatus {
+  enabled: boolean;
+  status: 'idle' | 'connecting' | 'ready' | 'closed';
+  peerId: string | null;
+  connected: string[];
+}
+export interface ConnectionPeer {
+  peerId: string;
+  publicKey: string;
+  displayName: string;
+  pairedAt: string;
+  lastSeen: string | null;
+  blocked: boolean;
+  sessionGranted: boolean;
+  connected: boolean;
+}
+
+export const getConnectionIdentity = () =>
+  request<ConnectionIdentity>('/connections/identity');
+export const getConnectionStatus = () =>
+  request<ConnectionStatus>('/connections/status');
+export const getConnectionPeers = () =>
+  request<ConnectionPeer[]>('/connections/peers');
+export const pairCreate = () =>
+  request<{ code: string }>('/connections/pair/create', { method: 'POST' });
+export const pairJoin = (code: string) =>
+  request<ConnectionPeer>('/connections/pair/join', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+export const peerConnect = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/connect`, {
+    method: 'POST',
+  });
+export const peerDisconnect = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/disconnect`, {
+    method: 'POST',
+  });
+export const peerAccept = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/accept`, {
+    method: 'POST',
+  });
+export const peerReject = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}/reject`, {
+    method: 'POST',
+  });
+export const peerUpdate = (
+  peerId: string,
+  patch: { displayName?: string; blocked?: boolean }
+) =>
+  request<ConnectionPeer>(`/connections/peers/${peerId}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+export const peerRemove = (peerId: string) =>
+  request<{ peerId: string }>(`/connections/peers/${peerId}`, {
+    method: 'DELETE',
+  });
+
+export const getConnectionDisplayName = (projectId: string) =>
+  request<{ displayName: string }>(`/connections/display-name/${projectId}`);
+export const setConnectionDisplayName = (projectId: string, name: string) =>
+  request<{ displayName: string }>(`/connections/display-name/${projectId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  });
+
+// --- object sharing --------------------------------------------------------
+
+/** Peer ids (and maybe '*') an object is currently shared with. */
+export const getObjectGrantees = (objectId: string) =>
+  request<string[]>(`/connections/objects/${objectId}/grantees`);
+/** Grant a peer ('*' = everyone) access to one of my objects. */
+export const shareObject = (
+  objectId: string,
+  granteePeerId: string,
+  shareKind: 'object' | 'scene' = 'object',
+  canWrite = false
+) =>
+  request<{ grantees: string[] }>(`/connections/objects/${objectId}/share`, {
+    method: 'POST',
+    body: JSON.stringify({ granteePeerId, shareKind, canWrite }),
+  });
+/** Revoke a peer's ('*' = everyone) access to one of my objects. */
+export const unshareObject = (objectId: string, granteePeerId: string) =>
+  request<{ grantees: string[] }>(`/connections/objects/${objectId}/unshare`, {
+    method: 'POST',
+    body: JSON.stringify({ granteePeerId }),
+  });
+/** Receiver: subscribe to (place) a peer's shared object. The backend always
+ *  arms the mesh document subscription; `streams=false` skips the legacy
+ *  stream/asset relay (the tab serves those itself over a direct edge). */
+export const peerSubscribe = (peerId: string, objectId: string, streams = true) =>
+  request<{ peerId: string; objectId: string }>(
+    `/connections/peers/${peerId}/subscribe`,
+    { method: 'POST', body: JSON.stringify({ objectId, streams }) }
+  );
+/** Receiver: unsubscribe from (remove) a peer's shared object. */
+export const peerUnsubscribe = (peerId: string, objectId: string) =>
+  request<{ peerId: string; objectId: string }>(
+    `/connections/peers/${peerId}/unsubscribe`,
+    { method: 'POST', body: JSON.stringify({ objectId }) }
+  );
+
+// --- collaborative scene sharing (peer-to-peer, persisted on both) ---------
+
+/** Owner: offer a scene for collaborative editing (both peers persist + edit). */
+export const shareCollabScene = (sceneId: string, granteePeerId: string) =>
+  request<{ sceneId: string; granteePeerId: string }>(
+    `/connections/scenes/${sceneId}/share-collab`,
+    { method: 'POST', body: JSON.stringify({ granteePeerId }) }
+  );
+/** Owner: everything this server currently shares with others. */
+export interface SharedByMe {
+  objectId: string;
+  name: string;
+  shareKind: 'object' | 'scene';
+  grantees: string[];
+}
+export const getSharedByMe = () =>
+  request<SharedByMe[]>('/connections/shares');
+/** Owner: stop sharing an object/scene with everyone. */
+export const unshareAllObject = (objectId: string) =>
+  request<{ objectId: string }>(
+    `/connections/objects/${objectId}/unshare-all`,
+    { method: 'POST' }
+  );
+/** Collab-scene links (sceneId + peer + author/mounted role) for the chain badge. */
+export interface CollabSceneLink {
+  sceneId: string;
+  peerId: string;
+  role: 'author' | 'mounted';
+}
+export const getCollabScenes = () =>
+  request<CollabSceneLink[]>('/connections/collab-scenes');
+
+/** Receiver: mount an offered collaborative scene into a local project. */
+export const mountCollabScene = (
+  ownerPeerId: string,
+  sceneId: string,
+  projectId: string
+) =>
+  request<{ ownerPeerId: string; sceneId: string; projectId: string }>(
+    `/connections/collab/mount`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ ownerPeerId, sceneId, projectId }),
+    }
+  );
