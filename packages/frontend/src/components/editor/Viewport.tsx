@@ -66,7 +66,7 @@ import type {
 } from '../../store/editorStore';
 import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync';
 
-import { animRegistry } from '../../animRegistry';
+import type { AnimEntry } from '../../animRegistry';
 import {
   getVmcPose,
   getVmcPoseTime,
@@ -894,6 +894,11 @@ function AvatarNode({
   const boneCylRef = useRef<THREE.Mesh>(null);
   const fbxMixerRef = useRef<THREE.AnimationMixer | null>(null);
   const vrmMixerRef = useRef<THREE.AnimationMixer | null>(null);
+  // Per-instance animation state read by this avatar's useFrame. Kept on a ref
+  // (not a shared node.id-keyed map) so multiple AvatarNode instances for the
+  // same avatar — the scene viewport plus every compose camera view — each drive
+  // their own mixers instead of clobbering and evicting a single shared entry.
+  const animEntryRef = useRef<AnimEntry | null>(null);
   const vrmRef = useRef<VRM | null>(null);
   const corrAxesRef = useRef<THREE.Object3D[]>([]);
   const vmcCompRef = useRef<Behavior | null>(null);
@@ -1231,10 +1236,10 @@ function AvatarNode({
   }, [vrmLoaded, node.id, node.kind, assetsForProbe]);
 
   // Stop and drop whatever clip is currently driving this avatar: halt both
-  // mixers, remove the debug correction axes, clear the FBX display, and evict
-  // the shared animRegistry entry (which is what useFrame reads). Called at the
-  // swap point and on unmount — never from the load effect's dep-change cleanup,
-  // so a clip switch keeps playing until its replacement is ready.
+  // mixers, remove the debug correction axes, clear the FBX display, and clear
+  // this instance's animation entry (what useFrame reads). Called at the swap
+  // point and on unmount — never from the load effect's dep-change cleanup, so a
+  // clip switch keeps playing until its replacement is ready.
   const teardownActiveAnim = useCallback(() => {
     fbxMixerRef.current?.stopAllAction();
     fbxMixerRef.current = null;
@@ -1244,8 +1249,8 @@ function AvatarNode({
     corrAxesRef.current = [];
     fbxGroupRef.current?.clear();
     fbxHelperRef.current?.clear();
-    animRegistry.delete(node.id);
-  }, [node.id]);
+    animEntryRef.current = null;
+  }, []);
 
   // --- Animation load ---
   useEffect(() => {
@@ -2111,7 +2116,7 @@ function AvatarNode({
       // speed is baked into the anchored time, and the mixer is stepped with
       // update(0) so it never free-runs out of phase.
 
-      animRegistry.set(node.id, {
+      animEntryRef.current = {
         action: vrmAction,
         mixer: vrmMixer,
         vrmDuration,
@@ -2119,7 +2124,7 @@ function AvatarNode({
         fbxMixer,
         fbxScene: fbx,
         duration: clip.duration,
-      });
+      };
     });
 
     // Only cancel the in-flight load on a dep change. Tearing the active clip
@@ -2231,7 +2236,7 @@ function AvatarNode({
     // against the synced clock, then step the mixer with update(0). The mixer
     // never free-runs, so every client (and every reload) stays in phase.
     const layer = activeLayerRef.current;
-    const reg = animRegistry.get(node.id);
+    const reg = animEntryRef.current;
     if (reg && layer) {
       const now = Date.now();
       reg.fbxAction.time = _anchoredTime(now, layer, reg.duration);
