@@ -29,6 +29,7 @@ await build({
     '@vspark/shared/schema':          '../shared/src/schema.ts',
     '@vspark/shared/arkit':           '../shared/src/arkit_tables.ts',
     '@vspark/shared/paramPaths':      '../shared/src/paramPaths.ts',
+    '@vspark/shared/sync':            '../shared/src/sync.ts',
     '@vspark/shared':                 '../shared/src/types.ts',
   },
   define: { 'import.meta.url': '__importMetaUrl' },
