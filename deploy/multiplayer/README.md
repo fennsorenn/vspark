@@ -24,6 +24,24 @@ for identity (peers authenticate each other end-to-end by Ed25519 key).
 5. In each vspark server's Connections settings, set the rendezvous URL to
    `wss://RDV_DOMAIN`.
 
+## Already running Traefik? (existing reverse proxy)
+
+If the host already runs a **Traefik v3** reverse proxy (Docker provider +
+automatic Let's Encrypt) it already owns ports 80/443, so the bundled Caddy
+would collide with it. Use the Traefik variant instead — it drops Caddy and
+registers the rendezvous with the existing Traefik via labels:
+
+```bash
+docker compose -f docker-compose.traefik.yml up -d --build
+```
+
+It assumes Traefik exposes an HTTPS entrypoint `websecure`, a certresolver `le`,
+and watches an external network `traefik_proxy`; override via `TRAEFIK_*` in
+`.env` if yours differs. **coturn is unchanged** — it can't ride an L7 proxy
+(raw UDP + relay range), so it still binds host ports directly and you must open
+`3478/tcp+udp` and `49160-49200/udp` on the host firewall / cloud security group
+yourself (Traefik does nothing for those).
+
 ## Keeping TURN cheap
 
 TURN only relays when direct/STUN hole-punching fails (strict-NAT / CGNAT pairs),
