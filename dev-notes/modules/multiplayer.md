@@ -361,6 +361,58 @@ hidden and reject writes; denied/malformed writes NAK without crashing the owner
 | **Phase 6 — owner-authoritative write tier: `update`/`delete` of a shared `scene_node`** | **Implemented + user-verified** (`_share_write`/NAK, owner AuthZ + content-only-update / parent-derived-create persistence, both transports, optimistic + rollback, crash-safe) |
 | **Phase 6 — `create` of a new child under a writable remote node** | Backend implemented + tested; **frontend `createNode` seam unwired** (hits local REST, alerts, no corruption) |
 
+### Known issue — intermittent receiver→author collab-scene sync stall (OPEN, not reliably reproducible)
+
+**Symptom.** In a shared (collab-mounted) scene, edits made on the *receiver*
+(mounted side) sometimes stop propagating back to the *author* (sharer):
+move/update/create/delete all fail in that direction at once, while
+**author→receiver keeps working**. It is intermittent — it clears and recurs
+across sessions, and we do not yet have a reliable repro.
+
+**Already ruled out (don't re-investigate these — verified working).** A faithful
+two-box test reproduces the *topology* but not the bug:
+- Two backends (separate `VSPARK_DB_PATH`, `PORT`) over real `werift` WebRTC via a
+  local rendezvous (`PORT=8787` on `@vspark/rendezvous`), paired
+  (`pair/create`→`pair/join`→`connect`→`accept`), `share-collab` + `collab/mount`.
+- Two frontends (`VITE_BACKEND_PORT=3001/3002`), edits driven through the real UI.
+- Result: receiver→author propagated correctly for **all** of move / update /
+  create / delete, end-to-end (sharer's backend **and** its rendered UI).
+- The backend mesh channel and the `validate()` projectId re-scope
+  ([mesh/index.ts](../../packages/backend/src/mesh/index.ts) scene_node binding) are
+  fine. Note the transform lives in `components.transform` (`x,y,z,…`), **not**
+  `properties.transform` — check the right field when verifying a "move".
+
+So this is almost certainly a **state/timing** fault, not a deterministic code
+path. Receiver→author for a collab scene rides the **mesh subscription** (the
+author subscribes to the receiver's scene subtree), *not* the `_share_write`
+path (mounted nodes are local on the receiver — receiver's `projectId`, not
+`remote`-tagged — so `routeRemoteWrite` falls through to local REST → the
+receiver's mesh collection → fan-out).
+
+**Leading hypothesis.** The author's subscription to the receiver
+(`armLink` in [mesh/collab.ts](../../packages/backend/src/mesh/collab.ts)) gets
+stuck un-established. It is **DENIED on attempt 0** (the author subscribes in
+`handleCollabSubscribe` *before* the receiver grants it in `handleCollabSnapshot`)
+and only succeeds on a retry once the receiver's `grantCollabScene` lands. Suspect
+a stuck state where it never recovers: the module-level `subscribed`/`granted`
+maps left stale across a reconnect/re-share so the link never re-arms, the retry
+giving up after `SUBSCRIBE_MAX_RETRIES` (40 × 3s ≈ 2 min), or the grant racing a
+teardown. Asymmetry that makes *this* direction the fragile one: author→receiver
+is admitted by **two** grants (the `addShare` share-grant + the collab grant),
+receiver→author by the collab grant alone — so a single broken collab grant kills
+only receiver→author.
+
+**How to diagnose when it recurs.** Set `COLLAB_DEBUG=1` on **both** backends
+(see the `[collab-dbg]` traces in collab.ts + manager.ts `sync.onDocument`). On the
+**sharer** when the receiver edits:
+- `subscribed … receiver→author ops can now flow` should appear (one
+  `DENIED (attempt 0)` first is normal). If you only ever see `DENIED`, the
+  subscription never established → that's the break.
+- `onDocument … origin=<receiver-id>` should fire on each receiver edit. Present but
+  no UI update ⇒ display side; absent ⇒ delivery/subscription side.
+
+Tracing is intentionally left in (flag-gated, off by default) until we catch it.
+
 ### Resolved — asset transport to a remote browser
 
 The earlier blocker (no receiver backend in a direct browser edge) is resolved by
