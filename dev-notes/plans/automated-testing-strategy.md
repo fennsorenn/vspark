@@ -9,7 +9,8 @@
 > Phase 4 (both UI coverage signals) ✅ · Phase 5 (`shared` full coverage + istanbul gate) ✅ ·
 > Phase 6 (`backend`) 🟡 **PARTIAL — deferred** (483 tests, ~49% stmts; see Phase 6 status).
 > Phase 7 (`frontend` non-visual) 🟡 **PARTIAL — deferred** (289 tests; see Phase 7 status) ·
-> Phase 8 (E2E editor-flow breadth) 🔵 **IN PROGRESS**. Phase 9 pending. The CI
+> Phase 8 (E2E editor-flow breadth) 🟡 **SUBSTANTIALLY DONE** (14 spec files, 35 tests).
+> Phase 9 pending. The CI
 > `Test`/`e2e` steps are written but NOT yet pushed (the session's OAuth token lacks GitHub
 > `workflow` scope — apply manually; the e2e job YAML is in `e2e/README.md`).
 >
@@ -390,28 +391,36 @@ children mocked.
   coverage via `istanbul ignore`/coverage `exclude` globs (`Viewport.tsx`, `Avatar.tsx`, R3F node
   components) — those are covered by Phase 8 instead. Threshold gate on the non-excluded surface.
 
-#### Phase 8 — E2E functional coverage (Playwright breadth) 🔵 IN PROGRESS
+#### Phase 8 — E2E functional coverage (Playwright breadth) 🟡 SUBSTANTIALLY DONE
 
-**Status:** the WebGL editor-load was de-risked earlier (`editor-webgl.spec.ts`). Editor-flow
-specs are built **serially** (each boots the app on shared ports 5173/3001, so they can't run
-concurrently — agents write them one at a time, parent verifies + lints + commits on intake).
-Every flow is a real cross-stack round-trip: UI interaction → store → mesh write-through → DB,
-asserted via REST read-back.
+**Status:** **14 spec files, 35 tests, full suite green ~1.2m.** Every flow is a real cross-stack
+round-trip: UI interaction → store → mesh write-through → DB, asserted via REST read-back.
+The WebGL editor-load was de-risked early (`editor-webgl`). **Parallelism unlock:** the Playwright
+webServer ports are env-overridable (`PW_FRONTEND_PORT`/`PW_BACKEND_PORT`, pid-stamped DB), so
+multiple flow specs run CONCURRENTLY on distinct port pairs — sub-agents each write a spec on their
+own ports; parent verifies + lints + commits on intake.
 
-Covered so far (**9 spec files, 22 tests, full suite green ~46s**): `home`, `editor-webgl`
-(WebGL mount), `editor-scene-graph` (select + rename → persist), `editor-transform` (X position +
-Y rotation deg→rad → persist), `editor-i18n-help` (EN↔DE switch, help open/close),
-`editor-node-lifecycle` (node create via palette, delete via context-menu+confirm, scene create),
-`editor-behaviors-effects` (add Breathing behavior + Bloom camera effect → persist),
-`editor-compose` (Compose tab, compose-scene + image-layer create → persist), `editor-presets`
-(save preset from node + persist across reload).
+Covered (14 spec files): `home`, `editor-webgl`, `editor-scene-graph` (select + rename),
+`editor-transform` (X pos + Y rot deg→rad), `editor-i18n-help` (EN↔DE, help open/close),
+`editor-node-lifecycle` (node create/delete, scene create), `editor-behaviors-effects` (Breathing
+
+- Bloom), `editor-compose` (compose-scene + layer), `editor-presets` (save + persist-across-reload),
+  `editor-track-clips` (clip create/render/delete), `editor-logic-graph` (graph create + list),
+  `editor-assets` (image + GLB upload), `editor-overlive` (accounts modal + Register-App/SE dialogs +
+  credential save). All assert via REST read-back where state mutates.
 
 **Deferred (revisit to finish Phase 8):**
 
-- **Remaining flows:** track-clip timeline, clipboard copy/paste, preset instantiate ("Use" —
-  gated on the WebGL viewport setting activeSceneId), asset upload + placement (needs a
-  file-upload fixture), logic-graph editing (React Flow canvas), overlive accounts modal (mock the
-  provider), scene-graph reparenting (drag-drop).
+- **Remaining flows / sub-flows:** scene-graph reparenting (drag-drop — too brittle headless),
+  clipboard copy/paste, preset instantiate ("Use" — gated on the WebGL viewport setting
+  activeSceneId), logic-graph node-add (NodePalette is drag-only onto the React-Flow canvas),
+  track-clip keyframe/lane/scrub (canvas interactions), real Twitch OAuth + StreamElements JWT
+  submit (external provider — needs mocking). These are drag-drop / canvas / external-OAuth heavy.
+- **Control coverage (4a) toward high %:** specs use role/text selectors over `vs-` handles (per
+  convention), so the _control-coverage %_ stays low (7/453) — driving it up is a separate
+  instrumentation pass (add `vs-` handles to the controls each flow touches).
+- **E2E code coverage (4b):** wire up the istanbul instrumentation + per-run trend artifact +
+  drop-detection (harness exists from Phase 4; not yet run across the editor specs).
 - **Control coverage (4a) toward high %:** specs deliberately use role/text selectors over
   sprinkling `vs-` handles (per the targeting-layer convention), so the _control-coverage %_
   stays low — driving it up is a separate instrumentation pass (add `vs-` handles to the controls
