@@ -1,6 +1,6 @@
 # Plan: Pre-extract VRM/GLB metadata into asset_files
 
-> Branch: `claude/dazzling-heisenberg-ri7pj2` · Status: in-progress
+> Branch: `claude/dazzling-heisenberg-ri7pj2` · Status: implemented
 > This plan is the seed context for a cloud worker. It is a starting point, not an
 > airtight spec — the worker is interactive and may ask to refine it.
 
