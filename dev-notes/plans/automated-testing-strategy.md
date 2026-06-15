@@ -390,7 +390,34 @@ children mocked.
   coverage via `istanbul ignore`/coverage `exclude` globs (`Viewport.tsx`, `Avatar.tsx`, R3F node
   components) — those are covered by Phase 8 instead. Threshold gate on the non-excluded surface.
 
-#### Phase 8 — E2E functional coverage (Playwright breadth)
+#### Phase 8 — E2E functional coverage (Playwright breadth) 🔵 IN PROGRESS
+
+**Status:** the WebGL editor-load was de-risked earlier (`editor-webgl.spec.ts`). Editor-flow
+specs are built **serially** (each boots the app on shared ports 5173/3001, so they can't run
+concurrently — agents write them one at a time, parent verifies + lints + commits on intake).
+Every flow is a real cross-stack round-trip: UI interaction → store → mesh write-through → DB,
+asserted via REST read-back.
+
+Covered so far (7 spec files): `home` (reachable/create/open), `editor-scene-graph` (select +
+rename → persist), `editor-transform` (X position + Y rotation deg→rad → persist),
+`editor-i18n-help` (EN↔DE switch, help window open/close), `editor-node-lifecycle` (node create
+via palette, delete via context-menu+confirm, scene create via "+ Scene"),
+`editor-behaviors-effects` (add Breathing behavior + Bloom camera effect → persist),
+`editor-compose` (Compose tab, compose-scene + image-layer create → persist).
+
+**Deferred (revisit to finish Phase 8):**
+
+- **Remaining flows:** track-clip timeline, presets/clipboard (in progress), asset upload +
+  placement (needs a file-upload fixture), logic-graph editing (React Flow canvas), overlive
+  accounts modal (mock the provider), scene-graph reparenting (drag-drop).
+- **Control coverage (4a) toward high %:** specs deliberately use role/text selectors over
+  sprinkling `vs-` handles (per the targeting-layer convention), so the _control-coverage %_
+  stays low — driving it up is a separate instrumentation pass (add `vs-` handles to the controls
+  each flow touches). Functional breadth ≠ control-coverage %.
+- **E2E code coverage (4b):** wire up the istanbul instrumentation + per-run trend artifact +
+  drop-detection warning (the harness exists from Phase 4; not yet run across the editor specs).
+
+#### Phase 8 — original scope (reference)
 
 - Specs across every major editor flow: project lifecycle, scene-graph CRUD + reparenting,
   each node kind add/configure, behaviors + logic graph editing, compose view, asset upload +
