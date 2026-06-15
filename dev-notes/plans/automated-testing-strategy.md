@@ -6,7 +6,8 @@
 >
 > **Progress:** Phase 0 (Vitest infra) ✅ · Phase 1 (unit exemplars) ✅ · Phase 2 (API
 > integration + `createApp()` refactor) ✅ · Phase 3 (functional Playwright exemplars) ✅ ·
-> Phase 4 (both UI coverage signals) ✅. The full-coverage phases 5–9 are pending. The CI
+> Phase 4 (both UI coverage signals) ✅ · Phase 5 (`shared` full coverage + istanbul gate) ✅.
+> The full-coverage phases 6–9 are pending. The CI
 > `Test`/`e2e` steps are written but NOT yet pushed (the session's OAuth token lacks GitHub
 > `workflow` scope — apply manually; the e2e job YAML is in `e2e/README.md`).
 >
@@ -289,12 +290,18 @@ order (cheapest/highest-value first). Introduce **Vitest coverage thresholds** (
 or `-istanbul`) only at the END of each unit/API phase, set just below the achieved number so the
 gate ratchets up and can't silently regress.
 
-#### Phase 5 — `shared` full coverage
+#### Phase 5 — `shared` full coverage ✅ DONE
 
-- All of `signal_types`, `inference`, `infer_nodes` (per-kind inferPorts), `paramPaths`
-  (`coerceParamValue`, registry lookups), `node`/`node_decorators` (port harvesting), Zod schemas
-  in `schema.ts` (valid + invalid payloads), `arkit_tables`, `sync.ts` envelope helpers.
-- Pure, fast, deterministic — aim highest threshold here (≥ 90%). Enable threshold gate.
+- Covered: `signal_types` (+ `describeResolvedType`/`typeTagToResolved`), `inference` (full
+  `InferGraph`: add/remove node+edge, `setConfig` rollback, multi-hop propagation), `infer_nodes`
+  (all per-kind inferPorts + registry), `paramPaths`, `node`/`node_decorators` (harvest + `Node.bind`),
+  `schema.ts` (generic safeParse sweep + targeted valid/invalid), `arkit_tables`, `sync.ts` (HLC,
+  participants, clock offset, addressing, grants, `SubscriptionHub`), `fracIndex`, `containment`,
+  `signal.ts` (Quaternion/pose/blendshape classes, `@SignalNode`), `types.ts`.
+- 125 tests; istanbul coverage **98.4% stmts / 92.9% branch / 98.9% funcs / 99.2% lines**.
+- Threshold **gate enabled** (`packages/shared/vitest.config.ts`, ratcheted to 95/90/95/95) via
+  `@vitest/coverage-istanbul`; run `pnpm --filter @vspark/shared test:coverage`. Plain `pnpm test`
+  stays coverage-free/fast. Coverage output dirs added to `.gitignore`.
 
 #### Phase 6 — `backend` full coverage
 

@@ -10,6 +10,9 @@ backups/
 .env
 .env.local
 *.tsbuildinfo
+# test coverage output
+coverage/
+.nyc_output/
 .vscode/
 .idea/
 .claude/*

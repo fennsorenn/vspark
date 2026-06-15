@@ -13,8 +13,12 @@ describe('transportOf', () => {
 
 describe('isAssignable', () => {
   it('matches primitives by name', () => {
-    expect(isAssignable(RT.primitive('Float'), RT.primitive('Float'))).toBe(true);
-    expect(isAssignable(RT.primitive('Float'), RT.primitive('String'))).toBe(false);
+    expect(isAssignable(RT.primitive('Float'), RT.primitive('Float'))).toBe(
+      true
+    );
+    expect(isAssignable(RT.primitive('Float'), RT.primitive('String'))).toBe(
+      false
+    );
   });
 
   it('treats unknown as a wildcard in both directions', () => {
@@ -29,7 +33,10 @@ describe('isAssignable', () => {
       b: RT.primitive('Float'),
       c: RT.primitive('Float'),
     });
-    const narrow = RT.record({ a: RT.primitive('Float'), b: RT.primitive('Float') });
+    const narrow = RT.record({
+      a: RT.primitive('Float'),
+      b: RT.primitive('Float'),
+    });
 
     it('accepts a wider source into a narrower target', () => {
       // Source emitting {a,b,c} satisfies a target wanting {a,b}.
@@ -41,7 +48,10 @@ describe('isAssignable', () => {
     });
 
     it('rejects when a shared field has an incompatible type', () => {
-      const mismatched = RT.record({ a: RT.primitive('String'), b: RT.primitive('Float') });
+      const mismatched = RT.record({
+        a: RT.primitive('String'),
+        b: RT.primitive('Float'),
+      });
       expect(isAssignable(mismatched, narrow)).toBe(false);
     });
   });
@@ -63,26 +73,45 @@ describe('isAssignable', () => {
   });
 
   it('widens concrete scene entities into SceneEntity, but not the reverse', () => {
-    expect(isAssignable(RT.primitive('SceneNode'), RT.primitive('SceneEntity'))).toBe(true);
-    expect(isAssignable(RT.primitive('ComposeLayer'), RT.primitive('SceneEntity'))).toBe(true);
-    expect(isAssignable(RT.primitive('SceneEntity'), RT.primitive('SceneNode'))).toBe(false);
+    expect(
+      isAssignable(RT.primitive('SceneNode'), RT.primitive('SceneEntity'))
+    ).toBe(true);
+    expect(
+      isAssignable(RT.primitive('ComposeLayer'), RT.primitive('SceneEntity'))
+    ).toBe(true);
+    expect(
+      isAssignable(RT.primitive('SceneEntity'), RT.primitive('SceneNode'))
+    ).toBe(false);
     // SceneNode and ComposeLayer stay mutually incompatible.
-    expect(isAssignable(RT.primitive('SceneNode'), RT.primitive('ComposeLayer'))).toBe(false);
+    expect(
+      isAssignable(RT.primitive('SceneNode'), RT.primitive('ComposeLayer'))
+    ).toBe(false);
   });
 
   it('compares event payloads structurally', () => {
     expect(
-      isAssignable(RT.event(RT.primitive('Float')), RT.event(RT.primitive('Float')))
+      isAssignable(
+        RT.event(RT.primitive('Float')),
+        RT.event(RT.primitive('Float'))
+      )
     ).toBe(true);
     expect(
-      isAssignable(RT.event(RT.primitive('Float')), RT.event(RT.primitive('String')))
+      isAssignable(
+        RT.event(RT.primitive('Float')),
+        RT.event(RT.primitive('String'))
+      )
     ).toBe(false);
   });
 
   it('rejects mismatched constructors', () => {
-    expect(isAssignable(RT.event(RT.primitive('Float')), RT.primitive('Float'))).toBe(false);
-    expect(isAssignable(RT.record({ a: RT.primitive('Float') }), RT.primitive('Float'))).toBe(
-      false
-    );
+    expect(
+      isAssignable(RT.event(RT.primitive('Float')), RT.primitive('Float'))
+    ).toBe(false);
+    expect(
+      isAssignable(
+        RT.record({ a: RT.primitive('Float') }),
+        RT.primitive('Float')
+      )
+    ).toBe(false);
   });
 });

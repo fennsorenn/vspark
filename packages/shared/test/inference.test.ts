@@ -25,8 +25,13 @@ const PORTS: Record<string, PortMeta[]> = {
 const passthroughInfer: InferPortsFn = (ctx, staticPorts) => ({
   inputPorts: staticPorts
     .filter((p) => p.direction === 'in')
-    .map((p) => ({ name: p.name, type: typeTagToResolved(p.typeTag, p.transport) })),
-  outputPorts: [{ name: 'out', type: ctx.resolvedInputs['in'] ?? RT.unknown() }],
+    .map((p) => ({
+      name: p.name,
+      type: typeTagToResolved(p.typeTag, p.transport),
+    })),
+  outputPorts: [
+    { name: 'out', type: ctx.resolvedInputs['in'] ?? RT.unknown() },
+  ],
 });
 
 function makeGraph(): InferGraph {
@@ -42,12 +47,22 @@ describe('InferGraph.tryAddEdge', () => {
     g.addNode('a', 'source_float', {});
     g.addNode('b', 'sink_float', {});
 
-    const res = g.tryAddEdge({ fromNodeId: 'a', fromPort: 'out', toNodeId: 'b', toPort: 'in' });
+    const res = g.tryAddEdge({
+      fromNodeId: 'a',
+      fromPort: 'out',
+      toNodeId: 'b',
+      toPort: 'in',
+    });
 
     expect(res.ok).toBe(true);
-    expect(g.hasEdge({ fromNodeId: 'a', fromPort: 'out', toNodeId: 'b', toPort: 'in' })).toBe(
-      true
-    );
+    expect(
+      g.hasEdge({
+        fromNodeId: 'a',
+        fromPort: 'out',
+        toNodeId: 'b',
+        toPort: 'in',
+      })
+    ).toBe(true);
   });
 
   it('rejects a type-mismatched edge and does not record it', () => {
@@ -55,13 +70,23 @@ describe('InferGraph.tryAddEdge', () => {
     g.addNode('a', 'source_string', {});
     g.addNode('b', 'sink_float', {});
 
-    const res = g.tryAddEdge({ fromNodeId: 'a', fromPort: 'out', toNodeId: 'b', toPort: 'in' });
+    const res = g.tryAddEdge({
+      fromNodeId: 'a',
+      fromPort: 'out',
+      toNodeId: 'b',
+      toPort: 'in',
+    });
 
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toMatch(/type mismatch/);
-    expect(g.hasEdge({ fromNodeId: 'a', fromPort: 'out', toNodeId: 'b', toPort: 'in' })).toBe(
-      false
-    );
+    expect(
+      g.hasEdge({
+        fromNodeId: 'a',
+        fromPort: 'out',
+        toNodeId: 'b',
+        toPort: 'in',
+      })
+    ).toBe(false);
   });
 
   it('rolls the whole add back when it creates a downstream conflict', () => {
@@ -93,13 +118,23 @@ describe('InferGraph.tryAddEdge', () => {
     if (!e2.ok) expect(e2.reason).toMatch(/downstream conflict/);
     // The offending edge was not recorded …
     expect(
-      g.hasEdge({ fromNodeId: 'src', fromPort: 'out', toNodeId: 'pass', toPort: 'in' })
+      g.hasEdge({
+        fromNodeId: 'src',
+        fromPort: 'out',
+        toNodeId: 'pass',
+        toPort: 'in',
+      })
     ).toBe(false);
     // … and pass.out was restored to its pre-attempt type.
     expect(g.outputType('pass', 'out')).toEqual(RT.unknown());
     // The pre-existing edge survives untouched.
     expect(
-      g.hasEdge({ fromNodeId: 'pass', fromPort: 'out', toNodeId: 'sink', toPort: 'in' })
+      g.hasEdge({
+        fromNodeId: 'pass',
+        fromPort: 'out',
+        toNodeId: 'sink',
+        toPort: 'in',
+      })
     ).toBe(true);
   });
 });
