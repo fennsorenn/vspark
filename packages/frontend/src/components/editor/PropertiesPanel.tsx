@@ -1821,12 +1821,52 @@ const VRM_EXPR_PRESETS = [
   'lookRight',
 ];
 
+/** Asset metadata (bones / materials / morph targets / expressions) for a
+ *  node's model file, matched by stored path. Null when the node has no model
+ *  or the asset predates metadata extraction. */
+function assetMetaForNode(
+  filePath: string | null | undefined,
+  assets: AssetFile[]
+): AssetFile['metadata'] {
+  if (!filePath) return null;
+  return assets.find((a) => a.url === filePath)?.metadata ?? null;
+}
+
+/** Prefer the live VRM list (exact for the loaded instance); fall back to the
+ *  upload-time metadata list so name pickers populate even before / without the
+ *  viewport loading the model (avatar in a non-active scene, just after a swap). */
+function liveOrMetaList(
+  live: string[] | undefined,
+  meta: AssetFile['metadata'],
+  key: 'bones' | 'materials' | 'morphTargets' | 'expressions'
+): string[] {
+  if (live && live.length) return live;
+  return meta?.[key] ?? [];
+}
+
 function VmcReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior, vrmMorphTargetsByNode, vrmExpressionsByNode } =
-    useEditorStore();
-  const morphTargets = vrmMorphTargetsByNode[comp.nodeId] ?? [];
-  const expressions = vrmExpressionsByNode[comp.nodeId] ?? [];
+  const {
+    updateBehavior,
+    vrmMorphTargetsByNode,
+    vrmExpressionsByNode,
+    nodes,
+    assets,
+  } = useEditorStore();
+  const meta = assetMetaForNode(
+    nodes.find((n) => n.id === comp.nodeId)?.filePath,
+    assets
+  );
+  const morphTargets = liveOrMetaList(
+    vrmMorphTargetsByNode[comp.nodeId],
+    meta,
+    'morphTargets'
+  );
+  const expressions = liveOrMetaList(
+    vrmExpressionsByNode[comp.nodeId],
+    meta,
+    'expressions'
+  );
 
   const fclSuggestions = [
     ...new Set([
@@ -7138,8 +7178,17 @@ export function PropertiesPanel() {
         {/* Morph targets + expressions — avatar only, shown once model is loaded */}
         {node.kind === 'avatar' &&
           (() => {
-            const morphs = vrmMorphTargetsByNode[node.id] ?? [];
-            const exprs = vrmExpressionsByNode[node.id] ?? [];
+            const meta = assetMetaForNode(node.filePath, assets);
+            const morphs = liveOrMetaList(
+              vrmMorphTargetsByNode[node.id],
+              meta,
+              'morphTargets'
+            );
+            const exprs = liveOrMetaList(
+              vrmExpressionsByNode[node.id],
+              meta,
+              'expressions'
+            );
             if (morphs.length === 0 && exprs.length === 0) return null;
             const listStyle: React.CSSProperties = {
               background: '#111',
