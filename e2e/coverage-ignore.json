@@ -1,5 +1,5 @@
 {
   "_comment": "Control-coverage opt-out. This is pure test metadata, so it lives here in e2e/ rather than as attributes in the frontend markup. 'files' excludes whole frontend-src files from the coverage denominator (entries are matched against the src-relative path; '*' matches within a path segment, '**' matches across segments); 'controls' excludes individual controls by their vs- handle (e.g. 'vs-dev-only-thing') or by 'relpath:line' (e.g. 'pages/Home.tsx:42'). Note: a 'relpath:line' entry is invalidated when the control moves — which is intentional, it forces re-review when the UI is restructured.",
-  "files": [],
+  "files": ["components/editor/numericInputs.tsx"],
   "controls": []
 }

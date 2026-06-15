@@ -9,10 +9,12 @@
  * targeting handle (if any) and whether it is opted out.
  *
  * A control is an intrinsic interactive element (`button`, `input`, `select`,
- * `textarea`, `a` with href) OR any JSX element carrying an
+ * `textarea`, `a` with href), any JSX element carrying an
  * `on{Click,Change,Input,KeyDown,Submit,PointerDown,MouseDown,DoubleClick}`
- * handler. 3D/canvas files (react-three-fiber) are skipped — their handlers are
- * on meshes, not DOM.
+ * handler, OR a usage of a registered reusable interactive component (the
+ * `COMPONENTS` set below — e.g. the numeric-input primitives, whose custom
+ * callback prop names prop-name detection would otherwise miss). 3D/canvas files
+ * (react-three-fiber) are skipped — their handlers are on meshes, not DOM.
  *
  * ── Targeting handle (`vs-` class) ──────────────────────────────────────────
  * A control's handle is its `vs-`-prefixed CSS class — the stable targeting
@@ -70,6 +72,16 @@ const HANDLERS = new Set([
   'onDoubleClick',
 ]);
 
+// Reusable interactive components: every USAGE counts as a control, regardless
+// of which callback props it passes. Prop-name detection alone misses these —
+// their handlers are custom-named (`onCommit`, `onSetKeyframe`, `onValueChange`),
+// not DOM-standard — so a usage wiring only `onCommit` would slip through. Each
+// must forward a per-call-site `vs-` handle (a `className` prop spread onto its
+// root) so distinct usages are attributed independently; the component's own
+// internal controls are opted out in `coverage-ignore.json` (implementation, not
+// a distinct interface surface). Extend this set as more primitives are added.
+const COMPONENTS = new Set(['NumInput', 'VecInput', 'SliderInput']);
+
 /** Any literal `vs-…` token anywhere in a string. */
 const VS_TOKEN = /vs-[A-Za-z0-9_-]+/g;
 
@@ -123,7 +135,8 @@ function inspectElement(node, tagText, sf) {
 
   const intrinsic = INTRINSIC.has(tagText);
   const anchor = tagText === 'a' && (hasHref || hasHandler);
-  if (!intrinsic && !anchor && !hasHandler) return null;
+  const component = COMPONENTS.has(tagText);
+  if (!intrinsic && !anchor && !hasHandler && !component) return null;
   return { tag: tagText, handle: handles[0] ?? null, handles };
 }
 

@@ -4251,6 +4251,7 @@ export function PropertiesPanel() {
         <div style={sectionHeader}>{t('transform.header')}</div>
 
         <VecInput
+          className="vs-transform-position"
           groupLabel={t('transform.position')}
           labels={['X', 'Y', 'Z']}
           values={[transform.x, transform.y, transform.z]}
@@ -4323,6 +4324,7 @@ export function PropertiesPanel() {
         {/* Rotation is stored in radians on the transform component but edited in degrees;
             convert at the UI boundary so VecInput stays unit-agnostic. */}
         <VecInput
+          className="vs-transform-rotation"
           groupLabel={t('transform.rotation')}
           labels={['X', 'Y', 'Z']}
           values={[transform.rx / RAD, transform.ry / RAD, transform.rz / RAD]}
@@ -4393,6 +4395,7 @@ export function PropertiesPanel() {
         />
 
         <VecInput
+          className="vs-transform-scale"
           groupLabel={t('transform.scale')}
           labels={['X', 'Y', 'Z']}
           values={[transform.sx, transform.sy, transform.sz]}

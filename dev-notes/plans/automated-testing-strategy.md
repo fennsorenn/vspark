@@ -66,6 +66,13 @@ a navigable, externally-addressable DOM, not hidden test hooks.)
   correct trigger to re-review that control's tests.
 - **No test-only metadata in `src/`.** Coverage opt-out lives in `e2e/coverage-ignore.json`, never as
   `data-*` props in the frontend.
+- **Reusable interactive components forward a per-call-site handle.** A reusable control (e.g. the
+  `NumInput`/`VecInput`/`SliderInput` primitives) accepts a `className` prop spread onto its root, and
+  each _usage_ passes a distinct `vs-` handle — so the N places it appears are attributed
+  independently rather than "tested once → covered everywhere". The component _definition_ file's
+  internal controls are opted out (implementation, not a surface). The enumerator recognises such
+  components via a `COMPONENTS` registry in `controls.mjs`, so their usages are detected even when they
+  pass only custom-named callbacks (`onCommit`, `onSetKeyframe`) that DOM-handler-name detection misses.
 - **Cost, stated honestly:** adding a `vs-` handle is comparable per-control effort to a `data-testid`;
   the win is that the artifact is multi-consumer (theming/addons/tests) rather than scaffolding.
   Control-coverage attribution by class is slightly fuzzier than a globally-unique id but acceptable.
@@ -204,7 +211,8 @@ committed coverage baseline deferred to Phase 9.
 
 The denominator is **every interactive control in the frontend**, enumerated from the TypeScript
 AST (`e2e/scripts/controls.mjs`) — intrinsic interactive elements + any JSX element with an
-`on{Click,Change,…}` handler; 3D/canvas files skipped. Two metrics share that honest denominator:
+`on{Click,Change,…}` handler + usages of registered reusable components (`COMPONENTS` set);
+3D/canvas files skipped. Two metrics share that honest denominator:
 **control coverage** (controls whose `vs-` handle was interacted with / active controls) and
 **instrumentation** (controls with a `vs-` handle / active controls). Exemplar today: 4 / 457 (0.9%) —
 the full count, not the instrumented subset.
