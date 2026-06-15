@@ -42,6 +42,12 @@ export interface CollectionConfig<T extends object> {
   channels?: string[];
   /** Ack authority: 'self' on the home peer, the home's peer id elsewhere. */
   authority?: 'self' | string;
+  /** Top-level numeric fields holding a wall-clock timestamp (ms). On every
+   *  inbound op/snapshot the peer translates them from the immediate sender's
+   *  clock into the local clock (hop-wise; see toLocalTime), so timestamps stay
+   *  phase-correct across peers with skewed clocks. Local writes are untouched
+   *  (already in the local frame). */
+  clockFields?: string[];
 }
 
 export type Selector = string | { subtree: string } | '**';

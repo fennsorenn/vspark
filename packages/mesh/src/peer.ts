@@ -272,6 +272,30 @@ export class MeshPeer implements PeerCore {
     return localTs + this.clockOffset(peerId);
   }
 
+  /** Hop-wise clock localization for an inbound doc: translate each of the
+   *  collection's `clockFields` from the immediate sender's clock into ours.
+   *  Returns a copy with the corrected fields, or the original when nothing
+   *  changed (no clockFields, no offset, or non-numeric values). */
+  private localizeClock<T extends object>(
+    col: Collection<T>,
+    data: unknown,
+    senderId: string
+  ): unknown {
+    const fields = col.cfg.clockFields;
+    if (!fields?.length || senderId === this.id) return data;
+    if (!data || typeof data !== 'object') return data;
+    let out: Record<string, unknown> | null = null;
+    for (const f of fields) {
+      const v = (data as Record<string, unknown>)[f];
+      if (typeof v !== 'number') continue;
+      const local = this.toLocalTime(senderId, v);
+      if (local === v) continue;
+      out ??= { ...(data as Record<string, unknown>) };
+      out[f] = local;
+    }
+    return out ?? data;
+  }
+
   private startClockSync(peerId: string): void {
     this.stopClockSync(peerId);
     const state: ClockState = {
@@ -590,6 +614,13 @@ export class MeshPeer implements PeerCore {
     const authority = col.cfg.authority ?? 'self';
     const guarded = !!env.ack && authority === 'self' && ch.ack === 'authority';
 
+    // Hop-wise clock localization (skipped on the authority-correction path: a
+    // correction echoes the value straight back to the sender via the ack, so
+    // it must stay in the sender's frame). The localized doc is applied AND
+    // relayed, so the next hop translates from us.
+    if (env.op === 'upsert' && !guarded)
+      data = this.localizeClock(col, data, senderId);
+
     const preRecipients =
       env.op === 'remove'
         ? this.recipients(col, env.id, env.path, env.ch)
@@ -756,6 +787,9 @@ export class MeshPeer implements PeerCore {
       } catch {
         continue; // snapshot doc fails validation — skip it
       }
+      // Hop-wise clock localization, same as a live op (the snapshot sender's
+      // stored timestamps are in ITS frame).
+      data = this.localizeClock(col, data, senderId);
       const v = d.v ?? { t: 0, c: 0, n: senderId };
       const change = col.applyOp('upsert', d.id, undefined, data, v, {
         origin: senderId,

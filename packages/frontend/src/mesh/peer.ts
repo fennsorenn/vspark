@@ -73,6 +73,13 @@ const PARENTS: Partial<
       : null,
 };
 
+/** Wall-clock fields (ms) translated from the backend's clock into this tab's
+ *  clock on receipt, so a scheduled animation's playhead is phase-exact even
+ *  when the browser and server clocks are skewed. */
+const CLOCK_FIELDS: Partial<Record<string, string[]>> = {
+  scheduled_animation: ['startEpoch'],
+};
+
 let _init: Promise<MeshHandles> | null = null;
 
 function tabUuid(): string {
@@ -118,6 +125,7 @@ async function doInit(): Promise<MeshHandles> {
     collections[rtype] = peer.collection<Dto>(rtype, {
       parent: PARENTS[rtype],
       authority: serverPeerId,
+      clockFields: CLOCK_FIELDS[rtype],
     });
 
   // Subscribe to every document rtype; re-arm after each reconnect (the peer

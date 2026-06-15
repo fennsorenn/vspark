@@ -49,6 +49,8 @@ interface RtypeBinding {
    *  a remote projection riding a placed-object subscription (replica-only:
    *  fans out to our tabs, never touches SQLite). §9 step D. */
   persists?: (dto: Dto) => boolean;
+  /** Wall-clock fields (ms) translated hop-wise into each receiver's clock. */
+  clockFields?: string[];
 }
 
 const rowExists = (table: string, id: unknown): boolean =>
@@ -221,13 +223,16 @@ const BINDINGS: RtypeBinding[] = [
     rtype: 'scheduled_animation',
     table: 'scheduled_animations',
     // Timeline entry → its avatar node, so it rides the scene-subtree
-    // grants/subscriptions cross-type. No per-server path: clipId is universal
-    // and startEpoch is clock-anchored (clock localization lands in step 1b).
+    // grants/subscriptions cross-type. No per-server path: clipId is universal.
+    // startEpoch is a wall-clock anchor (ms) — translated hop-wise into each
+    // receiving peer's clock (incl. this server → its own browser tabs) so the
+    // playhead is phase-exact across skewed clocks.
     parent: (d) =>
       typeof d.avatarNodeId === 'string'
         ? { rtype: 'scene_node', id: d.avatarNodeId }
         : null,
     persists: (d) => rowExists('scene_nodes', d.avatarNodeId),
+    clockFields: ['startEpoch'],
   },
 ];
 
@@ -364,6 +369,7 @@ function bindCollection(
     parent: b.parent,
     validate: b.validate,
     authority: 'self',
+    clockFields: b.clockFields,
   });
   COLLECTIONS.set(b.rtype, col);
   if (!r?.load) return col;

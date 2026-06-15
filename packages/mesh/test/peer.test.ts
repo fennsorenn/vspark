@@ -454,6 +454,59 @@ describe('peer clock sync', () => {
     expect(a.toLocalTime('nobody', 123)).toBe(123);
     a.close();
   });
+
+  it('localizes clockFields hop-wise on snapshot and live ops', async () => {
+    const lb = createLoopbackPair('A', 'B');
+    const SKEW = 5000; // B's wall clock runs 5s ahead of A's
+    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
+    const b = createMeshPeer({
+      identity: { peerId: 'B' },
+      transports: [lb.b],
+      now: () => Date.now() + SKEW,
+    });
+    // B is the authority/writer; A is a read subscriber. startEpoch is a
+    // wall-clock anchor that must arrive in A's frame.
+    const bb = b.collection<Node>('sched', {
+      authority: 'self',
+      clockFields: ['startEpoch'],
+    });
+    const aa = a.collection<Node>('sched', {
+      authority: 'B',
+      clockFields: ['startEpoch'],
+    });
+    b.grants.grant({
+      grantee: 'A',
+      entityRtype: 'sched',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { read: true, update: false, create: false, delete: false },
+    });
+    await lb.flush(); // connect + clock samples
+    try {
+      // Pre-existing doc → delivered via the subscription snapshot.
+      bb.create({ id: 's1', name: 'x', startEpoch: Date.now() + SKEW });
+      await a.subscribe('B', {
+        entityRtype: 'sched',
+        entityId: '*',
+        includeDescendants: false,
+        pathPrefix: '',
+      });
+      expect(
+        Math.abs((aa.get('s1')!.startEpoch as number) - Date.now())
+      ).toBeLessThan(50);
+
+      // Live op after the subscription is active.
+      bb.create({ id: 's2', name: 'y', startEpoch: Date.now() + SKEW + 1000 });
+      await lb.flush();
+      expect(
+        Math.abs((aa.get('s2')!.startEpoch as number) - (Date.now() + 1000))
+      ).toBeLessThan(50);
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
 });
 
 describe('tombstone scoping + epoch reset', () => {
