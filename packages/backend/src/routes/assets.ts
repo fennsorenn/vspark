@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { randomUUID, createHash } from 'crypto';
-import { writeFileSync, unlinkSync, mkdirSync } from 'fs';
+import { writeFileSync, unlinkSync, mkdirSync, statSync } from 'fs';
 import { join, extname } from 'path';
 import { getDb } from '../db/index.js';
+import { extractVrmMetadata } from '../vrm/metadata.js';
 import {
   UPLOADS_DIR,
   allocateFilename,
@@ -70,14 +71,22 @@ router.post('/projects/:projectId/assets', (req, res) => {
   const assetDir = join(UPLOADS_DIR, req.params.projectId, sub);
   const filename = allocateFilename(assetDir, name);
   const storedPath = `/uploads/${req.params.projectId}/${sub}/${filename}`;
-  writeFileSync(join(assetDir, filename), buffer);
+  const absPath = join(assetDir, filename);
+  writeFileSync(absPath, buffer);
   const id = randomUUID();
   // Store the content hash so presets can re-link this file by hash on
   // instantiate (without it, non-embedded presets lose the model/animation).
   const hash = createHash('sha256').update(buffer).digest('hex');
+  // Pre-extract VRM/GLB metadata (bones/materials/blendshapes/expressions) so
+  // the frontend can populate UI lists without loading the model in the
+  // viewport. Non-model files / non-GLB just store null. (See vrm/metadata.ts.)
+  const meta = ext === '.vrm' || ext === '.glb' || ext === '.gltf'
+    ? extractVrmMetadata(absPath)
+    : null;
+  const mtime = statSync(absPath).mtimeMs.toString();
   getDb()
     .prepare(
-      'INSERT INTO asset_files (id, project_id, original_name, stored_path, mime_type, size, hash) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO asset_files (id, project_id, original_name, stored_path, mime_type, size, hash, metadata, file_mtime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )
     .run(
       id,
@@ -86,7 +95,9 @@ router.post('/projects/:projectId/assets', (req, res) => {
       storedPath,
       mimeType ?? 'application/octet-stream',
       buffer.length,
-      hash
+      hash,
+      meta ? JSON.stringify(meta) : null,
+      mtime
     );
   res.status(201).json({
     ok: true,

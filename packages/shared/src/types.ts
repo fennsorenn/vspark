@@ -350,6 +350,20 @@ export interface Avatar {
   createdAt: string;
 }
 
+/**
+ * UI-population metadata extracted from a VRM/GLB at upload time (and refreshed
+ * when the file's content hash drifts). Lets the frontend list bones, materials,
+ * blendshapes and expressions without loading the model in the viewport. Not
+ * used for live rendering. All lists are deduped; non-VRM models simply have
+ * empty bone/expression lists.
+ */
+export interface VrmAssetMetadata {
+  bones: string[]; // VRM humanoid bone names
+  materials: string[]; // glTF material names
+  morphTargets: string[]; // morph target (blendshape) names
+  expressions: string[]; // VRM expression / blendshape-group names
+}
+
 export interface AssetFile {
   id: string;
   projectId: string;
@@ -360,6 +374,7 @@ export interface AssetFile {
   hash: string;
   isDeduplicated: boolean;
   createdAt: string;
+  metadata: VrmAssetMetadata | null;
 }
 
 // Animation clip

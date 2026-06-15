@@ -1,0 +1,1 @@
+export default "-- 034_asset_metadata: cache extracted VRM/GLB metadata (bones, materials, morph\n-- targets, expressions) as JSON on asset_files, plus the file mtime used as a\n-- cheap freshness gate (alongside size + hash) to decide when to re-extract.\nALTER TABLE asset_files ADD COLUMN metadata TEXT;\nALTER TABLE asset_files ADD COLUMN file_mtime TEXT;\n";

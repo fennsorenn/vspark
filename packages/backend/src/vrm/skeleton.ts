@@ -22,7 +22,12 @@ interface GltfJson {
   };
 }
 
-function parseGlb(filePath: string): GltfJson {
+/**
+ * Read the embedded glTF JSON chunk out of a GLB binary. Shared by every
+ * server-side model probe (skeleton extraction, asset metadata) so there's a
+ * single, dependency-free GLB reader.
+ */
+export function readGlbJson<T = unknown>(filePath: string): T {
   const buf = readFileSync(filePath);
   // GLB magic: "glTF" = 0x46546C67 LE
   if (buf.readUInt32LE(0) !== 0x46546c67)
@@ -30,7 +35,11 @@ function parseGlb(filePath: string): GltfJson {
   const jsonLen = buf.readUInt32LE(12);
   const jsonType = buf.readUInt32LE(16);
   if (jsonType !== 0x4e4f534a) throw new Error('GLB chunk 0 is not JSON');
-  return JSON.parse(buf.toString('utf8', 20, 20 + jsonLen)) as GltfJson;
+  return JSON.parse(buf.toString('utf8', 20, 20 + jsonLen)) as T;
+}
+
+function parseGlb(filePath: string): GltfJson {
+  return readGlbJson<GltfJson>(filePath);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -138,6 +138,21 @@ Tree panel on the left side of the editor. Renders the active scene's node hiera
 - **Viewer link** (↗, camera nodes only) → opens `/viewer/:projectId/:nodeId` in a new tab
 - **Context menu** (right-click): real popup menu (was `window.prompt` based; refactored in `13f0021`) using the generic `components/editor/ContextMenu.tsx`. The legacy in-place ContextMenu was renamed to `SceneNodeContextMenu`. Items include Add Child, Move Into, Unparent, Delete, plus Copy / Paste entries that gate on the editor clipboard kind (`d26518a`, `47af189`) — see [clipboard.md](clipboard.md).
 
+### Bone list source (WIP — asset metadata)
+
+The SceneGraph bone button / bone rows are being re-pointed to derive their bone
+list from **persistent asset metadata** keyed by the avatar node's `filePath`
+(extracted server-side at upload, stored on `asset_files.metadata` — see
+[backend-api.md](backend-api.md) and [shared-types.md](shared-types.md)), merging
+with / falling back to live `vrmBonesByNode` when the VRM is loaded. This is the
+**first consumer** of the metadata path; it replaces the canonical
+`VRM_BONE_NAMES` stopgap fallback. The motivation is to make the bone list a pure,
+synchronous function of `filePath → metadata` rather than a side-effect of the
+viewport's async GLTF load, fixing two failure modes: avatars in a non-active
+scene (never mounted by `SceneNodes`, so no live bones) and model swaps that went
+stale until page reload. Material slots and expression/blendshape dropdowns are
+planned follow-up consumers; live manipulation still uses the loaded VRM.
+
 ### Inline sections
 
 **BehaviorsSection** (component renamed from `NodeComponentsSection`): shows ordered list of `behaviors` rows for the selected node (sorted by `sort_order`). Excludes camera effects. Supports enable toggle and remove.

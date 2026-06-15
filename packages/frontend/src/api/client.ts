@@ -128,7 +128,20 @@ function mapAsset(r: Record<string, unknown>): AssetFile {
     url: r.stored_path as string,
     mimeType: (r.mime_type ?? '') as string,
     kind: guessAssetKind((r.original_name as string) ?? ''),
+    metadata: parseAssetMetadata(r.metadata),
   };
+}
+
+/** Parse the asset_files.metadata JSON column (string|object|null) → typed. */
+function parseAssetMetadata(raw: unknown): import('@vspark/shared').VrmAssetMetadata | null {
+  if (raw == null) return null;
+  try {
+    return (
+      typeof raw === 'string' ? JSON.parse(raw) : raw
+    ) as import('@vspark/shared').VrmAssetMetadata;
+  } catch {
+    return null;
+  }
 }
 
 function guessAssetKind(name: string): AssetKind {
@@ -201,6 +214,10 @@ export interface AssetFile {
   url: string;
   mimeType: string;
   kind: AssetKind;
+  /** VRM/GLB metadata pre-extracted at upload time (bones, materials, morph
+   *  targets, expressions). Null for non-model files. Used to populate UI
+   *  lists without loading the model in the viewport. */
+  metadata: import('@vspark/shared').VrmAssetMetadata | null;
 }
 
 export interface BehaviorRecord {

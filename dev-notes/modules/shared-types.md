@@ -11,7 +11,8 @@
 - `Scene` — id, projectId, name, createdAt, updatedAt, nodes
 - `Project` — id, name, description, createdAt, updatedAt, scenes
 - `AnimationClip` — id, name, sourceNodeId, sourceFilePath, clipIndex, label, startTime, endTime, duration, fps
-- `AssetFile` — id, projectId, originalName, storedPath, mimeType, size, hash, isDeduplicated
+- `AssetFile` — id, projectId, originalName, storedPath, mimeType, size, hash, isDeduplicated. **WIP:** gains optional `metadata: VrmAssetMetadata | null` (the frontend DTO parses the `metadata` JSON column in `api/client.ts`).
+- `VrmAssetMetadata` (WIP) — `{ bones, materials, morphTargets, expressions }`, all string lists, extracted server-side from a VRM/GLB's embedded glTF JSON at upload time (see `vrm/metadata.ts`, [backend-api.md](backend-api.md)). Read-only UI-population data keyed by asset; not used by live rendering/pose/material-apply.
 - `Behavior` (the behavioral-driver record, formerly `NodeComponent`) — id, nodeId, kind, enabled, config (any), sortOrder. The frontend record type is `Behavior` / `BehaviorRecord` (in `editorStore.ts` / `api/client.ts`); persisted in the `behaviors` table.
 - `Logic` — `{ id, ownerKind: LogicOwnerKind, ownerId, name, enabled, descriptor, ... }` — the user-built standalone-signal-graph record (formerly `Graph`); `LogicOwnerKind = 'project' | 'scene_node' | 'compose_layer'`.
 - `Landmark` — `{ x, y, z, visibility? }` (MediaPipe format)

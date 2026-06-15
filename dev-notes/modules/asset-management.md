@@ -31,8 +31,10 @@ delete routes are generic and unchanged for the new kinds.
 | stored_path | TEXT | absolute path on disk |
 | mime_type | TEXT | |
 | size | INTEGER | bytes |
-| hash | TEXT | for deduplication |
+| hash | TEXT | for deduplication; also the freshness key for `metadata` (WIP) |
 | is_deduplicated | INTEGER | 0/1 |
+| metadata | TEXT | **WIP** (migration 034): JSON `VrmAssetMetadata` (`{ bones, materials, morphTargets, expressions }`) pre-extracted from VRM/GLB at upload via `vrm/metadata.ts`. Nullable. |
+| file_mtime | TEXT | **WIP** (migration 034): cheap freshness gate (with `size`) so `discoverAssets` avoids sha256-ing every file on every listing. Nullable. |
 | created_at | TEXT | |
 
 Index on `(project_id, hash)` for dedup and discovery lookups.
@@ -60,7 +62,7 @@ DELETE /assets/:assetId
 
 - `sanitizeStem(name)` — removes path separators, spaces, and non-safe chars from the filename stem
 - `allocateFilename(dir, stem, ext)` — increments suffix until a free name is found
-- `discoverAssets(projectId)` — scans all subdirs under `uploads/<projectId>/` and upserts missing DB records
+- `discoverAssets(projectId)` — scans all subdirs under `uploads/<projectId>/` and upserts missing DB records. **WIP:** extracts `metadata` for newly-discovered VRM/GLB files and runs a freshness/self-heal loop — `statSync` size+mtime gate trusts stored `hash`+`metadata`; on a mismatch it recomputes sha256 and, if the hash drifted, updates `hash`+`size`+`file_mtime`+`metadata` together. Also closes the existing gap where a file overwritten in place kept a stale hash (which broke preset re-linking by hash). See [backend-api.md](backend-api.md).
 
 ## Frontend — `AssetManager.tsx`
 
