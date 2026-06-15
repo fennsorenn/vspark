@@ -8,13 +8,16 @@ import { join } from 'path';
  * read-back), never appearance — there is deliberately no screenshot diffing.
  *
  * Each `playwright test` run gets a brand-new SQLite DB (path stamped with the
- * run's start time), so tests start from a known-empty backend without any
- * cross-run leakage. The frontend dev server proxies /api + /ws to the backend
- * (see packages/frontend/vite.config.ts), so the browser only talks to :5173.
+ * run's start time + pid), so tests start from a known-empty backend without any
+ * cross-run leakage. The frontend dev server proxies /api + /ws to the backend.
+ *
+ * Ports are env-overridable (PW_FRONTEND_PORT / PW_BACKEND_PORT) so multiple
+ * suites can run CONCURRENTLY on distinct port pairs (e.g. parallel agents each
+ * writing a different editor-flow spec) without colliding. Defaults: 5173/3001.
  */
-const FRONTEND_PORT = 5173;
-const BACKEND_PORT = 3001;
-const E2E_DB = join(tmpdir(), `vspark-e2e-${Date.now()}.db`);
+const FRONTEND_PORT = Number(process.env.PW_FRONTEND_PORT) || 5173;
+const BACKEND_PORT = Number(process.env.PW_BACKEND_PORT) || 3001;
+const E2E_DB = join(tmpdir(), `vspark-e2e-${Date.now()}-${process.pid}.db`);
 
 export default defineConfig({
   testDir: './tests',
