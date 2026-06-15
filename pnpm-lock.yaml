@@ -102,6 +102,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      '@vitest/coverage-istanbul':
+        specifier: ^3.2.6
+        version: 3.2.6(vitest@3.2.6(@types/debug@4.1.13)(@types/node@25.6.0)(jsdom@25.0.1))
       esbuild:
         specifier: ^0.28.0
         version: 0.28.0
