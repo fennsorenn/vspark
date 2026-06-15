@@ -154,7 +154,22 @@ run (4/5 on the home exemplar); `COVERAGE=1` run → nyc report works once `--cw
 repo root (frontend src lives outside `e2e/`). Annotation convention + committed baseline deferred
 to Phase 9.
 
-#### 4a — Control/surface coverage (custom reporter)
+#### 4a — Control/surface coverage + instrumentation coverage (custom reporter)
+
+⚠️ **Denominator caveat → second metric.** Control coverage only counts controls that carry a
+`data-testid`, so a high % is deceiving if few components are instrumented. A companion
+**instrumentation-coverage** metric measures denominator completeness: of all interactive component
+files (button/input/select/textarea/anchor + `on{Click,Change,…}` handlers; 3D/canvas excluded),
+how many carry ≥1 `data-testid`? Built in `e2e/scripts/instrumentation.mjs`; the reporter prints it
+next to control coverage (exemplar today: control 80% of 5, but instrumentation only 1/27 = 3.7% —
+exactly surfacing that the 80% is over a tiny instrumented subset).
+
+**Staleness manifest** (`e2e/instrumentation-manifest.json`, committed): a per-file signature of
+each interactive component's surface. `instrument:check` flags a file STALE when an edit changes
+that surface (adds a control, drops a testid) or NEW when an interactive component isn't recorded —
+so new UI elements can't slip past un-instrumented. `instrument:bless` re-records after review.
+Wire `instrument:check --strict` into CI/pre-commit to force the review (Phase 9).
+
 "Of all operable controls, which does some test exercise?" — NOT interaction-*path* coverage
 (combinatorially infinite — out of scope).
 

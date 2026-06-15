@@ -48,6 +48,32 @@ with (recorded by `fixtures/controlCoverage.ts`) and prints the % plus the **"ne
 with"** list — the controls no test exercises. A machine-readable copy lands in
 `.coverage/control-coverage.json`.
 
+### Instrumentation coverage (is the control-coverage denominator complete?)
+Control coverage only sees controls that carry a `data-testid`, so a component with interactive
+UI but **no** test ids is invisible and silently inflates the %. Instrumentation coverage measures
+that blind spot:
+
+```bash
+pnpm --filter @vspark/e2e instrument:report   # % of interactive components that carry a testid + blind-spot list
+pnpm --filter @vspark/e2e instrument:check     # files whose interactive surface drifted vs the manifest
+pnpm --filter @vspark/e2e instrument:bless      # record the current surface as reviewed (writes the manifest)
+```
+
+`scripts/instrumentation.mjs` counts interactive markers (`button`/`input`/`select`/`textarea`/
+anchor + `on{Click,Change,Input,KeyDown,Submit}` handlers) per `.tsx` file (heuristic, regex — not
+a full parser; 3D/canvas files are excluded, opt out elsewhere with an `instrumentation-ignore-file`
+marker comment). It reports the fraction of interactive components carrying ≥1 `data-testid` and
+lists those with none. The reporter prints this **next to** control coverage so a high control % is
+never read in isolation.
+
+**Staleness manifest (`instrumentation-manifest.json`, committed).** Each interactive file has a
+signature of its interactive surface (tag/handler/testid counts). `instrument:bless` records them;
+`instrument:check` flags a file **STALE** when an edit changes that surface (adds a control, drops a
+testid) and **NEW** when an interactive component isn't in the manifest yet — so newly-added UI
+elements can't slip past un-instrumented. Editing handler *internals* does not trip it. Re-review
+the flagged files (add testids as needed) and `instrument:bless` to clear them. Wire
+`instrument:check --strict` into CI/pre-commit to enforce the review.
+
 ### E2E code coverage (which source lines does a UI run reach?)
 ```bash
 pnpm --filter @vspark/e2e e2e:coverage     # COVERAGE=1 → vite instruments via istanbul

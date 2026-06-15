@@ -4,6 +4,8 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 // @ts-expect-error — plain .mjs helper, no types
 import { collectInventory } from '../scripts/inventory-controls.mjs';
+// @ts-expect-error — plain .mjs helper, no types
+import { analyzeAll } from '../scripts/instrumentation.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COVERAGE_DIR = join(__dirname, '..', '.coverage');
@@ -38,13 +40,29 @@ export default class ControlCoverageReporter implements Reporter {
       ? Math.round((covered.length / inventory.length) * 1000) / 10
       : 0;
 
+    // Instrumentation coverage contextualises the control-coverage denominator:
+    // control coverage only sees instrumented controls, so a high % means little
+    // if few components are instrumented in the first place.
+    const inst = analyzeAll() as {
+      interactive: { rel: string }[];
+      instrumented: { rel: string }[];
+      pct: number;
+    };
+
     const line = '─'.repeat(60);
     console.log(`\n${line}`);
     console.log(
-      `UI control coverage: ${covered.length} / ${inventory.length} controls exercised (${pct}%)`
+      `UI control coverage:   ${covered.length} / ${inventory.length} instrumented controls exercised (${pct}%)`
+    );
+    console.log(
+      `Instrumentation cover: ${inst.instrumented.length} / ${inst.interactive.length} interactive components have a test id (${inst.pct}%)`
+    );
+    console.log(
+      '  ↳ control coverage only counts instrumented controls; the instrumentation' +
+        ' number is its denominator-completeness. Both are trend signals.'
     );
     if (untouched.length) {
-      console.log('Never interacted with:');
+      console.log('Inventoried controls never interacted with:');
       for (const id of untouched) console.log(`  ${id}`);
     } else if (inventory.length) {
       console.log('All inventoried controls were exercised. 🎉');
@@ -58,10 +76,17 @@ export default class ControlCoverageReporter implements Reporter {
       JSON.stringify(
         {
           generatedAt: new Date().toISOString(),
-          total: inventory.length,
-          covered: covered.length,
-          percent: pct,
-          untouched,
+          control: {
+            total: inventory.length,
+            covered: covered.length,
+            percent: pct,
+            untouched,
+          },
+          instrumentation: {
+            interactiveComponents: inst.interactive.length,
+            instrumentedComponents: inst.instrumented.length,
+            percent: inst.pct,
+          },
         },
         null,
         2
