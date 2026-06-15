@@ -33,7 +33,25 @@ export default defineConfig({
     baseURL: `http://localhost:${FRONTEND_PORT}`,
     trace: 'on-first-retry',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        // Force deterministic software WebGL (SwiftShader via ANGLE) so the
+        // 3D editor viewport renders identically headless/CI regardless of the
+        // host GPU. `--enable-unsafe-swiftshader` is required on recent Chromium
+        // to allow software WebGL in headless mode.
+        launchOptions: {
+          args: [
+            '--use-gl=angle',
+            '--use-angle=swiftshader',
+            '--enable-unsafe-swiftshader',
+          ],
+        },
+      },
+    },
+  ],
   webServer: [
     {
       // Backend: non-watch tsx run against a throwaway DB, multiplayer disabled

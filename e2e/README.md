@@ -28,6 +28,12 @@ The config (`playwright.config.ts`) starts two servers:
 
 Each run gets a fresh DB, so tests start from a known-empty backend.
 
+**Headless WebGL.** The chromium project launches with `--use-gl=angle --use-angle=swiftshader
+--enable-unsafe-swiftshader`, forcing deterministic software WebGL so the React-Three-Fiber editor
+viewport renders identically regardless of host GPU (and in GPU-less CI). `tests/editor-webgl.spec.ts`
+is the spike proving the viewport mounts a live WebGL context headless — the basis for editor-level
+(Phase 8) E2E breadth.
+
 ## Conventions
 
 - **Selecting controls — never by visible text** (the UI is i18n'd EN/DE, so text assertions break
