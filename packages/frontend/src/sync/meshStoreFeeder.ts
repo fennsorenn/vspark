@@ -24,6 +24,7 @@ import {
   type Behavior,
   type StageObject,
   type ScheduledAnimation,
+  type AnimationClipDoc,
 } from '../store/editorStore';
 import type { CameraEffectRecord, ComposeLayerRecord, TrackClipRecord } from '../api/client';
 
@@ -134,6 +135,17 @@ export function startMeshStoreFeeder(): void {
         const e = c.doc as unknown as ScheduledAnimation | undefined;
         if (!e || parentIsRemote(e.avatarNodeId)) return;
         s.upsertScheduledAnimation(e);
+      });
+      h.collections.animation_clip.observe('**', (c) => {
+        if (c.op === 'ephemeral') return;
+        const s = useEditorStore.getState();
+        if (c.op === 'remove') {
+          s.removeAnimationClip(c.id);
+          return;
+        }
+        const clip = c.doc as unknown as AnimationClipDoc | undefined;
+        if (!clip || parentIsRemote(clip.sourceNodeId)) return;
+        s.upsertAnimationClip(clip);
       });
     })
     .catch((err) => console.warn('[mesh] store feeder init failed:', err));

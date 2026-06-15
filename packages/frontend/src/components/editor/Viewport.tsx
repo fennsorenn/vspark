@@ -54,7 +54,8 @@ import { useEditorStore } from '../../store/editorStore';
 import type {
   StageObject,
   Behavior,
-  ApiAnimationState,
+  ScheduledAnimation,
+  AnimationClipDoc,
 } from '../../store/editorStore';
 import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync';
 
@@ -779,58 +780,71 @@ function _sendExpressionsReport(nodeId: string, expressions: string[]): void {
   );
 }
 
+interface ResolvedSchedule {
+  clipId: string;
+  url: string;
+  offset: number;
+  speed: number;
+  loop: boolean;
+  duration: number;
+  startEpoch: number;
+  msUntilNext: number | null;
+}
+
 /**
- * Resolve which clip in an api-driven queue should be playing right now.
- * Returns the clip URL + time offset within that clip, and how many ms until the next clip starts
- * (null if no advancement scheduled, i.e. holding/looping final clip indefinitely).
+ * Resolve which entry on an avatar's scheduled_animation timeline should be
+ * playing at `nowMs` (this client's clock; entry start epochs are translated to
+ * it on receive). The timeline is append-only and ordered by start time: the
+ * active entry is the latest one whose start has passed. Past entries are
+ * ignored, the next entry's start gives `msUntilNext` (so the caller can re-arm
+ * a switch). Returns null when nothing is scheduled or the clip can't be
+ * resolved to a source — the caller then falls back to the idle clip.
  */
-function _resolveApiAnimation(
-  state: ApiAnimationState,
+function _resolveScheduledAnimation(
+  nodeId: string,
+  scheduled: Record<string, ScheduledAnimation>,
+  clipsById: Record<string, AnimationClipDoc>,
   nowMs: number
-): { url: string; offset: number; msUntilNext: number | null } | null {
-  const { queue, loopMode, startedAt } = state;
-  if (queue.length === 0 || startedAt == null) return null;
-  const elapsedSec = Math.max(0, (nowMs - startedAt) / 1000);
-  const totalSec = queue.reduce((s, e) => s + Math.max(0.001, e.duration), 0);
+): ResolvedSchedule | null {
+  const entries = Object.values(scheduled)
+    .filter((e) => e.avatarNodeId === nodeId)
+    .sort((a, b) => a.startEpoch - b.startEpoch);
+  if (entries.length === 0) return null;
 
-  // Determine effective elapsed within the cycle, given loopMode.
-  let phase = elapsedSec;
-  if (elapsedSec < totalSec) {
-    // Still in initial pass.
-    phase = elapsedSec;
-  } else if (loopMode === 'queue') {
-    phase = elapsedSec % totalSec;
-  } else if (loopMode === 'last') {
-    // Hold at start of last clip, then loop within it.
-    const last = queue[queue.length - 1];
-    const lastDur = Math.max(0.001, last.duration);
-    const tailStart = totalSec - lastDur;
-    const inLast = (elapsedSec - tailStart) % lastDur;
-    return { url: last.sourceUrl, offset: inLast, msUntilNext: null };
-  } else {
-    // 'none' — hold last frame of last clip.
-    const last = queue[queue.length - 1];
-    return {
-      url: last.sourceUrl,
-      offset: Math.max(0, last.duration - 0.001),
-      msUntilNext: null,
-    };
+  // Active = latest entry whose start has passed. Before the first entry starts
+  // there is nothing to play yet (fall back to idle until it's due).
+  let activeIdx = -1;
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].startEpoch <= nowMs) activeIdx = i;
+    else break;
   }
+  if (activeIdx < 0) return null;
 
-  // Find the clip within `phase`.
-  let acc = 0;
-  for (const entry of queue) {
-    const dur = Math.max(0.001, entry.duration);
-    if (phase < acc + dur) {
-      const offset = phase - acc;
-      const msUntilNext = Math.max(0, (acc + dur - phase) * 1000);
-      return { url: entry.sourceUrl, offset, msUntilNext };
-    }
-    acc += dur;
-  }
-  // Should be unreachable.
-  const last = queue[queue.length - 1];
-  return { url: last.sourceUrl, offset: 0, msUntilNext: null };
+  const active = entries[activeIdx];
+  const clip = clipsById[active.clipId];
+  if (!clip) return null;
+  const duration = clip.duration > 0 ? clip.duration : 0.001;
+
+  const next = entries[activeIdx + 1] ?? null;
+  const msUntilNext = next ? Math.max(0, next.startEpoch - nowMs) : null;
+
+  const elapsedSec = Math.max(0, (nowMs - active.startEpoch) / 1000) * active.speed;
+  const offset = active.loop
+    ? elapsedSec % duration
+    : next
+      ? elapsedSec
+      : Math.min(elapsedSec, duration - 0.001);
+
+  return {
+    clipId: active.clipId,
+    url: clip.sourceFilePath,
+    offset,
+    speed: active.speed,
+    loop: active.loop,
+    duration,
+    startEpoch: active.startEpoch,
+    msUntilNext,
+  };
 }
 
 function AvatarNode({
@@ -928,23 +942,30 @@ function AvatarNode({
   const animComp = node.components?.animation as
     | { idleUrl?: string; speed?: number; offset?: number }
     | undefined;
-  const apiAnim = useEditorStore((s) => s.apiAnimationByNode[node.id] ?? null);
-  // Tick that re-fires when the active clip in the api-driven queue should change.
-  const [apiAnimTick, setApiAnimTick] = useState(0);
-  const apiResolved = apiAnim
-    ? _resolveApiAnimation(apiAnim, Date.now())
-    : null;
+  // Scheduled-animation timeline (synced, clock-anchored playback). Takes
+  // priority over the idle clip; the api_controller appends to it. See
+  // dev-notes/plans/avatar-animation.md.
+  const scheduledAnimations = useEditorStore((s) => s.scheduledAnimations);
+  const animationClipsById = useEditorStore((s) => s.animationClipsById);
+  // Tick that re-fires when the active scheduled entry should advance.
+  const [schedTick, setSchedTick] = useState(0);
+  const schedResolved = _resolveScheduledAnimation(
+    node.id,
+    scheduledAnimations,
+    animationClipsById,
+    Date.now()
+  );
   useEffect(() => {
-    if (!apiResolved || apiResolved.msUntilNext == null) return;
+    if (!schedResolved || schedResolved.msUntilNext == null) return;
     const handle = setTimeout(
-      () => setApiAnimTick((n) => n + 1),
-      Math.max(0, apiResolved.msUntilNext)
+      () => setSchedTick((n) => n + 1),
+      Math.max(0, schedResolved.msUntilNext)
     );
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiAnim, apiAnimTick]);
-  const animUrl = apiResolved?.url ?? animComp?.idleUrl ?? null;
-  const animSpeed = animComp?.speed ?? 1;
+  }, [scheduledAnimations, schedTick]);
+  const animUrl = schedResolved?.url ?? animComp?.idleUrl ?? null;
+  const animSpeed = schedResolved?.speed ?? animComp?.speed ?? 1;
   // The seek offset is re-resolved from a fresh clock inside the async load
   // callback (see the VRM animation effect), since this render-time value goes
   // stale across the load.
@@ -1953,21 +1974,23 @@ function AvatarNode({
       const vrmAction = vrmMixer.clipAction(vrmClip);
       vrmAction.reset().play();
       // Re-resolve the playhead from a FRESH clock + live store here, not the
-      // `animOffset` captured when this effect started: VRM + FBX loading is
-      // async and can take seconds, so the captured value is stale by the
-      // load latency. `startedAt` survives a model swap (keyed by node.id),
-      // so reading it now makes the seek phase-accurate — every collab client
-      // lands on the same playhead regardless of its own load time.
-      const liveApi =
-        useEditorStore.getState().apiAnimationByNode[node.id] ?? null;
-      const liveOffset =
-        (liveApi ? _resolveApiAnimation(liveApi, Date.now()) : null)?.offset ??
-        animComp?.offset ??
-        0;
+      // value captured when this effect started: VRM + FBX loading is async and
+      // can take seconds, so the captured offset is stale by the load latency.
+      // The scheduled entry survives a model swap (keyed by avatar node id), so
+      // reading it now makes the seek phase-accurate — every collab client lands
+      // on the same playhead regardless of its own load time.
+      const liveSched = _resolveScheduledAnimation(
+        node.id,
+        useEditorStore.getState().scheduledAnimations,
+        useEditorStore.getState().animationClipsById,
+        Date.now()
+      );
+      const liveOffset = liveSched?.offset ?? animComp?.offset ?? 0;
+      const liveSpeed = liveSched?.speed ?? animComp?.speed ?? 1;
       vrmAction.time = liveOffset % vrmDuration;
       fbxAction.time = liveOffset % clip.duration;
-      vrmAction.timeScale = animSpeed;
-      fbxAction.timeScale = animSpeed;
+      vrmAction.timeScale = liveSpeed;
+      fbxAction.timeScale = liveSpeed;
 
       animRegistry.set(node.id, {
         action: vrmAction,
@@ -1976,6 +1999,10 @@ function AvatarNode({
         fbxMixer,
         fbxScene: fbx,
         duration: clip.duration,
+        startEpoch: liveSched?.startEpoch ?? null,
+        speed: liveSpeed,
+        loop: liveSched?.loop ?? false,
+        clockAnchored: liveSched != null,
       });
     });
 
@@ -2092,10 +2119,34 @@ function AvatarNode({
     const blend = blendWeightRef.current;
 
     // ── Step 1: animation (always runs, gives us the "animation raw pose") ──────
-    fbxMixerRef.current?.update(delta);
-    if (vrm) {
-      (vrm.humanoid as unknown as { update?: () => void }).update?.();
-      vrmMixerRef.current?.update(delta);
+    // A scheduled clip is clock-anchored: its playhead is derived from the
+    // synced start epoch so every collab client shows the same frame. We set
+    // action.time directly and advance the mixer by 0 (apply, don't integrate).
+    // An idle clip free-runs — the mixer integrates the frame delta as before.
+    const animEntry = animRegistry.get(node.id);
+    if (animEntry?.clockAnchored && animEntry.startEpoch != null) {
+      const elapsed =
+        Math.max(0, (Date.now() - animEntry.startEpoch) / 1000) *
+        animEntry.speed;
+      const vrmDur = animEntry.action.getClip().duration || 0.0001;
+      const fbxDur = animEntry.fbxAction.getClip().duration || 0.0001;
+      animEntry.action.time = animEntry.loop
+        ? elapsed % vrmDur
+        : Math.min(elapsed, vrmDur - 0.0001);
+      animEntry.fbxAction.time = animEntry.loop
+        ? elapsed % fbxDur
+        : Math.min(elapsed, fbxDur - 0.0001);
+      fbxMixerRef.current?.update(0);
+      if (vrm) {
+        (vrm.humanoid as unknown as { update?: () => void }).update?.();
+        vrmMixerRef.current?.update(0);
+      }
+    } else {
+      fbxMixerRef.current?.update(delta);
+      if (vrm) {
+        (vrm.humanoid as unknown as { update?: () => void }).update?.();
+        vrmMixerRef.current?.update(delta);
+      }
     }
 
     // ── Step 2: broadcast pose composition (skipped entirely when blend === 0) ──
