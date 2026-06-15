@@ -5,9 +5,10 @@
 > not an airtight spec — refine it interactively as gaps surface.
 >
 > **Progress:** Phase 0 (Vitest infra) ✅ · Phase 1 (unit exemplars) ✅ · Phase 2 (API
-> integration + `createApp()` refactor) ✅. Phases 3–4 (Playwright + coverage signals) and
-> the full-coverage phases 5–9 are pending. The CI `Test`/`e2e` steps are written but NOT
-> yet pushed (the session's OAuth token lacks GitHub `workflow` scope — apply manually).
+> integration + `createApp()` refactor) ✅ · Phase 3 (functional Playwright exemplars) ✅.
+> Phase 4 (coverage signals) and the full-coverage phases 5–9 are pending. The CI `Test`/`e2e`
+> steps are written but NOT yet pushed (the session's OAuth token lacks GitHub `workflow` scope
+> — apply manually; the e2e job YAML is in `e2e/README.md`).
 
 ## Goal
 
@@ -120,19 +121,23 @@ have no tests. CI (`.github/workflows/ci.yml`) never runs tests.
    migrates a fresh in-memory DB per call.
 3. `test/api.projects.test.ts` — list/create/read-back round-trip + validation + isolation.
 
-### Phase 3 — functional UI (Playwright)
-1. `e2e/` package: `@playwright/test`, `playwright.config.ts` with `webServer` booting backend
-   (test DB) + frontend, and a global setup that seeds a known project via the API.
-2. Exemplar specs — drive the browser like a user, assert on **state**, not appearance. Query by
-   role / `data-testid` / translation value (never hardcoded EN strings). Candidate flows:
-   - Home → create project → open editor → loads with **no console errors / no WebGL context-loss**.
-   - Scene graph: add a node (VRM/camera/light) → appears in tree + properties panel.
-   - i18n smoke: switch EN↔DE → a known control's label changes (catches missing keys).
-   - One **two-level assertion**: after a UI mutation, also hit the REST API from the test to
-     confirm the DB actually changed (catches optimistic-UI-but-silent-write-failure).
-3. CI `e2e` job: official Playwright container (browsers preinstalled) or `playwright install
-   --with-deps`; upload HTML report + traces (`trace: 'on-first-retry'`) as artifacts.
-   **Functional specs required; ungate-able coverage reporter is informational.**
+### Phase 3 — functional UI (Playwright) ✅ DONE (exemplars)
+- `e2e/` workspace package (added to `pnpm-workspace.yaml`): `@playwright/test`,
+  `playwright.config.ts` with TWO `webServer`s (backend via `tsx src/index.ts` on a stamped
+  throwaway DB + multiplayer disabled; Vite frontend which proxies `/api`+`/ws`). `baseURL` is
+  the frontend; the browser only talks to :5173.
+- Run script is named `e2e` (NOT `test`) so the root `pnpm test` aggregation skips it; it's a
+  separate concern/CI job. `lint` runs `tsc --noEmit` and is picked up by `pnpm -r lint`.
+- Each `playwright test` run stamps a fresh SQLite DB path (`vspark-e2e-<ts>.db`) → known-empty
+  backend, no cross-run leak.
+- `e2e/tests/home.spec.ts` (3 specs): home reachable + **no console errors**; create-via-UI →
+  card appears **+ REST read-back** (two-level assertion); open → URL navigates to `/editor/:id`.
+  Controls selected by `data-testid` (added to `Home.tsx`) — i18n-proof.
+- Verified locally against real Chromium (3/3 pass).
+- **Pending: the CI `e2e` job** — written in `e2e/README.md`; not pushed (workflow scope). Uses
+  the official Playwright container, runs `pnpm --filter @vspark/e2e e2e`, uploads the HTML report
+  + traces. Future editor-internal flows (scene graph add-node, i18n switch, no-WebGL-context-loss)
+  belong to Phase 8 breadth; this phase establishes the pattern on the WebGL-free Home page.
 
 ### Phase 4 — UI coverage signals (two complementary metrics)
 
