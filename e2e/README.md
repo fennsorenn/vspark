@@ -30,12 +30,36 @@ Each run gets a fresh DB, so tests start from a known-empty backend.
 
 ## Conventions
 
-- **Select controls by `data-testid`**, not visible text — the UI is i18n'd (EN/DE), so text
-  assertions would break under a locale switch. Add a `data-testid` to any control a test needs.
+- **Selecting controls — never by visible text** (the UI is i18n'd EN/DE, so text assertions break
+  under a locale switch). In priority order:
+  1. **role + accessible name** where a labelled control suffices (resolve the name via the i18n
+     resource, don't hardcode English) — needs no markup at all;
+  2. otherwise the **`vs-` targeting class** (see below). Scope by a parent class for a specific
+     instance, e.g. `page.locator('.vs-project-card').filter({ hasText: name }).locator('.vs-project-open')`.
+
+  Prefer class-*scoped* paths (`.vs-panel .vs-button`) over positional ones — **never `nth-child`**.
 - **Assert state, not looks.** Prefer DOM outcomes plus a REST read-back (`request.get('/api/…')`)
   to prove a mutation actually reached the backend.
 - Tests should be **independent** — seed their own data via the API rather than relying on
   another test's side effects.
+
+### The `vs-` targeting layer (a public contract, not test scaffolding)
+
+Stable test/automation handles are expressed as a dedicated layer of **CSS classes prefixed
+`vs-`**, layered *on top of* styling classes. This layer is a deliberate **public surface** that
+userscripts, browser addons, custom themes AND this test suite all target — so unlike a
+`data-testid` it earns its place in the markup (it has real, multi-consumer value) and we keep it in
+production. Conventions:
+
+- **Reserved prefix.** Styling classes never start with `vs-`; the prefix is what distinguishes the
+  targeting layer (and lets the AST enumerator find handles). One `vs-` class = one logical control.
+- **Stability contract.** Because external consumers depend on them, renaming a `vs-` class is a
+  breaking change — treat the layer as API, don't churn it casually.
+- **No test-only attributes in the markup.** Opt-out and coverage config live here in `e2e/`
+  (`coverage-ignore.json`), not as `data-*` props in `src/`.
+- A purely cosmetic refactor (wrapping a div, reordering) leaves the handle intact, so tests don't
+  break; *moving a control to a different parent* breaks a scoped path — which is correct: a
+  structural move is exactly when the relevant tests should be re-reviewed.
 
 ## Coverage signals
 
@@ -49,30 +73,35 @@ any JSX element with an `on{Click,Change,Input,KeyDown,Submit,PointerDown,MouseD
 handler. (3D/canvas files are skipped — their handlers are on meshes, not DOM.) Two numbers fall
 out, sharing that same honest denominator:
 
-- **control coverage** = controls whose `data-testid` was interacted with (recorded by
+- **control coverage** = controls whose `vs-` handle was interacted with (recorded by
   `fixtures/controlCoverage.ts`) / active controls
-- **instrumentation** = controls that carry a `data-testid` / active controls
+- **instrumentation** = controls that carry a `vs-` handle / active controls
 
 ```bash
-pnpm --filter @vspark/e2e controls:report   # control count + instrumentation % + "no test id" list (file:line)
+pnpm --filter @vspark/e2e controls:report   # control count + instrumentation % + "no vs- handle" list (file:line)
 pnpm --filter @vspark/e2e controls:check      # files whose control surface drifted vs the manifest
 pnpm --filter @vspark/e2e controls:bless       # record the current surface as reviewed (writes the manifest)
 ```
 
-**Opt-out.** A control where an e2e test makes no sense is excluded from the denominator with a
-`data-coverage-ignore` prop on the element (a valid `data-*` attribute — renders harmlessly):
-```tsx
-<button data-coverage-ignore onClick={devOnlyThing}>…</button>
+**Opt-out (`coverage-ignore.json`).** A control where an e2e test makes no sense is excluded from
+the denominator in `e2e/coverage-ignore.json` — kept here, not in the markup, because it is pure
+test metadata:
+```jsonc
+{
+  "files":    ["pages/Experimental*.tsx"],   // whole frontend-src files (glob; * = segment, ** = any)
+  "controls": ["vs-dev-only-thing", "pages/Home.tsx:42"]  // by vs- handle, or relpath:line
+}
 ```
-Opt a whole file out with an `instrumentation-ignore-file` marker comment.
+3D/canvas files (anything importing `@react-three/fiber` or `three`) are auto-excluded — their
+handlers are on meshes, not DOM.
 
 **Staleness manifest (`controls-manifest.json`, committed).** Each file has a signature of its
-control surface (each control's tag + testid + opt-out). `controls:bless` records them;
+control surface (each control's tag + `vs-` handle + opt-out). `controls:bless` records them;
 `controls:check` flags a file **STALE** when an edit changes that surface (adds a control, drops or
-edits a testid, toggles opt-out) and **NEW** when a file with controls isn't recorded yet — so a
-newly-added control can't slip past un-instrumented. Editing handler *internals* does not trip it.
-Re-review the flagged files (add testids / opt-outs) and `controls:bless` to clear them. Wire
-`controls:check --strict` into CI/pre-commit to enforce the review (Phase 9).
+edits a handle) and **NEW** when a file with controls isn't recorded yet — so a newly-added control
+can't slip past un-instrumented. Editing handler *internals* does not trip it. Re-review the flagged
+files (add handles) and `controls:bless` to clear them. Wire `controls:check --strict` into
+CI/pre-commit to enforce the review (Phase 9).
 
 ### E2E code coverage (which source lines does a UI run reach?)
 ```bash

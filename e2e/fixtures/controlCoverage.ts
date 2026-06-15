@@ -10,10 +10,11 @@ let _covSeq = 0;
  *
  * Rather than wrapping every Playwright locator action, we listen at the DOM
  * level: an init script registers capture-phase listeners that, on any
- * click/input/change, walk up from the event target to the nearest
- * `[data-testid]` and report it to Node via an exposed binding. The per-worker
- * set of interacted ids is flushed to `.coverage/interacted-<worker>.json`,
- * which the control-coverage reporter aggregates in `onEnd`.
+ * click/input/change, walk up from the event target to the nearest element
+ * carrying a `vs-` targeting class and report that handle to Node via an
+ * exposed binding. The per-worker set of interacted handles is flushed to
+ * `.coverage/interacted-<worker>.json`, which the control-coverage reporter
+ * aggregates in `onEnd`.
  *
  * Specs opt in simply by importing `test` from this module instead of
  * `@playwright/test`.
@@ -48,13 +49,16 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       const record = (e: Event) => {
         let el = e.target as HTMLElement | null;
         while (el && el.nodeType === 1) {
-          const id = el.getAttribute?.('data-testid');
-          if (id) {
+          const cls = el.getAttribute?.('class');
+          const handle = cls
+            ? cls.split(/\s+/).find((c) => c.startsWith('vs-'))
+            : undefined;
+          if (handle) {
             (
               window as unknown as {
                 __vsparkRecordInteraction?: (id: string) => void;
               }
-            ).__vsparkRecordInteraction?.(id);
+            ).__vsparkRecordInteraction?.(handle);
             break;
           }
           el = el.parentElement;
@@ -81,8 +85,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       for (const page of context.pages()) {
         try {
           const cov = await page.evaluate(
-            () =>
-              (window as unknown as { __coverage__?: unknown }).__coverage__
+            () => (window as unknown as { __coverage__?: unknown }).__coverage__
           );
           if (cov)
             writeFileSync(

@@ -3,9 +3,14 @@ import type { Page } from '@playwright/test';
 
 /**
  * Functional exemplars for the Home page. They assert reachability,
- * maneuverability, and correct state changes — selecting controls by
- * `data-testid` (i18n-proof) and verifying outcomes via the DOM *and* a REST
- * read-back, never by appearance.
+ * maneuverability, and correct state changes, verifying outcomes via the DOM
+ * *and* a REST read-back, never by appearance.
+ *
+ * Selector priority (see e2e/README.md):
+ *   1. role + accessible name where a labelled control suffices (i18n-resolved);
+ *   2. otherwise the `vs-` targeting class — the stable, i18n-proof handle that
+ *      the control-coverage recorder also keys on. Scope by parent class for a
+ *      specific instance (e.g. `.vs-project-card … .vs-project-open`).
  */
 
 /** Collect console errors + uncaught page errors for a no-error assertion. */
@@ -18,26 +23,31 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-test('home page is reachable and renders without console errors', async ({ page }) => {
+test('home page is reachable and renders without console errors', async ({
+  page,
+}) => {
   const errors = trackErrors(page);
 
   await page.goto('/');
 
   await expect(page.getByText('vspark').first()).toBeVisible();
-  await expect(page.getByTestId('new-project-button')).toBeVisible();
+  await expect(page.locator('.vs-new-project-button')).toBeVisible();
   expect(errors, `console errors: ${errors.join('\n')}`).toEqual([]);
 });
 
-test('creating a project via the UI shows it and persists it', async ({ page, request }) => {
+test('creating a project via the UI shows it and persists it', async ({
+  page,
+  request,
+}) => {
   const name = `E2E Project ${Date.now()}`;
 
   await page.goto('/');
-  await page.getByTestId('new-project-button').click();
-  await page.getByTestId('new-project-name').fill(name);
-  await page.getByTestId('new-project-create').click();
+  await page.locator('.vs-new-project-button').click();
+  await page.locator('.vs-new-project-name').fill(name);
+  await page.locator('.vs-new-project-create').click();
 
   // DOM outcome: a card for the new project appears.
-  const card = page.getByTestId('project-card').filter({ hasText: name });
+  const card = page.locator('.vs-project-card').filter({ hasText: name });
   await expect(card).toBeVisible();
 
   // Second-level assertion: the project really hit the backend, not just the
@@ -56,8 +66,9 @@ test('opening a project navigates to its editor', async ({ page, request }) => {
   expect(created.status()).toBe(201);
 
   await page.goto('/');
-  const card = page.getByTestId('project-card').filter({ hasText: name });
-  await card.getByTestId('project-open').click();
+  // Class-scoped path: the open button *within* this project's card.
+  const card = page.locator('.vs-project-card').filter({ hasText: name });
+  await card.locator('.vs-project-open').click();
 
   await expect(page).toHaveURL(/\/editor\/[0-9a-f-]+$/);
 });

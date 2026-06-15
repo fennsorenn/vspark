@@ -9,6 +9,14 @@
 > Phase 4 (both UI coverage signals) ✅. The full-coverage phases 5–9 are pending. The CI
 > `Test`/`e2e` steps are written but NOT yet pushed (the session's OAuth token lacks GitHub
 > `workflow` scope — apply manually; the e2e job YAML is in `e2e/README.md`).
+>
+> **Selector-convention revision (supersedes the original `data-testid` decision):** stable
+> handles are now a **`vs-`-prefixed CSS class targeting layer** (a public contract for
+> userscripts/addons/themes _and_ tests), not `data-testid` attributes. Selector priority is
+> role + accessible name first, `vs-` class-scoped path otherwise — see _Selector & targeting-layer
+> convention_ below. Coverage opt-out moved out of the markup into `e2e/coverage-ignore.json`. The
+> Phase 3/4 exemplars + the coverage tooling were migrated to this; references to `data-testid`
+> elsewhere in this doc describe the superseded approach.
 
 ## Goal
 
@@ -35,8 +43,34 @@ have no tests. CI (`.github/workflows/ci.yml`) never runs tests.
 - Backend persistence is `node-sqlite3-wasm` (WASM, async `initDb()`, no native addon) —
   in-memory DB per test is clean and fast; lean on it.
 - Respect the i18n constraint: UI tests must **not** hardcode English visible strings.
-  Query by `data-testid`, ARIA role, or the resolved translation value, so DE locale
-  doesn't break them.
+  Query by ARIA role + accessible name (resolved via the i18n resource), or by the `vs-`
+  targeting class, so the DE locale doesn't break them.
+
+### Selector & targeting-layer convention
+
+Stable automation handles are a **`vs-`-prefixed CSS class layer**, layered on top of styling
+classes — **not** `data-testid` attributes. Rationale: a `data-testid` is single-consumer scaffolding
+with no business in shipped markup; a `vs-` class is a deliberate **public targeting surface** that
+userscripts, browser addons, custom themes and the test suite all key on, so it earns its place and
+ships in production. (This project is open source, so obfuscation/leak is a non-concern; the goal is
+a navigable, externally-addressable DOM, not hidden test hooks.)
+
+- **Reserved prefix `vs-`.** Styling classes never use it; one `vs-` class = one logical control.
+  The prefix is what lets the AST enumerator distinguish the targeting layer from styling noise.
+- **Selector priority in specs:** (1) role + accessible name where a labelled control suffices
+  (i18n-resolved); (2) `vs-` class-scoped path (`.vs-panel .vs-button`) — **never `nth-child`/positional**.
+- **Stability contract.** External consumers depend on `vs-` classes → renaming one is a breaking
+  change. Treat the layer as API. (Upside: that stability is exactly what makes it a good test anchor.)
+- **Change-detection is a feature, not a bug.** Cosmetic refactors (wrapping/reordering) leave handles
+  intact so tests survive; moving a control to a different parent breaks a scoped path — which is the
+  correct trigger to re-review that control's tests.
+- **No test-only metadata in `src/`.** Coverage opt-out lives in `e2e/coverage-ignore.json`, never as
+  `data-*` props in the frontend.
+- **Cost, stated honestly:** adding a `vs-` handle is comparable per-control effort to a `data-testid`;
+  the win is that the artifact is multi-consumer (theming/addons/tests) rather than scaffolding.
+  Control-coverage attribution by class is slightly fuzzier than a globally-unique id but acceptable.
+  A control addressed purely by role+name (no `vs-` handle) counts toward the denominator but reads as
+  un-instrumented — give it a handle to attribute coverage to it.
 - Rollout uses `--passWithNoTests` so empty packages don't fail the suite mid-migration.
 - This is a **broad, shallow base**: one or two exemplary tests per tier to establish the
   pattern, not exhaustive coverage. Future tests are copy-and-adapt.
@@ -44,6 +78,7 @@ have no tests. CI (`.github/workflows/ci.yml`) never runs tests.
 ## Files in scope
 
 ### Tier 0 — infra
+
 - `package.json` (root) — add `"test": "pnpm -r test"`.
 - `packages/shared/package.json` — add `vitest` devDep + `"test": "vitest run --passWithNoTests"`.
 - `packages/shared/vitest.config.ts` — new, mirror mesh.
@@ -55,6 +90,7 @@ have no tests. CI (`.github/workflows/ci.yml`) never runs tests.
   `e2e` job (Playwright). Decide required-vs-advisory gating per tier (see Approach).
 
 ### Tier 1 — unit (exemplars)
+
 - `packages/shared/test/signal_types.test.ts` — `isAssignable` (record width-subtyping,
   `unknown` wildcard both directions, the `List<E>` accepts-`E` special case), `transportOf`.
 - `packages/shared/test/inference.test.ts` — `InferGraph.tryAddEdge`: one accepted edge +
@@ -64,6 +100,7 @@ have no tests. CI (`.github/workflows/ci.yml`) never runs tests.
   Exercises `fromDescriptor`, edge wiring, push/pull transport in one shot.
 
 ### Tier 2 — API integration (exemplar + prerequisite refactor) ✅ DONE
+
 - `packages/backend/src/app.ts` — **new**: `createApp()` builds the Express app with all routes
   mounted **without** `listen()` / UDP bind / WS bind / managers. (Done as a separate module
   rather than in-place in `index.ts` to keep the diff clean.)
@@ -75,6 +112,7 @@ have no tests. CI (`.github/workflows/ci.yml`) never runs tests.
   (Note: projects has no GET-by-id, so read-back uses the list endpoint.)
 
 ### Tier 3 — functional UI (Playwright) + control coverage
+
 - `e2e/` (new top-level dir) — `playwright.config.ts` (uses `webServer` to boot backend +
   frontend against a seeded test DB), `tests/`, `fixtures/` (seed project JSON, sample assets).
 - `e2e/tests/editor-smoke.spec.ts` — exemplar functional specs (see Approach for the flows).
@@ -82,39 +120,44 @@ have no tests. CI (`.github/workflows/ci.yml`) never runs tests.
 - `e2e/reporters/control-coverage.ts` — **custom reporter** computing UI control coverage.
 - `e2e/scripts/controls.mjs` — TS-AST enumeration of every interactive control (the true
   coverage denominator) + the staleness manifest (`controls:report/check/bless`).
-- `packages/frontend/src/**` — add `data-testid` to interactive controls as needed for stable
-  selectors + the coverage inventory. Consider an ESLint rule later to enforce testids on
-  interactive elements (out of scope for this pass; note it).
+- `packages/frontend/src/**` — add `vs-` targeting classes to interactive controls as needed for
+  stable selectors + the coverage inventory. Consider an ESLint rule later to enforce a `vs-` handle
+  on interactive elements (out of scope for this pass; note it).
+- `e2e/coverage-ignore.json` — opt-out config (files / handles) for the coverage denominator; keeps
+  test-only metadata out of `src/`.
 
 ## Out of scope
 
 - Visual / screenshot-diff regression testing (explicitly dropped).
 - Coverage **gates/thresholds** during Phases 0–4 — collect numbers first; hard gates land in
   Phase 9 once each tier has real coverage (ratcheted to the achieved number). UI E2E code
-  coverage stays a *trend/drop* signal, never a hard gate (see Phase 4b).
+  coverage stays a _trend/drop_ signal, never a hard gate (see Phase 4b).
 - R3F/WebGL 3D rendering correctness in unit tests (jsdom can't; that's the `verify`/`smoketest`
-  skills' territory). Extract pose/IK *math* into pure functions and unit-test that instead.
+  skills' territory). Extract pose/IK _math_ into pure functions and unit-test that instead.
 - Overlive / Twitch / StreamElements network integration tests.
 - Autonomous crawler / "monkey" UI exploration (note as a future option for inventory discovery).
-- Backend coverage *during E2E* via `NODE_V8_COVERAGE` — low priority (Phase 4b step 5); API
+- Backend coverage _during E2E_ via `NODE_V8_COVERAGE` — low priority (Phase 4b step 5); API
   coverage already comes from the supertest tier natively.
 - Real Overlive/Twitch network calls — mock the SDK; no live network tests.
 - Autonomous crawler / "monkey" UI exploration (note as a future option for inventory discovery).
 - Exhaustive per-module suites are deferred to Phases 5–9; Phases 0–4 land the harness + exemplars
-  + the two coverage signals only.
+  - the two coverage signals only.
 
 ## Approach
 
 ### Phase 0 — Vitest infra (all packages) ✅ DONE
+
 1. Add Vitest + `vitest.config.ts` to `shared`, `backend`, `frontend` mirroring the mesh config.
    Frontend config sets `environment: 'jsdom'`. Add `"test": "vitest run --passWithNoTests"` to each.
 2. Root `"test": "pnpm -r --if-present test"`. Verify `pnpm test` runs green.
 3. CI: add a `Test` step after `Lint`. (Step written; push blocked on `workflow` scope — apply manually.)
 
 ### Phase 1 — unit exemplars (`shared`, then `backend` engine) ✅ DONE
+
 - `shared/test/signal_types.test.ts`, `shared/test/inference.test.ts`, `backend/test/engine.test.ts`.
 
 ### Phase 2 — API integration ✅ DONE
+
 1. Refactored app construction into `src/app.ts` `createApp()` (route mounting, no sockets/managers);
    `index.ts` now wraps it with the http server + WS upgrade in `start()`.
 2. `test/helpers/testApp.ts` — sets `VSPARK_DB_PATH=':memory:'`, dynamic-imports db+app, resets +
@@ -122,6 +165,7 @@ have no tests. CI (`.github/workflows/ci.yml`) never runs tests.
 3. `test/api.projects.test.ts` — list/create/read-back round-trip + validation + isolation.
 
 ### Phase 3 — functional UI (Playwright) ✅ DONE (exemplars)
+
 - `e2e/` workspace package (added to `pnpm-workspace.yaml`): `@playwright/test`,
   `playwright.config.ts` with TWO `webServer`s (backend via `tsx src/index.ts` on a stamped
   throwaway DB + multiplayer disabled; Vite frontend which proxies `/api`+`/ws`). `baseURL` is
@@ -132,17 +176,18 @@ have no tests. CI (`.github/workflows/ci.yml`) never runs tests.
   backend, no cross-run leak.
 - `e2e/tests/home.spec.ts` (3 specs): home reachable + **no console errors**; create-via-UI →
   card appears **+ REST read-back** (two-level assertion); open → URL navigates to `/editor/:id`.
-  Controls selected by `data-testid` (added to `Home.tsx`) — i18n-proof.
+  Controls selected by `vs-` targeting class (added to `Home.tsx`), incl. a class-scoped path
+  (`.vs-project-card … .vs-project-open`) — i18n-proof.
 - Verified locally against real Chromium (3/3 pass).
 - **Pending: the CI `e2e` job** — written in `e2e/README.md`; not pushed (workflow scope). Uses
   the official Playwright container, runs `pnpm --filter @vspark/e2e e2e`, uploads the HTML report
-  + traces. Future editor-internal flows (scene graph add-node, i18n switch, no-WebGL-context-loss)
-  belong to Phase 8 breadth; this phase establishes the pattern on the WebGL-free Home page.
+  - traces. Future editor-internal flows (scene graph add-node, i18n switch, no-WebGL-context-loss)
+    belong to Phase 8 breadth; this phase establishes the pattern on the WebGL-free Home page.
 
 ### Phase 4 — UI coverage signals (two complementary metrics) ✅ DONE (exemplars)
 
 Two distinct, intentionally-kept signals. **Both are trend signals, not pass/fail gates** — but
-a sharp *drop* in either is a strong "something's wrong" indicator (orphaned code, unreachable
+a sharp _drop_ in either is a strong "something's wrong" indicator (orphaned code, unreachable
 functionality, newly-added-but-untested behaviour).
 
 Built (all verified locally): `e2e/scripts/controls.mjs` (TS-AST control enumeration + staleness
@@ -160,35 +205,37 @@ committed coverage baseline deferred to Phase 9.
 The denominator is **every interactive control in the frontend**, enumerated from the TypeScript
 AST (`e2e/scripts/controls.mjs`) — intrinsic interactive elements + any JSX element with an
 `on{Click,Change,…}` handler; 3D/canvas files skipped. Two metrics share that honest denominator:
-**control coverage** (controls whose testid was interacted with / active controls) and
-**instrumentation** (controls with a testid / active controls). Exemplar today: 4 / 457 (0.9%) —
+**control coverage** (controls whose `vs-` handle was interacted with / active controls) and
+**instrumentation** (controls with a `vs-` handle / active controls). Exemplar today: 4 / 457 (0.9%) —
 the full count, not the instrumented subset.
 
-**Opt-out:** a control where an e2e test makes no sense is excluded from the denominator with a
-`data-coverage-ignore` prop (whole-file opt-out via an `instrumentation-ignore-file` marker).
+**Opt-out:** a control where an e2e test makes no sense is excluded from the denominator in
+`e2e/coverage-ignore.json` (by `vs-` handle or `relpath:line`; whole files by glob) — kept out of the
+markup since it is pure test metadata. 3D/canvas files are auto-excluded.
 
 **Staleness manifest** (`e2e/controls-manifest.json`, committed): a per-file signature of the
-control surface (each control's tag + testid + opt-out). `controls:check` flags a file STALE when an
-edit changes that surface (adds a control, drops/edits a testid, toggles opt-out) or NEW when a file
-with controls isn't recorded — so new controls can't slip past un-instrumented. `controls:bless`
-re-records after review. Wire `controls:check --strict` into CI/pre-commit (Phase 9).
+control surface (each control's tag + `vs-` handle + opt-out). `controls:check` flags a file STALE when
+an edit changes that surface (adds a control, drops/edits a handle) or NEW when a file with controls
+isn't recorded — so new controls can't slip past un-instrumented. `controls:bless` re-records after
+review. Wire `controls:check --strict` into CI/pre-commit (Phase 9).
 
-"Of all operable controls, which does some test exercise?" — NOT interaction-*path* coverage
+"Of all operable controls, which does some test exercise?" — NOT interaction-_path_ coverage
 (combinatorially infinite — out of scope).
 
 1. **Denominator:** `e2e/scripts/controls.mjs` enumerates every interactive control from the TS
    AST (intrinsic interactive elements + any element with an `on{Click,Change,…}` handler), minus
-   controls bearing `data-coverage-ignore`. The true control count, not the instrumented subset.
-2. **Numerator:** `e2e/fixtures/controlCoverage.ts` records the nearest `data-testid` on every
-   click/input/change; a control counts as exercised when its testid was interacted with.
+   controls opted out in `coverage-ignore.json`. The true control count, not the instrumented subset.
+2. **Numerator:** `e2e/fixtures/controlCoverage.ts` records the nearest `vs-` handle on every
+   click/input/change; a control counts as exercised when one of its `vs-` handles was interacted with.
 3. **Report:** `e2e/reporters/control-coverage.ts` emits control coverage (`exercised / active`)
-   AND instrumentation (`with-testid / active`) over the same denominator, e.g.:
+   AND instrumentation (`with-handle / active`) over the same denominator, e.g.:
    ```
    UI control coverage: 134 / 457 controls exercised (29.3%)   [12 opted out]
-   Instrumentation:     210 / 457 controls have a test id (46%)
+   Instrumentation:     210 / 457 controls have a vs- handle (46%)
    ```
 
 #### 4b — UI E2E code coverage (Istanbul, as a regression trend) ⭐ per user feedback
+
 A high % is a weak positive; a **sharp drop is a strong negative** — it surfaces orphaned code,
 unreachable functionality, or new functionality shipped without a UI test path. Worth collecting.
 
@@ -197,7 +244,7 @@ unreachable functionality, or new functionality shipped without a UI test path. 
 2. **Harvest** `window.__coverage__` after each Playwright test (a fixture writes fragments to
    `.nyc_output/`); **merge** with `nyc` into an Istanbul/lcov report — the same format Vitest
    emits (`@vitest/coverage-istanbul`), so unit + API + E2E can roll into one combined report.
-3. **Annotate intentionally-unreachable code** so the signal sharpens: code that is *not meant*
+3. **Annotate intentionally-unreachable code** so the signal sharpens: code that is _not meant_
    to be reachable via UI interaction (CLI/bootstrap paths, dev-only branches, defensive
    `assertNever`, backend-only modules pulled into a shared bundle) is marked with Istanbul
    ignore hints (`/* istanbul ignore next -- <reason> */`, `/* istanbul ignore file */`) **with a
@@ -205,26 +252,26 @@ unreachable functionality, or new functionality shipped without a UI test path. 
    The cleaner the annotations, the more a coverage drop means "real UI regression" vs noise.
 4. **Track as a trend, alert on drop.** Record the combined coverage % per CI run (artifact +
    optionally a committed badge/JSON). Flag a PR whose UI coverage drops more than a small
-   threshold (e.g. > 1–2 absolute %) vs the base branch — as a *warning/review prompt*, not a
+   threshold (e.g. > 1–2 absolute %) vs the base branch — as a _warning/review prompt_, not a
    hard block. Treat the absolute number as informational; treat the delta as the signal.
-5. (Optional) backend coverage *during E2E* via `NODE_V8_COVERAGE` on the test-DB backend
+5. (Optional) backend coverage _during E2E_ via `NODE_V8_COVERAGE` on the test-DB backend
    process, merged in — but API-tier Vitest coverage already covers the backend natively, so this
    is low priority.
 
 ## Caveats to document (so metrics aren't misread)
 
-- **Exercised ≠ asserted.** Coverage (line OR control) measures *execution/interaction*, not
-  *verification*. A clicked/executed path with no following assertion still counts. Rely on
-  review to ensure interactions have assertions; treat coverage as a *reachability* signal.
+- **Exercised ≠ asserted.** Coverage (line OR control) measures _execution/interaction_, not
+  _verification_. A clicked/executed path with no following assertion still counts. Rely on
+  review to ensure interactions have assertions; treat coverage as a _reachability_ signal.
 - **Absolute E2E line coverage is inflated** (mount runs huge swaths unasserted) → the **absolute
   %** is informational; the **delta vs base** is the actionable signal (per 4b). Vitest unit/API
   line coverage is meaningful and CAN be hard-gated (per Phase 5–7).
-- **Control coverage measures surface, not depth** — finds *completely untested* controls (high
-  value), not *under-tested* ones (disabled/loading/error states).
-- **Coverage signal quality depends on discipline** — control coverage needs `data-testid`
+- **Control coverage measures surface, not depth** — finds _completely untested_ controls (high
+  value), not _under-tested_ ones (disabled/loading/error states).
+- **Coverage signal quality depends on discipline** — control coverage needs `vs-` handle
   hygiene (denominator completeness); E2E code-coverage deltas need disciplined
   `istanbul ignore … -- reason` annotations on intentionally-unreachable code. Both argue for
-  lint rules (testid-on-interactive-element; require-reason-on-ignore).
+  lint rules (`vs-`-handle-on-interactive-element; require-reason-on-ignore).
 
 ### Phases 5–9 — full (or near-full) coverage
 
@@ -235,12 +282,14 @@ or `-istanbul`) only at the END of each unit/API phase, set just below the achie
 gate ratchets up and can't silently regress.
 
 #### Phase 5 — `shared` full coverage
+
 - All of `signal_types`, `inference`, `infer_nodes` (per-kind inferPorts), `paramPaths`
   (`coerceParamValue`, registry lookups), `node`/`node_decorators` (port harvesting), Zod schemas
   in `schema.ts` (valid + invalid payloads), `arkit_tables`, `sync.ts` envelope helpers.
 - Pure, fast, deterministic — aim highest threshold here (≥ 90%). Enable threshold gate.
 
 #### Phase 6 — `backend` full coverage
+
 - **Signal nodes** — table-driven tests over all 57 node kinds: feed representative inputs, assert
   outputs (math/procedural nodes are pure; mapper/calibration nodes test against fixtures). Reuse
   the `fromDescriptor` harness from Phase 1.
@@ -257,6 +306,7 @@ gate ratchets up and can't silently regress.
   GLB/VRM), OSC/VMC packet parsing. Threshold gate ≥ 80% (sockets/multiplayer realistically lower).
 
 #### Phase 7 — `frontend` non-visual full coverage
+
 - Zustand `editorStore` (all actions/selectors), hooks (`useWsSync` reducers, `useTrackClipEvaluator`,
   uplink hooks with mocked transports), pure utils (`feedTemplate`, `materialOverrides` math,
   `composeLayerInteractions` anchor math, the extracted IK/pose-blend math), i18n key-parity test
@@ -267,6 +317,7 @@ gate ratchets up and can't silently regress.
   components) — those are covered by Phase 8 instead. Threshold gate on the non-excluded surface.
 
 #### Phase 8 — E2E functional coverage (Playwright breadth)
+
 - Specs across every major editor flow: project lifecycle, scene-graph CRUD + reparenting,
   each node kind add/configure, behaviors + logic graph editing, compose view, asset upload +
   placement, track-clip timeline, camera effects, presets/clipboard, overlive accounts modal
@@ -276,10 +327,11 @@ gate ratchets up and can't silently regress.
   drop-detection warning.
 
 #### Phase 9 — coverage gating + annotation cleanup
+
 - Turn on the combined coverage report (unit + API + E2E merged via `nyc`).
 - Ratchet Vitest thresholds to the achieved numbers (hard gate on unit/API tiers).
 - Sweep the codebase for intentionally-unreachable code and add `istanbul ignore … -- reason`
-  annotations; add the two lint rules (testid-on-interactive-element, require-reason-on-ignore).
+  annotations; add the two lint rules (`vs-`-handle-on-interactive-element, require-reason-on-ignore).
 - Document the final story in `dev-notes/modules/testing.md` (new module doc): how to run each
   tier, how to read the two UI-coverage signals, how to add tests per tier.
 
