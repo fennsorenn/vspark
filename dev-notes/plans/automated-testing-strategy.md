@@ -80,8 +80,8 @@ have no tests. CI (`.github/workflows/ci.yml`) never runs tests.
 - `e2e/tests/editor-smoke.spec.ts` — exemplar functional specs (see Approach for the flows).
 - `e2e/fixtures/` — deterministic seed: a known project loaded via the API before each spec.
 - `e2e/reporters/control-coverage.ts` — **custom reporter** computing UI control coverage.
-- `e2e/scripts/inventory-controls.mjs` — static scan of frontend source for interactive
-  controls (the coverage denominator).
+- `e2e/scripts/controls.mjs` — TS-AST enumeration of every interactive control (the true
+  coverage denominator) + the staleness manifest (`controls:report/check/bless`).
 - `packages/frontend/src/**` — add `data-testid` to interactive controls as needed for stable
   selectors + the coverage inventory. Consider an ESLint rule later to enforce testids on
   interactive elements (out of scope for this pass; note it).
@@ -145,47 +145,47 @@ Two distinct, intentionally-kept signals. **Both are trend signals, not pass/fai
 a sharp *drop* in either is a strong "something's wrong" indicator (orphaned code, unreachable
 functionality, newly-added-but-untested behaviour).
 
-Built (all verified locally): `e2e/scripts/inventory-controls.mjs`,
-`e2e/fixtures/controlCoverage.ts` (DOM-level interaction recorder + `window.__coverage__`
+Built (all verified locally): `e2e/scripts/controls.mjs` (TS-AST control enumeration + staleness
+manifest), `e2e/fixtures/controlCoverage.ts` (DOM-level interaction recorder + `window.__coverage__`
 harvester), `e2e/reporters/control-coverage.ts`, `e2e/scripts/coverage-trend.mjs`, gated
 `vite-plugin-istanbul` in `packages/frontend/vite.config.ts` (COVERAGE env; never prod), and the
-`e2e:coverage` / `coverage:report` / `coverage:trend` scripts. Control coverage prints on every
-run (4/5 on the home exemplar); `COVERAGE=1` run → nyc report works once `--cwd` points at the
-repo root (frontend src lives outside `e2e/`). Annotation convention + committed baseline deferred
-to Phase 9.
+`e2e:coverage` / `coverage:report` / `coverage:trend` / `controls:report|check|bless` scripts.
+Control coverage prints on every run over the TRUE denominator (4/457 = 0.9% today — the home
+exemplar instruments only a handful of 457 controls); `COVERAGE=1` run → nyc report works once
+`--cwd` points at the repo root (frontend src lives outside `e2e/`). Annotation convention +
+committed coverage baseline deferred to Phase 9.
 
-#### 4a — Control/surface coverage + instrumentation coverage (custom reporter)
+#### 4a — Control coverage over the TRUE control count (custom reporter)
 
-⚠️ **Denominator caveat → second metric.** Control coverage only counts controls that carry a
-`data-testid`, so a high % is deceiving if few components are instrumented. A companion
-**instrumentation-coverage** metric measures denominator completeness: of all interactive component
-files (button/input/select/textarea/anchor + `on{Click,Change,…}` handlers; 3D/canvas excluded),
-how many carry ≥1 `data-testid`? Built in `e2e/scripts/instrumentation.mjs`; the reporter prints it
-next to control coverage (exemplar today: control 80% of 5, but instrumentation only 1/27 = 3.7% —
-exactly surfacing that the 80% is over a tiny instrumented subset).
+The denominator is **every interactive control in the frontend**, enumerated from the TypeScript
+AST (`e2e/scripts/controls.mjs`) — intrinsic interactive elements + any JSX element with an
+`on{Click,Change,…}` handler; 3D/canvas files skipped. Two metrics share that honest denominator:
+**control coverage** (controls whose testid was interacted with / active controls) and
+**instrumentation** (controls with a testid / active controls). Exemplar today: 4 / 457 (0.9%) —
+the full count, not the instrumented subset.
 
-**Staleness manifest** (`e2e/instrumentation-manifest.json`, committed): a per-file signature of
-each interactive component's surface. `instrument:check` flags a file STALE when an edit changes
-that surface (adds a control, drops a testid) or NEW when an interactive component isn't recorded —
-so new UI elements can't slip past un-instrumented. `instrument:bless` re-records after review.
-Wire `instrument:check --strict` into CI/pre-commit to force the review (Phase 9).
+**Opt-out:** a control where an e2e test makes no sense is excluded from the denominator with a
+`data-coverage-ignore` prop (whole-file opt-out via an `instrumentation-ignore-file` marker).
+
+**Staleness manifest** (`e2e/controls-manifest.json`, committed): a per-file signature of the
+control surface (each control's tag + testid + opt-out). `controls:check` flags a file STALE when an
+edit changes that surface (adds a control, drops/edits a testid, toggles opt-out) or NEW when a file
+with controls isn't recorded — so new controls can't slip past un-instrumented. `controls:bless`
+re-records after review. Wire `controls:check --strict` into CI/pre-commit (Phase 9).
 
 "Of all operable controls, which does some test exercise?" — NOT interaction-*path* coverage
 (combinatorially infinite — out of scope).
 
-1. **Inventory (denominator):** `e2e/scripts/inventory-controls.mjs` statically scans frontend
-   source for interactive controls — every `data-testid`, plus role-bearing elements (`button`,
-   `menuitem`, inputs). Produces the universe of operable controls.
-2. **Exercised set (numerator):** a Playwright fixture wraps locator actions (`.click()`,
-   `.fill()`, `.check()`, …) to log the target's `data-testid` on every interaction.
-3. **Diff:** `e2e/reporters/control-coverage.ts` emits `exercised / inventory` as a headline %
-   **and** — the real deliverable — the list of controls **no test ever touched**:
+1. **Denominator:** `e2e/scripts/controls.mjs` enumerates every interactive control from the TS
+   AST (intrinsic interactive elements + any element with an `on{Click,Change,…}` handler), minus
+   controls bearing `data-coverage-ignore`. The true control count, not the instrumented subset.
+2. **Numerator:** `e2e/fixtures/controlCoverage.ts` records the nearest `data-testid` on every
+   click/input/change; a control counts as exercised when its testid was interacted with.
+3. **Report:** `e2e/reporters/control-coverage.ts` emits control coverage (`exercised / active`)
+   AND instrumentation (`with-testid / active`) over the same denominator, e.g.:
    ```
-   UI control coverage: 134 / 210 controls exercised (64%)
-   Never interacted with:
-     scenegraph.node.duplicate
-     properties.material.reset
-     ...
+   UI control coverage: 134 / 457 controls exercised (29.3%)   [12 opted out]
+   Instrumentation:     210 / 457 controls have a test id (46%)
    ```
 
 #### 4b — UI E2E code coverage (Istanbul, as a regression trend) ⭐ per user feedback

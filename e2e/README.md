@@ -41,38 +41,38 @@ Each run gets a fresh DB, so tests start from a known-empty backend.
 
 Two complementary signals (both **trend** signals, not hard gates — a sharp *drop* is the alarm):
 
-### Control coverage (which controls does any test touch?)
-Runs automatically on every `e2e` run via the `control-coverage` reporter. It diffs the
-`data-testid` inventory (`scripts/inventory-controls.mjs`) against the set actually interacted
-with (recorded by `fixtures/controlCoverage.ts`) and prints the % plus the **"never interacted
-with"** list — the controls no test exercises. A machine-readable copy lands in
-`.coverage/control-coverage.json`.
+### Control + instrumentation coverage (does a test touch every control?)
+Computed on every `e2e` run by the `control-coverage` reporter. The denominator is **every
+interactive control in the frontend**, enumerated from the TypeScript AST by `scripts/controls.mjs`
+— a control is an intrinsic interactive element (`button`/`input`/`select`/`textarea`/`a[href]`) or
+any JSX element with an `on{Click,Change,Input,KeyDown,Submit,PointerDown,MouseDown,DoubleClick}`
+handler. (3D/canvas files are skipped — their handlers are on meshes, not DOM.) Two numbers fall
+out, sharing that same honest denominator:
 
-### Instrumentation coverage (is the control-coverage denominator complete?)
-Control coverage only sees controls that carry a `data-testid`, so a component with interactive
-UI but **no** test ids is invisible and silently inflates the %. Instrumentation coverage measures
-that blind spot:
+- **control coverage** = controls whose `data-testid` was interacted with (recorded by
+  `fixtures/controlCoverage.ts`) / active controls
+- **instrumentation** = controls that carry a `data-testid` / active controls
 
 ```bash
-pnpm --filter @vspark/e2e instrument:report   # % of interactive components that carry a testid + blind-spot list
-pnpm --filter @vspark/e2e instrument:check     # files whose interactive surface drifted vs the manifest
-pnpm --filter @vspark/e2e instrument:bless      # record the current surface as reviewed (writes the manifest)
+pnpm --filter @vspark/e2e controls:report   # control count + instrumentation % + "no test id" list (file:line)
+pnpm --filter @vspark/e2e controls:check      # files whose control surface drifted vs the manifest
+pnpm --filter @vspark/e2e controls:bless       # record the current surface as reviewed (writes the manifest)
 ```
 
-`scripts/instrumentation.mjs` counts interactive markers (`button`/`input`/`select`/`textarea`/
-anchor + `on{Click,Change,Input,KeyDown,Submit}` handlers) per `.tsx` file (heuristic, regex — not
-a full parser; 3D/canvas files are excluded, opt out elsewhere with an `instrumentation-ignore-file`
-marker comment). It reports the fraction of interactive components carrying ≥1 `data-testid` and
-lists those with none. The reporter prints this **next to** control coverage so a high control % is
-never read in isolation.
+**Opt-out.** A control where an e2e test makes no sense is excluded from the denominator with a
+`data-coverage-ignore` prop on the element (a valid `data-*` attribute — renders harmlessly):
+```tsx
+<button data-coverage-ignore onClick={devOnlyThing}>…</button>
+```
+Opt a whole file out with an `instrumentation-ignore-file` marker comment.
 
-**Staleness manifest (`instrumentation-manifest.json`, committed).** Each interactive file has a
-signature of its interactive surface (tag/handler/testid counts). `instrument:bless` records them;
-`instrument:check` flags a file **STALE** when an edit changes that surface (adds a control, drops a
-testid) and **NEW** when an interactive component isn't in the manifest yet — so newly-added UI
-elements can't slip past un-instrumented. Editing handler *internals* does not trip it. Re-review
-the flagged files (add testids as needed) and `instrument:bless` to clear them. Wire
-`instrument:check --strict` into CI/pre-commit to enforce the review.
+**Staleness manifest (`controls-manifest.json`, committed).** Each file has a signature of its
+control surface (each control's tag + testid + opt-out). `controls:bless` records them;
+`controls:check` flags a file **STALE** when an edit changes that surface (adds a control, drops or
+edits a testid, toggles opt-out) and **NEW** when a file with controls isn't recorded yet — so a
+newly-added control can't slip past un-instrumented. Editing handler *internals* does not trip it.
+Re-review the flagged files (add testids / opt-outs) and `controls:bless` to clear them. Wire
+`controls:check --strict` into CI/pre-commit to enforce the review (Phase 9).
 
 ### E2E code coverage (which source lines does a UI run reach?)
 ```bash

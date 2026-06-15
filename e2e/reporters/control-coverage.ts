@@ -3,90 +3,99 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 // @ts-expect-error — plain .mjs helper, no types
-import { collectInventory } from '../scripts/inventory-controls.mjs';
-// @ts-expect-error — plain .mjs helper, no types
-import { analyzeAll } from '../scripts/instrumentation.mjs';
+import { enumerateControls } from '../scripts/controls.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COVERAGE_DIR = join(__dirname, '..', '.coverage');
 
+interface Control {
+  rel: string;
+  line: number;
+  tag: string;
+  testid: string | null;
+  testidDynamic: boolean;
+  optedOut: boolean;
+}
+
 /**
- * Control-coverage reporter — "of all operable controls (data-testid), which
- * does some test exercise?". The headline % is a trend line; the real
- * deliverable is the list of controls NO test ever touched.
+ * Control-coverage reporter.
  *
- * NOTE (documented caveat): interaction ≠ assertion, and this measures surface
- * not depth — it finds completely-untested controls, not under-tested ones.
+ * Denominator is EVERY interactive control in the frontend (via the TS AST in
+ * controls.mjs), not just the instrumented subset — minus controls explicitly
+ * opted out with `data-coverage-ignore`. So:
+ *
+ *   control coverage = controls whose testid was interacted with / active controls
+ *   instrumentation  = controls that have a testid / active controls
+ *
+ * Both are trend signals. NOTE (caveat): interaction ≠ assertion, and this is
+ * surface not depth — it finds untested controls, not under-tested ones.
  */
 export default class ControlCoverageReporter implements Reporter {
   onEnd() {
-    const inventory: string[] = collectInventory();
-    const exercised = new Set<string>();
+    const { controls } = enumerateControls() as { controls: Control[] };
+
+    // Testids actually interacted with during the run.
+    const exercisedIds = new Set<string>();
     if (existsSync(COVERAGE_DIR)) {
       for (const f of readdirSync(COVERAGE_DIR)) {
         if (!f.startsWith('interacted-') || !f.endsWith('.json')) continue;
         try {
           for (const id of JSON.parse(readFileSync(join(COVERAGE_DIR, f), 'utf8')))
-            exercised.add(id);
+            exercisedIds.add(id);
         } catch {
           /* ignore a partial/corrupt fragment */
         }
       }
     }
 
-    const covered = inventory.filter((id) => exercised.has(id));
-    const untouched = inventory.filter((id) => !exercised.has(id));
-    const pct = inventory.length
-      ? Math.round((covered.length / inventory.length) * 1000) / 10
-      : 0;
+    const active = controls.filter((c) => !c.optedOut);
+    const optedOut = controls.length - active.length;
+    const withId = active.filter((c) => c.testid || c.testidDynamic);
+    const exercised = active.filter((c) => c.testid && exercisedIds.has(c.testid));
+    const unexercised = withId.filter(
+      (c) => !(c.testid && exercisedIds.has(c.testid))
+    );
 
-    // Instrumentation coverage contextualises the control-coverage denominator:
-    // control coverage only sees instrumented controls, so a high % means little
-    // if few components are instrumented in the first place.
-    const inst = analyzeAll() as {
-      interactive: { rel: string }[];
-      instrumented: { rel: string }[];
-      pct: number;
-    };
+    const pct = (n: number) =>
+      active.length ? Math.round((n / active.length) * 1000) / 10 : 0;
 
-    const line = '─'.repeat(60);
+    const line = '─'.repeat(64);
     console.log(`\n${line}`);
     console.log(
-      `UI control coverage:   ${covered.length} / ${inventory.length} instrumented controls exercised (${pct}%)`
+      `UI control coverage: ${exercised.length} / ${active.length} controls exercised (${pct(exercised.length)}%)` +
+        `   [${optedOut} opted out]`
     );
     console.log(
-      `Instrumentation cover: ${inst.instrumented.length} / ${inst.interactive.length} interactive components have a test id (${inst.pct}%)`
+      `Instrumentation:     ${withId.length} / ${active.length} controls have a test id (${pct(withId.length)}%)`
     );
     console.log(
-      '  ↳ control coverage only counts instrumented controls; the instrumentation' +
-        ' number is its denominator-completeness. Both are trend signals.'
+      '  ↳ denominator is ALL interactive controls (TS-AST), not just instrumented ones.'
     );
-    if (untouched.length) {
-      console.log('Inventoried controls never interacted with:');
-      for (const id of untouched) console.log(`  ${id}`);
-    } else if (inventory.length) {
-      console.log('All inventoried controls were exercised. 🎉');
+    if (unexercised.length) {
+      console.log(`Instrumented but not exercised (${unexercised.length}):`);
+      for (const c of unexercised) console.log(`  ${c.testid}  (${c.rel}:${c.line})`);
     }
+    const blind = active.length - withId.length;
+    if (blind > 0)
+      console.log(
+        `${blind} active controls have no test id — run \`pnpm controls:report\` for the list.`
+      );
     console.log(`${line}\n`);
 
-    // Persist a machine-readable artifact for trend tracking across runs.
+    // Machine-readable artifact for trend tracking.
     mkdirSync(COVERAGE_DIR, { recursive: true });
     writeFileSync(
       join(COVERAGE_DIR, 'control-coverage.json'),
       JSON.stringify(
         {
           generatedAt: new Date().toISOString(),
-          control: {
-            total: inventory.length,
-            covered: covered.length,
-            percent: pct,
-            untouched,
-          },
-          instrumentation: {
-            interactiveComponents: inst.interactive.length,
-            instrumentedComponents: inst.instrumented.length,
-            percent: inst.pct,
-          },
+          totalControls: controls.length,
+          optedOut,
+          activeControls: active.length,
+          instrumented: withId.length,
+          instrumentationPercent: pct(withId.length),
+          exercised: exercised.length,
+          controlCoveragePercent: pct(exercised.length),
         },
         null,
         2
