@@ -419,8 +419,9 @@ Covered (14 spec files): `home`, `editor-webgl`, `editor-scene-graph` (select + 
 - **Control coverage (4a) toward high %:** specs use role/text selectors over `vs-` handles (per
   convention), so the _control-coverage %_ stays low (7/453) — driving it up is a separate
   instrumentation pass (add `vs-` handles to the controls each flow touches).
-- **E2E code coverage (4b):** wire up the istanbul instrumentation + per-run trend artifact +
-  drop-detection (harness exists from Phase 4; not yet run across the editor specs).
+- **E2E code coverage (4b):** ✅ WIRED — instrumented suite (`pnpm e2e:coverage`, 35 tests) reaches
+  **30.7% stmts / 31.2% lines** of the frontend; `coverage-baseline.json` committed (31.18% lines)
+  as the trend reference; `coverage:trend` warns past the drop threshold vs it.
 - **Control coverage (4a) toward high %:** specs deliberately use role/text selectors over
   sprinkling `vs-` handles (per the targeting-layer convention), so the _control-coverage %_
   stays low — driving it up is a separate instrumentation pass (add `vs-` handles to the controls
