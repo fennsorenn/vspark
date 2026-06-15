@@ -6,8 +6,9 @@
 >
 > **Progress:** Phase 0 (Vitest infra) ✅ · Phase 1 (unit exemplars) ✅ · Phase 2 (API
 > integration + `createApp()` refactor) ✅ · Phase 3 (functional Playwright exemplars) ✅ ·
-> Phase 4 (both UI coverage signals) ✅ · Phase 5 (`shared` full coverage + istanbul gate) ✅.
-> The full-coverage phases 6–9 are pending. The CI
+> Phase 4 (both UI coverage signals) ✅ · Phase 5 (`shared` full coverage + istanbul gate) ✅ ·
+> Phase 6 (`backend`) 🟡 **PARTIAL — deferred** (483 tests, ~49% stmts; see Phase 6 status).
+> Phase 7 in progress; Phases 8–9 pending. The CI
 > `Test`/`e2e` steps are written but NOT yet pushed (the session's OAuth token lacks GitHub
 > `workflow` scope — apply manually; the e2e job YAML is in `e2e/README.md`).
 >
@@ -303,7 +304,37 @@ gate ratchets up and can't silently regress.
   `@vitest/coverage-istanbul`; run `pnpm --filter @vspark/shared test:coverage`. Plain `pnpm test`
   stays coverage-free/fast. Coverage output dirs added to `.gitignore`.
 
-#### Phase 6 — `backend` full coverage
+#### Phase 6 — `backend` full coverage 🟡 PARTIAL — DEFERRED (revisit)
+
+**Status:** 7 → **483 tests**, istanbul **~48.8% stmts / 35% branch / 40% funcs / 49% lines**
+(baseline was 17%). Built serially (6a–6g) then via two parallel sub-agent waves (6h–6o).
+The gate is **not yet enabled** — re-enable it (ratcheted) when this phase resumes.
+
+Covered: the node test harness (`test/helpers/nodeHarness.ts` — `buildGraph`/`pullValue`/`loneNode`),
+the mesh-initialised `testApp` (`makeTestApp({ mesh: true })` + `resetBackendMesh()`), ~all signal
+nodes (pure/transform/setter/overlive/mocap-mapper/dynamic+context+broadcast/source/misc), engine
+edge cases, behaviour-manager lifecycles (mocked sockets/timers), subsystem buses
+(runtime-overrides/data-channels/media-control/spawn) + parsers (VMC↔VRM mapping, OSC wire format,
+VRM skeleton over a crafted GLB), and REST tiers for projects/scenes/scene-nodes(write)/camera-
+effects/compose-layers/assets/logic/expressions/config/meta/track-clips/presets.
+
+**Deferred (revisit to reach the ≥80% target + enable the gate):**
+
+- **Infra-bound code** (needs live socket/DB/WS or is covered by e2e instead): VMC `onPacket`
+  packet processing, VRM skeleton load-from-disk happy path, `BroadcastBus` hot path (`getDb()` +
+  `setInterval` tick/compose/emit), manager `_persistNodeState` / `_writeSchedule` (need seeded
+  `behaviors`/`animation_clips` rows + mesh collection), `ApiControllerManager.setAnimationQueue`
+  with a real clip.
+- **Uncovered route modules:** behaviors _writes_ (trigger `refreshAllBehaviorManagers` — needs
+  socket-safe seeding), connections, overlive-accounts/overlive-auth, update, signal (fire-graph).
+- **Multiplayer/mesh internals** (`src/multiplayer/**`, mesh transport/collab/shares/streams) —
+  largely untested; realistically the biggest remaining chunk and lowest unit-test ROI.
+- **DB migration runner** end-to-end.
+- **Then:** enable a ratcheted Vitest threshold gate in `packages/backend/vitest.config.ts`
+  (currently configured with `provider: istanbul` + excludes, thresholds commented out). Target
+  ≥80% where practical; sockets/multiplayer realistically lower — gate to the achieved number.
+
+#### Phase 6 — original scope (reference)
 
 - **Signal nodes** — table-driven tests over all 57 node kinds: feed representative inputs, assert
   outputs (math/procedural nodes are pure; mapper/calibration nodes test against fixtures). Reuse
@@ -320,7 +351,7 @@ gate ratchets up and can't silently regress.
   data-channels bus, media-control bus, spawn manager, broadcast bus, VRM skeleton parser (fixture
   GLB/VRM), OSC/VMC packet parsing. Threshold gate ≥ 80% (sockets/multiplayer realistically lower).
 
-#### Phase 7 — `frontend` non-visual full coverage
+#### Phase 7 — `frontend` non-visual full coverage 🔵 IN PROGRESS
 
 - Zustand `editorStore` (all actions/selectors), hooks (`useWsSync` reducers, `useTrackClipEvaluator`,
   uplink hooks with mocked transports), pure utils (`feedTemplate`, `materialOverrides` math,
