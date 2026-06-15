@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '../fixtures/controlCoverage';
+import type { Page } from '@playwright/test';
 
 /**
  * Functional exemplars for the Home page. They assert reachability,

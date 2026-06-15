@@ -22,7 +22,13 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: process.env.CI ? [['html', { open: 'never' }], ['list']] : 'list',
+  reporter: process.env.CI
+    ? [
+        ['html', { open: 'never' }],
+        ['list'],
+        ['./reporters/control-coverage.ts'],
+      ]
+    : [['list'], ['./reporters/control-coverage.ts']],
   use: {
     baseURL: `http://localhost:${FRONTEND_PORT}`,
     trace: 'on-first-retry',
