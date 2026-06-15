@@ -4224,6 +4224,7 @@ export function PropertiesPanel() {
         <div style={sectionHeader}>{t('name')}</div>
         <input
           ref={nameInputRef}
+          className="vs-node-name"
           style={textInput}
           value={name}
           onChange={(e) => setName(e.target.value)}

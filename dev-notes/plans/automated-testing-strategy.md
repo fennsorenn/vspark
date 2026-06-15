@@ -8,9 +8,8 @@
 > integration + `createApp()` refactor) ✅ · Phase 3 (functional Playwright exemplars) ✅ ·
 > Phase 4 (both UI coverage signals) ✅ · Phase 5 (`shared` full coverage + istanbul gate) ✅ ·
 > Phase 6 (`backend`) 🟡 **PARTIAL — deferred** (483 tests, ~49% stmts; see Phase 6 status).
-> Phase 7 (`frontend` non-visual) 🟡 **PARTIAL** (289 tests: stores/utils/i18n-parity +
-> Testing-Library hooks & component panels incl. PropertiesPanel; see Phase 7 status).
-> Phases 8–9 pending. The CI
+> Phase 7 (`frontend` non-visual) 🟡 **PARTIAL — deferred** (289 tests; see Phase 7 status) ·
+> Phase 8 (E2E editor-flow breadth) 🔵 **IN PROGRESS**. Phase 9 pending. The CI
 > `Test`/`e2e` steps are written but NOT yet pushed (the session's OAuth token lacks GitHub
 > `workflow` scope — apply manually; the e2e job YAML is in `e2e/README.md`).
 >
