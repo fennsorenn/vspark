@@ -2295,17 +2295,21 @@ export function SceneGraph() {
               )}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              {/* Bones toggle — avatar/model only, shown once VRM is loaded */}
+              {/* Bones toggle — avatar/model only, shown once VRM is loaded.
+                  Given a subtle border/background so it reads as a distinct,
+                  discoverable control (it's the entry point for attaching
+                  objects to bones) rather than blending into the icon row. */}
               {bones && (
                 <button
                   title={showBones ? t('bones.collapse') : t('bones.expand')}
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    color: showBones ? '#8af' : '#444',
+                    background: showBones ? '#16202e' : 'transparent',
+                    border: `1px solid ${showBones ? '#2a4060' : '#3a3a3a'}`,
+                    color: showBones ? '#8af' : '#9aa3b0',
                     cursor: 'pointer',
                     fontSize: 11,
-                    padding: '0 3px',
+                    padding: '1px 4px',
+                    borderRadius: 3,
                     flexShrink: 0,
                     lineHeight: 1,
                   }}
