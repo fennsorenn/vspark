@@ -8,7 +8,8 @@
 > integration + `createApp()` refactor) ✅ · Phase 3 (functional Playwright exemplars) ✅ ·
 > Phase 4 (both UI coverage signals) ✅ · Phase 5 (`shared` full coverage + istanbul gate) ✅ ·
 > Phase 6 (`backend`) 🟡 **PARTIAL — deferred** (483 tests, ~49% stmts; see Phase 6 status).
-> Phase 7 in progress; Phases 8–9 pending. The CI
+> Phase 7 (`frontend` non-visual) 🟡 **PARTIAL** (285 tests: stores/utils/i18n-parity +
+> Testing-Library hooks & component panels; see Phase 7 status). Phases 8–9 pending. The CI
 > `Test`/`e2e` steps are written but NOT yet pushed (the session's OAuth token lacks GitHub
 > `workflow` scope — apply manually; the e2e job YAML is in `e2e/README.md`).
 >
@@ -351,7 +352,34 @@ effects/compose-layers/assets/logic/expressions/config/meta/track-clips/presets.
   data-channels bus, media-control bus, spawn manager, broadcast bus, VRM skeleton parser (fixture
   GLB/VRM), OSC/VMC packet parsing. Threshold gate ≥ 80% (sockets/multiplayer realistically lower).
 
-#### Phase 7 — `frontend` non-visual full coverage 🔵 IN PROGRESS
+#### Phase 7 — `frontend` non-visual full coverage 🟡 PARTIAL (revisit)
+
+**Status:** 3 → **285 tests** across 10 files (all green). Built via parallel sub-agent waves.
+Added `@testing-library/react` + `user-event` + a shared `test/helpers/render.tsx`
+(`renderWithProviders` = real app i18n + MemoryRouter). **Infra fix:** mirrored
+`vite.config.ts`'s `@vspark/shared/*` resolve aliases into `vitest.config.ts` (subpaths like
+`@vspark/shared/sync` weren't resolving under vitest).
+
+Covered: `editorStore` (full action/selector surface + cascades), small stores (ik/vmc/
+connections/help/clipboard), filter/calibration math (OneEuroFilter, previewSmoother partial,
+arm calib), pure utils (particles, help docs, rehype), **i18n EN/DE key-parity across all 18
+namespaces (no drift)**, hooks (`useEscapeKey`, `useWsSync` via mocked WebSocket,
+`useTrackClipEvaluator` via fake timers), and component panels (`SceneGraph`, `AssetManager`,
+`DialogProvider`/`useConfirm`, `HelpButton`/`HelpWindow`, `LanguageSwitcher`) with 3D/heavy
+children mocked.
+
+**Deferred (revisit to finish Phase 7 + enable the gate):**
+
+- **`PropertiesPanel`** component test (the largest panel; agent deferred it — now unblocked by
+  the alias fix, just not yet written).
+- **Uplink hooks** (`useLipsyncUplink`/`useTrackingUplink`) — thin transport wirers, low ROI.
+- **`previewSmoother` / particle GPU helpers** — coupled to RAF/THREE typed-array mutation.
+- **Compose-layer + track-clip-lane store CRUD** in `editorStore` (mechanical repetition).
+- **Coverage config + ratcheted gate**: add `@vitest/coverage-istanbul` to the frontend with
+  `coverage.exclude` globs for R3F/WebGL render paths (`Viewport.tsx`, `Avatar.tsx`, R3F node
+  components — covered by Phase 8 instead), then ratchet a threshold on the non-excluded surface.
+
+#### Phase 7 — original scope (reference)
 
 - Zustand `editorStore` (all actions/selectors), hooks (`useWsSync` reducers, `useTrackClipEvaluator`,
   uplink hooks with mocked transports), pure utils (`feedTemplate`, `materialOverrides` math,
