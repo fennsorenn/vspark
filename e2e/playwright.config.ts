@@ -56,6 +56,8 @@ export default defineConfig({
       env: {
         VITE_DEV_PORT: String(FRONTEND_PORT),
         VITE_BACKEND_PORT: String(BACKEND_PORT),
+        // Propagate the coverage flag so vite instruments with istanbul.
+        ...(process.env.COVERAGE ? { COVERAGE: '1' } : {}),
       },
     },
   ],

@@ -37,6 +37,41 @@ Each run gets a fresh DB, so tests start from a known-empty backend.
 - Tests should be **independent** — seed their own data via the API rather than relying on
   another test's side effects.
 
+## Coverage signals
+
+Two complementary signals (both **trend** signals, not hard gates — a sharp *drop* is the alarm):
+
+### Control coverage (which controls does any test touch?)
+Runs automatically on every `e2e` run via the `control-coverage` reporter. It diffs the
+`data-testid` inventory (`scripts/inventory-controls.mjs`) against the set actually interacted
+with (recorded by `fixtures/controlCoverage.ts`) and prints the % plus the **"never interacted
+with"** list — the controls no test exercises. A machine-readable copy lands in
+`.coverage/control-coverage.json`.
+
+### E2E code coverage (which source lines does a UI run reach?)
+```bash
+pnpm --filter @vspark/e2e e2e:coverage     # COVERAGE=1 → vite instruments via istanbul
+pnpm --filter @vspark/e2e coverage:report  # nyc → text-summary + html + lcov + json-summary
+pnpm --filter @vspark/e2e coverage:trend   # compare to baseline, warn on a drop
+```
+`vite-plugin-istanbul` instruments the frontend **only when `COVERAGE` is set** (never the
+production build). The per-test fixture harvests `window.__coverage__` into `.nyc_output/`.
+
+A high % is a weak positive; a **sharp drop is a strong negative** (orphaned/unreachable code, or
+new functionality shipped without a UI path). `coverage:trend` compares the line % to
+`coverage-baseline.json` and warns past `COVERAGE_DROP_THRESHOLD` (default 1.5%); set
+`COVERAGE_FAIL_ON_DROP=1` to make it exit non-zero. `coverage:trend --update` writes the baseline.
+
+**Sharpen the signal with annotations.** Code that is intentionally NOT reachable via UI
+interaction (CLI/bootstrap paths, dev-only branches, defensive `assertNever`, backend-only modules)
+should carry an istanbul ignore hint **with a reason**:
+```ts
+/* istanbul ignore next -- bootstrap-only, never hit from the UI */
+```
+The cleaner these annotations, the more a coverage drop means a real UI regression vs. noise.
+A future lint rule should require the `-- reason`. (The codebase-wide annotation sweep + the
+committed ratcheted baseline are Phase 9 of the testing plan.)
+
 ## CI job (apply manually)
 
 This job is not yet in `.github/workflows/ci.yml` because the originating session's token lacked

@@ -4,3 +4,7 @@ test-results/
 .nyc_output/
 coverage/
 .coverage/
+merged*.json
+# Exemplar-phase baseline is meaningless (home-only). Phase 9 commits the real
+# ratcheted baseline once E2E breadth exists.
+coverage-baseline.json

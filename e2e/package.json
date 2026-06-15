@@ -5,12 +5,16 @@
   "type": "module",
   "scripts": {
     "e2e": "playwright test",
+    "e2e:coverage": "COVERAGE=1 playwright test",
     "e2e:report": "playwright show-report",
+    "coverage:report": "nyc report --cwd .. --temp-dir e2e/.nyc_output --report-dir e2e/coverage --reporter=text-summary --reporter=html --reporter=lcov --reporter=json-summary",
+    "coverage:trend": "node scripts/coverage-trend.mjs",
     "lint": "tsc --noEmit"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.0",
     "@types/node": "^22.10.0",
+    "nyc": "^17.1.0",
     "typescript": "^5.8.3"
   }
 }

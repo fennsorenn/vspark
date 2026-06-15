@@ -5,10 +5,10 @@
 > not an airtight spec — refine it interactively as gaps surface.
 >
 > **Progress:** Phase 0 (Vitest infra) ✅ · Phase 1 (unit exemplars) ✅ · Phase 2 (API
-> integration + `createApp()` refactor) ✅ · Phase 3 (functional Playwright exemplars) ✅.
-> Phase 4 (coverage signals) and the full-coverage phases 5–9 are pending. The CI `Test`/`e2e`
-> steps are written but NOT yet pushed (the session's OAuth token lacks GitHub `workflow` scope
-> — apply manually; the e2e job YAML is in `e2e/README.md`).
+> integration + `createApp()` refactor) ✅ · Phase 3 (functional Playwright exemplars) ✅ ·
+> Phase 4 (both UI coverage signals) ✅. The full-coverage phases 5–9 are pending. The CI
+> `Test`/`e2e` steps are written but NOT yet pushed (the session's OAuth token lacks GitHub
+> `workflow` scope — apply manually; the e2e job YAML is in `e2e/README.md`).
 
 ## Goal
 
@@ -139,11 +139,20 @@ have no tests. CI (`.github/workflows/ci.yml`) never runs tests.
   + traces. Future editor-internal flows (scene graph add-node, i18n switch, no-WebGL-context-loss)
   belong to Phase 8 breadth; this phase establishes the pattern on the WebGL-free Home page.
 
-### Phase 4 — UI coverage signals (two complementary metrics)
+### Phase 4 — UI coverage signals (two complementary metrics) ✅ DONE (exemplars)
 
 Two distinct, intentionally-kept signals. **Both are trend signals, not pass/fail gates** — but
 a sharp *drop* in either is a strong "something's wrong" indicator (orphaned code, unreachable
 functionality, newly-added-but-untested behaviour).
+
+Built (all verified locally): `e2e/scripts/inventory-controls.mjs`,
+`e2e/fixtures/controlCoverage.ts` (DOM-level interaction recorder + `window.__coverage__`
+harvester), `e2e/reporters/control-coverage.ts`, `e2e/scripts/coverage-trend.mjs`, gated
+`vite-plugin-istanbul` in `packages/frontend/vite.config.ts` (COVERAGE env; never prod), and the
+`e2e:coverage` / `coverage:report` / `coverage:trend` scripts. Control coverage prints on every
+run (4/5 on the home exemplar); `COVERAGE=1` run → nyc report works once `--cwd` points at the
+repo root (frontend src lives outside `e2e/`). Annotation convention + committed baseline deferred
+to Phase 9.
 
 #### 4a — Control/surface coverage (custom reporter)
 "Of all operable controls, which does some test exercise?" — NOT interaction-*path* coverage

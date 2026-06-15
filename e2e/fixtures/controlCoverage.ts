@@ -3,6 +3,8 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
+let _covSeq = 0;
+
 /**
  * Control-coverage instrumentation — the NUMERATOR for control coverage.
  *
@@ -19,10 +21,10 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COVERAGE_DIR = join(__dirname, '..', '.coverage');
 
+type TestFixtures = { _codeCoverage: void };
 type WorkerFixtures = { interactedSet: Set<string> };
 
-// eslint-disable-next-line @typescript-eslint/ban-types
-export const test = base.extend<{}, WorkerFixtures>({
+export const test = base.extend<TestFixtures, WorkerFixtures>({
   // Worker-scoped accumulator; flushed to disk on worker teardown.
   interactedSet: [
     async ({}, use, workerInfo) => {
@@ -64,6 +66,36 @@ export const test = base.extend<{}, WorkerFixtures>({
     });
     await use(context);
   },
+
+  // After each test, harvest istanbul code coverage (window.__coverage__) from
+  // every open page into .nyc_output/ for `nyc report`. No-op unless COVERAGE
+  // is set (vite only instruments then). This is the 4b code-coverage trend
+  // signal — see e2e/README.md. Depends on `context`, so it tears down BEFORE
+  // the context closes (pages still alive).
+  _codeCoverage: [
+    async ({ context }, use) => {
+      await use();
+      if (!process.env.COVERAGE) return;
+      const dir = join(__dirname, '..', '.nyc_output');
+      mkdirSync(dir, { recursive: true });
+      for (const page of context.pages()) {
+        try {
+          const cov = await page.evaluate(
+            () =>
+              (window as unknown as { __coverage__?: unknown }).__coverage__
+          );
+          if (cov)
+            writeFileSync(
+              join(dir, `cov-${process.pid}-${_covSeq++}.json`),
+              JSON.stringify(cov)
+            );
+        } catch {
+          /* page navigated/closed mid-harvest — skip */
+        }
+      }
+    },
+    { auto: true },
+  ],
 });
 
 export { expect } from '@playwright/test';
