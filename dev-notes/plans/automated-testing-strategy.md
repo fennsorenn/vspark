@@ -7,12 +7,12 @@
 > **Progress:** Phase 0 (Vitest infra) ✅ · Phase 1 (unit exemplars) ✅ · Phase 2 (API
 > integration + `createApp()` refactor) ✅ · Phase 3 (functional Playwright exemplars) ✅ ·
 > Phase 4 (both UI coverage signals) ✅ · Phase 5 (`shared` full coverage + istanbul gate) ✅ ·
-> Phase 6 (`backend`) 🟡 **PARTIAL — deferred breadth landed** (693 tests; see Phase 6 status).
-> Phase 7 (`frontend` non-visual) 🟡 **PARTIAL — deferred breadth landed** (447 tests; see Phase 7 status) ·
+> Phase 6 (`backend`) 🟡 **PARTIAL — deferred breadth landed** (693 tests, gate enabled: 50/38/48/50).
+> Phase 7 (`frontend` non-visual) 🟡 **PARTIAL — deferred breadth landed** (447 tests; gate enabled: 10/9/11/10).
 > Phase 8 (E2E editor-flow breadth) 🟡 **SUBSTANTIALLY DONE** (14 spec files, 35 tests).
-> Phase 9 pending. The CI
-> `Test`/`e2e` steps are written but NOT yet pushed (the session's OAuth token lacks GitHub
-> `workflow` scope — apply manually; the e2e job YAML is in `e2e/README.md`).
+> Phase 9 ✅ **DONE** — backend gate, testing module doc (`dev-notes/modules/testing.md`),
+> CLAUDE.md testing section. 4a PropertiesPanel instrumented + `cov-properties.spec.ts`.
+> CI wiring deferred to user (OAuth `workflow` scope required; job YAML in `e2e/README.md`).
 >
 > **Selector-convention revision (supersedes the original `data-testid` decision):** stable
 > handles are now a **`vs-`-prefixed CSS class targeting layer** (a public contract for
