@@ -10,6 +10,9 @@ backups/
 .env
 .env.local
 *.tsbuildinfo
+# test coverage output
+coverage/
+.nyc_output/
 .vscode/
 .idea/
 .claude/*
@@ -21,3 +24,5 @@ itellar
 test-assets/.cache/
 # smoketest scratch (two-peer mesh: frontend-B vite proxy → backend B)
 packages/frontend/vite.config.b.ts
+# runtime config written by the config route at the install dir
+packages/backend/config.json
