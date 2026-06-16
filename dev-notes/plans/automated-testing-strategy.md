@@ -7,8 +7,8 @@
 > **Progress:** Phase 0 (Vitest infra) ✅ · Phase 1 (unit exemplars) ✅ · Phase 2 (API
 > integration + `createApp()` refactor) ✅ · Phase 3 (functional Playwright exemplars) ✅ ·
 > Phase 4 (both UI coverage signals) ✅ · Phase 5 (`shared` full coverage + istanbul gate) ✅ ·
-> Phase 6 (`backend`) 🟡 **PARTIAL — deferred** (483 tests, ~49% stmts; see Phase 6 status).
-> Phase 7 (`frontend` non-visual) 🟡 **PARTIAL — deferred** (289 tests; see Phase 7 status) ·
+> Phase 6 (`backend`) 🟡 **PARTIAL — deferred breadth landed** (693 tests; see Phase 6 status).
+> Phase 7 (`frontend` non-visual) 🟡 **PARTIAL — deferred breadth landed** (447 tests; see Phase 7 status) ·
 > Phase 8 (E2E editor-flow breadth) 🟡 **SUBSTANTIALLY DONE** (14 spec files, 35 tests).
 > Phase 9 pending. The CI
 > `Test`/`e2e` steps are written but NOT yet pushed (the session's OAuth token lacks GitHub
@@ -218,8 +218,13 @@ AST (`e2e/scripts/controls.mjs`) — intrinsic interactive elements + any JSX el
 `on{Click,Change,…}` handler + usages of registered reusable components (`COMPONENTS` set);
 3D/canvas files skipped. Two metrics share that honest denominator:
 **control coverage** (controls whose `vs-` handle was interacted with / active controls) and
-**instrumentation** (controls with a `vs-` handle / active controls). Exemplar today: 4 / 457 (0.9%) —
-the full count, not the instrumented subset.
+**instrumentation** (controls with a `vs-` handle / active controls). The full count, not the
+instrumented subset.
+
+**Progress:** raised from the 4/457 exemplar to **~65/453 exercised, ~90/453 instrumented** via the
+batch waves — per-panel `cov-*.spec.ts` specs that add `vs-` handles to a panel's controls and click
+them: SceneGraph, AssetManager, Compose, Preset/TopBar/Dialog, and TrackClip (commit `f9ed2b0`).
+PropertiesPanel (the largest surface, ~151 controls) is the remaining big target — in flight.
 
 **Opt-out:** a control where an e2e test makes no sense is excluded from the denominator in
 `e2e/coverage-ignore.json` (by `vs-` handle or `relpath:line`; whole files by glob) — kept out of the
@@ -308,8 +313,15 @@ gate ratchets up and can't silently regress.
 
 #### Phase 6 — `backend` full coverage 🟡 PARTIAL — DEFERRED (revisit)
 
-**Status:** 7 → **483 tests**, istanbul **~48.8% stmts / 35% branch / 40% funcs / 49% lines**
-(baseline was 17%). Built serially (6a–6g) then via two parallel sub-agent waves (6h–6o).
+**Status:** 7 → **693 tests** (was 483). Built serially (6a–6g), two parallel sub-agent waves
+(6h–6o), then a **batch wave** (commit `f9ed2b0`) that landed most of the deferred breadth:
+routes (behaviors writes, connections, overlive-accounts, update, signal), the DB migration
+runner, manager persist paths (`_persistNodeState`/`_writeSchedule`/`setAnimationQueue`), and
+multiplayer/mesh internals (router, shares, blobs, blobTransfer, collabScene, config, identity,
+peers, sharingManager). Added `test/helpers/testDb.ts` (lightweight `:memory:` DB for DB-only,
+non-app tests). **Infra fix:** `vitest.config.ts` now forces `VSPARK_DB_PATH=':memory:'` for the
+whole suite — `DB_PATH` is read once at module load, so a statically-imported db module otherwise
+bound to the on-disk `vspark.db` and leaked rows across files.
 The gate is **not yet enabled** — re-enable it (ratcheted) when this phase resumes.
 
 Covered: the node test harness (`test/helpers/nodeHarness.ts` — `buildGraph`/`pullValue`/`loneNode`),
@@ -322,16 +334,13 @@ effects/compose-layers/assets/logic/expressions/config/meta/track-clips/presets.
 
 **Deferred (revisit to reach the ≥80% target + enable the gate):**
 
-- **Infra-bound code** (needs live socket/DB/WS or is covered by e2e instead): VMC `onPacket`
+- ✅ ~~manager `_persistNodeState` / `_writeSchedule` + `setAnimationQueue`~~ — landed (`managers.persist.test.ts`).
+- ✅ ~~route modules: behaviors writes, connections, overlive-accounts, update, signal~~ — landed.
+- ✅ ~~Multiplayer/mesh internals~~ — router/shares/blobs/collabScene/config/identity/peers/sharingManager landed.
+- ✅ ~~DB migration runner~~ — landed (`db.migrations.test.ts`).
+- **Still deferred — infra-bound** (needs live socket/WS or is covered by e2e instead): VMC `onPacket`
   packet processing, VRM skeleton load-from-disk happy path, `BroadcastBus` hot path (`getDb()` +
-  `setInterval` tick/compose/emit), manager `_persistNodeState` / `_writeSchedule` (need seeded
-  `behaviors`/`animation_clips` rows + mesh collection), `ApiControllerManager.setAnimationQueue`
-  with a real clip.
-- **Uncovered route modules:** behaviors _writes_ (trigger `refreshAllBehaviorManagers` — needs
-  socket-safe seeding), connections, overlive-accounts/overlive-auth, update, signal (fire-graph).
-- **Multiplayer/mesh internals** (`src/multiplayer/**`, mesh transport/collab/shares/streams) —
-  largely untested; realistically the biggest remaining chunk and lowest unit-test ROI.
-- **DB migration runner** end-to-end.
+  `setInterval` tick/compose/emit), overlive-auth OAuth flow.
 - **Then:** enable a ratcheted Vitest threshold gate in `packages/backend/vitest.config.ts`
   (currently configured with `provider: istanbul` + excludes, thresholds commented out). Target
   ≥80% where practical; sockets/multiplayer realistically lower — gate to the achieved number.
@@ -355,7 +364,10 @@ effects/compose-layers/assets/logic/expressions/config/meta/track-clips/presets.
 
 #### Phase 7 — `frontend` non-visual full coverage 🟡 PARTIAL (revisit)
 
-**Status:** 3 → **289 tests** across 11 files (all green). Built via parallel sub-agent waves.
+**Status:** 3 → **447 tests** across 15 files (all green). Built via parallel sub-agent waves,
+then a **batch wave** (commit `f9ed2b0`) adding `editorStore`/`utils` breadth and the uplink/mesh
+hooks (`hooks.uplink.test.ts`: `useLipsyncUplink`/`useTrackingUplink`/`useSharedSubscriptions`/
+`useClientMesh` with mocked transports).
 Added `@testing-library/react` + `user-event` + a shared `test/helpers/render.tsx`
 (`renderWithProviders` = real app i18n + MemoryRouter) + a `test/setup.ts` registering RTL's
 afterEach `cleanup` (config has no `globals`). **Infra fix:** mirrored `vite.config.ts`'s
@@ -373,9 +385,11 @@ children mocked.
 
 **Deferred (revisit to finish Phase 7 + enable the gate):**
 
-- **Uplink hooks** (`useLipsyncUplink`/`useTrackingUplink`) — thin transport wirers, low ROI.
-- **`previewSmoother` / particle GPU helpers** — coupled to RAF/THREE typed-array mutation.
-- **Compose-layer + track-clip-lane store CRUD** in `editorStore` (mechanical repetition).
+- ✅ ~~Uplink hooks~~ — landed (`hooks.uplink.test.ts`, incl. `useSharedSubscriptions`/`useClientMesh`).
+- ✅ ~~Compose-layer + track-clip-lane store CRUD~~ — landed (`editorStore.breadth.test.ts`).
+- **Still deferred — `previewSmoother` / particle GPU helpers** — coupled to RAF/THREE typed-array mutation.
+- **Coverage gate is wired** (`@vitest/coverage-istanbul` + R3F excludes + ratcheted thresholds
+  10/9/11/10 in `vitest.config.ts`); raise the ratchet as coverage grows. Original line below kept for ref:
 - **Coverage config + ratcheted gate**: add `@vitest/coverage-istanbul` to the frontend with
   `coverage.exclude` globs for R3F/WebGL render paths (`Viewport.tsx`, `Avatar.tsx`, R3F node
   components — covered by Phase 8 instead), then ratchet a threshold on the non-excluded surface.
