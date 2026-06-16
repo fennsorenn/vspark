@@ -1,0 +1,7 @@
+node_modules/
+playwright-report/
+test-results/
+.nyc_output/
+coverage/
+.coverage/
+merged*.json

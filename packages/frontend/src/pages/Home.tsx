@@ -139,7 +139,11 @@ export function Home() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <LanguageSwitcher />
-          <button style={btnStyle} onClick={() => setShowNewForm(true)}>
+          <button
+            style={btnStyle}
+            onClick={() => setShowNewForm(true)}
+            className="vs-new-project-button"
+          >
             {t('header.newProject')}
           </button>
         </div>
@@ -184,6 +188,7 @@ export function Home() {
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
                 autoFocus
+                className="vs-new-project-name"
               />
               <input
                 style={inputStyle}
@@ -196,6 +201,7 @@ export function Home() {
                   style={btnStyle}
                   onClick={handleCreate}
                   disabled={creating || !newName.trim()}
+                  className="vs-new-project-create"
                 >
                   {creating ? t('form.creating') : t('form.create')}
                 </button>
@@ -237,7 +243,7 @@ export function Home() {
             }}
           >
             {projects.map((p) => (
-              <div key={p.id} style={cardStyle}>
+              <div key={p.id} style={cardStyle} className="vs-project-card">
                 <div style={{ fontWeight: 600, fontSize: 16, color: '#fff' }}>
                   {p.name}
                 </div>
@@ -255,6 +261,7 @@ export function Home() {
                   <button
                     style={btnStyle}
                     onClick={() => navigate(`/editor/${p.id}`)}
+                    className="vs-project-open"
                   >
                     {t('card.open')}
                   </button>
