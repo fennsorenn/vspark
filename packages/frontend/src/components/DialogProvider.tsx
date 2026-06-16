@@ -203,6 +203,7 @@ function DialogHost({
         )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button
+            className="vs-dialog-cancel"
             onClick={cancel}
             style={{
               background: '#2a2a2a',
@@ -217,6 +218,7 @@ function DialogHost({
             {cancelLabel}
           </button>
           <button
+            className="vs-dialog-confirm"
             onClick={accept}
             autoFocus={!isPrompt}
             style={{

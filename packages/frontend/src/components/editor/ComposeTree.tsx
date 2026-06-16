@@ -67,6 +67,7 @@ function AddLayerButton({ composeSceneId }: { composeSceneId: string }) {
   const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   return (
     <button
+      className="vs-compose-add-layer"
       style={addBtn}
       title={t('tree.addLayerTitle')}
       onClick={(e) => {
@@ -315,6 +316,7 @@ function LayerRow({
           if (!siblings.some((s) => s.id === draggedId)) return;
           reorderSibling(siblings, draggedId, layer.id, pos === 'after');
         }}
+        className="vs-layer-row"
         style={{
           ...rowStyle(selected),
           paddingLeft: 8 + depth * 14,
@@ -344,6 +346,7 @@ function LayerRow({
         </span>
         {layer.kind === 'camera_view' && (
           <button
+            className="vs-layer-lock3d"
             title={
               locked3d
                 ? t('tree.lock3dTitle_locked')
@@ -366,6 +369,7 @@ function LayerRow({
           </button>
         )}
         <button
+          className="vs-layer-lock"
           title={
             locked ? t('tree.lockTitle_locked') : t('tree.lockTitle_unlocked')
           }
@@ -385,6 +389,7 @@ function LayerRow({
           {locked ? '🔒' : '🔓'}
         </button>
         <button
+          className="vs-layer-visibility"
           title={layer.visible ? t('tree.hideTitle') : t('tree.showTitle')}
           style={{
             background: 'none',
@@ -402,6 +407,7 @@ function LayerRow({
           {layer.visible ? '👁' : '🙈'}
         </button>
         <button
+          className="vs-layer-delete"
           title={t('tree.deleteLayerTitle')}
           style={{
             background: 'none',
@@ -509,6 +515,7 @@ function ComposeSceneRoot({
       }}
     >
       <div
+        className="vs-compose-scene-row"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -526,6 +533,7 @@ function ComposeSceneRoot({
         onClick={() => selectComposeScene(scene.id)}
       >
         <span
+          className="vs-compose-scene-collapse"
           style={{
             width: 16,
             flexShrink: 0,
@@ -575,6 +583,7 @@ function ComposeSceneRoot({
           </a>
         )}
         <button
+          className="vs-compose-scene-delete"
           title={t('tree.deleteSceneTitle')}
           style={{
             background: 'none',
@@ -680,6 +689,7 @@ export function ComposeTree() {
         </span>
         <HelpButton topic="compose" anchor="overview" tip={t('help.compose')} />
         <button
+          className="vs-compose-new-scene"
           style={addBtn}
           onClick={handleNewComposeScene}
           title={t('tree.newSceneTitle')}
