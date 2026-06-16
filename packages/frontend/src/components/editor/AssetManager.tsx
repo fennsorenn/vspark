@@ -746,40 +746,42 @@ export function AssetManager() {
           flexShrink: 0,
         }}
       >
-        <button style={tabBtn('create')} onClick={() => setTab('create')}>
+        <button className="vs-tab-create" style={tabBtn('create')} onClick={() => setTab('create')}>
           {t('tabs.create')}
         </button>
-        <button style={tabBtn('models')} onClick={() => setTab('models')}>
+        <button className="vs-tab-models" style={tabBtn('models')} onClick={() => setTab('models')}>
           {t('tabs.models')}
         </button>
         <button
+          className="vs-tab-animations"
           style={tabBtn('animations')}
           onClick={() => setTab('animations')}
         >
           {t('tabs.animations')}
         </button>
-        <button style={tabBtn('images')} onClick={() => setTab('images')}>
+        <button className="vs-tab-images" style={tabBtn('images')} onClick={() => setTab('images')}>
           {t('tabs.images')}
         </button>
-        <button style={tabBtn('videos')} onClick={() => setTab('videos')}>
+        <button className="vs-tab-videos" style={tabBtn('videos')} onClick={() => setTab('videos')}>
           {t('tabs.videos')}
         </button>
-        <button style={tabBtn('audio')} onClick={() => setTab('audio')}>
+        <button className="vs-tab-audio" style={tabBtn('audio')} onClick={() => setTab('audio')}>
           {t('tabs.audio')}
         </button>
         <button
+          className="vs-tab-components"
           style={tabBtn('components')}
           onClick={() => setTab('components')}
         >
           {t('tabs.components')}
         </button>
-        <button style={tabBtn('effects')} onClick={() => setTab('effects')}>
+        <button className="vs-tab-effects" style={tabBtn('effects')} onClick={() => setTab('effects')}>
           {t('tabs.effects')}
         </button>
-        <button style={tabBtn('clips')} onClick={() => setTab('clips')}>
+        <button className="vs-tab-clips" style={tabBtn('clips')} onClick={() => setTab('clips')}>
           {t('tabs.clips')}
         </button>
-        <button style={tabBtn('presets')} onClick={() => setTab('presets')}>
+        <button className="vs-tab-presets" style={tabBtn('presets')} onClick={() => setTab('presets')}>
           {t('tabs.presets')}
         </button>
         {/* One contextual help affordance for the active tab — consistent across
@@ -799,6 +801,7 @@ export function AssetManager() {
           tab === 'videos' ||
           tab === 'audio') && (
           <input
+            className="vs-asset-search"
             value={assetQuery}
             onChange={(e) => setAssetQuery(e.target.value)}
             placeholder={t('search.placeholder')}
@@ -821,6 +824,7 @@ export function AssetManager() {
         tab === 'presets' ? null : tab === 'models' ? (
           <>
             <button
+              className="vs-upload-model"
               style={uploadBtn}
               disabled={uploading}
               onClick={() => modelInputRef.current?.click()}
@@ -842,6 +846,7 @@ export function AssetManager() {
         ) : tab === 'animations' ? (
           <>
             <button
+              className="vs-upload-animation"
               style={uploadBtn}
               disabled={uploading}
               onClick={() => animInputRef.current?.click()}
@@ -863,6 +868,7 @@ export function AssetManager() {
         ) : tab === 'images' ? (
           <>
             <button
+              className="vs-upload-image"
               style={uploadBtn}
               disabled={uploading}
               onClick={() => imageInputRef.current?.click()}
@@ -884,6 +890,7 @@ export function AssetManager() {
         ) : tab === 'videos' ? (
           <>
             <button
+              className="vs-upload-video"
               style={uploadBtn}
               disabled={uploading}
               onClick={() => videoInputRef.current?.click()}
@@ -905,6 +912,7 @@ export function AssetManager() {
         ) : tab === 'audio' ? (
           <>
             <button
+              className="vs-upload-audio"
               style={uploadBtn}
               disabled={uploading}
               onClick={() => audioInputRef.current?.click()}
@@ -1202,6 +1210,7 @@ export function AssetManager() {
                       >
                         {asset.kind === 'model' && (
                           <button
+                            className="vs-asset-add-to-scene"
                             style={{
                               background: '#1a3a5a',
                               border: 'none',
@@ -1218,6 +1227,7 @@ export function AssetManager() {
                         )}
                         {asset.kind === 'model' && canApplyModel && (
                           <button
+                            className="vs-asset-apply-model"
                             style={{
                               background: '#1a3a2a',
                               border: 'none',
@@ -1239,6 +1249,7 @@ export function AssetManager() {
                         )}
                         {asset.kind === 'animation' && canApplyAnim && (
                           <button
+                            className="vs-asset-apply-animation"
                             style={{
                               background: '#1a3a2a',
                               border: 'none',
@@ -1271,6 +1282,7 @@ export function AssetManager() {
                         )}
                         {asset.kind === 'image' && (
                           <button
+                            className="vs-asset-add-image"
                             style={{
                               background: '#1a2a4a',
                               border: 'none',
@@ -1298,6 +1310,7 @@ export function AssetManager() {
                         )}
                         {asset.kind === 'image' && canApplyTexture && (
                           <button
+                            className="vs-asset-apply-texture"
                             style={{
                               background: '#2a1a3a',
                               border: 'none',
@@ -1319,6 +1332,7 @@ export function AssetManager() {
                         )}
                         {asset.kind === 'image' && canApplyCameraBg && (
                           <button
+                            className="vs-asset-set-camera-bg"
                             style={{
                               background: '#1a2a1a',
                               border: 'none',
@@ -1338,6 +1352,7 @@ export function AssetManager() {
                         )}
                         {asset.kind === 'image' && canApplyImageLayer && (
                           <button
+                            className="vs-asset-apply-image-layer"
                             style={{
                               background: '#2a1a3a',
                               border: 'none',
@@ -1373,6 +1388,7 @@ export function AssetManager() {
                           )}
                         {asset.kind === 'video' && (
                           <button
+                            className="vs-asset-add-video"
                             style={{
                               background: '#1a2a4a',
                               border: 'none',
@@ -1400,6 +1416,7 @@ export function AssetManager() {
                         )}
                         {asset.kind === 'video' && canApplyVideo && (
                           <button
+                            className="vs-asset-apply-video"
                             style={{
                               background: '#2a1a3a',
                               border: 'none',
@@ -1423,6 +1440,7 @@ export function AssetManager() {
                         )}
                         {asset.kind === 'video' && canApplyVideoLayer && (
                           <button
+                            className="vs-asset-apply-video-layer"
                             style={{
                               background: '#2a1a3a',
                               border: 'none',
@@ -1444,6 +1462,7 @@ export function AssetManager() {
                         )}
                         {asset.kind === 'audio' && (
                           <button
+                            className="vs-asset-add-audio"
                             style={{
                               background: '#1a3a2a',
                               border: 'none',
@@ -1460,6 +1479,7 @@ export function AssetManager() {
                         )}
                         {asset.kind === 'audio' && canApplyAudio && (
                           <button
+                            className="vs-asset-apply-audio"
                             style={{
                               background: '#2a1a3a',
                               border: 'none',
@@ -1483,6 +1503,7 @@ export function AssetManager() {
                         )}
                         {asset.kind === 'audio' && canApplyAudioLayer && (
                           <button
+                            className="vs-asset-apply-audio-layer"
                             style={{
                               background: '#2a1a3a',
                               border: 'none',
@@ -1503,6 +1524,7 @@ export function AssetManager() {
                           </button>
                         )}
                         <button
+                          className="vs-asset-delete"
                           style={{
                             background: 'none',
                             border: 'none',
