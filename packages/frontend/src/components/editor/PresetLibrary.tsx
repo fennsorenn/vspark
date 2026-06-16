@@ -305,6 +305,7 @@ export function PresetLibrary() {
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button
+            className="vs-preset-save"
             style={{ ...btnStyle, opacity: canSave ? 1 : 0.4 }}
             onClick={() => {
               if (!canSave) return;
@@ -321,6 +322,7 @@ export function PresetLibrary() {
             {t('actions.save')}
           </button>
           <button
+            className="vs-preset-copy"
             style={btnStyle}
             onClick={handleCopy}
             disabled={!canSave}
@@ -329,6 +331,7 @@ export function PresetLibrary() {
             {t('actions.copy')}
           </button>
           <button
+            className="vs-preset-paste"
             style={btnStyle}
             onClick={handlePaste}
             title={t('actions.pasteTitle')}
@@ -336,6 +339,7 @@ export function PresetLibrary() {
             {t('actions.paste')}
           </button>
           <button
+            className="vs-preset-import"
             style={btnStyle}
             onClick={() => fileInputRef.current?.click()}
             title={t('actions.importTitle')}
@@ -409,6 +413,7 @@ export function PresetLibrary() {
                     </div>
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button
+                        className="vs-preset-builtin-use"
                         style={{
                           ...btnStyle,
                           fontSize: 10,
@@ -497,6 +502,7 @@ export function PresetLibrary() {
                       : activeSceneId;
                   return (
                     <button
+                      className="vs-preset-use"
                       style={{
                         ...btnStyle,
                         fontSize: 10,
@@ -516,6 +522,7 @@ export function PresetLibrary() {
                   );
                 })()}
                 <button
+                  className="vs-preset-export"
                   style={{ ...btnStyle, fontSize: 10, padding: '2px 5px' }}
                   onClick={() => handleExport(p.id)}
                   title={t('card.exportTitle')}
@@ -523,6 +530,7 @@ export function PresetLibrary() {
                   {t('card.export')}
                 </button>
                 <button
+                  className="vs-preset-delete"
                   style={{
                     ...btnStyle,
                     fontSize: 10,
@@ -612,10 +620,15 @@ export function PresetLibrary() {
                 marginTop: 4,
               }}
             >
-              <button style={btnStyle} onClick={() => setShowSaveForm(false)}>
+              <button
+                className="vs-preset-save-form-cancel"
+                style={btnStyle}
+                onClick={() => setShowSaveForm(false)}
+              >
                 {t('saveForm.cancel')}
               </button>
               <button
+                className="vs-preset-save-form-confirm"
                 style={{
                   ...btnStyle,
                   background: '#2563eb',
