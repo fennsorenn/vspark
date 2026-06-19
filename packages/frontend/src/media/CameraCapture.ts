@@ -215,14 +215,19 @@ export class CameraCapture {
         visibility: p.visibility,
       }));
     if (opts.enableHands !== false) {
-      if (r.leftHandLandmarks?.[0]?.length)
-        out.leftHand = r.leftHandLandmarks[0].map((p) => ({
+      // MediaPipe classifies handedness assuming a MIRRORED (selfie) image, but the worker
+      // feeds it RAW, non-mirrored frames — so its `leftHandLandmarks` is actually the
+      // performer's RIGHT hand and vice-versa. Swap them here so the hand bones and IK hand
+      // targets use the performer's true anatomical sides, consistent with the pose/arm
+      // landmarks (which are not affected by that selfie assumption).
+      if (r.rightHandLandmarks?.[0]?.length)
+        out.leftHand = r.rightHandLandmarks[0].map((p) => ({
           x: p.x,
           y: p.y,
           z: p.z,
         }));
-      if (r.rightHandLandmarks?.[0]?.length)
-        out.rightHand = r.rightHandLandmarks[0].map((p) => ({
+      if (r.leftHandLandmarks?.[0]?.length)
+        out.rightHand = r.leftHandLandmarks[0].map((p) => ({
           x: p.x,
           y: p.y,
           z: p.z,
