@@ -181,6 +181,7 @@ The frontend maintains `VmcRetarget` state per avatar:
 
 Per frame:
 1. Low-pass filter each incoming bone rotation (OneEuroFilter)
+1a. Optional **motion snappiness** — a per-bone second-order dynamics (spring–damper) filter layered *after* the One Euro filter. Off by default; gated on `node.properties.poseDynamics.enabled`. See "Motion snappiness" below.
 2. Apply arm reach calibration if active (correct wrist position, run IK)
 3. Blend with animation: slerp each bone toward the animation pose by `(1 - blendWeight)`. Ramp speed is `1 / blendTime` seconds.
 4. Write final rotations to `vrm.humanoid.setNormalizedPose()`
@@ -188,6 +189,25 @@ Per frame:
 **Blend ramping**: `blendWeight` moves toward 0 (animation) or 1 (VMC) each frame at `1/blendTime` rate. Prevents pops when mocap drops in/out. Default `blendTime`: 0.3s.
 
 **Pose timeout**: If no VMC frame has been received for `poseTimeout` seconds (default 2s), blend weight ramps back to 0. OneEuroFilter resets to prevent stale filtered values carrying over when mocap reconnects.
+
+### Motion snappiness (second-order dynamics)
+
+**Status:** implemented (2026-06-19). Frontend-only, per-avatar-node, disabled by default.
+
+A configurable second-order dynamics (spring–damper) filter applied per bone to the broadcast pose, layered **after** the One Euro filter rather than replacing it. The One Euro filter stays responsible for jitter and uneven/low-frequency packet delivery; the dynamics layer adds "snap"/"follow-through". Unlike a low-pass filter (which can only lag the target), a second-order system can **lead and overshoot** the target, so motion reads as snappy without going choppy (output stays C¹-continuous).
+
+**Why frontend, not a backend pose-interceptor.** The deliberate placement is the frontend avatar node, not the backend `on_pose_broadcast`/`pose_interceptor_broadcast` chain, because the One Euro filter must stay in place at the consumer to absorb unreliable/low-frequency packet delivery — the dynamics layer assumes an already-de-jittered, frame-rate-paced input.
+
+**Module:** `packages/frontend/src/secondOrderDynamics.ts` — exports `SecondOrderDynamicsQuat` (single-bone filter), `BoneDynamicsBank` (one lazily-created filter per bone name, `.reset()` resets all), `PoseDynamicsConfig`, and `DEFAULT_POSE_DYNAMICS` (`{ enabled: false, frequency: 3.0, damping: 0.6, response: 1.2 }`).
+
+**Math.** The standard semi-implicit-Euler second-order formulation (t3ssel8r, "Giving Personality to Procedural Animations using Math") adapted from scalar to SO(3): spring error, target velocity, and output velocity are all world-frame rotation vectors (axis·angle), and the output orientation is integrated through the quaternion exponential map. `k2` is stability-clamped so the integrator stays stable at large `dt` (low frame rates). Parameters:
+- `frequency` (Hz) — natural frequency; higher = quicker reaction / snappier.
+- `damping` (ζ) — `<1` overshoots (snap/bounce), `1` critical (no overshoot), `>1` sluggish.
+- `response` (r) — `0` no anticipation, `>0` anticipatory lead, `<0` winds up before moving.
+
+**Wiring** (`Viewport.tsx`, `AvatarNode` `useFrame`, Step 2 broadcast pose composition): a `boneDynamicsRef` (`BoneDynamicsBank`) runs immediately after the `boneFiltersRef` One Euro `BoneFilterBank`. Reads `node.properties.poseDynamics ?? DEFAULT_POSE_DYNAMICS`; when `enabled` is false the bank is `.reset()` each frame so re-enabling starts cleanly from the current pose.
+
+**Config** is persisted as the per-node `poseDynamics` property: typed as `PoseDynamics` on shared `SceneNodeProperties` (`packages/shared/src/types.ts`), Zod-validated in `sceneNodePropertiesSchema` (`packages/shared/src/schema.ts`), and mirrored in both frontend `NodeProperties` interfaces (`store/editorStore.ts`, `api/client.ts`). UI is a "Motion Snappiness" section in the PropertiesPanel avatar block (enable checkbox + frequency/damping/response `NumInput`s + `HelpButton`). i18n keys under `avatar.*` and `help.dynamics` in `properties.json`; help section `{#snappiness}` in `help/content/{en,de}/avatar.md`.
 
 ## Shared, scheduled, content-addressed playback
 
