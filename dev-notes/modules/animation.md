@@ -15,13 +15,13 @@ Both produce per-bone world-space quaternions. The blend weight ramps smoothly b
 
 **Convention: quaternions are always xyzw.** Every serialization path (JSON tuples, WS messages, DB state) uses `[x, y, z, w]`. Mixing this up with wxyz breaks all rotations silently.
 
-**`Quaternion`**: Immutable unit quaternion. Methods: `multiply`, `invert`, `normalize`. Invalid (near-zero) quaternions normalize to `IDENTITY`.
+**`Quaternion`**: Immutable unit quaternion. Methods: `multiply`, `invert`, `normalize`. Invalid (near-zero) quaternions normalize to `IDENTITY`. Euler bridges: `Quaternion.fromEuler(pitch, yaw, roll)` and `q.toEuler()` use the **intrinsic ZYX** convention (matching `euler_to_quaternion`); round-trip verified to ~1e-14, and `toEuler` collapses the coupled rotation onto roll at the yaw=±90° gimbal singularity. Used by `pose_manual_calibration` to apply per-axis multiply/offset.
 
 **`BoneRotations`**: `Map<string, Quaternion>` — raw mocap data keyed by source app bone names (Unity HumanBodyBones, RhyLive format, etc.). Pre-mapping.
 
 **`NormalizedPose`**: `Map<VRMBoneName, Quaternion>` — after mapping and coordinate correction. All downstream consumers use this.
 
-**`VRM_BONE_NAMES`**: 54-element string array. The canonical key set for `NormalizedPose`. Covers full humanoid skeleton from hips through all finger distal bones.
+**`VRM_BONE_NAMES`**: 55-element string array. The canonical key set for `NormalizedPose`. Covers full humanoid skeleton from hips through all finger distal bones.
 
 ## FBX/BVH retargeting — `Viewport.tsx`
 
@@ -137,11 +137,11 @@ Overrides a single named bone in a `NormalizedPose`. Modes: `multiply` (compose 
 
 **`euler_to_quaternion`**
 
-Convention: ZYX intrinsic (Rz(roll) × Ry(yaw) × Rx(pitch)). Used by the breathing component to drive sine wave output into bone rotations.
+Convention: ZYX intrinsic (Rz(roll) × Ry(yaw) × Rx(pitch)). Used by the breathing component to drive sine wave output into bone rotations. The shared `Quaternion.fromEuler` / `Quaternion.toEuler` helpers (`signal.ts`) follow the same ZYX convention and are used by `pose_manual_calibration`.
 
 ### Pose interceptor chain
 
-The `pose_broadcast` node doesn't fire directly to WebSocket. It first passes the pose through a chain of registered interceptors (e.g., the breathing component). Each interceptor receives the pose via `on_pose_broadcast`, modifies it, and re-emits it via `pose_interceptor_broadcast`. The chain is ordered by registration; the final output is what gets sent over WebSocket.
+The `pose_broadcast` node doesn't fire directly to WebSocket. It first passes the pose through a chain of registered interceptors (e.g., the breathing component, the manual_calibration behavior). Each interceptor receives the pose via `on_pose_broadcast`, modifies it, and re-emits it via `pose_interceptor_broadcast`. The chain is ordered by registration priority; the final output is what gets sent over WebSocket. The `manual_calibration` behavior (`pose_manual_calibration` node at priority 5) is an interceptor that applies a per-bone, per-axis euler multiply/offset — see [component-managers.md](component-managers.md).
 
 ## Blendshape mapping — `arkit_vrm_mapper`
 
