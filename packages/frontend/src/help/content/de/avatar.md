@@ -37,6 +37,28 @@ statt zu springen. Die Überblendzeit lässt sich pro Avatar einstellen.
 > Tipp: Wirkt dein Avatar eingefroren, prüfe, ob ein Motion-Capture-Verhalten
 > angehängt und verbunden ist — siehe [Verhalten](topic:behaviors).
 
+## Bewegungsdynamik {#snappiness}
+
+Motion-Capture-Daten werden meist schon geglättet, bevor sie vspark erreichen,
+und vspark glättet sie erneut, um Netzwerk-Aussetzer abzufangen. Das hält die
+Bewegung stabil, kann sie aber auch weich oder schwebend wirken lassen. Die
+**Bewegungsdynamik** gibt der Bewegung wieder Schärfe, ohne erneut Ruckeln
+einzuführen.
+
+Aktiviere sie pro Avatar und stelle dann drei Regler ein:
+
+- **Frequenz** — wie schnell der Avatar reagiert. Höher wirkt dynamischer; sehr
+  hoch kann zappelig aussehen.
+- **Dämpfung** — wie stark er ausschwingt statt nachzufedern. Um 1 stoppt sauber
+  ohne Überschwingen; unter 1 entsteht ein lebendiges Überschwingen (der
+  „Schwung"); über 1 wirkt schwer und träge.
+- **Reaktion** — wie eifrig er in eine Bewegung hineingeht. 0 ist neutral; höhere
+  Werte lassen den Avatar die Bewegung vorwegnehmen und kräftiger einsetzen.
+
+> Tipp: Beginne mit den Standardwerten und senke dann die **Dämpfung** leicht für
+> mehr Schwung. Fängt die Bewegung an zu wackeln oder zu schwingen, erhöhe die
+> **Dämpfung** oder senke die **Frequenz**.
+
 ## Mimik {#expressions}
 
 Mimik sind im VRM definierte Gesichtsposen wie Lächeln, Blinzeln oder

@@ -175,6 +175,9 @@ export interface NodeProperties {
   /** Avatar animation config. `idle` is the content-addressed base loop
    *  (animation_clip id + speed); the scheduled timeline layers over it. */
   animation?: { idle?: { clipId: string; speed: number } };
+  /** VRM avatar: second-order "snappiness" dynamics applied to broadcast bone
+   *  rotations after the jitter-smoothing filter. Disabled by default. */
+  poseDynamics?: import('../secondOrderDynamics').PoseDynamicsConfig;
 }
 
 export interface StageObject {
@@ -1464,7 +1467,11 @@ export const unshareObject = (objectId: string, granteePeerId: string) =>
 /** Receiver: subscribe to (place) a peer's shared object. The backend always
  *  arms the mesh document subscription; `streams=false` skips the legacy
  *  stream/asset relay (the tab serves those itself over a direct edge). */
-export const peerSubscribe = (peerId: string, objectId: string, streams = true) =>
+export const peerSubscribe = (
+  peerId: string,
+  objectId: string,
+  streams = true
+) =>
   request<{ peerId: string; objectId: string }>(
     `/connections/peers/${peerId}/subscribe`,
     { method: 'POST', body: JSON.stringify({ objectId, streams }) }
@@ -1491,8 +1498,7 @@ export interface SharedByMe {
   shareKind: 'object' | 'scene';
   grantees: string[];
 }
-export const getSharedByMe = () =>
-  request<SharedByMe[]>('/connections/shares');
+export const getSharedByMe = () => request<SharedByMe[]>('/connections/shares');
 /** Owner: stop sharing an object/scene with everyone. */
 export const unshareAllObject = (objectId: string) =>
   request<{ objectId: string }>(

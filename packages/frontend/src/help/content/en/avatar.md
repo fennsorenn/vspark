@@ -34,6 +34,27 @@ than snapping. The blend time is adjustable per avatar.
 > Tip: if your avatar looks frozen, check that a motion-capture behavior is
 > attached and connected — see [Behaviors](topic:behaviors).
 
+## Motion snappiness {#snappiness}
+
+Motion-capture data is usually smoothed before it reaches vspark, and vspark
+smooths it again to ride out network hiccups. That keeps movement stable, but it
+can also make it feel a little soft or floaty. **Motion snappiness** adds back a
+sense of crispness without reintroducing jitter.
+
+Turn it on per avatar, then tune three dials:
+
+- **Frequency** — how quickly the avatar reacts. Higher feels snappier; very high
+  can look twitchy.
+- **Damping** — how much it settles versus bounces. Around 1 stops cleanly with
+  no overshoot; below 1 adds a lively little overshoot (the "snap"); above 1
+  feels heavy and sluggish.
+- **Response** — how eagerly it leads into a movement. 0 is neutral; higher
+  values make the avatar anticipate and accelerate into motion for extra punch.
+
+> Tip: start with the defaults, then nudge **Damping** down slightly for more
+> snap. If motion starts to wobble or buzz, raise **Damping** or lower
+> **Frequency**.
+
 ## Expressions {#expressions}
 
 Expressions are facial poses defined inside the VRM, such as smiling, blinking,

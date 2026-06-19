@@ -96,6 +96,23 @@ export interface SceneNodeProperties {
   broadcastTickHz?: number;
   /** References another kind='scene' node. Applies to kind='scene_instance' nodes. */
   sourceSceneId?: string;
+  /** Second-order "snappiness" dynamics applied to broadcast bone rotations on
+   *  the frontend, after the jitter-smoothing filter. Applies to VRM avatar
+   *  nodes. Disabled by default. */
+  poseDynamics?: PoseDynamics;
+}
+
+/** Per-bone second-order (spring–damper) dynamics that add anticipatory snap /
+ *  overshoot to broadcast pose without becoming choppy. See the frontend
+ *  `secondOrderDynamics` module for the implementation. */
+export interface PoseDynamics {
+  enabled: boolean;
+  /** Natural frequency in Hz. Higher = faster / snappier. */
+  frequency: number;
+  /** Damping ratio ζ. <1 overshoots, 1 critical, >1 sluggish. */
+  damping: number;
+  /** Response r. 0 = none, >0 anticipatory lead, <0 wind-up. */
+  response: number;
 }
 
 // A node in a scene tree
