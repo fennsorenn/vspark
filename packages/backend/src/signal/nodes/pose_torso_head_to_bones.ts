@@ -55,6 +55,21 @@ function qinv(q: Quaternion): Quaternion {
   return new Quaternion(-q.x, -q.y, -q.z, q.w);
 }
 
+// Sagittal mirror of a rotation — conjugation by a 180° turn about X (q → i·q·i⁻¹).
+// Negates the yaw and roll components while leaving pitch (nod) untouched.
+//
+// `frameToQuat` builds the torso/head orientation with forward = cross(X, Y), which
+// inherits MediaPipe's camera-Z sign and so reflects the frame: head turn, head tilt
+// and torso twist come out left/right-inverted (pitch stays correct). Applying this to
+// each midline local rotation flips that mirror, matching the avatar-mirror convention
+// the VMC path produces (it applies the same x,−y,−z,w correction in its bone mapper).
+//
+// The arm/hand converters are built from direction vectors (minimal-arc rotations), which
+// have no such handedness ambiguity, so they are not — and must not be — mirrored here.
+function mirrorYawRoll(q: Quaternion): Quaternion {
+  return new Quaternion(q.x, -q.y, -q.z, q.w);
+}
+
 // Slerp from identity to q by factor t. Result q' satisfies q'^(1/t) = q (for small angles).
 // Used to split a single body rotation across multiple spine bones so the bend distributes
 // instead of concentrating in one joint.
@@ -260,7 +275,7 @@ function convertPose(
   //
   // We give each bone the same "half" rotation. Since both rotations are around the same axis,
   // half * half = full. That gives a natural distribution of the bend across the spine.
-  const halfQ = qSlerpFromIdentity(torsoQ, 0.5);
+  const halfQ = mirrorYawRoll(qSlerpFromIdentity(torsoQ, 0.5));
   entries.push(['spine', halfQ]);
   entries.push(['chest', halfQ]);
 
@@ -336,7 +351,7 @@ function convertPose(
     );
 
     // Only set neck — head is its child and inherits.
-    entries.push(['neck', calibratedHeadQ]);
+    entries.push(['neck', mirrorYawRoll(calibratedHeadQ)]);
   }
 
   return new NormalizedPose(entries);
