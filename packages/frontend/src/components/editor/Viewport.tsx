@@ -98,6 +98,10 @@ import {
 import { api } from '../../api/client';
 import { BoneFilterBank } from '../../oneEuroFilter';
 import {
+  BoneDynamicsBank,
+  DEFAULT_POSE_DYNAMICS,
+} from '../../secondOrderDynamics';
+import {
   mergeParticleConfig,
   createParticlePool,
   tickParticles,
@@ -828,7 +832,11 @@ function _resolveAvatarAnimation(
   scheduled: ScheduledAnimation[],
   clips: Record<string, AnimationClipMeta>,
   nowMs: number
-): { url: string | null; layer: ActiveAnimLayer | null; msUntilNext: number | null } {
+): {
+  url: string | null;
+  layer: ActiveAnimLayer | null;
+  msUntilNext: number | null;
+} {
   let active: { entry: ScheduledAnimation; clip: AnimationClipMeta } | null =
     null;
   let nextStartMs: number | null = null;
@@ -872,7 +880,11 @@ function _resolveAvatarAnimation(
     // Idle base loop anchored to the epoch (shared phase across clients).
     return {
       url: idle.url,
-      layer: { startEpoch: 0, speed: idle.speed > 0 ? idle.speed : 1, loop: true },
+      layer: {
+        startEpoch: 0,
+        speed: idle.speed > 0 ? idle.speed : 1,
+        loop: true,
+      },
       msUntilNext,
     };
   }
@@ -905,6 +917,7 @@ function AvatarNode({
   const lipsyncCompRef = useRef<Behavior | null>(null);
   const vmcRetargetRef = useRef<VmcRetarget | null>(null);
   const boneFiltersRef = useRef(new BoneFilterBank());
+  const boneDynamicsRef = useRef(new BoneDynamicsBank());
   const poseWasActiveRef = useRef(false);
   const blendWeightRef = useRef(0); // 0 = animation, 1 = VMC
   // Active animation layer driving the clock-anchored playhead (read in useFrame).
@@ -983,8 +996,11 @@ function AvatarNode({
   // content-addressed by animation_clip id and anchored to the synced clock.
   // Idle prefers the new properties.animation.idle = { clipId, speed }; it falls
   // back to the legacy components.animation.idleUrl until that's migrated.
-  const animIdle = (node.properties as { animation?: { idle?: { clipId?: string; speed?: number } } } | undefined)
-    ?.animation?.idle;
+  const animIdle = (
+    node.properties as
+      | { animation?: { idle?: { clipId?: string; speed?: number } } }
+      | undefined
+  )?.animation?.idle;
   const legacyAnim = node.components?.animation as
     | { idleUrl?: string; speed?: number }
     | undefined;
@@ -994,7 +1010,9 @@ function AvatarNode({
     () => Object.values(scheduledMap).filter((e) => e.avatarNodeId === node.id),
     [scheduledMap, node.id]
   );
-  const idleClip = animIdle?.clipId ? animationClips[animIdle.clipId] : undefined;
+  const idleClip = animIdle?.clipId
+    ? animationClips[animIdle.clipId]
+    : undefined;
   const idle = idleClip
     ? { url: idleClip.sourceFilePath, speed: animIdle?.speed ?? 1 }
     : legacyAnim?.idleUrl
@@ -2257,9 +2275,25 @@ function AvatarNode({
       // Build filtered broadcast normalized pose.
       const normalizedPose: VRMPose = {};
       const filters = boneFiltersRef.current;
+      // Second-order "snappiness" runs *after* the One Euro filter (which keeps
+      // absorbing jitter / uneven packet delivery). Disabled by default; reset
+      // when off so re-enabling starts cleanly from the current pose.
+      const dyn = node.properties?.poseDynamics ?? DEFAULT_POSE_DYNAMICS;
+      const dynamics = boneDynamicsRef.current;
+      if (!dyn.enabled) dynamics.reset();
       for (const [boneName, q] of Object.entries(pose)) {
         _q.set(q[0], q[1], q[2], q[3]);
-        const s = filters.filter(boneName, _q, delta);
+        let s = filters.filter(boneName, _q, delta);
+        if (dyn.enabled) {
+          s = dynamics.filter(
+            boneName,
+            s,
+            delta,
+            dyn.frequency,
+            dyn.damping,
+            dyn.response
+          );
+        }
         normalizedPose[boneName as VRMHumanBoneName] = {
           rotation: [s.x, s.y, s.z, s.w],
         };
@@ -4623,7 +4657,8 @@ export function SceneNodes({
     }
     return false;
   };
-  const effectiveVisible = (n: StageObject) => !n.hidden && !isAncestorHidden(n);
+  const effectiveVisible = (n: StageObject) =>
+    !n.hidden && !isAncestorHidden(n);
 
   return (
     <>

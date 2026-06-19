@@ -117,6 +117,8 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 
 `blendTransitionTime` is now read from the VRM avatar node's `properties.blendTransitionTime` (default 0.5s) and controls the ramp between blend modes (and between "apply" and "don't apply" when the bus drops the last producer).
 
+**Motion snappiness (second-order dynamics)**: inside Step 2's broadcast-pose composition, after each bone is run through the One Euro `BoneFilterBank` (`boneFiltersRef`), an optional per-bone second-order dynamics (spring–damper) filter runs via `BoneDynamicsBank` (`boneDynamicsRef`, from `secondOrderDynamics.ts`). Gated on `node.properties.poseDynamics.enabled` (off by default; bank `.reset()` each frame while disabled). Unlike the low-pass One Euro filter it can lead/overshoot the target, so motion feels snappier without going choppy. Frontend-only; deliberately not a backend pose-interceptor so the One Euro filter stays in place to absorb unreliable packet delivery. See [animation.md](animation.md) (Motion snappiness).
+
 `poseTimeout` is retained as a client-side safety net for missed WS transition messages — flagged for review once the new flow proves robust. See [component-managers.md](component-managers.md) BroadcastBus section.
 
 **Animation retargeting**: FBX/BVH bone names → VRM bone names. Supports Mixamo and UE4 rig conventions. World-space delta retargeting (not local-space — see memory `feedback_fbx_retargeting.md`).
@@ -175,6 +177,9 @@ Inspector for the selected node. Sections:
 
 **Material section (implemented)**:
 - New **Material** section on VRM avatar nodes plus a reusable `CollapsibleSection` primitive (default collapsed); the **Default Expression** section is collapsible too. One collapsible row per material with a 3-way MToon/PBR/APBR shader toggle (APBR = `MeshPhysicalMaterial` advanced lobes under a nested **Advanced** disclosure), editable shader params (overlap + active-shader-only; PBR+APBR share roughness/metalness/envMapIntensity; normal scale only with a normal map, alpha cutoff only in mask mode, outline only when the material has one), and a per-material Reset. Overrides persist on `node.properties.materialOverrides` (same `node.properties` mechanism as `defaultExpressions`). The apply layer that mutates/swaps live three.js materials lives in `components/editor/materialOverrides.ts` and is invoked from `Viewport.tsx`. See [material-overrides.md](material-overrides.md).
+
+**Motion Snappiness section (implemented)**:
+- New **Motion Snappiness** section on VRM avatar nodes — an enable checkbox plus `frequency`/`damping`/`response` `NumInput`s and a `HelpButton`. Persists the per-node `poseDynamics` property (`PoseDynamics` on shared `SceneNodeProperties`; mirrored on store + api-client `NodeProperties`), defaulting to `DEFAULT_POSE_DYNAMICS` (disabled). Drives the per-bone second-order dynamics filter applied in `Viewport.tsx` after the One Euro filter. i18n under `avatar.*` + `help.dynamics`; help `{#snappiness}` in `avatar.md`. See [animation.md](animation.md) (Motion snappiness).
 
 ### `AssetManager.tsx` (bottom dock)
 The bottom dock. Tabs (`BottomDockTab` in the store, persisted to localStorage

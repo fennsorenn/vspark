@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
+import {
+  DEFAULT_POSE_DYNAMICS,
+  type PoseDynamicsConfig,
+} from '../../secondOrderDynamics';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 import {
   getBuiltinParticleTextures,
@@ -7520,6 +7524,124 @@ export function PropertiesPanel() {
             </div>
           </>
         )}
+
+        {/* Motion snappiness (second-order dynamics) — avatar only */}
+        {node.kind === 'avatar' &&
+          (() => {
+            const dyn: PoseDynamicsConfig = {
+              ...DEFAULT_POSE_DYNAMICS,
+              ...node.properties?.poseDynamics,
+            };
+            const liveDyn = (next: PoseDynamicsConfig) => {
+              storeUpdateNode(node.id, {
+                properties: { ...node.properties, poseDynamics: next },
+              });
+            };
+            const commitDyn = (next: PoseDynamicsConfig) => {
+              liveDyn(next);
+              api
+                .updateNode(node.id, { properties: { poseDynamics: next } })
+                .catch(() => {});
+            };
+            const labelStyle = {
+              fontSize: 12,
+              color: '#888',
+              width: 110,
+              flexShrink: 0,
+            } as const;
+            return (
+              <>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {t('avatar.dynamicsHeader')}
+                  <HelpButton
+                    topic="avatar"
+                    anchor="snappiness"
+                    tip={t('help.dynamics')}
+                  />
+                </div>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 12,
+                    color: '#888',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={dyn.enabled}
+                    onChange={(e) =>
+                      commitDyn({ ...dyn, enabled: e.target.checked })
+                    }
+                  />
+                  {t('avatar.dynamicsEnable')}
+                </label>
+                {dyn.enabled && (
+                  <>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <span style={labelStyle}>
+                        {t('avatar.dynamicsFrequency')}
+                      </span>
+                      <NumInput
+                        value={dyn.frequency}
+                        step={0.1}
+                        min={0.05}
+                        max={30}
+                        suffix="Hz"
+                        style={{ flex: 1, minWidth: 0 }}
+                        onChange={(v) => liveDyn({ ...dyn, frequency: v })}
+                        onCommit={(v) => commitDyn({ ...dyn, frequency: v })}
+                      />
+                    </div>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <span style={labelStyle}>
+                        {t('avatar.dynamicsDamping')}
+                      </span>
+                      <NumInput
+                        value={dyn.damping}
+                        step={0.05}
+                        min={0}
+                        max={4}
+                        style={{ flex: 1, minWidth: 0 }}
+                        onChange={(v) => liveDyn({ ...dyn, damping: v })}
+                        onCommit={(v) => commitDyn({ ...dyn, damping: v })}
+                      />
+                    </div>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <span style={labelStyle}>
+                        {t('avatar.dynamicsResponse')}
+                      </span>
+                      <NumInput
+                        value={dyn.response}
+                        step={0.1}
+                        min={-5}
+                        max={5}
+                        style={{ flex: 1, minWidth: 0 }}
+                        onChange={(v) => liveDyn({ ...dyn, response: v })}
+                        onCommit={(v) => commitDyn({ ...dyn, response: v })}
+                      />
+                    </div>
+                  </>
+                )}
+              </>
+            );
+          })()}
 
         {/* FBX debug toggle — avatar only */}
         {node.kind === 'avatar' && (
