@@ -31,6 +31,16 @@ function neg(v: V3): V3 {
   return [-v[0], -v[1], -v[2]];
 }
 
+// Kalidokit-style depth/frontal blend. MediaPipe world landmarks have reliable frontal (x/y)
+// components but noisy depth (z); for a head-on webcam the frontal plane carries almost all the
+// real arm motion. Scaling the depth component of each arm direction toward the frontal plane
+// trades a little toward/away-camera reach for much steadier in-plane tracking. 1.0 = original
+// pure-3D behaviour; lower = more 2D-like and more stable.
+const ARM_DEPTH_WEIGHT = 0.6;
+function dampDepth(v: V3, w: number): V3 {
+  return norm([v[0], v[1], v[2] * w]);
+}
+
 // Quaternion from a unit axis and angle (radians).
 function axisAngle(axis: V3, angle: number): Quaternion {
   const s = Math.sin(angle / 2);
@@ -342,13 +352,13 @@ function convertArms(
     // pointing at the elbow regardless of the clavicle lift.
     const parentInv = qmul(qinv(leftShrug), torsoQinv); // inv(chest · shrug)
     const parentWorld = qmul(torsoQ, leftShrug);
-    const dirWorld = norm(sub(le, ls)); // shoulder → elbow in MP world
+    const dirWorld = dampDepth(norm(sub(le, ls)), ARM_DEPTH_WEIGHT); // shoulder → elbow
     const dirChest = qapply(parentInv, dirWorld); // in shrugged-chest-local space
     const leftUpperLocal = qFromUnitVectors([1, 0, 0], dirChest); // rest dir = +X
     entries.push(['leftUpperArm', leftUpperLocal]);
 
     if (ok(lw)) {
-      const fwWorld = norm(sub(lw, le)); // elbow → wrist
+      const fwWorld = dampDepth(norm(sub(lw, le)), ARM_DEPTH_WEIGHT); // elbow → wrist
       const lowerParentInv = qmul(qinv(leftUpperLocal), parentInv);
       const fwParent = qapply(lowerParentInv, fwWorld);
       const leftLowerLocal = qFromUnitVectors([1, 0, 0], fwParent);
@@ -365,13 +375,13 @@ function convertArms(
   if (ok(re)) {
     const parentInv = qmul(qinv(rightShrug), torsoQinv);
     const parentWorld = qmul(torsoQ, rightShrug);
-    const dirWorld = norm(sub(re, rs));
+    const dirWorld = dampDepth(norm(sub(re, rs)), ARM_DEPTH_WEIGHT);
     const dirChest = qapply(parentInv, dirWorld);
     const rightUpperLocal = qFromUnitVectors([-1, 0, 0], dirChest); // rest dir = -X for right arm
     entries.push(['rightUpperArm', rightUpperLocal]);
 
     if (ok(rw)) {
-      const fwWorld = norm(sub(rw, re));
+      const fwWorld = dampDepth(norm(sub(rw, re)), ARM_DEPTH_WEIGHT);
       const lowerParentInv = qmul(qinv(rightUpperLocal), parentInv);
       const fwParent = qapply(lowerParentInv, fwWorld);
       const rightLowerLocal = qFromUnitVectors([-1, 0, 0], fwParent);
