@@ -1,6 +1,6 @@
 # Plan: Synthesized forearm twist bones
 
-> Branch: `claude/mediapipe-vmc-tracking-align-bfbdak` · Status: draft
+> Branch: `claude/mediapipe-vmc-tracking-align-bfbdak` · Status: implemented (core; sleeve-exclusion heuristic still deferred). Module doc: [../modules/twist-bones.md](../modules/twist-bones.md).
 
 ## Goal
 
