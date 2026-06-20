@@ -101,6 +101,22 @@ function qinv(q: Quaternion): Quaternion {
   return new Quaternion(-q.x, -q.y, -q.z, q.w);
 }
 
+// Quaternion from an axis (unit) and angle (radians).
+function axisAngle(axis: V3, angle: number): Quaternion {
+  const s = Math.sin(angle / 2);
+  return new Quaternion(
+    axis[0] * s,
+    axis[1] * s,
+    axis[2] * s,
+    Math.cos(angle / 2)
+  );
+}
+
+// Anatomical flexion range for a single finger segment: a little hyperextension, up to a
+// strong curl. Keeps the joint from ever reaching the nonsensical 180° fold.
+const FLEX_MIN = -0.2; // ~ -11°
+const FLEX_MAX = 1.9; //  ~ 109°
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Hand coordinate frame
 //
@@ -208,9 +224,12 @@ function buildHandFrame(
 // For a finger segment from→to, compute the local rotation relative to the
 // parent quaternion (accumulated from wrist outward).
 //
-// VRM finger bones at T-pose rest extend along ±X (same axis as the upper arm).
-// The local rotation rotates the rest direction to the observed segment direction
-// expressed in the parent's local frame.
+// VRM finger bones at T-pose rest extend along ±X (same axis as the upper arm), and the palm
+// faces -Y (dorsal/back-of-hand is +Y). Finger joints are hinges: they flex by curling the rest
+// direction toward the palm about a single axis. We model exactly that — measure the flexion
+// angle in the rest→palm plane and rotate about the fixed hinge axis, clamped to an anatomical
+// range. This avoids the rotFromTo degeneracy that made segments snap between 0° and 180° when
+// MediaPipe's unreliable hand depth pushed the observed direction near anti-parallel to rest.
 function fingerSegmentLocal(
   pts: Landmark[],
   fromIdx: number,
@@ -221,7 +240,13 @@ function fingerSegmentLocal(
   const dir = norm(sub(pts[toIdx], pts[fromIdx]));
   // Express the observed direction in parent-local space.
   const localDir = qvec(qinv(parentWorldQ), dir);
-  return rotFromTo(restDir, localDir);
+  const palmLocal: V3 = [0, -1, 0]; // palm direction in VRM hand-local rest frame
+  // Signed flexion angle: 0 when aligned with rest, positive as it curls toward the palm.
+  const flex = Math.atan2(dot(localDir, palmLocal), dot(localDir, restDir));
+  const clamped = Math.max(FLEX_MIN, Math.min(FLEX_MAX, flex));
+  // Hinge axis = rest × palm; rotating restDir about it by +flex sweeps toward the palm.
+  const hinge = norm(cross(restDir, palmLocal));
+  return axisAngle(hinge, clamped);
 }
 
 function convertHand(pts: Landmark[], side: 'left' | 'right'): NormalizedPose {
