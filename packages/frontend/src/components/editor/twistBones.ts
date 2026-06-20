@@ -73,7 +73,7 @@ export function hasForearmTwist(nodeId: string): boolean {
 export function setupForearmTwist(
   nodeId: string,
   vrm: VRM,
-  opts: { force: boolean; gradient?: number }
+  opts: { force: boolean; excludeSleeves?: boolean; gradient?: number }
 ): void {
   teardownForearmTwist(nodeId);
   const gradient = opts.gradient ?? DEFAULT_GRADIENT;
@@ -104,7 +104,7 @@ export function setupForearmTwist(
       lowerArm.add(twist);
       lowerArm.updateMatrixWorld(true);
       const side2 = attachSide(lowerArm, twist, hand, axis, gradient, true);
-      reskinForearm(vrm, lowerArm, twist, wristLocal, side2);
+      reskinForearm(vrm, lowerArm, twist, wristLocal, side2, !!opts.excludeSleeves);
       sides.push(side2);
     }
   }
@@ -220,11 +220,20 @@ function reskinForearm(
   lowerArm: THREE.Object3D,
   twist: THREE.Object3D,
   wristLocal: THREE.Vector3,
-  side: SideTwist
+  side: SideTwist,
+  excludeSleeves: boolean
 ): void {
   twist.updateMatrixWorld(true);
   const twistInverse = twist.matrixWorld.clone().invert();
   const wristLen2 = wristLocal.lengthSq();
+
+  // Seed bones for sleeve exclusion: the hand and every finger bone (always
+  // skin, never sleeve). `hand` is already reparented under `twist`, so its
+  // subtree is exactly hand + fingers.
+  const seedBones: THREE.Bone[] = [];
+  side.hand.traverse((o) => {
+    if ((o as THREE.Bone).isBone) seedBones.push(o as THREE.Bone);
+  });
 
   // One new Skeleton per shared skeleton instance (twist bone appended at end).
   const newSkeletons = new Map<
@@ -290,9 +299,174 @@ function reskinForearm(
       sw.setComponent(k, slot, w * (1 - t));
       addWeight(si, sw, k, entry.twistIndex, w * t);
     }
+
+    if (excludeSleeves) {
+      const seedIndices = seedBones
+        .map((b) => skel.bones.indexOf(b))
+        .filter((i) => i >= 0);
+      excludeSleevesForMesh(mesh, lowerIndex, entry.twistIndex, seedIndices);
+    }
+
     si.needsUpdate = true;
     sw.needsUpdate = true;
   });
+}
+
+// Weight a vertex carries for a given bone index (0 if absent).
+function weightOf(
+  si: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  sw: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  k: number,
+  index: number
+): number {
+  for (let j = 0; j < 4; j++) {
+    if (si.getComponent(k, j) === index) return sw.getComponent(k, j);
+  }
+  return 0;
+}
+
+function setWeightForIndex(
+  si: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  sw: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  k: number,
+  index: number,
+  value: number
+): void {
+  for (let j = 0; j < 4; j++) {
+    if (si.getComponent(k, j) === index) {
+      sw.setComponent(k, j, value);
+      return;
+    }
+  }
+}
+
+// Sleeve exclusion: keep twist weight only on geometry reachable from the hand
+// through a connected run of twist-weighted vertices. A loose sleeve is a
+// separate shell (own mesh, or a disjoint island) so it never gets reached and
+// its twist weight is rolled back onto lowerArm. Vertices are welded by position
+// first so UV/material seams don't break connectivity.
+const SLEEVE_WELD_EPS = 1e-5;
+const SLEEVE_SEED_WEIGHT = 0.5; // hand/finger weight that marks a vertex as skin
+const SLEEVE_KEEP_GUARD = 0.1; // if a seeded mesh keeps < this fraction, skip
+
+function excludeSleevesForMesh(
+  mesh: THREE.SkinnedMesh,
+  lowerIndex: number,
+  twistIndex: number,
+  seedIndices: number[]
+): void {
+  const geom = mesh.geometry;
+  const index = geom.getIndex();
+  const pos = geom.getAttribute('position');
+  const si = geom.getAttribute('skinIndex');
+  const sw = geom.getAttribute('skinWeight');
+  if (!index || !pos) return; // need topology to flood-fill
+  const count = pos.count;
+
+  // Weld vertices by quantized position into nodes.
+  const keyToNode = new Map<string, number>();
+  const vNode = new Int32Array(count);
+  let nodeCount = 0;
+  const _p = new THREE.Vector3();
+  for (let k = 0; k < count; k++) {
+    _p.fromBufferAttribute(pos, k);
+    const key = `${Math.round(_p.x / SLEEVE_WELD_EPS)}_${Math.round(
+      _p.y / SLEEVE_WELD_EPS
+    )}_${Math.round(_p.z / SLEEVE_WELD_EPS)}`;
+    let n = keyToNode.get(key);
+    if (n === undefined) {
+      n = nodeCount++;
+      keyToNode.set(key, n);
+    }
+    vNode[k] = n;
+  }
+
+  // Per-node flags: has twist weight, is a hand/finger (skin) seed.
+  const nodeTwist = new Uint8Array(nodeCount);
+  const nodeSeed = new Uint8Array(nodeCount);
+  for (let k = 0; k < count; k++) {
+    const n = vNode[k];
+    if (weightOf(si, sw, k, twistIndex) > 1e-6) nodeTwist[n] = 1;
+    if (!nodeSeed[n]) {
+      for (const sIdx of seedIndices) {
+        if (weightOf(si, sw, k, sIdx) > SLEEVE_SEED_WEIGHT) {
+          nodeSeed[n] = 1;
+          break;
+        }
+      }
+    }
+  }
+
+  // Edge adjacency over welded nodes.
+  const adj: Array<Set<number>> = Array.from(
+    { length: nodeCount },
+    () => new Set<number>()
+  );
+  const ia = index.array;
+  const link = (a: number, b: number) => {
+    if (a !== b) {
+      adj[a].add(b);
+      adj[b].add(a);
+    }
+  };
+  for (let i = 0; i + 2 < ia.length; i += 3) {
+    const a = vNode[ia[i]];
+    const b = vNode[ia[i + 1]];
+    const c = vNode[ia[i + 2]];
+    link(a, b);
+    link(b, c);
+    link(a, c);
+  }
+
+  // BFS from seeds; step into a node only if it carries twist weight.
+  const keep = new Uint8Array(nodeCount);
+  const visited = new Uint8Array(nodeCount);
+  const queue: number[] = [];
+  let hasSeed = false;
+  for (let n = 0; n < nodeCount; n++) {
+    if (nodeSeed[n]) {
+      visited[n] = 1;
+      hasSeed = true;
+      if (nodeTwist[n]) keep[n] = 1;
+      queue.push(n);
+    }
+  }
+  while (queue.length) {
+    const n = queue.pop()!;
+    for (const m of adj[n]) {
+      if (visited[m]) continue;
+      visited[m] = 1;
+      if (nodeTwist[m]) {
+        keep[m] = 1;
+        queue.push(m);
+      }
+    }
+  }
+
+  // Safety: a mesh that HAS skin seeds but keeps almost nothing is a
+  // connectivity artifact (e.g. body skin under the sleeve deleted) — skip
+  // rather than nuke the twist. A mesh with no seeds at all (a separate sleeve
+  // mesh) correctly excludes everything.
+  let twistNodes = 0;
+  let keptNodes = 0;
+  for (let n = 0; n < nodeCount; n++) {
+    if (nodeTwist[n]) {
+      twistNodes++;
+      if (keep[n]) keptNodes++;
+    }
+  }
+  if (hasSeed && twistNodes > 0 && keptNodes < SLEEVE_KEEP_GUARD * twistNodes)
+    return;
+
+  // Roll back twist weight on non-kept vertices: twist slot → lowerArm.
+  for (let k = 0; k < count; k++) {
+    const n = vNode[k];
+    if (!nodeTwist[n] || keep[n]) continue;
+    const w = weightOf(si, sw, k, twistIndex);
+    if (w <= 1e-6) continue;
+    setWeightForIndex(si, sw, k, twistIndex, 0);
+    addWeight(si, sw, k, lowerIndex, w);
+  }
 }
 
 // Add `weight` for `index` into a vertex's 4 skin slots: merge if present, else

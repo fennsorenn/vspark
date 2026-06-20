@@ -104,3 +104,10 @@ Wenn das Modell mit eigenen Unterarm-Drehknochen erstellt wurde, werden diese
 automatisch verwendet und der Schalter ist überflüssig. Der Schalter wirkt sich
 nicht auf die Ruhepose aus — der Unterschied ist nur sichtbar, während das
 Handgelenk gedreht wird.
+
+**Ärmel ausschließen** hält die Drehung von losen Ärmeln und Manschetten fern,
+sodass sich ein weiter Ärmel mit dem Arm beugt, ohne sich wie Haut zu drehen.
+Dabei bleibt die Drehung nur auf Flächen, die mit der Hand verbunden sind;
+separate Kleidungsstücke werden ausgelassen. Schalte es aus, wenn sich ein eng
+anliegender Ärmel mit dem Arm drehen soll oder wenn ein Ärmel die einzige
+Unterarm-Geometrie des Modells ist.

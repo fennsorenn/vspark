@@ -254,7 +254,8 @@
     "animClear": "Clear animation",
     "animSpeed": "Speed",
     "twistHeader": "Forearm twist",
-    "twistForce": "Force twist bone"
+    "twistForce": "Force twist bone",
+    "twistExcludeSleeves": "Exclude sleeves"
   },
   "file": {
     "header": "File"

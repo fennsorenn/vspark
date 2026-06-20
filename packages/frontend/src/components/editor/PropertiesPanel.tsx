@@ -7683,6 +7683,35 @@ export function PropertiesPanel() {
               />
               {t('avatar.twistForce')}
             </label>
+            {node.properties?.forceTwistBone === true && (
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 12,
+                  color: '#888',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  marginLeft: 20,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={node.properties?.excludeSleeves === true}
+                  onChange={(e) => {
+                    const excludeSleeves = e.target.checked;
+                    storeUpdateNode(node.id, {
+                      properties: { ...node.properties, excludeSleeves },
+                    });
+                    api
+                      .updateNode(node.id, { properties: { excludeSleeves } })
+                      .catch(() => {});
+                  }}
+                />
+                {t('avatar.twistExcludeSleeves')}
+              </label>
+            )}
           </>
         )}
 

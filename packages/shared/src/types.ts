@@ -105,6 +105,11 @@ export interface SceneNodeProperties {
    *  Models with their own twist bones are driven automatically regardless.
    *  Applies to VRM avatar nodes. Default false. */
   forceTwistBone?: boolean;
+  /** When synthesizing forearm twist bones, keep their weight off loose sleeve /
+   *  cuff geometry: twist weight is retained only on mesh reachable from the
+   *  hand through connected twist-weighted vertices. Applies to VRM avatar
+   *  nodes. Default false. */
+  excludeSleeves?: boolean;
 }
 
 /** Per-bone second-order (spring–damper) dynamics that add anticipatory snap /

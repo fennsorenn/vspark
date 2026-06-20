@@ -63,6 +63,7 @@ export const sceneNodePropertiesSchema = z
       })
       .optional(),
     forceTwistBone: z.boolean().optional(),
+    excludeSleeves: z.boolean().optional(),
   })
   .openapi('SceneNodeProperties');
 

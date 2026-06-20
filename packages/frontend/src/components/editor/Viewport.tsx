@@ -1197,14 +1197,18 @@ function AvatarNode({
   // original skinning) on unmount / reload. The per-frame drive lives in the
   // useFrame below.
   const forceTwistBone = node.properties?.forceTwistBone === true;
+  const excludeSleeves = node.properties?.excludeSleeves === true;
   useEffect(() => {
     if (!vrmLoaded) return;
     const vrm = vrmRef.current;
     if (!vrm) return;
-    setupForearmTwist(node.id, vrm, { force: forceTwistBone });
+    setupForearmTwist(node.id, vrm, {
+      force: forceTwistBone,
+      excludeSleeves,
+    });
     return () => teardownForearmTwist(node.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vrmLoaded, forceTwistBone, node.id]);
+  }, [vrmLoaded, forceTwistBone, excludeSleeves, node.id]);
 
   // --- Animation clip auto-registration ---
   // Once the avatar VRM is loaded, probe each .fbx asset in the project for its real

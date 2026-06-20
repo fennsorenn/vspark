@@ -96,3 +96,9 @@ orientation; only the surface in between is smoothed.
 If the model was authored with its own forearm twist bones, those are used
 automatically and this toggle is unnecessary. The toggle has no effect on the
 rest pose — you only see the difference while the wrist is rotating.
+
+**Exclude sleeves** keeps the twist off loose sleeve and cuff geometry, so a
+baggy sleeve bends with the arm without spiralling like skin. It works by
+keeping the twist only on surfaces that connect back to the hand, so separate
+clothing shells are left out. Turn it off if a fitted sleeve should twist along
+with the arm, or if a sleeve is the only forearm geometry the model has.

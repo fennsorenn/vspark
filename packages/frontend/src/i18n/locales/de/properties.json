@@ -254,7 +254,8 @@
     "animClear": "Animation entfernen",
     "animSpeed": "Geschwindigkeit",
     "twistHeader": "Unterarm-Drehung",
-    "twistForce": "Drehknochen erzwingen"
+    "twistForce": "Drehknochen erzwingen",
+    "twistExcludeSleeves": "Ärmel ausschließen"
   },
   "file": {
     "header": "Datei"
