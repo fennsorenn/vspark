@@ -262,13 +262,13 @@ function axisAngle(axis: V3, angle: number): Quaternion {
 }
 
 // ── Shoulder shrug ───────────────────────────────────────────────────────────
-// Shoulder elevation is measured scale- and distance-invariantly as the ratio of two vertical
-// spans: hip→shoulder over hip→eye. The eye line barely moves when you shrug, so the ratio rises
-// as the shoulders lift. NEUTRAL_RATIO just sets the operating point — the head-neutral
-// calibration captures and removes each person's true rest offset, so it only needs to be roughly
-// anatomical. The clavicle is lifted by rotating about the forward (Z) axis.
-const SHRUG_NEUTRAL_RATIO = 0.82; // hip→shoulder / hip→eye at a relaxed pose, approx
-const SHRUG_GAIN = 4.0; // ratio delta → radians of clavicle lift
+// Shoulder elevation is measured as the vertical gap from the (stable) eye line down to the
+// shoulder, normalised by the inter-eye distance so it's scale- and distance-invariant. The gap
+// shrinks as the shoulders lift. NEUTRAL_DROP just sets the operating point — the head-neutral
+// calibration captures and removes each person's true rest offset — so only GAIN really matters.
+// The clavicle is lifted by rotating about the forward (Z) axis.
+const SHRUG_NEUTRAL_DROP = 5.0; // (eyeY − shoulderY) / interocular at a relaxed pose, approx
+const SHRUG_GAIN = 0.6; // drop delta → radians of clavicle lift
 const SHRUG_MIN = -0.25; // allow a little shoulder drop
 const SHRUG_MAX = 0.6; //  ~34° of lift
 
@@ -334,21 +334,19 @@ function convertPose(
   entries.push(['chest', halfQ]);
 
   // ── Shoulder shrug ─────────────────────────────────────────────────────────
-  // Per-side clavicle lift from the hip→shoulder / hip→eye height ratio (see constants above).
-  // Needs hips + eyes visible for the reference span; skipped otherwise.
-  if (ok(lh) && ok(rh) && ok(lEye) && ok(rEye)) {
-    const hipY = (lh.y + rh.y) / 2;
+  // Shoulder elevation = how far the shoulder sits below the (stable) eye line, normalised by the
+  // inter-eye distance so it's scale- and distance-invariant. Hips would make a nicer reference
+  // but they're usually out of a head-and-shoulders webcam frame, so we use the eyes — always
+  // visible alongside the shoulders. As the shoulder rises toward the eyes this drop shrinks.
+  if (ok(lEye) && ok(rEye)) {
     const eyeY = (lEye.y + rEye.y) / 2;
-    const headSpan = eyeY - hipY; // hip→eye vertical span (sign: +Y up)
-    if (headSpan > 1e-3) {
-      // Each clavicle is lifted by rotating its rest direction (left = +X, right = -X) up toward
-      // +Y. That's a rotation about +Z for the left shoulder and -Z for the right.
-      const shrug = (
-        shoulderY: number,
-        liftAxisZ: number
-      ): Quaternion => {
-        const ratio = (shoulderY - hipY) / headSpan;
-        const raw = (ratio - SHRUG_NEUTRAL_RATIO) * SHRUG_GAIN;
+    const eyeSpan = lenV(sub(lEye, rEye)); // interocular distance — stable head-size scale
+    if (eyeSpan > 1e-3) {
+      // Lift the clavicle by rotating its rest direction (left = +X, right = -X) up toward +Y:
+      // a rotation about +Z for the left shoulder, -Z for the right.
+      const shrug = (shoulderY: number, liftAxisZ: number): Quaternion => {
+        const drop = (eyeY - shoulderY) / eyeSpan; // smaller as the shoulder rises
+        const raw = (SHRUG_NEUTRAL_DROP - drop) * SHRUG_GAIN; // +ve = lift
         const angle = Math.max(SHRUG_MIN, Math.min(SHRUG_MAX, raw));
         return axisAngle([0, 0, liftAxisZ], angle);
       };
