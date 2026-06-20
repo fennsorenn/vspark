@@ -239,21 +239,15 @@ function frameToQuat(rightTarget: V3, upTarget: V3): Quaternion {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Wrist (hand bone) orientation from the dense hand landmarks.
-//
-// Pose tracking gives only the forearm direction (elbow→wrist) — it carries no information
-// about hand roll or wrist flex, which is why hand orientation looked dead. The 21-point hand
-// landmarks do. We build a hand frame (finger axis + back-of-hand normal), turn it into the
-// desired hand-bone world orientation, then express it relative to the forearm so it composes
-// as the hand bone's local rotation. Finger curls (set in hand_landmarks_to_bones, relative to
-// the hand bone) layer on top unchanged.
+// Hand-bone world orientation from the dense hand landmarks (finger axis + back-of-hand normal),
+// or null when unavailable/degenerate. Used both to orient the hand and — crucially — to anchor
+// the arm's roll so the elbow/wrist don't candy-wrapper (see solveArm).
 //
 // VRM rest hand frame: fingers extend along +X (left) / -X (right); back-of-hand (dorsal) = +Y.
 // Dorsal sign follows the same per-side convention as hand_landmarks_to_bones' palm normal.
-function wristLocal(
+function handWorldFrame(
   rawHand: Landmark[] | undefined,
-  side: 'left' | 'right',
-  lowerArmWorld: Quaternion
+  side: 'left' | 'right'
 ): Quaternion | null {
   if (!rawHand || rawHand.length < 21) return null;
   const w = flipHand(rawHand[HAND.wrist]);
@@ -273,11 +267,111 @@ function wristLocal(
   if (Math.abs(dot(fingerAxis, dorsal)) > 0.95) return null; // degenerate
   // VRM rest finger axis: +X (left) / -X (right). frameToQuat maps +X → its first argument.
   const restRight = side === 'left' ? fingerAxis : neg(fingerAxis);
-  const handWorld = frameToQuat(restRight, dorsal);
-  // hand-bone local = inv(forearm world) · hand world
-  const local = qmul(qinv(lowerArmWorld), handWorld);
-  // Amplify flex/deviation (swing about the limb axis) while preserving roll (twist).
-  return scaleSwing(local, [1, 0, 0], WRIST_SWING_GAIN);
+  return frameToQuat(restRight, dorsal);
+}
+
+// Shortest-arc spherical interpolation between two quaternions.
+function slerp(a: Quaternion, b: Quaternion, t: number): Quaternion {
+  let d = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+  let bx = b.x,
+    by = b.y,
+    bz = b.z,
+    bw = b.w;
+  if (d < 0) {
+    d = -d;
+    bx = -bx;
+    by = -by;
+    bz = -bz;
+    bw = -bw;
+  }
+  if (d > 0.9995) {
+    const x = a.x + (bx - a.x) * t,
+      y = a.y + (by - a.y) * t,
+      z = a.z + (bz - a.z) * t,
+      w = a.w + (bw - a.w) * t;
+    const l = Math.hypot(x, y, z, w) || 1;
+    return new Quaternion(x / l, y / l, z / l, w / l);
+  }
+  const th0 = Math.acos(d);
+  const s0 = Math.sin(th0);
+  const s1 = Math.sin(th0 * (1 - t)) / s0;
+  const s2 = Math.sin(th0 * t) / s0;
+  return new Quaternion(
+    a.x * s1 + bx * s2,
+    a.y * s1 + by * s2,
+    a.z * s1 + bz * s2,
+    a.w * s1 + bw * s2
+  );
+}
+
+// How strongly to minimise the candy-wrapper twist at the elbow and wrist. A single landmark
+// direction per bone leaves the roll about the bone axis unconstrained; per-bone minimal-arc fills
+// it arbitrarily, so the mismatch with the hand's real roll dumps a sharp twist at the wrist (and
+// elbow). Instead we anchor the roll to the hand and parallel-transport it up the arm (hand →
+// forearm → upper arm), making the elbow and wrist near-pure swing; the leftover roll lands at the
+// shoulder, which tolerates it. 0 = old per-bone behaviour, 1 = full minimisation.
+const TWIST_MIN = 1.0;
+
+// Solve one arm: upper + lower arm + hand bones, with twist minimisation when the hand frame is
+// known. Bone directions are always preserved exactly; TWIST_MIN only redistributes the roll.
+function solveArm(
+  side: 'left' | 'right',
+  shoulder: Landmark,
+  elbow: Landmark,
+  wrist: Landmark,
+  parentWorld: Quaternion, // chest · shrug
+  handW: Quaternion | null,
+  entries: [VRMBoneName, Quaternion][]
+): void {
+  if (!ok(elbow)) return;
+  const L = side === 'left';
+  const rest: V3 = L ? [1, 0, 0] : [-1, 0, 0];
+  const upperBone: VRMBoneName = L ? 'leftUpperArm' : 'rightUpperArm';
+  const lowerBone: VRMBoneName = L ? 'leftLowerArm' : 'rightLowerArm';
+  const handBone: VRMBoneName = L ? 'leftHand' : 'rightHand';
+  const parentInv = qinv(parentWorld);
+
+  // Baseline per-bone minimal-arc (also the fallback when there's no hand to anchor roll to).
+  const upperDir = norm(sub(elbow, shoulder)); // shoulder → elbow, world
+  const upperLocalCur = qFromUnitVectors(rest, qapply(parentInv, upperDir));
+  const upperWorldCur = qmul(parentWorld, upperLocalCur);
+
+  if (!ok(wrist)) {
+    entries.push([upperBone, upperLocalCur]);
+    return;
+  }
+  const lowerDir = norm(sub(wrist, elbow)); // elbow → wrist, world
+  const lowerLocalCur = qFromUnitVectors(
+    rest,
+    qapply(qmul(qinv(upperLocalCur), parentInv), lowerDir)
+  );
+  const lowerWorldCur = qmul(upperWorldCur, lowerLocalCur);
+
+  if (!handW) {
+    entries.push([upperBone, upperLocalCur]);
+    entries.push([lowerBone, lowerLocalCur]);
+    return;
+  }
+
+  // Minimal-twist chain anchored by the hand: inherit roll hand → forearm → upper arm so the
+  // elbow and wrist become pure swing and the residual roll ends up at the shoulder.
+  const handAxis = qapply(handW, rest); // hand's forward (finger) direction, world
+  const forearmMt = qmul(qFromUnitVectors(handAxis, lowerDir), handW);
+  const upperMt = qmul(qFromUnitVectors(lowerDir, upperDir), forearmMt);
+
+  // Blend baseline → minimal-twist. Both point each bone the same way (differing only in roll), so
+  // the blend stays on-axis and bone directions are exact at any TWIST_MIN.
+  const upperWorld = slerp(upperWorldCur, upperMt, TWIST_MIN);
+  const forearmWorld = slerp(lowerWorldCur, forearmMt, TWIST_MIN);
+
+  const wristLoc = scaleSwing(
+    qmul(qinv(forearmWorld), handW),
+    [1, 0, 0],
+    WRIST_SWING_GAIN
+  );
+  entries.push([upperBone, qmul(parentInv, upperWorld)]);
+  entries.push([lowerBone, qmul(qinv(upperWorld), forearmWorld)]);
+  entries.push([handBone, wristLoc]);
 }
 
 function convertArms(
@@ -316,7 +410,6 @@ function convertArms(
     ]);
   }
   const torsoQ = frameToQuat(shdRight, spineUp);
-  const torsoQinv = qinv(torsoQ);
 
   // ── Shoulder shrug ─────────────────────────────────────────────────────────
   // Per-side clavicle lift, also used below as an extra parent rotation so the arm doesn't ride up
@@ -336,53 +429,27 @@ function convertArms(
     }
   }
 
-  // ── Left arm ─────────────────────────────────────────────────────────────
-  if (ok(le)) {
-    // Parent of the upper arm is chest · shoulder(shrug). Folding the shrug in here keeps the arm
-    // pointing at the elbow regardless of the clavicle lift.
-    const parentInv = qmul(qinv(leftShrug), torsoQinv); // inv(chest · shrug)
-    const parentWorld = qmul(torsoQ, leftShrug);
-    const dirWorld = norm(sub(le, ls)); // shoulder → elbow in MP world
-    const dirChest = qapply(parentInv, dirWorld); // in shrugged-chest-local space
-    const leftUpperLocal = qFromUnitVectors([1, 0, 0], dirChest); // rest dir = +X
-    entries.push(['leftUpperArm', leftUpperLocal]);
-
-    if (ok(lw)) {
-      const fwWorld = norm(sub(lw, le)); // elbow → wrist
-      const lowerParentInv = qmul(qinv(leftUpperLocal), parentInv);
-      const fwParent = qapply(lowerParentInv, fwWorld);
-      const leftLowerLocal = qFromUnitVectors([1, 0, 0], fwParent);
-      entries.push(['leftLowerArm', leftLowerLocal]);
-
-      // Wrist orientation from hand landmarks, relative to the forearm world rotation.
-      const leftLowerWorld = qmul(parentWorld, qmul(leftUpperLocal, leftLowerLocal));
-      const leftWrist = wristLocal(leftHandRaw, 'left', leftLowerWorld);
-      if (leftWrist) entries.push(['leftHand', leftWrist]);
-    }
-  }
-
-  // ── Right arm ────────────────────────────────────────────────────────────
-  if (ok(re)) {
-    const parentInv = qmul(qinv(rightShrug), torsoQinv);
-    const parentWorld = qmul(torsoQ, rightShrug);
-    const dirWorld = norm(sub(re, rs));
-    const dirChest = qapply(parentInv, dirWorld);
-    const rightUpperLocal = qFromUnitVectors([-1, 0, 0], dirChest); // rest dir = -X for right arm
-    entries.push(['rightUpperArm', rightUpperLocal]);
-
-    if (ok(rw)) {
-      const fwWorld = norm(sub(rw, re));
-      const lowerParentInv = qmul(qinv(rightUpperLocal), parentInv);
-      const fwParent = qapply(lowerParentInv, fwWorld);
-      const rightLowerLocal = qFromUnitVectors([-1, 0, 0], fwParent);
-      entries.push(['rightLowerArm', rightLowerLocal]);
-
-      // Wrist orientation from hand landmarks, relative to the forearm world rotation.
-      const rightLowerWorld = qmul(parentWorld, qmul(rightUpperLocal, rightLowerLocal));
-      const rightWrist = wristLocal(rightHandRaw, 'right', rightLowerWorld);
-      if (rightWrist) entries.push(['rightHand', rightWrist]);
-    }
-  }
+  // ── Arms ───────────────────────────────────────────────────────────────────
+  // Parent of each upper arm is chest · shoulder(shrug); folding the shrug in keeps the arm
+  // pointing at the elbow regardless of clavicle lift.
+  solveArm(
+    'left',
+    ls,
+    le,
+    lw,
+    qmul(torsoQ, leftShrug),
+    handWorldFrame(leftHandRaw, 'left'),
+    entries
+  );
+  solveArm(
+    'right',
+    rs,
+    re,
+    rw,
+    qmul(torsoQ, rightShrug),
+    handWorldFrame(rightHandRaw, 'right'),
+    entries
+  );
 
   return new NormalizedPose(entries);
 }
