@@ -27,6 +27,36 @@ function neg(v: V3): V3 {
   return [-v[0], -v[1], -v[2]];
 }
 
+// Wrist flex/deviation (the swing, i.e. non-roll part) reads weakly from Holistic hand landmarks
+// because wrist→middle-MCP is short and the landmark depth is noisy, while roll (measured across
+// the palm width) is robust. Amplify only the swing so the other two axes register without
+// touching roll. >1 exaggerates; keep modest so any small rest misalignment isn't blown up.
+const WRIST_SWING_GAIN = 2.2;
+
+// Scale a rotation's angle by `gain` about its own axis.
+function scaleAngle(q: Quaternion, gain: number): Quaternion {
+  const w = Math.max(-1, Math.min(1, q.w));
+  const s = Math.sqrt(1 - w * w);
+  if (s < 1e-6) return new Quaternion(0, 0, 0, 1); // ~identity
+  const ang = 2 * Math.acos(w) * gain;
+  const ns = Math.sin(ang / 2);
+  return new Quaternion((q.x / s) * ns, (q.y / s) * ns, (q.z / s) * ns, Math.cos(ang / 2));
+}
+
+// Swing-twist split about `axis` (unit), scale the swing angle by `gain`, recombine. Twist (roll
+// about the limb) is preserved.
+function scaleSwing(q: Quaternion, axis: V3, gain: number): Quaternion {
+  const d = q.x * axis[0] + q.y * axis[1] + q.z * axis[2];
+  let tw = new Quaternion(axis[0] * d, axis[1] * d, axis[2] * d, q.w);
+  const tl = Math.hypot(tw.x, tw.y, tw.z, tw.w);
+  tw =
+    tl < 1e-6
+      ? new Quaternion(0, 0, 0, 1)
+      : new Quaternion(tw.x / tl, tw.y / tl, tw.z / tl, tw.w / tl);
+  const swing = qmul(q, qinv(tw)); // q = swing · twist
+  return qmul(scaleAngle(swing, gain), tw);
+}
+
 function sub(a: Landmark, b: Landmark): V3 {
   return [a.x - b.x, a.y - b.y, a.z - b.z];
 }
@@ -206,7 +236,9 @@ function wristLocal(
   const restRight = side === 'left' ? fingerAxis : neg(fingerAxis);
   const handWorld = frameToQuat(restRight, dorsal);
   // hand-bone local = inv(forearm world) · hand world
-  return qmul(qinv(lowerArmWorld), handWorld);
+  const local = qmul(qinv(lowerArmWorld), handWorld);
+  // Amplify flex/deviation (swing about the limb axis) while preserving roll (twist).
+  return scaleSwing(local, [1, 0, 0], WRIST_SWING_GAIN);
 }
 
 function convertArms(
