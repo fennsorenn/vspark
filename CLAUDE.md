@@ -60,13 +60,12 @@ Key backend files:
 
 1. `Editor.tsx` loads project/scene/nodes from REST API → populates Zustand store (`editorStore.ts`)
 2. `useWsSync()` maintains WebSocket connection and writes incoming `vmc_pose` / `vmc_blendshapes` into the store
-3. `Viewport.tsx` renders a React Three Fiber canvas; `Avatar.tsx` reads pose from the store and applies it to the loaded VRM
+3. `Viewport.tsx` renders a React Three Fiber canvas, loads the VRM, and applies pose from the store to the avatar's bones
 
 Key frontend files:
 - [packages/frontend/src/App.tsx](packages/frontend/src/App.tsx) — router (Home `/` + Editor `/:projectId`)
 - [packages/frontend/src/store/editorStore.ts](packages/frontend/src/store/editorStore.ts) — Zustand store (scene graph, VRM skeletons, VMC state)
-- [packages/frontend/src/components/editor/Viewport.tsx](packages/frontend/src/components/editor/Viewport.tsx) — Three.js canvas
-- [packages/frontend/src/components/editor/Avatar.tsx](packages/frontend/src/components/editor/Avatar.tsx) — VRM loader + pose application
+- [packages/frontend/src/components/editor/Viewport.tsx](packages/frontend/src/components/editor/Viewport.tsx) — Three.js canvas, VRM loader + per-frame pose application (`setNormalizedPose`)
 - [packages/frontend/src/hooks/useWsSync.ts](packages/frontend/src/hooks/useWsSync.ts) — WebSocket sync with auto-reconnect
 
 ### Signal Graph
