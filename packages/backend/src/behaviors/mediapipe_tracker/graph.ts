@@ -284,6 +284,14 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       toPort: 'face',
       kind: 'value',
     },
+    // Face mesh also drives the head frame (tilt/turn) in the torso/head node.
+    {
+      fromNodeId: 'unpack_face',
+      fromPort: 'value',
+      toNodeId: 'pose_torso_head',
+      toPort: 'face',
+      kind: 'value',
+    },
     {
       fromNodeId: 'face_to_bs',
       fromPort: 'blendshapes',
@@ -341,6 +349,21 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromPort: 'value',
       toNodeId: 'right_hand',
       toPort: 'landmarks',
+      kind: 'value',
+    },
+    // Hand landmarks also feed the quaternion-arm node so it can set wrist orientation.
+    {
+      fromNodeId: 'unpack_lh',
+      fromPort: 'value',
+      toNodeId: 'pose_arms',
+      toPort: 'leftHand',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'unpack_rh',
+      fromPort: 'value',
+      toNodeId: 'pose_arms',
+      toPort: 'rightHand',
       kind: 'value',
     },
 

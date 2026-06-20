@@ -16,6 +16,16 @@ const BP = {
   rightHip: 24,
 };
 
+// MediaPipe Face Mesh canonical landmark indices used to build a stable head frame.
+// The dense face mesh tracks head tilt/turn far more reliably than the coarse pose
+// ear/nose points (which barely move when you tilt your head).
+const FACE = {
+  leftSide: 454, // subject's left cheek / tragion area
+  rightSide: 234, // subject's right cheek / tragion area
+  forehead: 10, // top-center of the forehead
+  chin: 152, // bottom-center of the chin
+};
+
 const VIS = 0.5;
 const ok = (lm: Landmark): boolean => (lm.visibility ?? 1) >= VIS;
 
@@ -165,6 +175,28 @@ function flipYZ(lm: Landmark): Landmark {
   return { x: lm.x, y: -lm.y, z: -lm.z, visibility: lm.visibility };
 }
 
+// Build a head-orientation frame from the dense face mesh, expressed in the avatar frame
+// (+Y up, -Z forward). Returns {right, up} or null when the mesh is missing/degenerate.
+// `right` follows the same convention as the pose path: subject-left side minus subject-right.
+function faceHeadFrame(rawFace: Landmark[] | undefined): {
+  right: V3;
+  up: V3;
+} | null {
+  if (!rawFace || rawFace.length < 468) return null;
+  const f = [
+    rawFace[FACE.leftSide],
+    rawFace[FACE.rightSide],
+    rawFace[FACE.forehead],
+    rawFace[FACE.chin],
+  ];
+  if (f.some((p) => !p)) return null;
+  const right = norm(sub(flipYZ(f[0]), flipYZ(f[1])));
+  const up = norm(sub(flipYZ(f[2]), flipYZ(f[3])));
+  // Reject near-degenerate frames (right and up almost parallel → unstable basis).
+  if (Math.abs(dot(right, up)) > 0.95) return null;
+  return { right, up };
+}
+
 // Decompose a unit quaternion into XYZ Euler angles (intrinsic, applied in order X then Y then Z).
 // Used to scale each head-rotation axis independently for gain calibration.
 function quatToEulerXYZ(q: Quaternion): { x: number; y: number; z: number } {
@@ -225,7 +257,8 @@ function convertPose(
     yawGain: number;
     rollGain: number;
     restPitch: number;
-  }
+  },
+  faceRaw?: Landmark[]
 ): NormalizedPose {
   if (rawPts.length < 33) return new NormalizedPose();
   const pts = rawPts.map(flipYZ);
@@ -281,7 +314,13 @@ function convertPose(
     let headRight: V3;
     let headUp: V3;
 
-    if (ok(lEar) && ok(rEar) && ok(nose)) {
+    const faceFrame = faceHeadFrame(faceRaw);
+    if (faceFrame) {
+      // Preferred: dense face mesh gives stable tilt (roll), turn (yaw) and nod (pitch).
+      // Any constant neutral offset is removed downstream by the head-neutral calibration.
+      headRight = faceFrame.right;
+      headUp = faceFrame.up;
+    } else if (ok(lEar) && ok(rEar) && ok(nose)) {
       // In unified +Y-up, -Z-forward frame:
       //   leftEar  → +X side of head; rightEar → -X side.
       //   sub(lEar, rEar) points in +X (head right).
@@ -372,6 +411,9 @@ export class PoseTorsoHeadToBones extends Node {
   static readonly kind = 'pose_torso_head_to_bones';
 
   @valueIn('pose', 'LandmarkList') poseIn!: () => Landmark[] | undefined;
+  // Optional dense face mesh — when present, the head frame is derived from it instead of the
+  // coarse pose ear/nose points (better tilt/turn fidelity).
+  @valueIn('face', 'LandmarkList') faceIn!: () => Landmark[] | undefined;
   @valueIn('enabled', 'Bool') enabledIn!: () => boolean | null | undefined;
   @valueIn('pitchGain', 'Float') pitchGain!: () => number | undefined;
   @valueIn('yawGain', 'Float') yawGain!: () => number | undefined;
@@ -392,6 +434,6 @@ export class PoseTorsoHeadToBones extends Node {
       rollGain: numIn(this.rollGain(), 1.0),
       restPitch: numIn(this.restPitch(), -0.43),
     };
-    return convertPose(pts, calib);
+    return convertPose(pts, calib, this.faceIn());
   };
 }

@@ -17,8 +17,15 @@ const BP = {
   rightHip: 24,
 };
 
+// MediaPipe Hand landmark indices used to build the wrist orientation frame.
+const HAND = { wrist: 0, indexMcp: 5, middleMcp: 9, pinkyMcp: 17 };
+
 const VIS = 0.5;
 const ok = (lm: Landmark): boolean => (lm.visibility ?? 1) >= VIS;
+
+function neg(v: V3): V3 {
+  return [-v[0], -v[1], -v[2]];
+}
 
 function sub(a: Landmark, b: Landmark): V3 {
   return [a.x - b.x, a.y - b.y, a.z - b.z];
@@ -159,7 +166,46 @@ function frameToQuat(rightTarget: V3, upTarget: V3): Quaternion {
 // The parent_world_q for lowerArm is torsoQ * upperArmLocalQ.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function convertArms(rawPts: Landmark[]): NormalizedPose {
+// ─────────────────────────────────────────────────────────────────────────────
+// Wrist (hand bone) orientation from the dense hand landmarks.
+//
+// Pose tracking gives only the forearm direction (elbow→wrist) — it carries no information
+// about hand roll or wrist flex, which is why hand orientation looked dead. The 21-point hand
+// landmarks do. We build a hand frame (finger axis + back-of-hand normal), turn it into the
+// desired hand-bone world orientation, then express it relative to the forearm so it composes
+// as the hand bone's local rotation. Finger curls (set in hand_landmarks_to_bones, relative to
+// the hand bone) layer on top unchanged.
+//
+// VRM rest hand frame: fingers extend along +X (left) / -X (right); back-of-hand (dorsal) = +Y.
+// Dorsal sign follows the same per-side convention as hand_landmarks_to_bones' palm normal.
+function wristLocal(
+  rawHand: Landmark[] | undefined,
+  side: 'left' | 'right',
+  lowerArmWorld: Quaternion
+): Quaternion | null {
+  if (!rawHand || rawHand.length < 21) return null;
+  const w = flipYZ(rawHand[HAND.wrist]);
+  const im = flipYZ(rawHand[HAND.indexMcp]);
+  const mm = flipYZ(rawHand[HAND.middleMcp]);
+  const pm = flipYZ(rawHand[HAND.pinkyMcp]);
+  const fingerAxis = norm(sub(mm, w)); // wrist → middle MCP
+  // Back-of-hand normal. cross(toIndex, toPinky) negated on the left mirrors the palm-normal
+  // convention in hand_landmarks_to_bones (left flips, right keeps).
+  let dorsal = norm(cross(sub(im, w), sub(pm, w)));
+  if (side === 'left') dorsal = neg(dorsal);
+  if (Math.abs(dot(fingerAxis, dorsal)) > 0.95) return null; // degenerate
+  // VRM rest finger axis: +X (left) / -X (right). frameToQuat maps +X → its first argument.
+  const restRight = side === 'left' ? fingerAxis : neg(fingerAxis);
+  const handWorld = frameToQuat(restRight, dorsal);
+  // hand-bone local = inv(forearm world) · hand world
+  return qmul(qinv(lowerArmWorld), handWorld);
+}
+
+function convertArms(
+  rawPts: Landmark[],
+  leftHandRaw?: Landmark[],
+  rightHandRaw?: Landmark[]
+): NormalizedPose {
   if (rawPts.length < 33) return new NormalizedPose();
   const pts = rawPts.map(flipYZ);
 
@@ -207,6 +253,11 @@ function convertArms(rawPts: Landmark[]): NormalizedPose {
       const fwParent = qapply(parentInv, fwWorld);
       const leftLowerLocal = qFromUnitVectors([1, 0, 0], fwParent);
       entries.push(['leftLowerArm', leftLowerLocal]);
+
+      // Wrist orientation from hand landmarks, relative to the forearm world rotation.
+      const leftLowerWorld = qmul(torsoQ, qmul(leftUpperLocal, leftLowerLocal));
+      const leftWrist = wristLocal(leftHandRaw, 'left', leftLowerWorld);
+      if (leftWrist) entries.push(['leftHand', leftWrist]);
     }
   }
 
@@ -223,6 +274,11 @@ function convertArms(rawPts: Landmark[]): NormalizedPose {
       const fwParent = qapply(parentInv, fwWorld);
       const rightLowerLocal = qFromUnitVectors([-1, 0, 0], fwParent);
       entries.push(['rightLowerArm', rightLowerLocal]);
+
+      // Wrist orientation from hand landmarks, relative to the forearm world rotation.
+      const rightLowerWorld = qmul(torsoQ, qmul(rightUpperLocal, rightLowerLocal));
+      const rightWrist = wristLocal(rightHandRaw, 'right', rightLowerWorld);
+      if (rightWrist) entries.push(['rightHand', rightWrist]);
     }
   }
 
@@ -232,7 +288,7 @@ function convertArms(rawPts: Landmark[]): NormalizedPose {
 @SignalNode({
   label: 'Pose → Arm Bones',
   description:
-    'Converts MediaPipe BlazePose world landmarks to VRM arm local rotations (upper+lower arm, both sides). Swing-only — wrist twist is not derived from landmarks. Use as an alternative to IK-driven arm tracking.',
+    'Converts MediaPipe BlazePose world landmarks to VRM arm local rotations (upper+lower arm, both sides). When hand landmarks are connected, also sets the wrist (hand bone) orientation. Use as an alternative to IK-driven arm tracking.',
   tags: ["mocap"],
   color: '#4a6a8a',
 })
@@ -240,6 +296,14 @@ export class PoseArmsToBones extends Node {
   static readonly kind = 'pose_arms_to_bones';
 
   @valueIn('pose', 'LandmarkList') poseIn!: () => Landmark[] | undefined;
+  // Optional hand landmarks — when present, the wrist (hand bone) orientation is derived from
+  // them, since pose tracking carries no hand roll/flex.
+  @valueIn('leftHand', 'LandmarkList') leftHandIn!: () =>
+    | Landmark[]
+    | undefined;
+  @valueIn('rightHand', 'LandmarkList') rightHandIn!: () =>
+    | Landmark[]
+    | undefined;
   @valueIn('enabled', 'Bool') enabledIn!: () => boolean | null | undefined;
 
   @valueOut('pose', 'NormalizedPose')
@@ -248,6 +312,6 @@ export class PoseArmsToBones extends Node {
     if (!enabled) return new NormalizedPose();
     const pts = this.poseIn();
     if (!pts?.length) return undefined;
-    return convertArms(pts);
+    return convertArms(pts, this.leftHandIn(), this.rightHandIn());
   };
 }
