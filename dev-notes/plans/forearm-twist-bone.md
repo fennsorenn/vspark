@@ -1,6 +1,6 @@
 # Plan: Synthesized forearm twist bones
 
-> Branch: `claude/mediapipe-vmc-tracking-align-bfbdak` · Status: implemented (core; sleeve-exclusion heuristic still deferred). Module doc: [../modules/twist-bones.md](../modules/twist-bones.md).
+> Branch: `claude/mediapipe-vmc-tracking-align-bfbdak` · Status: implemented (core + sleeve exclusion, behind its own `excludeSleeves` toggle). Module doc: [../modules/twist-bones.md](../modules/twist-bones.md).
 
 ## Goal
 
@@ -39,8 +39,13 @@ pipeline must work identically with or without a twist bone.
 
 ## Out of scope (deferred)
 
-- **Sleeve exclusion heuristic** — keeping the twist bone weights off sleeve/cuff
-  geometry that shouldn't spiral. Separate follow-up; discuss after the core lands.
+- ~~**Sleeve exclusion heuristic**~~ — **implemented** as a follow-up (commit
+  `95fe6fe`) behind its own `excludeSleeves` toggle: after the forearm re-skin,
+  a per-mesh BFS from hand/finger-weighted vertices through connected
+  twist-weighted geometry keeps twist weight only on what's reachable and rolls
+  the rest back onto `lowerArm`, so a loose sleeve bends with the arm instead of
+  spiralling. See [../modules/twist-bones.md](../modules/twist-bones.md)
+  ("Sleeve exclusion").
 - Twist bones for anything other than the forearms (e.g. upper-arm twist, thigh twist).
 
 ## Approach
