@@ -58,6 +58,14 @@ function flipYZ(lm: Landmark): Landmark {
   return { x: lm.x, y: -lm.y, z: -lm.z, visibility: lm.visibility };
 }
 
+// Hand landmarks are in image space (not pose-world space): +x = right of the mirrored selfie
+// frame = performer's RIGHT, whereas pose-world +x (after flipYZ) = performer's LEFT. So the hand
+// frame needs X and Y negated (Z kept). Using flipYZ here instead would apply a 180° turn about
+// the vertical axis — the hand comes out rotated 180° and rolling the wrong way.
+function flipHand(lm: Landmark): Landmark {
+  return { x: -lm.x, y: -lm.y, z: lm.z, visibility: lm.visibility };
+}
+
 function qmul(a: Quaternion, b: Quaternion): Quaternion {
   return new Quaternion(
     a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
@@ -184,10 +192,10 @@ function wristLocal(
   lowerArmWorld: Quaternion
 ): Quaternion | null {
   if (!rawHand || rawHand.length < 21) return null;
-  const w = flipYZ(rawHand[HAND.wrist]);
-  const im = flipYZ(rawHand[HAND.indexMcp]);
-  const mm = flipYZ(rawHand[HAND.middleMcp]);
-  const pm = flipYZ(rawHand[HAND.pinkyMcp]);
+  const w = flipHand(rawHand[HAND.wrist]);
+  const im = flipHand(rawHand[HAND.indexMcp]);
+  const mm = flipHand(rawHand[HAND.middleMcp]);
+  const pm = flipHand(rawHand[HAND.pinkyMcp]);
   const fingerAxis = norm(sub(mm, w)); // wrist → middle MCP
   // Back-of-hand normal. cross(toIndex, toPinky) negated on the left mirrors the palm-normal
   // convention in hand_landmarks_to_bones (left flips, right keeps).
