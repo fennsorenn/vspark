@@ -76,7 +76,19 @@ export function setupForearmTwist(
   opts: { force: boolean; excludeSleeves?: boolean; gradient?: number }
 ): void {
   teardownForearmTwist(nodeId);
+  // Fully inert unless the avatar opts in. (Driving a model's *own* twist bone
+  // is unsolved — it has its own rest orientation and rig — so we don't touch
+  // it; we only synthesize where one is missing.)
+  if (!opts.force) return;
   const gradient = opts.gradient ?? DEFAULT_GRADIENT;
+
+  // Build the twist bones against the REST pose, not whatever pose tracking has
+  // the avatar in right now. The synthesized bone's bind matrix and the
+  // elbow→wrist axis must agree with every other bone's bind reference; reading
+  // them off a live, posed skeleton bakes the current pose in and the forearm
+  // deforms. The next frame re-applies the real pose.
+  vrm.humanoid.resetNormalizedPose();
+  (vrm.humanoid as unknown as { update?: () => void }).update?.();
   vrm.scene.updateMatrixWorld(true);
 
   const sides: SideTwist[] = [];
@@ -87,29 +99,33 @@ export function setupForearmTwist(
     const hand = vrm.humanoid.getRawBoneNode(`${side}Hand` as VRMHumanBoneName);
     if (!lowerArm || !hand) continue;
 
-    // Forearm axis + wrist position, both in lowerArm-local space.
+    // Leave a model's own forearm twist bone alone — the model rigs/drives it.
+    if (detectTwistBone(lowerArm, hand)) {
+      console.info(
+        `[twistBones] ${side}: model already has a twist bone — skipping`
+      );
+      continue;
+    }
+
+    // Forearm axis + wrist position, both in lowerArm-local space (rest pose).
     const handWorld = new THREE.Vector3();
     hand.getWorldPosition(handWorld);
     const wristLocal = lowerArm.worldToLocal(handWorld.clone());
     if (wristLocal.lengthSq() < 1e-9) continue;
     const axis = wristLocal.clone().normalize();
 
-    const detected = detectTwistBone(lowerArm, hand);
-    if (detected) {
-      sides.push(attachSide(lowerArm, detected, hand, axis, gradient, false));
-    } else if (opts.force) {
-      const twist = new THREE.Bone();
-      twist.name = `${lowerArm.name}__synthTwist`;
-      twist.position.copy(wristLocal).multiplyScalar(SYNTH_FRACTION);
-      lowerArm.add(twist);
-      lowerArm.updateMatrixWorld(true);
-      const side2 = attachSide(lowerArm, twist, hand, axis, gradient, true);
-      reskinForearm(vrm, lowerArm, twist, wristLocal, side2, !!opts.excludeSleeves);
-      sides.push(side2);
-    }
+    const twist = new THREE.Bone();
+    twist.name = `${lowerArm.name}__synthTwist`;
+    twist.position.copy(wristLocal).multiplyScalar(SYNTH_FRACTION);
+    lowerArm.add(twist);
+    lowerArm.updateMatrixWorld(true);
+    const side2 = attachSide(lowerArm, twist, hand, axis, gradient, true);
+    reskinForearm(vrm, lowerArm, twist, wristLocal, side2, !!opts.excludeSleeves);
+    sides.push(side2);
   }
 
   if (sides.length) registry.set(nodeId, { sides });
+  console.info(`[twistBones] ${nodeId}: synthesized ${sides.length} side(s)`);
 }
 
 export function teardownForearmTwist(nodeId: string): void {
