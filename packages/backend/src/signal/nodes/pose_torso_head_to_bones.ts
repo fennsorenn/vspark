@@ -8,6 +8,8 @@ type V3 = [number, number, number];
 
 const BP = {
   nose: 0,
+  leftEye: 2,
+  rightEye: 5,
   leftEar: 7,
   rightEar: 8,
   leftShoulder: 11,
@@ -253,6 +255,23 @@ function dampYaw(q: Quaternion, gain: number): Quaternion {
   return eulerXYZToQuat(e.x, e.y * gain, e.z);
 }
 
+// Quaternion from a unit axis and angle (radians).
+function axisAngle(axis: V3, angle: number): Quaternion {
+  const s = Math.sin(angle / 2);
+  return new Quaternion(axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(angle / 2));
+}
+
+// ── Shoulder shrug ───────────────────────────────────────────────────────────
+// Shoulder elevation is measured scale- and distance-invariantly as the ratio of two vertical
+// spans: hip→shoulder over hip→eye. The eye line barely moves when you shrug, so the ratio rises
+// as the shoulders lift. NEUTRAL_RATIO just sets the operating point — the head-neutral
+// calibration captures and removes each person's true rest offset, so it only needs to be roughly
+// anatomical. The clavicle is lifted by rotating about the forward (Z) axis.
+const SHRUG_NEUTRAL_RATIO = 0.82; // hip→shoulder / hip→eye at a relaxed pose, approx
+const SHRUG_GAIN = 4.0; // ratio delta → radians of clavicle lift
+const SHRUG_MIN = -0.25; // allow a little shoulder drop
+const SHRUG_MAX = 0.6; //  ~34° of lift
+
 function convertPose(
   rawPts: Landmark[],
   calib: {
@@ -273,6 +292,8 @@ function convertPose(
   const nose = pts[BP.nose];
   const lEar = pts[BP.leftEar],
     rEar = pts[BP.rightEar];
+  const lEye = pts[BP.leftEye],
+    rEye = pts[BP.rightEye];
 
   const entries: [VRMBoneName, Quaternion][] = [];
 
@@ -311,6 +332,30 @@ function convertPose(
   const halfQ = qSlerpFromIdentity(torsoQ, 0.5);
   entries.push(['spine', halfQ]);
   entries.push(['chest', halfQ]);
+
+  // ── Shoulder shrug ─────────────────────────────────────────────────────────
+  // Per-side clavicle lift from the hip→shoulder / hip→eye height ratio (see constants above).
+  // Needs hips + eyes visible for the reference span; skipped otherwise.
+  if (ok(lh) && ok(rh) && ok(lEye) && ok(rEye)) {
+    const hipY = (lh.y + rh.y) / 2;
+    const eyeY = (lEye.y + rEye.y) / 2;
+    const headSpan = eyeY - hipY; // hip→eye vertical span (sign: +Y up)
+    if (headSpan > 1e-3) {
+      // Each clavicle is lifted by rotating its rest direction (left = +X, right = -X) up toward
+      // +Y. That's a rotation about +Z for the left shoulder and -Z for the right.
+      const shrug = (
+        shoulderY: number,
+        liftAxisZ: number
+      ): Quaternion => {
+        const ratio = (shoulderY - hipY) / headSpan;
+        const raw = (ratio - SHRUG_NEUTRAL_RATIO) * SHRUG_GAIN;
+        const angle = Math.max(SHRUG_MIN, Math.min(SHRUG_MAX, raw));
+        return axisAngle([0, 0, liftAxisZ], angle);
+      };
+      entries.push(['leftShoulder', shrug(ls.y, 1)]);
+      entries.push(['rightShoulder', shrug(rs.y, -1)]);
+    }
+  }
 
   // ── Head ─────────────────────────────────────────────────────────────────
   {

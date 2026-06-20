@@ -13,6 +13,10 @@ export const HEAD_CALIB_BONES = [
   'jaw',
   'leftEye',
   'rightEye',
+  // Clavicles — shrug is measured against an approximate neutral ratio, so the head-neutral
+  // capture removes each performer's true resting shoulder offset.
+  'leftShoulder',
+  'rightShoulder',
 ] as const;
 
 // VRM bone names captured by the finger_calib node. Held separate from head calibration
