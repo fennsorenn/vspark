@@ -260,7 +260,12 @@ function wristLocal(
   const im = flipHand(rawHand[HAND.indexMcp]);
   const mm = flipHand(rawHand[HAND.middleMcp]);
   const pm = flipHand(rawHand[HAND.pinkyMcp]);
-  const fingerAxis = norm(sub(mm, w)); // wrist → middle MCP
+  // The forearm comes from pose-world landmarks (flipYZ: depth negated) while these hand landmarks
+  // are image-space (flipHand: depth kept) — opposite depth-sign conventions. Roll and the
+  // sideways axis are depth-agnostic so they're fine, but wrist flex lives on the depth axis and
+  // came out inverted. Flip the pointing axis's depth component to match the forearm's frame.
+  const fa = norm(sub(mm, w)); // wrist → middle MCP
+  const fingerAxis: V3 = [fa[0], fa[1], -fa[2]];
   // Back-of-hand normal. cross(toIndex, toPinky) negated on the left mirrors the palm-normal
   // convention in hand_landmarks_to_bones (left flips, right keeps).
   let dorsal = norm(cross(sub(im, w), sub(pm, w)));
