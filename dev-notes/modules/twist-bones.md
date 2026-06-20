@@ -23,10 +23,10 @@ knows the skeleton). See [mediapipe-tracker.md](mediapipe-tracker.md) /
 
 ## Lifecycle
 
-`setupForearmTwist(nodeId, vrm, { force, gradient? })` runs on VRM load and
-whenever the `forceTwistBone` property changes (`useEffect` in `AvatarNode`,
-keyed on `vrmLoaded`, `forceTwistBone`, `node.id`). It tears down first, then
-per side (`left`/`right`):
+`setupForearmTwist(nodeId, vrm, { force, excludeSleeves?, gradient? })` runs on
+VRM load and whenever the `forceTwistBone` (or `excludeSleeves`) property changes
+(`useEffect` in `AvatarNode`, keyed on `vrmLoaded`, `forceTwistBone`, `node.id`).
+It tears down first, then per side (`left`/`right`):
 
 1. **Detect** the model's own twist bone — a `Bone` descendant of `lowerArm`
    (excluding `hand`) whose name matches `/twist|roll/i` (covers e.g.
@@ -59,6 +59,40 @@ At rest the twist bone is identity, so splitting a vertex between two bones that
 both resolve to identity changes nothing — **the rest pose is visually
 identical** until pronation occurs.
 
+## Sleeve exclusion (synthesized only, `excludeSleeves` on)
+
+Synthesized twist weight ramps every `lowerArm`-weighted vertex, which makes a
+loose sleeve/cuff spiral like skin. When `excludeSleeves` is on,
+`reskinForearm` runs a one-time post-pass (`excludeSleevesForMesh`) **after**
+the re-skin, once per forearm `SkinnedMesh`, that keeps twist weight only on
+geometry physically continuous with the hand and rolls it back everywhere else:
+
+1. **Weld** vertices into nodes by quantized position (`SLEEVE_WELD_EPS = 1e-5`)
+   so UV/material seams that split a shared position into multiple vertices
+   don't break connectivity.
+2. **Edge adjacency** over welded nodes, built from the index buffer (each
+   triangle links its three node corners).
+3. **Seeds** = welded nodes carrying a hand- or finger-bone influence above
+   `SLEEVE_SEED_WEIGHT = 0.5` (solid skin, not a partial cuff). The seed bones
+   are the hand bone's subtree — `side.hand.traverse(...)` — which, since the
+   hand is reparented under the twist bone, is exactly hand + fingers.
+4. **BFS** from the seeds, stepping into a node **only if it carries twist
+   weight**; every reached twist-weighted node is `keep`.
+5. **Roll back** twist weight on every twist-weighted vertex *not* kept: its
+   `twist` slot weight is moved back onto `lowerArm` (`setWeightForIndex(...,
+   twistIndex, 0)` + `addWeight(..., lowerIndex, w)`).
+
+**Safety guard** (`SLEEVE_KEEP_GUARD = 0.1`): a mesh that *has* skin seeds but
+keeps `< 10%` of its twist nodes is treated as a connectivity artifact (e.g. the
+body skin under the sleeve was deleted, leaving the seeds disconnected) and is
+left untouched rather than de-twisted. A mesh with **no** seeds at all (a
+separate sleeve mesh) skips the guard and correctly excludes everything.
+
+The pass only edits `skinIndex`/`skinWeight`, so it's reversible via the same
+per-mesh teardown snapshot. **Known limitation:** a cuff weighted `> 0.5` to the
+hand can still seed (and thus keep twist on) a sleeve, and a *fitted* sleeve that
+should twist with the arm is excluded — toggle `excludeSleeves` off to keep it.
+
 ## Per-frame drive
 
 `driveForearmTwist(nodeId)` is called in `Viewport.tsx`'s `useFrame` **after**
@@ -76,13 +110,22 @@ space after the humanoid pose is applied. Per side it:
   orientation is preserved** while the forearm vertices follow the twist
   gradient.
 
-## Avatar node property — `forceTwistBone`
+## Avatar node properties — `forceTwistBone` / `excludeSleeves`
 
-A boolean on the VRM avatar node's `properties` bag (the `scene_nodes.properties`
-JSON column). When on, a forearm twist bone is synthesized for models that lack
-one; models with their own twist bones are driven regardless of this flag.
+Two booleans on the VRM avatar node's `properties` bag (the
+`scene_nodes.properties` JSON column):
 
-- Shared type: `SceneNodeProperties.forceTwistBone` in
+- **`forceTwistBone`** — when on, a forearm twist bone is synthesized for models
+  that lack one; models with their own twist bones are driven regardless of this
+  flag.
+- **`excludeSleeves`** — when on (and only meaningful when synthesizing), runs
+  the sleeve-exclusion pass above so loose sleeves/cuffs bend with the arm
+  instead of spiralling. Passed through as `setupForearmTwist(..., {
+  excludeSleeves })` → `reskinForearm`.
+
+Both are wired identically:
+
+- Shared type: `SceneNodeProperties.forceTwistBone` / `.excludeSleeves` in
   [`packages/shared/src/types.ts`](../../packages/shared/src/types.ts); Zod in
   [`packages/shared/src/schema.ts`](../../packages/shared/src/schema.ts).
 - Mirrored on the store `NodeProperties`
@@ -90,10 +133,11 @@ one; models with their own twist bones are driven regardless of this flag.
   and the api-client `NodeProperties`
   ([`api/client.ts`](../../packages/frontend/src/api/client.ts)).
 - UI: a **Force twist bone** toggle on the avatar section of `PropertiesPanel.tsx`
-  + a `HelpButton topic="avatar" anchor="twist"`.
-- i18n: `avatar.twistHeader` / `avatar.twistForce` / `help.twist` in
-  `i18n/locales/{en,de}/properties.json`; help section `{#twist}` in
-  `help/content/{en,de}/avatar.md`. See [i18n-help.md](i18n-help.md).
+  with a nested **Exclude sleeves** checkbox shown only while `forceTwistBone` is
+  on, + a `HelpButton topic="avatar" anchor="twist"`.
+- i18n: `avatar.twistHeader` / `avatar.twistForce` / `avatar.twistExcludeSleeves`
+  / `help.twist` in `i18n/locales/{en,de}/properties.json`; help section
+  `{#twist}` in `help/content/{en,de}/avatar.md`. See [i18n-help.md](i18n-help.md).
 
 ## Test fixtures
 
@@ -103,7 +147,7 @@ synthesis path.
 
 ## Deferred / planned
 
-- **Sleeve exclusion heuristic** — keeping the synthesized twist-bone weights off
-  sleeve/cuff geometry that shouldn't spiral with the skin. Not yet built; see
-  [plans/forearm-twist-bone.md](../plans/forearm-twist-bone.md) ("Out of scope").
+- **Sleeve exclusion** — implemented behind the `excludeSleeves` toggle (see
+  "Sleeve exclusion" above). Remaining limitation: a fitted sleeve that should
+  twist is excluded, and a cuff weighted `> 0.5` to the hand can still seed.
 - Twist bones for joints other than the forearms (upper-arm, thigh).
