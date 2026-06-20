@@ -62,6 +62,7 @@ export const sceneNodePropertiesSchema = z
         response: z.number().min(-5).max(5),
       })
       .optional(),
+    forceTwistBone: z.boolean().optional(),
   })
   .openapi('SceneNodeProperties');
 

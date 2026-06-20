@@ -100,6 +100,11 @@ export interface SceneNodeProperties {
    *  the frontend, after the jitter-smoothing filter. Applies to VRM avatar
    *  nodes. Disabled by default. */
   poseDynamics?: PoseDynamics;
+  /** Synthesize forearm twist bones when the model lacks them, so wrist
+   *  pronation spreads along the forearm instead of pinching at the elbow.
+   *  Models with their own twist bones are driven automatically regardless.
+   *  Applies to VRM avatar nodes. Default false. */
+  forceTwistBone?: boolean;
 }
 
 /** Per-bone second-order (spring–damper) dynamics that add anticipatory snap /

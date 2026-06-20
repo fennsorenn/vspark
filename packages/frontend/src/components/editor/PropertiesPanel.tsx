@@ -7643,6 +7643,49 @@ export function PropertiesPanel() {
             );
           })()}
 
+        {/* Forearm twist — avatar only */}
+        {node.kind === 'avatar' && (
+          <>
+            <div
+              style={{
+                ...sectionHeader,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              {t('avatar.twistHeader')}
+              <HelpButton topic="avatar" anchor="twist" tip={t('help.twist')} />
+            </div>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12,
+                color: '#888',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={node.properties?.forceTwistBone === true}
+                onChange={(e) => {
+                  const forceTwistBone = e.target.checked;
+                  storeUpdateNode(node.id, {
+                    properties: { ...node.properties, forceTwistBone },
+                  });
+                  api
+                    .updateNode(node.id, { properties: { forceTwistBone } })
+                    .catch(() => {});
+                }}
+              />
+              {t('avatar.twistForce')}
+            </label>
+          </>
+        )}
+
         {/* FBX debug toggle — avatar only */}
         {node.kind === 'avatar' && (
           <>
