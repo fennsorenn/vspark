@@ -208,6 +208,16 @@ function eulerXYZToQuat(ex: number, ey: number, ez: number): Quaternion {
   );
 }
 
+// Scale only the yaw (Y) component of a rotation, leaving pitch/roll intact. Used to damp the
+// torso's turn: MediaPipe's shoulder estimate yaws along with a head turn, which would otherwise
+// spill into the chest. Because the neck is computed relative to this same damped torso, the head
+// keeps its true world orientation — the spilled yaw just moves from the chest into the neck.
+const TORSO_YAW_GAIN = 0.3;
+function dampYaw(q: Quaternion, gain: number): Quaternion {
+  const e = quatToEulerXYZ(q);
+  return eulerXYZToQuat(e.x, e.y * gain, e.z);
+}
+
 function convertPose(
   rawPts: Landmark[],
   calib: {
@@ -250,7 +260,9 @@ function convertPose(
       0 - shdRight[2] * t,
     ]);
   }
-  const torsoQ = frameToQuat(shdRight, spineUp);
+  // Damp torso yaw so a head turn doesn't drag the chest around (the neck, computed relative to
+  // this torso below, absorbs the difference and the head still points the right way).
+  const torsoQ = dampYaw(frameToQuat(shdRight, spineUp), TORSO_YAW_GAIN);
 
   // Hips are intentionally left at identity so the legs and root position stay anchored.
   // The torso rotation is split across spine + chest as two local rotations whose product
