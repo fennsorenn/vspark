@@ -17,6 +17,10 @@ export const HEAD_CALIB_BONES = [
   // capture removes each performer's true resting shoulder offset.
   'leftShoulder',
   'rightShoulder',
+  // Wrists — the hand-bone orientation carries a rest offset from noisy hand depth; capturing it
+  // at neutral keeps the hands from sitting flicked-back when held in a relaxed pose.
+  'leftHand',
+  'rightHand',
 ] as const;
 
 // VRM bone names captured by the finger_calib node. Held separate from head calibration

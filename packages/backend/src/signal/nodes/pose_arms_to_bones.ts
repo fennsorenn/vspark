@@ -7,6 +7,8 @@ type Landmark = { x: number; y: number; z: number; visibility?: number };
 type V3 = [number, number, number];
 
 const BP = {
+  leftEye: 2,
+  rightEye: 5,
   leftShoulder: 11,
   rightShoulder: 12,
   leftElbow: 13,
@@ -23,15 +25,47 @@ const HAND = { wrist: 0, indexMcp: 5, middleMcp: 9, pinkyMcp: 17 };
 const VIS = 0.5;
 const ok = (lm: Landmark): boolean => (lm.visibility ?? 1) >= VIS;
 
+const IDENTITY = new Quaternion(0, 0, 0, 1);
+
 function neg(v: V3): V3 {
   return [-v[0], -v[1], -v[2]];
 }
 
+// Quaternion from a unit axis and angle (radians).
+function axisAngle(axis: V3, angle: number): Quaternion {
+  const s = Math.sin(angle / 2);
+  return new Quaternion(axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(angle / 2));
+}
+
+// ── Shoulder shrug ───────────────────────────────────────────────────────────
+// Lives here (not in the torso node) so the shoulder lift can be folded into the arm's parent
+// chain — rotating the clavicle alone would drag the whole arm up with it, so the upper/lower arm
+// are recomputed relative to chest·shrug, cancelling that drag while the clavicle still visibly
+// lifts. Elevation = eye-line→shoulder vertical gap / interocular distance (scale/distance
+// invariant, always visible). NEUTRAL_DROP just sets the operating point; the head-neutral
+// calibration removes each person's true rest offset.
+const SHRUG_NEUTRAL_DROP = 5.0;
+const SHRUG_GAIN = 0.6;
+const SHRUG_MIN = -0.25;
+const SHRUG_MAX = 0.6;
+function shrugQuat(
+  eyeY: number,
+  eyeSpan: number,
+  shoulderY: number,
+  liftAxisZ: number
+): Quaternion {
+  const drop = (eyeY - shoulderY) / eyeSpan;
+  const raw = (SHRUG_NEUTRAL_DROP - drop) * SHRUG_GAIN; // +ve = lift
+  const angle = Math.max(SHRUG_MIN, Math.min(SHRUG_MAX, raw));
+  return axisAngle([0, 0, liftAxisZ], angle);
+}
+
 // Wrist flex/deviation (the swing, i.e. non-roll part) reads weakly from Holistic hand landmarks
 // because wrist→middle-MCP is short and the landmark depth is noisy, while roll (measured across
-// the palm width) is robust. Amplify only the swing so the other two axes register without
-// touching roll. >1 exaggerates; keep modest so any small rest misalignment isn't blown up.
-const WRIST_SWING_GAIN = 2.2;
+// the palm width) is robust. Amplify the swing modestly so the other two axes register without
+// touching roll. Kept low: the hand's rest offset (also from noisy depth) is removed by the
+// head-neutral calibration, but a high gain still magnifies pose-dependent residue.
+const WRIST_SWING_GAIN = 1.5;
 
 // Scale a rotation's angle by `gain` about its own axis.
 function scaleAngle(q: Quaternion, gain: number): Quaternion {
@@ -279,23 +313,44 @@ function convertArms(
   const torsoQ = frameToQuat(shdRight, spineUp);
   const torsoQinv = qinv(torsoQ);
 
+  // ── Shoulder shrug ─────────────────────────────────────────────────────────
+  // Per-side clavicle lift, also used below as an extra parent rotation so the arm doesn't ride up
+  // with the shoulder. Needs both eyes visible for the reference; identity (no shrug) otherwise.
+  let leftShrug = IDENTITY;
+  let rightShrug = IDENTITY;
+  const lEye = pts[BP.leftEye],
+    rEye = pts[BP.rightEye];
+  if (ok(lEye) && ok(rEye)) {
+    const eyeY = (lEye.y + rEye.y) / 2;
+    const eyeSpan = lenV(sub(lEye, rEye));
+    if (eyeSpan > 1e-3) {
+      leftShrug = shrugQuat(eyeY, eyeSpan, ls.y, 1);
+      rightShrug = shrugQuat(eyeY, eyeSpan, rs.y, -1);
+      entries.push(['leftShoulder', leftShrug]);
+      entries.push(['rightShoulder', rightShrug]);
+    }
+  }
+
   // ── Left arm ─────────────────────────────────────────────────────────────
   if (ok(le)) {
+    // Parent of the upper arm is chest · shoulder(shrug). Folding the shrug in here keeps the arm
+    // pointing at the elbow regardless of the clavicle lift.
+    const parentInv = qmul(qinv(leftShrug), torsoQinv); // inv(chest · shrug)
+    const parentWorld = qmul(torsoQ, leftShrug);
     const dirWorld = norm(sub(le, ls)); // shoulder → elbow in MP world
-    const dirChest = qapply(torsoQinv, dirWorld); // in chest-local space
+    const dirChest = qapply(parentInv, dirWorld); // in shrugged-chest-local space
     const leftUpperLocal = qFromUnitVectors([1, 0, 0], dirChest); // rest dir = +X
     entries.push(['leftUpperArm', leftUpperLocal]);
 
     if (ok(lw)) {
       const fwWorld = norm(sub(lw, le)); // elbow → wrist
-      // Parent of leftLowerArm world rotation = torsoQ * leftUpperLocal
-      const parentInv = qmul(qinv(leftUpperLocal), torsoQinv);
-      const fwParent = qapply(parentInv, fwWorld);
+      const lowerParentInv = qmul(qinv(leftUpperLocal), parentInv);
+      const fwParent = qapply(lowerParentInv, fwWorld);
       const leftLowerLocal = qFromUnitVectors([1, 0, 0], fwParent);
       entries.push(['leftLowerArm', leftLowerLocal]);
 
       // Wrist orientation from hand landmarks, relative to the forearm world rotation.
-      const leftLowerWorld = qmul(torsoQ, qmul(leftUpperLocal, leftLowerLocal));
+      const leftLowerWorld = qmul(parentWorld, qmul(leftUpperLocal, leftLowerLocal));
       const leftWrist = wristLocal(leftHandRaw, 'left', leftLowerWorld);
       if (leftWrist) entries.push(['leftHand', leftWrist]);
     }
@@ -303,20 +358,22 @@ function convertArms(
 
   // ── Right arm ────────────────────────────────────────────────────────────
   if (ok(re)) {
+    const parentInv = qmul(qinv(rightShrug), torsoQinv);
+    const parentWorld = qmul(torsoQ, rightShrug);
     const dirWorld = norm(sub(re, rs));
-    const dirChest = qapply(torsoQinv, dirWorld);
+    const dirChest = qapply(parentInv, dirWorld);
     const rightUpperLocal = qFromUnitVectors([-1, 0, 0], dirChest); // rest dir = -X for right arm
     entries.push(['rightUpperArm', rightUpperLocal]);
 
     if (ok(rw)) {
       const fwWorld = norm(sub(rw, re));
-      const parentInv = qmul(qinv(rightUpperLocal), torsoQinv);
-      const fwParent = qapply(parentInv, fwWorld);
+      const lowerParentInv = qmul(qinv(rightUpperLocal), parentInv);
+      const fwParent = qapply(lowerParentInv, fwWorld);
       const rightLowerLocal = qFromUnitVectors([-1, 0, 0], fwParent);
       entries.push(['rightLowerArm', rightLowerLocal]);
 
       // Wrist orientation from hand landmarks, relative to the forearm world rotation.
-      const rightLowerWorld = qmul(torsoQ, qmul(rightUpperLocal, rightLowerLocal));
+      const rightLowerWorld = qmul(parentWorld, qmul(rightUpperLocal, rightLowerLocal));
       const rightWrist = wristLocal(rightHandRaw, 'right', rightLowerWorld);
       if (rightWrist) entries.push(['rightHand', rightWrist]);
     }
