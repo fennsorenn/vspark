@@ -304,13 +304,19 @@ function slerp(a: Quaternion, b: Quaternion, t: number): Quaternion {
   );
 }
 
-// How strongly to move the candy-wrapper wrist twist into a forearm roll. A single landmark
-// direction per bone leaves the roll about the bone axis unconstrained; per-bone minimal-arc fills
-// it arbitrarily, so the mismatch with the hand's real roll dumps a sharp twist at the wrist.
-// Instead we roll the forearm to match the hand (the anatomical home of pronation/supination),
-// leaving the wrist as pure swing and the upper arm/shoulder untouched. 0 = old twist-at-wrist,
-// 1 = full forearm twist.
+// How strongly to move the candy-wrapper wrist twist into an arm roll. A single landmark direction
+// per bone leaves the roll about the bone axis unconstrained; per-bone minimal-arc fills it
+// arbitrarily, so the mismatch with the hand's real roll dumps a sharp twist at the wrist. Instead
+// we roll the arm to match the hand, leaving the wrist as pure swing. 0 = old twist-at-wrist,
+// 1 = full roll redistribution.
 const TWIST_MIN = 1.0;
+
+// The VRM humanoid skeleton has no forearm twist bone, so a forearm roll concentrates at the elbow
+// (skin pinch) and an upper-arm roll at the shoulder. Real arms spread pronation gradually via
+// twist bones we don't have, so the best approximation is to split the roll across both arm bones
+// — each joint then shows only part of the twist. This is the upper arm's share (rest goes to the
+// forearm): 0 = all forearm (elbow), 1 = all shoulder, 0.5 = even split.
+const ARM_ROLL_UPPER_SHARE = 0.5;
 
 // Solve one arm: upper + lower arm + hand bones, with twist minimisation when the hand frame is
 // known. Bone directions are always preserved exactly; TWIST_MIN only redistributes the roll.
@@ -353,14 +359,15 @@ function solveArm(
     return;
   }
 
-  // Pronation/supination lives in the forearm — as IRL, where the radius twists about the ulna —
-  // not the shoulder. Keep the upper arm at its clean baseline swing (calm shoulder, and no
-  // ill-conditioned roll transport through the elbow that jittered on a near-straight arm), and
-  // roll the forearm to match the hand so the wrist stays pure swing.
+  // Roll the arm to match the hand, split across the upper arm and forearm so neither joint shows
+  // the full twist (see ARM_ROLL_UPPER_SHARE — the skeleton has no forearm twist bone to spread it
+  // gradually). The forearm always points along lowerDir with the full hand roll, so the wrist
+  // stays pure swing; the upper arm takes a fraction of the roll, the forearm joint the rest.
   const handAxis = qapply(handW, rest); // hand's forward (finger) direction, world
   const forearmMt = qmul(qFromUnitVectors(handAxis, lowerDir), handW);
-  // Blend baseline (twist-free) → hand-anchored forearm roll. Both point along lowerDir, so the
-  // blend only redistributes roll. 0 = old twist-at-wrist, 1 = full forearm twist.
+  const upperMt = qmul(qFromUnitVectors(lowerDir, upperDir), forearmMt);
+
+  const upperWorld = slerp(upperWorldCur, upperMt, TWIST_MIN * ARM_ROLL_UPPER_SHARE);
   const forearmWorld = slerp(lowerWorldCur, forearmMt, TWIST_MIN);
 
   const wristLoc = scaleSwing(
@@ -368,8 +375,8 @@ function solveArm(
     [1, 0, 0],
     WRIST_SWING_GAIN
   );
-  entries.push([upperBone, upperLocalCur]); // upper arm unchanged — no roll to the shoulder
-  entries.push([lowerBone, qmul(qinv(upperWorldCur), forearmWorld)]);
+  entries.push([upperBone, qmul(parentInv, upperWorld)]);
+  entries.push([lowerBone, qmul(qinv(upperWorld), forearmWorld)]);
   entries.push([handBone, wristLoc]);
 }
 
