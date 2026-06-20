@@ -244,7 +244,10 @@ function eulerXYZToQuat(ex: number, ey: number, ez: number): Quaternion {
 // torso's turn: MediaPipe's shoulder estimate yaws along with a head turn, which would otherwise
 // spill into the chest. Because the neck is computed relative to this same damped torso, the head
 // keeps its true world orientation — the spilled yaw just moves from the chest into the neck.
-const TORSO_YAW_GAIN = 0.3;
+// Now that the head is sourced from the face mesh (independent of the shoulders), the chest no
+// longer needs heavy yaw damping to avoid head-turn spill — so allow most of the torso twist
+// through. Note MediaPipe's shoulder-depth estimate is weak, so torso yaw reads softly regardless.
+const TORSO_YAW_GAIN = 0.7;
 function dampYaw(q: Quaternion, gain: number): Quaternion {
   const e = quatToEulerXYZ(q);
   return eulerXYZToQuat(e.x, e.y * gain, e.z);
