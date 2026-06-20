@@ -347,12 +347,27 @@ export function MediaInputWindow({
   const wsRef = useRef<WebSocket | null>(null);
   const trackingCompIdRef = useRef<string | null>(null);
   const showPreviewRef = useRef(showPreview);
+  // Translated overlay legend labels, held in a ref so the rAF draw closure never goes stale.
+  const legendLabelsRef = useRef({
+    face: t('tracking.legend.face'),
+    pose: t('tracking.legend.pose'),
+    leftHand: t('tracking.legend.leftHand'),
+    rightHand: t('tracking.legend.rightHand'),
+  });
   useEffect(() => {
     trackingCompIdRef.current = resolvedTrackingId;
   }, [resolvedTrackingId]);
   useEffect(() => {
     showPreviewRef.current = showPreview;
   }, [showPreview]);
+  useEffect(() => {
+    legendLabelsRef.current = {
+      face: t('tracking.legend.face'),
+      pose: t('tracking.legend.pose'),
+      leftHand: t('tracking.legend.leftHand'),
+      rightHand: t('tracking.legend.rightHand'),
+    };
+  }, [t]);
 
   // ── Tracking activate/deactivate ───────────────────────────────────────────
   const toggleTracking = useCallback(async () => {
@@ -399,7 +414,7 @@ export function MediaInputWindow({
           ctx.setTransform(-1, 0, 0, 1, w, 0);
           ctx.drawImage(video, 0, 0, w, h);
           ctx.setTransform(1, 0, 0, 1, 0, 0);
-          CameraCapture.drawLandmarksSync(ctx, raw);
+          CameraCapture.drawLandmarksSync(ctx, raw, legendLabelsRef.current);
         }
       };
       try {

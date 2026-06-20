@@ -31,6 +31,12 @@
     "faceLabel": "Gesicht",
     "poseLabel": "Pose",
     "handsLabel": "Hände",
+    "legend": {
+      "face": "Gesicht",
+      "pose": "Pose",
+      "leftHand": "Hand L",
+      "rightHand": "Hand R"
+    },
     "noComponent": "Keine mediapipe_tracker-Komponente auf einem Knoten gefunden."
   },
   "errors": {

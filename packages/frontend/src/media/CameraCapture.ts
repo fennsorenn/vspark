@@ -267,48 +267,104 @@ export class CameraCapture {
     return devices.filter((d) => d.kind === 'videoinput');
   }
 
-  /** Draw landmarks onto a canvas synchronously. Call after drawImage(). */
+  /**
+   * Per-tracker overlay colours. Each landmark group (face / pose / left hand / right hand)
+   * gets a clearly distinct hue so it's obvious which tracker is feeding which bones — e.g.
+   * whether the hands are coming from hand tracking (red/green) or being inferred from the
+   * pose skeleton (blue).
+   */
+  static readonly OVERLAY_COLORS = {
+    face: '#FFD000', // yellow
+    pose: '#2E9BFF', // blue
+    leftHand: '#FF3B3B', // red
+    rightHand: '#22DD22', // green
+  } as const;
+
+  /**
+   * Draw landmarks onto a canvas synchronously. Call after drawImage().
+   * `labels`, if given, draws a colour legend in the top-left corner.
+   */
   static drawLandmarksSync(
     ctx: CanvasRenderingContext2D,
-    result: HolisticLandmarkerResult
+    result: HolisticLandmarkerResult,
+    labels?: { face: string; pose: string; leftHand: string; rightHand: string }
   ): void {
+    const C = CameraCapture.OVERLAY_COLORS;
     try {
       const draw = new DrawingUtils(ctx);
       if (result.faceLandmarks?.[0]) {
         draw.drawConnectors(
           result.faceLandmarks[0],
           HolisticLandmarker.FACE_LANDMARKS_LIPS,
-          { color: '#E0E0E0', lineWidth: 1 }
+          { color: C.face, lineWidth: 1 }
         );
         draw.drawLandmarks(result.faceLandmarks[0], {
-          color: '#30FF55',
+          color: C.face,
           lineWidth: 1,
-          radius: 1,
+          radius: 0.8,
         });
       }
       if (result.poseLandmarks?.[0]) {
         draw.drawConnectors(
           result.poseLandmarks[0],
           HolisticLandmarker.POSE_CONNECTIONS,
-          { color: '#00FF7F', lineWidth: 2 }
+          { color: C.pose, lineWidth: 2 }
         );
+        draw.drawLandmarks(result.poseLandmarks[0], {
+          color: C.pose,
+          lineWidth: 1,
+          radius: 2,
+        });
       }
-      if (result.leftHandLandmarks?.[0]) {
-        draw.drawConnectors(
-          result.leftHandLandmarks[0],
-          HolisticLandmarker.HAND_CONNECTIONS,
-          { color: '#CC0000', lineWidth: 2 }
-        );
+      for (const [hand, color] of [
+        [result.leftHandLandmarks?.[0], C.leftHand],
+        [result.rightHandLandmarks?.[0], C.rightHand],
+      ] as const) {
+        if (!hand) continue;
+        draw.drawConnectors(hand, HolisticLandmarker.HAND_CONNECTIONS, {
+          color,
+          lineWidth: 2,
+        });
+        draw.drawLandmarks(hand, { color, lineWidth: 1, radius: 2 });
       }
-      if (result.rightHandLandmarks?.[0]) {
-        draw.drawConnectors(
-          result.rightHandLandmarks[0],
-          HolisticLandmarker.HAND_CONNECTIONS,
-          { color: '#00CC00', lineWidth: 2 }
-        );
-      }
+      if (labels) CameraCapture._drawLegend(ctx, labels);
     } catch {
       /* non-fatal */
     }
+  }
+
+  private static _drawLegend(
+    ctx: CanvasRenderingContext2D,
+    labels: { face: string; pose: string; leftHand: string; rightHand: string }
+  ): void {
+    const C = CameraCapture.OVERLAY_COLORS;
+    const rows: [string, string][] = [
+      [C.face, labels.face],
+      [C.pose, labels.pose],
+      [C.leftHand, labels.leftHand],
+      [C.rightHand, labels.rightHand],
+    ];
+    const fs = Math.max(10, Math.round(ctx.canvas.height * 0.05));
+    const pad = Math.round(fs * 0.5);
+    const lh = fs + pad;
+    const sw = fs; // colour swatch size
+    let maxText = 0;
+    ctx.font = `600 ${fs}px system-ui, sans-serif`;
+    ctx.textBaseline = 'middle';
+    for (const [, text] of rows)
+      maxText = Math.max(maxText, ctx.measureText(text).width);
+    const boxW = pad + sw + pad * 0.6 + maxText + pad;
+    const boxH = pad + rows.length * lh;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(pad, pad, boxW, boxH);
+    rows.forEach(([color, text], i) => {
+      const y = pad + pad / 2 + i * lh + lh / 2;
+      ctx.fillStyle = color;
+      ctx.fillRect(pad + pad, y - sw / 2, sw, sw);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(text, pad + pad + sw + pad * 0.6, y);
+    });
+    ctx.restore();
   }
 }
