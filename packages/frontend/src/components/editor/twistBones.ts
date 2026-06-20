@@ -157,8 +157,6 @@ export function teardownForearmTwist(nodeId: string): void {
 // ── Per-frame drive ──────────────────────────────────────────────────────────
 
 const _q0 = new THREE.Quaternion();
-const _v = new THREE.Vector3();
-const _swing = new THREE.Quaternion();
 const _twist = new THREE.Quaternion();
 const _tg = new THREE.Quaternion();
 const _tgInv = new THREE.Quaternion();
@@ -170,13 +168,23 @@ export function driveForearmTwist(nodeId: string): void {
   for (const s of avatar.sides) {
     // q = lowerArm local rotation (the backend roll is baked in here).
     _q0.copy(s.lowerArm.quaternion);
-    // Swing = shortest arc that carries the rest forearm axis to where q sends it.
-    _v.copy(s.axis).applyQuaternion(_q0);
-    _swing.setFromUnitVectors(s.axis, _v);
-    // Twist = S⁻¹ · q  → the residual rotation about the forearm axis.
-    _twist.copy(_swing).invert().multiply(_q0);
-    // Hand under twistBone keeps full orientation for any gradient g:
-    //   lowerArm = q · T⁻ᵍ , twistBone = Tᵍ  ⇒  lowerArm · twistBone = q.
+    const a = s.axis;
+    // Swing–twist about the FIXED forearm axis: the twist is the component of q
+    // around `a`, found by projecting the quaternion's vector part onto a. This
+    // stays stable and sign-correct near the straight pose — a pure elbow/wave
+    // swing (perpendicular to a) yields zero twist, where a shortest-arc swing
+    // would leave a spurious twist that flips and makes the forearm jitter.
+    const d = _q0.x * a.x + _q0.y * a.y + _q0.z * a.z;
+    _twist.set(a.x * d, a.y * d, a.z * d, _q0.w);
+    const n2 =
+      _twist.x * _twist.x +
+      _twist.y * _twist.y +
+      _twist.z * _twist.z +
+      _twist.w * _twist.w;
+    if (n2 < 1e-8) _twist.identity();
+    else _twist.normalize();
+    // Split by gradient: twistBone = Tᵍ, lowerArm = q · T⁻ᵍ ⇒ product = q, so
+    // the hand's world transform is preserved for any gradient.
     _tg.copy(_id).slerp(_twist, s.gradient);
     s.twistBone.quaternion.copy(_tg);
     _tgInv.copy(_tg).invert();
