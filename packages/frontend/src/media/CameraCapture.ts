@@ -60,6 +60,8 @@ export class CameraCapture {
   private loopTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFrameAt = 0;
   private _active = false;
+  private flipCanvas: OffscreenCanvas | null = null;
+  private flipCtx: OffscreenCanvasRenderingContext2D | null = null;
   lastRaw: HolisticLandmarkerResult | null = null;
 
   onResult: ((result: TrackingResult) => void) | null = null;
@@ -148,7 +150,7 @@ export class CameraCapture {
     this.lastFrameAt = performance.now();
     this.busy = true;
     try {
-      const bitmap = await createImageBitmap(this.video);
+      const bitmap = await this._mirroredBitmap(this.video);
       this._postWorker({ kind: 'frame', bitmap, timestamp: this.lastFrameAt }, [
         bitmap,
       ]);
@@ -157,6 +159,29 @@ export class CameraCapture {
       this.onError?.(e instanceof Error ? e : new Error(String(e)));
       this._scheduleNext();
     }
+  }
+
+  /**
+   * Produce a horizontally-mirrored (selfie) frame for inference. The whole downstream pipeline
+   * — MediaPipe's hand-handedness classifier, the pose left/right convention, the head frame —
+   * is written for the mirrored convention, and the preview is shown mirrored too. Feeding the
+   * raw (un-mirrored) frame is what made arms/hands/head come out reflected.
+   */
+  private _mirroredBitmap(video: HTMLVideoElement): Promise<ImageBitmap> {
+    const w = video.videoWidth || CAMERA_WIDTH;
+    const h = video.videoHeight || CAMERA_HEIGHT;
+    if (!this.flipCanvas) {
+      this.flipCanvas = new OffscreenCanvas(w, h);
+      this.flipCtx = this.flipCanvas.getContext('2d');
+    }
+    if (this.flipCanvas.width !== w) this.flipCanvas.width = w;
+    if (this.flipCanvas.height !== h) this.flipCanvas.height = h;
+    const ctx = this.flipCtx;
+    if (!ctx) return createImageBitmap(video);
+    ctx.setTransform(-1, 0, 0, 1, w, 0); // mirror across the vertical axis
+    ctx.drawImage(video, 0, 0, w, h);
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // reset for next frame
+    return createImageBitmap(this.flipCanvas);
   }
 
   private _onWorkerMessage(
@@ -215,19 +240,17 @@ export class CameraCapture {
         visibility: p.visibility,
       }));
     if (opts.enableHands !== false) {
-      // MediaPipe classifies handedness assuming a MIRRORED (selfie) image, but the worker
-      // feeds it RAW, non-mirrored frames — so its `leftHandLandmarks` is actually the
-      // performer's RIGHT hand and vice-versa. Swap them here so the hand bones and IK hand
-      // targets use the performer's true anatomical sides, consistent with the pose/arm
-      // landmarks (which are not affected by that selfie assumption).
-      if (r.rightHandLandmarks?.[0]?.length)
-        out.leftHand = r.rightHandLandmarks[0].map((p) => ({
+      // The frame fed to MediaPipe is mirrored (selfie) in `_tick`, which is the convention its
+      // hand-handedness classifier assumes — so leftHandLandmarks is the performer's true left
+      // hand, consistent with the pose/arm landmarks. No swap needed here.
+      if (r.leftHandLandmarks?.[0]?.length)
+        out.leftHand = r.leftHandLandmarks[0].map((p) => ({
           x: p.x,
           y: p.y,
           z: p.z,
         }));
-      if (r.leftHandLandmarks?.[0]?.length)
-        out.rightHand = r.leftHandLandmarks[0].map((p) => ({
+      if (r.rightHandLandmarks?.[0]?.length)
+        out.rightHand = r.rightHandLandmarks[0].map((p) => ({
           x: p.x,
           y: p.y,
           z: p.z,

@@ -326,21 +326,9 @@ function convertPose(
     // Express relative to chest so it compounds correctly
     const localHeadQ = qmul(qinv(torsoQ), worldHeadQ);
 
-    // The head landmarks come out sagittally mirrored relative to the torso frame: a head turn
-    // produces a yaw in the OPPOSITE direction, and the mirrored roll bleeds in as a diagonal
-    // tilt. Reflecting the chest-local head rotation across the sagittal (YZ) plane — negating the
-    // quaternion's Y and Z components — inverts yaw and roll while preserving pitch, undoing the
-    // mirror. Neutral (identity) is unaffected, so head calibration still holds.
-    const mirroredHeadQ = new Quaternion(
-      localHeadQ.x,
-      -localHeadQ.y,
-      -localHeadQ.z,
-      localHeadQ.w
-    );
-
     // Decompose to XYZ Euler in chest-local space, apply per-axis gain, recompose.
     // This lets us amplify each rotation axis independently to compensate MediaPipe's damping.
-    const e = quatToEulerXYZ(mirroredHeadQ);
+    const e = quatToEulerXYZ(localHeadQ);
     const calibratedHeadQ = eulerXYZToQuat(
       e.x * calib.pitchGain,
       e.y * calib.yawGain,

@@ -393,7 +393,12 @@ export function MediaInputWindow({
           const h = video.videoHeight || 480;
           if (canvas.width !== w) canvas.width = w;
           if (canvas.height !== h) canvas.height = h;
+          // Inference runs on a mirrored (selfie) frame, so the landmarks are in mirrored space.
+          // Draw the video mirrored too so the overlay lines up; the canvas itself is no longer
+          // CSS-flipped (see the canvas style).
+          ctx.setTransform(-1, 0, 0, 1, w, 0);
           ctx.drawImage(video, 0, 0, w, h);
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
           CameraCapture.drawLandmarksSync(ctx, raw);
         }
       };
@@ -605,7 +610,7 @@ export function MediaInputWindow({
             {trackingActive && showPreview && (
               <canvas
                 ref={previewCanvasRef}
-                style={{ ...S.canvas, marginTop: 6, transform: 'scaleX(-1)' }}
+                style={{ ...S.canvas, marginTop: 6 }}
                 width={300}
                 height={180}
               />
