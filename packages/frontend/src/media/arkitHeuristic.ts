@@ -7,14 +7,20 @@
  * model emits, so it feeds the identical backend mapper pipeline (arkit_vrm_mapper trio) — the
  * mappers stay the single calibration/customization layer regardless of source.
  *
- * Accuracy note: these are geometric approximations, not a trained model. They are intentionally
- * written as independent per-shape blocks with named TUNE constants so each can be isolated and
- * refined. Shapes we can't yet estimate reliably from landmarks are left unset (0).
+ * Config-driven model (see dev-notes/plans/face-calibration.md):
+ *   For each ARKit shape, the raw metric is the SUM OF PAIRWISE 3D DISTANCES among the shape's
+ *   active marker landmarks, divided by a stable reference distance (outer eye-corners) for
+ *   scale invariance. That metric is mapped through [min,max] → [0,1] and optionally inverted.
  *
- * Index/side convention matches the rest of the (mirrored-frame) pipeline: the frame fed to
- * MediaPipe is horizontally mirrored, and we keep the same left/right landmark grouping the
- * existing face→blendshape node used. If a paired shape drives the wrong avatar side in testing,
- * the fix is to swap that pair's indices here.
+ *   - 3D distances are inherently rotation-invariant (a rigid head turn doesn't change them), so
+ *     no per-frame canonical normalization is needed.
+ *   - Direction (e.g. smile-up vs frown-down) is encoded by choosing a stable reference marker
+ *     and using `invert` — same edge, opposite sign.
+ *   - Sum-of-pairwise equals the single edge for 2 markers and the triangle perimeter for 3,
+ *     which covers every shape we use.
+ *
+ * The DEFAULT_ARKIT_CONFIG below is a rough first pass meant to be tuned interactively with the
+ * dev calibration tool (`dev_facecal()`), which exports a config to paste back here.
  */
 
 export interface LandmarkPoint {
@@ -24,55 +30,22 @@ export interface LandmarkPoint {
   visibility?: number;
 }
 
-// FaceMesh canonical landmark indices.
-const I = {
-  cheekL: 234,
-  cheekR: 454,
-  chin: 152,
-  forehead: 10,
-  noseTip: 1,
-  noseBase: 2,
-  // Mouth
-  mouthCornerL: 61,
-  mouthCornerR: 291,
-  lipTopIn: 13,
-  lipBotIn: 14,
-  lipTopOut: 0,
-  lipBotOut: 17,
-  // Eyes (grouping kept consistent with the prior pipeline)
-  eyeL_top: 159,
-  eyeL_bot: 145,
-  eyeL_out: 33,
-  eyeL_in: 133,
-  eyeR_top: 386,
-  eyeR_bot: 374,
-  eyeR_out: 263,
-  eyeR_in: 362,
-  // Brows
-  browL_in: 107,
-  browL_out: 70,
-  browR_in: 336,
-  browR_out: 300,
-  // Nostrils / nose wings
-  noseWingL: 102,
-  noseWingR: 331,
-};
+/** One ARKit shape's heuristic recipe. Metric = sum of pairwise 3D distances among `markers`,
+ *  divided by the reference distance; weight = clamp01((metric - min) / (max - min)), inverted
+ *  if `invert`. Fewer than 2 markers → the shape is left unset (no output). */
+export interface ArkitShapeConfig {
+  markers: number[];
+  min: number;
+  max: number;
+  invert?: boolean;
+}
 
-// ── Per-shape tuning. Each is [neutralBaseline, range] over a normalized metric. ──────────────
-// A metric m maps to weight clamp01((m - neutral) / range). Flip sign by negating range usage.
-const TUNE = {
-  jawOpen: { neutral: 0.035, range: 0.32 }, // inner lip gap / faceW
-  mouthSmile: { neutral: 0.01, range: 0.06 }, // corner lift / faceW
-  mouthFrown: { neutral: 0.01, range: 0.05 }, // corner drop / faceW
-  mouthStretch: { neutral: 0.47, range: 0.13 }, // mouth width / faceW (above neutral)
-  mouthPucker: { neutral: 0.42, range: 0.16 }, // narrowing: (neutral - width/faceW)
-  eyeOpenNeutral: 0.28, // eye aspect ratio (EAR) at rest
-  eyeBlinkRange: 0.19, // EAR drop to fully closed
-  eyeWideRange: 0.12, // EAR rise to fully wide
-  browRaise: { neutral: 0.165, range: 0.05 }, // brow-to-eye gap / faceH
-  upperLipUp: { neutral: 0.34, range: 0.08 }, // (nose→upperlip)/faceH shrink
-  lowerLipDown: { neutral: 0.27, range: 0.09 }, // (lowerlip→chin)/faceH shrink
-};
+export type ArkitHeuristicConfig = Record<string, ArkitShapeConfig>;
+
+// Scale reference: outer eye corners. Expression-stable, so it tracks face size / camera
+// distance without being perturbed by the expressions we're measuring.
+const REF_A = 33;
+const REF_B = 263;
 
 function dist(a: LandmarkPoint, b: LandmarkPoint): number {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -80,142 +53,112 @@ function dist(a: LandmarkPoint, b: LandmarkPoint): number {
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
-/** Map a metric to [0,1] given a neutral baseline and range above it. */
-function ramp(metric: number, neutral: number, range: number): number {
-  return clamp01((metric - neutral) / range);
+
+/** Reference distance used to normalize all metrics for face size. */
+export function referenceDistance(pts: LandmarkPoint[]): number {
+  return dist(pts[REF_A], pts[REF_B]);
 }
 
+/** Sum of pairwise 3D distances among the given landmark indices. */
+export function sumPairwiseDistance(
+  pts: LandmarkPoint[],
+  markers: number[]
+): number {
+  let s = 0;
+  for (let i = 0; i < markers.length; i++)
+    for (let j = i + 1; j < markers.length; j++)
+      s += dist(pts[markers[i]], pts[markers[j]]);
+  return s;
+}
+
+/** Raw (scale-normalized) metric for one shape config, before range/invert. */
+export function shapeMetric(
+  pts: LandmarkPoint[],
+  cfg: Pick<ArkitShapeConfig, 'markers'>,
+  ref = referenceDistance(pts)
+): number {
+  if (ref < 1e-6 || cfg.markers.length < 2) return 0;
+  return sumPairwiseDistance(pts, cfg.markers) / ref;
+}
+
+/** Map a raw metric through a shape's [min,max] range and optional invert. */
+export function shapeWeight(metric: number, cfg: ArkitShapeConfig): number {
+  const span = cfg.max - cfg.min;
+  let w = span !== 0 ? (metric - cfg.min) / span : 0;
+  w = clamp01(w);
+  return cfg.invert ? 1 - w : w;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Default config. Marker indices are FaceMesh canonical points; [min,max] are the
+// scale-normalized metric values mapping to weight 0 and 1. ROUGH first pass — to be
+// replaced by the calibration tool's export. Shapes that need a non-distance signal
+// (mouthClose, cheekSquint, noseSneer) are intentionally omitted until calibrated.
+// ──────────────────────────────────────────────────────────────────────────────
+export const DEFAULT_ARKIT_CONFIG: ArkitHeuristicConfig = {
+  // Jaw / mouth aperture — inner lips 13 (upper) ↔ 14 (lower).
+  jawOpen: { markers: [13, 14], min: 0.03, max: 0.3 },
+
+  // Eyes — vertical aperture (top ↔ bottom lid). Blink inverts (small = closed).
+  eyeBlinkLeft: { markers: [159, 145], min: 0.03, max: 0.15, invert: true },
+  eyeBlinkRight: { markers: [386, 374], min: 0.03, max: 0.15, invert: true },
+  eyeWideLeft: { markers: [159, 145], min: 0.15, max: 0.2 },
+  eyeWideRight: { markers: [386, 374], min: 0.15, max: 0.2 },
+  eyeSquintLeft: { markers: [159, 145], min: 0.07, max: 0.15, invert: true },
+  eyeSquintRight: { markers: [386, 374], min: 0.07, max: 0.15, invert: true },
+
+  // Mouth width — corners 61 ↔ 291. Stretch = wide; pucker/funnel = narrow (invert).
+  mouthStretchLeft: { markers: [61, 291], min: 0.45, max: 0.58 },
+  mouthStretchRight: { markers: [61, 291], min: 0.45, max: 0.58 },
+  mouthPucker: { markers: [61, 291], min: 0.32, max: 0.45, invert: true },
+  mouthFunnel: { markers: [61, 291], min: 0.3, max: 0.42, invert: true },
+
+  // Smile / frown — corner ↔ outer eye corner (same edge, opposite sign).
+  mouthSmileLeft: { markers: [61, 33], min: 0.45, max: 0.58, invert: true },
+  mouthSmileRight: { markers: [291, 263], min: 0.45, max: 0.58, invert: true },
+  mouthFrownLeft: { markers: [61, 33], min: 0.55, max: 0.68 },
+  mouthFrownRight: { markers: [291, 263], min: 0.55, max: 0.68 },
+
+  // Upper lip raise (outer upper lip 0 ↔ nose base 2) / lower lip drop (17 ↔ chin 152).
+  mouthUpperUpLeft: { markers: [0, 2], min: 0.08, max: 0.16, invert: true },
+  mouthUpperUpRight: { markers: [0, 2], min: 0.08, max: 0.16, invert: true },
+  mouthLowerDownLeft: {
+    markers: [17, 152],
+    min: 0.18,
+    max: 0.28,
+    invert: true,
+  },
+  mouthLowerDownRight: {
+    markers: [17, 152],
+    min: 0.18,
+    max: 0.28,
+    invert: true,
+  },
+
+  // Brows — brow ↔ eye-top gap. Raise grows the gap; brow-down inverts.
+  browInnerUp: { markers: [107, 159], min: 0.14, max: 0.24 },
+  browOuterUpLeft: { markers: [70, 159], min: 0.16, max: 0.26 },
+  browOuterUpRight: { markers: [300, 386], min: 0.16, max: 0.26 },
+  browDownLeft: { markers: [107, 159], min: 0.08, max: 0.14, invert: true },
+  browDownRight: { markers: [336, 386], min: 0.08, max: 0.14, invert: true },
+};
+
+/**
+ * Evaluate the config against a frame of face landmarks → ARKit shape weights.
+ * Only shapes with ≥2 markers produce output; the rest are left unset.
+ */
 export function estimateArkitBlendshapes(
-  pts: LandmarkPoint[]
+  pts: LandmarkPoint[],
+  config: ArkitHeuristicConfig = DEFAULT_ARKIT_CONFIG
 ): Record<string, number> {
   const out: Record<string, number> = {};
   if (!pts || pts.length < 478) return out;
-
-  const faceW = dist(pts[I.cheekL], pts[I.cheekR]);
-  const faceH = dist(pts[I.forehead], pts[I.chin]);
-  if (faceW < 1e-6 || faceH < 1e-6) return out;
-  const invW = 1 / faceW;
-  const invH = 1 / faceH;
-
-  // ── Jaw / mouth open ─────────────────────────────────────────────────────────
-  const lipGap = dist(pts[I.lipTopIn], pts[I.lipBotIn]) * invW;
-  const jawOpen = ramp(lipGap, TUNE.jawOpen.neutral, TUNE.jawOpen.range);
-  out.jawOpen = jawOpen;
-  // Lips pressed shut (gap below neutral) — only meaningful when jaw isn't open.
-  out.mouthClose =
-    clamp01((TUNE.jawOpen.neutral - lipGap) / 0.03) * (1 - jawOpen);
-
-  // ── Mouth corners: smile (lift) / frown (drop), per side ─────────────────────
-  const mouthCenterY = (pts[I.lipTopIn].y + pts[I.lipBotIn].y) / 2;
-  // y grows downward → corner above center (lift) means centerY - cornerY > 0.
-  const liftL = (mouthCenterY - pts[I.mouthCornerL].y) * invW;
-  const liftR = (mouthCenterY - pts[I.mouthCornerR].y) * invW;
-  out.mouthSmileLeft = ramp(
-    liftL,
-    TUNE.mouthSmile.neutral,
-    TUNE.mouthSmile.range
-  );
-  out.mouthSmileRight = ramp(
-    liftR,
-    TUNE.mouthSmile.neutral,
-    TUNE.mouthSmile.range
-  );
-  out.mouthFrownLeft = ramp(
-    -liftL,
-    TUNE.mouthFrown.neutral,
-    TUNE.mouthFrown.range
-  );
-  out.mouthFrownRight = ramp(
-    -liftR,
-    TUNE.mouthFrown.neutral,
-    TUNE.mouthFrown.range
-  );
-
-  // ── Mouth width: stretch (wide) vs pucker (narrow) ───────────────────────────
-  const mouthW = dist(pts[I.mouthCornerL], pts[I.mouthCornerR]) * invW;
-  const stretch = ramp(
-    mouthW,
-    TUNE.mouthStretch.neutral,
-    TUNE.mouthStretch.range
-  );
-  out.mouthStretchLeft = stretch;
-  out.mouthStretchRight = stretch;
-  const pucker = clamp01(
-    (TUNE.mouthPucker.neutral - mouthW) / TUNE.mouthPucker.range
-  );
-  out.mouthPucker = pucker * (1 - jawOpen); // pursed = narrow + closed
-  out.mouthFunnel = pucker * jawOpen; // funnel/O = narrow + open
-
-  // ── Upper lip raise / lower lip drop ─────────────────────────────────────────
-  const noseToUpper = (pts[I.lipTopOut].y - pts[I.noseBase].y) * invH;
-  const upperUp = clamp01(
-    (TUNE.upperLipUp.neutral - noseToUpper) / TUNE.upperLipUp.range
-  );
-  out.mouthUpperUpLeft = upperUp;
-  out.mouthUpperUpRight = upperUp;
-  const lowerToChin = (pts[I.chin].y - pts[I.lipBotOut].y) * invH;
-  const lowerDown = clamp01(
-    (TUNE.lowerLipDown.neutral - lowerToChin) / TUNE.lowerLipDown.range
-  );
-  out.mouthLowerDownLeft = lowerDown;
-  out.mouthLowerDownRight = lowerDown;
-
-  // ── Eyes: blink / wide / squint via eye-aspect-ratio (EAR) ───────────────────
-  const earL =
-    dist(pts[I.eyeL_top], pts[I.eyeL_bot]) /
-    dist(pts[I.eyeL_out], pts[I.eyeL_in]);
-  const earR =
-    dist(pts[I.eyeR_top], pts[I.eyeR_bot]) /
-    dist(pts[I.eyeR_out], pts[I.eyeR_in]);
-  const blinkL = clamp01((TUNE.eyeOpenNeutral - earL) / TUNE.eyeBlinkRange);
-  const blinkR = clamp01((TUNE.eyeOpenNeutral - earR) / TUNE.eyeBlinkRange);
-  out.eyeBlinkLeft = blinkL;
-  out.eyeBlinkRight = blinkR;
-  out.eyeWideLeft = clamp01((earL - TUNE.eyeOpenNeutral) / TUNE.eyeWideRange);
-  out.eyeWideRight = clamp01((earR - TUNE.eyeOpenNeutral) / TUNE.eyeWideRange);
-  // Squint: mild partial close that correlates with cheek raise (smile). Kept low
-  // so it doesn't fight blink on the shared Fcl_EYE_Close targets.
-  out.eyeSquintLeft = clamp01(blinkL * 0.4 + out.mouthSmileLeft * 0.4);
-  out.eyeSquintRight = clamp01(blinkR * 0.4 + out.mouthSmileRight * 0.4);
-
-  // ── Brows: inner/outer raise, brow-down ──────────────────────────────────────
-  const browGapL_in = (pts[I.eyeL_top].y - pts[I.browL_in].y) * invH;
-  const browGapR_in = (pts[I.eyeR_top].y - pts[I.browR_in].y) * invH;
-  const browGapL_out = (pts[I.eyeL_top].y - pts[I.browL_out].y) * invH;
-  const browGapR_out = (pts[I.eyeR_top].y - pts[I.browR_out].y) * invH;
-  const innerRaise = ramp(
-    (browGapL_in + browGapR_in) / 2,
-    TUNE.browRaise.neutral,
-    TUNE.browRaise.range
-  );
-  out.browInnerUp = innerRaise;
-  out.browOuterUpLeft = ramp(
-    browGapL_out,
-    TUNE.browRaise.neutral,
-    TUNE.browRaise.range
-  );
-  out.browOuterUpRight = ramp(
-    browGapR_out,
-    TUNE.browRaise.neutral,
-    TUNE.browRaise.range
-  );
-  // Brow-down: gap shrinks below neutral.
-  out.browDownLeft = ramp(
-    -browGapL_in,
-    -TUNE.browRaise.neutral,
-    TUNE.browRaise.range
-  );
-  out.browDownRight = ramp(
-    -browGapR_in,
-    -TUNE.browRaise.neutral,
-    TUNE.browRaise.range
-  );
-
-  // ── Cheek squint / nose sneer: cheap proxies for now (to be refined) ─────────
-  out.cheekSquintLeft = out.mouthSmileLeft * 0.5;
-  out.cheekSquintRight = out.mouthSmileRight * 0.5;
-  out.noseSneerLeft = upperUp * 0.5;
-  out.noseSneerRight = upperUp * 0.5;
-
+  const ref = referenceDistance(pts);
+  if (ref < 1e-6) return out;
+  for (const shape in config) {
+    const cfg = config[shape];
+    if (cfg.markers.length < 2) continue;
+    out[shape] = shapeWeight(sumPairwiseDistance(pts, cfg.markers) / ref, cfg);
+  }
   return out;
 }
