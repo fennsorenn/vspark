@@ -44,21 +44,29 @@ const CAMERA_WIDTH = 320;
 const CAMERA_HEIGHT = 240;
 
 type WorkerInMsg =
-  | { kind: 'init' }
+  | { kind: 'init'; role: 'holistic' | 'face' }
   | { kind: 'frame'; bitmap: ImageBitmap; timestamp: number }
   | { kind: 'close' };
 
 type WorkerOutMsg =
   | { kind: 'ready' }
   | { kind: 'error'; message: string }
-  | { kind: 'result'; result: HolisticLandmarkerResult; timestamp: number };
+  | { kind: 'result'; result: HolisticLandmarkerResult; timestamp: number }
+  | { kind: 'blendshapes'; value: Record<string, number>; timestamp: number };
 
 export class CameraCapture {
   video: HTMLVideoElement | null = null;
   private stream: MediaStream | null = null;
+  // Holistic (markers) and face (blendshapes) run as separate workers so the
+  // heavier face model executes in parallel without dropping the marker rate.
   private worker: Worker | null = null;
   private workerReady = false;
   private busy = false;
+  private faceWorker: Worker | null = null;
+  private faceReady = false;
+  private faceBusy = false;
+  /** Latest blendshapes from the face worker, attached to each marker dispatch. */
+  private latestBlendshapes: Record<string, number> | null = null;
   private loopTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFrameAt = 0;
   private _active = false;
@@ -84,12 +92,21 @@ export class CameraCapture {
 
     // Load the worker as a classic script from /public. MediaPipe's WASM loader requires
     // importScripts to be available, which only works in classic (non-module) workers.
+    // Two instances of the same bundle: one runs Holistic (markers), one runs the
+    // FaceLandmarker (blendshapes), so the heavy face model parallelizes.
     this.worker = new Worker('/mediapipeWorker.js');
     this.worker.onmessage = (e: MessageEvent<WorkerOutMsg>) =>
-      this._onWorkerMessage(e.data, options);
+      this._onHolisticMessage(e.data, options);
     this.worker.onerror = (e) =>
       this.onError?.(new Error(`worker: ${e.message}`));
-    this._postWorker({ kind: 'init' });
+    this._postWorker(this.worker, { kind: 'init', role: 'holistic' });
+
+    this.faceWorker = new Worker('/mediapipeWorker.js');
+    this.faceWorker.onmessage = (e: MessageEvent<WorkerOutMsg>) =>
+      this._onFaceMessage(e.data);
+    this.faceWorker.onerror = (e) =>
+      this.onError?.(new Error(`face worker: ${e.message}`));
+    this._postWorker(this.faceWorker, { kind: 'init', role: 'face' });
 
     this.stream = await navigator.mediaDevices.getUserMedia({
       video: deviceId
@@ -118,18 +135,28 @@ export class CameraCapture {
     }
     this.stream?.getTracks().forEach((t) => t.stop());
     this.video?.remove();
-    this._postWorker({ kind: 'close' });
+    if (this.worker) this._postWorker(this.worker, { kind: 'close' });
+    if (this.faceWorker) this._postWorker(this.faceWorker, { kind: 'close' });
     this.worker?.terminate();
+    this.faceWorker?.terminate();
     this.worker = null;
+    this.faceWorker = null;
     this.workerReady = false;
+    this.faceReady = false;
     this.busy = false;
+    this.faceBusy = false;
+    this.latestBlendshapes = null;
     this.video = null;
     this.stream = null;
     this.lastRaw = null;
   }
 
-  private _postWorker(msg: WorkerInMsg, transfer: Transferable[] = []): void {
-    this.worker?.postMessage(msg, transfer);
+  private _postWorker(
+    worker: Worker,
+    msg: WorkerInMsg,
+    transfer: Transferable[] = []
+  ): void {
+    worker.postMessage(msg, transfer);
   }
 
   private _scheduleNext(): void {
@@ -141,37 +168,55 @@ export class CameraCapture {
 
   private async _tick(): Promise<void> {
     this.loopTimer = null;
-    if (!this._active || !this.worker || !this.video) return;
-    if (!this.workerReady || this.busy) {
-      this._scheduleNext();
-      return;
-    }
-    if (this.video.readyState < 2) {
+    if (!this._active || !this.video) return;
+    const holisticFree = !!this.worker && this.workerReady && !this.busy;
+    const faceFree = !!this.faceWorker && this.faceReady && !this.faceBusy;
+    if (this.video.readyState < 2 || (!holisticFree && !faceFree)) {
       this._scheduleNext();
       return;
     }
 
     this.lastFrameAt = performance.now();
-    this.busy = true;
+    const ts = this.lastFrameAt;
     try {
-      const bitmap = await this._mirroredBitmap(this.video);
-      this._postWorker({ kind: 'frame', bitmap, timestamp: this.lastFrameAt }, [
-        bitmap,
-      ]);
+      // Draw the mirror once, then hand a fresh bitmap to each free worker so
+      // markers (holistic) and blendshapes (face) run in parallel, each at its
+      // own rate. A busy worker is simply skipped this tick.
+      const src = this._drawMirror(this.video);
+      if (holisticFree && this.worker) {
+        const bitmap = await createImageBitmap(src);
+        this.busy = true;
+        this._postWorker(this.worker, { kind: 'frame', bitmap, timestamp: ts }, [
+          bitmap,
+        ]);
+      }
+      if (faceFree && this.faceWorker) {
+        const bitmap = await createImageBitmap(src);
+        this.faceBusy = true;
+        this._postWorker(
+          this.faceWorker,
+          { kind: 'frame', bitmap, timestamp: ts },
+          [bitmap]
+        );
+      }
     } catch (e) {
       this.busy = false;
+      this.faceBusy = false;
       this.onError?.(e instanceof Error ? e : new Error(String(e)));
-      this._scheduleNext();
     }
+    this._scheduleNext();
   }
 
   /**
-   * Produce a horizontally-mirrored (selfie) frame for inference. The whole downstream pipeline
-   * — MediaPipe's hand-handedness classifier, the pose left/right convention, the head frame —
-   * is written for the mirrored convention, and the preview is shown mirrored too. Feeding the
-   * raw (un-mirrored) frame is what made arms/hands/head come out reflected.
+   * Draw a horizontally-mirrored (selfie) frame into the reused offscreen canvas and return the
+   * source to snapshot. The whole downstream pipeline — MediaPipe's hand-handedness classifier,
+   * the pose left/right convention, the head frame — is written for the mirrored convention, and
+   * the preview is shown mirrored too. Feeding the raw (un-mirrored) frame is what made
+   * arms/hands/head come out reflected.
    */
-  private _mirroredBitmap(video: HTMLVideoElement): Promise<ImageBitmap> {
+  private _drawMirror(
+    video: HTMLVideoElement
+  ): HTMLVideoElement | OffscreenCanvas {
     const w = video.videoWidth || CAMERA_WIDTH;
     const h = video.videoHeight || CAMERA_HEIGHT;
     if (!this.flipCanvas) {
@@ -181,14 +226,14 @@ export class CameraCapture {
     if (this.flipCanvas.width !== w) this.flipCanvas.width = w;
     if (this.flipCanvas.height !== h) this.flipCanvas.height = h;
     const ctx = this.flipCtx;
-    if (!ctx) return createImageBitmap(video);
+    if (!ctx) return video; // fallback: unmirrored
     ctx.setTransform(-1, 0, 0, 1, w, 0); // mirror across the vertical axis
     ctx.drawImage(video, 0, 0, w, h);
     ctx.setTransform(1, 0, 0, 1, 0, 0); // reset for next frame
-    return createImageBitmap(this.flipCanvas);
+    return this.flipCanvas;
   }
 
-  private _onWorkerMessage(
+  private _onHolisticMessage(
     msg: WorkerOutMsg,
     options: CameraCaptureOptions
   ): void {
@@ -199,13 +244,29 @@ export class CameraCapture {
     if (msg.kind === 'error') {
       this.busy = false;
       this.onError?.(new Error(msg.message));
-      this._scheduleNext();
       return;
     }
     if (msg.kind === 'result') {
       this.busy = false;
       this._dispatch(msg.result, options);
-      this._scheduleNext();
+    }
+  }
+
+  private _onFaceMessage(msg: WorkerOutMsg): void {
+    if (msg.kind === 'ready') {
+      this.faceReady = true;
+      return;
+    }
+    if (msg.kind === 'error') {
+      this.faceBusy = false;
+      this.onError?.(new Error(msg.message));
+      return;
+    }
+    if (msg.kind === 'blendshapes') {
+      this.faceBusy = false;
+      this.latestBlendshapes = Object.keys(msg.value).length
+        ? msg.value
+        : null;
     }
   }
 
@@ -215,21 +276,21 @@ export class CameraCapture {
   ): void {
     this.lastRaw = r;
     this.onRawResult?.(r);
-    // TEMP diagnostic: does the Holistic model emit native face blendshapes?
-    // Throttled to once every ~2s. Remove once blendshape flow is confirmed.
+    // TEMP diagnostic: blendshapes (from the parallel face worker) flowing?
+    // Throttled to once every ~2s. Remove once confirmed.
     if (performance.now() - CameraCapture._bsLog > 2000) {
       CameraCapture._bsLog = performance.now();
-      const cats = r.faceBlendshapes?.[0]?.categories;
-      const top = cats
-        ? [...cats]
-            .sort((a, b) => b.score - a.score)
+      const bs = this.latestBlendshapes;
+      const top = bs
+        ? Object.entries(bs)
+            .sort((a, b) => b[1] - a[1])
             .slice(0, 3)
-            .map((c) => `${c.categoryName}=${c.score.toFixed(2)}`)
+            .map(([k, v]) => `${k}=${v.toFixed(2)}`)
             .join(', ')
         : '(none)';
       console.info(
         `[blendshapes] faceLandmarks=${r.faceLandmarks?.[0]?.length ?? 0} ` +
-          `faceBlendshapes=${cats?.length ?? 0} top: ${top}`
+          `blendshapes=${bs ? Object.keys(bs).length : 0} top: ${top}`
       );
     }
     if (!this.onResult) return;
@@ -241,17 +302,10 @@ export class CameraCapture {
         z: p.z,
         visibility: p.visibility,
       }));
-    // Native ARKit blendshapes from the face model (category name → score). The
-    // category list includes a leading `_neutral`; downstream mappers ignore
-    // unknown names, but skip it to keep the payload to real shapes.
-    if (opts.enableFace !== false && r.faceBlendshapes?.[0]?.categories?.length) {
-      const bs: Record<string, number> = {};
-      for (const c of r.faceBlendshapes[0].categories) {
-        if (c.categoryName && c.categoryName !== '_neutral')
-          bs[c.categoryName] = c.score;
-      }
-      out.faceBlendshapes = bs;
-    }
+    // Native ARKit blendshapes (category name → score) from the parallel face
+    // worker; latest value is attached to every marker frame.
+    if (opts.enableFace !== false && this.latestBlendshapes)
+      out.faceBlendshapes = this.latestBlendshapes;
     if (
       opts.enablePose !== false &&
       (r.poseWorldLandmarks?.[0]?.length ?? 0) > 0
