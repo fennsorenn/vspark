@@ -91,16 +91,18 @@ export function shapeWeight(metric: number, cfg: ArkitShapeConfig): number {
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Default config. Each edge is { a, b, negate? } over FaceMesh canonical landmark
-// indices; [min,max] are the scale-normalized signed metric bounds. ROUGH first pass —
-// to be replaced by the calibration tool's export. Shapes that need a signal we can't yet
-// express (mouthClose, cheekSquint, noseSneer) are omitted until calibrated.
-// (A negated single edge with [-max,-min] is equivalent to a falling aperture metric.)
+// indices; [min,max] are the scale-normalized signed metric bounds. The edge topology
+// and signs are reasoned from geometry to isolate each motion (and stay jaw/rotation
+// independent); the [min,max] numbers are still rough and meant to be dialed in with the
+// dev calibration tool (`dev_facecal()`) via its capture/keep range controls.
+// Shapes needing a signal we can't reliably express from landmarks (mouthClose,
+// cheekSquint, noseSneer) are omitted until calibrated.
 // ──────────────────────────────────────────────────────────────────────────────
 export const DEFAULT_ARKIT_CONFIG: ArkitHeuristicConfig = {
   // Jaw / mouth aperture — inner lips 13 (upper) ↔ 14 (lower).
   jawOpen: { edges: [{ a: 13, b: 14 }], min: 0.03, max: 0.3 },
 
-  // Eyes — vertical aperture (top ↔ bottom lid). Blink/squint = falling aperture (negated).
+  // Eyes — vertical aperture (upper lid ↔ lower lid). Blink/squint = falling aperture (negated).
   eyeBlinkLeft: {
     edges: [{ a: 159, b: 145, negate: true }],
     min: -0.15,
@@ -113,80 +115,114 @@ export const DEFAULT_ARKIT_CONFIG: ArkitHeuristicConfig = {
   },
   eyeWideLeft: { edges: [{ a: 159, b: 145 }], min: 0.15, max: 0.2 },
   eyeWideRight: { edges: [{ a: 386, b: 374 }], min: 0.15, max: 0.2 },
+  // Squint = mild partial close; shares the aperture edge with a tighter range.
   eyeSquintLeft: {
     edges: [{ a: 159, b: 145, negate: true }],
-    min: -0.15,
-    max: -0.07,
+    min: -0.13,
+    max: -0.08,
   },
   eyeSquintRight: {
     edges: [{ a: 386, b: 374, negate: true }],
-    min: -0.15,
-    max: -0.07,
+    min: -0.13,
+    max: -0.08,
   },
 
   // Mouth width — corners 61 ↔ 291. Stretch = wide; pucker/funnel = narrow (negated).
-  mouthStretchLeft: { edges: [{ a: 61, b: 291 }], min: 0.45, max: 0.58 },
-  mouthStretchRight: { edges: [{ a: 61, b: 291 }], min: 0.45, max: 0.58 },
+  mouthStretchLeft: { edges: [{ a: 61, b: 291 }], min: 0.46, max: 0.58 },
+  mouthStretchRight: { edges: [{ a: 61, b: 291 }], min: 0.46, max: 0.58 },
   mouthPucker: {
     edges: [{ a: 61, b: 291, negate: true }],
-    min: -0.45,
-    max: -0.32,
+    min: -0.46,
+    max: -0.36,
   },
   mouthFunnel: {
     edges: [{ a: 61, b: 291, negate: true }],
-    min: -0.42,
-    max: -0.3,
+    min: -0.44,
+    max: -0.34,
   },
 
-  // Smile / frown — corner ↔ outer eye corner (rising vs falling).
+  // Smile — corner rises toward the outer eye corner (captures up+out; jaw-independent).
   mouthSmileLeft: {
     edges: [{ a: 61, b: 33, negate: true }],
     min: -0.58,
-    max: -0.45,
+    max: -0.46,
   },
   mouthSmileRight: {
     edges: [{ a: 291, b: 263, negate: true }],
     min: -0.58,
-    max: -0.45,
+    max: -0.46,
   },
-  mouthFrownLeft: { edges: [{ a: 61, b: 33 }], min: 0.55, max: 0.68 },
-  mouthFrownRight: { edges: [{ a: 291, b: 263 }], min: 0.55, max: 0.68 },
+  // Frown — lower-lip angle at the corner: corner drops toward the chin relative to the
+  // lip centre. d(centreLip17,chin) − d(corner,chin) rises as the corner sinks; jaw-open
+  // drops both toward the chin equally, so it cancels (no false trigger on an open mouth).
+  mouthFrownLeft: {
+    edges: [
+      { a: 17, b: 152 },
+      { a: 61, b: 152, negate: true },
+    ],
+    min: 0.0,
+    max: 0.06,
+  },
+  mouthFrownRight: {
+    edges: [
+      { a: 17, b: 152 },
+      { a: 291, b: 152, negate: true },
+    ],
+    min: 0.0,
+    max: 0.06,
+  },
 
-  // Upper lip raise (outer upper lip 0 ↔ nose base 2) / lower lip drop (17 ↔ chin 152).
+  // Upper lip raise — outer upper-lip point rises toward the subnasal point 2 (stable
+  // under jaw motion). Lower lip drop — outer lower-lip point falls toward the chin 152,
+  // measured relative to it so a jaw-open (which moves both down together) cancels.
   mouthUpperUpLeft: {
-    edges: [{ a: 0, b: 2, negate: true }],
-    min: -0.16,
-    max: -0.08,
+    edges: [{ a: 37, b: 2, negate: true }],
+    min: -0.14,
+    max: -0.09,
   },
   mouthUpperUpRight: {
-    edges: [{ a: 0, b: 2, negate: true }],
-    min: -0.16,
-    max: -0.08,
+    edges: [{ a: 267, b: 2, negate: true }],
+    min: -0.14,
+    max: -0.09,
   },
   mouthLowerDownLeft: {
-    edges: [{ a: 17, b: 152, negate: true }],
-    min: -0.28,
-    max: -0.18,
+    edges: [
+      { a: 84, b: 152 },
+      { a: 17, b: 152, negate: true },
+    ],
+    min: -0.02,
+    max: 0.05,
   },
   mouthLowerDownRight: {
-    edges: [{ a: 17, b: 152, negate: true }],
-    min: -0.28,
-    max: -0.18,
+    edges: [
+      { a: 314, b: 152 },
+      { a: 17, b: 152, negate: true },
+    ],
+    min: -0.02,
+    max: 0.05,
   },
 
-  // Brows — brow ↔ eye-top gap. Raise grows the gap; brow-down = falling (negated).
-  browInnerUp: { edges: [{ a: 107, b: 159 }], min: 0.14, max: 0.24 },
+  // Brows — brow ↔ eye-top gap grows on raise. browInnerUp is bilateral: sum of both
+  // inner-brow gaps. Outer raise per side; brow-down is the inner gap shrinking (negated).
+  browInnerUp: {
+    edges: [
+      { a: 107, b: 159 },
+      { a: 336, b: 386 },
+    ],
+    min: 0.34,
+    max: 0.46,
+  },
   browOuterUpLeft: { edges: [{ a: 70, b: 159 }], min: 0.16, max: 0.26 },
   browOuterUpRight: { edges: [{ a: 300, b: 386 }], min: 0.16, max: 0.26 },
   browDownLeft: {
     edges: [{ a: 107, b: 159, negate: true }],
-    min: -0.14,
-    max: -0.08,
+    min: -0.16,
+    max: -0.1,
   },
   browDownRight: {
     edges: [{ a: 336, b: 386, negate: true }],
-    min: -0.14,
-    max: -0.08,
+    min: -0.16,
+    max: -0.1,
   },
 };
 
