@@ -90,6 +90,12 @@ export class CameraCapture {
     return this._active;
   }
 
+  /** Latest native (HQ) blendshapes, or null if HQ face is off / none yet. Used by the
+   *  dev calibration tool to show the native reference column. */
+  get nativeBlendshapes(): Record<string, number> | null {
+    return this.latestBlendshapes;
+  }
+
   async start(
     deviceId?: string,
     options: CameraCaptureOptions = {}
