@@ -64,6 +64,8 @@ export class CameraCapture {
   private _active = false;
   private flipCanvas: OffscreenCanvas | null = null;
   private flipCtx: OffscreenCanvasRenderingContext2D | null = null;
+  /** TEMP: throttle timestamp for the blendshape diagnostic log. */
+  private static _bsLog = 0;
   lastRaw: HolisticLandmarkerResult | null = null;
 
   onResult: ((result: TrackingResult) => void) | null = null;
@@ -213,6 +215,23 @@ export class CameraCapture {
   ): void {
     this.lastRaw = r;
     this.onRawResult?.(r);
+    // TEMP diagnostic: does the Holistic model emit native face blendshapes?
+    // Throttled to once every ~2s. Remove once blendshape flow is confirmed.
+    if (performance.now() - CameraCapture._bsLog > 2000) {
+      CameraCapture._bsLog = performance.now();
+      const cats = r.faceBlendshapes?.[0]?.categories;
+      const top = cats
+        ? [...cats]
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 3)
+            .map((c) => `${c.categoryName}=${c.score.toFixed(2)}`)
+            .join(', ')
+        : '(none)';
+      console.info(
+        `[blendshapes] faceLandmarks=${r.faceLandmarks?.[0]?.length ?? 0} ` +
+          `faceBlendshapes=${cats?.length ?? 0} top: ${top}`
+      );
+    }
     if (!this.onResult) return;
     const out: TrackingResult = {};
     if (opts.enableFace !== false && r.faceLandmarks?.[0]?.length)
