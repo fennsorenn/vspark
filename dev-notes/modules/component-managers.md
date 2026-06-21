@@ -104,12 +104,13 @@ covers only the manager-level lifecycle pattern.
 **Output**: `vmc_pose`, `vmc_blendshapes`, and `ik_targets` WebSocket broadcasts
 
 **Entry point**: `fireLandmarks(behaviorId, frame)` — fires separate events per landmark stream
-into `mediapipe_source`. The frame's `faceBlendshapes` (native ARKit shapes emitted by the
-browser-side `HolisticLandmarker`) are fired as a dedicated `arkit` (`ArkitBlendshapes`) event
-via `Blendshapes.fromRecord`; the graph then routes them through the **same**
-`arkit_vrm_mapper` ×3 → `blendshapes_sum` → `blendshapes_broadcast` shape as the VMC pipeline.
-Face landmarks still feed `pose_torso_head` for head tilt/turn only. See
-[mediapipe-tracker.md](mediapipe-tracker.md).
+into `mediapipe_source`. The frame's `faceBlendshapes` (ARKit-named shapes computed browser-side
+— by default the landmark-derived `arkitHeuristic.ts` estimate, or the trained `FaceLandmarker`
+when "HQ face" is on) are fired as a dedicated `arkit` (`ArkitBlendshapes`) event via
+`Blendshapes.fromRecord`; the graph then routes them through the **same** `arkit_vrm_mapper` ×3 →
+`blendshapes_sum` → `blendshapes_broadcast` shape as the VMC pipeline. The manager is agnostic to
+the source — it only sees `frame.faceBlendshapes`. Face landmarks still feed `pose_torso_head`
+for head tilt/turn only. See [mediapipe-tracker.md](mediapipe-tracker.md).
 
 **Graph descriptor**: `makeMediapipeGraphDescriptor(behaviorId)` in
 `behaviors/mediapipe_tracker/graph.ts`. See module doc for the full node/edge layout.

@@ -155,8 +155,9 @@ Browser camera (worker) → MediaPipe Holistic → useTrackingUplink
   → WS tracking_input
   → TrackingManager.fireLandmarks() → mediapipe_source
      ├── arkit  → arkit_vrm_mapper ×3 → blendshapes_sum → blendshapes_broadcast → WS vmc_blendshapes
-     │            (native ARKit face shapes; same trio as VMC. face_landmarks_to_blendshapes
-     │             retired from the default graph but still registered)
+     │            (ARKit face shapes computed browser-side: default landmark heuristic
+     │             arkitHeuristic.ts, or trained FaceLandmarker when "HQ face" is on;
+     │             same trio as VMC. face_landmarks_to_blendshapes unwired but registered)
      ├── face   → pose_torso_head_to_bones (head tilt/turn) ┐
      ├── pose   → pose_torso_head_to_bones ──────┤
      ├── pose   → pose_arms_to_bones (quat arms) ┤
