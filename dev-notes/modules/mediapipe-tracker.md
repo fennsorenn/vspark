@@ -18,7 +18,8 @@ Backend:
 - `packages/backend/src/signal/nodes/pose_ik_targets.ts`
 - `packages/backend/src/signal/nodes/ik_broadcast.ts`
 - `packages/backend/src/signal/nodes/hand_landmarks_to_bones.ts`
-- `packages/backend/src/signal/nodes/face_landmarks_to_blendshapes.ts`
+- `packages/backend/src/signal/nodes/arkit_vrm_mapper.ts` (ARKit 52-shape → VRM expressions; shared with the VMC pipeline)
+- `packages/backend/src/signal/nodes/face_landmarks_to_blendshapes.ts` (registered but **no longer wired** into the default graph — kept as a manual option / for back-compat of saved graphs)
 - `packages/backend/src/signal/nodes/body_calibration.ts` (extended with mirror support — see [signal-graph.md](signal-graph.md))
 - `packages/backend/src/signal/nodes/hand_height_compare.ts`
 - `packages/backend/src/signal/nodes/not_bool.ts`
@@ -45,7 +46,10 @@ Shared:
 
 ```
 mediapipe_source
-  ├─ face      → unpack_event → face_landmarks_to_blendshapes ─────────────→ blendshapes_broadcast
+  ├─ arkit     → unpack_event → arkit_fcl  (arkit_vrm_mapper, mode=fcl)         ┐
+  │                            → arkit_expr (arkit_vrm_mapper, mode=expressions) ├─ blendshapes_sum → blendshapes_broadcast → WS vmc_blendshapes
+  │                            → arkit_pass (arkit_vrm_mapper, mode=passthrough) ┘
+  ├─ face      → unpack_event → (value) pose_torso_head_to_bones.face  (head tilt/turn only)
   ├─ pose      → unpack_event → pose_torso_head_to_bones        ┐
   │                            → pose_arms_to_bones (quat arms) ┤
   ├─ leftHand  → unpack_event → hand_landmarks_to_bones (L)     ├─ pose_merge
@@ -54,6 +58,33 @@ mediapipe_source
   │                                                             └      → pose_broadcast → WS vmc_pose
   └─ pose      → unpack_event → pose_ik_targets ─────────────────────────→ ik_broadcast → WS ik_targets
 ```
+
+### Face blendshapes (native ARKit)
+
+Expressions are no longer geometrically estimated from face landmarks. MediaPipe's
+`HolisticLandmarker` now emits the 52 native ARKit face blendshapes directly
+(`outputFaceBlendshapes: true` in `mediapipeWorker.ts`); `CameraCapture` packs
+`result.faceBlendshapes` (category name → score, minus `_neutral`) into
+`TrackingResult.faceBlendshapes`, the uplink carries it on `TrackingInputMessage.faceBlendshapes`
+(`packages/shared/src/types.ts`), and `index.ts` forwards it to
+`TrackingManager.fireLandmarks`, which fires it as a new **`arkit`** (`ArkitBlendshapes`)
+event via `Blendshapes.fromRecord` into `mediapipe_source`.
+
+From there the graph routes blendshapes **exactly like the VMC pipeline**: the `arkit`
+event → `unpack_arkit` → a trio of `arkit_vrm_mapper` nodes (`arkit_fcl` / `arkit_expr` /
+`arkit_pass`, one per mode) → `blendshapes_sum` → `blendshapes_broadcast`. Each mapper is
+independently toggleable via `behavior_config` fields
+`nodeConfig.arkit_{fcl,expr,pass}_cfg.{enabled,mapping}` — **identical field names to the
+VMC pipeline**, so the same expression-mapping UI controls apply to both. Defaults: `fcl`
+enabled, `expressions` and `passthrough` disabled. The three mappers are summed, so enabled
+modes coexist.
+
+The face landmark stream still flows (as a pulled value) into `pose_torso_head_to_bones.face`
+to drive head tilt/turn — only the *expression* estimation moved to native ARKit.
+
+`face_landmarks_to_blendshapes` (the old hand-rolled geometric estimator) remains
+**registered** but is no longer wired into the default graph; it stays available as a manual
+node and keeps any saved graphs that reference it working.
 
 ### Arm mode toggle
 
@@ -125,9 +156,12 @@ an active IK target:
 
 ## Open work
 
-1. **Blendshape configuration** — planned. `face_landmarks_to_blendshapes`
-   exists and wires through, but per-shape calibration / a user-facing config
-   surface for face tracking is not built.
+1. **Blendshape configuration** — partially addressed. Expressions now come from
+   MediaPipe's native ARKit blendshapes through the shared `arkit_vrm_mapper` trio
+   (see "Face blendshapes" above), so the `fcl`/`expressions`/`passthrough` mode
+   toggles + per-shape `mapping` config the VMC pipeline already exposes apply here
+   too. A face-tracking-specific user-facing config surface (e.g. per-shape gain in
+   `MediapipeTrackerProps`) is still not built.
 2. **Finger config tuning** — planned. `hand_landmarks_to_bones` produces
    residual rest-pose offsets (pinky over-spread, thumb default-out). Mirror
    calibration helps but a structural fix in the converter is wanted.
