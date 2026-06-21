@@ -560,6 +560,7 @@ export interface TrackingInputMessage {
   leftHand?: Landmark[]; // 21 points
   rightHand?: Landmark[]; // 21 points
   pose?: Landmark[]; // 33 points
+  faceBlendshapes?: Record<string, number>; // 52 ARKit shapes (name → 0..1)
 }
 
 export interface TrackingStatusMessage {

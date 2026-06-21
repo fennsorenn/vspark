@@ -50,6 +50,10 @@ async function init(): Promise<void> {
   landmarker = await HolisticLandmarker.createFromModelPath(vision, MODEL_CDN);
   await landmarker.setOptions({
     runningMode: 'VIDEO',
+    // Emit the 52 ARKit-style face blendshapes (trained, head-pose invariant) so
+    // the backend can map them to VRM expressions via arkit_vrm_mapper — same
+    // path as the VMC/iFacialMocap face input.
+    outputFaceBlendshapes: true,
     minFaceDetectionConfidence: 0.5,
     minFacePresenceConfidence: 0.5,
     minPoseDetectionConfidence: 0.5,

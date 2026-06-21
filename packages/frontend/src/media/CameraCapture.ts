@@ -26,6 +26,8 @@ export type TrackingResult = {
   leftHand?: LandmarkPoint[];
   rightHand?: LandmarkPoint[];
   pose?: LandmarkPoint[];
+  /** ARKit blendshape weights (shape name → 0..1) from MediaPipe's face model. */
+  faceBlendshapes?: Record<string, number>;
 };
 
 export interface CameraCaptureOptions {
@@ -220,6 +222,17 @@ export class CameraCapture {
         z: p.z,
         visibility: p.visibility,
       }));
+    // Native ARKit blendshapes from the face model (category name → score). The
+    // category list includes a leading `_neutral`; downstream mappers ignore
+    // unknown names, but skip it to keep the payload to real shapes.
+    if (opts.enableFace !== false && r.faceBlendshapes?.[0]?.categories?.length) {
+      const bs: Record<string, number> = {};
+      for (const c of r.faceBlendshapes[0].categories) {
+        if (c.categoryName && c.categoryName !== '_neutral')
+          bs[c.categoryName] = c.score;
+      }
+      out.faceBlendshapes = bs;
+    }
     if (
       opts.enablePose !== false &&
       (r.poseWorldLandmarks?.[0]?.length ?? 0) > 0
