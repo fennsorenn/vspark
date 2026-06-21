@@ -266,6 +266,9 @@ export function MediaInputWindow({
   const [enableFace, setEnableFace] = useState(true);
   const [enablePose, setEnablePose] = useState(true);
   const [enableHands, setEnableHands] = useState(true);
+  // High-quality face: trained FaceLandmarker (better blendshapes, more CPU) vs
+  // the cheap landmark-based ARKit estimate. Off by default.
+  const [enableNativeFace, setEnableNativeFace] = useState(false);
   const cameraRef = useRef<CameraCapture | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   // WS connection — use prop if provided (standalone page), else use the shared editor socket
@@ -274,13 +277,11 @@ export function MediaInputWindow({
   const behaviors = useEditorStore((s) => s.behaviors);
   const resolvedLipsyncId =
     lipsyncBehaviorId ??
-    behaviors.find((c) => c.kind === 'lipsync_processor' && c.enabled)
-      ?.id ??
+    behaviors.find((c) => c.kind === 'lipsync_processor' && c.enabled)?.id ??
     null;
   const resolvedTrackingId =
     trackingBehaviorId ??
-    behaviors.find((c) => c.kind === 'mediapipe_tracker' && c.enabled)
-      ?.id ??
+    behaviors.find((c) => c.kind === 'mediapipe_tracker' && c.enabled)?.id ??
     null;
 
   // ── WS: point wsRef at the shared editor socket (or provided standalone socket) ──
@@ -323,9 +324,7 @@ export function MediaInputWindow({
         rmsRef.current = rms;
       };
       // Apply calibrated vowel templates from the lipsync component config, if any.
-      const lipsyncComp = behaviors.find(
-        (c) => c.id === resolvedLipsyncId
-      );
+      const lipsyncComp = behaviors.find((c) => c.id === resolvedLipsyncId);
       const cfg = lipsyncComp?.config as
         | { vowelTemplates?: Record<string, number[]> }
         | undefined;
@@ -418,14 +417,26 @@ export function MediaInputWindow({
         }
       };
       try {
-        await cam.start(camDeviceId, { enableFace, enablePose, enableHands });
+        await cam.start(camDeviceId, {
+          enableFace,
+          enablePose,
+          enableHands,
+          enableNativeFace,
+        });
         cameraRef.current = cam;
         setTrackingActive(true);
       } catch (e) {
         alert(t('errors.cameraError', { message: (e as Error).message }));
       }
     }
-  }, [trackingActive, camDeviceId, enableFace, enablePose, enableHands]);
+  }, [
+    trackingActive,
+    camDeviceId,
+    enableFace,
+    enablePose,
+    enableHands,
+    enableNativeFace,
+  ]);
 
   // ── Uplink hooks ───────────────────────────────────────────────────────────
   useLipsyncUplink(wsRef, resolvedLipsyncId, micRef, lipsyncActive);
@@ -492,13 +503,19 @@ export function MediaInputWindow({
         <div style={S.dot(lipsyncActive || trackingActive)} />
         <span style={S.title}>{t('window.title')}</span>
         {lipsyncStatus === 'active' && (
-          <span style={{ fontSize: 10, color: '#4ade80' }}>{t('status.lipsync')}</span>
+          <span style={{ fontSize: 10, color: '#4ade80' }}>
+            {t('status.lipsync')}
+          </span>
         )}
         {lipsyncStatus === 'no-component' && (
-          <span style={{ fontSize: 10, color: '#fbbf24' }}>{t('status.noComponent')}</span>
+          <span style={{ fontSize: 10, color: '#fbbf24' }}>
+            {t('status.noComponent')}
+          </span>
         )}
         {trackingActive && (
-          <span style={{ fontSize: 10, color: '#60a5fa' }}>{t('status.tracking')}</span>
+          <span style={{ fontSize: 10, color: '#60a5fa' }}>
+            {t('status.tracking')}
+          </span>
         )}
         {!alwaysExpanded && (
           <button
@@ -515,9 +532,21 @@ export function MediaInputWindow({
         <>
           {/* ── LIPSYNC SECTION ── */}
           <div style={S.section}>
-            <div style={{ ...S.sectionTitle, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div
+              style={{
+                ...S.sectionTitle,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
               {t('lipsync.sectionTitle')}
-              <HelpButton topic="behaviors" anchor="lipsync" tip={t('help.lipsync')} size={12} />
+              <HelpButton
+                topic="behaviors"
+                anchor="lipsync"
+                tip={t('help.lipsync')}
+                size={12}
+              />
             </div>
             <div style={S.row}>
               <span style={S.label}>{t('lipsync.deviceLabel')}</span>
@@ -530,7 +559,8 @@ export function MediaInputWindow({
                 <option value="">{t('lipsync.defaultMic')}</option>
                 {micDevices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || t('lipsync.micFallback', { id: d.deviceId.slice(0, 8) })}
+                    {d.label ||
+                      t('lipsync.micFallback', { id: d.deviceId.slice(0, 8) })}
                   </option>
                 ))}
               </select>
@@ -551,9 +581,21 @@ export function MediaInputWindow({
 
           {/* ── TRACKING SECTION ── */}
           <div style={{ ...S.section, borderBottom: 'none' }}>
-            <div style={{ ...S.sectionTitle, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div
+              style={{
+                ...S.sectionTitle,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
               {t('tracking.sectionTitle')}
-              <HelpButton topic="behaviors" anchor="tracking" tip={t('help.tracking')} size={12} />
+              <HelpButton
+                topic="behaviors"
+                anchor="tracking"
+                tip={t('help.tracking')}
+                size={12}
+              />
             </div>
             <div style={S.row}>
               <span style={S.label}>{t('tracking.deviceLabel')}</span>
@@ -566,14 +608,17 @@ export function MediaInputWindow({
                 <option value="">{t('tracking.defaultCam')}</option>
                 {camDevices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || t('tracking.camFallback', { id: d.deviceId.slice(0, 8) })}
+                    {d.label ||
+                      t('tracking.camFallback', { id: d.deviceId.slice(0, 8) })}
                   </option>
                 ))}
               </select>
             </div>
             <div style={S.row}>
               <button style={S.btn(trackingActive)} onClick={toggleTracking}>
-                {trackingActive ? t('tracking.stopBtn') : t('tracking.startBtn')}
+                {trackingActive
+                  ? t('tracking.stopBtn')
+                  : t('tracking.startBtn')}
               </button>
               <label
                 style={{
@@ -600,6 +645,11 @@ export function MediaInputWindow({
                   [t('tracking.faceLabel'), enableFace, setEnableFace],
                   [t('tracking.poseLabel'), enablePose, setEnablePose],
                   [t('tracking.handsLabel'), enableHands, setEnableHands],
+                  [
+                    t('tracking.hqFaceLabel'),
+                    enableNativeFace,
+                    setEnableNativeFace,
+                  ],
                 ] as [string, boolean, (v: boolean) => void][]
               ).map(([label, val, setter]) => (
                 <label

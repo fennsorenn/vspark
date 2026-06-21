@@ -31,6 +31,7 @@
     "faceLabel": "Gesicht",
     "poseLabel": "Pose",
     "handsLabel": "Hände",
+    "hqFaceLabel": "HD-Gesicht",
     "legend": {
       "face": "Gesicht",
       "pose": "Pose",

@@ -11,6 +11,7 @@
 
 import { HolisticLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
 import type { HolisticLandmarkerResult } from '@mediapipe/tasks-vision';
+import { estimateArkitBlendshapes } from './arkitHeuristic';
 
 export type { HolisticLandmarkerResult };
 
@@ -34,6 +35,13 @@ export interface CameraCaptureOptions {
   enableFace?: boolean;
   enablePose?: boolean;
   enableHands?: boolean;
+  /**
+   * High-quality face: run the trained FaceLandmarker in a second worker for the
+   * 52 ARKit blendshapes (more accurate, more CPU). When false (default), ARKit
+   * weights are estimated from Holistic's face landmarks on the main thread — far
+   * cheaper, and feeds the identical backend mapper pipeline.
+   */
+  enableNativeFace?: boolean;
 }
 
 const TARGET_FPS = 10;
@@ -72,8 +80,6 @@ export class CameraCapture {
   private _active = false;
   private flipCanvas: OffscreenCanvas | null = null;
   private flipCtx: OffscreenCanvasRenderingContext2D | null = null;
-  /** TEMP: throttle timestamp for the blendshape diagnostic log. */
-  private static _bsLog = 0;
   lastRaw: HolisticLandmarkerResult | null = null;
 
   onResult: ((result: TrackingResult) => void) | null = null;
@@ -101,12 +107,16 @@ export class CameraCapture {
       this.onError?.(new Error(`worker: ${e.message}`));
     this._postWorker(this.worker, { kind: 'init', role: 'holistic' });
 
-    this.faceWorker = new Worker('/mediapipeWorker.js');
-    this.faceWorker.onmessage = (e: MessageEvent<WorkerOutMsg>) =>
-      this._onFaceMessage(e.data);
-    this.faceWorker.onerror = (e) =>
-      this.onError?.(new Error(`face worker: ${e.message}`));
-    this._postWorker(this.faceWorker, { kind: 'init', role: 'face' });
+    // The heavy native face model only spins up when high-quality face is on;
+    // otherwise blendshapes are estimated from Holistic's landmarks (see _dispatch).
+    if (options.enableNativeFace) {
+      this.faceWorker = new Worker('/mediapipeWorker.js');
+      this.faceWorker.onmessage = (e: MessageEvent<WorkerOutMsg>) =>
+        this._onFaceMessage(e.data);
+      this.faceWorker.onerror = (e) =>
+        this.onError?.(new Error(`face worker: ${e.message}`));
+      this._postWorker(this.faceWorker, { kind: 'init', role: 'face' });
+    }
 
     this.stream = await navigator.mediaDevices.getUserMedia({
       video: deviceId
@@ -186,9 +196,11 @@ export class CameraCapture {
       if (holisticFree && this.worker) {
         const bitmap = await createImageBitmap(src);
         this.busy = true;
-        this._postWorker(this.worker, { kind: 'frame', bitmap, timestamp: ts }, [
-          bitmap,
-        ]);
+        this._postWorker(
+          this.worker,
+          { kind: 'frame', bitmap, timestamp: ts },
+          [bitmap]
+        );
       }
       if (faceFree && this.faceWorker) {
         const bitmap = await createImageBitmap(src);
@@ -264,9 +276,7 @@ export class CameraCapture {
     }
     if (msg.kind === 'blendshapes') {
       this.faceBusy = false;
-      this.latestBlendshapes = Object.keys(msg.value).length
-        ? msg.value
-        : null;
+      this.latestBlendshapes = Object.keys(msg.value).length ? msg.value : null;
     }
   }
 
@@ -276,23 +286,6 @@ export class CameraCapture {
   ): void {
     this.lastRaw = r;
     this.onRawResult?.(r);
-    // TEMP diagnostic: blendshapes (from the parallel face worker) flowing?
-    // Throttled to once every ~2s. Remove once confirmed.
-    if (performance.now() - CameraCapture._bsLog > 2000) {
-      CameraCapture._bsLog = performance.now();
-      const bs = this.latestBlendshapes;
-      const top = bs
-        ? Object.entries(bs)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 3)
-            .map(([k, v]) => `${k}=${v.toFixed(2)}`)
-            .join(', ')
-        : '(none)';
-      console.info(
-        `[blendshapes] faceLandmarks=${r.faceLandmarks?.[0]?.length ?? 0} ` +
-          `blendshapes=${bs ? Object.keys(bs).length : 0} top: ${top}`
-      );
-    }
     if (!this.onResult) return;
     const out: TrackingResult = {};
     if (opts.enableFace !== false && r.faceLandmarks?.[0]?.length)
@@ -302,10 +295,15 @@ export class CameraCapture {
         z: p.z,
         visibility: p.visibility,
       }));
-    // Native ARKit blendshapes (category name → score) from the parallel face
-    // worker; latest value is attached to every marker frame.
-    if (opts.enableFace !== false && this.latestBlendshapes)
-      out.faceBlendshapes = this.latestBlendshapes;
+    // ARKit blendshapes (shape name → weight). High-quality mode uses the native
+    // FaceLandmarker's output (cached from the face worker); otherwise estimate
+    // them from Holistic's face landmarks. Both share the ARKit name space and
+    // feed the same backend mapper pipeline.
+    if (opts.enableFace !== false) {
+      if (this.latestBlendshapes) out.faceBlendshapes = this.latestBlendshapes;
+      else if (r.faceLandmarks?.[0]?.length)
+        out.faceBlendshapes = estimateArkitBlendshapes(r.faceLandmarks[0]);
+    }
     if (
       opts.enablePose !== false &&
       (r.poseWorldLandmarks?.[0]?.length ?? 0) > 0
