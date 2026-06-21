@@ -25,13 +25,23 @@
  *        { kind: 'error', message: string }
  *        { kind: 'result', result: HolisticLandmarkerResult, timestamp: number }
  */
-import { FilesetResolver, HolisticLandmarker } from '@mediapipe/tasks-vision';
+import {
+  FilesetResolver,
+  HolisticLandmarker,
+  FaceLandmarker,
+} from '@mediapipe/tasks-vision';
 import type { HolisticLandmarkerResult } from '@mediapipe/tasks-vision';
 
 const WASM_CDN =
   'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm';
 const MODEL_CDN =
   'https://storage.googleapis.com/mediapipe-models/holistic_landmarker/holistic_landmarker/float16/latest/holistic_landmarker.task';
+// The holistic_landmarker.task bundle does NOT ship the face-blendshapes model
+// (outputFaceBlendshapes is silently a no-op on it), so we run a dedicated
+// FaceLandmarker — which does include it — alongside Holistic and merge its
+// blendshapes into the result.
+const FACE_MODEL_CDN =
+  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task';
 
 type InMsg =
   | { kind: 'init' }
@@ -44,21 +54,26 @@ type OutMsg =
   | { kind: 'result'; result: HolisticLandmarkerResult; timestamp: number };
 
 let landmarker: HolisticLandmarker | null = null;
+let faceLandmarker: FaceLandmarker | null = null;
 
 async function init(): Promise<void> {
   const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
   landmarker = await HolisticLandmarker.createFromModelPath(vision, MODEL_CDN);
   await landmarker.setOptions({
     runningMode: 'VIDEO',
-    // Emit the 52 ARKit-style face blendshapes (trained, head-pose invariant) so
-    // the backend can map them to VRM expressions via arkit_vrm_mapper — same
-    // path as the VMC/iFacialMocap face input.
-    outputFaceBlendshapes: true,
     minFaceDetectionConfidence: 0.5,
     minFacePresenceConfidence: 0.5,
     minPoseDetectionConfidence: 0.5,
     minPosePresenceConfidence: 0.5,
     minHandLandmarksConfidence: 0.5,
+  });
+  // Dedicated face model purely for the 52 ARKit blendshapes (trained,
+  // head-pose invariant). Its landmarks are unused — Holistic drives the head.
+  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: { modelAssetPath: FACE_MODEL_CDN },
+    runningMode: 'VIDEO',
+    numFaces: 1,
+    outputFaceBlendshapes: true,
   });
   (self as DedicatedWorkerGlobalScope).postMessage({
     kind: 'ready',
@@ -78,6 +93,15 @@ self.onmessage = async (e: MessageEvent<InMsg>) => {
         return;
       }
       const result = landmarker.detectForVideo(msg.bitmap, msg.timestamp);
+      // Same frame through the face model; graft its blendshapes onto the
+      // holistic result so downstream code reads them off `result.faceBlendshapes`.
+      if (faceLandmarker) {
+        const faceRes = faceLandmarker.detectForVideo(
+          msg.bitmap,
+          msg.timestamp
+        );
+        result.faceBlendshapes = faceRes.faceBlendshapes;
+      }
       msg.bitmap.close();
       (self as DedicatedWorkerGlobalScope).postMessage({
         kind: 'result',
@@ -89,6 +113,8 @@ self.onmessage = async (e: MessageEvent<InMsg>) => {
     if (msg.kind === 'close') {
       await landmarker?.close();
       landmarker = null;
+      await faceLandmarker?.close();
+      faceLandmarker = null;
       return;
     }
   } catch (err) {
