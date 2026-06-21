@@ -131,27 +131,46 @@ export function setupForearmTwist(
 export function teardownForearmTwist(nodeId: string): void {
   const avatar = registry.get(nodeId);
   if (!avatar) return;
-  for (const s of avatar.sides) {
-    // Restore mesh skinning (synthesized only).
-    for (const b of s.meshBackups) {
-      b.mesh.bind(b.skeleton, b.bindMatrix);
-      const gi = b.mesh.geometry.getAttribute('skinIndex');
-      const gw = b.mesh.geometry.getAttribute('skinWeight');
-      (gi.array as Float32Array).set(b.skinIndex as ArrayLike<number>);
-      (gw.array as Float32Array).set(b.skinWeight as ArrayLike<number>);
-      gi.needsUpdate = true;
-      gw.needsUpdate = true;
-    }
-    // Reparent the hand back, preserving its world transform, then restore rest.
-    if (s.handOrigParent) {
-      s.handOrigParent.attach(s.hand);
-      s.hand.position.copy(s.handOrigPos);
-      s.hand.quaternion.copy(s.handOrigQuat);
-    }
-    // Remove a bone we created; leave a detected bone in place.
-    if (s.synthesized) s.twistBone.removeFromParent();
-  }
+  // Delete up-front so a mid-teardown throw can't leave the per-frame drive
+  // running against half-restored state.
   registry.delete(nodeId);
+  let meshes = 0;
+  try {
+    for (const s of avatar.sides) {
+      // Fold the twist bone's rotation back into lowerArm before removing it.
+      // The drive left lowerArm de-rolled (q·T⁻ᵍ) with the twist bone holding
+      // Tᵍ; lowerArm·twistBone = q, so this restores the original roll. Without
+      // it the forearm stays under-rolled until the next pose frame (and looks
+      // twisted if the pose isn't re-applied that instant).
+      s.lowerArm.quaternion.multiply(s.twistBone.quaternion);
+      s.twistBone.quaternion.identity();
+
+      // Restore mesh skinning (synthesized only).
+      for (const b of s.meshBackups) {
+        b.mesh.bind(b.skeleton, b.bindMatrix);
+        const gi = b.mesh.geometry.getAttribute('skinIndex');
+        const gw = b.mesh.geometry.getAttribute('skinWeight');
+        (gi.array as Float32Array).set(b.skinIndex as ArrayLike<number>);
+        (gw.array as Float32Array).set(b.skinWeight as ArrayLike<number>);
+        gi.needsUpdate = true;
+        gw.needsUpdate = true;
+        meshes++;
+      }
+      // Reparent the hand back, preserving its world transform, then restore rest.
+      if (s.handOrigParent) {
+        s.handOrigParent.attach(s.hand);
+        s.hand.position.copy(s.handOrigPos);
+        s.hand.quaternion.copy(s.handOrigQuat);
+      }
+      // Remove a bone we created; leave a detected bone in place.
+      if (s.synthesized) s.twistBone.removeFromParent();
+    }
+    console.info(
+      `[twistBones] ${nodeId}: torn down ${avatar.sides.length} side(s), ${meshes} mesh(es) restored`
+    );
+  } catch (err) {
+    console.error('[twistBones] teardown failed', err);
+  }
 }
 
 // ── Per-frame drive ──────────────────────────────────────────────────────────
