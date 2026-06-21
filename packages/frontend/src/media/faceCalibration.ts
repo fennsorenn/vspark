@@ -4,7 +4,11 @@
  * See dev-notes/plans/face-calibration.md.
  */
 
-import type { LandmarkPoint, ArkitHeuristicConfig } from './arkitHeuristic';
+import type {
+  LandmarkPoint,
+  ArkitHeuristicConfig,
+  ShapeEdge,
+} from './arkitHeuristic';
 
 // ── Live min/max tracking ──────────────────────────────────────────────────────
 
@@ -121,13 +125,17 @@ export function mirrorLandmark(
   return best;
 }
 
-/** Mirror a list of marker indices across the face midline (one basis for the batch). */
-export function mirrorMarkers(
+/** Mirror a list of edges across the face midline (one basis for the batch). */
+export function mirrorEdges(
   pts: LandmarkPoint[],
-  markers: number[]
-): number[] {
+  edges: ShapeEdge[]
+): ShapeEdge[] {
   const basis = faceBasis2D(pts);
-  return markers.map((m) => mirrorLandmark(pts, m, basis));
+  return edges.map((e) => ({
+    a: mirrorLandmark(pts, e.a, basis),
+    b: mirrorLandmark(pts, e.b, basis),
+    ...(e.negate ? { negate: true } : {}),
+  }));
 }
 
 // ── Config (de)serialization for the copy-out / paste-in field ──────────────────
@@ -156,18 +164,19 @@ export function parseConfig(text: string): {
     const c = raw as Record<string, unknown>;
     if (
       !c ||
-      !Array.isArray(c.markers) ||
-      !c.markers.every((m) => typeof m === 'number') ||
+      !Array.isArray(c.edges) ||
       typeof c.min !== 'number' ||
       typeof c.max !== 'number'
     )
       return { error: `Invalid entry for "${shape}".` };
-    out[shape] = {
-      markers: c.markers as number[],
-      min: c.min,
-      max: c.max,
-      ...(c.invert ? { invert: true } : {}),
-    };
+    const edges: ShapeEdge[] = [];
+    for (const e of c.edges as unknown[]) {
+      const ed = e as Record<string, unknown>;
+      if (!ed || typeof ed.a !== 'number' || typeof ed.b !== 'number')
+        return { error: `Invalid edge in "${shape}".` };
+      edges.push({ a: ed.a, b: ed.b, ...(ed.negate ? { negate: true } : {}) });
+    }
+    out[shape] = { edges, min: c.min, max: c.max };
   }
   return { config: out };
 }

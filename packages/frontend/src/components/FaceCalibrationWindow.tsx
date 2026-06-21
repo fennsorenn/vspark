@@ -4,13 +4,13 @@
  * dev-notes/plans/face-calibration.md).
  *
  * Owns its own camera with HQ face on, so it can show the heuristic (editable config)
- * and the native FaceLandmarker reference side by side. Click landmark handles in the
- * preview to toggle them into the focused shape; tune min/max via live-auto / keep /
+ * and the native FaceLandmarker reference side by side. Build a shape's edges by clicking
+ * two landmark handles; toggle each edge's negate; tune min/max via live-auto / keep /
  * capture / manual; copy the resulting config JSON out and paste it back into
  * arkitHeuristic.ts as DEFAULT_ARKIT_CONFIG.
  *
  * Preview: resizable window (drag bottom-right), mousewheel zooms toward the cursor,
- * drag pans; a plain click (no drag) toggles the nearest landmark.
+ * drag pans; a plain click (no drag) picks an edge endpoint.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -18,7 +18,7 @@ import { ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { CameraCapture } from '../media/CameraCapture';
 import {
   DEFAULT_ARKIT_CONFIG,
-  sumPairwiseDistance,
+  signedEdgeSum,
   referenceDistance,
   shapeWeight,
   type ArkitHeuristicConfig,
@@ -32,7 +32,7 @@ import {
   serializeConfig,
   parseConfig,
   mirrorShapeName,
-  mirrorMarkers,
+  mirrorEdges,
 } from '../media/faceCalibration';
 
 const ASPECT = 3 / 4; // camera is 4:3 → height = width * 3/4
@@ -53,6 +53,8 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
     clone(DEFAULT_ARKIT_CONFIG)
   );
   const [focused, setFocused] = useState<string | null>('jawOpen');
+  // First-clicked endpoint while building an edge (null = no pending endpoint).
+  const [pending, setPending] = useState<number | null>(null);
   const [frontAlign, setFrontAlign] = useState(false);
   const [jsonText, setJsonText] = useState('');
   const [jsonErr, setJsonErr] = useState('');
@@ -84,9 +86,11 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
   const configRef = useRef(config);
   const focusedRef = useRef(focused);
   const frontAlignRef = useRef(frontAlign);
+  const pendingRef = useRef(pending);
   configRef.current = config;
   focusedRef.current = focused;
   frontAlignRef.current = frontAlign;
+  pendingRef.current = pending;
 
   const tracker = (shape: string): MinMaxTracker => {
     let t = trackersRef.current.get(shape);
@@ -213,8 +217,8 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
       const ref = referenceDistance(pts);
       for (const shape in cfg) {
         const sc = cfg[shape];
-        if (sc.markers.length < 2 || ref < 1e-6) continue;
-        const m = sumPairwiseDistance(pts, sc.markers) / ref;
+        if (sc.edges.length < 1 || ref < 1e-6) continue;
+        const m = signedEdgeSum(pts, sc.edges) / ref;
         liveMetricRef.current[shape] = m;
         tracker(shape).observe(m);
       }
@@ -232,26 +236,36 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
       const fShape = focusedRef.current;
       const fcfg = fShape ? cfg[fShape] : undefined;
       if (fcfg) {
-        ctx.strokeStyle = 'rgba(74,222,128,0.7)';
         ctx.lineWidth = 1.5;
-        for (let i = 0; i < fcfg.markers.length; i++)
-          for (let j = i + 1; j < fcfg.markers.length; j++) {
-            const a = bp[fcfg.markers[i]];
-            const b = bp[fcfg.markers[j]];
-            if (!a || !b) continue;
-            ctx.beginPath();
-            ctx.moveTo(sx(a), sy(a));
-            ctx.lineTo(sx(b), sy(b));
-            ctx.stroke();
-          }
-        ctx.fillStyle = '#4ade80';
-        for (const idx of fcfg.markers) {
-          const p = bp[idx];
-          if (!p) continue;
+        for (const e of fcfg.edges) {
+          const a = bp[e.a];
+          const b = bp[e.b];
+          if (!a || !b) continue;
+          // green = adds, red = subtracts (negate)
+          ctx.strokeStyle = e.negate
+            ? 'rgba(248,113,113,0.85)'
+            : 'rgba(74,222,128,0.85)';
           ctx.beginPath();
-          ctx.arc(sx(p), sy(p), 4, 0, 7);
-          ctx.fill();
+          ctx.moveTo(sx(a), sy(a));
+          ctx.lineTo(sx(b), sy(b));
+          ctx.stroke();
+          for (const idx of [e.a, e.b]) {
+            const p = bp[idx];
+            ctx.fillStyle = e.negate ? '#f87171' : '#4ade80';
+            ctx.beginPath();
+            ctx.arc(sx(p), sy(p), 3.5, 0, 7);
+            ctx.fill();
+          }
         }
+      }
+      // Pending edge endpoint (yellow ring).
+      const pend = pendingRef.current;
+      if (pend != null && bp[pend]) {
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(sx(bp[pend]), sy(bp[pend]), 6, 0, 7);
+        ctx.stroke();
       }
     };
     raf = requestAnimationFrame(draw);
@@ -268,11 +282,8 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
         const h: Record<string, number> = {};
         for (const shape in cfg) {
           const sc = cfg[shape];
-          if (sc.markers.length < 2 || ref < 1e-6) continue;
-          h[shape] = shapeWeight(
-            sumPairwiseDistance(pts, sc.markers) / ref,
-            sc
-          );
+          if (sc.edges.length < 1 || ref < 1e-6) continue;
+          h[shape] = shapeWeight(signedEdgeSum(pts, sc.edges) / ref, sc);
         }
         setHeur(h);
       }
@@ -289,13 +300,18 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
     setJsonText(serializeConfig(config));
   }, [config]);
 
+  // Cancel any half-built edge when switching shapes.
+  useEffect(() => {
+    setPending(null);
+  }, [focused]);
+
   // ── Mutations ─────────────────────────────────────────────────────────────
   const patchShape = useCallback(
     (shape: string, patch: Partial<ArkitShapeConfig>) => {
       setConfig((c) => {
         const next = clone(c);
         next[shape] = {
-          ...(next[shape] ?? { markers: [], min: 0, max: 1 }),
+          ...(next[shape] ?? { edges: [], min: 0, max: 1 }),
           ...patch,
         };
         return next;
@@ -304,7 +320,8 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
     []
   );
 
-  const toggleNearest = useCallback((clientX: number, clientY: number) => {
+  // Click an endpoint: first click sets the pending endpoint, second adds the edge.
+  const onPickPoint = useCallback((clientX: number, clientY: number) => {
     const shape = focusedRef.current;
     const cv = canvasRef.current;
     if (!shape || !cv) return;
@@ -326,16 +343,24 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
       }
     }
     if (best < 0) return;
+    const pend = pendingRef.current;
+    if (pend == null) {
+      setPending(best); // first endpoint
+      return;
+    }
+    if (pend === best) {
+      setPending(null); // clicked same point → cancel
+      return;
+    }
     setConfig((c) => {
       const next = clone(c);
-      const sc = next[shape] ?? { markers: [], min: 0, max: 1 };
-      sc.markers = sc.markers.includes(best)
-        ? sc.markers.filter((m) => m !== best)
-        : [...sc.markers, best];
+      const sc = next[shape] ?? { edges: [], min: 0, max: 1 };
+      sc.edges = [...sc.edges, { a: pend, b: best }];
       next[shape] = sc;
       return next;
     });
-    tracker(shape).reset(); // marker set changed → re-learn range
+    setPending(null);
+    tracker(shape).reset(); // edge set changed → re-learn range
   }, []);
 
   // Press = potential click; movement past slop = pan.
@@ -363,16 +388,16 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
     (e: React.PointerEvent) => {
       const d = dragRef.current;
       d.down = false;
-      if (!d.moved) toggleNearest(e.clientX, e.clientY);
+      if (!d.moved) onPickPoint(e.clientX, e.clientY);
     },
-    [toggleNearest]
+    [onPickPoint]
   );
 
   const resetView = useCallback(() => {
     viewRef.current = { scale: 1, ox: 0, oy: 0 };
   }, []);
 
-  // Copy the opposite side's config into the focused shape, mirroring its markers
+  // Copy the opposite side's config into the focused shape, mirroring its edges
   // across the face midline (uses the current frame for the geometric mirror).
   const fromMirrored = useCallback(() => {
     const shape = focusedRef.current;
@@ -382,10 +407,9 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
     const src = srcName ? configRef.current[srcName] : undefined;
     if (!src) return;
     patchShape(shape, {
-      markers: mirrorMarkers(pts, src.markers),
+      edges: mirrorEdges(pts, src.edges),
       min: src.min,
       max: src.max,
-      invert: src.invert,
     });
     tracker(shape).reset();
   }, [patchShape]);
@@ -440,59 +464,77 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
               reset view
             </button>
             <span style={{ color: '#666', fontSize: 10 }}>
-              wheel = zoom · drag = pan · click = toggle marker
+              wheel = zoom · drag = pan · click = pick edge point
             </span>
           </div>
 
           {focused && fcfg && (
             <div style={S.editor}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>{focused}</div>
-              <div style={{ marginBottom: 4 }}>
-                markers:{' '}
-                {fcfg.markers.length ? (
-                  fcfg.markers.map((m) => (
-                    <span key={m} style={S.chip}>
-                      {m}
-                      <span
-                        style={S.chipX}
-                        onClick={() =>
-                          patchShape(focused, {
-                            markers: fcfg.markers.filter((x) => x !== m),
-                          })
-                        }
-                      >
-                        ×
-                      </span>
-                    </span>
-                  ))
-                ) : (
-                  <i style={{ color: '#888' }}>none — click handles</i>
-                )}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <label style={S.check}>
-                  <input
-                    type="checkbox"
-                    checked={!!fcfg.invert}
-                    onChange={(e) =>
-                      patchShape(focused, { invert: e.target.checked })
-                    }
-                  />
-                  invert
-                </label>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 4,
+                }}
+              >
+                <span style={{ fontWeight: 600, flex: 1 }}>{focused}</span>
                 {(() => {
                   const srcName = mirrorShapeName(focused);
                   if (!srcName || !config[srcName]) return null;
                   return (
                     <button
                       style={S.smBtn}
-                      title={`copy ${srcName}, markers mirrored L↔R`}
+                      title={`copy ${srcName}, edges mirrored L↔R`}
                       onClick={fromMirrored}
                     >
                       from mirrored ({srcName})
                     </button>
                   );
                 })()}
+              </div>
+              <div style={{ marginBottom: 4 }}>
+                edges (click two handles to add; green +, red −):
+                {fcfg.edges.length === 0 && (
+                  <i style={{ color: '#888' }}> none</i>
+                )}
+                {pending != null && (
+                  <span style={{ color: '#fbbf24', marginLeft: 6 }}>
+                    pending {pending} — click 2nd point
+                  </span>
+                )}
+                <div style={{ marginTop: 3 }}>
+                  {fcfg.edges.map((e, i) => (
+                    <div key={i} style={S.edgeRow}>
+                      <span style={{ color: e.negate ? '#f87171' : '#4ade80' }}>
+                        {e.negate ? '−' : '+'} {e.a}–{e.b}
+                      </span>
+                      <button
+                        style={S.smBtn}
+                        title="negate this edge (subtract its length)"
+                        onClick={() => {
+                          const edges = fcfg.edges.map((x, j) =>
+                            j === i ? { ...x, negate: !x.negate } : x
+                          );
+                          patchShape(focused, { edges });
+                          tracker(focused).reset();
+                        }}
+                      >
+                        ±
+                      </button>
+                      <button
+                        style={S.smBtn}
+                        onClick={() => {
+                          const edges = fcfg.edges.filter((_, j) => j !== i);
+                          patchShape(focused, { edges });
+                          tracker(focused).reset();
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
               <div style={{ fontSize: 11, color: '#aaa', margin: '4px 0' }}>
                 metric: {liveMetric != null ? liveMetric.toFixed(4) : '—'} ·
@@ -553,7 +595,7 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
           </div>
           <div style={S.tableBody}>
             {(ARKIT_SHAPES as readonly string[]).map((shape) => {
-              const configured = (config[shape]?.markers.length ?? 0) >= 2;
+              const configured = (config[shape]?.edges.length ?? 0) >= 1;
               const hv = heur[shape] ?? 0;
               const nv = native[shape] ?? 0;
               return (
@@ -690,18 +732,13 @@ const S = {
     background: '#222',
     borderRadius: 4,
   } as React.CSSProperties,
-  chip: {
-    display: 'inline-flex',
+  edgeRow: {
+    display: 'flex',
     alignItems: 'center',
-    gap: 2,
-    background: '#2f4',
-    color: '#062',
-    borderRadius: 3,
-    padding: '0 4px',
-    margin: 2,
-    fontWeight: 600,
+    gap: 6,
+    fontFamily: 'monospace',
+    padding: '1px 0',
   } as React.CSSProperties,
-  chipX: { cursor: 'pointer', fontWeight: 700 } as React.CSSProperties,
   rangeRow: {
     display: 'flex',
     alignItems: 'center',

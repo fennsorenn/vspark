@@ -16,17 +16,19 @@ out and pastes back into the repo as the new shipped default. This replaces hand
 - The heuristic produces ARKit-named weights from Holistic's face landmarks and feeds the
   same backend mapper pipeline as the native path (see `dev-notes/modules/mediapipe-tracker.md`).
 - **Metric model (final):** for each ARKit shape,
-  `value = Σ pairwise 3D distances among the shape's active markers`,
+  `value = signed Σ edge lengths` (each edge a landmark pair contributing ±its 3D distance),
   `÷ referenceDistance` (outer eye-corners `33↔263`, expression-stable → scale-invariant),
-  then auto-ranged `[min,max] → [0,1]`, then optional `invert`.
+  then auto-ranged `[min,max] → [0,1]`. Config shape: `{ edges: {a,b,negate?}[], min, max }`.
 - 3D distances are **inherently rotation-invariant**, so NO per-frame canonical/Procrustes
   normalization is needed for the metric (rotating a rigid point set doesn't change distances,
   and wouldn't fix noisy z either). z noise is second-order for short intra-region edges.
-- **Direction** (smile-up vs frown-down) is encoded by choosing a stable reference marker and
-  using `invert` — no signed-axis metric type needed. e.g. `mouthSmile = {corner, upperRef}`
-  inverted; `mouthFrown` = same uninverted.
-- Marker-set selection (click to toggle) is sufficient: "sum of all pairwise distances" equals
-  the single edge for 2 markers and the triangle perimeter for 3 — the only cases we use.
+- **Per-edge `negate`** subsumes both direction and shape-level invert: a *difference* of
+  distances (e.g. lip-corner angle = outer-lip→ref minus inner-lip→ref) needs one positive and
+  one negated edge; a falling aperture (blink) is a single negated edge with a negative `[min,max]`.
+  (`negate` edge + `[-max,-min]` ≡ the old `invert` + `[min,max]`.)
+- Edges are built by clicking two handles; each edge has its own negate toggle. The earlier
+  "marker set + sum of all pairwise" model was replaced because it couldn't express signed
+  differences (e.g. frown).
 - Canonical normalization IS wanted, but **only as a preview aid** (front-align the displayed
   overlay so markers are easier to see/target on a turned head). It must not affect the metric.
 
