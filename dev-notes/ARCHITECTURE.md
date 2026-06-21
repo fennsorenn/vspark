@@ -154,7 +154,10 @@ Landmarks are sent over WS and processed in a backend signal graph:
 Browser camera (worker) → MediaPipe Holistic → useTrackingUplink
   → WS tracking_input
   → TrackingManager.fireLandmarks() → mediapipe_source
-     ├── face   → face_landmarks_to_blendshapes ─┐
+     ├── arkit  → arkit_vrm_mapper ×3 → blendshapes_sum → blendshapes_broadcast → WS vmc_blendshapes
+     │            (native ARKit face shapes; same trio as VMC. face_landmarks_to_blendshapes
+     │             retired from the default graph but still registered)
+     ├── face   → pose_torso_head_to_bones (head tilt/turn) ┐
      ├── pose   → pose_torso_head_to_bones ──────┤
      ├── pose   → pose_arms_to_bones (quat arms) ┤
      ├── hands  → hand_landmarks_to_bones (L/R) ─┤
@@ -162,7 +165,6 @@ Browser camera (worker) → MediaPipe Holistic → useTrackingUplink
      │                                           │     → head_calib (body_calibration: HEAD_CALIB_BONES)
      │                                           │     → finger_calib (body_calibration: FINGER_CALIB_BONES, mirrorPairs)
      │                                           │     → pose_broadcast → WS vmc_pose
-     │                                           └── blendshapes_broadcast → WS vmc_blendshapes
      └── pose   → pose_ik_targets → ik_broadcast → WS ik_targets   (IK-arms branch)
 
 Arm mode toggle: useIk config → not_bool fan-out enables either pose_arms_to_bones
