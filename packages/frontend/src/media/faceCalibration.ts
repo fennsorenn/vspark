@@ -85,6 +85,51 @@ export function projectCanonical(
   };
 }
 
+// ── Left/right mirroring (for "from mirrored" in the calibration tool) ──────────
+
+/** The opposite-side shape name, or null if the shape isn't sided. */
+export function mirrorShapeName(shape: string): string | null {
+  if (shape.endsWith('Left')) return shape.slice(0, -4) + 'Right';
+  if (shape.endsWith('Right')) return shape.slice(0, -5) + 'Left';
+  return null;
+}
+
+/**
+ * Find the landmark mirrored across the face's vertical midline, using the live
+ * frame: project to canonical space, flip x, and pick the nearest landmark.
+ * Centerline points map (approximately) to themselves. General over all indices,
+ * so it works for whatever the dev clicked, without a hardcoded symmetry table.
+ */
+export function mirrorLandmark(
+  pts: LandmarkPoint[],
+  i: number,
+  basis: FaceBasis2D = faceBasis2D(pts)
+): number {
+  const c = projectCanonical(pts[i], basis);
+  const tx = -c.x;
+  const ty = c.y;
+  let best = i;
+  let bestD = Infinity;
+  for (let j = 0; j < pts.length; j++) {
+    const cj = projectCanonical(pts[j], basis);
+    const d = (cj.x - tx) ** 2 + (cj.y - ty) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = j;
+    }
+  }
+  return best;
+}
+
+/** Mirror a list of marker indices across the face midline (one basis for the batch). */
+export function mirrorMarkers(
+  pts: LandmarkPoint[],
+  markers: number[]
+): number[] {
+  const basis = faceBasis2D(pts);
+  return markers.map((m) => mirrorLandmark(pts, m, basis));
+}
+
 // ── Config (de)serialization for the copy-out / paste-in field ──────────────────
 
 export function serializeConfig(config: ArkitHeuristicConfig): string {

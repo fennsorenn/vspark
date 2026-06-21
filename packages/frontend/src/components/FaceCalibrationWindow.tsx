@@ -31,6 +31,8 @@ import {
   projectCanonical,
   serializeConfig,
   parseConfig,
+  mirrorShapeName,
+  mirrorMarkers,
 } from '../media/faceCalibration';
 
 const ASPECT = 3 / 4; // camera is 4:3 → height = width * 3/4
@@ -370,6 +372,24 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
     viewRef.current = { scale: 1, ox: 0, oy: 0 };
   }, []);
 
+  // Copy the opposite side's config into the focused shape, mirroring its markers
+  // across the face midline (uses the current frame for the geometric mirror).
+  const fromMirrored = useCallback(() => {
+    const shape = focusedRef.current;
+    const pts = ptsRef.current;
+    if (!shape || !pts || pts.length < 478) return;
+    const srcName = mirrorShapeName(shape);
+    const src = srcName ? configRef.current[srcName] : undefined;
+    if (!src) return;
+    patchShape(shape, {
+      markers: mirrorMarkers(pts, src.markers),
+      min: src.min,
+      max: src.max,
+      invert: src.invert,
+    });
+    tracker(shape).reset();
+  }, [patchShape]);
+
   const applyJson = useCallback(() => {
     const { config: c, error } = parseConfig(jsonText);
     if (error || !c) {
@@ -449,16 +469,31 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
                   <i style={{ color: '#888' }}>none — click handles</i>
                 )}
               </div>
-              <label style={S.check}>
-                <input
-                  type="checkbox"
-                  checked={!!fcfg.invert}
-                  onChange={(e) =>
-                    patchShape(focused, { invert: e.target.checked })
-                  }
-                />
-                invert
-              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={S.check}>
+                  <input
+                    type="checkbox"
+                    checked={!!fcfg.invert}
+                    onChange={(e) =>
+                      patchShape(focused, { invert: e.target.checked })
+                    }
+                  />
+                  invert
+                </label>
+                {(() => {
+                  const srcName = mirrorShapeName(focused);
+                  if (!srcName || !config[srcName]) return null;
+                  return (
+                    <button
+                      style={S.smBtn}
+                      title={`copy ${srcName}, markers mirrored L↔R`}
+                      onClick={fromMirrored}
+                    >
+                      from mirrored ({srcName})
+                    </button>
+                  );
+                })()}
+              </div>
               <div style={{ fontSize: 11, color: '#aaa', margin: '4px 0' }}>
                 metric: {liveMetric != null ? liveMetric.toFixed(4) : '—'} ·
                 live auto:{' '}
