@@ -52,7 +52,7 @@ Chain `bone.quaternion` root → leaf through the VRM skeleton to get world-spac
 
 VRM uses T-pose (arms parallel to shoulder line). Most FBX animations use A-pose (arms at sides, possibly bent). The algorithm computes per-bone `vrmAposeWQ` — the world rotation the VRM bone would have if it were in the FBX rig's A-pose:
 
-- **Hips**: full 3-axis basis alignment using spine direction, left thigh direction, right thigh direction
+- **Hips**: full 3-axis basis alignment using spine direction, left thigh direction, right thigh direction. The resulting `fullRot` has its **world-Y (yaw) twist stripped** — that yaw is the gross facing difference between the avatar's rest pose and the clip's rest pose (≈180° when, e.g., a VRM0 rig faces opposite a Mixamo clip), and baking it would snap the avatar around when the clip starts. Overall facing is owned by the scene yaw (see `faceCameraYaw`, below), so only the A-pose lean (pitch/roll) is kept.
 - **Other bones**: single-axis swing to align child bone directions between FBX and VRM skeletons
 - **Hands**: basis correction including chirality — palm normal (cross product of finger directions) is canonicalized (`if fU.y > 0: fU.negate()`) to ensure anatomically correct orientation regardless of whether the source is left or right handed
 
@@ -163,6 +163,10 @@ Three modes:
 - `mouthFrownLeft/Right` → sad (0.5 each)
 - `browInnerUp` → surprised (0.6)
 - `browDownLeft/Right` → angry (0.5 each)
+
+## Avatar facing — `faceCameraYaw` (`Viewport.tsx`)
+
+On load, each avatar is yawed to face the camera (world +Z). VRM 0.x rigs face +Z and VRM 1.0 rigs face −Z by spec, so the old blanket `vrmScene.rotation.y = Math.PI` only ever suited one convention (the other faced away). `faceCameraYaw(vrm, vrmScene)` instead derives the avatar's **actual** front from its rest-pose skeleton — `(leftUpperArm − rightUpperArm) × (hips → head)`, read in `vrmScene`-local space — flattens it to the XZ plane, and returns the yaw that rotates that front onto +Z. This is deliberately geometry-based rather than branching on `vrm.meta.metaVersion` / `VRMUtils.rotateVRM0`, because real-world models frequently don't honour their version's spec convention. Yaw-only (matching the prior behaviour); falls back to `Math.PI` if the needed bones are missing. Because the FBX retarget works in `vrmScene`-local space, this uniform scene yaw cancels out of the retarget and only reorients the whole avatar.
 
 ## VMC pose application — `Viewport.tsx` (useFrame)
 
@@ -305,3 +309,5 @@ The avatar idle picker writes `properties.animation.idle = { clipId, speed }` (s
 | Animation pops at loop point | First and last keyframe identical, single-frame hold | Trim duration to second-to-last keyframe |
 | Blendshapes exceed 1.0 | Multiple ARKit shapes accumulate to same target | Clamp after accumulation, not per-mapping |
 | Morph targets stomped by expressions | VRM expressionManager also writes morphs | Apply expressions first, then write direct morph target overrides |
+| VRM0 avatar faces away from camera | VRM 0.x rigs face +Z, VRM 1.0 face −Z; loader used a blanket `rotation.y = Math.PI` that only suited one convention | `faceCameraYaw()` derives the actual front from the rest skeleton (shoulder line × spine) and yaws it onto +Z — version-agnostic, no metaVersion/`rotateVRM0` branch (real models often don't honour their spec convention) |
+| Avatar snaps 180° when a clip starts | Hips A-pose `fullRot` baked the gross rest-pose↔clip facing difference (a ~180° yaw for VRM0 vs a Mixamo clip) | Strip the world-Y (yaw) twist from the hips `fullRot`, keep only the A-pose lean; facing is owned by the scene yaw so the animation inherits the rest-pose facing (no-op for VRM1/Mixamo) |
