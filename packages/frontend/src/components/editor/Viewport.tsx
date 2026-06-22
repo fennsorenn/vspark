@@ -487,6 +487,41 @@ interface VmcRetarget {
   _inv: THREE.Quaternion;
 }
 
+/**
+ * Compute the Y rotation (radians) that makes a freshly-loaded VRM face the
+ * camera (world +Z), derived from the rest-pose skeleton rather than the VRM
+ * version flag.
+ *
+ * The avatar's anatomical front is `(leftUpperArm − rightUpperArm) × (hips →
+ * head)`. Bone positions are read in `vrmScene`-local space (so the result is
+ * independent of any node/group transform above it), the front is flattened to
+ * the XZ plane, and we return the yaw that rotates it onto +Z. Falls back to
+ * `Math.PI` (the historical default) if the needed bones are missing or the
+ * skeleton is degenerate.
+ */
+function faceCameraYaw(vrm: VRM, vrmScene: THREE.Object3D): number {
+  vrmScene.rotation.y = 0;
+  vrmScene.updateWorldMatrix(true, true);
+  const toLocal = new THREE.Matrix4().copy(vrmScene.matrixWorld).invert();
+  const localPos = (name: VRMHumanBoneName): THREE.Vector3 | null => {
+    const bone = vrm.humanoid.getRawBoneNode(name);
+    if (!bone) return null;
+    return bone.getWorldPosition(new THREE.Vector3()).applyMatrix4(toLocal);
+  };
+  const lArm = localPos('leftUpperArm');
+  const rArm = localPos('rightUpperArm');
+  const hips = localPos('hips');
+  const head = localPos('head') ?? localPos('neck') ?? localPos('upperChest');
+  if (!lArm || !rArm || !hips || !head) return Math.PI;
+  const right = lArm.sub(rArm);
+  const up = head.sub(hips);
+  const front = right.cross(up); // anatomical front in vrmScene-local space
+  front.y = 0;
+  if (front.lengthSq() < 1e-8) return Math.PI;
+  // Yaw θ s.t. R_y(θ) maps the local front onto +Z (see derivation in fix notes).
+  return Math.atan2(-front.x, front.z);
+}
+
 function buildVmcRetarget(vrm: VRM): VmcRetarget {
   const allNames = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
 
@@ -1093,9 +1128,19 @@ function AvatarNode({
       const vrmScene = gltf.scene;
 
       vrmRef.current = vrm ?? null;
-      vrmScene.rotation.y = Math.PI;
       groupRef.current.clear();
       groupRef.current.add(vrmScene);
+      // Yaw the avatar to face the camera (world +Z). VRM 0.x faces +Z while
+      // VRM 1.0 faces −Z by spec, so the old blanket `rotation.y = Math.PI` only
+      // ever worked for one convention and left the other facing backwards.
+      // Real-world models also don't always honour their version's convention,
+      // so rather than branch on metaVersion (e.g. VRMUtils.rotateVRM0) we derive
+      // the avatar's actual front from its rest-pose skeleton — the shoulder line
+      // (left→right upper arm) crossed with the spine (hips→head) — and rotate
+      // that front onto +Z. Yaw-only, matching the previous behaviour, and a
+      // no-op on the raw-bone retarget pipeline (it works in vrm.scene-local
+      // space, so a uniform scene yaw cancels out).
+      if (vrm) vrmScene.rotation.y = faceCameraYaw(vrm, vrmScene);
 
       if (vrmHelperRef.current) {
         vrmHelperRef.current.clear();
@@ -1745,6 +1790,22 @@ function AvatarNode({
             vrmBasis.clone().invert()
           )
         );
+        // Strip the world-Y (yaw) component of the hips alignment. `fullRot`
+        // captures both the genuine A-pose lean (pitch/roll) AND the gross
+        // facing difference between the VRM rest pose and the FBX rest pose
+        // (a ~180° yaw when the VRM's rest faces opposite the FBX, e.g. VRM 0.x
+        // whose raw skeleton faces +Z vs a Mixamo clip facing −Z). Baking that
+        // yaw makes the retargeted animation face the OPPOSITE way from the
+        // avatar's rest pose — the avatar snaps around when a clip starts. We
+        // don't want it: overall facing is owned by the scene yaw (see
+        // faceCameraYaw), so the animation must inherit the rest-pose facing.
+        // Removing only the twist about world-Y keeps the A-pose lean intact and
+        // is a no-op for VRM rigs already aligned to the clip (VRM1 / Mixamo).
+        const yaw = new THREE.Quaternion(0, fullRot.y, 0, fullRot.w);
+        if (yaw.lengthSq() > 1e-8) {
+          yaw.normalize();
+          fullRot.multiply(yaw.invert());
+        }
         vrmAposeWQ.hips = fullRot.clone().multiply(hipsBindWQ);
       } else {
         vrmAposeWQ.hips = vrmBindWQ.hips?.clone();
