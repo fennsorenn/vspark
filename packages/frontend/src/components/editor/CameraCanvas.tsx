@@ -13,6 +13,7 @@ import {
 } from './Viewport';
 import { ComposeSceneInteractions } from './ComposeSceneInteractions';
 import { FittedOrthoCamera } from './FittedOrthoCamera';
+import { useSceneFadeIn } from '../../hooks/useSceneFadeIn';
 
 function getT(components: Record<string, unknown> | undefined) {
   const t = components?.transform as
@@ -76,13 +77,21 @@ export function CameraCanvas({
   const shadowsEnabled = cc?.shadowsEnabled ?? false;
   const envIntensity = cc?.envIntensity ?? 1;
   const t = getT(cameraNode.components as Record<string, unknown> | undefined);
+  // Hide the view until the avatar(s) have loaded and the first pose frames
+  // settle, then fade in — avoids the pop-in/glitch when a scene first opens.
+  const fadeIn = useSceneFadeIn();
 
   return (
     <Canvas
       frameloop={active ? 'always' : 'never'}
       gl={{ alpha: true, antialias: true, toneMapping: THREE.NoToneMapping }}
       shadows={canvasShadowsProp(shadowsEnabled, cc?.shadowQuality)}
-      style={{ width: '100%', height: '100%', background: 'transparent' }}
+      style={{
+        width: '100%',
+        height: '100%',
+        background: 'transparent',
+        ...fadeIn,
+      }}
       onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
     >
       {projection === 'perspective' ? (

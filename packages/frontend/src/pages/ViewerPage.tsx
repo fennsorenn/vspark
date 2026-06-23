@@ -19,6 +19,7 @@ import {
   type ShadowQuality,
 } from '../components/editor/Viewport';
 import { ComposeLayerStack } from '../components/editor/ComposeLayerStack';
+import { useSceneFadeIn } from '../hooks/useSceneFadeIn';
 
 function getT(components: Record<string, unknown> | undefined) {
   const t = components?.transform as
@@ -145,6 +146,10 @@ export function ViewerPage() {
     setTrackClips,
   ]);
 
+  // Fade the 3D output in once it's loaded and settled (single-camera mode);
+  // compose-scene mode fades each camera_view in via CameraCanvas instead.
+  const fadeIn = useSceneFadeIn();
+
   // ── Compose-scene mode: stream a whole compose scene (its layer stack,
   //    including camera_view 3D). The broadcast IS the compose output. ──
   if (composeSceneId) {
@@ -231,6 +236,7 @@ export function ViewerPage() {
           zIndex: 1,
           visibility: isHidden ? 'hidden' : 'visible',
           pointerEvents: 'none',
+          ...fadeIn,
         }}
         onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
         frameloop={isHidden ? 'never' : 'always'}

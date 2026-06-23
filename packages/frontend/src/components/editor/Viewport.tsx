@@ -65,6 +65,7 @@ import type {
   AnimationClipMeta,
 } from '../../store/editorStore';
 import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync';
+import { useSceneFadeIn } from '../../hooks/useSceneFadeIn';
 
 import type { AnimEntry } from '../../animRegistry';
 import {
@@ -5489,6 +5490,10 @@ export function Viewport() {
   const orbitRef = useRef<any>(null);
   const shadowQuality = useEditorShadowQuality();
   const shadowsEnabled = shadowQuality !== null;
+  // Hide the viewport until the scene's avatar(s) have loaded and the first
+  // pose frames settle, then fade in — avoids seeing models pop in one by one
+  // and snap around when a scene is first opened.
+  const fadeIn = useSceneFadeIn();
 
   return (
     <div
@@ -5504,6 +5509,7 @@ export function Viewport() {
         camera={{ position: [0, 1.5, 5], fov: 50 }}
         gl={{ toneMapping: THREE.NoToneMapping }}
         shadows={canvasShadowsProp(shadowsEnabled, shadowQuality ?? undefined)}
+        style={fadeIn}
       >
         <ambientLight intensity={0.4} />
         <directionalLight
