@@ -147,7 +147,9 @@ export function ComposeLayerProperties({
     } as Partial<ComposeLayerRecord>);
   };
 
-  const unitSelect = (
+  // Compact unit toggle rendered inside a numeric field (right edge), so units
+  // live on the value row instead of a separate line.
+  const unitSelectInline = (
     field: 'x' | 'y' | 'width' | 'height',
     unitKey: UnitKey,
     vsHandle: string
@@ -156,13 +158,62 @@ export function ComposeLayerProperties({
       className={vsHandle}
       value={unitOf(unitKey)}
       onChange={(e) => setUnit(field, unitKey, e.target.value as 'px' | '%')}
-      style={select}
       title={t('properties.unitTitle')}
+      style={{
+        background: 'transparent',
+        border: 'none',
+        color: '#888',
+        fontSize: 10,
+        outline: 'none',
+        cursor: 'pointer',
+        padding: '0 2px 0 0',
+        appearance: 'none',
+        WebkitAppearance: 'none',
+        MozAppearance: 'none',
+        textAlignLast: 'right',
+      }}
     >
       <option value="px">px</option>
       <option value="%">%</option>
     </select>
   );
+
+  // One of the four layer corners. Highlights the active anchor and sets both
+  // axes at once.
+  const anchorBtn = (
+    h: ComposeAnchorH,
+    v: ComposeAnchorV,
+    icon: string,
+    title: string,
+    vsHandle: string
+  ) => {
+    const active = layer.anchorH === h && layer.anchorV === v;
+    return (
+      <button
+        type="button"
+        className={vsHandle}
+        onClick={() => commit({ anchorH: h, anchorV: v })}
+        title={title}
+        style={{
+          width: 26,
+          height: 22,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: active ? '#2a4a6a' : '#2a2a2a',
+          border: `1px solid ${active ? '#5a8acc' : '#3a3a3a'}`,
+          color: active ? '#cfe3ff' : '#888',
+          borderRadius: 4,
+          cursor: 'pointer',
+          fontSize: 13,
+          lineHeight: 1,
+          padding: 0,
+        }}
+      >
+        {icon}
+      </button>
+    );
+  };
 
   const compatibleAssets = assets.filter((a) => {
     if (layer.kind === 'image') return a.kind === 'image';
@@ -344,6 +395,13 @@ export function ComposeLayerProperties({
         values={[layer.x, layer.y]}
         labels={['X', 'Y']}
         step={1}
+        axisSuffix={(axis) =>
+          unitSelectInline(
+            axis === 0 ? 'x' : 'y',
+            axis === 0 ? 'xUnit' : 'yUnit',
+            axis === 0 ? 'vs-layer-x-unit' : 'vs-layer-y-unit'
+          )
+        }
         onChange={(_next, axis) => {
           // Suppress any active clip override so the typed value isn't masked.
           const paramPath = axis === 0 ? 'x' : 'y';
@@ -381,35 +439,44 @@ export function ComposeLayerProperties({
           ])
         }
       />
-      <div style={{ ...row, marginTop: 6 }}>
-        <span style={label}>{t('properties.labelUnits')}</span>
-        {unitSelect('x', 'xUnit', 'vs-layer-x-unit')}
-        {unitSelect('y', 'yUnit', 'vs-layer-y-unit')}
-      </div>
       <div style={row}>
         <span style={label}>{t('properties.labelAnchor')}</span>
-        <select
-          className="vs-layer-anchor-h"
-          value={layer.anchorH}
-          onChange={(e) =>
-            commit({ anchorH: e.target.value as ComposeAnchorH })
-          }
-          style={select}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, auto)',
+            gap: 3,
+          }}
         >
-          <option value="left">{t('properties.anchorLeft')}</option>
-          <option value="right">{t('properties.anchorRight')}</option>
-        </select>
-        <select
-          className="vs-layer-anchor-v"
-          value={layer.anchorV}
-          onChange={(e) =>
-            commit({ anchorV: e.target.value as ComposeAnchorV })
-          }
-          style={select}
-        >
-          <option value="top">{t('properties.anchorTop')}</option>
-          <option value="bottom">{t('properties.anchorBottom')}</option>
-        </select>
+          {anchorBtn(
+            'left',
+            'top',
+            '◰',
+            t('properties.anchorTopLeft'),
+            'vs-layer-anchor-left-top'
+          )}
+          {anchorBtn(
+            'right',
+            'top',
+            '◳',
+            t('properties.anchorTopRight'),
+            'vs-layer-anchor-right-top'
+          )}
+          {anchorBtn(
+            'left',
+            'bottom',
+            '◱',
+            t('properties.anchorBottomLeft'),
+            'vs-layer-anchor-left-bottom'
+          )}
+          {anchorBtn(
+            'right',
+            'bottom',
+            '◲',
+            t('properties.anchorBottomRight'),
+            'vs-layer-anchor-right-bottom'
+          )}
+        </div>
       </div>
 
       <div style={sectionHeader}>{t('properties.sectionSize')}</div>
@@ -419,15 +486,17 @@ export function ComposeLayerProperties({
         labels={['W', 'H']}
         step={1}
         min={[0, 0]}
+        axisSuffix={(axis) =>
+          unitSelectInline(
+            axis === 0 ? 'width' : 'height',
+            axis === 0 ? 'widthUnit' : 'heightUnit',
+            axis === 0 ? 'vs-layer-w-unit' : 'vs-layer-h-unit'
+          )
+        }
         onCommit={(next, axis) =>
           commit(axis === 0 ? { width: next[0] } : { height: next[1] })
         }
       />
-      <div style={{ ...row, marginTop: 6 }}>
-        <span style={label}>{t('properties.labelUnits')}</span>
-        {unitSelect('width', 'widthUnit', 'vs-layer-w-unit')}
-        {unitSelect('height', 'heightUnit', 'vs-layer-h-unit')}
-      </div>
 
       <div style={sectionHeader}>{t('properties.sectionRotation')}</div>
       <NumInput

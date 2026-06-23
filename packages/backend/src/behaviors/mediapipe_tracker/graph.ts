@@ -13,6 +13,14 @@ export const HEAD_CALIB_BONES = [
   'jaw',
   'leftEye',
   'rightEye',
+  // Clavicles — shrug is measured against an approximate neutral ratio, so the head-neutral
+  // capture removes each performer's true resting shoulder offset.
+  'leftShoulder',
+  'rightShoulder',
+  // Wrists — the hand-bone orientation carries a rest offset from noisy hand depth; capturing it
+  // at neutral keeps the hands from sitting flicked-back when held in a relaxed pose.
+  'leftHand',
+  'rightHand',
 ] as const;
 
 // VRM bone names captured by the finger_calib node. Held separate from head calibration
@@ -108,17 +116,63 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     { id: 'mp_source', kind: 'mediapipe_source', position: { x: -120, y: 0 } },
 
     // ── Face stream ───────────────────────────────────────────────────────────
+    // Face landmarks still drive the head frame (in pose_torso_head). Expressions
+    // now come from MediaPipe's native ARKit blendshapes, mapped to VRM via the
+    // same arkit_vrm_mapper trio as the VMC face input — fcl on by default;
+    // expressions and passthrough are independently toggleable and summed so they
+    // coexist.
     { id: 'unpack_face', kind: 'unpack_event', position: { x: 120, y: -160 } },
+    { id: 'unpack_arkit', kind: 'unpack_event', position: { x: 120, y: -360 } },
     {
-      id: 'face_to_bs',
-      kind: 'face_landmarks_to_blendshapes',
-      position: { x: 360, y: -160 },
+      id: 'arkit_fcl',
+      kind: 'arkit_vrm_mapper',
+      position: { x: 360, y: -460 },
+      defaultConfig: { mode: 'fcl' },
     },
+    {
+      id: 'arkit_expr',
+      kind: 'arkit_vrm_mapper',
+      position: { x: 360, y: -360 },
+      defaultConfig: { mode: 'expressions' },
+    },
+    {
+      id: 'arkit_pass',
+      kind: 'arkit_vrm_mapper',
+      position: { x: 360, y: -260 },
+      defaultConfig: { mode: 'passthrough' },
+    },
+    { id: 'bs_sum', kind: 'blendshapes_sum', position: { x: 560, y: -360 } },
     {
       id: 'bs_out',
       kind: 'blendshapes_broadcast',
-      position: { x: 720, y: -160 },
+      position: { x: 760, y: -360 },
     },
+    // ARKit mapper config pairs — same field names as the VMC pipeline so the
+    // same expression-mapping UI controls apply to both.
+    cfgNode('cfg_fcl_en', 'nodeConfig.arkit_fcl_cfg.enabled', true, {
+      x: -120,
+      y: -560,
+    }),
+    cfgNode('cfg_fcl_map', 'nodeConfig.arkit_fcl_cfg.mapping', null, {
+      x: -120,
+      y: -520,
+    }),
+    cfgNode('cfg_expr_en', 'nodeConfig.arkit_expr_cfg.enabled', false, {
+      x: -120,
+      y: -480,
+    }),
+    cfgNode('cfg_expr_map', 'nodeConfig.arkit_expr_cfg.mapping', null, {
+      x: -120,
+      y: -440,
+    }),
+    cfgNode('cfg_pass_en', 'nodeConfig.arkit_pass_cfg.enabled', false, {
+      x: -120,
+      y: -400,
+    }),
+    cfgNode('cfg_pass_map', 'nodeConfig.arkit_pass_cfg.mapping', null, {
+      x: -120,
+      y: -360,
+    }),
 
     // ── Pose stream ───────────────────────────────────────────────────────────
     { id: 'unpack_pose', kind: 'unpack_event', position: { x: 120, y: 0 } },
@@ -270,25 +324,118 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       toPort: 'event',
     },
 
-    // ── Face: trigger → bs_out; value pulled by face_to_bs ───────────────────
+    // ── Face mesh → head frame (tilt/turn) in the torso/head node ─────────────
     {
       fromNodeId: 'unpack_face',
+      fromPort: 'value',
+      toNodeId: 'pose_torso_head',
+      toPort: 'face',
+      kind: 'value',
+    },
+
+    // ── ARKit blendshapes: source → unpack → mapper trio → sum → broadcast ────
+    {
+      fromNodeId: 'mp_source',
+      fromPort: 'arkit',
+      toNodeId: 'unpack_arkit',
+      toPort: 'event',
+    },
+    {
+      fromNodeId: 'unpack_arkit',
       fromPort: 'trigger',
       toNodeId: 'bs_out',
       toPort: 'trigger',
     },
     {
-      fromNodeId: 'unpack_face',
+      fromNodeId: 'unpack_arkit',
       fromPort: 'value',
-      toNodeId: 'face_to_bs',
-      toPort: 'face',
+      toNodeId: 'arkit_fcl',
+      toPort: 'arkit',
       kind: 'value',
     },
     {
-      fromNodeId: 'face_to_bs',
+      fromNodeId: 'unpack_arkit',
+      fromPort: 'value',
+      toNodeId: 'arkit_expr',
+      toPort: 'arkit',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'unpack_arkit',
+      fromPort: 'value',
+      toNodeId: 'arkit_pass',
+      toPort: 'arkit',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'arkit_fcl',
+      fromPort: 'blendshapes',
+      toNodeId: 'bs_sum',
+      toPort: 'sources',
+      kind: 'list',
+    },
+    {
+      fromNodeId: 'arkit_expr',
+      fromPort: 'blendshapes',
+      toNodeId: 'bs_sum',
+      toPort: 'sources',
+      kind: 'list',
+    },
+    {
+      fromNodeId: 'arkit_pass',
+      fromPort: 'blendshapes',
+      toNodeId: 'bs_sum',
+      toPort: 'sources',
+      kind: 'list',
+    },
+    {
+      fromNodeId: 'bs_sum',
       fromPort: 'blendshapes',
       toNodeId: 'bs_out',
       toPort: 'blendshapes',
+      kind: 'value',
+    },
+    // Mapper enable/mapping config.
+    {
+      fromNodeId: 'cfg_fcl_en',
+      fromPort: 'value',
+      toNodeId: 'arkit_fcl',
+      toPort: 'enabled',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'cfg_fcl_map',
+      fromPort: 'value',
+      toNodeId: 'arkit_fcl',
+      toPort: 'mapping',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'cfg_expr_en',
+      fromPort: 'value',
+      toNodeId: 'arkit_expr',
+      toPort: 'enabled',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'cfg_expr_map',
+      fromPort: 'value',
+      toNodeId: 'arkit_expr',
+      toPort: 'mapping',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'cfg_pass_en',
+      fromPort: 'value',
+      toNodeId: 'arkit_pass',
+      toPort: 'enabled',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'cfg_pass_map',
+      fromPort: 'value',
+      toNodeId: 'arkit_pass',
+      toPort: 'mapping',
       kind: 'value',
     },
     {
@@ -341,6 +488,21 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromPort: 'value',
       toNodeId: 'right_hand',
       toPort: 'landmarks',
+      kind: 'value',
+    },
+    // Hand landmarks also feed the quaternion-arm node so it can set wrist orientation.
+    {
+      fromNodeId: 'unpack_lh',
+      fromPort: 'value',
+      toNodeId: 'pose_arms',
+      toPort: 'leftHand',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'unpack_rh',
+      fromPort: 'value',
+      toNodeId: 'pose_arms',
+      toPort: 'rightHand',
       kind: 'value',
     },
 

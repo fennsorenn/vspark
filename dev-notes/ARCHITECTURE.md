@@ -19,7 +19,7 @@ packages/
 | Scene | A `scene_nodes` row with `kind = 'scene'` — itself a node. The scene tree's root. (Migration 018 dropped the standalone `scenes` table; scene ids are reused as the kind=scene node ids.) |
 | Node | Spatial entity (VRM, camera, light, group, etc.). Unique ID, transform inheritance. Roots back to its scene via `root_scene_node_id`. |
 | Compose Scene | A `compose_layers` row with `kind = 'compose_scene'` — root of a per-project compose hierarchy (decoupled from 3D scenes). Layers nest via `parent_id` (migration 016) and root via `root_compose_scene_id`. |
-| Behavior | Behavioral driver attached to a node (VMC receiver, breathing, lipsync, tracking, api_controller). Backed by a signal graph; shown in the "Behaviors" tab. Persisted in the `behaviors` table (renamed from `node_components` in migration 022); code identifier `Behavior`. |
+| Behavior | Behavioral driver attached to a node (VMC receiver, breathing, lipsync, tracking, api_controller, manual_calibration). Backed by a signal graph; shown in the "Behaviors" tab. Persisted in the `behaviors` table (renamed from `node_components` in migration 022); code identifier `Behavior`. |
 | Logic | A user-built standalone signal graph attached to a project / object / layer. Persisted in the `logic` table (renamed from `graphs` via migrations 022 → 025); code type `Logic`, managed by `LogicManager`. A Logic *is* a signal graph; a Behavior is *backed by* one. |
 | Signal Graph | The reactive execution substrate (engine + `GraphDescriptor`): push-based events + pull-based values. One graph instance per Behavior or Logic. Stays named "signal graph"/"graph" at the substrate level. |
 | PoseFrame | Sparse bone rotation payload broadcast over WebSocket at ~60Hz. Carries a `behaviorId` (the producing behavior's instance id). |
@@ -36,7 +36,7 @@ packages/
 | Update routes | Implemented | `routes/update.ts`, `routes/config.ts` — GitHub Releases update check/download/apply (with download progress), config.json channel preference. Apply exits with sentinel code 42; the bundled `start.sh`/`start.bat` supervisor loop unzips the update in place and relaunches in the same console. See [updates.md](modules/updates.md). |
 | SQLite persistence | Implemented | `db/` — `node-sqlite3-wasm` (WASM, no native addon); `WasmDb` adapter; `initDb()` async |
 | Signal graph engine | Implemented | `signal/engine.ts` — typed ports, value cache, cycle detection |
-| Signal node registry | Implemented | `signal/registry.ts` — 57 node kinds (mediapipe converters + IK, runtime mutation primitives `random` / `start_clip` / `spawn_clip` / `set_scene_node_param` / `set_compose_layer_param` / `set_text` / `set_data`, media `media_control`, `log` debug, plus 13 overlive event nodes + `overlive_chat_feed`) |
+| Signal node registry | Implemented | `signal/registry.ts` — 60 node kinds (mediapipe converters + IK, runtime mutation primitives `random` / `start_clip` / `spawn_clip` / `set_scene_node_param` / `set_compose_layer_param` / `set_text` / `set_data`, media `media_control`, `pose_manual_calibration`, `log` debug, plus 13 overlive event nodes + `overlive_chat_feed`) |
 | Engine value-input auto-fallback to `config.<port>` | Implemented | `signal/engine.ts` — unconnected value-input ports automatically resolve to `defaultConfig.<portName>`; nodes no longer need per-port `cfg?.X` boilerplate |
 | VMC receiver manager | Implemented | `behaviors/vmc_receiver/` |
 | Shared UDP socket pool (vmc_receiver) | Implemented | `vmc/udp_socket_pool.ts` — refcounted `UdpSocketPool` singleton (`udpSocketPool`) exposing `subscribe(port, listener, onBound?) -> unsubscribe`. First subscriber binds (currently `0.0.0.0`), last unsubscribe closes; listener dispatch snapshots the set so mid-dispatch unsubscribe is safe. `VmcManager.startReceiver` subscribes instead of binding its own `dgram` socket, so multiple `vmc_receiver` behaviors on the same port each receive every packet independently. See [component-managers.md](modules/component-managers.md). |
@@ -45,6 +45,7 @@ packages/
 | MediaPipe tracking manager | Implemented | `behaviors/mediapipe_tracker/` |
 | API controller manager | Implemented | `behaviors/api_controller/` — REST-driven animation queue + blendshapes; first behavior with a public REST control surface. The animation queue now PROJECTS onto the avatar's shared `scheduled_animation` timeline (the old `api_animation` WS path is retired); in-memory queue/`startedAt` kept only for the REST `/state` read. See [animation.md](modules/animation.md), [api-controller.md](modules/api-controller.md). |
 | Avatar animation (shared, scheduled, content-addressed) | Implemented | `scheduled_animation` rtype (migration 033) — a per-avatar synced clip timeline; idle moved to content-addressed `properties.animation.idle = {clipId, speed}`; frontend clock-anchored driver in `Viewport.tsx` (mixer stepped with `update(0)`, playhead from the synced clock). Clock-relative `startEpoch` localized on receive via the mesh peer-clock API. Deferred: crossfade/blend, global timeline transport, clip preload, two-backend clock-sync verify. See [animation.md](modules/animation.md), [plans/avatar-animation.md](plans/avatar-animation.md). |
+| Manual calibration manager | Implemented | `behaviors/manual_calibration/` — pose interceptor for manually fine-tuning an avatar's pose with a per-bone, per-axis euler multiplier + offset. Second interceptor-registering manager (alongside VMC); only acts while some producer broadcasts a pose for the avatar. New node `pose_manual_calibration`. See [component-managers.md](modules/component-managers.md). |
 | VRM skeleton parsing | Implemented | `vrm/skeleton.ts` — GLB/VRM 0.x + 1.x |
 | WebSocket sync | Implemented | `ws/index.ts` — broadcast bus |
 | Unified sync layer | WIP (frontend bindings partial) | `sync/` + `packages/shared/src/sync.ts` — legacy envelope for historic state. Core abstraction refactored into `@vspark/mesh`. Collab-scene LIVE OPS + RECONCILE migrated onto mesh. **REST write-through DONE** (commits 768ea2d–86a6e8c): all five mutation rtypes (behaviors, camera-effects, scene-nodes, compose-layers, track-clips) now call `collection.set/remove`; the `onCommitted` tap persists via the resource registry and emits `sync.document` for legacy tabs. Direct SQL writes and route-side `sync.document` emissions deleted. **Frontend mesh store feeder — all 5 rtypes DONE** (commits 0d21329, c4e4f04, ed47972): `sync/meshStoreFeeder.ts` feeds the editorStore from the tab's mesh replica via `collection.observe('**')` for `behavior`, `camera_effect`, `compose_layer` (incl. `compose_scene` kind branch), `track_clip`, and `scene_node`. The legacy `'sync'`-envelope bindings file (`sync/resources.ts`) is deleted — no tab reads the envelope anymore (the server still emits it for any external consumer). This re-points the store's TRANSPORT (envelope → replica observation); components still read the Zustand store. **Compose containment scope DONE** (a0d4da0): top-level compose layers anchor to their compose scene via `rootComposeSceneId` in both backend BINDINGS and frontend PARENTS (scene_node-style fallback). Remaining: component reads → mesh-react hooks, writes → `collection.set`, Phase-6 guarded writes. See [sync.md](modules/sync.md) and [mesh.md](modules/mesh.md). |
@@ -80,8 +81,11 @@ packages/
 | Router + App shell | Implemented | `App.tsx` — 4 routes |
 | Zustand store | Implemented | `store/editorStore.ts` — includes update state slice (updateAvailable, updateInfo, pendingReload) |
 | 3D Viewport | Implemented | `components/editor/Viewport.tsx` — R3F, pose application, post-processing, particles |
+| Forearm twist bones | Implemented | `components/editor/twistBones.ts` — frontend-only rig post-step that spreads forearm roll along the forearm instead of pinching it at the elbow. Drives the model's own twist bone (name `/twist\|roll/i`) or, when the avatar node's `forceTwistBone` property is on, **synthesizes** one: inserts a `THREE.Bone` partway (0.55) down each forearm, reparents the hand under it (`attach`, world-transform preserving), and re-skins forearm `SkinnedMesh`es (ramps lowerArm-weighted vertices lowerArm→twist 0..1 along the bind-pose elbow→wrist axis). Per frame (`driveForearmTwist`, called in `Viewport.tsx` `useFrame` after IK/`setNormalizedPose`, before spring/constraint updates) swing-twist-decomposes the `lowerArm` local rotation and routes the twist (× gradient, default 1.0) onto the twist bone, leaving the elbow swing-only; hand world orientation preserved. Purely additive + gated: when no twist bone is set up nothing runs and the backend `ARM_ROLL_UPPER_SHARE` arm-roll split (`signal/nodes/pose_arms_to_bones.ts`) stands; rest pose visually identical; `teardownForearmTwist` restores the backed-up skeleton/weights on toggle-off/reload. Avatar node properties `forceTwistBone` + `excludeSleeves` (`SceneNodeProperties` + Zod + store/api `NodeProperties`); "Force twist bone" toggle with a nested "Exclude sleeves" checkbox + `HelpButton(topic=avatar, anchor=twist)` in `PropertiesPanel.tsx`; `{#twist}` help + `avatar.twist*`/`help.twist` i18n. With `excludeSleeves` on, a one-time post-re-skin BFS (welded-vertex flood-fill from hand/finger seeds through connected twist-weighted geometry) rolls twist weight back to `lowerArm` on anything not reached, so loose sleeves bend with the arm instead of spiralling. Sample fixtures `public/samples/AvatarSample_{A,B,C}.vrm`. See [twist-bones.md](modules/twist-bones.md). |
+| Motion snappiness (second-order dynamics) | Implemented | `secondOrderDynamics.ts` (`SecondOrderDynamicsQuat`, `BoneDynamicsBank`, `PoseDynamicsConfig`, `DEFAULT_POSE_DYNAMICS`) — per-bone spring–damper filter on broadcast bone rotations, layered AFTER the One Euro filter in `Viewport.tsx` (gated on `node.properties.poseDynamics.enabled`, off by default). Can lead/overshoot the target (snappy without choppy). Quaternion second-order dynamics via exponential map, stability-clamped semi-implicit Euler (t3ssel8r formulation adapted to SO(3)). Config persisted as the `poseDynamics` node property (`PoseDynamics` on shared `SceneNodeProperties`, Zod-validated; mirrored in both frontend `NodeProperties`). "Motion Snappiness" PropertiesPanel section + `avatar.*`/`help.dynamics` i18n + `{#snappiness}` help. Deliberately frontend-only (not a backend pose-interceptor) so One Euro stays in place for packet-delivery smoothing. See [animation.md](modules/animation.md) (Motion snappiness). |
 | Viewport pose-gate rewrite | Implemented | Drops `vmcCompRef`/tracking-lost gates; pose applied whenever `pose != null && Object.keys(pose).length > 0 && fresh`; `blendMode` now selects composition strategy (override = replace anim; additive = `animQ * (restRawQ⁻¹ * posedRawQ)`); ramps over per-avatar `blendTransitionTime` (default 0.5s) |
 | PropertiesPanel: blend-time relocation + breathing UI | Implemented | `blendTime` removed from vmc_receiver UI; `blendTransitionTime` lives on the VRM avatar node's `properties`; new `BreathingProps` panel (Chest amplitude + Shoulder lift) |
+| PropertiesPanel: manual calibration panel | Implemented | `ManualCalibrationProps` — lists all `VRM_BONE_NAMES` as collapsible per-bone sections with Multiplier (X/Y/Z, default 1) + Offset (X/Y/Z degrees, default 0) VecInputs, per-bone reset + "Reset all", modified-bone marker (●) + count. Persists only non-default entries into behavior config `calibrations`. See [frontend.md](modules/frontend.md). |
 | PropertiesPanel: avatar default expressions | Implemented | Avatar section drops the inline animation-asset grid (now picked via the bottom-dock Animations tab; Pick… just flashes it); read-only Expressions list becomes a **Default Expression** control (0..1 slider per VRM expression). Weights persist on `node.properties.defaultExpressions` (shared `SceneNodeProperties.defaultExpressions`, only non-zero kept; backend shallow-merge). `Viewport.tsx` applies them as a per-frame baseline under live broadcast blendshapes. See [frontend.md](modules/frontend.md) and [animation.md](modules/animation.md). |
 | Scene graph panel | Implemented | `components/editor/SceneGraph.tsx` |
 | Properties panel | Implemented | `components/editor/PropertiesPanel.tsx` |
@@ -123,7 +127,7 @@ UDP port (configurable)
   → SignalGraph.fire() → vmc_packet_source
   → rhylive_bone_mapper → body_calibration → arm_ik_calibration
   → pose_broadcast → WS vmc_pose
-  → [pose interceptors: breathing, etc.]
+  → [pose interceptors: breathing, manual_calibration, etc.]
   → Frontend useWsSync → Zustand → Viewport.useFrame() → VRM bones
 ```
 
@@ -150,7 +154,11 @@ Landmarks are sent over WS and processed in a backend signal graph:
 Browser camera (worker) → MediaPipe Holistic → useTrackingUplink
   → WS tracking_input
   → TrackingManager.fireLandmarks() → mediapipe_source
-     ├── face   → face_landmarks_to_blendshapes ─┐
+     ├── arkit  → arkit_vrm_mapper ×3 → blendshapes_sum → blendshapes_broadcast → WS vmc_blendshapes
+     │            (ARKit face shapes computed browser-side: default landmark heuristic
+     │             arkitHeuristic.ts, or trained FaceLandmarker when "HQ face" is on;
+     │             same trio as VMC. face_landmarks_to_blendshapes unwired but registered)
+     ├── face   → pose_torso_head_to_bones (head tilt/turn) ┐
      ├── pose   → pose_torso_head_to_bones ──────┤
      ├── pose   → pose_arms_to_bones (quat arms) ┤
      ├── hands  → hand_landmarks_to_bones (L/R) ─┤
@@ -158,7 +166,6 @@ Browser camera (worker) → MediaPipe Holistic → useTrackingUplink
      │                                           │     → head_calib (body_calibration: HEAD_CALIB_BONES)
      │                                           │     → finger_calib (body_calibration: FINGER_CALIB_BONES, mirrorPairs)
      │                                           │     → pose_broadcast → WS vmc_pose
-     │                                           └── blendshapes_broadcast → WS vmc_blendshapes
      └── pose   → pose_ik_targets → ik_broadcast → WS ik_targets   (IK-arms branch)
 
 Arm mode toggle: useIk config → not_bool fan-out enables either pose_arms_to_bones
@@ -184,8 +191,8 @@ All five mutation rtypes (`scene_node`, `behavior`, `camera_effect`, `compose_la
 
 ## Module Docs
 
-- [signal-graph.md](modules/signal-graph.md) — engine (class-instance/decorator model + edge-time type inference), all 57 node kinds, how to add a new node
-- [component-managers.md](modules/component-managers.md) — Behavior managers (VMC, breathing, lipsync, tracking, api_controller); lifecycle pattern. (Doc filename `component-managers.md` kept; managers live in the `behaviors/` source dir.)
+- [signal-graph.md](modules/signal-graph.md) — engine (class-instance/decorator model + edge-time type inference), all 60 node kinds, how to add a new node
+- [component-managers.md](modules/component-managers.md) — Behavior managers (VMC, breathing, lipsync, tracking, api_controller, manual_calibration); lifecycle pattern. (Doc filename `component-managers.md` kept; managers live in the `behaviors/` source dir.)
 - [api-controller.md](modules/api-controller.md) — REST-driven animation/blendshape control surface, the first behavior with public REST endpoints
 - [backend-api.md](modules/backend-api.md) — REST routes, WebSocket, DB migrations
 - [frontend.md](modules/frontend.md) — Zustand store, Viewport, editor panels, hooks
@@ -211,6 +218,7 @@ All five mutation rtypes (`scene_node`, `behavior`, `camera_effect`, `compose_la
 - [spawn.md](modules/spawn.md) — ephemeral clip-clone spawning; tmp scene-node / compose-layer instances driven by `spawn_clip`
 - [paramPaths.md](modules/paramPaths.md) — shared paramPath registry used by clips, runtime overrides, and `set_*_param` nodes
 - [material-overrides.md](modules/material-overrides.md) — per-avatar Material Editor: switch each VRM material between MToon, PBR, and APBR (advanced `MeshPhysicalMaterial`), the apply/swap layer, and why MToon vs PBR matters for lighting
+- [twist-bones.md](modules/twist-bones.md) — forearm twist bones: detect-or-synthesize a twist bone (insert + reparent + re-skin), per-frame swing-twist drive after the humanoid pose, the `forceTwistBone` avatar property; an additive frontend post-step over the backend `ARM_ROLL_UPPER_SHARE` arm-roll split
 - [media.md](modules/media.md) — video + audio assets, `video`/`audio` scene-node kinds, the media-command bus (`MediaControlManager` + `media_control` node), the frontend media registry + `MediaHandle`, the audio listener / audibility model, and the track-clip event/marker lane
 - [i18n-help.md](modules/i18n-help.md) — internationalisation (EN/DE via react-i18next, Vite-glob locale discovery, namespace conventions) and the in-app help system (`HelpButton`, `HelpWindow`, `DocViewer`, `DocsPage`, stable cross-locale `{#anchor}` convention)
 

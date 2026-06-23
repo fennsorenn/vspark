@@ -101,6 +101,25 @@ function qinv(q: Quaternion): Quaternion {
   return new Quaternion(-q.x, -q.y, -q.z, q.w);
 }
 
+// Quaternion from an axis (unit) and angle (radians).
+function axisAngle(axis: V3, angle: number): Quaternion {
+  const s = Math.sin(angle / 2);
+  return new Quaternion(
+    axis[0] * s,
+    axis[1] * s,
+    axis[2] * s,
+    Math.cos(angle / 2)
+  );
+}
+
+// Anatomical flexion range for a single finger segment: a little hyperextension, up to a
+// strong curl. Keeps the joint from ever reaching the nonsensical 180° fold.
+const FLEX_MIN = -0.2; // ~ -11°
+const FLEX_MAX = 1.9; //  ~ 109°
+// Abduction/adduction (finger fan-out) range at the knuckle. Smaller than flexion — fingers only
+// splay a modest amount.
+const SPREAD_MAX = 0.45; // ~ 26°
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Hand coordinate frame
 //
@@ -208,20 +227,44 @@ function buildHandFrame(
 // For a finger segment from→to, compute the local rotation relative to the
 // parent quaternion (accumulated from wrist outward).
 //
-// VRM finger bones at T-pose rest extend along ±X (same axis as the upper arm).
-// The local rotation rotates the rest direction to the observed segment direction
-// expressed in the parent's local frame.
+// VRM finger bones at T-pose rest extend along ±X (same axis as the upper arm), and the palm
+// faces -Y (dorsal/back-of-hand is +Y). Finger joints are hinges: they flex by curling the rest
+// direction toward the palm about a single axis. We model exactly that — measure the flexion
+// angle in the rest→palm plane and rotate about the fixed hinge axis, clamped to an anatomical
+// range. This avoids the rotFromTo degeneracy that made segments snap between 0° and 180° when
+// MediaPipe's unreliable hand depth pushed the observed direction near anti-parallel to rest.
 function fingerSegmentLocal(
   pts: Landmark[],
   fromIdx: number,
   toIdx: number,
   parentWorldQ: Quaternion,
-  restDir: V3
+  restDir: V3,
+  allowSpread = false
 ): Quaternion {
   const dir = norm(sub(pts[toIdx], pts[fromIdx]));
   // Express the observed direction in parent-local space.
   const localDir = qvec(qinv(parentWorldQ), dir);
-  return rotFromTo(restDir, localDir);
+  const palmLocal: V3 = [0, -1, 0]; // palm direction in VRM hand-local rest frame
+  // Signed flexion angle: 0 when aligned with rest, positive as it curls toward the palm.
+  const flex = Math.atan2(dot(localDir, palmLocal), dot(localDir, restDir));
+  const flexClamped = Math.max(FLEX_MIN, Math.min(FLEX_MAX, flex));
+  // Hinge axis = rest × palm; rotating restDir about it by +flex sweeps toward the palm.
+  const hinge = norm(cross(restDir, palmLocal));
+  const qFlex = axisAngle(hinge, flexClamped);
+  if (!allowSpread) return qFlex;
+  // Spread (abduction): the sideways angle of the finger within the palm plane, about the palm
+  // normal. Measured from the finger direction with its palm-normal component removed, so it's
+  // independent of how far the finger is curled.
+  const sideAxis = norm(cross(palmLocal, restDir)); // in-palm sideways direction
+  const planar: V3 = [localDir[0], 0, localDir[2]]; // drop palm-normal (Y) component
+  const pl = len(planar);
+  if (pl < 0.2) return qFlex; // too curled to read spread reliably
+  const planarN: V3 = [planar[0] / pl, planar[1] / pl, planar[2] / pl];
+  const spread = Math.atan2(dot(planarN, sideAxis), dot(planarN, restDir));
+  const spreadClamped = Math.max(-SPREAD_MAX, Math.min(SPREAD_MAX, spread));
+  // +spread rotates restDir toward sideAxis about the palm normal [0,-1,0].
+  const qSpread = axisAngle([0, -1, 0], spreadClamped);
+  return qmul(qSpread, qFlex);
 }
 
 function convertHand(pts: Landmark[], side: 'left' | 'right'): NormalizedPose {
@@ -293,13 +336,14 @@ function convertHand(pts: Landmark[], side: 'left' | 'right'): NormalizedPose {
   ];
 
   for (const f of fingers) {
-    // MCP local (relative to hand = handToWorld)
+    // MCP local (relative to hand = handToWorld). Knuckles carry the spread DOF.
     const mcpLocal = fingerSegmentLocal(
       pts,
       f.mcp,
       f.pip,
       handToWorld,
-      restDir
+      restDir,
+      true
     );
     entries.push([f.mcpBone, mcpLocal]);
 
@@ -314,13 +358,15 @@ function convertHand(pts: Landmark[], side: 'left' | 'right'): NormalizedPose {
     entries.push([f.dipBone, dipLocal]);
   }
 
-  // Thumb (CMC→MCP→IP→Tip, slightly different chain)
+  // Thumb (CMC→MCP→IP→Tip, slightly different chain). The thumb's base joint moves mostly by
+  // abduction, so it carries the spread DOF too.
   const thumbCmcLocal = fingerSegmentLocal(
     pts,
     H.thumbCmc,
     H.thumbMcp,
     handToWorld,
-    restDir
+    restDir,
+    true
   );
   entries.push([
     L ? 'leftThumbMetacarpal' : 'rightThumbMetacarpal',

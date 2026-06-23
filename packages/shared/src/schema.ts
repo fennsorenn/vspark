@@ -54,6 +54,16 @@ export const sceneNodePropertiesSchema = z
     blendTransitionTime: z.number().min(0).max(10).optional(),
     broadcastTickHz: z.number().min(1).max(240).optional(),
     sourceSceneId: z.string().optional(),
+    poseDynamics: z
+      .object({
+        enabled: z.boolean(),
+        frequency: z.number().min(0.05).max(30),
+        damping: z.number().min(0).max(4),
+        response: z.number().min(-5).max(5),
+      })
+      .optional(),
+    forceTwistBone: z.boolean().optional(),
+    excludeSleeves: z.boolean().optional(),
   })
   .openapi('SceneNodeProperties');
 
@@ -659,12 +669,8 @@ export type CreateAnimationClipInput = z.infer<
   typeof createAnimationClipSchema
 >;
 export type CreateAssetInput = z.infer<typeof createAssetSchema>;
-export type CreateBehaviorInput = z.infer<
-  typeof createBehaviorSchema
->;
-export type UpdateBehaviorInput = z.infer<
-  typeof updateBehaviorSchema
->;
+export type CreateBehaviorInput = z.infer<typeof createBehaviorSchema>;
+export type UpdateBehaviorInput = z.infer<typeof updateBehaviorSchema>;
 export type CreateCameraEffectInput = z.infer<typeof createCameraEffectSchema>;
 export type UpdateCameraEffectInput = z.infer<typeof updateCameraEffectSchema>;
 export type CreateComposeLayerInput = z.infer<typeof createComposeLayerSchema>;

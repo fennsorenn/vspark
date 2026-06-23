@@ -27,6 +27,13 @@ Browser und sendet das Ergebnis an deinen Avatar.
 Das ist der einfachste Einstieg: hänge das Tracking-Verhalten an, erlaube den
 Kamerazugriff und kalibriere einmal, während du in einer neutralen Pose stehst.
 
+Die Schalter **Gesicht**, **Pose** und **Hände** bestimmen, welche Teile erfasst
+werden. **HD-Gesicht** steuert, wie der Gesichtsausdruck geschätzt wird: aus (die
+Voreinstellung) leitet ihn günstig aus den ohnehin erfassten Gesichtspunkten ab,
+während ein eigens hochwertiges Gesichtsmodell für genauere Ausdrücke sorgt — auf
+Kosten zusätzlicher CPU-Last. Aktiviere es nur, wenn deine Maschine eine flüssige
+Bildrate hält.
+
 ## Lippensynchronisation {#lipsync}
 
 Die Lippensynchronisation hört auf dein **Mikrofon** und wandelt Sprache in

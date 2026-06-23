@@ -229,21 +229,17 @@ test('cov-compose: exercise ComposeTree and layer-property controls', async ({
   // Reset to normal.
   await blendSelect.selectOption('normal');
 
-  // vs-layer-anchor-h — horizontal anchor select.
-  const anchorH = page.locator('.vs-layer-anchor-h');
-  await expect(anchorH).toBeVisible();
-  await anchorH.selectOption('right');
-  // Reset.
-  await anchorH.selectOption('left');
+  // Anchor is a 2×2 grid of corner buttons; each corner sets both axes at once.
+  // vs-layer-anchor-right-bottom — pick the bottom-right corner.
+  const anchorBR = page.locator('.vs-layer-anchor-right-bottom');
+  await expect(anchorBR).toBeVisible();
+  await anchorBR.click();
+  // vs-layer-anchor-left-top — reset back to the top-left corner.
+  const anchorTL = page.locator('.vs-layer-anchor-left-top');
+  await expect(anchorTL).toBeVisible();
+  await anchorTL.click();
 
-  // vs-layer-anchor-v — vertical anchor select.
-  const anchorV = page.locator('.vs-layer-anchor-v');
-  await expect(anchorV).toBeVisible();
-  await anchorV.selectOption('bottom');
-  // Reset.
-  await anchorV.selectOption('top');
-
-  // vs-layer-x-unit — X position unit select.
+  // vs-layer-x-unit — X position unit select (inline in the value row).
   const xUnit = page.locator('.vs-layer-x-unit');
   await expect(xUnit).toBeVisible();
   await xUnit.selectOption('%');

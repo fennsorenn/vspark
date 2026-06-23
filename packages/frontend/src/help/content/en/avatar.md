@@ -34,6 +34,27 @@ than snapping. The blend time is adjustable per avatar.
 > Tip: if your avatar looks frozen, check that a motion-capture behavior is
 > attached and connected — see [Behaviors](topic:behaviors).
 
+## Motion snappiness {#snappiness}
+
+Motion-capture data is usually smoothed before it reaches vspark, and vspark
+smooths it again to ride out network hiccups. That keeps movement stable, but it
+can also make it feel a little soft or floaty. **Motion snappiness** adds back a
+sense of crispness without reintroducing jitter.
+
+Turn it on per avatar, then tune three dials:
+
+- **Frequency** — how quickly the avatar reacts. Higher feels snappier; very high
+  can look twitchy.
+- **Damping** — how much it settles versus bounces. Around 1 stops cleanly with
+  no overshoot; below 1 adds a lively little overshoot (the "snap"); above 1
+  feels heavy and sluggish.
+- **Response** — how eagerly it leads into a movement. 0 is neutral; higher
+  values make the avatar anticipate and accelerate into motion for extra punch.
+
+> Tip: start with the defaults, then nudge **Damping** down slightly for more
+> snap. If motion starts to wobble or buzz, raise **Damping** or lower
+> **Frequency**.
+
 ## Expressions {#expressions}
 
 Expressions are facial poses defined inside the VRM, such as smiling, blinking,
@@ -62,3 +83,22 @@ Calibration corrects differences between your body and the avatar's proportions
 so the motion lines up naturally — for example matching your arm length to the
 character's. Most tracking behaviors include a calibration step; follow the
 on-screen prompt while standing in a neutral pose.
+
+## Forearm twist {#twist}
+
+When the avatar rotates its wrist (pronation/supination), a standard VRM has only
+one forearm bone, so the whole twist lands at the elbow — the forearm looks like
+a wrung-out cloth. **Force twist bone** adds a hidden helper bone partway down
+each forearm and re-weights the forearm so the rotation spreads smoothly from the
+elbow to the wrist, the way a real arm twists. The hand keeps the exact same
+orientation; only the surface in between is smoothed.
+
+If the model was authored with its own forearm twist bones, those are used
+automatically and this toggle is unnecessary. The toggle has no effect on the
+rest pose — you only see the difference while the wrist is rotating.
+
+**Exclude sleeves** keeps the twist off loose sleeve and cuff geometry, so a
+baggy sleeve bends with the arm without spiralling like skin. It works by
+keeping the twist only on surfaces that connect back to the hand, so separate
+clothing shells are left out. Turn it off if a fitted sleeve should twist along
+with the arm, or if a sleeve is the only forearm geometry the model has.

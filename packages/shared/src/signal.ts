@@ -133,6 +133,50 @@ export class Quaternion {
   premultiply(lhs: Quaternion): Quaternion {
     return lhs.multiply(this);
   }
+
+  /**
+   * Build a unit quaternion from intrinsic ZYX Euler angles (radians):
+   * Rz(roll) · Ry(yaw) · Rx(pitch). pitch = X axis, yaw = Y axis, roll = Z axis.
+   * Matches the `euler_to_quaternion` signal node convention; `toEuler` is its inverse.
+   */
+  static fromEuler(pitch: number, yaw: number, roll: number): Quaternion {
+    const cx = Math.cos(pitch / 2),
+      sx = Math.sin(pitch / 2);
+    const cy = Math.cos(yaw / 2),
+      sy = Math.sin(yaw / 2);
+    const cz = Math.cos(roll / 2),
+      sz = Math.sin(roll / 2);
+    return new Quaternion(
+      sx * cy * cz - cx * sy * sz,
+      cx * sy * cz + sx * cy * sz,
+      cx * cy * sz - sx * sy * cz,
+      cx * cy * cz + sx * sy * sz
+    ).normalize();
+  }
+
+  /**
+   * Decompose into intrinsic ZYX Euler angles (radians), the inverse of `fromEuler`.
+   * Returns `{ pitch, yaw, roll }` (X, Y, Z). Near the yaw = ±90° singularity
+   * (gimbal lock) the roll/pitch split is ambiguous; this collapses the coupled
+   * rotation onto `roll` and returns `pitch = 0` — acceptable for manual calibration.
+   */
+  toEuler(): { pitch: number; yaw: number; roll: number } {
+    const { x, y, z, w } = this.normalize();
+    const sinYaw = 2 * (w * y - x * z);
+    if (Math.abs(sinYaw) > 0.99999) {
+      // Gimbal lock: yaw at ±90°, pitch and roll are coupled.
+      return {
+        pitch: 0,
+        yaw: Math.sign(sinYaw) * (Math.PI / 2),
+        roll: Math.atan2(2 * (x * y - w * z), 1 - 2 * (x * x + z * z)),
+      };
+    }
+    return {
+      pitch: Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y)),
+      yaw: Math.asin(sinYaw),
+      roll: Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)),
+    };
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

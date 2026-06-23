@@ -16,6 +16,7 @@ import { VmcPacketSource } from './nodes/vmc_packet_source.js';
 import { RhyliveBoneMapper } from './nodes/rhylive_bone_mapper.js';
 import { ArkitVrmMapper } from './nodes/arkit_vrm_mapper.js';
 import { BodyCalibration } from './nodes/body_calibration.js';
+import { PoseManualCalibration } from './nodes/pose_manual_calibration.js';
 import { PoseBroadcast } from './nodes/pose_broadcast.js';
 import { BlendshapesBroadcast } from './nodes/blendshapes_broadcast.js';
 import { BlendshapesSum } from './nodes/blendshapes_sum.js';
@@ -86,6 +87,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   RhyliveBoneMapper,
   ArkitVrmMapper,
   BodyCalibration,
+  PoseManualCalibration,
   // Output nodes
   PoseBroadcast,
   BlendshapesBroadcast,

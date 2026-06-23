@@ -1,12 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
+import {
+  DEFAULT_POSE_DYNAMICS,
+  type PoseDynamicsConfig,
+} from '../../secondOrderDynamics';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 import {
   getBuiltinParticleTextures,
   builtinParticleTextureUrl,
 } from '../../particleTextures';
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
+import { VRM_BONE_NAMES } from '@vspark/shared/signal';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { api, fireSignalEvent, updateScene } from '../../api/client';
@@ -2877,6 +2882,207 @@ function BreathingProps({ comp }: { comp: Behavior }) {
   );
 }
 
+// ── Manual calibration component panel ───────────────────────────────────────
+
+interface BoneCalibration {
+  multiplier?: [number, number, number];
+  offset?: [number, number, number];
+}
+
+const DEFAULT_MULTIPLIER: [number, number, number] = [1, 1, 1];
+const DEFAULT_OFFSET: [number, number, number] = [0, 0, 0];
+
+function isDefaultCalibration(cal: BoneCalibration): boolean {
+  const m = cal.multiplier ?? DEFAULT_MULTIPLIER;
+  const o = cal.offset ?? DEFAULT_OFFSET;
+  return (
+    m[0] === 1 &&
+    m[1] === 1 &&
+    m[2] === 1 &&
+    o[0] === 0 &&
+    o[1] === 0 &&
+    o[2] === 0
+  );
+}
+
+const resetBtnStyle: React.CSSProperties = {
+  alignSelf: 'flex-start',
+  background: 'transparent',
+  color: '#a66',
+  border: '1px solid #533',
+  borderRadius: 4,
+  fontSize: 10,
+  padding: '1px 6px',
+  cursor: 'pointer',
+};
+
+/** Compact, self-contained collapsible row for one bone (tight spacing — the
+ *  generic CollapsibleSection's 16px header margins stack badly across 55 bones). */
+function BoneCalibRow({
+  bone,
+  cal,
+  modified,
+  onChange,
+  onReset,
+}: {
+  bone: string;
+  cal: BoneCalibration;
+  modified: boolean;
+  onChange: (patch: BoneCalibration) => void;
+  onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const m = cal.multiplier ?? DEFAULT_MULTIPLIER;
+  const o = cal.offset ?? DEFAULT_OFFSET;
+  return (
+    <div style={{ borderBottom: '1px solid #262626' }}>
+      <div
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          cursor: 'pointer',
+          userSelect: 'none',
+          padding: '3px 2px',
+          fontSize: 11,
+          color: modified ? '#c9b86a' : '#aaa',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            color: '#666',
+            display: 'inline-block',
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: 'transform 120ms',
+          }}
+        >
+          ▶
+        </span>
+        <span style={{ flex: 1, minWidth: 0 }}>{bone}</span>
+        {modified && <span style={{ color: '#c9b86a', fontSize: 9 }}>●</span>}
+      </div>
+      {open && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            padding: '2px 2px 8px 16px',
+          }}
+        >
+          <VecInput
+            values={m as number[]}
+            labels={['X', 'Y', 'Z']}
+            step={0.1}
+            groupLabel="Multiplier"
+            onChange={(next) =>
+              onChange({ multiplier: next as [number, number, number] })
+            }
+            onCommit={(next) =>
+              onChange({ multiplier: next as [number, number, number] })
+            }
+            style={{ minWidth: 0 }}
+          />
+          <VecInput
+            values={o as number[]}
+            labels={['X', 'Y', 'Z']}
+            step={1}
+            suffix="°"
+            groupLabel="Offset (°)"
+            onChange={(next) =>
+              onChange({ offset: next as [number, number, number] })
+            }
+            onCommit={(next) =>
+              onChange({ offset: next as [number, number, number] })
+            }
+            style={{ minWidth: 0 }}
+          />
+          {modified && (
+            <button onClick={onReset} style={resetBtnStyle}>
+              Reset bone
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ManualCalibrationProps({ comp }: { comp: Behavior }) {
+  const { updateBehavior } = useEditorStore();
+  const cfg = (comp.config ?? {}) as {
+    calibrations?: Record<string, BoneCalibration>;
+  };
+  const calibrations = cfg.calibrations ?? {};
+
+  const saveCalibrations = (next: Record<string, BoneCalibration>) => {
+    const config = { ...comp.config, calibrations: next };
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
+  };
+
+  const setBone = (bone: string, patch: BoneCalibration) => {
+    const merged: BoneCalibration = { ...calibrations[bone], ...patch };
+    const next = { ...calibrations };
+    // Prune entries that are back at the identity so the stored map stays lean.
+    if (isDefaultCalibration(merged)) delete next[bone];
+    else next[bone] = merged;
+    saveCalibrations(next);
+  };
+
+  const resetBone = (bone: string) => {
+    if (!(bone in calibrations)) return;
+    const next = { ...calibrations };
+    delete next[bone];
+    saveCalibrations(next);
+  };
+
+  const modifiedCount = Object.keys(calibrations).length;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}
+      >
+        <span style={{ fontSize: 11, color: '#888' }}>
+          {modifiedCount > 0
+            ? `${modifiedCount} bone${modifiedCount === 1 ? '' : 's'} calibrated`
+            : 'No calibration'}
+        </span>
+        {modifiedCount > 0 && (
+          <button onClick={() => saveCalibrations({})} style={resetBtnStyle}>
+            Reset all
+          </button>
+        )}
+      </div>
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        Multiplier scales how far a rotation travels along each axis (2 = twice
+        as far). Offset shifts the neutral 0, in degrees.
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {VRM_BONE_NAMES.map((bone) => (
+          <BoneCalibRow
+            key={bone}
+            bone={bone}
+            cal={calibrations[bone] ?? {}}
+            modified={bone in calibrations}
+            onChange={(patch) => setBone(bone, patch)}
+            onReset={() => resetBone(bone)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Component dispatcher ──────────────────────────────────────────────────────
 
 function BehaviorProps({ comp }: { comp: Behavior }) {
@@ -2892,6 +3098,8 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
       return <ApiControllerProps comp={comp} />;
     case 'breathing':
       return <BreathingProps comp={comp} />;
+    case 'manual_calibration':
+      return <ManualCalibrationProps comp={comp} />;
     default:
       return (
         <div style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>
@@ -7332,6 +7540,196 @@ export function PropertiesPanel() {
                 }}
               />
             </div>
+          </>
+        )}
+
+        {/* Motion snappiness (second-order dynamics) — avatar only */}
+        {node.kind === 'avatar' &&
+          (() => {
+            const dyn: PoseDynamicsConfig = {
+              ...DEFAULT_POSE_DYNAMICS,
+              ...node.properties?.poseDynamics,
+            };
+            const liveDyn = (next: PoseDynamicsConfig) => {
+              storeUpdateNode(node.id, {
+                properties: { ...node.properties, poseDynamics: next },
+              });
+            };
+            const commitDyn = (next: PoseDynamicsConfig) => {
+              liveDyn(next);
+              api
+                .updateNode(node.id, { properties: { poseDynamics: next } })
+                .catch(() => {});
+            };
+            const labelStyle = {
+              fontSize: 12,
+              color: '#888',
+              width: 110,
+              flexShrink: 0,
+            } as const;
+            return (
+              <>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {t('avatar.dynamicsHeader')}
+                  <HelpButton
+                    topic="avatar"
+                    anchor="snappiness"
+                    tip={t('help.dynamics')}
+                  />
+                </div>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 12,
+                    color: '#888',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={dyn.enabled}
+                    onChange={(e) =>
+                      commitDyn({ ...dyn, enabled: e.target.checked })
+                    }
+                  />
+                  {t('avatar.dynamicsEnable')}
+                </label>
+                {dyn.enabled && (
+                  <>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <span style={labelStyle}>
+                        {t('avatar.dynamicsFrequency')}
+                      </span>
+                      <NumInput
+                        value={dyn.frequency}
+                        step={0.1}
+                        min={0.05}
+                        max={30}
+                        suffix="Hz"
+                        style={{ flex: 1, minWidth: 0 }}
+                        onChange={(v) => liveDyn({ ...dyn, frequency: v })}
+                        onCommit={(v) => commitDyn({ ...dyn, frequency: v })}
+                      />
+                    </div>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <span style={labelStyle}>
+                        {t('avatar.dynamicsDamping')}
+                      </span>
+                      <NumInput
+                        value={dyn.damping}
+                        step={0.05}
+                        min={0}
+                        max={4}
+                        style={{ flex: 1, minWidth: 0 }}
+                        onChange={(v) => liveDyn({ ...dyn, damping: v })}
+                        onCommit={(v) => commitDyn({ ...dyn, damping: v })}
+                      />
+                    </div>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <span style={labelStyle}>
+                        {t('avatar.dynamicsResponse')}
+                      </span>
+                      <NumInput
+                        value={dyn.response}
+                        step={0.1}
+                        min={-5}
+                        max={5}
+                        style={{ flex: 1, minWidth: 0 }}
+                        onChange={(v) => liveDyn({ ...dyn, response: v })}
+                        onCommit={(v) => commitDyn({ ...dyn, response: v })}
+                      />
+                    </div>
+                  </>
+                )}
+              </>
+            );
+          })()}
+
+        {/* Forearm twist — avatar only */}
+        {node.kind === 'avatar' && (
+          <>
+            <div
+              style={{
+                ...sectionHeader,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              {t('avatar.twistHeader')}
+              <HelpButton topic="avatar" anchor="twist" tip={t('help.twist')} />
+            </div>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12,
+                color: '#888',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={node.properties?.forceTwistBone === true}
+                onChange={(e) => {
+                  const forceTwistBone = e.target.checked;
+                  storeUpdateNode(node.id, {
+                    properties: { ...node.properties, forceTwistBone },
+                  });
+                  api
+                    .updateNode(node.id, { properties: { forceTwistBone } })
+                    .catch(() => {});
+                }}
+              />
+              {t('avatar.twistForce')}
+            </label>
+            {node.properties?.forceTwistBone === true && (
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 12,
+                  color: '#888',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  marginLeft: 20,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={node.properties?.excludeSleeves === true}
+                  onChange={(e) => {
+                    const excludeSleeves = e.target.checked;
+                    storeUpdateNode(node.id, {
+                      properties: { ...node.properties, excludeSleeves },
+                    });
+                    api
+                      .updateNode(node.id, { properties: { excludeSleeves } })
+                      .catch(() => {});
+                  }}
+                />
+                {t('avatar.twistExcludeSleeves')}
+              </label>
+            )}
           </>
         )}
 

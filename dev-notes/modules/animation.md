@@ -15,13 +15,13 @@ Both produce per-bone world-space quaternions. The blend weight ramps smoothly b
 
 **Convention: quaternions are always xyzw.** Every serialization path (JSON tuples, WS messages, DB state) uses `[x, y, z, w]`. Mixing this up with wxyz breaks all rotations silently.
 
-**`Quaternion`**: Immutable unit quaternion. Methods: `multiply`, `invert`, `normalize`. Invalid (near-zero) quaternions normalize to `IDENTITY`.
+**`Quaternion`**: Immutable unit quaternion. Methods: `multiply`, `invert`, `normalize`. Invalid (near-zero) quaternions normalize to `IDENTITY`. Euler bridges: `Quaternion.fromEuler(pitch, yaw, roll)` and `q.toEuler()` use the **intrinsic ZYX** convention (matching `euler_to_quaternion`); round-trip verified to ~1e-14, and `toEuler` collapses the coupled rotation onto roll at the yaw=±90° gimbal singularity. Used by `pose_manual_calibration` to apply per-axis multiply/offset.
 
 **`BoneRotations`**: `Map<string, Quaternion>` — raw mocap data keyed by source app bone names (Unity HumanBodyBones, RhyLive format, etc.). Pre-mapping.
 
 **`NormalizedPose`**: `Map<VRMBoneName, Quaternion>` — after mapping and coordinate correction. All downstream consumers use this.
 
-**`VRM_BONE_NAMES`**: 54-element string array. The canonical key set for `NormalizedPose`. Covers full humanoid skeleton from hips through all finger distal bones.
+**`VRM_BONE_NAMES`**: 55-element string array. The canonical key set for `NormalizedPose`. Covers full humanoid skeleton from hips through all finger distal bones.
 
 ## FBX/BVH retargeting — `Viewport.tsx`
 
@@ -137,11 +137,11 @@ Overrides a single named bone in a `NormalizedPose`. Modes: `multiply` (compose 
 
 **`euler_to_quaternion`**
 
-Convention: ZYX intrinsic (Rz(roll) × Ry(yaw) × Rx(pitch)). Used by the breathing component to drive sine wave output into bone rotations.
+Convention: ZYX intrinsic (Rz(roll) × Ry(yaw) × Rx(pitch)). Used by the breathing component to drive sine wave output into bone rotations. The shared `Quaternion.fromEuler` / `Quaternion.toEuler` helpers (`signal.ts`) follow the same ZYX convention and are used by `pose_manual_calibration`.
 
 ### Pose interceptor chain
 
-The `pose_broadcast` node doesn't fire directly to WebSocket. It first passes the pose through a chain of registered interceptors (e.g., the breathing component). Each interceptor receives the pose via `on_pose_broadcast`, modifies it, and re-emits it via `pose_interceptor_broadcast`. The chain is ordered by registration; the final output is what gets sent over WebSocket.
+The `pose_broadcast` node doesn't fire directly to WebSocket. It first passes the pose through a chain of registered interceptors (e.g., the breathing component, the manual_calibration behavior). Each interceptor receives the pose via `on_pose_broadcast`, modifies it, and re-emits it via `pose_interceptor_broadcast`. The chain is ordered by registration priority; the final output is what gets sent over WebSocket. The `manual_calibration` behavior (`pose_manual_calibration` node at priority 5) is an interceptor that applies a per-bone, per-axis euler multiply/offset — see [component-managers.md](component-managers.md).
 
 ## Blendshape mapping — `arkit_vrm_mapper`
 
@@ -156,6 +156,8 @@ Three modes:
 **Accumulation**: multiple ARKit shapes can map to the same target with weights. They sum, then clamp to [0, 1].
 
 **Default-expression baseline (frontend)**: `Viewport.tsx` applies the avatar node's `properties.defaultExpressions` as a per-frame baseline (`expressionManager.setValue`) *before* overlaying the broadcast blendshapes, so live producers override defaults per-key and defaults re-assert when the bus emits an empty record. See [frontend.md](frontend.md).
+
+**Live mapper-config edits (frontend release)**: editing this behavior's `nodeConfig.arkit_*_cfg.mapping` / `enabled` hot-applies on the backend and can change the *set* of output target keys mid-stream. `Viewport.tsx` tracks the expression/morph keys it drove last frame and resets dropped ones to 0, so a removed target releases instead of freezing at its last value (three-vrm persists unset weights). See [frontend.md](frontend.md) (Stale-key release).
 
 **Key mappings (expressions mode)**:
 - `eyeWideLeft/Right` → surprised (0.2 each)
@@ -181,6 +183,7 @@ The frontend maintains `VmcRetarget` state per avatar:
 
 Per frame:
 1. Low-pass filter each incoming bone rotation (OneEuroFilter)
+1a. Optional **motion snappiness** — a per-bone second-order dynamics (spring–damper) filter layered *after* the One Euro filter. Off by default; gated on `node.properties.poseDynamics.enabled`. See "Motion snappiness" below.
 2. Apply arm reach calibration if active (correct wrist position, run IK)
 3. Blend with animation: slerp each bone toward the animation pose by `(1 - blendWeight)`. Ramp speed is `1 / blendTime` seconds.
 4. Write final rotations to `vrm.humanoid.setNormalizedPose()`
@@ -188,6 +191,25 @@ Per frame:
 **Blend ramping**: `blendWeight` moves toward 0 (animation) or 1 (VMC) each frame at `1/blendTime` rate. Prevents pops when mocap drops in/out. Default `blendTime`: 0.3s.
 
 **Pose timeout**: If no VMC frame has been received for `poseTimeout` seconds (default 2s), blend weight ramps back to 0. OneEuroFilter resets to prevent stale filtered values carrying over when mocap reconnects.
+
+### Motion snappiness (second-order dynamics)
+
+**Status:** implemented (2026-06-19). Frontend-only, per-avatar-node, disabled by default.
+
+A configurable second-order dynamics (spring–damper) filter applied per bone to the broadcast pose, layered **after** the One Euro filter rather than replacing it. The One Euro filter stays responsible for jitter and uneven/low-frequency packet delivery; the dynamics layer adds "snap"/"follow-through". Unlike a low-pass filter (which can only lag the target), a second-order system can **lead and overshoot** the target, so motion reads as snappy without going choppy (output stays C¹-continuous).
+
+**Why frontend, not a backend pose-interceptor.** The deliberate placement is the frontend avatar node, not the backend `on_pose_broadcast`/`pose_interceptor_broadcast` chain, because the One Euro filter must stay in place at the consumer to absorb unreliable/low-frequency packet delivery — the dynamics layer assumes an already-de-jittered, frame-rate-paced input.
+
+**Module:** `packages/frontend/src/secondOrderDynamics.ts` — exports `SecondOrderDynamicsQuat` (single-bone filter), `BoneDynamicsBank` (one lazily-created filter per bone name, `.reset()` resets all), `PoseDynamicsConfig`, and `DEFAULT_POSE_DYNAMICS` (`{ enabled: false, frequency: 3.0, damping: 0.6, response: 1.2 }`).
+
+**Math.** The standard semi-implicit-Euler second-order formulation (t3ssel8r, "Giving Personality to Procedural Animations using Math") adapted from scalar to SO(3): spring error, target velocity, and output velocity are all world-frame rotation vectors (axis·angle), and the output orientation is integrated through the quaternion exponential map. `k2` is stability-clamped so the integrator stays stable at large `dt` (low frame rates). Parameters:
+- `frequency` (Hz) — natural frequency; higher = quicker reaction / snappier.
+- `damping` (ζ) — `<1` overshoots (snap/bounce), `1` critical (no overshoot), `>1` sluggish.
+- `response` (r) — `0` no anticipation, `>0` anticipatory lead, `<0` winds up before moving.
+
+**Wiring** (`Viewport.tsx`, `AvatarNode` `useFrame`, Step 2 broadcast pose composition): a `boneDynamicsRef` (`BoneDynamicsBank`) runs immediately after the `boneFiltersRef` One Euro `BoneFilterBank`. Reads `node.properties.poseDynamics ?? DEFAULT_POSE_DYNAMICS`; when `enabled` is false the bank is `.reset()` each frame so re-enabling starts cleanly from the current pose.
+
+**Config** is persisted as the per-node `poseDynamics` property: typed as `PoseDynamics` on shared `SceneNodeProperties` (`packages/shared/src/types.ts`), Zod-validated in `sceneNodePropertiesSchema` (`packages/shared/src/schema.ts`), and mirrored in both frontend `NodeProperties` interfaces (`store/editorStore.ts`, `api/client.ts`). UI is a "Motion Snappiness" section in the PropertiesPanel avatar block (enable checkbox + frequency/damping/response `NumInput`s + `HelpButton`). i18n keys under `avatar.*` and `help.dynamics` in `properties.json`; help section `{#snappiness}` in `help/content/{en,de}/avatar.md`.
 
 ## Shared, scheduled, content-addressed playback
 

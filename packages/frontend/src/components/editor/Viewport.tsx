@@ -76,6 +76,11 @@ import {
 import { getIkTargets, getIkTargetsTime } from '../../ikTargetStore';
 import { vrmRegistry } from '../../vrmRegistry';
 import {
+  setupForearmTwist,
+  teardownForearmTwist,
+  driveForearmTwist,
+} from './twistBones';
+import {
   applyMaterialOverrides,
   disposeMaterialOverrides,
   type MaterialOverrides,
@@ -97,6 +102,10 @@ import {
 } from './videoFx';
 import { api } from '../../api/client';
 import { BoneFilterBank } from '../../oneEuroFilter';
+import {
+  BoneDynamicsBank,
+  DEFAULT_POSE_DYNAMICS,
+} from '../../secondOrderDynamics';
 import {
   mergeParticleConfig,
   createParticlePool,
@@ -828,7 +837,11 @@ function _resolveAvatarAnimation(
   scheduled: ScheduledAnimation[],
   clips: Record<string, AnimationClipMeta>,
   nowMs: number
-): { url: string | null; layer: ActiveAnimLayer | null; msUntilNext: number | null } {
+): {
+  url: string | null;
+  layer: ActiveAnimLayer | null;
+  msUntilNext: number | null;
+} {
   let active: { entry: ScheduledAnimation; clip: AnimationClipMeta } | null =
     null;
   let nextStartMs: number | null = null;
@@ -872,7 +885,11 @@ function _resolveAvatarAnimation(
     // Idle base loop anchored to the epoch (shared phase across clients).
     return {
       url: idle.url,
-      layer: { startEpoch: 0, speed: idle.speed > 0 ? idle.speed : 1, loop: true },
+      layer: {
+        startEpoch: 0,
+        speed: idle.speed > 0 ? idle.speed : 1,
+        loop: true,
+      },
       msUntilNext,
     };
   }
@@ -905,6 +922,7 @@ function AvatarNode({
   const lipsyncCompRef = useRef<Behavior | null>(null);
   const vmcRetargetRef = useRef<VmcRetarget | null>(null);
   const boneFiltersRef = useRef(new BoneFilterBank());
+  const boneDynamicsRef = useRef(new BoneDynamicsBank());
   const poseWasActiveRef = useRef(false);
   const blendWeightRef = useRef(0); // 0 = animation, 1 = VMC
   // Active animation layer driving the clock-anchored playhead (read in useFrame).
@@ -977,14 +995,23 @@ function AvatarNode({
   // name → all meshes+indices that have that morph target
   type MorphEntry = { mesh: THREE.SkinnedMesh; index: number };
   const morphMapRef = useRef<Map<string, MorphEntry[]>>(new Map());
+  // Expression/morph names driven by the last broadcast frame. When a mapping
+  // edit (or a producer going inactive) drops a key from the emitted set, the
+  // weight would otherwise freeze at its last value — three-vrm persists unset
+  // weights. Tracking the previous set lets us release the dropped keys to 0.
+  const prevExprKeysRef = useRef<Set<string>>(new Set());
+  const prevMorphKeysRef = useRef<Set<string>>(new Set());
 
   // --- Avatar animation resolution (clock-anchored, two-layer) ---
   // Idle base loop + a scheduled timeline (scheduled_animation docs), both
   // content-addressed by animation_clip id and anchored to the synced clock.
   // Idle prefers the new properties.animation.idle = { clipId, speed }; it falls
   // back to the legacy components.animation.idleUrl until that's migrated.
-  const animIdle = (node.properties as { animation?: { idle?: { clipId?: string; speed?: number } } } | undefined)
-    ?.animation?.idle;
+  const animIdle = (
+    node.properties as
+      | { animation?: { idle?: { clipId?: string; speed?: number } } }
+      | undefined
+  )?.animation?.idle;
   const legacyAnim = node.components?.animation as
     | { idleUrl?: string; speed?: number }
     | undefined;
@@ -994,7 +1021,9 @@ function AvatarNode({
     () => Object.values(scheduledMap).filter((e) => e.avatarNodeId === node.id),
     [scheduledMap, node.id]
   );
-  const idleClip = animIdle?.clipId ? animationClips[animIdle.clipId] : undefined;
+  const idleClip = animIdle?.clipId
+    ? animationClips[animIdle.clipId]
+    : undefined;
   const idle = idleClip
     ? { url: idleClip.sourceFilePath, speed: animIdle?.speed ?? 1 }
     : legacyAnim?.idleUrl
@@ -1147,6 +1176,7 @@ function AvatarNode({
       _sendExpressionsReport(node.id, []);
       clearVrmMorphTargetsForNode(node.id);
       morphMapRef.current.clear();
+      teardownForearmTwist(node.id);
       vrmRegistry.delete(node.id);
     };
   }, [node.filePath]);
@@ -1165,6 +1195,26 @@ function AvatarNode({
     applyMaterialOverrides(vrm, materialOverrides);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vrmLoaded, materialOverridesKey]);
+
+  // --- Forearm twist bones ---
+  // Detect the model's own forearm twist bones, or (when "Force twist bone" is
+  // on) synthesize them, so pronation reads along the forearm instead of
+  // pinching at the elbow. Re-runs when the toggle flips; tears down (restoring
+  // original skinning) on unmount / reload. The per-frame drive lives in the
+  // useFrame below.
+  const forceTwistBone = node.properties?.forceTwistBone === true;
+  const excludeSleeves = node.properties?.excludeSleeves === true;
+  useEffect(() => {
+    if (!vrmLoaded) return;
+    const vrm = vrmRef.current;
+    if (!vrm) return;
+    setupForearmTwist(node.id, vrm, {
+      force: forceTwistBone,
+      excludeSleeves,
+    });
+    return () => teardownForearmTwist(node.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vrmLoaded, forceTwistBone, excludeSleeves, node.id]);
 
   // --- Animation clip auto-registration ---
   // Once the avatar VRM is loaded, probe each .fbx asset in the project for its real
@@ -2257,9 +2307,25 @@ function AvatarNode({
       // Build filtered broadcast normalized pose.
       const normalizedPose: VRMPose = {};
       const filters = boneFiltersRef.current;
+      // Second-order "snappiness" runs *after* the One Euro filter (which keeps
+      // absorbing jitter / uneven packet delivery). Disabled by default; reset
+      // when off so re-enabling starts cleanly from the current pose.
+      const dyn = node.properties?.poseDynamics ?? DEFAULT_POSE_DYNAMICS;
+      const dynamics = boneDynamicsRef.current;
+      if (!dyn.enabled) dynamics.reset();
       for (const [boneName, q] of Object.entries(pose)) {
         _q.set(q[0], q[1], q[2], q[3]);
-        const s = filters.filter(boneName, _q, delta);
+        let s = filters.filter(boneName, _q, delta);
+        if (dyn.enabled) {
+          s = dynamics.filter(
+            boneName,
+            s,
+            delta,
+            dyn.frequency,
+            dyn.damping,
+            dyn.response
+          );
+        }
         normalizedPose[boneName as VRMHumanBoneName] = {
           rotation: [s.x, s.y, s.z, s.w],
         };
@@ -2405,18 +2471,30 @@ function AvatarNode({
       const bs = getVmcBlendshapes(node.id) ?? null;
       if (vrm.expressionManager) {
         const morphMap = morphMapRef.current;
+        const applied = new Set<string>();
         if (defaultExpr) {
           for (const [name, value] of Object.entries(defaultExpr)) {
-            if (!morphMap.has(name))
+            if (!morphMap.has(name)) {
               vrm.expressionManager.setValue(name, value);
+              applied.add(name);
+            }
           }
         }
         if (bs) {
           for (const [name, value] of Object.entries(bs)) {
-            if (!morphMap.has(name))
+            if (!morphMap.has(name)) {
               vrm.expressionManager.setValue(name, value);
+              applied.add(name);
+            }
           }
         }
+        // Release any expression we drove last frame but no longer drive, so a
+        // changed face-mapper config (or an inactive producer) reverts the
+        // stale weight instead of freezing it. Dropped keys never overlap
+        // defaultExpr (those are re-applied above every frame), so 0 is correct.
+        for (const name of prevExprKeysRef.current)
+          if (!applied.has(name)) vrm.expressionManager.setValue(name, 0);
+        prevExprKeysRef.current = applied;
       }
 
       // ── Step 2.5: IK solve ──────────────────────────────────────────────────
@@ -2547,17 +2625,24 @@ function AvatarNode({
         }
       }
 
+      // Route the forearm roll onto the twist bone (no-op when none is set up).
+      // After IK / setNormalizedPose so it reads the final lowerArm rotation,
+      // before spring-bone / constraint updates so they see the twisted pose.
+      driveForearmTwist(node.id);
+
       v['lookAt']?.update(delta);
       v['expressionManager']?.update();
 
       // Post-expressionManager.update() pass: write morph targets directly.
       // expressionManager.update() has already run, so these won't be overwritten.
       const bs2 = getVmcBlendshapes(node.id);
+      const morphMap = morphMapRef.current;
+      const appliedMorph = new Set<string>();
       if (bs2) {
-        const morphMap = morphMapRef.current;
         for (const [name, value] of Object.entries(bs2)) {
           const targets = morphMap.get(name);
           if (targets) {
+            appliedMorph.add(name);
             for (const { mesh, index } of targets) {
               if (mesh.morphTargetInfluences)
                 mesh.morphTargetInfluences[index] = value;
@@ -2565,6 +2650,20 @@ function AvatarNode({
           }
         }
       }
+      // Zero any morph target we drove last frame but no longer drive, so a
+      // changed face-mapper config (or an inactive producer) releases the stale
+      // influence instead of leaving it frozen at its last value.
+      for (const name of prevMorphKeysRef.current) {
+        if (appliedMorph.has(name)) continue;
+        const targets = morphMap.get(name);
+        if (targets) {
+          for (const { mesh, index } of targets) {
+            if (mesh.morphTargetInfluences)
+              mesh.morphTargetInfluences[index] = 0;
+          }
+        }
+      }
+      prevMorphKeysRef.current = appliedMorph;
 
       v['nodeConstraintManager']?.update(delta);
       vrm.springBoneManager?.update(delta);
@@ -4623,7 +4722,8 @@ export function SceneNodes({
     }
     return false;
   };
-  const effectiveVisible = (n: StageObject) => !n.hidden && !isAncestorHidden(n);
+  const effectiveVisible = (n: StageObject) =>
+    !n.hidden && !isAncestorHidden(n);
 
   return (
     <>

@@ -102,6 +102,8 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 
 **Expression/blendshape application** (pre-`expressionManager.update()` pass): default expression weights (`node.properties.defaultExpressions`) are applied first via `vrm.expressionManager.setValue` as a per-frame baseline, then the latest broadcast blendshapes (`getVmcBlendshapes`) are overlaid on top. So live broadcasts (VMC, lipsync, tracking) override the defaults per-key, and the defaults re-assert when the bus emits an empty record (no active producer). The morph-target-name guard (`!morphMap.has(name)`) is preserved.
 
+**Stale-key release (don't remove)**: blendshapes drive two distinct targets — VRM expressions (`expressionManager.setValue`, pre-`update()`) and morph influences (`mesh.morphTargetInfluences`, post-`update()`). three-vrm persists an unset expression weight / morph influence, so only writing the *current* frame's keys would freeze any target that the producer stops emitting. Each frame collects the set of keys it actually drove, and any key driven last frame but not this frame is reset to 0. Two refs hold the previous sets: `prevExprKeysRef` and `prevMorphKeysRef` (`AvatarNode`). This is invisible during steady-state mocap (the arkit→VRM mapper emits a 0-valued entry for every current target, so the key set is stable); it only matters when the face-mapper config (`vmc_receiver` `nodeConfig.arkit_*_cfg.mapping` / `enabled`) is edited live and the *set* of output keys changes — without the release pass the dropped expressions/morphs would freeze at their last value. (The backend config pipeline hot-applies correctly; the freeze was purely a rendering issue.) Dropped expression keys never overlap `defaultExpressions` (those are re-applied every frame above), so resetting to 0 is correct.
+
 **Pose gate (current rules, implemented)**: the `vmcCompRef` and tracking-lost gates were dropped. The broadcast pose is applied whenever `pose != null && Object.keys(pose).length > 0 && fresh`. The bus's fallback frame (empty `bones`) trips application off — that is the sole "stop applying" signal.
 
 `blendMode` no longer gates whether the pose is applied; it selects the composition strategy inside Step 2:
@@ -116,6 +118,10 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
   Bones absent from the broadcast pose are restored to `animQ`. This is how breathing (and any future additive producer) layers cleanly on top of an FBX-driven animation.
 
 `blendTransitionTime` is now read from the VRM avatar node's `properties.blendTransitionTime` (default 0.5s) and controls the ramp between blend modes (and between "apply" and "don't apply" when the bus drops the last producer).
+
+**Motion snappiness (second-order dynamics)**: inside Step 2's broadcast-pose composition, after each bone is run through the One Euro `BoneFilterBank` (`boneFiltersRef`), an optional per-bone second-order dynamics (spring–damper) filter runs via `BoneDynamicsBank` (`boneDynamicsRef`, from `secondOrderDynamics.ts`). Gated on `node.properties.poseDynamics.enabled` (off by default; bank `.reset()` each frame while disabled). Unlike the low-pass One Euro filter it can lead/overshoot the target, so motion feels snappier without going choppy. Frontend-only; deliberately not a backend pose-interceptor so the One Euro filter stays in place to absorb unreliable packet delivery. See [animation.md](animation.md) (Motion snappiness).
+
+**Forearm twist bones**: after the IK solve + pose application (`setNormalizedPose`/`update`) and before the spring/snappiness updates, `driveForearmTwist(node.id)` (from `components/editor/twistBones.ts`) routes the `lowerArm` roll onto a forearm twist bone so it spreads along the forearm instead of pinching at the elbow. Setup/teardown run in an `AvatarNode` effect keyed on VRM load + the `node.properties.forceTwistBone` flag; the drive is a no-op when no twist bone is set up. Frontend-only, additive over the backend's `ARM_ROLL_UPPER_SHARE` split. See [twist-bones.md](twist-bones.md).
 
 `poseTimeout` is retained as a client-side safety net for missed WS transition messages — flagged for review once the new flow proves robust. See [component-managers.md](component-managers.md) BroadcastBus section.
 
@@ -155,7 +161,7 @@ Inspector for the selected node. Sections:
 - **Transform**: position, rotation, scale with drag-to-adjust (ns-resize NumInput)
 - **Light**: type, color, intensity
 - **Camera**: fov, near, far
-- **Behaviors** (tab labelled "Behaviors"): per-kind config editors for VMC receiver, breathing, lipsync, tracking; calibration wizard (head neutral, arm reach captures)
+- **Behaviors** (tab labelled "Behaviors"): per-kind config editors for VMC receiver, breathing, lipsync, tracking, manual_calibration; calibration wizard (head neutral, arm reach captures)
 - **Avatar**: VRM-node controls — content-addressed idle picker (`properties.animation.idle = { clipId, speed }`, speed only — offset + local pause/seek/stop transport were removed under the synced timeline; see [animation.md](animation.md)); **Default Expression** sliders; read-only **Morph Targets** list
 - **Animation clips**: clip selection and playback
 - **Camera effects**: add/configure post-processing per camera
@@ -167,12 +173,20 @@ Inspector for the selected node. Sections:
 - New **Blend transition** input on VRM avatar nodes writes to `node.properties.blendTransitionTime` (persisted via the `scene_nodes.properties` JSON column, migration 007). Default 0.5s. Controls the Viewport ramp between blend modes and between apply/don't-apply.
 - New `BreathingProps` panel for breathing behaviors: **Chest amplitude** + **Shoulder lift** fields, writing to behavior config `chestAmplitude` / `shoulderAmplitude`. See [component-managers.md](component-managers.md) BreathingManager.
 
+**Manual calibration panel (implemented)**: `ManualCalibrationProps` (dispatcher case `manual_calibration`) lists ALL VRM bones (`VRM_BONE_NAMES`), each a collapsible section with **Multiplier** (X/Y/Z, default 1) and **Offset** (X/Y/Z, in degrees, default 0) `VecInput`s, a per-bone reset, a **Reset all** button, and a modified-bone marker (●) + count. Persists only non-default bone entries into behavior config `calibrations`. See [component-managers.md](component-managers.md) ManualCalibrationManager.
+
 **Avatar section (implemented)**:
 - The inline animation-asset list (the grid of clickable animation buttons) was removed. Animations are picked via the bottom-dock **Animations** tab; the Avatar section's **Pick…** button only flashes that tab. The idle picker now writes a content-addressed `properties.animation.idle = { clipId, speed }` (it reads either the new shape or the legacy `components.animation.idleUrl`, but editing always writes the legacy shape + clears the migrated idle so the frontend lazy migration re-derives a fresh clip id — a single edit path). The offset input and the local pause/seek/stop transport were dropped; playback is driven by the synced `scheduled_animation` timeline. See [animation.md](animation.md).
 - The previously read-only **Expressions** list is now a **Default Expression** control: one 0..1 `SliderInput` per VRM expression. Weights are stored on `node.properties.defaultExpressions` (only non-zero kept) and persisted via `api.updateNode({ properties: { defaultExpressions } })`, which the backend shallow-merges (same mechanism as `blendTransitionTime`). The read-only **Morph Targets** list is unchanged.
 
 **Material section (implemented)**:
 - New **Material** section on VRM avatar nodes plus a reusable `CollapsibleSection` primitive (default collapsed); the **Default Expression** section is collapsible too. One collapsible row per material with a 3-way MToon/PBR/APBR shader toggle (APBR = `MeshPhysicalMaterial` advanced lobes under a nested **Advanced** disclosure), editable shader params (overlap + active-shader-only; PBR+APBR share roughness/metalness/envMapIntensity; normal scale only with a normal map, alpha cutoff only in mask mode, outline only when the material has one), and a per-material Reset. Overrides persist on `node.properties.materialOverrides` (same `node.properties` mechanism as `defaultExpressions`). The apply layer that mutates/swaps live three.js materials lives in `components/editor/materialOverrides.ts` and is invoked from `Viewport.tsx`. See [material-overrides.md](material-overrides.md).
+
+**Force twist bone toggle (implemented)**:
+- A **Force twist bone** checkbox on the avatar section writes the per-node `forceTwistBone` property (`SceneNodeProperties.forceTwistBone` on shared + Zod; mirrored on store + api-client `NodeProperties`), persisted via the same `node.properties` shallow-merge mechanism. When on, a forearm twist bone is synthesized for models that lack one (models with their own twist bone are driven regardless). i18n under `avatar.twistHeader`/`avatar.twistForce` + `help.twist`; `HelpButton topic="avatar" anchor="twist"` → `{#twist}` in `avatar.md`. See [twist-bones.md](twist-bones.md).
+
+**Motion Snappiness section (implemented)**:
+- New **Motion Snappiness** section on VRM avatar nodes — an enable checkbox plus `frequency`/`damping`/`response` `NumInput`s and a `HelpButton`. Persists the per-node `poseDynamics` property (`PoseDynamics` on shared `SceneNodeProperties`; mirrored on store + api-client `NodeProperties`), defaulting to `DEFAULT_POSE_DYNAMICS` (disabled). Drives the per-bone second-order dynamics filter applied in `Viewport.tsx` after the One Euro filter. i18n under `avatar.*` + `help.dynamics`; help `{#snappiness}` in `avatar.md`. See [animation.md](animation.md) (Motion snappiness).
 
 ### `AssetManager.tsx` (bottom dock)
 The bottom dock. Tabs (`BottomDockTab` in the store, persisted to localStorage
