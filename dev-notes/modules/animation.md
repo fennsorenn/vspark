@@ -157,6 +157,8 @@ Three modes:
 
 **Default-expression baseline (frontend)**: `Viewport.tsx` applies the avatar node's `properties.defaultExpressions` as a per-frame baseline (`expressionManager.setValue`) *before* overlaying the broadcast blendshapes, so live producers override defaults per-key and defaults re-assert when the bus emits an empty record. See [frontend.md](frontend.md).
 
+**Live mapper-config edits (frontend release)**: editing this behavior's `nodeConfig.arkit_*_cfg.mapping` / `enabled` hot-applies on the backend and can change the *set* of output target keys mid-stream. `Viewport.tsx` tracks the expression/morph keys it drove last frame and resets dropped ones to 0, so a removed target releases instead of freezing at its last value (three-vrm persists unset weights). See [frontend.md](frontend.md) (Stale-key release).
+
 **Key mappings (expressions mode)**:
 - `eyeWideLeft/Right` → surprised (0.2 each)
 - `mouthSmileLeft/Right` → happy (0.3 each)

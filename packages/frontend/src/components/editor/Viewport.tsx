@@ -995,6 +995,12 @@ function AvatarNode({
   // name → all meshes+indices that have that morph target
   type MorphEntry = { mesh: THREE.SkinnedMesh; index: number };
   const morphMapRef = useRef<Map<string, MorphEntry[]>>(new Map());
+  // Expression/morph names driven by the last broadcast frame. When a mapping
+  // edit (or a producer going inactive) drops a key from the emitted set, the
+  // weight would otherwise freeze at its last value — three-vrm persists unset
+  // weights. Tracking the previous set lets us release the dropped keys to 0.
+  const prevExprKeysRef = useRef<Set<string>>(new Set());
+  const prevMorphKeysRef = useRef<Set<string>>(new Set());
 
   // --- Avatar animation resolution (clock-anchored, two-layer) ---
   // Idle base loop + a scheduled timeline (scheduled_animation docs), both
@@ -2465,18 +2471,30 @@ function AvatarNode({
       const bs = getVmcBlendshapes(node.id) ?? null;
       if (vrm.expressionManager) {
         const morphMap = morphMapRef.current;
+        const applied = new Set<string>();
         if (defaultExpr) {
           for (const [name, value] of Object.entries(defaultExpr)) {
-            if (!morphMap.has(name))
+            if (!morphMap.has(name)) {
               vrm.expressionManager.setValue(name, value);
+              applied.add(name);
+            }
           }
         }
         if (bs) {
           for (const [name, value] of Object.entries(bs)) {
-            if (!morphMap.has(name))
+            if (!morphMap.has(name)) {
               vrm.expressionManager.setValue(name, value);
+              applied.add(name);
+            }
           }
         }
+        // Release any expression we drove last frame but no longer drive, so a
+        // changed face-mapper config (or an inactive producer) reverts the
+        // stale weight instead of freezing it. Dropped keys never overlap
+        // defaultExpr (those are re-applied above every frame), so 0 is correct.
+        for (const name of prevExprKeysRef.current)
+          if (!applied.has(name)) vrm.expressionManager.setValue(name, 0);
+        prevExprKeysRef.current = applied;
       }
 
       // ── Step 2.5: IK solve ──────────────────────────────────────────────────
@@ -2618,11 +2636,13 @@ function AvatarNode({
       // Post-expressionManager.update() pass: write morph targets directly.
       // expressionManager.update() has already run, so these won't be overwritten.
       const bs2 = getVmcBlendshapes(node.id);
+      const morphMap = morphMapRef.current;
+      const appliedMorph = new Set<string>();
       if (bs2) {
-        const morphMap = morphMapRef.current;
         for (const [name, value] of Object.entries(bs2)) {
           const targets = morphMap.get(name);
           if (targets) {
+            appliedMorph.add(name);
             for (const { mesh, index } of targets) {
               if (mesh.morphTargetInfluences)
                 mesh.morphTargetInfluences[index] = value;
@@ -2630,6 +2650,20 @@ function AvatarNode({
           }
         }
       }
+      // Zero any morph target we drove last frame but no longer drive, so a
+      // changed face-mapper config (or an inactive producer) releases the stale
+      // influence instead of leaving it frozen at its last value.
+      for (const name of prevMorphKeysRef.current) {
+        if (appliedMorph.has(name)) continue;
+        const targets = morphMap.get(name);
+        if (targets) {
+          for (const { mesh, index } of targets) {
+            if (mesh.morphTargetInfluences)
+              mesh.morphTargetInfluences[index] = 0;
+          }
+        }
+      }
+      prevMorphKeysRef.current = appliedMorph;
 
       v['nodeConstraintManager']?.update(delta);
       vrm.springBoneManager?.update(delta);
