@@ -76,6 +76,11 @@ import {
 import { getIkTargets, getIkTargetsTime } from '../../ikTargetStore';
 import { vrmRegistry } from '../../vrmRegistry';
 import {
+  setupForearmTwist,
+  teardownForearmTwist,
+  driveForearmTwist,
+} from './twistBones';
+import {
   applyMaterialOverrides,
   disposeMaterialOverrides,
   type MaterialOverrides,
@@ -1029,6 +1034,12 @@ function AvatarNode({
   // name → all meshes+indices that have that morph target
   type MorphEntry = { mesh: THREE.SkinnedMesh; index: number };
   const morphMapRef = useRef<Map<string, MorphEntry[]>>(new Map());
+  // Expression/morph names driven by the last broadcast frame. When a mapping
+  // edit (or a producer going inactive) drops a key from the emitted set, the
+  // weight would otherwise freeze at its last value — three-vrm persists unset
+  // weights. Tracking the previous set lets us release the dropped keys to 0.
+  const prevExprKeysRef = useRef<Set<string>>(new Set());
+  const prevMorphKeysRef = useRef<Set<string>>(new Set());
 
   // --- Avatar animation resolution (clock-anchored, two-layer) ---
   // Idle base loop + a scheduled timeline (scheduled_animation docs), both
@@ -1217,6 +1228,7 @@ function AvatarNode({
       _sendExpressionsReport(node.id, []);
       clearVrmMorphTargetsForNode(node.id);
       morphMapRef.current.clear();
+      teardownForearmTwist(node.id);
       vrmRegistry.delete(node.id);
     };
   }, [node.filePath]);
@@ -1235,6 +1247,26 @@ function AvatarNode({
     applyMaterialOverrides(vrm, materialOverrides);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vrmLoaded, materialOverridesKey]);
+
+  // --- Forearm twist bones ---
+  // Detect the model's own forearm twist bones, or (when "Force twist bone" is
+  // on) synthesize them, so pronation reads along the forearm instead of
+  // pinching at the elbow. Re-runs when the toggle flips; tears down (restoring
+  // original skinning) on unmount / reload. The per-frame drive lives in the
+  // useFrame below.
+  const forceTwistBone = node.properties?.forceTwistBone === true;
+  const excludeSleeves = node.properties?.excludeSleeves === true;
+  useEffect(() => {
+    if (!vrmLoaded) return;
+    const vrm = vrmRef.current;
+    if (!vrm) return;
+    setupForearmTwist(node.id, vrm, {
+      force: forceTwistBone,
+      excludeSleeves,
+    });
+    return () => teardownForearmTwist(node.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vrmLoaded, forceTwistBone, excludeSleeves, node.id]);
 
   // --- Animation clip auto-registration ---
   // Once the avatar VRM is loaded, probe each .fbx asset in the project for its real
@@ -2515,18 +2547,30 @@ function AvatarNode({
       const bs = getVmcBlendshapes(node.id) ?? null;
       if (vrm.expressionManager) {
         const morphMap = morphMapRef.current;
+        const applied = new Set<string>();
         if (defaultExpr) {
           for (const [name, value] of Object.entries(defaultExpr)) {
-            if (!morphMap.has(name))
+            if (!morphMap.has(name)) {
               vrm.expressionManager.setValue(name, value);
+              applied.add(name);
+            }
           }
         }
         if (bs) {
           for (const [name, value] of Object.entries(bs)) {
-            if (!morphMap.has(name))
+            if (!morphMap.has(name)) {
               vrm.expressionManager.setValue(name, value);
+              applied.add(name);
+            }
           }
         }
+        // Release any expression we drove last frame but no longer drive, so a
+        // changed face-mapper config (or an inactive producer) reverts the
+        // stale weight instead of freezing it. Dropped keys never overlap
+        // defaultExpr (those are re-applied above every frame), so 0 is correct.
+        for (const name of prevExprKeysRef.current)
+          if (!applied.has(name)) vrm.expressionManager.setValue(name, 0);
+        prevExprKeysRef.current = applied;
       }
 
       // ── Step 2.5: IK solve ──────────────────────────────────────────────────
@@ -2657,17 +2701,24 @@ function AvatarNode({
         }
       }
 
+      // Route the forearm roll onto the twist bone (no-op when none is set up).
+      // After IK / setNormalizedPose so it reads the final lowerArm rotation,
+      // before spring-bone / constraint updates so they see the twisted pose.
+      driveForearmTwist(node.id);
+
       v['lookAt']?.update(delta);
       v['expressionManager']?.update();
 
       // Post-expressionManager.update() pass: write morph targets directly.
       // expressionManager.update() has already run, so these won't be overwritten.
       const bs2 = getVmcBlendshapes(node.id);
+      const morphMap = morphMapRef.current;
+      const appliedMorph = new Set<string>();
       if (bs2) {
-        const morphMap = morphMapRef.current;
         for (const [name, value] of Object.entries(bs2)) {
           const targets = morphMap.get(name);
           if (targets) {
+            appliedMorph.add(name);
             for (const { mesh, index } of targets) {
               if (mesh.morphTargetInfluences)
                 mesh.morphTargetInfluences[index] = value;
@@ -2675,6 +2726,20 @@ function AvatarNode({
           }
         }
       }
+      // Zero any morph target we drove last frame but no longer drive, so a
+      // changed face-mapper config (or an inactive producer) releases the stale
+      // influence instead of leaving it frozen at its last value.
+      for (const name of prevMorphKeysRef.current) {
+        if (appliedMorph.has(name)) continue;
+        const targets = morphMap.get(name);
+        if (targets) {
+          for (const { mesh, index } of targets) {
+            if (mesh.morphTargetInfluences)
+              mesh.morphTargetInfluences[index] = 0;
+          }
+        }
+      }
+      prevMorphKeysRef.current = appliedMorph;
 
       v['nodeConstraintManager']?.update(delta);
       vrm.springBoneManager?.update(delta);

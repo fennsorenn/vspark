@@ -1,11 +1,10 @@
-import express from 'express';
 import { createServer } from 'http';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { createApp } from './app.js';
 import { runMigrations, getDb } from './db/index.js';
 import {
-  apiRoutes,
   setVmcManager,
   setBreathingManager,
   setManualCalibrationManager,
@@ -16,14 +15,7 @@ import {
   setTrackClipPlaybackManager,
   setClipPlaybackForwarder,
 } from './routes/index.js';
-import {
-  updateRoutes,
-  initUpdateChecker,
-  getInstallDir,
-} from './routes/update.js';
-import { configRoutes } from './routes/config.js';
-import { openApiDoc } from './routes/openapi.js';
-import swaggerUi from 'swagger-ui-express';
+import { initUpdateChecker, getInstallDir } from './routes/update.js';
 import { WSSync } from './ws/index.js';
 import { VmcManager } from './behaviors/vmc_receiver/manager.js';
 import { BreathingManager } from './behaviors/breathing/manager.js';
@@ -45,7 +37,7 @@ import { spawnManager } from './spawn/manager.js';
 import { sync } from './sync/index.js';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 import './sync/resources.js';
-import { initIdentity, getIdentity } from './multiplayer/identity.js';
+import { initIdentity } from './multiplayer/identity.js';
 import {
   initBackendMesh,
   getMeshPeer,
@@ -74,39 +66,12 @@ import type {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const wsSync = new WSSync();
-const app = express();
+const app = createApp({ wsSync });
 const server = createServer(app);
 
-const UPLOADS_DIR = join(process.cwd(), 'uploads');
-mkdirSync(UPLOADS_DIR, { recursive: true });
-
-app.use(express.json({ limit: '150mb' }));
-// `fallthrough: false` so a missing upload returns a real 404 instead of
-// dropping through to the SPA catch-all below (which would answer with
-// index.html + 200). The thumbnail cache HEAD-checks these URLs to decide
-// whether to (re)generate; a 200-with-HTML miss made it treat every absent
-// thumbnail as present, so thumbnails never rendered in the bundled build.
-app.use('/uploads', express.static(UPLOADS_DIR, { fallthrough: false }));
-app.use('/api', apiRoutes);
-app.use('/api', updateRoutes);
-app.use('/api', configRoutes);
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiDoc));
-app.get('/api-docs.json', (_req, res) => res.json(openApiDoc));
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, connected: wsSync.connectedCount });
-});
-// Mesh handshake bootstrap: a tab mints its participant id under this peer id
-// (`${serverPeerId}#${tabUuid}`) before opening the /mesh socket.
-app.get('/api/mesh/identity', (_req, res) => {
-  res.json({ serverPeerId: getIdentity().peerId });
-});
-
-// Serve built frontend — only present in production bundle
+// Mirrors the bundle check in createApp — used below to decide whether to open
+// a browser once the server is listening.
 const PUBLIC_DIR = join(__dirname, 'public');
-if (existsSync(PUBLIC_DIR)) {
-  app.use(express.static(PUBLIC_DIR));
-  app.get('*', (_req, res) => res.sendFile(join(PUBLIC_DIR, 'index.html')));
-}
 
 server.on('upgrade', (req, socket, head) => {
   if (req.url?.startsWith('/ws')) {
@@ -303,6 +268,7 @@ async function start() {
         leftHand: msg.leftHand,
         rightHand: msg.rightHand,
         pose: msg.pose,
+        faceBlendshapes: msg.faceBlendshapes,
       });
     } else if (kind === 'avatar_expressions_report') {
       const msg = payload as AvatarExpressionsReportMessage;

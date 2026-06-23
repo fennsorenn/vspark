@@ -26,6 +26,12 @@ result to your avatar.
 This is the easiest way to get started: attach the tracking behavior, allow
 camera access, and calibrate once while standing in a neutral pose.
 
+The **Face**, **Pose** and **Hands** toggles pick which parts are tracked.
+**HQ face** controls how facial expressions are estimated: off (the default)
+derives them cheaply from the face landmarks already being tracked, while on
+runs a dedicated high-quality face model for more accurate expressions at the
+cost of extra CPU — enable it only if your machine keeps a smooth framerate.
+
 ## Lip sync {#lipsync}
 
 Lip sync listens to your **microphone** and turns speech into mouth shapes, so

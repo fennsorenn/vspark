@@ -93,6 +93,7 @@ export function TopBar() {
       <div style={barStyle}>
         {/* Left */}
         <button
+          className="vs-topbar-home"
           style={{
             background: 'none',
             border: 'none',
@@ -119,6 +120,7 @@ export function TopBar() {
         {/* Right - Media input + WS status */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
+            className="vs-topbar-media"
             style={{
               background: mediaOpen ? '#1a3a2a' : '#2a2a2a',
               border: `1px solid ${mediaOpen ? '#4ade80' : '#3a3a3a'}`,
@@ -140,6 +142,7 @@ export function TopBar() {
             🎤 {t('media.label')}
           </button>
           <button
+            className="vs-topbar-connections"
             style={{
               position: 'relative',
               background: connectionsOpen ? '#1a2a3a' : '#2a2a2a',
@@ -205,6 +208,7 @@ export function TopBar() {
             )}
           </button>
           <button
+            className="vs-topbar-media-newtab"
             style={{
               background: 'none',
               border: 'none',
@@ -233,6 +237,7 @@ export function TopBar() {
             {connected ? t('status.connected') : t('status.disconnected')}
           </div>
           <button
+            className="vs-topbar-accounts"
             style={{
               background: '#2a2a2a',
               border: '1px solid #3a3a3a',
@@ -249,6 +254,7 @@ export function TopBar() {
           </button>
           {updateAvailable && (
             <button
+              className="vs-topbar-update-available"
               onClick={() => setUpdateOpen(true)}
               style={{
                 background: '#2a1a00',
@@ -265,6 +271,7 @@ export function TopBar() {
             </button>
           )}
           <button
+            className="vs-topbar-settings"
             ref={updateAnchorRef}
             onClick={() => setUpdateOpen(true)}
             style={{

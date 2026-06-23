@@ -2182,6 +2182,7 @@ export function SceneGraph() {
       <div key={node.id}>
         {/* Node row */}
         <div
+          className="vs-node-row"
           draggable
           onDragStart={(e) => handleDragStart(e, node.id)}
           onDragEnd={() => {
@@ -2227,6 +2228,7 @@ export function SceneGraph() {
         >
           {/* Collapse chevron (or spacer) */}
           <span
+            className="vs-node-collapse"
             style={{
               width: 16,
               flexShrink: 0,
@@ -2320,6 +2322,7 @@ export function SceneGraph() {
 
               {/* Components toggle */}
               <button
+                className="vs-node-components-toggle"
                 title={
                   showBehaviors ? t('components.hide') : t('components.show')
                 }
@@ -2398,6 +2401,7 @@ export function SceneGraph() {
 
               {/* Visibility toggle */}
               <button
+                className="vs-node-visibility"
                 title={isHidden ? t('visibility.show') : t('visibility.hide')}
                 style={{
                   background: 'none',
@@ -2422,6 +2426,7 @@ export function SceneGraph() {
 
               {/* Delete button */}
               <button
+                className="vs-node-delete"
                 style={{
                   background: 'none',
                   border: 'none',
@@ -2589,6 +2594,7 @@ export function SceneGraph() {
       <div key={scene.id}>
         {/* Scene row */}
         <div
+          className="vs-scene-row"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -2620,6 +2626,7 @@ export function SceneGraph() {
           }}
         >
           <span
+            className="vs-scene-collapse"
             style={{
               width: 16,
               flexShrink: 0,
@@ -2687,6 +2694,7 @@ export function SceneGraph() {
               palette and flashes it as a hint, rather than opening its own
               menu. The palette adds to whichever scene is active. */}
           <button
+            className="vs-scene-add-node"
             title={t('nodes.addNodeTitle')}
             style={{
               background: '#2563eb',
@@ -2711,6 +2719,7 @@ export function SceneGraph() {
           </button>
           {/* Delete scene */}
           <button
+            className="vs-scene-delete"
             title={t('nodes.deleteScene')}
             style={{
               background: 'none',
@@ -2795,12 +2804,14 @@ export function SceneGraph() {
         }}
       >
         <button
+          className="vs-tab-stage"
           style={tabStyle(dockTab === 'scene')}
           onClick={() => setDockTab('scene')}
         >
           {t('tabs.stage')}
         </button>
         <button
+          className="vs-tab-compose"
           style={tabStyle(dockTab === 'compose')}
           onClick={() => setDockTab('compose')}
           title={t('tabs.compose')}
@@ -2808,6 +2819,7 @@ export function SceneGraph() {
           {t('tabs.compose')}
         </button>
         <button
+          className="vs-tab-logic"
           style={tabStyle(dockTab === 'graphs')}
           onClick={() => setDockTab('graphs')}
         >
@@ -2862,6 +2874,7 @@ export function SceneGraph() {
                 fontSize: 11,
                 fontWeight: 500,
               }}
+              className="vs-add-scene"
               onClick={handleNewScene}
               title={t('scenes.newButton_title')}
             >

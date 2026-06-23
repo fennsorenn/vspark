@@ -252,7 +252,10 @@
     "animPlaceholder": "Suchen oder URL einfügen…",
     "animNoAssets": "Noch keine Animationen hochgeladen",
     "animClear": "Animation entfernen",
-    "animSpeed": "Geschwindigkeit"
+    "animSpeed": "Geschwindigkeit",
+    "twistHeader": "Unterarm-Drehung",
+    "twistForce": "Drehknochen erzwingen",
+    "twistExcludeSleeves": "Ärmel ausschließen"
   },
   "file": {
     "header": "Datei"
@@ -554,6 +557,7 @@
     "videoPlayback": "Steuert wann und wie das Video abgespielt wird — Autoplay, Wiederholen, Verhalten bei Ende und Lautstärke",
     "videoChroma": "Entfernt eine bestimmte Hintergrundfarbe aus dem Video, um Green-Screen- oder Blue-Screen-Material direkt in der Szene einzublenden",
     "audioType": "Einfach spielt überall mit gleicher Lautstärke; Direktional nimmt mit dem Abstand ab und kann als 3D-Kegel geformt werden",
-    "audioSpatial": "Abstands- und Kegelparameter für direktionales Audio — Referenzabstand, Abklingrate, maximaler Abstand und Kegelwinkel"
+    "audioSpatial": "Abstands- und Kegelparameter für direktionales Audio — Referenzabstand, Abklingrate, maximaler Abstand und Kegelwinkel",
+    "twist": "Unterarm-Drehung entlang des Arms verteilen statt am Ellbogen zu knicken"
   }
 }

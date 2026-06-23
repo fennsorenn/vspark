@@ -151,9 +151,11 @@ export function ComposeLayerProperties({
   // live on the value row instead of a separate line.
   const unitSelectInline = (
     field: 'x' | 'y' | 'width' | 'height',
-    unitKey: UnitKey
+    unitKey: UnitKey,
+    vsHandle: string
   ) => (
     <select
+      className={vsHandle}
       value={unitOf(unitKey)}
       onChange={(e) => setUnit(field, unitKey, e.target.value as 'px' | '%')}
       title={t('properties.unitTitle')}
@@ -182,12 +184,14 @@ export function ComposeLayerProperties({
     h: ComposeAnchorH,
     v: ComposeAnchorV,
     icon: string,
-    title: string
+    title: string,
+    vsHandle: string
   ) => {
     const active = layer.anchorH === h && layer.anchorV === v;
     return (
       <button
         type="button"
+        className={vsHandle}
         onClick={() => commit({ anchorH: h, anchorV: v })}
         title={title}
         style={{
@@ -311,6 +315,7 @@ export function ComposeLayerProperties({
       </div>
       <input
         type="text"
+        className="vs-layer-name"
         value={layer.name}
         onChange={(e) => updateLayerLocal(layer.id, { name: e.target.value })}
         onBlur={(e) =>
@@ -386,13 +391,15 @@ export function ComposeLayerProperties({
 
       <div style={sectionHeader}>{t('properties.sectionPosition')}</div>
       <VecInput
+        className="vs-layer-position"
         values={[layer.x, layer.y]}
         labels={['X', 'Y']}
         step={1}
         axisSuffix={(axis) =>
           unitSelectInline(
             axis === 0 ? 'x' : 'y',
-            axis === 0 ? 'xUnit' : 'yUnit'
+            axis === 0 ? 'xUnit' : 'yUnit',
+            axis === 0 ? 'vs-layer-x-unit' : 'vs-layer-y-unit'
           )
         }
         onChange={(_next, axis) => {
@@ -441,15 +448,40 @@ export function ComposeLayerProperties({
             gap: 3,
           }}
         >
-          {anchorBtn('left', 'top', '◰', t('properties.anchorTopLeft'))}
-          {anchorBtn('right', 'top', '◳', t('properties.anchorTopRight'))}
-          {anchorBtn('left', 'bottom', '◱', t('properties.anchorBottomLeft'))}
-          {anchorBtn('right', 'bottom', '◲', t('properties.anchorBottomRight'))}
+          {anchorBtn(
+            'left',
+            'top',
+            '◰',
+            t('properties.anchorTopLeft'),
+            'vs-layer-anchor-left-top'
+          )}
+          {anchorBtn(
+            'right',
+            'top',
+            '◳',
+            t('properties.anchorTopRight'),
+            'vs-layer-anchor-right-top'
+          )}
+          {anchorBtn(
+            'left',
+            'bottom',
+            '◱',
+            t('properties.anchorBottomLeft'),
+            'vs-layer-anchor-left-bottom'
+          )}
+          {anchorBtn(
+            'right',
+            'bottom',
+            '◲',
+            t('properties.anchorBottomRight'),
+            'vs-layer-anchor-right-bottom'
+          )}
         </div>
       </div>
 
       <div style={sectionHeader}>{t('properties.sectionSize')}</div>
       <VecInput
+        className="vs-layer-size"
         values={[layer.width, layer.height]}
         labels={['W', 'H']}
         step={1}
@@ -457,7 +489,8 @@ export function ComposeLayerProperties({
         axisSuffix={(axis) =>
           unitSelectInline(
             axis === 0 ? 'width' : 'height',
-            axis === 0 ? 'widthUnit' : 'heightUnit'
+            axis === 0 ? 'widthUnit' : 'heightUnit',
+            axis === 0 ? 'vs-layer-w-unit' : 'vs-layer-h-unit'
           )
         }
         onCommit={(next, axis) =>
@@ -467,6 +500,7 @@ export function ComposeLayerProperties({
 
       <div style={sectionHeader}>{t('properties.sectionRotation')}</div>
       <NumInput
+        className="vs-layer-rotation"
         value={layer.rotation}
         step={1}
         prefix="∠"
@@ -492,6 +526,7 @@ export function ComposeLayerProperties({
       <div style={sectionHeader}>{t('properties.sectionVisibility')}</div>
       <div style={row}>
         <label
+          className="vs-layer-visible"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -511,6 +546,7 @@ export function ComposeLayerProperties({
       <div style={row}>
         <span style={label}>{t('properties.labelOpacity')}</span>
         <SliderInput
+          className="vs-layer-opacity"
           value={
             typeof layer.config.opacity === 'number' ? layer.config.opacity : 1
           }
@@ -525,6 +561,7 @@ export function ComposeLayerProperties({
       <div style={row}>
         <span style={label}>{t('properties.labelBlend')}</span>
         <select
+          className="vs-layer-blend"
           value={(layer.config.blendMode as string | undefined) ?? 'normal'}
           onChange={(e) =>
             commit({ config: { ...layer.config, blendMode: e.target.value } })
@@ -933,6 +970,7 @@ export function ComposeLayerProperties({
       <div style={sectionHeader}>{t('properties.sectionStackOrder')}</div>
       <div style={row}>
         <NumInput
+          className="vs-layer-scene-order"
           value={layer.sceneOrder}
           prefix={t('properties.prefixScene')}
           step={1}
@@ -941,6 +979,7 @@ export function ComposeLayerProperties({
           style={{ flex: 1 }}
         />
         <NumInput
+          className="vs-layer-camera-order"
           value={layer.cameraOrder}
           prefix={t('properties.prefixCam')}
           step={1}
