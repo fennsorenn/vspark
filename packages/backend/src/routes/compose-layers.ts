@@ -364,6 +364,10 @@ router.put('/compose-layers/:id', async (req, res) => {
     next.parentId = patch.parentId ?? null;
     changed = true;
   }
+  if ('cameraNodeId' in patch) {
+    next.cameraNodeId = patch.cameraNodeId ?? null;
+    changed = true;
+  }
   if ('rootComposeSceneId' in patch) {
     next.rootComposeSceneId = patch.rootComposeSceneId ?? null;
     changed = true;
