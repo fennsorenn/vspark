@@ -20,7 +20,24 @@ pnpm lint             # TypeScript type-check all packages
 pnpm format           # Prettier format all packages
 ```
 
-No test runner is configured — type-checking via `pnpm lint` is the primary correctness check.
+```bash
+# Testing (three tiers — see dev-notes/modules/testing.md for full details)
+pnpm test              # Vitest unit + API (all packages, fast ~30s)
+pnpm --filter @vspark/e2e e2e   # Playwright functional e2e (boots real stack ~2m)
+
+# Coverage
+pnpm --filter @vspark/shared    test:coverage   # 98%+ (hard gate)
+pnpm --filter @vspark/backend   test:coverage   # ~56% (hard gate)
+pnpm --filter @vspark/frontend  test:coverage   # ~11% (jsdom; R3F paths excluded)
+pnpm --filter @vspark/e2e       e2e:coverage    # Istanbul e2e code coverage
+
+# Control-coverage tooling
+node e2e/scripts/controls.mjs report  # exercised / instrumented / total
+node e2e/scripts/controls.mjs check   # STALE if vs- handles changed without bless
+node e2e/scripts/controls.mjs bless   # re-record manifest after intentional changes
+```
+
+Type-checking via `pnpm lint` is the primary static correctness gate; tests are the dynamic one.
 
 ## Architecture
 
@@ -128,7 +145,28 @@ separate module you only touch when working "on i18n".
 See [dev-notes/modules/i18n-help.md](dev-notes/modules/i18n-help.md) for the full
 conventions, namespace list, and step-by-step recipes.
 
-## Flagging stale docs
+# Testing
+
+Testing is a cross-cutting concern — treat it as part of "done" for any new feature or bug fix, not as a separate phase. See [dev-notes/modules/testing.md](dev-notes/modules/testing.md) for full harness docs, recipes, and how to read the coverage signals.
+
+## What to add when shipping a feature
+
+| What changed | What test to add |
+|---|---|
+| New backend route or business logic | Vitest test in `packages/backend/test/` using `makeTestApp()` (routes) or `buildGraph` (signal nodes) |
+| New Zustand store action or frontend hook | Vitest/jsdom test in `packages/frontend/test/` using `renderWithProviders` |
+| New UI panel or interactive flow | Playwright spec in `e2e/tests/` seeded via REST, asserted via REST read-back |
+| New interactive control | Add `vs-<name>` CSS class → `node e2e/scripts/controls.mjs bless` → exercise in a `cov-*.spec.ts` |
+
+## Key rules
+
+- **`vs-` handles are required for new interactive controls.** Every clickable / typeable / selectable element that isn't already covered by role+name selection needs a `vs-<name>` CSS class. Forward it via `className` prop on reusable components. Run `controls.mjs bless` after adding.
+- **No test-only metadata in `src/`.** Opt-out belongs in `e2e/coverage-ignore.json`, never as `data-*` props.
+- **Controlled inputs use `.click()` + REST poll, never `.check()`.** Checkbox and select values driven by server state only update after the PATCH round-trip; `.check()` would race.
+- **DB isolation is automatic.** `VSPARK_DB_PATH=':memory:'` is set in `packages/backend/vitest.config.ts` for all backend tests. Call `makeTestApp()` in `beforeEach` for a fresh DB per test.
+- **Coverage gates are enforced on `test:coverage`, not `pnpm test`.** Plain `pnpm test` is fast and coverage-free; CI collects coverage separately. Never lower a threshold — ratchet it up as coverage improves.
+
+# Flagging stale docs
 
 Docs drift as the code changes. Whenever you read documentation during a task — `CLAUDE.md`, `dev-notes/`, `README*.md`, or inline comments — and notice it contradicts the current code (wrong file paths, renamed tables/types, removed modules described as present, outdated counts), **flag it to the user and offer to fix it**. Don't silently skip past it just because it's outside your immediate task.
 

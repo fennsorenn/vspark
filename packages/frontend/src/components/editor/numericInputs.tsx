@@ -116,6 +116,12 @@ export interface NumInputProps {
   /** Outer wrapper width / styling. */
   style?: CSSProperties;
   disabled?: boolean;
+  /**
+   * Targeting class(es) for the wrapper. Pass a per-call-site `vs-` handle here
+   * so coverage/automation can address *this* usage distinctly (see
+   * dev-notes/plans/automated-testing-strategy.md → targeting-layer convention).
+   */
+  className?: string;
 }
 
 const WHEEL_COMMIT_DEBOUNCE_MS = 250;
@@ -136,6 +142,7 @@ export function NumInput({
   title,
   style,
   disabled,
+  className,
 }: NumInputProps) {
   const { t } = useTranslation('misc');
   const [focused, setFocused] = useState(false);
@@ -296,6 +303,7 @@ export function NumInput({
   return (
     <div
       ref={wrapperRef}
+      className={className}
       style={{
         ...baseInputStyle,
         display: 'inline-flex',
@@ -447,6 +455,8 @@ export interface VecInputProps {
   style?: CSSProperties;
   /** Style applied to every NumInput. */
   inputStyle?: CSSProperties;
+  /** Targeting class(es) for the row container (per-call-site `vs-` handle). */
+  className?: string;
 }
 
 const ax = (
@@ -476,12 +486,16 @@ export function VecInput({
   groupLabel,
   style,
   inputStyle,
+  className,
 }: VecInputProps) {
   const { t } = useTranslation('misc');
   const hasHeader =
     groupLabel != null || (onSetGroupKeyframe != null && (canRecord ?? true));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, ...style }}>
+    <div
+      className={className}
+      style={{ display: 'flex', flexDirection: 'column', gap: 4, ...style }}
+    >
       {hasHeader && (
         <div
           style={{
@@ -584,6 +598,8 @@ export interface SliderInputProps {
   /** Optional field-level help shown as a `?` next to the label. */
   help?: FieldHelp;
   style?: CSSProperties;
+  /** Targeting class(es) for the outer container (per-call-site `vs-` handle). */
+  className?: string;
 }
 
 /** Slider with a number readout overlaid in the middle. The readout is
@@ -603,6 +619,7 @@ export function SliderInput({
   suffix,
   help,
   style,
+  className,
 }: SliderInputProps) {
   const { t } = useTranslation('misc');
   const [hover, setHover] = useState(false);
@@ -616,6 +633,7 @@ export function SliderInput({
 
   return (
     <div
+      className={className}
       style={{
         display: 'flex',
         alignItems: 'center',

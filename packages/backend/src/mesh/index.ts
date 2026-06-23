@@ -345,6 +345,16 @@ export function getMeshCollection(rtype: string): Collection<Dto> | undefined {
   return COLLECTIONS.get(rtype);
 }
 
+/** Tear down the backend mesh peer + bound collections so a fresh
+ *  `initBackendMesh()` rebuilds from a clean slate. Used by the test harness to
+ *  isolate per-test state (the peer is otherwise memoised for the process). */
+export function resetBackendMesh(): void {
+  _peer?.close();
+  _peer = null;
+  _transport = null;
+  COLLECTIONS.clear();
+}
+
 /** Epoch reset: forget deletion markers for the given ids — replica AND the
  *  persisted mesh_tombstones rows (so a restart can't resurrect them either).
  *  Used when a collab scene is (re-)mounted: the author's snapshot is the

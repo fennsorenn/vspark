@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react';
-import { defineConfig, type ProxyOptions } from 'vite';
+import istanbul from 'vite-plugin-istanbul';
+import { defineConfig, type ProxyOptions, type PluginOption } from 'vite';
 import type { ServerResponse } from 'http';
 import type { Socket } from 'net';
 import { fileURLToPath, URL } from 'url';
@@ -37,7 +38,21 @@ const resilientProxy: ProxyOptions['configure'] = (proxy) => {
 };
 
 export default defineConfig({
-  plugins: [react()],
+  // Istanbul instrumentation for e2e code coverage. Gated on COVERAGE so it
+  // NEVER touches the production build — only the e2e coverage run sets it
+  // (see e2e/playwright.config.ts). Coverage shows up on window.__coverage__.
+  plugins: [
+    react(),
+    ...(process.env.COVERAGE
+      ? [
+          istanbul({
+            include: 'src/*',
+            extension: ['.ts', '.tsx'],
+            requireEnv: false,
+          }) as PluginOption,
+        ]
+      : []),
+  ],
   server: {
     port: devPort,
     host: '0.0.0.0',

@@ -4432,6 +4432,7 @@ export function PropertiesPanel() {
         <div style={sectionHeader}>{t('name')}</div>
         <input
           ref={nameInputRef}
+          className="vs-node-name"
           style={textInput}
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -4459,6 +4460,7 @@ export function PropertiesPanel() {
         <div style={sectionHeader}>{t('transform.header')}</div>
 
         <VecInput
+          className="vs-transform-position"
           groupLabel={t('transform.position')}
           labels={['X', 'Y', 'Z']}
           values={[transform.x, transform.y, transform.z]}
@@ -4531,6 +4533,7 @@ export function PropertiesPanel() {
         {/* Rotation is stored in radians on the transform component but edited in degrees;
             convert at the UI boundary so VecInput stays unit-agnostic. */}
         <VecInput
+          className="vs-transform-rotation"
           groupLabel={t('transform.rotation')}
           labels={['X', 'Y', 'Z']}
           values={[transform.rx / RAD, transform.ry / RAD, transform.rz / RAD]}
@@ -4601,6 +4604,7 @@ export function PropertiesPanel() {
         />
 
         <VecInput
+          className="vs-transform-scale"
           groupLabel={t('transform.scale')}
           labels={['X', 'Y', 'Z']}
           values={[transform.sx, transform.sy, transform.sz]}
@@ -4661,6 +4665,7 @@ export function PropertiesPanel() {
 
         {/* Opacity — walked across descendant materials by the viewport. */}
         <SliderInput
+          className="vs-transform-opacity"
           label={t('transform.opacity')}
           value={transform.opacity}
           min={0}
@@ -4718,6 +4723,11 @@ export function PropertiesPanel() {
               >
                 <input
                   type="checkbox"
+                  className={
+                    key === 'castShadow'
+                      ? 'vs-transform-cast-shadow'
+                      : 'vs-transform-receive-shadow'
+                  }
                   checked={transform[key]}
                   onChange={(e) => {
                     const t = {
@@ -4762,6 +4772,7 @@ export function PropertiesPanel() {
                   />
                 </span>
                 <select
+                  className="vs-light-type"
                   style={{ ...textInput, width: 'auto', flex: 1 }}
                   value={light.lightType}
                   onChange={(e) => {
@@ -4784,6 +4795,7 @@ export function PropertiesPanel() {
                 </span>
                 <input
                   type="color"
+                  className="vs-light-color"
                   value={light.color}
                   onChange={(e) => {
                     const l = { ...light, color: e.target.value };
@@ -4819,6 +4831,7 @@ export function PropertiesPanel() {
                   />
                 </span>
                 <NumInput
+                  className="vs-light-intensity"
                   value={light.intensity}
                   step={0.1}
                   min={0}
@@ -4848,6 +4861,7 @@ export function PropertiesPanel() {
                   >
                     <input
                       type="checkbox"
+                      className="vs-light-cast-shadow"
                       checked={light.castShadow ?? false}
                       onChange={(e) => {
                         const next = { ...light, castShadow: e.target.checked };
@@ -4985,6 +4999,7 @@ export function PropertiesPanel() {
                   />
                 </span>
                 <select
+                  className="vs-camera-projection"
                   value={camera.projection}
                   onChange={(e) => {
                     const next = {
@@ -5025,6 +5040,7 @@ export function PropertiesPanel() {
                     />
                   </span>
                   <NumInput
+                    className="vs-camera-fov"
                     value={camera.fov}
                     step={1}
                     suffix="°"
@@ -5102,6 +5118,7 @@ export function PropertiesPanel() {
                     )}
                   </span>
                   <NumInput
+                    className={key === 'near' ? 'vs-camera-near' : 'vs-camera-far'}
                     value={camera[key]}
                     step={step}
                     style={{ flex: 1, minWidth: 0 }}
@@ -5130,6 +5147,7 @@ export function PropertiesPanel() {
               >
                 <input
                   type="checkbox"
+                  className="vs-camera-shadows-enable"
                   checked={camera.shadowsEnabled}
                   onChange={(e) => {
                     const next = {

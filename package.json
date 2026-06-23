@@ -11,6 +11,7 @@
     "build:frontend": "pnpm --filter frontend build",
     "bundle": "pnpm build:backend && pnpm build:frontend && pnpm --filter backend bundle",
     "lint": "pnpm -r lint",
+    "test": "pnpm -r --if-present test",
     "format": "prettier --write 'packages/**/*.{ts,tsx,json}'",
     "format:check": "prettier --check 'packages/**/*.{ts,tsx,json}'"
   },
