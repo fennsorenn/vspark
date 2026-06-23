@@ -2,6 +2,7 @@ import { randomUUID, createHash } from 'crypto';
 import { mkdirSync, readdirSync, statSync, existsSync, readFileSync } from 'fs';
 import { join, extname, basename } from 'path';
 import { getDb } from '../db/index.js';
+import { extractVrmMetadata } from '../vrm/metadata.js';
 import type { VmcManager } from '../behaviors/vmc_receiver/manager.js';
 import type { BreathingManager } from '../behaviors/breathing/manager.js';
 import type { ManualCalibrationManager } from '../behaviors/manual_calibration/manager.js';
@@ -235,6 +236,19 @@ function sha256File(absPath: string): string {
   }
 }
 
+/** Model file extensions we pre-extract UI metadata from. */
+const MODEL_EXTS = new Set(['.vrm', '.glb', '.gltf']);
+
+/**
+ * Extract metadata JSON for a model file, or null for non-model / unparseable
+ * files. Returns a JSON string ready to store in asset_files.metadata.
+ */
+function modelMetadataJson(absPath: string, ext: string): string | null {
+  if (!MODEL_EXTS.has(ext)) return null;
+  const meta = extractVrmMetadata(absPath);
+  return meta ? JSON.stringify(meta) : null;
+}
+
 export function discoverAssets(projectId: string): void {
   const projectDir = join(UPLOADS_DIR, projectId);
   if (!existsSync(projectDir)) return;
@@ -261,7 +275,7 @@ export function discoverAssets(projectId: string): void {
         if (!stat.isFile()) continue;
         const ext = extname(file).toLowerCase();
         db.prepare(
-          'INSERT INTO asset_files (id, project_id, original_name, stored_path, mime_type, size, hash) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO asset_files (id, project_id, original_name, stored_path, mime_type, size, hash, metadata, file_mtime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         ).run(
           randomUUID(),
           projectId,
@@ -269,7 +283,9 @@ export function discoverAssets(projectId: string): void {
           storedPath,
           MIME_BY_EXT[ext] ?? 'application/octet-stream',
           stat.size,
-          sha256File(absPath)
+          sha256File(absPath),
+          modelMetadataJson(absPath, ext),
+          stat.mtimeMs.toString()
         );
       } catch {
         /* skip unreadable */
@@ -290,6 +306,60 @@ export function discoverAssets(projectId: string): void {
     const h = sha256File(join(UPLOADS_DIR, '..', r.stored_path));
     if (h)
       db.prepare('UPDATE asset_files SET hash = ? WHERE id = ?').run(h, r.id);
+  }
+
+  // Freshness self-heal: re-hash + re-extract metadata for files whose content
+  // changed on disk (overwritten in place), and backfill metadata for model
+  // rows that predate this column. Cheap gate first: a sha256 only runs when
+  // size/mtime drift or the row is missing metadata, so listing stays fast even
+  // with large VRMs. Keeping hash current also fixes preset re-linking by hash.
+  const rows = db
+    .prepare(
+      'SELECT id, stored_path, size, hash, metadata, file_mtime FROM asset_files WHERE project_id = ?'
+    )
+    .all(projectId) as {
+    id: string;
+    stored_path: string;
+    size: number;
+    hash: string;
+    metadata: string | null;
+    file_mtime: string | null;
+  }[];
+  for (const r of rows) {
+    const absPath = join(UPLOADS_DIR, '..', r.stored_path);
+    const ext = extname(r.stored_path).toLowerCase();
+    let st;
+    try {
+      st = statSync(absPath);
+    } catch {
+      continue; // file gone; leave row (deletion is handled elsewhere)
+    }
+    const mtime = st.mtimeMs.toString();
+    const isModel = MODEL_EXTS.has(ext);
+    const sizeMtimeUnchanged = st.size === r.size && r.file_mtime === mtime;
+    const metadataMissing = isModel && r.metadata === null;
+    if (sizeMtimeUnchanged && !metadataMissing) continue;
+
+    const h = sha256File(absPath);
+    if (sizeMtimeUnchanged && metadataMissing) {
+      // Content is unchanged — only the metadata column needs backfilling.
+      db.prepare(
+        'UPDATE asset_files SET metadata = ?, file_mtime = ? WHERE id = ?'
+      ).run(modelMetadataJson(absPath, ext), mtime, r.id);
+      continue;
+    }
+    // Content (or stat) changed: refresh size/mtime/hash, and re-extract
+    // metadata when the hash actually moved (or it was never populated).
+    const contentChanged = h !== r.hash;
+    db.prepare(
+      'UPDATE asset_files SET size = ?, file_mtime = ?, hash = ?' +
+        (contentChanged || metadataMissing ? ', metadata = ?' : '') +
+        ' WHERE id = ?'
+    ).run(
+      ...(contentChanged || metadataMissing
+        ? [st.size, mtime, h, modelMetadataJson(absPath, ext), r.id]
+        : [st.size, mtime, h, r.id])
+    );
   }
 }
 
