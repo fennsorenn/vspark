@@ -492,6 +492,41 @@ interface VmcRetarget {
   _inv: THREE.Quaternion;
 }
 
+/**
+ * Compute the Y rotation (radians) that makes a freshly-loaded VRM face the
+ * camera (world +Z), derived from the rest-pose skeleton rather than the VRM
+ * version flag.
+ *
+ * The avatar's anatomical front is `(leftUpperArm − rightUpperArm) × (hips →
+ * head)`. Bone positions are read in `vrmScene`-local space (so the result is
+ * independent of any node/group transform above it), the front is flattened to
+ * the XZ plane, and we return the yaw that rotates it onto +Z. Falls back to
+ * `Math.PI` (the historical default) if the needed bones are missing or the
+ * skeleton is degenerate.
+ */
+function faceCameraYaw(vrm: VRM, vrmScene: THREE.Object3D): number {
+  vrmScene.rotation.y = 0;
+  vrmScene.updateWorldMatrix(true, true);
+  const toLocal = new THREE.Matrix4().copy(vrmScene.matrixWorld).invert();
+  const localPos = (name: VRMHumanBoneName): THREE.Vector3 | null => {
+    const bone = vrm.humanoid.getRawBoneNode(name);
+    if (!bone) return null;
+    return bone.getWorldPosition(new THREE.Vector3()).applyMatrix4(toLocal);
+  };
+  const lArm = localPos('leftUpperArm');
+  const rArm = localPos('rightUpperArm');
+  const hips = localPos('hips');
+  const head = localPos('head') ?? localPos('neck') ?? localPos('upperChest');
+  if (!lArm || !rArm || !hips || !head) return Math.PI;
+  const right = lArm.sub(rArm);
+  const up = head.sub(hips);
+  const front = right.cross(up); // anatomical front in vrmScene-local space
+  front.y = 0;
+  if (front.lengthSq() < 1e-8) return Math.PI;
+  // Yaw θ s.t. R_y(θ) maps the local front onto +Z (see derivation in fix notes).
+  return Math.atan2(-front.x, front.z);
+}
+
 function buildVmcRetarget(vrm: VRM): VmcRetarget {
   const allNames = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
 
@@ -911,6 +946,10 @@ function AvatarNode({
   const boneCylRef = useRef<THREE.Mesh>(null);
   const fbxMixerRef = useRef<THREE.AnimationMixer | null>(null);
   const vrmMixerRef = useRef<THREE.AnimationMixer | null>(null);
+  // Scene yaw applied to face the avatar at the camera (set at VRM load by
+  // faceCameraYaw). The FBX retarget reuses it to reframe its root so the baked
+  // animation faces the same way as the rest pose — see the retarget below.
+  const frontYawRef = useRef(0);
   // Per-instance animation state read by this avatar's useFrame. Kept on a ref
   // (not a shared node.id-keyed map) so multiple AvatarNode instances for the
   // same avatar — the scene viewport plus every compose camera view — each drive
@@ -1104,9 +1143,22 @@ function AvatarNode({
       const vrmScene = gltf.scene;
 
       vrmRef.current = vrm ?? null;
-      vrmScene.rotation.y = Math.PI;
       groupRef.current.clear();
       groupRef.current.add(vrmScene);
+      // Yaw the avatar to face the camera (world +Z). VRM 0.x faces +Z while
+      // VRM 1.0 faces −Z by spec, so the old blanket `rotation.y = Math.PI` only
+      // ever worked for one convention and left the other facing backwards.
+      // Real-world models also don't always honour their version's convention,
+      // so rather than branch on metaVersion (e.g. VRMUtils.rotateVRM0) we derive
+      // the avatar's actual front from its rest-pose skeleton — the shoulder line
+      // (left→right upper arm) crossed with the spine (hips→head) — and rotate
+      // that front onto +Z. The FBX retarget reuses this yaw (frontYawRef) to
+      // reframe its root, so animations face the same way as the rest pose.
+      if (vrm) {
+        const yaw = faceCameraYaw(vrm, vrmScene);
+        vrmScene.rotation.y = yaw;
+        frontYawRef.current = yaw;
+      }
 
       if (vrmHelperRef.current) {
         vrmHelperRef.current.clear();
@@ -1517,6 +1569,22 @@ function AvatarNode({
         if (b) vrmBoneObj[n] = b;
       }
 
+      // Root reframe for the retarget: rotate the humanoid root by the same yaw
+      // that orients the avatar at the camera (frontYawRef, from faceCameraYaw).
+      // The clip is authored facing world +Z (e.g. Mixamo), and faceCameraYaw
+      // rotates the avatar's rest front onto +Z too — so threading this yaw
+      // through the bind (Phase 2) and per-frame (Phase 4) chains makes the
+      // retarget's basis line up with the clip (`fullRot` collapses to just the
+      // A-pose lean). The net rendered animation becomes `worldDelta × (camera-
+      // facing rest pose)`, identical across VRM 0.x / 1.0 instead of flipped
+      // 180° for whichever convention faces away from the clip. Identity when the
+      // rest pose already faces +Z (the historical no-op case).
+      const rootParentWQ = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        frontYawRef.current
+      );
+      const rootParentWQInv = rootParentWQ.clone().invert();
+
       const vrmNodeToName = new Map<THREE.Object3D, VRMHumanBoneName>();
       for (const n of allVRMBoneNames) {
         const b = vrmBoneObj[n];
@@ -1569,10 +1637,11 @@ function AvatarNode({
         const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
         const bone = vrmBoneObj[vn]!;
         const pn = vrmBoneParent[vn];
-        const pWQ = pn ? vrmBindWQ[pn] : undefined;
-        const wq = pWQ
-          ? pWQ.clone().multiply(bone.quaternion)
-          : bone.quaternion.clone();
+        // Root bones (no humanoid parent) seed from the reframe rotation instead
+        // of identity, so the whole bind chain is expressed in the clip-aligned
+        // frame. See rootParentWQ above.
+        const pWQ = pn ? vrmBindWQ[pn]! : rootParentWQ;
+        const wq = pWQ.clone().multiply(bone.quaternion);
         vrmBindWQ[vn] = wq;
         vrmBindWQInv[vn] = wq.clone().invert();
       }
@@ -2031,8 +2100,11 @@ function AvatarNode({
           }
           curVRMWQ[vn]!.copy(_delta);
           const vrmPN = vrmBoneParent[vn];
-          const parentVRMWQ = vrmPN ? curVRMWQ[vrmPN] : IDQ;
-          _inv.copy(parentVRMWQ ?? IDQ).invert();
+          // Root bones convert to local against the reframe rotation (same seed
+          // as the bind chain in Phase 2), so the baked track renders back to the
+          // intended clip-aligned world pose. See rootParentWQ above.
+          const parentVRMWQ = vrmPN ? curVRMWQ[vrmPN] : rootParentWQ;
+          _inv.copy(parentVRMWQ ?? rootParentWQ).invert();
           _q.copy(_inv).multiply(_delta);
           const base = ti * 4,
             arr = outQVals[vn]!;
@@ -2079,6 +2151,10 @@ function AvatarNode({
           _v.sub(fbxRestPos);
           // Map FBX coord frame → VRM coord frame (e.g. Z-up → Y-up)
           _v.applyQuaternion(fbxCoordFix);
+          // Re-express the translation in the reframed hips-local frame so it
+          // matches the reframed rotation chain (identity when no reframe). See
+          // rootParentWQ above.
+          _v.applyQuaternion(rootParentWQInv);
           _v.multiplyScalar(0.01).add(vrmRestPos);
           values[i] = _v.x;
           values[i + 1] = _v.y;

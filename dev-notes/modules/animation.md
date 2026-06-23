@@ -44,6 +44,8 @@ Bone name → VRM name mapping tables (`MIXAMO_TO_VRM`, `UE4_TO_VRM`) are define
 **Coordinate system detection (applied to all fbxBindWQ):**  
 Infer Z-up vs Y-up by examining the spine direction (hips → chest). Compute `fbxCoordFix = rotation from detected up-axis to Y`. Apply to all fbxBindWQ. UE4 rigs typically need a 90°X correction; Mixamo gets identity (already Y-up).
 
+**Root reframe (`rootParentWQ`) — version-independent facing.** Clips are authored facing world +Z (e.g. Mixamo), but a VRM's rest pose may face either way (VRM 0.x +Z vs VRM 1.0 −Z, and real models don't always honour their spec convention). Left unhandled, the hips basis alignment bakes the gross rest-vs-clip facing difference (~180° yaw) into the animation, so the avatar snaps around when a clip starts — VRM0 ended up facing the opposite way from VRM1 *during playback* even after the rest pose was corrected. The fix reuses the same yaw `faceCameraYaw` computes to bring the rest front onto +Z (`frontYawRef`): a `rootParentWQ = R_y(frontYaw)` seeds the **root** of both the bind chain (Phase 2) and the per-frame world chain (Phase 4), and its inverse re-expresses the hips position track. This reframes the whole retarget into the clip-aligned frame, so `fullRot` collapses to just the A-pose lean and the net rendered animation is `worldDelta × (camera-facing rest pose)` — identical across VRM versions. Identity (no-op) when the rest already faces +Z.
+
 **Phase 2 — VRM bind world quaternions**
 
 Chain `bone.quaternion` root → leaf through the VRM skeleton to get world-space T-pose rotations per bone. Bones are sorted depth-first (parent before child) so parent WQ is always available when processing a child.
@@ -165,6 +167,10 @@ Three modes:
 - `mouthFrownLeft/Right` → sad (0.5 each)
 - `browInnerUp` → surprised (0.6)
 - `browDownLeft/Right` → angry (0.5 each)
+
+## Avatar facing — `faceCameraYaw` (`Viewport.tsx`)
+
+On load, each avatar is yawed to face the camera (world +Z). VRM 0.x rigs face +Z and VRM 1.0 rigs face −Z by spec, so the old blanket `vrmScene.rotation.y = Math.PI` only ever suited one convention (the other faced away). `faceCameraYaw(vrm, vrmScene)` instead derives the avatar's **actual** front from its rest-pose skeleton — `(leftUpperArm − rightUpperArm) × (hips → head)`, read in `vrmScene`-local space — flattens it to the XZ plane, and returns the yaw that rotates that front onto +Z. This is deliberately geometry-based rather than branching on `vrm.meta.metaVersion` / `VRMUtils.rotateVRM0`, because real-world models frequently don't honour their version's spec convention. Yaw-only (matching the prior behaviour); falls back to `Math.PI` if the needed bones are missing. The computed yaw is stashed on `frontYawRef` and reused by the FBX retarget's root reframe (see `rootParentWQ` under FBX/BVH retargeting) so clip playback faces the same way as the rest pose.
 
 ## VMC pose application — `Viewport.tsx` (useFrame)
 
@@ -307,3 +313,5 @@ The avatar idle picker writes `properties.animation.idle = { clipId, speed }` (s
 | Animation pops at loop point | First and last keyframe identical, single-frame hold | Trim duration to second-to-last keyframe |
 | Blendshapes exceed 1.0 | Multiple ARKit shapes accumulate to same target | Clamp after accumulation, not per-mapping |
 | Morph targets stomped by expressions | VRM expressionManager also writes morphs | Apply expressions first, then write direct morph target overrides |
+| VRM0 avatar faces away from camera | VRM 0.x rigs face +Z, VRM 1.0 face −Z; loader used a blanket `rotation.y = Math.PI` that only suited one convention | `faceCameraYaw()` derives the actual front from the rest skeleton (shoulder line × spine) and yaws it onto +Z — version-agnostic, no metaVersion/`rotateVRM0` branch (real models often don't honour their spec convention) |
+| Avatar animation faces 180° from VRM1 / snaps when a clip starts | Hips A-pose `fullRot` baked the gross rest-pose↔clip facing difference (a ~180° yaw for VRM0 vs a Mixamo clip) into the per-frame motion | Reframe the retarget root by `rootParentWQ = R_y(frontYaw)` (the `faceCameraYaw` yaw) through the bind + per-frame chains so the whole clip is retargeted in the clip-aligned frame → `worldDelta × camera-facing rest`, identical across versions (no-op when rest already faces +Z). A frame-0-only yaw strip is NOT enough — it breaks per-frame composition and the flip returns mid-clip |
