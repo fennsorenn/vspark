@@ -173,6 +173,14 @@ export interface NodeProperties {
   /** VRM avatar: second-order "snappiness" dynamics applied to broadcast bone
    *  rotations after the jitter-smoothing filter. Disabled by default. */
   poseDynamics?: import('../secondOrderDynamics').PoseDynamicsConfig;
+  /** VRM avatar: synthesize forearm twist bones when the model lacks them, so
+   *  wrist pronation spreads along the forearm instead of pinching at the
+   *  elbow. Models with their own twist bones are driven regardless. */
+  forceTwistBone?: boolean;
+  /** VRM avatar: when synthesizing twist bones, keep their weight off loose
+   *  sleeve/cuff geometry (twist kept only on mesh reachable from the hand
+   *  through connected twist-weighted vertices). */
+  excludeSleeves?: boolean;
 }
 
 export interface StageObject {

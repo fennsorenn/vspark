@@ -1,6 +1,6 @@
 import { SignalGraph } from '../../signal/engine.js';
 import { NODE_REGISTRY } from '../../signal/registry.js';
-import { mkEvent } from '@vspark/shared/signal';
+import { mkEvent, Blendshapes } from '@vspark/shared/signal';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
@@ -17,6 +17,8 @@ interface TrackingFrame {
   leftHand?: Landmark[];
   rightHand?: Landmark[];
   pose?: Landmark[];
+  /** ARKit blendshape weights (shape name → 0..1) from MediaPipe's face model. */
+  faceBlendshapes?: Record<string, number>;
 }
 
 @BehaviorKind({
@@ -172,6 +174,12 @@ export class TrackingManager {
     if (frame.rightHand)
       graph.fire('mp_source', 'rightHand', mkEvent(frame.rightHand, ts));
     if (frame.pose) graph.fire('mp_source', 'pose', mkEvent(frame.pose, ts));
+    if (frame.faceBlendshapes)
+      graph.fire(
+        'mp_source',
+        'arkit',
+        mkEvent(Blendshapes.fromRecord(frame.faceBlendshapes), ts)
+      );
   }
 
   getStates(

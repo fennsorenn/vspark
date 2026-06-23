@@ -86,7 +86,7 @@ Organized by role:
 | Kind | Description |
 |------|-------------|
 | `vmc_packet_source` | Entry for VMC/RhyLive UDP data; outputs `bones` (BoneRotations) and `arkit` events |
-| `mediapipe_source` | Entry for MediaPipe landmarks; outputs `face`, `leftHand`, `rightHand`, `pose` events |
+| `mediapipe_source` | Entry for MediaPipe landmarks; outputs `face`, `leftHand`, `rightHand`, `pose`, and `arkit` (ARKit blendshape weights) events. The `arkit` weights are computed browser-side — by default a landmark-derived heuristic (`media/arkitHeuristic.ts`), or a trained `FaceLandmarker` when "HQ face" is enabled — both feeding the same `arkit_vrm_mapper` trio |
 | `lipsync_source` | Entry for viseme weights from mic analysis; outputs `visemes` event |
 | `manual_trigger` (kind string `component_trigger`, label "Behavior Trigger") | UI-facing trigger button; fires an event on demand |
 | `clock` | Outputs elapsed time since graph start |
@@ -102,7 +102,7 @@ Organized by role:
 |------|-------------|
 | `rhylive_bone_mapper` | BoneRotations (VMC/RhyLive format) → NormalizedPose (VRM bone names); applies coordinate flipping |
 | `arkit_vrm_mapper` | ARKit 52-shape weights → VRM expressions; supports `fcl`, `expressions`, and `passthrough` modes |
-| `face_landmarks_to_blendshapes` | 478 MediaPipe face points → vowel shapes (A/E/I/O/U), eye blink, brow raise |
+| `face_landmarks_to_blendshapes` | 478 MediaPipe face points → mixed `Fcl`/ARKit shapes (vowels A/E/I/O/U, eye blink, brow raise). **Unwired in the default MediaPipe graph** — superseded by the frontend ARKit heuristic (`media/arkitHeuristic.ts`) feeding the `arkit_vrm_mapper` trio (still registered; kept as a manual option / for saved-graph back-compat). |
 | `hand_landmarks_to_bones` | 21 MediaPipe hand points → finger joint quaternions (residual rest-pose offsets are an open issue — see mediapipe-tracker.md) |
 | `pose_torso_head_to_bones` | 33 MediaPipe body points → torso + head + eye bone quaternions |
 | `pose_arms_to_bones` | 33 MediaPipe body points → shoulder/upper-arm/lower-arm quaternions (quat-arm mode) |

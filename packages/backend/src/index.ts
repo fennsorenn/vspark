@@ -303,6 +303,7 @@ async function start() {
         leftHand: msg.leftHand,
         rightHand: msg.rightHand,
         pose: msg.pose,
+        faceBlendshapes: msg.faceBlendshapes,
       });
     } else if (kind === 'avatar_expressions_report') {
       const msg = payload as AvatarExpressionsReportMessage;

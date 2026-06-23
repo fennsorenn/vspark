@@ -100,6 +100,16 @@ export interface SceneNodeProperties {
    *  the frontend, after the jitter-smoothing filter. Applies to VRM avatar
    *  nodes. Disabled by default. */
   poseDynamics?: PoseDynamics;
+  /** Synthesize forearm twist bones when the model lacks them, so wrist
+   *  pronation spreads along the forearm instead of pinching at the elbow.
+   *  Models with their own twist bones are driven automatically regardless.
+   *  Applies to VRM avatar nodes. Default false. */
+  forceTwistBone?: boolean;
+  /** When synthesizing forearm twist bones, keep their weight off loose sleeve /
+   *  cuff geometry: twist weight is retained only on mesh reachable from the
+   *  hand through connected twist-weighted vertices. Applies to VRM avatar
+   *  nodes. Default false. */
+  excludeSleeves?: boolean;
 }
 
 /** Per-bone second-order (spring–damper) dynamics that add anticipatory snap /
@@ -550,6 +560,7 @@ export interface TrackingInputMessage {
   leftHand?: Landmark[]; // 21 points
   rightHand?: Landmark[]; // 21 points
   pose?: Landmark[]; // 33 points
+  faceBlendshapes?: Record<string, number>; // 52 ARKit shapes (name → 0..1)
 }
 
 export interface TrackingStatusMessage {

@@ -89,3 +89,25 @@ des Avatars aus, damit die Bewegung natürlich passt — zum Beispiel die Anpass
 deiner Armlänge an die der Figur. Die meisten Tracking-Verhalten enthalten einen
 Kalibrierungsschritt; folge der Anweisung auf dem Bildschirm, während du in einer
 neutralen Pose stehst.
+
+## Unterarm-Drehung {#twist}
+
+Wenn der Avatar das Handgelenk dreht (Pronation/Supination), hat ein
+Standard-VRM nur einen Unterarmknochen, sodass die gesamte Drehung am Ellbogen
+landet — der Unterarm sieht aus wie ein ausgewrungenes Tuch. **Drehknochen
+erzwingen** fügt jedem Unterarm einen versteckten Hilfsknochen hinzu und
+gewichtet den Unterarm neu, damit sich die Drehung gleichmäßig vom Ellbogen zum
+Handgelenk verteilt, wie bei einem echten Arm. Die Hand behält exakt dieselbe
+Ausrichtung; nur die Fläche dazwischen wird geglättet.
+
+Wenn das Modell mit eigenen Unterarm-Drehknochen erstellt wurde, werden diese
+automatisch verwendet und der Schalter ist überflüssig. Der Schalter wirkt sich
+nicht auf die Ruhepose aus — der Unterschied ist nur sichtbar, während das
+Handgelenk gedreht wird.
+
+**Ärmel ausschließen** hält die Drehung von losen Ärmeln und Manschetten fern,
+sodass sich ein weiter Ärmel mit dem Arm beugt, ohne sich wie Haut zu drehen.
+Dabei bleibt die Drehung nur auf Flächen, die mit der Hand verbunden sind;
+separate Kleidungsstücke werden ausgelassen. Schalte es aus, wenn sich ein eng
+anliegender Ärmel mit dem Arm drehen soll oder wenn ein Ärmel die einzige
+Unterarm-Geometrie des Modells ist.

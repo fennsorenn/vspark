@@ -76,6 +76,11 @@ import {
 import { getIkTargets, getIkTargetsTime } from '../../ikTargetStore';
 import { vrmRegistry } from '../../vrmRegistry';
 import {
+  setupForearmTwist,
+  teardownForearmTwist,
+  driveForearmTwist,
+} from './twistBones';
+import {
   applyMaterialOverrides,
   disposeMaterialOverrides,
   type MaterialOverrides,
@@ -1165,6 +1170,7 @@ function AvatarNode({
       _sendExpressionsReport(node.id, []);
       clearVrmMorphTargetsForNode(node.id);
       morphMapRef.current.clear();
+      teardownForearmTwist(node.id);
       vrmRegistry.delete(node.id);
     };
   }, [node.filePath]);
@@ -1183,6 +1189,26 @@ function AvatarNode({
     applyMaterialOverrides(vrm, materialOverrides);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vrmLoaded, materialOverridesKey]);
+
+  // --- Forearm twist bones ---
+  // Detect the model's own forearm twist bones, or (when "Force twist bone" is
+  // on) synthesize them, so pronation reads along the forearm instead of
+  // pinching at the elbow. Re-runs when the toggle flips; tears down (restoring
+  // original skinning) on unmount / reload. The per-frame drive lives in the
+  // useFrame below.
+  const forceTwistBone = node.properties?.forceTwistBone === true;
+  const excludeSleeves = node.properties?.excludeSleeves === true;
+  useEffect(() => {
+    if (!vrmLoaded) return;
+    const vrm = vrmRef.current;
+    if (!vrm) return;
+    setupForearmTwist(node.id, vrm, {
+      force: forceTwistBone,
+      excludeSleeves,
+    });
+    return () => teardownForearmTwist(node.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vrmLoaded, forceTwistBone, excludeSleeves, node.id]);
 
   // --- Animation clip auto-registration ---
   // Once the avatar VRM is loaded, probe each .fbx asset in the project for its real
@@ -2580,6 +2606,11 @@ function AvatarNode({
           }
         }
       }
+
+      // Route the forearm roll onto the twist bone (no-op when none is set up).
+      // After IK / setNormalizedPose so it reads the final lowerArm rotation,
+      // before spring-bone / constraint updates so they see the twisted pose.
+      driveForearmTwist(node.id);
 
       v['lookAt']?.update(delta);
       v['expressionManager']?.update();

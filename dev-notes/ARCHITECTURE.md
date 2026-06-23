@@ -81,6 +81,7 @@ packages/
 | Router + App shell | Implemented | `App.tsx` — 4 routes |
 | Zustand store | Implemented | `store/editorStore.ts` — includes update state slice (updateAvailable, updateInfo, pendingReload) |
 | 3D Viewport | Implemented | `components/editor/Viewport.tsx` — R3F, pose application, post-processing, particles |
+| Forearm twist bones | Implemented | `components/editor/twistBones.ts` — frontend-only rig post-step that spreads forearm roll along the forearm instead of pinching it at the elbow. Drives the model's own twist bone (name `/twist\|roll/i`) or, when the avatar node's `forceTwistBone` property is on, **synthesizes** one: inserts a `THREE.Bone` partway (0.55) down each forearm, reparents the hand under it (`attach`, world-transform preserving), and re-skins forearm `SkinnedMesh`es (ramps lowerArm-weighted vertices lowerArm→twist 0..1 along the bind-pose elbow→wrist axis). Per frame (`driveForearmTwist`, called in `Viewport.tsx` `useFrame` after IK/`setNormalizedPose`, before spring/constraint updates) swing-twist-decomposes the `lowerArm` local rotation and routes the twist (× gradient, default 1.0) onto the twist bone, leaving the elbow swing-only; hand world orientation preserved. Purely additive + gated: when no twist bone is set up nothing runs and the backend `ARM_ROLL_UPPER_SHARE` arm-roll split (`signal/nodes/pose_arms_to_bones.ts`) stands; rest pose visually identical; `teardownForearmTwist` restores the backed-up skeleton/weights on toggle-off/reload. Avatar node properties `forceTwistBone` + `excludeSleeves` (`SceneNodeProperties` + Zod + store/api `NodeProperties`); "Force twist bone" toggle with a nested "Exclude sleeves" checkbox + `HelpButton(topic=avatar, anchor=twist)` in `PropertiesPanel.tsx`; `{#twist}` help + `avatar.twist*`/`help.twist` i18n. With `excludeSleeves` on, a one-time post-re-skin BFS (welded-vertex flood-fill from hand/finger seeds through connected twist-weighted geometry) rolls twist weight back to `lowerArm` on anything not reached, so loose sleeves bend with the arm instead of spiralling. Sample fixtures `public/samples/AvatarSample_{A,B,C}.vrm`. See [twist-bones.md](modules/twist-bones.md). |
 | Motion snappiness (second-order dynamics) | Implemented | `secondOrderDynamics.ts` (`SecondOrderDynamicsQuat`, `BoneDynamicsBank`, `PoseDynamicsConfig`, `DEFAULT_POSE_DYNAMICS`) — per-bone spring–damper filter on broadcast bone rotations, layered AFTER the One Euro filter in `Viewport.tsx` (gated on `node.properties.poseDynamics.enabled`, off by default). Can lead/overshoot the target (snappy without choppy). Quaternion second-order dynamics via exponential map, stability-clamped semi-implicit Euler (t3ssel8r formulation adapted to SO(3)). Config persisted as the `poseDynamics` node property (`PoseDynamics` on shared `SceneNodeProperties`, Zod-validated; mirrored in both frontend `NodeProperties`). "Motion Snappiness" PropertiesPanel section + `avatar.*`/`help.dynamics` i18n + `{#snappiness}` help. Deliberately frontend-only (not a backend pose-interceptor) so One Euro stays in place for packet-delivery smoothing. See [animation.md](modules/animation.md) (Motion snappiness). |
 | Viewport pose-gate rewrite | Implemented | Drops `vmcCompRef`/tracking-lost gates; pose applied whenever `pose != null && Object.keys(pose).length > 0 && fresh`; `blendMode` now selects composition strategy (override = replace anim; additive = `animQ * (restRawQ⁻¹ * posedRawQ)`); ramps over per-avatar `blendTransitionTime` (default 0.5s) |
 | PropertiesPanel: blend-time relocation + breathing UI | Implemented | `blendTime` removed from vmc_receiver UI; `blendTransitionTime` lives on the VRM avatar node's `properties`; new `BreathingProps` panel (Chest amplitude + Shoulder lift) |
@@ -153,7 +154,11 @@ Landmarks are sent over WS and processed in a backend signal graph:
 Browser camera (worker) → MediaPipe Holistic → useTrackingUplink
   → WS tracking_input
   → TrackingManager.fireLandmarks() → mediapipe_source
-     ├── face   → face_landmarks_to_blendshapes ─┐
+     ├── arkit  → arkit_vrm_mapper ×3 → blendshapes_sum → blendshapes_broadcast → WS vmc_blendshapes
+     │            (ARKit face shapes computed browser-side: default landmark heuristic
+     │             arkitHeuristic.ts, or trained FaceLandmarker when "HQ face" is on;
+     │             same trio as VMC. face_landmarks_to_blendshapes unwired but registered)
+     ├── face   → pose_torso_head_to_bones (head tilt/turn) ┐
      ├── pose   → pose_torso_head_to_bones ──────┤
      ├── pose   → pose_arms_to_bones (quat arms) ┤
      ├── hands  → hand_landmarks_to_bones (L/R) ─┤
@@ -161,7 +166,6 @@ Browser camera (worker) → MediaPipe Holistic → useTrackingUplink
      │                                           │     → head_calib (body_calibration: HEAD_CALIB_BONES)
      │                                           │     → finger_calib (body_calibration: FINGER_CALIB_BONES, mirrorPairs)
      │                                           │     → pose_broadcast → WS vmc_pose
-     │                                           └── blendshapes_broadcast → WS vmc_blendshapes
      └── pose   → pose_ik_targets → ik_broadcast → WS ik_targets   (IK-arms branch)
 
 Arm mode toggle: useIk config → not_bool fan-out enables either pose_arms_to_bones
@@ -214,6 +218,7 @@ All five mutation rtypes (`scene_node`, `behavior`, `camera_effect`, `compose_la
 - [spawn.md](modules/spawn.md) — ephemeral clip-clone spawning; tmp scene-node / compose-layer instances driven by `spawn_clip`
 - [paramPaths.md](modules/paramPaths.md) — shared paramPath registry used by clips, runtime overrides, and `set_*_param` nodes
 - [material-overrides.md](modules/material-overrides.md) — per-avatar Material Editor: switch each VRM material between MToon, PBR, and APBR (advanced `MeshPhysicalMaterial`), the apply/swap layer, and why MToon vs PBR matters for lighting
+- [twist-bones.md](modules/twist-bones.md) — forearm twist bones: detect-or-synthesize a twist bone (insert + reparent + re-skin), per-frame swing-twist drive after the humanoid pose, the `forceTwistBone` avatar property; an additive frontend post-step over the backend `ARM_ROLL_UPPER_SHARE` arm-roll split
 - [media.md](modules/media.md) — video + audio assets, `video`/`audio` scene-node kinds, the media-command bus (`MediaControlManager` + `media_control` node), the frontend media registry + `MediaHandle`, the audio listener / audibility model, and the track-clip event/marker lane
 - [i18n-help.md](modules/i18n-help.md) — internationalisation (EN/DE via react-i18next, Vite-glob locale discovery, namespace conventions) and the in-app help system (`HelpButton`, `HelpWindow`, `DocViewer`, `DocsPage`, stable cross-locale `{#anchor}` convention)
 
