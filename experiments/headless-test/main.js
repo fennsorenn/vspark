@@ -10,9 +10,29 @@
 
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const puppeteer = require('puppeteer-core');
 
 let win = null;
+
+// puppeteer-core's `channel` option only understands Chrome release channels
+// ('chrome', 'chrome-beta', 'chrome-canary', 'chrome-dev') — there is NO
+// 'msedge' channel, so passing one resolves to `undefined` and launch throws
+// "Could not find Google Chrome executable for channel 'undefined'". To drive
+// Edge we have to point `executablePath` at the real msedge.exe instead.
+function findEdge() {
+  const candidates = [
+    process.env['ProgramFiles(x86)'] &&
+      path.join(process.env['ProgramFiles(x86)'], 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    process.env.ProgramFiles &&
+      path.join(process.env.ProgramFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    process.env.LOCALAPPDATA &&
+      path.join(process.env.LOCALAPPDATA, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+  ].filter(Boolean);
+  return candidates.find((p) => fs.existsSync(p)) || null;
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -33,11 +53,19 @@ function status(msg) {
 }
 
 async function runTest() {
-  status('Launching headless Microsoft Edge…');
+  const edgePath = findEdge();
+  if (!edgePath) {
+    status(
+      'Could not find Microsoft Edge (msedge.exe) in any standard install location.\n' +
+        'Is Microsoft Edge installed?'
+    );
+    return;
+  }
+  status('Launching headless Microsoft Edge…\n' + edgePath);
   let browser;
   try {
     browser = await puppeteer.launch({
-      channel: 'msedge',
+      executablePath: edgePath,
       headless: true,
       args: [
         '--enable-gpu',
