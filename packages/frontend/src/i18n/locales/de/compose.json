@@ -33,7 +33,8 @@
       "copyFailed": "Ebene konnte nicht kopiert werden",
       "pasteFailed": "Ebene konnte nicht eingefügt werden",
       "pasteGraphFailed": "Graph konnte nicht eingefügt werden",
-      "createFailed": "Compose-Szene konnte nicht erstellt werden"
+      "createFailed": "Compose-Szene konnte nicht erstellt werden",
+      "transferFailed": "Übertragung fehlgeschlagen"
     }
   },
   "view": {

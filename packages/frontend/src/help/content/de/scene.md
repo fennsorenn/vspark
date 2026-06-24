@@ -33,7 +33,11 @@ einem anderen Knoten (oder irgendwo zwischen dessen Unterknoten) fallen, wird er
 zu dessen Unterknoten; lässt du ihn **zwischen** zwei Zeilen — oder ganz oben
 oder unten in einer Ebene — fallen, wird er dort als Geschwisterknoten platziert.
 Eine blaue Linie zeigt die Zielposition; eine hervorgehobene Zeile bedeutet, dass
-er darin verschachtelt wird.
+er darin verschachtelt wird. Du kannst einen Knoten auf eine **andere Szene** (ihre
+Zeile oder ihre Knotenliste) ziehen, um ihn dorthin zu verschieben. Halte beim
+Loslassen **Strg** (**⌘** auf dem Mac) gedrückt, um statt des Verschiebens eine
+**Kopie** abzulegen — die Kopie umfasst den gesamten Unterbaum des Knotens, seine
+Behaviors und seine Logik.
 
 Rechtsklicke eine **Szenen**-Zeile, um auf der obersten Ebene der Szene einen
 Knoten hinzuzufügen oder einen kopierten Knoten bzw. Logikgraphen einzufügen.

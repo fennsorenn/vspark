@@ -44,9 +44,11 @@ Ebenen sind von oben (vorne) nach unten (hinten) angeordnet. Ziehe eine Ebene
 dort umzusortieren, oder lasse sie **auf** einer anderen Ebene fallen, um sie als
 Unterebene zu verschachteln — eine blaue Linie zeigt das Umsortieren, eine
 hervorgehobene Zeile das Verschachteln. Lasse sie auf dem leeren Bereich einer
-Compose-Szene fallen, um eine Ebene zurück auf deren oberste Ebene zu verschieben.
-Zusätzlich hat jede Ebene eine **Stapelreihenfolge**, die steuert, ob sie vor
-oder hinter der 3D-Szene erscheint:
+Compose-Szene fallen, um eine Ebene zurück auf deren oberste Ebene zu verschieben,
+oder auf eine **andere** Compose-Szene, um sie dorthin zu verschieben. Halte beim
+Loslassen **Strg** (**⌘** auf dem Mac) gedrückt, um statt des Verschiebens eine
+**Kopie** abzulegen. Zusätzlich hat jede Ebene eine **Stapelreihenfolge**, die
+steuert, ob sie vor oder hinter der 3D-Szene erscheint:
 
 - Eine negative Stapelreihenfolge platziert die Ebene **vor** dem 3D-Bild.
 - Null platziert sie auf derselben Ebene wie die 3D-Szene.

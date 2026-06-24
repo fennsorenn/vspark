@@ -28,7 +28,12 @@ import {
   behaviorCompatibleWith,
   type NodeKindDef,
 } from './createKinds';
-import { handleSceneNodeDrop, dropZoneFromEvent, type DropZone } from './dnd';
+import {
+  handleSceneNodeDrop,
+  dropZoneFromEvent,
+  hasCreatePayload,
+  type DropZone,
+} from './dnd';
 
 const KIND_ICONS: Record<string, string> = {
   scene: '🎬',
@@ -2226,7 +2231,9 @@ export function SceneGraph() {
   const handleDragStart = (e: React.DragEvent, nodeId: string) => {
     e.stopPropagation();
     setDragNodeId(nodeId);
-    e.dataTransfer.effectAllowed = 'move';
+    // Allow both so the cursor can switch to a copy affordance when Ctrl/⌘
+    // is held over a drop target (see the row/scene onDragOver handlers).
+    e.dataTransfer.effectAllowed = 'copyMove';
   };
 
   /** True if `candidateParentId` is `draggedId` itself or sits in its subtree —
@@ -2246,6 +2253,55 @@ export function SceneGraph() {
     return false;
   };
 
+  /** Resolve a dropped node into its target slot. Same-scene plain drops use
+   *  the fast in-place reparent (ids preserved). A drop into a *different*
+   *  scene, or any drop with Ctrl/⌘ held (`copy`), goes through the preset
+   *  serialise → instantiate path: this re-homes the whole subtree (behaviors,
+   *  graphs, clips) under the target scene. A cross-scene *move* additionally
+   *  deletes the original; a copy keeps it. */
+  const dropNode = async (
+    draggedId: string,
+    targetSceneId: string,
+    parentId: string | null,
+    bone: string | null,
+    copy: boolean
+  ) => {
+    const dragged = nodes.find((n) => n.id === draggedId);
+    if (!dragged) return;
+    // Never drop a node into itself or its own subtree.
+    if (isSelfOrDescendant(draggedId, parentId)) return;
+    const sameScene = dragged.rootSceneNodeId === targetSceneId;
+
+    if (!copy && sameScene) {
+      await handleReparent(draggedId, parentId, bone);
+      return;
+    }
+
+    if (!projectId) return;
+    try {
+      const preset = await api.serializePreset('scene_node', draggedId, true);
+      const { rootId } = await api.instantiatePreset(
+        preset,
+        projectId,
+        targetSceneId,
+        null,
+        parentId,
+        bone
+      );
+      if (!copy) {
+        await api.deleteNode(draggedId);
+        storeDeleteNode(draggedId);
+      }
+      await refreshSceneNodes(targetSceneId);
+      if (!sameScene && !copy) await refreshSceneNodes(dragged.rootSceneNodeId);
+      setActiveScene(targetSceneId);
+      selectNode(rootId);
+      setSceneSelected(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : t('nodes.failMove'));
+    }
+  };
+
   const handleDropOnBone = async (
     e: React.DragEvent,
     parentNodeId: string,
@@ -2255,7 +2311,14 @@ export function SceneGraph() {
     e.stopPropagation();
     setDragOverBone(null);
     if (!dragNodeId || dragNodeId === parentNodeId) return;
-    await handleReparent(dragNodeId, parentNodeId, boneName);
+    const parent = nodes.find((n) => n.id === parentNodeId);
+    await dropNode(
+      dragNodeId,
+      parent?.rootSceneNodeId ?? activeSceneId!,
+      parentNodeId,
+      boneName,
+      e.ctrlKey || e.metaKey
+    );
     setDragNodeId(null);
   };
 
@@ -2263,9 +2326,11 @@ export function SceneGraph() {
     e.preventDefault();
     e.stopPropagation();
     const zone = dragOverZone ?? 'inside';
+    const copy = e.ctrlKey || e.metaKey;
     setDragOverNodeId(null);
     setDragOverZone(null);
     const target = nodes.find((n) => n.id === targetNodeId);
+    const targetSceneId = target?.rootSceneNodeId ?? activeSceneId;
     // `inside` nests under the target; `before`/`after` make a sibling at the
     // target's level (the stage tree has no persisted sibling order, so both
     // edges resolve to "join the target's parent group"). Bone-attached
@@ -2276,8 +2341,8 @@ export function SceneGraph() {
       zone === 'inside' ? null : (target?.boneAttachment ?? null);
 
     // Drag-create from the bottom dock: add the new node/asset at the resolved
-    // position.
-    if (await handleSceneNodeDrop(e, activeSceneId, dropParentId)) {
+    // position (in the target's scene).
+    if (await handleSceneNodeDrop(e, targetSceneId, dropParentId)) {
       if (dropParentId)
         setCollapsedNodes((s) => {
           const n = new Set(s);
@@ -2286,21 +2351,39 @@ export function SceneGraph() {
         });
       return;
     }
-    if (!dragNodeId || dragNodeId === targetNodeId) return;
-    if (isSelfOrDescendant(dragNodeId, dropParentId)) {
-      setDragNodeId(null);
-      return;
-    }
-    await handleReparent(dragNodeId, dropParentId, dropBone);
+    if (!dragNodeId || dragNodeId === targetNodeId || !targetSceneId) return;
+    await dropNode(dragNodeId, targetSceneId, dropParentId, dropBone, copy);
+    setDragNodeId(null);
+  };
+
+  /** Drop onto a scene's own area (header row / empty list / padding) → place
+   *  at that scene's top level. Routes cross-scene moves + Ctrl-copies through
+   *  `dropNode`. */
+  const handleDropOnSceneRoot = async (e: React.DragEvent, sceneId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverNodeId(null);
+    setDragOverZone(null);
+    // Drag-create from the bottom dock: add at this scene's root.
+    if (await handleSceneNodeDrop(e, sceneId, null)) return;
+    if (!dragNodeId) return;
+    await dropNode(dragNodeId, sceneId, null, null, e.ctrlKey || e.metaKey);
     setDragNodeId(null);
   };
 
   const handleDropOnRoot = async (e: React.DragEvent) => {
     e.preventDefault();
-    // Drag-create from the bottom dock: add at scene root.
+    if (!activeSceneId) return;
+    // Drag-create from the bottom dock: add at the active scene's root.
     if (await handleSceneNodeDrop(e, activeSceneId, null)) return;
     if (!dragNodeId) return;
-    await handleReparent(dragNodeId, null, null);
+    await dropNode(
+      dragNodeId,
+      activeSceneId,
+      null,
+      null,
+      e.ctrlKey || e.metaKey
+    );
     setDragNodeId(null);
   };
 
@@ -2355,6 +2438,8 @@ export function SceneGraph() {
           onDragOver={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            e.dataTransfer.dropEffect =
+              e.ctrlKey || e.metaKey ? 'copy' : 'move';
             setDragOverNodeId(node.id);
             setDragOverZone(dropZoneFromEvent(e));
             setDragOverBone(null);
@@ -2768,7 +2853,19 @@ export function SceneGraph() {
     );
 
     return (
-      <div key={scene.id}>
+      <div
+        key={scene.id}
+        // Drops on the scene's own area (header row, empty list, padding) that
+        // aren't caught by a child node row land at this scene's top level —
+        // this is how a node is dragged from one scene into another. Node rows
+        // stopPropagation, so only "empty" drops reach here.
+        onDragOver={(e) => {
+          if (!dragNodeId && !hasCreatePayload(e)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = e.ctrlKey || e.metaKey ? 'copy' : 'move';
+        }}
+        onDrop={(e) => handleDropOnSceneRoot(e, scene.id)}
+      >
         {/* Scene row */}
         <div
           className="vs-scene-row"

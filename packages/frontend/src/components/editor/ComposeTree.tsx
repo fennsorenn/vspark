@@ -144,6 +144,43 @@ function moveComposeLayer(
   api.reorderComposeLayers(updates).catch(() => {});
 }
 
+/** Copy (or, with `copy=false`, move) a layer subtree into `targetSceneId`
+ *  under `parentId`, via the preset serialise → instantiate path. Used for
+ *  Ctrl/⌘ copy-drops and for cross-compose-scene drags (same-scene plain moves
+ *  use the cheaper in-place `moveComposeLayer`). Re-homes the whole subtree
+ *  (nested layers, attached graphs/clips) and refreshes the project's layers. */
+async function transferComposeLayer(
+  draggedId: string,
+  targetSceneId: string,
+  parentId: string | null,
+  copy: boolean,
+  projectId: string,
+  activeSceneId: string,
+  onError: (msg: string) => void,
+  errFallback: string
+) {
+  try {
+    const preset = await api.serializePreset('compose_layer', draggedId, true);
+    await api.instantiatePreset(
+      preset as never,
+      projectId,
+      activeSceneId, // required by the route but unused for layer roots
+      targetSceneId,
+      parentId
+    );
+    if (!copy) {
+      useEditorStore.getState().removeComposeLayer(draggedId);
+      await api.deleteComposeLayer(draggedId).catch(() => {});
+    }
+    // deserialize inserts via raw INSERT without a WS broadcast, so re-pull the
+    // project's compose layers from the scenes bundle.
+    const bundle = await api.getScenes(projectId);
+    useEditorStore.setState({ composeLayers: bundle.composeLayers });
+  } catch (e) {
+    onError(e instanceof Error ? e.message : errFallback);
+  }
+}
+
 // ---- Layer row (recursive for parentId nesting) -----------------------------
 
 function LayerRow({
@@ -325,7 +362,8 @@ function LayerRow({
         onContextMenu={handleContextMenu}
         onDragStart={(e) => {
           e.stopPropagation();
-          e.dataTransfer.effectAllowed = 'move';
+          // Allow copy so Ctrl/⌘ over a drop target shows the copy affordance.
+          e.dataTransfer.effectAllowed = 'copyMove';
           e.dataTransfer.setData('text/compose-layer', layer.id);
         }}
         onDragOver={(e) => {
@@ -334,7 +372,8 @@ function LayerRow({
           if (!isMove && !isCreate) return;
           e.preventDefault();
           e.stopPropagation();
-          e.dataTransfer.dropEffect = isCreate ? 'copy' : 'move';
+          e.dataTransfer.dropEffect =
+            isCreate || e.ctrlKey || e.metaKey ? 'copy' : 'move';
           // Top/bottom edge → place as sibling (before/after); middle → nest
           // as a child of this layer. Consistent with the stage tree.
           setDropPos(dropZoneFromEvent(e));
@@ -344,6 +383,7 @@ function LayerRow({
           e.preventDefault();
           e.stopPropagation();
           const zone = dropPos;
+          const copy = e.ctrlKey || e.metaKey;
           setDropPos(null);
           if (!zone) return;
 
@@ -367,21 +407,47 @@ function LayerRow({
             return;
           }
 
-          // Move an existing layer.
+          // Move (or copy) an existing layer.
           const draggedId = e.dataTransfer.getData('text/compose-layer');
           if (!draggedId || draggedId === layer.id) return;
+          const targetParentId =
+            zone === 'inside' ? layer.id : (layer.parentId ?? null);
+          if (
+            !copy &&
+            isSelfOrDescendant(allSceneLayers, draggedId, targetParentId)
+          )
+            return;
+
+          const dragged = useEditorStore
+            .getState()
+            .composeLayers.find((l) => l.id === draggedId);
+          const targetSceneId = layer.rootComposeSceneId ?? layer.id;
+          const sameScene = dragged?.rootComposeSceneId === targetSceneId;
+
+          // Cross-scene drag, or a Ctrl/⌘ copy → preset-based transfer.
+          if (copy || !sameScene) {
+            if (!projectId || !activeSceneId) return;
+            void transferComposeLayer(
+              draggedId,
+              targetSceneId,
+              targetParentId,
+              copy,
+              projectId,
+              activeSceneId,
+              (msg) => alert(msg),
+              t('tree.errors.transferFailed')
+            );
+            return;
+          }
+
+          // Same-scene plain move → fast in-place reorder/reparent.
           if (zone === 'inside') {
-            // Nest under this layer, at the front of its children.
-            if (isSelfOrDescendant(allSceneLayers, draggedId, layer.id)) return;
             const childOrder = (layersByParent.get(layer.id) ?? [])
               .slice()
               .sort((a, b) => b.sceneOrder - a.sceneOrder);
             moveComposeLayer(childOrder, draggedId, layer.id, 0);
           } else {
-            // Sibling placement before/after this layer, under its parent.
             const newParentId = layer.parentId ?? null;
-            if (isSelfOrDescendant(allSceneLayers, draggedId, newParentId))
-              return;
             const order = siblings
               .map((l) => l.id)
               .filter((id) => id !== draggedId);
@@ -575,11 +641,26 @@ function ComposeSceneRoot({
     await api.deleteComposeLayer(scene.id).catch(() => {});
   };
 
-  // Move an existing layer to this compose scene's top level (parentId = null),
-  // at the front of the root list. Mirrors LayerRow's move but targets the root.
-  const moveToRoot = (draggedId: string) => {
-    if (sceneLayerIds.has(draggedId) === false) return; // cross-scene move: out of scope
-    moveComposeLayer(roots, draggedId, null, 0);
+  // Drop a layer at this compose scene's top level (parentId = null). A
+  // same-scene plain move reorders to the front of the root list; a cross-scene
+  // drag or a Ctrl/⌘ copy re-homes the subtree via the preset transfer path.
+  const dropAtRoot = (draggedId: string, copy: boolean) => {
+    const sameScene = sceneLayerIds.has(draggedId);
+    if (!copy && sameScene) {
+      moveComposeLayer(roots, draggedId, null, 0);
+      return;
+    }
+    if (!projectId || !activeSceneId) return;
+    void transferComposeLayer(
+      draggedId,
+      scene.id,
+      null,
+      copy,
+      projectId,
+      activeSceneId,
+      (msg) => alert(msg),
+      t('tree.errors.transferFailed')
+    );
   };
 
   // Paste a copied layer preset at this compose scene's top level.
@@ -661,7 +742,8 @@ function ComposeSceneRoot({
         const isMove = e.dataTransfer.types.includes('text/compose-layer');
         if (!isCreate && !isMove) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = isCreate ? 'copy' : 'move';
+        e.dataTransfer.dropEffect =
+          isCreate || e.ctrlKey || e.metaKey ? 'copy' : 'move';
         setRootDropActive(true);
       }}
       onDragLeave={() => setRootDropActive(false)}
@@ -687,7 +769,7 @@ function ComposeSceneRoot({
         if (draggedId) {
           e.preventDefault();
           e.stopPropagation();
-          moveToRoot(draggedId);
+          dropAtRoot(draggedId, e.ctrlKey || e.metaKey);
         }
       }}
       style={{
