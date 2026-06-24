@@ -27,6 +27,29 @@ export function hasCreatePayload(e: React.DragEvent): boolean {
   );
 }
 
+/** Where, relative to a tree row, a drag is hovering. `before` / `after` place
+ *  the dragged item as a *sibling* at that position; `inside` nests it as a
+ *  *child*. Shared by the stage tree (SceneGraph) and the compose tree so both
+ *  trees read identically: hover the upper/lower edge to position between rows,
+ *  hover the middle to drop into the row. */
+export type DropZone = 'before' | 'inside' | 'after';
+
+/** Classify a drag over a row into before / inside / after from the cursor's
+ *  vertical position. The middle ~44% band nests (inside); the top/bottom
+ *  ~28% bands position as a sibling. Pass `allowInside = false` for rows that
+ *  can't hold children — it collapses to a before/after split at the midpoint. */
+export function dropZoneFromEvent(
+  e: React.DragEvent,
+  allowInside = true
+): DropZone {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const frac = rect.height > 0 ? (e.clientY - rect.top) / rect.height : 0.5;
+  if (!allowInside) return frac < 0.5 ? 'before' : 'after';
+  if (frac < 0.28) return 'before';
+  if (frac > 0.72) return 'after';
+  return 'inside';
+}
+
 /** Handle a drop that creates a scene node — either a Create-palette node tile
  *  (`DND_CREATE_NODE`) or an asset tile (`DND_ASSET`). Returns true if it
  *  consumed the drop. `parentId` nests the new node (null = scene root).

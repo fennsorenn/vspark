@@ -37,11 +37,16 @@ rechts zu bearbeiten.
 
 ![Stapelreihenfolge der Ebenen](/help/diagrams/compose-order.svg)
 
-*Ebenen werden relativ zum Betrachter rechts vor oder hinter dem 3D-Bild (hervorgehoben) gestapelt.*
+_Ebenen werden relativ zum Betrachter rechts vor oder hinter dem 3D-Bild (hervorgehoben) gestapelt._
 
-Ebenen sind von oben (vorne) nach unten (hinten) angeordnet. Ziehe sie zum
-Umsortieren. Zusätzlich hat jede Ebene eine **Stapelreihenfolge**, die steuert,
-ob sie vor oder hinter der 3D-Szene erscheint:
+Ebenen sind von oben (vorne) nach unten (hinten) angeordnet. Ziehe eine Ebene
+**zwischen** zwei Zeilen (oder an den Anfang bzw. das Ende einer Ebene), um sie
+dort umzusortieren, oder lasse sie **auf** einer anderen Ebene fallen, um sie als
+Unterebene zu verschachteln — eine blaue Linie zeigt das Umsortieren, eine
+hervorgehobene Zeile das Verschachteln. Lasse sie auf dem leeren Bereich einer
+Compose-Szene fallen, um eine Ebene zurück auf deren oberste Ebene zu verschieben.
+Zusätzlich hat jede Ebene eine **Stapelreihenfolge**, die steuert, ob sie vor
+oder hinter der 3D-Szene erscheint:
 
 - Eine negative Stapelreihenfolge platziert die Ebene **vor** dem 3D-Bild.
 - Null platziert sie auf derselben Ebene wie die 3D-Szene.
@@ -80,7 +85,7 @@ Du musst keinen Code schreiben, um grundlegende Vorlagen zu verwenden: Die
 eingebauten Vorlagen decken gängige Anwendungsfälle wie Chat-Overlays und
 Benachrichtigungsboxen ab. Für individuelle Layouts akzeptiert das Vorlagenfeld
 Standard-HTML-Elemente und kann auf jedes Feld verweisen, das ein
-**set\_data**-Knoten in den Geltungsbereich der Ebene veröffentlicht.
+**set_data**-Knoten in den Geltungsbereich der Ebene veröffentlicht.
 
 Statische visuelle Stile können im Feld **Stile (CSS)** hinzugefügt werden;
 dynamische Stile (Farben oder Größen, die sich mit den Daten ändern) werden direkt

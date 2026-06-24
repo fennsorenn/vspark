@@ -28,7 +28,7 @@ import {
   behaviorCompatibleWith,
   type NodeKindDef,
 } from './createKinds';
-import { handleSceneNodeDrop } from './dnd';
+import { handleSceneNodeDrop, dropZoneFromEvent, type DropZone } from './dnd';
 
 const KIND_ICONS: Record<string, string> = {
   scene: '🎬',
@@ -217,15 +217,26 @@ function SceneContextMenu({
   x,
   y,
   onClose,
+  onAddNode,
+  onPasteNode,
+  onPasteLogic,
+  canPasteNode,
+  canPasteLogic,
 }: {
   sceneId: string;
   x: number;
   y: number;
   onClose: () => void;
+  onAddNode: (type: (typeof NODE_TYPES)[number]) => void;
+  onPasteNode: () => void;
+  onPasteLogic: () => void;
+  canPasteNode: boolean;
+  canPasteLogic: boolean;
 }) {
   const { t } = useTranslation('sceneGraph');
   const mpEnabled = useConnectionsStore((s) => s.enabled);
   const [showShare, setShowShare] = useState(false);
+  const [showAddNode, setShowAddNode] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -266,13 +277,110 @@ function SceneContextMenu({
         overflow: 'visible',
       }}
     >
+      {/* Add node submenu — create a node at the scene's top level. */}
+      <div
+        style={itemStyle}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLDivElement).style.background = '#2a2a2a';
+          setShowAddNode(true);
+          setShowShare(false);
+        }}
+        onMouseLeave={(e) =>
+          ((e.currentTarget as HTMLDivElement).style.background = 'transparent')
+        }
+      >
+        <span>{t('context.addNode')}</span>
+        <span style={{ color: '#666' }}>▶</span>
+        {showAddNode && (
+          <div
+            style={{
+              position: 'absolute',
+              left: '100%',
+              top: 0,
+              background: '#1e1e1e',
+              border: '1px solid #3a3a3a',
+              borderRadius: 6,
+              minWidth: 160,
+              maxHeight: 320,
+              overflowY: 'auto',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+            }}
+          >
+            {NODE_TYPES.map((def) => (
+              <div
+                key={def.i18nKey}
+                style={itemStyle}
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLDivElement).style.background =
+                    '#2a2a2a')
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLDivElement).style.background =
+                    'transparent')
+                }
+                onClick={() => {
+                  onAddNode(def);
+                  onClose();
+                }}
+              >
+                {KIND_ICONS[def.kind] ?? '🔹'}{' '}
+                {t(`kinds:node.${def.i18nKey}`, { defaultValue: def.label })}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {canPasteNode && (
+        <div
+          style={itemStyle}
+          onMouseEnter={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background = '#2a2a2a')
+          }
+          onMouseLeave={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background =
+              'transparent')
+          }
+          onClick={() => {
+            onPasteNode();
+            onClose();
+          }}
+        >
+          {t('context.pasteNodeAtRoot')}
+        </div>
+      )}
+
+      {canPasteLogic && (
+        <div
+          style={itemStyle}
+          onMouseEnter={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background = '#2a2a2a')
+          }
+          onMouseLeave={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background =
+              'transparent')
+          }
+          onClick={() => {
+            onPasteLogic();
+            onClose();
+          }}
+        >
+          {t('context.pasteLogicHere')}
+        </div>
+      )}
+
+      <div style={{ height: 1, background: '#2a2a2a', margin: '3px 0' }} />
+
       {mpEnabled ? (
         <ShareWithMenuItem
           entityId={sceneId}
           shareKind="scene"
           itemStyle={itemStyle}
           open={showShare}
-          onOpen={() => setShowShare(true)}
+          onOpen={() => {
+            setShowShare(true);
+            setShowAddNode(false);
+          }}
         />
       ) : (
         <div style={{ ...itemStyle, color: '#888', cursor: 'default' }}>
@@ -1876,6 +1984,9 @@ export function SceneGraph() {
     bone: string;
   } | null>(null);
   const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
+  // Which band of the hovered row the drag is over: `before`/`after` place the
+  // dragged node as a *sibling* at that position, `inside` nests it as a child.
+  const [dragOverZone, setDragOverZone] = useState<DropZone | null>(null);
 
   const toggleBones = (id: string) =>
     setBoneListExpanded(id, !(boneListExpanded[id] ?? false));
@@ -2032,15 +2143,13 @@ export function SceneGraph() {
     }
   };
 
-  const refreshSceneNodes = async () => {
-    if (!activeSceneId) return;
+  const refreshSceneNodes = async (sceneId: string | null = activeSceneId) => {
+    if (!sceneId) return;
     try {
-      const fetched = await api.getNodes(activeSceneId);
-      // Replace the active scene's nodes in the store.
+      const fetched = await api.getNodes(sceneId);
+      // Replace the target scene's nodes in the store.
       const store = useEditorStore.getState();
-      const others = store.nodes.filter(
-        (n) => n.rootSceneNodeId !== activeSceneId
-      );
+      const others = store.nodes.filter((n) => n.rootSceneNodeId !== sceneId);
       useEditorStore.setState({ nodes: [...others, ...fetched] });
     } catch {
       /* non-fatal */
@@ -2049,21 +2158,22 @@ export function SceneGraph() {
 
   const handlePasteNodeAsChild = async (
     parentNodeId: string | null,
-    bone: string | null = null
+    bone: string | null = null,
+    sceneId: string | null = activeSceneId
   ) => {
-    if (!activeSceneId || !projectId) return;
+    if (!sceneId || !projectId) return;
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'scene-node') return;
     try {
       await api.instantiatePreset(
         payload.preset,
         projectId,
-        activeSceneId,
+        sceneId,
         null,
         parentNodeId,
         bone
       );
-      await refreshSceneNodes();
+      await refreshSceneNodes(sceneId);
     } catch (e) {
       alert(e instanceof Error ? e.message : t('nodes.failPaste'));
     }
@@ -2119,6 +2229,23 @@ export function SceneGraph() {
     e.dataTransfer.effectAllowed = 'move';
   };
 
+  /** True if `candidateParentId` is `draggedId` itself or sits in its subtree —
+   *  re-parenting under it would create a cycle. */
+  const isSelfOrDescendant = (
+    draggedId: string,
+    candidateParentId: string | null
+  ): boolean => {
+    let cur: string | null = candidateParentId;
+    const seen = new Set<string>();
+    while (cur) {
+      if (cur === draggedId) return true;
+      if (seen.has(cur)) break;
+      seen.add(cur);
+      cur = nodes.find((n) => n.id === cur)?.parentId ?? null;
+    }
+    return false;
+  };
+
   const handleDropOnBone = async (
     e: React.DragEvent,
     parentNodeId: string,
@@ -2135,18 +2262,36 @@ export function SceneGraph() {
   const handleDropOnNode = async (e: React.DragEvent, targetNodeId: string) => {
     e.preventDefault();
     e.stopPropagation();
+    const zone = dragOverZone ?? 'inside';
     setDragOverNodeId(null);
-    // Drag-create from the bottom dock: add the new node/asset as a child.
-    if (await handleSceneNodeDrop(e, activeSceneId, targetNodeId)) {
-      setCollapsedNodes((s) => {
-        const n = new Set(s);
-        n.delete(targetNodeId);
-        return n;
-      });
+    setDragOverZone(null);
+    const target = nodes.find((n) => n.id === targetNodeId);
+    // `inside` nests under the target; `before`/`after` make a sibling at the
+    // target's level (the stage tree has no persisted sibling order, so both
+    // edges resolve to "join the target's parent group"). Bone-attached
+    // siblings keep the attachment so the node lands in the same group.
+    const dropParentId =
+      zone === 'inside' ? targetNodeId : (target?.parentId ?? null);
+    const dropBone =
+      zone === 'inside' ? null : (target?.boneAttachment ?? null);
+
+    // Drag-create from the bottom dock: add the new node/asset at the resolved
+    // position.
+    if (await handleSceneNodeDrop(e, activeSceneId, dropParentId)) {
+      if (dropParentId)
+        setCollapsedNodes((s) => {
+          const n = new Set(s);
+          n.delete(dropParentId);
+          return n;
+        });
       return;
     }
     if (!dragNodeId || dragNodeId === targetNodeId) return;
-    await handleReparent(dragNodeId, targetNodeId, null);
+    if (isSelfOrDescendant(dragNodeId, dropParentId)) {
+      setDragNodeId(null);
+      return;
+    }
+    await handleReparent(dragNodeId, dropParentId, dropBone);
     setDragNodeId(null);
   };
 
@@ -2193,6 +2338,7 @@ export function SceneGraph() {
     ).length;
     const icon = KIND_ICONS[node.kind] ?? '🔹';
     const isDragOver = dragOverNodeId === node.id;
+    const dropZone = isDragOver ? dragOverZone : null;
 
     return (
       <div key={node.id}>
@@ -2204,14 +2350,19 @@ export function SceneGraph() {
           onDragEnd={() => {
             setDragNodeId(null);
             setDragOverNodeId(null);
+            setDragOverZone(null);
           }}
           onDragOver={(e) => {
             e.preventDefault();
             e.stopPropagation();
             setDragOverNodeId(node.id);
+            setDragOverZone(dropZoneFromEvent(e));
             setDragOverBone(null);
           }}
-          onDragLeave={() => setDragOverNodeId(null)}
+          onDragLeave={() => {
+            setDragOverNodeId(null);
+            setDragOverZone(null);
+          }}
           onDrop={(e) => handleDropOnNode(e, node.id)}
           style={{
             display: 'flex',
@@ -2220,7 +2371,7 @@ export function SceneGraph() {
             cursor: 'pointer',
             background: isSelected
               ? '#1a3a6a'
-              : isDragOver
+              : dropZone === 'inside'
                 ? '#1a2a1a'
                 : 'transparent',
             borderRadius: 4,
@@ -2229,7 +2380,13 @@ export function SceneGraph() {
             color: '#e0e0e0',
             userSelect: 'none',
             gap: 2,
-            outline: isDragOver ? '1px solid #4a8' : 'none',
+            outline: dropZone === 'inside' ? '1px solid #4a8' : 'none',
+            borderTop:
+              dropZone === 'before'
+                ? '2px solid #4a8'
+                : '2px solid transparent',
+            borderBottom:
+              dropZone === 'after' ? '2px solid #4a8' : '2px solid transparent',
           }}
           onClick={() => {
             if (node.rootSceneNodeId !== activeSceneId)
@@ -2949,6 +3106,17 @@ export function SceneGraph() {
               x={sceneCtxMenu.x}
               y={sceneCtxMenu.y}
               onClose={() => setSceneCtxMenu(null)}
+              onAddNode={(type) =>
+                void handleAdd(type, null, sceneCtxMenu.sceneId)
+              }
+              onPasteNode={() =>
+                void handlePasteNodeAsChild(null, null, sceneCtxMenu.sceneId)
+              }
+              onPasteLogic={() =>
+                void handlePasteLogicAtNode(sceneCtxMenu.sceneId)
+              }
+              canPasteNode={canPasteSceneNodeClipboard}
+              canPasteLogic={canPasteLogicClipboard}
             />
           )}
         </>

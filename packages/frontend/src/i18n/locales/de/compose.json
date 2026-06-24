@@ -24,7 +24,10 @@
       "copyLayer": "Ebene kopieren",
       "pasteLayerAsChild": "Ebene als Kind einfügen",
       "pasteLogicHere": "Logik hier einfügen",
-      "delete": "Löschen"
+      "delete": "Löschen",
+      "pasteLayerAtRoot": "Ebene auf oberster Ebene einfügen",
+      "nothingToPaste": "Nichts zum Einfügen",
+      "deleteScene": "Szene löschen"
     },
     "errors": {
       "copyFailed": "Ebene konnte nicht kopiert werden",
