@@ -82,10 +82,12 @@
   },
   "context": {
     "addChild": "Kind hinzufügen",
+    "addNode": "Knoten hinzufügen",
     "moveInto": "Hineinbewegen",
     "unparent": "Übergeordnet aufheben",
     "copyNode": "Knoten kopieren",
     "pasteNodeAsChild": "Knoten als Kind einfügen",
+    "pasteNodeAtRoot": "Knoten auf oberster Ebene einfügen",
     "pasteLogicHere": "Logik hier einfügen",
     "shareWith": "Teilen mit",
     "shareCanEdit": "Bearbeiten erlauben",

@@ -34,11 +34,16 @@ the right.
 
 ![Layer stacking order](/help/diagrams/compose-order.svg)
 
-*Layers stack in front of or behind the 3D render (highlighted) relative to the viewer on the right.*
+_Layers stack in front of or behind the 3D render (highlighted) relative to the viewer on the right._
 
-Layers are arranged in a list from top (front) to bottom (back). Drag them to
-reorder. In addition, each layer has a **stack order** number that controls
-whether it appears in front of or behind the 3D scene:
+Layers are arranged in a list from top (front) to bottom (back). Drag a layer
+**between** two rows (or to the top or bottom of a level) to reorder it there, or
+drop it **onto** another layer to nest it as a child — a blue line shows a
+reorder, a highlighted row shows nesting. Drop onto the empty area of a compose
+scene to move a layer back to its top level, or onto **another** compose scene to
+move it there. Hold **Ctrl** (**⌘** on Mac) while dropping to drop a **copy**
+instead of moving. In addition, each layer has a **stack order** number that
+controls whether it appears in front of or behind the 3D scene:
 
 - A negative stack order puts the layer **in front of** the 3D render.
 - Zero places it at the same level as the 3D scene.
@@ -72,7 +77,7 @@ current song name.
 You do not need to write code to use basic templates: the built-in presets
 cover common use cases like chat overlays and alert boxes. For custom layouts,
 the template field accepts standard HTML elements and can reference any field
-that a **set\_data** node publishes into the layer's scope.
+that a **set_data** node publishes into the layer's scope.
 
 Static visual styles can be added in the **Styles (CSS)** field; dynamic styles
 (colours or sizes that change with the data) go inline inside the template

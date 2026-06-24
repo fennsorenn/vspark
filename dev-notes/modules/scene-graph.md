@@ -125,11 +125,20 @@ Tree panel on the left side of the editor. Renders the active scene's node hiera
 
 ### Drag and drop (reparenting)
 
+Drop classification is shared with the compose tree via `dropZoneFromEvent` /
+`DropZone` in [components/editor/dnd.ts](../../packages/frontend/src/components/editor/dnd.ts):
+hovering a row's top ~28% band = `before`, the middle ~44% = `inside`
+(nest-as-child), the bottom ~28% = `after`. Passing `allowInside = false`
+collapses to a `before`/`after` split at the row midpoint for rows that can't
+hold children.
+
 - Drag a node row → sets drag state
-- Drop onto another node → `PUT /scene-nodes/:draggedId` with `parentId: targetId`
+- Drop **inside** a node → `PUT /scene-nodes/:draggedId` with `parentId: targetId` (reparent as child)
+- Drop **before/after** a node → reparent to the target's *sibling group*, i.e. `parentId: target.parentId`. The stage tree has no persisted sibling order, so before and after both resolve to "join the target's parent group"; the target keeps its `boneAttachment`.
 - Drop onto a bone row → `PUT /scene-nodes/:draggedId` with `parentId: avatarNodeId` and `boneAttachment: boneName`
 - Drop onto the root area → `PUT /scene-nodes/:draggedId` with `parentId: null, boneAttachment: null`
-- Visual feedback: highlight target row with color and outline during hover
+- A **self/descendant cycle guard** (`isSelfOrDescendant`) rejects drops that would parent a node into itself or one of its own descendants.
+- Visual feedback: distinct before / after / inside drop indicators on the target row.
 
 ### Node row controls
 
@@ -137,6 +146,7 @@ Tree panel on the left side of the editor. Renders the active scene's node hiera
 - **Camera preview** (✦, camera nodes only) → `setPreviewEffectsCamera(nodeId)` — enables post-processing in the viewport for this camera
 - **Viewer link** (↗, camera nodes only) → opens `/viewer/:projectId/:nodeId` in a new tab
 - **Context menu** (right-click): real popup menu (was `window.prompt` based; refactored in `13f0021`) using the generic `components/editor/ContextMenu.tsx`. The legacy in-place ContextMenu was renamed to `SceneNodeContextMenu`. Items include Add Child, Move Into, Unparent, Delete, plus Copy / Paste entries that gate on the editor clipboard kind (`d26518a`, `47af189`) — see [clipboard.md](clipboard.md).
+- **Scene-root context menu** (`SceneContextMenu`, right-click the scene row): offers **Add node**, **Paste node at top level**, and **Paste logic here** so the user can create or paste directly at the scene's top level (`parentId: null`). `handlePasteNodeAsChild` and `refreshSceneNodes` take an explicit `sceneId`. i18n keys: `sceneGraph.context.addNode`, `sceneGraph.context.pasteNodeAtRoot`.
 
 ### Bone list source (asset metadata)
 

@@ -24,13 +24,17 @@
       "copyLayer": "Copy layer",
       "pasteLayerAsChild": "Paste layer as child",
       "pasteLogicHere": "Paste logic here",
-      "delete": "Delete"
+      "delete": "Delete",
+      "pasteLayerAtRoot": "Paste layer at top level",
+      "nothingToPaste": "Nothing to paste",
+      "deleteScene": "Delete scene"
     },
     "errors": {
       "copyFailed": "Failed to copy layer",
       "pasteFailed": "Failed to paste layer",
       "pasteGraphFailed": "Failed to paste graph",
-      "createFailed": "Failed to create compose scene"
+      "createFailed": "Failed to create compose scene",
+      "transferFailed": "Transfer failed"
     }
   },
   "view": {

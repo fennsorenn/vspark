@@ -21,14 +21,26 @@ Wähle einen Knoten aus, um ihn im **Eigenschaften**-Bereich rechts zu bearbeite
 
 ![Übergeordneter Knoten und Unterknoten](/help/diagrams/scene-hierarchy.svg)
 
-*Die Unterknoten eines Knotens folgen seiner Transformation: Bewegst oder drehst du den übergeordneten Knoten, kommt alles darunter mit.*
+_Die Unterknoten eines Knotens folgen seiner Transformation: Bewegst oder drehst du den übergeordneten Knoten, kommt alles darunter mit._
 
 Knoten sind in einem Baum angeordnet. Ein Knoten kann Unterknoten haben, und
 diese folgen ihrem übergeordneten Knoten: Bewegst oder drehst du den
 übergeordneten Knoten, kommt alles darunter mit. So befestigst du eine Requisite
 an einer Hand oder bewegst ein ganzes Set auf einmal.
 
-Du kannst Knoten in der Szenenliste ziehen, um sie neu zuzuordnen.
+Du kannst die Szenenliste per Ziehen umordnen. Lässt du einen Knoten **auf**
+einem anderen Knoten (oder irgendwo zwischen dessen Unterknoten) fallen, wird er
+zu dessen Unterknoten; lässt du ihn **zwischen** zwei Zeilen — oder ganz oben
+oder unten in einer Ebene — fallen, wird er dort als Geschwisterknoten platziert.
+Eine blaue Linie zeigt die Zielposition; eine hervorgehobene Zeile bedeutet, dass
+er darin verschachtelt wird. Du kannst einen Knoten auf eine **andere Szene** (ihre
+Zeile oder ihre Knotenliste) ziehen, um ihn dorthin zu verschieben. Halte beim
+Loslassen **Strg** (**⌘** auf dem Mac) gedrückt, um statt des Verschiebens eine
+**Kopie** abzulegen — die Kopie umfasst den gesamten Unterbaum des Knotens, seine
+Behaviors und seine Logik.
+
+Rechtsklicke eine **Szenen**-Zeile, um auf der obersten Ebene der Szene einen
+Knoten hinzuzufügen oder einen kopierten Knoten bzw. Logikgraphen einzufügen.
 
 ## Kameras {#cameras}
 
