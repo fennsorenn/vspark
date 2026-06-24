@@ -33,7 +33,13 @@ export const NODE_KIND_DEFS: NodeKindDef[] = [
   { label: 'Avatar', i18nKey: 'avatar', kind: 'avatar', icon: '🧍' },
   { label: 'Model', i18nKey: 'model', kind: 'model', icon: '📦' },
   { label: 'Prop', i18nKey: 'prop', kind: 'prop', icon: '🔹' },
-  { label: 'Point Light', i18nKey: 'light_point', kind: 'light', lightType: 'point', icon: '💡' },
+  {
+    label: 'Point Light',
+    i18nKey: 'light_point',
+    kind: 'light',
+    lightType: 'point',
+    icon: '💡',
+  },
   {
     label: 'Directional Light',
     i18nKey: 'light_directional',
@@ -42,11 +48,22 @@ export const NODE_KIND_DEFS: NodeKindDef[] = [
     icon: '🔦',
   },
   { label: 'Camera', i18nKey: 'camera', kind: 'camera', icon: '📷' },
-  { label: 'Light Rays', i18nKey: 'godray_caster', kind: 'godray_caster', icon: '☀️' },
+  {
+    label: 'Light Rays',
+    i18nKey: 'godray_caster',
+    kind: 'godray_caster',
+    icon: '☀️',
+  },
   { label: 'Particle', i18nKey: 'particle', kind: 'particle', icon: '✨' },
   { label: 'Billboard', i18nKey: 'billboard', kind: 'billboard', icon: '🖼️' },
   { label: 'Video', i18nKey: 'video', kind: 'video', icon: '🎞️' },
-  { label: 'Audio (Simple)', i18nKey: 'audio_simple', kind: 'audio', audioType: 'simple', icon: '🔊' },
+  {
+    label: 'Audio (Simple)',
+    i18nKey: 'audio_simple',
+    kind: 'audio',
+    audioType: 'simple',
+    icon: '🔊',
+  },
   {
     label: 'Audio (Spatial)',
     i18nKey: 'audio_directional',
@@ -54,9 +71,24 @@ export const NODE_KIND_DEFS: NodeKindDef[] = [
     audioType: 'directional',
     icon: '🔈',
   },
-  { label: 'Plain Text', i18nKey: 'text_troika', kind: 'text_troika', icon: '🔤' },
-  { label: 'Rich Text', i18nKey: 'text_canvas', kind: 'text_canvas', icon: '🔡' },
-  { label: 'Feed (3D data overlay)', i18nKey: 'feed', kind: 'feed', icon: '📜' },
+  {
+    label: 'Plain Text',
+    i18nKey: 'text_troika',
+    kind: 'text_troika',
+    icon: '🔤',
+  },
+  {
+    label: 'Rich Text',
+    i18nKey: 'text_canvas',
+    kind: 'text_canvas',
+    icon: '🔡',
+  },
+  {
+    label: 'Feed (3D data overlay)',
+    i18nKey: 'feed',
+    kind: 'feed',
+    icon: '📜',
+  },
 ];
 
 const DEFAULT_COMPONENTS = {
@@ -319,7 +351,8 @@ export const LAYER_KIND_DEFS: LayerKindDef[] = [
  *  other scene to include) via alert and bails. */
 export async function createLayer(
   composeSceneId: string,
-  kind: ComposeLayerKind
+  kind: ComposeLayerKind,
+  parentId: string | null = null
 ): Promise<void> {
   const baseName =
     kind === 'camera_view'
@@ -396,6 +429,7 @@ export async function createLayer(
       name,
       kind,
       cameraNodeId,
+      parentId,
       config,
       ...sizeDefaults,
     });

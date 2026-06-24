@@ -12,7 +12,7 @@ import { LogicSection } from './LogicSection';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { createLayer } from './createKinds';
-import { DND_CREATE_LAYER } from './dnd';
+import { DND_CREATE_LAYER, dropZoneFromEvent, type DropZone } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
 import { usePrompt } from '../DialogProvider';
 
@@ -81,23 +81,55 @@ function AddLayerButton({ composeSceneId }: { composeSceneId: string }) {
   );
 }
 
-/** Reorder `draggedId` to sit just before `targetId` among their shared
- *  siblings, then reassign sequential sceneOrder values (front-of-list = highest
- *  sceneOrder, since the layer stack paints higher sceneOrder further back and
- *  the tree lists front-first). Persists via the bulk reorder endpoint. */
-function reorderSibling(
-  siblings: ComposeLayerRecord[],
+/** True if `candidateId` is `draggedId` itself or sits anywhere in its subtree
+ *  — i.e. re-parenting `draggedId` under `candidateId` would create a cycle. */
+function isSelfOrDescendant(
+  layers: ComposeLayerRecord[],
   draggedId: string,
-  targetId: string,
-  placeAfter: boolean
+  candidateId: string | null
+): boolean {
+  let cur: string | null = candidateId;
+  const byId = new Map(layers.map((l) => [l.id, l]));
+  const seen = new Set<string>();
+  while (cur) {
+    if (cur === draggedId) return true;
+    if (seen.has(cur)) break; // dangling/cyclic data — bail
+    seen.add(cur);
+    cur = byId.get(cur)?.parentId ?? null;
+  }
+  return false;
+}
+
+/** Move `draggedId` to `newParentId` and slot it into `index` among that
+ *  parent's display-ordered siblings (front → back). Reassigns descending
+ *  sceneOrder across the group (front-of-list = highest sceneOrder, since the
+ *  layer stack paints higher sceneOrder further back and the tree lists
+ *  front-first). Persists the parent change and the bulk reorder. Generalises
+ *  the old same-parent reorder to also handle re-parenting (drag into a layer
+ *  or across groups). */
+function moveComposeLayer(
+  orderedSiblings: ComposeLayerRecord[],
+  draggedId: string,
+  newParentId: string | null,
+  index: number
 ) {
-  if (draggedId === targetId) return;
-  // siblings are passed already in display order (front → back).
-  const order = siblings.map((l) => l.id).filter((id) => id !== draggedId);
-  let idx = order.indexOf(targetId);
-  if (idx < 0) return;
-  if (placeAfter) idx += 1;
-  order.splice(idx, 0, draggedId);
+  const store = useEditorStore.getState();
+  const dragged = store.composeLayers.find((l) => l.id === draggedId);
+  if (!dragged) return;
+
+  const order = orderedSiblings
+    .map((l) => l.id)
+    .filter((id) => id !== draggedId);
+  const clamped = Math.max(0, Math.min(index, order.length));
+  order.splice(clamped, 0, draggedId);
+
+  // Persist the parent change first (a separate column from sceneOrder).
+  if ((dragged.parentId ?? null) !== newParentId) {
+    store.updateComposeLayerLocal(draggedId, { parentId: newParentId });
+    api
+      .updateComposeLayer(draggedId, { parentId: newParentId })
+      .catch(() => {});
+  }
 
   // Assign descending sceneOrder so the top of the list paints in front.
   const n = order.length;
@@ -106,11 +138,47 @@ function reorderSibling(
     sceneOrder: n - i,
     cameraOrder: 0,
   }));
-  const store = useEditorStore.getState();
   for (const u of updates) {
     store.updateComposeLayerLocal(u.id, { sceneOrder: u.sceneOrder });
   }
   api.reorderComposeLayers(updates).catch(() => {});
+}
+
+/** Copy (or, with `copy=false`, move) a layer subtree into `targetSceneId`
+ *  under `parentId`, via the preset serialise → instantiate path. Used for
+ *  Ctrl/⌘ copy-drops and for cross-compose-scene drags (same-scene plain moves
+ *  use the cheaper in-place `moveComposeLayer`). Re-homes the whole subtree
+ *  (nested layers, attached graphs/clips) and refreshes the project's layers. */
+async function transferComposeLayer(
+  draggedId: string,
+  targetSceneId: string,
+  parentId: string | null,
+  copy: boolean,
+  projectId: string,
+  activeSceneId: string,
+  onError: (msg: string) => void,
+  errFallback: string
+) {
+  try {
+    const preset = await api.serializePreset('compose_layer', draggedId, true);
+    await api.instantiatePreset(
+      preset as never,
+      projectId,
+      activeSceneId, // required by the route but unused for layer roots
+      targetSceneId,
+      parentId
+    );
+    if (!copy) {
+      useEditorStore.getState().removeComposeLayer(draggedId);
+      await api.deleteComposeLayer(draggedId).catch(() => {});
+    }
+    // deserialize inserts via raw INSERT without a WS broadcast, so re-pull the
+    // project's compose layers from the scenes bundle.
+    const bundle = await api.getScenes(projectId);
+    useEditorStore.setState({ composeLayers: bundle.composeLayers });
+  } catch (e) {
+    onError(e instanceof Error ? e.message : errFallback);
+  }
 }
 
 // ---- Layer row (recursive for parentId nesting) -----------------------------
@@ -134,7 +202,7 @@ function LayerRow({
   const updateComposeLayerLocal = useEditorStore(
     (s) => s.updateComposeLayerLocal
   );
-  const [dropPos, setDropPos] = useState<'before' | 'after' | null>(null);
+  const [dropPos, setDropPos] = useState<DropZone | null>(null);
 
   // Siblings in display order (front-first), used for drag-reorder.
   const siblings = (layersByParent.get(layer.parentId ?? null) ?? [])
@@ -143,6 +211,9 @@ function LayerRow({
 
   const selected = selectedComposeLayerId === layer.id;
   const children = layersByParent.get(layer.id) ?? [];
+  // Every layer in this compose scene (flattened from the parent buckets) —
+  // used for the cycle guard when re-parenting via drag.
+  const allSceneLayers = [...layersByParent.values()].flat();
   const composeScenes = useEditorStore((s) => s.composeScenes);
   const cam =
     layer.kind === 'camera_view' && layer.cameraNodeId
@@ -291,34 +362,104 @@ function LayerRow({
         onContextMenu={handleContextMenu}
         onDragStart={(e) => {
           e.stopPropagation();
-          e.dataTransfer.effectAllowed = 'move';
+          // Allow copy so Ctrl/⌘ over a drop target shows the copy affordance.
+          e.dataTransfer.effectAllowed = 'copyMove';
           e.dataTransfer.setData('text/compose-layer', layer.id);
         }}
         onDragOver={(e) => {
-          const draggedId = e.dataTransfer.types.includes('text/compose-layer');
-          if (!draggedId) return;
+          const isMove = e.dataTransfer.types.includes('text/compose-layer');
+          const isCreate = e.dataTransfer.types.includes(DND_CREATE_LAYER);
+          if (!isMove && !isCreate) return;
           e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
-          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          setDropPos(
-            e.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
-          );
+          e.stopPropagation();
+          e.dataTransfer.dropEffect =
+            isCreate || e.ctrlKey || e.metaKey ? 'copy' : 'move';
+          // Top/bottom edge → place as sibling (before/after); middle → nest
+          // as a child of this layer. Consistent with the stage tree.
+          setDropPos(dropZoneFromEvent(e));
         }}
         onDragLeave={() => setDropPos(null)}
         onDrop={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          const draggedId = e.dataTransfer.getData('text/compose-layer');
-          const pos = dropPos;
+          const zone = dropPos;
+          const copy = e.ctrlKey || e.metaKey;
           setDropPos(null);
-          if (!draggedId || !pos) return;
-          // Only reorder among the dragged layer's own siblings.
-          if (!siblings.some((s) => s.id === draggedId)) return;
-          reorderSibling(siblings, draggedId, layer.id, pos === 'after');
+          if (!zone) return;
+
+          // Create-from-palette tile: nest as child (inside) or add to the
+          // target's sibling group (before/after).
+          const createData = e.dataTransfer.getData(DND_CREATE_LAYER);
+          if (createData) {
+            try {
+              const { kind } = JSON.parse(createData) as {
+                kind: ComposeLayerKind;
+              };
+              const sceneId = layer.rootComposeSceneId ?? layer.id;
+              void createLayer(
+                sceneId,
+                kind,
+                zone === 'inside' ? layer.id : (layer.parentId ?? null)
+              );
+            } catch {
+              /* malformed payload — ignore */
+            }
+            return;
+          }
+
+          // Move (or copy) an existing layer.
+          const draggedId = e.dataTransfer.getData('text/compose-layer');
+          if (!draggedId || draggedId === layer.id) return;
+          const targetParentId =
+            zone === 'inside' ? layer.id : (layer.parentId ?? null);
+          if (
+            !copy &&
+            isSelfOrDescendant(allSceneLayers, draggedId, targetParentId)
+          )
+            return;
+
+          const dragged = useEditorStore
+            .getState()
+            .composeLayers.find((l) => l.id === draggedId);
+          const targetSceneId = layer.rootComposeSceneId ?? layer.id;
+          const sameScene = dragged?.rootComposeSceneId === targetSceneId;
+
+          // Cross-scene drag, or a Ctrl/⌘ copy → preset-based transfer.
+          if (copy || !sameScene) {
+            if (!projectId || !activeSceneId) return;
+            void transferComposeLayer(
+              draggedId,
+              targetSceneId,
+              targetParentId,
+              copy,
+              projectId,
+              activeSceneId,
+              (msg) => alert(msg),
+              t('tree.errors.transferFailed')
+            );
+            return;
+          }
+
+          // Same-scene plain move → fast in-place reorder/reparent.
+          if (zone === 'inside') {
+            const childOrder = (layersByParent.get(layer.id) ?? [])
+              .slice()
+              .sort((a, b) => b.sceneOrder - a.sceneOrder);
+            moveComposeLayer(childOrder, draggedId, layer.id, 0);
+          } else {
+            const newParentId = layer.parentId ?? null;
+            const order = siblings
+              .map((l) => l.id)
+              .filter((id) => id !== draggedId);
+            let idx = order.indexOf(layer.id);
+            if (idx < 0) idx = order.length;
+            if (zone === 'after') idx += 1;
+            moveComposeLayer(siblings, draggedId, newParentId, idx);
+          }
         }}
         className="vs-layer-row"
         style={{
-          ...rowStyle(selected),
+          ...rowStyle(selected || dropPos === 'inside'),
           paddingLeft: 8 + depth * 14,
           borderTop:
             dropPos === 'before'
@@ -326,6 +467,7 @@ function LayerRow({
               : '2px solid transparent',
           borderBottom:
             dropPos === 'after' ? '2px solid #4a9eff' : '2px solid transparent',
+          outline: dropPos === 'inside' ? '1px solid #4a9eff' : 'none',
         }}
         onClick={() => {
           selectComposeLayer(layer.id);
@@ -466,8 +608,14 @@ function ComposeSceneRoot({
   const { t } = useTranslation('compose');
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
   const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
+  const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
+  const selectNode = useEditorStore((s) => s.selectNode);
   const composeLayers = useEditorStore((s) => s.composeLayers);
+  const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
+  const activeSceneId = useEditorStore((s) => s.activeSceneId);
   const [collapsed, setCollapsed] = useState(false);
+  const [rootDropActive, setRootDropActive] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   const isActive = scene.id === activeComposeSceneId;
   const sceneLayers = composeLayers.filter(
@@ -493,25 +641,140 @@ function ComposeSceneRoot({
     await api.deleteComposeLayer(scene.id).catch(() => {});
   };
 
+  // Drop a layer at this compose scene's top level (parentId = null). A
+  // same-scene plain move reorders to the front of the root list; a cross-scene
+  // drag or a Ctrl/⌘ copy re-homes the subtree via the preset transfer path.
+  const dropAtRoot = (draggedId: string, copy: boolean) => {
+    const sameScene = sceneLayerIds.has(draggedId);
+    if (!copy && sameScene) {
+      moveComposeLayer(roots, draggedId, null, 0);
+      return;
+    }
+    if (!projectId || !activeSceneId) return;
+    void transferComposeLayer(
+      draggedId,
+      scene.id,
+      null,
+      copy,
+      projectId,
+      activeSceneId,
+      (msg) => alert(msg),
+      t('tree.errors.transferFailed')
+    );
+  };
+
+  // Paste a copied layer preset at this compose scene's top level.
+  const handlePasteLayerAtRoot = async () => {
+    if (!projectId || !activeSceneId) return;
+    const payload = await pasteFromClipboard(clipboardPayload);
+    if (!payload || payload.kind !== 'compose-layer') return;
+    try {
+      await api.instantiatePreset(
+        payload.preset,
+        projectId,
+        activeSceneId, // required by the route but unused for layer roots
+        scene.id,
+        null // parentId null → top-level layer of this compose scene
+      );
+      const bundle = await api.getScenes(projectId);
+      useEditorStore.setState({ composeLayers: bundle.composeLayers });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : t('tree.errors.pasteFailed'));
+    }
+  };
+
+  const handlePasteLogicAtScene = async () => {
+    const payload = await pasteFromClipboard(clipboardPayload);
+    if (!payload || payload.kind !== 'graph') return;
+    try {
+      const created = await api.createLayerLogic(scene.id, payload.name);
+      await api.updateLogic(created.id, {
+        descriptor: payload.descriptor,
+        enabled: true,
+      });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : t('tree.errors.pasteGraphFailed'));
+    }
+  };
+
+  const buildSceneMenuItems = (): ContextMenuItem[] => {
+    const canPasteLayer = clipboardPayload?.kind === 'compose-layer';
+    const canPasteLogic = clipboardPayload?.kind === 'graph';
+    const items: ContextMenuItem[] = [];
+    if (canPasteLayer) {
+      items.push({
+        kind: 'item',
+        label: t('tree.ctx.pasteLayerAtRoot'),
+        onClick: () => void handlePasteLayerAtRoot(),
+      });
+    }
+    if (canPasteLogic) {
+      items.push({
+        kind: 'item',
+        label: t('tree.ctx.pasteLogicHere'),
+        onClick: () => void handlePasteLogicAtScene(),
+      });
+    }
+    if (items.length === 0) {
+      items.push({
+        kind: 'item',
+        label: t('tree.ctx.nothingToPaste'),
+        onClick: () => {},
+        disabled: true,
+      });
+    }
+    items.push(
+      { kind: 'divider' },
+      {
+        kind: 'item',
+        label: t('tree.ctx.deleteScene'),
+        onClick: () => void handleDeleteScene(),
+        danger: true,
+      }
+    );
+    return items;
+  };
+
   return (
     <div
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes(DND_CREATE_LAYER)) {
+        const isCreate = e.dataTransfer.types.includes(DND_CREATE_LAYER);
+        const isMove = e.dataTransfer.types.includes('text/compose-layer');
+        if (!isCreate && !isMove) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect =
+          isCreate || e.ctrlKey || e.metaKey ? 'copy' : 'move';
+        setRootDropActive(true);
+      }}
+      onDragLeave={() => setRootDropActive(false)}
+      onDrop={(e) => {
+        setRootDropActive(false);
+        // A drop that bubbles here (rather than being handled by a LayerRow)
+        // targets the scene's top level.
+        const createData = e.dataTransfer.getData(DND_CREATE_LAYER);
+        if (createData) {
           e.preventDefault();
-          e.dataTransfer.dropEffect = 'copy';
+          e.stopPropagation();
+          try {
+            const { kind } = JSON.parse(createData) as {
+              kind: ComposeLayerKind;
+            };
+            void createLayer(scene.id, kind);
+          } catch {
+            /* malformed payload — ignore */
+          }
+          return;
+        }
+        const draggedId = e.dataTransfer.getData('text/compose-layer');
+        if (draggedId) {
+          e.preventDefault();
+          e.stopPropagation();
+          dropAtRoot(draggedId, e.ctrlKey || e.metaKey);
         }
       }}
-      onDrop={(e) => {
-        const data = e.dataTransfer.getData(DND_CREATE_LAYER);
-        if (!data) return;
-        e.preventDefault();
-        e.stopPropagation();
-        try {
-          const { kind } = JSON.parse(data) as { kind: ComposeLayerKind };
-          void createLayer(scene.id, kind);
-        } catch {
-          /* malformed payload — ignore */
-        }
+      style={{
+        outline: rootDropActive ? '1px solid #7a5af0' : 'none',
+        borderRadius: 4,
       }}
     >
       <div
@@ -530,7 +793,19 @@ function ComposeSceneRoot({
           gap: 2,
           borderLeft: isActive ? '2px solid #7a5af0' : '2px solid transparent',
         }}
-        onClick={() => selectComposeScene(scene.id)}
+        onClick={() => {
+          // Select this compose scene like a stage scene: make it active and
+          // clear any layer / 3D-node selection so the scene itself is the
+          // focused target (and the right-click paste lands at its top level).
+          selectComposeScene(scene.id);
+          selectComposeLayer(null);
+          selectNode(null);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          selectComposeScene(scene.id);
+          setCtxMenu({ x: e.clientX, y: e.clientY });
+        }}
       >
         <span
           className="vs-compose-scene-collapse"
@@ -624,6 +899,14 @@ function ComposeSceneRoot({
             />
           ))
         ))}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          items={buildSceneMenuItems()}
+        />
+      )}
     </div>
   );
 }

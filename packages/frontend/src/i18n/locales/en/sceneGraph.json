@@ -82,10 +82,12 @@
   },
   "context": {
     "addChild": "Add Child",
+    "addNode": "Add node",
     "moveInto": "Move Into",
     "unparent": "Unparent",
     "copyNode": "Copy node",
     "pasteNodeAsChild": "Paste node as child",
+    "pasteNodeAtRoot": "Paste node at top level",
     "pasteLogicHere": "Paste logic here",
     "shareWith": "Share with",
     "shareCanEdit": "Allow editing",

@@ -20,13 +20,23 @@ Select a node to edit it in the **Properties** panel on the right.
 
 ![Parent and children](/help/diagrams/scene-hierarchy.svg)
 
-*A node’s children follow its transform: move or rotate the parent and everything beneath it comes along.*
+_A node’s children follow its transform: move or rotate the parent and everything beneath it comes along._
 
 Nodes are arranged in a tree. A node can have children, and children follow
 their parent: move or rotate the parent and everything under it comes along.
 This is how you attach a prop to a hand, or move a whole set at once.
 
-You can drag nodes in the scene list to re-parent them.
+You can rearrange the scene list by dragging. Drop a node **onto** another node
+(or anywhere among its children) to make it a child of that node; drop it **between**
+two rows — or at the very top or bottom of a level — to place it there as a sibling.
+A blue line shows where it will land; a highlighted row means it will nest inside.
+You can drag a node onto **another scene** (its row, or its node list) to move it
+there. Hold **Ctrl** (**⌘** on Mac) while you drop to drop a **copy** instead of
+moving the original — the copy includes the node's whole subtree, behaviors, and
+logic.
+
+Right-click a **scene** row to add a node, or paste a copied node or logic graph,
+at the scene's top level.
 
 ## Cameras {#cameras}
 

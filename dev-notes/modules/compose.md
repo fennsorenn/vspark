@@ -95,6 +95,27 @@ This collapses three concepts (background layers, the 3D render, foreground over
 
 Per-camera sections in the tree show all scene-wide layers as pinned/interleaved rows alongside that camera's own layers, sorted by the same comparator, so the user sees the final composite stack from the camera's perspective.
 
+## Tree drag-and-drop (reparent + reorder)
+
+`ComposeTree` supports dragging a layer row onto another to reparent and reorder.
+Drop classification is shared with the stage tree via `dropZoneFromEvent` /
+`DropZone` in [components/editor/dnd.ts](../../packages/frontend/src/components/editor/dnd.ts)
+(top/bottom ~28% bands = `before`/`after` sibling placement, middle = `inside`
+nest-as-child).
+
+The old same-parent-only `reorderSibling` was generalised to `moveComposeLayer`,
+which also **re-parents**: drag a layer *into* another layer to nest it, or across
+groups, via `api.updateComposeLayer({ parentId })` followed by
+`reorderComposeLayers`. Dropping a layer onto a compose scene's empty area moves
+it to that scene's **top level** (`parentId: null`). `createLayer` accepts an
+optional `parentId`.
+
+Compose scenes (`compose_scene` rows) are now **click-selectable** (selecting one
+clears the layer/node selection) and carry their own context menu: **paste layer
+at top level**, **paste logic**, and **delete scene**. i18n keys:
+`compose.tree.ctx.pasteLayerAtRoot`, `compose.tree.ctx.nothingToPaste`,
+`compose.tree.ctx.deleteScene`.
+
 ## Editor / Viewer Shared Renderer
 
 [components/editor/ComposeLayerStack.tsx](../../packages/frontend/src/components/editor/ComposeLayerStack.tsx) is a single renderer used by both the editor's compose viewport and the public viewer:
@@ -166,7 +187,7 @@ All three gestures patch the Zustand store optimistically during the drag for in
 ## Frontend Pieces
 
 - [store/editorStore.ts](../../packages/frontend/src/store/editorStore.ts) — adds `composeLayers`, `leftTab` (`'scene' | 'compose' | 'graphs'`), `selectedComposeLayerId`, `composeCameraId` and matching actions.
-- [components/editor/ComposeTree.tsx](../../packages/frontend/src/components/editor/ComposeTree.tsx) — left-dock tree. One Scene section + one section per camera. Pinned `[3D Scene]` row marks the render slot. ↑/↓ buttons nudge `sceneOrder`; × deletes. Add menu picks layer kind. Disabled until at least one camera node exists. Right-click context menu uses the generic `ContextMenu.tsx` (`13f0021`); supports Copy/Paste (compose-layer preset) — see [clipboard.md](clipboard.md).
+- [components/editor/ComposeTree.tsx](../../packages/frontend/src/components/editor/ComposeTree.tsx) — left-dock tree. One Scene section + one section per camera. Pinned `[3D Scene]` row marks the render slot. ↑/↓ buttons nudge `sceneOrder`; × deletes. Add menu picks layer kind. Disabled until at least one camera node exists. Right-click context menu uses the generic `ContextMenu.tsx` (`13f0021`); supports Copy/Paste (compose-layer preset) — see [clipboard.md](clipboard.md). Supports drag-and-drop reparent/reorder and compose-scene selection (see below).
 - [components/editor/ComposeView.tsx](../../packages/frontend/src/components/editor/ComposeView.tsx) — central viewport with camera picker.
 - [components/editor/ComposeLayerStack.tsx](../../packages/frontend/src/components/editor/ComposeLayerStack.tsx) — shared editor/viewer renderer (presentation only; no pointer handlers).
 - [components/editor/ComposeEventCapture.tsx](../../packages/frontend/src/components/editor/ComposeEventCapture.tsx) — full-viewport input overlay; owns pointer + wheel routing.
@@ -187,8 +208,7 @@ See also [frontend.md](frontend.md) for general editor structure and store conve
 
 ## Known Limitations / Future Work
 
-- No drag-and-drop reorder in the tree; manual ↑/↓ buttons + numeric `sceneOrder` / `cameraOrder` inputs only.
-- `cameraOrder` interleaving between pinned scene layers is supported by the data model and the properties panel, but the tree UI has no fine-grained "insert between two pinned scene layers" affordance.
+- `cameraOrder` interleaving between pinned scene layers is supported by the data model and the properties panel, but the tree UI has no fine-grained "insert between two pinned scene layers" affordance. (The tree does support drag-and-drop reparent/reorder — see "Tree drag-and-drop" above — and the ↑/↓ buttons + numeric `sceneOrder` / `cameraOrder` inputs remain.)
 - Root layers are positioned in editor-pixel space against the editor frame and in viewer-window pixel space against the viewer. The same `x/y/width/height` therefore renders at different visual sizes on differently-sized viewers — anchors (and `%` units relative to the parent box) mitigate this but full resolution-independent scaling is not implemented.
 - Nesting composes translation + rotation only; there is no parent→child *scaling*, so a child sized in `px` keeps its pixel size when the parent is resized (use `%` width/height for proportional children). Layer boxes clip children (`overflow: hidden`), so a `group`'s default 320×180 box will crop children placed outside it until resized.
 - Selection-chrome / gesture geometry composes ancestors from their *base* (persisted) transforms; an active clip/runtime override animating a parent layer is not folded into a child's hit-test frame while editing that child.
