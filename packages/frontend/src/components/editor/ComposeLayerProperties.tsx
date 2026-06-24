@@ -334,7 +334,7 @@ export function ComposeLayerProperties({
             onChange={(e) =>
               commit({
                 cameraNodeId: e.target.value || null,
-              } as Partial<ComposeLayerRecord>)
+              })
             }
             style={{
               ...textInput,

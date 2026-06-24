@@ -184,6 +184,53 @@ describe('compose-layers API (mesh-backed)', () => {
       );
     });
 
+    it('persists cameraNodeId on PUT (camera_view reassignment)', async () => {
+      // Regression: a camera_view layer's camera could be reassigned in the
+      // editor (local store) but the PUT dropped cameraNodeId server-side, so
+      // every viewer reverted to the creation default — making all compose
+      // viewers show the first camera regardless of the link.
+      const sceneRes = await request(app)
+        .post(`/api/projects/${projectId}/scenes`)
+        .send({ name: '3DScene' });
+      const sceneId = sceneRes.body.data.id as string;
+      const mkCam = async (name: string) => {
+        const r = await request(app)
+          .post(`/api/scenes/${sceneId}/nodes`)
+          .send({ name, kind: 'camera' });
+        return r.body.data.id as string;
+      };
+      const camA = await mkCam('CamA');
+      const camB = await mkCam('CamB');
+
+      const createRes = await createLayerInScene(composeSceneId, {
+        name: 'CamView',
+        kind: 'camera_view',
+        cameraNodeId: camA,
+      });
+      const layerId = createRes.body.data.id as string;
+      expect(createRes.body.data.cameraNodeId).toBe(camA);
+
+      const updateRes = await updateLayer(layerId, { cameraNodeId: camB });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.data).toMatchObject({
+        id: layerId,
+        cameraNodeId: camB,
+      });
+
+      // Read back fresh (what a viewer link loads) — must reflect the change.
+      const listRes = await listLayersInScene(composeSceneId);
+      expect(listRes.body.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: layerId, cameraNodeId: camB }),
+        ])
+      );
+
+      // An explicit null clears the camera (the "None" option).
+      const clearRes = await updateLayer(layerId, { cameraNodeId: null });
+      expect(clearRes.status).toBe(200);
+      expect(clearRes.body.data.cameraNodeId).toBeNull();
+    });
+
     it('deletes a layer and removes it from the scene', async () => {
       const createRes = await createLayerInScene(composeSceneId, {
         name: 'ToDelete',

@@ -708,10 +708,7 @@ export const deleteCameraEffect = (id: string) =>
 export const updateComposeLayer = (
   id: string,
   patch: Partial<
-    Omit<
-      ComposeLayerRecord,
-      'id' | 'projectId' | 'rootComposeSceneId' | 'cameraNodeId' | 'kind'
-    >
+    Omit<ComposeLayerRecord, 'id' | 'projectId' | 'rootComposeSceneId' | 'kind'>
   >
 ) =>
   request<Record<string, unknown>>(`/compose-layers/${id}`, {
