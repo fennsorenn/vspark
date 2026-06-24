@@ -34,7 +34,7 @@ Response shape: `{ ok: true, data: ... }` or `{ ok: false, error: { status, mess
 | [routes/projects.ts](../../packages/backend/src/routes/projects.ts) | `/projects` CRUD |
 | [routes/scenes.ts](../../packages/backend/src/routes/scenes.ts) | `/projects/:projectId/scenes`, `/scenes/:sceneId` |
 | [routes/scene-nodes.ts](../../packages/backend/src/routes/scene-nodes.ts) | `/scenes/:sceneId/nodes`, `/scene-nodes/:nodeId`, animation-clip CRUD |
-| [routes/assets.ts](../../packages/backend/src/routes/assets.ts) | Project asset upload + listing (runs `discoverAssets()` on GET) |
+| [routes/assets.ts](../../packages/backend/src/routes/assets.ts) | Project asset upload + listing (runs `discoverAssets()` on GET). On VRM/GLB upload, extracts asset metadata via `vrm/metadata.ts` (`extractVrmMetadata`) + records `file_mtime`, stored on the inserted `asset_files` row. |
 | [routes/behaviors.ts](../../packages/backend/src/routes/behaviors.ts) | Behavior CRUD (`/api/scene-nodes/:id/behaviors`, `/api/behaviors/:id`) — each mutation calls `refreshAllBehaviorManagers()`. |
 | [routes/api-controller.ts](../../packages/backend/src/routes/api-controller.ts) | REST surface of the api_controller behavior (see below) |
 | [routes/expressions.ts](../../packages/backend/src/routes/expressions.ts) | Read-only listings: VRM expressions + animation clips for an avatar node |
@@ -52,7 +52,7 @@ For the canonical, always-current request/response contracts of every route, bro
 
 - **behaviors** (behavior routes): every mutation calls `refreshAllBehaviorManagers()` so manager state hot-reloads from DB.
 - **scene-nodes**: `POST /scenes/:sceneId/nodes` and `DELETE /scene-nodes/:nodeId` now broadcast **through the sync layer** (`sync.document.upsert/remove` for rtype `scene_node`, wire kind `'sync'`) rather than bespoke `node_added`/`node_removed` kinds; updates still broadcast the legacy `node_updated`. `POST /scene-nodes/:nodeId/clips` is an idempotent upsert keyed on `(source_file_path, clip_index)` — the frontend's Viewport calls it on VRM load to register real FBX clip durations.
-- **assets**: GET also runs `discoverAssets()`; files live under `uploads/{projectId}/{subdir}/` with subdir inferred from extension (avatars, animations, images, other). See `routes/shared.ts` for `SUBFOLDER_BY_EXT` / `MIME_BY_EXT` / `allocateFilename`.
+- **assets**: GET also runs `discoverAssets()`; files live under `uploads/{projectId}/{subdir}/` with subdir inferred from extension (avatars, animations, images, other). See `routes/shared.ts` for `SUBFOLDER_BY_EXT` / `MIME_BY_EXT` / `allocateFilename`. **VRM/GLB metadata:** `discoverAssets` extracts metadata (`vrm/metadata.ts`) on newly-discovered files and runs a freshness/self-heal loop — a cheap `statSync` size+mtime gate trusts the stored `hash`+`metadata`; on a size/mtime mismatch it recomputes sha256 and, if the hash drifted, updates `hash`+`size`+`file_mtime`+`metadata` together (so they can never disagree). Extraction is non-fatal: a non-VRM `.glb` stores partial/empty metadata, never throws out of the upload/list path.
 - **camera-effects**: create/delete now flow through the sync layer (`sync.document.upsert/remove`, rtype `camera_effect`, wire kind `'sync'`); updates still broadcast the legacy `camera_effect_updated`.
 - **signal**: `graphId` format is `<prefix>:<behaviorId>` (e.g. `vmc-pipeline:abc123`); `routes/signal.ts` dispatches by prefix to the right manager's `fireGraphEvent`.
 - **api-controller**: see the section below — first behavior with a public REST control surface.
@@ -108,7 +108,7 @@ Most CRUD broadcasts no longer use one bespoke kind per entity: create/delete of
 
 ### `routes/update.ts`
 
-Mounted alongside `api.ts`. Startup calls `initUpdateChecker(installDir, wsSync)` once on boot to check GitHub Releases.
+Mounted at `/api` alongside the main API router (`apiRoutes` from `routes/index.ts`). Startup calls `initUpdateChecker(installDir, wsSync)` once on boot to check GitHub Releases.
 
 ```
 GET  /api/update-status         returns { version, latestVersion, releaseNotes, channel, downloadReady }
@@ -159,6 +159,7 @@ PUT /api/config       writes config.json; channel change triggers checkForUpdate
 | `024_rename_preset_graphs_key.ts` | Vocabulary rename (run-fn, idempotent): rewrites the top-level `graphs` key -> `automations` in existing `presets.payload` rows (nested standalone graphs in a preset are automations; later renamed to `logic` by 026). |
 | `025_rename_automations_table_to_logic.sql` | Vocabulary rename: `ALTER TABLE automations RENAME TO logic` (the standalone-graph feature became "Logic"). Data-preserving; chain on existing DBs is graphs (014) → automations (022) → logic (025). |
 | `026_rename_preset_logic_key.ts` | Vocabulary rename (run-fn, idempotent): rewrites the top-level preset payload key `automations` -> `logic`. |
+| `034_asset_metadata.sql` | Adds `metadata TEXT` (JSON `VrmAssetMetadata`) + `file_mtime TEXT` (nullable) to `asset_files`. Populated by the VRM/GLB metadata extractor at upload + on hash-drift in `discoverAssets`. Write the `.sql`; the `.ts` mirror is auto-generated by `scripts/buildMigrations.mjs`; register in `db/index.ts`. |
 
 All tables carry `project_id` FK for strict workspace isolation. The `behaviors.config` column (table renamed from `node_components` in migration 022) stores behavior config JSON including the `_nodeState` sub-key for graph persistence.
 

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
@@ -1834,6 +1834,7 @@ export function SceneGraph() {
     updateNode: storeUpdateNode,
     behaviors,
     vrmBonesByNode,
+    assets,
     setHoveredBone,
     boneListExpanded,
     setBoneListExpanded,
@@ -1883,6 +1884,20 @@ export function SceneGraph() {
   // they live only for the duration of a tmp clip and would churn the tree.
   // The renderer still picks them up from the store; this filter is UI-only.
   const nodes = allNodes.filter((n) => !n.id.startsWith('__spawn:'));
+
+  // Bone names pre-extracted into asset metadata at upload, keyed by file path.
+  // Lets the bone affordance show for any avatar with a model — even one in a
+  // non-active scene or whose VRM the viewport hasn't loaded yet — without
+  // waiting on the live `vrmBonesByNode` side-effect. Live bones (when present)
+  // still win, since they're the exact set for the loaded instance.
+  const bonesByFilePath = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const a of assets) {
+      const bones = a.metadata?.bones;
+      if (bones && bones.length) m.set(a.url, bones);
+    }
+    return m;
+  }, [assets]);
 
   const sceneNodes = nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
 
@@ -2156,7 +2171,8 @@ export function SceneGraph() {
     );
     const bones =
       node.kind === 'avatar' || node.kind === 'model'
-        ? (vrmBonesByNode[node.id] ?? null)
+        ? (vrmBonesByNode[node.id] ??
+          (node.filePath ? (bonesByFilePath.get(node.filePath) ?? null) : null))
         : null;
     const showBones = boneListExpanded[node.id] ?? false;
 
@@ -2182,6 +2198,7 @@ export function SceneGraph() {
       <div key={node.id}>
         {/* Node row */}
         <div
+          className="vs-node-row"
           draggable
           onDragStart={(e) => handleDragStart(e, node.id)}
           onDragEnd={() => {
@@ -2227,6 +2244,7 @@ export function SceneGraph() {
         >
           {/* Collapse chevron (or spacer) */}
           <span
+            className="vs-node-collapse"
             style={{
               width: 16,
               flexShrink: 0,
@@ -2295,17 +2313,21 @@ export function SceneGraph() {
               )}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              {/* Bones toggle — avatar/model only, shown once VRM is loaded */}
+              {/* Bones toggle — avatar/model only, shown once VRM is loaded.
+                  Given a subtle border/background so it reads as a distinct,
+                  discoverable control (it's the entry point for attaching
+                  objects to bones) rather than blending into the icon row. */}
               {bones && (
                 <button
                   title={showBones ? t('bones.collapse') : t('bones.expand')}
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    color: showBones ? '#8af' : '#444',
+                    background: showBones ? '#16202e' : 'transparent',
+                    border: `1px solid ${showBones ? '#2a4060' : '#3a3a3a'}`,
+                    color: showBones ? '#8af' : '#9aa3b0',
                     cursor: 'pointer',
                     fontSize: 11,
-                    padding: '0 3px',
+                    padding: '1px 4px',
+                    borderRadius: 3,
                     flexShrink: 0,
                     lineHeight: 1,
                   }}
@@ -2320,6 +2342,7 @@ export function SceneGraph() {
 
               {/* Components toggle */}
               <button
+                className="vs-node-components-toggle"
                 title={
                   showBehaviors ? t('components.hide') : t('components.show')
                 }
@@ -2398,6 +2421,7 @@ export function SceneGraph() {
 
               {/* Visibility toggle */}
               <button
+                className="vs-node-visibility"
                 title={isHidden ? t('visibility.show') : t('visibility.hide')}
                 style={{
                   background: 'none',
@@ -2422,6 +2446,7 @@ export function SceneGraph() {
 
               {/* Delete button */}
               <button
+                className="vs-node-delete"
                 style={{
                   background: 'none',
                   border: 'none',
@@ -2589,6 +2614,7 @@ export function SceneGraph() {
       <div key={scene.id}>
         {/* Scene row */}
         <div
+          className="vs-scene-row"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -2620,6 +2646,7 @@ export function SceneGraph() {
           }}
         >
           <span
+            className="vs-scene-collapse"
             style={{
               width: 16,
               flexShrink: 0,
@@ -2687,6 +2714,7 @@ export function SceneGraph() {
               palette and flashes it as a hint, rather than opening its own
               menu. The palette adds to whichever scene is active. */}
           <button
+            className="vs-scene-add-node"
             title={t('nodes.addNodeTitle')}
             style={{
               background: '#2563eb',
@@ -2711,6 +2739,7 @@ export function SceneGraph() {
           </button>
           {/* Delete scene */}
           <button
+            className="vs-scene-delete"
             title={t('nodes.deleteScene')}
             style={{
               background: 'none',
@@ -2795,12 +2824,14 @@ export function SceneGraph() {
         }}
       >
         <button
+          className="vs-tab-stage"
           style={tabStyle(dockTab === 'scene')}
           onClick={() => setDockTab('scene')}
         >
           {t('tabs.stage')}
         </button>
         <button
+          className="vs-tab-compose"
           style={tabStyle(dockTab === 'compose')}
           onClick={() => setDockTab('compose')}
           title={t('tabs.compose')}
@@ -2808,6 +2839,7 @@ export function SceneGraph() {
           {t('tabs.compose')}
         </button>
         <button
+          className="vs-tab-logic"
           style={tabStyle(dockTab === 'graphs')}
           onClick={() => setDockTab('graphs')}
         >
@@ -2862,6 +2894,7 @@ export function SceneGraph() {
                 fontSize: 11,
                 fontWeight: 500,
               }}
+              className="vs-add-scene"
               onClick={handleNewScene}
               title={t('scenes.newButton_title')}
             >

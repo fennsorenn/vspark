@@ -1,7 +1,7 @@
 import { SignalNode } from '@vspark/shared/signal';
 import { Node, type Emitter } from '@vspark/shared/node';
 import { eventOut } from '@vspark/shared/node_decorators';
-import type { SignalTypeMap } from '@vspark/shared/signal';
+import type { SignalTypeMap, Blendshapes } from '@vspark/shared/signal';
 
 type LandmarkList = SignalTypeMap['LandmarkList'];
 
@@ -25,4 +25,6 @@ export class MediapipeSource extends Node {
   @eventOut('leftHand', 'LandmarkList') leftHand!: Emitter<LandmarkList>;
   @eventOut('rightHand', 'LandmarkList') rightHand!: Emitter<LandmarkList>;
   @eventOut('pose', 'LandmarkList') pose!: Emitter<LandmarkList>;
+  // Native ARKit face blendshapes (52 shapes) from MediaPipe's face model.
+  @eventOut('arkit', 'ArkitBlendshapes') arkit!: Emitter<Blendshapes>;
 }

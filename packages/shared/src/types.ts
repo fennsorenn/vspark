@@ -96,6 +96,33 @@ export interface SceneNodeProperties {
   broadcastTickHz?: number;
   /** References another kind='scene' node. Applies to kind='scene_instance' nodes. */
   sourceSceneId?: string;
+  /** Second-order "snappiness" dynamics applied to broadcast bone rotations on
+   *  the frontend, after the jitter-smoothing filter. Applies to VRM avatar
+   *  nodes. Disabled by default. */
+  poseDynamics?: PoseDynamics;
+  /** Synthesize forearm twist bones when the model lacks them, so wrist
+   *  pronation spreads along the forearm instead of pinching at the elbow.
+   *  Models with their own twist bones are driven automatically regardless.
+   *  Applies to VRM avatar nodes. Default false. */
+  forceTwistBone?: boolean;
+  /** When synthesizing forearm twist bones, keep their weight off loose sleeve /
+   *  cuff geometry: twist weight is retained only on mesh reachable from the
+   *  hand through connected twist-weighted vertices. Applies to VRM avatar
+   *  nodes. Default false. */
+  excludeSleeves?: boolean;
+}
+
+/** Per-bone second-order (spring–damper) dynamics that add anticipatory snap /
+ *  overshoot to broadcast pose without becoming choppy. See the frontend
+ *  `secondOrderDynamics` module for the implementation. */
+export interface PoseDynamics {
+  enabled: boolean;
+  /** Natural frequency in Hz. Higher = faster / snappier. */
+  frequency: number;
+  /** Damping ratio ζ. <1 overshoots, 1 critical, >1 sluggish. */
+  damping: number;
+  /** Response r. 0 = none, >0 anticipatory lead, <0 wind-up. */
+  response: number;
 }
 
 // A node in a scene tree
@@ -350,6 +377,20 @@ export interface Avatar {
   createdAt: string;
 }
 
+/**
+ * UI-population metadata extracted from a VRM/GLB at upload time (and refreshed
+ * when the file's content hash drifts). Lets the frontend list bones, materials,
+ * blendshapes and expressions without loading the model in the viewport. Not
+ * used for live rendering. All lists are deduped; non-VRM models simply have
+ * empty bone/expression lists.
+ */
+export interface VrmAssetMetadata {
+  bones: string[]; // VRM humanoid bone names
+  materials: string[]; // glTF material names
+  morphTargets: string[]; // morph target (blendshape) names
+  expressions: string[]; // VRM expression / blendshape-group names
+}
+
 export interface AssetFile {
   id: string;
   projectId: string;
@@ -360,6 +401,7 @@ export interface AssetFile {
   hash: string;
   isDeduplicated: boolean;
   createdAt: string;
+  metadata: VrmAssetMetadata | null;
 }
 
 // Animation clip
@@ -533,6 +575,7 @@ export interface TrackingInputMessage {
   leftHand?: Landmark[]; // 21 points
   rightHand?: Landmark[]; // 21 points
   pose?: Landmark[]; // 33 points
+  faceBlendshapes?: Record<string, number>; // 52 ARKit shapes (name → 0..1)
 }
 
 export interface TrackingStatusMessage {

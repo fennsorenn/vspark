@@ -260,12 +260,14 @@ function TimelineEditor({
         }}
       >
         <input
+          className="vs-clip-name"
           value={clip.name}
           onChange={(e) => handlePatchClip({ name: e.target.value })}
           style={inputStyle}
         />
         <label style={{ color: '#888', fontSize: 11 }}>{t('header.duration')}</label>
         <input
+          className="vs-clip-duration"
           type="number"
           step={0.1}
           min={0.1}
@@ -279,6 +281,7 @@ function TimelineEditor({
         />
         <label style={{ color: '#888', fontSize: 11 }}>
           <input
+            className="vs-clip-loop"
             type="checkbox"
             checked={clip.loop}
             onChange={(e) => handlePatchClip({ loop: e.target.checked })}
@@ -290,6 +293,7 @@ function TimelineEditor({
           title={clip.loop ? t('header.autoplayTitle_enabled') : t('header.autoplayTitle_disabled')}
         >
           <input
+            className="vs-clip-autoplay"
             type="checkbox"
             disabled={!clip.loop}
             checked={clip.autoplay}
@@ -299,6 +303,7 @@ function TimelineEditor({
         </label>
         <label style={{ color: '#888', fontSize: 11 }}>{t('header.blend')}</label>
         <select
+          className="vs-clip-blend"
           value={clip.mode}
           onChange={(e) =>
             handlePatchClip({ mode: e.target.value as TrackClipMode })
@@ -311,24 +316,24 @@ function TimelineEditor({
         <div style={{ flex: 1 }} />
         {activePlayback?.kind === 'playing' ? (
           <>
-            <button onClick={handlePause} style={btnNeutral}>
+            <button className="vs-clip-pause" onClick={handlePause} style={btnNeutral}>
               {t('transport.pause')}
             </button>
-            <button onClick={handleStop} style={btnStop}>
+            <button className="vs-clip-stop" onClick={handleStop} style={btnStop}>
               {t('transport.stop')}
             </button>
           </>
         ) : activePlayback?.kind === 'paused' ? (
           <>
-            <button onClick={handleResume} style={btnPlay}>
+            <button className="vs-clip-play" onClick={handleResume} style={btnPlay}>
               {t('transport.resume')}
             </button>
-            <button onClick={handleStop} style={btnStop}>
+            <button className="vs-clip-stop" onClick={handleStop} style={btnStop}>
               {t('transport.stop')}
             </button>
           </>
         ) : (
-          <button onClick={handlePlay} style={btnPlay}>
+          <button className="vs-clip-play" onClick={handlePlay} style={btnPlay}>
             {t('transport.play')}
           </button>
         )}
@@ -420,7 +425,7 @@ function TimelineEditor({
             onConfirm={handleAddLane}
           />
         ) : (
-          <button onClick={() => setAdding(true)} style={btnPrimary}>
+          <button className="vs-clip-add-lane" onClick={() => setAdding(true)} style={btnPrimary}>
             {t('lane.addLane')}
           </button>
         )}
@@ -1034,7 +1039,7 @@ function LaneRow({
             [{range.min.toFixed(2)}, {range.max.toFixed(2)}]
           </span>
         </span>
-        <button onClick={onDeleteLane} style={btnDanger} title={t('lane.removeLaneTitle')}>
+        <button className="vs-lane-delete" onClick={onDeleteLane} style={btnDanger} title={t('lane.removeLaneTitle')}>
           ×
         </button>
       </div>

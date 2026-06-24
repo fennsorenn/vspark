@@ -236,6 +236,11 @@
     "defaultExpressionHint": "Resting expression weights held until a blendshape broadcast (VMC, lipsync, tracking) overrides them.",
     "propertiesHeader": "Properties",
     "blendTransition": "Blend transition",
+    "dynamicsHeader": "Motion Snappiness",
+    "dynamicsEnable": "Add snappiness to motion",
+    "dynamicsFrequency": "Frequency",
+    "dynamicsDamping": "Damping",
+    "dynamicsResponse": "Response",
     "debugHeader": "Debug",
     "showFbxModel": "Show FBX animation model",
     "modelHeader": "Model",
@@ -247,7 +252,10 @@
     "animPlaceholder": "Search or paste URL…",
     "animNoAssets": "No animations uploaded yet",
     "animClear": "Clear animation",
-    "animSpeed": "Speed"
+    "animSpeed": "Speed",
+    "twistHeader": "Forearm twist",
+    "twistForce": "Force twist bone",
+    "twistExcludeSleeves": "Exclude sleeves"
   },
   "file": {
     "header": "File"
@@ -513,6 +521,7 @@
     "expressions": "Learn how to set default expressions on your avatar",
     "materials": "Learn how to override avatar materials and shaders",
     "animation": "Learn about idle animations and blend timing",
+    "dynamics": "Learn how to make motion-capture movement feel snappier",
     "camera": "Learn about camera properties and projections",
     "light": "Learn about light types and shadow settings",
     "breathing": "Learn how the breathing behavior works",
@@ -548,6 +557,7 @@
     "videoPlayback": "Controls when and how the video plays — Autoplay, Loop, what happens On End, and the audio volume",
     "videoChroma": "Removes a specific background color from the video to composite green-screen or blue-screen footage directly in the scene",
     "audioType": "Simple plays at the same volume everywhere; Directional falls off with distance and can be shaped into a 3D cone",
-    "audioSpatial": "Distance and cone parameters for directional audio — reference distance, rolloff, max distance, and the cone angles"
+    "audioSpatial": "Distance and cone parameters for directional audio — reference distance, rolloff, max distance, and the cone angles",
+    "twist": "Spread forearm roll along the arm instead of pinching at the elbow"
   }
 }

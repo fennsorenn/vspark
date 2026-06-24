@@ -212,6 +212,7 @@ export function ClipsSection({
         return (
           <div
             key={clip.id}
+            className="vs-clip-row"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -245,6 +246,7 @@ export function ClipsSection({
       })}
       <div style={{ padding: '3px 6px', display: 'flex', gap: 6, alignItems: 'center' }}>
         <button
+          className="vs-clip-add"
           onClick={handleAdd}
           style={{
             background: 'none',
@@ -262,6 +264,7 @@ export function ClipsSection({
         </button>
         {canPasteClip && (
           <button
+            className="vs-clip-paste"
             onClick={handlePasteClip}
             title={t('section.pasteClipTitle')}
             style={{

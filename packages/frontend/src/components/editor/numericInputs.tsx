@@ -14,7 +14,13 @@
  *                  Frameless until focused; click the value to edit it directly.
  *                  Optional inline keyframe button.
  */
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
 
@@ -97,6 +103,10 @@ export interface NumInputProps {
   prefix?: string;
   /** Short text rendered inside the box, to the right of the value (e.g. "s", "px", "rad"). */
   suffix?: string;
+  /** Interactive node rendered inside the box, to the right of the value (e.g. a
+   *  compact unit selector). Its own pointer events are isolated from the field's
+   *  drag-to-scrub. */
+  suffixNode?: ReactNode;
   /** Show an inline ◆ keyframe button. If undefined, no button. */
   onSetKeyframe?: (value: number) => void | Promise<void>;
   /** Whether the keyframe button should render. Defaults to true when `onSetKeyframe` is provided. */
@@ -106,6 +116,12 @@ export interface NumInputProps {
   /** Outer wrapper width / styling. */
   style?: CSSProperties;
   disabled?: boolean;
+  /**
+   * Targeting class(es) for the wrapper. Pass a per-call-site `vs-` handle here
+   * so coverage/automation can address *this* usage distinctly (see
+   * dev-notes/plans/automated-testing-strategy.md → targeting-layer convention).
+   */
+  className?: string;
 }
 
 const WHEEL_COMMIT_DEBOUNCE_MS = 250;
@@ -120,11 +136,13 @@ export function NumInput({
   precision,
   prefix,
   suffix,
+  suffixNode,
   onSetKeyframe,
   canRecord,
   title,
   style,
   disabled,
+  className,
 }: NumInputProps) {
   const { t } = useTranslation('misc');
   const [focused, setFocused] = useState(false);
@@ -285,6 +303,7 @@ export function NumInput({
   return (
     <div
       ref={wrapperRef}
+      className={className}
       style={{
         ...baseInputStyle,
         display: 'inline-flex',
@@ -373,6 +392,17 @@ export function NumInput({
           {suffix}
         </span>
       )}
+      {suffixNode && (
+        <div
+          // Isolate the embedded control (e.g. a unit dropdown) from the field's
+          // drag-to-scrub / wheel-to-scrub so clicking it just operates it.
+          onPointerDown={(e) => e.stopPropagation()}
+          onWheel={(e) => e.stopPropagation()}
+          style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}
+        >
+          {suffixNode}
+        </div>
+      )}
       {showKfBtn && (
         <button
           onClick={(e) => {
@@ -411,6 +441,9 @@ export interface VecInputProps {
   max?: number | readonly number[];
   precision?: number | readonly number[];
   suffix?: string;
+  /** Optional interactive node rendered inside each axis' box (e.g. a per-axis
+   *  unit selector). */
+  axisSuffix?: (axis: number) => ReactNode;
   /** Optional per-axis keyframe handler — renders an inline ◆ on each scalar. */
   onSetAxisKeyframe?: (axis: number, value: number) => void | Promise<void>;
   /** Optional group keyframe handler — renders a "◆ set group" button in the row header. */
@@ -422,6 +455,8 @@ export interface VecInputProps {
   style?: CSSProperties;
   /** Style applied to every NumInput. */
   inputStyle?: CSSProperties;
+  /** Targeting class(es) for the row container (per-call-site `vs-` handle). */
+  className?: string;
 }
 
 const ax = (
@@ -444,18 +479,23 @@ export function VecInput({
   max,
   precision,
   suffix,
+  axisSuffix,
   onSetAxisKeyframe,
   onSetGroupKeyframe,
   canRecord,
   groupLabel,
   style,
   inputStyle,
+  className,
 }: VecInputProps) {
   const { t } = useTranslation('misc');
   const hasHeader =
     groupLabel != null || (onSetGroupKeyframe != null && (canRecord ?? true));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, ...style }}>
+    <div
+      className={className}
+      style={{ display: 'flex', flexDirection: 'column', gap: 4, ...style }}
+    >
       {hasHeader && (
         <div
           style={{
@@ -505,6 +545,7 @@ export function VecInput({
               value={v}
               prefix={labels?.[i]}
               suffix={suffix}
+              suffixNode={axisSuffix?.(i)}
               step={ax(step, i, 0.01)}
               min={ax(min, i)}
               max={ax(max, i)}
@@ -557,6 +598,8 @@ export interface SliderInputProps {
   /** Optional field-level help shown as a `?` next to the label. */
   help?: FieldHelp;
   style?: CSSProperties;
+  /** Targeting class(es) for the outer container (per-call-site `vs-` handle). */
+  className?: string;
 }
 
 /** Slider with a number readout overlaid in the middle. The readout is
@@ -576,6 +619,7 @@ export function SliderInput({
   suffix,
   help,
   style,
+  className,
 }: SliderInputProps) {
   const { t } = useTranslation('misc');
   const [hover, setHover] = useState(false);
@@ -589,6 +633,7 @@ export function SliderInput({
 
   return (
     <div
+      className={className}
       style={{
         display: 'flex',
         alignItems: 'center',

@@ -128,7 +128,20 @@ function mapAsset(r: Record<string, unknown>): AssetFile {
     url: r.stored_path as string,
     mimeType: (r.mime_type ?? '') as string,
     kind: guessAssetKind((r.original_name as string) ?? ''),
+    metadata: parseAssetMetadata(r.metadata),
   };
+}
+
+/** Parse the asset_files.metadata JSON column (string|object|null) → typed. */
+function parseAssetMetadata(raw: unknown): import('@vspark/shared').VrmAssetMetadata | null {
+  if (raw == null) return null;
+  try {
+    return (
+      typeof raw === 'string' ? JSON.parse(raw) : raw
+    ) as import('@vspark/shared').VrmAssetMetadata;
+  } catch {
+    return null;
+  }
 }
 
 function guessAssetKind(name: string): AssetKind {
@@ -175,6 +188,17 @@ export interface NodeProperties {
   /** Avatar animation config. `idle` is the content-addressed base loop
    *  (animation_clip id + speed); the scheduled timeline layers over it. */
   animation?: { idle?: { clipId: string; speed: number } };
+  /** VRM avatar: second-order "snappiness" dynamics applied to broadcast bone
+   *  rotations after the jitter-smoothing filter. Disabled by default. */
+  poseDynamics?: import('../secondOrderDynamics').PoseDynamicsConfig;
+  /** VRM avatar: synthesize forearm twist bones when the model lacks them, so
+   *  wrist pronation spreads along the forearm instead of pinching at the
+   *  elbow. Models with their own twist bones are driven regardless. */
+  forceTwistBone?: boolean;
+  /** VRM avatar: when synthesizing twist bones, keep their weight off loose
+   *  sleeve/cuff geometry (twist kept only on mesh reachable from the hand
+   *  through connected twist-weighted vertices). */
+  excludeSleeves?: boolean;
 }
 
 export interface StageObject {
@@ -201,6 +225,10 @@ export interface AssetFile {
   url: string;
   mimeType: string;
   kind: AssetKind;
+  /** VRM/GLB metadata pre-extracted at upload time (bones, materials, morph
+   *  targets, expressions). Null for non-model files. Used to populate UI
+   *  lists without loading the model in the viewport. */
+  metadata: import('@vspark/shared').VrmAssetMetadata | null;
 }
 
 export interface BehaviorRecord {
@@ -680,10 +708,7 @@ export const deleteCameraEffect = (id: string) =>
 export const updateComposeLayer = (
   id: string,
   patch: Partial<
-    Omit<
-      ComposeLayerRecord,
-      'id' | 'projectId' | 'rootComposeSceneId' | 'cameraNodeId' | 'kind'
-    >
+    Omit<ComposeLayerRecord, 'id' | 'projectId' | 'rootComposeSceneId' | 'kind'>
   >
 ) =>
   request<Record<string, unknown>>(`/compose-layers/${id}`, {
@@ -1464,7 +1489,11 @@ export const unshareObject = (objectId: string, granteePeerId: string) =>
 /** Receiver: subscribe to (place) a peer's shared object. The backend always
  *  arms the mesh document subscription; `streams=false` skips the legacy
  *  stream/asset relay (the tab serves those itself over a direct edge). */
-export const peerSubscribe = (peerId: string, objectId: string, streams = true) =>
+export const peerSubscribe = (
+  peerId: string,
+  objectId: string,
+  streams = true
+) =>
   request<{ peerId: string; objectId: string }>(
     `/connections/peers/${peerId}/subscribe`,
     { method: 'POST', body: JSON.stringify({ objectId, streams }) }
@@ -1491,8 +1520,7 @@ export interface SharedByMe {
   shareKind: 'object' | 'scene';
   grantees: string[];
 }
-export const getSharedByMe = () =>
-  request<SharedByMe[]>('/connections/shares');
+export const getSharedByMe = () => request<SharedByMe[]>('/connections/shares');
 /** Owner: stop sharing an object/scene with everyone. */
 export const unshareAllObject = (objectId: string) =>
   request<{ objectId: string }>(

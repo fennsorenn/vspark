@@ -19,6 +19,7 @@ import {
   type ShadowQuality,
 } from '../components/editor/Viewport';
 import { ComposeLayerStack } from '../components/editor/ComposeLayerStack';
+import { useSceneFadeIn } from '../hooks/useSceneFadeIn';
 
 function getT(components: Record<string, unknown> | undefined) {
   const t = components?.transform as
@@ -121,8 +122,22 @@ export function ViewerPage() {
           setTrackClips(trackClips);
           // Load every scene's nodes so cross-scene camera_views resolve.
           setNodes(sceneNodes);
-          if (composeSceneId) selectComposeScene(composeSceneId);
-          if (scenes.length > 0) setActiveScene(scenes[0].id);
+          // Activate the scene this link actually targets — for a single-camera
+          // link that's the camera's own scene, not blindly the first one (which
+          // left the active scene wrong whenever the camera lived in any scene
+          // but the first). Compose links select a compose scene instead; their
+          // 3D content is keyed per camera_view, so any 3D scene works as the
+          // base — fall back to the first.
+          if (composeSceneId) {
+            selectComposeScene(composeSceneId);
+            if (scenes.length > 0) setActiveScene(scenes[0].id);
+          } else if (nodeId) {
+            const cam = sceneNodes.find((n) => n.id === nodeId);
+            const sid = cam?.rootSceneNodeId ?? scenes[0]?.id;
+            if (sid) setActiveScene(sid);
+          } else if (scenes.length > 0) {
+            setActiveScene(scenes[0].id);
+          }
         }
       )
       .catch(() => {});
@@ -133,6 +148,7 @@ export function ViewerPage() {
   }, [
     projectId,
     composeSceneId,
+    nodeId,
     setProject,
     setScenes,
     setActiveScene,
@@ -144,6 +160,10 @@ export function ViewerPage() {
     selectComposeScene,
     setTrackClips,
   ]);
+
+  // Fade the 3D output in once it's loaded and settled (single-camera mode);
+  // compose-scene mode fades each camera_view in via CameraCanvas instead.
+  const fadeIn = useSceneFadeIn();
 
   // ── Compose-scene mode: stream a whole compose scene (its layer stack,
   //    including camera_view 3D). The broadcast IS the compose output. ──
@@ -231,6 +251,7 @@ export function ViewerPage() {
           zIndex: 1,
           visibility: isHidden ? 'hidden' : 'visible',
           pointerEvents: 'none',
+          ...fadeIn,
         }}
         onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
         frameloop={isHidden ? 'never' : 'always'}

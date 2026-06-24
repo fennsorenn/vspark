@@ -170,6 +170,17 @@ export interface NodeProperties {
   /** Avatar animation config. `idle` is the content-addressed base loop
    *  (animation_clip id + speed); the scheduled timeline layers over it. */
   animation?: { idle?: { clipId: string; speed: number } };
+  /** VRM avatar: second-order "snappiness" dynamics applied to broadcast bone
+   *  rotations after the jitter-smoothing filter. Disabled by default. */
+  poseDynamics?: import('../secondOrderDynamics').PoseDynamicsConfig;
+  /** VRM avatar: synthesize forearm twist bones when the model lacks them, so
+   *  wrist pronation spreads along the forearm instead of pinching at the
+   *  elbow. Models with their own twist bones are driven regardless. */
+  forceTwistBone?: boolean;
+  /** VRM avatar: when synthesizing twist bones, keep their weight off loose
+   *  sleeve/cuff geometry (twist kept only on mesh reachable from the hand
+   *  through connected twist-weighted vertices). */
+  excludeSleeves?: boolean;
 }
 
 export interface StageObject {
@@ -770,9 +781,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         scenes: remainingScenes,
         nodes: s.nodes.filter((n) => n.rootSceneNodeId !== sceneId),
-        behaviors: s.behaviors.filter(
-          (c) => !removedNodeIds.has(c.nodeId)
-        ),
+        behaviors: s.behaviors.filter((c) => !removedNodeIds.has(c.nodeId)),
         cameraEffects: s.cameraEffects.filter(
           (e) => !removedNodeIds.has(e.nodeId)
         ),
@@ -796,9 +805,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // Idempotent by id: a create's REST response and its WS broadcast can race
       // (either order), and only the broadcast path deduped before. Guard here so
       // neither can double-insert.
-      s.nodes.some((n) => n.id === node.id)
-        ? {}
-        : { nodes: [...s.nodes, node] }
+      s.nodes.some((n) => n.id === node.id) ? {} : { nodes: [...s.nodes, node] }
     ),
   updateNode: (id, updates) =>
     set((s) => ({
@@ -826,8 +833,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedBehaviorId: null,
       selectedEffect: null,
     })),
-  selectBehavior: (id) =>
-    set({ selectedBehaviorId: id, selectedEffect: null }),
+  selectBehavior: (id) => set({ selectedBehaviorId: id, selectedEffect: null }),
   setAssets: (assets) => set({ assets }),
   addAsset: (asset) => set((s) => ({ assets: [...s.assets, asset] })),
   deleteAsset: (id) =>
@@ -837,8 +843,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
   },
   setBehaviors: (comps) => set({ behaviors: comps }),
-  addBehavior: (comp) =>
-    set((s) => ({ behaviors: [...s.behaviors, comp] })),
+  addBehavior: (comp) => set((s) => ({ behaviors: [...s.behaviors, comp] })),
   updateBehavior: (id, updates) =>
     set((s) => ({
       behaviors: s.behaviors.map((c) =>
@@ -851,8 +856,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedBehaviorId:
         s.selectedBehaviorId === id ? null : s.selectedBehaviorId,
     })),
-  behaviorsFor: (nodeId) =>
-    get().behaviors.filter((c) => c.nodeId === nodeId),
+  behaviorsFor: (nodeId) => get().behaviors.filter((c) => c.nodeId === nodeId),
   setVmcStatus: (behaviorId, connected) =>
     set((s) => ({ vmcStatus: { ...s.vmcStatus, [behaviorId]: connected } })),
   setVmcTracking: (behaviorId, tracking) =>
