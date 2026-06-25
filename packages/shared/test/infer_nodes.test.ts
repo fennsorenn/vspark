@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   inferPackEvent,
   inferSetData,
+  inferSendChat,
   inferSceneEntity,
   inferQueueEvents,
   inferUnpackEvent,
@@ -47,6 +48,35 @@ describe('inferSetData', () => {
     const r = inferSetData(ctx({ config: { fields: ['a'] } }));
     expect(names(r.inputPorts)).toEqual(['fire', 'scope', 'a', '']);
     expect(r.outputPorts).toEqual([]);
+  });
+});
+
+describe('inferSendChat', () => {
+  it('exposes fire + account + channel + template + fields + slot, and a sent output', () => {
+    const r = inferSendChat(ctx({ config: { fields: ['user', 'amount'] } }));
+    expect(names(r.inputPorts)).toEqual([
+      'fire',
+      'account',
+      'channel',
+      'template',
+      'user',
+      'amount',
+      '',
+    ]);
+    expect(r.outputPorts).toEqual([
+      { name: 'sent', type: RT.event(RT.primitive('Trigger')) },
+    ]);
+  });
+
+  it('defaults to no fields (just the static ports + slot)', () => {
+    const r = inferSendChat(ctx());
+    expect(names(r.inputPorts)).toEqual([
+      'fire',
+      'account',
+      'channel',
+      'template',
+      '',
+    ]);
   });
 });
 
@@ -102,6 +132,7 @@ describe('inferUnpackEvent', () => {
 describe('registry lookups', () => {
   it('inferForKind resolves registered kinds only', () => {
     expect(inferForKind('pack_event')).toBe(inferPackEvent);
+    expect(inferForKind('overlive_send_chat')).toBe(inferSendChat);
     expect(inferForKind('not_a_kind')).toBeUndefined();
   });
 
