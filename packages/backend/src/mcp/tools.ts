@@ -168,6 +168,13 @@ export function buildToolSpecs(): ToolSpec[] {
       },
     },
     {
+      name: 'delete_compose_layer',
+      description:
+        'Delete a compose layer (or a whole compose scene by passing its id). Destructive — confirm the id first.',
+      inputShape: { id: z.string() },
+      handler: (c, a) => c.del(`/api/compose-layers/${a.id}`),
+    },
+    {
       name: 'update_compose_layer',
       description:
         'Patch a layer. WARNING: the `config` object REPLACES the stored config wholesale — it is NOT merged. ' +
@@ -256,6 +263,13 @@ export function buildToolSpecs(): ToolSpec[] {
       description: 'Read back a logic graph (descriptor + metadata) by id.',
       inputShape: { id: z.string() },
       handler: (c, a) => c.get(`/api/logic/${a.id}`),
+    },
+    {
+      name: 'delete_logic',
+      description:
+        'Delete a logic graph by id (stops the running instance first). Destructive — confirm the id first.',
+      inputShape: { id: z.string() },
+      handler: (c, a) => c.del(`/api/logic/${a.id}`),
     },
     {
       name: 'set_logic_descriptor',

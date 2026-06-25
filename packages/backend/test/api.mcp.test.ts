@@ -49,7 +49,9 @@ describe('MCP server', () => {
     expect(names).toContain('create_compose_layer');
     expect(names).toContain('set_logic_descriptor');
     expect(names).toContain('lookup_node_kind');
-    expect(tools.length).toBeGreaterThanOrEqual(18);
+    expect(names).toContain('delete_compose_layer');
+    expect(names).toContain('delete_logic');
+    expect(tools.length).toBeGreaterThanOrEqual(20);
   });
 
   it('creates and reads back a scene node through tools', async () => {

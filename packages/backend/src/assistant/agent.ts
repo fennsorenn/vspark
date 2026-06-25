@@ -24,7 +24,9 @@ const SYSTEM_PROMPT =
   'Use the list_* and lookup_* tools to discover project ids and signal-node port names before you ' +
   'mutate anything; never invent ids or ports. Read tool descriptions carefully — some API semantics ' +
   '(components vs properties, config-replace-on-update, the two-step logic create+wire) are easy to get ' +
-  'wrong. When the task is done, briefly tell the user what you changed in plain language.';
+  'wrong. Deleting is destructive: before calling any delete tool, confirm with the user in plain ' +
+  'language and wait for their reply unless they already clearly asked for that exact deletion. ' +
+  'When the task is done, briefly tell the user what you changed in plain language.';
 
 export interface AgentEvents {
   /** Visible assistant text produced in a round (may be intermediate). */
