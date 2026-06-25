@@ -26,8 +26,13 @@
 **Update / config types**:
 - `UpdateChannel` — `'stable' | 'recent' | 'experimental'`
 - `UpdateStatus` — `{ updateAvailable, downloadReady, downloadedBytes, totalBytes, currentVersion, latestVersion, releaseNotes, channel }`
-- `AppConfig` — shape of `config.json` on disk; includes `channel: UpdateChannel`
+- `AppConfig` — shape of `config.json` on disk; includes `channel: UpdateChannel` and optional `assistant?: AssistantConfig`
 - `server_update` in `WSMessageKind` — payload carries update availability info; `reloadOnReconnect: true` triggers a page reload after server restart
+
+**AI Assistant types** (see [mcp-assistant.md](mcp-assistant.md)):
+- `AssistantConfig` — `{ enabled, baseUrl, apiKey, model }`; the OpenAI-compatible LLM endpoint the in-app agent uses
+- `AssistantConfigPublic` — the API-exposed view; `apiKey` replaced by `hasApiKey: boolean` (the raw key never leaves the server)
+- `assistant_user_message` / `assistant_reset` / `assistant_text` / `assistant_tool_call` / `assistant_tool_result` / `assistant_error` / `assistant_done` in `WSMessageKind` — the assistant request/stream protocol
 
 ## `schema.ts` — Zod validation schemas
 

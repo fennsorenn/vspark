@@ -232,6 +232,12 @@ formerly labelled "Components" and "Clips"). File upload sends base64 to
 ### `signal/SignalGraphCanvas.tsx`
 Visual graph editor. Renders `SignalNodeCard` components connected by bezier edges. Node palette via `NodePalette`. Supports node drag, edge drawing, and live port value display (via `/api/signal/graphs/:id/node-states` polling).
 
+## AI Assistant window — `components/editor/AssistantWindow.tsx`
+
+A draggable floating chat window (mirrors `HelpWindow`), mounted in `Editor.tsx` and toggled from the TopBar `🤖 Assistant` button (`vs-topbar-assistant`). It renders the conversation transcript plus a tool-activity trace, and probes `/api/config` on mount to learn whether an assistant LLM endpoint is configured (`available`).
+
+State lives in a **standalone** `store/assistantStore.ts` (Zustand, mirroring `helpStore`'s self-contained pattern), not the main editor store. The transcript is a flat `entries` list of `user` / `assistant` / `tool` / `error` items; `tool` entries are created on call and patched in place when the result arrives. `useWsSync` gains `sendAssistantMessage` / `sendAssistantReset` helpers and inbound `assistant_text` / `assistant_tool_call` / `assistant_tool_result` / `assistant_error` / `assistant_done` handlers that feed the store. New `vs-` handles: `vs-assistant-input/-send/-close/-clear/-reset`. The agent itself runs server-side — see [mcp-assistant.md](mcp-assistant.md).
+
 ## VRM loading
 
 VRM files are loaded in Viewport using `@pixiv/three-vrm` with a GLTF loader plugin. On load, bone and expression names are extracted and written into the store (`vrmBonesByNode`, `vrmExpressionsByNode`). The `vrm/skeleton.ts` backend module mirrors this extraction server-side for use by `arm_ik_calibration`.
