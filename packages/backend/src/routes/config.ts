@@ -1,14 +1,28 @@
 import { Router } from 'express';
 import { readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
-import type { AppConfig, UpdateChannel } from '@vspark/shared';
+import type {
+  AppConfig,
+  AssistantConfig,
+  AssistantConfigPublic,
+  UpdateChannel,
+} from '@vspark/shared';
 import { getInstallDir, checkForUpdates } from './update.js';
 
 const VALID_CHANNELS: UpdateChannel[] = ['stable', 'recent', 'experimental'];
 
+const DEFAULT_ASSISTANT_MODEL =
+  process.env.ASSISTANT_MODEL ?? 'google/gemma-4-12B-it-qat-w4a16-ct';
+
+/** Config file path. VSPARK_CONFIG_PATH overrides it (tests, custom installs);
+ *  otherwise it lives next to the install. */
+function configPath(): string {
+  return process.env.VSPARK_CONFIG_PATH ?? join(getInstallDir(), 'config.json');
+}
+
 async function readConfig(): Promise<AppConfig> {
   try {
-    const raw = await readFile(join(getInstallDir(), 'config.json'), 'utf-8');
+    const raw = await readFile(configPath(), 'utf-8');
     return JSON.parse(raw) as AppConfig;
   } catch {
     return { channel: 'stable' };
@@ -16,36 +30,82 @@ async function readConfig(): Promise<AppConfig> {
 }
 
 async function writeConfig(cfg: AppConfig): Promise<void> {
-  await writeFile(
-    join(getInstallDir(), 'config.json'),
-    JSON.stringify(cfg, null, 2),
-    'utf-8'
-  );
+  await writeFile(configPath(), JSON.stringify(cfg, null, 2), 'utf-8');
+}
+
+/**
+ * Effective assistant config = persisted config.json values, falling back to
+ * env (VLLM_HOST / VLLM_AUTH / ASSISTANT_MODEL) for any field not set. Used by
+ * both the API surface and the agent wiring in index.ts.
+ */
+export async function resolveAssistantConfig(): Promise<AssistantConfig> {
+  const stored = (await readConfig()).assistant;
+  const envBase = process.env.VLLM_HOST ?? '';
+  const envKey = process.env.VLLM_AUTH ?? '';
+  const baseUrl = stored?.baseUrl ?? envBase;
+  return {
+    enabled: stored?.enabled ?? Boolean(baseUrl),
+    baseUrl,
+    apiKey: stored?.apiKey ?? envKey,
+    model: stored?.model ?? DEFAULT_ASSISTANT_MODEL,
+  };
+}
+
+function toPublic(cfg: AssistantConfig): AssistantConfigPublic {
+  return {
+    enabled: cfg.enabled,
+    baseUrl: cfg.baseUrl,
+    hasApiKey: Boolean(cfg.apiKey),
+    model: cfg.model,
+  };
 }
 
 export const configRoutes = Router();
 
 configRoutes.get('/config', async (_req, res) => {
   const cfg = await readConfig();
-  res.json({ ok: true, data: cfg });
+  const assistant = toPublic(await resolveAssistantConfig());
+  // Never leak the raw assistant.apiKey; expose a redacted view instead.
+  res.json({ ok: true, data: { channel: cfg.channel, assistant } });
 });
 
 configRoutes.put('/config', async (req, res) => {
   const { channel } = req.body as Partial<AppConfig>;
   if (!channel || !VALID_CHANNELS.includes(channel)) {
-    res
-      .status(400)
-      .json({
-        ok: false,
-        error: {
-          message: `channel must be one of: ${VALID_CHANNELS.join(', ')}`,
-        },
-      });
+    res.status(400).json({
+      ok: false,
+      error: {
+        message: `channel must be one of: ${VALID_CHANNELS.join(', ')}`,
+      },
+    });
     return;
   }
   const current = await readConfig();
   const updated: AppConfig = { ...current, channel };
   await writeConfig(updated);
   void checkForUpdates();
-  res.json({ ok: true, data: updated });
+  res.json({ ok: true, data: { channel: updated.channel } });
+});
+
+/**
+ * Update the assistant settings. apiKey is only overwritten when a non-empty
+ * string is supplied, so callers can change the model/endpoint without
+ * resending the secret. Returns the redacted public view.
+ */
+configRoutes.put('/assistant-config', async (req, res) => {
+  const body = req.body as Partial<AssistantConfig>;
+  const current = await readConfig();
+  const base = await resolveAssistantConfig();
+  const next: AssistantConfig = {
+    enabled:
+      typeof body.enabled === 'boolean' ? body.enabled : base.enabled,
+    baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : base.baseUrl,
+    model: typeof body.model === 'string' && body.model ? body.model : base.model,
+    apiKey:
+      typeof body.apiKey === 'string' && body.apiKey.length > 0
+        ? body.apiKey
+        : base.apiKey,
+  };
+  await writeConfig({ ...current, assistant: next });
+  res.json({ ok: true, data: toPublic(next) });
 });

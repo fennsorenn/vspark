@@ -53,6 +53,8 @@ import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
 import { resolveRendezvousUrl } from './multiplayer/config.js';
 import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
+import { createMcpHttpRouter } from './mcp/http.js';
+import { AssistantManager } from './assistant/manager.js';
 import {
   hydrateContainmentIndex,
   applyDocToIndex,
@@ -65,8 +67,21 @@ import type {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const PORT = Number(process.env.PORT) || 3001;
+
 const wsSync = new WSSync();
 const app = createApp({ wsSync });
+
+// MCP server over Streamable HTTP at /mcp. Tools call back into this same
+// backend over loopback, so the MCP path exercises the real REST surface.
+app.use('/mcp', createMcpHttpRouter(`http://127.0.0.1:${PORT}`));
+
+// In-app assistant agent (consumes the MCP via an in-memory transport).
+const assistantManager = new AssistantManager(
+  wsSync,
+  `http://127.0.0.1:${PORT}`
+);
+
 const server = createServer(app);
 
 // Mirrors the bundle check in createApp — used below to decide whether to open
@@ -258,6 +273,9 @@ async function start() {
 
   // Handle browser → server media messages
   wsSync.onMessage((kind, payload, sourceWs) => {
+    if (assistantManager.handle(kind, payload, sourceWs)) {
+      return;
+    }
     if (kind === 'lipsync_input') {
       const msg = payload as LipsyncInputMessage;
       lipsyncManager.fireVisemes(msg.behaviorId, msg.visemes ?? {});
@@ -383,7 +401,7 @@ async function start() {
   apiControllerManager.syncBehaviors(apiControllerRows.map(mapRow));
 
   // PORT override lets two instances run on one box (multiplayer testing).
-  const port = Number(process.env.PORT) || 3001;
+  const port = PORT;
   server.listen(port, async () => {
     console.log(`vspark listening on http://localhost:${port}`);
     if (existsSync(PUBLIC_DIR)) {
