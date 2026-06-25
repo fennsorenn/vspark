@@ -10,6 +10,7 @@ import { UpdateDialog } from './UpdateDialog';
 import { OverliveAccountsModal } from './OverliveAccountsModal';
 import { LanguageSwitcher } from '../LanguageSwitcher';
 import { HelpButton } from '../../help/HelpButton';
+import { useAssistantStore } from '../../store/assistantStore';
 
 export function TopBar() {
   const navigate = useNavigate();
@@ -286,6 +287,7 @@ export function TopBar() {
           >
             ⚙ {t('update.versionLabel')}
           </button>
+          <AssistantToggle />
           <LanguageSwitcher compact />
           <HelpButton topic="overview" tip={t('help.tip')} size={18} />
         </div>
@@ -302,5 +304,30 @@ export function TopBar() {
         <OverliveAccountsModal onClose={() => setAccountsOpen(false)} />
       )}
     </>
+  );
+}
+
+/** Top-bar button that toggles the in-app AI assistant window. */
+function AssistantToggle() {
+  const { t } = useTranslation('assistant');
+  const open = useAssistantStore((s) => s.open);
+  const toggle = useAssistantStore((s) => s.toggleAssistant);
+  return (
+    <button
+      className="vs-topbar-assistant"
+      onClick={toggle}
+      title={t('topbarTip')}
+      style={{
+        background: open ? '#1a2a3a' : '#2a2a2a',
+        border: `1px solid ${open ? '#60a5fa' : '#3a3a3a'}`,
+        color: open ? '#60a5fa' : '#ccc',
+        borderRadius: 5,
+        padding: '3px 10px',
+        cursor: 'pointer',
+        fontSize: 12,
+      }}
+    >
+      🤖 {t('label')}
+    </button>
   );
 }

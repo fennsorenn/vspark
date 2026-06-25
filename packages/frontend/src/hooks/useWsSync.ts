@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
+import { useAssistantStore } from '../store/assistantStore';
 import type { StageObject } from '../store/editorStore';
 import type { CameraEffectRecord } from '../api/client';
 import {
@@ -87,6 +88,20 @@ export function sendComposeLayerPreview(
   const ws = editorWsRef.current;
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ kind: 'compose_layer_preview', id, patch }));
+}
+
+/** Send a user turn to the backend assistant agent. */
+export function sendAssistantMessage(text: string) {
+  const ws = editorWsRef.current;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ kind: 'assistant_user_message', text }));
+}
+
+/** Reset the backend assistant conversation for this connection. */
+export function sendAssistantReset() {
+  const ws = editorWsRef.current;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ kind: 'assistant_reset' }));
 }
 
 export function useWsSync() {
@@ -643,6 +658,26 @@ export function useWsSync() {
               pendingReloadRef.current = true;
               useEditorStore.getState().setPendingReload(true);
             }
+          } else if (msg.kind === 'assistant_text') {
+            useAssistantStore
+              .getState()
+              .pushAssistantText((msg.payload as { text: string }).text);
+          } else if (msg.kind === 'assistant_tool_call') {
+            const p = msg.payload as {
+              id: string;
+              name: string;
+              args: unknown;
+            };
+            useAssistantStore.getState().pushToolCall(p);
+          } else if (msg.kind === 'assistant_tool_result') {
+            const p = msg.payload as { id: string; ok: boolean; text: string };
+            useAssistantStore.getState().resolveToolResult(p);
+          } else if (msg.kind === 'assistant_error') {
+            useAssistantStore
+              .getState()
+              .pushError((msg.payload as { message: string }).message);
+          } else if (msg.kind === 'assistant_done') {
+            useAssistantStore.getState().setStreaming(false);
           }
         } catch {
           /* ignore malformed */

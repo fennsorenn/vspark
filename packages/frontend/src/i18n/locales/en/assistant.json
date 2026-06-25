@@ -1,0 +1,14 @@
+{
+  "title": "Assistant",
+  "label": "Assistant",
+  "topbarTip": "Open the AI assistant",
+  "helpTip": "About the assistant",
+  "close": "Close",
+  "clear": "Clear conversation",
+  "send": "Send",
+  "placeholder": "Ask the assistant to build or change something…",
+  "emptyHint": "Ask me to create objects, compose layers, feed templates, or wire a logic graph. I'll use the project tools to do it.",
+  "working": "Working…",
+  "notConfigured": "The assistant has no language-model endpoint configured. Set one in the assistant settings to enable it.",
+  "resetConversation": "Reset conversation"
+}

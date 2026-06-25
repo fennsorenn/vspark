@@ -52,6 +52,7 @@ const TOPIC_ORDER = [
   'presets',
   'streaming',
   'multiplayer',
+  'assistant',
   // Parameter-reference pages
   'transform',
   'camera',
