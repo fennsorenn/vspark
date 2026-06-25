@@ -158,6 +158,35 @@ The shared `handleOverliveEvent(...)` helper in `signal/nodes/overlive/_helpers.
 
 The `Account` port type is registered in `packages/shared/src/signal.ts` (`SignalTypeMap.Account: string`, colour `#9146ff` in `SIGNAL_TYPE_COLORS`). It is set today via the inline account dropdown in `SignalNodeCard` (the dropdown is data-bound to the editor store's `overliveAccounts`). The port type accepts a connected source, but there is no literal `account_value` node yet — connections from another node's `Account` output are the only non-inline source.
 
+## Outbound actions — `overlive_send_chat`
+
+The integration is no longer inbound-only. `signal/nodes/overlive/send_chat.ts`
+sends a chat message on `fire`. Its design mirrors `set_data`: a `template`
+String input (config fallback `config.template`) plus user-defined labeled value
+ports from `config.fields: string[]` — the dynamic-port shape is computed by
+`inferSendChat` in `packages/shared/src/infer_nodes.ts` (registered under
+`INFER_BY_KIND['overlive_send_chat']`, same `TRAILING_SLOT` mechanism). On fire
+it substitutes each `${field}` in the template with the current value of the
+like-named input (unknown placeholders → empty string), skips an empty result,
+then calls `OverliveManager.sendChat(accountId, channel, text)`. Ports:
+`fire` (Trigger), `account` (Account), `channel` (String), `template` (String),
+N dynamic fields, output `sent` (Trigger).
+
+`OverliveManager.sendChat` resolves the account row → project entry → live
+adapter via the new `OverliveKit.adapter(instanceId)` accessor, and (Twitch only)
+calls `adapter.sendChatMessage(text)` → Helix `POST /helix/chat/messages`
+(`sender_id === broadcaster_id`). Best-effort: send errors are logged, never
+thrown out of the node. `channel` is accepted for symmetry but is advisory today
+(the Twitch adapter always posts to its own broadcaster channel).
+
+Requires the **`user:write:chat`** Twitch scope, now included in
+`@overlive/twitch-oauth` `DEFAULT_SCOPES`. Accounts connected before this scope
+was added must be **reconnected** once (the existing Reconnect button) to grant
+send permission. Implemented in `@overlive/twitch` (`TwitchRestClient.post` +
+`sendChatMessage`, `TwitchAdapter.sendChatMessage`) and `@overlive/core`
+(`OverliveKit.adapter`) — these require a published version bump before vspark CI
+installs them from the registry.
+
 ## Frontend — `components/editor/OverliveAccountsModal.tsx`
 
 Opened from `TopBar`. Two sections:
