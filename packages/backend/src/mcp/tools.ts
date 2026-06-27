@@ -7,17 +7,21 @@
  * Tool descriptions deliberately encode the non-obvious API semantics that an
  * agent cannot discover by introspection (and that the API does NOT validate):
  *   - scene-node `components` vs `properties` are two different bags;
- *   - compose-layer `config` is REPLACED wholesale on update, not merged;
+ *   - compose-layer `config` is SHALLOW-MERGED on update (send only changed keys);
  *   - logic graphs are created empty, then wired with set_logic_descriptor;
  *   - signal-node port/kind names come from the node-kind catalog, not guesses.
  */
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { z, type ZodRawShape } from 'zod';
 import {
   listAllParamPaths,
   type ParamTargetKind,
 } from '@vspark/shared/paramPaths';
 import { CAMERA_EFFECT_KINDS } from '@vspark/shared/cameraEffects';
+import { validateFeedTemplate } from '@vspark/shared/feedValidation';
 import type { VsparkClient } from './client.js';
+import { renderTemplateToHtml, rasterizeFeed } from './feedRender.js';
 
 /** scene_node → /api/scene-nodes/:id, compose_layer → /api/compose-layers/:id */
 function ownerBase(ownerKind: unknown): string {
@@ -32,6 +36,27 @@ export interface ToolSpec {
     client: VsparkClient,
     args: Record<string, unknown>
   ) => Promise<unknown>;
+}
+
+/** A tool result that carries one or more images back to the model (the MCP
+ *  server forwards these as image content; the assistant agent re-attaches them
+ *  to the tool message — gemma accepts images in tool-role messages). Handlers
+ *  return this instead of a plain JSON value when they produce a picture. */
+export interface ToolMediaResult {
+  __media: true;
+  text?: string;
+  images: { mimeType: string; base64: string }[];
+}
+export function mediaResult(
+  text: string,
+  images: { mimeType: string; base64: string }[]
+): ToolMediaResult {
+  return { __media: true, text, images };
+}
+export function isToolMediaResult(x: unknown): x is ToolMediaResult {
+  return (
+    !!x && typeof x === 'object' && (x as ToolMediaResult).__media === true
+  );
 }
 
 const SCENE_NODE_KINDS =
@@ -318,11 +343,11 @@ export function buildToolSpecs(): ToolSpec[] {
         'in the template as the bare variable `chat` (an array of message objects with .text). config.css ' +
         'is normal CSS and may reference image assets by url (from list_assets): `.msg { border-image: ' +
         'url(<asset url>) 30 round }` for a per-message border, `.chat { border-image: url(<asset url>) 40 ' +
-        'stretch }` for a border around the whole box. When the user attached the border image you can SEE ' +
-        'it: set border-image-slice from how deep the ornament runs from each edge (a chunky corner frame ' +
+        'stretch }` for a border around the whole box. For a border image, call view_asset first to SEE it, ' +
+        'then set border-image-slice from how deep the ornament runs from each edge (a chunky corner frame ' +
         'wants a large slice like 100–130, a thin rule wants ~15–30) and give the element enough ' +
         'border-width/padding for the art to show; use `round`/`repeat` for tiling edges, `stretch` for a ' +
-        'single corner frame.',
+        'single corner frame. render_feed_template lets you preview the result before applying.',
       inputShape: {
         composeSceneId: z.string(),
         name: z.string(),
@@ -721,6 +746,86 @@ export function buildToolSpecs(): ToolSpec[] {
           kind: kindOf(String(r.mime_type ?? '')),
           url: r.stored_path,
         }));
+      },
+    },
+    {
+      name: 'view_asset',
+      description:
+        'SEE the image behind an asset. Returns the actual picture so you can inspect it — e.g. to choose ' +
+        'a border-image-slice from how deep an ornament runs in from each edge, or to read what an image ' +
+        'depicts. Pass the asset id (from list_assets, or an attachment the user added). Only image assets ' +
+        'can be viewed.',
+      inputShape: { assetId: z.string() },
+      handler: async (c, a) => {
+        const row = (await c.get(`/api/assets/${a.assetId}`)) as Record<
+          string,
+          unknown
+        >;
+        const mime = String(row.mime_type ?? '');
+        if (!mime.startsWith('image/'))
+          throw new Error(
+            `asset ${String(a.assetId)} is not an image (mime: ${mime || 'unknown'})`
+          );
+        const rel = String(row.stored_path ?? '').replace(/^\/?uploads\//, '');
+        if (!rel) throw new Error(`asset ${String(a.assetId)} has no stored file`);
+        const buf = await readFile(join(process.cwd(), 'uploads', rel));
+        return mediaResult(`Loaded image asset "${String(row.original_name)}".`, [
+          { mimeType: mime, base64: buf.toString('base64') },
+        ]);
+      },
+    },
+    {
+      name: 'render_feed_template',
+      description:
+        'Render a feed template + CSS to an image so you can SEE the result before/after applying it to a ' +
+        'layer — the reliable way to check a border-image, layout, or styling actually looks right. Pass the ' +
+        'htm `template`, optional `css`, and a `data` object mapping each channel field to sample values ' +
+        '(e.g. {"chat":[{"text":"hi 👋"},{"text":"gg"}]}). CSS may reference image assets by their served url ' +
+        '(/uploads/…). Returns a PNG of the rendered feed. Use it to verify, then apply with ' +
+        'create_compose_layer / update_compose_layer.',
+      inputShape: {
+        template: z.string(),
+        css: z.string().optional(),
+        data: z.record(z.string(), z.unknown()).optional(),
+        width: z.number().optional(),
+        height: z.number().optional(),
+        background: z.string().optional(),
+      },
+      handler: async (c, a) => {
+        const templateErr = validateFeedTemplate(String(a.template));
+        if (templateErr) throw new Error(templateErr);
+        let htmlStr: string;
+        try {
+          htmlStr = renderTemplateToHtml(
+            String(a.template),
+            (a.data as Record<string, unknown>) ?? {}
+          );
+        } catch (e) {
+          throw new Error(
+            `template failed to render with the given data: ${e instanceof Error ? e.message : String(e)}`
+          );
+        }
+        try {
+          const base64 = await rasterizeFeed({
+            html: htmlStr,
+            css: String(a.css ?? ''),
+            width: typeof a.width === 'number' ? a.width : 560,
+            height: typeof a.height === 'number' ? a.height : 380,
+            background: typeof a.background === 'string' ? a.background : '#efe7d6',
+            origin: c.origin,
+          });
+          return mediaResult('Rendered the feed template (see image).', [
+            { mimeType: 'image/png', base64 },
+          ]);
+        } catch (e) {
+          // Headless rendering unavailable (no Chromium) — degrade to the
+          // compiled HTML so the call is still useful instead of failing.
+          return {
+            rendered: false,
+            note: `Headless rendering is unavailable here (${e instanceof Error ? e.message : String(e)}). The template compiled fine; here is the HTML it produced.`,
+            html: htmlStr.slice(0, 2000),
+          };
+        }
       },
     },
     {

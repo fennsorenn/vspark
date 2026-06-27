@@ -29,6 +29,12 @@ export class VsparkClient {
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
+  /** Loopback API origin (e.g. http://127.0.0.1:3001) — used to resolve served
+   *  `/uploads/...` asset paths into absolute URLs for headless rendering. */
+  get origin(): string {
+    return this.baseUrl;
+  }
+
   private async request(
     method: string,
     path: string,

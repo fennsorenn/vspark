@@ -166,4 +166,21 @@ describe('stripStaleImages', () => {
     expect(msgs[0].content).toBe('plain text');
     expect(msgs[1].content).toBe('[2 attached images omitted from history]');
   });
+
+  it('also strips images from tool messages (view_asset / render results)', () => {
+    const msgs: ChatMessage[] = [
+      {
+        role: 'tool',
+        tool_call_id: 'c1',
+        content: [
+          { type: 'text', text: 'Loaded image asset "border.png".' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,Z' } },
+        ],
+      },
+    ];
+    stripStaleImages(msgs);
+    expect(msgs[0].content).toBe(
+      'Loaded image asset "border.png".\n[1 attached image omitted from history]'
+    );
+  });
 });

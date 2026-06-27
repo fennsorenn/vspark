@@ -5,7 +5,7 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { VsparkClient } from './client.js';
-import { buildToolSpecs } from './tools.js';
+import { buildToolSpecs, isToolMediaResult } from './tools.js';
 
 export const MCP_SERVER_INFO = {
   name: 'vspark',
@@ -27,6 +27,22 @@ export function createMcpServer(client: VsparkClient): McpServer {
       async (args: Record<string, unknown>) => {
         try {
           const result = await spec.handler(client, args ?? {});
+          // Image-bearing results (view_asset, render_feed_template) forward as
+          // MCP image content alongside any text; everything else is JSON text.
+          if (isToolMediaResult(result)) {
+            return {
+              content: [
+                ...(result.text
+                  ? [{ type: 'text' as const, text: result.text }]
+                  : []),
+                ...result.images.map((im) => ({
+                  type: 'image' as const,
+                  data: im.base64,
+                  mimeType: im.mimeType,
+                })),
+              ],
+            };
+          }
           return {
             content: [
               { type: 'text' as const, text: JSON.stringify(result, null, 2) },

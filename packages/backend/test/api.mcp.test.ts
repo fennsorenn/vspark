@@ -176,6 +176,75 @@ describe('MCP server', () => {
     expect(got.descriptor.nodes).toHaveLength(2);
     expect(got.descriptor.edges).toHaveLength(1);
   });
+
+  // A 1x1 transparent PNG.
+  const PNG_1x1 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+  it('view_asset returns the image as MCP image content', async () => {
+    const proj = (await request(app).post('/api/projects').send({ name: 'P' }))
+      .body.data;
+    const asset = (
+      await request(app)
+        .post(`/api/projects/${proj.id}/assets`)
+        .send({ name: 'pic.png', mimeType: 'image/png', data: PNG_1x1 })
+    ).body.data;
+
+    const res = (await mcp.callTool({
+      name: 'view_asset',
+      arguments: { assetId: asset.id },
+    })) as { content: { type: string; data?: string; mimeType?: string }[] };
+    const img = res.content.find((c) => c.type === 'image');
+    expect(img).toBeTruthy();
+    expect(img?.mimeType).toBe('image/png');
+    expect((img?.data ?? '').length).toBeGreaterThan(20);
+  });
+
+  it('view_asset errors on a non-image asset', async () => {
+    const proj = (await request(app).post('/api/projects').send({ name: 'P' }))
+      .body.data;
+    const asset = (
+      await request(app)
+        .post(`/api/projects/${proj.id}/assets`)
+        .send({ name: 'a.mp3', mimeType: 'audio/mpeg', data: PNG_1x1 })
+    ).body.data;
+    const res = (await mcp.callTool({
+      name: 'view_asset',
+      arguments: { assetId: asset.id },
+    })) as { isError?: boolean; content: { type: string; text?: string }[] };
+    expect(res.isError).toBe(true);
+    expect(text(res)).toMatch(/not an image/);
+  });
+
+  it('render_feed_template returns an image (or graceful HTML fallback)', async () => {
+    const res = (await mcp.callTool({
+      name: 'render_feed_template',
+      arguments: {
+        template:
+          '<div class="chat">${chat.map((m) => html`<div class="msg">${m.text}</div>`)}</div>',
+        css: '.msg{border:2px solid #555;padding:4px}',
+        data: { chat: [{ text: 'hi' }, { text: 'gg' }] },
+        width: 200,
+        height: 120,
+      },
+    })) as { content: { type: string; text?: string }[] };
+    const img = res.content.find((c) => c.type === 'image');
+    // Chromium present → image; absent → text fallback carrying the compiled HTML.
+    if (img) {
+      expect(img.type).toBe('image');
+    } else {
+      expect(text(res)).toContain('class="msg"');
+    }
+  });
+
+  it('render_feed_template rejects a syntactically broken template', async () => {
+    const res = (await mcp.callTool({
+      name: 'render_feed_template',
+      arguments: { template: '<div>${chat', data: {} },
+    })) as { isError?: boolean; content: { type: string; text?: string }[] };
+    expect(res.isError).toBe(true);
+    expect(text(res)).toMatch(/Template syntax error/);
+  });
 });
 
 describe('assistant config API', () => {

@@ -142,7 +142,8 @@ function stubActionResult(content: string): string {
  *  blob on every round. The image only needed to be seen on its own turn. */
 export function stripStaleImages(messages: ChatMessage[]): void {
   for (const m of messages) {
-    if (m.role !== 'user' || !Array.isArray(m.content)) continue;
+    if (m.role !== 'user' && m.role !== 'tool') continue;
+    if (!Array.isArray(m.content)) continue;
     if (!m.content.some((p) => p.type === 'image_url')) continue;
     const text = m.content
       .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
@@ -242,6 +243,9 @@ const SYSTEM_PROMPT =
   'anything, call enable_tools(group) for the family you need (objects, compose, presets, logic, ' +
   'timeline, behaviors, effects), then call the tool. Discovery (list_*/lookup_*) and pointing (ui_*) ' +
   'tools are always available. ' +
+  'You can SEE images: call view_asset(assetId) to look at an image asset (e.g. to pick a ' +
+  'border-image-slice from how deep a frame’s ornament runs), and render_feed_template(template, css, ' +
+  'data) to rasterize a feed template to a picture and verify it looks right BEFORE applying it. ' +
   'Use the list_* and lookup_* tools to discover project ids and signal-node port names before you ' +
   'mutate anything; never invent ids or ports. Read tool descriptions carefully — some API semantics ' +
   '(components vs properties, config-replace-on-update, the two-step logic create+wire) are easy to get ' +
@@ -441,12 +445,20 @@ export class AssistantAgent {
           }
           if (TOOL_TO_GROUP.has(call.function.name)) mutated = true;
           events.onToolCall({ id: call.id, name: call.function.name, args });
-          const { ok, text } = await this.callTool(call.function.name, args);
+          const { ok, text, images } = await this.callTool(
+            call.function.name,
+            args
+          );
           events.onToolResult({ id: call.id, ok, text });
+          const capped = text.slice(0, 4000);
+          // A tool that returns image(s) (view_asset, render_feed_template) ships
+          // them in the tool message so the (vision) model can see them.
           this.messages.push({
             role: 'tool',
             tool_call_id: call.id,
-            content: text.slice(0, 4000),
+            content: images.length
+              ? [{ type: 'text', text: capped }, ...images]
+              : capped,
           });
         }
       }
@@ -464,7 +476,7 @@ export class AssistantAgent {
   private async callTool(
     name: string,
     args: Record<string, unknown>
-  ): Promise<{ ok: boolean; text: string }> {
+  ): Promise<{ ok: boolean; text: string; images: ContentPart[] }> {
     // enable_tools is an agent-side meta-tool — it reveals an action family to
     // the LLM rather than hitting the MCP server.
     if (name === 'enable_tools') {
@@ -472,11 +484,13 @@ export class AssistantAgent {
       if (!(g in TOOL_GROUPS))
         return {
           ok: false,
+          images: [],
           text: `unknown group "${g}". groups: ${Object.keys(TOOL_GROUPS).join(', ')}`,
         };
       this.enabledGroups.add(g);
       return {
         ok: true,
+        images: [],
         text: `Enabled ${g} tools: ${TOOL_GROUPS[g].join(', ')}. You can now call them.`,
       };
     }
@@ -484,22 +498,34 @@ export class AssistantAgent {
     // the name anyway), auto-enable and proceed instead of failing.
     const grp = TOOL_TO_GROUP.get(name);
     if (grp) this.enabledGroups.add(grp);
-    if (!this.mcp) return { ok: false, text: 'MCP client not initialised' };
+    if (!this.mcp)
+      return { ok: false, images: [], text: 'MCP client not initialised' };
     try {
       const res = (await this.mcp.callTool({
         name,
         arguments: args,
       })) as {
         isError?: boolean;
-        content?: { type: string; text?: string }[];
+        content?: { type: string; text?: string; data?: string; mimeType?: string }[];
       };
-      const text = (res.content ?? [])
+      const content = res.content ?? [];
+      const text = content
         .map((c) => (c.type === 'text' ? c.text : ''))
         .filter(Boolean)
         .join('\n');
-      return { ok: !res.isError, text: text || '(no output)' };
+      const images: ContentPart[] = content
+        .filter((c) => c.type === 'image' && c.data)
+        .map((c) => ({
+          type: 'image_url' as const,
+          image_url: { url: `data:${c.mimeType ?? 'image/png'};base64,${c.data}` },
+        }));
+      return { ok: !res.isError, text: text || '(no output)', images };
     } catch (e) {
-      return { ok: false, text: e instanceof Error ? e.message : String(e) };
+      return {
+        ok: false,
+        images: [],
+        text: e instanceof Error ? e.message : String(e),
+      };
     }
   }
 
