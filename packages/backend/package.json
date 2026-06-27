@@ -20,10 +20,10 @@
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
-    "@overlive/core": "^0.2.0",
+    "@overlive/core": "^0.3.0",
     "@overlive/emotes": "^0.2.0",
     "@overlive/se": "^0.2.0",
-    "@overlive/twitch": "^0.2.0",
+    "@overlive/twitch": "^0.3.0",
     "@overlive/twitch-oauth": "^0.2.0",
     "@vspark/mesh": "workspace:*",
     "@vspark/mesh-transports": "workspace:*",
