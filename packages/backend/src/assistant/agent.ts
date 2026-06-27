@@ -18,6 +18,11 @@ import {
 const MAX_TOOL_ROUNDS = 16;
 /** Tool results within this many of the latest are kept verbatim. */
 const RECENT_TOOL_RESULTS = 8;
+/** Never compact/drop the last N messages (protects the in-flight reasoning). */
+const KEEP_LAST_MESSAGES = 12;
+/** Hard cap on total message-content chars (~6k tokens) so a multi-turn
+ *  conversation degrades gracefully instead of overflowing a 16k window. */
+const HISTORY_CHAR_BUDGET = 24000;
 /** Older results from these tools are still reasoning fuel — keep them (capped).
  *  Everything else is an action whose stale result collapses to its id/ok. */
 const REFERENCE_TOOL = /^(list_|lookup_|get_)/;
@@ -39,7 +44,12 @@ export const TOOL_GROUPS: Record<string, string[]> = {
     'delete_compose_layer',
   ],
   presets: ['instantiate_preset'],
-  logic: ['create_project_logic', 'set_logic_descriptor', 'delete_logic'],
+  logic: [
+    'create_project_logic',
+    'update_logic',
+    'set_logic_descriptor',
+    'delete_logic',
+  ],
   timeline: [
     'create_track_clip',
     'update_track_clip',
@@ -118,6 +128,7 @@ export function compactToolHistory(messages: ChatMessage[]): void {
     if (m.role === 'assistant' && m.tool_calls)
       for (const tc of m.tool_calls) idToName.set(tc.id, tc.function.name);
 
+  // Pass 1 — shorten stale tool RESULTS (keep recent + reference fetches).
   let seen = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
@@ -131,6 +142,57 @@ export function compactToolHistory(messages: ChatMessage[]): void {
     } else {
       m.content = stubActionResult(m.content);
     }
+  }
+
+  // Pass 2 — stub stale action-tool-call ARGUMENTS (e.g. a full graph descriptor
+  // the model emitted; once executed it's dead weight). Keep '{}' so it stays
+  // valid JSON, and leave the last KEEP_LAST_MESSAGES alone.
+  const cut = messages.length - KEEP_LAST_MESSAGES;
+  for (let i = 1; i < cut; i++) {
+    const m = messages[i];
+    if (m.role !== 'assistant' || !m.tool_calls) continue;
+    for (const tc of m.tool_calls)
+      if (
+        !REFERENCE_TOOL.test(tc.function.name) &&
+        tc.function.name !== 'enable_tools' &&
+        tc.function.arguments.length > 2
+      )
+        tc.function.arguments = '{}';
+  }
+
+  // Pass 3 — hard cap: drop the oldest complete (assistant + its tool results)
+  // groups until under budget.
+  const size = () =>
+    messages.reduce((s, m) => s + JSON.stringify(m).length, 0);
+  while (size() > HISTORY_CHAR_BUDGET) {
+    if (!dropOldestGroup(messages)) break; // nothing safe left to drop
+  }
+}
+
+/** Remove the oldest complete (assistant-with-tool_calls + its tool results)
+ *  group, atomically so tool-call pairing stays valid. Never touches the system
+ *  message, user turns, or the last KEEP_LAST_MESSAGES. Returns false if none. */
+function dropOldestGroup(messages: ChatMessage[]): boolean {
+  let idx = -1;
+  for (let i = 1; i < messages.length - KEEP_LAST_MESSAGES; i++)
+    if (messages[i].role === 'assistant' && messages[i].tool_calls?.length) {
+      idx = i;
+      break;
+    }
+  if (idx === -1) return false;
+  let j = idx + 1;
+  while (j < messages.length && messages[j].role === 'tool') j++;
+  messages.splice(idx, j - idx);
+  return true;
+}
+
+/** Recovery prune: drop oldest groups until at most `targetLen` messages remain. */
+export function pruneOldestGroups(
+  messages: ChatMessage[],
+  targetLen: number
+): void {
+  while (messages.length > targetLen && dropOldestGroup(messages)) {
+    /* keep dropping */
   }
 }
 
@@ -253,6 +315,27 @@ export class AssistantAgent {
     this.enabledGroups.clear();
   }
 
+  /** chatCompletion, but if the model reports a context-length overflow, prune
+   *  the history harder (drop more old groups) and retry once so a long
+   *  conversation degrades gracefully instead of dying. */
+  private async completeWithRecovery(
+    signal?: AbortSignal
+  ): Promise<{ message: ChatMessage }> {
+    try {
+      return await chatCompletion(this.llm, this.messages, this.activeTools(), {
+        signal,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/context length|too many tokens|maximum context/i.test(msg)) throw e;
+      // Aggressively drop the oldest groups (keep ~half) and retry once.
+      pruneOldestGroups(this.messages, Math.ceil(this.messages.length / 2));
+      return await chatCompletion(this.llm, this.messages, this.activeTools(), {
+        signal,
+      });
+    }
+  }
+
 
   /** Run one user turn to completion, emitting events as it goes. */
   async runTurn(
@@ -267,17 +350,15 @@ export class AssistantAgent {
     this.busy = true;
     try {
       await this.init();
+      // Start each turn lean: re-enable only the action families this turn needs,
+      // so a long multi-feature conversation doesn't carry every group's schemas.
+      this.enabledGroups.clear();
       this.messages.push({ role: 'user', content: userText });
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         if (signal?.aborted) return;
         compactToolHistory(this.messages);
-        const { message } = await chatCompletion(
-          this.llm,
-          this.messages,
-          this.activeTools(),
-          { signal }
-        );
+        const { message } = await this.completeWithRecovery(signal);
         this.messages.push(message);
 
         if (message.content) events.onText(message.content);
