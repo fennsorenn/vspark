@@ -51,9 +51,24 @@ function h(
   let attrs = '';
   if (props)
     for (const k of Object.keys(props)) {
-      if (k === 'children') continue;
+      // React-only props that are not DOM attributes (the default feed template
+      // uses key=${m.id}); and event handlers, which have no static markup.
+      if (k === 'children' || k === 'key' || k === 'ref') continue;
       const v = props[k];
-      if (v == null || v === false) continue;
+      if (v == null || v === false || typeof v === 'function') continue;
+      // style=${{ color: … }} — React renders a style OBJECT to inline css; do
+      // the same (camelCase → kebab-case) instead of stringifying to [object …].
+      if (k === 'style' && v && typeof v === 'object') {
+        const css = Object.entries(v as Record<string, unknown>)
+          .filter(([, val]) => val != null && val !== '')
+          .map(
+            ([prop, val]) =>
+              `${prop.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}:${val}`
+          )
+          .join(';');
+        if (css) attrs += ` style="${esc(css)}"`;
+        continue;
+      }
       const name = k === 'className' ? 'class' : k;
       attrs += v === true ? ` ${name}` : ` ${name}="${esc(v)}"`;
     }
