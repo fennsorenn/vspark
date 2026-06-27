@@ -58,7 +58,12 @@ describe('MCP server', () => {
     expect(names).toContain('set_track_clip_keyframes');
     expect(names).toContain('control_track_clip');
     expect(names).toContain('lookup_param_paths');
-    expect(tools.length).toBeGreaterThanOrEqual(31);
+    expect(names).toContain('list_behavior_kinds');
+    expect(names).toContain('attach_behavior');
+    expect(names).toContain('play_animation');
+    expect(names).toContain('set_blendshapes');
+    expect(names).toContain('list_assets');
+    expect(tools.length).toBeGreaterThanOrEqual(43);
   });
 
   it('creates and reads back a scene node through tools', async () => {

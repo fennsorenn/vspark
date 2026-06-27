@@ -501,5 +501,160 @@ export function buildToolSpecs(): ToolSpec[] {
           a.action === 'seek' ? { t: a.t } : undefined
         ),
     },
+
+    // ---- Behaviors (avatar/scene-node drivers) ----
+    {
+      name: 'list_behavior_kinds',
+      description:
+        'List the behavior kinds that can be attached to a scene node (vmc_receiver, breathing, ' +
+        'manual_calibration, lipsync_processor, mediapipe_tracker, api_controller, …). Each entry ' +
+        'includes a `defaultConfig` — copy that shape and override fields when calling attach_behavior. ' +
+        '`applicableTo` lists which node kinds it suits.',
+      inputShape: {},
+      handler: (c) => c.get('/api/behavior-kinds'),
+    },
+    {
+      name: 'list_behaviors',
+      description: 'List the behaviors currently attached to a scene node.',
+      inputShape: { nodeId: z.string() },
+      handler: (c, a) => c.get(`/api/scene-nodes/${a.nodeId}/behaviors`),
+    },
+    {
+      name: 'attach_behavior',
+      description:
+        'Attach a behavior to a scene node (drives it at runtime). `kind` must be a real behavior ' +
+        'kind from list_behavior_kinds; `config` should follow that kind’s defaultConfig shape (it is ' +
+        'an opaque per-kind blob, not validated here). E.g. vmc_receiver → {host,port,mirror}; ' +
+        'lipsync_processor → {sensitivity}. To use play_animation/set_blendshapes on a node, attach an ' +
+        'api_controller behavior first.',
+      inputShape: {
+        nodeId: z.string(),
+        kind: z.string(),
+        config: z.object({}).passthrough().optional(),
+        enabled: z.boolean().optional(),
+      },
+      handler: (c, a) => {
+        const { nodeId, ...body } = a;
+        return c.post(`/api/scene-nodes/${nodeId}/behaviors`, body);
+      },
+    },
+    {
+      name: 'update_behavior',
+      description:
+        'Update a behavior’s enabled flag and/or config. config REPLACES the stored config — send the ' +
+        'complete object, not a partial.',
+      inputShape: {
+        id: z.string(),
+        enabled: z.boolean().optional(),
+        config: z.object({}).passthrough().optional(),
+      },
+      handler: (c, a) => {
+        const { id, ...body } = a;
+        return c.put(`/api/behaviors/${id}`, body);
+      },
+    },
+    {
+      name: 'delete_behavior',
+      description: 'Detach (delete) a behavior from its node by behavior id.',
+      inputShape: { id: z.string() },
+      handler: (c, a) => c.del(`/api/behaviors/${a.id}`),
+    },
+
+    // ---- Assets, expressions, animation playback ----
+    {
+      name: 'list_assets',
+      description:
+        'List a project’s asset files (avatars/animations/images/audio/video). Use an asset’s filePath ' +
+        'as the filePath when creating/updating the scene node that should display it.',
+      inputShape: { projectId: z.string() },
+      handler: (c, a) => c.get(`/api/projects/${a.projectId}/assets`),
+    },
+    {
+      name: 'list_avatar_expressions',
+      description:
+        'List the VRM expression names an avatar node exposes (for blendshapes / default expressions). ' +
+        '`reported` is false if the avatar has not been loaded in a viewport yet.',
+      inputShape: { projectId: z.string(), nodeId: z.string() },
+      handler: (c, a) =>
+        c.get(
+          `/api/projects/${a.projectId}/nodes/${a.nodeId}/expressions`
+        ),
+    },
+    {
+      name: 'list_avatar_animations',
+      description:
+        'List the animation clips registered for an avatar node (id, name, label, duration). Use a ' +
+        'clip name with play_animation / set_animation_queue.',
+      inputShape: { projectId: z.string(), nodeId: z.string() },
+      handler: (c, a) =>
+        c.get(`/api/projects/${a.projectId}/nodes/${a.nodeId}/animations`),
+    },
+    {
+      name: 'play_animation',
+      description:
+        'Play a single animation clip on an avatar (replaces the queue, loops the last clip). The node ' +
+        'must have an api_controller behavior attached. `animation` is a clip name from ' +
+        'list_avatar_animations.',
+      inputShape: {
+        projectId: z.string(),
+        nodeId: z.string(),
+        animation: z.string(),
+      },
+      handler: (c, a) =>
+        c.put(
+          `/api/projects/${a.projectId}/nodes/${a.nodeId}/api-controller/animation`,
+          { animation: a.animation }
+        ),
+    },
+    {
+      name: 'set_animation_queue',
+      description:
+        'Set an ordered animation queue on an avatar (api_controller behavior required). loopMode: ' +
+        '"none" (play once), "last" (hold final clip), or "queue" (loop the whole list).',
+      inputShape: {
+        projectId: z.string(),
+        nodeId: z.string(),
+        queue: z.array(z.object({ animation: z.string() })),
+        loopMode: z.enum(['none', 'last', 'queue']).optional(),
+      },
+      handler: (c, a) => {
+        const { projectId, nodeId, ...body } = a;
+        return c.put(
+          `/api/projects/${projectId}/nodes/${nodeId}/api-controller/animation-queue`,
+          body
+        );
+      },
+    },
+    {
+      name: 'set_blendshapes',
+      description:
+        'Apply blendshapes to an avatar (api_controller behavior required). Pass EITHER preset (a single ' +
+        'expression name at weight 1) OR blendshapes (a map of expression name → weight 0..1). Names ' +
+        'come from list_avatar_expressions.',
+      inputShape: {
+        projectId: z.string(),
+        nodeId: z.string(),
+        preset: z.string().optional(),
+        blendshapes: z.record(z.string(), z.number()).optional(),
+      },
+      handler: (c, a) => {
+        const { projectId, nodeId, preset, blendshapes } = a;
+        const body = preset != null ? { preset } : { blendshapes };
+        return c.put(
+          `/api/projects/${projectId}/nodes/${nodeId}/api-controller/blendshapes`,
+          body
+        );
+      },
+    },
+    {
+      name: 'clear_blendshapes',
+      description:
+        'Clear all active api_controller blendshape weights on an avatar.',
+      inputShape: { projectId: z.string(), nodeId: z.string() },
+      handler: (c, a) =>
+        c.del(
+          `/api/projects/${a.projectId}/nodes/${a.nodeId}/api-controller/blendshapes`
+        ),
+    },
   ];
 }
