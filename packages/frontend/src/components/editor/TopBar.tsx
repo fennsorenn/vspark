@@ -46,7 +46,9 @@ export function TopBar() {
       .catch(() => {});
   }, [setMpMeta, setMpPeers]);
   const [updateOpen, setUpdateOpen] = useState(false);
-  const [accountsOpen, setAccountsOpen] = useState(false);
+  // Store-driven so the assistant can open it via a ui_action (open_window).
+  const accountsOpen = useEditorStore((s) => s.accountsModalOpen);
+  const setAccountsOpen = useEditorStore((s) => s.setAccountsModalOpen);
   // Anchor the Updates popover under whichever control opened it.
   const updateAnchorRef = useRef<HTMLButtonElement>(null);
 

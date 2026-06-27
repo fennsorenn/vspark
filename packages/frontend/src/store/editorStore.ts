@@ -421,6 +421,10 @@ interface EditorState {
   setBottomTab: (tab: BottomDockTab) => void;
   /** Switch the bottom dock to `tab` and pulse it as a hint. */
   flashBottomTab: (tab: BottomDockTab) => void;
+  /** Whether the Overlive Accounts modal is open (store-driven so the
+   *  assistant can open it via a ui_action). */
+  accountsModalOpen: boolean;
+  setAccountsModalOpen: (open: boolean) => void;
   /** Ask the Properties name field to focus + select-all. */
   requestFocusName: () => void;
   setBottomDockHeight: (h: number) => void;
@@ -852,6 +856,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     lsSet(LS.bottomTab, tab);
     set({ bottomTab: tab, bottomTabFlash: Date.now() });
   },
+  accountsModalOpen: false,
+  setAccountsModalOpen: (open) => set({ accountsModalOpen: open }),
   requestFocusName: () =>
     set((s) => ({ focusNameNonce: s.focusNameNonce + 1 })),
   setClipboard: (payload) => set({ clipboardPayload: payload }),
@@ -908,6 +914,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           const as = useAssistantStore.getState();
           if (a.open === false) as.closeAssistant();
           else as.openAssistant();
+        } else if (a.window === 'accounts') {
+          s.setAccountsModalOpen(a.open !== false);
         }
         break;
       }

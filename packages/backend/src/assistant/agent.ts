@@ -31,6 +31,11 @@ const SYSTEM_PROMPT =
   '(components vs properties, config-replace-on-update, the two-step logic create+wire) are easy to get ' +
   'wrong. Deleting is destructive: before calling any delete tool, confirm with the user in plain ' +
   'language and wait for their reply unless they already clearly asked for that exact deletion. ' +
+  'You can REFERENCE an existing streaming account (list_overlive_accounts) when wiring a chat/event ' +
+  'feed, but you cannot CONNECT one — connecting Twitch/StreamElements is an OAuth login only the user ' +
+  'can do. When an account is missing or needs connecting, do not attempt it: open the Accounts dialog ' +
+  '(ui_open_window window:"accounts") or highlight it (ui_highlight_control "vs-topbar-accounts") and ' +
+  'ask the user to connect there. ' +
   'When the task is done, briefly tell the user what you changed in plain language.';
 
 export interface AgentEvents {

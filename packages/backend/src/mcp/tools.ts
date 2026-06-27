@@ -715,6 +715,21 @@ export function buildToolSpecs(): ToolSpec[] {
       handler: (c, a) => c.del(`/api/camera-effects/${a.id}`),
     },
 
+    // ---- Overlive (Twitch / StreamElements) accounts — read-only ----
+    {
+      name: 'list_overlive_accounts',
+      description:
+        'List the project’s connected streaming accounts (Twitch / StreamElements). Each has ' +
+        '{id, platform, label, status, isDefault}. Use an account id when wiring a chat/event feed ' +
+        '(e.g. the `account` config on an overlive_* node). IMPORTANT: you cannot CREATE or CONNECT an ' +
+        'account — that is an OAuth flow the user must do in the UI. If none are connected (or one is ' +
+        'needed), point the user at the Accounts dialog with ui_open_window(window:"accounts") and/or ' +
+        'ui_highlight_control(handle:"vs-topbar-accounts") and ask them to connect there.',
+      inputShape: { projectId: z.string() },
+      handler: (c, a) =>
+        c.get(`/api/projects/${a.projectId}/overlive-accounts`),
+    },
+
     // ---- UI control (drive the user's editor; needs a sessionId) ----
     {
       name: 'list_ui_sessions',
@@ -779,11 +794,13 @@ export function buildToolSpecs(): ToolSpec[] {
     {
       name: 'ui_open_window',
       description:
-        'Open or close a floating window in the user’s editor. window "assistant" (this chat) — `open` ' +
-        'true/false (default true).',
+        'Open or close a window in the user’s editor. window "assistant" (this chat) or "accounts" ' +
+        '(the Twitch / StreamElements Accounts dialog where the user connects an account via OAuth). ' +
+        '`open` true/false (default true). Open "accounts" to walk the user through connecting a ' +
+        'streaming account — you cannot perform the OAuth login yourself.',
       inputShape: {
         sessionId: z.string(),
-        window: z.enum(['assistant']),
+        window: z.enum(['assistant', 'accounts']),
         open: z.boolean().optional(),
       },
       handler: (c, a) =>
