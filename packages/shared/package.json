@@ -15,6 +15,7 @@
     "./arkit": "./src/arkit_tables.ts",
     "./paramPaths": "./src/paramPaths.ts",
     "./cameraEffects": "./src/cameraEffects.ts",
+    "./feedValidation": "./src/feedValidation.ts",
     "./sync": "./src/sync.ts"
   },
   "scripts": {

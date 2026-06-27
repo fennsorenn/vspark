@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
+import { validateFeedConfig } from '@vspark/shared/feedValidation';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
@@ -246,6 +247,13 @@ router.post('/compose-scenes/:composeSceneId/layers', async (req, res) => {
       },
     });
   }
+  const configError = validateFeedConfig(config);
+  if (configError) {
+    return res.status(400).json({
+      ok: false,
+      error: { status: 400, message: configError, code: 'VALIDATION_ERROR' },
+    });
+  }
   const layerId = id ?? randomUUID();
 
   // Default ordering: append to the back of the stack so new layers don't unexpectedly cover existing content.
@@ -335,6 +343,15 @@ router.put('/compose-layers/:id', async (req, res) => {
         code: 'NOT_FOUND',
       },
     });
+
+  if (patch.config !== undefined) {
+    const configError = validateFeedConfig(patch.config);
+    if (configError)
+      return res.status(400).json({
+        ok: false,
+        error: { status: 400, message: configError, code: 'VALIDATION_ERROR' },
+      });
+  }
 
   // Field-presence semantics preserved from the dynamic-UPDATE version: most
   // fields only when !== undefined; parentId/rootComposeSceneId honor an
