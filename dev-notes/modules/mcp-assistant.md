@@ -182,6 +182,11 @@ produces a broken-but-accepted result. The encoded rules:
 - **Signal-node `kind` and port names come from the catalog**, not guesses —
   `list_node_kinds` then `lookup_node_kind` (ports + types/transport). A wrong
   port name is not validated server-side and yields a dead graph.
+  `list_node_kinds` returns each kind's `description` (so the agent recognises
+  e.g. `start_clip` = "plays a track clip when triggered" instead of inventing
+  node names) and takes an optional `tag` filter (clips, overlive, scene, math,
+  utility, input, output, mocap, calibration) to fetch just the relevant family
+  and save context; `lookup_node_kind` also returns the node's label/description.
 
 When the REST API or these semantics change, **the tool descriptions are the
 thing to update** — see [Adding / changing a tool](#adding--changing-a-tool).
@@ -191,7 +196,7 @@ thing to update** — see [Adding / changing a tool](#adding--changing-a-tool).
 | File | Role |
 |------|------|
 | `llm.ts` | Minimal OpenAI-compatible chat client (`chatCompletion`). Dependency-free (global `fetch`), non-streaming, `temperature: 0`. Works against vLLM / Ollama / OpenAI. Posts to `<baseUrl>/v1/chat/completions` with optional `Authorization: Bearer <apiKey>`. |
-| `agent.ts` | `AssistantAgent` — holds conversation state and the tool-calling loop. |
+| `agent.ts` | `AssistantAgent` — holds conversation state and the tool-calling loop. Also owns the **context-management** layer: lazy tool-loading (`TOOL_GROUPS` + the `enable_tools` meta-tool, `activeTools()`) and selective history compaction (`compactToolHistory`). |
 | `manager.ts` | `AssistantManager` — one agent per WS connection; routes inbound `assistant_*` messages and streams events back to that single socket. |
 
 ### The agent loop
@@ -201,25 +206,67 @@ thing to update** — see [Adding / changing a tool](#adding--changing-a-tool).
 genuinely consumes the MCP — exactly the same tool surface external clients use —
 rather than calling the tool handlers directly. It then `listTools()` and adapts
 each into an OpenAI `function` tool (the MCP `inputSchema` becomes the function
-`parameters`).
+`parameters`), caching the **full** catalog in `allTools` — the LLM only ever
+sees the lazy-loaded subset `activeTools()` returns (see [Context
+management](#context-management)).
 
 `runTurn(userText, events, signal?)`:
-1. Push the user message; loop up to `MAX_TOOL_ROUNDS` (8).
-2. Each round: one `chatCompletion`. Emit any assistant text (`onText`).
+1. Push the user message; loop up to `MAX_TOOL_ROUNDS` (16).
+2. Each round: `compactToolHistory(messages)`, then one `chatCompletion` over
+   `activeTools()`. Emit any assistant text (`onText`).
 3. If the model returned no `tool_calls`, the turn is done.
-4. Otherwise, for each call: parse args, `onToolCall`, dispatch through the MCP
-   client (`callTool`), `onToolResult`, and push a `role: 'tool'` message
-   (truncated to 4000 chars).
-5. After 8 rounds without finishing, emit a "stopped at max steps" notice.
+4. Otherwise, for each call: parse args, `onToolCall`, dispatch through
+   `callTool` (which handles the `enable_tools` meta-tool agent-side and routes
+   everything else to the MCP client), `onToolResult`, and push a `role: 'tool'`
+   message (truncated to 4000 chars).
+5. After 16 rounds without finishing, emit a "stopped at max steps" notice.
 
 A `system` prompt seeds the conversation with the same discover-before-mutate
 discipline the tool descriptions enforce, plus a **PREFER PRESETS OVER BUILDING
 FROM SCRATCH** instruction: when a request matches a common building block
 (chat/feed overlay, event alert, particle effect, lighting rig), call
 `list_presets` first and `instantiate_preset` the closest match, then adjust only
-what the user asked; only build from scratch when no preset fits. `reset()` clears
-history back to the system prompt. `busy` guards against overlapping turns on one
-socket.
+what the user asked; only build from scratch when no preset fits. It also tells
+the model that action tools are **lazy-loaded** — call `enable_tools(group)` for
+the family it needs before mutating. `reset()` clears history back to the system
+prompt **and clears `enabledGroups`**. `busy` guards against overlapping turns on
+one socket.
+
+### Context management
+
+The target deployment is a 16k-context model (`gemma`), where the 57 tool
+schemas alone were ~47% of the window. Two agent-side mechanisms keep a long
+tool-calling turn inside the budget. Both live in `agent.ts`; the MCP server is
+untouched, so **standalone MCP clients still see the full 57-tool catalog** —
+the gating is in-app only.
+
+**Additive lazy tool-loading (#1).** The LLM does not see all 57 tools every
+call. A small always-on **core** — everything *not* in a group, i.e. all
+`list_*`/`lookup_*` discovery + `ui_*` pointing tools — stays loaded. The
+mutation/action families are hidden until the agent calls the agent-side
+meta-tool **`enable_tools(group)`**. The groups (`TOOL_GROUPS`, exported) are:
+`objects` (scene nodes), `compose` (2D layers), `presets`
+(`instantiate_preset`), `logic` (project logic + `set_logic_descriptor` +
+`delete_logic`), `timeline` (track clips), `behaviors` (avatar drivers +
+animation playback), `effects` (camera post-FX). `activeTools()` returns core +
+enabled groups + the `enable_tools` loader. `enable_tools` is handled directly in
+`callTool` (not routed to MCP); if the model calls an action tool whose family is
+not yet enabled, that group **auto-enables** and the call proceeds. Measured
+savings: default active tool-schema ~6.9k → ~3.3k tokens (~52%); each
+one/two-family build adds ~0.3–0.8k back.
+
+**Selective history compaction (#4).** Before each completion the loop calls the
+exported pure function `compactToolHistory(messages)`. It bounds context growth
+over a long turn **without breaking the assistant↔tool pairing**: it never
+removes messages, only shortens stale tool *results*. The most recent
+`RECENT_TOOL_RESULTS` (=8) results stay verbatim; older `list_*`/`lookup_*`/`get_*`
+**reference** fetches (what the agent reasons on) are kept but capped at
+`REFERENCE_CAP` (=1800 chars); older **action** results (create/update/set/…)
+collapse to just their `id`/`ok` via `stubActionResult`. It is idempotent.
+
+**`max_tokens`.** `llm.ts`'s default completion budget is **1024** (lowered from
+1500) to reserve more of the small window for input; raise per-call via
+`opts.maxTokens` when a genuinely large output is needed.
 
 ### Manager + WS wiring
 
@@ -237,12 +284,13 @@ instantiated with a new top-level `PORT` constant, and `assistantManager.handle`
 is tried **first** in the `wsSync.onMessage` switch (`assistant_user_message` /
 `assistant_reset`).
 
-The in-app agent is told **its own editor session id** so its `ui_*` tools drive
-the user's tab and not someone else's: `AssistantAgent`'s constructor takes an
-optional `sessionId` (`agent.ts`), and `manager.ts` passes
-`wsSync.sessionIdFor(ws)` when it builds the agent. When set, the system prompt
-gains a line stating the session id and instructing the agent to pass it to any
-`ui_*` tool.
+The in-app agent is told **its own editor session id and the currently-open
+project id** so its `ui_*` tools drive the user's tab and not someone else's, and
+so it acts on the right project without guessing from `list_projects`:
+`AssistantAgent`'s constructor takes optional `sessionId` + `projectId`
+(`agent.ts`), and `manager.ts` passes `wsSync.sessionIdFor(ws)` + the open project
+when it builds the agent. When set, the system prompt gains lines stating each id
+(pass the session id to any `ui_*` tool; use the project id for everything).
 
 ## The UI-control channel
 
@@ -338,10 +386,14 @@ New `vs-` control handles (controls-manifest blessed): `vs-topbar-assistant`,
 
 ## Tests
 
-- `packages/backend/test/api.mcp.test.ts` (6 tests) — tool catalog (asserts the
-  catalog includes `list_presets` + `instantiate_preset` and has length ≥ 54),
+- `packages/backend/test/api.mcp.test.ts` — tool catalog (asserts the
+  catalog includes `list_presets` + `instantiate_preset` and has length ≥ 57),
   create + read-back of a scene node, the tool-error path, two-step logic wiring,
-  and config redaction.
+  config redaction, and a **drift test** asserting every `TOOL_GROUPS` name is a
+  real, non-core action tool in the catalog (and that no name is in two groups).
+- `packages/backend/test/assistant.compact.test.ts` (3 tests) — `compactToolHistory`:
+  recent results kept verbatim with no message dropped, older reference fetches
+  capped (not stubbed), idempotence.
 - `packages/frontend/test/assistantStore.test.ts` (5 tests).
 
 ## The three transports at a glance
