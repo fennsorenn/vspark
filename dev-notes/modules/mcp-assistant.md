@@ -23,24 +23,56 @@ those lessons — they are the load-bearing part of this module, not the wiring.
 | File | Role |
 |------|------|
 | `client.ts` | `VsparkClient` — a thin HTTP wrapper over the vspark REST API. Injectable `baseUrl` + optional `fetchImpl` (tests). Unwraps the `{ ok, data, error }` envelope; throws `VsparkApiError` on `!ok`/non-2xx. The tool layer talks to the backend *exclusively* through this, so the same tool code works for every transport — each just points the client at a base URL. |
-| `tools.ts` | `buildToolSpecs()` — the single source of truth for the tool catalog (20 tools). Each `ToolSpec` is `{ name, description, inputShape (zod raw shape), handler }`. |
+| `tools.ts` | `buildToolSpecs()` — the single source of truth for the tool catalog (22 tools). Each `ToolSpec` is `{ name, description, inputShape (zod raw shape), handler }`. |
 | `server.ts` | `createMcpServer(client)` — builds an `@modelcontextprotocol/sdk` `McpServer` (^1.29) and registers every spec. Handlers run the spec, JSON-stringify the result, and map thrown errors to `{ isError: true, content: [...] }`. |
 | `http.ts` | `createMcpHttpRouter(loopbackBaseUrl)` — mounts the server over the **stateless Streamable-HTTP** transport at `/mcp` (see `index.ts`). Each POST spins up a fresh server+transport pair (no session affinity); `GET`/`DELETE` return 405. |
 | `stdio.ts` | Standalone **stdio** MCP server — the `vspark-mcp` bin. External AI clients (Claude Desktop / Code, Cursor) spawn it; it forwards tool calls to a *running* backend over HTTP, pointed by `VSPARK_BASE_URL` (default `http://localhost:3001`). stderr for logs, stdout is the JSON-RPC channel. |
 
-### The tool catalog (20 tools)
+### The tool catalog (22 tools)
 
 Grouped by area (all defined in `tools.ts`):
 
 - **Discovery / read:** `list_projects`, `list_scenes`, `list_scene_nodes`,
   `list_compose_scenes`, `list_compose_layers`, `list_project_logic`,
   `get_logic`, `list_node_kinds`, `lookup_node_kind`.
+- **Presets (prefer over building from scratch):** `list_presets`,
+  `instantiate_preset`.
 - **Scene (3D) writes:** `create_scene`, `create_scene_node`,
   `update_scene_node`, `delete_scene_node`.
 - **Compose (2D overlay) writes:** `create_compose_scene`,
   `create_compose_layer`, `update_compose_layer`.
 - **Logic (signal graph) writes:** `create_project_logic`,
   `set_logic_descriptor`.
+
+### Presets — prefer over from-scratch
+
+The empirical eval showed the model is **least reliable at hand-building feed
+templates and logic wiring**. The preset tools let the agent instantiate a
+prewired, tested subtree instead — far more robust than rebuilding it port by
+port. They sit right after the discovery tools in the catalog, and the agent's
+system prompt instructs it to reach for them first (see [Assistant
+agent](#assistant-agent--assistant)).
+
+- **`list_presets({projectId})`** — merges the shipped built-in presets
+  (`GET /api/presets/builtin`) with the project's saved presets
+  (`GET /api/projects/:projectId/presets`); each entry is
+  `{id, name, description, rootKind, builtin}`. `rootKind` (`compose_layer` or
+  `scene_node`) tells the agent how to target instantiation.
+- **`instantiate_preset({presetId, projectId, rootSceneNodeId?, rootComposeSceneId?, parentId?, boneAttachment?})`**
+  — fetches the full payload server-side (builtin ids start with `builtin:` →
+  `GET /api/presets/builtin/:id`, otherwise `GET /api/presets/:id`) and POSTs
+  `/api/presets/instantiate`. Creates the **entire** prewired subtree (objects,
+  compose layers, feed templates, logic graphs, track clips) in one step with
+  freshly minted ids; returns `{rootId, idMap, missingAssets}`. Target by
+  `rootKind`: a `compose_layer` preset takes `rootComposeSceneId` (a compose
+  scene id), a `scene_node` preset takes `rootSceneNodeId` (a scene id);
+  `parentId` nests the result, `boneAttachment` attaches a scene-node preset to
+  an avatar bone.
+
+E.g. the built-in `builtin:chat-overlay-layer` is a feed layer already wired to
+an `overlive_chat_feed → set_data` graph — exactly the kind of thing the model
+struggles to wire by hand. The preset library (18 shipped builtins) is
+documented in [presets.md](presets.md).
 
 ### Why the descriptions matter
 
@@ -92,8 +124,13 @@ each into an OpenAI `function` tool (the MCP `inputSchema` becomes the function
 5. After 8 rounds without finishing, emit a "stopped at max steps" notice.
 
 A `system` prompt seeds the conversation with the same discover-before-mutate
-discipline the tool descriptions enforce. `reset()` clears history back to the
-system prompt. `busy` guards against overlapping turns on one socket.
+discipline the tool descriptions enforce, plus a **PREFER PRESETS OVER BUILDING
+FROM SCRATCH** instruction: when a request matches a common building block
+(chat/feed overlay, event alert, particle effect, lighting rig), call
+`list_presets` first and `instantiate_preset` the closest match, then adjust only
+what the user asked; only build from scratch when no preset fits. `reset()` clears
+history back to the system prompt. `busy` guards against overlapping turns on one
+socket.
 
 ### Manager + WS wiring
 
@@ -162,9 +199,10 @@ New `vs-` control handles (controls-manifest blessed): `vs-topbar-assistant`,
 
 ## Tests
 
-- `packages/backend/test/api.mcp.test.ts` (6 tests) — tool catalog, create +
-  read-back of a scene node, the tool-error path, two-step logic wiring, and
-  config redaction.
+- `packages/backend/test/api.mcp.test.ts` (6 tests) — tool catalog (asserts the
+  catalog includes `list_presets` + `instantiate_preset` and has length ≥ 22),
+  create + read-back of a scene node, the tool-error path, two-step logic wiring,
+  and config redaction.
 - `packages/frontend/test/assistantStore.test.ts` (5 tests).
 
 ## The three transports at a glance
@@ -203,3 +241,5 @@ only in the transport and the base URL the `VsparkClient` points at.
 - [project-graphs.md](project-graphs.md) — Logic graphs the `*_logic` tools
   create and wire.
 - [compose.md](compose.md) — compose scenes/layers the compose tools target.
+- [presets.md](presets.md) — the preset library + the 18 shipped builtins the
+  `list_presets` / `instantiate_preset` tools surface and instantiate.
