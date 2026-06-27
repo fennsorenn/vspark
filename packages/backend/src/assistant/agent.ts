@@ -15,7 +15,7 @@ import {
   type LlmConfig,
 } from './llm.js';
 
-const MAX_TOOL_ROUNDS = 16;
+const MAX_TOOL_ROUNDS = 24;
 /** Tool results within this many of the latest are kept verbatim. */
 const RECENT_TOOL_RESULTS = 8;
 /** Never compact/drop the last N messages (protects the in-flight reasoning). */
@@ -223,7 +223,18 @@ const SYSTEM_PROMPT =
   'can do. When an account is missing or needs connecting, do not attempt it: open the Accounts dialog ' +
   '(ui_open_window window:"accounts") or highlight it (ui_highlight_control "vs-topbar-accounts") and ' +
   'ask the user to connect there. ' +
-  'When the task is done, briefly tell the user what you changed in plain language.';
+  'When the task is done, briefly tell the user what you changed in plain language — but only AFTER ' +
+  'you have read the result back and confirmed it (see verification below), claiming only what you verified.';
+
+/** Injected once, after the model makes changes and tries to finish, to force a
+ *  read-back before it claims success (a tool call returning ok does NOT mean the
+ *  right thing landed — wrong target id / wrong tool can still "succeed"). */
+const VERIFY_NUDGE =
+  'Before you reply to the user: VERIFY your changes actually applied. Read the affected entities back ' +
+  '(e.g. list_track_clips on the node, get_logic, list_scene_nodes, list_camera_effects, ' +
+  'list_compose_layers) and check they match what was asked — right target, right values, right name. ' +
+  'If anything is missing or landed wrong, fix it now. Then write your summary, claiming ONLY what the ' +
+  'read-back confirmed.';
 
 export interface AgentEvents {
   /** Visible assistant text produced in a round (may be intermediate). */
@@ -355,15 +366,28 @@ export class AssistantAgent {
       this.enabledGroups.clear();
       this.messages.push({ role: 'user', content: userText });
 
+      // Did this turn make any mutations, and have we forced the read-back yet?
+      let mutated = false;
+      let verifyRequested = false;
+
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         if (signal?.aborted) return;
         compactToolHistory(this.messages);
         const { message } = await this.completeWithRecovery(signal);
         this.messages.push(message);
 
-        if (message.content) events.onText(message.content);
-
         const calls = message.tool_calls ?? [];
+
+        // The model wants to finish. If it changed things but hasn't verified
+        // yet, force one read-back pass — and SUPPRESS this (premature) claim so
+        // the user only ever sees the verified summary.
+        if (calls.length === 0 && mutated && !verifyRequested) {
+          verifyRequested = true;
+          this.messages.push({ role: 'user', content: VERIFY_NUDGE });
+          continue;
+        }
+
+        if (message.content) events.onText(message.content);
         if (calls.length === 0) return; // model is done
 
         for (const call of calls) {
@@ -375,6 +399,7 @@ export class AssistantAgent {
           } catch {
             /* malformed args → empty; tool will likely error, which we report */
           }
+          if (TOOL_TO_GROUP.has(call.function.name)) mutated = true;
           events.onToolCall({ id: call.id, name: call.function.name, args });
           const { ok, text } = await this.callTool(call.function.name, args);
           events.onToolResult({ id: call.id, ok, text });
