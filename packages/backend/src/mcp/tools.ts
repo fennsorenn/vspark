@@ -12,7 +12,16 @@
  *   - signal-node port/kind names come from the node-kind catalog, not guesses.
  */
 import { z, type ZodRawShape } from 'zod';
+import {
+  listAllParamPaths,
+  type ParamTargetKind,
+} from '@vspark/shared/paramPaths';
 import type { VsparkClient } from './client.js';
+
+/** scene_node → /api/scene-nodes/:id, compose_layer → /api/compose-layers/:id */
+function ownerBase(ownerKind: unknown): string {
+  return ownerKind === 'compose_layer' ? 'compose-layers' : 'scene-nodes';
+}
 
 export interface ToolSpec {
   name: string;
@@ -357,6 +366,140 @@ export function buildToolSpecs(): ToolSpec[] {
       },
       handler: (c, a) =>
         c.put(`/api/logic/${a.id}`, { descriptor: a.descriptor }),
+    },
+
+    // ---- Timeline / track clips ----
+    {
+      name: 'lookup_param_paths',
+      description:
+        'List the paramPaths that track-clip lanes and set_*_param logic nodes can target for a ' +
+        'given targetKind ("scene_node" or "compose_layer"). Returns {path, type, animatable, kinds?} ' +
+        'entries — only animatable Float paths (e.g. position.x, rotation.z, opacity, and for layers ' +
+        'x/y/width/height/rotation) can be animated by a track-clip lane. Use these EXACT path strings; ' +
+        'they are not validated server-side.',
+      inputShape: { targetKind: z.enum(['scene_node', 'compose_layer']) },
+      handler: async (_c, a) =>
+        listAllParamPaths(a.targetKind as ParamTargetKind),
+    },
+    {
+      name: 'list_track_clips',
+      description:
+        'List the timeline track clips owned by a scene node or a compose layer.',
+      inputShape: {
+        ownerKind: z.enum(['scene_node', 'compose_layer']),
+        ownerId: z.string(),
+      },
+      handler: (c, a) =>
+        c.get(`/api/${ownerBase(a.ownerKind)}/${a.ownerId}/track-clips`),
+    },
+    {
+      name: 'create_track_clip',
+      description:
+        'Create a timeline track clip owned by a scene node or compose layer. A clip is a container ' +
+        'for animation lanes. mode "override" replaces the target value; "relative" adds onto it. ' +
+        'duration is in seconds. After creating, add lanes with add_track_clip_lane, then keyframes ' +
+        'with set_track_clip_keyframes, then play it with control_track_clip.',
+      inputShape: {
+        ownerKind: z.enum(['scene_node', 'compose_layer']),
+        ownerId: z.string(),
+        name: z.string(),
+        duration: z.number().optional(),
+        loop: z.boolean().optional(),
+        mode: z.enum(['override', 'relative']).optional(),
+        autoplay: z.boolean().optional(),
+      },
+      handler: (c, a) => {
+        const { ownerKind, ownerId, ...body } = a;
+        return c.post(
+          `/api/${ownerBase(ownerKind)}/${ownerId}/track-clips`,
+          body
+        );
+      },
+    },
+    {
+      name: 'update_track_clip',
+      description:
+        'Patch a track clip’s top-level fields (name, duration, loop, mode, autoplay).',
+      inputShape: {
+        id: z.string(),
+        name: z.string().optional(),
+        duration: z.number().optional(),
+        loop: z.boolean().optional(),
+        mode: z.enum(['override', 'relative']).optional(),
+        autoplay: z.boolean().optional(),
+      },
+      handler: (c, a) => {
+        const { id, ...body } = a;
+        return c.put(`/api/track-clips/${id}`, body);
+      },
+    },
+    {
+      name: 'delete_track_clip',
+      description:
+        'Delete a track clip and all of its lanes/keyframes. Destructive — confirm the id first.',
+      inputShape: { id: z.string() },
+      handler: (c, a) => c.del(`/api/track-clips/${a.id}`),
+    },
+    {
+      name: 'add_track_clip_lane',
+      description:
+        'Add a lane to a track clip. A lane animates ONE scalar paramPath on ONE target ' +
+        '(targetKind "scene_node"|"compose_layer", targetId, paramPath from lookup_param_paths — ' +
+        'must be an animatable Float path). Returns the lane id; add keyframes with set_track_clip_keyframes.',
+      inputShape: {
+        clipId: z.string(),
+        targetKind: z.enum(['scene_node', 'compose_layer']),
+        targetId: z.string(),
+        paramPath: z.string(),
+        defaultValue: z.number().optional(),
+      },
+      handler: (c, a) => {
+        const { clipId, ...body } = a;
+        return c.post(`/api/track-clips/${clipId}/lanes`, body);
+      },
+    },
+    {
+      name: 'delete_track_clip_lane',
+      description: 'Delete a track-clip lane and its keyframes.',
+      inputShape: { id: z.string() },
+      handler: (c, a) => c.del(`/api/track-clip-lanes/${a.id}`),
+    },
+    {
+      name: 'set_track_clip_keyframes',
+      description:
+        'Replace ALL keyframes on a lane (send the complete set, not a delta). Each keyframe: ' +
+        '{t (seconds), value (number), easing?:"linear"|"step"|"bezier"}. They are auto-sorted by t. ' +
+        'Example: animate from 0→5 over 2s = [{t:0,value:0},{t:2,value:5}].',
+      inputShape: {
+        laneId: z.string(),
+        keyframes: z.array(
+          z.object({
+            t: z.number(),
+            value: z.number(),
+            easing: z.enum(['linear', 'step', 'bezier']).optional(),
+          })
+        ),
+      },
+      handler: (c, a) =>
+        c.put(`/api/track-clip-lanes/${a.laneId}/keyframes`, {
+          keyframes: a.keyframes,
+        }),
+    },
+    {
+      name: 'control_track_clip',
+      description:
+        'Transport control for a track clip: action "trigger" (play from start), "stop", "pause", ' +
+        '"resume", or "seek" (requires t = seconds). Use this to preview or run a clip.',
+      inputShape: {
+        id: z.string(),
+        action: z.enum(['trigger', 'stop', 'pause', 'resume', 'seek']),
+        t: z.number().optional(),
+      },
+      handler: (c, a) =>
+        c.post(
+          `/api/track-clips/${a.id}/${a.action}`,
+          a.action === 'seek' ? { t: a.t } : undefined
+        ),
     },
   ];
 }
