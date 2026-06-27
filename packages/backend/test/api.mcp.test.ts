@@ -73,7 +73,10 @@ describe('MCP server', () => {
     expect(names).toContain('list_overlive_accounts');
     expect(names).toContain('ui_select_camera_effect');
     expect(names).toContain('ui_open_logic_graph');
-    expect(tools.length).toBeGreaterThanOrEqual(57);
+    expect(names).toContain('lookup_component_schema');
+    expect(names).toContain('list_ui_controls');
+    expect(names).toContain('update_logic');
+    expect(tools.length).toBeGreaterThanOrEqual(60);
   });
 
   it('lazy-load tool groups reference only real, non-core action tools', async () => {

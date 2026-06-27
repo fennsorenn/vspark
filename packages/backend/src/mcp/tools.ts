@@ -38,6 +38,86 @@ const SCENE_NODE_KINDS =
   'avatar, model, light, camera, group, particle, billboard, video, audio, text_troika, text_canvas, feed';
 const LAYER_KINDS = 'image, video, audio, browser, text, feed, group';
 
+/** Canonical shapes for the scene-node `components` bag (flat fields). Surfaced
+ *  via lookup_component_schema so create/update_scene_node descriptions stay lean. */
+const COMPONENT_SCHEMAS: Record<string, unknown> = {
+  transform: {
+    type: 'transform',
+    x: 0,
+    y: 0,
+    z: 0,
+    rx: 0,
+    ry: 0,
+    rz: 0,
+    sx: 1,
+    sy: 1,
+    sz: 1,
+    note: 'position is flat x/y/z (NOT nested), rotation rx/ry/rz (deg), scale sx/sy/sz',
+  },
+  light: {
+    type: 'light',
+    lightType: 'point | directional | ambient | spot',
+    color: '#rrggbb',
+    intensity: 1,
+  },
+  camera: { type: 'camera', fov: 50, near: 0.1, far: 1000 },
+  feed: {
+    type: 'feed',
+    template: '<htm template, chat data exposed as `chat`>',
+    css: '...',
+  },
+};
+
+/** Real `vs-` control handles by UI area, for ui_highlight_control. Surfaced via
+ *  list_ui_controls so the agent uses real handles instead of inventing them. */
+const UI_CONTROLS: Record<string, string[]> = {
+  topbar: [
+    'vs-topbar-home',
+    'vs-topbar-media',
+    'vs-topbar-connections',
+    'vs-topbar-accounts',
+    'vs-topbar-assistant',
+    'vs-topbar-settings',
+    'vs-topbar-update-available',
+  ],
+  uploads: [
+    'vs-upload-model',
+    'vs-upload-image',
+    'vs-upload-video',
+    'vs-upload-audio',
+    'vs-upload-animation',
+  ],
+  assets: [
+    'vs-asset-search',
+    'vs-asset-apply-model',
+    'vs-asset-add-image',
+    'vs-asset-add-video',
+    'vs-asset-add-audio',
+    'vs-asset-add-to-scene',
+  ],
+  scene: ['vs-scene-add-node', 'vs-add-scene'],
+  compose: ['vs-compose-add-layer', 'vs-compose-new-scene'],
+  clips: [
+    'vs-clip-play',
+    'vs-clip-pause',
+    'vs-clip-stop',
+    'vs-clip-loop',
+    'vs-clip-add',
+    'vs-clip-add-lane',
+  ],
+  presets: ['vs-preset-save', 'vs-preset-use', 'vs-preset-import', 'vs-preset-export'],
+  tabs: [
+    'vs-tab-models',
+    'vs-tab-animations',
+    'vs-tab-images',
+    'vs-tab-videos',
+    'vs-tab-audio',
+    'vs-tab-effects',
+    'vs-tab-clips',
+    'vs-tab-presets',
+  ],
+};
+
 export function buildToolSpecs(): ToolSpec[] {
   return [
     // ---- Discovery ----
@@ -72,14 +152,10 @@ export function buildToolSpecs(): ToolSpec[] {
     {
       name: 'list_presets',
       description:
-        'List reusable presets you can instantiate as a ready-made starting point. ' +
-        'Returns BUILT-IN presets (prewired and tested) plus the project’s saved presets; ' +
-        'each entry is {id, name, description, rootKind, builtin}. ' +
-        'ALWAYS check this first when a request matches a common building block — e.g. a chat / ' +
-        'feed overlay (a feed node already wired to its data graph), an event alert overlay, a ' +
-        'particle effect, or a lighting rig — and instantiate the closest match instead of ' +
-        'hand-building objects, feed templates, or logic graphs. rootKind ("compose_layer" or ' +
-        '"scene_node") tells you how to instantiate it (see instantiate_preset).',
+        'List instantiable presets (built-in prewired ones + the project’s saved ones); each entry is ' +
+        '{id, name, description, rootKind, builtin}. Check this first for common building blocks (chat/feed ' +
+        'overlay, event alert, particle effect, lighting rig) and instantiate_preset the closest match. ' +
+        'rootKind ("compose_layer" or "scene_node") tells instantiate_preset where it goes.',
       inputShape: { projectId: z.string() },
       handler: async (c, a) => {
         const tag = (arr: unknown, builtin: boolean) =>
@@ -142,13 +218,11 @@ export function buildToolSpecs(): ToolSpec[] {
     {
       name: 'create_scene_node',
       description:
-        `Create an object in a scene. kind is one of: ${SCENE_NODE_KINDS}.\n` +
-        'IMPORTANT — vspark has TWO separate data bags, do not confuse them:\n' +
-        '• components = ECS components keyed by type. Transform goes here as key "transform" with FLAT fields: ' +
-        '{"type":"transform","x":0,"y":0,"z":0,"rx":0,"ry":0,"rz":0,"sx":1,"sy":1,"sz":1} (position is x/y/z, NOT a nested {position:{...}}). ' +
-        'A light goes here as key "light": {"type":"light","lightType":"point"|"directional"|"ambient"|"spot","color":"#rrggbb","intensity":1}. ' +
-        'A feed object uses key "feed": {"type":"feed","template":"<htm>","css":"..."}.\n' +
-        '• properties = node-level settings (blendTransitionTime, poseDynamics, …). Do NOT put transform/light here.',
+        `Create an object in a scene. kind is one of: ${SCENE_NODE_KINDS}. ` +
+        'TWO separate bags, do not confuse: `components` = ECS components (transform, light, feed, …) ' +
+        'with FLAT fields (position is x/y/z, NOT nested); `properties` = node-level settings ' +
+        '(blendTransitionTime, …). Transform/light go in components, never properties. ' +
+        'Call lookup_component_schema for the exact component field shapes before filling them in.',
       inputShape: {
         sceneId: z.string(),
         name: z.string(),
@@ -190,6 +264,20 @@ export function buildToolSpecs(): ToolSpec[] {
       description: 'Delete an object (cascades to its behaviors/effects).',
       inputShape: { id: z.string() },
       handler: (c, a) => c.del(`/api/scene-nodes/${a.id}`),
+    },
+    {
+      name: 'lookup_component_schema',
+      description:
+        'Get the exact field shape for a scene-node `components` entry (transform, light, camera, feed). ' +
+        'Omit `component` for all. Use before filling create/update_scene_node components — fields are flat ' +
+        '(transform position is x/y/z, not nested).',
+      inputShape: { component: z.string().optional() },
+      handler: async (_c, a) =>
+        a.component
+          ? (COMPONENT_SCHEMAS[String(a.component)] ?? {
+              error: `unknown component "${String(a.component)}"; known: ${Object.keys(COMPONENT_SCHEMAS).join(', ')}`,
+            })
+          : COMPONENT_SCHEMAS,
     },
 
     // ---- Compose scenes + layers (2D overlays) ----
@@ -369,6 +457,21 @@ export function buildToolSpecs(): ToolSpec[] {
         'Delete a logic graph by id (stops the running instance first). Destructive — confirm the id first.',
       inputShape: { id: z.string() },
       handler: (c, a) => c.del(`/api/logic/${a.id}`),
+    },
+    {
+      name: 'update_logic',
+      description:
+        'Rename a logic graph or enable/disable it. Use this to rename — set_logic_descriptor only ' +
+        'changes the nodes/edges, NOT the name.',
+      inputShape: {
+        id: z.string(),
+        name: z.string().optional(),
+        enabled: z.boolean().optional(),
+      },
+      handler: (c, a) => {
+        const { id, ...body } = a;
+        return c.put(`/api/logic/${id}`, body);
+      },
     },
     {
       name: 'set_logic_descriptor',
@@ -738,12 +841,10 @@ export function buildToolSpecs(): ToolSpec[] {
     {
       name: 'list_overlive_accounts',
       description:
-        'List the project’s connected streaming accounts (Twitch / StreamElements). Each has ' +
-        '{id, platform, label, status, isDefault}. Use an account id when wiring a chat/event feed ' +
-        '(e.g. the `account` config on an overlive_* node). IMPORTANT: you cannot CREATE or CONNECT an ' +
-        'account — that is an OAuth flow the user must do in the UI. If none are connected (or one is ' +
-        'needed), point the user at the Accounts dialog with ui_open_window(window:"accounts") and/or ' +
-        'ui_highlight_control(handle:"vs-topbar-accounts") and ask them to connect there.',
+        'List the project’s connected streaming accounts (Twitch / StreamElements): {id, platform, label, ' +
+        'status, isDefault}. Use an account id when wiring a chat/event feed. You cannot CONNECT one ' +
+        '(OAuth is user-only) — if none are connected, open the Accounts dialog (ui_open_window ' +
+        'window:"accounts") and ask the user to connect.',
       inputShape: { projectId: z.string() },
       handler: (c, a) =>
         c.get(`/api/projects/${a.projectId}/overlive-accounts`),
@@ -758,6 +859,18 @@ export function buildToolSpecs(): ToolSpec[] {
         'one; external clients pick the session for the project they want to drive.',
       inputShape: {},
       handler: (c) => c.get('/api/ui-sessions'),
+    },
+    {
+      name: 'list_ui_controls',
+      description:
+        'List the real "vs-" control handles (grouped by area: topbar, uploads, assets, scene, compose, ' +
+        'clips, presets, tabs) for ui_highlight_control. Omit `area` for all. Use this to get the exact ' +
+        'handle rather than guessing.',
+      inputShape: { area: z.string().optional() },
+      handler: async (_c, a) =>
+        a.area
+          ? { [String(a.area)]: UI_CONTROLS[String(a.area)] ?? [] }
+          : UI_CONTROLS,
     },
     {
       name: 'ui_select_entity',
@@ -872,20 +985,10 @@ export function buildToolSpecs(): ToolSpec[] {
     {
       name: 'ui_highlight_control',
       description:
-        'Scroll to and pulse-highlight a specific UI control in the user’s editor by its "vs-" handle. ' +
-        'IMPORTANT: only REAL handles work — a made-up handle silently highlights nothing. Use one of these ' +
-        'known handles (do NOT invent variants):\n' +
-        '• Top bar: vs-topbar-home, vs-topbar-media, vs-topbar-connections, vs-topbar-accounts, ' +
-        'vs-topbar-assistant, vs-topbar-settings, vs-topbar-update-available\n' +
-        '• Uploads: vs-upload-model, vs-upload-image, vs-upload-video, vs-upload-audio, vs-upload-animation\n' +
-        '• Assets: vs-asset-search, vs-asset-apply-model, vs-asset-add-image, vs-asset-add-video, ' +
-        'vs-asset-add-audio, vs-asset-add-to-scene\n' +
-        '• Scene/compose: vs-scene-add-node, vs-add-scene, vs-compose-add-layer, vs-compose-new-scene\n' +
-        '• Clips: vs-clip-play, vs-clip-pause, vs-clip-stop, vs-clip-loop, vs-clip-add, vs-clip-add-lane\n' +
-        '• Presets: vs-preset-save, vs-preset-use, vs-preset-import, vs-preset-export\n' +
-        '• Bottom tabs: vs-tab-models, vs-tab-animations, vs-tab-effects, vs-tab-clips, vs-tab-presets, etc.\n' +
-        'If none fits, do NOT guess — instead use ui_open_panel to take the user to the right area and ' +
-        'describe where the control is. The handle may be given with or without the leading "vs-".',
+        'Scroll to and pulse-highlight a UI control in the user’s editor by its "vs-" handle. Only REAL ' +
+        'handles work — a made-up one silently highlights nothing, so call list_ui_controls to get the ' +
+        'exact handle instead of guessing. If none fits, use ui_open_panel to take the user to the right ' +
+        'area instead. Handle may be given with or without the leading "vs-".',
       inputShape: { sessionId: z.string(), handle: z.string() },
       handler: (c, a) =>
         c.post('/api/ui-actions', {
