@@ -23,6 +23,8 @@ export default defineConfig({
       { find: '@vspark/shared/schema', replacement: shared('schema.ts') },
       { find: '@vspark/shared/arkit', replacement: shared('arkit_tables.ts') },
       { find: '@vspark/shared/paramPaths', replacement: shared('paramPaths.ts') },
+      { find: '@vspark/shared/cameraEffects', replacement: shared('cameraEffects.ts') },
+      { find: '@vspark/shared/feedValidation', replacement: shared('feedValidation.ts') },
       { find: '@vspark/shared/sync', replacement: shared('sync.ts') },
       { find: '@vspark/shared', replacement: shared('types.ts') },
     ],
