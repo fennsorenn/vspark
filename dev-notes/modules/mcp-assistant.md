@@ -53,6 +53,13 @@ Grouped by area (all defined in `tools.ts`):
 - **Assets, expressions, animation playback:** `list_assets`,
   `list_avatar_expressions`, `list_avatar_animations`, `play_animation`,
   `set_animation_queue`, `set_blendshapes`, `clear_blendshapes`.
+  `list_assets` returns clean `{id, name, kind (image/avatar/animation/audio/
+  video/other), mime, url}` entries (not raw `asset_files` rows); `url` is the
+  served `/uploads/…` path — usable as a scene node's `filePath` and directly
+  inside a **feed layer's `config.css`** (e.g. `border-image: url(<url>) 30
+  round` for a per-message `.msg` border or `.chat` box border). Both its
+  description and `create_compose_layer`'s feed description spell this out so the
+  agent wires image borders/backgrounds from real asset urls.
 - **Camera effects (post-processing):** `list_camera_effect_kinds`,
   `list_camera_effects`, `add_camera_effect`, `update_camera_effect`,
   `delete_camera_effect`.
@@ -354,7 +361,9 @@ zero context errors and later turns can still reference and summarise earlier wo
 
 `AssistantManager` (`assistant/manager.ts`) keeps a `Map<WebSocket,
 AssistantAgent>`. On the first `assistant_user_message` for a socket it resolves
-the assistant config (`resolveAssistantConfig()`); if disabled / unconfigured it
+the assistant config (`resolveAssistantConfig()`); the message's optional
+`attachments` are folded into the turn text via `withAttachments()` first (see
+[Attach picker](#attach-picker--pin-editor-elements-as-context)); if disabled / unconfigured it
 replies `assistant_error` + `assistant_done`. Otherwise it builds an agent whose
 MCP tools hit the loopback backend (`http://127.0.0.1:${PORT}`), then forwards
 the agent's events to that one socket via `wsSync.sendTo` as the `assistant_text
@@ -486,6 +495,45 @@ de) with `{#how-to-use}`, `{#setup}`, `{#capabilities}`, `{#limits}` anchors;
 New `vs-` control handles (controls-manifest blessed): `vs-topbar-assistant`,
 `vs-assistant-input`, `vs-assistant-send`, `vs-assistant-close`,
 `vs-assistant-clear`, `vs-assistant-reset`.
+
+### Attach picker — pin editor elements as context
+
+Lets the user attach concrete editor elements to a message so the agent resolves
+deictic references ("this image", "that object", "these layers") to a real
+id/url instead of guessing. Shared type `AssistantAttachment { kind:
+'asset'|'scene_node'|'compose_layer'; id; name; url? }`
+(`packages/shared/src/types.ts`); `url` carries the served `/uploads/…` path for
+assets (usable in feed CSS / as a `filePath`).
+
+- **Picking — `AttachOverlay`** (`components/editor/AttachOverlay.tsx`, mounted in
+  `pages/Editor.tsx`). A 📎 button in `AssistantWindow` toggles
+  `assistantStore.attachMode`. While on, the overlay dims the editor and draws a
+  bright clickable hotspot over every element tagged with `data-attach-kind` /
+  `-id` / `-name` / `-url`, computed from each element's bounding rect in **one
+  top-level fixed overlay** (rAF-synced to scroll/resize) so it sidesteps
+  z-index/stacking-context fights with the panels underneath. Click attaches;
+  Esc / clicking the backdrop / re-toggling 📎 cancels. The `data-attach-*`
+  attributes live on scene-node rows (`SceneGraph.tsx` `vs-node-row`),
+  compose-layer rows (`ComposeTree.tsx` `vs-layer-row`), and asset cards
+  (`AssetManager.tsx`).
+- **Store — `assistantStore.ts`** gains `attachMode` + `attachments:
+  AssistantAttachment[]` and actions `setAttachMode` / `addAttachment` (dedups by
+  `kind`+`id`) / `removeAttachment` / `clearAttachments`. `AssistantWindow`
+  renders removable attachment chips; `submit()` sends `attachments` with the
+  message then clears them and exits attach mode. `closeAssistant()` also clears
+  `attachMode`.
+- **Transport — `sendAssistantMessage(text, attachments?)`** (`useWsSync.ts`)
+  carries them; the WS `assistant_user_message` now has an optional `attachments`
+  array.
+- **Resolution — backend.** `AssistantManager` (`assistant/manager.ts`) folds the
+  attachments into the user turn text via `withAttachments()` before running the
+  turn: it appends a bracketed line — *"[The user attached these editor elements
+  as context — resolve any "this/that/these" references to them: …]"* — listing
+  each element with its id and, for assets, the `/uploads` url. So the agent
+  receives concrete refs (e.g. an asset id + url it can drop into a feed layer's
+  `config.css`).
+- **i18n/help.** New `attachTip` key (`assistant.json`, en + de) on the 📎 button;
+  help section `{#attach}` in `help/content/{en,de}/assistant.md`.
 
 ## Packaging
 

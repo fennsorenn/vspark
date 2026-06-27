@@ -172,7 +172,12 @@ a backstop for any escaped throw. Compile-time syntax errors show a placeholder.
 … }</style>` with a per-layer `useId()` scope id, so two feed layers can't
 clobber each other's class names (requires the `@scope` at-rule — modern
 Chromium / OBS browser source). Dynamic styles go inline in the template
-(`style=${{ color: m.color }}`).
+(`style=${{ color: m.color }}`). `css` can reference uploaded image assets by
+their served `/uploads/…` url for image borders/backgrounds (e.g.
+`.msg { border-image: url(<asset url>) 30 round }` for a per-message border, or a
+`background: url(…)` on the box) — the MCP `list_assets` tool hands the agent
+those urls, and its `create_compose_layer` description spells this out. See
+[mcp-assistant.md](mcp-assistant.md).
 
 ### `feed` scene node (3D) — `Viewport.tsx` (`FeedCanvasNode`)
 
