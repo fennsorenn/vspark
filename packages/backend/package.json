@@ -12,7 +12,7 @@
     "pretest": "node scripts/buildMigrations.mjs",
     "dev": "tsx watch src/index.ts",
     "mcp:stdio": "tsx src/mcp/stdio.ts",
-    "build": "tsc",
+    "build": "tsc && node scripts/buildFeedPreview.mjs",
     "start": "node dist/index.js",
     "lint": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",

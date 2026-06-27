@@ -9,30 +9,45 @@
  * Both esbuild (first call, cached) and Chromium are required; if either is
  * unavailable the caller degrades gracefully.
  */
-import { readdirSync, existsSync } from 'node:fs';
+import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/** The prebuilt feed-preview bundle shipped beside the running code (produced by
+ *  bundle.mjs → dist/feed-preview.js). In the release this sits next to
+ *  bundle.cjs, so rendering works without the frontend source. */
+function prebuiltBundlePath(): string | null {
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const p of [
+    join(here, 'feed-preview.js'), // prod: beside dist/bundle.cjs
+    join(here, '../../dist/feed-preview.js'), // tsx: src/mcp → dist
+  ]) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
 /** The frontend preview entry that imports the real feed renderer. Resolved
- *  relative to this module so it works under tsx (monorepo source present);
- *  absent in a stripped production bundle → rendering degrades gracefully. */
+ *  relative to this module so an on-demand build works under tsx (monorepo
+ *  source present); absent in a stripped production bundle. */
 function previewEntryPath(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
-  const p = join(
-    here,
-    '../../../frontend/src/preview/feedPreviewEntry.tsx'
-  );
+  const p = join(here, '../../../frontend/src/preview/feedPreviewEntry.tsx');
   return existsSync(p) ? p : null;
 }
 
-/** esbuild-bundle the preview entry (React + htm + dompurify + the real
- *  renderer) into a single IIFE string. Cached for the process. */
+/** Get the preview bundle (React + htm + dompurify + the real renderer) as an
+ *  IIFE string: the prebuilt artifact in a release, or an on-demand esbuild of
+ *  the source in dev. Cached for the process. */
 let bundlePromise: Promise<string> | null = null;
 function buildPreviewBundle(): Promise<string> {
   if (bundlePromise) return bundlePromise;
   bundlePromise = (async () => {
+    const prebuilt = prebuiltBundlePath();
+    if (prebuilt) return readFileSync(prebuilt, 'utf8');
     const entry = previewEntryPath();
-    if (!entry) throw new Error('feed preview entry source not found');
+    if (!entry)
+      throw new Error('no prebuilt feed-preview bundle and no source to build');
     const esbuild = await import('esbuild');
     const res = await esbuild.build({
       entryPoints: [entry],

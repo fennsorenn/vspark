@@ -20,6 +20,8 @@ const SHARED_ALIAS = {
   '@vspark/shared/schema':          '../shared/src/schema.ts',
   '@vspark/shared/arkit':           '../shared/src/arkit_tables.ts',
   '@vspark/shared/paramPaths':      '../shared/src/paramPaths.ts',
+  '@vspark/shared/cameraEffects':   '../shared/src/cameraEffects.ts',
+  '@vspark/shared/feedValidation':  '../shared/src/feedValidation.ts',
   '@vspark/shared/sync':            '../shared/src/sync.ts',
   '@vspark/shared':                 '../shared/src/types.ts',
 };
@@ -31,6 +33,12 @@ const COMMON = {
   format: 'cjs',
   tsconfig: 'tsconfig.json',
   alias: SHARED_ALIAS,
+  // Heavy, optional render-only tools: esbuild ships a platform binary (can't be
+  // inlined) and is only used as a dev fallback; playwright-core is required at
+  // runtime only when rendering. Keep them external (lazy require) so the core
+  // bundle stays clean — the render_feed_template tool degrades gracefully when
+  // they're absent.
+  external: ['esbuild', 'playwright-core'],
   define: { 'import.meta.url': '__importMetaUrl' },
   banner: {
     js: `const __importMetaUrl = require('url').pathToFileURL(__filename).href;`,
@@ -50,6 +58,10 @@ await build({
   entryPoints: ['src/mcp/stdio.ts'],
   outfile: 'dist/mcp-stdio.cjs',
 });
+
+// Feed-preview bundle (the REAL feed renderer for the render_feed_template
+// tool) — shared with the tsc `build` path so it ships in either deploy shape.
+await import('./scripts/buildFeedPreview.mjs');
 
 // Copy the sqlite-wasm .wasm file next to the bundle.
 // Location varies: package root in local installs, dist/ subdir in pnpm store.
