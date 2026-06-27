@@ -233,16 +233,24 @@ management](#context-management)).
 `runTurn(userText, events, signal?)`:
 1. Clear `enabledGroups` (each turn starts lean — only the action families this
    turn needs get re-enabled), push the user message; loop up to `MAX_TOOL_ROUNDS`
-   (16).
+   (24). Track two per-turn flags: `mutated` (set when a call's name is in
+   `TOOL_TO_GROUP`, i.e. a grouped action tool ran) and `verifyRequested`.
 2. Each round: `compactToolHistory(messages)`, then one completion over
    `activeTools()` via `completeWithRecovery` (retries once with a harder prune on
-   a context-overflow error). Emit any assistant text (`onText`).
-3. If the model returned no `tool_calls`, the turn is done.
-4. Otherwise, for each call: parse args, `onToolCall`, dispatch through
-   `callTool` (which handles the `enable_tools` meta-tool agent-side and routes
-   everything else to the MCP client), `onToolResult`, and push a `role: 'tool'`
-   message (truncated to 4000 chars).
-5. After 16 rounds without finishing, emit a "stopped at max steps" notice.
+   a context-overflow error).
+3. If the model returned no `tool_calls` it wants to finish — but if it `mutated`
+   and hasn't verified yet (`!verifyRequested`), force a **read-back pass**: set
+   `verifyRequested`, push a one-time `VERIFY_NUDGE` (user role) and continue the
+   loop, **suppressing this premature finishing message** (its `content` is NOT
+   emitted) so the user only ever sees the verified summary. Otherwise emit the
+   assistant text (`onText`) and the turn is done. (Read-only / navigational turns
+   never set `mutated`, so they finish with no verification pass.)
+4. Otherwise, for each call: parse args, mark `mutated` if its name is a grouped
+   action tool, `onToolCall`, dispatch through `callTool` (which handles the
+   `enable_tools` meta-tool agent-side and routes everything else to the MCP
+   client), `onToolResult`, and push a `role: 'tool'` message (truncated to 4000
+   chars).
+5. After 24 rounds without finishing, emit a "stopped at max steps" notice.
 
 A `system` prompt seeds the conversation with the same discover-before-mutate
 discipline the tool descriptions enforce, plus a **PREFER PRESETS OVER BUILDING
@@ -251,9 +259,27 @@ FROM SCRATCH** instruction: when a request matches a common building block
 `list_presets` first and `instantiate_preset` the closest match, then adjust only
 what the user asked; only build from scratch when no preset fits. It also tells
 the model that action tools are **lazy-loaded** — call `enable_tools(group)` for
-the family it needs before mutating. `reset()` clears history back to the system
-prompt **and clears `enabledGroups`**. `busy` guards against overlapping turns on
-one socket.
+the family it needs before mutating — and to **verify changes by reading them back
+before claiming success** (a tool returning ok does not prove the right thing
+landed). `reset()` clears history back to the system prompt **and clears
+`enabledGroups`**. `busy` guards against overlapping turns on one socket.
+
+### Read-back verification
+
+A tool call returning `ok` does **not** mean the right thing landed — a wrong
+target id or the wrong tool can still "succeed" — so the agent used to over-claim.
+The loop now forces a verification pass: it tracks whether the turn `mutated`
+(any grouped action tool from `TOOL_TO_GROUP` ran). When the model wants to finish
+(no `tool_calls`) but has mutated and not yet verified, the loop injects a one-time
+`VERIFY_NUDGE` (user-role message: read the affected entities back —
+`list_track_clips`, `get_logic`, `list_scene_nodes`, `list_camera_effects`,
+`list_compose_layers` — confirm they match the request, fix anything wrong, then
+summarise claiming only what was confirmed) and continues. **The premature
+finishing message is suppressed** (its `content` is never emitted), so the user
+only ever sees the verified summary. Read-only / navigational turns (only `ui_*` /
+`list_*` / `lookup_*` calls) never set `mutated`, so they skip verification
+entirely. `MAX_TOOL_ROUNDS` is 24 (raised from 16) to leave room for a build
+(which alone can use ~16 rounds) plus the verify pass.
 
 ### Context management
 
