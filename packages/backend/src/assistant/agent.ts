@@ -29,7 +29,11 @@ const SYSTEM_PROMPT =
   'Use the list_* and lookup_* tools to discover project ids and signal-node port names before you ' +
   'mutate anything; never invent ids or ports. Read tool descriptions carefully — some API semantics ' +
   '(components vs properties, config-replace-on-update, the two-step logic create+wire) are easy to get ' +
-  'wrong. Deleting is destructive: before calling any delete tool, confirm with the user in plain ' +
+  'wrong. For event-driven motion (e.g. "bounce/react when a chat message arrives") the idiomatic ' +
+  'pattern is: make a track clip for the motion, then a logic graph that fires the start_clip node ' +
+  'on the event — call list_node_kinds (it describes what each node does) to find the right nodes ' +
+  'instead of guessing kind names, then lookup_node_kind for exact ports. ' +
+  'Deleting is destructive: before calling any delete tool, confirm with the user in plain ' +
   'language and wait for their reply unless they already clearly asked for that exact deletion. ' +
   'You can REFERENCE an existing streaming account (list_overlive_accounts) when wiring a chat/event ' +
   'feed, but you cannot CONNECT one — connecting Twitch/StreamElements is an OAuth login only the user ' +

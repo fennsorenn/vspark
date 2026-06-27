@@ -281,13 +281,29 @@ export function buildToolSpecs(): ToolSpec[] {
     {
       name: 'list_node_kinds',
       description:
-        'List every signal-node kind available for logic graphs (names only). Use lookup_node_kind for ports.',
-      inputShape: {},
-      handler: async (c) => {
+        'List signal-node kinds for logic graphs, each with a short description of WHAT IT DOES. Call ' +
+        'this to discover the right node before wiring instead of guessing kind names — e.g. start_clip ' +
+        'plays a track clip when triggered, overlive_chat_message fires on each chat message. ' +
+        'Pass `tag` to fetch only the relevant family and save context: one of clips, overlive, scene, ' +
+        'math, utility, input, output, mocap, calibration. Omit `tag` for all kinds. Then use ' +
+        'lookup_node_kind for exact ports.',
+      inputShape: { tag: z.string().optional() },
+      handler: async (c, a) => {
         const data = (await c.get('/api/signal/node-kinds')) as Array<{
           kind: string;
+          display?: { label?: string; description?: string; tags?: string[] };
         }>;
-        return data.map((m) => m.kind);
+        const tag = a.tag ? String(a.tag).toLowerCase() : null;
+        return data
+          .filter(
+            (m) =>
+              !tag ||
+              (m.display?.tags ?? []).some((t) => t.toLowerCase() === tag)
+          )
+          .map((m) => ({
+            kind: m.kind,
+            description: m.display?.description ?? m.display?.label,
+          }));
       },
     },
     {
@@ -300,6 +316,7 @@ export function buildToolSpecs(): ToolSpec[] {
       handler: async (c, a) => {
         const data = (await c.get('/api/signal/node-kinds')) as Array<{
           kind: string;
+          display?: { label?: string; description?: string };
           inputPorts?: { name: string; typeTag?: string; transport?: string }[];
           outputPorts?: {
             name: string;
@@ -317,6 +334,8 @@ export function buildToolSpecs(): ToolSpec[] {
           }));
         return {
           kind: m.kind,
+          label: m.display?.label,
+          description: m.display?.description,
           inputs: fmt(m.inputPorts),
           outputs: fmt(m.outputPorts),
         };
