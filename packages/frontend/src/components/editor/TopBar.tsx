@@ -18,10 +18,20 @@ export function TopBar() {
   const { projectId, projectName, updateAvailable, setUpdateAvailable } =
     useEditorStore();
   const [connected, setConnected] = useState(false);
-  const [mediaOpen, setMediaOpen] = useState(false);
+  // Store-driven open flags so the assistant can open these via a ui_action;
+  // the *mounted* flags stay local (lazy-mount, keep alive while hidden).
+  const mediaOpen = useEditorStore((s) => s.mediaModalOpen);
+  const setMediaOpen = useEditorStore((s) => s.setMediaModalOpen);
   const [mediaMounted, setMediaMounted] = useState(false);
-  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const connectionsOpen = useEditorStore((s) => s.connectionsModalOpen);
+  const setConnectionsOpen = useEditorStore((s) => s.setConnectionsModalOpen);
   const [connectionsMounted, setConnectionsMounted] = useState(false);
+  useEffect(() => {
+    if (mediaOpen) setMediaMounted(true);
+  }, [mediaOpen]);
+  useEffect(() => {
+    if (connectionsOpen) setConnectionsMounted(true);
+  }, [connectionsOpen]);
   const mpConnectedIds = useConnectionsStore((s) => s.connectedIds);
   const mpNameById = useConnectionsStore((s) => s.nameById);
   const mpIncoming = useConnectionsStore((s) => s.incoming);
@@ -45,7 +55,8 @@ export function TopBar() {
       })
       .catch(() => {});
   }, [setMpMeta, setMpPeers]);
-  const [updateOpen, setUpdateOpen] = useState(false);
+  const updateOpen = useEditorStore((s) => s.updateDialogOpen);
+  const setUpdateOpen = useEditorStore((s) => s.setUpdateDialogOpen);
   // Store-driven so the assistant can open it via a ui_action (open_window).
   const accountsOpen = useEditorStore((s) => s.accountsModalOpen);
   const setAccountsOpen = useEditorStore((s) => s.setAccountsModalOpen);
@@ -137,7 +148,7 @@ export function TopBar() {
               gap: 5,
             }}
             onClick={() => {
-              setMediaOpen((v) => !v);
+              setMediaOpen(!mediaOpen);
               setMediaMounted(true);
             }}
             title={t('media.title')}
@@ -160,7 +171,7 @@ export function TopBar() {
               gap: 5,
             }}
             onClick={() => {
-              setConnectionsOpen((v) => !v);
+              setConnectionsOpen(!connectionsOpen);
               setConnectionsMounted(true);
             }}
             title={

@@ -743,18 +743,53 @@ export function buildToolSpecs(): ToolSpec[] {
     {
       name: 'ui_select_entity',
       description:
-        'Select an entity in the user’s editor so its properties open and it is highlighted in the tree. ' +
-        'entityKind: "scene_node" (also switches to the Scene tab), "compose_layer" (Compose tab), or ' +
-        '"scene". Helpful to show the user what you just created or are talking about.',
+        'Select an entity in the user’s editor so its properties open and it is highlighted. ' +
+        'entityKind: "scene_node" (Scene tab), "compose_layer" or "compose_scene" (Compose tab), ' +
+        '"scene" (the 3D scene), or "behavior" (a behavior by its id). Helpful to show the user what ' +
+        'you just created or are talking about. For a camera effect use ui_select_camera_effect.',
       inputShape: {
         sessionId: z.string(),
-        entityKind: z.enum(['scene_node', 'compose_layer', 'scene']),
+        entityKind: z.enum([
+          'scene_node',
+          'compose_layer',
+          'compose_scene',
+          'scene',
+          'behavior',
+        ]),
         id: z.string(),
       },
       handler: (c, a) =>
         c.post('/api/ui-actions', {
           sessionId: a.sessionId,
           action: { type: 'select_entity', entityKind: a.entityKind, id: a.id },
+        }),
+    },
+    {
+      name: 'ui_select_camera_effect',
+      description:
+        'Select a camera effect on a node so the Properties panel opens its controls (a camera effect ' +
+        'is addressed by its node id + fx_ kind, e.g. nodeId + "fx_bloom").',
+      inputShape: {
+        sessionId: z.string(),
+        nodeId: z.string(),
+        kind: z.string(),
+      },
+      handler: (c, a) =>
+        c.post('/api/ui-actions', {
+          sessionId: a.sessionId,
+          action: { type: 'select_effect', nodeId: a.nodeId, kind: a.kind },
+        }),
+    },
+    {
+      name: 'ui_open_logic_graph',
+      description:
+        'Open a logic (signal) graph in the visual graph editor in the user’s editor, so they can see ' +
+        'the nodes/edges you built. Pass the logic id (from create_project_logic / list_project_logic).',
+      inputShape: { sessionId: z.string(), logicId: z.string() },
+      handler: (c, a) =>
+        c.post('/api/ui-actions', {
+          sessionId: a.sessionId,
+          action: { type: 'open_logic', id: a.logicId },
         }),
     },
     {
@@ -794,13 +829,19 @@ export function buildToolSpecs(): ToolSpec[] {
     {
       name: 'ui_open_window',
       description:
-        'Open or close a window in the user’s editor. window "assistant" (this chat) or "accounts" ' +
-        '(the Twitch / StreamElements Accounts dialog where the user connects an account via OAuth). ' +
-        '`open` true/false (default true). Open "accounts" to walk the user through connecting a ' +
-        'streaming account — you cannot perform the OAuth login yourself.',
+        'Open or close a window in the user’s editor. window is one of: "assistant" (this chat), ' +
+        '"accounts" (Twitch/StreamElements Accounts dialog — where the user connects an account via ' +
+        'OAuth, which you cannot do yourself), "media" (mic/camera input window), "connections" ' +
+        '(multiplayer/peer connections), or "update" (app update dialog). `open` true/false (default true).',
       inputShape: {
         sessionId: z.string(),
-        window: z.enum(['assistant', 'accounts']),
+        window: z.enum([
+          'assistant',
+          'accounts',
+          'media',
+          'connections',
+          'update',
+        ]),
         open: z.boolean().optional(),
       },
       handler: (c, a) =>

@@ -70,7 +70,9 @@ describe('MCP server', () => {
     expect(names).toContain('ui_highlight_control');
     expect(names).toContain('ui_open_panel');
     expect(names).toContain('list_overlive_accounts');
-    expect(tools.length).toBeGreaterThanOrEqual(55);
+    expect(names).toContain('ui_select_camera_effect');
+    expect(names).toContain('ui_open_logic_graph');
+    expect(tools.length).toBeGreaterThanOrEqual(57);
   });
 
   it('creates and reads back a scene node through tools', async () => {

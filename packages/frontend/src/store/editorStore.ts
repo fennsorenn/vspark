@@ -421,10 +421,16 @@ interface EditorState {
   setBottomTab: (tab: BottomDockTab) => void;
   /** Switch the bottom dock to `tab` and pulse it as a hint. */
   flashBottomTab: (tab: BottomDockTab) => void;
-  /** Whether the Overlive Accounts modal is open (store-driven so the
-   *  assistant can open it via a ui_action). */
+  /** Top-bar windows, store-driven so the assistant can open them via a
+   *  ui_action (open_window). */
   accountsModalOpen: boolean;
   setAccountsModalOpen: (open: boolean) => void;
+  mediaModalOpen: boolean;
+  setMediaModalOpen: (open: boolean) => void;
+  connectionsModalOpen: boolean;
+  setConnectionsModalOpen: (open: boolean) => void;
+  updateDialogOpen: boolean;
+  setUpdateDialogOpen: (open: boolean) => void;
   /** Ask the Properties name field to focus + select-all. */
   requestFocusName: () => void;
   setBottomDockHeight: (h: number) => void;
@@ -858,6 +864,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   accountsModalOpen: false,
   setAccountsModalOpen: (open) => set({ accountsModalOpen: open }),
+  mediaModalOpen: false,
+  setMediaModalOpen: (open) => set({ mediaModalOpen: open }),
+  connectionsModalOpen: false,
+  setConnectionsModalOpen: (open) => set({ connectionsModalOpen: open }),
+  updateDialogOpen: false,
+  setUpdateDialogOpen: (open) => set({ updateDialogOpen: open }),
   requestFocusName: () =>
     set((s) => ({ focusNameNonce: s.focusNameNonce + 1 })),
   setClipboard: (payload) => set({ clipboardPayload: payload }),
@@ -885,6 +897,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         } else if (a.entityKind === 'scene') {
           if (id) s.setActiveScene(id);
           s.setSceneSelected(true);
+        } else if (a.entityKind === 'compose_scene') {
+          s.setLeftTab('compose');
+          s.selectComposeScene(id);
+        } else if (a.entityKind === 'behavior') {
+          s.selectBehavior(id);
+        }
+        break;
+      }
+      case 'select_effect': {
+        if (typeof a.nodeId === 'string' && typeof a.kind === 'string') {
+          s.selectNode(a.nodeId);
+          s.selectEffect(a.nodeId, a.kind);
+        }
+        break;
+      }
+      case 'open_logic': {
+        if (typeof a.id === 'string') {
+          s.setLeftTab('graphs');
+          s.setActiveLogic(a.id);
         }
         break;
       }
@@ -916,6 +947,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           else as.openAssistant();
         } else if (a.window === 'accounts') {
           s.setAccountsModalOpen(a.open !== false);
+        } else if (a.window === 'media') {
+          s.setMediaModalOpen(a.open !== false);
+        } else if (a.window === 'connections') {
+          s.setConnectionsModalOpen(a.open !== false);
+        } else if (a.window === 'update') {
+          s.setUpdateDialogOpen(a.open !== false);
         }
         break;
       }
