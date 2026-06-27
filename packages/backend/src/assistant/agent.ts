@@ -16,6 +16,56 @@ import {
 } from './llm.js';
 
 const MAX_TOOL_ROUNDS = 16;
+/** Tool results within this many of the latest are kept verbatim. */
+const RECENT_TOOL_RESULTS = 8;
+/** Older results from these tools are still reasoning fuel — keep them (capped).
+ *  Everything else is an action whose stale result collapses to its id/ok. */
+const REFERENCE_TOOL = /^(list_|lookup_|get_)/;
+const REFERENCE_CAP = 1800;
+
+/** Collapse a stale action-tool result to the bit the agent might still need:
+ *  the returned id / ok flag, else a short stub. */
+function stubActionResult(content: string): string {
+  try {
+    const obj = JSON.parse(content) as Record<string, unknown>;
+    const keep: Record<string, unknown> = {};
+    for (const k of ['id', 'rootId', 'ok', 'delivered', 'error'])
+      if (k in obj) keep[k] = obj[k];
+    if (Object.keys(keep).length) return JSON.stringify(keep);
+  } catch {
+    /* not JSON */
+  }
+  return content.length > 80 ? content.slice(0, 80) + ' …' : content;
+}
+
+/**
+ * Selective history compaction (#4): bound context growth WITHOUT breaking the
+ * assistant↔tool pairing — never drop messages, only shorten stale tool results.
+ * The most recent results stay verbatim; older `list_*`/`lookup_*`/`get_*`
+ * reference fetches (what the agent reasons on) are kept but capped, while older
+ * action results (create/update/set/…) collapse to their id/ok. Mutates in place.
+ */
+export function compactToolHistory(messages: ChatMessage[]): void {
+  const idToName = new Map<string, string>();
+  for (const m of messages)
+    if (m.role === 'assistant' && m.tool_calls)
+      for (const tc of m.tool_calls) idToName.set(tc.id, tc.function.name);
+
+  let seen = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'tool' || typeof m.content !== 'string') continue;
+    seen++;
+    if (seen <= RECENT_TOOL_RESULTS) continue; // recent → untouched
+    const name = idToName.get(m.tool_call_id ?? '') ?? '';
+    if (REFERENCE_TOOL.test(name)) {
+      if (m.content.length > REFERENCE_CAP && !m.content.endsWith('…'))
+        m.content = m.content.slice(0, REFERENCE_CAP) + ' …';
+    } else {
+      m.content = stubActionResult(m.content);
+    }
+  }
+}
 
 const SYSTEM_PROMPT =
   'You are the vspark assistant, embedded in a 3D avatar/scene editor. You help the user by ' +
@@ -117,6 +167,7 @@ export class AssistantAgent {
     this.messages = [{ role: 'system', content: this.systemMessage() }];
   }
 
+
   /** Run one user turn to completion, emitting events as it goes. */
   async runTurn(
     userText: string,
@@ -134,6 +185,7 @@ export class AssistantAgent {
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         if (signal?.aborted) return;
+        compactToolHistory(this.messages);
         const { message } = await chatCompletion(
           this.llm,
           this.messages,
