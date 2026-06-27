@@ -39,11 +39,11 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       '@overlive/emotes':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.2.0
+        version: 0.2.0
       '@overlive/se':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.2.0
+        version: 0.2.0
       '@overlive/twitch':
         specifier: ^0.2.0
         version: 0.2.0
@@ -994,17 +994,14 @@ packages:
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
     engines: {node: ^14.21.3 || >=16}
 
-  '@overlive/core@0.1.0':
-    resolution: {integrity: sha512-5JoBK6opYR8oRhzTAtM40c4wEk73w1YAocsTY7J9s9WUMZq6ZfT7YJOS4fou8fEKKBJ5pyg17cJn37JvzYzLwA==}
-
   '@overlive/core@0.2.0':
     resolution: {integrity: sha512-3ZZyXQ4cgS0hktddjKWtjjAibNvl/A32uwt8dee9EQBotU1U0J06Vbjbn+EJSQaZHhH1x5MfTeDk0tdpsojurw==}
 
-  '@overlive/emotes@0.1.0':
-    resolution: {integrity: sha512-LrGGM+j5JEW3+uc330jYqBn6HIA32+zekjoL0PSS42gDP0VVwFT74HOmRBJkbKihLjYKjwm0e4zxHOfmR+gh+Q==}
+  '@overlive/emotes@0.2.0':
+    resolution: {integrity: sha512-k+X2Jfn9rZxtwRaFmSyOe39JPpSag8jvOgIYgpEi/NTBtReGb2Ll+PGyOhh19Md7sAS0bsTzJAEabdGPumJ7pg==}
 
-  '@overlive/se@0.1.0':
-    resolution: {integrity: sha512-RzISI1iY0/4jgKhGxr7wI78Gh4Ioq0Ig+eW6j3QdQCstoZ23uGARQiqr6BdvZunvcQYCmA6EVliNFiWQSj40Aw==}
+  '@overlive/se@0.2.0':
+    resolution: {integrity: sha512-bjPl2Q0p4fx4uAbQdmKVuy8rm1Oh3TsNjBW3eTsNzg6ufF3DEoloUMpiqn7rtXE3gqsh/eGZ0vCJrmDvsUvu8w==}
 
   '@overlive/twitch-oauth@0.2.0':
     resolution: {integrity: sha512-ZPlTLGEx9y5Oy6l8KNQ0qMO6sq0ot1dP1tnDwREZu5PHHtGZ/9dKmJWb3xuMHZdAdmQ0J8iJWq+cuXuDHPYVjA==}
@@ -4271,17 +4268,15 @@ snapshots:
 
   '@noble/hashes@1.8.0': {}
 
-  '@overlive/core@0.1.0': {}
-
   '@overlive/core@0.2.0': {}
 
-  '@overlive/emotes@0.1.0':
+  '@overlive/emotes@0.2.0':
     dependencies:
-      '@overlive/core': 0.1.0
+      '@overlive/core': 0.2.0
 
-  '@overlive/se@0.1.0':
+  '@overlive/se@0.2.0':
     dependencies:
-      '@overlive/core': 0.1.0
+      '@overlive/core': 0.2.0
       socket.io-client: 4.8.3
     transitivePeerDependencies:
       - bufferutil
