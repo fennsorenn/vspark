@@ -131,7 +131,7 @@ PUT  /api/config            writes config.json; channel change triggers checkFor
 PUT  /api/assistant-config  updates the AI Assistant settings; apiKey only overwritten when a non-empty string is sent
 ```
 
-`config.json` shape matches `AppConfig` from `packages/shared/src/types.ts`. The config file path is overridable via `VSPARK_CONFIG_PATH` (tests, custom installs). `resolveAssistantConfig()` merges `config.json` over env defaults (`VLLM_HOST`/`VLLM_AUTH`/`ASSISTANT_MODEL`). See [mcp-assistant.md](mcp-assistant.md).
+`config.json` shape matches `AppConfig` from `packages/shared/src/types.ts` (documented by repo-root `config.example.json`); it lives at `getInstallDir()/config.json`, overridable via `VSPARK_CONFIG_PATH` (tests, custom installs). `resolveAssistantConfig()` merges `config.json` over env defaults — provider-neutral `ASSISTANT_BASE_URL`/`ASSISTANT_API_KEY`/`ASSISTANT_MODEL`, with legacy `VLLM_HOST`/`VLLM_AUTH` still honored (generic wins when both set); the endpoint is any OpenAI-compatible base URL. See [mcp-assistant.md](mcp-assistant.md).
 
 ## MCP server — `mcp/` (mounted at `/mcp`)
 

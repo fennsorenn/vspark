@@ -411,16 +411,23 @@ switches on the action type:
 `AssistantConfigPublic` (apiKey replaced by `hasApiKey: boolean`).
 
 `routes/config.ts`:
-- `resolveAssistantConfig()` merges `config.json` over env defaults
-  (`VLLM_HOST` → baseUrl, `VLLM_AUTH` → apiKey, `ASSISTANT_MODEL` → model;
-  `enabled` defaults to "has a baseUrl"). Used by both the API and the manager.
+- `resolveAssistantConfig()` merges `config.json` over env defaults. The endpoint
+  is any OpenAI-compatible base URL (vLLM, llama.cpp, Ollama's `/v1`, OpenAI
+  itself). Env vars, in precedence order: the provider-neutral
+  `ASSISTANT_BASE_URL` → baseUrl, `ASSISTANT_API_KEY` → apiKey,
+  `ASSISTANT_MODEL` → model (default `google/gemma-4-12B-it-qat-w4a16-ct`); the
+  legacy `VLLM_HOST` / `VLLM_AUTH` are still honored as a fallback, but the
+  generic vars win when both are set. `enabled` defaults to "has a baseUrl". Used
+  by both the API and the manager.
 - `GET /api/config` returns a **redacted** assistant view (`hasApiKey`, never the
   raw key).
 - `PUT /api/assistant-config` updates the settings; `apiKey` is only overwritten
   when a non-empty string is supplied (change model/endpoint without resending
   the secret).
-- Config file path is overridable via `VSPARK_CONFIG_PATH` (tests, custom
-  installs).
+- `config.json` lives at `getInstallDir()/config.json`; the path is overridable
+  via `VSPARK_CONFIG_PATH` (tests, custom installs). Its shape
+  (`{ channel, assistant: { enabled, baseUrl, apiKey, model } }`) is documented
+  by `config.example.json` at the repo root.
 
 New `WSMessageKind` values: `assistant_user_message`, `assistant_reset`,
 `assistant_text`, `assistant_tool_call`, `assistant_tool_result`,
@@ -431,9 +438,16 @@ New `WSMessageKind` values: `assistant_user_message`, `assistant_reset`,
 | File | Role |
 |------|------|
 | `store/assistantStore.ts` | Standalone Zustand store (mirrors `helpStore`'s self-contained pattern). Flat `entries` transcript (`user` / `assistant` / `tool` / `error`), plus `open`, `streaming`, and `available` (null until `/api/config` is probed). |
-| `components/editor/AssistantWindow.tsx` | Draggable floating chat window (mirrors `HelpWindow`), mounted in `Editor.tsx`. Renders the transcript + a tool-activity trace; probes `/api/config` for availability. |
+| `components/editor/AssistantWindow.tsx` | Draggable floating chat window (mirrors `HelpWindow`), mounted in `Editor.tsx`. Renders the transcript + a tool-activity trace; probes `/api/config` **on mount** for availability (`available` ← `assistant.enabled && assistant.baseUrl`). |
 | `hooks/useWsSync.ts` | `sendAssistantMessage` / `sendAssistantReset` helpers + inbound `assistant_*` handlers that feed `assistantStore`. |
-| `components/editor/TopBar.tsx` | `🤖 Assistant` toggle button (`vs-topbar-assistant`). |
+| `components/editor/TopBar.tsx` | `🤖 Assistant` toggle (`AssistantToggle`, `vs-topbar-assistant`). |
+
+**The whole AI surface stays hidden until an LLM endpoint is configured.**
+`AssistantWindow` probes `/api/config` once on mount (not on first open), and
+`AssistantToggle` renders nothing unless `available === true` (i.e.
+`assistant.enabled && assistant.baseUrl`). With no endpoint set,
+`resolveAssistantConfig()` reports `enabled: false`, so the 🤖 button is absent
+entirely rather than disabled.
 
 i18n: new `assistant` namespace (en + de). Help: new `assistant.md` page (en +
 de) with `{#how-to-use}`, `{#setup}`, `{#capabilities}`, `{#limits}` anchors;
@@ -458,8 +472,11 @@ New `vs-` control handles (controls-manifest blessed): `vs-topbar-assistant`,
 - `packages/backend/test/api.mcp.test.ts` — tool catalog (asserts the
   catalog includes `list_presets` + `instantiate_preset` and has length ≥ 60),
   create + read-back of a scene node, the tool-error path, two-step logic wiring,
-  config redaction, and a **drift test** asserting every `TOOL_GROUPS` name is a
-  real, non-core action tool in the catalog (and that no name is in two groups).
+  config redaction, **env precedence** for `resolveAssistantConfig()` (none →
+  disabled, legacy `VLLM_HOST`/`VLLM_AUTH` fallback, generic
+  `ASSISTANT_BASE_URL`/`ASSISTANT_API_KEY` wins when both set), and a **drift
+  test** asserting every `TOOL_GROUPS` name is a real, non-core action tool in
+  the catalog (and that no name is in two groups).
 - `packages/backend/test/assistant.compact.test.ts` (6 tests) — `compactToolHistory`:
   recent results kept verbatim with no message dropped, older reference fetches
   capped (not stubbed), stale action-call argument stubbing, the hard cap dropping
