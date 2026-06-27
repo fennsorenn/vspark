@@ -21,7 +21,7 @@ import {
 import { CAMERA_EFFECT_KINDS } from '@vspark/shared/cameraEffects';
 import { validateFeedTemplate } from '@vspark/shared/feedValidation';
 import type { VsparkClient } from './client.js';
-import { renderTemplateToHtml, rasterizeFeed } from './feedRender.js';
+import { rasterizeFeed } from './feedRender.js';
 
 /** scene_node → /api/scene-nodes/:id, compose_layer → /api/compose-layers/:id */
 function ownerBase(ownerKind: unknown): string {
@@ -794,21 +794,11 @@ export function buildToolSpecs(): ToolSpec[] {
       handler: async (c, a) => {
         const templateErr = validateFeedTemplate(String(a.template));
         if (templateErr) throw new Error(templateErr);
-        let htmlStr: string;
-        try {
-          htmlStr = renderTemplateToHtml(
-            String(a.template),
-            (a.data as Record<string, unknown>) ?? {}
-          );
-        } catch (e) {
-          throw new Error(
-            `template failed to render with the given data: ${e instanceof Error ? e.message : String(e)}`
-          );
-        }
         try {
           const base64 = await rasterizeFeed({
-            html: htmlStr,
+            template: String(a.template),
             css: String(a.css ?? ''),
+            data: (a.data as Record<string, unknown>) ?? {},
             width: typeof a.width === 'number' ? a.width : 560,
             height: typeof a.height === 'number' ? a.height : 380,
             background: typeof a.background === 'string' ? a.background : '#efe7d6',
@@ -818,12 +808,12 @@ export function buildToolSpecs(): ToolSpec[] {
             { mimeType: 'image/png', base64 },
           ]);
         } catch (e) {
-          // Headless rendering unavailable (no Chromium) — degrade to the
-          // compiled HTML so the call is still useful instead of failing.
+          // Rendering needs esbuild + a headless browser; when neither is
+          // present (e.g. a stripped deploy) degrade gracefully instead of
+          // failing the call. The template already passed validation above.
           return {
             rendered: false,
-            note: `Headless rendering is unavailable here (${e instanceof Error ? e.message : String(e)}). The template compiled fine; here is the HTML it produced.`,
-            html: htmlStr.slice(0, 2000),
+            note: `Feed rendering is unavailable in this environment (${e instanceof Error ? e.message : String(e)}). The template is valid; apply it and check it in the editor.`,
           };
         }
       },

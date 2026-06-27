@@ -1,108 +1,55 @@
 /**
  * Server-side feed-template renderer for the assistant's `render_feed_template`
- * tool. Two stages:
- *   1. compile the htm/JSX-ish template with a sample data payload into a static
- *      HTML string (the SAME `new Function` + htm compile the frontend feed
- *      renderer uses — see frontend lib/feedTemplate.tsx — but bound to a string
- *      serializer instead of React.createElement);
- *   2. rasterize that HTML + the layer CSS to a PNG with headless Chromium.
+ * tool. It produces previews with the SAME renderer the live feed layer uses:
+ * the frontend `lib/feedTemplate` (`compileTemplate` + `FeedContent` + `Emote`,
+ * htm bound to React) is bundled by esbuild into a headless-browser entry
+ * (`feedPreviewEntry.tsx`) and rasterized with headless Chromium. There is no
+ * parallel template renderer — what you preview is what the feed layer renders.
  *
- * Why a real browser: the frontend rasterizes feeds with html2canvas, which does
- * NOT support `border-image` — exactly the property the assistant most often
- * needs to eyeball. Chromium renders it faithfully. Chromium is optional at
- * runtime: if it can't launch, the tool degrades to returning the compiled HTML.
+ * Both esbuild (first call, cached) and Chromium are required; if either is
+ * unavailable the caller degrades gracefully.
  */
 import { readdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import htm from 'htm';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const VOID_TAGS = new Set([
-  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta',
-  'source', 'track', 'wbr',
-]);
-
-const esc = (s: unknown): string =>
-  String(s).replace(
-    /[&<>"]/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string
+/** The frontend preview entry that imports the real feed renderer. Resolved
+ *  relative to this module so it works under tsx (monorepo source present);
+ *  absent in a stripped production bundle → rendering degrades gracefully. */
+function previewEntryPath(): string | null {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const p = join(
+    here,
+    '../../../frontend/src/preview/feedPreviewEntry.tsx'
   );
-
-interface Html { __html: string }
-const isHtml = (x: unknown): x is Html =>
-  !!x && typeof x === 'object' && typeof (x as Html).__html === 'string';
-
-function serialize(c: unknown): string {
-  if (c == null || c === false || c === true) return '';
-  if (Array.isArray(c)) return c.map(serialize).join('');
-  if (isHtml(c)) return c.__html;
-  return esc(c);
+  return existsSync(p) ? p : null;
 }
 
-/** htm hyperscript bound to a string serializer (mirrors the React h-binding the
- *  frontend uses, but emits HTML text). Function "components" are invoked. */
-function h(
-  type: string | ((props: Record<string, unknown>) => unknown),
-  props: Record<string, unknown> | null,
-  ...children: unknown[]
-): Html {
-  if (typeof type === 'function') {
-    return { __html: serialize(type({ ...(props ?? {}), children })) };
-  }
-  let attrs = '';
-  if (props)
-    for (const k of Object.keys(props)) {
-      // React-only props that are not DOM attributes (the default feed template
-      // uses key=${m.id}); and event handlers, which have no static markup.
-      if (k === 'children' || k === 'key' || k === 'ref') continue;
-      const v = props[k];
-      if (v == null || v === false || typeof v === 'function') continue;
-      // style=${{ color: … }} — React renders a style OBJECT to inline css; do
-      // the same (camelCase → kebab-case) instead of stringifying to [object …].
-      if (k === 'style' && v && typeof v === 'object') {
-        const css = Object.entries(v as Record<string, unknown>)
-          .filter(([, val]) => val != null && val !== '')
-          .map(
-            ([prop, val]) =>
-              `${prop.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}:${val}`
-          )
-          .join(';');
-        if (css) attrs += ` style="${esc(css)}"`;
-        continue;
-      }
-      const name = k === 'className' ? 'class' : k;
-      attrs += v === true ? ` ${name}` : ` ${name}="${esc(v)}"`;
-    }
-  const inner = children.map(serialize).join('');
-  return {
-    __html: VOID_TAGS.has(type)
-      ? `<${type}${attrs}>`
-      : `<${type}${attrs}>${inner}</${type}>`,
-  };
-}
-
-const html = htm.bind(h);
-
-/** Preview stand-in for the feed `Emote` helper: injects its raw html field. */
-function Emote({ html: raw }: { html?: string }): Html {
-  return { __html: raw == null ? '' : String(raw) };
-}
-
-/**
- * Compile a feed template with a data payload into an HTML string. `channels`
- * fields are exposed by bare name (a `chat` field → `${chat.map(...)}`), exactly
- * like the live renderer. Throws on a template syntax/runtime error.
- */
-export function renderTemplateToHtml(
-  template: string,
-  channels: Record<string, unknown>
-): string {
-  const fn = new Function(
-    'html',
-    'Emote',
-    'channels',
-    'with (channels) { return html`' + template + '`; }'
-  ) as (h: unknown, e: unknown, c: Record<string, unknown>) => unknown;
-  return serialize(fn(html, Emote, channels ?? {}));
+/** esbuild-bundle the preview entry (React + htm + dompurify + the real
+ *  renderer) into a single IIFE string. Cached for the process. */
+let bundlePromise: Promise<string> | null = null;
+function buildPreviewBundle(): Promise<string> {
+  if (bundlePromise) return bundlePromise;
+  bundlePromise = (async () => {
+    const entry = previewEntryPath();
+    if (!entry) throw new Error('feed preview entry source not found');
+    const esbuild = await import('esbuild');
+    const res = await esbuild.build({
+      entryPoints: [entry],
+      bundle: true,
+      write: false,
+      format: 'iife',
+      jsx: 'automatic',
+      minify: true,
+      loader: { '.tsx': 'tsx', '.ts': 'ts' },
+      define: { 'process.env.NODE_ENV': '"production"' },
+    });
+    return res.outputFiles[0].text;
+  })().catch((e) => {
+    bundlePromise = null; // allow retry on transient failure
+    throw e;
+  });
+  return bundlePromise;
 }
 
 /** Locate the pre-installed Chromium executable (env browsers dir layout varies
@@ -132,8 +79,9 @@ function findChromium(): string | null {
 }
 
 export interface RasterizeOpts {
-  html: string;
+  template: string;
   css: string;
+  data: Record<string, unknown>;
   width: number;
   height: number;
   background: string;
@@ -142,20 +90,22 @@ export interface RasterizeOpts {
 }
 
 /**
- * Rasterize compiled feed HTML + CSS to a base64 PNG via headless Chromium.
- * Throws if no Chromium is available (the caller degrades gracefully).
+ * Render a feed template + CSS + sample data to a base64 PNG using the real
+ * feed renderer in headless Chromium. Throws if esbuild or Chromium is
+ * unavailable (the caller degrades gracefully).
  */
 export async function rasterizeFeed(opts: RasterizeOpts): Promise<string> {
   const exe = findChromium();
   if (!exe) throw new Error('no Chromium executable found for headless rendering');
+  const bundle = await buildPreviewBundle();
   // Resolve relative /uploads asset urls to the loopback origin so they load.
   const css = opts.css.replace(/url\(\s*\/uploads/g, `url(${opts.origin}/uploads`);
   const doc =
     `<!doctype html><html><head><meta charset="utf-8"><style>` +
-    `html,body{margin:0}body{width:${opts.width}px;height:${opts.height}px;` +
-    `background:${opts.background};overflow:hidden;` +
-    `font-family:system-ui,sans-serif;color:#222}` +
-    `${css}</style></head><body>${opts.html}</body></html>`;
+    `html,body,#root{margin:0;width:${opts.width}px;height:${opts.height}px}` +
+    `body{background:${opts.background};overflow:hidden;` +
+    `font-family:system-ui,sans-serif;color:#222}</style></head>` +
+    `<body><div id="root"></div><script>${bundle}</script></body></html>`;
 
   const { chromium } = await import('playwright-core');
   const browser = await chromium.launch({
@@ -167,8 +117,25 @@ export async function rasterizeFeed(opts: RasterizeOpts): Promise<string> {
       viewport: { width: opts.width, height: opts.height },
       deviceScaleFactor: 2,
     });
-    await page.setContent(doc, { waitUntil: 'networkidle' });
-    await page.waitForTimeout(150);
+    await page.setContent(doc, { waitUntil: 'load' });
+    await page.waitForFunction('window.__previewReady === true', undefined, {
+      timeout: 5000,
+    });
+    await page.evaluate(
+      (payload) => {
+        (
+          globalThis as unknown as {
+            __renderFeed: (o: unknown) => void;
+          }
+        ).__renderFeed(payload);
+      },
+      { template: opts.template, css, data: opts.data }
+    );
+    // Let React commit and any border-image / emote <img> assets load + paint.
+    await page
+      .waitForLoadState('networkidle', { timeout: 3000 })
+      .catch(() => {});
+    await page.waitForTimeout(250);
     const buf = await page.screenshot({ type: 'png' });
     return buf.toString('base64');
   } finally {

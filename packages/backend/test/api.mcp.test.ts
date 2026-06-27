@@ -229,11 +229,11 @@ describe('MCP server', () => {
       },
     })) as { content: { type: string; text?: string }[] };
     const img = res.content.find((c) => c.type === 'image');
-    // Chromium present → image; absent → text fallback carrying the compiled HTML.
+    // Chromium + esbuild present → real-renderer image; absent → graceful note.
     if (img) {
       expect(img.type).toBe('image');
     } else {
-      expect(text(res)).toContain('class="msg"');
+      expect(text(res)).toMatch(/unavailable/i);
     }
   });
 
