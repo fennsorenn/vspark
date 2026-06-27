@@ -237,7 +237,9 @@ management](#context-management)).
    `TOOL_TO_GROUP`, i.e. a grouped action tool ran) and `verifyRequested`.
 2. Each round: `compactToolHistory(messages)`, then one completion over
    `activeTools()` via `completeWithRecovery` (retries once with a harder prune on
-   a context-overflow error).
+   a context-overflow error). The returned `message.content` is run through
+   **`sanitizeAssistantText`** before it is shown or stored (see [Chat-template
+   token sanitisation](#chat-template-token-sanitisation)).
 3. If the model returned no `tool_calls` it wants to finish — but if it `mutated`
    and hasn't verified yet (`!verifyRequested`), force a **read-back pass**: set
    `verifyRequested`, push a one-time `VERIFY_NUDGE` (user role) and continue the
@@ -263,6 +265,17 @@ the family it needs before mutating — and to **verify changes by reading them 
 before claiming success** (a tool returning ok does not prove the right thing
 landed). `reset()` clears history back to the system prompt **and clears
 `enabledGroups`**. `busy` guards against overlapping turns on one socket.
+
+### Chat-template token sanitisation
+
+Some models leak their chat-template **control / channel** tokens into the visible
+assistant text (e.g. gemma/harmony `"<|channel>thought<channel|>"`,
+`<end_of_turn>`). **`sanitizeAssistantText`** (exported from `agent.ts`) strips
+them: it cuts the text at the first control token, then removes any residual
+`<|...|>` / `<...|>` tokens. It is applied in the agent loop to `message.content`
+before it is emitted (`onText`) or stored in history, so neither the user nor the
+later context sees the leaked markers. Unit-tested (4 cases) in
+`assistant.compact.test.ts`.
 
 ### Read-back verification
 
@@ -415,10 +428,25 @@ switches on the action type:
   is any OpenAI-compatible base URL (vLLM, llama.cpp, Ollama's `/v1`, OpenAI
   itself). Env vars, in precedence order: the provider-neutral
   `ASSISTANT_BASE_URL` → baseUrl, `ASSISTANT_API_KEY` → apiKey,
-  `ASSISTANT_MODEL` → model (default `google/gemma-4-12B-it-qat-w4a16-ct`); the
-  legacy `VLLM_HOST` / `VLLM_AUTH` are still honored as a fallback, but the
-  generic vars win when both are set. `enabled` defaults to "has a baseUrl". Used
-  by both the API and the manager.
+  `ASSISTANT_MODEL` → model (default `''` — no hard-coded, provider-specific
+  model; see [Model auto-detection](#model-auto-detection)); the legacy
+  `VLLM_HOST` / `VLLM_AUTH` are still honored as a fallback, but the generic vars
+  win when both are set. `enabled` defaults to "has a baseUrl". Used by both the
+  API and the manager.
+
+### Model auto-detection
+
+There is **no hard-coded default model**. `DEFAULT_ASSISTANT_MODEL` in
+`routes/config.ts` is `''` (it was `google/gemma-4-12B-it-qat-w4a16-ct`), so the
+model comes from `config.json` or the `ASSISTANT_MODEL` env var, and when neither
+is set it stays empty. When the manager builds an agent with an empty model it
+**auto-detects** one from the endpoint: `fetchFirstModel(baseUrl, apiKey)`
+(`llm.ts`) does a `GET <baseUrl>/v1/models` and returns the first model id (or
+`''` if it can't be determined), and `AssistantManager` caches the result per
+`baseUrl` in its `modelCache`. So the assistant works **out of the box against any
+single-model OpenAI-compatible server** (vLLM, llama.cpp, Ollama) without naming a
+provider in code; name a model explicitly (env / `config.json` / the settings UI)
+to pin it on a multi-model endpoint.
 - `GET /api/config` returns a **redacted** assistant view (`hasApiKey`, never the
   raw key).
 - `PUT /api/assistant-config` updates the settings; `apiKey` is only overwritten
@@ -477,11 +505,12 @@ New `vs-` control handles (controls-manifest blessed): `vs-topbar-assistant`,
   `ASSISTANT_BASE_URL`/`ASSISTANT_API_KEY` wins when both set), and a **drift
   test** asserting every `TOOL_GROUPS` name is a real, non-core action tool in
   the catalog (and that no name is in two groups).
-- `packages/backend/test/assistant.compact.test.ts` (6 tests) — `compactToolHistory`:
+- `packages/backend/test/assistant.compact.test.ts` — `compactToolHistory`:
   recent results kept verbatim with no message dropped, older reference fetches
   capped (not stubbed), stale action-call argument stubbing, the hard cap dropping
   oldest groups with pairing + system message intact, `pruneOldestGroups`, and
-  idempotence.
+  idempotence; plus `sanitizeAssistantText` (4 cases) stripping leaked
+  chat-template control/channel tokens.
 - `packages/frontend/test/assistantStore.test.ts` (5 tests).
 
 ## The three transports at a glance
