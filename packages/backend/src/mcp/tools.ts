@@ -16,6 +16,7 @@ import {
   listAllParamPaths,
   type ParamTargetKind,
 } from '@vspark/shared/paramPaths';
+import { CAMERA_EFFECT_KINDS } from '@vspark/shared/cameraEffects';
 import type { VsparkClient } from './client.js';
 
 /** scene_node → /api/scene-nodes/:id, compose_layer → /api/compose-layers/:id */
@@ -655,6 +656,63 @@ export function buildToolSpecs(): ToolSpec[] {
         c.del(
           `/api/projects/${a.projectId}/nodes/${a.nodeId}/api-controller/blendshapes`
         ),
+    },
+
+    // ---- Camera effects (post-processing) ----
+    {
+      name: 'list_camera_effect_kinds',
+      description:
+        'List the post-processing effect kinds that can be added to a camera node. Each entry has ' +
+        '{kind, label, description, defaultConfig} — kinds are prefixed "fx_" (e.g. fx_bloom, ' +
+        'fx_vignette, fx_depth_of_field, fx_glitch). Copy defaultConfig and override fields when ' +
+        'calling add_camera_effect / update_camera_effect.',
+      inputShape: {},
+      handler: async () => CAMERA_EFFECT_KINDS,
+    },
+    {
+      name: 'list_camera_effects',
+      description:
+        'List the post-processing effects currently on a camera node, in application order.',
+      inputShape: { nodeId: z.string() },
+      handler: (c, a) => c.get(`/api/scene-nodes/${a.nodeId}/effects`),
+    },
+    {
+      name: 'add_camera_effect',
+      description:
+        'Add a post-processing effect to a camera node. `kind` must be an "fx_" kind from ' +
+        'list_camera_effect_kinds; `config` should follow that kind’s defaultConfig (opaque per-kind ' +
+        'blob, not validated here). Effects apply in the order they are added.',
+      inputShape: {
+        nodeId: z.string(),
+        kind: z.string(),
+        config: z.object({}).passthrough().optional(),
+        enabled: z.boolean().optional(),
+      },
+      handler: (c, a) => {
+        const { nodeId, ...body } = a;
+        return c.post(`/api/scene-nodes/${nodeId}/effects`, body);
+      },
+    },
+    {
+      name: 'update_camera_effect',
+      description:
+        'Update a camera effect’s enabled flag and/or config. config REPLACES the stored config — send ' +
+        'the complete object.',
+      inputShape: {
+        id: z.string(),
+        enabled: z.boolean().optional(),
+        config: z.object({}).passthrough().optional(),
+      },
+      handler: (c, a) => {
+        const { id, ...body } = a;
+        return c.put(`/api/camera-effects/${id}`, body);
+      },
+    },
+    {
+      name: 'delete_camera_effect',
+      description: 'Remove a camera effect by id.',
+      inputShape: { id: z.string() },
+      handler: (c, a) => c.del(`/api/camera-effects/${a.id}`),
     },
   ];
 }

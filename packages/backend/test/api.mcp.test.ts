@@ -63,7 +63,9 @@ describe('MCP server', () => {
     expect(names).toContain('play_animation');
     expect(names).toContain('set_blendshapes');
     expect(names).toContain('list_assets');
-    expect(tools.length).toBeGreaterThanOrEqual(43);
+    expect(names).toContain('list_camera_effect_kinds');
+    expect(names).toContain('add_camera_effect');
+    expect(tools.length).toBeGreaterThanOrEqual(48);
   });
 
   it('creates and reads back a scene node through tools', async () => {
