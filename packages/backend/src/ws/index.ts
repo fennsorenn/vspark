@@ -93,6 +93,11 @@ export class WSSync {
     return this.wsToSession.get(ws)?.sessionId ?? null;
   }
 
+  /** The project this socket has open (tagged via ui_register), if known. */
+  projectIdFor(ws: WebSocket): string | null {
+    return this.wsToSession.get(ws)?.projectId ?? null;
+  }
+
   /** Active editor sessions, for list_ui_sessions. */
   listSessions(): { sessionId: string; projectId: string | null; connectedAt: number }[] {
     return Array.from(this.sessions.values())

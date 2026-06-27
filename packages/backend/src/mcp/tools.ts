@@ -853,10 +853,20 @@ export function buildToolSpecs(): ToolSpec[] {
     {
       name: 'ui_highlight_control',
       description:
-        'Scroll to and pulse-highlight a specific UI control in the user’s editor, identified by its ' +
-        '"vs-" handle (e.g. "vs-topbar-accounts", "vs-preset-save", "vs-clip-play", "vs-asset-add-image"). ' +
-        'Use this to point the user at the button they’re looking for. The handle may be given with or ' +
-        'without the leading "vs-".',
+        'Scroll to and pulse-highlight a specific UI control in the user’s editor by its "vs-" handle. ' +
+        'IMPORTANT: only REAL handles work — a made-up handle silently highlights nothing. Use one of these ' +
+        'known handles (do NOT invent variants):\n' +
+        '• Top bar: vs-topbar-home, vs-topbar-media, vs-topbar-connections, vs-topbar-accounts, ' +
+        'vs-topbar-assistant, vs-topbar-settings, vs-topbar-update-available\n' +
+        '• Uploads: vs-upload-model, vs-upload-image, vs-upload-video, vs-upload-audio, vs-upload-animation\n' +
+        '• Assets: vs-asset-search, vs-asset-apply-model, vs-asset-add-image, vs-asset-add-video, ' +
+        'vs-asset-add-audio, vs-asset-add-to-scene\n' +
+        '• Scene/compose: vs-scene-add-node, vs-add-scene, vs-compose-add-layer, vs-compose-new-scene\n' +
+        '• Clips: vs-clip-play, vs-clip-pause, vs-clip-stop, vs-clip-loop, vs-clip-add, vs-clip-add-lane\n' +
+        '• Presets: vs-preset-save, vs-preset-use, vs-preset-import, vs-preset-export\n' +
+        '• Bottom tabs: vs-tab-models, vs-tab-animations, vs-tab-effects, vs-tab-clips, vs-tab-presets, etc.\n' +
+        'If none fits, do NOT guess — instead use ui_open_panel to take the user to the right area and ' +
+        'describe where the control is. The handle may be given with or without the leading "vs-".',
       inputShape: { sessionId: z.string(), handle: z.string() },
       handler: (c, a) =>
         c.post('/api/ui-actions', {

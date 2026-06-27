@@ -48,7 +48,8 @@ export class AssistantManager {
       agent = new AssistantAgent(
         new VsparkClient({ baseUrl: this.loopbackBaseUrl }),
         { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model },
-        this.wsSync.sessionIdFor(ws) ?? undefined
+        this.wsSync.sessionIdFor(ws) ?? undefined,
+        this.wsSync.projectIdFor(ws) ?? undefined
       );
       this.agents.set(ws, agent);
       ws.on('close', () => {

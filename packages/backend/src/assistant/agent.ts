@@ -15,7 +15,7 @@ import {
   type LlmConfig,
 } from './llm.js';
 
-const MAX_TOOL_ROUNDS = 8;
+const MAX_TOOL_ROUNDS = 16;
 
 const SYSTEM_PROMPT =
   'You are the vspark assistant, embedded in a 3D avatar/scene editor. You help the user by ' +
@@ -58,20 +58,29 @@ export class AssistantAgent {
     private readonly llm: LlmConfig,
     /** This client's editor session id — injected so the agent can drive that
      *  exact tab via the ui_* tools without the user having to supply it. */
-    private readonly sessionId?: string
+    private readonly sessionId?: string,
+    /** The project the user currently has open — injected so the agent acts on
+     *  the right project instead of guessing from list_projects. */
+    private readonly projectId?: string
   ) {
     this.messages = [{ role: 'system', content: this.systemMessage() }];
   }
 
   private systemMessage(): string {
-    if (!this.sessionId) return SYSTEM_PROMPT;
-    return (
-      SYSTEM_PROMPT +
-      `\n\nThe user's editor session id is ${this.sessionId}. Pass it as the ` +
-      'sessionId argument to any ui_* tool to select an entity, open a panel/help ' +
-      'window, or highlight a control in THEIR editor — do this to show the user ' +
-      'what you created or to point them at the control they are looking for.'
-    );
+    let msg = SYSTEM_PROMPT;
+    if (this.projectId)
+      msg +=
+        `\n\nThe user is CURRENTLY working in project ${this.projectId}. Use this ` +
+        'project id for everything unless they clearly ask about a different one — ' +
+        'do NOT call list_projects to pick a project, and never operate on a project ' +
+        'the user is not looking at.';
+    if (this.sessionId)
+      msg +=
+        `\n\nThe user's editor session id is ${this.sessionId}. Pass it as the ` +
+        'sessionId argument to any ui_* tool to select an entity, open a panel/help ' +
+        'window, or highlight a control in THEIR editor — do this to show the user ' +
+        'what you created or to point them at the control they are looking for.';
+    return msg;
   }
 
   /** Connect the in-memory MCP client and cache the tool list. */
