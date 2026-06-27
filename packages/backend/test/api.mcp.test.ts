@@ -216,7 +216,10 @@ describe('MCP server', () => {
     expect(text(res)).toMatch(/not an image/);
   });
 
-  it('render_feed_template returns an image (or graceful HTML fallback)', async () => {
+  it('render_feed_template degrades gracefully with no editor session', async () => {
+    // Rendering happens in a connected editor; with none, it returns a note
+    // (not an error) so the agent can proceed. (The editor round-trip itself is
+    // covered by the ws feed-preview tests.)
     const res = (await mcp.callTool({
       name: 'render_feed_template',
       arguments: {
@@ -227,14 +230,9 @@ describe('MCP server', () => {
         width: 200,
         height: 120,
       },
-    })) as { content: { type: string; text?: string }[] };
-    const img = res.content.find((c) => c.type === 'image');
-    // Chromium + esbuild present → real-renderer image; absent → graceful note.
-    if (img) {
-      expect(img.type).toBe('image');
-    } else {
-      expect(text(res)).toMatch(/unavailable/i);
-    }
+    })) as { isError?: boolean; content: { type: string; text?: string }[] };
+    expect(res.isError).toBeFalsy();
+    expect(text(res)).toMatch(/editor session|apply it/i);
   });
 
   it('render_feed_template rejects a syntactically broken template', async () => {

@@ -27,6 +27,13 @@ export class WSSync {
   private collabRelay:
     | ((kind: string, payload: Record<string, unknown>) => void)
     | null = null;
+  /** In-flight feed-preview round-trips (requestId → resolver). The assistant's
+   *  render_feed_template tool asks a connected editor to rasterize a feed and
+   *  reply with a PNG; this correlates the reply back to the awaiting request. */
+  private pendingPreviews = new Map<
+    string,
+    { resolve: (pngBase64: string) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
+  >();
 
   constructor() {
     this.wss = new WebSocketServer({ noServer: true });
@@ -79,6 +86,16 @@ export class WSSync {
               const pid = (msg as { projectId?: unknown }).projectId;
               if (typeof pid === 'string') session.projectId = pid;
             }
+            // Editor's reply to a feed-preview request: resolve the awaiting tool.
+            if (msg.kind === 'feed_preview_result') {
+              const m = msg as {
+                requestId?: string;
+                pngBase64?: string;
+                error?: string;
+              };
+              if (typeof m.requestId === 'string')
+                this.settlePreview(m.requestId, m.pngBase64, m.error);
+            }
             for (const h of this.messageHandlers) h(msg.kind, msg, ws);
           }
         } catch {
@@ -116,6 +133,40 @@ export class WSSync {
     if (!session || session.ws.readyState !== WebSocket.OPEN) return false;
     this.sendTo(session.ws, 'ui_action', action);
     return true;
+  }
+
+  /** Ask one editor session to rasterize a feed template (real renderer, this
+   *  browser's engine) and resolve with the PNG (base64). Rejects if the session
+   *  is gone, the editor reports an error, or it doesn't reply in time. */
+  requestFeedPreview(
+    sessionId: string,
+    payload: Record<string, unknown>,
+    timeoutMs = 15000
+  ): Promise<string> {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.ws.readyState !== WebSocket.OPEN)
+      return Promise.reject(
+        new Error('no editor session is connected to render the preview')
+      );
+    const requestId = randomUUID();
+    return new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingPreviews.delete(requestId);
+        reject(new Error('the editor did not return a preview in time'));
+      }, timeoutMs);
+      this.pendingPreviews.set(requestId, { resolve, reject, timer });
+      this.sendTo(session.ws, 'feed_preview_request', { requestId, ...payload });
+    });
+  }
+
+  private settlePreview(requestId: string, pngBase64?: string, error?: string) {
+    const pending = this.pendingPreviews.get(requestId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingPreviews.delete(requestId);
+    if (error) pending.reject(new Error(error));
+    else if (pngBase64) pending.resolve(pngBase64);
+    else pending.reject(new Error('the editor returned an empty preview'));
   }
 
   sendTo(ws: WebSocket, kind: string, payload: Record<string, unknown>) {

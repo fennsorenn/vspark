@@ -69,4 +69,66 @@ router.post('/ui-actions', (req, res) => {
   res.json({ ok: true, data: { delivered: true } });
 });
 
+/**
+ * @openapi
+ * /api/feed-preview:
+ *   post:
+ *     tags: [ui]
+ *     summary: Render a feed template to a PNG in a connected editor (real renderer)
+ *     description: |
+ *       Asks one editor session to rasterize a hypothetical feed template + CSS +
+ *       sample data offscreen (using the same renderer the live feed layer uses)
+ *       and returns the resulting PNG as base64. Powers the assistant's
+ *       render_feed_template tool without a server-side headless browser.
+ *     responses:
+ *       200: { description: '{ pngBase64 }' }
+ *       400: { description: Missing sessionId or template }
+ *       502: { description: No editor session / render failed / timed out }
+ */
+router.post('/feed-preview', async (req, res) => {
+  const { sessionId, template, css, data, width, height, background } =
+    (req.body ?? {}) as {
+      sessionId?: string;
+      template?: string;
+      css?: string;
+      data?: Record<string, unknown>;
+      width?: number;
+      height?: number;
+      background?: string;
+    };
+  if (!sessionId || typeof template !== 'string')
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'sessionId and template are required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
+  if (!_ws)
+    return res
+      .status(502)
+      .json({ ok: false, error: { status: 502, message: 'ws not ready' } });
+  try {
+    const pngBase64 = await _ws.requestFeedPreview(sessionId, {
+      template,
+      css,
+      data,
+      width,
+      height,
+      background,
+    });
+    res.json({ ok: true, data: { pngBase64 } });
+  } catch (e) {
+    res.status(502).json({
+      ok: false,
+      error: {
+        status: 502,
+        message: e instanceof Error ? e.message : String(e),
+        code: 'PREVIEW_FAILED',
+      },
+    });
+  }
+});
+
 export default router;

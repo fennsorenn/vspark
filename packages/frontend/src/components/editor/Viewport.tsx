@@ -46,7 +46,9 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { Text as TroikaText } from 'troika-three-text';
 import DOMPurify from 'dompurify';
 import html2canvas from 'html2canvas';
+import { toCanvas as htmlToCanvas } from 'html-to-image';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
+import { inlineCssAssetUrls } from '../../lib/cssInline';
 import { compositeScalars, type ScalarLayer } from '../../compositor';
 import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -4113,9 +4115,12 @@ function FeedCanvasNode({
     setTexture(tex);
 
     const host = document.createElement('div');
+    // In-viewport but hidden behind the app (z-index:-1): html-to-image clips by
+    // bounding rect, so an off-screen `left:-99999px` host rasterizes blank.
     host.style.position = 'fixed';
-    host.style.left = '-99999px';
+    host.style.left = '0';
     host.style.top = '0';
+    host.style.zIndex = '-1';
     host.style.width = `${canvas.width}px`;
     host.style.height = `${canvas.height}px`;
     host.style.overflow = 'hidden';
@@ -4157,16 +4162,20 @@ function FeedCanvasNode({
     host.style.fontSize = `${fontSize}px`;
     host.style.padding = `${padding}px`;
     host.style.boxSizing = 'border-box';
-    const scopedCss = css
-      ? `@scope ([data-feed-scope="${scopeId}"]) {\n${css}\n}`
-      : '';
 
     const draw = async () => {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-      // Commit the template to the off-screen DOM synchronously so html2canvas
-      // captures the up-to-date tree. A bad template renders as nothing
-      // (FeedContent swallows the throw) and retries on the next update.
+      // Inline url() assets (e.g. a border-image) — the foreignObject capture
+      // can't fetch them; results are cached so this is cheap on re-renders.
+      const inlinedCss = css ? await inlineCssAssetUrls(css) : '';
+      if (cancelled) return;
+      const scopedCss = inlinedCss
+        ? `@scope ([data-feed-scope="${scopeId}"]) {\n${inlinedCss}\n}`
+        : '';
+      // Commit the template to the off-screen DOM synchronously so the capture
+      // sees the up-to-date tree. A bad template renders as nothing (FeedContent
+      // swallows the throw) and retries on the next update.
       flushSync(() => {
         root.render(
           <>
@@ -4195,14 +4204,16 @@ function FeedCanvasNode({
         )
       );
       if (cancelled) return;
-      const rendered = await html2canvas(host, {
-        backgroundColor: null,
+      // Rasterize via html-to-image (SVG <foreignObject> — the browser's own CSS
+      // engine), so border-image and full CSS render faithfully. html2canvas (a
+      // CSS reimplementation, still used by TextCanvasNode) cannot do
+      // border-image. skipFonts: system fonts render natively in foreignObject.
+      const rendered = await htmlToCanvas(host, {
         width: canvas.width,
         height: canvas.height,
-        scale: 1,
-        logging: false,
-        useCORS: true,
-        allowTaint: false,
+        pixelRatio: 1,
+        cacheBust: true,
+        skipFonts: true,
       });
       if (cancelled) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);

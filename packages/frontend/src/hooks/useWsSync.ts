@@ -14,6 +14,13 @@ import {
   getCollabScenes,
 } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
+import { captureFeedImage } from '../lib/captureFeed';
+
+// Dev-only handle for e2e harnesses to exercise the feed capture directly.
+if (import.meta.env.DEV) {
+  (globalThis as unknown as { __captureFeed?: typeof captureFeedImage }).__captureFeed =
+    captureFeedImage;
+}
 import { smoothNodeTransform, smoothComposeLayer } from '../previewSmoother';
 import { setIkTargets } from '../ikTargetStore';
 import type {
@@ -694,6 +701,46 @@ export function useWsSync() {
               sock.send(JSON.stringify({ kind: 'ui_register', projectId }));
           } else if (msg.kind === 'ui_action') {
             useEditorStore.getState().dispatchUiAction(msg.payload);
+          } else if (msg.kind === 'feed_preview_request') {
+            // The assistant's render_feed_template tool asks THIS editor to
+            // rasterize a hypothetical feed offscreen (real renderer + browser
+            // engine) and send the PNG back, so no headless browser is needed.
+            const p = msg.payload as {
+              requestId: string;
+              template: string;
+              css?: string;
+              data?: Record<string, unknown>;
+              width?: number;
+              height?: number;
+              background?: string;
+            };
+            const sock = wsRef.current;
+            void captureFeedImage({
+              template: p.template,
+              css: p.css,
+              data: p.data,
+              width: p.width ?? 560,
+              height: p.height ?? 380,
+              background: p.background,
+            })
+              .then((dataUrl) => {
+                sock?.send(
+                  JSON.stringify({
+                    kind: 'feed_preview_result',
+                    requestId: p.requestId,
+                    pngBase64: dataUrl.replace(/^data:image\/png;base64,/, ''),
+                  })
+                );
+              })
+              .catch((e: unknown) => {
+                sock?.send(
+                  JSON.stringify({
+                    kind: 'feed_preview_result',
+                    requestId: p.requestId,
+                    error: e instanceof Error ? e.message : String(e),
+                  })
+                );
+              });
           }
         } catch {
           /* ignore malformed */

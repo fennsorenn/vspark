@@ -21,7 +21,6 @@ import {
 import { CAMERA_EFFECT_KINDS } from '@vspark/shared/cameraEffects';
 import { validateFeedTemplate } from '@vspark/shared/feedValidation';
 import type { VsparkClient } from './client.js';
-import { rasterizeFeed } from './feedRender.js';
 
 /** scene_node → /api/scene-nodes/:id, compose_layer → /api/compose-layers/:id */
 function ownerBase(ownerKind: unknown): string {
@@ -781,9 +780,12 @@ export function buildToolSpecs(): ToolSpec[] {
         'layer — the reliable way to check a border-image, layout, or styling actually looks right. Pass the ' +
         'htm `template`, optional `css`, and a `data` object mapping each channel field to sample values ' +
         '(e.g. {"chat":[{"text":"hi 👋"},{"text":"gg"}]}). CSS may reference image assets by their served url ' +
-        '(/uploads/…). Returns a PNG of the rendered feed. Use it to verify, then apply with ' +
-        'create_compose_layer / update_compose_layer.',
+        '(/uploads/…). Rendered in the user’s open editor (same renderer as the live feed layer); returns a PNG. ' +
+        'Use it to verify, then apply with create_compose_layer / update_compose_layer.',
       inputShape: {
+        // sessionId is auto-filled for the in-app assistant; an external MCP
+        // client supplies one from list_ui_sessions (the editor must be open).
+        sessionId: z.string().optional(),
         template: z.string(),
         css: z.string().optional(),
         data: z.record(z.string(), z.unknown()).optional(),
@@ -794,26 +796,30 @@ export function buildToolSpecs(): ToolSpec[] {
       handler: async (c, a) => {
         const templateErr = validateFeedTemplate(String(a.template));
         if (templateErr) throw new Error(templateErr);
+        if (!a.sessionId)
+          return {
+            rendered: false,
+            note: 'No editor session to render in. The template is valid; apply it and check it in the editor (or open the editor and retry to preview).',
+          };
         try {
-          const base64 = await rasterizeFeed({
+          const { pngBase64 } = (await c.post('/api/feed-preview', {
+            sessionId: a.sessionId,
             template: String(a.template),
             css: String(a.css ?? ''),
             data: (a.data as Record<string, unknown>) ?? {},
             width: typeof a.width === 'number' ? a.width : 560,
             height: typeof a.height === 'number' ? a.height : 380,
-            background: typeof a.background === 'string' ? a.background : '#efe7d6',
-            origin: c.origin,
-          });
+            background:
+              typeof a.background === 'string' ? a.background : '#1b1e24',
+          })) as { pngBase64: string };
           return mediaResult('Rendered the feed template (see image).', [
-            { mimeType: 'image/png', base64 },
+            { mimeType: 'image/png', base64: pngBase64 },
           ]);
         } catch (e) {
-          // Rendering needs esbuild + a headless browser; when neither is
-          // present (e.g. a stripped deploy) degrade gracefully instead of
-          // failing the call. The template already passed validation above.
+          // The editor couldn't render (closed tab, timeout). Template is valid.
           return {
             rendered: false,
-            note: `Feed rendering is unavailable in this environment (${e instanceof Error ? e.message : String(e)}). The template is valid; apply it and check it in the editor.`,
+            note: `Couldn't render a preview (${e instanceof Error ? e.message : String(e)}). The template is valid; apply it and check it in the editor.`,
           };
         }
       },

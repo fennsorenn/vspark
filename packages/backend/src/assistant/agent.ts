@@ -498,6 +498,10 @@ export class AssistantAgent {
     // the name anyway), auto-enable and proceed instead of failing.
     const grp = TOOL_TO_GROUP.get(name);
     if (grp) this.enabledGroups.add(grp);
+    // render_feed_template renders in THIS editor session — inject our sessionId
+    // so the model doesn't have to (it may not know it for non-ui_* tools).
+    if (name === 'render_feed_template' && this.sessionId && !args.sessionId)
+      args = { ...args, sessionId: this.sessionId };
     if (!this.mcp)
       return { ok: false, images: [], text: 'MCP client not initialised' };
     try {
