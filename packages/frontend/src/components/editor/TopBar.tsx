@@ -324,7 +324,11 @@ export function TopBar() {
 function AssistantToggle() {
   const { t } = useTranslation('assistant');
   const open = useAssistantStore((s) => s.open);
+  const available = useAssistantStore((s) => s.available);
   const toggle = useAssistantStore((s) => s.toggleAssistant);
+  // Hide the whole AI affordance until an LLM endpoint is configured (probed
+  // from /api/config by AssistantWindow on mount).
+  if (available !== true) return null;
   return (
     <button
       className="vs-topbar-assistant"

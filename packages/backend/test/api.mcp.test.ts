@@ -210,4 +210,31 @@ describe('assistant config API', () => {
     expect(res.body.data.hasApiKey).toBe(true);
     expect(res.body.data.model).toBe('m2');
   });
+
+  it('resolves the endpoint from generic env, with legacy fallback', async () => {
+    const { resolveAssistantConfig } = await import('../src/routes/config.js');
+    const saved = {
+      a: process.env.ASSISTANT_BASE_URL,
+      b: process.env.VLLM_HOST,
+    };
+    try {
+      delete process.env.ASSISTANT_BASE_URL;
+      delete process.env.VLLM_HOST;
+      // no endpoint anywhere → disabled (frontend hides the AI surface)
+      expect((await resolveAssistantConfig()).enabled).toBe(false);
+      // legacy var still works
+      process.env.VLLM_HOST = 'http://legacy/v1';
+      expect((await resolveAssistantConfig()).baseUrl).toBe('http://legacy/v1');
+      // generic var takes precedence
+      process.env.ASSISTANT_BASE_URL = 'http://generic/v1';
+      const c = await resolveAssistantConfig();
+      expect(c.baseUrl).toBe('http://generic/v1');
+      expect(c.enabled).toBe(true);
+    } finally {
+      if (saved.a === undefined) delete process.env.ASSISTANT_BASE_URL;
+      else process.env.ASSISTANT_BASE_URL = saved.a;
+      if (saved.b === undefined) delete process.env.VLLM_HOST;
+      else process.env.VLLM_HOST = saved.b;
+    }
+  });
 });

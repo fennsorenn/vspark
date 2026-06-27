@@ -28,16 +28,17 @@ export function AssistantWindow() {
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement | null>(null);
 
-  // Probe whether an LLM endpoint is configured the first time we open.
+  // Probe once on mount whether an LLM endpoint is configured, so the whole AI
+  // surface (incl. the TopBar toggle) can stay hidden until one is provided.
   useEffect(() => {
-    if (!open || available !== null) return;
+    if (available !== null) return;
     fetch('/api/config')
       .then((r) => r.json())
       .then((j) =>
         setAvailable(Boolean(j?.data?.assistant?.enabled && j?.data?.assistant?.baseUrl))
       )
       .catch(() => setAvailable(false));
-  }, [open, available, setAvailable]);
+  }, [available, setAvailable]);
 
   // Initial placement: bottom-right.
   useEffect(() => {

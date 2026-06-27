@@ -35,13 +35,17 @@ async function writeConfig(cfg: AppConfig): Promise<void> {
 
 /**
  * Effective assistant config = persisted config.json values, falling back to
- * env (VLLM_HOST / VLLM_AUTH / ASSISTANT_MODEL) for any field not set. Used by
+ * env for any field not set. The endpoint is any OpenAI-compatible base URL
+ * (vLLM, llama.cpp, Ollama's /v1, OpenAI itself, …). Env vars, in precedence
+ * order: ASSISTANT_BASE_URL / ASSISTANT_API_KEY / ASSISTANT_MODEL (preferred,
+ * provider-neutral), then legacy VLLM_HOST / VLLM_AUTH for back-compat. Used by
  * both the API surface and the agent wiring in index.ts.
  */
 export async function resolveAssistantConfig(): Promise<AssistantConfig> {
   const stored = (await readConfig()).assistant;
-  const envBase = process.env.VLLM_HOST ?? '';
-  const envKey = process.env.VLLM_AUTH ?? '';
+  const envBase =
+    process.env.ASSISTANT_BASE_URL ?? process.env.VLLM_HOST ?? '';
+  const envKey = process.env.ASSISTANT_API_KEY ?? process.env.VLLM_AUTH ?? '';
   const baseUrl = stored?.baseUrl ?? envBase;
   return {
     enabled: stored?.enabled ?? Boolean(baseUrl),
