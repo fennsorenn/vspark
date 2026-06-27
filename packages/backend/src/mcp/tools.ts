@@ -58,6 +58,76 @@ export function buildToolSpecs(): ToolSpec[] {
       handler: (c, a) => c.get(`/api/scenes/${a.sceneId}/nodes`),
     },
 
+    // ---- Presets (PREFER these over building from scratch) ----
+    {
+      name: 'list_presets',
+      description:
+        'List reusable presets you can instantiate as a ready-made starting point. ' +
+        'Returns BUILT-IN presets (prewired and tested) plus the project’s saved presets; ' +
+        'each entry is {id, name, description, rootKind, builtin}. ' +
+        'ALWAYS check this first when a request matches a common building block — e.g. a chat / ' +
+        'feed overlay (a feed node already wired to its data graph), an event alert overlay, a ' +
+        'particle effect, or a lighting rig — and instantiate the closest match instead of ' +
+        'hand-building objects, feed templates, or logic graphs. rootKind ("compose_layer" or ' +
+        '"scene_node") tells you how to instantiate it (see instantiate_preset).',
+      inputShape: { projectId: z.string() },
+      handler: async (c, a) => {
+        const tag = (arr: unknown, builtin: boolean) =>
+          (Array.isArray(arr) ? arr : []).map((p: Record<string, unknown>) => ({
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            rootKind: p.rootKind,
+            builtin,
+          }));
+        const builtin = await c.get('/api/presets/builtin');
+        const project = await c.get(`/api/projects/${a.projectId}/presets`);
+        return { presets: [...tag(builtin, true), ...tag(project, false)] };
+      },
+    },
+    {
+      name: 'instantiate_preset',
+      description:
+        'Instantiate a preset (id from list_presets) into a project. This creates the ENTIRE ' +
+        'prewired subtree — objects, compose layers, feed templates, logic graphs, track clips — ' +
+        'in a single step, with all internal ids freshly minted. ' +
+        'Target by the preset’s rootKind: for a "compose_layer" preset pass rootComposeSceneId ' +
+        '(a compose scene id — create one first with create_compose_scene if the project has none); ' +
+        'for a "scene_node" preset pass rootSceneNodeId (a scene id). ' +
+        'Optional: parentId nests the result under an existing node/layer; boneAttachment attaches a ' +
+        'scene-node preset to an avatar bone. Returns {rootId, idMap, missingAssets}. ' +
+        'After instantiating, read the new subtree back and adjust only what the user asked to change ' +
+        '(e.g. rename it, set the account, edit the template) rather than rebuilding it.',
+      inputShape: {
+        presetId: z.string(),
+        projectId: z.string(),
+        rootSceneNodeId: z.string().optional(),
+        rootComposeSceneId: z.string().optional(),
+        parentId: z.string().optional(),
+        boneAttachment: z.string().optional(),
+      },
+      handler: async (c, a) => {
+        const presetId = String(a.presetId);
+        const full = (await (presetId.startsWith('builtin:')
+          ? c.get(`/api/presets/builtin/${presetId}`)
+          : c.get(`/api/presets/${presetId}`))) as { payload?: unknown };
+        const payload = full?.payload ?? full;
+        const body: Record<string, unknown> = {
+          payload,
+          projectId: a.projectId,
+        };
+        for (const k of [
+          'rootSceneNodeId',
+          'rootComposeSceneId',
+          'parentId',
+          'boneAttachment',
+        ]) {
+          if (a[k] != null) body[k] = a[k];
+        }
+        return c.post('/api/presets/instantiate', body);
+      },
+    },
+
     // ---- Scene nodes (objects) ----
     {
       name: 'create_scene_node',
