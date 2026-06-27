@@ -70,6 +70,7 @@ import { OverliveAdEnd } from './nodes/overlive/ad_end.js';
 import { OverliveBan } from './nodes/overlive/ban.js';
 import { OverliveStreamOnline } from './nodes/overlive/stream_online.js';
 import { OverliveStreamOffline } from './nodes/overlive/stream_offline.js';
+import { OverliveSendChat } from './nodes/overlive/send_chat.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -149,6 +150,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   OverliveBan,
   OverliveStreamOnline,
   OverliveStreamOffline,
+  OverliveSendChat,
 ];
 
 export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> = new Map(

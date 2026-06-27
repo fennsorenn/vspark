@@ -262,6 +262,50 @@ export class OverliveManager {
     }
   }
 
+  /**
+   * Send a chat message as the given account. Used by the outbound
+   * `overlive_send_chat` signal node. `channel` is accepted for symmetry with
+   * the inbound nodes but is currently advisory — the Twitch adapter always
+   * posts to its own broadcaster channel. Best-effort: failures are logged and
+   * swallowed so a misconfigured graph never throws out of the node fire path.
+   */
+  async sendChat(
+    accountId: string,
+    _channel: string | undefined,
+    text: string
+  ): Promise<void> {
+    const message = text.trim();
+    if (!accountId || message.length === 0) return;
+    const row = getDb()
+      .prepare(
+        'SELECT project_id, platform FROM overlive_accounts WHERE id = ?'
+      )
+      .get(accountId) as { project_id: string; platform: string } | undefined;
+    if (!row) {
+      console.error(`[Overlive] sendChat: unknown account ${accountId}`);
+      return;
+    }
+    const entry = this.projects.get(row.project_id);
+    const adapter = entry?.kit.adapter(accountId);
+    if (!adapter) {
+      console.error(
+        `[Overlive] sendChat: account ${accountId} has no live adapter`
+      );
+      return;
+    }
+    if (!(adapter instanceof TwitchAdapter)) {
+      console.error(
+        `[Overlive] sendChat: ${row.platform} accounts cannot send chat`
+      );
+      return;
+    }
+    try {
+      await adapter.sendChatMessage(message);
+    } catch (e) {
+      console.error(`[Overlive] sendChat failed for ${accountId}:`, e);
+    }
+  }
+
   // ─── Internals ────────────────────────────────────────────────────────────
 
   private async ensureProject(projectId: string): Promise<ProjectEntry> {

@@ -89,6 +89,39 @@ export const inferSetData: InferPortsFn = (ctx: InferCtx): InferResult => {
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
+// overlive_send_chat — send a chat message on `fire`. The `template` string
+// interpolates `${field}` placeholders from user-defined labeled input ports
+// (the same dynamic-field mechanism as set_data). Static `account`/`channel`
+// inputs select the destination. A `sent` trigger fires after dispatch. A
+// trailing empty slot is appended so the editor can name the next field.
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface SendChatConfig {
+  fields?: string[];
+}
+
+export const inferSendChat: InferPortsFn = (ctx: InferCtx): InferResult => {
+  const cfg = (ctx.config ?? {}) as SendChatConfig;
+  const fields = (cfg.fields ?? []).filter((f) => f.length > 0);
+
+  const inputPorts: ResolvedPort[] = [
+    { name: 'fire', type: RT.event(RT.primitive('Trigger')) },
+    { name: 'account', type: RT.primitive('Account') },
+    { name: 'channel', type: RT.primitive('String') },
+    { name: 'template', type: RT.primitive('String') },
+  ];
+  for (const name of fields) {
+    inputPorts.push({ name, type: ctx.resolvedInputs[name] ?? RT.unknown() });
+  }
+  inputPorts.push({ name: TRAILING_SLOT, type: RT.unknown() });
+
+  return {
+    inputPorts,
+    outputPorts: [{ name: 'sent', type: RT.event(RT.primitive('Trigger')) }],
+  };
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
 // scene_entity — context node: outputs the id of the entity its graph is scoped
 // to. The output TYPE follows the scope: `ComposeLayer` for a compose-layer-scoped
 // graph, otherwise `SceneNode` (scene-node-scoped graphs + component graphs). The
@@ -163,6 +196,7 @@ export const inferUnpackEvent: InferPortsFn = (ctx: InferCtx): InferResult => {
 export const INFER_BY_KIND: Record<string, InferPortsFn> = {
   pack_event: inferPackEvent,
   set_data: inferSetData,
+  overlive_send_chat: inferSendChat,
   scene_entity: inferSceneEntity,
   queue_events: inferQueueEvents,
   unpack_event: inferUnpackEvent,
