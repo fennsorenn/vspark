@@ -7,6 +7,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { makeTestApp } from './helpers/testApp.js';
 import { VsparkClient } from '../src/mcp/client.js';
 import { createMcpServer } from '../src/mcp/server.js';
+import { TOOL_GROUPS } from '../src/assistant/agent.js';
 
 /**
  * Exercises the MCP tool layer end-to-end against a real backend: the tools
@@ -73,6 +74,19 @@ describe('MCP server', () => {
     expect(names).toContain('ui_select_camera_effect');
     expect(names).toContain('ui_open_logic_graph');
     expect(tools.length).toBeGreaterThanOrEqual(57);
+  });
+
+  it('lazy-load tool groups reference only real, non-core action tools', async () => {
+    const { tools } = await mcp.listTools();
+    const names = new Set(tools.map((t) => t.name));
+    const grouped = Object.values(TOOL_GROUPS).flat();
+    // no name appears in two groups
+    expect(new Set(grouped).size).toBe(grouped.length);
+    for (const name of grouped) {
+      expect(names.has(name)).toBe(true); // exists in the catalog
+      // groups hold only mutation tools — never always-on core families
+      expect(name).not.toMatch(/^(list_|lookup_|get_|ui_)/);
+    }
   });
 
   it('creates and reads back a scene node through tools', async () => {

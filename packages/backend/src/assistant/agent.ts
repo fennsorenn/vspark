@@ -23,6 +23,73 @@ const RECENT_TOOL_RESULTS = 8;
 const REFERENCE_TOOL = /^(list_|lookup_|get_)/;
 const REFERENCE_CAP = 1800;
 
+/**
+ * Additive lazy tool-loading (#1): the mutation (action) tools are grouped by
+ * family and hidden until the agent calls enable_tools(group). Everything NOT
+ * listed here — list_ and lookup_ discovery + ui_ pointing — is always-on core.
+ * This keeps ~4k tokens of action-tool schemas out of the per-call prompt until
+ * they're needed, which matters a lot on a 16k-context model.
+ */
+export const TOOL_GROUPS: Record<string, string[]> = {
+  objects: ['create_scene_node', 'update_scene_node', 'delete_scene_node'],
+  compose: [
+    'create_compose_scene',
+    'create_compose_layer',
+    'update_compose_layer',
+    'delete_compose_layer',
+  ],
+  presets: ['instantiate_preset'],
+  logic: ['create_project_logic', 'set_logic_descriptor', 'delete_logic'],
+  timeline: [
+    'create_track_clip',
+    'update_track_clip',
+    'delete_track_clip',
+    'add_track_clip_lane',
+    'delete_track_clip_lane',
+    'set_track_clip_keyframes',
+    'control_track_clip',
+  ],
+  behaviors: [
+    'attach_behavior',
+    'update_behavior',
+    'delete_behavior',
+    'play_animation',
+    'set_animation_queue',
+    'set_blendshapes',
+    'clear_blendshapes',
+  ],
+  effects: [
+    'add_camera_effect',
+    'update_camera_effect',
+    'delete_camera_effect',
+  ],
+};
+const TOOL_TO_GROUP = new Map<string, string>(
+  Object.entries(TOOL_GROUPS).flatMap(([g, names]) =>
+    names.map((n) => [n, g] as [string, string])
+  )
+);
+const ENABLE_TOOLS: ChatTool = {
+  type: 'function',
+  function: {
+    name: 'enable_tools',
+    description:
+      'Action tools (create/update/delete/wire) are lazy-loaded to save space. Call this to load the ' +
+      'family you need BEFORE acting, then call the tool. group is one of: objects (scene nodes/objects), ' +
+      'compose (2D overlay layers), presets (instantiate a preset), logic (signal/logic graphs), timeline ' +
+      '(track clips + animation), behaviors (avatar drivers + animation playback), effects (camera post-FX). ' +
+      'Enable several by calling repeatedly. Discovery (list_*/lookup_*) and pointing (ui_*) tools are ' +
+      'always available without enabling.',
+    parameters: {
+      type: 'object',
+      properties: {
+        group: { type: 'string', enum: Object.keys(TOOL_GROUPS) },
+      },
+      required: ['group'],
+    },
+  },
+};
+
 /** Collapse a stale action-tool result to the bit the agent might still need:
  *  the returned id / ok flag, else a short stub. */
 function stubActionResult(content: string): string {
@@ -76,6 +143,10 @@ const SYSTEM_PROMPT =
   'instantiate_preset the closest match, then adjust only what the user asked to change. Presets come ' +
   'prewired (e.g. a feed node already connected to its data graph), so this is far more reliable than ' +
   'hand-building feed templates or logic graphs. Only build from scratch when no preset fits. ' +
+  'Action tools (create/update/delete/wire) are LAZY-LOADED to save space: before you create or edit ' +
+  'anything, call enable_tools(group) for the family you need (objects, compose, presets, logic, ' +
+  'timeline, behaviors, effects), then call the tool. Discovery (list_*/lookup_*) and pointing (ui_*) ' +
+  'tools are always available. ' +
   'Use the list_* and lookup_* tools to discover project ids and signal-node port names before you ' +
   'mutate anything; never invent ids or ports. Read tool descriptions carefully — some API semantics ' +
   '(components vs properties, config-replace-on-update, the two-step logic create+wire) are easy to get ' +
@@ -103,7 +174,10 @@ export interface AgentEvents {
 
 export class AssistantAgent {
   private mcp: Client | null = null;
-  private tools: ChatTool[] = [];
+  /** Full catalog from MCP; the LLM sees a lazy-loaded subset (see activeTools). */
+  private allTools: ChatTool[] = [];
+  /** Action-tool families the agent has enabled this conversation. */
+  private enabledGroups = new Set<string>();
   private messages: ChatMessage[];
   private busy = false;
 
@@ -150,7 +224,7 @@ export class AssistantAgent {
     ]);
     this.mcp = client;
     const { tools } = await client.listTools();
-    this.tools = tools.map((t) => ({
+    this.allTools = tools.map((t) => ({
       type: 'function' as const,
       function: {
         name: t.name,
@@ -163,8 +237,20 @@ export class AssistantAgent {
     }));
   }
 
+  /** Tools shown to the LLM this round: always-on core (anything not in a group)
+   *  + currently-enabled action families + the enable_tools loader. */
+  private activeTools(): ChatTool[] {
+    const active = this.allTools.filter((t) => {
+      const g = TOOL_TO_GROUP.get(t.function.name);
+      return !g || this.enabledGroups.has(g);
+    });
+    active.push(ENABLE_TOOLS);
+    return active;
+  }
+
   reset(): void {
     this.messages = [{ role: 'system', content: this.systemMessage() }];
+    this.enabledGroups.clear();
   }
 
 
@@ -189,7 +275,7 @@ export class AssistantAgent {
         const { message } = await chatCompletion(
           this.llm,
           this.messages,
-          this.tools,
+          this.activeTools(),
           { signal }
         );
         this.messages.push(message);
@@ -233,6 +319,25 @@ export class AssistantAgent {
     name: string,
     args: Record<string, unknown>
   ): Promise<{ ok: boolean; text: string }> {
+    // enable_tools is an agent-side meta-tool — it reveals an action family to
+    // the LLM rather than hitting the MCP server.
+    if (name === 'enable_tools') {
+      const g = String(args.group ?? '');
+      if (!(g in TOOL_GROUPS))
+        return {
+          ok: false,
+          text: `unknown group "${g}". groups: ${Object.keys(TOOL_GROUPS).join(', ')}`,
+        };
+      this.enabledGroups.add(g);
+      return {
+        ok: true,
+        text: `Enabled ${g} tools: ${TOOL_GROUPS[g].join(', ')}. You can now call them.`,
+      };
+    }
+    // If the model called an action tool whose family isn't enabled yet (it knew
+    // the name anyway), auto-enable and proceed instead of failing.
+    const grp = TOOL_TO_GROUP.get(name);
+    if (grp) this.enabledGroups.add(grp);
     if (!this.mcp) return { ok: false, text: 'MCP client not initialised' };
     try {
       const res = (await this.mcp.callTool({
