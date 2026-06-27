@@ -529,7 +529,13 @@ export type WSMessageKind =
   | 'assistant_tool_call'
   | 'assistant_tool_result'
   | 'assistant_error'
-  | 'assistant_done';
+  | 'assistant_done'
+  // UI-control channel. Outbound session_hello hands the client its session id;
+  // inbound ui_register tags the session with its project; outbound ui_action
+  // drives the editor (select entity, open panel/help/window, highlight control).
+  | 'session_hello'
+  | 'ui_register'
+  | 'ui_action';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 

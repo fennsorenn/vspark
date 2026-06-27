@@ -678,6 +678,17 @@ export function useWsSync() {
               .pushError((msg.payload as { message: string }).message);
           } else if (msg.kind === 'assistant_done') {
             useAssistantStore.getState().setStreaming(false);
+          } else if (msg.kind === 'session_hello') {
+            // Tag this session with the project it has open so the agent /
+            // external MCP clients can identify it in list_ui_sessions.
+            const projectId =
+              /\/(?:editor|viewer)\/([^/]+)/.exec(window.location.pathname)?.[1] ??
+              useEditorStore.getState().projectId;
+            const sock = wsRef.current;
+            if (sock && sock.readyState === WebSocket.OPEN)
+              sock.send(JSON.stringify({ kind: 'ui_register', projectId }));
+          } else if (msg.kind === 'ui_action') {
+            useEditorStore.getState().dispatchUiAction(msg.payload);
           }
         } catch {
           /* ignore malformed */

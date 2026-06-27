@@ -1,8 +1,20 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import { IncomingMessage } from 'http';
+import { randomUUID } from 'crypto';
+
+/** A connected editor client, addressable by the UI-control channel. */
+interface UiSession {
+  sessionId: string;
+  ws: WebSocket;
+  projectId: string | null;
+  connectedAt: number;
+}
 
 export class WSSync {
   private wss: WebSocketServer;
+  /** sessionId → session; lets REST UI-action routes target one editor tab. */
+  private sessions = new Map<string, UiSession>();
+  private wsToSession = new WeakMap<WebSocket, UiSession>();
   private clientConnectedHandlers: ((ws: WebSocket) => void)[] = [];
   private messageHandlers: ((
     kind: string,
@@ -42,6 +54,17 @@ export class WSSync {
   upgrade(req: IncomingMessage, socket: any, head: Buffer) {
     this.wss.handleUpgrade(req, socket, head, (ws) => {
       this.wss.emit('connection', ws, req);
+      // Register a UI session so the agent / MCP can drive this exact tab.
+      const session: UiSession = {
+        sessionId: randomUUID(),
+        ws,
+        projectId: null,
+        connectedAt: Date.now(),
+      };
+      this.sessions.set(session.sessionId, session);
+      this.wsToSession.set(ws, session);
+      this.sendTo(ws, 'session_hello', { sessionId: session.sessionId });
+      ws.on('close', () => this.sessions.delete(session.sessionId));
       for (const h of this.clientConnectedHandlers) h(ws);
       ws.on('message', (data) => {
         try {
@@ -50,6 +73,12 @@ export class WSSync {
             [k: string]: unknown;
           };
           if (typeof msg.kind === 'string') {
+            // The client tags its session with the project it has open so
+            // list_ui_sessions can label tabs.
+            if (msg.kind === 'ui_register') {
+              const pid = (msg as { projectId?: unknown }).projectId;
+              if (typeof pid === 'string') session.projectId = pid;
+            }
             for (const h of this.messageHandlers) h(msg.kind, msg, ws);
           }
         } catch {
@@ -57,6 +86,31 @@ export class WSSync {
         }
       });
     });
+  }
+
+  /** The session id assigned to a socket (for the in-app agent). */
+  sessionIdFor(ws: WebSocket): string | null {
+    return this.wsToSession.get(ws)?.sessionId ?? null;
+  }
+
+  /** Active editor sessions, for list_ui_sessions. */
+  listSessions(): { sessionId: string; projectId: string | null; connectedAt: number }[] {
+    return Array.from(this.sessions.values())
+      .filter((s) => s.ws.readyState === WebSocket.OPEN)
+      .map((s) => ({
+        sessionId: s.sessionId,
+        projectId: s.projectId,
+        connectedAt: s.connectedAt,
+      }));
+  }
+
+  /** Push a UI-control action to one editor session. Returns false if the
+   *  session is gone (closed tab / bad id). */
+  sendUiAction(sessionId: string, action: Record<string, unknown>): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.ws.readyState !== WebSocket.OPEN) return false;
+    this.sendTo(session.ws, 'ui_action', action);
+    return true;
   }
 
   sendTo(ws: WebSocket, kind: string, payload: Record<string, unknown>) {

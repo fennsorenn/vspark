@@ -45,15 +45,29 @@ export interface AgentEvents {
 export class AssistantAgent {
   private mcp: Client | null = null;
   private tools: ChatTool[] = [];
-  private messages: ChatMessage[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
-  ];
+  private messages: ChatMessage[];
   private busy = false;
 
   constructor(
     private readonly vspark: VsparkClient,
-    private readonly llm: LlmConfig
-  ) {}
+    private readonly llm: LlmConfig,
+    /** This client's editor session id — injected so the agent can drive that
+     *  exact tab via the ui_* tools without the user having to supply it. */
+    private readonly sessionId?: string
+  ) {
+    this.messages = [{ role: 'system', content: this.systemMessage() }];
+  }
+
+  private systemMessage(): string {
+    if (!this.sessionId) return SYSTEM_PROMPT;
+    return (
+      SYSTEM_PROMPT +
+      `\n\nThe user's editor session id is ${this.sessionId}. Pass it as the ` +
+      'sessionId argument to any ui_* tool to select an entity, open a panel/help ' +
+      'window, or highlight a control in THEIR editor — do this to show the user ' +
+      'what you created or to point them at the control they are looking for.'
+    );
+  }
 
   /** Connect the in-memory MCP client and cache the tool list. */
   async init(): Promise<void> {
@@ -82,7 +96,7 @@ export class AssistantAgent {
   }
 
   reset(): void {
-    this.messages = [{ role: 'system', content: SYSTEM_PROMPT }];
+    this.messages = [{ role: 'system', content: this.systemMessage() }];
   }
 
   /** Run one user turn to completion, emitting events as it goes. */

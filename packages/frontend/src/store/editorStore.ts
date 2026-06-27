@@ -10,6 +10,9 @@ import type {
   TrackClipEventRecord,
 } from '../api/client';
 import type { UpdateChannel } from '@vspark/shared';
+import { useHelpStore } from '../help/helpStore';
+import { useAssistantStore } from './assistantStore';
+import { highlightControl } from '../lib/uiHighlight';
 
 /** One entry on an avatar's animation timeline (a scheduled_animation doc). */
 export interface ScheduledAnimation {
@@ -426,6 +429,10 @@ interface EditorState {
     payload: import('../clipboard').ClipboardPayload | null
   ) => void;
   selectComposeLayer: (id: string | null) => void;
+
+  /** Apply a UI-control action pushed by the assistant agent over the
+   *  ui_action WS message (select entity, open panel/help/window, highlight). */
+  dispatchUiAction: (action: unknown) => void;
 
   // Track clip actions
   setTrackClips: (clips: TrackClipRecord[]) => void;
@@ -855,6 +862,61 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   setEditorAudioPreviewEnabled: (on) => set({ editorAudioPreviewEnabled: on }),
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
+
+  dispatchUiAction: (action) => {
+    if (!action || typeof action !== 'object') return;
+    const a = action as Record<string, unknown>;
+    const s = get();
+    switch (a.type) {
+      case 'select_entity': {
+        const id = typeof a.id === 'string' ? a.id : null;
+        if (a.entityKind === 'scene_node') {
+          s.setLeftTab('scene');
+          s.selectNode(id);
+        } else if (a.entityKind === 'compose_layer') {
+          s.setLeftTab('compose');
+          s.selectComposeLayer(id);
+        } else if (a.entityKind === 'scene') {
+          if (id) s.setActiveScene(id);
+          s.setSceneSelected(true);
+        }
+        break;
+      }
+      case 'open_panel': {
+        const tab = a.tab;
+        if (a.dock === 'left' && LEFT_TABS.includes(tab as LeftDockTab))
+          s.setLeftTab(tab as LeftDockTab);
+        else if (
+          a.dock === 'bottom' &&
+          BOTTOM_TABS.includes(tab as BottomDockTab)
+        )
+          s.flashBottomTab(tab as BottomDockTab);
+        break;
+      }
+      case 'open_help': {
+        if (typeof a.topic === 'string')
+          useHelpStore
+            .getState()
+            .openHelp(
+              a.topic,
+              typeof a.anchor === 'string' ? a.anchor : null
+            );
+        break;
+      }
+      case 'open_window': {
+        if (a.window === 'assistant') {
+          const as = useAssistantStore.getState();
+          if (a.open === false) as.closeAssistant();
+          else as.openAssistant();
+        }
+        break;
+      }
+      case 'highlight_control': {
+        if (typeof a.handle === 'string') highlightControl(a.handle);
+        break;
+      }
+    }
+  },
 
   setTrackClips: (clips) => set({ trackClips: clips }),
   addTrackClip: (clip) =>

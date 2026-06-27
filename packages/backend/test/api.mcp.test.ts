@@ -65,7 +65,11 @@ describe('MCP server', () => {
     expect(names).toContain('list_assets');
     expect(names).toContain('list_camera_effect_kinds');
     expect(names).toContain('add_camera_effect');
-    expect(tools.length).toBeGreaterThanOrEqual(48);
+    expect(names).toContain('list_ui_sessions');
+    expect(names).toContain('ui_select_entity');
+    expect(names).toContain('ui_highlight_control');
+    expect(names).toContain('ui_open_panel');
+    expect(tools.length).toBeGreaterThanOrEqual(54);
   });
 
   it('creates and reads back a scene node through tools', async () => {

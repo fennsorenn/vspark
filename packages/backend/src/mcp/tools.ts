@@ -714,5 +714,97 @@ export function buildToolSpecs(): ToolSpec[] {
       inputShape: { id: z.string() },
       handler: (c, a) => c.del(`/api/camera-effects/${a.id}`),
     },
+
+    // ---- UI control (drive the user's editor; needs a sessionId) ----
+    {
+      name: 'list_ui_sessions',
+      description:
+        'List the active editor sessions (open browser tabs) that ui_* tools can drive. Returns ' +
+        '{sessionId, projectId, connectedAt}. The in-app assistant is told its own sessionId — use that ' +
+        'one; external clients pick the session for the project they want to drive.',
+      inputShape: {},
+      handler: (c) => c.get('/api/ui-sessions'),
+    },
+    {
+      name: 'ui_select_entity',
+      description:
+        'Select an entity in the user’s editor so its properties open and it is highlighted in the tree. ' +
+        'entityKind: "scene_node" (also switches to the Scene tab), "compose_layer" (Compose tab), or ' +
+        '"scene". Helpful to show the user what you just created or are talking about.',
+      inputShape: {
+        sessionId: z.string(),
+        entityKind: z.enum(['scene_node', 'compose_layer', 'scene']),
+        id: z.string(),
+      },
+      handler: (c, a) =>
+        c.post('/api/ui-actions', {
+          sessionId: a.sessionId,
+          action: { type: 'select_entity', entityKind: a.entityKind, id: a.id },
+        }),
+    },
+    {
+      name: 'ui_open_panel',
+      description:
+        'Open a dock panel in the user’s editor. dock "left" tab is one of scene|compose|graphs; dock ' +
+        '"bottom" tab is one of create|models|animations|images|videos|audio|components|effects|clips|' +
+        'presets (the bottom tab also pulses to draw the eye). Use this to take the user to the right place ' +
+        '(e.g. the Timeline = bottom "clips", the Preset library = bottom "presets").',
+      inputShape: {
+        sessionId: z.string(),
+        dock: z.enum(['left', 'bottom']),
+        tab: z.string(),
+      },
+      handler: (c, a) =>
+        c.post('/api/ui-actions', {
+          sessionId: a.sessionId,
+          action: { type: 'open_panel', dock: a.dock, tab: a.tab },
+        }),
+    },
+    {
+      name: 'ui_open_help',
+      description:
+        'Open the in-app help window in the user’s editor to a topic (and optional section anchor), e.g. ' +
+        'topic "camera-effects", "compose", "track-clips". Use when the user asks how something works.',
+      inputShape: {
+        sessionId: z.string(),
+        topic: z.string(),
+        anchor: z.string().optional(),
+      },
+      handler: (c, a) =>
+        c.post('/api/ui-actions', {
+          sessionId: a.sessionId,
+          action: { type: 'open_help', topic: a.topic, anchor: a.anchor ?? null },
+        }),
+    },
+    {
+      name: 'ui_open_window',
+      description:
+        'Open or close a floating window in the user’s editor. window "assistant" (this chat) — `open` ' +
+        'true/false (default true).',
+      inputShape: {
+        sessionId: z.string(),
+        window: z.enum(['assistant']),
+        open: z.boolean().optional(),
+      },
+      handler: (c, a) =>
+        c.post('/api/ui-actions', {
+          sessionId: a.sessionId,
+          action: { type: 'open_window', window: a.window, open: a.open !== false },
+        }),
+    },
+    {
+      name: 'ui_highlight_control',
+      description:
+        'Scroll to and pulse-highlight a specific UI control in the user’s editor, identified by its ' +
+        '"vs-" handle (e.g. "vs-topbar-accounts", "vs-preset-save", "vs-clip-play", "vs-asset-add-image"). ' +
+        'Use this to point the user at the button they’re looking for. The handle may be given with or ' +
+        'without the leading "vs-".',
+      inputShape: { sessionId: z.string(), handle: z.string() },
+      handler: (c, a) =>
+        c.post('/api/ui-actions', {
+          sessionId: a.sessionId,
+          action: { type: 'highlight_control', handle: a.handle },
+        }),
+    },
   ];
 }
