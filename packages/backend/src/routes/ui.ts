@@ -17,7 +17,7 @@ const router: ReturnType<typeof Router> = Router();
  *     tags: [ui]
  *     summary: List active editor sessions that can be driven via /api/ui-actions
  *     responses:
- *       200: { description: Array of { sessionId, projectId, connectedAt } }
+ *       200: { description: 'Array of { sessionId, projectId, connectedAt }' }
  */
 router.get('/ui-sessions', (_req, res) => {
   res.json({ ok: true, data: _ws ? _ws.listSessions() : [] });
