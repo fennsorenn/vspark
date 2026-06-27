@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   compactToolHistory,
   pruneOldestGroups,
+  sanitizeAssistantText,
 } from '../src/assistant/agent.js';
 import type { ChatMessage } from '../src/assistant/llm.js';
 
@@ -111,5 +112,24 @@ describe('compactToolHistory', () => {
     const snapshot = JSON.stringify(msgs);
     compactToolHistory(msgs);
     expect(JSON.stringify(msgs)).toBe(snapshot);
+  });
+});
+
+describe('sanitizeAssistantText', () => {
+  it('cuts a leaked channel marker and trims', () => {
+    expect(
+      sanitizeAssistantText('I highlighted that for you.  <|channel>thought <channel|>')
+    ).toBe('I highlighted that for you.');
+  });
+  it('cuts at harmony/turn control tokens', () => {
+    expect(sanitizeAssistantText('Done<end_of_turn>')).toBe('Done');
+    expect(sanitizeAssistantText('hello <|message|> internal')).toBe('hello');
+  });
+  it('leaves normal prose untouched', () => {
+    const s = "I added a bloom effect to your camera. It's set to intensity 1.5.";
+    expect(sanitizeAssistantText(s)).toBe(s);
+  });
+  it('strips a stray pipe token without a control word', () => {
+    expect(sanitizeAssistantText('foo <|x|> bar').replace(/\s+/g, ' ')).toBe('foo bar');
   });
 });

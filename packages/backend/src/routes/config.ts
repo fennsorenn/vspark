@@ -11,8 +11,10 @@ import { getInstallDir, checkForUpdates } from './update.js';
 
 const VALID_CHANNELS: UpdateChannel[] = ['stable', 'recent', 'experimental'];
 
-const DEFAULT_ASSISTANT_MODEL =
-  process.env.ASSISTANT_MODEL ?? 'google/gemma-4-12B-it-qat-w4a16-ct';
+// No hard-coded, provider-specific default: the model comes from config.json or
+// ASSISTANT_MODEL, and when neither is set the agent auto-detects it from the
+// endpoint's /v1/models (see AssistantManager). '' means "ask the endpoint".
+const DEFAULT_ASSISTANT_MODEL = process.env.ASSISTANT_MODEL ?? '';
 
 /** Config file path. VSPARK_CONFIG_PATH overrides it (tests, custom installs);
  *  otherwise it lives next to the install. */

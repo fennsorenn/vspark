@@ -36,6 +36,26 @@ export interface ChatResult {
   finishReason: string | null;
 }
 
+/** Ask an OpenAI-compatible endpoint for its model list and return the first id.
+ *  Lets the assistant work with no model configured against a single-model
+ *  server (vLLM, llama.cpp, Ollama) — returns '' if it can't be determined. */
+export async function fetchFirstModel(
+  baseUrl: string,
+  apiKey?: string
+): Promise<string> {
+  try {
+    const url = baseUrl.replace(/\/$/, '') + '/v1/models';
+    const res = await fetch(url, {
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+    });
+    if (!res.ok) return '';
+    const json = (await res.json()) as { data?: { id?: string }[] };
+    return json.data?.[0]?.id ?? '';
+  } catch {
+    return '';
+  }
+}
+
 /** One blocking chat completion with optional tools. */
 export async function chatCompletion(
   cfg: LlmConfig,

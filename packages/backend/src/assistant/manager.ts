@@ -9,9 +9,12 @@ import type { WSSync } from '../ws/index.js';
 import { VsparkClient } from '../mcp/client.js';
 import { resolveAssistantConfig } from '../routes/config.js';
 import { AssistantAgent } from './agent.js';
+import { fetchFirstModel } from './llm.js';
 
 export class AssistantManager {
   private readonly agents = new Map<WebSocket, AssistantAgent>();
+  /** Cache of auto-detected models, keyed by endpoint baseUrl. */
+  private readonly modelCache = new Map<string, string>();
 
   constructor(
     private readonly wsSync: WSSync,
@@ -45,9 +48,17 @@ export class AssistantManager {
         this.wsSync.sendTo(ws, 'assistant_done', {});
         return;
       }
+      // No model configured → auto-detect the endpoint's first model (cached).
+      let model = cfg.model;
+      if (!model) {
+        model =
+          this.modelCache.get(cfg.baseUrl) ??
+          (await fetchFirstModel(cfg.baseUrl, cfg.apiKey));
+        if (model) this.modelCache.set(cfg.baseUrl, model);
+      }
       agent = new AssistantAgent(
         new VsparkClient({ baseUrl: this.loopbackBaseUrl }),
-        { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model },
+        { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model },
         this.wsSync.sessionIdFor(ws) ?? undefined,
         this.wsSync.projectIdFor(ws) ?? undefined
       );

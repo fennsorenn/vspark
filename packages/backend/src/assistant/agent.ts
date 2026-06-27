@@ -100,6 +100,20 @@ const ENABLE_TOOLS: ChatTool = {
   },
 };
 
+/** Strip leaked chat-template control/channel tokens from visible assistant text
+ *  (e.g. gemma/harmony "<|channel>thought<channel|>" markers). Once a control
+ *  token appears, the rest is internal formatting that leaked — cut there, then
+ *  remove any residual "<|...|>" / "<...|>" tokens. */
+export function sanitizeAssistantText(text: string): string {
+  if (!text) return text;
+  const cut = text.search(
+    /<\|?(channel|message|start_of_turn|end_of_turn|im_start|im_end|start|end|assistant|system|user)\b/i
+  );
+  let out = cut >= 0 ? text.slice(0, cut) : text;
+  out = out.replace(/<\|[^>]*?\|?>|<[^<>]*?\|>/g, '');
+  return out.trimEnd();
+}
+
 /** Collapse a stale action-tool result to the bit the agent might still need:
  *  the returned id / ok flag, else a short stub. */
 function stubActionResult(content: string): string {
@@ -374,6 +388,8 @@ export class AssistantAgent {
         if (signal?.aborted) return;
         compactToolHistory(this.messages);
         const { message } = await this.completeWithRecovery(signal);
+        if (message.content)
+          message.content = sanitizeAssistantText(message.content);
         this.messages.push(message);
 
         const calls = message.tool_calls ?? [];
