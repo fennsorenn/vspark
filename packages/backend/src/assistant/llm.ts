@@ -3,9 +3,16 @@
  * etc.). Non-streaming for the tool-calling loop body; the agent streams
  * user-visible deltas itself via WS. Kept dependency-free (global fetch).
  */
+/** A multimodal content part (OpenAI vision shape). A user turn that carries an
+ *  attached image is sent as an array of these so a vision-capable endpoint
+ *  (e.g. gemma-3) actually sees the pixels instead of just a url string. */
+export type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } };
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: string | ContentPart[] | null;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
 }

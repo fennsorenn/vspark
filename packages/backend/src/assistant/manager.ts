@@ -4,13 +4,62 @@
  * per-socket), routes inbound assistant_* messages, and streams agent events
  * back to that single socket via wsSync.sendTo.
  */
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { WebSocket } from 'ws';
 import type { WSSync } from '../ws/index.js';
 import type { AssistantAttachment } from '@vspark/shared';
 import { VsparkClient } from '../mcp/client.js';
 import { resolveAssistantConfig } from '../routes/config.js';
 import { AssistantAgent } from './agent.js';
-import { fetchFirstModel } from './llm.js';
+import { fetchFirstModel, type ContentPart } from './llm.js';
+
+const IMAGE_EXT: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+};
+
+/** For an attached image asset whose `url` is a served `/uploads/…` path, read
+ *  the file off disk and return an OpenAI vision `image_url` part with a base64
+ *  data URL — the external LLM endpoint can't reach our loopback, so we inline
+ *  the pixels. Returns null for non-images or unreadable files. */
+async function imagePart(a: AssistantAttachment): Promise<ContentPart | null> {
+  if (a.kind !== 'asset' || !a.url) return null;
+  const ext = a.url.split('.').pop()?.toLowerCase() ?? '';
+  const mime = IMAGE_EXT[ext];
+  if (!mime) return null;
+  try {
+    // url is `/uploads/<projectId>/<sub>/<file>`; UPLOADS_DIR is cwd/uploads.
+    const rel = a.url.replace(/^\/?uploads\//, '');
+    const buf = await readFile(join(process.cwd(), 'uploads', rel));
+    return {
+      type: 'image_url',
+      image_url: { url: `data:${mime};base64,${buf.toString('base64')}` },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Build the user turn content. Always carries the resolved-attachment text (so
+ *  the agent has concrete ids/urls for tool calls); when image assets are
+ *  attached, returns a multimodal array that also ships the pixels so a
+ *  vision-capable model can read border thickness, slice points, etc. */
+async function buildTurnContent(
+  text: string,
+  attachments?: AssistantAttachment[]
+): Promise<string | ContentPart[]> {
+  const withText = withAttachments(text, attachments);
+  if (!attachments?.length) return withText;
+  const images = (await Promise.all(attachments.map(imagePart))).filter(
+    (p): p is ContentPart => p !== null
+  );
+  if (!images.length) return withText;
+  return [{ type: 'text', text: withText }, ...images];
+}
 
 /** Append a resolved description of attached editor elements to the user's text
  *  so the agent maps "this image" / "that object" to a concrete id / url. */
@@ -54,7 +103,9 @@ export class AssistantManager {
         attachments?: AssistantAttachment[];
       };
       if (typeof p.text === 'string' && p.text.trim())
-        void this.runTurn(ws, withAttachments(p.text, p.attachments));
+        void buildTurnContent(p.text, p.attachments).then((content) =>
+          this.runTurn(ws, content)
+        );
       return true;
     }
     if (kind === 'assistant_reset') {
@@ -64,7 +115,10 @@ export class AssistantManager {
     return false;
   }
 
-  private async runTurn(ws: WebSocket, text: string): Promise<void> {
+  private async runTurn(
+    ws: WebSocket,
+    text: string | ContentPart[]
+  ): Promise<void> {
     let agent = this.agents.get(ws);
     if (!agent) {
       const cfg = await resolveAssistantConfig();

@@ -12,6 +12,7 @@ import {
   chatCompletion,
   type ChatMessage,
   type ChatTool,
+  type ContentPart,
   type LlmConfig,
 } from './llm.js';
 
@@ -136,6 +137,24 @@ function stubActionResult(content: string): string {
  * reference fetches (what the agent reasons on) are kept but capped, while older
  * action results (create/update/set/…) collapse to their id/ok. Mutates in place.
  */
+/** Replace inlined image parts in older user turns with a short text note, so a
+ *  conversation with several image attachments doesn't re-transmit every base64
+ *  blob on every round. The image only needed to be seen on its own turn. */
+export function stripStaleImages(messages: ChatMessage[]): void {
+  for (const m of messages) {
+    if (m.role !== 'user' || !Array.isArray(m.content)) continue;
+    if (!m.content.some((p) => p.type === 'image_url')) continue;
+    const text = m.content
+      .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n');
+    const n = m.content.filter((p) => p.type === 'image_url').length;
+    m.content =
+      (text ? text + '\n' : '') +
+      `[${n} attached image${n > 1 ? 's' : ''} omitted from history]`;
+  }
+}
+
 export function compactToolHistory(messages: ChatMessage[]): void {
   const idToName = new Map<string, string>();
   for (const m of messages)
@@ -364,7 +383,7 @@ export class AssistantAgent {
 
   /** Run one user turn to completion, emitting events as it goes. */
   async runTurn(
-    userText: string,
+    userContent: string | ContentPart[],
     events: AgentEvents,
     signal?: AbortSignal
   ): Promise<void> {
@@ -378,7 +397,11 @@ export class AssistantAgent {
       // Start each turn lean: re-enable only the action families this turn needs,
       // so a long multi-feature conversation doesn't carry every group's schemas.
       this.enabledGroups.clear();
-      this.messages.push({ role: 'user', content: userText });
+      // Inlined attachment images are only relevant to the turn they arrive on.
+      // Strip them from prior user turns so the conversation doesn't re-ship
+      // every base64 blob each round (transport bloat on a small-context model).
+      stripStaleImages(this.messages);
+      this.messages.push({ role: 'user', content: userContent });
 
       // Did this turn make any mutations, and have we forced the read-back yet?
       let mutated = false;
@@ -388,7 +411,7 @@ export class AssistantAgent {
         if (signal?.aborted) return;
         compactToolHistory(this.messages);
         const { message } = await this.completeWithRecovery(signal);
-        if (message.content)
+        if (typeof message.content === 'string')
           message.content = sanitizeAssistantText(message.content);
         this.messages.push(message);
 
@@ -403,7 +426,8 @@ export class AssistantAgent {
           continue;
         }
 
-        if (message.content) events.onText(message.content);
+        if (typeof message.content === 'string' && message.content)
+          events.onText(message.content);
         if (calls.length === 0) return; // model is done
 
         for (const call of calls) {

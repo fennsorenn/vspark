@@ -3,6 +3,7 @@ import {
   compactToolHistory,
   pruneOldestGroups,
   sanitizeAssistantText,
+  stripStaleImages,
 } from '../src/assistant/agent.js';
 import type { ChatMessage } from '../src/assistant/llm.js';
 
@@ -131,5 +132,38 @@ describe('sanitizeAssistantText', () => {
   });
   it('strips a stray pipe token without a control word', () => {
     expect(sanitizeAssistantText('foo <|x|> bar').replace(/\s+/g, ' ')).toBe('foo bar');
+  });
+});
+
+describe('stripStaleImages', () => {
+  it('replaces image parts in user turns with a text note, keeping the text', () => {
+    const msgs: ChatMessage[] = [
+      { role: 'system', content: 'sys' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'use this border' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,AAA' } },
+        ],
+      },
+    ];
+    stripStaleImages(msgs);
+    expect(msgs[1].content).toBe('use this border\n[1 attached image omitted from history]');
+  });
+
+  it('pluralises and leaves plain-string / non-image turns untouched', () => {
+    const msgs: ChatMessage[] = [
+      { role: 'user', content: 'plain text' },
+      {
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,A' } },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,B' } },
+        ],
+      },
+    ];
+    stripStaleImages(msgs);
+    expect(msgs[0].content).toBe('plain text');
+    expect(msgs[1].content).toBe('[2 attached images omitted from history]');
   });
 });

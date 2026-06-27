@@ -1172,3 +1172,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ updateAvailable: available, updateInfo: info }),
   setPendingReload: (pending) => set({ pendingReload: pending }),
 }));
+
+// Dev-only handle for debugging / e2e harnesses (inspect or poke store state
+// from the console or Playwright). Never present in production builds.
+if (import.meta.env.DEV) {
+  (
+    globalThis as unknown as { __editorStore?: typeof useEditorStore }
+  ).__editorStore = useEditorStore;
+}

@@ -318,7 +318,11 @@ export function buildToolSpecs(): ToolSpec[] {
         'in the template as the bare variable `chat` (an array of message objects with .text). config.css ' +
         'is normal CSS and may reference image assets by url (from list_assets): `.msg { border-image: ' +
         'url(<asset url>) 30 round }` for a per-message border, `.chat { border-image: url(<asset url>) 40 ' +
-        'stretch }` for a border around the whole box.',
+        'stretch }` for a border around the whole box. When the user attached the border image you can SEE ' +
+        'it: set border-image-slice from how deep the ornament runs from each edge (a chunky corner frame ' +
+        'wants a large slice like 100–130, a thin rule wants ~15–30) and give the element enough ' +
+        'border-width/padding for the art to show; use `round`/`repeat` for tiling edges, `stretch` for a ' +
+        'single corner frame.',
       inputShape: {
         composeSceneId: z.string(),
         name: z.string(),
