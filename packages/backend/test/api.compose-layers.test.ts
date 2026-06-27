@@ -344,6 +344,26 @@ describe('compose-layers API (mesh-backed)', () => {
       expect(res.body.ok).toBe(true);
     });
 
+    it('merges config on update — a css-only patch keeps the template', async () => {
+      const created = await createLayerInScene(composeSceneId, {
+        name: 'Feed',
+        kind: 'feed',
+        config: { template: '<div>${chat}</div>', css: '.chat { color: red; }' },
+      });
+      const layerId = created.body.data.id as string;
+      const res = await updateLayer(layerId, {
+        config: { css: '.chat { border-image: url(/u/b.png) 120 stretch; }' },
+      });
+      expect(res.status).toBe(200);
+      // Template is preserved (not wiped by the css-only patch); css is updated.
+      const layers = (
+        await request(app).get(`/api/compose-scenes/${composeSceneId}/layers`)
+      ).body.data as Array<{ id: string; config: Record<string, unknown> }>;
+      const l = layers.find((x) => x.id === layerId);
+      expect(l?.config.template).toBe('<div>${chat}</div>');
+      expect(l?.config.css).toMatch(/border-image/);
+    });
+
     it('rejects an update that introduces a broken template (400)', async () => {
       const created = await createLayerInScene(composeSceneId, {
         name: 'Feed',

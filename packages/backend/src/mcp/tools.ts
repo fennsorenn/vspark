@@ -352,9 +352,12 @@ export function buildToolSpecs(): ToolSpec[] {
     {
       name: 'update_compose_layer',
       description:
-        'Patch a layer. WARNING: the `config` object REPLACES the stored config wholesale — it is NOT merged. ' +
-        'When changing one config field (e.g. css), resend the COMPLETE config including template and every other ' +
-        'field you want to keep, or they will be lost.',
+        'Patch a layer. The `config` object is SHALLOW-MERGED into the stored config — send ONLY the fields you ' +
+        'want to change. To restyle a feed layer, send just `{config:{css:"…"}}`; do NOT resend `template` (you ' +
+        'would only risk corrupting it). If you DO change `template`, it is htm/JSX-ish: interpolate with `${…}` ' +
+        '(not `{…}`) and wrap nested markup in html`…`, e.g. ' +
+        '`<div class="chat">${chat.map((m) => html`<div class="msg">${m.text}</div>`)}</div>`. Invalid template/css ' +
+        'is rejected with a clear error — fix it rather than resending the same thing.',
       inputShape: {
         id: z.string(),
         name: z.string().optional(),
