@@ -43,6 +43,12 @@ optional API key in the assistant settings; until then the window shows a
 
 It works on one project at a time — the project you currently have open.
 
+## Attaching elements {#attach}
+
+To point the assistant at a specific thing — *“use **this** image as a border”* or *“make **this** object spin”* — click the **📎** button next to the message box. The editor dims and the things you can attach (scene objects, compose layers, and assets) light up; click one to attach it, or press **Esc** to cancel. Attached items show as chips above the box and are sent with your next message so the assistant knows exactly which element you mean.
+
+Tip: open the panel that holds what you want first (e.g. the **Images** tab for an image asset), then click 📎.
+
 ## Limits & safety {#limits}
 
 The assistant only acts when you ask it to, and every change is a normal project

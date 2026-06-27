@@ -22,6 +22,11 @@ export function AssistantWindow() {
   const setAvailable = useAssistantStore((s) => s.setAvailable);
   const clear = useAssistantStore((s) => s.clear);
   const pushUser = useAssistantStore((s) => s.pushUser);
+  const attachMode = useAssistantStore((s) => s.attachMode);
+  const attachments = useAssistantStore((s) => s.attachments);
+  const setAttachMode = useAssistantStore((s) => s.setAttachMode);
+  const removeAttachment = useAssistantStore((s) => s.removeAttachment);
+  const clearAttachments = useAssistantStore((s) => s.clearAttachments);
 
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [placed, setPlaced] = useState(false);
@@ -75,9 +80,14 @@ export function AssistantWindow() {
   const submit = () => {
     const text = input.trim();
     if (!text || streaming) return;
-    pushUser(text);
-    sendAssistantMessage(text);
+    const atts = attachments.length ? attachments : undefined;
+    pushUser(
+      atts ? `${text}\n📎 ${atts.map((a) => a.name).join(', ')}` : text
+    );
+    sendAssistantMessage(text, atts);
     setInput('');
+    clearAttachments();
+    setAttachMode(false);
   };
 
   return (
@@ -185,6 +195,62 @@ export function AssistantWindow() {
         )}
       </div>
 
+      {/* Attachment chips */}
+      {attachments.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 4,
+            padding: '6px 8px 0',
+          }}
+        >
+          {attachments.map((a) => (
+            <span
+              key={`${a.kind}:${a.id}`}
+              title={`${a.kind}: ${a.name}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                background: '#1e3a5f',
+                color: '#cfe6ff',
+                border: '1px solid #3b6ea5',
+                borderRadius: 10,
+                padding: '1px 6px',
+                fontSize: 11,
+                maxWidth: 160,
+              }}
+            >
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {a.kind === 'asset' ? '🖼' : a.kind === 'scene_node' ? '🧊' : '🗂'}{' '}
+                {a.name}
+              </span>
+              <button
+                onClick={() => removeAttachment(a.id)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#9cc',
+                  cursor: 'pointer',
+                  padding: 0,
+                  fontSize: 12,
+                  lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Input */}
       <div
         style={{
@@ -194,6 +260,22 @@ export function AssistantWindow() {
           borderTop: '1px solid #3a3a3a',
         }}
       >
+        <button
+          className="vs-assistant-attach"
+          onClick={() => setAttachMode(!attachMode)}
+          title={t('attachTip')}
+          style={{
+            background: attachMode ? '#2563eb' : '#2a2a2a',
+            color: attachMode ? '#fff' : '#ccc',
+            border: '1px solid #3a3a3a',
+            borderRadius: 5,
+            padding: '0 10px',
+            cursor: 'pointer',
+            fontSize: 14,
+          }}
+        >
+          📎
+        </button>
         <textarea
           className="vs-assistant-input"
           value={input}

@@ -568,6 +568,16 @@ export interface AppConfig {
   assistant?: AssistantConfig;
 }
 
+/** An editor element the user attached to an assistant message via the attach
+ *  picker, so the agent can resolve "this/that" references to a concrete id. */
+export interface AssistantAttachment {
+  kind: 'asset' | 'scene_node' | 'compose_layer';
+  id: string;
+  name: string;
+  /** For assets: the served /uploads URL (usable in feed CSS / as filePath). */
+  url?: string;
+}
+
 /** Shape of the assistant config exposed over the API — apiKey replaced by a
  *  boolean so the secret never leaves the backend. */
 export interface AssistantConfigPublic {

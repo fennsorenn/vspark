@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { AssistantAttachment } from '@vspark/shared';
 
 /**
  * Standalone store for the in-app Assistant chat window (mirrors helpStore's
@@ -26,11 +27,19 @@ interface AssistantState {
   entries: AssistantEntry[];
   /** Whether the backend reports an assistant LLM endpoint is configured. */
   available: boolean | null;
+  /** Attach-picker mode: the editor dims and attachable elements light up. */
+  attachMode: boolean;
+  /** Elements the user attached to the next message. */
+  attachments: AssistantAttachment[];
 
   openAssistant: () => void;
   closeAssistant: () => void;
   toggleAssistant: () => void;
   setAvailable: (v: boolean) => void;
+  setAttachMode: (v: boolean) => void;
+  addAttachment: (a: AssistantAttachment) => void;
+  removeAttachment: (id: string) => void;
+  clearAttachments: () => void;
 
   pushUser: (text: string) => void;
   pushAssistantText: (text: string) => void;
@@ -51,11 +60,23 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   streaming: false,
   entries: [],
   available: null,
+  attachMode: false,
+  attachments: [],
 
   openAssistant: () => set({ open: true }),
-  closeAssistant: () => set({ open: false }),
+  closeAssistant: () => set({ open: false, attachMode: false }),
   toggleAssistant: () => set((s) => ({ open: !s.open })),
   setAvailable: (v) => set({ available: v }),
+  setAttachMode: (v) => set({ attachMode: v }),
+  addAttachment: (a) =>
+    set((s) =>
+      s.attachments.some((x) => x.id === a.id && x.kind === a.kind)
+        ? s
+        : { attachments: [...s.attachments, a] }
+    ),
+  removeAttachment: (id) =>
+    set((s) => ({ attachments: s.attachments.filter((a) => a.id !== id) })),
+  clearAttachments: () => set({ attachments: [] }),
 
   pushUser: (text) =>
     set((s) => ({

@@ -1175,6 +1175,10 @@ export function AssetManager() {
                   {list.map((asset) => (
                     <div
                       key={asset.id}
+                      data-attach-kind="asset"
+                      data-attach-id={asset.id}
+                      data-attach-name={asset.name}
+                      data-attach-url={asset.url}
                       style={{ ...cardStyle, cursor: 'grab' }}
                       draggable
                       title={t('card.dragHint')}

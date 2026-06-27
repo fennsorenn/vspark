@@ -47,6 +47,12 @@ dahin zeigt das Fenster den Hinweis „nicht konfiguriert".
 
 Er arbeitet immer an einem Projekt — dem gerade geöffneten.
 
+## Elemente anhängen {#attach}
+
+Um den Assistenten auf etwas Bestimmtes zu lenken — *„nimm **dieses** Bild als Rahmen“* oder *„lass **dieses** Objekt rotieren“* — klicke auf die **📎**-Schaltfläche neben dem Eingabefeld. Der Editor wird abgedunkelt und die anhängbaren Dinge (Szenenobjekte, Compose-Ebenen und Assets) leuchten auf; klicke eines an, um es anzuhängen, oder drücke **Esc** zum Abbrechen. Angehängte Elemente erscheinen als Chips über dem Eingabefeld und werden mit deiner nächsten Nachricht gesendet, damit der Assistent genau weiß, welches Element du meinst.
+
+Tipp: Öffne zuerst das Panel mit dem gewünschten Element (z. B. den **Bilder**-Tab für ein Bild-Asset) und klicke dann auf 📎.
+
 ## Grenzen & Sicherheit {#limits}
 
 Der Assistent handelt nur auf deine Anfrage hin, und jede Änderung ist eine

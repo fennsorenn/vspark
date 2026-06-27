@@ -90,11 +90,16 @@ export function sendComposeLayerPreview(
   ws.send(JSON.stringify({ kind: 'compose_layer_preview', id, patch }));
 }
 
-/** Send a user turn to the backend assistant agent. */
-export function sendAssistantMessage(text: string) {
+/** Send a user turn (with any attached editor elements) to the backend agent. */
+export function sendAssistantMessage(
+  text: string,
+  attachments?: import('@vspark/shared').AssistantAttachment[]
+) {
   const ws = editorWsRef.current;
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ kind: 'assistant_user_message', text }));
+  ws.send(
+    JSON.stringify({ kind: 'assistant_user_message', text, attachments })
+  );
 }
 
 /** Reset the backend assistant conversation for this connection. */

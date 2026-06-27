@@ -10,5 +10,6 @@
   "emptyHint": "Ask me to create objects, compose layers, feed templates, or wire a logic graph. I'll use the project tools to do it.",
   "working": "Working…",
   "notConfigured": "The assistant has no language-model endpoint configured. Set one in the assistant settings to enable it.",
-  "resetConversation": "Reset conversation"
+  "resetConversation": "Reset conversation",
+  "attachTip": "Attach an object, layer, or asset for the assistant to reference"
 }

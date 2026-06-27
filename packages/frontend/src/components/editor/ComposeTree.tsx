@@ -458,6 +458,9 @@ function LayerRow({
           }
         }}
         className="vs-layer-row"
+        data-attach-kind="compose_layer"
+        data-attach-id={layer.id}
+        data-attach-name={layer.name}
         style={{
           ...rowStyle(selected || dropPos === 'inside'),
           paddingLeft: 8 + depth * 14,

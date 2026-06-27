@@ -6,10 +6,34 @@
  */
 import type { WebSocket } from 'ws';
 import type { WSSync } from '../ws/index.js';
+import type { AssistantAttachment } from '@vspark/shared';
 import { VsparkClient } from '../mcp/client.js';
 import { resolveAssistantConfig } from '../routes/config.js';
 import { AssistantAgent } from './agent.js';
 import { fetchFirstModel } from './llm.js';
+
+/** Append a resolved description of attached editor elements to the user's text
+ *  so the agent maps "this image" / "that object" to a concrete id / url. */
+function withAttachments(
+  text: string,
+  attachments?: AssistantAttachment[]
+): string {
+  if (!attachments?.length) return text;
+  const line = (a: AssistantAttachment): string => {
+    if (a.kind === 'asset')
+      return `- image/asset "${a.name}" (asset id ${a.id}${a.url ? `, url ${a.url}` : ''})`;
+    if (a.kind === 'scene_node')
+      return `- scene object "${a.name}" (scene_node id ${a.id})`;
+    return `- compose layer "${a.name}" (compose_layer id ${a.id})`;
+  };
+  return (
+    text +
+    '\n\n[The user attached these editor elements as context — resolve any ' +
+    '"this/that/these" references to them:\n' +
+    attachments.map(line).join('\n') +
+    ']'
+  );
+}
 
 export class AssistantManager {
   private readonly agents = new Map<WebSocket, AssistantAgent>();
@@ -25,8 +49,12 @@ export class AssistantManager {
   /** Returns true if it handled the message kind. */
   handle(kind: string, payload: unknown, ws: WebSocket): boolean {
     if (kind === 'assistant_user_message') {
-      const text = (payload as { text?: string }).text;
-      if (typeof text === 'string' && text.trim()) void this.runTurn(ws, text);
+      const p = payload as {
+        text?: string;
+        attachments?: AssistantAttachment[];
+      };
+      if (typeof p.text === 'string' && p.text.trim())
+        void this.runTurn(ws, withAttachments(p.text, p.attachments));
       return true;
     }
     if (kind === 'assistant_reset') {

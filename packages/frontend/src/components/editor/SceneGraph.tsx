@@ -2428,6 +2428,9 @@ export function SceneGraph() {
         {/* Node row */}
         <div
           className="vs-node-row"
+          data-attach-kind="scene_node"
+          data-attach-id={node.id}
+          data-attach-name={node.name}
           draggable
           onDragStart={(e) => handleDragStart(e, node.id)}
           onDragEnd={() => {
