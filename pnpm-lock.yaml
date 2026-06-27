@@ -39,20 +39,20 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
       '@overlive/core':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.3.0
+        version: 0.3.0
       '@overlive/emotes':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.2.0
+        version: 0.2.0
       '@overlive/se':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.2.0
+        version: 0.2.0
       '@overlive/twitch':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.3.0
+        version: 0.3.0
       '@overlive/twitch-oauth':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.2.0
+        version: 0.2.0
       '@vspark/mesh':
         specifier: workspace:*
         version: link:../mesh
@@ -85,7 +85,7 @@ importers:
         version: 0.23.0
       ws:
         specifier: ^8.18.2
-        version: 8.20.0
+        version: 8.20.1
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -375,6 +375,10 @@ packages:
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
     engines: {node: '>=6.9.0'}
 
+  '@babel/code-frame@7.29.7':
+    resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
+    engines: {node: '>=6.9.0'}
+
   '@babel/compat-data@7.29.0':
     resolution: {integrity: sha512-T1NCJqT/j9+cn8fvkt7jtwbLBfLC/1y1c7NtCeXFRgzGTsafi68MRv8yzkYSapBnFA6L3U2VSc02ciDzoAJhJg==}
     engines: {node: '>=6.9.0'}
@@ -417,6 +421,10 @@ packages:
     resolution: {integrity: sha512-qSs4ifwzKJSV39ucNjsvc6WVHs6b7S03sOh2OcHF9UHfVPqWWALUsNUVzhSBiItjRZoLHx7nIarVjqKVusUZ1Q==}
     engines: {node: '>=6.9.0'}
 
+  '@babel/helper-validator-identifier@7.29.7':
+    resolution: {integrity: sha512-qehxGkRj55h/ff8EMaJ+cYhyaKlHIxqYDn682wQD7RNp9UujOQsHog2uS0r2vzr4pW+sXf90NeeayjcNaX3fFg==}
+    engines: {node: '>=6.9.0'}
+
   '@babel/helper-validator-option@7.27.1':
     resolution: {integrity: sha512-YvjJow9FxbhFFKDSuFnVCe2WxXk1zWc22fFePVNEaWJEu8IrZVlda6N0uHwzZrUM1il7NC9Mlp4MaJYbYd9JSg==}
     engines: {node: '>=6.9.0'}
@@ -444,6 +452,10 @@ packages:
 
   '@babel/runtime@7.29.2':
     resolution: {integrity: sha512-JiDShH45zKHWyGe4ZNVRrCjBz8Nh9TMmZG1kh4QTK8hCBTWBi8Da+i7s1fJw7/lYpM4ccepSNfqzZ/QvABBi5g==}
+    engines: {node: '>=6.9.0'}
+
+  '@babel/runtime@7.29.7':
+    resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
     engines: {node: '>=6.9.0'}
 
   '@babel/template@7.28.6':
@@ -1016,20 +1028,23 @@ packages:
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
     engines: {node: ^14.21.3 || >=16}
 
-  '@overlive/core@0.1.0':
-    resolution: {integrity: sha512-5JoBK6opYR8oRhzTAtM40c4wEk73w1YAocsTY7J9s9WUMZq6ZfT7YJOS4fou8fEKKBJ5pyg17cJn37JvzYzLwA==}
+  '@overlive/core@0.2.0':
+    resolution: {integrity: sha512-3ZZyXQ4cgS0hktddjKWtjjAibNvl/A32uwt8dee9EQBotU1U0J06Vbjbn+EJSQaZHhH1x5MfTeDk0tdpsojurw==}
 
-  '@overlive/emotes@0.1.0':
-    resolution: {integrity: sha512-LrGGM+j5JEW3+uc330jYqBn6HIA32+zekjoL0PSS42gDP0VVwFT74HOmRBJkbKihLjYKjwm0e4zxHOfmR+gh+Q==}
+  '@overlive/core@0.3.0':
+    resolution: {integrity: sha512-Xz782WwFUeFfc9Z3WJOsghyL8rbcDqklkcD8+EHK6AERXqx25ML+Mi3qbqirh7UBhcmk8FOWRuJmy6KZ9LjDJQ==}
 
-  '@overlive/se@0.1.0':
-    resolution: {integrity: sha512-RzISI1iY0/4jgKhGxr7wI78Gh4Ioq0Ig+eW6j3QdQCstoZ23uGARQiqr6BdvZunvcQYCmA6EVliNFiWQSj40Aw==}
+  '@overlive/emotes@0.2.0':
+    resolution: {integrity: sha512-k+X2Jfn9rZxtwRaFmSyOe39JPpSag8jvOgIYgpEi/NTBtReGb2Ll+PGyOhh19Md7sAS0bsTzJAEabdGPumJ7pg==}
 
-  '@overlive/twitch-oauth@0.1.0':
-    resolution: {integrity: sha512-vZn9k4SpeJhl3JeO7JiUtP44RGUPEQZ88GZA2/bYcL5UdIInwFcAZNRh1TYX4IwX9/atP05KP9vfnaxT4u4acA==}
+  '@overlive/se@0.2.0':
+    resolution: {integrity: sha512-bjPl2Q0p4fx4uAbQdmKVuy8rm1Oh3TsNjBW3eTsNzg6ufF3DEoloUMpiqn7rtXE3gqsh/eGZ0vCJrmDvsUvu8w==}
 
-  '@overlive/twitch@0.1.0':
-    resolution: {integrity: sha512-LTWSZYAT7T2ijfZdzW0iozahz2JSNTe92VKNfziWj330pkEs33fZZRBfJ/H/5000Q++Dcq0CsTVnC7vLBbWl8w==}
+  '@overlive/twitch-oauth@0.2.0':
+    resolution: {integrity: sha512-ZPlTLGEx9y5Oy6l8KNQ0qMO6sq0ot1dP1tnDwREZu5PHHtGZ/9dKmJWb3xuMHZdAdmQ0J8iJWq+cuXuDHPYVjA==}
+
+  '@overlive/twitch@0.3.0':
+    resolution: {integrity: sha512-KVnHWWr97WaXEgrQ/QrqbNez2rzwk8ufcvLynTm+VknXvoZ4LOzNbghwEf5j/HsJr8JEnADjKY+vteVz3CScuw==}
 
   '@paralleldrive/cuid2@2.3.1':
     resolution: {integrity: sha512-XO7cAxhnTZl0Yggq6jOgjiOHhbgcO4NqFqwSmQpjK3b6TEE6Uj/jfSk6wzYyemh3+I0sHirKSetjQwn5cZktFw==}
@@ -3854,18 +3869,6 @@ packages:
   write-file-atomic@3.0.3:
     resolution: {integrity: sha512-AvHcyZ5JnSfq3ioSyjrBkH9yW4m7Ayk8/9My/DD9onKeu/94fwrMocemO2QAJFAlnnDN+ZDS+ZjAR5ua1/PV/Q==}
 
-  ws@8.20.0:
-    resolution: {integrity: sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
   ws@8.20.1:
     resolution: {integrity: sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w==}
     engines: {node: '>=10.0.0'}
@@ -4018,6 +4021,12 @@ snapshots:
       js-tokens: 4.0.0
       picocolors: 1.1.1
 
+  '@babel/code-frame@7.29.7':
+    dependencies:
+      '@babel/helper-validator-identifier': 7.29.7
+      js-tokens: 4.0.0
+      picocolors: 1.1.1
+
   '@babel/compat-data@7.29.0': {}
 
   '@babel/core@7.29.0':
@@ -4080,6 +4089,8 @@ snapshots:
 
   '@babel/helper-validator-identifier@7.28.5': {}
 
+  '@babel/helper-validator-identifier@7.29.7': {}
+
   '@babel/helper-validator-option@7.27.1': {}
 
   '@babel/helpers@7.29.2':
@@ -4102,6 +4113,8 @@ snapshots:
       '@babel/helper-plugin-utils': 7.28.6
 
   '@babel/runtime@7.29.2': {}
+
+  '@babel/runtime@7.29.7': {}
 
   '@babel/template@7.28.6':
     dependencies:
@@ -4463,27 +4476,29 @@ snapshots:
 
   '@noble/hashes@1.8.0': {}
 
-  '@overlive/core@0.1.0': {}
+  '@overlive/core@0.2.0': {}
 
-  '@overlive/emotes@0.1.0':
-    dependencies:
-      '@overlive/core': 0.1.0
+  '@overlive/core@0.3.0': {}
 
-  '@overlive/se@0.1.0':
+  '@overlive/emotes@0.2.0':
     dependencies:
-      '@overlive/core': 0.1.0
+      '@overlive/core': 0.2.0
+
+  '@overlive/se@0.2.0':
+    dependencies:
+      '@overlive/core': 0.2.0
       socket.io-client: 4.8.3
     transitivePeerDependencies:
       - bufferutil
       - supports-color
       - utf-8-validate
 
-  '@overlive/twitch-oauth@0.1.0': {}
+  '@overlive/twitch-oauth@0.2.0': {}
 
-  '@overlive/twitch@0.1.0':
+  '@overlive/twitch@0.3.0':
     dependencies:
-      '@overlive/core': 0.1.0
-      '@overlive/twitch-oauth': 0.1.0
+      '@overlive/core': 0.3.0
+      '@overlive/twitch-oauth': 0.2.0
 
   '@paralleldrive/cuid2@2.3.1':
     dependencies:
@@ -4842,8 +4857,8 @@ snapshots:
 
   '@testing-library/dom@10.4.1':
     dependencies:
-      '@babel/code-frame': 7.29.0
-      '@babel/runtime': 7.29.2
+      '@babel/code-frame': 7.29.7
+      '@babel/runtime': 7.29.7
       '@types/aria-query': 5.0.4
       aria-query: 5.3.0
       dom-accessibility-api: 0.5.16
@@ -7937,8 +7952,6 @@ snapshots:
       is-typedarray: 1.0.0
       signal-exit: 3.0.7
       typedarray-to-buffer: 3.1.5
-
-  ws@8.20.0: {}
 
   ws@8.20.1: {}
 

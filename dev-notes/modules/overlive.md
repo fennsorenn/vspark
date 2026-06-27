@@ -8,8 +8,8 @@ Depends on [project-graphs.md](project-graphs.md): the 13 Overlive event nodes a
 
 ## Overlive packages consumed
 
-- `@overlive/core` — shared kit / event bus (`OverliveKit`, `AdapterStateSnapshot`, `AdapterEmittedEvent`)
-- `@overlive/twitch` — Twitch EventSub / IRC adapter (`TwitchAdapter`)
+- `@overlive/core` — shared kit / event bus (`OverliveKit`, `AdapterStateSnapshot`, `AdapterEmittedEvent`); `^0.3.0`
+- `@overlive/twitch` — Twitch EventSub / IRC adapter (`TwitchAdapter`); `^0.3.0` adds the `PlatformActions` capability interface that backs the outbound action nodes (see below)
 - `@overlive/twitch-oauth` — OAuth code flow, refresh, `revokeAccessToken`, `buildAuthorizeUrl`, `exchangeCode`, `fetchAuthorizedUser`, `DEFAULT_SCOPES`
 - `@overlive/se` — StreamElements adapter (`SEAdapter`, JWT-authenticated)
 
@@ -157,6 +157,87 @@ The shared `handleOverliveEvent(...)` helper in `signal/nodes/overlive/_helpers.
 `overlive_*` event currency-kind / reward-id / command / tier / `isGift` filters are read from `config.<field>` on `execute()` and short-circuit before `setState`/emit. See `chat_command.ts` for the canonical pattern.
 
 The `Account` port type is registered in `packages/shared/src/signal.ts` (`SignalTypeMap.Account: string`, colour `#9146ff` in `SIGNAL_TYPE_COLORS`). It is set today via the inline account dropdown in `SignalNodeCard` (the dropdown is data-bound to the editor store's `overliveAccounts`). The port type accepts a connected source, but there is no literal `account_value` node yet — connections from another node's `Account` output are the only non-inline source.
+
+## Outbound actions
+
+The integration is no longer inbound-only — outbound action nodes drive the
+Twitch channel from a signal graph. They come in two flavours:
+
+- **`overlive_send_chat`** — the original template-driven chat sender with
+  dynamic value ports (described next).
+- **24 fixed-port action nodes** (`actions_*.ts`) — the broad Twitch action
+  surface backed by `@overlive/twitch` `0.3.0`'s `PlatformActions` capability
+  (described in the "Twitch action nodes" subsection below).
+
+### `overlive_send_chat`
+
+`signal/nodes/overlive/send_chat.ts`
+sends a chat message on `fire`. Its design mirrors `set_data`: a `template`
+String input (config fallback `config.template`) plus user-defined labeled value
+ports from `config.fields: string[]` — the dynamic-port shape is computed by
+`inferSendChat` in `packages/shared/src/infer_nodes.ts` (registered under
+`INFER_BY_KIND['overlive_send_chat']`, same `TRAILING_SLOT` mechanism). On fire
+it substitutes each `${field}` in the template with the current value of the
+like-named input (unknown placeholders → empty string), skips an empty result,
+then calls `OverliveManager.sendChat(accountId, channel, text)`. Ports:
+`fire` (Trigger), `account` (Account), `channel` (String), `template` (String),
+N dynamic fields, output `sent` (Trigger).
+
+`OverliveManager.sendChat` resolves the account row → project entry → live
+adapter via the new `OverliveKit.adapter(instanceId)` accessor, and (Twitch only)
+calls `adapter.sendChatMessage(text)` → Helix `POST /helix/chat/messages`
+(`sender_id === broadcaster_id`). Best-effort: send errors are logged, never
+thrown out of the node. `channel` is accepted for symmetry but is advisory today
+(the Twitch adapter always posts to its own broadcaster channel).
+
+Requires the **`user:write:chat`** Twitch scope, now included in
+`@overlive/twitch-oauth` `DEFAULT_SCOPES`. Accounts connected before this scope
+was added must be **reconnected** once (the existing Reconnect button) to grant
+send permission. Implemented in `@overlive/twitch` (`TwitchRestClient.post` +
+`sendChatMessage`, `TwitchAdapter.sendChatMessage`) and `@overlive/core`
+(`OverliveKit.adapter`) — these require a published version bump before vspark CI
+installs them from the registry.
+
+### Twitch action nodes (24)
+
+Backed by the `PlatformActions` capability interface introduced on the Twitch
+adapter in `@overlive/twitch` `0.3.0`. Each node is a simple **fire-triggered**
+node — `fire` (Trigger) in → `done` (Trigger) out — that reads its destination
+`account` (port → `config.account` fallback via `acct()` in `_actions.ts`),
+coerces its remaining value ports, and calls the matching best-effort
+`OverliveManager.<action>()` method. Action methods resolve the account's live
+Twitch adapter (`OverliveKit.adapter(instanceId)`) and call the SDK; **errors are
+logged and swallowed** (shared `run(accountId, action, fn)` helper in
+`manager.ts`), so a misconfigured graph never throws out of the fire path. The
+nodes have **no payload outputs** beyond `done`.
+
+Source files group related actions; node labels/descriptions come from the
+`@SignalNode` decorator (these nodes carry **no per-node i18n**):
+
+| File | Kinds |
+|---|---|
+| `actions_chat.ts` | `overlive_announce`, `overlive_shoutout`, `overlive_chat_color` |
+| `actions_channel.ts` | `overlive_update_channel`, `overlive_stream_marker`, `overlive_commercial`, `overlive_snooze_ad` |
+| `actions_points.ts` | `overlive_redemption_status` |
+| `actions_moderation.ts` | `overlive_ban_user`, `overlive_unban`, `overlive_delete_message`, `overlive_chat_settings`, `overlive_warn`, `overlive_automod` |
+| `actions_roles.ts` | `overlive_add_vip`, `overlive_remove_vip`, `overlive_add_moderator`, `overlive_remove_moderator` |
+| `actions_interactive.ts` | `overlive_poll_create`, `overlive_poll_end`, `overlive_prediction_create`, `overlive_prediction_end`, `overlive_raid_start`, `overlive_raid_cancel` |
+| `actions_dm.ts` | `overlive_whisper` |
+
+Shared port-coercion helpers live in `signal/nodes/overlive/_actions.ts`
+(`acct`, `strOf`, `numOf`, `toggle`, `durationSetting`, `splitList`). All 24 are
+registered in `signal/registry.ts`. Tests:
+`packages/backend/test/nodes.overlive.actions.test.ts` (17 tests).
+
+> The ban **action** node is `overlive_ban_user` — deliberately distinct from the
+> existing inbound `overlive_ban` **event** node, which would otherwise collide.
+
+**Extending — add a new outbound action:** mirror an existing `actions_*.ts`
+node. Define a `Node` subclass with the `fire`/`done` ports plus typed value
+inputs, decorate it with `@SignalNode` (label + description live there, no i18n
+key), add a best-effort `OverliveManager.<action>()` method wrapping the SDK call
+in `run`, and register the class in `registry.ts`. Fixed-port action nodes
+need **no `INFER_BY_KIND` entry** (only the dynamic `overlive_send_chat` does).
 
 ## Frontend — `components/editor/OverliveAccountsModal.tsx`
 

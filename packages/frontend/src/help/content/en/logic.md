@@ -45,3 +45,9 @@ Logic can react to live stream events from connected [accounts](topic:overview)
 — a new follower, a subscription, a chat command, a channel-point redemption,
 and more. Pair a trigger node with an action node (play an animation, show an
 overlay, spawn an effect) to create automated reactions for your audience.
+
+Logic can also talk back: the **Send Chat** action posts a message to your
+channel when it fires. Its message is a template — write fixed text mixed with
+`${placeholders}`, then wire a value into each named input to fill the blanks
+(for example, greet a new follower by name). Sending requires reconnecting the
+account once so it grants chat-write permission.
