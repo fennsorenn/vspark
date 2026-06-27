@@ -315,7 +315,10 @@ export function buildToolSpecs(): ToolSpec[] {
         `Create a layer in a compose scene. kind is one of: ${LAYER_KINDS}.\n` +
         'A "feed" layer renders live data through a template held in config.template (htm/JSX-ish: ' +
         '`{chat.map(m => `<div>${m.text}</div>`).join("")}`) styled by config.css. The chat data is exposed ' +
-        'in the template as the bare variable `chat` (an array of message objects with .text).',
+        'in the template as the bare variable `chat` (an array of message objects with .text). config.css ' +
+        'is normal CSS and may reference image assets by url (from list_assets): `.msg { border-image: ' +
+        'url(<asset url>) 30 round }` for a per-message border, `.chat { border-image: url(<asset url>) 40 ' +
+        'stretch }` for a border around the whole box.',
       inputShape: {
         composeSceneId: z.string(),
         name: z.string(),
@@ -687,10 +690,31 @@ export function buildToolSpecs(): ToolSpec[] {
     {
       name: 'list_assets',
       description:
-        'List a project’s asset files (avatars/animations/images/audio/video). Use an asset’s filePath ' +
-        'as the filePath when creating/updating the scene node that should display it.',
+        'List a project’s asset files. Each entry: {id, name, kind (image/avatar/animation/audio/video/' +
+        'other), mime, url}. The `url` is a real served path (/uploads/…): use it as a scene node’s ' +
+        'filePath, and reference it directly inside a feed layer’s template/css — e.g. ' +
+        '`border-image: url(<url>) 30 round` or `background: url(<url>)` for image borders/backgrounds.',
       inputShape: { projectId: z.string() },
-      handler: (c, a) => c.get(`/api/projects/${a.projectId}/assets`),
+      handler: async (c, a) => {
+        const rows = (await c.get(
+          `/api/projects/${a.projectId}/assets`
+        )) as Array<Record<string, unknown>>;
+        const kindOf = (mime: string): string => {
+          if (mime.startsWith('image/')) return 'image';
+          if (mime.startsWith('audio/')) return 'audio';
+          if (mime.startsWith('video/')) return 'video';
+          if (/gltf|glb|vrm/.test(mime)) return 'avatar';
+          if (/fbx|bvh/.test(mime)) return 'animation';
+          return 'other';
+        };
+        return (Array.isArray(rows) ? rows : []).map((r) => ({
+          id: r.id,
+          name: r.original_name,
+          mime: r.mime_type,
+          kind: kindOf(String(r.mime_type ?? '')),
+          url: r.stored_path,
+        }));
+      },
     },
     {
       name: 'list_avatar_expressions',
