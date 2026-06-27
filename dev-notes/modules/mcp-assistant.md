@@ -23,12 +23,12 @@ those lessons — they are the load-bearing part of this module, not the wiring.
 | File | Role |
 |------|------|
 | `client.ts` | `VsparkClient` — a thin HTTP wrapper over the vspark REST API. Injectable `baseUrl` + optional `fetchImpl` (tests). Unwraps the `{ ok, data, error }` envelope; throws `VsparkApiError` on `!ok`/non-2xx. The tool layer talks to the backend *exclusively* through this, so the same tool code works for every transport — each just points the client at a base URL. |
-| `tools.ts` | `buildToolSpecs()` — the single source of truth for the tool catalog (55 tools). Each `ToolSpec` is `{ name, description, inputShape (zod raw shape), handler }`. |
+| `tools.ts` | `buildToolSpecs()` — the single source of truth for the tool catalog (57 tools). Each `ToolSpec` is `{ name, description, inputShape (zod raw shape), handler }`. |
 | `server.ts` | `createMcpServer(client)` — builds an `@modelcontextprotocol/sdk` `McpServer` (^1.29) and registers every spec. Handlers run the spec, JSON-stringify the result, and map thrown errors to `{ isError: true, content: [...] }`. |
 | `http.ts` | `createMcpHttpRouter(loopbackBaseUrl)` — mounts the server over the **stateless Streamable-HTTP** transport at `/mcp` (see `index.ts`). Each POST spins up a fresh server+transport pair (no session affinity); `GET`/`DELETE` return 405. |
 | `stdio.ts` | Standalone **stdio** MCP server — the `vspark-mcp` bin. External AI clients (Claude Desktop / Code, Cursor) spawn it; it forwards tool calls to a *running* backend over HTTP, pointed by `VSPARK_BASE_URL` (default `http://localhost:3001`). stderr for logs, stdout is the JSON-RPC channel. |
 
-### The tool catalog (55 tools)
+### The tool catalog (57 tools)
 
 Grouped by area (all defined in `tools.ts`):
 

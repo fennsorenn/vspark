@@ -135,7 +135,7 @@ PUT  /api/assistant-config  updates the AI Assistant settings; apiKey only overw
 
 ## MCP server — `mcp/` (mounted at `/mcp`)
 
-`app.use('/mcp', createMcpHttpRouter(...))` mounts a stateless Streamable-HTTP MCP server exposing the REST surface as 55 tools; the tools call back into this same backend over loopback, exercising the real REST validation path. The same tool catalog also ships as the standalone stdio `vspark-mcp` bin and powers the in-app assistant. See [mcp-assistant.md](mcp-assistant.md).
+`app.use('/mcp', createMcpHttpRouter(...))` mounts a stateless Streamable-HTTP MCP server exposing the REST surface as 57 tools; the tools call back into this same backend over loopback, exercising the real REST validation path. The same tool catalog also ships as the standalone stdio `vspark-mcp` bin and powers the in-app assistant. See [mcp-assistant.md](mcp-assistant.md).
 
 ## Database — `db/`
 
