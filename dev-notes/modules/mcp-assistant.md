@@ -23,26 +23,27 @@ those lessons — they are the load-bearing part of this module, not the wiring.
 | File | Role |
 |------|------|
 | `client.ts` | `VsparkClient` — a thin HTTP wrapper over the vspark REST API. Injectable `baseUrl` + optional `fetchImpl` (tests). Unwraps the `{ ok, data, error }` envelope; throws `VsparkApiError` on `!ok`/non-2xx. The tool layer talks to the backend *exclusively* through this, so the same tool code works for every transport — each just points the client at a base URL. |
-| `tools.ts` | `buildToolSpecs()` — the single source of truth for the tool catalog (57 tools). Each `ToolSpec` is `{ name, description, inputShape (zod raw shape), handler }`. |
+| `tools.ts` | `buildToolSpecs()` — the single source of truth for the tool catalog (60 tools). Each `ToolSpec` is `{ name, description, inputShape (zod raw shape), handler }`. |
 | `server.ts` | `createMcpServer(client)` — builds an `@modelcontextprotocol/sdk` `McpServer` (^1.29) and registers every spec. Handlers run the spec, JSON-stringify the result, and map thrown errors to `{ isError: true, content: [...] }`. |
 | `http.ts` | `createMcpHttpRouter(loopbackBaseUrl)` — mounts the server over the **stateless Streamable-HTTP** transport at `/mcp` (see `index.ts`). Each POST spins up a fresh server+transport pair (no session affinity); `GET`/`DELETE` return 405. |
 | `stdio.ts` | Standalone **stdio** MCP server — the `vspark-mcp` bin. External AI clients (Claude Desktop / Code, Cursor) spawn it; it forwards tool calls to a *running* backend over HTTP, pointed by `VSPARK_BASE_URL` (default `http://localhost:3001`). stderr for logs, stdout is the JSON-RPC channel. |
 
-### The tool catalog (57 tools)
+### The tool catalog (60 tools)
 
 Grouped by area (all defined in `tools.ts`):
 
 - **Discovery / read:** `list_projects`, `list_scenes`, `list_scene_nodes`,
   `list_compose_scenes`, `list_compose_layers`, `list_project_logic`,
-  `get_logic`, `list_node_kinds`, `lookup_node_kind`.
+  `get_logic`, `list_node_kinds`, `lookup_node_kind`,
+  `lookup_component_schema`, `list_ui_controls`.
 - **Presets (prefer over building from scratch):** `list_presets`,
   `instantiate_preset`.
 - **Scene (3D) writes:** `create_scene`, `create_scene_node`,
   `update_scene_node`, `delete_scene_node`.
 - **Compose (2D overlay) writes:** `create_compose_scene`,
   `create_compose_layer`, `delete_compose_layer`, `update_compose_layer`.
-- **Logic (signal graph) writes:** `create_project_logic`, `delete_logic`,
-  `set_logic_descriptor`.
+- **Logic (signal graph) writes:** `create_project_logic`, `update_logic`,
+  `delete_logic`, `set_logic_descriptor`.
 - **Timeline / track clips:** `lookup_param_paths`, `list_track_clips`,
   `create_track_clip`, `update_track_clip`, `delete_track_clip`,
   `add_track_clip_lane`, `delete_track_clip_lane`, `set_track_clip_keyframes`,
@@ -179,6 +180,8 @@ produces a broken-but-accepted result. The encoded rules:
   the complete config (template + css + everything) on any change.
 - **Logic graphs are created empty**, then wired in a second step with
   `set_logic_descriptor` (`create_project_logic` returns only an id).
+  **`set_logic_descriptor` changes only the nodes/edges, not the name** —
+  rename / enable-disable a graph with `update_logic(id, name?, enabled?)`.
 - **Signal-node `kind` and port names come from the catalog**, not guesses —
   `list_node_kinds` then `lookup_node_kind` (ports + types/transport). A wrong
   port name is not validated server-side and yields a dead graph.
@@ -188,6 +191,23 @@ produces a broken-but-accepted result. The encoded rules:
   utility, input, output, mocap, calibration) to fetch just the relevant family
   and save context; `lookup_node_kind` also returns the node's label/description.
 
+**Lean descriptions, bulk reference behind fetch tools.** Descriptions carry only
+the gotchas a model gets wrong; long enumerations live in dedicated `lookup_*` /
+`list_*` fetch tools the agent calls on demand, keeping the always-loaded schemas
+small (it matters on a 16k window). Two such tools were split out:
+
+- **`lookup_component_schema(component?)`** returns the flat field shapes for
+  scene-node `components` entries (transform / light / camera / feed). The full
+  shapes moved OUT of `create_scene_node`'s description (which now just calls this
+  tool); the components-vs-properties + flat-position gotchas stay inline.
+- **`list_ui_controls(area?)`** returns the real `vs-` control handles grouped by
+  area (topbar, uploads, assets, scene, compose, clips, presets, tabs). The
+  ~80-handle inline list moved OUT of `ui_highlight_control`, whose description now
+  just says to call `list_ui_controls` for the exact handle.
+
+For the same reason `list_presets` and `list_overlive_accounts` descriptions were
+trimmed of strategy text the system prompt already carries.
+
 When the REST API or these semantics change, **the tool descriptions are the
 thing to update** — see [Adding / changing a tool](#adding--changing-a-tool).
 
@@ -196,7 +216,7 @@ thing to update** — see [Adding / changing a tool](#adding--changing-a-tool).
 | File | Role |
 |------|------|
 | `llm.ts` | Minimal OpenAI-compatible chat client (`chatCompletion`). Dependency-free (global `fetch`), non-streaming, `temperature: 0`. Works against vLLM / Ollama / OpenAI. Posts to `<baseUrl>/v1/chat/completions` with optional `Authorization: Bearer <apiKey>`. |
-| `agent.ts` | `AssistantAgent` — holds conversation state and the tool-calling loop. Also owns the **context-management** layer: lazy tool-loading (`TOOL_GROUPS` + the `enable_tools` meta-tool, `activeTools()`) and selective history compaction (`compactToolHistory`). |
+| `agent.ts` | `AssistantAgent` — holds conversation state and the tool-calling loop. Also owns the **context-management** layer: lazy tool-loading with a per-turn group reset (`TOOL_GROUPS` + the `enable_tools` meta-tool, `activeTools()`), three-pass history compaction (`compactToolHistory`), and overflow recovery (`completeWithRecovery` → `pruneOldestGroups`). |
 | `manager.ts` | `AssistantManager` — one agent per WS connection; routes inbound `assistant_*` messages and streams events back to that single socket. |
 
 ### The agent loop
@@ -211,9 +231,12 @@ sees the lazy-loaded subset `activeTools()` returns (see [Context
 management](#context-management)).
 
 `runTurn(userText, events, signal?)`:
-1. Push the user message; loop up to `MAX_TOOL_ROUNDS` (16).
-2. Each round: `compactToolHistory(messages)`, then one `chatCompletion` over
-   `activeTools()`. Emit any assistant text (`onText`).
+1. Clear `enabledGroups` (each turn starts lean — only the action families this
+   turn needs get re-enabled), push the user message; loop up to `MAX_TOOL_ROUNDS`
+   (16).
+2. Each round: `compactToolHistory(messages)`, then one completion over
+   `activeTools()` via `completeWithRecovery` (retries once with a harder prune on
+   a context-overflow error). Emit any assistant text (`onText`).
 3. If the model returned no `tool_calls`, the turn is done.
 4. Otherwise, for each call: parse args, `onToolCall`, dispatch through
    `callTool` (which handles the `enable_tools` meta-tool agent-side and routes
@@ -234,13 +257,13 @@ one socket.
 
 ### Context management
 
-The target deployment is a 16k-context model (`gemma`), where the 57 tool
-schemas alone were ~47% of the window. Two agent-side mechanisms keep a long
-tool-calling turn inside the budget. Both live in `agent.ts`; the MCP server is
-untouched, so **standalone MCP clients still see the full 57-tool catalog** —
-the gating is in-app only.
+The target deployment is a 16k-context model (`gemma`), where the 60 tool
+schemas alone were ~half the window. Agent-side mechanisms keep both a long
+single turn and a long multi-turn conversation inside the budget. All live in
+`agent.ts`; the MCP server is untouched, so **standalone MCP clients still see the
+full 60-tool catalog** — the gating is in-app only.
 
-**Additive lazy tool-loading (#1).** The LLM does not see all 57 tools every
+**Additive lazy tool-loading (#1).** The LLM does not see all 60 tools every
 call. A small always-on **core** — everything *not* in a group, i.e. all
 `list_*`/`lookup_*` discovery + `ui_*` pointing tools — stays loaded. The
 mutation/action families are hidden until the agent calls the agent-side
@@ -253,16 +276,36 @@ enabled groups + the `enable_tools` loader. `enable_tools` is handled directly i
 `callTool` (not routed to MCP); if the model calls an action tool whose family is
 not yet enabled, that group **auto-enables** and the call proceeds. Measured
 savings: default active tool-schema ~6.9k → ~3.3k tokens (~52%); each
-one/two-family build adds ~0.3–0.8k back.
+one/two-family build adds ~0.3–0.8k back. **`enabledGroups` resets at the start of
+every turn** (`runTurn`), so a long multi-feature conversation doesn't keep every
+action family loaded — each turn re-enables only what it needs.
 
 **Selective history compaction (#4).** Before each completion the loop calls the
 exported pure function `compactToolHistory(messages)`. It bounds context growth
-over a long turn **without breaking the assistant↔tool pairing**: it never
-removes messages, only shortens stale tool *results*. The most recent
-`RECENT_TOOL_RESULTS` (=8) results stay verbatim; older `list_*`/`lookup_*`/`get_*`
-**reference** fetches (what the agent reasons on) are kept but capped at
-`REFERENCE_CAP` (=1800 chars); older **action** results (create/update/set/…)
-collapse to just their `id`/`ok` via `stubActionResult`. It is idempotent.
+**without breaking the assistant↔tool pairing**, in three passes:
+
+- **Pass 1 — shorten stale tool *results*.** The most recent `RECENT_TOOL_RESULTS`
+  (=8) results stay verbatim; older `list_*`/`lookup_*`/`get_*` **reference**
+  fetches (what the agent reasons on) are kept but capped at `REFERENCE_CAP`
+  (=1800 chars); older **action** results (create/update/set/…) collapse to just
+  their `id`/`ok` via `stubActionResult`.
+- **Pass 2 — stub stale action-tool-call *arguments*** to `'{}'` (e.g. a full
+  graph descriptor the model emitted is dead weight once executed), leaving the
+  last `KEEP_LAST_MESSAGES` (=12) and reference/`enable_tools` calls alone.
+- **Pass 3 — hard cap** on total history (`HISTORY_CHAR_BUDGET` ≈ 24000 chars):
+  drop the oldest complete assistant+tool-result groups atomically via
+  `dropOldestGroup` until under budget — never touching the system message, user
+  turns, or the last `KEEP_LAST_MESSAGES`, so tool-call pairing stays valid.
+
+It is idempotent.
+
+**Recovery on overflow.** `completeWithRecovery` wraps the completion: if the LLM
+still reports a context-length overflow, it prunes harder (`pruneOldestGroups`,
+dropping oldest groups down to ~half the messages) and retries once, so a long
+conversation degrades gracefully instead of dying. Motivation: an 8-turn session
+previously overflowed gemma's 16k window on turn 5 and then failed every later
+turn; with the per-turn group reset + hard cap + recovery it now completes with
+zero context errors and later turns can still reference and summarise earlier work.
 
 **`max_tokens`.** `llm.ts`'s default completion budget is **1024** (lowered from
 1500) to reserve more of the small window for input; raise per-call via
@@ -387,13 +430,15 @@ New `vs-` control handles (controls-manifest blessed): `vs-topbar-assistant`,
 ## Tests
 
 - `packages/backend/test/api.mcp.test.ts` — tool catalog (asserts the
-  catalog includes `list_presets` + `instantiate_preset` and has length ≥ 57),
+  catalog includes `list_presets` + `instantiate_preset` and has length ≥ 60),
   create + read-back of a scene node, the tool-error path, two-step logic wiring,
   config redaction, and a **drift test** asserting every `TOOL_GROUPS` name is a
   real, non-core action tool in the catalog (and that no name is in two groups).
-- `packages/backend/test/assistant.compact.test.ts` (3 tests) — `compactToolHistory`:
+- `packages/backend/test/assistant.compact.test.ts` (6 tests) — `compactToolHistory`:
   recent results kept verbatim with no message dropped, older reference fetches
-  capped (not stubbed), idempotence.
+  capped (not stubbed), stale action-call argument stubbing, the hard cap dropping
+  oldest groups with pairing + system message intact, `pruneOldestGroups`, and
+  idempotence.
 - `packages/frontend/test/assistantStore.test.ts` (5 tests).
 
 ## The three transports at a glance
