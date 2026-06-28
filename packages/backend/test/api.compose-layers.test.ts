@@ -378,39 +378,6 @@ describe('compose-layers API (mesh-backed)', () => {
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
       expect(res.body.error.message).toMatch(/Template syntax error/);
     });
-
-    it('broadcasts compose_layer_added on create and _removed on delete', async () => {
-      // Compose layers reach editors over the legacy /ws broadcast (not the mesh
-      // subtree), so create/delete MUST broadcast or another writer's layer
-      // (the assistant, a collaborator) never appears live.
-      const events: { kind: string; payload: Record<string, unknown> }[] = [];
-      const { setWsSync } = await import('../src/routes/shared.js');
-      setWsSync({
-        broadcast: (kind: string, payload: Record<string, unknown>) =>
-          events.push({ kind, payload }),
-      } as never);
-      try {
-        const created = await createLayerInScene(composeSceneId, {
-          name: 'Broadcast',
-          kind: 'rect',
-        });
-        const id = created.body.data.id as string;
-        expect(
-          events.some(
-            (e) => e.kind === 'compose_layer_added' && e.payload?.id === id
-          )
-        ).toBe(true);
-
-        await deleteLayer(id);
-        expect(
-          events.some(
-            (e) => e.kind === 'compose_layer_removed' && e.payload?.id === id
-          )
-        ).toBe(true);
-      } finally {
-        setWsSync(null as never);
-      }
-    });
   });
 
   describe('compose-layer defaults', () => {

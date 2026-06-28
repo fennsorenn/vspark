@@ -306,13 +306,7 @@ router.post('/compose-scenes/:composeSceneId/layers', async (req, res) => {
   const row = db
     .prepare('SELECT * FROM compose_layers WHERE id = ?')
     .get(layerId) as LayerRow;
-  const created = rowToLayer(row);
-  // Compose layers propagate to editors over the legacy /ws channel (they're not
-  // subscribed via the mesh subtree the way scene nodes are). Update/reorder
-  // already broadcast; create did not — so a layer created by another writer
-  // (the assistant, a collaborator) never reached the open editor live.
-  _ws?.broadcast('compose_layer_added', created);
-  res.status(201).json({ ok: true, data: created });
+  res.status(201).json({ ok: true, data: rowToLayer(row) });
 });
 
 // ---------------------------------------------------------------------------
@@ -498,7 +492,6 @@ router.delete('/compose-layers/:id', async (req, res) => {
   runtimeOverrideManager.clearAllForTarget('compose_layer', id);
   if (reanchored.length > 0)
     _ws?.broadcast('compose_layer_reordered', { updates: reanchored });
-  _ws?.broadcast('compose_layer_removed', { id });
   res.json({ ok: true, data: { id, reanchored } });
 });
 
