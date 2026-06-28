@@ -9,11 +9,6 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { VsparkClient } from '../mcp/client.js';
 import { createMcpServer } from '../mcp/server.js';
 import {
-  captureProjectSnapshot,
-  revertChangeSet,
-  type ProjectSnapshot,
-} from './checkpoint.js';
-import {
   chatCompletion,
   type ChatMessage,
   type ChatTool,
@@ -85,20 +80,6 @@ const TOOL_TO_GROUP = new Map<string, string>(
     names.map((n) => [n, g] as [string, string])
   )
 );
-/** Agent-side tool, surfaced only after a turn mutated the project, so "undo
- *  that" can roll the whole turn back (see assistant/checkpoint.ts). */
-const REVERT_TOOL: ChatTool = {
-  type: 'function',
-  function: {
-    name: 'revert_last_change',
-    description:
-      'Undo everything your previous change-making turn did to the project, restoring it to how it was just ' +
-      'before. Call this when the user asks to undo / revert / take back your last changes. Only available ' +
-      'right after a turn that modified the project; reverts that one turn (not older ones).',
-    parameters: { type: 'object', properties: {} },
-  },
-};
-
 const ENABLE_TOOLS: ChatTool = {
   type: 'function',
   function: {
@@ -274,8 +255,6 @@ const SYSTEM_PROMPT =
   'instead of guessing kind names, then lookup_node_kind for exact ports. ' +
   'Deleting is destructive: before calling any delete tool, confirm with the user in plain ' +
   'language and wait for their reply unless they already clearly asked for that exact deletion. ' +
-  'If the user asks to UNDO or revert your last change, call revert_last_change (offered only right ' +
-  'after a turn that modified the project) — it rolls that whole turn back. ' +
   'You can REFERENCE an existing streaming account (list_overlive_accounts) when wiring a chat/event ' +
   'feed, but you cannot CONNECT one — connecting Twitch/StreamElements is an OAuth login only the user ' +
   'can do. When an account is missing or needs connecting, do not attempt it: open the Accounts dialog ' +
@@ -309,13 +288,6 @@ export class AssistantAgent {
   private allTools: ChatTool[] = [];
   /** Action-tool families the agent has enabled this conversation. */
   private enabledGroups = new Set<string>();
-  /** Project snapshot taken at the start of the current turn. */
-  private turnStartSnapshot: ProjectSnapshot | null = null;
-  /** The before/after snapshots bracketing the last turn that mutated — their
-   *  diff is the agent's change-set, which revert_last_change rolls back (only
-   *  docs the agent changed, only if untouched since — never a user's edits). */
-  private revertable: { before: ProjectSnapshot; after: ProjectSnapshot } | null =
-    null;
   private messages: ChatMessage[];
   private busy = false;
 
@@ -383,8 +355,6 @@ export class AssistantAgent {
       return !g || this.enabledGroups.has(g);
     });
     active.push(ENABLE_TOOLS);
-    // Offer undo only when there's a mutating turn to roll back.
-    if (this.revertable) active.push(REVERT_TOOL);
     return active;
   }
 
@@ -437,12 +407,6 @@ export class AssistantAgent {
       stripStaleImages(this.messages);
       this.messages.push({ role: 'user', content: userContent });
 
-      // Checkpoint the project before this turn touches anything, so a mutating
-      // turn can be rolled back wholesale via revert_last_change (undo).
-      this.turnStartSnapshot = this.projectId
-        ? captureProjectSnapshot(this.projectId)
-        : null;
-
       // Did this turn make any mutations, and have we forced the read-back yet?
       let mutated = false;
       let verifyRequested = false;
@@ -468,16 +432,7 @@ export class AssistantAgent {
 
         if (typeof message.content === 'string' && message.content)
           events.onText(message.content);
-        if (calls.length === 0) {
-          // Turn finished. If it changed the project, capture the after-state so
-          // its diff vs. the start snapshot is this turn's revertable change-set.
-          if (mutated && this.turnStartSnapshot && this.projectId)
-            this.revertable = {
-              before: this.turnStartSnapshot,
-              after: captureProjectSnapshot(this.projectId),
-            };
-          return; // model is done
-        }
+        if (calls.length === 0) return; // model is done
 
         for (const call of calls) {
           let args: Record<string, unknown> = {};
@@ -538,37 +493,6 @@ export class AssistantAgent {
         images: [],
         text: `Enabled ${g} tools: ${TOOL_GROUPS[g].join(', ')}. You can now call them.`,
       };
-    }
-    // revert_last_change is agent-side — it restores the snapshot captured before
-    // the last mutating turn (auto-checkpoint undo), via the mesh so the editor
-    // updates too. Single-level: clears the snapshot once used.
-    if (name === 'revert_last_change') {
-      if (!this.revertable)
-        return {
-          ok: false,
-          images: [],
-          text: 'Nothing to undo — there is no recent change of mine to revert.',
-        };
-      const { before, after } = this.revertable;
-      this.revertable = null;
-      try {
-        const { reverted, skipped } = await revertChangeSet(before, after);
-        const note =
-          skipped > 0
-            ? ` (left ${skipped} item(s) alone because they were changed after my turn).`
-            : '.';
-        return {
-          ok: true,
-          images: [],
-          text: `Undid my last change — reverted ${reverted} item(s) I had modified${note} I only touched what I changed, not any edits made since.`,
-        };
-      } catch (e) {
-        return {
-          ok: false,
-          images: [],
-          text: `Failed to revert: ${e instanceof Error ? e.message : String(e)}`,
-        };
-      }
     }
     // If the model called an action tool whose family isn't enabled yet (it knew
     // the name anyway), auto-enable and proceed instead of failing.
