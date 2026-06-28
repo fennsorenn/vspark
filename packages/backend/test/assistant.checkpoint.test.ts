@@ -4,16 +4,16 @@ import type { Express } from 'express';
 import { makeTestApp } from './helpers/testApp.js';
 import {
   captureProjectSnapshot,
-  revertProjectToSnapshot,
+  revertChangeSet,
 } from '../src/assistant/checkpoint.js';
 import { getMeshCollection } from '../src/mesh/index.js';
 
 /**
- * Project snapshot/revert that backs the assistant's auto-checkpoint undo:
- * a snapshot taken before a mutating turn restores the project — re-setting
- * changed docs and removing ones created since.
+ * The assistant's auto-checkpoint undo reverts only the agent's OWN change-set
+ * (diff of before→after snapshots), and only when a doc hasn't been touched
+ * since — so it never clobbers a concurrent/subsequent user edit.
  */
-describe('assistant checkpoint (capture + revert)', () => {
+describe('assistant checkpoint (change-set revert)', () => {
   let app: Express;
   let projectId: string;
   let sceneId: string;
@@ -25,11 +25,10 @@ describe('assistant checkpoint (capture + revert)', () => {
 
   const nodesOf = (project: string) =>
     (
-      (getMeshCollection('scene_node')?.all() ?? []) as Record<
-        string,
-        unknown
-      >[]
+      (getMeshCollection('scene_node')?.all() ?? []) as Record<string, unknown>[]
     ).filter((n) => n.projectId === project);
+  const nameOf = (id: string) =>
+    nodesOf(projectId).find((n) => n.id === id)?.name;
 
   beforeEach(async () => {
     ({ app } = await makeTestApp({ mesh: true }));
@@ -42,53 +41,60 @@ describe('assistant checkpoint (capture + revert)', () => {
     ).body.data.id as string;
   });
 
-  it('removes docs created after the snapshot', async () => {
+  it('removes a doc the agent created', async () => {
     const a = (await createNode('A')).body.data.id as string;
-    const snap = captureProjectSnapshot(projectId);
-
+    const before = captureProjectSnapshot(projectId);
     const b = (await createNode('B')).body.data.id as string;
-    expect(nodesOf(projectId).map((n) => n.id)).toEqual(
-      expect.arrayContaining([a, b])
-    );
+    const after = captureProjectSnapshot(projectId);
 
-    const res = await revertProjectToSnapshot(snap);
-    expect(res.removed).toBeGreaterThanOrEqual(1);
+    const res = await revertChangeSet(before, after);
+    expect(res.reverted).toBe(1);
     const ids = nodesOf(projectId).map((n) => n.id);
     expect(ids).toContain(a);
     expect(ids).not.toContain(b);
   });
 
-  it('restores a doc modified after the snapshot', async () => {
+  it('restores a doc the agent modified', async () => {
     const a = (await createNode('Original')).body.data.id as string;
-    const snap = captureProjectSnapshot(projectId);
-
+    const before = captureProjectSnapshot(projectId);
     await request(app).put(`/api/scene-nodes/${a}`).send({ name: 'Renamed' });
-    expect(nodesOf(projectId).find((n) => n.id === a)?.name).toBe('Renamed');
+    const after = captureProjectSnapshot(projectId);
 
-    await revertProjectToSnapshot(snap);
-    expect(nodesOf(projectId).find((n) => n.id === a)?.name).toBe('Original');
+    await revertChangeSet(before, after);
+    expect(nameOf(a)).toBe('Original');
   });
 
-  it('does not touch another project', async () => {
-    const otherProj = (
-      await request(app).post('/api/projects').send({ name: 'Other' })
-    ).body.data.id as string;
-    const otherScene = (
-      await request(app)
-        .post(`/api/projects/${otherProj}/scenes`)
-        .send({ name: 'S' })
-    ).body.data.id as string;
-    const otherNode = (
-      await request(app)
-        .post(`/api/scenes/${otherScene}/nodes`)
-        .send({ name: 'Keep', kind: 'group' })
-    ).body.data.id as string;
+  it('does NOT undo a concurrent edit to an unrelated doc', async () => {
+    const a = (await createNode('A')).body.data.id as string;
+    const u = (await createNode('UserNode')).body.data.id as string;
+    const before = captureProjectSnapshot(projectId);
 
-    const snap = captureProjectSnapshot(projectId);
-    await createNode('B'); // a change in OUR project
-    await revertProjectToSnapshot(snap);
+    // agent changes A
+    await request(app).put(`/api/scene-nodes/${a}`).send({ name: 'AgentEdit' });
+    const after = captureProjectSnapshot(projectId);
 
-    // the other project's node is untouched
-    expect(nodesOf(otherProj).map((n) => n.id)).toContain(otherNode);
+    // meanwhile a user renames an unrelated node + creates a new one
+    await request(app).put(`/api/scene-nodes/${u}`).send({ name: 'UserEdit' });
+    const userNew = (await createNode('UserCreated')).body.data.id as string;
+
+    await revertChangeSet(before, after);
+
+    expect(nameOf(a)).toBe('A'); // agent's change rolled back
+    expect(nameOf(u)).toBe('UserEdit'); // user's edit preserved
+    expect(nodesOf(projectId).map((n) => n.id)).toContain(userNew); // not deleted
+  });
+
+  it('skips reverting a doc the user changed after the agent', async () => {
+    const a = (await createNode('Orig')).body.data.id as string;
+    const before = captureProjectSnapshot(projectId);
+    await request(app).put(`/api/scene-nodes/${a}`).send({ name: 'AgentEdit' });
+    const after = captureProjectSnapshot(projectId);
+
+    // user edits the SAME node after the agent's turn
+    await request(app).put(`/api/scene-nodes/${a}`).send({ name: 'UserAfter' });
+
+    const res = await revertChangeSet(before, after);
+    expect(res.skipped).toBeGreaterThanOrEqual(1);
+    expect(nameOf(a)).toBe('UserAfter'); // user's later edit not clobbered
   });
 });

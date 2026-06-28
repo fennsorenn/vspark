@@ -10,7 +10,7 @@ import type { VsparkClient } from '../mcp/client.js';
 import { createMcpServer } from '../mcp/server.js';
 import {
   captureProjectSnapshot,
-  revertProjectToSnapshot,
+  revertChangeSet,
   type ProjectSnapshot,
 } from './checkpoint.js';
 import {
@@ -311,9 +311,11 @@ export class AssistantAgent {
   private enabledGroups = new Set<string>();
   /** Project snapshot taken at the start of the current turn. */
   private turnStartSnapshot: ProjectSnapshot | null = null;
-  /** Snapshot from before the last turn that mutated — what revert_last_change
-   *  restores (single-level, auto-checkpoint-per-turn undo). */
-  private revertable: ProjectSnapshot | null = null;
+  /** The before/after snapshots bracketing the last turn that mutated — their
+   *  diff is the agent's change-set, which revert_last_change rolls back (only
+   *  docs the agent changed, only if untouched since — never a user's edits). */
+  private revertable: { before: ProjectSnapshot; after: ProjectSnapshot } | null =
+    null;
   private messages: ChatMessage[];
   private busy = false;
 
@@ -467,10 +469,13 @@ export class AssistantAgent {
         if (typeof message.content === 'string' && message.content)
           events.onText(message.content);
         if (calls.length === 0) {
-          // Turn finished. If it changed the project, this turn's start snapshot
-          // becomes the revertable one (single-level undo).
-          if (mutated && this.turnStartSnapshot)
-            this.revertable = this.turnStartSnapshot;
+          // Turn finished. If it changed the project, capture the after-state so
+          // its diff vs. the start snapshot is this turn's revertable change-set.
+          if (mutated && this.turnStartSnapshot && this.projectId)
+            this.revertable = {
+              before: this.turnStartSnapshot,
+              after: captureProjectSnapshot(this.projectId),
+            };
           return; // model is done
         }
 
@@ -544,14 +549,18 @@ export class AssistantAgent {
           images: [],
           text: 'Nothing to undo — there is no recent change of mine to revert.',
         };
-      const snap = this.revertable;
+      const { before, after } = this.revertable;
       this.revertable = null;
       try {
-        const { restored, removed } = await revertProjectToSnapshot(snap);
+        const { reverted, skipped } = await revertChangeSet(before, after);
+        const note =
+          skipped > 0
+            ? ` (left ${skipped} item(s) alone because they were changed after my turn).`
+            : '.';
         return {
           ok: true,
           images: [],
-          text: `Reverted my last change (restored ${restored} item(s), removed ${removed} newly-created). The project is back to how it was before that turn.`,
+          text: `Undid my last change — reverted ${reverted} item(s) I had modified${note} I only touched what I changed, not any edits made since.`,
         };
       } catch (e) {
         return {

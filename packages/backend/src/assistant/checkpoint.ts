@@ -86,39 +86,77 @@ export function captureProjectSnapshot(projectId: string): ProjectSnapshot {
   return { projectId, docs };
 }
 
-/** Restore the project to a captured snapshot: re-set every snapshotted doc and
- *  remove project docs created since (present now, absent in the snapshot). */
-export async function revertProjectToSnapshot(
-  snap: ProjectSnapshot
-): Promise<{ restored: number; removed: number }> {
-  const { projectId } = snap;
-  const { nodeIds, layerIds } = projectMembership(projectId);
+/** Key-order-insensitive structural equality, for "did this doc change?". */
+function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null';
+  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+  const o = v as Record<string, unknown>;
+  return (
+    '{' +
+    Object.keys(o)
+      .sort()
+      .map((k) => JSON.stringify(k) + ':' + stableStringify(o[k]))
+      .join(',') +
+    '}'
+  );
+}
+const eq = (a: unknown, b: unknown) => stableStringify(a) === stableStringify(b);
 
-  // 1. Remove docs created during the turn — owned docs first, nodes last.
-  let removed = 0;
+/**
+ * Revert ONLY the documents the agent changed between two snapshots (its turn's
+ * before → after), and only when the doc still holds the agent's after-value —
+ * i.e. nobody (user / collaborator) has touched it since. This keeps the undo
+ * scoped to the agent's own work: it never resets an unrelated doc a user edited
+ * and never deletes a doc a user created. Returns counts of reverted + skipped
+ * (docs left alone because they were changed after the turn).
+ */
+export async function revertChangeSet(
+  before: ProjectSnapshot,
+  after: ProjectSnapshot
+): Promise<{ reverted: number; skipped: number }> {
+  let reverted = 0;
+  let skipped = 0;
+
+  // The agent's change-set per rtype: ids whose before ≠ after.
+  const changed = (rtype: Rtype): string[] => {
+    const b = before.docs[rtype];
+    const a = after.docs[rtype];
+    const ids = new Set([...b.keys(), ...a.keys()]);
+    return [...ids].filter((id) => !eq(b.get(id), a.get(id)));
+  };
+
+  // Pass 1 — remove docs the agent CREATED (absent in before), child types
+  // first, but only if still exactly as the agent left them.
   for (const rtype of [...RTYPES].reverse()) {
     const col = getMeshCollection(rtype);
     if (!col) continue;
-    const want = snap.docs[rtype];
-    for (const d of (col.all() ?? []) as Doc[]) {
-      if (typeof d.id !== 'string') continue;
-      if (!belongsToProject(rtype, d, projectId, nodeIds, layerIds)) continue;
-      if (!want.has(d.id)) {
-        await col.remove(d.id).ack;
-        removed++;
+    for (const id of changed(rtype)) {
+      if (before.docs[rtype].has(id)) continue; // not a creation
+      const cur = col.get(id) as Doc | undefined;
+      if (!eq(cur, after.docs[rtype].get(id))) {
+        skipped++;
+        continue;
       }
+      await col.remove(id).ack;
+      reverted++;
     }
   }
 
-  // 2. Restore snapshotted docs — parents first so owned docs persist.
-  let restored = 0;
+  // Pass 2 — restore docs the agent MODIFIED or DELETED, parent types first.
   for (const rtype of RTYPES) {
     const col = getMeshCollection(rtype);
     if (!col) continue;
-    for (const [id, doc] of snap.docs[rtype]) {
-      await col.set(id, '', doc).ack;
-      restored++;
+    for (const id of changed(rtype)) {
+      const beforeDoc = before.docs[rtype].get(id);
+      if (beforeDoc === undefined) continue; // a creation (handled in pass 1)
+      const cur = col.get(id) as Doc | undefined;
+      if (!eq(cur, after.docs[rtype].get(id))) {
+        skipped++;
+        continue;
+      }
+      await col.set(id, '', beforeDoc).ack;
+      reverted++;
     }
   }
-  return { restored, removed };
+  return { reverted, skipped };
 }
