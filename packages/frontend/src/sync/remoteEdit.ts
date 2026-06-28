@@ -13,6 +13,7 @@ import { useEditorStore } from '../store/editorStore';
 import type { StageObject } from '../store/editorStore';
 import { canWriteObject } from '../store/connectionsStore';
 import { setRemoteWriteRouter } from '../api/client';
+import { randomUUID } from '@vspark/shared/sync';
 import type { SyncEnvelope } from '@vspark/shared/sync';
 import {
   owningProjectionRoot,
@@ -110,7 +111,7 @@ export function createRemoteChild(
   const root = owningProjectionRoot(owner, parent.id);
   if (!root || !canWriteObject(owner, root)) return null;
 
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   const node: StageObject = {
     id,
     parentId: parent.id, // owner-side id — the owner derives structure from it
