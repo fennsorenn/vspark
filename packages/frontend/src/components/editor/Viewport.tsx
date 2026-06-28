@@ -49,6 +49,7 @@ import html2canvas from 'html2canvas';
 import { toCanvas as htmlToCanvas } from 'html-to-image';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
 import { inlineCssAssetUrls } from '../../lib/cssInline';
+import { setViewportCapturer } from '../../lib/viewportCapture';
 import { compositeScalars, type ScalarLayer } from '../../compositor';
 import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -5474,6 +5475,23 @@ export function ShadowMaterialSync({ enabled }: { enabled: boolean }) {
   return null;
 }
 
+/** Registers a capturer (via lib/viewportCapture) so the assistant's
+ *  screenshot_viewport tool can grab the current 3D view. Renders a fresh frame
+ *  and reads the canvas synchronously — no `preserveDrawingBuffer` needed. */
+export function ViewportCapture() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  useEffect(() => {
+    setViewportCapturer(() => {
+      gl.render(scene, camera);
+      return gl.domElement.toDataURL('image/png');
+    });
+    return () => setViewportCapturer(null);
+  }, [gl, scene, camera]);
+  return null;
+}
+
 /** Selector: returns the effective shadow quality for the editor viewport, or
  *  null when no camera in the active scene has shadows enabled. The editor is a
  *  free authoring view (not a camera), so it previews shadows whenever any
@@ -5546,6 +5564,7 @@ export function Viewport() {
         <SafeEnvironment preset="city" />
         <OrbitControls ref={orbitRef} makeDefault />
         <CameraEffects />
+        <ViewportCapture />
       </Canvas>
       <GizmoToolbar mode={gizmoMode} setMode={setGizmoMode} />
       <AudioPreviewToggle />

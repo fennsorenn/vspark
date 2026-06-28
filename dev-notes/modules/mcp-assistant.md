@@ -23,12 +23,12 @@ those lessons — they are the load-bearing part of this module, not the wiring.
 | File | Role |
 |------|------|
 | `client.ts` | `VsparkClient` — a thin HTTP wrapper over the vspark REST API. Injectable `baseUrl` + optional `fetchImpl` (tests). Unwraps the `{ ok, data, error }` envelope; throws `VsparkApiError` on `!ok`/non-2xx. The tool layer talks to the backend *exclusively* through this, so the same tool code works for every transport — each just points the client at a base URL. |
-| `tools.ts` | `buildToolSpecs()` — the single source of truth for the tool catalog (62 tools). Each `ToolSpec` is `{ name, description, inputShape (zod raw shape), handler }`. A handler may return a `ToolMediaResult` (`{ __media: true, text, images }`, built via `mediaResult()`) to ship image content — used by `view_asset` and `render_feed_template`; `isToolMediaResult()` detects it. |
+| `tools.ts` | `buildToolSpecs()` — the single source of truth for the tool catalog (63 tools). Each `ToolSpec` is `{ name, description, inputShape (zod raw shape), handler }`. A handler may return a `ToolMediaResult` (`{ __media: true, text, images }`, built via `mediaResult()`) to ship image content — used by `view_asset`, `render_feed_template`, and `screenshot_viewport`; `isToolMediaResult()` detects it. |
 | `server.ts` | `createMcpServer(client)` — builds an `@modelcontextprotocol/sdk` `McpServer` (^1.29) and registers every spec. Handlers run the spec; a `ToolMediaResult` is forwarded as MCP `content` with `type: 'image'` parts (plus the text), everything else is JSON-stringified. Thrown errors map to `{ isError: true, content: [...] }`. |
 | `http.ts` | `createMcpHttpRouter(loopbackBaseUrl)` — mounts the server over the **stateless Streamable-HTTP** transport at `/mcp` (see `index.ts`). Each POST spins up a fresh server+transport pair (no session affinity); `GET`/`DELETE` return 405. |
 | `stdio.ts` | Standalone **stdio** MCP server — the `vspark-mcp` bin. External AI clients (Claude Desktop / Code, Cursor) spawn it; it forwards tool calls to a *running* backend over HTTP, pointed by `VSPARK_BASE_URL` (default `http://localhost:3001`). stderr for logs, stdout is the JSON-RPC channel. |
 
-### The tool catalog (62 tools)
+### The tool catalog (63 tools)
 
 Grouped by area (all defined in `tools.ts`):
 
@@ -99,9 +99,9 @@ tool descriptions say so, and the agent attaches one first via `attach_behavior`
 See [component-managers.md](component-managers.md),
 [api-controller.md](api-controller.md), and [animation.md](animation.md).
 
-### Visual feedback — `view_asset` + `render_feed_template`
+### Visual feedback — `view_asset` + `render_feed_template` + `screenshot_viewport`
 
-Two tools let the agent **SEE** pixels instead of reasoning blind — both return
+Three tools let the agent **SEE** pixels instead of reasoning blind — all return
 MCP image content (a `ToolMediaResult`).
 
 - **`view_asset({assetId})`** reads an image asset's bytes from disk
@@ -120,6 +120,14 @@ MCP image content (a `ToolMediaResult`).
   `sessionId` is **auto-injected** for the in-app assistant (the agent fills its
   own session id in `callTool`); an external MCP client supplies one from
   `list_ui_sessions`.
+- **`screenshot_viewport({sessionId?})`** returns a PNG of the user's 3D
+  viewport so the agent can verify visual changes it can't confirm from data
+  (camera framing, lighting, an avatar's facing/pose, object placement). POSTs
+  `/api/viewport-screenshot` → the same WS round-trip; the editor renders a fresh
+  frame and reads the WebGL canvas (`lib/viewportCapture` + the in-`<Canvas>`
+  `ViewportCapture` component — no `preserveDrawingBuffer`). Graceful `{ captured:
+  false, note }` with no session / closed tab. `sessionId` auto-injected like
+  `render_feed_template`.
 
 This replaced an earlier **server-side headless-browser** render path (a
 playwright-core + esbuild feed-preview bundle, `mcp/feedRender.ts`,
@@ -362,7 +370,7 @@ single turn and a long multi-turn conversation inside the budget. All live in
 `agent.ts`; the MCP server is untouched, so **standalone MCP clients still see the
 full 62-tool catalog** — the gating is in-app only.
 
-**Additive lazy tool-loading (#1).** The LLM does not see all 62 tools every
+**Additive lazy tool-loading (#1).** The LLM does not see all 63 tools every
 call. A small always-on **core** — everything *not* in a group, i.e. all
 `list_*`/`lookup_*` discovery + `ui_*` pointing tools — stays loaded. The
 mutation/action families are hidden until the agent calls the agent-side
@@ -475,6 +483,14 @@ editor session is connected. The editor replies with a **`feed_preview_result`**
 (`{requestId, pngBase64 | error}`) which `settlePreview` resolves. So the
 returned PNG comes from the browser's own CSS engine — border-image and full CSS
 render faithfully (the old server-side headless path couldn't).
+
+`requestFeedPreview` is a thin wrapper over a generic
+`WSSync.requestClientImage(sessionId, requestKind, payload)` so other
+client-rendered images reuse the same id-correlated round-trip:
+`screenshot_viewport` → `requestViewportScreenshot` sends
+`viewport_screenshot_request` and the editor replies with
+`viewport_screenshot_result` (captured from the WebGL canvas via
+`lib/viewportCapture`). Both `*_result` kinds settle through the same pending map.
 
 ### Frontend — register + dispatch
 

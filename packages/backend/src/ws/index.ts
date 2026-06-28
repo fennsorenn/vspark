@@ -86,8 +86,12 @@ export class WSSync {
               const pid = (msg as { projectId?: unknown }).projectId;
               if (typeof pid === 'string') session.projectId = pid;
             }
-            // Editor's reply to a feed-preview request: resolve the awaiting tool.
-            if (msg.kind === 'feed_preview_result') {
+            // Editor's reply to an image request (feed preview / viewport
+            // screenshot): resolve the awaiting tool by requestId.
+            if (
+              msg.kind === 'feed_preview_result' ||
+              msg.kind === 'viewport_screenshot_result'
+            ) {
               const m = msg as {
                 requestId?: string;
                 pngBase64?: string;
@@ -135,28 +139,54 @@ export class WSSync {
     return true;
   }
 
-  /** Ask one editor session to rasterize a feed template (real renderer, this
-   *  browser's engine) and resolve with the PNG (base64). Rejects if the session
-   *  is gone, the editor reports an error, or it doesn't reply in time. */
-  requestFeedPreview(
+  /** Ask one editor session to produce an image (this browser's engine) and
+   *  resolve with the PNG (base64). The editor replies with a `<...>_result`
+   *  carrying the same requestId. Rejects if the session is gone, the editor
+   *  reports an error, or it doesn't reply in time. */
+  requestClientImage(
     sessionId: string,
-    payload: Record<string, unknown>,
+    requestKind: string,
+    payload: Record<string, unknown> = {},
     timeoutMs = 15000
   ): Promise<string> {
     const session = this.sessions.get(sessionId);
     if (!session || session.ws.readyState !== WebSocket.OPEN)
       return Promise.reject(
-        new Error('no editor session is connected to render the preview')
+        new Error('no editor session is connected to render the image')
       );
     const requestId = randomUUID();
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingPreviews.delete(requestId);
-        reject(new Error('the editor did not return a preview in time'));
+        reject(new Error('the editor did not return an image in time'));
       }, timeoutMs);
       this.pendingPreviews.set(requestId, { resolve, reject, timer });
-      this.sendTo(session.ws, 'feed_preview_request', { requestId, ...payload });
+      this.sendTo(session.ws, requestKind, { requestId, ...payload });
     });
+  }
+
+  /** Rasterize a feed template in one editor (same renderer as the live layer). */
+  requestFeedPreview(
+    sessionId: string,
+    payload: Record<string, unknown>,
+    timeoutMs = 15000
+  ): Promise<string> {
+    return this.requestClientImage(
+      sessionId,
+      'feed_preview_request',
+      payload,
+      timeoutMs
+    );
+  }
+
+  /** Screenshot the 3D viewport in one editor. */
+  requestViewportScreenshot(sessionId: string, timeoutMs = 15000): Promise<string> {
+    return this.requestClientImage(
+      sessionId,
+      'viewport_screenshot_request',
+      {},
+      timeoutMs
+    );
   }
 
   private settlePreview(requestId: string, pngBase64?: string, error?: string) {

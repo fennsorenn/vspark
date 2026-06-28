@@ -825,6 +825,39 @@ export function buildToolSpecs(): ToolSpec[] {
       },
     },
     {
+      name: 'screenshot_viewport',
+      description:
+        'SEE the user’s 3D viewport — returns a PNG of the current scene as the editor renders it. Use it to ' +
+        'verify visual changes you can’t confirm from data alone (camera framing, lighting, an avatar’s ' +
+        'facing/pose, where an object sits) and to iterate: change something, screenshot, adjust. Requires the ' +
+        'editor to be open (the in-app assistant’s session is used automatically).',
+      inputShape: {
+        // Auto-filled for the in-app assistant; an external client supplies one
+        // from list_ui_sessions (the editor must be open on the Scene view).
+        sessionId: z.string().optional(),
+      },
+      handler: async (c, a) => {
+        if (!a.sessionId)
+          return {
+            captured: false,
+            note: 'No editor session to screenshot. Ask the user to open the editor, then retry.',
+          };
+        try {
+          const { pngBase64 } = (await c.post('/api/viewport-screenshot', {
+            sessionId: a.sessionId,
+          })) as { pngBase64: string };
+          return mediaResult('Screenshot of the 3D viewport (see image).', [
+            { mimeType: 'image/png', base64: pngBase64 },
+          ]);
+        } catch (e) {
+          return {
+            captured: false,
+            note: `Couldn't screenshot the viewport (${e instanceof Error ? e.message : String(e)}). The editor may be on a non-3D tab or closed.`,
+          };
+        }
+      },
+    },
+    {
       name: 'list_avatar_expressions',
       description:
         'List the VRM expression names an avatar node exposes (for blendshapes / default expressions). ' +

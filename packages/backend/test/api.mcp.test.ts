@@ -235,6 +235,15 @@ describe('MCP server', () => {
     expect(text(res)).toMatch(/editor session|apply it/i);
   });
 
+  it('screenshot_viewport degrades gracefully with no editor session', async () => {
+    const res = (await mcp.callTool({
+      name: 'screenshot_viewport',
+      arguments: {},
+    })) as { isError?: boolean; content: { type: string; text?: string }[] };
+    expect(res.isError).toBeFalsy();
+    expect(text(res)).toMatch(/editor/i);
+  });
+
   it('render_feed_template rejects a syntactically broken template', async () => {
     const res = (await mcp.callTool({
       name: 'render_feed_template',

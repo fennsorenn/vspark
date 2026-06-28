@@ -131,4 +131,49 @@ router.post('/feed-preview', async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/viewport-screenshot:
+ *   post:
+ *     tags: [ui]
+ *     summary: Screenshot the 3D viewport of a connected editor session
+ *     description: |
+ *       Asks one editor session to render its 3D viewport and return the PNG as
+ *       base64. Powers the assistant's screenshot_viewport tool so the agent can
+ *       see and verify scene/lighting/framing changes.
+ *     responses:
+ *       200: { description: '{ pngBase64 }' }
+ *       400: { description: Missing sessionId }
+ *       502: { description: No editor session / capture failed / timed out }
+ */
+router.post('/viewport-screenshot', async (req, res) => {
+  const { sessionId } = (req.body ?? {}) as { sessionId?: string };
+  if (!sessionId)
+    return res.status(400).json({
+      ok: false,
+      error: {
+        status: 400,
+        message: 'sessionId is required',
+        code: 'VALIDATION_ERROR',
+      },
+    });
+  if (!_ws)
+    return res
+      .status(502)
+      .json({ ok: false, error: { status: 502, message: 'ws not ready' } });
+  try {
+    const pngBase64 = await _ws.requestViewportScreenshot(sessionId);
+    res.json({ ok: true, data: { pngBase64 } });
+  } catch (e) {
+    res.status(502).json({
+      ok: false,
+      error: {
+        status: 502,
+        message: e instanceof Error ? e.message : String(e),
+        code: 'SCREENSHOT_FAILED',
+      },
+    });
+  }
+});
+
 export default router;

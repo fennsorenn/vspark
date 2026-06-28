@@ -15,11 +15,16 @@ import {
 } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
 import { captureFeedImage } from '../lib/captureFeed';
+import { captureViewport } from '../lib/viewportCapture';
 
-// Dev-only handle for e2e harnesses to exercise the feed capture directly.
+// Dev-only handles for e2e harnesses to exercise the captures directly.
 if (import.meta.env.DEV) {
-  (globalThis as unknown as { __captureFeed?: typeof captureFeedImage }).__captureFeed =
-    captureFeedImage;
+  const g = globalThis as unknown as {
+    __captureFeed?: typeof captureFeedImage;
+    __captureViewport?: typeof captureViewport;
+  };
+  g.__captureFeed = captureFeedImage;
+  g.__captureViewport = captureViewport;
 }
 import { smoothNodeTransform, smoothComposeLayer } from '../previewSmoother';
 import { setIkTargets } from '../ikTargetStore';
@@ -741,6 +746,27 @@ export function useWsSync() {
                   })
                 );
               });
+          } else if (msg.kind === 'viewport_screenshot_request') {
+            // The assistant's screenshot_viewport tool asks THIS editor to grab
+            // its 3D viewport so the agent can see scene/lighting/framing.
+            const p = msg.payload as { requestId: string };
+            const sock = wsRef.current;
+            const dataUrl = captureViewport();
+            sock?.send(
+              JSON.stringify(
+                dataUrl
+                  ? {
+                      kind: 'viewport_screenshot_result',
+                      requestId: p.requestId,
+                      pngBase64: dataUrl.replace(/^data:image\/png;base64,/, ''),
+                    }
+                  : {
+                      kind: 'viewport_screenshot_result',
+                      requestId: p.requestId,
+                      error: 'the 3D viewport is not available right now',
+                    }
+              )
+            );
           }
         } catch {
           /* ignore malformed */
