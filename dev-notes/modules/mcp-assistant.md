@@ -23,12 +23,12 @@ those lessons — they are the load-bearing part of this module, not the wiring.
 | File | Role |
 |------|------|
 | `client.ts` | `VsparkClient` — a thin HTTP wrapper over the vspark REST API. Injectable `baseUrl` + optional `fetchImpl` (tests). Unwraps the `{ ok, data, error }` envelope; throws `VsparkApiError` on `!ok`/non-2xx. The tool layer talks to the backend *exclusively* through this, so the same tool code works for every transport — each just points the client at a base URL. |
-| `tools.ts` | `buildToolSpecs()` — the single source of truth for the tool catalog (60 tools). Each `ToolSpec` is `{ name, description, inputShape (zod raw shape), handler }`. |
-| `server.ts` | `createMcpServer(client)` — builds an `@modelcontextprotocol/sdk` `McpServer` (^1.29) and registers every spec. Handlers run the spec, JSON-stringify the result, and map thrown errors to `{ isError: true, content: [...] }`. |
+| `tools.ts` | `buildToolSpecs()` — the single source of truth for the tool catalog (62 tools). Each `ToolSpec` is `{ name, description, inputShape (zod raw shape), handler }`. A handler may return a `ToolMediaResult` (`{ __media: true, text, images }`, built via `mediaResult()`) to ship image content — used by `view_asset` and `render_feed_template`; `isToolMediaResult()` detects it. |
+| `server.ts` | `createMcpServer(client)` — builds an `@modelcontextprotocol/sdk` `McpServer` (^1.29) and registers every spec. Handlers run the spec; a `ToolMediaResult` is forwarded as MCP `content` with `type: 'image'` parts (plus the text), everything else is JSON-stringified. Thrown errors map to `{ isError: true, content: [...] }`. |
 | `http.ts` | `createMcpHttpRouter(loopbackBaseUrl)` — mounts the server over the **stateless Streamable-HTTP** transport at `/mcp` (see `index.ts`). Each POST spins up a fresh server+transport pair (no session affinity); `GET`/`DELETE` return 405. |
 | `stdio.ts` | Standalone **stdio** MCP server — the `vspark-mcp` bin. External AI clients (Claude Desktop / Code, Cursor) spawn it; it forwards tool calls to a *running* backend over HTTP, pointed by `VSPARK_BASE_URL` (default `http://localhost:3001`). stderr for logs, stdout is the JSON-RPC channel. |
 
-### The tool catalog (60 tools)
+### The tool catalog (62 tools)
 
 Grouped by area (all defined in `tools.ts`):
 
@@ -50,9 +50,11 @@ Grouped by area (all defined in `tools.ts`):
   `control_track_clip`.
 - **Behaviors (avatar/scene-node drivers):** `list_behavior_kinds`,
   `list_behaviors`, `attach_behavior`, `update_behavior`, `delete_behavior`.
-- **Assets, expressions, animation playback:** `list_assets`,
-  `list_avatar_expressions`, `list_avatar_animations`, `play_animation`,
-  `set_animation_queue`, `set_blendshapes`, `clear_blendshapes`.
+- **Assets, expressions, animation playback:** `list_assets`, `view_asset`,
+  `render_feed_template`, `list_avatar_expressions`, `list_avatar_animations`,
+  `play_animation`, `set_animation_queue`, `set_blendshapes`, `clear_blendshapes`.
+  `view_asset` and `render_feed_template` return **images** (see [Visual
+  feedback](#visual-feedback--view_asset--render_feed_template)).
   `list_assets` returns clean `{id, name, kind (image/avatar/animation/audio/
   video/other), mime, url}` entries (not raw `asset_files` rows); `url` is the
   served `/uploads/…` path — usable as a scene node's `filePath` and directly
@@ -96,6 +98,42 @@ animation clips, then drive the avatar: `play_animation`, `set_animation_queue`,
 tool descriptions say so, and the agent attaches one first via `attach_behavior`.
 See [component-managers.md](component-managers.md),
 [api-controller.md](api-controller.md), and [animation.md](animation.md).
+
+### Visual feedback — `view_asset` + `render_feed_template`
+
+Two tools let the agent **SEE** pixels instead of reasoning blind — both return
+MCP image content (a `ToolMediaResult`).
+
+- **`view_asset({assetId})`** reads an image asset's bytes from disk
+  (`uploads/<stored_path>`) and returns them as an image, so the agent can e.g.
+  pick a `border-image-slice` from how deep a frame's ornament runs, or read what
+  an image depicts. Image assets only (non-image mime → error).
+- **`render_feed_template({sessionId?, template, css?, data?, width?, height?,
+  background?})`** renders a feed template+CSS to a PNG **in the user's open
+  editor** (same renderer as the live feed layer) so the agent can verify a
+  border-image / layout / styling before applying it. It first runs
+  `validateFeedTemplate` (rejecting a syntax error); then POSTs
+  `/api/feed-preview`, which does a WS round-trip to the editor and returns the
+  PNG (`pngBase64`). With **no session** (or if the editor can't render — closed
+  tab / timeout) it returns `{ rendered: false, note }` rather than failing: the
+  template is still validated, the agent is told to apply and check in-editor.
+  `sessionId` is **auto-injected** for the in-app assistant (the agent fills its
+  own session id in `callTool`); an external MCP client supplies one from
+  `list_ui_sessions`.
+
+This replaced an earlier **server-side headless-browser** render path (a
+playwright-core + esbuild feed-preview bundle, `mcp/feedRender.ts`,
+`feedPreviewEntry.tsx`, `scripts/buildFeedPreview.mjs`) — all removed, along with
+the `playwright-core` + `htm` backend deps. Rendering in the user's real editor
+means border-image and full CSS render faithfully via the browser's own engine
+(see [The feed-preview round-trip](#the-feed-preview-round-trip)).
+
+How the images reach the model: the agent extracts `type: 'image'` content parts
+from the tool result and attaches them to the `role: 'tool'` message as
+`image_url` parts (gemma accepts images in tool-role messages). Because re-sending
+every base64 blob each round is wasteful, **`stripStaleImages`** prunes inlined
+images from older user *and* tool turns down to a short text note — an image only
+needs to be seen on the turn it arrived.
 
 ### Camera effects
 
@@ -183,8 +221,16 @@ produces a broken-but-accepted result. The encoded rules:
   (`blendTransitionTime`, `poseDynamics`, …) live in `properties`.
 - **`update_scene_node` REPLACES the whole `components` bag** but shallow-merges
   `properties` — resend every component you want to keep.
-- **`update_compose_layer` `config` is REPLACED wholesale**, not merged — resend
-  the complete config (template + css + everything) on any change.
+- **`update_compose_layer` `config` is SHALLOW-MERGED** into the stored config
+  (changed from wholesale-replace) — send ONLY the fields you want to change
+  (e.g. `{config:{css:"…"}}` to restyle a feed layer without resending — and risking
+  corrupting — `template`). The tool description spells this out.
+- **Feed template/CSS is validated on write.** `create_compose_layer` /
+  `update_compose_layer` run `validateFeedConfig` (`@vspark/shared/feedValidation`:
+  `validateFeedTemplate` = the renderer's `new Function` compile, catching a
+  SyntaxError; `validateFeedCss` = brace/paren/string-balance only) and reject a
+  structurally broken template/css with `400 VALIDATION_ERROR` the agent can read
+  and fix, instead of storing markup that renders to nothing.
 - **Logic graphs are created empty**, then wired in a second step with
   `set_logic_descriptor` (`create_project_logic` returns only an id).
   **`set_logic_descriptor` changes only the nodes/edges, not the name** —
@@ -256,9 +302,13 @@ management](#context-management)).
    never set `mutated`, so they finish with no verification pass.)
 4. Otherwise, for each call: parse args, mark `mutated` if its name is a grouped
    action tool, `onToolCall`, dispatch through `callTool` (which handles the
-   `enable_tools` meta-tool agent-side and routes everything else to the MCP
-   client), `onToolResult`, and push a `role: 'tool'` message (truncated to 4000
-   chars).
+   `enable_tools` meta-tool agent-side, **auto-injects this editor's `sessionId`
+   for `render_feed_template`**, and routes everything else to the MCP client),
+   `onToolResult`, and push a `role: 'tool'` message (text truncated to 4000
+   chars). If the tool returned image(s) (`view_asset`, `render_feed_template`),
+   they ride along on that tool message as `image_url` content parts (gemma
+   accepts images in tool-role messages). `stripStaleImages(messages)` prunes
+   images out of older turns before each round so blobs aren't re-transmitted.
 5. After 24 rounds without finishing, emit a "stopped at max steps" notice.
 
 A `system` prompt seeds the conversation with the same discover-before-mutate
@@ -270,7 +320,10 @@ what the user asked; only build from scratch when no preset fits. It also tells
 the model that action tools are **lazy-loaded** — call `enable_tools(group)` for
 the family it needs before mutating — and to **verify changes by reading them back
 before claiming success** (a tool returning ok does not prove the right thing
-landed). `reset()` clears history back to the system prompt **and clears
+landed). It also tells the model it **can SEE images** — `view_asset(assetId)` to
+inspect an image asset (e.g. pick a border-image-slice) and
+`render_feed_template(template, css, …)` to preview a feed before applying it.
+`reset()` clears history back to the system prompt **and clears
 `enabledGroups`**. `busy` guards against overlapping turns on one socket.
 
 ### Chat-template token sanitisation
@@ -303,13 +356,13 @@ entirely. `MAX_TOOL_ROUNDS` is 24 (raised from 16) to leave room for a build
 
 ### Context management
 
-The target deployment is a 16k-context model (`gemma`), where the 60 tool
+The target deployment is a 16k-context model (`gemma`), where the 62 tool
 schemas alone were ~half the window. Agent-side mechanisms keep both a long
 single turn and a long multi-turn conversation inside the budget. All live in
 `agent.ts`; the MCP server is untouched, so **standalone MCP clients still see the
-full 60-tool catalog** — the gating is in-app only.
+full 62-tool catalog** — the gating is in-app only.
 
-**Additive lazy tool-loading (#1).** The LLM does not see all 60 tools every
+**Additive lazy tool-loading (#1).** The LLM does not see all 62 tools every
 call. A small always-on **core** — everything *not* in a group, i.e. all
 `list_*`/`lookup_*` discovery + `ui_*` pointing tools — stays loaded. The
 mutation/action families are hidden until the agent calls the agent-side
@@ -409,6 +462,20 @@ sessions, tagging each with its project when the client replies **`ui_register`*
 call these two routes — that is what makes them work for the in-app assistant and
 a standalone MCP client alike.
 
+### The feed-preview round-trip
+
+`render_feed_template` rasterises in the user's real editor, not on the server.
+The path: the tool POSTs **`/api/feed-preview {sessionId, template, css, data,
+width, height, background}`** (`routes/ui.ts`), which calls
+`WSSync.requestFeedPreview(sessionId, payload, timeoutMs=15000)` — an
+**id-correlated WS round-trip**: it sends a **`feed_preview_request`**
+(`{requestId, …payload}`) over that session's socket and parks a promise in
+`pendingPreviews` keyed by `requestId`, rejecting on a 15s timeout or if no
+editor session is connected. The editor replies with a **`feed_preview_result`**
+(`{requestId, pngBase64 | error}`) which `settlePreview` resolves. So the
+returned PNG comes from the browser's own CSS engine — border-image and full CSS
+render faithfully (the old server-side headless path couldn't).
+
 ### Frontend — register + dispatch
 
 `hooks/useWsSync.ts` handles the inbound side: on **`session_hello`** it replies
@@ -425,6 +492,21 @@ switches on the action type:
 - `highlight_control` — `highlightControl(handle)` from `lib/uiHighlight.ts`:
   pure-DOM scroll-to + add the `.vs-ai-highlight` pulse class (animation in
   `App.css`), targeting any `vs-` handle without each control opting in.
+
+### Frontend — feed-preview capture
+
+`hooks/useWsSync.ts` also handles the inbound **`feed_preview_request`**: it calls
+**`captureFeedImage()`** (`lib/captureFeed.ts`) and replies with a
+**`feed_preview_result`** carrying the base64 PNG (or an `error`).
+`captureFeedImage` renders the *real* feed (`compileTemplate` + `FeedContent`
+from `lib/feedTemplate`, wrapped in `FeedErrorBoundary`) into an **off-DOM-ish
+host that sits in the viewport behind everything at `z-index:-1`** (it must be in
+the viewport — `html-to-image` clips by the visible rect; a fully off-screen host
+rasterises blank) and captures it with **`html-to-image`'s `toPng`** (SVG
+`<foreignObject>` = the browser's own engine, so border-image / full CSS render
+faithfully). `url()` assets in the CSS — especially `border-image-source` —
+are inlined to cached data URLs first via **`inlineCssAssetUrls`**
+(`lib/cssInline.ts`), because `html-to-image` doesn't fetch+inline them itself.
 
 ## Config
 
@@ -548,11 +630,17 @@ assets (usable in feed CSS / as a `filePath`).
 - `packages/backend/test/api.mcp.test.ts` — tool catalog (asserts the
   catalog includes `list_presets` + `instantiate_preset` and has length ≥ 60),
   create + read-back of a scene node, the tool-error path, two-step logic wiring,
-  config redaction, **env precedence** for `resolveAssistantConfig()` (none →
-  disabled, legacy `VLLM_HOST`/`VLLM_AUTH` fallback, generic
-  `ASSISTANT_BASE_URL`/`ASSISTANT_API_KEY` wins when both set), and a **drift
-  test** asserting every `TOOL_GROUPS` name is a real, non-core action tool in
-  the catalog (and that no name is in two groups).
+  `view_asset` returning MCP image content (+ erroring on a non-image asset),
+  `render_feed_template` degrading gracefully with no editor session and rejecting
+  a syntactically broken template, config redaction, **env precedence** for
+  `resolveAssistantConfig()` (none → disabled, legacy `VLLM_HOST`/`VLLM_AUTH`
+  fallback, generic `ASSISTANT_BASE_URL`/`ASSISTANT_API_KEY` wins when both set),
+  and a **drift test** asserting every `TOOL_GROUPS` name is a real, non-core
+  action tool in the catalog (and that no name is in two groups).
+- `packages/backend/test/api.compose-layers.test.ts` — feed template/CSS
+  validation (rejects broken template/css with `VALIDATION_ERROR`, accepts a valid
+  border-image feed layer) and **config shallow-merge on update** (a css-only patch
+  keeps the existing template).
 - `packages/backend/test/assistant.compact.test.ts` — `compactToolHistory`:
   recent results kept verbatim with no message dropped, older reference fetches
   capped (not stubbed), stale action-call argument stubbing, the hard cap dropping

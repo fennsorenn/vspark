@@ -189,14 +189,18 @@ fontSize, color, billboard? }`. Like the 2D layer it's a **config-free
 consumer** of the bus by identity — it reads `global ∪ its own node id` (so a
 `set_data` node targets it by picking the feed node as its `scope`).
 
-Rendering reuses `text_canvas`'s rasterisation but sources content from the
-template, not a param: it renders the htm template into an **off-screen React
-root** (`createRoot` into a fixed/off-left host `div`, committed synchronously
-via `flushSync`), waits for emote `<img>`s, then `html2canvas` → `drawImage`
-onto the CanvasTexture canvas. Going through real React (not an HTML string)
-keeps the `<Emote>`/`with(channels)` semantics identical to the 2D layer; going
-through `html2canvas` (rather than drei `<Html>`) means it composites into WebGL
-and screen recordings. `css` is scoped to the host via `@scope
+Rendering sources content from the template, not a param: it renders the htm
+template into an **in-viewport React host hidden behind the app at `z-index:-1`**
+(`createRoot`, committed synchronously via `flushSync`; the host must be in the
+viewport because `html-to-image` clips by the visible rect), inlines `url()` CSS
+assets via `lib/cssInline`, waits for emote `<img>`s, then rasterises via
+**`html-to-image`** (`toCanvas`, an SVG `<foreignObject>` = the browser's own CSS
+engine) → `drawImage` onto the CanvasTexture canvas. This replaced
+`html2canvas`, which couldn't render **border-image** (`text_canvas` still uses
+`html2canvas`). Going through real React (not an HTML string) keeps the
+`<Emote>`/`with(channels)` semantics identical to the 2D layer; rasterising
+(rather than drei `<Html>`) means it composites into WebGL and screen
+recordings. `css` is scoped to the host via `@scope
 ([data-feed-scope="…"])`, same as the 2D layer. Transform/opacity overrides
 apply (`useTransformWithOverride`/`useApplyOpacity`), so it's positionable and
 animatable like any scene node. Re-renders on every bus update — fine for chat
