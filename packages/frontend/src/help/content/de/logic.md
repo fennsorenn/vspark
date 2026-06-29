@@ -56,3 +56,22 @@ Text gemischt mit `${Platzhaltern}` und verbinde dann einen Wert mit jedem
 benannten Eingang, um die Lücken zu füllen (zum Beispiel einen neuen Follower
 mit Namen begrüßen). Zum Senden muss das Konto einmal neu verbunden werden,
 damit es die Berechtigung zum Schreiben im Chat erteilt.
+
+## System-Tastenkürzel {#hotkeys}
+
+Der Auslöser **System-Tastenkürzel** reagiert, wenn du irgendwo auf dem
+Computer, auf dem vspark läuft, eine Tastenkombination drückst — auch wenn
+vspark im Hintergrund ist und eine andere App im Vordergrund läuft. Ideal für
+freihändige Momente während des Streamens: per Tastendruck eine Animation
+abspielen, einen Ausdruck wechseln oder ein Overlay einblenden.
+
+Lege die **Taste** fest (ihren Namen, z. B. `F8`, `A` oder `SPACE`) und setze
+bei Bedarf die Häkchen für die Zusatztasten — **ctrl**, **shift**, **alt**,
+**meta** (die Windows-/Command-Taste). Die Übereinstimmung ist exakt: Ein
+Kürzel `Strg + S` löst nicht bei `Strg + Umschalt + S` aus. Verbinde den
+Ereignisausgang des Knotens mit einer Aktion, um darauf zu reagieren.
+
+Da die Tastatur systemweit überwacht wird, funktioniert dies nur, wenn der
+Server auf deinem eigenen Rechner läuft. Auf einem Headless- oder
+Remote-Server oder dort, wo das Betriebssystem globale Tastatur-Hooks
+blockiert, löst das Kürzel einfach nie aus — sonst wird nichts beeinträchtigt.

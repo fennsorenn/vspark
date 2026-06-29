@@ -71,6 +71,7 @@ import { OverliveBan } from './nodes/overlive/ban.js';
 import { OverliveStreamOnline } from './nodes/overlive/stream_online.js';
 import { OverliveStreamOffline } from './nodes/overlive/stream_offline.js';
 import { OverliveSendChat } from './nodes/overlive/send_chat.js';
+import { SystemHotkey } from './nodes/system_hotkey.js';
 // Overlive outbound action nodes
 import { OverliveAnnounce, OverliveShoutout, OverliveChatColor } from './nodes/overlive/actions_chat.js';
 import {
@@ -209,6 +210,8 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   OverliveRaidStart,
   OverliveRaidCancel,
   OverliveWhisper,
+  // System input
+  SystemHotkey,
 ];
 
 export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> = new Map(

@@ -74,7 +74,7 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → node class. All 86 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → node class. All 87 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
 
@@ -96,6 +96,7 @@ Organized by role:
 | `start_clip` | Canonical generalisation of `track_clip_trigger`. Same surface: `fire` event + `clipId` value, calls `playbackManager.trigger(clipId)`. |
 | `spawn_clip` | Inputs `fire` + `clipId`; output `spawned: Event<SpawnRef>`. Clones the clip's owner + duplicates the clip with lanes remapped, plays it once ephemerally, despawns on completion. See [spawn.md](spawn.md). |
 | `random` | Inputs `fire`, `min`, `max`, `mode: 'float'\|'int'`. Outputs `fire` event + `value` (Float, pull-cached). Recomputes on fire. |
+| `system_hotkey` (label "System Hotkey") | Fires when a system-wide keyboard shortcut is pressed on the machine running the server (even when vspark is unfocused). Combo config `key` (String) + `ctrl`/`shift`/`alt`/`meta` (Bool); outputs `event` (Trigger) + `key` (String). Driven externally by `HotkeyManager` — a global OS keyboard hook that walks running graphs and fires matching nodes (overlive-event pattern). Optional dep `node-global-key-listener`, lazily loaded + graceful-degrade. See [hotkeys.md](hotkeys.md). |
 
 ### Bone/blendshape mappers
 | Kind | Description |

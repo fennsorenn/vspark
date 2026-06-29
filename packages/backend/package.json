@@ -30,6 +30,7 @@
     "@vspark/shared": "workspace:*",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
+    "node-global-key-listener": "^0.3.0",
     "node-sqlite3-wasm": "^0.8.57",
     "open": "^10.2.0",
     "swagger-jsdoc": "^6.2.8",

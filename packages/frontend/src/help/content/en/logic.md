@@ -51,3 +51,20 @@ channel when it fires. Its message is a template — write fixed text mixed with
 `${placeholders}`, then wire a value into each named input to fill the blanks
 (for example, greet a new follower by name). Sending requires reconnecting the
 account once so it grants chat-write permission.
+
+## System hotkeys {#hotkeys}
+
+The **System Hotkey** trigger fires when you press a keyboard shortcut anywhere
+on the computer running vspark — even when vspark is in the background and
+another app is focused. It's perfect for hands-free moments while you stream:
+hit a key to play an animation, swap an expression, or show an overlay.
+
+Set the **key** (its name, e.g. `F8`, `A`, or `SPACE`) and tick any of the
+modifier boxes — **ctrl**, **shift**, **alt**, **meta** (the Windows/Command
+key) — to require them. The match is exact: a `Ctrl + S` hotkey won't fire on
+`Ctrl + Shift + S`. Wire the node's event output into an action to react.
+
+Because it watches the keyboard system-wide, this only works when the server
+runs on your own machine. On a headless or remote server, or where the
+operating system blocks global keyboard hooks, the hotkey simply never fires —
+nothing else is affected.
