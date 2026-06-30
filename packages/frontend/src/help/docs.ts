@@ -51,6 +51,7 @@ const TOPIC_ORDER = [
   'assets',
   'presets',
   'streaming',
+  'obs',
   'multiplayer',
   // Parameter-reference pages
   'transform',

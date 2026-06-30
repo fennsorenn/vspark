@@ -520,7 +520,11 @@ export type WSMessageKind =
   | 'data_channel_set'
   | 'data_channel_clear'
   | 'data_channel_snapshot'
-  | 'media_control';
+  | 'media_control'
+  | 'obs_event'
+  | 'obs_command'
+  | 'client_hello'
+  | 'client_status';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 
@@ -603,6 +607,95 @@ export interface AvatarExpressionsReportMessage {
   nodeId: string;
   /** Empty array signals the avatar was unloaded. */
   expressions: string[];
+}
+
+// ── OBS browser-source bridge ────────────────────────────────────────────────
+// vspark runs as an OBS Browser Source; the page in that source has access to
+// the `window.obsstudio` JS API. Those interactions live in the browser, but
+// the signal graph lives in the backend — so the frontend bridge forwards OBS
+// events to the backend as `obs_event` and the backend pushes control calls
+// back as `obs_command`. See dev-notes/modules/obs.md.
+
+/** The OBS output whose run-state changed (folded into one event family). */
+export type ObsOutputKind =
+  | 'streaming'
+  | 'recording'
+  | 'replay'
+  | 'virtualcam';
+
+/** Run-state transition for an OBS output. `saved` only occurs for `replay`. */
+export type ObsOutputState =
+  | 'starting'
+  | 'started'
+  | 'stopping'
+  | 'stopped'
+  | 'paused'
+  | 'unpaused'
+  | 'saved';
+
+/** An event surfaced by the OBS browser-source JS API, normalised for routing. */
+export type ObsEvent =
+  | {
+      type: 'scene_changed';
+      /** Active program scene name. */
+      name: string;
+      width?: number;
+      height?: number;
+    }
+  | {
+      type: 'output_state';
+      output: ObsOutputKind;
+      state: ObsOutputState;
+      /** Whether the output is active after this transition. */
+      active: boolean;
+    };
+
+/** Frontend → backend: an OBS event observed in this browser source. */
+export interface ObsEventMessage {
+  kind: 'obs_event';
+  event: ObsEvent;
+}
+
+/** A control call the backend asks the browser source to invoke on
+ *  `window.obsstudio`. `verb` maps 1:1 to an obsstudio method. */
+export interface ObsCommand {
+  verb:
+    | 'setCurrentScene'
+    | 'setCurrentTransition'
+    | 'startStreaming'
+    | 'stopStreaming'
+    | 'startRecording'
+    | 'stopRecording'
+    | 'pauseRecording'
+    | 'unpauseRecording'
+    | 'startReplayBuffer'
+    | 'stopReplayBuffer'
+    | 'saveReplayBuffer'
+    | 'startVirtualcam'
+    | 'stopVirtualcam';
+  /** Scene/transition name argument, when the verb takes one. */
+  arg?: string;
+}
+
+/** Backend → frontend: invoke an obsstudio control call. */
+export interface ObsCommandMessage {
+  kind: 'obs_command';
+  command: ObsCommand;
+}
+
+// ── Render-client lifecycle ──────────────────────────────────────────────────
+// A render client (a browser tab or OBS browser source showing a vspark scene)
+// announces itself on connect with a stable `target` marker so logic graphs can
+// react to it appearing/disappearing. The WS socket itself is ephemeral and
+// project-anonymous, so identity must be carried explicitly here.
+
+/** Frontend → backend: sent once per (re)connection to identify the client. */
+export interface ClientHelloMessage {
+  kind: 'client_hello';
+  projectId: string;
+  /** Stable, user/route-assigned render-target id (e.g. compose-scene id or an
+   *  `?obsTarget=` URL param). Empty string when unscoped. */
+  target: string;
 }
 
 export interface ApiAnimationMessage {

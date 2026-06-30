@@ -28,6 +28,7 @@
       "scene": "Scene",
       "clips": "Clips",
       "overlive": "Stream",
+      "obs": "OBS",
       "utility": "Utility"
     }
   },

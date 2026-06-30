@@ -36,6 +36,8 @@ import {
 import { registerAssetUrls } from '../sync/meshProjection';
 import { useConnectionsStore } from '../store/connectionsStore';
 import { clientMesh } from '../mesh/clientMesh';
+import { startObsBridge, handleObsCommand } from '../obs/bridge';
+import type { ObsCommand } from '@vspark/shared/types';
 
 const WS_URL =`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 const RECONNECT_MS = 3000;
@@ -108,6 +110,9 @@ export function useWsSync() {
       ws.onopen = () => {
         // Re-announce this tab to the client-mesh signaling relay.
         clientMesh.sendHello();
+        // Announce this render client + start forwarding OBS browser-source
+        // events (no-op outside OBS). See obs/bridge.ts.
+        startObsBridge(ws);
         if (pendingReloadRef.current) {
           pendingReloadRef.current = false;
           useEditorStore.getState().setPendingReload(false);
@@ -430,6 +435,9 @@ export function useWsSync() {
               command: MediaCommand;
             };
             dispatchMediaCommand(p.targetId, p.command);
+          } else if (msg.kind === 'obs_command') {
+            const p = msg.payload as { command: ObsCommand };
+            if (p.command) handleObsCommand(p.command);
           } else if (msg.kind === 'data_channel_set') {
             const p = msg.payload as {
               scope: string;
