@@ -544,6 +544,29 @@ export function ComposeLayerProperties({
         </label>
       </div>
       <div style={row}>
+        <label
+          className="vs-layer-clip"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 12,
+            color: '#bbb',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={layer.config.clipContents === true}
+            onChange={(e) =>
+              commit({
+                config: { ...layer.config, clipContents: e.target.checked },
+              })
+            }
+          />
+          {t('properties.labelClipContents')}
+        </label>
+      </div>
+      <div style={row}>
         <span style={label}>{t('properties.labelOpacity')}</span>
         <SliderInput
           className="vs-layer-opacity"

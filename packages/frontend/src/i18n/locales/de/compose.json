@@ -71,6 +71,7 @@
     "sectionRotation": "Drehung",
     "sectionVisibility": "Sichtbarkeit",
     "labelVisible": "Sichtbar",
+    "labelClipContents": "Inhalt auf Rahmen beschneiden",
     "labelOpacity": "Deckkraft",
     "labelBlend": "Modus",
     "sectionImageAsset": "Bild-Asset",

@@ -71,6 +71,7 @@
     "sectionRotation": "Rotation",
     "sectionVisibility": "Visibility",
     "labelVisible": "Visible",
+    "labelClipContents": "Clip contents to bounds",
     "labelOpacity": "Opacity",
     "labelBlend": "Blend",
     "sectionImageAsset": "Image asset",

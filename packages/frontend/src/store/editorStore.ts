@@ -447,6 +447,7 @@ interface EditorState {
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
+  vrmMaterialsByNode: Record<string, string[]>; // nodeId → VRM material (surface) names
   hoveredBoneName: string | null;
   behaviorKinds: BehaviorKindMeta[];
   /** Overlive login accounts for the current project. Populated lazily by Editor.tsx;
@@ -563,6 +564,8 @@ interface EditorState {
   clearVrmExpressionsForNode: (nodeId: string) => void;
   setVrmMorphTargetsForNode: (nodeId: string, names: string[]) => void;
   clearVrmMorphTargetsForNode: (nodeId: string) => void;
+  setVrmMaterialsForNode: (nodeId: string, names: string[]) => void;
+  clearVrmMaterialsForNode: (nodeId: string) => void;
   setHoveredBone: (name: string | null) => void;
   setBehaviorKinds: (kinds: BehaviorKindMeta[]) => void;
   setOverliveAccounts: (
@@ -726,6 +729,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
   vrmMorphTargetsByNode: {},
+  vrmMaterialsByNode: {},
   hoveredBoneName: null,
   behaviorKinds: [],
   overliveAccounts: [],
@@ -915,6 +919,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const next = { ...s.vrmMorphTargetsByNode };
       delete next[nodeId];
       return { vrmMorphTargetsByNode: next };
+    }),
+  setVrmMaterialsForNode: (nodeId, names) =>
+    set((s) => ({
+      vrmMaterialsByNode: { ...s.vrmMaterialsByNode, [nodeId]: names },
+    })),
+  clearVrmMaterialsForNode: (nodeId) =>
+    set((s) => {
+      const next = { ...s.vrmMaterialsByNode };
+      delete next[nodeId];
+      return { vrmMaterialsByNode: next };
     }),
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
   setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),

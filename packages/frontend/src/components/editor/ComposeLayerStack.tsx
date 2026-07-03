@@ -104,7 +104,10 @@ function layerStyle(
     visibility: layer.visible ? 'visible' : 'hidden',
     opacity,
     mixBlendMode: blendMode,
-    overflow: 'hidden',
+    // Containers no longer clip their children by default — a group can hold
+    // children that extend past its own box. Opt back into cropping per-layer
+    // via `config.clipContents` (e.g. a framed image window).
+    overflow: cfg.clipContents === true ? 'hidden' : 'visible',
   };
   const xLen = cssLen(x, cfg, 'xUnit');
   const yLen = cssLen(y, cfg, 'yUnit');
@@ -418,7 +421,8 @@ function LayerContent({
     (layer.config.objectFit as CSSProperties['objectFit']) ?? 'cover';
   if (layer.kind === 'image') {
     const url = resolveAssetUrl(layer, assets);
-    if (!url) return <Placeholder text={t('stack.noImage')} />;
+    if (!url)
+      return <Placeholder text={t('stack.noImage')} mode={mode} icon="🖼️" />;
     return (
       <img
         src={url}
@@ -436,7 +440,8 @@ function LayerContent({
   }
   if (layer.kind === 'video') {
     const url = resolveAssetUrl(layer, assets);
-    if (!url) return <Placeholder text={t('stack.noVideo')} />;
+    if (!url)
+      return <Placeholder text={t('stack.noVideo')} mode={mode} icon="🎬" />;
     return (
       <VideoLayer layer={layer} url={url} objectFit={objectFit} mode={mode} />
     );
@@ -452,7 +457,7 @@ function LayerContent({
     return <FeedLayer layer={layer} />;
   }
   const url = (layer.config.url as string | undefined) ?? '';
-  if (!url) return <Placeholder text={t('stack.noUrl')} />;
+  if (!url) return <Placeholder text={t('stack.noUrl')} mode={mode} icon="🌐" />;
   // Iframes always swallow events when active. We keep them pointer-events:none
   // in editor mode so selection works; the streamed output (viewer mode) makes
   // them interactive only there.
@@ -565,21 +570,39 @@ function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
   );
 }
 
-function Placeholder({ text }: { text: string }) {
+/** Placeholder shown for a layer that has no asset/url configured yet. It is an
+ *  editor-only affordance so an empty layer stays visible and selectable while
+ *  building a scene — in viewer (streamed) mode it renders nothing, keeping the
+ *  output clean. */
+function Placeholder({
+  text,
+  mode = 'editor',
+  icon,
+}: {
+  text: string;
+  mode?: 'editor' | 'viewer';
+  icon?: string;
+}) {
+  if (mode === 'viewer') return null;
   return (
     <div
       style={{
         width: '100%',
         height: '100%',
-        background: '#222',
+        background: 'rgba(34,34,34,0.6)',
+        border: '1px dashed #555',
+        boxSizing: 'border-box',
         display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#555',
+        color: '#888',
         fontSize: 11,
         pointerEvents: 'none',
       }}
     >
+      {icon && <span style={{ fontSize: 22, opacity: 0.7 }}>{icon}</span>}
       {text}
     </div>
   );
@@ -594,18 +617,27 @@ function orderSiblings(layers: ComposeLayerRecord[]): ComposeLayerRecord[] {
   );
 }
 
+/** In the editor, a selected layer (and its container ancestors) is forced to at
+ *  least this opacity so a near-invisible layer can still be seen and
+ *  manipulated. Never applied in viewer mode. */
+const SELECTED_MIN_OPACITY = 0.25;
+
 function LayerView({
   layer,
   assets,
   includeChain,
   childrenByParent,
   mode,
+  boostOpacityIds,
 }: {
   layer: ComposeLayerRecord;
   assets: AssetFile[];
   includeChain: string[];
   childrenByParent: Map<string | null, ComposeLayerRecord[]>;
   mode: 'editor' | 'viewer';
+  /** Layer ids (selected layer + its ancestors) whose opacity is floored in the
+   *  editor so the selection stays visible. */
+  boostOpacityIds: Set<string>;
 }) {
   // Per-layer subscription to its track-clip override: this keeps re-renders
   // localized to layers being animated; idle layers don't re-render each rAF.
@@ -618,6 +650,17 @@ function LayerView({
   // their rotation composes with ours — i.e. children are positioned, rotated
   // and sized relative to their parent rather than the viewport.
   const kids = orderSiblings(childrenByParent.get(layer.id) ?? []);
+  const baseStyle = layerStyle(layer, clipOverride, runtimeOverride);
+  const style =
+    mode === 'editor' && boostOpacityIds.has(layer.id)
+      ? {
+          ...baseStyle,
+          opacity: Math.max(
+            typeof baseStyle.opacity === 'number' ? baseStyle.opacity : 1,
+            SELECTED_MIN_OPACITY
+          ),
+        }
+      : baseStyle;
   // Layer wrappers are passive: pointer events go to the top-level capture
   // overlay (ComposeEventCapture), which hit-tests layers analytically (see
   // composeHitTest) via data-compose-layer-id. This single-owner model removes
@@ -626,7 +669,7 @@ function LayerView({
     <div
       data-compose-layer-id={layer.id}
       style={{
-        ...layerStyle(layer, clipOverride, runtimeOverride),
+        ...style,
         pointerEvents: 'none',
       }}
     >
@@ -644,6 +687,7 @@ function LayerView({
           includeChain={includeChain}
           childrenByParent={childrenByParent}
           mode={mode}
+          boostOpacityIds={boostOpacityIds}
         />
       ))}
     </div>
@@ -672,6 +716,23 @@ export function ComposeLayerStack({
   }
   const roots = orderSiblings(childrenByParent.get(null) ?? []);
 
+  // Editor-only: floor the opacity of the selected layer and its container
+  // ancestors so a near-invisible selection stays visible while editing.
+  const selectedId = useEditorStore((s) => s.selectedComposeLayerId);
+  const boostOpacityIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (mode !== 'editor' || !selectedId) return ids;
+    const byId = new Map(layers.map((l) => [l.id, l]));
+    let cur = byId.get(selectedId);
+    const guard = new Set<string>();
+    while (cur && !guard.has(cur.id)) {
+      guard.add(cur.id);
+      ids.add(cur.id);
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    return ids;
+  }, [layers, selectedId, mode]);
+
   // The container stays pointer-transparent so empty space falls through to the
   // parent viewport (click-to-deselect). Individual layer wrappers re-enable
   // pointer events on their own bounds. Selection chrome lives on a separate
@@ -693,6 +754,7 @@ export function ComposeLayerStack({
           includeChain={includeChain}
           childrenByParent={childrenByParent}
           mode={mode}
+          boostOpacityIds={boostOpacityIds}
         />
       ))}
     </div>

@@ -84,6 +84,7 @@ import {
 import {
   applyMaterialOverrides,
   disposeMaterialOverrides,
+  getMaterialSlots,
   type MaterialOverrides,
 } from './materialOverrides';
 import {
@@ -1030,6 +1031,8 @@ function AvatarNode({
     clearVrmExpressionsForNode,
     setVrmMorphTargetsForNode,
     clearVrmMorphTargetsForNode,
+    setVrmMaterialsForNode,
+    clearVrmMaterialsForNode,
   } = useEditorStore();
 
   // name → all meshes+indices that have that morph target
@@ -1210,6 +1213,13 @@ function AvatarNode({
         setVrmMorphTargetsForNode(node.id, [...morphMap.keys()].sort());
 
         vrmRegistry.set(node.id, vrm);
+        // Materials: written LAST, after vrmRegistry.set, so the reactive
+        // store slice that MaterialSection subscribes to only fires once the
+        // registry it reads is guaranteed populated (fixes empty-until-reload).
+        setVrmMaterialsForNode(
+          node.id,
+          getMaterialSlots(vrm).map((s) => s.key)
+        );
       }
       setVrmLoaded(true);
     });
@@ -1228,6 +1238,7 @@ function AvatarNode({
       clearVrmExpressionsForNode(node.id);
       _sendExpressionsReport(node.id, []);
       clearVrmMorphTargetsForNode(node.id);
+      clearVrmMaterialsForNode(node.id);
       morphMapRef.current.clear();
       teardownForearmTwist(node.id);
       vrmRegistry.delete(node.id);

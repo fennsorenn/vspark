@@ -139,22 +139,6 @@ export function AssetManager() {
   const videos = assets.filter((a) => a.kind === 'video');
   const audioAssets = assets.filter((a) => a.kind === 'audio');
 
-  const handleUpload = async (file: File) => {
-    if (!projectId) {
-      alert(t('alerts.noProject'));
-      return;
-    }
-    setUploading(true);
-    try {
-      const asset = await api.uploadAsset(projectId, file);
-      addAsset(asset);
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : t('alerts.uploadFailed'));
-    } finally {
-      setUploading(false);
-    }
-  };
-
   // OS file drag-and-drop onto the dock. Uploads every dropped file, then jumps
   // to the tab for the first file's kind so the upload is visible.
   const KIND_TO_TAB: Record<string, BottomDockTab> = {
@@ -836,9 +820,9 @@ export function AssetManager() {
               type="file"
               accept=".vrm,.glb,.gltf"
               style={{ display: 'none' }}
+              multiple
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleUpload(file);
+                if (e.target.files) handleUploadFiles(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -858,9 +842,9 @@ export function AssetManager() {
               type="file"
               accept=".fbx,.bvh"
               style={{ display: 'none' }}
+              multiple
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleUpload(file);
+                if (e.target.files) handleUploadFiles(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -880,9 +864,9 @@ export function AssetManager() {
               type="file"
               accept=".jpg,.jpeg,.png,.webp,.gif,.avif"
               style={{ display: 'none' }}
+              multiple
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleUpload(file);
+                if (e.target.files) handleUploadFiles(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -902,9 +886,9 @@ export function AssetManager() {
               type="file"
               accept=".mp4,.webm,.mov,.m4v,.ogv"
               style={{ display: 'none' }}
+              multiple
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleUpload(file);
+                if (e.target.files) handleUploadFiles(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -924,9 +908,9 @@ export function AssetManager() {
               type="file"
               accept=".mp3,.wav,.ogg,.m4a,.aac,.flac"
               style={{ display: 'none' }}
+              multiple
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleUpload(file);
+                if (e.target.files) handleUploadFiles(e.target.files);
                 e.target.value = '';
               }}
             />

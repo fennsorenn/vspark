@@ -210,13 +210,8 @@ export function ViewerPage() {
 
   const isHidden = camNode?.hidden ?? false;
 
-  // Scene-wide + this camera's own layers, across all compose scenes.
-  const stackLayers = composeLayers.filter(
-    (l) =>
-      l.kind !== 'camera_view' &&
-      (l.cameraNodeId == null || l.cameraNodeId === nodeId)
-  );
-
+  // Single-camera mode streams ONLY this camera's 3D output — no compose layers.
+  // Compose layers are shown exclusively by the compose-scene viewer above.
   return (
     <div
       style={{
@@ -241,7 +236,6 @@ export function ViewerPage() {
           alt=""
         />
       )}
-      <ComposeLayerStack layers={stackLayers} assets={assets} mode="viewer" />
       <Canvas
         gl={{ alpha: true, antialias: true, toneMapping: THREE.NoToneMapping }}
         shadows={canvasShadowsProp(shadowsEnabled, cc?.shadowQuality)}

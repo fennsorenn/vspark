@@ -1048,10 +1048,12 @@ function MaterialRow({
 /** Lists every material on the loaded VRM with per-material shader controls. */
 function MaterialSection({ node }: { node: StageObject }) {
   const { t } = useTranslation('properties');
-  // Re-render when the VRM (re)loads — bones are set on load, cleared on unload.
-  const loadedBones = useEditorStore((s) => s.vrmBonesByNode[node.id]);
+  // Re-render when the VRM (re)loads. The materials slice is written LAST in the
+  // Viewport load path (after vrmRegistry.set), so when this fires the registry
+  // read below is guaranteed populated — the fix for the empty-until-reload bug.
+  const loadedMaterials = useEditorStore((s) => s.vrmMaterialsByNode[node.id]);
   const vrm = vrmRegistry.get(node.id);
-  if (!vrm || !loadedBones) {
+  if (!vrm || !loadedMaterials) {
     return (
       <CollapsibleSection title={t('material.header')}>
         <div style={{ fontSize: 11, color: '#555' }}>
