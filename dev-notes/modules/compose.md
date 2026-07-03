@@ -1,8 +1,22 @@
 # Compose View
 
-2D layer composition over the 3D scene. The Compose feature lets users build stacks of image / video / browser-iframe layers in front of and behind the rendered 3D scene, both scene-wide and per-camera, and previews them in an editor viewport that matches what the public `ViewerPage` produces.
+2D layer composition. The Compose feature lets users build a stack of image / video / browser-iframe / text / feed layers, and the 3D camera output is itself a layer in that stack (a `camera_view` layer — see below), all previewed in an editor viewport that matches what the public `ViewerPage` produces.
 
 Status: implemented.
+
+## Fixed-resolution stage (letterbox scale-to-fit)
+
+Compose layout is **resolution-independent**. Each compose scene has a canonical pixel resolution (`composeScene.width` × `composeScene.height`, default 1920×1080 — new `compose_scene` rows default to 1920×1080 in `routes/compose-layers.ts`). Layer `x/y/width/height` are authored in that canonical pixel space, so the editor preview and the streamed viewer render identically regardless of window size.
+
+`ComposeView` renders all layers into a fixed-size **stage** (`ComposeStage`, exported from `ComposeView.tsx`) whose intrinsic size is the canonical resolution; a `ResizeObserver` measures the container and the stage is CSS `transform: scale()` letterbox-fit (centered, aspect-preserving) into it. `ViewerPage` compose mode renders through the same `ComposeStage`. Helpers exported from `ComposeView.tsx`: `ComposeStage`, `composeSceneResolution(scene)` (falls back to the defaults for missing/zero dims), `DEFAULT_COMPOSE_WIDTH` / `DEFAULT_COMPOSE_HEIGHT`. A W×H resolution editor (two `NumInput`s, `vs-compose-width` / `vs-compose-height`) sits in the compose header.
+
+The interaction layer is **scale-aware** so gestures map screen pixels back to canonical pixels:
+
+- `composeHitTest.ts` exposes a module-level `composeStageScale` getter (client→canonical scale); `layersAtClientPoint` divides the client-space rect by it before hit-testing.
+- `composeLayerInteractions.ts` `ComposeFrame` gained a `scale` field; `startDrag` / `startResize` divide screen-space pointer deltas by it.
+- `ComposeSelectionOverlay` renders **inside** the scaled stage (in canonical coords) and takes a `scale` prop to counter-scale its chrome (handle/border sizes) so handles stay a constant on-screen size.
+
+`ComposeLayerStack` and the R3F `CameraCanvas` are unchanged — they render at canonical layout size and are CSS-scaled by the stage.
 
 ## Compose scenes (decoupled from 3D scenes — migration 018)
 
@@ -18,14 +32,14 @@ The frontend exposes compose scenes as a separate top-level concept from 3D scen
 
 ## Data Model
 
-Table `compose_layers` (migration [008_compose_layers.sql](../../packages/backend/src/db/migrations/008_compose_layers.sql) + later patches 016, 018). Layers are project-scoped (was scene-scoped). `camera_node_id` is nullable — `NULL` means visible in every camera. `parent_id` (migration 016) supports nesting (`compose_scene` → group layer → image, etc.). `root_compose_scene_id` (migration 018) points at the owning `compose_scene` row.
+Table `compose_layers` (migration [008_compose_layers.sql](../../packages/backend/src/db/migrations/008_compose_layers.sql) + later patches 016, 018). Layers are project-scoped (was scene-scoped). `camera_node_id` is nullable — on a `camera_view` layer it names the 3D camera node whose output that layer renders. `parent_id` (migration 016) supports nesting (`compose_scene` → group layer → image, etc.). `root_compose_scene_id` (migration 018) points at the owning `compose_scene` row. `compose_scene` rows additionally carry `width`/`height` (the canonical compose resolution).
 
 Per-layer fields:
-- `kind`: `'compose_scene' | 'image' | 'video' | 'audio' | 'browser' | 'text'`
-- `asset_id` (image/video/audio) or `url` (browser)
+- `kind`: `'compose_scene' | 'camera_view' | 'image' | 'video' | 'audio' | 'browser' | 'text' | 'feed' | 'group'`
+- `asset_id` (image/video/audio), `url` (browser), or `camera_node_id` (camera_view)
 - Layout: `x`, `y` (pixel offsets from anchor corner), `width`, `height`, `anchor` (`top|bottom × left|right`), `rotation` (degrees, CSS transform around centre)
 - Display: `visible`, `opacity`, `name`
-- Ordering: `scene_order` (signed int), `camera_order` (int)
+- Ordering: `scene_order` (int, ascending = back→front), `camera_order` (int, tie-break)
 
 Shared types live in [packages/shared/src/types.ts](../../packages/shared/src/types.ts) (`ComposeLayer`, `ComposeLayerKind`, anchor enums, `SCENE_RENDER_SLOT` constant) and Zod schemas in [packages/shared/src/schema.ts](../../packages/shared/src/schema.ts) (`createComposeLayerSchema`, `updateComposeLayerSchema`, `reorderComposeLayersSchema`).
 
@@ -81,19 +95,13 @@ Mutations broadcast over WebSocket. **Create and delete now flow through the syn
 
 When a scene-wide layer is deleted, the route re-anchors any camera-specific layers whose `camera_order` was anchored to that layer's `scene_order` slot. This keeps per-camera positioning sensible across the gap.
 
-## Ordering Scheme (the `sceneOrder=0` trick)
+## Ordering Scheme
 
-The 3D render itself occupies `scene_order = 0` (`SCENE_RENDER_SLOT`).
+The 3D camera output is **just another layer** — a `camera_view` layer (`ComposeLayerStack.CameraViewLayer`, which mounts a `CameraCanvas`). There is no pinned `[3D Scene]` row and no signed-axis "in front / behind" convention: a `camera_view` layer sits in the stack wherever its `sceneOrder` puts it, so layers below it in the stack render behind the 3D output and layers above render in front.
 
-- `scene_order < 0`  → layer is in front of the 3D render
-- `scene_order = 0`  → the 3D render slot (no real layer ever has this; it's a pinned `[3D Scene]` row in the tree)
-- `scene_order > 0`  → layer is behind the 3D render
+Sibling layers sort **ascending** by `sceneOrder` (`orderSiblings` in `ComposeLayerStack.tsx`: `sceneOrder` ascending, ties broken by `cameraOrder` ascending) and are drawn back-to-front (lowest first = back, highest last = front). `cameraOrder` breaks ties within the same `sceneOrder`.
 
-Sort order is `(sceneOrder DESC, cameraOrder ASC)` and layers are drawn back-to-front. `cameraOrder` lets multiple layers share a `sceneOrder` slot with deterministic stacking.
-
-This collapses three concepts (background layers, the 3D render, foreground overlays) onto a single signed axis, so a layer can be moved between in-front and behind purely by sign of `scene_order` — no separate "stack" enum. The pinned `[3D Scene]` row in `ComposeTree` is purely a UI element that visualises where 0 sits in the sorted list.
-
-Per-camera sections in the tree show all scene-wide layers as pinned/interleaved rows alongside that camera's own layers, sorted by the same comparator, so the user sees the final composite stack from the camera's perspective.
+> Historical: earlier the 3D render was a virtual `scene_order = 0` slot with `sceneOrder < 0` meaning "in front" and a pinned `[3D Scene]` tree row; that signed-axis model is gone now that the camera output is a real `camera_view` layer.
 
 ## Tree drag-and-drop (reparent + reorder)
 
@@ -121,23 +129,19 @@ at top level**, **paste logic**, and **delete scene**. i18n keys:
 [components/editor/ComposeLayerStack.tsx](../../packages/frontend/src/components/editor/ComposeLayerStack.tsx) is a single renderer used by both the editor's compose viewport and the public viewer:
 
 - Layers are absolutely positioned DOM elements (HTML/CSS), not CSS3D or WebGL textures.
-- **Layers nest by `parentId` and are positioned, rotated and sized relative to their parent — not the viewport.** The renderer builds a parent→children map and renders the tree recursively: each `LayerView` renders its children *inside* its own box, so a child's CSS `left/top/width/height` (and `%` units) resolve against the parent layer's content box and its `rotate(...)` transform composes with the parent's. A layer roots the stack when it has no parent, or its parent isn't part of the rendered set (e.g. the parent is the `compose_scene` row, or a dangling/cross-scene parent), mirroring `ComposeTree`'s nesting logic. `group` layers render as transparent container boxes (their `LayerContent` is empty); only the `compose_scene` root is excluded. Because every layer box carries `overflow: hidden`, children are clipped to their parent's bounds.
+- **Layers nest by `parentId` and are positioned, rotated and sized relative to their parent — not the viewport.** The renderer builds a parent→children map and renders the tree recursively: each `LayerView` renders its children *inside* its own box, so a child's CSS `left/top/width/height` (and `%` units) resolve against the parent layer's content box and its `rotate(...)` transform composes with the parent's. A layer roots the stack when it has no parent, or its parent isn't part of the rendered set (e.g. the parent is the `compose_scene` row, or a dangling/cross-scene parent), mirroring `ComposeTree`'s nesting logic. `group` layers render as transparent container boxes (their `LayerContent` is empty); only the `compose_scene` root is excluded. **Layer boxes do not clip children by default** — `layerStyle` uses `overflow: visible` unless the layer's `config.clipContents === true`, so a child positioned outside its parent's box still shows (see "Layer QOL" below).
 - Position is anchor-relative *within the parent box*: `(x, y)` is an offset from the chosen corner (`top|bottom × left|right`), so layers stay glued to e.g. the bottom-right of their parent at any size.
 - Rotation is a CSS `transform: rotate(...)` around the layer centre, composing down the parent chain.
 - A `mode: 'editor' | 'viewer'` prop toggles selection chrome rendering. Layer DOM is always `pointer-events: none` — in editor mode all input is owned by the capture overlay (see below), and viewer mode is fully non-interactive.
 - `LayerView` (internal to `ComposeLayerStack`) is a pure presentation wrapper; it carries no pointer handlers and `ComposeLayerStack` no longer takes `selectedId`/`onSelect` props.
 
-The editor viewport ([ComposeView.tsx](../../packages/frontend/src/components/editor/ComposeView.tsx)) layers the following in a single positioned container (see "Z-Stack" below):
+The editor viewport ([ComposeView.tsx](../../packages/frontend/src/components/editor/ComposeView.tsx)) renders a single `ComposeStage` (the fixed-resolution, CSS-scaled stage — see "Fixed-resolution stage" above) containing:
 
-- behind-stack `ComposeLayerStack` at `zIndex 0` (`pointer-events: none`)
-- a Three.js `<Canvas>` wrapper at `zIndex 1` (`pointer-events: none`) using the same camera POV + `<Environment>` + `<CameraEffects>` as `ViewerPage`
-- front-stack `ComposeLayerStack` at `zIndex 2` (`pointer-events: none`)
-- `ComposeEventCapture` at `zIndex 50` (owns all pointer + wheel input)
-- `ComposeSelectionOverlay` at `zIndex 100` (resize / rotate handles)
+- one `ComposeLayerStack` for the whole scene (`pointer-events: none`). There is no behind/front split — the 3D camera output is a `camera_view` layer *inside* the stack (`CameraViewLayer` → `CameraCanvas`, which supplies the camera POV + `<Environment>` + `<CameraEffects>`), so its z-position is just its place in the `orderSiblings` sort.
+- `ComposeEventCapture` (owns all pointer + wheel input)
+- `ComposeSelectionOverlay` (resize / rotate handles), rendered inside the scaled stage in canonical coords with a `scale` prop.
 
-The behind/front split is purely by sign of `sceneOrder`.
-
-[ViewerPage.tsx](../../packages/frontend/src/pages/ViewerPage.tsx) does the same DOM/3D/DOM composition (without the capture or selection layers) so what the user sees in the editor matches the streamed output.
+[ViewerPage.tsx](../../packages/frontend/src/pages/ViewerPage.tsx) renders the same `ComposeStage` + `ComposeLayerStack` (without the capture or selection layers) so what the user sees in the editor matches the streamed output.
 
 ## Input Model: Single Capture Overlay
 
@@ -153,7 +157,7 @@ This replaces an earlier model in which each interactive element had its own han
 - **Drag with a 2D layer selected** → `startDrag` from `composeLayerInteractions`.
 - **Drag with a 3D node selected** → `composeSceneDragStarter` (viewport-plane drag).
 - **Drag with nothing selected** → run the cycle to pick the topmost slot under the cursor, then immediately start the appropriate drag.
-- **Wheel** → `composeSceneWheel` (dolly the selected 3D node along the cursor ray; the per-frame integration runs inside the canvas via `useFrame`).
+- **Wheel** → `composeSceneWheel` (perspective camera: dolly the selected 3D node along the cursor ray; orthographic camera: scale the selected node — the per-frame integration runs inside the canvas via `useFrame`).
 
 ### Hit testing
 
@@ -168,7 +172,7 @@ It also exports a module-level `composeViewportRect` getter. `ComposeView` insta
 `ComposeSceneInteractions` (mounted inside the `<Canvas>`) installs module-level handles when it mounts, in addition to the existing `composeScenePicker`:
 
 - `composeSceneDragStarter` — start a 3D viewport-plane drag for a node from screen coords.
-- `composeSceneWheel` — apply a wheel impulse to the selected 3D node.
+- `composeSceneWheel` — apply a wheel impulse to the selected 3D node. For a **perspective** camera this dollies the node along the cursor ray; for an **orthographic** camera (dolly has no visual effect there) it instead scales the selected node by a multiplicative step per tick, debounced-persisted.
 
 The component itself no longer attaches an `onPointerDown` to its wrapper `<group>` nor a wheel listener on a DOM ref (the old `wheelTargetRef` prop is gone). Its in-canvas responsibility is just the `useFrame` integrator that consumes the wheel-impulse state. All pointer/wheel entry happens outside the canvas via the capture overlay.
 
@@ -184,18 +188,36 @@ All three gestures operate in the layer's *parent* frame, supplied as a `Compose
 
 All three gestures patch the Zustand store optimistically during the drag for instant visual feedback, then persist the final state with a single `PUT /compose-layers/:id` on `pointerup`. Other clients receive the change via the `compose_layer_updated` WS broadcast.
 
+## Layer QOL
+
+Editor-only quality-of-life polish in `ComposeLayerStack` / `ComposeLayerProperties` / `ComposeSelectionOverlay`:
+
+- **Clip contents toggle.** Off by default (`overflow: visible`); a per-layer "Clip contents to bounds" checkbox (`ComposeLayerProperties`, `vs-layer-clip`) sets `config.clipContents = true` to clip children to the layer box.
+- **Empty-layer placeholders.** An image / video / browser layer with no asset/url renders an editor-only placeholder (a labelled icon) via `Placeholder`, which gained a `mode` prop and renders **nothing** in viewer mode — so the streamed output shows empty, not a placeholder.
+- **Selection opacity floor.** In editor mode the selected layer and its container ancestors get an opacity floor of 0.25 (`ComposeLayerStack` `boostOpacityIds`), so a near-invisible layer stays visible/editable while selected. Viewer mode is unaffected.
+- **Container-ancestor outlines.** `ComposeSelectionOverlay` draws dashed outlines of the selected layer's container (group / nesting) ancestors so the nesting context is visible while editing a child.
+
+## Image drag-and-drop (OS files)
+
+Dropping OS image files onto the compose viewport (`ComposeView` `onDrop`, filtered to `image/*`):
+
+- onto **empty space** → uploads the image and creates a new `image` layer at the cursor (canonical coords), one per dropped file, cascading;
+- onto an existing **image layer** → replaces that layer's asset;
+
+A `dropTarget` state (`'new'` or a layer id) drives a highlight so the target is shown during the drag. The upload reuses the AssetManager upload path; AssetManager's own upload `<input>`s now also accept `multiple` files (`handleUploadFiles(FileList)`). See [asset-management.md](asset-management.md).
+
 ## Frontend Pieces
 
-- [store/editorStore.ts](../../packages/frontend/src/store/editorStore.ts) — adds `composeLayers`, `leftTab` (`'scene' | 'compose' | 'graphs'`), `selectedComposeLayerId`, `composeCameraId` and matching actions.
-- [components/editor/ComposeTree.tsx](../../packages/frontend/src/components/editor/ComposeTree.tsx) — left-dock tree. One Scene section + one section per camera. Pinned `[3D Scene]` row marks the render slot. ↑/↓ buttons nudge `sceneOrder`; × deletes. Add menu picks layer kind. Disabled until at least one camera node exists. Right-click context menu uses the generic `ContextMenu.tsx` (`13f0021`); supports Copy/Paste (compose-layer preset) — see [clipboard.md](clipboard.md). Supports drag-and-drop reparent/reorder and compose-scene selection (see below).
-- [components/editor/ComposeView.tsx](../../packages/frontend/src/components/editor/ComposeView.tsx) — central viewport with camera picker.
+- [store/editorStore.ts](../../packages/frontend/src/store/editorStore.ts) — adds `composeLayers`, `composeScenes`, `activeComposeSceneId`, `leftTab` (`'scene' | 'compose' | 'graphs'`), `selectedComposeLayerId` and matching actions.
+- [components/editor/ComposeTree.tsx](../../packages/frontend/src/components/editor/ComposeTree.tsx) — left-dock tree of the active compose scene's layers (the 3D output appears as a `camera_view` layer row, 📷; no pinned `[3D Scene]` row). ↑/↓ buttons nudge `sceneOrder`; × deletes. Add menu picks layer kind. Right-click context menu uses the generic `ContextMenu.tsx` (`13f0021`); supports Copy/Paste (compose-layer preset) — see [clipboard.md](clipboard.md). Supports drag-and-drop reparent/reorder and compose-scene selection (see below).
+- [components/editor/ComposeView.tsx](../../packages/frontend/src/components/editor/ComposeView.tsx) — central viewport; renders the active compose scene into the fixed-resolution `ComposeStage`; header carries the W×H resolution editor. Also exports `ComposeStage` / `composeSceneResolution` / `DEFAULT_COMPOSE_WIDTH` / `DEFAULT_COMPOSE_HEIGHT`, shared with `ViewerPage`.
 - [components/editor/ComposeLayerStack.tsx](../../packages/frontend/src/components/editor/ComposeLayerStack.tsx) — shared editor/viewer renderer (presentation only; no pointer handlers).
 - [components/editor/ComposeEventCapture.tsx](../../packages/frontend/src/components/editor/ComposeEventCapture.tsx) — full-viewport input overlay; owns pointer + wheel routing.
 - [components/editor/composeHitTest.ts](../../packages/frontend/src/components/editor/composeHitTest.ts) — analytical layer hit-testing + `composeViewportRect` module-level getter.
 - [components/editor/composeLayerInteractions.ts](../../packages/frontend/src/components/editor/composeLayerInteractions.ts) — drag / resize / rotate gesture math.
-- [components/editor/ComposeSelectionOverlay.tsx](../../packages/frontend/src/components/editor/ComposeSelectionOverlay.tsx) — selection chrome; resize + rotate handles only (no drag body — the capture overlay handles drag).
+- [components/editor/ComposeSelectionOverlay.tsx](../../packages/frontend/src/components/editor/ComposeSelectionOverlay.tsx) — selection chrome; resize + rotate handles only (no drag body — the capture overlay handles drag). Renders inside the scaled stage in canonical coords; takes a `scale` prop to counter-scale handle chrome and also draws dashed container-ancestor outlines.
 - `ComposeSceneInteractions` (inside the Canvas) — installs `composeScenePicker`, `composeSceneDragStarter`, `composeSceneWheel` module handles and runs the `useFrame` wheel-impulse integrator.
-- [components/editor/ComposeLayerProperties.tsx](../../packages/frontend/src/components/editor/ComposeLayerProperties.tsx) — right-panel properties (name, x/y, anchor, w/h, rotation, visibility, opacity, kind-specific asset/url, stack-order). Wired into `PropertiesPanel` ahead of the effect/scene branches.
+- [components/editor/ComposeLayerProperties.tsx](../../packages/frontend/src/components/editor/ComposeLayerProperties.tsx) — right-panel properties (name, x/y, anchor, w/h, rotation, visibility, opacity, "Clip contents to bounds" toggle `vs-layer-clip`, kind-specific asset/url, stack-order). Wired into `PropertiesPanel` ahead of the effect/scene branches.
 
 See also [frontend.md](frontend.md) for general editor structure and store conventions.
 
@@ -203,12 +225,12 @@ See also [frontend.md](frontend.md) for general editor structure and store conve
 
 - Backend route registration and the scenes bundle additions are also covered in [backend-api.md](backend-api.md).
 - The Compose viewport reuses the same `<CameraEffects>` pipeline as the main viewport; see [camera-effects.md](camera-effects.md).
-- Mouse-wheel inside the compose viewport never orbits/zooms the camera; instead the capture overlay forwards it to `composeSceneWheel`, which dollies the currently-selected 3D node along the cursor ray.
+- Mouse-wheel inside the compose viewport never orbits/zooms the camera; instead the capture overlay forwards it to `composeSceneWheel`, which dollies the currently-selected 3D node along the cursor ray (perspective) or scales it (orthographic).
+- The legacy single-camera viewer route `/viewer/:projectId/:nodeId` renders **only** the camera's 3D output (no compose layers). Compose layers are shown exclusively by the compose-scene viewer (`/viewer/:projectId/compose/:composeSceneId`, via the `composeSceneId` param), whose whole stack — including the `camera_view` 3D layer — is the streamed output. Both render through `ComposeStage`.
 - [track-clips.md](track-clips.md) — track clips can target compose-layer `layer.x`, `layer.y`, `layer.rotation`. `ComposeLayerStack.LayerView` subscribes per-layer to `composeLayerOverrides[layer.id]` in the Zustand store and merges over the base on render. Overrides are runtime-only (never persisted); for `relative`-mode clips the evaluator pre-folds the base in, so the merge is always a plain replace.
 
 ## Known Limitations / Future Work
 
-- `cameraOrder` interleaving between pinned scene layers is supported by the data model and the properties panel, but the tree UI has no fine-grained "insert between two pinned scene layers" affordance. (The tree does support drag-and-drop reparent/reorder — see "Tree drag-and-drop" above — and the ↑/↓ buttons + numeric `sceneOrder` / `cameraOrder` inputs remain.)
-- Root layers are positioned in editor-pixel space against the editor frame and in viewer-window pixel space against the viewer. The same `x/y/width/height` therefore renders at different visual sizes on differently-sized viewers — anchors (and `%` units relative to the parent box) mitigate this but full resolution-independent scaling is not implemented.
-- Nesting composes translation + rotation only; there is no parent→child *scaling*, so a child sized in `px` keeps its pixel size when the parent is resized (use `%` width/height for proportional children). Layer boxes clip children (`overflow: hidden`), so a `group`'s default 320×180 box will crop children placed outside it until resized.
+- `cameraOrder` interleaving is supported by the data model and the properties panel, but the tree UI has no fine-grained "insert between two siblings" affordance. (The tree does support drag-and-drop reparent/reorder — see "Tree drag-and-drop" above — and the ↑/↓ buttons + numeric `sceneOrder` / `cameraOrder` inputs remain.)
+- Nesting composes translation + rotation only; there is no parent→child *scaling*, so a child sized in `px` keeps its pixel size when the parent is resized (use `%` width/height for proportional children). Layer boxes no longer clip children by default (`overflow: visible`); opt into clipping per-layer via the "Clip contents to bounds" toggle (`config.clipContents`).
 - Selection-chrome / gesture geometry composes ancestors from their *base* (persisted) transforms; an active clip/runtime override animating a parent layer is not folded into a child's hit-test frame while editing that child.

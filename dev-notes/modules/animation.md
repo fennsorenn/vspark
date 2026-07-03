@@ -198,6 +198,23 @@ Per frame:
 
 **Pose timeout**: If no VMC frame has been received for `poseTimeout` seconds (default 2s), blend weight ramps back to 0. OneEuroFilter resets to prevent stale filtered values carrying over when mocap reconnects.
 
+### Partial tracking (per-section anim/track blend)
+
+**Status:** implemented. Frontend-only, per-avatar-node, off (all-`{anim:1, track:1}`) by default.
+
+A per-avatar-node `poseSource` property (`SceneNodeProperties.poseSource`, types `PoseSource` / `PoseSection` / `PoseSectionInfluence` — see [shared-types.md](shared-types.md)) lets the user blend **clip animation vs. live tracking independently per body section**: `head`, `gaze`, `body`, `arms`, `hands`, `legs`, each with an `anim` and a `track` influence in `0..1`. Typical use: play a full-body clip for the legs while live tracking drives the upper body.
+
+**Composition (`Viewport.tsx`, AvatarNode).** A static `BONE_TO_SECTION` map (built from `POSE_SECTION_BONES`; unlisted bones fall under `hands`/fingers) assigns every VRM humanoid bone to a section. When `poseSourceIsActive` (the map deviates from the legacy all-`{anim:1, track:1}` default) **and** the avatar is in `override` blend mode, a unified per-bone path runs:
+
+1. base `= slerp(restQ, animQ, animInfluence)` — the section's `anim` influence dials the clip in over the rest pose;
+2. for bones present in the broadcast (tracked) pose: `slerp(base, trackedQ, track × blend)` — the section's `track` influence (× the global blend ramp) dials live tracking in over the base.
+
+Absent sections resolve to `{anim:1, track:1}` (`DEFAULT_SECTION_INFLUENCE`), i.e. the legacy behaviour, so an unset `poseSource` changes nothing. Partial tracking only applies in **override** mode (the additive path is unchanged).
+
+> Driving the **legs** from tracking needs a full-body VMC source — webcam MediaPipe tracking doesn't send legs.
+
+UI: a "Partial Tracking" section in the PropertiesPanel avatar block (per-section `anim`/`track` sliders `vs-posesrc-anim-*` / `vs-posesrc-track-*`, a `vs-posesrc-reset`), EN/DE i18n under `avatar.poseSource*` + `help.poseSource`, and a `{#partial-tracking}` help section in `avatar.md`.
+
 ### Motion snappiness (second-order dynamics)
 
 **Status:** implemented (2026-06-19). Frontend-only, per-avatar-node, disabled by default.

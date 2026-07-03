@@ -48,7 +48,7 @@ Self-referential FK with cascade: deleting a parent deletes all descendants.
 | `avatar` | VRM character. Drives VMC/MediaPipe pipelines. |
 | `model` | GLTF/GLB static or animated mesh |
 | `light` | Point or directional light |
-| `camera` | Perspective camera; can have camera effects |
+| `camera` | Camera; can have camera effects. Config `camera: { projection: 'perspective' \| 'orthographic', fov, near, far, orthoSize?, backgroundImage? }`. **New camera nodes default to orthographic** (`createKinds.ts`: `projection: 'orthographic'`, `orthoSize: 2`) — flat, no perspective distortion. Orthographic cameras render via `FittedOrthoCamera`, which fits to the **shorter** viewport axis (the longer axis grows by aspect) and guards degenerate 0-dimension canvases mid-resize (previously a resized `camera_view` compose layer could collapse the ortho frustum to a vertical line). |
 | `group` | Empty transform container |
 | `particle` | Particle emitter |
 | `billboard` | 2D sprite always facing screen |
