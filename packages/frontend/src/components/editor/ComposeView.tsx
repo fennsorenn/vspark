@@ -1,10 +1,10 @@
 import {
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
-  type RefObject,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -16,11 +16,82 @@ import { ComposeSelectionOverlay } from './ComposeSelectionOverlay';
 import { ComposeEventCapture } from './ComposeEventCapture';
 import {
   composeViewportRect,
+  composeStageScale,
   layersAtClientPoint,
   layerFrame,
 } from './composeHitTest';
 import { api } from '../../api/client';
 import { uniqueName } from './createKinds';
+import { NumInput } from './numericInputs';
+
+/** Fallback canonical compose resolution when a scene has none set. */
+export const DEFAULT_COMPOSE_WIDTH = 1920;
+export const DEFAULT_COMPOSE_HEIGHT = 1080;
+
+/** Resolve a compose scene's canonical resolution, falling back to the default. */
+export function composeSceneResolution(scene: {
+  width?: number;
+  height?: number;
+} | null | undefined): { width: number; height: number } {
+  return {
+    width: scene?.width && scene.width > 0 ? scene.width : DEFAULT_COMPOSE_WIDTH,
+    height:
+      scene?.height && scene.height > 0 ? scene.height : DEFAULT_COMPOSE_HEIGHT,
+  };
+}
+
+/** A fixed-resolution compose stage, letterbox scale-to-fit into its container.
+ *  Non-interactive — used by the viewer (and internally mirrored by the editor,
+ *  which needs refs + overlays inside the stage). */
+export function ComposeStage({
+  canonW,
+  canonH,
+  background = 'transparent',
+  children,
+}: {
+  canonW: number;
+  canonH: number;
+  background?: string;
+  children: React.ReactNode;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const fit = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return;
+      setScale(Math.min(r.width / canonW, r.height / canonH));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [canonW, canonH]);
+  return (
+    <div
+      ref={containerRef}
+      style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          width: canonW,
+          height: canonH,
+          transform: `translate(-50%, -50%) scale(${scale})`,
+          transformOrigin: 'center center',
+          background,
+          overflow: 'hidden',
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export function ComposeView() {
   const { t } = useTranslation('compose');
@@ -35,32 +106,71 @@ export function ComposeView() {
     (s) => s.updateComposeLayerLocal
   );
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
+  const updateComposeSceneLocal = useEditorStore(
+    (s) => s.updateComposeSceneLocal
+  );
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
   );
 
-  const viewportRef = useRef<HTMLDivElement>(null);
+  // The outer container holds the letterboxed, fixed-resolution stage. Layer
+  // coordinates live in the stage's canonical pixel space; the stage is CSS
+  // scale-to-fit into whatever space the container has.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  const scaleRef = useRef(1);
   // OS image-file drag-and-drop onto the viewport. `dropTarget` drives the
   // highlight: a layer id (drop replaces that image layer's asset) or 'new'
   // (drop creates a new image layer at the cursor).
   const [dropTarget, setDropTarget] = useState<string | 'new' | null>(null);
   const [isDropping, setIsDropping] = useState(false);
 
-  // Install a module-level getter so other modules (cycle, capture overlay)
-  // can resolve the viewport rect without prop-drilling.
-  useLayoutEffect(() => {
-    composeViewportRect.current = () =>
-      viewportRef.current?.getBoundingClientRect() ?? null;
-    return () => {
-      composeViewportRect.current = null;
-    };
-  }, []);
-
   const selectedLayer =
     composeLayers.find((l) => l.id === selectedComposeLayerId) ?? null;
 
   const composeScene =
     composeScenes.find((s) => s.id === activeComposeSceneId) ?? null;
+
+  // Canonical stage resolution (per compose scene; defaults to 1920×1080).
+  const canonW =
+    composeScene?.width && composeScene.width > 0
+      ? composeScene.width
+      : DEFAULT_COMPOSE_WIDTH;
+  const canonH =
+    composeScene?.height && composeScene.height > 0
+      ? composeScene.height
+      : DEFAULT_COMPOSE_HEIGHT;
+
+  // Fit the canonical stage into the container (letterbox scale-to-fit). Track
+  // the container size and recompute on resize.
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const fit = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return;
+      const s = Math.min(r.width / canonW, r.height / canonH);
+      scaleRef.current = s;
+      setScale(s);
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [canonW, canonH]);
+
+  // Install module-level getters so the capture/pick helpers can resolve the
+  // stage rect and its scale without prop-drilling.
+  useEffect(() => {
+    composeViewportRect.current = () =>
+      stageRef.current?.getBoundingClientRect() ?? null;
+    composeStageScale.current = () => scaleRef.current;
+    return () => {
+      composeViewportRect.current = null;
+      composeStageScale.current = null;
+    };
+  }, []);
 
   // All layers in the active compose scene. 3D output is itself a camera_view
   // layer, so there's no separate camera filter anymore.
@@ -76,14 +186,27 @@ export function ComposeView() {
     Array.from(e.dataTransfer.types).includes('Files');
 
   // Topmost image layer under the cursor, if any — the drop target for a replace.
+  // layersAtClientPoint reads the module stage rect + scale, so it hit-tests in
+  // canonical space.
   const imageLayerAt = (clientX: number, clientY: number): string | null => {
-    const rect = viewportRef.current?.getBoundingClientRect();
+    const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return null;
     const ids = layersAtClientPoint(rect, stackLayers, clientX, clientY);
     for (const id of ids) {
       if (stackLayers.find((l) => l.id === id)?.kind === 'image') return id;
     }
     return null;
+  };
+
+  // Convert client coords to canonical stage px (for placing a new layer).
+  const toCanonical = (clientX: number, clientY: number) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    const s = scaleRef.current || 1;
+    if (!rect) return { x: 0, y: 0 };
+    return {
+      x: (clientX - rect.left) / s,
+      y: (clientY - rect.top) / s,
+    };
   };
 
   const onDragOver = (e: React.DragEvent) => {
@@ -104,12 +227,11 @@ export function ComposeView() {
     e.preventDefault();
     const target = imageLayerAt(e.clientX, e.clientY);
     setDropTarget(null);
-    const rect = viewportRef.current?.getBoundingClientRect();
+    const drop = toCanonical(e.clientX, e.clientY);
     const files = Array.from(e.dataTransfer.files).filter((f) =>
       f.type.startsWith('image/')
     );
-    if (files.length === 0 || !projectId || !activeComposeSceneId || !rect)
-      return;
+    if (files.length === 0 || !projectId || !activeComposeSceneId) return;
     setIsDropping(true);
     try {
       if (target) {
@@ -142,8 +264,8 @@ export function ComposeView() {
               assetId: asset.id,
               anchorH: 'left',
               anchorV: 'top',
-              x: Math.round(e.clientX - rect.left) + i * 24,
-              y: Math.round(e.clientY - rect.top) + i * 24,
+              x: Math.round(drop.x) + i * 24,
+              y: Math.round(drop.y) + i * 24,
               config: {},
             }
           );
@@ -210,12 +332,57 @@ export function ComposeView() {
           {composeScene.name}
         </span>
         <div style={{ flex: 1 }} />
+        {/* Fixed compose resolution (canonical px). The stage scales to fit. */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 11,
+            color: '#888',
+          }}
+          title={t('view.resolutionHint')}
+        >
+          <NumInput
+            className="vs-compose-width"
+            value={canonW}
+            min={16}
+            step={1}
+            precision={0}
+            onChange={(w) => {
+              if (!composeScene || w < 16) return;
+              const next = { ...composeScene, width: Math.round(w) };
+              updateComposeSceneLocal(next);
+              api
+                .updateComposeLayer(composeScene.id, { width: Math.round(w) })
+                .catch(() => {});
+            }}
+            style={{ width: 56 }}
+          />
+          <span style={{ color: '#555' }}>×</span>
+          <NumInput
+            className="vs-compose-height"
+            value={canonH}
+            min={16}
+            step={1}
+            precision={0}
+            onChange={(h) => {
+              if (!composeScene || h < 16) return;
+              const next = { ...composeScene, height: Math.round(h) };
+              updateComposeSceneLocal(next);
+              api
+                .updateComposeLayer(composeScene.id, { height: Math.round(h) })
+                .catch(() => {});
+            }}
+            style={{ width: 56 }}
+          />
+        </div>
         <span style={{ fontSize: 11, color: '#555' }}>
           {t('view.layerCount', { count: stackLayers.length })}
         </span>
       </div>
       <div
-        ref={viewportRef}
+        ref={containerRef}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
@@ -223,31 +390,51 @@ export function ComposeView() {
           flex: 1,
           position: 'relative',
           overflow: 'hidden',
-          background: '#000',
+          background: '#0a0a0a',
         }}
       >
-        {/* 3D output is rendered by camera_view layers inside the stack. */}
-        <ComposeLayerStack layers={stackLayers} assets={assets} />
-        {/* The capture overlay owns all pointer/wheel events for the compose
-            viewport. Sits above the layers but below the selection chrome. */}
-        <ComposeEventCapture viewportRef={viewportRef} />
-        {/* Selection chrome (outline + resize/rotate handles) lives on top. */}
-        {selectedLayer && (
-          <ComposeSelectionOverlay
-            viewportRef={viewportRef}
-            layer={selectedLayer}
-          />
-        )}
-        {/* Drag-and-drop feedback: highlight the whole viewport when a drop
-            would create a new image layer, or the targeted image layer when a
-            drop would replace its asset. */}
-        {dropTarget && (
-          <DropHighlight
-            viewportRef={viewportRef}
-            target={dropTarget}
-            layers={stackLayers}
-          />
-        )}
+        {/* Fixed-resolution stage (canonical px), letterbox-scaled to fit. Layer
+            coordinates live in this canonical space so the same scene renders
+            identically at any editor/viewer size. */}
+        <div
+          ref={stageRef}
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            width: canonW,
+            height: canonH,
+            transform: `translate(-50%, -50%) scale(${scale})`,
+            transformOrigin: 'center center',
+            background: '#000',
+            overflow: 'hidden',
+          }}
+        >
+          {/* 3D output is rendered by camera_view layers inside the stack. */}
+          <ComposeLayerStack layers={stackLayers} assets={assets} />
+          {/* The capture overlay owns all pointer/wheel events for the compose
+              viewport. Sits above the layers but below the selection chrome. */}
+          <ComposeEventCapture viewportRef={stageRef} />
+          {/* Selection chrome (outline + resize/rotate handles) lives on top. */}
+          {selectedLayer && (
+            <ComposeSelectionOverlay
+              viewportRef={stageRef}
+              layer={selectedLayer}
+              scale={scale}
+            />
+          )}
+          {/* Drag-and-drop feedback: dashed stage border when a drop would
+              create a new image layer, or the targeted image layer's outline
+              when a drop would replace its asset. */}
+          {dropTarget && (
+            <DropHighlight
+              target={dropTarget}
+              layers={stackLayers}
+              canonW={canonW}
+              canonH={canonH}
+            />
+          )}
+        </div>
         {isDropping && (
           <div
             style={{
@@ -272,16 +459,19 @@ export function ComposeView() {
 }
 
 /** Visual feedback for an in-progress OS image-file drag over the compose
- *  viewport. `'new'` outlines the whole viewport (drop → create a new layer);
- *  a layer id outlines that image layer's rotated rect (drop → replace asset). */
+ *  viewport. Rendered inside the canonical stage. `'new'` outlines the whole
+ *  stage (drop → create a new layer); a layer id outlines that image layer's
+ *  rotated rect (drop → replace asset). */
 function DropHighlight({
-  viewportRef,
   target,
   layers,
+  canonW,
+  canonH,
 }: {
-  viewportRef: RefObject<HTMLDivElement>;
   target: string | 'new';
   layers: ComposeLayerRecord[];
+  canonW: number;
+  canonH: number;
 }) {
   const base: CSSProperties = {
     position: 'absolute',
@@ -289,14 +479,13 @@ function DropHighlight({
     zIndex: 110,
     pointerEvents: 'none',
   };
-  const rect = viewportRef.current?.getBoundingClientRect();
-  if (target === 'new' || !rect) {
+  if (target === 'new') {
     return (
       <div
         style={{
           ...base,
           boxSizing: 'border-box',
-          border: '2px dashed #4a9eff',
+          border: '4px dashed #4a9eff',
           background: 'rgba(74,158,255,0.08)',
         }}
       />
@@ -305,7 +494,7 @@ function DropHighlight({
   const layer = layers.find((l) => l.id === target);
   if (!layer) return null;
   const byId = new Map(layers.map((l) => [l.id, l] as const));
-  const f = layerFrame({ width: rect.width, height: rect.height }, layer, byId);
+  const f = layerFrame({ width: canonW, height: canonH }, layer, byId);
   const corner = (sx: number, sy: number) => ({
     x: f.cx + f.ux.x * sx * f.hx + f.uy.x * sy * f.hy,
     y: f.cy + f.ux.y * sx * f.hx + f.uy.y * sy * f.hy,
@@ -319,8 +508,8 @@ function DropHighlight({
         points={pts.map((p) => `${p.x},${p.y}`).join(' ')}
         fill="rgba(74,158,255,0.15)"
         stroke="#4a9eff"
-        strokeWidth={2}
-        strokeDasharray="6 4"
+        strokeWidth={4}
+        strokeDasharray="8 6"
       />
     </svg>
   );

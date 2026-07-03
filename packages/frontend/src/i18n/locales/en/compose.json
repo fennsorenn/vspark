@@ -41,7 +41,8 @@
     "noSceneSelected": "No compose scene selected.",
     "layerCount_one": "{{count}} layer",
     "layerCount_other": "{{count}} layers",
-    "uploading": "Uploading…"
+    "uploading": "Uploading…",
+    "resolutionHint": "Fixed compose resolution (px). The stage scales to fit."
   },
   "properties": {
     "scopeAllCameras": "Scene-wide (all cameras)",

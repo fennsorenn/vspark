@@ -11,6 +11,7 @@ import {
 } from './ComposeSceneInteractions';
 import {
   composeViewportRect,
+  composeStageScale,
   layersAtClientPoint,
   layerParentFrame,
 } from './composeHitTest';
@@ -120,15 +121,19 @@ export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
 function parentFrameFor(layer: ComposeLayerRecord): ComposeFrame | undefined {
   const rect = composeViewportRect.current?.();
   if (!rect) return undefined;
+  // rect is the on-screen (scaled) stage rect; divide by the stage scale to get
+  // the parent frame in canonical px, and pass the scale so screen-space drag
+  // deltas are converted back to canonical.
+  const s = composeStageScale.current?.() ?? 1;
   const byId = new Map(
     useEditorStore.getState().composeLayers.map((l) => [l.id, l] as const)
   );
   const pf = layerParentFrame(
-    { width: rect.width, height: rect.height },
+    { width: rect.width / s, height: rect.height / s },
     layer,
     byId
   );
-  return { width: pf.hx * 2, height: pf.hy * 2, angle: pf.angle };
+  return { width: pf.hx * 2, height: pf.hy * 2, angle: pf.angle, scale: s };
 }
 
 /** Drag routing on the *current* selection at the moment the drag is detected.

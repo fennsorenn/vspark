@@ -41,7 +41,8 @@
     "noSceneSelected": "Keine Compose-Szene ausgewählt.",
     "layerCount_one": "{{count}} Ebene",
     "layerCount_other": "{{count}} Ebenen",
-    "uploading": "Wird hochgeladen…"
+    "uploading": "Wird hochgeladen…",
+    "resolutionHint": "Feste Compose-Auflösung (px). Die Bühne wird eingepasst."
   },
   "properties": {
     "scopeAllCameras": "Szenenweit (alle Kameras)",

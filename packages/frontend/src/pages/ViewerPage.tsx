@@ -19,6 +19,10 @@ import {
   type ShadowQuality,
 } from '../components/editor/Viewport';
 import { ComposeLayerStack } from '../components/editor/ComposeLayerStack';
+import {
+  ComposeStage,
+  composeSceneResolution,
+} from '../components/editor/ComposeView';
 import { useSceneFadeIn } from '../hooks/useSceneFadeIn';
 
 function getT(components: Record<string, unknown> | undefined) {
@@ -66,6 +70,7 @@ export function ViewerPage() {
     setTrackClips,
     nodes,
     composeLayers,
+    composeScenes,
     assets,
   } = useEditorStore();
 
@@ -171,6 +176,8 @@ export function ViewerPage() {
     const stackLayers = composeLayers.filter(
       (l) => l.rootComposeSceneId === composeSceneId
     );
+    const scene = composeScenes.find((s) => s.id === composeSceneId);
+    const { width: canonW, height: canonH } = composeSceneResolution(scene);
     return (
       <div
         style={{
@@ -180,7 +187,15 @@ export function ViewerPage() {
           position: 'relative',
         }}
       >
-        <ComposeLayerStack layers={stackLayers} assets={assets} mode="viewer" />
+        {/* Fixed-resolution canonical stage, letterbox-scaled to the viewer
+            window so streamed output matches the editor at any window size. */}
+        <ComposeStage canonW={canonW} canonH={canonH}>
+          <ComposeLayerStack
+            layers={stackLayers}
+            assets={assets}
+            mode="viewer"
+          />
+        </ComposeStage>
       </div>
     );
   }

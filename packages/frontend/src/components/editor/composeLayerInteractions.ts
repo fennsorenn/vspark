@@ -46,6 +46,9 @@ export interface ComposeFrame {
   width: number;
   height: number;
   angle?: number;
+  /** Stage scale (letterbox fit). Screen-space pointer deltas are divided by
+   *  this to convert to the stage's canonical pixel space. Defaults to 1. */
+  scale?: number;
 }
 
 /** Convert a screen-space px delta to the field's stored unit. */
@@ -85,11 +88,12 @@ export function startDrag(
   const pa = frame?.angle ?? 0;
   const cosP = Math.cos(pa);
   const sinP = Math.sin(pa);
+  const scale = frame?.scale ?? 1;
   let last: Partial<ComposeLayerRecord> | null = null;
 
   const move = (ev: PointerEvent) => {
-    const dxs = ev.clientX - start.x;
-    const dys = ev.clientY - start.y;
+    const dxs = (ev.clientX - start.x) / scale;
+    const dys = (ev.clientY - start.y) / scale;
     const dx = cosP * dxs + sinP * dys;
     const dy = -sinP * dxs + cosP * dys;
     last = {
@@ -150,13 +154,14 @@ export function startResize(
   const rad = (frame?.angle ?? 0) + (layer.rotation * Math.PI) / 180;
   const cosR = Math.cos(rad);
   const sinR = Math.sin(rad);
+  const scale = frame?.scale ?? 1;
   // Only the axis-aligned case can pin the anchored edge while moving the near
   // edge; once the layer (or any ancestor) is rotated we grow from the centre.
   const axisAligned = Math.abs(rad) < 1e-6;
 
   const move = (ev: PointerEvent) => {
-    const dxs = ev.clientX - start.x;
-    const dys = ev.clientY - start.y;
+    const dxs = (ev.clientX - start.x) / scale;
+    const dys = (ev.clientY - start.y) / scale;
     const dxl = cosR * dxs + sinR * dys;
     const dyl = -sinR * dxs + cosR * dys;
     const patch: Partial<ComposeLayerRecord> = {};
