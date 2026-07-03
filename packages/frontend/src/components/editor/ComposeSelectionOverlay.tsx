@@ -115,6 +115,28 @@ export function ComposeSelectionOverlay({
     pointAt(f, -1, 1),
   ];
 
+  // Container ancestors of the selected layer — draw their bounds (dashed) so
+  // the user can see which boxes the selection is nested inside. The
+  // compose_scene root is the whole canvas, so it's excluded.
+  const ancestorOutlines: { x: number; y: number }[][] = [];
+  {
+    const guard = new Set<string>([effectiveLayer.id]);
+    let cur = effectiveLayer.parentId
+      ? byId.get(effectiveLayer.parentId)
+      : undefined;
+    while (cur && !guard.has(cur.id) && cur.kind !== 'compose_scene') {
+      guard.add(cur.id);
+      const af = layerFrame(viewportRect, cur, byId);
+      ancestorOutlines.push([
+        pointAt(af, -1, -1),
+        pointAt(af, 1, -1),
+        pointAt(af, 1, 1),
+        pointAt(af, -1, 1),
+      ]);
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+  }
+
   // Containing div fills the viewport and is pointer-events: none so it never
   // intercepts clicks meant for layers. Individual chrome elements opt in.
   const baseStyle: CSSProperties = {
@@ -164,6 +186,19 @@ export function ComposeSelectionOverlay({
           overflow: 'visible',
         }}
       >
+        {/* Container ancestor bounds (dashed, dimmer) — drawn under the
+            selected layer's outline so the selection stays visually primary. */}
+        {ancestorOutlines.map((pts, i) => (
+          <polygon
+            key={i}
+            points={pts.map((c) => `${c.x},${c.y}`).join(' ')}
+            fill="none"
+            stroke="#4a9eff"
+            strokeOpacity={0.4}
+            strokeWidth={1}
+            strokeDasharray="5 4"
+          />
+        ))}
         <polygon
           points={corners.map((c) => `${c.x},${c.y}`).join(' ')}
           fill="none"
