@@ -157,7 +157,16 @@ export async function createSceneNode(
       intensity: 1,
     };
   } else if (def.kind === 'camera') {
-    components.camera = { type: 'camera', fov: 50, near: 0.1, far: 1000 };
+    // New cameras default to orthographic (flat, no perspective distortion),
+    // which suits 2D-style avatar framing. Switch to perspective in properties.
+    components.camera = {
+      type: 'camera',
+      projection: 'orthographic',
+      fov: 50,
+      orthoSize: 2,
+      near: 0.1,
+      far: 1000,
+    };
   } else if (def.kind === 'particle') {
     components.particle = { ...PARTICLE_DEFAULTS };
   } else if (def.kind === 'billboard') {

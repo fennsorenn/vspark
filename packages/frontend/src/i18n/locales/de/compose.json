@@ -40,7 +40,8 @@
   "view": {
     "noSceneSelected": "Keine Compose-Szene ausgewählt.",
     "layerCount_one": "{{count}} Ebene",
-    "layerCount_other": "{{count}} Ebenen"
+    "layerCount_other": "{{count}} Ebenen",
+    "uploading": "Wird hochgeladen…"
   },
   "properties": {
     "scopeAllCameras": "Szenenweit (alle Kameras)",

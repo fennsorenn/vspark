@@ -40,7 +40,8 @@
   "view": {
     "noSceneSelected": "No compose scene selected.",
     "layerCount_one": "{{count}} layer",
-    "layerCount_other": "{{count}} layers"
+    "layerCount_other": "{{count}} layers",
+    "uploading": "Uploading…"
   },
   "properties": {
     "scopeAllCameras": "Scene-wide (all cameras)",

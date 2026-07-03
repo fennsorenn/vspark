@@ -19,6 +19,13 @@ const WHEEL_DAMPING_PER_SEC = 0.005; // velocity multiplier per second (i.e. ret
 const WHEEL_VELOCITY_EPS = 1e-4; // m/s; below this, stop integrating and persist
 const MIN_CAM_DISTANCE = 0.05; // never push the object closer than this
 
+// Orthographic wheel = scale the selected node (dolly has no visual effect in
+// ortho). Multiplicative step per wheel tick, clamped to a sane range.
+const WHEEL_SCALE_STEP = 0.08;
+const MIN_NODE_SCALE = 0.01;
+const MAX_NODE_SCALE = 100;
+const SCALE_PERSIST_DEBOUNCE_MS = 250;
+
 // Reusable scratch — raycaster + NDC vector, shared across handlers in this module.
 const wheelRay = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
@@ -284,6 +291,47 @@ export function ComposeSceneInteractions({
     velocity: THREE.Vector3; // world-space units / sec
   } | null>(null);
 
+  // Orthographic wheel-to-scale: dollying a node along the view axis is
+  // invisible under an ortho camera, so scale the selected node instead. Applied
+  // immediately to the group + store for responsiveness, with a trailing
+  // debounced PUT so we don't spam the API on every wheel tick.
+  const scalePersistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const applyWheelScale = (nodeId: string, group: THREE.Group, deltaY: number) => {
+    const store = useEditorStore.getState();
+    const node = store.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const existing = (node.components as Record<string, unknown>)?.transform as
+      | Record<string, number>
+      | undefined;
+    const cur = existing?.sx ?? group.scale.x ?? 1;
+    // Scroll up (deltaY < 0) grows, scroll down shrinks.
+    const factor = Math.exp(-Math.sign(deltaY) * WHEEL_SCALE_STEP);
+    const next = Math.min(MAX_NODE_SCALE, Math.max(MIN_NODE_SCALE, cur * factor));
+    group.scale.setScalar(next);
+    const components = {
+      ...node.components,
+      transform: {
+        type: 'transform',
+        x: existing?.x ?? group.position.x,
+        y: existing?.y ?? group.position.y,
+        z: existing?.z ?? group.position.z,
+        rx: existing?.rx ?? group.rotation.x,
+        ry: existing?.ry ?? group.rotation.y,
+        rz: existing?.rz ?? group.rotation.z,
+        sx: next,
+        sy: next,
+        sz: next,
+      },
+    };
+    store.updateNode(nodeId, { components });
+    if (scalePersistRef.current) clearTimeout(scalePersistRef.current);
+    scalePersistRef.current = setTimeout(() => {
+      const n = useEditorStore.getState().nodes.find((x) => x.id === nodeId);
+      if (n) api.updateNode(nodeId, { components: n.components }).catch(() => {});
+      scalePersistRef.current = null;
+    }, SCALE_PERSIST_DEBOUNCE_MS);
+  };
+
   // The wheel handler is now invoked from the capture overlay (which owns all
   // input events). It applies an impulse to the selected node's velocity; the
   // useFrame loop below integrates and persists.
@@ -295,6 +343,14 @@ export function ComposeSceneInteractions({
       if (!nodeId) return;
       const group = getNodeGroup(nodeId);
       if (!group) return;
+
+      // Orthographic camera: dolly is invisible, so scale instead.
+      if (
+        (camera as THREE.OrthographicCamera).isOrthographicCamera === true
+      ) {
+        applyWheelScale(nodeId, group, deltaY);
+        return;
+      }
 
       const rect = gl.domElement.getBoundingClientRect();
       ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
