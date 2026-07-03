@@ -64,6 +64,15 @@ export const sceneNodePropertiesSchema = z
       .optional(),
     forceTwistBone: z.boolean().optional(),
     excludeSleeves: z.boolean().optional(),
+    poseSource: z
+      .record(
+        z.enum(['legs', 'body', 'arms', 'head', 'gaze', 'hands']),
+        z.object({
+          anim: z.number().min(0).max(1),
+          track: z.number().min(0).max(1),
+        })
+      )
+      .optional(),
   })
   .openapi('SceneNodeProperties');
 

@@ -59,6 +59,34 @@ Aktiviere sie pro Avatar und stelle dann drei Regler ein:
 > mehr Schwung. Fängt die Bewegung an zu wackeln oder zu schwingen, erhöhe die
 > **Dämpfung** oder senke die **Frequenz**.
 
+## Teilweises Tracking {#partial-tracking}
+
+**Teilweises Tracking** steuert verschiedene Körperbereiche gleichzeitig aus
+verschiedenen Quellen — zum Beispiel eine Tanz-Animation auf den **Beinen**,
+während dein Live-Tracking den **Oberkörper** steuert.
+
+Der Körper ist in sechs Bereiche unterteilt: **Kopf**, **Blick** (Augen),
+**Körper** (Rumpf), **Arme**, **Hände** (Finger) und **Beine**. Jeder Bereich
+hat zwei Regler:
+
+- **Anim** — wie stark die laufende Animation diesen Bereich steuert.
+- **Track** — wie stark Live-Tracking (VMC oder Kamera) ihn steuert.
+
+Sie wirken gestapelt. **Anim** zieht den Bereich zunächst aus der Ruhepose zur
+Animation; **Track** zieht ihn dann zum Tracking. Also:
+
+- **Anim 1 / Track 1** — Tracking gewinnt, wo es Daten hat (Standard).
+- **Anim 1 / Track 0** — nur Animation (z. B. Beine folgen einem Clip).
+- **Anim 0 / Track 1** — nur Tracking.
+- **Anim 0 / Track 0** — der Bereich ruht.
+- Werte dazwischen mischen beides.
+
+Bereiche, die du nicht anfasst, bleiben auf dem Standard.
+
+> Hinweis: Beine per Tracking brauchen eine Ganzkörperquelle (ein Ganzkörper-
+> VMC-Sender). Webcam-Tracking sendet noch keine Beine — nutze bei einer Webcam
+> also **Anim** für die Beine und **Track** für den Oberkörper.
+
 ## Mimik {#expressions}
 
 Mimik sind im VRM definierte Gesichtsposen wie Lächeln, Blinzeln oder

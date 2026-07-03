@@ -12,6 +12,7 @@ import {
 } from '../../particleTextures';
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
+import type { PoseSection, PoseSource } from '@vspark/shared';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { api, fireSignalEvent, updateScene } from '../../api/client';
@@ -7707,6 +7708,139 @@ export function PropertiesPanel() {
                       />
                     </div>
                   </>
+                )}
+              </>
+            );
+          })()}
+
+        {/* Partial tracking — per-section animation/tracking influence (avatar only) */}
+        {node.kind === 'avatar' &&
+          (() => {
+            const SECTIONS: PoseSection[] = [
+              'head',
+              'gaze',
+              'body',
+              'arms',
+              'hands',
+              'legs',
+            ];
+            const src: PoseSource = node.properties?.poseSource ?? {};
+            const infOf = (sec: PoseSection) =>
+              src[sec] ?? { anim: 1, track: 1 };
+            const apply = (next: PoseSource, persist: boolean) => {
+              // Prune sections left at the { anim:1, track:1 } default so we only
+              // store deviations.
+              const pruned: PoseSource = {};
+              for (const s of SECTIONS) {
+                const v = next[s];
+                if (v && (v.anim !== 1 || v.track !== 1)) pruned[s] = v;
+              }
+              storeUpdateNode(node.id, {
+                properties: { ...node.properties, poseSource: pruned },
+              });
+              if (persist)
+                api
+                  .updateNode(node.id, { properties: { poseSource: pruned } })
+                  .catch(() => {});
+            };
+            const setInf = (
+              sec: PoseSection,
+              patch: Partial<{ anim: number; track: number }>,
+              persist: boolean
+            ) => apply({ ...src, [sec]: { ...infOf(sec), ...patch } }, persist);
+            const anyConfigured = SECTIONS.some((s) => {
+              const v = src[s];
+              return v && (v.anim !== 1 || v.track !== 1);
+            });
+            const colLabel = {
+              fontSize: 10,
+              color: '#666',
+              flexShrink: 0,
+            } as const;
+            return (
+              <>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {t('avatar.poseSourceHeader')}
+                  <HelpButton
+                    topic="avatar"
+                    anchor="partial-tracking"
+                    tip={t('help.poseSource')}
+                  />
+                </div>
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: '#555',
+                    lineHeight: 1.4,
+                    marginBottom: 6,
+                  }}
+                >
+                  {t('avatar.poseSourceHint')}
+                </div>
+                {SECTIONS.map((sec) => {
+                  const inf = infOf(sec);
+                  return (
+                    <div
+                      key={sec}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        marginBottom: 4,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: '#999',
+                          width: 48,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {t(`avatar.poseSection.${sec}`)}
+                      </span>
+                      <span style={colLabel}>{t('avatar.poseSourceAnim')}</span>
+                      <SliderInput
+                        className={`vs-posesrc-anim-${sec}`}
+                        value={inf.anim}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        precision={2}
+                        onChange={(v) => setInf(sec, { anim: v }, false)}
+                        onCommit={(v) => setInf(sec, { anim: v }, true)}
+                        style={{ flex: 1, minWidth: 0 }}
+                      />
+                      <span style={colLabel}>{t('avatar.poseSourceTrack')}</span>
+                      <SliderInput
+                        className={`vs-posesrc-track-${sec}`}
+                        value={inf.track}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        precision={2}
+                        onChange={(v) => setInf(sec, { track: v }, false)}
+                        onCommit={(v) => setInf(sec, { track: v }, true)}
+                        style={{ flex: 1, minWidth: 0 }}
+                      />
+                    </div>
+                  );
+                })}
+                {anyConfigured && (
+                  <button
+                    className="vs-posesrc-reset"
+                    style={resetBtnStyle}
+                    onClick={() => apply({}, true)}
+                  >
+                    {t('avatar.poseSourceReset')}
+                  </button>
                 )}
               </>
             );

@@ -55,6 +55,35 @@ Turn it on per avatar, then tune three dials:
 > snap. If motion starts to wobble or buzz, raise **Damping** or lower
 > **Frequency**.
 
+## Partial tracking {#partial-tracking}
+
+**Partial tracking** lets you drive different parts of the body from different
+sources at the same time — for example, play a looping dance animation on the
+**legs** while your live tracking drives the **upper body**.
+
+The body is split into six sections: **Head**, **Gaze** (eyes), **Body**
+(torso), **Arms**, **Hands** (fingers), and **Legs**. Each section has two
+sliders:
+
+- **Anim** — how strongly the playing animation clip drives that section.
+- **Track** — how strongly live tracking (VMC or camera) drives it.
+
+Think of them as a stack. **Anim** first pulls the section from its rest pose
+toward the animation; **Track** then pulls it toward tracking. So:
+
+- **Anim 1 / Track 1** — tracking wins where it has data (the normal default).
+- **Anim 1 / Track 0** — animation only (e.g. legs following a clip).
+- **Anim 0 / Track 1** — tracking only.
+- **Anim 0 / Track 0** — the section rests.
+- Values in between blend the two.
+
+Sections you never touch stay at the default, so you only need to adjust the
+parts you want to change.
+
+> Note: driving the **legs** from tracking needs a full-body tracking source
+> (a full-body VMC sender). Webcam tracking doesn't send legs yet, so with a
+> webcam use **Anim** for the legs and **Track** for the upper body.
+
 ## Expressions {#expressions}
 
 Expressions are facial poses defined inside the VRM, such as smiling, blinking,

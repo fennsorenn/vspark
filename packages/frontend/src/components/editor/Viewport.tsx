@@ -94,6 +94,11 @@ import {
 } from '../../calibration';
 import type { VmcCalibration } from '../../calibration';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
+import type {
+  PoseSection,
+  PoseSectionInfluence,
+  PoseSource,
+} from '@vspark/shared';
 import { registerMedia } from './mediaRegistry';
 import {
   makeVideoMaterial,
@@ -479,6 +484,74 @@ const FBX_BONE_TO_VRM: Record<string, VRMHumanBoneName> = {
 };
 // Hips bone names across all supported rigs (used for root position track).
 const HIPS_BONE_NAMES = new Set(['mixamorigHips', 'pelvis']);
+
+// ── Partial tracking: map every VRM humanoid bone to a body section so each
+//    section can independently blend animation vs. live tracking. ────────────
+const POSE_SECTION_BONES: Record<PoseSection, string[]> = {
+  body: ['hips', 'spine', 'chest', 'upperChest'],
+  head: ['neck', 'head', 'jaw'],
+  gaze: ['leftEye', 'rightEye'],
+  arms: [
+    'leftShoulder',
+    'leftUpperArm',
+    'leftLowerArm',
+    'leftHand',
+    'rightShoulder',
+    'rightUpperArm',
+    'rightLowerArm',
+    'rightHand',
+  ],
+  legs: [
+    'leftUpperLeg',
+    'leftLowerLeg',
+    'leftFoot',
+    'leftToes',
+    'rightUpperLeg',
+    'rightLowerLeg',
+    'rightFoot',
+    'rightToes',
+  ],
+  // Every remaining bone (all finger bones) belongs to 'hands'.
+  hands: [],
+};
+
+/** boneName → section. Bones not explicitly listed fall under 'hands' (fingers). */
+const BONE_TO_SECTION: Record<string, PoseSection> = (() => {
+  const m: Record<string, PoseSection> = {};
+  for (const [section, bones] of Object.entries(POSE_SECTION_BONES) as [
+    PoseSection,
+    string[],
+  ][]) {
+    for (const b of bones) m[b] = section;
+  }
+  for (const name of VRM_BONE_NAMES as unknown as string[]) {
+    if (!(name in m)) m[name] = 'hands';
+  }
+  return m;
+})();
+
+const DEFAULT_SECTION_INFLUENCE: PoseSectionInfluence = { anim: 1, track: 1 };
+
+/** Resolve a bone's { anim, track } influence from a node's poseSource map,
+ *  defaulting absent sections to { anim: 1, track: 1 } (legacy behaviour). */
+function sectionInfluenceForBone(
+  boneName: string,
+  poseSource: PoseSource | undefined
+): PoseSectionInfluence {
+  if (!poseSource) return DEFAULT_SECTION_INFLUENCE;
+  const section = BONE_TO_SECTION[boneName];
+  return poseSource[section] ?? DEFAULT_SECTION_INFLUENCE;
+}
+
+/** True when a poseSource map deviates from the legacy all-{anim:1,track:1}
+ *  default, i.e. the per-section blend path should run. */
+function poseSourceIsActive(poseSource: PoseSource | undefined): boolean {
+  if (!poseSource) return false;
+  for (const v of Object.values(poseSource)) {
+    if (v && (v.anim !== 1 || v.track !== 1)) return true;
+  }
+  return false;
+}
 
 interface VmcRetarget {
   bonesInOrder: VRMHumanBoneName[];
@@ -2464,6 +2537,13 @@ function AvatarNode({
         }
       }
 
+      // Partial tracking: when a non-default poseSource is configured, each body
+      // section blends animation vs. live tracking independently. Only applies
+      // to override-mode broadcasts (additive stacks a delta, a different model).
+      const poseSource = node.properties?.poseSource as PoseSource | undefined;
+      const perSection =
+        poseMode !== 'additive' && poseSourceIsActive(poseSource);
+
       if (poseMode === 'additive') {
         // Additive: stack the broadcast on top of the animation.
         //
@@ -2516,6 +2596,51 @@ function AvatarNode({
             );
           } else {
             bone.quaternion.copy(animQ);
+          }
+        }
+      } else if (perSection) {
+        // Per-section anim/track blend. Sample rest + tracked raw quats, then
+        // for each bone: base = slerp(rest, anim, animInfluence); if the bone is
+        // tracked, final = slerp(base, tracked, trackInfluence × blend).
+        const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
+        const animQuats: Array<
+          [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion]
+        > = [];
+        for (const name of allBones) {
+          const bone = vrm.humanoid.getRawBoneNode(name);
+          if (bone) animQuats.push([name, bone, bone.quaternion.clone()]);
+        }
+        const broadcastSet = new Set(
+          Object.keys(normalizedPose) as VRMHumanBoneName[]
+        );
+
+        // Rest raw quats (all bones).
+        vrm.humanoid.resetNormalizedPose();
+        (vrm.humanoid as unknown as { update?: () => void }).update?.();
+        const restRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
+        for (const [name, bone] of animQuats)
+          restRaw.set(name, bone.quaternion.clone());
+
+        // Tracked raw quats (apply broadcast).
+        vrm.humanoid.setNormalizedPose(normalizedPose);
+        (vrm.humanoid as unknown as { update?: () => void }).update?.();
+        const trackedRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
+        for (const [name, bone] of animQuats) {
+          if (broadcastSet.has(name))
+            trackedRaw.set(name, bone.quaternion.clone());
+        }
+
+        // Compose.
+        for (const [name, bone, animQ] of animQuats) {
+          const inf = sectionInfluenceForBone(name, poseSource);
+          const restQ = restRaw.get(name)!;
+          const base = restQ.clone().slerp(animQ, inf.anim);
+          const tracked = trackedRaw.get(name);
+          if (tracked) {
+            const tw = Math.max(0, Math.min(1, inf.track * blend));
+            bone.quaternion.copy(base.slerp(tracked, tw));
+          } else {
+            bone.quaternion.copy(base);
           }
         }
       } else if (blend >= 1) {
