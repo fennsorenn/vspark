@@ -18,7 +18,10 @@ import { useEditorStore } from '../../store/editorStore';
 import { api, fireSignalEvent, updateScene } from '../../api/client';
 import type { StageObject, Behavior } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
-import { ComposeLayerProperties } from './ComposeLayerProperties';
+import {
+  ComposeLayerProperties,
+  ComposeSceneProperties,
+} from './ComposeLayerProperties';
 import type { AssetFile } from '../../api/client';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
@@ -4048,6 +4051,8 @@ export function PropertiesPanel() {
     sceneSelected,
     updateSceneItem,
     composeLayers,
+    composeScenes,
+    activeComposeSceneId,
     selectedComposeLayerId,
     leftTab,
     activeLogicId,
@@ -4248,6 +4253,14 @@ export function PropertiesPanel() {
       return panelShell(
         <ComposeLayerProperties layer={selectedComposeLayer} />
       );
+    }
+    // No layer selected → show the active compose scene's own settings
+    // (resolution + preview background).
+    const activeComposeScene = composeScenes.find(
+      (s) => s.id === activeComposeSceneId
+    );
+    if (activeComposeScene) {
+      return panelShell(<ComposeSceneProperties scene={activeComposeScene} />);
     }
     return emptyState(t('emptyState.selectLayer'));
   }

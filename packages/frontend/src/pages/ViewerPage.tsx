@@ -18,7 +18,10 @@ import {
   canvasShadowsProp,
   type ShadowQuality,
 } from '../components/editor/Viewport';
-import { ComposeLayerStack } from '../components/editor/ComposeLayerStack';
+import {
+  ComposeLayerStack,
+  ComposeStageSizeContext,
+} from '../components/editor/ComposeLayerStack';
 import {
   ComposeStage,
   composeSceneResolution,
@@ -190,11 +193,13 @@ export function ViewerPage() {
         {/* Fixed-resolution canonical stage, letterbox-scaled to the viewer
             window so streamed output matches the editor at any window size. */}
         <ComposeStage canonW={canonW} canonH={canonH}>
-          <ComposeLayerStack
-            layers={stackLayers}
-            assets={assets}
-            mode="viewer"
-          />
+          <ComposeStageSizeContext.Provider value={`${canonW}x${canonH}`}>
+            <ComposeLayerStack
+              layers={stackLayers}
+              assets={assets}
+              mode="viewer"
+            />
+          </ComposeStageSizeContext.Provider>
         </ComposeStage>
       </div>
     );

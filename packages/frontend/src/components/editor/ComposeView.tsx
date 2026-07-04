@@ -11,7 +11,10 @@ import {
   useEditorStore,
   type ComposeLayerRecord,
 } from '../../store/editorStore';
-import { ComposeLayerStack } from './ComposeLayerStack';
+import {
+  ComposeLayerStack,
+  ComposeStageSizeContext,
+} from './ComposeLayerStack';
 import { ComposeSelectionOverlay } from './ComposeSelectionOverlay';
 import { ComposeEventCapture } from './ComposeEventCapture';
 import {
@@ -22,11 +25,51 @@ import {
 } from './composeHitTest';
 import { api } from '../../api/client';
 import { uniqueName } from './createKinds';
-import { NumInput } from './numericInputs';
 
 /** Fallback canonical compose resolution when a scene has none set. */
 export const DEFAULT_COMPOSE_WIDTH = 1920;
 export const DEFAULT_COMPOSE_HEIGHT = 1080;
+
+/** Diagonal two-tone grey stripes for the editor letterbox (the area around the
+ *  fixed-resolution stage). Signals "outside the canvas". */
+const LETTERBOX_BG =
+  'repeating-linear-gradient(45deg, #161616 0 12px, #202020 12px 24px)';
+
+/** Editor-only checkerboard used as the default scene preview background — makes
+ *  it unambiguous that the actual (viewer/OBS) output is transparent there. */
+const CHECKER_STYLE: CSSProperties = {
+  backgroundColor: '#141414',
+  backgroundImage:
+    'repeating-conic-gradient(#232323 0% 25%, #141414 0% 50%)',
+  backgroundSize: '24px 24px',
+};
+
+export interface PreviewBg {
+  mode?: 'transparent' | 'color' | 'image';
+  color?: string;
+  assetId?: string;
+}
+
+/** CSS for the editor stage's preview background from a compose scene's config.
+ *  Editor-only; the viewer stage always stays transparent. Defaults to the
+ *  transparency checkerboard. */
+export function previewBgStyle(
+  scene: { config?: Record<string, unknown> } | null | undefined,
+  assets: { id: string; url: string }[]
+): CSSProperties {
+  const pb = (scene?.config?.previewBg ?? {}) as PreviewBg;
+  if (pb.mode === 'color' && pb.color) return { background: pb.color };
+  if (pb.mode === 'image' && pb.assetId) {
+    const url = assets.find((a) => a.id === pb.assetId)?.url;
+    if (url)
+      return {
+        backgroundImage: `url(${url})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      };
+  }
+  return CHECKER_STYLE;
+}
 
 /** Resolve a compose scene's canonical resolution, falling back to the default. */
 export function composeSceneResolution(scene: {
@@ -112,9 +155,6 @@ export function ComposeView() {
     (s) => s.updateComposeLayerLocal
   );
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
-  const updateComposeSceneLocal = useEditorStore(
-    (s) => s.updateComposeSceneLocal
-  );
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
   );
@@ -347,51 +387,12 @@ export function ComposeView() {
           {composeScene.name}
         </span>
         <div style={{ flex: 1 }} />
-        {/* Fixed compose resolution (canonical px). The stage scales to fit. */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            fontSize: 11,
-            color: '#888',
-          }}
+        <span
+          style={{ fontSize: 11, color: '#555' }}
           title={t('view.resolutionHint')}
         >
-          <NumInput
-            className="vs-compose-width"
-            value={canonW}
-            min={16}
-            step={1}
-            precision={0}
-            onChange={(w) => {
-              if (!composeScene || w < 16) return;
-              const next = { ...composeScene, width: Math.round(w) };
-              updateComposeSceneLocal(next);
-              api
-                .updateComposeLayer(composeScene.id, { width: Math.round(w) })
-                .catch(() => {});
-            }}
-            style={{ width: 56 }}
-          />
-          <span style={{ color: '#555' }}>×</span>
-          <NumInput
-            className="vs-compose-height"
-            value={canonH}
-            min={16}
-            step={1}
-            precision={0}
-            onChange={(h) => {
-              if (!composeScene || h < 16) return;
-              const next = { ...composeScene, height: Math.round(h) };
-              updateComposeSceneLocal(next);
-              api
-                .updateComposeLayer(composeScene.id, { height: Math.round(h) })
-                .catch(() => {});
-            }}
-            style={{ width: 56 }}
-          />
-        </div>
+          {canonW}×{canonH}
+        </span>
         <span style={{ fontSize: 11, color: '#555' }}>
           {t('view.layerCount', { count: stackLayers.length })}
         </span>
@@ -405,7 +406,7 @@ export function ComposeView() {
           flex: 1,
           position: 'relative',
           overflow: 'hidden',
-          background: '#0a0a0a',
+          background: LETTERBOX_BG,
         }}
       >
         {/* Fixed-resolution stage (canonical px), letterbox-scaled to fit. Layer
@@ -421,12 +422,17 @@ export function ComposeView() {
             height: canonH,
             transform: `translate(-50%, -50%) scale(${scale})`,
             transformOrigin: 'center center',
-            background: '#000',
             overflow: 'hidden',
+            // Editor-only preview background (checkerboard = transparent output,
+            // or a user-chosen color/image). The viewer stage stays transparent.
+            ...previewBgStyle(composeScene, assets),
           }}
         >
-          {/* 3D output is rendered by camera_view layers inside the stack. */}
-          <ComposeLayerStack layers={stackLayers} assets={assets} />
+          {/* 3D output is rendered by camera_view layers inside the stack. The
+              stage-size context remounts camera canvases on resolution change. */}
+          <ComposeStageSizeContext.Provider value={`${canonW}x${canonH}`}>
+            <ComposeLayerStack layers={stackLayers} assets={assets} />
+          </ComposeStageSizeContext.Provider>
           {/* The capture overlay owns all pointer/wheel events for the compose
               viewport. Sits above the layers but below the selection chrome. */}
           <ComposeEventCapture viewportRef={stageRef} />

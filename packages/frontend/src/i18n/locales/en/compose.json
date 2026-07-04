@@ -44,6 +44,15 @@
     "uploading": "Uploading…",
     "resolutionHint": "Fixed compose resolution (px). The stage scales to fit."
   },
+  "sceneProps": {
+    "resolution": "Resolution",
+    "previewBgHeader": "Preview background",
+    "previewBgHint": "Editor preview only — the streamed / OBS output stays transparent here.",
+    "previewBgMode": "Source",
+    "bgTransparent": "Transparent (checkerboard)",
+    "bgColor": "Color",
+    "bgImage": "Image"
+  },
   "properties": {
     "scopeAllCameras": "Scene-wide (all cameras)",
     "scopeCamera": "Camera · {{name}}",

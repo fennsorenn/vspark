@@ -10,6 +10,11 @@ import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { CSS_BLEND_MODES, readChroma } from './videoFx';
 import { HelpButton } from '../../help/HelpButton';
+import {
+  DEFAULT_COMPOSE_WIDTH,
+  DEFAULT_COMPOSE_HEIGHT,
+  type PreviewBg,
+} from './ComposeView';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -1017,5 +1022,108 @@ export function ComposeLayerProperties({
         {t('properties.stackOrderHint')}
       </div>
     </>
+  );
+}
+
+/** Properties for a selected compose scene (kind='compose_scene'): the fixed
+ *  canonical resolution and the editor preview background. Shown in the compose
+ *  tab when no layer is selected. */
+export function ComposeSceneProperties({
+  scene,
+}: {
+  scene: ComposeLayerRecord;
+}) {
+  const { t } = useTranslation('compose');
+  const assets = useEditorStore((s) => s.assets);
+  const updateSceneLocal = useEditorStore((s) => s.updateComposeSceneLocal);
+  const imageAssets = assets.filter((a) => a.kind === 'image');
+
+  const w = scene.width && scene.width > 0 ? scene.width : DEFAULT_COMPOSE_WIDTH;
+  const h =
+    scene.height && scene.height > 0 ? scene.height : DEFAULT_COMPOSE_HEIGHT;
+  const pb = (scene.config?.previewBg ?? {}) as PreviewBg;
+  const mode = pb.mode ?? 'transparent';
+
+  const commitSize = (values: number[]) => {
+    const nw = Math.max(16, Math.round(values[0]));
+    const nh = Math.max(16, Math.round(values[1]));
+    updateSceneLocal({ ...scene, width: nw, height: nh });
+    api.updateComposeLayer(scene.id, { width: nw, height: nh }).catch(() => {});
+  };
+  const setPb = (patch: Partial<PreviewBg>) => {
+    const config = { ...scene.config, previewBg: { ...pb, ...patch } };
+    updateSceneLocal({ ...scene, config });
+    api.updateComposeLayer(scene.id, { config }).catch(() => {});
+  };
+
+  return (
+    <div style={{ padding: '4px 2px' }}>
+      <div style={sectionHeader}>{t('sceneProps.resolution')}</div>
+      <VecInput
+        className="vs-compose-resolution"
+        values={[w, h]}
+        labels={['W', 'H']}
+        min={16}
+        step={1}
+        precision={0}
+        onCommit={commitSize}
+      />
+
+      <div style={sectionHeader}>{t('sceneProps.previewBgHeader')}</div>
+      <div style={{ fontSize: 10, color: '#666', lineHeight: 1.4, marginBottom: 8 }}>
+        {t('sceneProps.previewBgHint')}
+      </div>
+      <div style={row}>
+        <span style={label}>{t('sceneProps.previewBgMode')}</span>
+        <select
+          className="vs-compose-bg-mode"
+          value={mode}
+          onChange={(e) => setPb({ mode: e.target.value as PreviewBg['mode'] })}
+          style={{ ...select, width: '100%' }}
+        >
+          <option value="transparent">{t('sceneProps.bgTransparent')}</option>
+          <option value="color">{t('sceneProps.bgColor')}</option>
+          <option value="image">{t('sceneProps.bgImage')}</option>
+        </select>
+      </div>
+      {mode === 'color' && (
+        <div style={row}>
+          <span style={label}>{t('sceneProps.bgColor')}</span>
+          <input
+            className="vs-compose-bg-color"
+            type="color"
+            value={pb.color ?? '#000000'}
+            onChange={(e) => setPb({ color: e.target.value })}
+            style={{
+              width: 40,
+              height: 26,
+              padding: 0,
+              border: '1px solid #3a3a3a',
+              borderRadius: 4,
+              background: '#2a2a2a',
+              cursor: 'pointer',
+            }}
+          />
+          <span style={{ fontSize: 12, color: '#888' }}>
+            {pb.color ?? '#000000'}
+          </span>
+        </div>
+      )}
+      {mode === 'image' && (
+        <select
+          className="vs-compose-bg-image"
+          value={pb.assetId ?? ''}
+          onChange={(e) => setPb({ assetId: e.target.value || undefined })}
+          style={{ ...select, width: '100%' }}
+        >
+          <option value="">{t('properties.optionNoneAsset')}</option>
+          {imageAssets.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
   );
 }

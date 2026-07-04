@@ -44,6 +44,15 @@
     "uploading": "Wird hochgeladen…",
     "resolutionHint": "Feste Compose-Auflösung (px). Die Bühne wird eingepasst."
   },
+  "sceneProps": {
+    "resolution": "Auflösung",
+    "previewBgHeader": "Vorschau-Hintergrund",
+    "previewBgHint": "Nur Editor-Vorschau — die gestreamte / OBS-Ausgabe bleibt hier transparent.",
+    "previewBgMode": "Quelle",
+    "bgTransparent": "Transparent (Schachbrett)",
+    "bgColor": "Farbe",
+    "bgImage": "Bild"
+  },
   "properties": {
     "scopeAllCameras": "Szenenweit (alle Kameras)",
     "scopeCamera": "Kamera · {{name}}",

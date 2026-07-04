@@ -1,4 +1,6 @@
 import {
+  createContext,
+  useContext,
   useEffect,
   useId,
   useMemo,
@@ -118,9 +120,17 @@ function layerStyle(
   return style;
 }
 
+/** The compose stage's canonical size as a "WxH" string. The camera_view's R3F
+ *  Canvas is keyed on this so it remounts (re-measures its drawing buffer) when
+ *  the scene resolution changes — react-use-measure doesn't reliably re-measure
+ *  a Canvas that lives inside the CSS transform-scaled stage. Resolution changes
+ *  are rare + deliberate, so the brief re-init is acceptable. */
+export const ComposeStageSizeContext = createContext('');
+
 function CameraViewLayer({ layer }: { layer: ComposeLayerRecord }) {
   const { t } = useTranslation('compose');
   const nodes = useEditorStore((s) => s.nodes);
+  const stageSizeKey = useContext(ComposeStageSizeContext);
   const cam = layer.cameraNodeId
     ? nodes.find((n) => n.id === layer.cameraNodeId)
     : null;
@@ -147,6 +157,7 @@ function CameraViewLayer({ layer }: { layer: ComposeLayerRecord }) {
   return (
     <div style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
       <CameraCanvas
+        key={stageSizeKey}
         cameraNode={cam}
         sceneId={cam.rootSceneNodeId}
         composeLayerId={layer.id}
