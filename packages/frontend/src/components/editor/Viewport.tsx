@@ -2668,6 +2668,40 @@ function AvatarNode({
           bone.quaternion.slerp(animQ, 1 - blend);
         }
       }
+    } else if (
+      vrm &&
+      poseMode !== 'additive' &&
+      poseSourceIsActive(node.properties?.poseSource as PoseSource | undefined)
+    ) {
+      // Partial tracking with NO live tracking feed: there's no broadcast pose to
+      // mix in, but the per-section ANIM influence (rest↔clip) still applies, so
+      // the sliders visibly droop a section toward rest even before any VMC /
+      // camera source is connected. Mirrors the anim half of the tracked branch.
+      const poseSource = node.properties?.poseSource as PoseSource | undefined;
+      const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
+      const animQuats: Array<
+        [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion]
+      > = [];
+      for (const name of allBones) {
+        const bone = vrm.humanoid.getRawBoneNode(name);
+        if (bone) animQuats.push([name, bone, bone.quaternion.clone()]);
+      }
+      // Rest raw quats (all bones).
+      vrm.humanoid.resetNormalizedPose();
+      (vrm.humanoid as unknown as { update?: () => void }).update?.();
+      const restRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
+      for (const [name, bone] of animQuats)
+        restRaw.set(name, bone.quaternion.clone());
+
+      // Same animActive guard as the tracked branch: without a clip the captured
+      // "anim" quats are just the held pose, so fall back to rest.
+      const animActive = !!(reg && layer);
+      for (const [name, bone, animQ] of animQuats) {
+        const inf = sectionInfluenceForBone(name, poseSource);
+        const restQ = restRaw.get(name)!;
+        const animContribution = animActive ? animQ : restQ;
+        bone.quaternion.copy(restQ.clone().slerp(animContribution, inf.anim));
+      }
     }
 
     // ── Step 3: remaining VRM subsystems on the final blended pose ───────────────
