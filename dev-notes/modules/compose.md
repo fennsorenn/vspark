@@ -191,7 +191,7 @@ It also exports a module-level `composeViewportRect` getter. `ComposeView` insta
 `ComposeSceneInteractions` (mounted inside the `<Canvas>`) installs module-level handles when it mounts, in addition to the existing `composeScenePicker`:
 
 - `composeSceneDragStarter` — start a 3D viewport-plane drag for a node from screen coords.
-- `composeSceneWheel` — apply a wheel impulse to the selected 3D node. For a **perspective** camera this dollies the node along the cursor ray; for an **orthographic** camera (dolly has no visual effect there) it instead scales the selected node by a multiplicative step per tick, debounced-persisted.
+- `composeSceneWheel` — apply a wheel impulse to the selected 3D node. For a **perspective** camera this dollies the node along the cursor ray; for an **orthographic** camera (dolly has no visual effect there) it instead **scales the node about the cursor point** using the same **dolly inertia** as the perspective path — the wheel adds an impulse to a log-scale velocity (`ln(scale)/sec`) that the `useFrame` integrator damps with the shared `WHEEL_DAMPING`, clamped to `[MIN_NODE_SCALE, MAX_NODE_SCALE]`, debounced-persisted.
 
 The component itself no longer attaches an `onPointerDown` to its wrapper `<group>` nor a wheel listener on a DOM ref (the old `wheelTargetRef` prop is gone). Its in-canvas responsibility is just the `useFrame` integrator that consumes the wheel-impulse state. All pointer/wheel entry happens outside the canvas via the capture overlay.
 
