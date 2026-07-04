@@ -1,6 +1,6 @@
 import {
+  useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -54,24 +54,30 @@ export function ComposeStage({
   background?: string;
   children: React.ReactNode;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const fit = () => {
-      const r = el.getBoundingClientRect();
-      if (r.width <= 0 || r.height <= 0) return;
-      setScale(Math.min(r.width / canonW, r.height / canonH));
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [canonW, canonH]);
+  const roRef = useRef<ResizeObserver | null>(null);
+  // Callback ref so the observer attaches whenever the container mounts and
+  // re-attaches when canonW/canonH change (see the note in ComposeView).
+  const attachContainer = useCallback(
+    (el: HTMLDivElement | null) => {
+      roRef.current?.disconnect();
+      roRef.current = null;
+      if (!el) return;
+      const fit = () => {
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) return;
+        setScale(Math.min(r.width / canonW, r.height / canonH));
+      };
+      fit();
+      const ro = new ResizeObserver(fit);
+      ro.observe(el);
+      roRef.current = ro;
+    },
+    [canonW, canonH]
+  );
   return (
     <div
-      ref={containerRef}
+      ref={attachContainer}
       style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}
     >
       <div
@@ -116,7 +122,7 @@ export function ComposeView() {
   // The outer container holds the letterboxed, fixed-resolution stage. Layer
   // coordinates live in the stage's canonical pixel space; the stage is CSS
   // scale-to-fit into whatever space the container has.
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const scaleRef = useRef(1);
@@ -142,23 +148,32 @@ export function ComposeView() {
       ? composeScene.height
       : DEFAULT_COMPOSE_HEIGHT;
 
-  // Fit the canonical stage into the container (letterbox scale-to-fit). Track
-  // the container size and recompute on resize.
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const fit = () => {
-      const r = el.getBoundingClientRect();
-      if (r.width <= 0 || r.height <= 0) return;
-      const s = Math.min(r.width / canonW, r.height / canonH);
-      scaleRef.current = s;
-      setScale(s);
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [canonW, canonH]);
+  // Fit the canonical stage into the container (letterbox scale-to-fit). A
+  // callback ref (re)attaches the ResizeObserver whenever the container element
+  // actually mounts — the container is only rendered once a compose scene has
+  // loaded, and its size can change independently of canonW/canonH, so an
+  // effect keyed on those would miss the mount and leave the scale stuck at 1.
+  const fitRoRef = useRef<ResizeObserver | null>(null);
+  const attachContainer = useCallback(
+    (el: HTMLDivElement | null) => {
+      containerRef.current = el;
+      fitRoRef.current?.disconnect();
+      fitRoRef.current = null;
+      if (!el) return;
+      const fit = () => {
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) return;
+        const s = Math.min(r.width / canonW, r.height / canonH);
+        scaleRef.current = s;
+        setScale(s);
+      };
+      fit();
+      const ro = new ResizeObserver(fit);
+      ro.observe(el);
+      fitRoRef.current = ro;
+    },
+    [canonW, canonH]
+  );
 
   // Install module-level getters so the capture/pick helpers can resolve the
   // stage rect and its scale without prop-drilling.
@@ -382,7 +397,7 @@ export function ComposeView() {
         </span>
       </div>
       <div
-        ref={containerRef}
+        ref={attachContainer}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
