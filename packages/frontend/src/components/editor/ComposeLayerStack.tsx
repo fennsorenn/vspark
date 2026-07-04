@@ -605,16 +605,30 @@ function Placeholder({
         boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
-        gap: 4,
+        gap: '4cqmin',
         alignItems: 'center',
         justifyContent: 'center',
         color: '#888',
         fontSize: 11,
         pointerEvents: 'none',
+        overflow: 'hidden',
+        // Container units so the icon scales with the layer box — the
+        // placeholder then visibly fills the element at its actual dimensions.
+        containerType: 'size',
       }}
     >
-      {icon && <span style={{ fontSize: 22, opacity: 0.7 }}>{icon}</span>}
-      {text}
+      {icon && (
+        <span
+          style={{
+            fontSize: 'min(96px, 42cqmin)',
+            lineHeight: 1,
+            opacity: 0.75,
+          }}
+        >
+          {icon}
+        </span>
+      )}
+      <span style={{ fontSize: 'min(13px, 9cqmin)' }}>{text}</span>
     </div>
   );
 }
@@ -728,18 +742,40 @@ export function ComposeLayerStack({
   const roots = orderSiblings(childrenByParent.get(null) ?? []);
 
   // Editor-only: floor the opacity of the selected layer and its container
-  // ancestors so a near-invisible selection stays visible while editing.
+  // whole branch (top-level ancestor + its entire subtree) so a near-invisible
+  // selection — and everything grouped with it — stays visible while editing.
   const selectedId = useEditorStore((s) => s.selectedComposeLayerId);
   const boostOpacityIds = useMemo(() => {
     const ids = new Set<string>();
     if (mode !== 'editor' || !selectedId) return ids;
     const byId = new Map(layers.map((l) => [l.id, l]));
-    let cur = byId.get(selectedId);
-    const guard = new Set<string>();
-    while (cur && !guard.has(cur.id)) {
-      guard.add(cur.id);
-      ids.add(cur.id);
-      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    // Walk up to the branch root (the top-level layer of the tree this item
+    // sits on — its parent is null or not part of the rendered set).
+    let root = byId.get(selectedId);
+    const upGuard = new Set<string>();
+    while (
+      root &&
+      root.parentId &&
+      byId.has(root.parentId) &&
+      !upGuard.has(root.id)
+    ) {
+      upGuard.add(root.id);
+      root = byId.get(root.parentId);
+    }
+    if (!root) return ids;
+    // Collect the root's entire subtree (the whole branch).
+    const childrenBy = new Map<string, ComposeLayerRecord[]>();
+    for (const l of layers) {
+      const key = l.parentId ?? '';
+      if (!childrenBy.has(key)) childrenBy.set(key, []);
+      childrenBy.get(key)!.push(l);
+    }
+    const stack = [root.id];
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (ids.has(id)) continue;
+      ids.add(id);
+      for (const c of childrenBy.get(id) ?? []) stack.push(c.id);
     }
     return ids;
   }, [layers, selectedId, mode]);
