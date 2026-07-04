@@ -249,6 +249,7 @@
     "modelClear": "Modell entfernen",
     "animationHeader": "Animation",
     "idleAnimation": "Leerlauf-Animation",
+    "baseAnimation": "Basis-Animation",
     "animPlaceholder": "Suchen oder URL einfügen…",
     "animNoAssets": "Noch keine Animationen hochgeladen",
     "animClear": "Animation entfernen",
@@ -257,7 +258,7 @@
     "twistForce": "Drehknochen erzwingen",
     "twistExcludeSleeves": "Ärmel ausschließen",
     "poseSourceHeader": "Teilweises Tracking",
-    "poseSourceHint": "Animation und Live-Tracking pro Körperbereich mischen. „Anim“ zieht den Bereich zur laufenden Animation, „Track“ zum Tracking (VMC/Kamera). Beide auf 0 = Ruhepose. Beine per Tracking brauchen eine Ganzkörperquelle.",
+    "poseSourceHint": "Tracking wird pro Körperbereich auf die Basis-Animation gestapelt, jeweils unabhängig skaliert. „Anim“ skaliert die Basis-Animation (Ruhe→Clip), „Track“ skaliert das darübergelegte Live-Tracking (VMC/Kamera). Beide auf 0 = Ruhepose. Beine per Tracking brauchen eine Ganzkörperquelle.",
     "poseSourceAnim": "Anim",
     "poseSourceTrack": "Track",
     "poseSourceReset": "Alle Bereiche zurücksetzen",
@@ -572,6 +573,7 @@
     "audioType": "Einfach spielt überall mit gleicher Lautstärke; Direktional nimmt mit dem Abstand ab und kann als 3D-Kegel geformt werden",
     "audioSpatial": "Abstands- und Kegelparameter für direktionales Audio — Referenzabstand, Abklingrate, maximaler Abstand und Kegelwinkel",
     "twist": "Unterarm-Drehung entlang des Arms verteilen statt am Ellbogen zu knicken",
-    "poseSource": "Jeden Körperbereich per Animation, Live-Tracking oder einer Mischung steuern"
+    "poseSource": "Jeden Körperbereich per Animation, Live-Tracking oder einer Mischung steuern",
+    "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück"
   }
 }

@@ -4202,6 +4202,38 @@ export function PropertiesPanel() {
     storeUpdateNode(node.id, { components, properties });
   };
 
+  // Base animation — the loop live tracking stacks onto (see the stacking
+  // composition in Viewport). Stored as a raw url slot under
+  // properties.animation.base; falls back to the idle when unset.
+  const baseProp = (
+    node?.properties as
+      | {
+          animation?: {
+            base?: { clipId?: string; url?: string; speed?: number };
+          };
+        }
+      | undefined
+  )?.animation?.base;
+  const baseUrlDisplay =
+    (baseProp?.clipId
+      ? animationClips[baseProp.clipId]?.sourceFilePath
+      : undefined) ??
+    baseProp?.url ??
+    '';
+  const baseSpeedDisplay = baseProp?.speed ?? 1;
+  const writeBase = (url: string | null, speed: number) => {
+    if (!node) return;
+    const prevProps = (node.properties as Record<string, unknown>) ?? {};
+    const prevAnim =
+      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
+    const properties = {
+      ...prevProps,
+      animation: { ...prevAnim, base: url ? { url, speed } : undefined },
+    };
+    api.updateNode(node.id, { properties }).catch(() => {});
+    storeUpdateNode(node.id, { properties });
+  };
+
   const panelShell = (children: React.ReactNode) => (
     <div
       style={{
@@ -8155,6 +8187,99 @@ export function PropertiesPanel() {
                   />
                 </label>
               </div>
+            )}
+
+            {/* Base animation — the layer live tracking stacks onto (avatars
+                only). Played while a source is connected; falls back to the idle
+                when tracking drops. */}
+            {node.kind === 'avatar' && (
+              <>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: '#888',
+                    marginTop: 12,
+                    marginBottom: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {t('avatar.baseAnimation')}
+                  <HelpButton
+                    topic="avatar"
+                    anchor="partial-tracking"
+                    tip={t('help.baseAnimation')}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    className="vs-base-anim-url"
+                    list="anim-list"
+                    style={{ ...textInput, flex: 1 }}
+                    placeholder={
+                      animAssets.length
+                        ? t('avatar.animPlaceholder')
+                        : t('avatar.animNoAssets')
+                    }
+                    defaultValue={baseUrlDisplay}
+                    key={`${node.id}-base-${baseUrlDisplay}`}
+                    onBlur={(e) => {
+                      writeBase(e.target.value.trim() || null, baseSpeedDisplay);
+                    }}
+                  />
+                  {baseUrlDisplay && (
+                    <button
+                      className="vs-base-anim-clear"
+                      title={t('avatar.animClear')}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#666',
+                        cursor: 'pointer',
+                        fontSize: 16,
+                        padding: '0 2px',
+                        flexShrink: 0,
+                      }}
+                      onClick={() => {
+                        writeBase(null, baseSpeedDisplay);
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                {baseUrlDisplay && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <label
+                      style={{
+                        flex: 1,
+                        fontSize: 12,
+                        color: '#888',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 3,
+                      }}
+                    >
+                      {t('avatar.animSpeed')}
+                      <input
+                        className="vs-base-anim-speed"
+                        type="number"
+                        style={{ ...textInput }}
+                        step={0.1}
+                        min={0}
+                        defaultValue={baseSpeedDisplay}
+                        key={`${node.id}-base-speed-${baseSpeedDisplay}`}
+                        onBlur={(e) => {
+                          const speed = parseFloat(e.target.value);
+                          if (isNaN(speed) || speed < 0) return;
+                          writeBase(baseUrlDisplay || null, speed);
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}

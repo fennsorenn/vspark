@@ -249,6 +249,7 @@
     "modelClear": "Clear model",
     "animationHeader": "Animation",
     "idleAnimation": "Idle Animation",
+    "baseAnimation": "Base Animation",
     "animPlaceholder": "Search or paste URL…",
     "animNoAssets": "No animations uploaded yet",
     "animClear": "Clear animation",
@@ -257,7 +258,7 @@
     "twistForce": "Force twist bone",
     "twistExcludeSleeves": "Exclude sleeves",
     "poseSourceHeader": "Partial Tracking",
-    "poseSourceHint": "Blend animation vs. live tracking per body section. Anim pulls the section toward the playing clip; Track pulls it toward tracking (VMC/camera). Both at 0 = rest pose. Legs from tracking need a full-body source.",
+    "poseSourceHint": "Tracking stacks on top of the base animation per body section, each scaled independently. Anim scales the base animation (rest→clip), Track scales the live tracking (VMC/camera) added on top. Both at 0 = rest pose. Legs from tracking need a full-body source.",
     "poseSourceAnim": "Anim",
     "poseSourceTrack": "Track",
     "poseSourceReset": "Reset all sections",
@@ -572,6 +573,7 @@
     "audioType": "Simple plays at the same volume everywhere; Directional falls off with distance and can be shaped into a 3D cone",
     "audioSpatial": "Distance and cone parameters for directional audio — reference distance, rolloff, max distance, and the cone angles",
     "twist": "Spread forearm roll along the arm instead of pinching at the elbow",
-    "poseSource": "Drive each body section from animation, live tracking, or a blend of both"
+    "poseSource": "Drive each body section from animation, live tracking, or a blend of both",
+    "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops"
   }
 }

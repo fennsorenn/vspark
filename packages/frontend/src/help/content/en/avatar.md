@@ -65,20 +65,28 @@ The body is split into six sections: **Head**, **Gaze** (eyes), **Body**
 (torso), **Arms**, **Hands** (fingers), and **Legs**. Each section has two
 sliders:
 
-- **Anim** — how strongly the playing animation clip drives that section.
+- **Anim** — how strongly the **base animation** drives that section.
 - **Track** — how strongly live tracking (VMC or camera) drives it.
 
-Think of them as a stack. **Anim** first pulls the section from its rest pose
-toward the animation; **Track** then pulls it toward tracking. So:
+Tracking **stacks on top of** the base animation, and each slider scales its
+layer independently. The section starts at its rest pose, **Anim** blends the
+base animation in, and **Track** adds the live tracking on top:
 
-- **Anim 1 / Track 1** — tracking wins where it has data (the normal default).
+- **Anim 1 / Track 1** — the base animation with full tracking stacked on it.
 - **Anim 1 / Track 0** — animation only (e.g. legs following a clip).
 - **Anim 0 / Track 1** — tracking only.
 - **Anim 0 / Track 0** — the section rests.
-- Values in between blend the two.
+- Values in between scale each layer, so both sliders always affect the pose.
 
-Sections you never touch stay at the default, so you only need to adjust the
-parts you want to change.
+Sections you never touch stay at the default (**Anim 1 / Track 1**), so you only
+need to adjust the parts you want to change.
+
+### Base animation
+
+The **Base animation** (set in the Animation section) is the loop that tracking
+stacks onto while a tracking source is connected — separate from the **Idle
+animation**. When tracking drops, the avatar falls back to the idle. If you
+don't set a base animation, the idle doubles as the base.
 
 > Note: driving the **legs** from tracking needs a full-body tracking source
 > (a full-body VMC sender). Webcam tracking doesn't send legs yet, so with a

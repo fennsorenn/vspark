@@ -100,6 +100,7 @@ import type {
   PoseSource,
 } from '@vspark/shared';
 import { registerMedia } from './mediaRegistry';
+import { stackBoneRotation } from './poseComposition';
 import {
   makeVideoMaterial,
   updateVideoMaterial,
@@ -1038,6 +1039,9 @@ function AvatarNode({
   const boneFiltersRef = useRef(new BoneFilterBank());
   const boneDynamicsRef = useRef(new BoneDynamicsBank());
   const poseWasActiveRef = useRef(false);
+  // Mirrors `trackingActive` state for the useFrame loop (avoids a stale closure
+  // read); the loop calls setTrackingActive only when this flips.
+  const trackingActiveRef = useRef(false);
   const blendWeightRef = useRef(0); // 0 = animation, 1 = VMC
   // Active animation layer driving the clock-anchored playhead (read in useFrame).
   const activeLayerRef = useRef<ActiveAnimLayer | null>(null);
@@ -1146,11 +1150,34 @@ function AvatarNode({
       ? { url: legacyAnim.idleUrl, speed: legacyAnim.speed ?? 1 }
       : null;
 
+  // Base animation — the loop live tracking stacks onto while a source is
+  // connected (see the stacking composition in useFrame). Falls back to the idle
+  // when unset, so an avatar with only an idle keeps blending its idle under
+  // tracking. `trackingActive` flips from the per-frame pose loop below.
+  const animBaseCfg = (
+    node.properties as
+      | {
+          animation?: {
+            base?: { clipId?: string; url?: string; speed?: number };
+          };
+        }
+      | undefined
+  )?.animation?.base;
+  const baseClip = animBaseCfg?.clipId
+    ? animationClips[animBaseCfg.clipId]
+    : undefined;
+  const baseUrl = baseClip?.sourceFilePath ?? animBaseCfg?.url;
+  const base = baseUrl ? { url: baseUrl, speed: animBaseCfg?.speed ?? 1 } : null;
+  const [trackingActive, setTrackingActive] = useState(false);
+  // While tracking is live use the base animation (if any) as the loop tracking
+  // stacks onto; otherwise fall back to the idle. Scheduled clips still win.
+  const animLoop = trackingActive && base ? base : idle;
+
   // Tick that re-fires when the active timeline entry should change.
   const [animTick, setAnimTick] = useState(0);
   const animResolved = _resolveAvatarAnimation(
     node.id,
-    idle,
+    animLoop,
     scheduledForNode,
     animationClips,
     Date.now()
@@ -2426,6 +2453,12 @@ function AvatarNode({
       vrm?.humanoid.resetNormalizedPose();
     }
     poseWasActiveRef.current = poseActive;
+    // Drive the reactive `trackingActive` (render-time) so the base⇄idle loop
+    // swaps when a source connects / drops. Only fires on the actual transition.
+    if (poseActive !== trackingActiveRef.current) {
+      trackingActiveRef.current = poseActive;
+      setTrackingActive(poseActive);
+    }
 
     // Ramp blend weight: 0 = pure animation, 1 = pure broadcast pose.
     // Configured per-avatar via the VRM node's `blendTransitionTime` property.
@@ -2537,13 +2570,6 @@ function AvatarNode({
         }
       }
 
-      // Partial tracking: when a non-default poseSource is configured, each body
-      // section blends animation vs. live tracking independently. Only applies
-      // to override-mode broadcasts (additive stacks a delta, a different model).
-      const poseSource = node.properties?.poseSource as PoseSource | undefined;
-      const perSection =
-        poseMode !== 'additive' && poseSourceIsActive(poseSource);
-
       if (poseMode === 'additive') {
         // Additive: stack the broadcast on top of the animation.
         //
@@ -2598,10 +2624,17 @@ function AvatarNode({
             bone.quaternion.copy(animQ);
           }
         }
-      } else if (perSection) {
-        // Per-section anim/track blend. Sample rest + tracked raw quats, then
-        // for each bone: base = slerp(rest, anim, animInfluence); if the bone is
-        // tracked, final = slerp(base, tracked, trackInfluence × blend).
+      } else {
+        // Override mode — "tracking stacks on animation". For every bone: stack
+        // the (scaled) tracking delta on top of the (scaled) base animation,
+        // per body section independently (see stackBoneRotation). Default
+        // sections ({anim:1,track:1}) → base animation with full tracking stacked
+        // once ramped in; the partial-tracking sliders just scale each layer.
+        // This is the universal tracked-avatar path (replaces the old
+        // full-override + per-section branches).
+        const poseSourceLive = node.properties?.poseSource as
+          | PoseSource
+          | undefined;
         const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
         const animQuats: Array<
           [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion]
@@ -2630,42 +2663,25 @@ function AvatarNode({
             trackedRaw.set(name, bone.quaternion.clone());
         }
 
-        // The "animation" contribution is the clip pose only while a clip is
-        // actually driving; otherwise it's the rest pose. Without this guard the
-        // animQ captured after Step 1 is the PREVIOUS frame's applied pose (which
-        // includes tracking, since a no-clip Step 1 just re-applies the held
-        // normalized pose), so track=0 would freeze the last tracked pose instead
-        // of falling back to rest.
+        // animQ is the base-animation pose only while a clip is driving;
+        // otherwise the captured quats are the previous frame's applied pose, so
+        // fall back to rest (else track=0 would freeze the last tracked pose).
         const animActive = !!(reg && layer);
         for (const [name, bone, animQ] of animQuats) {
-          const inf = sectionInfluenceForBone(name, poseSource);
+          const inf = sectionInfluenceForBone(name, poseSourceLive);
           const restQ = restRaw.get(name)!;
           const animContribution = animActive ? animQ : restQ;
-          const base = restQ.clone().slerp(animContribution, inf.anim);
-          const tracked = trackedRaw.get(name);
-          if (tracked) {
-            const tw = Math.max(0, Math.min(1, inf.track * blend));
-            bone.quaternion.copy(base.slerp(tracked, tw));
-          } else {
-            bone.quaternion.copy(base);
-          }
-        }
-      } else if (blend >= 1) {
-        // Override at full weight — replace animation.
-        vrm.humanoid.setNormalizedPose(normalizedPose);
-        (vrm.humanoid as unknown as { update?: () => void }).update?.();
-      } else {
-        // Override mid-transition: save animation quats, apply pose, slerp back by (1-blend).
-        const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
-        const animQuats: Array<[THREE.Object3D, THREE.Quaternion]> = [];
-        for (const name of allBones) {
-          const bone = vrm.humanoid.getRawBoneNode(name);
-          if (bone) animQuats.push([bone, bone.quaternion.clone()]);
-        }
-        vrm.humanoid.setNormalizedPose(normalizedPose);
-        (vrm.humanoid as unknown as { update?: () => void }).update?.();
-        for (const [bone, animQ] of animQuats) {
-          bone.quaternion.slerp(animQ, 1 - blend);
+          const tracked = trackedRaw.get(name) ?? null;
+          // Track weight folds in the transition ramp; untracked bones drop it.
+          const tw = tracked ? Math.max(0, Math.min(1, inf.track * blend)) : 0;
+          stackBoneRotation(
+            restQ,
+            animContribution,
+            tracked,
+            inf.anim,
+            tw,
+            bone.quaternion
+          );
         }
       }
     } else if (
@@ -2694,13 +2710,21 @@ function AvatarNode({
         restRaw.set(name, bone.quaternion.clone());
 
       // Same animActive guard as the tracked branch: without a clip the captured
-      // "anim" quats are just the held pose, so fall back to rest.
+      // "anim" quats are just the held pose, so fall back to rest. No tracked
+      // pose here, so the tracking term is dropped (trackedQ = null).
       const animActive = !!(reg && layer);
       for (const [name, bone, animQ] of animQuats) {
         const inf = sectionInfluenceForBone(name, poseSource);
         const restQ = restRaw.get(name)!;
         const animContribution = animActive ? animQ : restQ;
-        bone.quaternion.copy(restQ.clone().slerp(animContribution, inf.anim));
+        stackBoneRotation(
+          restQ,
+          animContribution,
+          null,
+          inf.anim,
+          0,
+          bone.quaternion
+        );
       }
     }
 

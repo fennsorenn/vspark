@@ -54,6 +54,15 @@ const poseSectionInfluenceSchema = z.object({
   track: z.number().min(0).max(1),
 });
 
+// An animation clip slot (idle / base). `clipId` is the content-addressed form
+// (idle auto-migrates to it); `url` is the raw author-local source path. All
+// fields optional so a partially-configured slot round-trips.
+const animationSlotSchema = z.object({
+  clipId: z.string().optional(),
+  url: z.string().optional(),
+  speed: z.number().optional(),
+});
+
 export const sceneNodePropertiesSchema = z
   .object({
     blendTransitionTime: z.number().min(0).max(10).optional(),
@@ -81,6 +90,17 @@ export const sceneNodePropertiesSchema = z
         gaze: poseSectionInfluenceSchema.optional(),
         hands: poseSectionInfluenceSchema.optional(),
       })
+      .optional(),
+    // Animation clip slots (content-addressed). `idle` is the resting loop shown
+    // when no tracking is active; `base` is the layer live tracking stacks onto
+    // while a source is connected (falls back to `idle` when unset). `.loose`
+    // keeps any legacy sub-fields (e.g. idleUrl) that predate this schema.
+    animation: z
+      .object({
+        idle: animationSlotSchema.optional(),
+        base: animationSlotSchema.optional(),
+      })
+      .passthrough()
       .optional(),
   })
   .openapi('SceneNodeProperties');

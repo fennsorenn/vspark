@@ -69,19 +69,28 @@ Der Körper ist in sechs Bereiche unterteilt: **Kopf**, **Blick** (Augen),
 **Körper** (Rumpf), **Arme**, **Hände** (Finger) und **Beine**. Jeder Bereich
 hat zwei Regler:
 
-- **Anim** — wie stark die laufende Animation diesen Bereich steuert.
+- **Anim** — wie stark die **Basis-Animation** diesen Bereich steuert.
 - **Track** — wie stark Live-Tracking (VMC oder Kamera) ihn steuert.
 
-Sie wirken gestapelt. **Anim** zieht den Bereich zunächst aus der Ruhepose zur
-Animation; **Track** zieht ihn dann zum Tracking. Also:
+Tracking wird **auf die Basis-Animation gestapelt**, und jeder Regler skaliert
+seine Ebene unabhängig. Der Bereich startet in der Ruhepose, **Anim** blendet
+die Basis-Animation ein, und **Track** legt das Live-Tracking darüber:
 
-- **Anim 1 / Track 1** — Tracking gewinnt, wo es Daten hat (Standard).
+- **Anim 1 / Track 1** — die Basis-Animation mit voll aufgesetztem Tracking.
 - **Anim 1 / Track 0** — nur Animation (z. B. Beine folgen einem Clip).
 - **Anim 0 / Track 1** — nur Tracking.
 - **Anim 0 / Track 0** — der Bereich ruht.
-- Werte dazwischen mischen beides.
+- Werte dazwischen skalieren jede Ebene, sodass beide Regler stets wirken.
 
-Bereiche, die du nicht anfasst, bleiben auf dem Standard.
+Bereiche, die du nicht anfasst, bleiben auf dem Standard (**Anim 1 / Track 1**).
+
+### Basis-Animation
+
+Die **Basis-Animation** (im Animations-Abschnitt einstellbar) ist die Schleife,
+auf die Tracking gestapelt wird, solange eine Tracking-Quelle verbunden ist —
+getrennt von der **Leerlauf-Animation**. Bei Tracking-Verlust fällt der Avatar
+auf den Leerlauf zurück. Ohne gesetzte Basis-Animation dient der Leerlauf als
+Basis.
 
 > Hinweis: Beine per Tracking brauchen eine Ganzkörperquelle (ein Ganzkörper-
 > VMC-Sender). Webcam-Tracking sendet noch keine Beine — nutze bei einer Webcam

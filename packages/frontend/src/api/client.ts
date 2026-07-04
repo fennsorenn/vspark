@@ -185,9 +185,13 @@ export interface NodeProperties {
   /** VRM avatar: per-material shader/param overrides (MToon ⇄ PBR), keyed by a
    *  stable material identity. See components/editor/materialOverrides.ts. */
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
-  /** Avatar animation config. `idle` is the content-addressed base loop
-   *  (animation_clip id + speed); the scheduled timeline layers over it. */
-  animation?: { idle?: { clipId: string; speed: number } };
+  /** Avatar animation config. `idle` is the content-addressed resting loop
+   *  (animation_clip id + speed); the scheduled timeline layers over it. `base`
+   *  is the loop live tracking stacks onto (raw url slot; falls back to idle). */
+  animation?: {
+    idle?: { clipId: string; speed: number };
+    base?: { clipId?: string; url?: string; speed?: number };
+  };
   /** VRM avatar: second-order "snappiness" dynamics applied to broadcast bone
    *  rotations after the jitter-smoothing filter. Disabled by default. */
   poseDynamics?: import('../secondOrderDynamics').PoseDynamicsConfig;
