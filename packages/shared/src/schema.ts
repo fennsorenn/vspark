@@ -49,6 +49,11 @@ export const sceneNodeKindSchema = z
   ])
   .openapi('SceneNodeKind');
 
+const poseSectionInfluenceSchema = z.object({
+  anim: z.number().min(0).max(1),
+  track: z.number().min(0).max(1),
+});
+
 export const sceneNodePropertiesSchema = z
   .object({
     blendTransitionTime: z.number().min(0).max(10).optional(),
@@ -65,13 +70,17 @@ export const sceneNodePropertiesSchema = z
     forceTwistBone: z.boolean().optional(),
     excludeSleeves: z.boolean().optional(),
     poseSource: z
-      .record(
-        z.enum(['legs', 'body', 'arms', 'head', 'gaze', 'hands']),
-        z.object({
-          anim: z.number().min(0).max(1),
-          track: z.number().min(0).max(1),
-        })
-      )
+      .object({
+        // Every section is optional — only sections that deviate from the
+        // { anim: 1, track: 1 } default are stored. (An all-keys-required
+        // z.record would reject a partial map.)
+        legs: poseSectionInfluenceSchema.optional(),
+        body: poseSectionInfluenceSchema.optional(),
+        arms: poseSectionInfluenceSchema.optional(),
+        head: poseSectionInfluenceSchema.optional(),
+        gaze: poseSectionInfluenceSchema.optional(),
+        hands: poseSectionInfluenceSchema.optional(),
+      })
       .optional(),
   })
   .openapi('SceneNodeProperties');

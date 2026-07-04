@@ -2630,11 +2630,18 @@ function AvatarNode({
             trackedRaw.set(name, bone.quaternion.clone());
         }
 
-        // Compose.
+        // The "animation" contribution is the clip pose only while a clip is
+        // actually driving; otherwise it's the rest pose. Without this guard the
+        // animQ captured after Step 1 is the PREVIOUS frame's applied pose (which
+        // includes tracking, since a no-clip Step 1 just re-applies the held
+        // normalized pose), so track=0 would freeze the last tracked pose instead
+        // of falling back to rest.
+        const animActive = !!(reg && layer);
         for (const [name, bone, animQ] of animQuats) {
           const inf = sectionInfluenceForBone(name, poseSource);
           const restQ = restRaw.get(name)!;
-          const base = restQ.clone().slerp(animQ, inf.anim);
+          const animContribution = animActive ? animQ : restQ;
+          const base = restQ.clone().slerp(animContribution, inf.anim);
           const tracked = trackedRaw.get(name);
           if (tracked) {
             const tw = Math.max(0, Math.min(1, inf.track * blend));
