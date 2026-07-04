@@ -8,7 +8,9 @@ Status: implemented.
 
 Compose layout is **resolution-independent**. Each compose scene has a canonical pixel resolution (`composeScene.width` × `composeScene.height`, default 1920×1080 — new `compose_scene` rows default to 1920×1080 in `routes/compose-layers.ts`). Layer `x/y/width/height` are authored in that canonical pixel space, so the editor preview and the streamed viewer render identically regardless of window size.
 
-`ComposeView` renders all layers into a fixed-size **stage** (`ComposeStage`, exported from `ComposeView.tsx`) whose intrinsic size is the canonical resolution; a `ResizeObserver` measures the container and the stage is CSS `transform: scale()` letterbox-fit (centered, aspect-preserving) into it. `ViewerPage` compose mode renders through the same `ComposeStage`. Helpers exported from `ComposeView.tsx`: `ComposeStage`, `composeSceneResolution(scene)` (falls back to the defaults for missing/zero dims), `DEFAULT_COMPOSE_WIDTH` / `DEFAULT_COMPOSE_HEIGHT`. A W×H resolution editor (two `NumInput`s, `vs-compose-width` / `vs-compose-height`) sits in the compose header.
+`ComposeView` renders all layers into a fixed-size **stage** (`ComposeStage`, exported from `ComposeView.tsx`) whose intrinsic size is the canonical resolution; a `ResizeObserver` measures the container and the stage is CSS `transform: scale()` letterbox-fit (centered, aspect-preserving) into it. `ViewerPage` compose mode renders through the same `ComposeStage`. Helpers exported from `ComposeView.tsx`: `ComposeStage`, `composeSceneResolution(scene)` (falls back to the defaults for missing/zero dims), `DEFAULT_COMPOSE_WIDTH` / `DEFAULT_COMPOSE_HEIGHT`. The compose header shows a **read-only** `W×H` display; the resolution is edited in the compose-scene settings panel (see "Compose-scene settings panel" below).
+
+The letterbox area around the stage (`ComposeView`'s viewport, editor only) is drawn as **diagonal two-tone grey stripes** (`const LETTERBOX_BG` in `ComposeView.tsx`) to signal "outside the canvas".
 
 The interaction layer is **scale-aware** so gestures map screen pixels back to canonical pixels:
 
@@ -16,7 +18,24 @@ The interaction layer is **scale-aware** so gestures map screen pixels back to c
 - `composeLayerInteractions.ts` `ComposeFrame` gained a `scale` field; `startDrag` / `startResize` divide screen-space pointer deltas by it.
 - `ComposeSelectionOverlay` renders **inside** the scaled stage (in canonical coords) and takes a `scale` prop to counter-scale its chrome (handle/border sizes) so handles stay a constant on-screen size.
 
-`ComposeLayerStack` and the R3F `CameraCanvas` are unchanged — they render at canonical layout size and are CSS-scaled by the stage.
+`ComposeLayerStack` and the R3F `CameraCanvas` render at canonical layout size and are CSS-scaled by the stage. The `camera_view` layer's `CameraCanvas` is **keyed on the stage size** so it remounts when the resolution changes — see "Resolution-change remount" below.
+
+## Compose-scene settings panel
+
+Selecting a compose scene (compose tab, no layer selected) shows its settings in the right inspector via **`ComposeSceneProperties`** (exported from `ComposeLayerProperties.tsx`, wired from `PropertiesPanel.tsx` after the layer-selected branch: no `selectedComposeLayerId` → look up `activeComposeSceneId` in `composeScenes` → render `ComposeSceneProperties`). It holds:
+
+- **Resolution** — a `VecInput` (`vs-compose-resolution`, W×H, floor 16) persisted to the `compose_scene` row's `width`/`height` (`updateComposeSceneLocal` + `PUT /compose-layers/:id`). This replaces the two `NumInput`s that used to live in the `ComposeView` header.
+- **Preview background** — a source picker (`vs-compose-bg-mode`: transparent / color / image) writing `config.previewBg` (see below), with a color swatch (`vs-compose-bg-color`) or image-asset select (`vs-compose-bg-image`) shown per mode.
+
+i18n keys under `compose.sceneProps.*` (`resolution`, `previewBgHeader`, `previewBgHint`, `previewBgMode`, `bgTransparent` / `bgColor` / `bgImage`).
+
+### Preview background (editor-only)
+
+A per-compose-scene `config.previewBg` (`PreviewBg` = `{ mode?: 'transparent' | 'color' | 'image', color?, assetId? }`, exported from `ComposeView.tsx`) drives the **editor** stage background via the exported helper `previewBgStyle(scene, assets)`. The default (missing / `'transparent'`) is a transparency **checkerboard** (`CHECKER_STYLE`), signalling that the real viewer/OBS output is transparent there; `'color'` fills with `config.previewBg.color`; `'image'` resolves `assetId` against the passed assets and uses it as a cover background. `ComposeView` spreads `previewBgStyle(composeScene, assets)` onto the stage. The **viewer** stage (`ComposeStage` in `ViewerPage`) stays transparent — the preview background never affects streamed output.
+
+### Resolution-change remount
+
+Changing the scene resolution left the `camera_view`'s R3F canvas backing stale (react-use-measure doesn't reliably re-measure a `Canvas` living inside the CSS transform-scaled stage). Fixed by keying the `camera_view`'s `CameraCanvas` on the stage size via **`ComposeStageSizeContext`** (a string context exported from `ComposeLayerStack.tsx`). Both `ComposeView` (editor) and `ViewerPage` (viewer) provide it with value `` `${canonW}x${canonH}` `` around their `ComposeLayerStack`; `CameraViewLayer` reads it and sets it as the `CameraCanvas` `key`, so the canvas remounts + re-measures on a resolution change. `CameraCanvas` keeps `resize={{ offsetSize: true }}` (measures unscaled layout/offset size, not the scaled bounding rect) so it fills its layer at canonical resolution.
 
 ## Compose scenes (decoupled from 3D scenes — migration 018)
 
@@ -193,8 +212,8 @@ All three gestures patch the Zustand store optimistically during the drag for in
 Editor-only quality-of-life polish in `ComposeLayerStack` / `ComposeLayerProperties` / `ComposeSelectionOverlay`:
 
 - **Clip contents toggle.** Off by default (`overflow: visible`); a per-layer "Clip contents to bounds" checkbox (`ComposeLayerProperties`, `vs-layer-clip`) sets `config.clipContents = true` to clip children to the layer box.
-- **Empty-layer placeholders.** An image / video / browser layer with no asset/url renders an editor-only placeholder (a labelled icon) via `Placeholder`, which gained a `mode` prop and renders **nothing** in viewer mode — so the streamed output shows empty, not a placeholder.
-- **Selection opacity floor.** In editor mode the selected layer and its container ancestors get an opacity floor of 0.25 (`ComposeLayerStack` `boostOpacityIds`), so a near-invisible layer stays visible/editable while selected. Viewer mode is unaffected.
+- **Empty-layer placeholders.** An image / video / browser layer with no asset/url renders an editor-only placeholder (a labelled icon) via `Placeholder`, which gained a `mode` prop and renders **nothing** in viewer mode — so the streamed output shows empty, not a placeholder. The placeholder uses container-query units (`containerType: 'size'`, `cqmin` font sizes) so the icon scales with the box and visibly fills the element at its real dimensions.
+- **Selection opacity floor.** In editor mode the selected layer gets an opacity floor of 0.25 (`ComposeLayerStack` `boostOpacityIds`), so a near-invisible layer stays visible/editable while selected. The floor now covers the **whole branch** the selection sits on — `boostOpacityIds` walks up to the top-level (branch-root) ancestor, then collects that root's entire subtree — so everything grouped with the selection stays visible, not just the direct ancestor path. Viewer mode is unaffected.
 - **Container-ancestor outlines.** `ComposeSelectionOverlay` draws dashed outlines of the selected layer's container (group / nesting) ancestors so the nesting context is visible while editing a child.
 
 ## Image drag-and-drop (OS files)
@@ -210,14 +229,14 @@ A `dropTarget` state (`'new'` or a layer id) drives a highlight so the target is
 
 - [store/editorStore.ts](../../packages/frontend/src/store/editorStore.ts) — adds `composeLayers`, `composeScenes`, `activeComposeSceneId`, `leftTab` (`'scene' | 'compose' | 'graphs'`), `selectedComposeLayerId` and matching actions.
 - [components/editor/ComposeTree.tsx](../../packages/frontend/src/components/editor/ComposeTree.tsx) — left-dock tree of the active compose scene's layers (the 3D output appears as a `camera_view` layer row, 📷; no pinned `[3D Scene]` row). ↑/↓ buttons nudge `sceneOrder`; × deletes. Add menu picks layer kind. Right-click context menu uses the generic `ContextMenu.tsx` (`13f0021`); supports Copy/Paste (compose-layer preset) — see [clipboard.md](clipboard.md). Supports drag-and-drop reparent/reorder and compose-scene selection (see below).
-- [components/editor/ComposeView.tsx](../../packages/frontend/src/components/editor/ComposeView.tsx) — central viewport; renders the active compose scene into the fixed-resolution `ComposeStage`; header carries the W×H resolution editor. Also exports `ComposeStage` / `composeSceneResolution` / `DEFAULT_COMPOSE_WIDTH` / `DEFAULT_COMPOSE_HEIGHT`, shared with `ViewerPage`.
+- [components/editor/ComposeView.tsx](../../packages/frontend/src/components/editor/ComposeView.tsx) — central viewport; renders the active compose scene into the fixed-resolution `ComposeStage` (striped `LETTERBOX_BG` around it, `previewBgStyle` on it); header shows a read-only `W×H` display. Also exports `ComposeStage` / `composeSceneResolution` / `DEFAULT_COMPOSE_WIDTH` / `DEFAULT_COMPOSE_HEIGHT` / `previewBgStyle` / `PreviewBg`, shared with `ViewerPage` and `ComposeLayerProperties`.
 - [components/editor/ComposeLayerStack.tsx](../../packages/frontend/src/components/editor/ComposeLayerStack.tsx) — shared editor/viewer renderer (presentation only; no pointer handlers).
 - [components/editor/ComposeEventCapture.tsx](../../packages/frontend/src/components/editor/ComposeEventCapture.tsx) — full-viewport input overlay; owns pointer + wheel routing.
 - [components/editor/composeHitTest.ts](../../packages/frontend/src/components/editor/composeHitTest.ts) — analytical layer hit-testing + `composeViewportRect` module-level getter.
 - [components/editor/composeLayerInteractions.ts](../../packages/frontend/src/components/editor/composeLayerInteractions.ts) — drag / resize / rotate gesture math.
 - [components/editor/ComposeSelectionOverlay.tsx](../../packages/frontend/src/components/editor/ComposeSelectionOverlay.tsx) — selection chrome; resize + rotate handles only (no drag body — the capture overlay handles drag). Renders inside the scaled stage in canonical coords; takes a `scale` prop to counter-scale handle chrome and also draws dashed container-ancestor outlines.
 - `ComposeSceneInteractions` (inside the Canvas) — installs `composeScenePicker`, `composeSceneDragStarter`, `composeSceneWheel` module handles and runs the `useFrame` wheel-impulse integrator.
-- [components/editor/ComposeLayerProperties.tsx](../../packages/frontend/src/components/editor/ComposeLayerProperties.tsx) — right-panel properties (name, x/y, anchor, w/h, rotation, visibility, opacity, "Clip contents to bounds" toggle `vs-layer-clip`, kind-specific asset/url, stack-order). Wired into `PropertiesPanel` ahead of the effect/scene branches.
+- [components/editor/ComposeLayerProperties.tsx](../../packages/frontend/src/components/editor/ComposeLayerProperties.tsx) — right-panel properties (name, x/y, anchor, w/h, rotation, visibility, opacity, "Clip contents to bounds" toggle `vs-layer-clip`, kind-specific asset/url, stack-order). Wired into `PropertiesPanel` ahead of the effect/scene branches. Also exports **`ComposeSceneProperties`** (compose-scene resolution + preview background — see "Compose-scene settings panel").
 
 See also [frontend.md](frontend.md) for general editor structure and store conventions.
 

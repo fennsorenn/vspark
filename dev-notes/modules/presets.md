@@ -49,9 +49,11 @@ Ships with a Three-Point Lighting rig and an Organizer Group scaffold, plus:
 - **Particle generators** (`particles.ts`): Rain, Snow, Fire, Magic Sparkles,
   Sparkler — each a `particle` scene node with a tuned `components.particle` config.
 - **Event alert overlays** (`alerts.ts`): Donations, Tips, Subs, Raids — each a
-  compose `group` containing a badge + text layer at base opacity 0, a hidden
+  compose `group` (the fade target: `config.opacity` 0 at rest) containing a badge +
+  text layer (both fully opaque relative to the group), a hidden
   `audio` "Sound" layer (`visible:false`) as the sound source, an "Alert Fade" track
-  clip fading opacity 0→1→0, and a graph: `overlive` event → `pack_event` →
+  clip fading the **group's** opacity 0→1→0 on a single lane (so the whole overlay
+  fades in/out as one unit instead of animating each child), and a graph: `overlive` event → `pack_event` →
   `queue_events` ← `clock` pop → `unpack_event` → `start_clip` + `set_text` fired on
   each released alert. The media triggers are **no longer `media_control` graph
   nodes**: the "Alert Fade" clip carries event markers at `t=0` that `restart` the
