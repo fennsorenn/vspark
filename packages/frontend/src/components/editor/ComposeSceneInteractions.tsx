@@ -20,11 +20,18 @@ const WHEEL_VELOCITY_EPS = 1e-4; // m/s; below this, stop integrating and persis
 const MIN_CAM_DISTANCE = 0.05; // never push the object closer than this
 
 // Orthographic wheel = scale the selected node (dolly has no visual effect in
-// ortho). Multiplicative step per wheel tick, clamped to a sane range.
+// ortho), scaling about the cursor point with the same inertia as the
+// perspective dolly. The wheel adds an impulse to a log-scale velocity
+// (units: ln(scale)/sec) that a useFrame loop integrates with the shared
+// WHEEL_DAMPING. WHEEL_SCALE_STEP is the per-tick multiplicative step of the old
+// instant behaviour; the impulse is scaled so one tick's total integrated
+// log-scale still ≈ that step (∫ damping^t dt = 1/ln(1/damping)).
 const WHEEL_SCALE_STEP = 0.08;
+const WHEEL_SCALE_IMPULSE =
+  WHEEL_SCALE_STEP * Math.log(1 / WHEEL_DAMPING_PER_SEC);
+const WHEEL_SCALE_VEL_EPS = 1e-4; // ln(scale)/sec; below this, settle and persist
 const MIN_NODE_SCALE = 0.01;
 const MAX_NODE_SCALE = 100;
-const SCALE_PERSIST_DEBOUNCE_MS = 250;
 
 // Reusable scratch — raycaster + NDC vector, shared across handlers in this module.
 const wheelRay = new THREE.Raycaster();
@@ -114,12 +121,16 @@ export function composeSceneApplyWheel(
  *  scale unintentionally). */
 function transformPayload(
   group: THREE.Group,
-  node: { components: Record<string, unknown> } | undefined
+  node: { components: Record<string, unknown> } | undefined,
+  liveScale = false
 ): Record<string, number> {
   const p = group.position,
     r = group.rotation;
   const existing = (node?.components as Record<string, unknown> | undefined)
     ?.transform as Record<string, unknown> | undefined;
+  // `liveScale` gestures (the ortho wheel-to-scale glide) read scale from the
+  // live group; everything else preserves the stored scale so a move never
+  // clobbers it.
   return {
     x: p.x,
     y: p.y,
@@ -127,9 +138,9 @@ function transformPayload(
     rx: r.x,
     ry: r.y,
     rz: r.z,
-    sx: (existing?.sx as number | undefined) ?? group.scale.x,
-    sy: (existing?.sy as number | undefined) ?? group.scale.y,
-    sz: (existing?.sz as number | undefined) ?? group.scale.z,
+    sx: liveScale ? group.scale.x : (existing?.sx as number | undefined) ?? group.scale.x,
+    sy: liveScale ? group.scale.y : (existing?.sy as number | undefined) ?? group.scale.y,
+    sz: liveScale ? group.scale.z : (existing?.sz as number | undefined) ?? group.scale.z,
   };
 }
 
@@ -146,14 +157,18 @@ export function ComposeSceneInteractions({
   // Per-gesture throttle: only emit when at least PREVIEW_INTERVAL_MS has passed
   // since the last emission for this nodeId.
   const lastPreviewAtRef = useRef<{ nodeId: string; t: number } | null>(null);
-  const emitPreview = (nodeId: string, group: THREE.Group) => {
+  const emitPreview = (
+    nodeId: string,
+    group: THREE.Group,
+    liveScale = false
+  ) => {
     const now = performance.now();
     const last = lastPreviewAtRef.current;
     if (last && last.nodeId === nodeId && now - last.t < PREVIEW_INTERVAL_MS)
       return;
     lastPreviewAtRef.current = { nodeId, t: now };
     const node = useEditorStore.getState().nodes.find((n) => n.id === nodeId);
-    sendNodeTransformPreview(nodeId, transformPayload(group, node));
+    sendNodeTransformPreview(nodeId, transformPayload(group, node, liveScale));
   };
 
   // Mirror the live group transform back into the store so React's declarative
@@ -162,7 +177,11 @@ export function ComposeSceneInteractions({
   // store update during a drag triggers a re-render that resets `position` to
   // the stale pre-drag value. Throttled to ~30 Hz to avoid re-render storms.
   const lastStoreSyncAtRef = useRef<{ nodeId: string; t: number } | null>(null);
-  const syncToStore = (nodeId: string, group: THREE.Group) => {
+  const syncToStore = (
+    nodeId: string,
+    group: THREE.Group,
+    liveScale = false
+  ) => {
     const now = performance.now();
     const last = lastStoreSyncAtRef.current;
     if (last && last.nodeId === nodeId && now - last.t < PREVIEW_INTERVAL_MS)
@@ -173,7 +192,10 @@ export function ComposeSceneInteractions({
     if (!node) return;
     const components = {
       ...node.components,
-      transform: { type: 'transform', ...transformPayload(group, node) },
+      transform: {
+        type: 'transform',
+        ...transformPayload(group, node, liveScale),
+      },
     };
     store.updateNode(nodeId, { components });
   };
@@ -292,45 +314,15 @@ export function ComposeSceneInteractions({
   } | null>(null);
 
   // Orthographic wheel-to-scale: dollying a node along the view axis is
-  // invisible under an ortho camera, so scale the selected node instead. Applied
-  // immediately to the group + store for responsiveness, with a trailing
-  // debounced PUT so we don't spam the API on every wheel tick.
-  const scalePersistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const applyWheelScale = (nodeId: string, group: THREE.Group, deltaY: number) => {
-    const store = useEditorStore.getState();
-    const node = store.nodes.find((n) => n.id === nodeId);
-    if (!node) return;
-    const existing = (node.components as Record<string, unknown>)?.transform as
-      | Record<string, number>
-      | undefined;
-    const cur = existing?.sx ?? group.scale.x ?? 1;
-    // Scroll up (deltaY < 0) grows, scroll down shrinks.
-    const factor = Math.exp(-Math.sign(deltaY) * WHEEL_SCALE_STEP);
-    const next = Math.min(MAX_NODE_SCALE, Math.max(MIN_NODE_SCALE, cur * factor));
-    group.scale.setScalar(next);
-    const components = {
-      ...node.components,
-      transform: {
-        type: 'transform',
-        x: existing?.x ?? group.position.x,
-        y: existing?.y ?? group.position.y,
-        z: existing?.z ?? group.position.z,
-        rx: existing?.rx ?? group.rotation.x,
-        ry: existing?.ry ?? group.rotation.y,
-        rz: existing?.rz ?? group.rotation.z,
-        sx: next,
-        sy: next,
-        sz: next,
-      },
-    };
-    store.updateNode(nodeId, { components });
-    if (scalePersistRef.current) clearTimeout(scalePersistRef.current);
-    scalePersistRef.current = setTimeout(() => {
-      const n = useEditorStore.getState().nodes.find((x) => x.id === nodeId);
-      if (n) api.updateNode(nodeId, { components: n.components }).catch(() => {});
-      scalePersistRef.current = null;
-    }, SCALE_PERSIST_DEBOUNCE_MS);
-  };
+  // invisible under an ortho camera, so scale the selected node instead — with
+  // the same impulse/damping inertia as the perspective dolly. `logVel` is the
+  // log-scale velocity (ln(scale)/sec); `pivot` is the fixed world point under
+  // the cursor (at the node's depth) that stays put as the node grows/shrinks.
+  const scaleStateRef = useRef<{
+    nodeId: string;
+    logVel: number;
+    pivot: THREE.Vector3;
+  } | null>(null);
 
   // The wheel handler is now invoked from the capture overlay (which owns all
   // input events). It applies an impulse to the selected node's velocity; the
@@ -344,18 +336,35 @@ export function ComposeSceneInteractions({
       const group = getNodeGroup(nodeId);
       if (!group) return;
 
-      // Orthographic camera: dolly is invisible, so scale instead.
-      if (
-        (camera as THREE.OrthographicCamera).isOrthographicCamera === true
-      ) {
-        applyWheelScale(nodeId, group, deltaY);
-        return;
-      }
-
       const rect = gl.domElement.getBoundingClientRect();
       ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
       wheelRay.setFromCamera(ndc, camera);
+
+      // Orthographic camera: dolly is invisible, so scale instead. Add an
+      // impulse to the log-scale velocity and remember the cursor pivot — the
+      // pointer ray's hit on the plane (parallel to the near plane) through the
+      // node origin, so the scale grows out of / into the point under the cursor.
+      if ((camera as THREE.OrthographicCamera).isOrthographicCamera === true) {
+        const forward = camera.getWorldDirection(new THREE.Vector3());
+        const originW = group.getWorldPosition(new THREE.Vector3());
+        const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+          forward,
+          originW
+        );
+        const pivot = new THREE.Vector3();
+        if (!wheelRay.ray.intersectPlane(plane, pivot)) pivot.copy(originW);
+        const impulse = -Math.sign(deltaY) * WHEEL_SCALE_IMPULSE;
+        const st = scaleStateRef.current;
+        if (st && st.nodeId === nodeId) {
+          st.logVel += impulse;
+          st.pivot.copy(pivot);
+        } else {
+          scaleStateRef.current = { nodeId, logVel: impulse, pivot };
+        }
+        return;
+      }
+
       const axis = wheelRay.ray.direction.clone().normalize();
 
       const camPos = new THREE.Vector3();
@@ -448,6 +457,62 @@ export function ComposeSceneInteractions({
       };
       s.updateNode(w.nodeId, { components });
       api.updateNode(w.nodeId, { components }).catch(() => {});
+    }
+  });
+
+  // Integrate the ortho wheel-to-scale glide: apply the incremental scale factor
+  // this frame about the fixed cursor pivot, damp the velocity, and persist once
+  // it settles. Mirrors the perspective dolly loop above but in log-scale space.
+  useFrame((_state, dt) => {
+    const st = scaleStateRef.current;
+    if (!st) return;
+    const group = getNodeGroup(st.nodeId);
+    const stillSelected =
+      useEditorStore.getState().selectedNodeId === st.nodeId;
+    if (!group || !stillSelected) {
+      scaleStateRef.current = null;
+      return;
+    }
+
+    if (st.logVel !== 0) {
+      const curScale = group.scale.x || 1;
+      const next = Math.min(
+        MAX_NODE_SCALE,
+        Math.max(MIN_NODE_SCALE, curScale * Math.exp(st.logVel * dt))
+      );
+      const factor = next / curScale; // actual factor after clamping
+      if (next === MIN_NODE_SCALE || next === MAX_NODE_SCALE) st.logVel = 0;
+      // Keep the cursor pivot fixed: O' = P + (O − P)·factor.
+      const originW = group.getWorldPosition(new THREE.Vector3());
+      const target = st.pivot
+        .clone()
+        .add(originW.sub(st.pivot).multiplyScalar(factor));
+      group.scale.setScalar(next);
+      const parent = group.parent;
+      group.position.copy(
+        parent ? parent.worldToLocal(target) : target
+      );
+      emitPreview(st.nodeId, group, true);
+      syncToStore(st.nodeId, group, true);
+    }
+
+    // Exponential damping: v *= damping^dt
+    st.logVel *= Math.pow(WHEEL_DAMPING_PER_SEC, dt);
+
+    if (Math.abs(st.logVel) < WHEEL_SCALE_VEL_EPS) {
+      const s = useEditorStore.getState();
+      const node = s.nodes.find((n) => n.id === st.nodeId);
+      scaleStateRef.current = null;
+      if (!node) return;
+      const components = {
+        ...node.components,
+        transform: {
+          type: 'transform',
+          ...transformPayload(group, node, true),
+        },
+      };
+      s.updateNode(st.nodeId, { components });
+      api.updateNode(st.nodeId, { components }).catch(() => {});
     }
   });
 
