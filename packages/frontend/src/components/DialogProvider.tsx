@@ -39,14 +39,32 @@ interface PromptOptions {
   cancelLabel?: string;
 }
 
+/** One selectable action in a `choose` dialog. */
+interface ChoiceOption {
+  value: string;
+  label: string;
+  /** Style as a destructive action. */
+  danger?: boolean;
+}
+
+interface ChooseOptions {
+  title?: string;
+  message?: string;
+  choices: ChoiceOption[];
+  cancelLabel?: string;
+}
+
 type DialogState =
   | { kind: 'confirm'; opts: ConfirmOptions; resolve: (v: boolean) => void }
   | { kind: 'prompt'; opts: PromptOptions; resolve: (v: string | null) => void }
+  | { kind: 'choose'; opts: ChooseOptions; resolve: (v: string | null) => void }
   | null;
 
 interface DialogApi {
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   prompt: (opts: PromptOptions) => Promise<string | null>;
+  /** Present several actions; resolves the chosen value, or null if cancelled. */
+  choose: (opts: ChooseOptions) => Promise<string | null>;
 }
 
 const DialogContext = createContext<DialogApi | null>(null);
@@ -68,6 +86,10 @@ export function usePrompt() {
   return useDialogApi().prompt;
 }
 
+export function useChoose() {
+  return useDialogApi().choose;
+}
+
 export function DialogProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<DialogState>(null);
 
@@ -85,6 +107,13 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
       ),
     []
   );
+  const choose = useCallback(
+    (opts: ChooseOptions) =>
+      new Promise<string | null>((resolve) =>
+        setState({ kind: 'choose', opts, resolve })
+      ),
+    []
+  );
 
   const close = useCallback((value: boolean | string | null) => {
     setState((cur) => {
@@ -94,7 +123,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <DialogContext.Provider value={{ confirm, prompt }}>
+    <DialogContext.Provider value={{ confirm, prompt, choose }}>
       {children}
       {state && <DialogHost state={state} onClose={close} />}
     </DialogContext.Provider>
@@ -110,13 +139,14 @@ function DialogHost({
 }) {
   const { t } = useTranslation('common');
   const isPrompt = state.kind === 'prompt';
+  const isChoose = state.kind === 'choose';
   const opts = state.opts;
   const [value, setValue] = useState(
     isPrompt ? ((opts as PromptOptions).defaultValue ?? '') : ''
   );
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const cancel = () => onClose(isPrompt ? null : false);
+  const cancel = () => onClose(isPrompt || isChoose ? null : false);
   const accept = () => onClose(isPrompt ? value : true);
 
   // Esc cancels; backdrop click cancels too.
@@ -129,8 +159,11 @@ function DialogHost({
     }
   }, [isPrompt]);
 
-  const danger = !isPrompt && (opts as ConfirmOptions).danger;
-  const confirmLabel = opts.confirmLabel ?? t('actions.ok');
+  const danger = state.kind === 'confirm' && state.opts.danger;
+  const confirmLabel =
+    (state.kind === 'confirm' || state.kind === 'prompt'
+      ? state.opts.confirmLabel
+      : undefined) ?? t('actions.ok');
   const cancelLabel = opts.cancelLabel ?? t('actions.cancel');
 
   return (
@@ -165,7 +198,7 @@ function DialogHost({
             {opts.title}
           </div>
         )}
-        {(isPrompt ? (opts as PromptOptions).message : opts.message) && (
+        {opts.message && (
           <div
             style={{
               fontSize: 13,
@@ -175,7 +208,7 @@ function DialogHost({
               whiteSpace: 'pre-line',
             }}
           >
-            {isPrompt ? (opts as PromptOptions).message : opts.message}
+            {opts.message}
           </div>
         )}
         {isPrompt && (
@@ -201,40 +234,84 @@ function DialogHost({
             }}
           />
         )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button
-            className="vs-dialog-cancel"
-            onClick={cancel}
-            style={{
-              background: '#2a2a2a',
-              color: '#ccc',
-              border: '1px solid #3a3a3a',
-              borderRadius: 6,
-              padding: '6px 14px',
-              cursor: 'pointer',
-              fontSize: 13,
-            }}
+        {isChoose ? (
+          <div
+            style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            className="vs-dialog-choices"
           >
-            {cancelLabel}
-          </button>
-          <button
-            className="vs-dialog-confirm"
-            onClick={accept}
-            autoFocus={!isPrompt}
-            style={{
-              background: danger ? '#7a2a2a' : '#2563eb',
-              color: danger ? '#f88' : '#fff',
-              border: 'none',
-              borderRadius: 6,
-              padding: '6px 14px',
-              cursor: 'pointer',
-              fontSize: 13,
-              fontWeight: 500,
-            }}
-          >
-            {confirmLabel}
-          </button>
-        </div>
+            {(opts as ChooseOptions).choices.map((c) => (
+              <button
+                key={c.value}
+                className={`vs-dialog-choice-${c.value}`}
+                onClick={() => onClose(c.value)}
+                style={{
+                  background: c.danger ? '#7a2a2a' : '#2563eb',
+                  color: c.danger ? '#f88' : '#fff',
+                  border: 'none',
+                  borderRadius: 6,
+                  padding: '8px 14px',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  textAlign: 'left',
+                }}
+              >
+                {c.label}
+              </button>
+            ))}
+            <button
+              className="vs-dialog-cancel"
+              onClick={cancel}
+              style={{
+                background: '#2a2a2a',
+                color: '#ccc',
+                border: '1px solid #3a3a3a',
+                borderRadius: 6,
+                padding: '8px 14px',
+                cursor: 'pointer',
+                fontSize: 13,
+                marginTop: 2,
+              }}
+            >
+              {cancelLabel}
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button
+              className="vs-dialog-cancel"
+              onClick={cancel}
+              style={{
+                background: '#2a2a2a',
+                color: '#ccc',
+                border: '1px solid #3a3a3a',
+                borderRadius: 6,
+                padding: '6px 14px',
+                cursor: 'pointer',
+                fontSize: 13,
+              }}
+            >
+              {cancelLabel}
+            </button>
+            <button
+              className="vs-dialog-confirm"
+              onClick={accept}
+              autoFocus={!isPrompt}
+              style={{
+                background: danger ? '#7a2a2a' : '#2563eb',
+                color: danger ? '#f88' : '#fff',
+                border: 'none',
+                borderRadius: 6,
+                padding: '6px 14px',
+                cursor: 'pointer',
+                fontSize: 13,
+                fontWeight: 500,
+              }}
+            >
+              {confirmLabel}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

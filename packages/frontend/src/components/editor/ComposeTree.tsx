@@ -14,7 +14,7 @@ import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { createLayer } from './createKinds';
 import { DND_CREATE_LAYER, dropZoneFromEvent, type DropZone } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
-import { usePrompt } from '../DialogProvider';
+import { usePrompt, useChoose, useConfirm } from '../DialogProvider';
 
 const KIND_ICONS: Record<ComposeLayerKind, string> = {
   image: '🖼',
@@ -231,10 +231,62 @@ function LayerRow({
         ? `${layer.name}${includedScene ? ` · ${includedScene.name}` : ''}`
         : layer.name;
 
+  const choose = useChoose();
+  const confirm = useConfirm();
   const handleDelete = async () => {
-    if (!confirm(t('tree.deleteLayerConfirm', { name: layer.name }))) return;
-    useEditorStore.getState().removeComposeLayer(layer.id);
-    await api.deleteComposeLayer(layer.id).catch(() => {});
+    const store = useEditorStore.getState();
+    const directChildren = layersByParent.get(layer.id) ?? [];
+    const delOne = async (id: string) => {
+      store.removeComposeLayer(id);
+      await api.deleteComposeLayer(id).catch(() => {});
+    };
+
+    // Leaf layer: a simple confirm.
+    if (directChildren.length === 0) {
+      if (
+        !(await confirm({
+          message: t('tree.deleteLayerConfirm', { name: layer.name }),
+          danger: true,
+        }))
+      )
+        return;
+      await delOne(layer.id);
+      return;
+    }
+
+    // Has children: offer delete-with / delete-without / cancel so nested
+    // content isn't left abandoned.
+    const choice = await choose({
+      title: t('tree.deleteBranchTitle', { name: layer.name }),
+      message: t('tree.deleteBranchMsg', { count: directChildren.length }),
+      choices: [
+        { value: 'with', label: t('tree.deleteWithChildren'), danger: true },
+        { value: 'without', label: t('tree.deleteKeepChildren') },
+      ],
+    });
+    if (!choice) return; // cancel / dismiss
+
+    if (choice === 'with') {
+      // Collect the whole subtree (leaves first) and delete each — the backend
+      // delete doesn't cascade on parent_id, so we remove them explicitly.
+      const subtree: string[] = [];
+      const stack = [layer.id];
+      while (stack.length) {
+        const id = stack.pop()!;
+        subtree.push(id);
+        for (const c of layersByParent.get(id) ?? []) stack.push(c.id);
+      }
+      for (const id of subtree.reverse()) await delOne(id);
+    } else {
+      // Keep children: reparent the direct children onto this layer's parent,
+      // then delete this layer.
+      for (const c of directChildren) {
+        const patch = { parentId: layer.parentId ?? null };
+        store.updateComposeLayerLocal(c.id, patch);
+        await api.updateComposeLayer(c.id, patch).catch(() => {});
+      }
+      await delOne(layer.id);
+    }
   };
 
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);

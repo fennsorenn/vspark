@@ -19,7 +19,7 @@ import {
   shareCollabScene,
   getCollabScenes,
 } from '../../api/client';
-import { useConfirm, usePrompt } from '../DialogProvider';
+import { useConfirm, usePrompt, useChoose } from '../DialogProvider';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
   NODE_KIND_DEFS,
@@ -1928,6 +1928,7 @@ export function SceneGraph() {
   const { projectId } = useParams<{ projectId: string }>();
   const confirm = useConfirm();
   const prompt = usePrompt();
+  const choose = useChoose();
   // Collab-scene chain badge: which scenes are shared + their role/peer.
   const collabScenes = useConnectionsStore((s) => s.collabScenes);
   const collabConnectedIds = useConnectionsStore((s) => s.connectedIds);
@@ -2111,17 +2112,59 @@ export function SceneGraph() {
   const handleDelete = async (nodeId: string) => {
     const node = sceneNodes.find((n) => n.id === nodeId);
     if (!node) return;
-    if (
-      !(await confirm({
-        message: t('nodes.confirmDelete', { name: node.name }),
-        confirmLabel: t('common:actions.delete'),
-        danger: true,
-      }))
-    )
-      return;
+    const directChildren = sceneNodes.filter((n) => n.parentId === nodeId);
+
     try {
-      await api.deleteNode(nodeId);
-      storeDeleteNode(nodeId);
+      if (directChildren.length === 0) {
+        if (
+          !(await confirm({
+            message: t('nodes.confirmDelete', { name: node.name }),
+            confirmLabel: t('common:actions.delete'),
+            danger: true,
+          }))
+        )
+          return;
+        await api.deleteNode(nodeId);
+        storeDeleteNode(nodeId);
+        return;
+      }
+
+      // Has children: with / without / cancel so nested nodes aren't left
+      // abandoned (the DB cascade deletes them, but a "keep" option reparents
+      // them onto this node's parent first).
+      const choice = await choose({
+        title: t('nodes.deleteBranchTitle', { name: node.name }),
+        message: t('nodes.deleteBranchMsg', { count: directChildren.length }),
+        choices: [
+          { value: 'with', label: t('nodes.deleteWithChildren'), danger: true },
+          { value: 'without', label: t('nodes.deleteKeepChildren') },
+        ],
+      });
+      if (!choice) return;
+
+      if (choice === 'with') {
+        // Backend cascades on parent_id; mirror it in the store so the subtree
+        // doesn't linger in the UI until reload.
+        const subtree: string[] = [];
+        const stack = [nodeId];
+        while (stack.length) {
+          const id = stack.pop()!;
+          subtree.push(id);
+          for (const c of sceneNodes.filter((n) => n.parentId === id))
+            stack.push(c.id);
+        }
+        await api.deleteNode(nodeId);
+        for (const id of subtree) storeDeleteNode(id);
+      } else {
+        // Keep children: reparent them onto this node's parent, then delete.
+        for (const c of directChildren) {
+          const patch = { parentId: node.parentId ?? null };
+          storeUpdateNode(c.id, patch);
+          await api.updateNode(c.id, patch).catch(() => {});
+        }
+        await api.deleteNode(nodeId);
+        storeDeleteNode(nodeId);
+      }
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('nodes.failDelete'));
     }
