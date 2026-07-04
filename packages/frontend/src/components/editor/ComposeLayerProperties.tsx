@@ -915,6 +915,119 @@ export function ComposeLayerProperties({
         </>
       )}
 
+      {layer.kind === 'text' && (
+        <>
+          <div style={sectionHeader}>{t('properties.sectionText')}</div>
+          <textarea
+            value={(layer.config.content as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, content: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, content: e.target.value },
+                })
+                .catch(() => {})
+            }
+            rows={3}
+            style={{ ...textInput, resize: 'vertical' }}
+          />
+          <div style={{ ...row, marginTop: 6 }}>
+            <span style={label}>{t('properties.labelFontSize')}</span>
+            <NumInput
+              className="vs-text-fontsize"
+              value={
+                typeof layer.config.fontSize === 'number'
+                  ? layer.config.fontSize
+                  : 16
+              }
+              min={1}
+              step={1}
+              precision={0}
+              onChange={(v) =>
+                commit({ config: { ...layer.config, fontSize: v } })
+              }
+              style={{ flex: 1, minWidth: 0 }}
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>{t('properties.labelColor')}</span>
+            <input
+              className="vs-text-color"
+              type="color"
+              value={(layer.config.color as string | undefined) ?? '#ffffff'}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, color: e.target.value } })
+              }
+              style={{
+                width: 40,
+                height: 26,
+                padding: 0,
+                border: '1px solid #3a3a3a',
+                borderRadius: 4,
+                background: '#2a2a2a',
+                cursor: 'pointer',
+              }}
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>{t('properties.labelAlign')}</span>
+            <select
+              className="vs-text-align"
+              value={(layer.config.align as string | undefined) ?? 'left'}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, align: e.target.value } })
+              }
+              style={{ ...select, width: '100%' }}
+            >
+              <option value="left">{t('properties.alignLeft')}</option>
+              <option value="center">{t('properties.alignCenter')}</option>
+              <option value="right">{t('properties.alignRight')}</option>
+            </select>
+          </div>
+          <div style={row}>
+            <span style={label}>{t('properties.labelWeight')}</span>
+            <select
+              className="vs-text-weight"
+              value={String(layer.config.weight ?? 'normal')}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, weight: e.target.value } })
+              }
+              style={{ ...select, width: '100%' }}
+            >
+              <option value="normal">Normal</option>
+              <option value="700">Bold</option>
+            </select>
+          </div>
+          <div style={row}>
+            <label
+              className="vs-text-allowhtml"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                color: '#bbb',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={layer.config.allowHtml === true}
+                onChange={(e) =>
+                  commit({
+                    config: { ...layer.config, allowHtml: e.target.checked },
+                  })
+                }
+              />
+              {t('properties.labelAllowHtml')}
+            </label>
+          </div>
+        </>
+      )}
+
       {layer.kind === 'feed' && (
         <>
           <div style={sectionHeader}>{t('properties.sectionTemplate')}</div>

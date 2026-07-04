@@ -66,18 +66,20 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
           muted: true,
           volume: 1,
         },
-        x: 40,
-        y: 40,
-        width: 160,
-        height: 120,
+        // On top, centred, full overlay width.
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 240,
         sceneOrder: -1,
       })
     : composeLayer('l2', 'l1', 'Badge', 'image', {
         config: { objectFit: 'contain', opacity: 1 },
+        // On top, centred within the overlay.
         x: 40,
-        y: 40,
-        width: 120,
-        height: 120,
+        y: 0,
+        width: 240,
+        height: 240,
         sceneOrder: -1,
       });
 
@@ -97,23 +99,26 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
       // The group is the fade target — opacity 0 at rest, animated by the clip.
       composeLayer('l1', null, spec.name, 'group', {
         config: { opacity: 0 },
+        width: 320,
+        height: 350,
         sceneOrder: -1,
       }),
       badge,
+      // Caption sits directly beneath the badge, centred across the overlay.
       composeLayer('l3', 'l1', 'Caption', 'text', {
         config: {
           content: spec.caption,
           fontSize: 40,
           color: '#ffffff',
           weight: 700,
-          align: 'left',
+          align: 'center',
           allowHtml: false,
           opacity: 1,
         },
-        x: 180,
-        y: 60,
-        width: 440,
-        height: 90,
+        x: 0,
+        y: 250,
+        width: 320,
+        height: 100,
         sceneOrder: -1,
       }),
       // l4 — the sound source. Invisible (visible:false still mounts + plays,

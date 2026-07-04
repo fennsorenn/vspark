@@ -3,7 +3,7 @@
   "components/DialogProvider.tsx": "896fa9df2a91",
   "components/editor/AssetManager.tsx": "99cb61866e18",
   "components/editor/ClipsSection.tsx": "098bbd7a3e62",
-  "components/editor/ComposeLayerProperties.tsx": "c5f103a07647",
+  "components/editor/ComposeLayerProperties.tsx": "fd0e88b197ef",
   "components/editor/ComposeSelectionOverlay.tsx": "51cafe40e419",
   "components/editor/ComposeTree.tsx": "1071b69455ed",
   "components/editor/ContextMenu.tsx": "0c5708e8b0eb",

@@ -588,7 +588,6 @@ function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
 function Placeholder({
   text,
   mode = 'editor',
-  icon,
 }: {
   text: string;
   mode?: 'editor' | 'viewer';
@@ -600,35 +599,25 @@ function Placeholder({
       style={{
         width: '100%',
         height: '100%',
-        background: 'rgba(34,34,34,0.6)',
-        border: '1px dashed #555',
+        // Grey rectangle with light-grey diagonal stripes + a light-grey outline
+        // — fills the element so its dimensions are visible; label in black.
+        background:
+          'repeating-linear-gradient(45deg, #8f8f8f 0 10px, #a3a3a3 10px 20px)',
+        border: '1px solid #cfcfcf',
         boxSizing: 'border-box',
         display: 'flex',
-        flexDirection: 'column',
-        gap: '4cqmin',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#888',
-        fontSize: 11,
+        color: '#000',
+        fontSize: 13,
+        fontWeight: 600,
+        textAlign: 'center',
+        padding: 4,
         pointerEvents: 'none',
         overflow: 'hidden',
-        // Container units so the icon scales with the layer box — the
-        // placeholder then visibly fills the element at its actual dimensions.
-        containerType: 'size',
       }}
     >
-      {icon && (
-        <span
-          style={{
-            fontSize: 'min(96px, 42cqmin)',
-            lineHeight: 1,
-            opacity: 0.75,
-          }}
-        >
-          {icon}
-        </span>
-      )}
-      <span style={{ fontSize: 'min(13px, 9cqmin)' }}>{text}</span>
+      {text}
     </div>
   );
 }
