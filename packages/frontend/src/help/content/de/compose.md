@@ -71,6 +71,13 @@ für die eingegebene Position gilt. Wenn du beispielsweise den Ankerpunkt auf di
 untere rechte Ecke setzt und X/Y auf null stellst, rastet die Ebene an der
 unteren rechten Ecke des Ausgabebereichs ein.
 
+Wenn du eine Ebene in der Vorschau ziehst, **rastet** sie an der Mitte und den
+Kanten ihres übergeordneten Elements ein (bei einer Ebene der obersten Ebene die
+gesamte Leinwand): Die Kanten und die Mitte der Ebene ziehen sich zu den Kanten
+und der Mitte des übergeordneten Elements, und eine rosa Hilfslinie zeigt jede
+aktive Einrastung. Halte beim Ziehen **Alt** gedrückt, um frei ohne Einrasten zu
+verschieben.
+
 Du kannst eine Ebene in 2D sperren, damit sie in der Vorschau nicht versehentlich
 verschoben wird, oder die 3D-Interaktion sperren, falls sie den 3D-Viewport
 überlappt.

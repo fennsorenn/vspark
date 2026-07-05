@@ -1,4 +1,10 @@
-import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type RefObject,
+} from 'react';
 import {
   useEditorStore,
   type ComposeLayerRecord,
@@ -9,6 +15,7 @@ import {
   type ResizeEdge,
 } from './composeLayerInteractions';
 import { layerFrame, layerParentFrame } from './composeHitTest';
+import { getSnapGuides, subscribeSnapGuides } from './composeSnap';
 
 interface ComposeSelectionOverlayProps {
   viewportRef: RefObject<HTMLElement>;
@@ -70,6 +77,7 @@ export function ComposeSelectionOverlay({
   // All layers, so the frame can be composed through this layer's ancestors
   // (nested layers are positioned relative to their parent).
   const composeLayers = useEditorStore((s) => s.composeLayers);
+  const snap = useSyncExternalStore(subscribeSnapGuides, getSnapGuides);
   const [viewportRect, setViewportRect] = useState<DOMRect | null>(null);
 
   // Track the viewport rect (it can change with window resize / panel resize).
@@ -129,6 +137,20 @@ export function ComposeSelectionOverlay({
   const strokeW = 1 / s;
   const apply = (patch: Partial<ComposeLayerRecord>) =>
     updateLayer(layer.id, patch);
+
+  // Snap guide lines. `snap` positions are in the parent box's local px; project
+  // them through the parent frame (handles a rotated / nested parent) so the
+  // line spans the parent box in viewport space.
+  const pw = pf.hx * 2;
+  const ph = pf.hy * 2;
+  const projParent = (lx: number, ly: number) => ({
+    x: pf.cx + pf.ux.x * (lx - pf.hx) + pf.uy.x * (ly - pf.hy),
+    y: pf.cy + pf.ux.y * (lx - pf.hx) + pf.uy.y * (ly - pf.hy),
+  });
+  const guideSegments = [
+    ...snap.vx.map((gx) => [projParent(gx, 0), projParent(gx, ph)] as const),
+    ...snap.hy.map((gy) => [projParent(0, gy), projParent(pw, gy)] as const),
+  ];
 
   // Outline path (4 corners) for a polygon outline so we get rotated borders.
   const corners = [
@@ -220,6 +242,19 @@ export function ComposeSelectionOverlay({
             strokeOpacity={0.4}
             strokeWidth={strokeW}
             strokeDasharray={`${5 / s} ${4 / s}`}
+          />
+        ))}
+        {/* Snap guide lines (parent edges / centre) — drawn while dragging. */}
+        {guideSegments.map(([a, b], i) => (
+          <line
+            key={`snap-${i}`}
+            x1={a.x}
+            y1={a.y}
+            x2={b.x}
+            y2={b.y}
+            stroke="#ff3d8b"
+            strokeWidth={strokeW}
+            strokeDasharray={`${4 / s} ${3 / s}`}
           />
         ))}
         <polygon

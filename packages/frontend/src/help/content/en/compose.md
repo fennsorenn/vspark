@@ -64,6 +64,11 @@ its reference point when you type a position. For example, anchoring to the
 bottom-right corner and setting X/Y to zero snaps the layer to the bottom-right
 of the canvas.
 
+When you drag a layer in the preview it **snaps** to the centre and edges of its
+parent (the whole canvas, for a top-level layer): the layer's own edges and
+centre pull onto the parent's edges and centre, and a pink guide line shows each
+active snap. Hold **Alt** while dragging to move freely without snapping.
+
 You can lock a layer in 2D so it cannot be accidentally dragged in the preview,
 or lock its 3D interaction if it overlaps the 3D viewport.
 

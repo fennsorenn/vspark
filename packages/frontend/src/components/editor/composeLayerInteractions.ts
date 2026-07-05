@@ -2,8 +2,100 @@ import type { ComposeLayerRecord } from '../../store/editorStore';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import { sendComposeLayerPreview } from '../../hooks/useWsSync';
+import { setSnapGuides, clearSnapGuides } from './composeSnap';
 
 const PREVIEW_INTERVAL_MS = 33; // ~30 Hz cap on outgoing layer previews
+
+// Snap the dragged layer's edges/centre to the parent box's edges/centre when
+// within this many SCREEN px (converted to canonical px via the stage scale, so
+// the pull feels constant regardless of zoom). Hold Alt to drag freely.
+const SNAP_SCREEN_PX = 6;
+
+const toPxBasis = (
+  v: number,
+  config: Record<string, unknown>,
+  unitKey: string,
+  basis: number
+): number => (config[unitKey] === '%' && basis > 0 ? (v / 100) * basis : v);
+const fromPxBasis = (
+  px: number,
+  config: Record<string, unknown>,
+  unitKey: string,
+  basis: number
+): number => (config[unitKey] === '%' && basis > 0 ? (px / basis) * 100 : px);
+
+/** Pick the smallest correction that snaps any of `lines` onto any of `targets`
+ *  within `thresh`. Returns the delta to add to every line + the snapped target
+ *  (for drawing a guide), or null if nothing is within range. */
+function bestSnap(
+  lines: number[],
+  targets: number[],
+  thresh: number
+): { delta: number; guide: number } | null {
+  let best: { delta: number; guide: number; abs: number } | null = null;
+  for (const l of lines) {
+    for (const target of targets) {
+      const delta = target - l;
+      const abs = Math.abs(delta);
+      if (abs <= thresh && (!best || abs < best.abs))
+        best = { delta, guide: target, abs };
+    }
+  }
+  return best ? { delta: best.delta, guide: best.guide } : null;
+}
+
+/** Snap a proposed move (in the layer's stored units) so the layer's left /
+ *  centre / right and top / centre / bottom pull onto the parent box's edges +
+ *  centre when within `thresh` (canonical px). `fw`/`fh` are the parent box size
+ *  in canonical px (the viewport, for a top-level layer). Returns the adjusted
+ *  x/y plus the parent-local px positions of any guides that snapped. Pure —
+ *  unit-tested in composeSnap.test.ts. */
+export function snapLayerMove(
+  xVal: number,
+  yVal: number,
+  layer: Pick<
+    ComposeLayerRecord,
+    'anchorH' | 'anchorV' | 'config' | 'width' | 'height'
+  >,
+  fw: number,
+  fh: number,
+  thresh: number
+): { x: number; y: number; vx: number[]; hy: number[] } {
+  if (fw <= 0 || fh <= 0) return { x: xVal, y: yVal, vx: [], hy: [] };
+  const cfg = layer.config;
+  const wPx = toPxBasis(layer.width, cfg, 'widthUnit', fw);
+  const hPx = toPxBasis(layer.height, cfg, 'heightUnit', fh);
+  const vx: number[] = [];
+  const hy: number[] = [];
+  let x = xVal;
+  let y = yVal;
+
+  let xPx = toPxBasis(xVal, cfg, 'xUnit', fw);
+  const left = layer.anchorH === 'right' ? fw - xPx - wPx : xPx;
+  const sX = bestSnap(
+    [left, left + wPx / 2, left + wPx],
+    [0, fw / 2, fw],
+    thresh
+  );
+  if (sX) {
+    const newLeft = left + sX.delta;
+    xPx = layer.anchorH === 'right' ? fw - newLeft - wPx : newLeft;
+    x = fromPxBasis(xPx, cfg, 'xUnit', fw);
+    vx.push(sX.guide);
+  }
+
+  let yPx = toPxBasis(yVal, cfg, 'yUnit', fh);
+  const top = layer.anchorV === 'bottom' ? fh - yPx - hPx : yPx;
+  const sY = bestSnap([top, top + hPx / 2, top + hPx], [0, fh / 2, fh], thresh);
+  if (sY) {
+    const newTop = top + sY.delta;
+    yPx = layer.anchorV === 'bottom' ? fh - newTop - hPx : newTop;
+    y = fromPxBasis(yPx, cfg, 'yUnit', fh);
+    hy.push(sY.guide);
+  }
+
+  return { x, y, vx, hy };
+}
 
 /** Suppress any active clip override on the given layer params so a manual
  *  gesture's value isn't masked by a paused/playing clip — same precedence the
@@ -96,16 +188,24 @@ export function startDrag(
     const dys = (ev.clientY - start.y) / scale;
     const dx = cosP * dxs + sinP * dys;
     const dy = -sinP * dxs + cosP * dys;
-    last = {
-      x: start.lx + deltaInUnit(dx * sx, layer.config, 'xUnit', fw),
-      y: start.ly + deltaInUnit(dy * sy, layer.config, 'yUnit', fh),
-    };
+    const xVal = start.lx + deltaInUnit(dx * sx, layer.config, 'xUnit', fw);
+    const yVal = start.ly + deltaInUnit(dy * sy, layer.config, 'yUnit', fh);
+
+    // Snap the layer's edges/centre to the parent box's edges/centre (the
+    // viewport, for a top-level layer). Hold Alt to drag freely.
+    const snapped = ev.altKey
+      ? { x: xVal, y: yVal, vx: [], hy: [] }
+      : snapLayerMove(xVal, yVal, layer, fw, fh, SNAP_SCREEN_PX / (scale || 1));
+    setSnapGuides({ vx: snapped.vx, hy: snapped.hy });
+
+    last = { x: snapped.x, y: snapped.y };
     apply(last);
     emit(last);
   };
   const up = () => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
+    clearSnapGuides();
     if (last) api.updateComposeLayer(layer.id, last).catch(() => {});
   };
   window.addEventListener('pointermove', move);
