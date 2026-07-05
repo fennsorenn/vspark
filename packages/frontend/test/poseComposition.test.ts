@@ -7,7 +7,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { stackBoneRotation } from '../src/components/editor/poseComposition';
+import {
+  stackBoneRotation,
+  composeHipsPosition,
+} from '../src/components/editor/poseComposition';
 
 const q = (x: number, y: number, z: number) =>
   new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z));
@@ -69,5 +72,38 @@ describe('stackBoneRotation', () => {
     const a10 = stackBoneRotation(rest, anim, null, 1, 0).angleTo(rest);
     expect(a5).toBeGreaterThan(a0);
     expect(a10).toBeGreaterThan(a5);
+  });
+});
+
+describe('composeHipsPosition', () => {
+  const anim = new THREE.Vector3(0, 1.2, 0.3); // hips lifted + shifted by the clip
+  const rest = new THREE.Vector3(0, 1.0, 0); // bind-pose hips
+
+  it('legsAnim=1 → full animated root motion', () => {
+    const out = composeHipsPosition(anim, rest, 1, true, new THREE.Vector3());
+    expect(out.equals(anim)).toBe(true);
+  });
+
+  it('legsAnim=0 → hips planted at rest (no translation)', () => {
+    const out = composeHipsPosition(anim, rest, 0, true, new THREE.Vector3());
+    expect(out.equals(rest)).toBe(true);
+  });
+
+  it('legsAnim=0.5 → halfway between rest and the animated position', () => {
+    const out = composeHipsPosition(anim, rest, 0.5, true, new THREE.Vector3());
+    expect(out.y).toBeCloseTo(1.1, 5);
+    expect(out.z).toBeCloseTo(0.15, 5);
+  });
+
+  it('no active clip → rest regardless of legsAnim (no animated pos to honour)', () => {
+    const out = composeHipsPosition(anim, rest, 1, false, new THREE.Vector3());
+    expect(out.equals(rest)).toBe(true);
+  });
+
+  it('writes into (and returns) the out vector', () => {
+    const out = new THREE.Vector3(99, 99, 99);
+    const ret = composeHipsPosition(anim, rest, 1, true, out);
+    expect(ret).toBe(out);
+    expect(out.equals(anim)).toBe(true);
   });
 });

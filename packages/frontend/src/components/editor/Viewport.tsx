@@ -108,7 +108,7 @@ import type {
   PoseSource,
 } from '@vspark/shared';
 import { registerMedia } from './mediaRegistry';
-import { stackBoneRotation } from './poseComposition';
+import { stackBoneRotation, composeHipsPosition } from './poseComposition';
 import {
   makeVideoMaterial,
   updateVideoMaterial,
@@ -600,6 +600,12 @@ function poseSourceIsActive(poseSource: PoseSource | undefined): boolean {
   }
   return false;
 }
+
+// Hips root-motion scratch (captured pre/post resetNormalizedPose, fed to
+// composeHipsPosition). The per-frame loop is single-threaded, so module-scoped
+// scratch avoids per-frame allocation.
+const _hipsAnimPos = new THREE.Vector3();
+const _hipsRestPos = new THREE.Vector3();
 
 interface VmcRetarget {
   bonesInOrder: VRMHumanBoneName[];
@@ -2650,9 +2656,14 @@ function AvatarNode({
           Object.keys(normalizedPose) as VRMHumanBoneName[]
         );
 
+        // Snapshot the animated hips position before resetNormalizedPose clobbers it.
+        const hipsBone = vrm.humanoid.getRawBoneNode('hips');
+        if (hipsBone) _hipsAnimPos.copy(hipsBone.position);
+
         // Pass A: rest raw quats for the broadcast bones.
         vrm.humanoid.resetNormalizedPose();
         (vrm.humanoid as unknown as { update?: () => void }).update?.();
+        if (hipsBone) _hipsRestPos.copy(hipsBone.position);
         const restRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
         for (const [name, bone] of animQuats) {
           if (broadcastSet.has(name))
@@ -2676,6 +2687,15 @@ function AvatarNode({
             bone.quaternion.copy(animQ);
           }
         }
+        // Additive keeps the full animation, so restore the full root motion.
+        if (hipsBone)
+          composeHipsPosition(
+            _hipsAnimPos,
+            _hipsRestPos,
+            1,
+            !!(reg && layer),
+            hipsBone.position
+          );
       } else {
         // Override mode — "tracking stacks on animation". For every bone: stack
         // the (scaled) tracking delta on top of the (scaled) base animation,
@@ -2699,9 +2719,14 @@ function AvatarNode({
           Object.keys(normalizedPose) as VRMHumanBoneName[]
         );
 
+        // Snapshot the animated hips position before resetNormalizedPose clobbers it.
+        const hipsBone = vrm.humanoid.getRawBoneNode('hips');
+        if (hipsBone) _hipsAnimPos.copy(hipsBone.position);
+
         // Rest raw quats (all bones).
         vrm.humanoid.resetNormalizedPose();
         (vrm.humanoid as unknown as { update?: () => void }).update?.();
+        if (hipsBone) _hipsRestPos.copy(hipsBone.position);
         const restRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
         for (const [name, bone] of animQuats)
           restRaw.set(name, bone.quaternion.clone());
@@ -2735,6 +2760,15 @@ function AvatarNode({
             bone.quaternion
           );
         }
+        // Hips root-motion position follows the legs section's Anim weight.
+        if (hipsBone)
+          composeHipsPosition(
+            _hipsAnimPos,
+            _hipsRestPos,
+            sectionInfluenceForBone('leftUpperLeg', poseSourceLive).anim,
+            animActive,
+            hipsBone.position
+          );
       }
     } else if (
       vrm &&
@@ -2754,9 +2788,14 @@ function AvatarNode({
         const bone = vrm.humanoid.getRawBoneNode(name);
         if (bone) animQuats.push([name, bone, bone.quaternion.clone()]);
       }
+      // Snapshot the animated hips position before resetNormalizedPose clobbers it.
+      const hipsBone = vrm.humanoid.getRawBoneNode('hips');
+      if (hipsBone) _hipsAnimPos.copy(hipsBone.position);
+
       // Rest raw quats (all bones).
       vrm.humanoid.resetNormalizedPose();
       (vrm.humanoid as unknown as { update?: () => void }).update?.();
+      if (hipsBone) _hipsRestPos.copy(hipsBone.position);
       const restRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
       for (const [name, bone] of animQuats)
         restRaw.set(name, bone.quaternion.clone());
@@ -2778,6 +2817,15 @@ function AvatarNode({
           bone.quaternion
         );
       }
+      // Hips root-motion position follows the legs section's Anim weight.
+      if (hipsBone)
+        composeHipsPosition(
+          _hipsAnimPos,
+          _hipsRestPos,
+          sectionInfluenceForBone('leftUpperLeg', poseSource).anim,
+          animActive,
+          hipsBone.position
+        );
     }
 
     // ── Step 3: remaining VRM subsystems on the final blended pose ───────────────

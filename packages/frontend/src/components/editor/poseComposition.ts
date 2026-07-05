@@ -45,3 +45,34 @@ export function stackBoneRotation(
   }
   return out;
 }
+
+/**
+ * Compose the hips' root-motion **position** (the translation / weight-shift
+ * baked into a clip) into `outPos`. The hips' position follows the **legs**
+ * section — its job is mostly to ride the leg movement — so its animation
+ * influence is scaled by the legs Anim weight, blending the animated position
+ * toward rest:
+ *
+ *   outPos = lerp(restPos, animActive ? animPos : restPos, legsAnim)
+ *
+ *   - legsAnim=1 → full root motion (animated position)
+ *   - legsAnim=0 → hips planted at rest (no translation)
+ *   - no active clip → rest (there's no animated position to honour)
+ *
+ * Rotation-only tracking never carries a hips position, so there's no tracking
+ * term. Callers use this to *restore* the hips position after the composition
+ * step's `resetNormalizedPose()` / `update()` passes, which copy the rest hips
+ * position back onto the raw bone and would otherwise pin the hips to rest every
+ * frame — silently killing root motion whenever tracking or a partial-tracking
+ * slider is active.
+ */
+export function composeHipsPosition(
+  animPos: THREE.Vector3,
+  restPos: THREE.Vector3,
+  legsAnim: number,
+  animActive: boolean,
+  outPos: THREE.Vector3
+): THREE.Vector3 {
+  const contrib = animActive ? animPos : restPos;
+  return outPos.copy(restPos).lerp(contrib, legsAnim);
+}
