@@ -81,11 +81,11 @@ base animation in, and **Track** adds the live tracking on top:
 Sections you never touch stay at the default (**Anim 1 / Track 1**), so you only
 need to adjust the parts you want to change.
 
-> The hips' **position** (the root motion — the up/down bob and weight-shift a
-> clip bakes in) follows the **Legs** section's **Anim** slider, since the hips
-> mostly ride the legs. So **Legs Anim 0** plants the hips in place (no root
-> motion) as well as resting the legs; the hips' *rotation* still follows the
-> **Body** section.
+> The hips belong to the **Legs** section — both their rotation and their
+> **position** (the root motion: the up/down bob and weight-shift a clip bakes
+> in), since the hips lead the lower body. So **Legs Anim 0** plants the hips in
+> place and rests them along with the legs, while the **Body** section covers the
+> spine and chest.
 
 ### Base animation
 

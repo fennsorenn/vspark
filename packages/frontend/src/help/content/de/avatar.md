@@ -84,12 +84,12 @@ die Basis-Animation ein, und **Track** legt das Live-Tracking darüber:
 
 Bereiche, die du nicht anfasst, bleiben auf dem Standard (**Anim 1 / Track 1**).
 
-> Die **Position** der Hüfte (die Root-Motion — das Auf-und-Ab-Wippen und die
-> Gewichtsverlagerung, die ein Clip mitbringt) folgt dem **Anim**-Regler des
-> Bereichs **Beine**, da die Hüfte hauptsächlich den Beinen folgt. **Beine
-> Anim 0** hält die Hüfte also an Ort und Stelle (keine Root-Motion) und lässt
-> zugleich die Beine ruhen; die *Rotation* der Hüfte folgt weiterhin dem Bereich
-> **Körper**.
+> Die Hüfte gehört zum Bereich **Beine** — sowohl ihre Rotation als auch ihre
+> **Position** (die Root-Motion: das Auf-und-Ab-Wippen und die
+> Gewichtsverlagerung, die ein Clip mitbringt), da die Hüfte die untere
+> Körperhälfte führt. **Beine Anim 0** hält die Hüfte also an Ort und Stelle und
+> lässt sie zusammen mit den Beinen ruhen, während der Bereich **Körper**
+> Wirbelsäule und Brust abdeckt.
 
 ### Basis-Animation
 

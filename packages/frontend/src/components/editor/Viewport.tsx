@@ -536,7 +536,7 @@ const HIPS_BONE_NAMES = new Set(['mixamorigHips', 'pelvis']);
 // ── Partial tracking: map every VRM humanoid bone to a body section so each
 //    section can independently blend animation vs. live tracking. ────────────
 const POSE_SECTION_BONES: Record<PoseSection, string[]> = {
-  body: ['hips', 'spine', 'chest', 'upperChest'],
+  body: ['spine', 'chest', 'upperChest'],
   head: ['neck', 'head', 'jaw'],
   gaze: ['leftEye', 'rightEye'],
   arms: [
@@ -549,7 +549,10 @@ const POSE_SECTION_BONES: Record<PoseSection, string[]> = {
     'rightLowerArm',
     'rightHand',
   ],
+  // The hips lead the lower body, so both its rotation (here) and its root
+  // position (see composeHipsPosition) follow the legs section.
   legs: [
+    'hips',
     'leftUpperLeg',
     'leftLowerLeg',
     'leftFoot',
