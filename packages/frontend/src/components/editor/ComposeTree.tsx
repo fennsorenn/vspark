@@ -29,6 +29,51 @@ const KIND_ICONS: Record<ComposeLayerKind, string> = {
   feed: '📜',
 };
 
+// Monochrome SVG icons (stroke = currentColor) so the button `color` actually
+// applies — unlike the coloured emoji they replace, which ignore CSS colour.
+function LockIcon({ locked, size = 12 }: { locked: boolean; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      {locked ? (
+        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+      ) : (
+        <path d="M8 11V7a4 4 0 0 1 7.8-1.3" />
+      )}
+    </svg>
+  );
+}
+
+function EyeIcon({ hidden, size = 13 }: { hidden: boolean; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+      {hidden && <line x1="3" y1="21" x2="21" y2="3" />}
+    </svg>
+  );
+}
+
 const addBtn: CSSProperties = {
   background: '#2563eb',
   border: 'none',
@@ -549,17 +594,23 @@ function LayerRow({
             style={{
               background: 'none',
               border: 'none',
-              color: locked3d ? '#e0a838' : '#555',
+              // Active lock = gold; inactive = grey.
+              color: locked3d ? '#e0a838' : '#888',
               cursor: 'pointer',
-              fontSize: 11,
+              fontSize: 9,
+              fontWeight: 700,
               padding: '0 2px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
             }}
             onClick={(e) => {
               e.stopPropagation();
               toggleLock('locked3d');
             }}
           >
-            {locked3d ? '🔒3D' : '🔓3D'}
+            <LockIcon locked={locked3d} size={11} />
+            3D
           </button>
         )}
         <button
@@ -570,17 +621,19 @@ function LayerRow({
           style={{
             background: 'none',
             border: 'none',
-            color: locked ? '#e0a838' : '#555',
+            // Active lock = gold; inactive = grey.
+            color: locked ? '#e0a838' : '#888',
             cursor: 'pointer',
-            fontSize: 12,
             padding: '0 2px',
+            display: 'inline-flex',
+            alignItems: 'center',
           }}
           onClick={(e) => {
             e.stopPropagation();
             toggleLock('locked');
           }}
         >
-          {locked ? '🔒' : '🔓'}
+          <LockIcon locked={locked} />
         </button>
         <button
           className="vs-layer-visibility"
@@ -588,17 +641,19 @@ function LayerRow({
           style={{
             background: 'none',
             border: 'none',
-            color: layer.visible ? '#888' : '#555',
+            // Visible = grey eye; hidden = struck-through eye in red.
+            color: layer.visible ? '#888' : '#e0483b',
             cursor: 'pointer',
-            fontSize: 12,
             padding: '0 2px',
+            display: 'inline-flex',
+            alignItems: 'center',
           }}
           onClick={(e) => {
             e.stopPropagation();
             handleToggleVisible();
           }}
         >
-          {layer.visible ? '👁' : '🙈'}
+          <EyeIcon hidden={!layer.visible} />
         </button>
         <button
           className="vs-layer-delete"
