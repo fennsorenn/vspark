@@ -52,6 +52,8 @@ function PickButton({ onClick }: { onClick: () => void }) {
 }
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { vrmRegistry } from '../../vrmRegistry';
+import { BEHAVIOR_ICON, BEHAVIOR_FALLBACK } from '../icons';
+import { Check, Clapperboard } from 'lucide-react';
 import {
   getMaterialSlots,
   type MaterialOverride,
@@ -2404,7 +2406,9 @@ function LipsyncCalibration({
             disabled={status === 'capturing' && holding !== v}
           >
             {v}
-            {draft[v] ? ' ✓' : ''}
+            {draft[v] ? (
+              <Check size={12} style={{ marginLeft: 4, verticalAlign: '-1px' }} />
+            ) : null}
           </button>
         ))}
       </div>
@@ -3981,7 +3985,9 @@ function SceneSettings({
           marginBottom: 14,
         }}
       >
-        <span style={{ fontSize: 18 }}>🎬</span>
+        <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
+          <Clapperboard size={18} />
+        </span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>
             {t('scene.header')}
@@ -4328,7 +4334,12 @@ export function PropertiesPanel() {
             marginBottom: 14,
           }}
         >
-          <span style={{ fontSize: 18 }}>{selectedEffectKind.icon}</span>
+          <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
+            {(() => {
+              const I = selectedEffectKind.icon;
+              return <I size={18} />;
+            })()}
+          </span>
           <div>
             <div
               style={{
@@ -4417,7 +4428,13 @@ export function PropertiesPanel() {
             marginBottom: 14,
           }}
         >
-          <span style={{ fontSize: 18 }}>{selectedCompType.icon}</span>
+          <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
+            {(() => {
+              const I =
+                BEHAVIOR_ICON[selectedCompType.kind] ?? BEHAVIOR_FALLBACK;
+              return <I size={18} />;
+            })()}
+          </span>
           <div style={{ flex: 1 }}>
             <div
               style={{
@@ -8316,7 +8333,13 @@ export function PropertiesPanel() {
                   marginBottom: 14,
                 }}
               >
-                <span style={{ fontSize: 18 }}>{selectedCompType.icon}</span>
+                <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
+            {(() => {
+              const I =
+                BEHAVIOR_ICON[selectedCompType.kind] ?? BEHAVIOR_FALLBACK;
+              return <I size={18} />;
+            })()}
+          </span>
                 <div style={{ flex: 1 }}>
                   <div
                     style={{

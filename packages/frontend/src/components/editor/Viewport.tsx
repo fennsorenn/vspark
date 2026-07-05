@@ -7,6 +7,14 @@ import {
   useCallback,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  Move,
+  RotateCw,
+  Scale,
+  Volume2,
+  VolumeX,
+  type LucideIcon,
+} from 'lucide-react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   OrbitControls,
@@ -5108,10 +5116,14 @@ function TransformGizmo({
   );
 }
 
-const GIZMO_BUTTONS: { mode: GizmoMode; icon: string; titleKey: string }[] = [
-  { mode: 'translate', icon: '↔', titleKey: 'viewport.gizmo.translate' },
-  { mode: 'rotate', icon: '○', titleKey: 'viewport.gizmo.rotate' },
-  { mode: 'scale', icon: '□', titleKey: 'viewport.gizmo.scale' },
+const GIZMO_BUTTONS: {
+  mode: GizmoMode;
+  icon: LucideIcon;
+  titleKey: string;
+}[] = [
+  { mode: 'translate', icon: Move, titleKey: 'viewport.gizmo.translate' },
+  { mode: 'rotate', icon: RotateCw, titleKey: 'viewport.gizmo.rotate' },
+  { mode: 'scale', icon: Scale, titleKey: 'viewport.gizmo.scale' },
 ];
 
 function GizmoToolbar({
@@ -5137,7 +5149,7 @@ function GizmoToolbar({
         zIndex: 10,
       }}
     >
-      {GIZMO_BUTTONS.map(({ mode: m, icon, titleKey }) => (
+      {GIZMO_BUTTONS.map(({ mode: m, icon: Icon, titleKey }) => (
         <button
           key={m}
           title={t(titleKey)}
@@ -5157,7 +5169,7 @@ function GizmoToolbar({
             lineHeight: 1,
           }}
         >
-          {icon}
+          <Icon size={16} />
         </button>
       ))}
     </div>
@@ -5773,7 +5785,7 @@ function AudioPreviewToggle() {
         zIndex: 10,
       }}
     >
-      {on ? '🔊' : '🔇'}
+      {on ? <Volume2 size={15} /> : <VolumeX size={15} />}
     </button>
   );
 }

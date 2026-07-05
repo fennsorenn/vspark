@@ -15,19 +15,8 @@ import { createLayer } from './createKinds';
 import { DND_CREATE_LAYER, dropZoneFromEvent, type DropZone } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
 import { usePrompt, useChoose, useConfirm } from '../DialogProvider';
+import { LAYER_KIND_ICON } from '../icons';
 
-const KIND_ICONS: Record<ComposeLayerKind, string> = {
-  image: '🖼',
-  video: '🎞',
-  audio: '🔊',
-  browser: '🌐',
-  group: '📁',
-  compose_scene: '🎬',
-  scene_include: '🎬',
-  camera_view: '📷',
-  text: '📝',
-  feed: '📜',
-};
 
 // Monochrome SVG icons (stroke = currentColor) so the button `color` actually
 // applies — unlike the coloured emoji they replace, which ignore CSS colour.
@@ -571,7 +560,21 @@ function LayerRow({
           selectNode(null);
         }}
       >
-        <span style={{ width: 14 }}>{KIND_ICONS[layer.kind]}</span>
+        <span
+          style={{
+            width: 14,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            color: '#bbb',
+          }}
+        >
+          {(() => {
+            const Ico = LAYER_KIND_ICON[layer.kind];
+            return Ico ? <Ico size={13} /> : null;
+          })()}
+        </span>
         <span
           style={{
             flex: 1,
@@ -931,7 +934,19 @@ function ComposeSceneRoot({
         >
           {collapsed ? '▶' : '▼'}
         </span>
-        <span style={{ fontSize: 14, flexShrink: 0 }}>🎬</span>
+        <span
+          style={{
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            color: '#bbb',
+          }}
+        >
+          {(() => {
+            const Ico = LAYER_KIND_ICON.compose_scene;
+            return <Ico size={14} />;
+          })()}
+        </span>
         <span
           style={{
             flex: 1,

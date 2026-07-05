@@ -34,24 +34,47 @@ import {
   hasCreatePayload,
   type DropZone,
 } from './dnd';
+import {
+  NODE_KIND_ICON,
+  NODE_KIND_FALLBACK,
+  BEHAVIOR_ICON,
+  BEHAVIOR_FALLBACK,
+} from '../icons';
+import {
+  Antenna,
+  Bone,
+  Settings2,
+  Sparkle,
+  Hexagon,
+  Trash2,
+  Eye,
+  EyeOff,
+  Check,
+  Square,
+  SquareCheck,
+  Clapperboard,
+  ExternalLink,
+} from 'lucide-react';
 
-const KIND_ICONS: Record<string, string> = {
-  scene: '🎬',
-  scene_instance: '🔗',
-  avatar: '🧍',
-  model: '📦',
-  light: '💡',
-  camera: '📷',
-  prop: '🔹',
-  group: '📁',
-  godray_caster: '☀️',
-  particle: '✨',
-  billboard: '🖼️',
-  video: '🎞️',
-  audio: '🔊',
-  feed: '📜',
-  remote_object: '🔗',
-};
+/** Inline scene-node kind icon (lucide), replacing the old emoji map. */
+function KindIcon({ kind, size = 14 }: { kind: string; size?: number }) {
+  const Ico = NODE_KIND_ICON[kind] ?? NODE_KIND_FALLBACK;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+      <Ico size={size} />
+    </span>
+  );
+}
+
+/** Inline behavior kind icon (lucide), keyed by behavior kind. */
+function BehaviorIcon({ kind, size = 14 }: { kind?: string; size?: number }) {
+  const Ico = (kind && BEHAVIOR_ICON[kind]) || BEHAVIOR_FALLBACK;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+      <Ico size={size} />
+    </span>
+  );
+}
 
 // Node kinds the user can add. Sourced from the shared registry so the scene
 // tree, compose tree, and bottom-dock Create palette stay in lockstep.
@@ -170,7 +193,9 @@ function ShareWithMenuItem({
               title={t('context.shareCanEditHint')}
             >
               <span>{t('context.shareCanEdit')}</span>
-              <span>{shareWithEdit ? '☑' : '☐'}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                {shareWithEdit ? <SquareCheck size={14} /> : <Square size={14} />}
+              </span>
             </div>
           )}
           {connectedIds.length > 0 && (
@@ -181,8 +206,14 @@ function ShareWithMenuItem({
               onClick={() => void share('*')}
             >
               <span>{t('context.shareEveryone')}</span>
-              <span style={{ color: '#4ade80' }}>
-                {grantees.includes('*') ? '✓' : ''}
+              <span
+                style={{
+                  color: '#4ade80',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                {grantees.includes('*') ? <Check size={14} /> : null}
               </span>
             </div>
           )}
@@ -203,8 +234,14 @@ function ShareWithMenuItem({
               >
                 {nameById[peerId] || peerId.slice(0, 12)}
               </span>
-              <span style={{ color: '#4ade80' }}>
-                {grantees.includes(peerId) ? '✓' : ''}
+              <span
+                style={{
+                  color: '#4ade80',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                {grantees.includes(peerId) ? <Check size={14} /> : null}
               </span>
             </div>
           ))}
@@ -328,7 +365,7 @@ function SceneContextMenu({
                   onClose();
                 }}
               >
-                {KIND_ICONS[def.kind] ?? '🔹'}{' '}
+                <KindIcon kind={def.kind} size={13} />{' '}
                 {t(`kinds:node.${def.i18nKey}`, { defaultValue: def.label })}
               </div>
             ))}
@@ -528,7 +565,7 @@ function SceneNodeContextMenu({
                   onClose();
                 }}
               >
-                {KIND_ICONS[def.kind] ?? '🔹'}{' '}
+                <KindIcon kind={def.kind} size={13} />{' '}
                 {t(`kinds:node.${def.i18nKey}`, { defaultValue: def.label })}
               </div>
             ))}
@@ -592,7 +629,7 @@ function SceneNodeContextMenu({
                     onClose();
                   }}
                 >
-                  {KIND_ICONS[n.kind] ?? '🔹'} {n.name}
+                  <KindIcon kind={n.kind} size={13} /> {n.name}
                 </div>
               ))}
           </div>
@@ -867,7 +904,7 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
               setCtxMenu({ x: e.clientX, y: e.clientY, comp });
             }}
           >
-            <span style={{ fontSize: 14 }}>{ct?.icon ?? '⚙️'}</span>
+            <BehaviorIcon kind={comp.kind} size={14} />
             <span
               style={{
                 flex: 1,
@@ -1026,7 +1063,7 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
                   }
                   onClick={() => handleAdd(ct)}
                 >
-                  <span style={{ fontSize: 16 }}>{ct.icon}</span>
+                  <BehaviorIcon kind={ct.kind} size={16} />
                   <div>
                     <div style={{ fontWeight: 500 }}>{ct.label}</div>
                     <div style={{ fontSize: 10, color: '#666', marginTop: 1 }}>
@@ -1277,7 +1314,14 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
               setCtxMenu({ x: e.clientX, y: e.clientY, effect });
             }}
           >
-            <span style={{ fontSize: 13 }}>{ek?.icon ?? '✦'}</span>
+            <span
+              style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+            >
+              {(() => {
+                const I = ek?.icon ?? Sparkle;
+                return <I size={13} />;
+              })()}
+            </span>
             <span
               style={{
                 flex: 1,
@@ -1396,7 +1440,18 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
                     if (!alreadyAdded) handleAdd(ek);
                   }}
                 >
-                  <span style={{ fontSize: 15 }}>{ek.icon}</span>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {(() => {
+                      const I = ek.icon;
+                      return <I size={15} />;
+                    })()}
+                  </span>
                   <div>
                     <div style={{ fontWeight: 500 }}>
                       {t(`kinds:effect.${ek.kind}.label`, {
@@ -1691,7 +1746,15 @@ function LogicListPanel() {
                 setCtxMenu({ x: e.clientX, y: e.clientY, graph: g });
               }}
             >
-              <span style={{ opacity: g.enabled ? 0.9 : 0.35 }}>⬡</span>
+              <span
+                style={{
+                  opacity: g.enabled ? 0.9 : 0.35,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                <Hexagon size={13} />
+              </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div
                   style={{
@@ -1874,7 +1937,15 @@ function LogicListPanel() {
                 setActiveLogic(g.id === activeLogicId ? null : g.id)
               }
             >
-              <span style={{ opacity: 0.6 }}>⬡</span>
+              <span
+                style={{
+                  opacity: 0.6,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                <Hexagon size={13} />
+              </span>
               <div>
                 <div style={{ fontWeight: 500 }}>{g.label}</div>
                 <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
@@ -2462,7 +2533,7 @@ export function SceneGraph() {
         c.nodeId === node.id &&
         !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
     ).length;
-    const icon = KIND_ICONS[node.kind] ?? '🔹';
+    const NodeIco = NODE_KIND_ICON[node.kind] ?? NODE_KIND_FALLBACK;
     const isDragOver = dragOverNodeId === node.id;
     const dropZone = isDragOver ? dragOverZone : null;
 
@@ -2548,13 +2619,14 @@ export function SceneGraph() {
 
           <span
             style={{
-              fontSize: 16,
+              display: 'inline-flex',
+              alignItems: 'center',
               flexShrink: 0,
               marginRight: 6,
               alignSelf: 'center',
             }}
           >
-            {icon}
+            <NodeIco size={15} />
           </span>
           {/* Two-row body: name on top, action controls beneath. Keeping the
               actions on their own row stops them from crowding or being
@@ -2591,9 +2663,14 @@ export function SceneGraph() {
               {node.kind === 'remote_object' && (
                 <span
                   title={t('remote.tip')}
-                  style={{ fontSize: 11, flexShrink: 0, opacity: 0.7 }}
+                  style={{
+                    flexShrink: 0,
+                    opacity: 0.7,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                  }}
                 >
-                  📡
+                  <Antenna size={12} />
                 </span>
               )}
             </span>
@@ -2621,7 +2698,7 @@ export function SceneGraph() {
                     toggleBones(node.id);
                   }}
                 >
-                  🦴
+                  <Bone size={13} />
                 </button>
               )}
 
@@ -2650,7 +2727,7 @@ export function SceneGraph() {
                   toggleBehaviors(node.id);
                 }}
               >
-                ⚙
+                <Settings2 size={13} />
                 {compCount > 0 ? (
                   <sup style={{ fontSize: 8 }}>{compCount}</sup>
                 ) : null}
@@ -2680,7 +2757,7 @@ export function SceneGraph() {
                       setPreviewEffectsCamera(node.id);
                     }}
                   >
-                    ✦
+                    <Sparkle size={13} />
                   </button>
                   {projectId && (
                     <a
@@ -2698,7 +2775,7 @@ export function SceneGraph() {
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      ↗
+                      <ExternalLink size={12} />
                     </a>
                   )}
                 </>
@@ -2726,7 +2803,7 @@ export function SceneGraph() {
                     .catch(() => {});
                 }}
               >
-                {isHidden ? '🙈' : '👁'}
+                {isHidden ? <EyeOff size={13} /> : <Eye size={13} />}
               </button>
 
               {/* Delete button */}
@@ -2748,7 +2825,7 @@ export function SceneGraph() {
                 }}
                 title={t('nodes.deleteTitle')}
               >
-                🗑
+                <Trash2 size={14} />
               </button>
             </div>
           </div>
@@ -2853,7 +2930,15 @@ export function SceneGraph() {
                         >
                           {isBoneCollapsed ? '▶' : '▼'}
                         </span>
-                        <span style={{ fontSize: 12, flexShrink: 0 }}>🦴</span>
+                        <span
+                          style={{
+                            flexShrink: 0,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Bone size={12} />
+                        </span>
                         <span
                           style={{
                             flex: 1,
@@ -2959,7 +3044,16 @@ export function SceneGraph() {
           >
             {isCollapsed ? '▶' : '▼'}
           </span>
-          <span style={{ fontSize: 14, flexShrink: 0 }}>🎬</span>
+          <span
+            style={{
+              flexShrink: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              color: '#bbb',
+            }}
+          >
+            <Clapperboard size={14} />
+          </span>
           <span
             style={{
               flex: 1,

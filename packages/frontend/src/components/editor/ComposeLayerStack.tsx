@@ -21,6 +21,7 @@ import type {
 import DOMPurify from 'dompurify';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
 import { CameraCanvas } from './CameraCanvas';
+import { Camera } from 'lucide-react';
 import { compositeScalars, type ScalarLayer } from '../../compositor';
 import {
   compileTemplate,
@@ -150,7 +151,8 @@ function CameraViewLayer({ layer }: { layer: ComposeLayerRecord }) {
           border: '1px dashed #333',
         }}
       >
-        📷 {t('stack.noCamera')}
+        <Camera size={14} style={{ marginRight: 4, verticalAlign: '-2px' }} />
+        {t('stack.noCamera')}
       </div>
     );
   }
@@ -433,7 +435,7 @@ function LayerContent({
   if (layer.kind === 'image') {
     const url = resolveAssetUrl(layer, assets);
     if (!url)
-      return <Placeholder text={t('stack.noImage')} mode={mode} icon="🖼️" />;
+      return <Placeholder text={t('stack.noImage')} mode={mode} />;
     return (
       <img
         src={url}
@@ -452,7 +454,7 @@ function LayerContent({
   if (layer.kind === 'video') {
     const url = resolveAssetUrl(layer, assets);
     if (!url)
-      return <Placeholder text={t('stack.noVideo')} mode={mode} icon="🎬" />;
+      return <Placeholder text={t('stack.noVideo')} mode={mode} />;
     return (
       <VideoLayer layer={layer} url={url} objectFit={objectFit} mode={mode} />
     );
@@ -468,7 +470,7 @@ function LayerContent({
     return <FeedLayer layer={layer} />;
   }
   const url = (layer.config.url as string | undefined) ?? '';
-  if (!url) return <Placeholder text={t('stack.noUrl')} mode={mode} icon="🌐" />;
+  if (!url) return <Placeholder text={t('stack.noUrl')} mode={mode} />;
   // Iframes always swallow events when active. We keep them pointer-events:none
   // in editor mode so selection works; the streamed output (viewer mode) makes
   // them interactive only there.
@@ -591,7 +593,6 @@ function Placeholder({
 }: {
   text: string;
   mode?: 'editor' | 'viewer';
-  icon?: string;
 }) {
   if (mode === 'viewer') return null;
   return (

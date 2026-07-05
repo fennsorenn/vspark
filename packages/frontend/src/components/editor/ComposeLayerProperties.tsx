@@ -6,6 +6,8 @@ import {
 } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client';
+import { LAYER_KIND_ICON } from '../icons';
+import { Globe } from 'lucide-react';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { CSS_BLEND_MODES, readChroma } from './videoFx';
@@ -242,18 +244,11 @@ export function ComposeLayerProperties({
           marginBottom: 14,
         }}
       >
-        <span style={{ fontSize: 18 }}>
-          {layer.kind === 'image'
-            ? '🖼'
-            : layer.kind === 'video'
-              ? '🎞'
-              : layer.kind === 'camera_view'
-                ? '📷'
-                : layer.kind === 'group'
-                  ? '📁'
-                  : layer.kind === 'scene_include'
-                    ? '🎬'
-                    : '🌐'}
+        <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
+          {(() => {
+            const I = LAYER_KIND_ICON[layer.kind] ?? Globe;
+            return <I size={18} />;
+          })()}
         </span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{layer.name}</div>

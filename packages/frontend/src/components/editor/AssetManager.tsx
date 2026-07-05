@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import type { AssetFile } from '../../api/client';
 import type { BottomDockTab, Behavior } from '../../store/editorStore';
 import { newBehaviorId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
+import { BEHAVIOR_ICON, BEHAVIOR_FALLBACK } from '../icons';
 import { TrackClipTimeline } from './TrackClipTimeline';
 import { PresetLibrary } from './PresetLibrary';
 import { CreatePalette } from './CreatePalette';
@@ -601,8 +602,18 @@ export function AssetManager() {
           opacity: dimmed ? 0.55 : 1,
         }}
       >
-        <span style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}>
-          {ct.icon}
+        <span
+          style={{
+            display: 'inline-flex',
+            lineHeight: 1,
+            marginTop: 2,
+            color: '#cfcfcf',
+          }}
+        >
+          {(() => {
+            const I = BEHAVIOR_ICON[ct.kind] ?? BEHAVIOR_FALLBACK;
+            return <I size={20} />;
+          })()}
         </span>
         <div style={{ flex: 1 }}>
           <div
@@ -1019,9 +1030,17 @@ export function AssetManager() {
                         }}
                       >
                         <span
-                          style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}
+                          style={{
+                            display: 'inline-flex',
+                            lineHeight: 1,
+                            marginTop: 2,
+                            color: '#cfcfcf',
+                          }}
                         >
-                          {ek.icon}
+                          {(() => {
+                            const I = ek.icon;
+                            return <I size={20} />;
+                          })()}
                         </span>
                         <div style={{ flex: 1 }}>
                           <div

@@ -7,6 +7,27 @@ import {
   FEED_DEFAULT_TEMPLATE,
   FEED_DEFAULT_CSS,
 } from '../../lib/feedTemplate';
+import {
+  AudioLines,
+  Baseline,
+  Box,
+  Camera,
+  Film,
+  Folder,
+  Globe,
+  Image,
+  Layers,
+  Lightbulb,
+  PersonStanding,
+  Rss,
+  Shapes,
+  Sparkles,
+  Sun,
+  SunMedium,
+  Type,
+  Volume2,
+  type LucideIcon,
+} from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Shared registry of the node + compose-layer kinds the user can create, plus
@@ -25,69 +46,69 @@ export interface NodeKindDef {
   lightType?: string;
   /** Only meaningful for `kind === 'audio'`: 'simple' | 'directional'. */
   audioType?: string;
-  icon: string;
+  icon: LucideIcon;
 }
 
 export const NODE_KIND_DEFS: NodeKindDef[] = [
-  { label: 'Group', i18nKey: 'group', kind: 'group', icon: '📁' },
-  { label: 'Avatar', i18nKey: 'avatar', kind: 'avatar', icon: '🧍' },
-  { label: 'Model', i18nKey: 'model', kind: 'model', icon: '📦' },
-  { label: 'Prop', i18nKey: 'prop', kind: 'prop', icon: '🔹' },
+  { label: 'Group', i18nKey: 'group', kind: 'group', icon: Folder },
+  { label: 'Avatar', i18nKey: 'avatar', kind: 'avatar', icon: PersonStanding },
+  { label: 'Model', i18nKey: 'model', kind: 'model', icon: Box },
+  { label: 'Prop', i18nKey: 'prop', kind: 'prop', icon: Shapes },
   {
     label: 'Point Light',
     i18nKey: 'light_point',
     kind: 'light',
     lightType: 'point',
-    icon: '💡',
+    icon: Lightbulb,
   },
   {
     label: 'Directional Light',
     i18nKey: 'light_directional',
     kind: 'light',
     lightType: 'directional',
-    icon: '🔦',
+    icon: SunMedium,
   },
-  { label: 'Camera', i18nKey: 'camera', kind: 'camera', icon: '📷' },
+  { label: 'Camera', i18nKey: 'camera', kind: 'camera', icon: Camera },
   {
     label: 'Light Rays',
     i18nKey: 'godray_caster',
     kind: 'godray_caster',
-    icon: '☀️',
+    icon: Sun,
   },
-  { label: 'Particle', i18nKey: 'particle', kind: 'particle', icon: '✨' },
-  { label: 'Billboard', i18nKey: 'billboard', kind: 'billboard', icon: '🖼️' },
-  { label: 'Video', i18nKey: 'video', kind: 'video', icon: '🎞️' },
+  { label: 'Particle', i18nKey: 'particle', kind: 'particle', icon: Sparkles },
+  { label: 'Billboard', i18nKey: 'billboard', kind: 'billboard', icon: Image },
+  { label: 'Video', i18nKey: 'video', kind: 'video', icon: Film },
   {
     label: 'Audio (Simple)',
     i18nKey: 'audio_simple',
     kind: 'audio',
     audioType: 'simple',
-    icon: '🔊',
+    icon: Volume2,
   },
   {
     label: 'Audio (Spatial)',
     i18nKey: 'audio_directional',
     kind: 'audio',
     audioType: 'directional',
-    icon: '🔈',
+    icon: AudioLines,
   },
   {
     label: 'Plain Text',
     i18nKey: 'text_troika',
     kind: 'text_troika',
-    icon: '🔤',
+    icon: Type,
   },
   {
     label: 'Rich Text',
     i18nKey: 'text_canvas',
     kind: 'text_canvas',
-    icon: '🔡',
+    icon: Baseline,
   },
   {
     label: 'Feed (3D data overlay)',
     i18nKey: 'feed',
     kind: 'feed',
-    icon: '📜',
+    icon: Rss,
   },
 ];
 
@@ -339,20 +360,20 @@ export async function createBillboardFromImageAsset(
 export interface LayerKindDef {
   kind: ComposeLayerKind;
   label: string;
-  icon: string;
+  icon: LucideIcon;
 }
 
 // Layer kinds the user can add inside a compose scene.
 export const LAYER_KIND_DEFS: LayerKindDef[] = [
-  { kind: 'camera_view', label: 'Camera View', icon: '📷' },
-  { kind: 'scene_include', label: 'Include Scene', icon: '🎬' },
-  { kind: 'image', label: 'Image', icon: '🖼' },
-  { kind: 'video', label: 'Video', icon: '🎞' },
-  { kind: 'audio', label: 'Audio', icon: '🔊' },
-  { kind: 'browser', label: 'Browser', icon: '🌐' },
-  { kind: 'text', label: 'Text', icon: '📝' },
-  { kind: 'feed', label: 'Feed', icon: '📜' },
-  { kind: 'group', label: 'Group', icon: '📁' },
+  { kind: 'camera_view', label: 'Camera View', icon: Camera },
+  { kind: 'scene_include', label: 'Include Scene', icon: Layers },
+  { kind: 'image', label: 'Image', icon: Image },
+  { kind: 'video', label: 'Video', icon: Film },
+  { kind: 'audio', label: 'Audio', icon: Volume2 },
+  { kind: 'browser', label: 'Browser', icon: Globe },
+  { kind: 'text', label: 'Text', icon: Type },
+  { kind: 'feed', label: 'Feed', icon: Rss },
+  { kind: 'group', label: 'Group', icon: Folder },
 ];
 
 /** Create a compose layer of the given kind inside a compose scene, with sane

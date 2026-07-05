@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useCallback, useState, useRef } from 'react';
+import { TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   ReactFlow,
@@ -998,7 +999,11 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
             pointerEvents: 'none',
           }}
         >
-          ⚠ {t('canvas.connectionRefused', { reason: rejectMsg })}
+          <TriangleAlert
+            size={14}
+            style={{ verticalAlign: '-2px', marginRight: 4 }}
+          />
+          {t('canvas.connectionRefused', { reason: rejectMsg })}
         </div>
       )}
       <ReactFlow

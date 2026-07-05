@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Play, Clapperboard } from 'lucide-react';
 import { useEditorStore } from '../../store/editorStore';
 import { api, type TrackClipRecord } from '../../api/client';
 import { ContextMenu } from './ContextMenu';
@@ -229,7 +230,9 @@ export function ClipsSection({
               setCtxMenu({ x: e.clientX, y: e.clientY, clip });
             }}
           >
-            <span style={{ fontSize: 13 }}>{playing ? '▶' : '🎬'}</span>
+            <span style={{ display: 'inline-flex' }}>
+              {playing ? <Play size={13} /> : <Clapperboard size={13} />}
+            </span>
             <span
               style={{
                 flex: 1,
