@@ -74,6 +74,12 @@ button in the compose toolbar (top-right).
 You can lock a layer in 2D so it cannot be accidentally dragged in the preview,
 or lock its 3D interaction if it overlaps the 3D viewport.
 
+When an image or video layer overlaps a **camera view** layer, its right-click
+menu offers **Send to 3D**: this creates a matching billboard (or video plane)
+inside that camera's 3D scene, positioned and sized so it lines up with where the
+2D layer sat in the camera's view — handy for promoting a flat overlay into the
+3D scene so it can be parented, animated, or lit like any other object.
+
 ## Template / feed layers {#feed}
 
 A **template** layer is a live, data-driven layer. It uses a small snippet of

@@ -29,6 +29,7 @@
       "copyLayer": "Copy layer",
       "pasteLayerAsChild": "Paste layer as child",
       "pasteLogicHere": "Paste logic here",
+      "sendTo3d": "Send to 3D",
       "delete": "Delete",
       "pasteLayerAtRoot": "Paste layer at top level",
       "nothingToPaste": "Nothing to paste",

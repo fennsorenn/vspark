@@ -26,6 +26,8 @@ import { ComposeView } from '../components/editor/ComposeView';
 import { HelpWindow } from '../help/HelpWindow';
 import {
   handleSceneNodeDrop,
+  handleSceneFileDrop,
+  isFileDrag,
   hasCreatePayload,
 } from '../components/editor/dnd';
 import type { NodeKindMeta } from '@vspark/shared/signal';
@@ -248,21 +250,23 @@ export function Editor() {
         <div
           style={{ flex: 1, position: 'relative', overflow: 'hidden' }}
           onDragOver={(e) => {
-            // Accept drag-create drops from the bottom dock only while the 3D
-            // viewport is the visible tab.
+            // Accept drag-create drops from the bottom dock, and OS image-file
+            // drops (uploaded as billboards), only while the 3D viewport is the
+            // visible tab.
             if (leftTab !== 'scene') return;
-            if (hasCreatePayload(e)) {
+            if (hasCreatePayload(e) || isFileDrag(e)) {
               e.preventDefault();
               e.dataTransfer.dropEffect = 'copy';
             }
           }}
           onDrop={(e) => {
             if (leftTab !== 'scene') return;
-            void handleSceneNodeDrop(
-              e,
-              useEditorStore.getState().activeSceneId,
-              null
-            );
+            const sceneId = useEditorStore.getState().activeSceneId;
+            if (isFileDrag(e)) {
+              void handleSceneFileDrop(e, sceneId);
+              return;
+            }
+            void handleSceneNodeDrop(e, sceneId, null);
           }}
         >
           <div

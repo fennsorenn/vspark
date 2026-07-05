@@ -16,6 +16,7 @@ import { DND_CREATE_LAYER, dropZoneFromEvent, type DropZone } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
 import { usePrompt, useChoose, useConfirm } from '../DialogProvider';
 import { LAYER_KIND_ICON } from '../icons';
+import { canSendTo3D, sendComposeLayerTo3D } from './composeSendTo3D';
 
 
 // Monochrome SVG icons (stroke = currentColor) so the button `color` actually
@@ -410,6 +411,13 @@ function LayerRow({
         kind: 'item',
         label: t('tree.ctx.pasteLogicHere'),
         onClick: () => void handlePasteLogicAtLayer(),
+      });
+    }
+    if (canSendTo3D(layer)) {
+      items.push({
+        kind: 'item',
+        label: t('tree.ctx.sendTo3d'),
+        onClick: () => void sendComposeLayerTo3D(layer),
       });
     }
     items.push(
