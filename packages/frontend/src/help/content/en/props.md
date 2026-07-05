@@ -15,8 +15,8 @@ An image plane displays a still image as a flat rectangle in the 3D world. Uploa
 
 **Backface** — what is shown on the back side of the plane (the side facing away from the front):
 
+- `Mirror` (default) — the image is shown horizontally flipped on the back, so the plane is double-sided (visible from behind). Good for signs that should be readable from both sides.
 - `None` — no back face; the plane is invisible when viewed from behind.
-- `Mirror` — the image is shown horizontally flipped on the back. Good for signs that should be readable from both sides.
 - `Unmirrored` — the image is shown unflipped on the back. Good for double-sided posters where mirroring would look wrong.
 
 **Width** — the plane's width in world units. Default: 1. One world unit is roughly the height of an average avatar. Increase to make the image larger; decrease for small stickers.

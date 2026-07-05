@@ -3403,7 +3403,7 @@ interface BillboardConfig {
 
 const BILLBOARD_DEFAULTS: BillboardConfig = {
   facing: 'world',
-  backface: 'none',
+  backface: 'mirror',
   width: 1,
   height: 1,
   alpha: 1,

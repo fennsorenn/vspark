@@ -15,8 +15,8 @@ Eine Bildebene zeigt ein Standbild als flaches Rechteck in der 3D-Welt an. Lade 
 
 **Rückseite** — was auf der Rückseite der Ebene (der von der Front abgewandten Seite) angezeigt wird:
 
+- `Gespiegelt` (Standard) — das Bild wird horizontal gespiegelt auf der Rückseite angezeigt, sodass die Ebene doppelseitig (von hinten sichtbar) ist. Gut für Schilder, die von beiden Seiten lesbar sein sollen.
 - `Keine` — keine Rückseite; die Ebene ist von hinten unsichtbar.
-- `Gespiegelt` — das Bild wird horizontal gespiegelt auf der Rückseite angezeigt. Gut für Schilder, die von beiden Seiten lesbar sein sollen.
 - `Ungespiegelt` — das Bild wird ungespiegelt auf der Rückseite angezeigt. Gut für doppelseitige Poster, bei denen ein Spiegeln falsch wirken würde.
 
 **Breite** — die Breite der Ebene in Welteinheiten. Standard: 1. Eine Welteinheit entspricht ungefähr der Körpergröße eines Avatars. Erhöhe den Wert für ein größeres Bild; verringere ihn für kleine Sticker.

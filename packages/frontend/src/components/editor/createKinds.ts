@@ -194,7 +194,7 @@ export async function createSceneNode(
     components.billboard = {
       type: 'billboard',
       facing: 'world',
-      backface: 'none',
+      backface: 'mirror',
       width: 1,
       height: 1,
       alpha: 1,
@@ -339,7 +339,7 @@ export async function createBillboardFromImageAsset(
       ...DEFAULT_COMPONENTS,
       billboard: {
         facing: 'world',
-        backface: 'none',
+        backface: 'mirror',
         width: 1,
         height: 1,
         alpha: 1,

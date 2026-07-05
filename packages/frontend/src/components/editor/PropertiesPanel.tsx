@@ -5616,7 +5616,7 @@ export function PropertiesPanel() {
           (() => {
             const bc: Record<string, unknown> = {
               facing: 'world',
-              backface: 'none',
+              backface: 'mirror',
               width: 1,
               height: 1,
               alpha: 1,
