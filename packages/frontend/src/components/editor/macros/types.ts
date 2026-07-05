@@ -117,6 +117,8 @@ export interface MacroRow {
   /** The `system_hotkey` node id (stable row identity within a logic graph). */
   hotkeyNodeId: string;
   shortcut: HotkeyCombo;
+  /** Whether the macro fires — the hotkey node's `enabled` gate (default true). */
+  enabled: boolean;
   kind: MacroRowKind;
   /** kind === 'single': the one modeled action. */
   action?: MacroActionInstance;

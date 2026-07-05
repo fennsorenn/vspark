@@ -1,0 +1,39 @@
+{
+  "title": "Makros",
+  "add": "Makro hinzufügen",
+  "empty": "Noch keine Makros. Füge eins hinzu, um Aktionen per Tastenkürzel auszulösen.",
+  "when": "Wenn ich drücke",
+  "setShortcut": "Tastenkürzel festlegen…",
+  "recording": "Tastenkürzel drücken…",
+  "on": "An",
+  "enabledLabel": "Dieses Makro aktivieren / deaktivieren",
+  "delete": "Makro löschen",
+  "choose": "Auswählen…",
+  "openInGraph": "Im Graph öffnen",
+  "toggleStates": "Umschalten ({{count}} Zustände)",
+  "customActions": "Mehrere Aktionen",
+  "action": {
+    "play_clip": "Clip abspielen",
+    "set_expression": "Ausdruck setzen",
+    "set_property": "Eigenschaft setzen",
+    "control_media": "Medien steuern"
+  },
+  "field": {
+    "clip": "Clip",
+    "avatar": "Avatar",
+    "expression": "Ausdruck",
+    "weight": "Gewicht",
+    "target": "Ziel",
+    "property": "Eigenschaft",
+    "value": "Wert",
+    "action": "Aktion"
+  },
+  "mediaAction": {
+    "play": "Abspielen",
+    "pause": "Pause",
+    "stop": "Stopp",
+    "restart": "Neu starten",
+    "mute": "Stumm",
+    "unmute": "Ton an"
+  }
+}

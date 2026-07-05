@@ -67,6 +67,7 @@ export function classifyHotkey(
     logicId,
     hotkeyNodeId: hotkey.id,
     shortcut: readCombo(hotkey),
+    enabled: (hotkey.defaultConfig ?? {})['enabled'] !== false,
   };
 
   const outs = edgesFrom(d, hotkey.id, 'event');

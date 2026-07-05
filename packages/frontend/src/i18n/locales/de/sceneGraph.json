@@ -2,7 +2,8 @@
   "tabs": {
     "stage": "Bühne",
     "compose": "Komposition",
-    "logic": "Logik"
+    "logic": "Logik",
+    "macros": "Makros"
   },
   "collab": {
     "badgeSharing": "Du teilst diese Szene",

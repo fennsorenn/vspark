@@ -1,0 +1,39 @@
+{
+  "title": "Macros",
+  "add": "Add macro",
+  "empty": "No macros yet. Add one to trigger actions with a keyboard shortcut.",
+  "when": "When I press",
+  "setShortcut": "Set shortcut…",
+  "recording": "Press a shortcut…",
+  "on": "On",
+  "enabledLabel": "Enable / disable this macro",
+  "delete": "Delete macro",
+  "choose": "Choose…",
+  "openInGraph": "Open in graph",
+  "toggleStates": "Toggle ({{count}} states)",
+  "customActions": "Multiple actions",
+  "action": {
+    "play_clip": "Play clip",
+    "set_expression": "Set expression",
+    "set_property": "Set property",
+    "control_media": "Control media"
+  },
+  "field": {
+    "clip": "Clip",
+    "avatar": "Avatar",
+    "expression": "Expression",
+    "weight": "Weight",
+    "target": "Target",
+    "property": "Property",
+    "value": "Value",
+    "action": "Action"
+  },
+  "mediaAction": {
+    "play": "Play",
+    "pause": "Pause",
+    "stop": "Stop",
+    "restart": "Restart",
+    "mute": "Mute",
+    "unmute": "Unmute"
+  }
+}
