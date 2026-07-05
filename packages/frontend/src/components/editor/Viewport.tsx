@@ -2628,22 +2628,17 @@ function AvatarNode({
         }
       }
 
-      if (poseMode === 'additive') {
-        // Additive: stack the broadcast on top of the animation.
-        //
-        // The broadcast pose is in normalized humanoid space; we need it in
-        // each bone's raw local space to compose with the anim's raw quats.
-        // We extract the per-bone raw delta in two passes:
-        //
-        //   1. Save the anim raw quats for all bones.
-        //   2. Reset normalized pose to identity + update → bones now hold
-        //      their *rest* raw quaternions. Save these as restRawQ per
-        //      broadcast bone.
-        //   3. Apply the broadcast as normalized pose + update → bones hold
-        //      (rest_raw ∘ broadcast_delta_raw). The delta is
-        //      restRawQ⁻¹ * bone.quaternion.
-        //   4. For each broadcast bone: bone.quaternion = animQ * delta,
-        //      slerped from animQ by `blend`. Restore other bones to animQ.
+      {
+        // "Tracking stacks on animation" — the single composition path for BOTH
+        // override producers (VMC/camera, which replace) and additive producers
+        // (e.g. Breathing, which stacks). For every bone, stackBoneRotation
+        // stacks the (scaled) broadcast delta on top of the (scaled) base
+        // animation, per body section independently. Default sections
+        // ({anim:1,track:1}) → base animation with the broadcast fully stacked
+        // once ramped in; the partial-tracking sliders scale each layer. The
+        // poseMode flag no longer selects a separate composition — an additive
+        // producer used to route here into a slider-ignoring branch, which is
+        // exactly why Breathing made the Anim/Track sliders appear inert.
         const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
         const animQuats: Array<
           [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion]
@@ -2660,70 +2655,16 @@ function AvatarNode({
         const hipsBone = vrm.humanoid.getRawBoneNode('hips');
         if (hipsBone) _hipsAnimPos.copy(hipsBone.position);
 
-        // Pass A: rest raw quats for the broadcast bones.
-        vrm.humanoid.resetNormalizedPose();
-        (vrm.humanoid as unknown as { update?: () => void }).update?.();
-        if (hipsBone) _hipsRestPos.copy(hipsBone.position);
-        const restRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
-        for (const [name, bone] of animQuats) {
-          if (broadcastSet.has(name))
-            restRaw.set(name, bone.quaternion.clone());
-        }
-
-        // Pass B: apply the broadcast, read posed raw quats, compute delta.
-        vrm.humanoid.setNormalizedPose(normalizedPose);
-        (vrm.humanoid as unknown as { update?: () => void }).update?.();
-
-        for (const [name, bone, animQ] of animQuats) {
-          if (broadcastSet.has(name)) {
-            const restQ = restRaw.get(name)!;
-            const posedQ = bone.quaternion; // (rest * delta)
-            const deltaQ = restQ.clone().invert().multiply(posedQ);
-            const finalQ = animQ.clone().multiply(deltaQ);
-            bone.quaternion.copy(
-              blend >= 1 ? finalQ : animQ.clone().slerp(finalQ, blend)
-            );
-          } else {
-            bone.quaternion.copy(animQ);
-          }
-        }
-        // Additive keeps the full animation, so restore the full root motion.
-        if (hipsBone)
-          composeHipsPosition(
-            _hipsAnimPos,
-            _hipsRestPos,
-            1,
-            !!(reg && layer),
-            hipsBone.position
-          );
-      } else {
-        // Override mode — "tracking stacks on animation". For every bone: stack
-        // the (scaled) tracking delta on top of the (scaled) base animation,
-        // per body section independently (see stackBoneRotation). Default
-        // sections ({anim:1,track:1}) → base animation with full tracking stacked
-        // once ramped in; the partial-tracking sliders just scale each layer.
-        // This is the universal tracked-avatar path (replaces the old
-        // full-override + per-section branches).
-        const poseSourceLive = node.properties?.poseSource as
-          | PoseSource
-          | undefined;
-        const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
-        const animQuats: Array<
-          [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion]
-        > = [];
-        for (const name of allBones) {
-          const bone = vrm.humanoid.getRawBoneNode(name);
-          if (bone) animQuats.push([name, bone, bone.quaternion.clone()]);
-        }
-        const broadcastSet = new Set(
-          Object.keys(normalizedPose) as VRMHumanBoneName[]
-        );
-
-        // Snapshot the animated hips position before resetNormalizedPose clobbers it.
-        const hipsBone = vrm.humanoid.getRawBoneNode('hips');
-        if (hipsBone) _hipsAnimPos.copy(hipsBone.position);
-
-        // Rest raw quats (all bones).
+        // Rest raw quats (all bones), then broadcast-posed raw quats. Compose
+        // per section with stackBoneRotation, exactly like the override branch:
+        // the additive delta is stacked (scaled by the section Track weight) on
+        // the base animation (scaled by the section Anim weight). At default
+        // weights ({anim:1,track:1}) this equals the old `animQ · delta`, but
+        // the partial-tracking sliders now bite in additive mode too. This
+        // matters because Breathing always publishes *additively* (an always-on
+        // producer), which pins poseMode to additive — so the old additive-only
+        // composition made the sliders appear to do nothing whenever Breathing
+        // (or any additive source) was attached.
         vrm.humanoid.resetNormalizedPose();
         (vrm.humanoid as unknown as { update?: () => void }).update?.();
         if (hipsBone) _hipsRestPos.copy(hipsBone.position);
@@ -2731,7 +2672,6 @@ function AvatarNode({
         for (const [name, bone] of animQuats)
           restRaw.set(name, bone.quaternion.clone());
 
-        // Tracked raw quats (apply broadcast).
         vrm.humanoid.setNormalizedPose(normalizedPose);
         (vrm.humanoid as unknown as { update?: () => void }).update?.();
         const trackedRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
@@ -2740,16 +2680,15 @@ function AvatarNode({
             trackedRaw.set(name, bone.quaternion.clone());
         }
 
-        // animQ is the base-animation pose only while a clip is driving;
-        // otherwise the captured quats are the previous frame's applied pose, so
-        // fall back to rest (else track=0 would freeze the last tracked pose).
+        const poseSourceLive = node.properties?.poseSource as
+          | PoseSource
+          | undefined;
         const animActive = !!(reg && layer);
         for (const [name, bone, animQ] of animQuats) {
           const inf = sectionInfluenceForBone(name, poseSourceLive);
           const restQ = restRaw.get(name)!;
           const animContribution = animActive ? animQ : restQ;
           const tracked = trackedRaw.get(name) ?? null;
-          // Track weight folds in the transition ramp; untracked bones drop it.
           const tw = tracked ? Math.max(0, Math.min(1, inf.track * blend)) : 0;
           stackBoneRotation(
             restQ,
@@ -2760,7 +2699,6 @@ function AvatarNode({
             bone.quaternion
           );
         }
-        // Hips root-motion position follows the legs section's Anim weight.
         if (hipsBone)
           composeHipsPosition(
             _hipsAnimPos,
