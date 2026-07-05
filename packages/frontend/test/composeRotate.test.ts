@@ -42,6 +42,34 @@ describe('objectWorldCenter', () => {
     expect(c.x).toBeCloseTo(2, 5);
     expect(c.y).toBeCloseTo(1, 5);
   });
+
+  it('uses live skeleton bones for a skinned mesh (posed centre, not bind box)', () => {
+    const scene = new THREE.Scene();
+    const group = new THREE.Group();
+    const bones = [new THREE.Bone(), new THREE.Bone(), new THREE.Bone()];
+    bones[0].position.set(0, 0, 0);
+    bones[1].position.set(0, 2, 0);
+    bones[2].position.set(1, 1, 0);
+    group.add(bones[0], bones[1], bones[2]);
+    // A tiny triangle whose own vertices are near the origin — if the centre used
+    // the mesh geometry it'd land near (0,0,0), not the bones' bbox centre.
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute([0, 0, 0, 0.1, 0, 0, 0, 0.1, 0], 3)
+    );
+    const mesh = new THREE.SkinnedMesh(geo, new THREE.MeshBasicMaterial());
+    mesh.bind(new THREE.Skeleton(bones));
+    group.add(mesh);
+    scene.add(group);
+    scene.updateMatrixWorld(true);
+
+    const c = objectWorldCenter(group, new THREE.Vector3());
+    // Bone bbox: x[0,1] y[0,2] z[0] → centre (0.5, 1, 0).
+    expect(c.x).toBeCloseTo(0.5, 5);
+    expect(c.y).toBeCloseTo(1, 5);
+    expect(c.z).toBeCloseTo(0, 5);
+  });
 });
 
 describe('rotateAroundWorldAxis about the centre', () => {
