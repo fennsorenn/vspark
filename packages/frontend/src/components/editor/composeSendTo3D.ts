@@ -243,11 +243,13 @@ export async function sendComposeLayerTo3D(
       });
     }
     if (store.nodes.every((n) => n.id !== node.id)) store.addNode(node);
-    // Reveal it: switch to the camera's scene in the 3D viewport and select it.
-    store.setActiveScene(sceneId);
-    store.setLeftTab('scene');
-    store.setSceneSelected(false);
-    store.selectNode(node.id);
+    // The 2D layer has been promoted into 3D — remove it, and stay in the
+    // compose view (the new node lives in the camera's scene and shows through
+    // the camera_view).
+    if (store.selectedComposeLayerId === source.id)
+      store.selectComposeLayer(null);
+    store.removeComposeLayer(source.id);
+    await api.deleteComposeLayer(source.id).catch(() => {});
   } catch (err) {
     alert(err instanceof Error ? err.message : 'Failed to send layer to 3D');
   }

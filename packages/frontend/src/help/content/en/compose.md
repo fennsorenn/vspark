@@ -74,11 +74,13 @@ button in the compose toolbar (top-right).
 You can lock a layer in 2D so it cannot be accidentally dragged in the preview,
 or lock its 3D interaction if it overlaps the 3D viewport.
 
-When an image or video layer overlaps a **camera view** layer, its right-click
-menu offers **Send to 3D**: this creates a matching billboard (or video plane)
-inside that camera's 3D scene, positioned and sized so it lines up with where the
-2D layer sat in the camera's view — handy for promoting a flat overlay into the
-3D scene so it can be parented, animated, or lit like any other object.
+When an image or video layer overlaps a **camera view** layer, right-clicking it
+(in the layer list **or** in the preview) offers **Send to 3D**: this creates a
+matching billboard (or video plane) inside that camera's 3D scene, positioned and
+sized so it lines up with where the 2D layer sat in the camera's view, then
+removes the flat 2D layer — the new 3D object shows through the camera view in its
+place. Handy for promoting a flat overlay into the 3D scene so it can be parented,
+animated, or lit like any other object. You stay in the compose view.
 
 ## Template / feed layers {#feed}
 

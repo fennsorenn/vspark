@@ -84,12 +84,14 @@ Du kannst eine Ebene in 2D sperren, damit sie in der Vorschau nicht versehentlic
 verschoben wird, oder die 3D-Interaktion sperren, falls sie den 3D-Viewport
 überlappt.
 
-Wenn eine Bild- oder Videoebene eine **Kameraansicht**-Ebene überlappt, bietet ihr
-Rechtsklick-Menü **In 3D senden**: Dadurch wird ein passendes Billboard (oder eine
-Videoebene) in der 3D-Szene dieser Kamera erstellt — so positioniert und skaliert,
-dass es genau dort sitzt, wo die 2D-Ebene in der Kameraansicht lag. Praktisch, um
+Wenn eine Bild- oder Videoebene eine **Kameraansicht**-Ebene überlappt, bietet ein
+Rechtsklick darauf (in der Ebenenliste **oder** in der Vorschau) **In 3D senden**:
+Dadurch wird ein passendes Billboard (oder eine Videoebene) in der 3D-Szene dieser
+Kamera erstellt — so positioniert und skaliert, dass es genau dort sitzt, wo die
+2D-Ebene in der Kameraansicht lag — und die flache 2D-Ebene anschließend entfernt;
+das neue 3D-Objekt erscheint an ihrer Stelle durch die Kameraansicht. Praktisch, um
 ein flaches Overlay in die 3D-Szene zu übernehmen, wo es wie jedes andere Objekt
-verschachtelt, animiert oder beleuchtet werden kann.
+verschachtelt, animiert oder beleuchtet werden kann. Du bleibst in der Compose-Ansicht.
 
 ## Vorlage / Feed-Ebenen {#feed}
 
