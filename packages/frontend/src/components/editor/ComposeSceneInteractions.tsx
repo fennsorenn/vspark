@@ -62,18 +62,14 @@ const _rotAxis = new THREE.Vector3();
 const _camRight = new THREE.Vector3();
 const _camUp = new THREE.Vector3();
 
-const _pivotPos = new THREE.Vector3();
-
-/** Rotate `obj` around a world-space `axis` by `angle` (radians) about the world
- *  point `pivot` (or the object's own origin when `pivot` is omitted). Updates
- *  both orientation and — when a pivot is given — position, so the object orbits
- *  the pivot. Writes back a local transform that yields the intended world result
- *  regardless of any parent transform. */
+/** Rotate `obj` in place around a world-space `axis` by `angle` (radians), about
+ *  the object's own origin (its centre). Updates only orientation, writing back
+ *  the local quaternion that yields the intended world rotation regardless of any
+ *  parent transform. */
 function rotateAroundWorldAxis(
   obj: THREE.Object3D,
   axis: THREE.Vector3,
-  angle: number,
-  pivot?: THREE.Vector3
+  angle: number
 ): void {
   if (angle === 0) return;
   // Refresh matrixWorld from local first so chained rotations (yaw then pitch in
@@ -85,12 +81,6 @@ function rotateAroundWorldAxis(
   if (obj.parent) obj.parent.getWorldQuaternion(_qParent).invert();
   else _qParent.identity();
   obj.quaternion.copy(_qParent.multiply(_qWorld));
-  if (pivot) {
-    obj.getWorldPosition(_pivotPos).sub(pivot).applyQuaternion(_qDelta).add(pivot);
-    obj.position.copy(
-      obj.parent ? obj.parent.worldToLocal(_pivotPos) : _pivotPos
-    );
-  }
 }
 
 /** Traverse `root`'s visible subtree without descending into any object listed
@@ -289,9 +279,6 @@ export function ComposeSceneInteractions({
     startWorld: THREE.Vector3;
     startLocal: THREE.Vector3;
     grabOffset: THREE.Vector3;
-    /** World point under the cursor at drag start — Ctrl-drag rotation orbits
-     *  the object around this pivot rather than its own origin. */
-    pivot: THREE.Vector3;
     /** Last pointer position — Ctrl-drag rotation integrates screen deltas. */
     lastX: number;
     lastY: number;
@@ -329,7 +316,6 @@ export function ComposeSceneInteractions({
       startWorld: objWorld.clone(),
       startLocal: group.position.clone(),
       grabOffset,
-      pivot: hit.clone(),
       lastX: clientX,
       lastY: clientY,
       rotated: false,
@@ -356,8 +342,8 @@ export function ComposeSceneInteractions({
       const e = camera.matrixWorld.elements;
       _camRight.set(e[0], e[1], e[2]).normalize();
       _camUp.set(e[4], e[5], e[6]).normalize();
-      rotateAroundWorldAxis(d.group, _camUp, dx * DRAG_ROTATE_SENS, d.pivot);
-      rotateAroundWorldAxis(d.group, _camRight, dy * DRAG_ROTATE_SENS, d.pivot);
+      rotateAroundWorldAxis(d.group, _camUp, dx * DRAG_ROTATE_SENS);
+      rotateAroundWorldAxis(d.group, _camRight, dy * DRAG_ROTATE_SENS);
       emitPreview(d.nodeId, d.group);
       syncToStore(d.nodeId, d.group);
       return;
