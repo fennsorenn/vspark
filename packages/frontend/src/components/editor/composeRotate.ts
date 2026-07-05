@@ -40,6 +40,25 @@ export function objectWorldCenter(
     : _centerBox.getCenter(out);
 }
 
+/** Minimal shape of the VRM stashed on an avatar group's `userData.__vrm`. */
+type VrmLike = {
+  humanoid?: { getRawBoneNode(name: string): THREE.Object3D | null };
+};
+
+/** The point a rotation gesture spins `group` around. An avatar spins about its
+ *  **hips bone** — a stable body-centre pivot on the character's vertical axis,
+ *  robust to asymmetric arms/hair/accessories that would pull a bounding-box
+ *  centre off to one side. Everything else spins about its geometry centre. */
+export function pivotForGroup(
+  group: THREE.Object3D,
+  out: THREE.Vector3
+): THREE.Vector3 {
+  const vrm = (group.userData as { __vrm?: VrmLike }).__vrm;
+  const hips = vrm?.humanoid?.getRawBoneNode('hips');
+  if (hips) return hips.getWorldPosition(out);
+  return objectWorldCenter(group, out);
+}
+
 /** Rotate `obj` around a world-space `axis` by `angle` (radians) about the world
  *  point `pivot` (or the object's own origin when `pivot` is omitted). With a
  *  pivot it updates position too, so the object spins about that point. Writes

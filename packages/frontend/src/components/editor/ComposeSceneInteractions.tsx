@@ -15,7 +15,7 @@ import {
   worldTransform,
   dominantBoneForHit,
 } from './boneAttachPick';
-import { objectWorldCenter, rotateAroundWorldAxis } from './composeRotate';
+import { pivotForGroup, rotateAroundWorldAxis } from './composeRotate';
 
 const PREVIEW_INTERVAL_MS = 33; // ~30 Hz cap on outgoing transform previews
 
@@ -320,7 +320,7 @@ export function ComposeSceneInteractions({
       const e = camera.matrixWorld.elements;
       _camRight.set(e[0], e[1], e[2]).normalize();
       _camUp.set(e[4], e[5], e[6]).normalize();
-      objectWorldCenter(d.group, _center);
+      pivotForGroup(d.group, _center);
       rotateAroundWorldAxis(d.group, _camUp, dx * DRAG_ROTATE_SENS, _center);
       rotateAroundWorldAxis(d.group, _camRight, dy * DRAG_ROTATE_SENS, _center);
       emitPreview(d.nodeId, d.group);
@@ -697,7 +697,7 @@ export function ComposeSceneInteractions({
 
     if (st.vel !== 0) {
       camera.getWorldDirection(_rotAxis);
-      objectWorldCenter(group, _center);
+      pivotForGroup(group, _center);
       rotateAroundWorldAxis(group, _rotAxis, st.vel * dt, _center);
       emitPreview(st.nodeId, group);
       syncToStore(st.nodeId, group);

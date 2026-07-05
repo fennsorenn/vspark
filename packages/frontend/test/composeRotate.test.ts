@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import {
   objectWorldCenter,
+  pivotForGroup,
   rotateAroundWorldAxis,
 } from '../src/components/editor/composeRotate';
 
@@ -57,6 +58,37 @@ describe('objectWorldCenter', () => {
     // The hidden helper is ignored, so the centre stays on the visible box.
     expect(c.x).toBeCloseTo(0, 5);
     expect(c.y).toBeCloseTo(0, 5);
+  });
+});
+
+describe('pivotForGroup', () => {
+  it('pivots an avatar (group with a __vrm) around its hips bone', () => {
+    const scene = new THREE.Scene();
+    const group = new THREE.Group();
+    // Off-centre geometry — the bbox centre would be (3,0,0)...
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    mesh.position.set(3, 0, 0);
+    group.add(mesh);
+    // ...but a hips bone sits on the body's vertical axis.
+    const hips = new THREE.Object3D();
+    hips.position.set(0, 0.7, 0);
+    group.add(hips);
+    group.userData.__vrm = {
+      humanoid: { getRawBoneNode: (n: string) => (n === 'hips' ? hips : null) },
+    };
+    scene.add(group);
+    scene.updateMatrixWorld(true);
+
+    const p = pivotForGroup(group, new THREE.Vector3());
+    expect(p.x).toBeCloseTo(0, 5);
+    expect(p.y).toBeCloseTo(0.7, 5);
+    expect(p.z).toBeCloseTo(0, 5);
+  });
+
+  it('falls back to the geometry centre for a non-avatar', () => {
+    const group = offCenterGroup(); // box centred at (2,0,0), no __vrm
+    const p = pivotForGroup(group, new THREE.Vector3());
+    expect(p.x).toBeCloseTo(2, 5);
   });
 });
 
