@@ -1,7 +1,7 @@
 # Plan: Macro UI — a friendly projection over hotkey→action logic graphs
 
 > Branch: `feature/macro-ui` (builds on the `system_hotkey` node + `HotkeyManager`
-> already merged) · Status: Stage 1 (backend vocabulary) landed; frontend stages pending
+> already merged) · Status: Stages 1–3 landed (feature functional end-to-end)
 > This plan is the seed context for a cloud worker. It is a starting point, not an
 > airtight spec — the worker is interactive and may ask to refine it.
 
@@ -26,7 +26,22 @@
   subgraphs). 14 tests: per-action `match(build(v)) === v`, build→project
   round-trips (single + cycle), and the conservative cases (empty, fan-out,
   wired-port, unknown-kind → opaque). No UI yet.
-- **Stages 3–4 (Macros panel + shortcut recorder/keymap, i18n/help, e2e): pending.**
+- **Stage 3 — Macros panel + recorder + wiring: DONE.** `keymap.ts` (browser
+  keycode → OS-hook key name + `formatCombo`, 8 tests), `edit.ts` (pure
+  descriptor transforms: insert / removeMacro with exclusive-ownership guard /
+  patchNodeConfig / setSingleAction, 6 tests), `useMacros.ts` (data layer:
+  read all project logic → project rows → write back via `api.updateLogic`; new
+  macros in an auto-created "Macros" project graph; per-macro enable via the
+  hotkey node's `enabled` gate), `MacrosPanel.tsx` (left-dock "Macros" tab: row
+  list, ShortcutRecorder, action picker + field editors reusing store
+  nodes/clips/expressions/paramPaths, Set-Property value control adapts to the
+  chosen paramPath type, Open-in-graph for toggle/custom rows, `vs-` handles).
+  Dock wiring (`LeftDockTab` + `SceneGraph`), `macros` i18n namespace (EN+DE) +
+  help section + HelpButton, control-manifest blessed, and an e2e cov spec
+  (`cov-macros.spec.ts`, REST-verified add → action → toggle → delete, passes).
+- **Remaining polish (Stage 4, optional):** inline toggle/cycle *authoring* from
+  the panel (currently read-only + Open-in-graph); "Bind to hotkey…" accelerator
+  buttons in context; more actions (`set_compose_layer_param`, `set_data`).
 
 ## Goal
 
