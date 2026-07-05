@@ -14,6 +14,7 @@ import {
   worldToBoneLocalTransform,
   worldTransform,
   humanoidBoneFor,
+  dominantBoneForHit,
 } from '../src/components/editor/boneAttachPick';
 
 describe('worldToBoneLocalTransform', () => {
@@ -111,5 +112,37 @@ describe('humanoidBoneFor', () => {
       humanoid: { getRawBoneNode: () => null },
     } as unknown as VRM;
     expect(humanoidBoneFor(vrm, orphan)).toBeNull();
+  });
+});
+
+describe('dominantBoneForHit', () => {
+  it('returns the highest-weight bone at the hit face vertex', () => {
+    const bones = [new THREE.Bone(), new THREE.Bone()];
+    bones[0].add(bones[1]);
+    const skeleton = new THREE.Skeleton(bones);
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 0, 1, 0], 3)
+    );
+    // Vertex 0 → bone 1; vertices 1,2 → bone 0.
+    geo.setAttribute(
+      'skinIndex',
+      new THREE.Uint16BufferAttribute([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 4)
+    );
+    geo.setAttribute(
+      'skinWeight',
+      new THREE.Float32BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 4)
+    );
+    const mesh = new THREE.SkinnedMesh(geo, new THREE.MeshBasicMaterial());
+    mesh.add(bones[0]);
+    mesh.bind(skeleton);
+    mesh.updateMatrixWorld(true);
+
+    // Hit point closest to vertex 0 → dominant bone is bones[1].
+    expect(dominantBoneForHit(mesh, { a: 0, b: 1, c: 2 }, new THREE.Vector3(-1, -1, 0))).toBe(bones[1]);
+    // Hit point closest to vertex 1 → dominant bone is bones[0].
+    expect(dominantBoneForHit(mesh, { a: 0, b: 1, c: 2 }, new THREE.Vector3(1, -1, 0))).toBe(bones[0]);
   });
 });

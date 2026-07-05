@@ -172,6 +172,40 @@ export function getNodeGroup(nodeId: string): THREE.Group | null {
   return list && list.length > 0 ? list[0] : null;
 }
 
+/** The registered group for `nodeId` that lives inside `sceneRoot`'s canvas.
+ *  Each node is rendered once per Canvas (the always-mounted stage Viewport plus
+ *  every camera_view CameraCanvas), so it has one registered group per canvas.
+ *  Anything that manipulates a group in a *specific* canvas (e.g. BoneAttacher,
+ *  which must reparent the copy in its own scene, not some other canvas's) has
+ *  to disambiguate by scene ancestry — `getNodeGroup` alone returns whichever
+ *  mounted first and would corrupt the other canvases. */
+export function getNodeGroupForScene(
+  nodeId: string,
+  sceneRoot: THREE.Object3D
+): THREE.Group | null {
+  const list = nodeGroupRegistry.get(nodeId);
+  if (!list) return null;
+  for (const g of list) {
+    let p: THREE.Object3D | null = g;
+    while (p) {
+      if (p === sceneRoot) return g;
+      p = p.parent;
+    }
+  }
+  return null;
+}
+
+/** The VRM instance for an avatar node in a specific canvas. The avatar's group
+ *  carries its own per-canvas VRM on `userData.__vrm` (set at load) — unlike the
+ *  global `vrmRegistry`, which is last-write-wins across canvases. */
+export function getVrmForScene(
+  avatarNodeId: string,
+  sceneRoot: THREE.Object3D
+): VRM | null {
+  const group = getNodeGroupForScene(avatarNodeId, sceneRoot);
+  return (group?.userData.__vrm as VRM | undefined) ?? null;
+}
+
 /** Enumerate `(nodeId, group)` pairs for every registered group. Lets the
  *  Compose interaction layer walk all candidate hit targets cheaply, e.g. to
  *  AABB-test instead of triangle-raycasting the whole scene. */
@@ -354,8 +388,12 @@ function BoneAttacher({
 }) {
   const { scene } = useThree();
   useEffect(() => {
-    const group = getNodeGroup(nodeId);
-    const vrm = vrmRegistry.get(avatarNodeId);
+    // Resolve the group AND the bone in *this* canvas only — the node and the
+    // avatar are each rendered in every canvas, so using the global registries
+    // here would reparent one canvas's group into another canvas's bone and
+    // leave a stray flat-mounted copy behind (the "duplicate" bug).
+    const group = getNodeGroupForScene(nodeId, scene);
+    const vrm = getVrmForScene(avatarNodeId, scene);
     if (!group || !vrm) return;
     const bone = vrm.humanoid.getRawBoneNode(boneName as VRMHumanBoneName);
     if (!bone) return;
@@ -1322,6 +1360,10 @@ function AvatarNode({
         setVrmMorphTargetsForNode(node.id, [...morphMap.keys()].sort());
 
         vrmRegistry.set(node.id, vrm);
+        // Also stash this canvas's VRM on the avatar's own group so per-canvas
+        // consumers (BoneAttacher, compose attach targeting) can resolve the
+        // right instance instead of the global last-write-wins registry.
+        if (outerRef.current) outerRef.current.userData.__vrm = vrm;
         // Materials: written LAST, after vrmRegistry.set, so the reactive
         // store slice that MaterialSection subscribes to only fires once the
         // registry it reads is guaranteed populated (fixes empty-until-reload).
@@ -1350,6 +1392,7 @@ function AvatarNode({
       clearVrmMaterialsForNode(node.id);
       morphMapRef.current.clear();
       teardownForearmTwist(node.id);
+      if (outerRef.current) delete outerRef.current.userData.__vrm;
       vrmRegistry.delete(node.id);
     };
   }, [node.filePath]);

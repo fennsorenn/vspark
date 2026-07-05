@@ -38,6 +38,64 @@ export function humanoidBoneFor(
   return null;
 }
 
+const _pv = new THREE.Vector3();
+
+/** Posed world position of vertex `vi` of a skinned mesh — applies the live
+ *  skinning transform, so it matches the animated surface the ray actually hit. */
+function posedVertexWorld(
+  mesh: THREE.SkinnedMesh,
+  vi: number,
+  out: THREE.Vector3
+): THREE.Vector3 {
+  const pos = mesh.geometry.attributes.position as THREE.BufferAttribute;
+  out.fromBufferAttribute(pos, vi);
+  mesh.applyBoneTransform(vi, out);
+  return out.applyMatrix4(mesh.matrixWorld);
+}
+
+/**
+ * The skeleton bone that drives the surface a ray hit: of the hit triangle's
+ * three vertices, take the one closest to the exact (posed) hit point and return
+ * its highest-skin-weight bone. This is the geometry-accurate, animation-aware
+ * answer to "which bone steers the part it was dropped on" — it reads the real
+ * skin weights at the surface rather than approximating with per-bone boxes.
+ */
+export function dominantBoneForHit(
+  mesh: THREE.SkinnedMesh,
+  face: { a: number; b: number; c: number },
+  worldPoint: THREE.Vector3
+): THREE.Object3D | null {
+  const skinIndex = mesh.geometry.attributes.skinIndex as
+    | THREE.BufferAttribute
+    | undefined;
+  const skinWeight = mesh.geometry.attributes.skinWeight as
+    | THREE.BufferAttribute
+    | undefined;
+  if (!skinIndex || !skinWeight || !mesh.skeleton) return null;
+
+  let vi = face.a;
+  let bestD = Infinity;
+  for (const idx of [face.a, face.b, face.c]) {
+    const d = posedVertexWorld(mesh, idx, _pv).distanceToSquared(worldPoint);
+    if (d < bestD) {
+      bestD = d;
+      vi = idx;
+    }
+  }
+
+  let boneIdx = -1;
+  let bestW = 0;
+  for (let k = 0; k < 4; k++) {
+    const w = skinWeight.getComponent(vi, k);
+    if (w > bestW) {
+      bestW = w;
+      boneIdx = skinIndex.getComponent(vi, k);
+    }
+  }
+  if (boneIdx < 0) return null;
+  return mesh.skeleton.bones[boneIdx] ?? null;
+}
+
 export interface LocalTransform {
   x: number;
   y: number;

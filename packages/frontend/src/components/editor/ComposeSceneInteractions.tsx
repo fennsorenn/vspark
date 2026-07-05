@@ -3,13 +3,17 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import { getNodeGroup, listRegisteredNodeGroups } from './Viewport';
+import {
+  getNodeGroup,
+  getVrmForScene,
+  listRegisteredNodeGroups,
+} from './Viewport';
 import { sendNodeTransformPreview } from '../../hooks/useWsSync';
-import { vrmRegistry } from '../../vrmRegistry';
 import {
   humanoidBoneFor,
   worldToBoneLocalTransform,
   worldTransform,
+  dominantBoneForHit,
 } from './boneAttachPick';
 
 const PREVIEW_INTERVAL_MS = 33; // ~30 Hz cap on outgoing transform previews
@@ -159,7 +163,7 @@ export function ComposeSceneInteractions({
    *  scope's handlers in the per-layer interaction registry. */
   composeLayerId?: string;
 }) {
-  const { camera, gl } = useThree();
+  const { camera, gl, scene } = useThree();
   // Per-gesture throttle: only emit when at least PREVIEW_INTERVAL_MS has passed
   // since the last emission for this nodeId.
   const lastPreviewAtRef = useRef<{ nodeId: string; t: number } | null>(null);
@@ -291,12 +295,13 @@ export function ComposeSceneInteractions({
     // the scene's top level. Both preserve the node's world placement.
     const attachActive = store.composeAttachEnabled || ev.shiftKey;
     if (attachActive) {
-      const objWorld = d.group.getWorldPosition(new THREE.Vector3());
-      const proj = objWorld.project(camera);
-      ndc.set(proj.x, proj.y);
+      // Target by the cursor (where the user is pointing), not the object centre.
+      const rect = gl.domElement.getBoundingClientRect();
+      ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
       wheelRay.setFromCamera(ndc, camera);
       const bhit = pickBoneUnderRay(wheelRay.ray.clone(), d.nodeId);
-      const vrm = bhit ? vrmRegistry.get(bhit.nodeId) : null;
+      const vrm = bhit ? getVrmForScene(bhit.nodeId, scene) : null;
       const humanoid = vrm && bhit ? humanoidBoneFor(vrm, bhit.bone) : null;
       if (bhit && humanoid) {
         const patch = {
@@ -813,23 +818,26 @@ export function ComposeSceneInteractions({
     return hits[0] ?? null;
   };
 
-  /** Find the skeleton bone whose per-bone box the ray hits closest, across all
-   *  registered node groups except `excludeNodeId`. Reuses the same per-bone OBB
-   *  bins the picker builds, so "the bone that steers the part it was dropped on"
-   *  is exactly the highest-skin-weight bone under the drop. Returns the owning
-   *  node id + the skeleton bone, or null when the ray hits no model. */
+  /** Find the bone driving the mesh surface a ray hits, across every avatar in
+   *  this canvas except `excludeNodeId`. Uses a real skinning-aware triangle
+   *  raycast against the posed mesh (via `SkinnedMesh.prototype.raycast`, since
+   *  the instance `.raycast` is stubbed out for the fast AABB picker), then reads
+   *  the dominant skin weight at the closest vertex of the hit face. Geometry- and
+   *  animation-accurate, unlike the coarse per-bone boxes the node picker uses.
+   *  Returns the owning node id + the skeleton bone, or null when nothing was hit. */
+  const boneRaycaster = useMemo(() => new THREE.Raycaster(), []);
   const pickBoneUnderRay = (
     ray: THREE.Ray,
     excludeNodeId: string
   ): { nodeId: string; bone: THREE.Object3D } | null => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return null;
-    const prefilterHit = new THREE.Vector3();
-    // Collect into an array (rather than a mutable `best` closed over by the
-    // traverse callback) so TS control-flow narrowing stays sound.
-    const hits: { nodeId: string; bone: THREE.Object3D; dist: number }[] = [];
+    boneRaycaster.ray.copy(ray);
+    const hits: { nodeId: string; hit: THREE.Intersection }[] = [];
     for (const [nodeId, group] of listRegisteredNodeGroups()) {
       if (nodeId === excludeNodeId) continue;
+      // Only skinned avatars are attach targets, and only the copy in this canvas.
+      if (!getVrmForScene(nodeId, scene)) continue;
       let inside = false;
       let p: THREE.Object3D | null = group;
       while (p) {
@@ -842,37 +850,27 @@ export function ComposeSceneInteractions({
       if (!inside) continue;
 
       group.updateMatrixWorld(true);
-      // Prefilter (also lazily builds the per-bone boxes via userData cache).
-      if (!computeMeshAabb(group, aabb)) continue;
-      if (
-        !aabb.containsPoint(ray.origin) &&
-        !ray.intersectBox(aabb, prefilterHit)
-      )
-        continue;
-
-      group.traverseVisible((o) => {
+      group.traverse((o) => {
         const mesh = o as THREE.SkinnedMesh;
         if (
           (mesh as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh !== true
         )
           return;
-        const bb = (
-          mesh.userData as {
-            __composeBoneBoxes?: BoneBoxes | null;
-          }
-        ).__composeBoneBoxes;
-        if (!bb || !mesh.skeleton) return;
-        for (let i = 0; i < bb.boneIndices.length; i++) {
-          const bone = mesh.skeleton.bones[bb.boneIndices[i]];
-          if (!bone) continue;
-          const d = rayVsObb(ray, bone.matrixWorld, bb.localBoxes[i]);
-          if (d > 0) hits.push({ nodeId, bone, dist: d });
-        }
+        const local: THREE.Intersection[] = [];
+        THREE.SkinnedMesh.prototype.raycast.call(mesh, boneRaycaster, local);
+        for (const h of local) hits.push({ nodeId, hit: h });
       });
     }
     if (hits.length === 0) return null;
-    hits.sort((a, b) => a.dist - b.dist);
-    return { nodeId: hits[0].nodeId, bone: hits[0].bone };
+    hits.sort((a, b) => a.hit.distance - b.hit.distance);
+    const { nodeId, hit } = hits[0];
+    if (!hit.face) return null;
+    const bone = dominantBoneForHit(
+      hit.object as THREE.SkinnedMesh,
+      hit.face,
+      hit.point
+    );
+    return bone ? { nodeId, bone } : null;
   };
 
   const customRaycast = (
