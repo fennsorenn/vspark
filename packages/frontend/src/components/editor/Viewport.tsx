@@ -2772,13 +2772,22 @@ function AvatarNode({
       }
     } else if (
       vrm &&
-      poseMode !== 'additive' &&
       poseSourceIsActive(node.properties?.poseSource as PoseSource | undefined)
     ) {
       // Partial tracking with NO live tracking feed: there's no broadcast pose to
       // mix in, but the per-section ANIM influence (rest↔clip) still applies, so
       // the sliders visibly droop a section toward rest even before any VMC /
       // camera source is connected. Mirrors the anim half of the tracked branch.
+      //
+      // This runs only as the `else` of the live-broadcast branch above, i.e.
+      // when there's no active pose to composite (blend ramped to 0 / empty
+      // frame). It must NOT be gated on poseMode: when a VMC source is bound but
+      // not sending, the broadcast bus emits an *additive* fallback frame (empty
+      // bones) so tracking ramps back to animation — which sets poseMode to
+      // 'additive'. Gating on `poseMode !== 'additive'` there would skip this
+      // branch and leave the full animation playing with the sliders doing
+      // nothing. Genuine live additive tracking is handled by the branch above
+      // (this is its `else`), so dropping the guard can't double-apply.
       const poseSource = node.properties?.poseSource as PoseSource | undefined;
       const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
       const animQuats: Array<
