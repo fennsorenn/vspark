@@ -51,7 +51,7 @@ Self-referential FK with cascade: deleting a parent deletes all descendants.
 | `camera` | Camera; can have camera effects. Config `camera: { projection: 'perspective' \| 'orthographic', fov, near, far, orthoSize?, backgroundImage? }`. **New camera nodes default to orthographic** (`createKinds.ts`: `projection: 'orthographic'`, `orthoSize: 2`) — flat, no perspective distortion. Orthographic cameras render via `FittedOrthoCamera`, which fits to the **shorter** viewport axis (the longer axis grows by aspect) and guards degenerate 0-dimension canvases mid-resize (previously a resized `camera_view` compose layer could collapse the ortho frustum to a vertical line). |
 | `group` | Empty transform container |
 | `particle` | Particle emitter |
-| `billboard` | 2D sprite always facing screen |
+| `billboard` | 2D sprite. `facing: 'screen' \| 'world'` — **defaults to `'world'`** (world-aligned quad) across every creation path (`createKinds.ts` palette + `createBillboardFromImageAsset`, AssetManager add-as-billboard, PropertiesPanel fallback, `BILLBOARD_DEFAULTS` in `Viewport.tsx`); switch to `'screen'` to quaternion-lock to the camera. `composeSendTo3D.ts` deliberately keeps `'screen'` (it replicates a 2D screen overlay). |
 | `prop` | Static mesh (alias of model, different semantic) |
 | `godray_caster` | Invisible sun mesh for the GodRays post-processing effect |
 | `text_troika` | SDF text via `troika-three-text`. Config: `{ content, fontSize, color, anchorX, anchorY, maxWidth, billboard? }`. With `billboard: true` the rendered text quaternion-locks to the active camera. `renderNodeElement` returns `null` for this kind so it mounts flat at the top level (like billboards/particles); the per-scene mount happens via `SceneNodes` `flatTextTroika`. |
@@ -207,7 +207,15 @@ Filters nodes to the active scene and optional exclusions. Recursively renders t
 
 ### Bone attachment
 
-`BoneAttacher` is a component that runs each frame and imperatively parents a node's group into the matching VRM bone node. This means bone-attached nodes (e.g., a prop on the right hand) follow skeleton motion without being part of the VRM's own bone hierarchy.
+`BoneAttacher` is a component whose effect imperatively parents a node's group into the matching VRM bone node **without touching the group's local transform** — the node's own position/rotation/scale (applied declaratively) become bone-local, so it keeps its offset relative to the bone. This means bone-attached nodes (e.g., a prop on the right hand) follow skeleton motion without being part of the VRM's own bone hierarchy.
+
+### Attach-on-drop (stage attach mode)
+
+Props can be bound to an avatar bone directly in the 3D viewport by dropping them onto a model, without going through the SceneGraph tree. `TransformGizmo.onEnd` (`Viewport.tsx`) intercepts a **translate**-gizmo release when **`stageAttachEnabled`** is on **or Shift is held**: if the dropped object rests over a model it patches the node with `{ parentId: avatarNodeId, boneAttachment: boneName, components.transform: <bone-local> }` (via the store + `api.updateNode`), reusing the existing bone-attachment render path (`renderNodeElement`'s bone-followers + `BoneAttacher`). Avatars never attach to themselves.
+
+- **`stageAttachEnabled`** is a store flag (`setStageAttachEnabled`) persisted to `localStorage` key `vspark.stageAttach`, **default OFF** (deliberate mode). The viewport bottom-left toolbar carries an `AttachToggle` (Bone icon, class `vs-stage-attach-toggle`) next to the gizmo + audio toggles; i18n keys `viewport.attach.on/off`.
+- **Bone-picking math lives in [`components/editor/boneAttachPick.ts`](../../packages/frontend/src/components/editor/boneAttachPick.ts) — the extension point.** `pickBoneForDrop(camera, objectWorldPos, candidates, raycaster?)` raycasts from the camera through the dropped object's world position onto each candidate VRM's skinned meshes, takes the nearest vertex of the hit triangle, reads its highest-weight bone (`skinIndex`/`skinWeight`), and resolves that up the parent chain to the nearest VRM humanoid bone (so sleeve/twist bones map to their humanoid ancestor). Returns `null` when the drop lands over no model (normal free move). `worldToBoneLocalTransform(object, boneNode)` converts the object's world transform into the bone's local space so reparenting preserves world placement.
+- User-facing help: "Attach to a bone" `{#attach-bone}` section in `help/content/{en,de}/scene.md`. Unit tests: `packages/frontend/test/boneAttachPick.test.ts`.
 
 ## Transform update flow
 
