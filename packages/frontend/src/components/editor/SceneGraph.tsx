@@ -9,7 +9,7 @@ import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
-import { ContextMenu } from './ContextMenu';
+import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { HelpButton } from '../../help/HelpButton';
 import { useConnectionsStore } from '../../store/connectionsStore';
 import { isWritableRemoteNode as isWritableRemote } from '../../sync/remoteEdit';
@@ -73,6 +73,205 @@ function BehaviorIcon({ kind, size = 14 }: { kind?: string; size?: number }) {
     <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
       <Ico size={size} />
     </span>
+  );
+}
+
+/** One merged box holding a node's (or scene's) behaviors, camera effects,
+ *  clips and logic as a single continuous list with a shared empty state and a
+ *  single "+ Add" menu. The sub-sections render flat (rows only); this owns the
+ *  chrome so it reads as one section instead of four. */
+function MergedSections({
+  nodeId,
+  isCamera,
+  include,
+}: {
+  nodeId: string;
+  isCamera: boolean;
+  /** Which groups to include — scenes only have clips + logic. */
+  include: { behaviors: boolean; effects: boolean };
+}) {
+  const { t } = useTranslation('sceneGraph');
+  const behaviorsFor = useEditorStore((s) => s.behaviorsFor);
+  const cameraEffectsFor = useEditorStore((s) => s.cameraEffectsFor);
+  const trackClips = useEditorStore((s) => s.trackClips);
+  const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
+  const nodeKind = useEditorStore(
+    (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
+  );
+  const addBehavior = useEditorStore((s) => s.addBehavior);
+  const addCameraEffect = useEditorStore((s) => s.addCameraEffect);
+  const addTrackClip = useEditorStore((s) => s.addTrackClip);
+  const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
+  const setBottomTab = useEditorStore((s) => s.setBottomTab);
+
+  const [logicCount, setLogicCount] = useState(0);
+  const [logicAddSignal, setLogicAddSignal] = useState(0);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const behaviors = include.behaviors
+    ? behaviorsFor(nodeId).filter(
+        (c) => !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
+      )
+    : [];
+  const effects = include.effects && isCamera ? cameraEffectsFor(nodeId) : [];
+  const clips = trackClips.filter((c) => c.ownerNodeId === nodeId);
+  const total =
+    behaviors.length + effects.length + clips.length + logicCount;
+
+  const addBehaviorKind = async (ct: (typeof behaviorKinds)[number]) => {
+    const comp = {
+      id: newBehaviorId(),
+      nodeId,
+      kind: ct.kind,
+      enabled: true,
+      config: { ...ct.defaultConfig },
+    };
+    addBehavior(comp);
+    try {
+      await api.createBehavior(nodeId, comp);
+    } catch {
+      /* non-fatal */
+    }
+  };
+  const addEffectKind = async (ek: (typeof CAMERA_EFFECT_KINDS)[number]) => {
+    if (effects.some((e) => e.kind === ek.kind)) return;
+    const effect = {
+      id: newBehaviorId(),
+      nodeId,
+      kind: ek.kind,
+      enabled: true,
+      config: { ...ek.defaultConfig },
+    };
+    addCameraEffect(effect);
+    try {
+      await api.createCameraEffect(nodeId, effect);
+    } catch {
+      /* non-fatal */
+    }
+  };
+  const addClip = async () => {
+    try {
+      const clip = await api.createTrackClipForNode(nodeId, {
+        name: 'Clip',
+        duration: 2,
+      });
+      addTrackClip(clip);
+      selectTrackClip(clip.id);
+      setBottomTab('clips');
+    } catch {
+      /* non-fatal */
+    }
+  };
+
+  const buildAddItems = (): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [];
+    if (include.behaviors) {
+      const compatible = behaviorKinds.filter((ct) =>
+        behaviorCompatibleWith(ct.applicableTo, nodeKind)
+      );
+      if (compatible.length)
+        items.push({
+          kind: 'submenu',
+          label: t('sections.behaviors'),
+          items: compatible.map((ct) => ({
+            kind: 'item',
+            label: ct.label,
+            onClick: () => void addBehaviorKind(ct),
+          })),
+        });
+    }
+    if (include.effects && isCamera) {
+      const avail = CAMERA_EFFECT_KINDS.filter(
+        (ek) => !effects.some((e) => e.kind === ek.kind)
+      );
+      items.push({
+        kind: 'submenu',
+        label: t('sections.effects'),
+        items: avail.map((ek) => ({
+          kind: 'item',
+          label: ek.label,
+          onClick: () => void addEffectKind(ek),
+        })),
+      });
+    }
+    items.push(
+      {
+        kind: 'item',
+        label: t('sections.addClip'),
+        onClick: () => void addClip(),
+      },
+      {
+        kind: 'item',
+        label: t('sections.addLogic'),
+        onClick: () => setLogicAddSignal((n) => n + 1),
+      }
+    );
+    return items;
+  };
+
+  return (
+    <div
+      style={{
+        marginLeft: 28,
+        marginRight: 4,
+        marginBottom: 4,
+        background: '#111',
+        borderRadius: 4,
+        border: '1px solid #222',
+        overflow: 'hidden',
+      }}
+    >
+      {total === 0 && (
+        <div
+          style={{
+            padding: '5px 10px',
+            fontSize: 11,
+            color: '#444',
+            fontStyle: 'italic',
+          }}
+        >
+          {t('sections.empty')}
+        </div>
+      )}
+      {include.behaviors && <BehaviorsSection nodeId={nodeId} flat />}
+      {include.effects && isCamera && (
+        <CameraEffectsSection nodeId={nodeId} flat />
+      )}
+      <ClipsSection owner={{ kind: 'node', id: nodeId }} flat />
+      <LogicSection
+        owner={{ kind: 'node', id: nodeId }}
+        flat
+        addSignal={logicAddSignal}
+        onCount={setLogicCount}
+      />
+      <div style={{ padding: '4px 6px' }}>
+        <button
+          className="vs-merged-add"
+          onClick={(e) => setMenu({ x: e.clientX, y: e.clientY })}
+          style={{
+            background: 'none',
+            border: '1px dashed #2a2a2a',
+            borderRadius: 4,
+            color: '#888',
+            cursor: 'pointer',
+            fontSize: 11,
+            padding: '3px 8px',
+            width: '100%',
+            textAlign: 'left',
+          }}
+        >
+          {t('sections.add')}
+        </button>
+      </div>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={buildAddItems()}
+        />
+      )}
+    </div>
   );
 }
 
@@ -748,7 +947,13 @@ function SceneNodeContextMenu({
 }
 
 // ---------- Inline components section ----------
-function BehaviorsSection({ nodeId }: { nodeId: string }) {
+function BehaviorsSection({
+  nodeId,
+  flat = false,
+}: {
+  nodeId: string;
+  flat?: boolean;
+}) {
   const { t } = useTranslation('sceneGraph');
   /** Open context menu state. Null when no menu is currently up. */
   const [ctxMenu, setCtxMenu] = useState<{
@@ -857,17 +1062,21 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
 
   return (
     <div
-      style={{
-        marginLeft: 28,
-        marginRight: 4,
-        marginBottom: 4,
-        background: '#111',
-        borderRadius: 4,
-        border: '1px solid #222',
-        overflow: 'hidden',
-      }}
+      style={
+        flat
+          ? { overflow: 'hidden' }
+          : {
+              marginLeft: 28,
+              marginRight: 4,
+              marginBottom: 4,
+              background: '#111',
+              borderRadius: 4,
+              border: '1px solid #222',
+              overflow: 'hidden',
+            }
+      }
     >
-      {components.length === 0 && (
+      {!flat && components.length === 0 && (
         <div
           style={{
             padding: '4px 10px',
@@ -976,6 +1185,7 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
       })}
 
       {/* Add / paste component buttons */}
+      {!flat && (
       <div
         style={{
           position: 'relative',
@@ -1102,6 +1312,7 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
           </div>
         )}
       </div>
+      )}
       {ctxMenu && (
         <ContextMenu
           x={ctxMenu.x}
@@ -1135,7 +1346,13 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
 }
 
 // ---------- Inline camera effects section ----------
-function CameraEffectsSection({ nodeId }: { nodeId: string }) {
+function CameraEffectsSection({
+  nodeId,
+  flat = false,
+}: {
+  nodeId: string;
+  flat?: boolean;
+}) {
   const { t } = useTranslation('sceneGraph');
   const cameraEffectsFor = useEditorStore((s) => s.cameraEffectsFor);
   const addCameraEffect = useEditorStore((s) => s.addCameraEffect);
@@ -1251,30 +1468,36 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
 
   return (
     <div
-      style={{
-        marginLeft: 28,
-        marginRight: 4,
-        marginBottom: 4,
-        background: '#0e0e18',
-        borderRadius: 4,
-        border: '1px solid #1e1e2e',
-        overflow: 'hidden',
-      }}
+      style={
+        flat
+          ? { overflow: 'hidden' }
+          : {
+              marginLeft: 28,
+              marginRight: 4,
+              marginBottom: 4,
+              background: '#0e0e18',
+              borderRadius: 4,
+              border: '1px solid #1e1e2e',
+              overflow: 'hidden',
+            }
+      }
     >
-      <div
-        style={{
-          padding: '3px 8px',
-          fontSize: 10,
-          color: '#556',
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: 0.5,
-          borderBottom: '1px solid #1a1a2a',
-        }}
-      >
-        {t('effects.header')}
-      </div>
-      {effects.length === 0 && (
+      {!flat && (
+        <div
+          style={{
+            padding: '3px 8px',
+            fontSize: 10,
+            color: '#556',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            borderBottom: '1px solid #1a1a2a',
+          }}
+        >
+          {t('effects.header')}
+        </div>
+      )}
+      {!flat && effects.length === 0 && (
         <div
           style={{
             padding: '4px 10px',
@@ -1355,6 +1578,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
           </div>
         );
       })}
+      {!flat && (
       <div
         style={{
           position: 'relative',
@@ -1470,6 +1694,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
           </div>
         )}
       </div>
+      )}
       {ctxMenu && (
         <ContextMenu
           x={ctxMenu.x}
@@ -2831,15 +3056,15 @@ export function SceneGraph() {
           </div>
         </div>
 
-        {/* Inline components section */}
+        {/* Inline attachments: behaviors, camera effects, clips and logic
+            merged into one section with a shared + Add menu. */}
         {showBehaviors && (
           <div style={{ paddingLeft: 8 + depth * 16 }}>
-            <BehaviorsSection nodeId={node.id} />
-            {node.kind === 'camera' && (
-              <CameraEffectsSection nodeId={node.id} />
-            )}
-            <ClipsSection owner={{ kind: 'node', id: node.id }} />
-            <LogicSection owner={{ kind: 'node', id: node.id }} />
+            <MergedSections
+              nodeId={node.id}
+              isCamera={node.kind === 'camera'}
+              include={{ behaviors: true, effects: true }}
+            />
           </div>
         )}
 
@@ -3151,12 +3376,14 @@ export function SceneGraph() {
           </button>
         </div>
 
-        {/* Scene-level clips + graphs (owned by the scene node itself) */}
+        {/* Scene-level clips + graphs (owned by the scene node itself), merged
+            into one section to match a node's. */}
         {isSelected && (
-          <>
-            <ClipsSection owner={{ kind: 'node', id: scene.id }} />
-            <LogicSection owner={{ kind: 'node', id: scene.id }} />
-          </>
+          <MergedSections
+            nodeId={scene.id}
+            isCamera={false}
+            include={{ behaviors: false, effects: false }}
+          />
         )}
 
         {/* Scene's root nodes */}

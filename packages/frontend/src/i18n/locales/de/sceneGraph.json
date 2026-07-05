@@ -4,6 +4,14 @@
     "compose": "Komposition",
     "logic": "Logik"
   },
+  "sections": {
+    "behaviors": "Verhalten",
+    "effects": "Effekte",
+    "add": "+ Hinzufügen…",
+    "addClip": "Neuer Clip",
+    "addLogic": "Neuer Logikgraph",
+    "empty": "Noch nichts hinzugefügt"
+  },
   "collab": {
     "badgeSharing": "Du teilst diese Szene",
     "badgeConnected": "Geteilte Szene – Peer verbunden",
