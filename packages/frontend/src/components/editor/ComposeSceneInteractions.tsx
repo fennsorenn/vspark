@@ -62,20 +62,53 @@ const _rotAxis = new THREE.Vector3();
 const _camRight = new THREE.Vector3();
 const _camUp = new THREE.Vector3();
 
-/** Rotate `obj` in place around a world-space `axis` by `angle` (radians),
- *  writing back the local quaternion that yields that world rotation regardless
- *  of any parent transform. */
+const _pivotPos = new THREE.Vector3();
+
+/** Rotate `obj` around a world-space `axis` by `angle` (radians) about the world
+ *  point `pivot` (or the object's own origin when `pivot` is omitted). Updates
+ *  both orientation and — when a pivot is given — position, so the object orbits
+ *  the pivot. Writes back a local transform that yields the intended world result
+ *  regardless of any parent transform. */
 function rotateAroundWorldAxis(
   obj: THREE.Object3D,
   axis: THREE.Vector3,
-  angle: number
+  angle: number,
+  pivot?: THREE.Vector3
 ): void {
   if (angle === 0) return;
+  // Refresh matrixWorld from local first so chained rotations (yaw then pitch in
+  // one move, or several moves per frame) read the accumulated transform rather
+  // than a stale one from the last render.
+  obj.updateWorldMatrix(true, false);
   _qDelta.setFromAxisAngle(axis, angle);
   obj.getWorldQuaternion(_qWorld).premultiply(_qDelta);
   if (obj.parent) obj.parent.getWorldQuaternion(_qParent).invert();
   else _qParent.identity();
   obj.quaternion.copy(_qParent.multiply(_qWorld));
+  if (pivot) {
+    obj.getWorldPosition(_pivotPos).sub(pivot).applyQuaternion(_qDelta).add(pivot);
+    obj.position.copy(
+      obj.parent ? obj.parent.worldToLocal(_pivotPos) : _pivotPos
+    );
+  }
+}
+
+/** Traverse `root`'s visible subtree without descending into any object listed
+ *  in `skip` — used so a node's mesh scan stops at nested registered groups
+ *  (e.g. a prop attached to this avatar's bone), keeping picks attributed to the
+ *  most specific node rather than its container. */
+function traverseOwnVisible(
+  root: THREE.Object3D,
+  skip: Set<THREE.Object3D>,
+  cb: (o: THREE.Object3D) => void
+): void {
+  if (root.visible === false) return;
+  cb(root);
+  const kids = root.children;
+  for (let i = 0; i < kids.length; i++) {
+    if (skip.has(kids[i])) continue;
+    traverseOwnVisible(kids[i], skip, cb);
+  }
 }
 
 /** Per-camera_view interaction registry. Each mounted ComposeSceneInteractions
@@ -256,6 +289,9 @@ export function ComposeSceneInteractions({
     startWorld: THREE.Vector3;
     startLocal: THREE.Vector3;
     grabOffset: THREE.Vector3;
+    /** World point under the cursor at drag start — Ctrl-drag rotation orbits
+     *  the object around this pivot rather than its own origin. */
+    pivot: THREE.Vector3;
     /** Last pointer position — Ctrl-drag rotation integrates screen deltas. */
     lastX: number;
     lastY: number;
@@ -293,6 +329,7 @@ export function ComposeSceneInteractions({
       startWorld: objWorld.clone(),
       startLocal: group.position.clone(),
       grabOffset,
+      pivot: hit.clone(),
       lastX: clientX,
       lastY: clientY,
       rotated: false,
@@ -319,8 +356,8 @@ export function ComposeSceneInteractions({
       const e = camera.matrixWorld.elements;
       _camRight.set(e[0], e[1], e[2]).normalize();
       _camUp.set(e[4], e[5], e[6]).normalize();
-      rotateAroundWorldAxis(d.group, _camUp, dx * DRAG_ROTATE_SENS);
-      rotateAroundWorldAxis(d.group, _camRight, dy * DRAG_ROTATE_SENS);
+      rotateAroundWorldAxis(d.group, _camUp, dx * DRAG_ROTATE_SENS, d.pivot);
+      rotateAroundWorldAxis(d.group, _camRight, dy * DRAG_ROTATE_SENS, d.pivot);
       emitPreview(d.nodeId, d.group);
       syncToStore(d.nodeId, d.group);
       return;
@@ -788,9 +825,13 @@ export function ComposeSceneInteractions({
    *  transformed-to-world AABBs of each per-bone box (skinned meshes) and each
    *  static mesh's local AABB. Used only as a cheap prefilter; precise picking
    *  iterates each underlying OBB via {@link pickPreciseHit}. */
-  const computeMeshAabb = (root: THREE.Object3D, out: THREE.Box3): boolean => {
+  const computeMeshAabb = (
+    root: THREE.Object3D,
+    out: THREE.Box3,
+    skip: Set<THREE.Object3D>
+  ): boolean => {
     out.makeEmpty();
-    root.traverseVisible((o) => {
+    traverseOwnVisible(root, skip, (o) => {
       const mesh = o as THREE.Mesh;
       const isSkinned =
         (mesh as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh === true;
@@ -870,10 +911,11 @@ export function ComposeSceneInteractions({
    *  OBB (skinned) or static-mesh OBB. Returns world-space distance or -1. */
   const pickPreciseHit = (
     root: THREE.Object3D,
-    worldRay: THREE.Ray
+    worldRay: THREE.Ray,
+    skip: Set<THREE.Object3D>
   ): number => {
     let best = -1;
-    root.traverseVisible((o) => {
+    traverseOwnVisible(root, skip, (o) => {
       const mesh = o as THREE.Mesh;
       const isSkinned =
         (mesh as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh === true;
@@ -921,6 +963,11 @@ export function ComposeSceneInteractions({
       distance: number;
       point: THREE.Vector3;
     }[] = [];
+    // Every registered group is a boundary: a node's mesh scan must not descend
+    // into another node nested inside it (e.g. a prop attached to a bone), or the
+    // container (the avatar) would swallow the attached prop's click.
+    const registered = new Set<THREE.Object3D>();
+    for (const [, g] of listRegisteredNodeGroups()) registered.add(g);
     for (const [nodeId, group] of listRegisteredNodeGroups()) {
       // Only consider groups inside our wrapper subtree (skip the Scene-tab's
       // copy of the registered groups, which lives in another Canvas).
@@ -937,12 +984,12 @@ export function ComposeSceneInteractions({
 
       // Prefilter: ray-vs-union AABB.
       group.updateMatrixWorld(true);
-      if (!computeMeshAabb(group, aabb)) continue;
+      if (!computeMeshAabb(group, aabb, registered)) continue;
       if (aabb.containsPoint(ray.origin)) continue;
       if (!ray.intersectBox(aabb, new THREE.Vector3())) continue;
 
       // Precise: ray-vs-per-bone-OBB / static-mesh-OBB.
-      const distance = pickPreciseHit(group, ray);
+      const distance = pickPreciseHit(group, ray, registered);
       if (distance < 0) continue;
       const point = ray.origin
         .clone()
