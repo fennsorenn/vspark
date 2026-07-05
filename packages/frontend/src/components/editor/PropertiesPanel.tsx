@@ -5615,7 +5615,7 @@ export function PropertiesPanel() {
         {node.kind === 'billboard' &&
           (() => {
             const bc: Record<string, unknown> = {
-              facing: 'screen',
+              facing: 'world',
               backface: 'none',
               width: 1,
               height: 1,

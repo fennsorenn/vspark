@@ -38,6 +38,18 @@ logic.
 Right-click a **scene** row to add a node, or paste a copied node or logic graph,
 at the scene's top level.
 
+### Attach to a bone {#attach-bone}
+
+You can also bind a prop to a specific bone of an avatar directly in the 3D
+viewport. Turn on **Attach mode** with the bone button in the viewport's
+bottom-left toolbar (or simply hold **Shift** while dragging), then move an
+object with the Translate gizmo and release it over a model. The object binds to
+the bone driving the surface it was dropped on — drop it on the hand and it
+follows the hand, drop it on the head and it follows the head. Its world position
+and rotation are preserved, and from then on its Transform is measured relative
+to that bone's space. This is the quickest way to put a sword in a hand or a hat
+on a head without hunting through the tree.
+
 ## Cameras {#cameras}
 
 The camera decides what your viewers see. You can position it, point it at your

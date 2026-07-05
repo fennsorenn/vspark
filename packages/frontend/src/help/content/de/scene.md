@@ -42,6 +42,19 @@ Behaviors und seine Logik.
 Rechtsklicke eine **Szenen**-Zeile, um auf der obersten Ebene der Szene einen
 Knoten hinzuzufügen oder einen kopierten Knoten bzw. Logikgraphen einzufügen.
 
+### An einen Knochen anheften {#attach-bone}
+
+Du kannst eine Requisite auch direkt im 3D-Ansichtsfenster an einen bestimmten
+Knochen eines Avatars binden. Aktiviere den **Anheften-Modus** über die
+Knochen-Schaltfläche in der Werkzeugleiste unten links (oder halte einfach die
+**Umschalttaste** beim Ziehen), bewege dann ein Objekt mit dem Verschieben-Gizmo
+und lasse es über einem Modell los. Das Objekt bindet sich an den Knochen, der die
+Oberfläche steuert, auf der es abgelegt wurde – lege es auf die Hand, folgt es der
+Hand; lege es auf den Kopf, folgt es dem Kopf. Seine Weltposition und -drehung
+bleiben erhalten, und ab diesem Punkt wird seine Transformation relativ zum Raum
+dieses Knochens gemessen. So bekommst du am schnellsten ein Schwert in die Hand
+oder einen Hut auf den Kopf, ohne den Baum zu durchsuchen.
+
 ## Kameras {#cameras}
 
 Die Kamera bestimmt, was deine Zuschauer sehen. Du kannst sie positionieren, auf

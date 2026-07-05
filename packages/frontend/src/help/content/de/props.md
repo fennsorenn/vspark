@@ -10,8 +10,8 @@ Eine Bildebene zeigt ein Standbild als flaches Rechteck in der 3D-Welt an. Lade 
 
 **Ausrichtung** — wie die Ebene relativ zur Kamera orientiert ist:
 
+- `Welt` (Standard) — die Ebene hat eine feste Ausrichtung im 3D-Raum. Drehe sie über die Transform-Steuerelemente. Gut für Bilderrahmen, Schilder oder Flächen, die in einem bestimmten Winkel verbleiben sollen.
 - `Bildschirm` — die Ebene dreht sich immer zur Kamera hin, wie ein Sprite. Das Bild ist unabhängig von der Kameraposition immer lesbar. Gut für Logos, Icons und flache Dekorationen.
-- `Welt` — die Ebene hat eine feste Ausrichtung im 3D-Raum. Drehe sie über die Transform-Steuerelemente. Gut für Bilderrahmen, Schilder oder Flächen, die in einem bestimmten Winkel verbleiben sollen.
 
 **Rückseite** — was auf der Rückseite der Ebene (der von der Front abgewandten Seite) angezeigt wird:
 

@@ -8,6 +8,10 @@
     "audio": {
       "on": "Audio preview on (click to mute editor)",
       "off": "Audio muted in editor (click to preview)"
+    },
+    "attach": {
+      "on": "Attach mode on — drop an object on a model to bind it to the nearest bone (click to turn off)",
+      "off": "Attach mode off — enable to bind dropped objects to a model's bones, or hold Shift while dragging"
     }
   },
   "numericInputs": {

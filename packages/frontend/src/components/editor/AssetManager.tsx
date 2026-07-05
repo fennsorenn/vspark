@@ -242,7 +242,7 @@ export function AssetManager() {
             sz: 1,
           },
           billboard: {
-            facing: 'screen',
+            facing: 'world',
             backface: 'none',
             width: 1,
             height: 1,

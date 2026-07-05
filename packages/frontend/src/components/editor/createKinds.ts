@@ -193,7 +193,7 @@ export async function createSceneNode(
   } else if (def.kind === 'billboard') {
     components.billboard = {
       type: 'billboard',
-      facing: 'screen',
+      facing: 'world',
       backface: 'none',
       width: 1,
       height: 1,
@@ -338,7 +338,7 @@ export async function createBillboardFromImageAsset(
     components: {
       ...DEFAULT_COMPONENTS,
       billboard: {
-        facing: 'screen',
+        facing: 'world',
         backface: 'none',
         width: 1,
         height: 1,

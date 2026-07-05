@@ -8,6 +8,10 @@
     "audio": {
       "on": "Audiovorschau aktiv (klicken zum Stummschalten)",
       "off": "Audio im Editor stummgeschaltet (klicken zur Vorschau)"
+    },
+    "attach": {
+      "on": "Anheften-Modus aktiv – ein Objekt auf ein Modell ziehen, um es an den nächsten Knochen zu binden (klicken zum Deaktivieren)",
+      "off": "Anheften-Modus aus – aktivieren, um abgelegte Objekte an die Knochen eines Modells zu binden, oder beim Ziehen die Umschalttaste halten"
     }
   },
   "numericInputs": {

@@ -13,6 +13,7 @@ import {
   Scaling,
   Volume2,
   VolumeX,
+  Bone,
   type LucideIcon,
 } from 'lucide-react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -109,6 +110,11 @@ import type {
 } from '@vspark/shared';
 import { registerMedia } from './mediaRegistry';
 import { stackBoneRotation } from './poseComposition';
+import {
+  pickBoneForDrop,
+  worldToBoneLocalTransform,
+  type AttachCandidate,
+} from './boneAttachPick';
 import {
   makeVideoMaterial,
   updateVideoMaterial,
@@ -3359,7 +3365,7 @@ interface BillboardConfig {
 }
 
 const BILLBOARD_DEFAULTS: BillboardConfig = {
-  facing: 'screen',
+  facing: 'world',
   backface: 'none',
   width: 1,
   height: 1,
@@ -5059,10 +5065,26 @@ function TransformGizmo({
   orbitRef: React.RefObject<any>;
 }) {
   const { selectedNodeId, updateNode: storeUpdateNode } = useEditorStore();
+  const { camera } = useThree();
   const group = selectedNodeId ? getNodeGroup(selectedNodeId) : null;
   // Throttle outgoing live previews to ~30 Hz; the gizmo fires onObjectChange
   // on every animation frame while dragging, which would otherwise spam the WS.
   const lastPreviewAtRef = useRef(0);
+  // Live Shift state — holding Shift during a translate drag attaches on drop
+  // even when the persistent attach toggle is off.
+  const shiftRef = useRef(false);
+  const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
+  useEffect(() => {
+    const track = (e: KeyboardEvent) => {
+      shiftRef.current = e.shiftKey;
+    };
+    window.addEventListener('keydown', track);
+    window.addEventListener('keyup', track);
+    return () => {
+      window.removeEventListener('keydown', track);
+      window.removeEventListener('keyup', track);
+    };
+  }, []);
   if (!group) return null;
 
   const buildTransform = () => {
@@ -5096,6 +5118,47 @@ function TransformGizmo({
       .getState()
       .nodes.find((n) => n.id === selectedNodeId);
     if (!node) return;
+
+    // Attach-on-drop: when the attach mode is on (or Shift held) and a translate
+    // drag comes to rest over a model, parent the node under the bone driving the
+    // surface under it, converting its world transform to bone-local so it keeps
+    // its world placement.
+    const attachActive =
+      mode === 'translate' &&
+      (useEditorStore.getState().stageAttachEnabled || shiftRef.current);
+    if (attachActive) {
+      const candidates: AttachCandidate[] = [];
+      for (const [id, vrm] of vrmRegistry) {
+        if (id === node.id) continue; // don't attach an avatar to itself
+        candidates.push({ nodeId: id, vrm });
+      }
+      if (candidates.length > 0) {
+        group.updateWorldMatrix(true, false);
+        const worldPos = group.getWorldPosition(new THREE.Vector3());
+        const pick = pickBoneForDrop(
+          camera,
+          worldPos,
+          candidates,
+          raycasterRef.current
+        );
+        if (pick) {
+          const local = worldToBoneLocalTransform(group, pick.boneNode);
+          const components = {
+            ...node.components,
+            transform: { type: 'transform', ...local },
+          };
+          const patch = {
+            parentId: pick.avatarNodeId,
+            boneAttachment: pick.boneName,
+            components,
+          };
+          storeUpdateNode(node.id, patch);
+          api.updateNode(node.id, patch).catch(() => {});
+          return;
+        }
+      }
+    }
+
     const transform = buildTransform();
     const components = {
       ...node.components,
@@ -5753,8 +5816,45 @@ export function Viewport() {
         <CameraEffects />
       </Canvas>
       <GizmoToolbar mode={gizmoMode} setMode={setGizmoMode} />
+      <AttachToggle />
       <AudioPreviewToggle />
     </div>
+  );
+}
+
+/** Stage viewport toggle for "attach mode": while on, dropping an object over a
+ *  model parents it to the bone under the drop (see TransformGizmo.onEnd).
+ *  Mirrors the compose Snap toggle; Shift during a drag is the one-shot form. */
+function AttachToggle() {
+  const { t } = useTranslation('misc');
+  const on = useEditorStore((s) => s.stageAttachEnabled);
+  const setOn = useEditorStore((s) => s.setStageAttachEnabled);
+  return (
+    <button
+      className="vs-stage-attach-toggle"
+      title={on ? t('viewport.attach.on') : t('viewport.attach.off')}
+      onClick={() => setOn(!on)}
+      style={{
+        position: 'absolute',
+        bottom: 16,
+        left: 158,
+        width: 30,
+        height: 30,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 15,
+        cursor: 'pointer',
+        background: on ? '#1e2e4a' : '#0e0e18',
+        border: `1px solid ${on ? '#3a5a9a' : '#2a2a3a'}`,
+        borderRadius: 6,
+        color: on ? '#7ab' : '#555',
+        lineHeight: 1,
+        zIndex: 10,
+      }}
+    >
+      <Bone size={15} />
+    </button>
   );
 }
 
