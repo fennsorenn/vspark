@@ -15,7 +15,18 @@
   kinds with consumers in `Viewport.tsx` (scene nodes) and `ComposeLayerStack.tsx`
   (compose layers), override-wins over the persisted flag. Unit + paramPath tests
   added; full monorepo lint + tests green. Registry is now 89 node kinds.
-- **Stages 2–4 (Action Registry, projection, Macros panel, i18n/e2e): pending.**
+- **Stage 2 — Action Registry + projection (pure modules): DONE.** In
+  `packages/frontend/src/components/editor/macros/`: `types.ts` (MacroActionDef /
+  MacroRow / field descriptors), `actionRegistry.ts` (v1 actions `play_clip` /
+  `set_expression` / `set_property` / `control_media`, each a single-node
+  `match`/`build` inverse pair; lossless rule = the only wiring into an action
+  node is the trigger edge), `projection.ts` (descriptor(s) → MacroRow[]; every
+  `system_hotkey` → one row, classified single / cycle / empty / opaque,
+  conservative), and `build.ts` (assemble hotkey→action and hotkey→cycle→states
+  subgraphs). 14 tests: per-action `match(build(v)) === v`, build→project
+  round-trips (single + cycle), and the conservative cases (empty, fan-out,
+  wired-port, unknown-kind → opaque). No UI yet.
+- **Stages 3–4 (Macros panel + shortcut recorder/keymap, i18n/help, e2e): pending.**
 
 ## Goal
 
