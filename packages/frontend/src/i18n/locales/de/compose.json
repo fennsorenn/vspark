@@ -47,7 +47,9 @@
     "layerCount_one": "{{count}} Ebene",
     "layerCount_other": "{{count}} Ebenen",
     "uploading": "Wird hochgeladen…",
-    "resolutionHint": "Feste Compose-Auflösung (px). Die Bühne wird eingepasst."
+    "resolutionHint": "Feste Compose-Auflösung (px). Die Bühne wird eingepasst.",
+    "snapOn": "Einrasten aktiv — Ebenen rasten an den Kanten und der Mitte des übergeordneten Elements ein. Zum Deaktivieren klicken (oder beim Ziehen Alt halten).",
+    "snapOff": "Einrasten aus. Zum Aktivieren klicken."
   },
   "sceneProps": {
     "resolution": "Auflösung",

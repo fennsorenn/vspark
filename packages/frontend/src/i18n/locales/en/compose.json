@@ -47,7 +47,9 @@
     "layerCount_one": "{{count}} layer",
     "layerCount_other": "{{count}} layers",
     "uploading": "Uploading…",
-    "resolutionHint": "Fixed compose resolution (px). The stage scales to fit."
+    "resolutionHint": "Fixed compose resolution (px). The stage scales to fit.",
+    "snapOn": "Snapping on — layers snap to the parent's edges & centre. Click to disable (or hold Alt while dragging).",
+    "snapOff": "Snapping off. Click to enable."
   },
   "sceneProps": {
     "resolution": "Resolution",

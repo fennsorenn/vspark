@@ -4,7 +4,10 @@
  * the parent box's edges + centre within a threshold.
  */
 import { describe, it, expect } from 'vitest';
-import { snapLayerMove } from '../src/components/editor/composeLayerInteractions';
+import {
+  snapLayerMove,
+  snapResizeBox,
+} from '../src/components/editor/composeLayerInteractions';
 
 // Parent box (e.g. the 1920×1080 viewport for a top-level layer).
 const FW = 1920;
@@ -76,5 +79,77 @@ describe('snapLayerMove', () => {
   it('no-ops with a degenerate parent frame', () => {
     const r = snapLayerMove(10, 10, layer, 0, 0, THRESH);
     expect(r).toEqual({ x: 10, y: 10, vx: [], hy: [] });
+  });
+});
+
+describe('snapResizeBox', () => {
+  const box = { left: 200, right: 704, top: 100, bottom: 400 };
+
+  it('snaps the east (right) edge to the parent right border', () => {
+    const r = snapResizeBox(
+      { ...box, right: 1914 }, // 6px shy of 1920
+      { e: true, w: false, n: false, s: false },
+      FW,
+      FH,
+      THRESH
+    );
+    expect(r.right).toBe(FW);
+    expect(r.left).toBe(box.left); // pinned edge untouched
+    expect(r.vx).toEqual([FW]);
+    expect(r.hy).toEqual([]);
+  });
+
+  it('snaps the west (left) edge to the parent centre', () => {
+    // right must sit past the centre or the snap would invert the box.
+    const r = snapResizeBox(
+      { left: 964, right: 1400, top: 100, bottom: 400 }, // left near 960
+      { e: false, w: true, n: false, s: false },
+      FW,
+      FH,
+      THRESH
+    );
+    expect(r.left).toBe(FW / 2);
+    expect(r.right).toBe(1400); // pinned
+    expect(r.vx).toEqual([FW / 2]);
+  });
+
+  it('snaps both edges for a corner grab (se → right + bottom)', () => {
+    const r = snapResizeBox(
+      { left: 200, right: 1916, top: 100, bottom: 1074 },
+      { e: true, w: false, n: false, s: true },
+      FW,
+      FH,
+      THRESH
+    );
+    expect(r.right).toBe(FW);
+    expect(r.bottom).toBe(FH);
+    expect(r.vx).toEqual([FW]);
+    expect(r.hy).toEqual([FH]);
+  });
+
+  it('never inverts the box (ignores a snap that would cross the pinned edge)', () => {
+    // Right edge is only 3px from the left edge; a centre target far away won't
+    // apply, and no target within 3px lies past the left edge here.
+    const r = snapResizeBox(
+      { left: 900, right: 903, top: 100, bottom: 400 },
+      { e: true, w: false, n: false, s: false },
+      FW,
+      FH,
+      2
+    );
+    expect(r.right).toBe(903); // unchanged
+    expect(r.vx).toEqual([]);
+  });
+
+  it('does not snap edges that are not moving', () => {
+    const r = snapResizeBox(
+      { ...box, left: 4 }, // left near 0, but only the EAST edge is moving
+      { e: true, w: false, n: false, s: false },
+      FW,
+      FH,
+      THRESH
+    );
+    expect(r.left).toBe(4); // not snapped — west isn't the grabbed edge
+    expect(r.vx).toEqual([]);
   });
 });

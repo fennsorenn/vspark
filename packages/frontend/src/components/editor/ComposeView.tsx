@@ -25,6 +25,7 @@ import {
 } from './composeHitTest';
 import { api } from '../../api/client';
 import { uniqueName } from './createKinds';
+import { Magnet } from 'lucide-react';
 
 /** Fallback canonical compose resolution when a scene has none set. */
 export const DEFAULT_COMPOSE_WIDTH = 1920;
@@ -39,8 +40,7 @@ const LETTERBOX_BG =
  *  it unambiguous that the actual (viewer/OBS) output is transparent there. */
 const CHECKER_STYLE: CSSProperties = {
   backgroundColor: '#141414',
-  backgroundImage:
-    'repeating-conic-gradient(#232323 0% 25%, #141414 0% 50%)',
+  backgroundImage: 'repeating-conic-gradient(#232323 0% 25%, #141414 0% 50%)',
   backgroundSize: '24px 24px',
 };
 
@@ -72,12 +72,18 @@ export function previewBgStyle(
 }
 
 /** Resolve a compose scene's canonical resolution, falling back to the default. */
-export function composeSceneResolution(scene: {
-  width?: number;
-  height?: number;
-} | null | undefined): { width: number; height: number } {
+export function composeSceneResolution(
+  scene:
+    | {
+        width?: number;
+        height?: number;
+      }
+    | null
+    | undefined
+): { width: number; height: number } {
   return {
-    width: scene?.width && scene.width > 0 ? scene.width : DEFAULT_COMPOSE_WIDTH,
+    width:
+      scene?.width && scene.width > 0 ? scene.width : DEFAULT_COMPOSE_WIDTH,
     height:
       scene?.height && scene.height > 0 ? scene.height : DEFAULT_COMPOSE_HEIGHT,
   };
@@ -155,6 +161,8 @@ export function ComposeView() {
     (s) => s.updateComposeLayerLocal
   );
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
+  const snapEnabled = useEditorStore((s) => s.composeSnapEnabled);
+  const setSnapEnabled = useEditorStore((s) => s.setComposeSnapEnabled);
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
   );
@@ -231,7 +239,9 @@ export function ComposeView() {
   // layer, so there's no separate camera filter anymore.
   const stackLayers = useMemo(
     () =>
-      composeLayers.filter((l) => l.rootComposeSceneId === activeComposeSceneId),
+      composeLayers.filter(
+        (l) => l.rootComposeSceneId === activeComposeSceneId
+      ),
     [composeLayers, activeComposeSceneId]
   );
 
@@ -387,6 +397,24 @@ export function ComposeView() {
           {composeScene.name}
         </span>
         <div style={{ flex: 1 }} />
+        <button
+          className="vs-compose-snap-toggle"
+          onClick={() => setSnapEnabled(!snapEnabled)}
+          title={snapEnabled ? t('view.snapOn') : t('view.snapOff')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: snapEnabled ? '#4a9eff' : '#555',
+            fontSize: 11,
+            padding: '2px 4px',
+          }}
+        >
+          <Magnet size={13} />
+        </button>
         <span
           style={{ fontSize: 11, color: '#555' }}
           title={t('view.resolutionHint')}

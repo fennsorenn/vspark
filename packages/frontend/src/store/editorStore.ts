@@ -138,6 +138,7 @@ const LS = {
   leftTab: 'vspark.leftTab',
   bottomTab: 'vspark.bottomTab',
   bottomDockHeight: 'vspark.bottomDockHeight',
+  composeSnap: 'vspark.composeSnap',
 };
 function lsGet(key: string): string | null {
   try {
@@ -177,6 +178,9 @@ function initialBottomTab(): BottomDockTab {
 function initialBottomDockHeight(): number {
   const n = Number(lsGet(LS.bottomDockHeight));
   return Number.isFinite(n) && n >= 120 && n <= 800 ? n : 200;
+}
+function initialComposeSnap(): boolean {
+  return lsGet(LS.composeSnap) !== '0'; // default on
 }
 
 /** Per-node free-form properties (mirror of backend `scene_nodes.properties`). */
@@ -523,6 +527,9 @@ interface EditorState {
    *  viewport. Off by default so authoring isn't noisy; the viewer/output page
    *  always plays audio regardless. Session-only, not persisted. */
   editorAudioPreviewEnabled: boolean;
+  /** Compose editor: snap layers to their parent's edges/centre while dragging
+   *  or resizing. Persisted to localStorage. */
+  composeSnapEnabled: boolean;
   selectedComposeLayerId: string | null;
 
   // Track clips
@@ -639,6 +646,7 @@ interface EditorState {
   requestFocusName: () => void;
   setBottomDockHeight: (h: number) => void;
   setEditorAudioPreviewEnabled: (on: boolean) => void;
+  setComposeSnapEnabled: (on: boolean) => void;
   setClipboard: (
     payload: import('../clipboard').ClipboardPayload | null
   ) => void;
@@ -782,6 +790,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   focusNameNonce: 0,
   bottomDockHeight: initialBottomDockHeight(),
   editorAudioPreviewEnabled: false,
+  composeSnapEnabled: initialComposeSnap(),
   clipboardPayload: null,
   selectedComposeLayerId: null,
 
@@ -1082,6 +1091,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ bottomDockHeight: clamped });
   },
   setEditorAudioPreviewEnabled: (on) => set({ editorAudioPreviewEnabled: on }),
+  setComposeSnapEnabled: (on) => {
+    lsSet(LS.composeSnap, on ? '1' : '0');
+    set({ composeSnapEnabled: on });
+  },
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
 
   setTrackClips: (clips) => set({ trackClips: clips }),
