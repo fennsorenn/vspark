@@ -99,10 +99,10 @@ Klicke ein in einer **Kameraansicht**-Ebene gezeigtes 3D-Objekt an, um es
 auszuwählen, und bearbeite es direkt dort, ohne die Compose-Ansicht zu verlassen:
 
 - **Ziehen** — bewegt es auf der zur Kamera zeigenden Ebene.
-- **Strg + Ziehen** — dreht es: nach links/rechts ziehen dreht um die senkrechte
-  Achse der Ansicht, nach oben/unten kippt es um die waagerechte Achse.
-- **Strg + Scrollen** — rollt es um die Sichtachse (die in den Bildschirm zeigende
-  Achse).
+- **Strg + Ziehen** — dreht es um seine eigenen Achsen: nach links/rechts ziehen
+  dreht um die senkrechte Achse des Objekts, nach oben/unten kippt es um seine
+  seitliche Achse.
+- **Strg + Scrollen** — rollt es um seine eigene Vorne-hinten-Achse.
 - **Scrollen** — skaliert es unter einer orthografischen Kamera oder bewegt es
   unter einer perspektivischen Kamera zur Kamera hin/weg.
 - **Umschalt + Scrollen** — vertauscht beides: skalieren unter einer

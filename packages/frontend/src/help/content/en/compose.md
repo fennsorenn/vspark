@@ -88,10 +88,9 @@ Click a 3D object shown inside a **camera view** layer to select it, then
 manipulate it right there without leaving compose:
 
 - **Drag** — move it on the plane facing the camera.
-- **Ctrl + drag** — rotate it: drag left/right to spin around the view's vertical
-  axis, up/down to tip it around the horizontal axis.
-- **Ctrl + scroll** — roll it around the view axis (the axis pointing into the
-  screen).
+- **Ctrl + drag** — rotate it around its own axes: drag left/right to spin around
+  the object's vertical axis, up/down to tip it around its side-to-side axis.
+- **Ctrl + scroll** — roll it around its own front-to-back axis.
 - **Scroll** — resize it under an orthographic camera, or move it toward/away from
   the camera under a perspective one.
 - **Shift + scroll** — swap those two: resize under a perspective camera, or move

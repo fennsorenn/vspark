@@ -57,8 +57,8 @@ const ndc = new THREE.Vector2();
 
 // Rotation gestures spin around the camera's axes, about the object's centre.
 const _rotAxis = new THREE.Vector3();
-const _camRight = new THREE.Vector3();
-const _camUp = new THREE.Vector3();
+const _objRight = new THREE.Vector3();
+const _objUp = new THREE.Vector3();
 const _center = new THREE.Vector3();
 
 /** Traverse `root`'s visible subtree without descending into any object listed
@@ -308,21 +308,23 @@ export function ComposeSceneInteractions({
     const d = dragRef.current;
     if (!d) return;
 
-    // Ctrl-drag: rotate the node around the camera's axes (turntable) instead of
-    // translating. Horizontal drag → yaw around the camera up, vertical drag →
-    // pitch around the camera right. Spins about the object's centre.
+    // Ctrl-drag: rotate the node around its own local axes (model-relative)
+    // instead of translating. Horizontal drag → yaw around the model's up axis,
+    // vertical drag → pitch around the model's right axis. Spins about the
+    // object's centre (hips bone for avatars).
     if (ev.ctrlKey) {
       const dx = ev.clientX - d.lastX;
       const dy = ev.clientY - d.lastY;
       d.lastX = ev.clientX;
       d.lastY = ev.clientY;
       d.rotated = true;
-      const e = camera.matrixWorld.elements;
-      _camRight.set(e[0], e[1], e[2]).normalize();
-      _camUp.set(e[4], e[5], e[6]).normalize();
+      d.group.updateWorldMatrix(true, false);
+      const e = d.group.matrixWorld.elements;
+      _objRight.set(e[0], e[1], e[2]).normalize();
+      _objUp.set(e[4], e[5], e[6]).normalize();
       pivotForGroup(d.group, _center);
-      rotateAroundWorldAxis(d.group, _camUp, dx * DRAG_ROTATE_SENS, _center);
-      rotateAroundWorldAxis(d.group, _camRight, dy * DRAG_ROTATE_SENS, _center);
+      rotateAroundWorldAxis(d.group, _objUp, dx * DRAG_ROTATE_SENS, _center);
+      rotateAroundWorldAxis(d.group, _objRight, dy * DRAG_ROTATE_SENS, _center);
       emitPreview(d.nodeId, d.group);
       syncToStore(d.nodeId, d.group);
       return;
@@ -681,9 +683,9 @@ export function ComposeSceneInteractions({
     }
   });
 
-  // Integrate the Ctrl+wheel roll glide: spin the node around the camera's view
-  // axis, damp the angular velocity, and persist once it settles. Mirrors the
-  // dolly/scale loops above.
+  // Integrate the Ctrl+wheel roll glide: spin the node around its own local
+  // forward axis (model-relative roll), damp the angular velocity, and persist
+  // once it settles. Mirrors the dolly/scale loops above.
   useFrame((_state, dt) => {
     const st = rollStateRef.current;
     if (!st) return;
@@ -696,7 +698,9 @@ export function ComposeSceneInteractions({
     }
 
     if (st.vel !== 0) {
-      camera.getWorldDirection(_rotAxis);
+      group.updateWorldMatrix(true, false);
+      const e = group.matrixWorld.elements;
+      _rotAxis.set(e[8], e[9], e[10]).normalize();
       pivotForGroup(group, _center);
       rotateAroundWorldAxis(group, _rotAxis, st.vel * dt, _center);
       emitPreview(st.nodeId, group);
