@@ -1305,6 +1305,17 @@ function AvatarNode({
       vrmRef.current = vrm ?? null;
       groupRef.current.clear();
       groupRef.current.add(vrmScene);
+      // Disable frustum culling on every mesh. A SkinnedMesh is culled against
+      // its *bind-pose* bounding sphere (three.js never re-derives it from the
+      // live skeleton), so a bone-driven pose that moves a mesh away from bind —
+      // e.g. a sitting clip dropping the head — leaves the face/hair spheres up
+      // at the standing head while the real geometry is elsewhere. Zooming in
+      // then frustum-culls those meshes even though they're on screen (the face
+      // vanishes). The avatar is a single hero object, so always drawing it is
+      // cheaper than the artifact.
+      vrmScene.traverse((o) => {
+        (o as THREE.Mesh).frustumCulled = false;
+      });
       // Yaw the avatar to face the camera (world +Z). VRM 0.x faces +Z while
       // VRM 1.0 faces −Z by spec, so the old blanket `rotation.y = Math.PI` only
       // ever worked for one convention and left the other facing backwards.
