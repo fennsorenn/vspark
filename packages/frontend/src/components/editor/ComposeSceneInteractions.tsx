@@ -55,11 +55,10 @@ const DRAG_ROTATE_SENS = 0.01; // radians per pixel of Ctrl-drag rotation
 const wheelRay = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 
-// Rotation gestures spin around world-aligned axes (not the camera's), about the
-// object's geometric centre.
-const WORLD_X = new THREE.Vector3(1, 0, 0);
-const WORLD_Y = new THREE.Vector3(0, 1, 0);
-const WORLD_Z = new THREE.Vector3(0, 0, 1);
+// Rotation gestures spin around the camera's axes, about the object's centre.
+const _rotAxis = new THREE.Vector3();
+const _camRight = new THREE.Vector3();
+const _camUp = new THREE.Vector3();
 const _center = new THREE.Vector3();
 
 /** Traverse `root`'s visible subtree without descending into any object listed
@@ -309,18 +308,21 @@ export function ComposeSceneInteractions({
     const d = dragRef.current;
     if (!d) return;
 
-    // Ctrl-drag: rotate the node around world X/Y (turntable) instead of
-    // translating. Horizontal drag → yaw around world Y, vertical drag → pitch
-    // around world X. Spins about the object's geometric centre.
+    // Ctrl-drag: rotate the node around the camera's axes (turntable) instead of
+    // translating. Horizontal drag → yaw around the camera up, vertical drag →
+    // pitch around the camera right. Spins about the object's centre.
     if (ev.ctrlKey) {
       const dx = ev.clientX - d.lastX;
       const dy = ev.clientY - d.lastY;
       d.lastX = ev.clientX;
       d.lastY = ev.clientY;
       d.rotated = true;
+      const e = camera.matrixWorld.elements;
+      _camRight.set(e[0], e[1], e[2]).normalize();
+      _camUp.set(e[4], e[5], e[6]).normalize();
       objectWorldCenter(d.group, _center);
-      rotateAroundWorldAxis(d.group, WORLD_Y, dx * DRAG_ROTATE_SENS, _center);
-      rotateAroundWorldAxis(d.group, WORLD_X, dy * DRAG_ROTATE_SENS, _center);
+      rotateAroundWorldAxis(d.group, _camUp, dx * DRAG_ROTATE_SENS, _center);
+      rotateAroundWorldAxis(d.group, _camRight, dy * DRAG_ROTATE_SENS, _center);
       emitPreview(d.nodeId, d.group);
       syncToStore(d.nodeId, d.group);
       return;
@@ -694,8 +696,9 @@ export function ComposeSceneInteractions({
     }
 
     if (st.vel !== 0) {
+      camera.getWorldDirection(_rotAxis);
       objectWorldCenter(group, _center);
-      rotateAroundWorldAxis(group, WORLD_Z, st.vel * dt, _center);
+      rotateAroundWorldAxis(group, _rotAxis, st.vel * dt, _center);
       emitPreview(st.nodeId, group);
       syncToStore(st.nodeId, group);
     }

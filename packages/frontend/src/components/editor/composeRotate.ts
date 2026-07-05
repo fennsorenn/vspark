@@ -10,33 +10,23 @@ const _qParent = new THREE.Quaternion();
 const _pivotPos = new THREE.Vector3();
 const _centerBox = new THREE.Box3();
 const _tmpBox = new THREE.Box3();
-const _bonePos = new THREE.Vector3();
 
-/** World-space geometric centre of an object's renderable meshes, falling back to
- *  its origin when it has no geometry. This is the pivot rotation spins around —
- *  the *centre*, not the transform origin, which can sit off to one side.
+/** World-space geometric centre (bounding-box centre) of an object's *visible*
+ *  renderable meshes, falling back to its origin when it has no geometry. This is
+ *  the pivot rotation spins around — the *centre*, not the transform origin,
+ *  which can sit off to one side of the geometry.
  *
- *  Skinned meshes are measured by their live skeleton bone positions rather than
- *  `Box3.setFromObject`, which would use the bind-pose geometry box (wrong once
- *  the avatar is posed/animated) — so an avatar's centre is its posed body, not
- *  the T-pose bounds at its feet. */
+ *  Uses the rest/bind-pose bounds (a stable centre that doesn't shift as the
+ *  avatar animates) and — unlike `Box3.setFromObject` — skips invisible objects,
+ *  so editor-only helpers (e.g. the hidden bone-visualisation cylinder at the
+ *  avatar's origin) don't drag the centre off the visible body. */
 export function objectWorldCenter(
   obj: THREE.Object3D,
   out: THREE.Vector3
 ): THREE.Vector3 {
   obj.updateWorldMatrix(true, true);
   _centerBox.makeEmpty();
-  obj.traverse((o) => {
-    const sm = o as THREE.SkinnedMesh;
-    if (
-      (sm as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh === true &&
-      sm.skeleton
-    ) {
-      for (const bone of sm.skeleton.bones) {
-        _centerBox.expandByPoint(bone.getWorldPosition(_bonePos));
-      }
-      return;
-    }
+  obj.traverseVisible((o) => {
     const mesh = o as THREE.Mesh;
     const geom = mesh.geometry as THREE.BufferGeometry | undefined;
     if (!mesh.isMesh || !geom) return;
