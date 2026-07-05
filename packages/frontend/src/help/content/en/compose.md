@@ -82,6 +82,21 @@ removes the flat 2D layer — the new 3D object shows through the camera view in
 place. Handy for promoting a flat overlay into the 3D scene so it can be parented,
 animated, or lit like any other object. You stay in the compose view.
 
+## Editing 3D objects in a camera view {#camera-view-editing}
+
+Click a 3D object shown inside a **camera view** layer to select it, then
+manipulate it right there without leaving compose:
+
+- **Drag** — move it on the plane facing the camera.
+- **Ctrl + drag** — rotate it: drag left/right to spin around the view's vertical
+  axis, up/down to tip it around the horizontal axis.
+- **Ctrl + scroll** — roll it around the view axis (the axis pointing into the
+  screen).
+- **Scroll** — resize it under an orthographic camera, or move it toward/away from
+  the camera under a perspective one.
+- **Shift + scroll** — swap those two: resize under a perspective camera, or move
+  along the view axis (adjust depth) under an orthographic one.
+
 ## Attach to a bone {#attach-bone}
 
 Inside a **camera view** layer you can drag the 3D objects it shows. Turn on

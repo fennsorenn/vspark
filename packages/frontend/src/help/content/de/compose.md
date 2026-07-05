@@ -93,6 +93,22 @@ das neue 3D-Objekt erscheint an ihrer Stelle durch die Kameraansicht. Praktisch,
 ein flaches Overlay in die 3D-Szene zu übernehmen, wo es wie jedes andere Objekt
 verschachtelt, animiert oder beleuchtet werden kann. Du bleibst in der Compose-Ansicht.
 
+## 3D-Objekte in einer Kameraansicht bearbeiten {#camera-view-editing}
+
+Klicke ein in einer **Kameraansicht**-Ebene gezeigtes 3D-Objekt an, um es
+auszuwählen, und bearbeite es direkt dort, ohne die Compose-Ansicht zu verlassen:
+
+- **Ziehen** — bewegt es auf der zur Kamera zeigenden Ebene.
+- **Strg + Ziehen** — dreht es: nach links/rechts ziehen dreht um die senkrechte
+  Achse der Ansicht, nach oben/unten kippt es um die waagerechte Achse.
+- **Strg + Scrollen** — rollt es um die Sichtachse (die in den Bildschirm zeigende
+  Achse).
+- **Scrollen** — skaliert es unter einer orthografischen Kamera oder bewegt es
+  unter einer perspektivischen Kamera zur Kamera hin/weg.
+- **Umschalt + Scrollen** — vertauscht beides: skalieren unter einer
+  perspektivischen Kamera oder entlang der Sichtachse bewegen (Tiefe anpassen)
+  unter einer orthografischen Kamera.
+
 ## An einen Knochen anheften {#attach-bone}
 
 Innerhalb einer **Kameraansicht**-Ebene kannst du die dort gezeigten 3D-Objekte

@@ -123,7 +123,13 @@ export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
       if (topLayer?.kind === 'camera_view' && topLayer.config.locked3d === true)
         return;
       ev.preventDefault();
-      composeSceneApplyWheel(ev.deltaY, ev.clientX, ev.clientY);
+      composeSceneApplyWheel(
+        ev.deltaY,
+        ev.clientX,
+        ev.clientY,
+        ev.ctrlKey,
+        ev.shiftKey
+      );
     };
 
     el.addEventListener('pointerdown', onPointerDown);

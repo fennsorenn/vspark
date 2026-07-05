@@ -43,9 +43,40 @@ const WHEEL_SCALE_VEL_EPS = 1e-4; // ln(scale)/sec; below this, settle and persi
 const MIN_NODE_SCALE = 0.01;
 const MAX_NODE_SCALE = 100;
 
+// Ctrl+wheel rolls the node around the view axis (Z) with the same inertia as
+// the scale/dolly glides. Ctrl+drag rotates around the view's X/Y axes directly.
+const WHEEL_ROLL_STEP = 0.12; // radians of Z-roll per wheel tick (pre-damping)
+const WHEEL_ROLL_IMPULSE = WHEEL_ROLL_STEP * Math.log(1 / WHEEL_DAMPING_PER_SEC);
+const WHEEL_ROLL_VEL_EPS = 1e-3; // rad/sec; below this, settle and persist
+const DRAG_ROTATE_SENS = 0.01; // radians per pixel of Ctrl-drag rotation
+
 // Reusable scratch — raycaster + NDC vector, shared across handlers in this module.
 const wheelRay = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
+
+// Scratch for world-axis rotation.
+const _qDelta = new THREE.Quaternion();
+const _qWorld = new THREE.Quaternion();
+const _qParent = new THREE.Quaternion();
+const _rotAxis = new THREE.Vector3();
+const _camRight = new THREE.Vector3();
+const _camUp = new THREE.Vector3();
+
+/** Rotate `obj` in place around a world-space `axis` by `angle` (radians),
+ *  writing back the local quaternion that yields that world rotation regardless
+ *  of any parent transform. */
+function rotateAroundWorldAxis(
+  obj: THREE.Object3D,
+  axis: THREE.Vector3,
+  angle: number
+): void {
+  if (angle === 0) return;
+  _qDelta.setFromAxisAngle(axis, angle);
+  obj.getWorldQuaternion(_qWorld).premultiply(_qDelta);
+  if (obj.parent) obj.parent.getWorldQuaternion(_qParent).invert();
+  else _qParent.identity();
+  obj.quaternion.copy(_qParent.multiply(_qWorld));
+}
 
 /** Per-camera_view interaction registry. Each mounted ComposeSceneInteractions
  *  (one per camera_view layer's CameraCanvas) registers its handlers under its
@@ -60,7 +91,13 @@ type SceneDragStarter = (
   clientY: number,
   pointerId: number
 ) => boolean;
-type SceneWheel = (deltaY: number, clientX: number, clientY: number) => void;
+type SceneWheel = (
+  deltaY: number,
+  clientX: number,
+  clientY: number,
+  ctrlKey: boolean,
+  shiftKey: boolean
+) => void;
 
 const scenePickers = new Map<string, ScenePicker>();
 const sceneDragStarters = new Map<string, SceneDragStarter>();
@@ -112,13 +149,16 @@ export function composeSceneApplyWheel(
   deltaY: number,
   clientX: number,
   clientY: number,
+  ctrlKey: boolean,
+  shiftKey: boolean,
   composeLayerId?: string
 ): void {
   if (composeLayerId != null) {
-    sceneWheels.get(composeLayerId)?.(deltaY, clientX, clientY);
+    sceneWheels.get(composeLayerId)?.(deltaY, clientX, clientY, ctrlKey, shiftKey);
     return;
   }
-  for (const wheel of sceneWheels.values()) wheel(deltaY, clientX, clientY);
+  for (const wheel of sceneWheels.values())
+    wheel(deltaY, clientX, clientY, ctrlKey, shiftKey);
 }
 
 /** Inside-canvas component that turns mesh clicks into scene-node selection
@@ -216,6 +256,12 @@ export function ComposeSceneInteractions({
     startWorld: THREE.Vector3;
     startLocal: THREE.Vector3;
     grabOffset: THREE.Vector3;
+    /** Last pointer position — Ctrl-drag rotation integrates screen deltas. */
+    lastX: number;
+    lastY: number;
+    /** True once a Ctrl-drag rotation happened, so the drop persists rotation
+     *  and skips attach-on-drop (a rotate gesture shouldn't rebind the node). */
+    rotated: boolean;
   } | null>(null);
 
   /** Begin a drag-move gesture on the given node. Captures pointer, hooks the
@@ -224,7 +270,9 @@ export function ComposeSceneInteractions({
     nodeId: string,
     group: THREE.Group,
     ray: THREE.Ray,
-    pointerId: number
+    pointerId: number,
+    clientX: number,
+    clientY: number
   ) => {
     const objWorld = new THREE.Vector3();
     group.getWorldPosition(objWorld);
@@ -245,6 +293,9 @@ export function ComposeSceneInteractions({
       startWorld: objWorld.clone(),
       startLocal: group.position.clone(),
       grabOffset,
+      lastX: clientX,
+      lastY: clientY,
+      rotated: false,
     };
     const canvas = gl.domElement;
     canvas.setPointerCapture(pointerId);
@@ -255,6 +306,28 @@ export function ComposeSceneInteractions({
   const onMove = (ev: PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
+
+    // Ctrl-drag: rotate the node around the view's X/Y axes (turntable) instead
+    // of translating. Horizontal drag → yaw around the camera's up axis, vertical
+    // drag → pitch around the camera's right axis.
+    if (ev.ctrlKey) {
+      const dx = ev.clientX - d.lastX;
+      const dy = ev.clientY - d.lastY;
+      d.lastX = ev.clientX;
+      d.lastY = ev.clientY;
+      d.rotated = true;
+      const e = camera.matrixWorld.elements;
+      _camRight.set(e[0], e[1], e[2]).normalize();
+      _camUp.set(e[4], e[5], e[6]).normalize();
+      rotateAroundWorldAxis(d.group, _camUp, dx * DRAG_ROTATE_SENS);
+      rotateAroundWorldAxis(d.group, _camRight, dy * DRAG_ROTATE_SENS);
+      emitPreview(d.nodeId, d.group);
+      syncToStore(d.nodeId, d.group);
+      return;
+    }
+    d.lastX = ev.clientX;
+    d.lastY = ev.clientY;
+
     const rect = gl.domElement.getBoundingClientRect();
     ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
@@ -293,7 +366,8 @@ export function ComposeSceneInteractions({
     // Attach-on-drop: with attach mode on (or Shift held), a node dropped over a
     // model binds to the bone under it; dropped clear of any model it returns to
     // the scene's top level. Both preserve the node's world placement.
-    const attachActive = store.composeAttachEnabled || ev.shiftKey;
+    const attachActive =
+      !d.rotated && (store.composeAttachEnabled || ev.shiftKey);
     if (attachActive) {
       // Target by the cursor (where the user is pointing), not the object centre.
       const rect = gl.domElement.getBoundingClientRect();
@@ -380,64 +454,97 @@ export function ComposeSceneInteractions({
     pivot: THREE.Vector3;
   } | null>(null);
 
+  // Ctrl+wheel roll: angular velocity (rad/sec) around the camera's view axis,
+  // integrated with the same damping as the scale/dolly glides.
+  const rollStateRef = useRef<{ nodeId: string; vel: number } | null>(null);
+
   // The wheel handler is now invoked from the capture overlay (which owns all
   // input events). It applies an impulse to the selected node's velocity; the
   // useFrame loop below integrates and persists.
+  //
+  // Modifiers:
+  //  - Ctrl  → roll around the view axis (Z).
+  //  - Shift → flip the default action: scale becomes view-axis translation and
+  //            vice-versa. Default is scale under an ortho camera (where dolly is
+  //            invisible) and dolly under perspective; Shift swaps them, so you
+  //            can push depth in ortho or scale in perspective.
   useEffect(() => {
     const key = composeLayerId ?? '';
-    sceneWheels.set(key, (deltaY: number, clientX: number, clientY: number) => {
-      const store = useEditorStore.getState();
-      const nodeId = store.selectedNodeId;
-      if (!nodeId) return;
-      const group = getNodeGroup(nodeId);
-      if (!group) return;
+    sceneWheels.set(
+      key,
+      (
+        deltaY: number,
+        clientX: number,
+        clientY: number,
+        ctrlKey: boolean,
+        shiftKey: boolean
+      ) => {
+        const store = useEditorStore.getState();
+        const nodeId = store.selectedNodeId;
+        if (!nodeId) return;
+        const group = getNodeGroup(nodeId);
+        if (!group) return;
 
-      const rect = gl.domElement.getBoundingClientRect();
-      ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-      ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-      wheelRay.setFromCamera(ndc, camera);
+        const rect = gl.domElement.getBoundingClientRect();
+        ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+        wheelRay.setFromCamera(ndc, camera);
 
-      // Orthographic camera: dolly is invisible, so scale instead. Add an
-      // impulse to the log-scale velocity and remember the cursor pivot — the
-      // pointer ray's hit on the plane (parallel to the near plane) through the
-      // node origin, so the scale grows out of / into the point under the cursor.
-      if ((camera as THREE.OrthographicCamera).isOrthographicCamera === true) {
-        const forward = camera.getWorldDirection(new THREE.Vector3());
-        const originW = group.getWorldPosition(new THREE.Vector3());
-        const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
-          forward,
-          originW
-        );
-        const pivot = new THREE.Vector3();
-        if (!wheelRay.ray.intersectPlane(plane, pivot)) pivot.copy(originW);
-        const impulse = -Math.sign(deltaY) * WHEEL_SCALE_IMPULSE;
-        const st = scaleStateRef.current;
-        if (st && st.nodeId === nodeId) {
-          st.logVel += impulse;
-          st.pivot.copy(pivot);
-        } else {
-          scaleStateRef.current = { nodeId, logVel: impulse, pivot };
+        if (ctrlKey) {
+          const impulse = -Math.sign(deltaY) * WHEEL_ROLL_IMPULSE;
+          const st = rollStateRef.current;
+          if (st && st.nodeId === nodeId) st.vel += impulse;
+          else rollStateRef.current = { nodeId, vel: impulse };
+          return;
         }
-        return;
+
+        const ortho =
+          (camera as THREE.OrthographicCamera).isOrthographicCamera === true;
+        // Default: scale under ortho, dolly under perspective. Shift flips it.
+        const doScale = ortho !== shiftKey;
+
+        if (doScale) {
+          // Scale about the cursor pivot — the pointer ray's hit on the plane
+          // (parallel to the near plane) through the node origin, so it grows
+          // out of / into the point under the cursor.
+          const forward = camera.getWorldDirection(new THREE.Vector3());
+          const originW = group.getWorldPosition(new THREE.Vector3());
+          const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+            forward,
+            originW
+          );
+          const pivot = new THREE.Vector3();
+          if (!wheelRay.ray.intersectPlane(plane, pivot)) pivot.copy(originW);
+          const impulse = -Math.sign(deltaY) * WHEEL_SCALE_IMPULSE;
+          const st = scaleStateRef.current;
+          if (st && st.nodeId === nodeId) {
+            st.logVel += impulse;
+            st.pivot.copy(pivot);
+          } else {
+            scaleStateRef.current = { nodeId, logVel: impulse, pivot };
+          }
+          return;
+        }
+
+        // View-axis translation (dolly). In ortho all rays are parallel to the
+        // view axis, so this shifts depth rather than apparent size.
+        const axis = wheelRay.ray.direction.clone().normalize();
+        const camPos = new THREE.Vector3();
+        camera.getWorldPosition(camPos);
+        const pivotWorld = group.getWorldPosition(new THREE.Vector3());
+        const distance = Math.max(
+          MIN_CAM_DISTANCE,
+          pivotWorld.distanceTo(camPos)
+        );
+        const impulse = axis.multiplyScalar(
+          distance * WHEEL_IMPULSE_FRACTION * -Math.sign(deltaY)
+        );
+
+        const cur = wheelStateRef.current;
+        if (cur && cur.nodeId === nodeId) cur.velocity.add(impulse);
+        else wheelStateRef.current = { nodeId, velocity: impulse };
       }
-
-      const axis = wheelRay.ray.direction.clone().normalize();
-
-      const camPos = new THREE.Vector3();
-      camera.getWorldPosition(camPos);
-      const pivotWorld = group.getWorldPosition(new THREE.Vector3());
-      const distance = Math.max(
-        MIN_CAM_DISTANCE,
-        pivotWorld.distanceTo(camPos)
-      );
-      const impulse = axis.multiplyScalar(
-        distance * WHEEL_IMPULSE_FRACTION * -Math.sign(deltaY)
-      );
-
-      const cur = wheelStateRef.current;
-      if (cur && cur.nodeId === nodeId) cur.velocity.add(impulse);
-      else wheelStateRef.current = { nodeId, velocity: impulse };
-    });
+    );
     return () => {
       sceneWheels.delete(key);
     };
@@ -566,6 +673,43 @@ export function ComposeSceneInteractions({
           type: 'transform',
           ...transformPayload(group, node, true),
         },
+      };
+      s.updateNode(st.nodeId, { components });
+      api.updateNode(st.nodeId, { components }).catch(() => {});
+    }
+  });
+
+  // Integrate the Ctrl+wheel roll glide: spin the node around the camera's view
+  // axis, damp the angular velocity, and persist once it settles. Mirrors the
+  // dolly/scale loops above.
+  useFrame((_state, dt) => {
+    const st = rollStateRef.current;
+    if (!st) return;
+    const group = getNodeGroup(st.nodeId);
+    const stillSelected =
+      useEditorStore.getState().selectedNodeId === st.nodeId;
+    if (!group || !stillSelected) {
+      rollStateRef.current = null;
+      return;
+    }
+
+    if (st.vel !== 0) {
+      camera.getWorldDirection(_rotAxis);
+      rotateAroundWorldAxis(group, _rotAxis, st.vel * dt);
+      emitPreview(st.nodeId, group);
+      syncToStore(st.nodeId, group);
+    }
+
+    st.vel *= Math.pow(WHEEL_DAMPING_PER_SEC, dt);
+
+    if (Math.abs(st.vel) < WHEEL_ROLL_VEL_EPS) {
+      const s = useEditorStore.getState();
+      const node = s.nodes.find((n) => n.id === st.nodeId);
+      rollStateRef.current = null;
+      if (!node) return;
+      const components = {
+        ...node.components,
+        transform: { type: 'transform', ...transformPayload(group, node) },
       };
       s.updateNode(st.nodeId, { components });
       api.updateNode(st.nodeId, { components }).catch(() => {});
@@ -929,7 +1073,7 @@ export function ComposeSceneInteractions({
       ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
       wheelRay.setFromCamera(ndc, camera);
-      beginDrag(nodeId, group, wheelRay.ray.clone(), pointerId);
+      beginDrag(nodeId, group, wheelRay.ray.clone(), pointerId, clientX, clientY);
       return true;
     });
     return () => {
