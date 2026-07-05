@@ -47,6 +47,10 @@ const SCENE_NODE_PARAM_PATHS: readonly ParamPathSpec[] = [
   { path: 'scale.z', type: 'Float', defaultValue: 1, animatable: true },
   // New: uniform mesh opacity walked across descendant materials.
   { path: 'opacity', type: 'Float', defaultValue: 1, animatable: true },
+  // Runtime visibility toggle (graph-driven show/hide). A runtime-only override
+  // layered over the persisted per-node `hidden` flag — it does not rewrite the
+  // saved scene. Not animatable (boolean).
+  { path: 'visible', type: 'Bool', defaultValue: true, animatable: false },
   // New: text content for the text scene-node kinds.
   {
     path: 'text.content',
@@ -66,6 +70,9 @@ const COMPOSE_LAYER_PARAM_PATHS: readonly ParamPathSpec[] = [
   { path: 'width', type: 'Float', defaultValue: 100, animatable: true },
   { path: 'height', type: 'Float', defaultValue: 100, animatable: true },
   { path: 'opacity', type: 'Float', defaultValue: 1, animatable: true },
+  // Runtime visibility toggle (graph-driven show/hide), layered over the
+  // persisted `visible` field. Not animatable (boolean).
+  { path: 'visible', type: 'Bool', defaultValue: true, animatable: false },
   // New: text content for the text compose-layer kind.
   {
     path: 'text.content',

@@ -1,9 +1,21 @@
 # Plan: Macro UI — a friendly projection over hotkey→action logic graphs
 
 > Branch: `feature/macro-ui` (builds on the `system_hotkey` node + `HotkeyManager`
-> already merged) · Status: draft → ready-for-handoff
+> already merged) · Status: Stage 1 (backend vocabulary) landed; frontend stages pending
 > This plan is the seed context for a cloud worker. It is a starting point, not an
 > airtight spec — the worker is interactive and may ask to refine it.
+
+## Progress
+
+- **Stage 1 — backend vocabulary: DONE.** `cycle` node (dynamic event-outs +
+  persisted index; first node to use dynamic event-outs, so `NodeBindContext`
+  gained a `selfId` field along the way), `set_expression` node (thin wrapper
+  over `broadcastBus.publishBlendshapes`, producer id from `selfId`, slot
+  released in `onUnbind`), and the `visible` Bool paramPath for both target
+  kinds with consumers in `Viewport.tsx` (scene nodes) and `ComposeLayerStack.tsx`
+  (compose layers), override-wins over the persisted flag. Unit + paramPath tests
+  added; full monorepo lint + tests green. Registry is now 89 node kinds.
+- **Stages 2–4 (Action Registry, projection, Macros panel, i18n/e2e): pending.**
 
 ## Goal
 

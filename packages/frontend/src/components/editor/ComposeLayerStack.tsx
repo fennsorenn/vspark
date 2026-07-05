@@ -95,13 +95,18 @@ function layerStyle(
     typeof cfg.blendMode === 'string' && cfg.blendMode !== 'normal'
       ? (cfg.blendMode as CSSProperties['mixBlendMode'])
       : undefined;
+  // A graph-driven `visible` runtime override wins over the persisted flag when
+  // present (mirrors opacity's override-replaces-base semantics).
+  const runtimeVisible = runtimeOverride?.['visible'];
+  const visible =
+    typeof runtimeVisible === 'boolean' ? runtimeVisible : layer.visible;
   const style: CSSProperties = {
     position: 'absolute',
     width: cssLen(width, cfg, 'widthUnit'),
     height: cssLen(height, cfg, 'heightUnit'),
     transform: rotation ? `rotate(${rotation}deg)` : undefined,
     transformOrigin: 'center center',
-    visibility: layer.visible ? 'visible' : 'hidden',
+    visibility: visible ? 'visible' : 'hidden',
     opacity,
     mixBlendMode: blendMode,
     overflow: 'hidden',
