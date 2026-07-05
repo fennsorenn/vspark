@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Move,
   RotateCw,
-  Scale,
+  Scaling,
   Volume2,
   VolumeX,
   type LucideIcon,
@@ -359,9 +359,10 @@ function BoneAttacher({
     if (!group || !vrm) return;
     const bone = vrm.humanoid.getRawBoneNode(boneName as VRMHumanBoneName);
     if (!bone) return;
-    // Zero out stored world-space offset — position is now bone-local
-    group.position.set(0, 0, 0);
-    group.quaternion.identity();
+    // Re-parent under the bone without touching the group's local transform:
+    // the node's position/rotation/scale (applied declaratively via props) then
+    // become bone-local, so translation and rotation are relative to bone space
+    // rather than being discarded.
     bone.add(group);
     return () => {
       // Restore to scene root on detach so Three.js doesn't orphan it
@@ -4869,7 +4870,9 @@ function renderNodeElement(
   const childElements = freeChildren.map((c) =>
     renderNodeElement(c, allNodes, viewerMode)
   );
-  // Bone-attached children render as normal top-level nodes; BoneFollower syncs their position each frame
+  // Bone-attached children render as normal top-level nodes; BoneAttacher
+  // re-parents each one's group under the target bone, so its transform is
+  // preserved as bone-local (translation/rotation relative to bone space).
   const boneFollowers = boneChildren.flatMap((c) => [
     renderNodeElement(c, allNodes, viewerMode),
     <BoneAttacher
@@ -5123,7 +5126,7 @@ const GIZMO_BUTTONS: {
 }[] = [
   { mode: 'translate', icon: Move, titleKey: 'viewport.gizmo.translate' },
   { mode: 'rotate', icon: RotateCw, titleKey: 'viewport.gizmo.rotate' },
-  { mode: 'scale', icon: Scale, titleKey: 'viewport.gizmo.scale' },
+  { mode: 'scale', icon: Scaling, titleKey: 'viewport.gizmo.scale' },
 ];
 
 function GizmoToolbar({
