@@ -82,6 +82,19 @@ removes the flat 2D layer — the new 3D object shows through the camera view in
 place. Handy for promoting a flat overlay into the 3D scene so it can be parented,
 animated, or lit like any other object. You stay in the compose view.
 
+## Attach to a bone {#attach-bone}
+
+Inside a **camera view** layer you can drag the 3D objects it shows. Turn on
+**Attach mode** with the bone button next to the snap toggle in the compose
+toolbar (or hold **Shift** while dragging), then drag an object onto a model and
+release it over the body part you want. The object binds to the bone that drives
+that part — the one with the strongest influence there — so drop it on a hand and
+it follows the hand, drop it on the head and it follows the head. Its on-screen
+position is preserved, and from then on its Transform is measured relative to that
+bone. Drop it clear of any model and it returns to the scene's top level, again
+keeping its position. This is the quickest way to put a sword in a hand or a hat
+on a head without hunting through the scene tree.
+
 ## Template / feed layers {#feed}
 
 A **template** layer is a live, data-driven layer. It uses a small snippet of

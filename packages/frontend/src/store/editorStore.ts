@@ -139,7 +139,7 @@ const LS = {
   bottomTab: 'vspark.bottomTab',
   bottomDockHeight: 'vspark.bottomDockHeight',
   composeSnap: 'vspark.composeSnap',
-  stageAttach: 'vspark.stageAttach',
+  composeAttach: 'vspark.composeAttach',
 };
 function lsGet(key: string): string | null {
   try {
@@ -183,8 +183,8 @@ function initialBottomDockHeight(): number {
 function initialComposeSnap(): boolean {
   return lsGet(LS.composeSnap) !== '0'; // default on
 }
-function initialStageAttach(): boolean {
-  return lsGet(LS.stageAttach) === '1'; // default off (deliberate mode)
+function initialComposeAttach(): boolean {
+  return lsGet(LS.composeAttach) === '1'; // default off (deliberate mode)
 }
 
 /** Per-node free-form properties (mirror of backend `scene_nodes.properties`). */
@@ -534,10 +534,11 @@ interface EditorState {
   /** Compose editor: snap layers to their parent's edges/centre while dragging
    *  or resizing. Persisted to localStorage. */
   composeSnapEnabled: boolean;
-  /** Stage viewport: when on, dropping an object over a model attaches it to
-   *  the bone driving the surface under the drop (world→bone-local). Holding
-   *  Shift during a gizmo drag does the same as a one-shot. Persisted. */
-  stageAttachEnabled: boolean;
+  /** Compose view: when on, dragging a 3D node inside a camera-view layer and
+   *  dropping it over a model binds it to the bone under the drop (world→
+   *  bone-local); dropping it clear of any model sends it back to top level.
+   *  Holding Shift during a drag does the same as a one-shot. Persisted. */
+  composeAttachEnabled: boolean;
   selectedComposeLayerId: string | null;
 
   // Track clips
@@ -655,7 +656,7 @@ interface EditorState {
   setBottomDockHeight: (h: number) => void;
   setEditorAudioPreviewEnabled: (on: boolean) => void;
   setComposeSnapEnabled: (on: boolean) => void;
-  setStageAttachEnabled: (on: boolean) => void;
+  setComposeAttachEnabled: (on: boolean) => void;
   setClipboard: (
     payload: import('../clipboard').ClipboardPayload | null
   ) => void;
@@ -800,7 +801,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   bottomDockHeight: initialBottomDockHeight(),
   editorAudioPreviewEnabled: false,
   composeSnapEnabled: initialComposeSnap(),
-  stageAttachEnabled: initialStageAttach(),
+  composeAttachEnabled: initialComposeAttach(),
   clipboardPayload: null,
   selectedComposeLayerId: null,
 
@@ -1105,9 +1106,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     lsSet(LS.composeSnap, on ? '1' : '0');
     set({ composeSnapEnabled: on });
   },
-  setStageAttachEnabled: (on) => {
-    lsSet(LS.stageAttach, on ? '1' : '0');
-    set({ stageAttachEnabled: on });
+  setComposeAttachEnabled: (on) => {
+    lsSet(LS.composeAttach, on ? '1' : '0');
+    set({ composeAttachEnabled: on });
   },
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
 

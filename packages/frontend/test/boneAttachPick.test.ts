@@ -1,31 +1,30 @@
 /**
- * boneAttachPick.test.ts — unit tests for the stage "attach on drop" math:
- *  - worldToBoneLocalTransform: world→bone-local round-trips (re-parenting under
- *    the bone preserves world position/rotation/scale).
- *  - pickBoneForDrop: a ray through a dropped object onto a skinned mesh resolves
- *    to the humanoid bone with the highest skin weight at the surface, and
- *    returns null when the drop lands over nothing.
+ * boneAttachPick.test.ts — unit tests for the shared bone-attachment math used
+ * by compose attach-on-drop:
+ *  - worldToBoneLocalTransform: re-parenting under the bone preserves the
+ *    object's world position/rotation/scale.
+ *  - worldTransform: decomposes the object's world matrix (top-level detach).
+ *  - humanoidBoneFor: resolves an arbitrary skeleton bone up to its humanoid
+ *    ancestor.
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
 import {
-  pickBoneForDrop,
   worldToBoneLocalTransform,
-  type AttachCandidate,
+  worldTransform,
+  humanoidBoneFor,
 } from '../src/components/editor/boneAttachPick';
 
 describe('worldToBoneLocalTransform', () => {
   it('round-trips: re-parenting under the bone preserves the world transform', () => {
     const scene = new THREE.Scene();
-    // A bone with a non-trivial world transform.
     const bone = new THREE.Object3D();
     bone.position.set(1, 2, 3);
     bone.rotation.set(0, Math.PI / 2, 0);
     bone.scale.set(2, 2, 2);
     scene.add(bone);
 
-    // An object sitting somewhere in the world (as a scene-root child).
     const obj = new THREE.Object3D();
     obj.position.set(-1, 0.5, 4);
     obj.rotation.set(0.3, -0.4, 0.1);
@@ -37,8 +36,6 @@ describe('worldToBoneLocalTransform', () => {
 
     const local = worldToBoneLocalTransform(obj, bone);
 
-    // Re-create the object with the computed bone-local transform, parent it
-    // under the bone, and confirm the world transform is unchanged.
     const rebuilt = new THREE.Object3D();
     rebuilt.position.set(local.x, local.y, local.z);
     rebuilt.rotation.set(local.rx, local.ry, local.rz);
@@ -52,102 +49,67 @@ describe('worldToBoneLocalTransform', () => {
     expect(worldPosAfter.x).toBeCloseTo(worldPosBefore.x, 5);
     expect(worldPosAfter.y).toBeCloseTo(worldPosBefore.y, 5);
     expect(worldPosAfter.z).toBeCloseTo(worldPosBefore.z, 5);
-    // Quaternion equality up to sign.
-    const dot = Math.abs(worldQuatAfter.dot(worldQuatBefore));
-    expect(dot).toBeCloseTo(1, 5);
+    expect(Math.abs(worldQuatAfter.dot(worldQuatBefore))).toBeCloseTo(1, 5);
   });
 });
 
-/** Build a one-triangle skinned mesh in the z=0 plane whose every vertex is
- *  fully weighted to `bones[1]` (the child), wrapped in a fake VRM whose
- *  humanoid maps hips→bones[0], spine→bones[1]. */
-function makeSkinnedAvatar(): { candidate: AttachCandidate; root: THREE.Group } {
-  const bones = [new THREE.Bone(), new THREE.Bone()];
-  bones[0].add(bones[1]);
-  const skeleton = new THREE.Skeleton(bones);
+describe('worldTransform', () => {
+  it('returns the object world transform (top-level detach keeps placement)', () => {
+    const scene = new THREE.Scene();
+    // Object nested under a transformed parent — its world transform differs
+    // from its local one.
+    const parent = new THREE.Object3D();
+    parent.position.set(5, 0, 0);
+    parent.rotation.set(0, Math.PI / 2, 0);
+    scene.add(parent);
+    const obj = new THREE.Object3D();
+    obj.position.set(0, 1, 0);
+    parent.add(obj);
+    scene.updateMatrixWorld(true);
 
-  const geo = new THREE.BufferGeometry();
-  // A triangle around the origin, facing +z.
-  geo.setAttribute(
-    'position',
-    new THREE.Float32BufferAttribute(
-      [-1, -1, 0, 1, -1, 0, 0, 1, 0],
-      3
-    )
-  );
-  // All three vertices fully weighted to bone index 1.
-  geo.setAttribute(
-    'skinIndex',
-    new THREE.Uint16BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 4)
-  );
-  geo.setAttribute(
-    'skinWeight',
-    new THREE.Float32BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 4)
-  );
+    const worldBefore = obj.getWorldPosition(new THREE.Vector3());
+    const local = worldTransform(obj);
 
-  const mesh = new THREE.SkinnedMesh(geo, new THREE.MeshBasicMaterial());
-  mesh.add(bones[0]);
-  mesh.bind(skeleton);
+    // Re-mount at scene root with the returned transform → same world position.
+    const rebuilt = new THREE.Object3D();
+    rebuilt.position.set(local.x, local.y, local.z);
+    rebuilt.rotation.set(local.rx, local.ry, local.rz);
+    scene.add(rebuilt);
+    scene.updateMatrixWorld(true);
+    const worldAfter = rebuilt.getWorldPosition(new THREE.Vector3());
 
-  const root = new THREE.Group();
-  root.add(mesh);
-  root.updateMatrixWorld(true);
+    expect(worldAfter.x).toBeCloseTo(worldBefore.x, 5);
+    expect(worldAfter.y).toBeCloseTo(worldBefore.y, 5);
+    expect(worldAfter.z).toBeCloseTo(worldBefore.z, 5);
+  });
+});
 
-  const vrm = {
-    scene: root,
-    humanoid: {
-      getRawBoneNode: (name: string) =>
-        name === 'hips' ? bones[0] : name === 'spine' ? bones[1] : null,
-    },
-  } as unknown as VRM;
+describe('humanoidBoneFor', () => {
+  it('resolves a humanoid bone directly, and a non-humanoid child up to it', () => {
+    const hips = new THREE.Bone();
+    const spine = new THREE.Bone();
+    const sleeve = new THREE.Bone(); // non-humanoid accessory bone under spine
+    hips.add(spine);
+    spine.add(sleeve);
 
-  return { candidate: { nodeId: 'avatar-1', vrm }, root };
-}
+    const vrm = {
+      humanoid: {
+        getRawBoneNode: (name: string) =>
+          name === 'hips' ? hips : name === 'spine' ? spine : null,
+      },
+    } as unknown as VRM;
 
-describe('pickBoneForDrop', () => {
-  it('resolves the highest-weight humanoid bone under the drop', () => {
-    const { candidate } = makeSkinnedAvatar();
-
-    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-    camera.position.set(0, 0, 5);
-    camera.lookAt(0, 0, 0);
-    camera.updateMatrixWorld(true);
-    camera.updateProjectionMatrix();
-
-    // Object resting at the centre of the triangle.
-    const pick = pickBoneForDrop(camera, new THREE.Vector3(0, 0, 0), [
-      candidate,
-    ]);
-
-    expect(pick).not.toBeNull();
-    expect(pick!.avatarNodeId).toBe('avatar-1');
-    expect(pick!.boneName).toBe('spine');
+    expect(humanoidBoneFor(vrm, spine)?.name).toBe('spine');
+    // The sleeve bone isn't humanoid → resolves to its nearest humanoid ancestor.
+    expect(humanoidBoneFor(vrm, sleeve)?.name).toBe('spine');
+    expect(humanoidBoneFor(vrm, hips)?.name).toBe('hips');
   });
 
-  it('returns null when the drop lands over nothing', () => {
-    const { candidate } = makeSkinnedAvatar();
-
-    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-    camera.position.set(0, 0, 5);
-    camera.lookAt(0, 0, 0);
-    camera.updateMatrixWorld(true);
-    camera.updateProjectionMatrix();
-
-    // Object far off to the side — its projected ray misses the triangle.
-    const pick = pickBoneForDrop(camera, new THREE.Vector3(50, 50, 0), [
-      candidate,
-    ]);
-
-    expect(pick).toBeNull();
-  });
-
-  it('returns null with no candidate avatars', () => {
-    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-    camera.position.set(0, 0, 5);
-    camera.updateMatrixWorld(true);
-    camera.updateProjectionMatrix();
-    expect(
-      pickBoneForDrop(camera, new THREE.Vector3(0, 0, 0), [])
-    ).toBeNull();
+  it('returns null when the bone leaves the humanoid rig', () => {
+    const orphan = new THREE.Bone();
+    const vrm = {
+      humanoid: { getRawBoneNode: () => null },
+    } as unknown as VRM;
+    expect(humanoidBoneFor(vrm, orphan)).toBeNull();
   });
 });

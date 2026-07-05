@@ -50,7 +50,9 @@
     "uploading": "Wird hochgeladen…",
     "resolutionHint": "Feste Compose-Auflösung (px). Die Bühne wird eingepasst.",
     "snapOn": "Einrasten aktiv — Ebenen rasten an den Kanten und der Mitte des übergeordneten Elements ein. Zum Deaktivieren klicken (oder beim Ziehen Alt halten).",
-    "snapOff": "Einrasten aus. Zum Aktivieren klicken."
+    "snapOff": "Einrasten aus. Zum Aktivieren klicken.",
+    "attachOn": "Anheften-Modus aktiv — ein 3D-Objekt auf ein Modell ziehen, um es an den Knochen unter dem Ablagepunkt zu binden; frei von jedem Modell ablegen, um es auf die oberste Ebene zurückzusetzen. Zum Deaktivieren klicken (oder beim Ziehen die Umschalttaste halten).",
+    "attachOff": "Anheften-Modus aus. Zum Aktivieren klicken (oder beim Ziehen eines 3D-Objekts die Umschalttaste halten)."
   },
   "sceneProps": {
     "resolution": "Auflösung",

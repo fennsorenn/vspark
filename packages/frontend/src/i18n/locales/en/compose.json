@@ -50,7 +50,9 @@
     "uploading": "Uploading…",
     "resolutionHint": "Fixed compose resolution (px). The stage scales to fit.",
     "snapOn": "Snapping on — layers snap to the parent's edges & centre. Click to disable (or hold Alt while dragging).",
-    "snapOff": "Snapping off. Click to enable."
+    "snapOff": "Snapping off. Click to enable.",
+    "attachOn": "Attach mode on — drag a 3D object onto a model to bind it to the bone under the drop; drop it clear of any model to send it back to top level. Click to disable (or hold Shift while dragging).",
+    "attachOff": "Attach mode off. Click to enable (or hold Shift while dragging a 3D object)."
   },
   "sceneProps": {
     "resolution": "Resolution",

@@ -25,7 +25,7 @@ import {
 } from './composeHitTest';
 import { api } from '../../api/client';
 import { uniqueName } from './createKinds';
-import { Magnet } from 'lucide-react';
+import { Magnet, Bone } from 'lucide-react';
 
 /** Fallback canonical compose resolution when a scene has none set. */
 export const DEFAULT_COMPOSE_WIDTH = 1920;
@@ -163,6 +163,8 @@ export function ComposeView() {
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
   const snapEnabled = useEditorStore((s) => s.composeSnapEnabled);
   const setSnapEnabled = useEditorStore((s) => s.setComposeSnapEnabled);
+  const attachEnabled = useEditorStore((s) => s.composeAttachEnabled);
+  const setAttachEnabled = useEditorStore((s) => s.setComposeAttachEnabled);
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
   );
@@ -414,6 +416,24 @@ export function ComposeView() {
           }}
         >
           <Magnet size={13} />
+        </button>
+        <button
+          className="vs-compose-attach-toggle"
+          onClick={() => setAttachEnabled(!attachEnabled)}
+          title={attachEnabled ? t('view.attachOn') : t('view.attachOff')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: attachEnabled ? '#4a9eff' : '#555',
+            fontSize: 11,
+            padding: '2px 4px',
+          }}
+        >
+          <Bone size={13} />
         </button>
         <span
           style={{ fontSize: 11, color: '#555' }}

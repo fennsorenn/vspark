@@ -93,6 +93,20 @@ das neue 3D-Objekt erscheint an ihrer Stelle durch die Kameraansicht. Praktisch,
 ein flaches Overlay in die 3D-Szene zu übernehmen, wo es wie jedes andere Objekt
 verschachtelt, animiert oder beleuchtet werden kann. Du bleibst in der Compose-Ansicht.
 
+## An einen Knochen anheften {#attach-bone}
+
+Innerhalb einer **Kameraansicht**-Ebene kannst du die dort gezeigten 3D-Objekte
+ziehen. Aktiviere den **Anheften-Modus** über die Knochen-Schaltfläche neben dem
+Einrasten-Umschalter in der Compose-Werkzeugleiste (oder halte beim Ziehen die
+**Umschalttaste**), ziehe dann ein Objekt auf ein Modell und lasse es über dem
+gewünschten Körperteil los. Das Objekt bindet sich an den Knochen, der diesen Teil
+steuert — den mit dem stärksten Einfluss dort — lege es also auf eine Hand, folgt es
+der Hand; lege es auf den Kopf, folgt es dem Kopf. Seine Bildschirmposition bleibt
+erhalten, und ab da wird seine Transformation relativ zu diesem Knochen gemessen.
+Lasse es frei von jedem Modell los, kehrt es auf die oberste Ebene der Szene zurück
+und behält dabei seine Position. So bekommst du am schnellsten ein Schwert in die
+Hand oder einen Hut auf den Kopf, ohne den Szenenbaum zu durchsuchen.
+
 ## Vorlage / Feed-Ebenen {#feed}
 
 Eine **Vorlage**-Ebene ist eine live-datengesteuerte Ebene. Sie verwendet einen

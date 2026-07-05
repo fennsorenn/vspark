@@ -5,6 +5,12 @@ import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import { getNodeGroup, listRegisteredNodeGroups } from './Viewport';
 import { sendNodeTransformPreview } from '../../hooks/useWsSync';
+import { vrmRegistry } from '../../vrmRegistry';
+import {
+  humanoidBoneFor,
+  worldToBoneLocalTransform,
+  worldTransform,
+} from './boneAttachPick';
 
 const PREVIEW_INTERVAL_MS = 33; // ~30 Hz cap on outgoing transform previews
 
@@ -279,6 +285,51 @@ export function ComposeSceneInteractions({
     const store = useEditorStore.getState();
     const node = store.nodes.find((n) => n.id === d.nodeId);
     if (!node) return;
+
+    // Attach-on-drop: with attach mode on (or Shift held), a node dropped over a
+    // model binds to the bone under it; dropped clear of any model it returns to
+    // the scene's top level. Both preserve the node's world placement.
+    const attachActive = store.composeAttachEnabled || ev.shiftKey;
+    if (attachActive) {
+      const objWorld = d.group.getWorldPosition(new THREE.Vector3());
+      const proj = objWorld.project(camera);
+      ndc.set(proj.x, proj.y);
+      wheelRay.setFromCamera(ndc, camera);
+      const bhit = pickBoneUnderRay(wheelRay.ray.clone(), d.nodeId);
+      const vrm = bhit ? vrmRegistry.get(bhit.nodeId) : null;
+      const humanoid = vrm && bhit ? humanoidBoneFor(vrm, bhit.bone) : null;
+      if (bhit && humanoid) {
+        const patch = {
+          parentId: bhit.nodeId,
+          boneAttachment: humanoid.name as string,
+          components: {
+            ...node.components,
+            transform: {
+              type: 'transform',
+              ...worldToBoneLocalTransform(d.group, humanoid.node),
+            },
+          },
+        };
+        store.updateNode(d.nodeId, patch);
+        api.updateNode(d.nodeId, patch).catch(() => {});
+        return;
+      }
+      // Missed a model: detach back to top level if it wasn't already there.
+      if (node.parentId || node.boneAttachment) {
+        const patch = {
+          parentId: null,
+          boneAttachment: null,
+          components: {
+            ...node.components,
+            transform: { type: 'transform', ...worldTransform(d.group) },
+          },
+        };
+        store.updateNode(d.nodeId, patch);
+        api.updateNode(d.nodeId, patch).catch(() => {});
+        return;
+      }
+    }
+
     const p = d.group.position;
     const r = d.group.rotation;
     const s = d.group.scale;
@@ -760,6 +811,68 @@ export function ComposeSceneInteractions({
       }
     }
     return hits[0] ?? null;
+  };
+
+  /** Find the skeleton bone whose per-bone box the ray hits closest, across all
+   *  registered node groups except `excludeNodeId`. Reuses the same per-bone OBB
+   *  bins the picker builds, so "the bone that steers the part it was dropped on"
+   *  is exactly the highest-skin-weight bone under the drop. Returns the owning
+   *  node id + the skeleton bone, or null when the ray hits no model. */
+  const pickBoneUnderRay = (
+    ray: THREE.Ray,
+    excludeNodeId: string
+  ): { nodeId: string; bone: THREE.Object3D } | null => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return null;
+    const prefilterHit = new THREE.Vector3();
+    // Collect into an array (rather than a mutable `best` closed over by the
+    // traverse callback) so TS control-flow narrowing stays sound.
+    const hits: { nodeId: string; bone: THREE.Object3D; dist: number }[] = [];
+    for (const [nodeId, group] of listRegisteredNodeGroups()) {
+      if (nodeId === excludeNodeId) continue;
+      let inside = false;
+      let p: THREE.Object3D | null = group;
+      while (p) {
+        if (p === wrapper) {
+          inside = true;
+          break;
+        }
+        p = p.parent;
+      }
+      if (!inside) continue;
+
+      group.updateMatrixWorld(true);
+      // Prefilter (also lazily builds the per-bone boxes via userData cache).
+      if (!computeMeshAabb(group, aabb)) continue;
+      if (
+        !aabb.containsPoint(ray.origin) &&
+        !ray.intersectBox(aabb, prefilterHit)
+      )
+        continue;
+
+      group.traverseVisible((o) => {
+        const mesh = o as THREE.SkinnedMesh;
+        if (
+          (mesh as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh !== true
+        )
+          return;
+        const bb = (
+          mesh.userData as {
+            __composeBoneBoxes?: BoneBoxes | null;
+          }
+        ).__composeBoneBoxes;
+        if (!bb || !mesh.skeleton) return;
+        for (let i = 0; i < bb.boneIndices.length; i++) {
+          const bone = mesh.skeleton.bones[bb.boneIndices[i]];
+          if (!bone) continue;
+          const d = rayVsObb(ray, bone.matrixWorld, bb.localBoxes[i]);
+          if (d > 0) hits.push({ nodeId, bone, dist: d });
+        }
+      });
+    }
+    if (hits.length === 0) return null;
+    hits.sort((a, b) => a.dist - b.dist);
+    return { nodeId: hits[0].nodeId, bone: hits[0].bone };
   };
 
   const customRaycast = (

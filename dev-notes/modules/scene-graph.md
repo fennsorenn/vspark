@@ -209,13 +209,18 @@ Filters nodes to the active scene and optional exclusions. Recursively renders t
 
 `BoneAttacher` is a component whose effect imperatively parents a node's group into the matching VRM bone node **without touching the group's local transform** — the node's own position/rotation/scale (applied declaratively) become bone-local, so it keeps its offset relative to the bone. This means bone-attached nodes (e.g., a prop on the right hand) follow skeleton motion without being part of the VRM's own bone hierarchy.
 
-### Attach-on-drop (stage attach mode)
+### Attach-on-drop (compose attach mode)
 
-Props can be bound to an avatar bone directly in the 3D viewport by dropping them onto a model, without going through the SceneGraph tree. `TransformGizmo.onEnd` (`Viewport.tsx`) intercepts a **translate**-gizmo release when **`stageAttachEnabled`** is on **or Shift is held**: if the dropped object rests over a model it patches the node with `{ parentId: avatarNodeId, boneAttachment: boneName, components.transform: <bone-local> }` (via the store + `api.updateNode`), reusing the existing bone-attachment render path (`renderNodeElement`'s bone-followers + `BoneAttacher`). Avatars never attach to themselves.
+Inside a **camera-view** compose layer you can drag the 3D scene objects it shows (`ComposeSceneInteractions`, the compose 3D drag/pick layer). When **`composeAttachEnabled`** is on **or Shift is held**, `ComposeSceneInteractions.onUp` (the drop) rebinds the dragged node instead of just persisting its position:
 
-- **`stageAttachEnabled`** is a store flag (`setStageAttachEnabled`) persisted to `localStorage` key `vspark.stageAttach`, **default OFF** (deliberate mode). The viewport bottom-left toolbar carries an `AttachToggle` (Bone icon, class `vs-stage-attach-toggle`) next to the gizmo + audio toggles; i18n keys `viewport.attach.on/off`.
-- **Bone-picking math lives in [`components/editor/boneAttachPick.ts`](../../packages/frontend/src/components/editor/boneAttachPick.ts) — the extension point.** `pickBoneForDrop(camera, objectWorldPos, candidates, raycaster?)` raycasts from the camera through the dropped object's world position onto each candidate VRM's skinned meshes, takes the nearest vertex of the hit triangle, reads its highest-weight bone (`skinIndex`/`skinWeight`), and resolves that up the parent chain to the nearest VRM humanoid bone (so sleeve/twist bones map to their humanoid ancestor). Returns `null` when the drop lands over no model (normal free move). `worldToBoneLocalTransform(object, boneNode)` converts the object's world transform into the bone's local space so reparenting preserves world placement.
-- User-facing help: "Attach to a bone" `{#attach-bone}` section in `help/content/{en,de}/scene.md`. Unit tests: `packages/frontend/test/boneAttachPick.test.ts`.
+- **Dropped over a model** → parent it to the bone under the drop: `{ parentId: avatarNodeId, boneAttachment: boneName, components.transform: <bone-local> }`, reusing the existing render path (`renderNodeElement`'s bone-followers + `BoneAttacher`).
+- **Dropped clear of any model** → if it was attached/non-top-level, detach back to top level (`parentId: null, boneAttachment: null`, transform = world).
+
+Both preserve world placement. The bone is found by `pickBoneUnderRay` (in `ComposeSceneInteractions`), which reuses the picker's **per-bone OBB bins** (`buildBoneBoxes` bins each vertex into its highest-skin-weight bone) — so "the bone that steers the part it was dropped on" falls straight out of the existing precise picker. The ray is cast from the camera-view's camera through the dropped object's projected world position.
+
+- **`composeAttachEnabled`** is a store flag (`setComposeAttachEnabled`) persisted to `localStorage` key `vspark.composeAttach`, **default OFF**. The compose toolbar carries a `vs-compose-attach-toggle` (Bone icon) next to the snap toggle; i18n keys `compose:view.attachOn/attachOff`.
+- **Shared bone math lives in [`components/editor/boneAttachPick.ts`](../../packages/frontend/src/components/editor/boneAttachPick.ts) — the extension point.** `humanoidBoneFor(vrm, bone)` resolves an arbitrary skeleton bone up its parent chain to the nearest VRM humanoid bone (so sleeve/twist bones map to their humanoid ancestor). `worldToBoneLocalTransform(object, boneNode)` converts a world transform into bone-local space (attach); `worldTransform(object)` decomposes the world matrix (detach → top level). Unit tests: `packages/frontend/test/boneAttachPick.test.ts`.
+- User-facing help: "Attach to a bone" `{#attach-bone}` section in `help/content/{en,de}/compose.md`.
 
 ## Transform update flow
 
