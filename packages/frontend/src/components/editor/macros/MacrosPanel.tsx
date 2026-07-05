@@ -14,6 +14,7 @@ import {
   listAllParamPaths,
 } from '@vspark/shared/paramPaths';
 import { useEditorStore } from '../../../store/editorStore';
+import { HelpButton } from '../../../help/HelpButton';
 import { useMacros } from './useMacros';
 import { MACRO_ACTION_DEFS, macroActionById } from './actionRegistry';
 import { comboFromKeyboardEvent, formatCombo } from './keymap';
@@ -374,7 +375,10 @@ export function MacrosPanel() {
           borderBottom: '1px solid #222',
         }}
       >
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#ccc' }}>{t('title')}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#ccc' }}>{t('title')}</span>
+          <HelpButton topic="logic" anchor="macros" size={12} />
+        </div>
         <button
           className="vs-macro-add"
           onClick={() => void onAdd()}
