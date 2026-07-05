@@ -15,6 +15,7 @@ import {
   worldTransform,
   dominantBoneForHit,
 } from './boneAttachPick';
+import { objectWorldCenter, rotateAroundWorldAxis } from './composeRotate';
 
 const PREVIEW_INTERVAL_MS = 33; // ~30 Hz cap on outgoing transform previews
 
@@ -54,34 +55,11 @@ const DRAG_ROTATE_SENS = 0.01; // radians per pixel of Ctrl-drag rotation
 const wheelRay = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 
-// Scratch for world-axis rotation.
-const _qDelta = new THREE.Quaternion();
-const _qWorld = new THREE.Quaternion();
-const _qParent = new THREE.Quaternion();
+// Scratch for the camera axes + pivot centre the rotation gestures spin around.
 const _rotAxis = new THREE.Vector3();
 const _camRight = new THREE.Vector3();
 const _camUp = new THREE.Vector3();
-
-/** Rotate `obj` in place around a world-space `axis` by `angle` (radians), about
- *  the object's own origin (its centre). Updates only orientation, writing back
- *  the local quaternion that yields the intended world rotation regardless of any
- *  parent transform. */
-function rotateAroundWorldAxis(
-  obj: THREE.Object3D,
-  axis: THREE.Vector3,
-  angle: number
-): void {
-  if (angle === 0) return;
-  // Refresh matrixWorld from local first so chained rotations (yaw then pitch in
-  // one move, or several moves per frame) read the accumulated transform rather
-  // than a stale one from the last render.
-  obj.updateWorldMatrix(true, false);
-  _qDelta.setFromAxisAngle(axis, angle);
-  obj.getWorldQuaternion(_qWorld).premultiply(_qDelta);
-  if (obj.parent) obj.parent.getWorldQuaternion(_qParent).invert();
-  else _qParent.identity();
-  obj.quaternion.copy(_qParent.multiply(_qWorld));
-}
+const _center = new THREE.Vector3();
 
 /** Traverse `root`'s visible subtree without descending into any object listed
  *  in `skip` — used so a node's mesh scan stops at nested registered groups
@@ -342,8 +320,9 @@ export function ComposeSceneInteractions({
       const e = camera.matrixWorld.elements;
       _camRight.set(e[0], e[1], e[2]).normalize();
       _camUp.set(e[4], e[5], e[6]).normalize();
-      rotateAroundWorldAxis(d.group, _camUp, dx * DRAG_ROTATE_SENS);
-      rotateAroundWorldAxis(d.group, _camRight, dy * DRAG_ROTATE_SENS);
+      objectWorldCenter(d.group, _center);
+      rotateAroundWorldAxis(d.group, _camUp, dx * DRAG_ROTATE_SENS, _center);
+      rotateAroundWorldAxis(d.group, _camRight, dy * DRAG_ROTATE_SENS, _center);
       emitPreview(d.nodeId, d.group);
       syncToStore(d.nodeId, d.group);
       return;
@@ -718,7 +697,8 @@ export function ComposeSceneInteractions({
 
     if (st.vel !== 0) {
       camera.getWorldDirection(_rotAxis);
-      rotateAroundWorldAxis(group, _rotAxis, st.vel * dt);
+      objectWorldCenter(group, _center);
+      rotateAroundWorldAxis(group, _rotAxis, st.vel * dt, _center);
       emitPreview(st.nodeId, group);
       syncToStore(st.nodeId, group);
     }
