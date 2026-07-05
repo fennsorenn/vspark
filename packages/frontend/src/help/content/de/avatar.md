@@ -99,6 +99,10 @@ getrennt von der **Leerlauf-Animation**. Bei Tracking-Verlust fällt der Avatar
 auf den Leerlauf zurück. Ohne gesetzte Basis-Animation dient der Leerlauf als
 Basis.
 
+Beide Schleifen lassen sich direkt im **Assets**-Panel zuweisen: bei
+ausgewähltem Avatar zeigt jeder Animations-Clip die Schaltflächen **Als Idle
+setzen** und **Als Basis setzen**.
+
 > Hinweis: Beine per Tracking brauchen eine Ganzkörperquelle (ein Ganzkörper-
 > VMC-Sender). Webcam-Tracking sendet noch keine Beine — nutze bei einer Webcam
 > also **Anim** für die Beine und **Track** für den Oberkörper.

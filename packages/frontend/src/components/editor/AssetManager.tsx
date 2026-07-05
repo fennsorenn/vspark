@@ -494,6 +494,29 @@ export function AssetManager() {
     }
   };
 
+  // Set the clip as the avatar's *base* animation — the loop live tracking
+  // stacks onto (properties.animation.base), distinct from the idle. Mirrors the
+  // Properties panel's base-animation edit path (url shape, replaces base
+  // wholesale so no stale clipId lingers).
+  const handleApplyAnimationAsBase = async (asset: AssetFile) => {
+    if (!selectedNode) return;
+    const prevProps = (selectedNode.properties as Record<string, unknown>) ?? {};
+    const prevAnim =
+      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
+    const prevSpeed =
+      (prevAnim.base as { speed?: number } | undefined)?.speed ?? 1;
+    const properties = {
+      ...prevProps,
+      animation: { ...prevAnim, base: { url: asset.url, speed: prevSpeed } },
+    };
+    try {
+      await api.updateNode(selectedNode.id, { properties });
+      storeUpdateNode(selectedNode.id, { properties });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
+    }
+  };
+
   const handleDelete = async (asset: AssetFile) => {
     try {
       await api.deleteAsset(asset.id);
@@ -1262,14 +1285,32 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={t('actions.applyAnimTitle', {
+                            title={t('actions.applyAnimIdleTitle', {
                               name: selectedNode!.name,
                             })}
                             onClick={() => handleApplyAnimation(asset)}
                           >
-                            {t('actions.applyToNode', {
+                            {t('actions.applyAnimIdle')}
+                          </button>
+                        )}
+                        {asset.kind === 'animation' && canApplyAnim && (
+                          <button
+                            className="vs-asset-apply-animation-base"
+                            style={{
+                              background: '#2a2a4a',
+                              border: 'none',
+                              color: '#99c',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={t('actions.applyAnimBaseTitle', {
                               name: selectedNode!.name,
                             })}
+                            onClick={() => handleApplyAnimationAsBase(asset)}
+                          >
+                            {t('actions.applyAnimBase')}
                           </button>
                         )}
                         {asset.kind === 'animation' && !canApplyAnim && (

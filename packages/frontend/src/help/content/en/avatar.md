@@ -94,6 +94,9 @@ stacks onto while a tracking source is connected — separate from the **Idle
 animation**. When tracking drops, the avatar falls back to the idle. If you
 don't set a base animation, the idle doubles as the base.
 
+You can assign either loop straight from the **Assets** panel: with the avatar
+selected, each animation clip shows **Set as idle** and **Set as base** buttons.
+
 > Note: driving the **legs** from tracking needs a full-body tracking source
 > (a full-body VMC sender). Webcam tracking doesn't send legs yet, so with a
 > webcam use **Anim** for the legs and **Track** for the upper body.
