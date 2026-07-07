@@ -164,7 +164,7 @@ async function start() {
   const lipsyncManager = new LipsyncManager();
   setLipsyncManager(lipsyncManager);
 
-  const trackingManager = new TrackingManager();
+  const trackingManager = new TrackingManager(wsSync);
   setTrackingManager(trackingManager);
 
   const apiControllerManager = new ApiControllerManager();

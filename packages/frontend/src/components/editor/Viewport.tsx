@@ -2525,11 +2525,21 @@ function AvatarNode({
       vrm?.humanoid.resetNormalizedPose();
     }
     poseWasActiveRef.current = poseActive;
-    // Drive the reactive `trackingActive` (render-time) so the base⇄idle loop
-    // swaps when a source connects / drops. Only fires on the actual transition.
-    if (poseActive !== trackingActiveRef.current) {
-      trackingActiveRef.current = poseActive;
-      setTrackingActive(poseActive);
+    // Base⇄idle swap keys off whether a genuine *tracking* source (VMC /
+    // MediaPipe) is live for this node, NOT off raw pose presence. Ambient
+    // producers like breathing keep publishing a pose forever, so `poseActive`
+    // stays true even after real tracking drops — using it here would pin the
+    // avatar to the base loop and never fall back to idle. Tracking sources
+    // emit `vmc_tracking_state` (→ store.vmcTracking); ambient ones don't, so
+    // they can't mask a loss. `blend` still follows poseActive below, so the
+    // ambient pose keeps applying while the animation swaps to idle.
+    const store = useEditorStore.getState();
+    const trackingLive = store.behaviors.some(
+      (b) => b.nodeId === node.id && store.vmcTracking[b.id] === true
+    );
+    if (trackingLive !== trackingActiveRef.current) {
+      trackingActiveRef.current = trackingLive;
+      setTrackingActive(trackingLive);
     }
 
     // Ramp blend weight: 0 = pure animation, 1 = pure broadcast pose.
