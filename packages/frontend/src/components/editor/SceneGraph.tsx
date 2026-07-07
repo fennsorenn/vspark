@@ -1091,9 +1091,13 @@ function BehaviorsSection({
       {components.map((comp) => {
         const ct = behaviorKinds.find((c) => c.kind === comp.kind);
         const isSelected = selectedBehaviorId === comp.id;
-        const hasStatus = comp.kind === 'vmc_receiver';
-        const isConnected = hasStatus && vmcStatus[comp.id] === true;
-        const isTracking = hasStatus && vmcTracking[comp.id] === true;
+        // VMC has a UDP connection dot; both VMC and MediaPipe have a tracking
+        // dot (MediaPipe is browser-driven, so it has no connection concept).
+        const hasConnection = comp.kind === 'vmc_receiver';
+        const hasTracking =
+          comp.kind === 'vmc_receiver' || comp.kind === 'mediapipe_tracker';
+        const isConnected = hasConnection && vmcStatus[comp.id] === true;
+        const isTracking = hasTracking && vmcTracking[comp.id] === true;
         return (
           <div
             key={comp.id}
@@ -1122,43 +1126,44 @@ function BehaviorsSection({
             >
               {ct?.label ?? comp.kind}
             </span>
-            {hasStatus && (
-              <>
-                <span
-                  title={
-                    isConnected ? t('vmc.clientConnected') : t('vmc.noClient')
-                  }
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    flexShrink: 0,
-                    background: isConnected ? '#4ade80' : '#444',
-                    boxShadow: isConnected ? '0 0 4px #4ade80' : 'none',
-                  }}
-                />
-                <span
-                  title={
-                    isConnected
-                      ? isTracking
-                        ? t('vmc.trackingActive')
-                        : t('vmc.trackingLost')
-                      : t('vmc.notConnected')
-                  }
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    flexShrink: 0,
-                    background: !isConnected
+            {hasConnection && (
+              <span
+                title={
+                  isConnected ? t('vmc.clientConnected') : t('vmc.noClient')
+                }
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  background: isConnected ? '#4ade80' : '#444',
+                  boxShadow: isConnected ? '0 0 4px #4ade80' : 'none',
+                }}
+              />
+            )}
+            {hasTracking && (
+              <span
+                title={
+                  hasConnection && !isConnected
+                    ? t('vmc.notConnected')
+                    : isTracking
+                      ? t('vmc.trackingActive')
+                      : t('vmc.trackingLost')
+                }
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  background:
+                    hasConnection && !isConnected
                       ? '#444'
                       : isTracking
                         ? '#facc15'
                         : '#555',
-                    boxShadow: isTracking ? '0 0 4px #facc15' : 'none',
-                  }}
-                />
-              </>
+                  boxShadow: isTracking ? '0 0 4px #facc15' : 'none',
+                }}
+              />
             )}
             <button
               title={
