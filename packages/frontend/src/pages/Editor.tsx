@@ -11,7 +11,7 @@ import { useWsSync } from '../hooks/useWsSync';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
 import { useSharedSubscriptions } from '../hooks/useSharedSubscriptions';
 import { useClientMesh } from '../hooks/useClientMesh';
-import { initMeshPeer } from '../mesh/peer';
+import { initMeshPeer, meshUndo, meshRedo } from '../mesh/peer';
 import { startMeshProjection } from '../sync/meshProjection';
 import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import { TopBar } from '../components/editor/TopBar';
@@ -95,6 +95,20 @@ export function Editor() {
     const state = useEditorStore.getState();
     if (!state.projectId || !state.activeSceneId) return;
     if (!e.ctrlKey && !e.metaKey) return;
+
+    // Undo / redo (mesh-native, tab peer). Ctrl/Cmd+Z undoes; Ctrl+Shift+Z and
+    // Ctrl+Y redo. Shift uppercases e.key, so compare case-insensitively.
+    const k = e.key.toLowerCase();
+    if (k === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      meshUndo();
+      return;
+    }
+    if ((k === 'z' && e.shiftKey) || k === 'y') {
+      e.preventDefault();
+      meshRedo();
+      return;
+    }
 
     if (e.key === 'c') {
       const rootKind = state.selectedComposeLayerId

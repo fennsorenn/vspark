@@ -55,3 +55,11 @@ softer fill light for a flattering look.
 The **Compose** view places 2D layers — overlays, images, browser sources, your
 webcam frame — in front of or behind the 3D render. This is where you build the
 final framing for your stream, independent of the 3D scene itself.
+
+## Undo & redo {#undo}
+
+The **↶** and **↷** buttons in the top bar (or **Ctrl+Z** / **Ctrl+Shift+Z**,
+**Ctrl+Y** to redo) step your recent edits backward and forward. Undo works per
+action — one press reverses one change. In a shared session, undo only affects
+*your own* edits, and it steps aside safely if a collaborator has changed the
+same thing in the meantime, so it never quietly overwrites their work.

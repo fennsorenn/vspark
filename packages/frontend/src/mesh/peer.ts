@@ -15,6 +15,7 @@ import {
   createMeshPeer,
   type Collection,
   type MeshPeer,
+  type UndoStatus,
 } from '@vspark/mesh';
 import { WsBackendTransport } from '@vspark/mesh-transports/wsClient';
 import { makeClientParticipantId } from '@vspark/shared/sync';
@@ -97,6 +98,40 @@ export function getMeshHandles(): MeshHandles | null {
 
 let _handles: MeshHandles | null = null;
 
+// --- undo/redo (tab peer) ----------------------------------------------------
+//
+// Mesh-native undo lives on the peer that AUTHORS the committed write. Once a UI
+// write path flows through this tab peer's collections (the open "writes →
+// collection.set" migration), the action is logged here and undo/redo work with
+// no extra wiring. Until then canUndo/canRedo stay false and the TopBar buttons
+// are (correctly) disabled — the plumbing below is what those writes light up.
+
+let _undoStatus: UndoStatus = { canUndo: false, canRedo: false };
+const _undoObservers = new Set<(s: UndoStatus) => void>();
+
+/** Undo this tab's last committed mesh action. No-op (false) if nothing to undo. */
+export function meshUndo(): boolean {
+  return _handles?.peer.undo() ?? false;
+}
+
+/** Redo the last undone action. No-op (false) if nothing to redo. */
+export function meshRedo(): boolean {
+  return _handles?.peer.redo() ?? false;
+}
+
+/** Current undo/redo availability (button enablement). */
+export function getMeshUndoStatus(): UndoStatus {
+  return _undoStatus;
+}
+
+/** Subscribe to undo/redo availability changes. Fires immediately with the
+ *  current status and on every subsequent transition. */
+export function onMeshUndoChange(cb: (s: UndoStatus) => void): () => void {
+  _undoObservers.add(cb);
+  cb(_undoStatus);
+  return () => _undoObservers.delete(cb);
+}
+
 async function doInit(): Promise<MeshHandles> {
   const res = await fetch('/api/mesh/identity');
   const { serverPeerId } = (await res.json()) as { serverPeerId: string };
@@ -119,6 +154,14 @@ async function doInit(): Promise<MeshHandles> {
       parent: PARENTS[rtype],
       authority: serverPeerId,
     });
+
+  // Bridge the peer's undo/redo availability to the module-level observers the
+  // TopBar/keybindings subscribe to.
+  _undoStatus = peer.undoStatus();
+  peer.onUndoChange((s) => {
+    _undoStatus = s;
+    for (const cb of _undoObservers) cb(s);
+  });
 
   // Subscribe to every document rtype; re-arm after each reconnect (the peer
   // marks outgoing subscriptions stale on disconnect — they don't auto-renew).
