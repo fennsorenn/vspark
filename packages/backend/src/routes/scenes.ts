@@ -3,8 +3,19 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { broadcastBus } from '../broadcast/bus.js';
 import { _ws } from './shared.js';
-import { sync } from '../sync/index.js';
+import { getMeshCollection } from '../mesh/index.js';
+import { getResource } from '../sync/registry.js';
 import { multiplayerManager } from '../multiplayer/manager.js';
+
+/** Mirror a freshly-persisted row into the mesh store (§10 write-through): the
+ *  onCommitted tap re-persists (idempotent upsert) + emits the canonical
+ *  sync.document upsert, and the write fans out to mesh subscribers (tabs,
+ *  collab peers) with one HLC stamp. Replaces the old `sync.document.touch`. */
+function mirrorRow(rtype: string, id: string): void {
+  const col = getMeshCollection(rtype);
+  const dto = getResource(rtype)?.load?.(id);
+  if (col && dto) col.set(id, '', dto);
+}
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -308,10 +319,12 @@ router.post('/projects/:projectId/scenes', (req, res) => {
     ).run(cameraViewId, projectId, composeSceneId, camId);
   }
 
-  // Mirror the created rows into the unified sync layer (mesh bridge + share
-  // fan-out). `touch` skips the local WS broadcast — clients load via REST.
-  for (const nid of createdNodeIds) sync.document.touch('scene_node', nid);
-  for (const lid of createdLayerIds) sync.document.touch('compose_layer', lid);
+  // Write the created rows through the mesh store so they fan out to tabs +
+  // collab/share subscribers and the containment index/collab routing stay
+  // current. Scene root is first in createdNodeIds, so its containment entry
+  // exists before the camera/lights that hang off it.
+  for (const nid of createdNodeIds) mirrorRow('scene_node', nid);
+  for (const lid of createdLayerIds) mirrorRow('compose_layer', lid);
 
   res
     .status(201)
@@ -392,9 +405,10 @@ router.put('/scenes/:sceneId', (req, res) => {
     patch.runtimeSettings = JSON.parse(updated.properties || '{}');
   }
   _ws?.broadcast('scene_updated', patch);
-  // Mirror into the unified sync layer (mesh bridge + share fan-out) without
-  // re-broadcasting locally — clients already got scene_updated above.
-  sync.document.touch('scene_node', sceneId);
+  // Mirror the canonical doc through the mesh store (clients already got the
+  // smoothing-aware scene_updated patch above; this keeps the replica + fan-out
+  // in sync).
+  mirrorRow('scene_node', sceneId);
 
   res.json({ ok: true, data: patch });
 });
@@ -447,6 +461,14 @@ router.delete('/scenes/:sceneId', (req, res) => {
   // 018 migration rebuild), so delete explicitly with enforcement off.
   db.exec('PRAGMA foreign_keys = OFF');
   try {
+    // Remove every scene node through the mesh store FIRST (while the rows
+    // still exist, so the persist tap's `persists` guard doesn't early-return):
+    // the tap deletes each row, persists its HLC tombstone, and emits the
+    // canonical remove so the replica + containment index + collab/share
+    // fan-out drop the scene. FK enforcement is off, so a parent remove can't
+    // cascade-delete a sibling out from under a later remove.
+    const nodeCol = getMeshCollection('scene_node');
+    for (const nid of nodeIds) nodeCol?.remove(nid);
     for (const nid of nodeIds) {
       db.prepare('DELETE FROM behaviors WHERE node_id = ?').run(nid);
       db.prepare('DELETE FROM camera_effects WHERE node_id = ?').run(nid);
@@ -457,7 +479,8 @@ router.delete('/scenes/:sceneId', (req, res) => {
       // Track clips owned by this node (scene root included).
       db.prepare('DELETE FROM track_clips WHERE owner_node_id = ?').run(nid);
     }
-    // All nodes belonging to this scene (descendants + the scene node itself).
+    // Safety net: drop any scene_nodes row the store remove missed (e.g. the
+    // mesh store not yet initialised in a bare context).
     db.prepare('DELETE FROM scene_nodes WHERE root_scene_node_id = ?').run(
       sceneId
     );
@@ -466,9 +489,6 @@ router.delete('/scenes/:sceneId', (req, res) => {
   }
 
   _ws?.broadcast('scene_removed', { id: sceneId });
-  // Tombstone every deleted node in the unified sync layer (mesh bridge +
-  // share fan-out) — otherwise the mesh replica keeps the scene alive.
-  for (const nid of nodeIds) sync.document.remove('scene_node', nid);
   res.json({ ok: true, data: {} });
 });
 
