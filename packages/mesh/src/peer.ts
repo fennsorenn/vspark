@@ -53,6 +53,33 @@ export interface MeshPeerConfig {
   subscribeTimeoutMs?: number;
   /** Wall-clock source for the peer-clock sampler (tests inject skew). */
   now?: () => number;
+  /** Undo/redo log config. `depth` caps the per-peer stack (default 100);
+   *  `policy` 'guarded' (default) skips an inverse when the doc's current
+   *  committed value diverged from what this peer last left it at (a
+   *  collaborator edited it since), 'naive' always applies (last-writer-wins). */
+  undo?: { depth?: number; policy?: UndoPolicy };
+}
+
+export type UndoPolicy = 'guarded' | 'naive';
+
+/** Kind of committed action recorded in the undo-log. */
+export type UndoOp = 'created' | 'removed' | 'modified';
+
+/** One reversible committed action on one document (per-peer undo-log entry).
+ *  `before`/`after` are the committed (retained-channel, overlay-free) doc
+ *  values around the action — `before === undefined` ⇒ created,
+ *  `after === undefined` ⇒ removed. */
+export interface UndoEntry {
+  rtype: string;
+  id: string;
+  op: UndoOp;
+  before: unknown;
+  after: unknown;
+}
+
+export interface UndoStatus {
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 export interface MeshStatus {
@@ -77,6 +104,10 @@ interface PendingAck {
   pre: DocState<Record<string, unknown>>;
   timer: ReturnType<typeof setTimeout>;
   resolve: (o: WriteOutcome) => void;
+  /** Pending undo-log entry: pushed onto the undo stack only once the write is
+   *  confirmed (acked/corrected), discarded on reject/timeout, so a rolled-back
+   *  optimistic write never leaves a bogus undo action. */
+  undo?: UndoEntry;
 }
 
 interface OutSub {
@@ -141,11 +172,23 @@ export class MeshPeer implements PeerCore {
   private readonly clocks = new Map<string, ClockState>();
   private readonly now: () => number;
 
+  /** Per-peer undo/redo log (committed writes only). */
+  private readonly undoStack: UndoEntry[] = [];
+  private readonly redoStack: UndoEntry[] = [];
+  private readonly undoDepth: number;
+  private readonly undoPolicy: UndoPolicy;
+  /** While replaying an inverse (undo) or forward (redo), local committed
+   *  writes are NOT recorded — the stacks are moved explicitly instead. */
+  private replayMode: 'none' | 'undo' | 'redo' = 'none';
+  private readonly undoObservers: ((s: UndoStatus) => void)[] = [];
+
   constructor(cfg: MeshPeerConfig) {
     this.cfg = cfg;
     this.id = cfg.identity.peerId;
     this.clock = new HlcClock(this.id);
     this.now = cfg.now ?? (() => Date.now());
+    this.undoDepth = cfg.undo?.depth ?? 100;
+    this.undoPolicy = cfg.undo?.policy ?? 'guarded';
     this.transports = [];
     for (const t of cfg.transports ?? []) this.addTransport(t);
   }
@@ -236,6 +279,119 @@ export class MeshPeer implements PeerCore {
       peers: [...this.links.keys()].map((id) => ({ id })),
       pendingAcks: this.pendingAcks.size,
     };
+  }
+
+  // --- undo / redo ------------------------------------------------------------
+  //
+  // Per-peer, committed-only. Every committed write this peer authors logs a
+  // { before, after } entry (see localWrite). `undo()` re-emits the inverse as
+  // a fresh committed write — so propagation, persistence, and collaboration-
+  // safety fall out of the normal write path + HLC LWW, with no bespoke
+  // protocol. Preview/ephemeral writes are never logged (the commit is the
+  // action boundary), so gizmo-drag coalescing is a non-issue.
+
+  canUndo(): boolean {
+    return this.undoStack.length > 0;
+  }
+
+  canRedo(): boolean {
+    return this.redoStack.length > 0;
+  }
+
+  undoStatus(): UndoStatus {
+    return { canUndo: this.canUndo(), canRedo: this.canRedo() };
+  }
+
+  /** Re-emit the inverse of this peer's last committed action as a fresh
+   *  committed write. Returns false when there's nothing to undo, the target
+   *  collection is gone, or (guarded policy) a collaborator has since changed
+   *  the doc — in which case the action is consumed without applying. */
+  undo(): boolean {
+    const entry = this.undoStack.pop();
+    if (!entry) return false;
+    const col = this.collections.get(entry.rtype);
+    if (col && this.policyAllows(col, entry.id, entry.after)) {
+      this.replay('undo', () => this.applyInverse(col, entry));
+      this.redoStack.push(entry);
+      this.notifyUndoObservers();
+      return true;
+    }
+    this.notifyUndoObservers();
+    return false;
+  }
+
+  /** Re-apply the last undone action (forward direction). Same policy gate as
+   *  `undo`, checked against the value the undo restored. */
+  redo(): boolean {
+    const entry = this.redoStack.pop();
+    if (!entry) return false;
+    const col = this.collections.get(entry.rtype);
+    if (col && this.policyAllows(col, entry.id, entry.before)) {
+      this.replay('redo', () => this.applyForward(col, entry));
+      this.undoStack.push(entry);
+      this.notifyUndoObservers();
+      return true;
+    }
+    this.notifyUndoObservers();
+    return false;
+  }
+
+  /** Drop the whole undo/redo history (e.g. on project/scene switch). */
+  clearUndoHistory(): void {
+    if (!this.undoStack.length && !this.redoStack.length) return;
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+    this.notifyUndoObservers();
+  }
+
+  /** Fire on every change to `canUndo`/`canRedo` (button enablement). */
+  onUndoChange(cb: (s: UndoStatus) => void): () => void {
+    this.undoObservers.push(cb);
+    return () => {
+      const i = this.undoObservers.indexOf(cb);
+      if (i >= 0) this.undoObservers.splice(i, 1);
+    };
+  }
+
+  private pushUndo(entry: UndoEntry): void {
+    this.undoStack.push(entry);
+    if (this.undoStack.length > this.undoDepth) this.undoStack.shift();
+    // A new committed action invalidates the redo future.
+    this.redoStack.length = 0;
+    this.notifyUndoObservers();
+  }
+
+  private replay(mode: 'undo' | 'redo', fn: () => void): void {
+    this.replayMode = mode;
+    try {
+      fn();
+    } finally {
+      this.replayMode = 'none';
+    }
+  }
+
+  /** created → remove; removed/modified → restore the prior committed doc. */
+  private applyInverse(col: AnyCollection, e: UndoEntry): void {
+    if (e.op === 'created') col.remove(e.id);
+    else col.set(e.id, '', e.before);
+  }
+
+  /** created/modified → re-apply the new doc; removed → remove again. */
+  private applyForward(col: AnyCollection, e: UndoEntry): void {
+    if (e.op === 'removed') col.remove(e.id);
+    else col.set(e.id, '', e.after);
+  }
+
+  /** Guarded policy: apply only if the doc's current committed value still
+   *  matches what this peer left it at. 'naive' always applies. */
+  private policyAllows(col: AnyCollection, id: string, expected: unknown): boolean {
+    if (this.undoPolicy !== 'guarded') return true;
+    return deepEqual(col.replica.raw(id), expected);
+  }
+
+  private notifyUndoObservers(): void {
+    const s = this.undoStatus();
+    for (const cb of [...this.undoObservers]) cb(s);
   }
 
   // --- peer clock translation ------------------------------------------------------
@@ -398,6 +554,13 @@ export class MeshPeer implements PeerCore {
     const pre = guarded ? col.replica.captureState(w.id) : undefined;
     const v = w.hydrateV ?? this.clock.tick();
 
+    // Undo-log: only genuine committed (retained-channel, non-hydrate) writes
+    // that this peer authors directly — never previews, hydration, or the
+    // inverse/forward replays of an undo/redo (those move the stacks by hand).
+    const loggable =
+      this.replayMode === 'none' && guarded && w.channel === col.retainedChannel;
+    const before = loggable ? col.replica.raw(w.id) : undefined;
+
     // For removes, routing/ancestry must be resolved before the index entry dies.
     const preRecipients =
       w.op === 'remove' ? this.recipients(col, w.id, w.path, w.channel) : undefined;
@@ -405,6 +568,10 @@ export class MeshPeer implements PeerCore {
 
     const change = col.applyOp(w.op, w.id, w.path, data, v, meta);
     if (!change) return done({ status: 'unguarded' }); // LWW no-op (stale hydrate)
+
+    const undoEntry = loggable
+      ? makeUndoEntry(col.rtype, w.id, before, col.replica.raw(w.id))
+      : undefined;
 
     const opId = guarded && authority !== 'self' ? uuid() : undefined;
     const env = this.envelope(col, { ...w, data }, v, opId);
@@ -428,12 +595,19 @@ export class MeshPeer implements PeerCore {
           current: col.get(w.id),
         });
       }
+      // Persisted locally — safe to log (or, if corrected, log the corrected
+      // value the authority actually stored).
+      if (undoEntry) {
+        if (corrected) undoEntry.after = data;
+        this.pushUndo(undoEntry);
+      }
       return done(
         corrected ? { status: 'corrected', value: data } : { status: 'acked' }
       );
     }
 
-    // Remote authority: register the pending guarded write.
+    // Remote authority: register the pending guarded write. The undo entry
+    // rides the pending record — pushed only once the authority confirms.
     const ack = new Promise<WriteOutcome>((resolve) => {
       const timer = setTimeout(
         () => this.expirePending(opId!),
@@ -447,6 +621,7 @@ export class MeshPeer implements PeerCore {
         pre: pre!,
         timer,
         resolve,
+        undo: undoEntry,
       });
     });
     return { ack };
@@ -839,6 +1014,7 @@ export class MeshPeer implements PeerCore {
     clearTimeout(p.timer);
 
     if (msg.status === 'acked') {
+      if (p.undo) this.pushUndo(p.undo);
       p.resolve({ status: 'acked' });
       return;
     }
@@ -854,6 +1030,12 @@ export class MeshPeer implements PeerCore {
           { origin: senderId, channel: p.col.retainedChannel ?? 'committed' }
         );
         if (change) this.safeTaps(p.col, change);
+      }
+      // The authority stored a normalized value — log THAT as the action's
+      // result so a later guarded undo matches the doc's real state.
+      if (p.undo) {
+        p.undo.after = p.col.replica.raw(p.id);
+        this.pushUndo(p.undo);
       }
       p.resolve({ status: 'corrected', value: msg.value });
       return;
@@ -1087,6 +1269,18 @@ export function createMeshPeer(cfg: MeshPeerConfig): MeshPeer {
 
 function done(o: WriteOutcome): WriteHandle {
   return { ack: Promise.resolve(o) };
+}
+
+/** Classify a committed write by its before/after committed values. */
+function makeUndoEntry(
+  rtype: string,
+  id: string,
+  before: unknown,
+  after: unknown
+): UndoEntry {
+  const op: UndoOp =
+    before === undefined ? 'created' : after === undefined ? 'removed' : 'modified';
+  return { rtype, id, op, before, after };
 }
 
 function errMsg(e: unknown): string {

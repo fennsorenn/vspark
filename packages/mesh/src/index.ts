@@ -10,6 +10,10 @@ export type {
   MeshPeerConfig,
   MeshStatus,
   MeshSubscription,
+  UndoEntry,
+  UndoOp,
+  UndoPolicy,
+  UndoStatus,
 } from './peer.js';
 export { Collection } from './collection.js';
 export type {
