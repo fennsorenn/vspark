@@ -201,3 +201,58 @@ Per `mesh-sync-refactor.md` §12 + "Remaining mesh work, by value":
 - Conventional commits; commit per slice. Spawn the `doc-updater` agent at
   start (mark mesh/sync modules WIP) and end (record what changed).
 - Open a PR into `dev` when each workstream is complete (they can be two PRs).
+
+---
+
+## Implementation status (session 2026-07-08)
+
+### Done
+
+- **A2 — `scenes.ts` folded onto the store.** Template/bulk creation, scene PUT,
+  and scene DELETE write through `getMeshCollection(...)` instead of
+  `sync.document.touch/remove`. DELETE removes each node through the store
+  *before* the SQL cleanup (FK off) so the persist tap's `persists` guard still
+  records a tombstone + emit per node. Test: `api.scenes.mesh.test.ts`.
+- **A3 — collab mount appliers folded.** `applyClipDto` / `applyCameraEffectDto`
+  now `collection.set(...)`; the tap's `save` is byte-equivalent to the old inline
+  SQL. Test: `multiplayer.collabScene.mesh.test.ts`. (Two-backend collab-echo
+  convergence is a live check outside the vitest harness — not yet run.)
+- **B core — mesh-native undo/redo in `@vspark/mesh`.** Undo-log +
+  `undo()/redo()/canUndo()/canRedo()/undoStatus()/clearUndoHistory()/onUndoChange()`
+  + inverse replay + guarded/naive policy, all in `peer.ts`. Full matrix in
+  `undo.test.ts` (17 tests). See [mesh-native-undo.md](./mesh-native-undo.md).
+- **B frontend plumbing.** `meshUndo/meshRedo/onMeshUndoChange` on the tab peer;
+  Editor Ctrl/Cmd+Z + Ctrl+Shift+Z/Ctrl+Y (input-guarded); TopBar ↶/↷ buttons
+  gated on canUndo/canRedo; i18n EN+DE; `scene.md#undo` help; controls blessed.
+- Docs: `sync.md` + `mesh.md` corrected (they wrongly claimed `scene_node` still
+  reads the legacy envelope — the frontend bindings file is deleted and
+  `applyRemote` has zero bindings; the envelope is a client-side no-op) and the
+  undo feature recorded.
+
+### Blocked / needs a decision (the plan's premise was off here)
+
+- **A4/A5 — killing the mesh→`sync.document` emission is NOT a dead-code
+  deletion.** The plan assumed "no consumer," which is true on the *frontend* but
+  **not the backend**: that emission still feeds `sync/containmentIndex.ts`
+  (object-share fan-out root resolution) and `multiplayer/manager.ts` →
+  `indexCollabNode` (collab pose/preview stream routing). Both are Phase-6 /
+  object-share / collab-stream infra that "Out of scope" keeps on legacy. To
+  finish A4/A5 the right way: **re-feed those two consumers from the mesh replica**
+  (a `collection.observe('**')`/`onCommitted` tap that updates the containment
+  index and the collab node→scene map), *then* drop the envelope emission and
+  delete the `sync/` surface — and verify with a **two-backend live collab +
+  object-share run** (headless REST won't catch a routing regression). Not done
+  here because that verification isn't available in this environment.
+- `routes/presets.ts` also still emits `sync.document.upsert` directly (not in the
+  plan's original A inventory); fold it the same way as A2 when doing A4/A5.
+
+- **B frontend/assistant are inert until writes author through a mesh peer.**
+  Undo logs on the *authoring* peer. Today all frontend UI writes go via REST →
+  the backend authority peer, so the tab peer's stack is empty and the ↶/↷
+  buttons stay disabled. Making undo functional needs the separately-tracked
+  **"writes → `collection.set`"** migration (route `api/client.ts` node/behavior/
+  etc. writes through the tab peer's collections — the `meshStoreFeeder` already
+  reflects them back into the store). Start with a bounded slice (e.g. node
+  create/delete) and verify with `verify`/`smoketest`. The **assistant** undo
+  additionally needs a dedicated **agent loopback mesh peer** (doesn't exist yet)
+  so the agent has its own per-peer stack rather than sharing the backend's.

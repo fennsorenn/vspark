@@ -104,7 +104,31 @@ No new WS message kind, no new `useWsSync` branch, no new mapper. New entities s
 
 The `'sync'`-envelope bindings for `behavior`, `camera_effect`, `compose_layer`, and `track_clip` have been removed from `sync/resources.ts`. These rtypes now feed the editorStore via `sync/meshStoreFeeder.ts` (mesh replica observation). The TRANSPORT changed (envelope → replica observe); component reads of the store and write patterns are not yet changed.
 
-- **Only `scene_node` remains on the legacy envelope** — its `sync/resources.ts` binding is kept because it is entangled with Avatar/Viewport and the placed-object projection feeder (`meshProjection.ts`). Migrating it is step 4 of [§11](../plans/mesh-sync-refactor.md).
+- **No tab reads the legacy envelope anymore.** All five document rtypes —
+  including `scene_node` — feed the editorStore from the tab's mesh replica via
+  `sync/meshStoreFeeder.ts` (+ `meshProjection.ts` for placed shares). The
+  frontend `sync/resources.ts` bindings file was deleted and `applyRemote`
+  (`sync/registry.ts`) now has **zero bindings** — the `'sync'` WS envelope is a
+  client-side no-op. The envelope's remaining consumers are all **backend-side**
+  (see below).
+
+**Remaining `sync.document` surface (backend, workstream A of
+[mesh-drop-legacy-sync-and-undo.md](../plans/mesh-drop-legacy-sync-and-undo.md)):**
+
+- **Folded onto the store (done):** `routes/scenes.ts` template/bulk creation +
+  scene PUT/DELETE, and the `multiplayer/collabScene.ts` mount appliers
+  (`applyClipDto` / `applyCameraEffectDto`) now write through
+  `getMeshCollection(...)`; the `onCommitted` tap emits the canonical
+  `sync.document` on their behalf.
+- **Still emits directly:** `routes/presets.ts` (preset instantiation),
+  `multiplayer/sceneNodeWrite.ts` (Phase-6 placed-object writes — intentionally
+  legacy).
+- **Live backend consumers of `sync.onDocument`:** `sync/containmentIndex.ts`
+  (object-share fan-out root resolution) and `multiplayer/manager.ts` →
+  `indexCollabNode` (keeps the collab pose/preview stream-routing map current).
+  These — not the frontend — are why the mesh→`sync.document` emission in
+  `mesh/index.ts` can't simply be deleted yet: they must first be re-fed from
+  the mesh replica (workstream A steps 4–5, gated on a two-backend live verify).
 
 **Still on legacy WS kinds (transport-level):**
 
