@@ -3311,7 +3311,7 @@ function Live2DNode({
   node,
   viewerMode,
 }: {
-  node: NodeRecord;
+  node: StageObject;
   viewerMode?: boolean;
 }) {
   const outerRef = useRef<THREE.Group>(null);

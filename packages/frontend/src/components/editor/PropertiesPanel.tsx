@@ -19,7 +19,6 @@ import type { StageObject, Behavior } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeLayerProperties } from './ComposeLayerProperties';
 import type { AssetFile } from '../../api/client';
-import { animRegistry } from '../../animRegistry';
 import { setLive2dConsent } from '../../lib/puppet2d/live2d/coreLoader';
 import type {
   Live2dParamMap,
@@ -4065,7 +4064,7 @@ const LIVE2D_SOURCE_SUGGESTIONS = [
 /** Properties section for `live2d` nodes. Split out from the main panel so it
  *  can own hooks (license state, param-map editor) — the panel renders the
  *  other node kinds via inline IIFEs that cannot host hooks. */
-function Live2DProperties({ node }: { node: NodeRecord }) {
+function Live2DProperties({ node }: { node: StageObject }) {
   const {
     assets,
     updateNode: storeUpdateNode,
