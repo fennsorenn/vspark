@@ -261,11 +261,14 @@ describe('expressions + meta + config API', () => {
       expect(update.body.data.channel).toBe('recent');
     });
 
-    it('400s when channel is missing from request body', async () => {
+    it('treats a channel-less body as a partial update (preserves channel)', async () => {
+      // PUT /config is a partial update (it also carries live2dLicenseAccepted),
+      // so a body without `channel` is a valid no-op for the channel and keeps
+      // whatever channel was already stored.
+      await request(app).put('/api/config').send({ channel: 'recent' });
       const res = await request(app).put('/api/config').send({});
-      expect(res.status).toBe(400);
-      expect(res.body.error).toBeDefined();
-      expect(res.body.error.message).toContain('channel');
+      expect(res.status).toBe(200);
+      expect(res.body.data.channel).toBe('recent');
     });
 
     it('400s when channel is not a valid update channel', async () => {
