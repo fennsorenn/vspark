@@ -12,12 +12,16 @@ import {
 } from '../../particleTextures';
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
+import type { PoseSection, PoseSource } from '@vspark/shared';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { api, fireSignalEvent, updateScene } from '../../api/client';
 import type { StageObject, Behavior } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
-import { ComposeLayerProperties } from './ComposeLayerProperties';
+import {
+  ComposeLayerProperties,
+  ComposeSceneProperties,
+} from './ComposeLayerProperties';
 import type { AssetFile } from '../../api/client';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
@@ -48,6 +52,8 @@ function PickButton({ onClick }: { onClick: () => void }) {
 }
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { vrmRegistry } from '../../vrmRegistry';
+import { BEHAVIOR_ICON, BEHAVIOR_FALLBACK } from '../icons';
+import { Check, Clapperboard } from 'lucide-react';
 import {
   getMaterialSlots,
   type MaterialOverride,
@@ -1048,10 +1054,12 @@ function MaterialRow({
 /** Lists every material on the loaded VRM with per-material shader controls. */
 function MaterialSection({ node }: { node: StageObject }) {
   const { t } = useTranslation('properties');
-  // Re-render when the VRM (re)loads — bones are set on load, cleared on unload.
-  const loadedBones = useEditorStore((s) => s.vrmBonesByNode[node.id]);
+  // Re-render when the VRM (re)loads. The materials slice is written LAST in the
+  // Viewport load path (after vrmRegistry.set), so when this fires the registry
+  // read below is guaranteed populated — the fix for the empty-until-reload bug.
+  const loadedMaterials = useEditorStore((s) => s.vrmMaterialsByNode[node.id]);
   const vrm = vrmRegistry.get(node.id);
-  if (!vrm || !loadedBones) {
+  if (!vrm || !loadedMaterials) {
     return (
       <CollapsibleSection title={t('material.header')}>
         <div style={{ fontSize: 11, color: '#555' }}>
@@ -2398,7 +2406,9 @@ function LipsyncCalibration({
             disabled={status === 'capturing' && holding !== v}
           >
             {v}
-            {draft[v] ? ' ✓' : ''}
+            {draft[v] ? (
+              <Check size={12} style={{ marginLeft: 4, verticalAlign: '-1px' }} />
+            ) : null}
           </button>
         ))}
       </div>
@@ -3975,7 +3985,9 @@ function SceneSettings({
           marginBottom: 14,
         }}
       >
-        <span style={{ fontSize: 18 }}>🎬</span>
+        <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
+          <Clapperboard size={18} />
+        </span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>
             {t('scene.header')}
@@ -4045,6 +4057,8 @@ export function PropertiesPanel() {
     sceneSelected,
     updateSceneItem,
     composeLayers,
+    composeScenes,
+    activeComposeSceneId,
     selectedComposeLayerId,
     leftTab,
     activeLogicId,
@@ -4194,6 +4208,38 @@ export function PropertiesPanel() {
     storeUpdateNode(node.id, { components, properties });
   };
 
+  // Base animation — the loop live tracking stacks onto (see the stacking
+  // composition in Viewport). Stored as a raw url slot under
+  // properties.animation.base; falls back to the idle when unset.
+  const baseProp = (
+    node?.properties as
+      | {
+          animation?: {
+            base?: { clipId?: string; url?: string; speed?: number };
+          };
+        }
+      | undefined
+  )?.animation?.base;
+  const baseUrlDisplay =
+    (baseProp?.clipId
+      ? animationClips[baseProp.clipId]?.sourceFilePath
+      : undefined) ??
+    baseProp?.url ??
+    '';
+  const baseSpeedDisplay = baseProp?.speed ?? 1;
+  const writeBase = (url: string | null, speed: number) => {
+    if (!node) return;
+    const prevProps = (node.properties as Record<string, unknown>) ?? {};
+    const prevAnim =
+      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
+    const properties = {
+      ...prevProps,
+      animation: { ...prevAnim, base: url ? { url, speed } : undefined },
+    };
+    api.updateNode(node.id, { properties }).catch(() => {});
+    storeUpdateNode(node.id, { properties });
+  };
+
   const panelShell = (children: React.ReactNode) => (
     <div
       style={{
@@ -4246,6 +4292,14 @@ export function PropertiesPanel() {
         <ComposeLayerProperties layer={selectedComposeLayer} />
       );
     }
+    // No layer selected → show the active compose scene's own settings
+    // (resolution + preview background).
+    const activeComposeScene = composeScenes.find(
+      (s) => s.id === activeComposeSceneId
+    );
+    if (activeComposeScene) {
+      return panelShell(<ComposeSceneProperties scene={activeComposeScene} />);
+    }
     return emptyState(t('emptyState.selectLayer'));
   }
 
@@ -4280,7 +4334,12 @@ export function PropertiesPanel() {
             marginBottom: 14,
           }}
         >
-          <span style={{ fontSize: 18 }}>{selectedEffectKind.icon}</span>
+          <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
+            {(() => {
+              const I = selectedEffectKind.icon;
+              return <I size={18} />;
+            })()}
+          </span>
           <div>
             <div
               style={{
@@ -4369,7 +4428,13 @@ export function PropertiesPanel() {
             marginBottom: 14,
           }}
         >
-          <span style={{ fontSize: 18 }}>{selectedCompType.icon}</span>
+          <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
+            {(() => {
+              const I =
+                BEHAVIOR_ICON[selectedCompType.kind] ?? BEHAVIOR_FALLBACK;
+              return <I size={18} />;
+            })()}
+          </span>
           <div style={{ flex: 1 }}>
             <div
               style={{
@@ -5550,8 +5615,8 @@ export function PropertiesPanel() {
         {node.kind === 'billboard' &&
           (() => {
             const bc: Record<string, unknown> = {
-              facing: 'screen',
-              backface: 'none',
+              facing: 'world',
+              backface: 'mirror',
               width: 1,
               height: 1,
               alpha: 1,
@@ -7710,6 +7775,139 @@ export function PropertiesPanel() {
             );
           })()}
 
+        {/* Partial tracking — per-section animation/tracking influence (avatar only) */}
+        {node.kind === 'avatar' &&
+          (() => {
+            const SECTIONS: PoseSection[] = [
+              'head',
+              'gaze',
+              'body',
+              'arms',
+              'hands',
+              'legs',
+            ];
+            const src: PoseSource = node.properties?.poseSource ?? {};
+            const infOf = (sec: PoseSection) =>
+              src[sec] ?? { anim: 1, track: 1 };
+            const apply = (next: PoseSource, persist: boolean) => {
+              // Prune sections left at the { anim:1, track:1 } default so we only
+              // store deviations.
+              const pruned: PoseSource = {};
+              for (const s of SECTIONS) {
+                const v = next[s];
+                if (v && (v.anim !== 1 || v.track !== 1)) pruned[s] = v;
+              }
+              storeUpdateNode(node.id, {
+                properties: { ...node.properties, poseSource: pruned },
+              });
+              if (persist)
+                api
+                  .updateNode(node.id, { properties: { poseSource: pruned } })
+                  .catch(() => {});
+            };
+            const setInf = (
+              sec: PoseSection,
+              patch: Partial<{ anim: number; track: number }>,
+              persist: boolean
+            ) => apply({ ...src, [sec]: { ...infOf(sec), ...patch } }, persist);
+            const anyConfigured = SECTIONS.some((s) => {
+              const v = src[s];
+              return v && (v.anim !== 1 || v.track !== 1);
+            });
+            const colLabel = {
+              fontSize: 10,
+              color: '#666',
+              flexShrink: 0,
+            } as const;
+            return (
+              <>
+                <div
+                  style={{
+                    ...sectionHeader,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {t('avatar.poseSourceHeader')}
+                  <HelpButton
+                    topic="avatar"
+                    anchor="partial-tracking"
+                    tip={t('help.poseSource')}
+                  />
+                </div>
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: '#555',
+                    lineHeight: 1.4,
+                    marginBottom: 6,
+                  }}
+                >
+                  {t('avatar.poseSourceHint')}
+                </div>
+                {SECTIONS.map((sec) => {
+                  const inf = infOf(sec);
+                  return (
+                    <div
+                      key={sec}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        marginBottom: 4,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: '#999',
+                          width: 48,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {t(`avatar.poseSection.${sec}`)}
+                      </span>
+                      <span style={colLabel}>{t('avatar.poseSourceAnim')}</span>
+                      <SliderInput
+                        className={`vs-posesrc-anim-${sec}`}
+                        value={inf.anim}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        precision={2}
+                        onChange={(v) => setInf(sec, { anim: v }, false)}
+                        onCommit={(v) => setInf(sec, { anim: v }, true)}
+                        style={{ flex: 1, minWidth: 0 }}
+                      />
+                      <span style={colLabel}>{t('avatar.poseSourceTrack')}</span>
+                      <SliderInput
+                        className={`vs-posesrc-track-${sec}`}
+                        value={inf.track}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        precision={2}
+                        onChange={(v) => setInf(sec, { track: v }, false)}
+                        onCommit={(v) => setInf(sec, { track: v }, true)}
+                        style={{ flex: 1, minWidth: 0 }}
+                      />
+                    </div>
+                  );
+                })}
+                {anyConfigured && (
+                  <button
+                    className="vs-posesrc-reset"
+                    style={resetBtnStyle}
+                    onClick={() => apply({}, true)}
+                  >
+                    {t('avatar.poseSourceReset')}
+                  </button>
+                )}
+              </>
+            );
+          })()}
+
         {/* Forearm twist — avatar only */}
         {node.kind === 'avatar' && (
           <>
@@ -8007,6 +8205,99 @@ export function PropertiesPanel() {
                 </label>
               </div>
             )}
+
+            {/* Base animation — the layer live tracking stacks onto (avatars
+                only). Played while a source is connected; falls back to the idle
+                when tracking drops. */}
+            {node.kind === 'avatar' && (
+              <>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: '#888',
+                    marginTop: 12,
+                    marginBottom: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {t('avatar.baseAnimation')}
+                  <HelpButton
+                    topic="avatar"
+                    anchor="partial-tracking"
+                    tip={t('help.baseAnimation')}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    className="vs-base-anim-url"
+                    list="anim-list"
+                    style={{ ...textInput, flex: 1 }}
+                    placeholder={
+                      animAssets.length
+                        ? t('avatar.animPlaceholder')
+                        : t('avatar.animNoAssets')
+                    }
+                    defaultValue={baseUrlDisplay}
+                    key={`${node.id}-base-${baseUrlDisplay}`}
+                    onBlur={(e) => {
+                      writeBase(e.target.value.trim() || null, baseSpeedDisplay);
+                    }}
+                  />
+                  {baseUrlDisplay && (
+                    <button
+                      className="vs-base-anim-clear"
+                      title={t('avatar.animClear')}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#666',
+                        cursor: 'pointer',
+                        fontSize: 16,
+                        padding: '0 2px',
+                        flexShrink: 0,
+                      }}
+                      onClick={() => {
+                        writeBase(null, baseSpeedDisplay);
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                {baseUrlDisplay && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <label
+                      style={{
+                        flex: 1,
+                        fontSize: 12,
+                        color: '#888',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 3,
+                      }}
+                    >
+                      {t('avatar.animSpeed')}
+                      <input
+                        className="vs-base-anim-speed"
+                        type="number"
+                        style={{ ...textInput }}
+                        step={0.1}
+                        min={0}
+                        defaultValue={baseSpeedDisplay}
+                        key={`${node.id}-base-speed-${baseSpeedDisplay}`}
+                        onBlur={(e) => {
+                          const speed = parseFloat(e.target.value);
+                          if (isNaN(speed) || speed < 0) return;
+                          writeBase(baseUrlDisplay || null, speed);
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
 
@@ -8042,7 +8333,13 @@ export function PropertiesPanel() {
                   marginBottom: 14,
                 }}
               >
-                <span style={{ fontSize: 18 }}>{selectedCompType.icon}</span>
+                <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
+            {(() => {
+              const I =
+                BEHAVIOR_ICON[selectedCompType.kind] ?? BEHAVIOR_FALLBACK;
+              return <I size={18} />;
+            })()}
+          </span>
                 <div style={{ flex: 1 }}>
                   <div
                     style={{

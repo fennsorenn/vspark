@@ -69,6 +69,8 @@ DELETE /assets/:assetId
 
 Tabbed panel. Reads from `useEditorStore`: `assets`, `activeSceneId`, `selectedNodeId`, `nodes`, `behaviors`, `cameraEffects`.
 
+Upload `<input>`s (and the drop zone) accept **multiple** files: `handleUploadFiles(FileList | File[])` iterates and POSTs each, reporting any failures together. The same upload path backs OS image-file drag-and-drop onto the compose viewport (see [compose.md](compose.md)).
+
 ### Tabs
 
 | Tab | Accepts | Asset kind |

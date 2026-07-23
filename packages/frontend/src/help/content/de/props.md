@@ -10,13 +10,13 @@ Eine Bildebene zeigt ein Standbild als flaches Rechteck in der 3D-Welt an. Lade 
 
 **Ausrichtung** — wie die Ebene relativ zur Kamera orientiert ist:
 
+- `Welt` (Standard) — die Ebene hat eine feste Ausrichtung im 3D-Raum. Drehe sie über die Transform-Steuerelemente. Gut für Bilderrahmen, Schilder oder Flächen, die in einem bestimmten Winkel verbleiben sollen.
 - `Bildschirm` — die Ebene dreht sich immer zur Kamera hin, wie ein Sprite. Das Bild ist unabhängig von der Kameraposition immer lesbar. Gut für Logos, Icons und flache Dekorationen.
-- `Welt` — die Ebene hat eine feste Ausrichtung im 3D-Raum. Drehe sie über die Transform-Steuerelemente. Gut für Bilderrahmen, Schilder oder Flächen, die in einem bestimmten Winkel verbleiben sollen.
 
 **Rückseite** — was auf der Rückseite der Ebene (der von der Front abgewandten Seite) angezeigt wird:
 
+- `Gespiegelt` (Standard) — das Bild wird horizontal gespiegelt auf der Rückseite angezeigt, sodass die Ebene doppelseitig (von hinten sichtbar) ist. Gut für Schilder, die von beiden Seiten lesbar sein sollen.
 - `Keine` — keine Rückseite; die Ebene ist von hinten unsichtbar.
-- `Gespiegelt` — das Bild wird horizontal gespiegelt auf der Rückseite angezeigt. Gut für Schilder, die von beiden Seiten lesbar sein sollen.
 - `Ungespiegelt` — das Bild wird ungespiegelt auf der Rückseite angezeigt. Gut für doppelseitige Poster, bei denen ein Spiegeln falsch wirken würde.
 
 **Breite** — die Breite der Ebene in Welteinheiten. Standard: 1. Eine Welteinheit entspricht ungefähr der Körpergröße eines Avatars. Erhöhe den Wert für ein größeres Bild; verringere ihn für kleine Sticker.

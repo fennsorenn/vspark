@@ -4,6 +4,14 @@
     "compose": "Compose",
     "logic": "Logic"
   },
+  "sections": {
+    "behaviors": "Behaviors",
+    "effects": "Effects",
+    "add": "+ Add…",
+    "addClip": "New clip",
+    "addLogic": "New logic graph",
+    "empty": "Nothing added yet"
+  },
   "collab": {
     "badgeSharing": "You're sharing this scene",
     "badgeConnected": "Shared scene — peer connected",
@@ -26,6 +34,11 @@
     "deleteTitle": "Delete node",
     "deleteScene": "Delete scene",
     "confirmDelete": "Delete \"{{name}}\"?",
+    "deleteBranchTitle": "Delete \"{{name}}\"",
+    "deleteBranchMsg_one": "This node has {{count}} child. What should happen to it?",
+    "deleteBranchMsg_other": "This node has {{count}} children. What should happen to them?",
+    "deleteWithChildren": "Delete with its children",
+    "deleteKeepChildren": "Delete but keep its children",
     "failCreate": "Failed to create node",
     "failDelete": "Failed to delete node",
     "failMove": "Failed to move node",
