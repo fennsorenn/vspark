@@ -45,7 +45,10 @@ sources are cleanly targetable and pickable.
 - **Auth lives in the Accounts section.** Reuse `OverliveAccountsModal` (namespace
   `accounts`) by adding an **"OBS Connections"** section, rather than a new modal.
 - **Backend holds the connection** (consistent with how Overlive accounts connect
-  server-side). See the reachability constraint below — this is the main open risk.
+  server-side). vspark's intended deployment is **self-hosted** — the backend runs
+  on the same machine as OBS — so reaching `ws://localhost:4455` is a non-issue.
+  (Even a cloud-hosted setup would run a local backend for other machine-local
+  functionality, so backend-connect is the right model regardless.)
 - **One connection per project** (an OBS instance is one machine). No per-node
   connection selector needed; nodes fan out project-scoped exactly like the
   existing `obs_*` browser nodes. (Multi-connection can come later via an
@@ -60,17 +63,15 @@ sources are cleanly targetable and pickable.
   `reconnecting` / `disconnected` / `error`), and the plaintext-credentials
   approach (encryption-at-rest stays a project-wide future item, same as Overlive).
 
-## Reachability constraint (the main risk)
+## Reachability — settled
 
-Backend-holds-connection means the backend must reach OBS's obs-websocket server
-(default `ws://localhost:4455`). This works when the backend is **co-located with
-OBS** (self-host / local dev). A **cloud-hosted vspark backend cannot reach a
-streamer's localhost** — for that topology the connection would have to be relayed
-through the browser-source page (which runs on the streamer's machine).
-
-This plan implements **backend-connect only** and documents the limitation. A
-page-relay transport is explicitly out of scope (future phase). Surface the
-limitation in the OBS Connections UI help text.
+Backend-holds-connection means the backend reaches OBS's obs-websocket server
+(default `ws://localhost:4455`). Since vspark is **self-hosted** (backend
+co-located with OBS), this is a non-issue — no page-relay needed. A page-relay
+transport for a hypothetical fully-remote backend is explicitly out of scope; even
+that setup would run a local backend for other machine-local features, so
+backend-connect stays correct. The OBS Connections UI should still default the host
+to `localhost` and surface a clear error when the server is unreachable.
 
 ## Node set
 
