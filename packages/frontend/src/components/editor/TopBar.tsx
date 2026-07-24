@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Mic, Settings, Circle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { useConnectionsStore } from '../../store/connectionsStore';
@@ -189,7 +190,8 @@ export function TopBar() {
             }}
             title={t('media.title')}
           >
-            🎤 {t('media.label')}
+            <Mic size={14} />
+            {t('media.label')}
           </button>
           <button
             className="vs-topbar-connections"
@@ -300,7 +302,13 @@ export function TopBar() {
             onClick={() => setAccountsOpen(true)}
             title={t('accounts.title')}
           >
-            🟣 {t('accounts.label')}
+            <Circle
+              size={10}
+              fill="#a970ff"
+              color="#a970ff"
+              style={{ verticalAlign: '-1px', marginRight: 5 }}
+            />
+            {t('accounts.label')}
           </button>
           {updateAvailable && (
             <button
@@ -334,7 +342,11 @@ export function TopBar() {
             }}
             title={t('update.settingsTitle')}
           >
-            ⚙ {t('update.versionLabel')}
+            <Settings
+              size={13}
+              style={{ verticalAlign: '-2px', marginRight: 4 }}
+            />
+            {t('update.versionLabel')}
           </button>
           <LanguageSwitcher compact />
           <HelpButton topic="overview" tip={t('help.tip')} size={18} />

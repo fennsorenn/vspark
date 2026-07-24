@@ -198,6 +198,31 @@ Per frame:
 
 **Pose timeout**: If no VMC frame has been received for `poseTimeout` seconds (default 2s), blend weight ramps back to 0. OneEuroFilter resets to prevent stale filtered values carrying over when mocap reconnects.
 
+### Tracking ↔ animation stacking + partial tracking
+
+**Status:** implemented. Frontend-only, per-avatar-node. Stacking is the **universal tracked-avatar path**; partial-tracking sliders are off (all-`{anim:1, track:1}`) by default.
+
+**Stacking model.** In `override` blend mode the tracked avatar no longer full-overrides the animation (`setNormalizedPose`) and no longer runs separate per-section branches — both were unified into one per-bone **stacking** loop. Per bone: start from the rest pose, blend toward the (base) animation by the section's **Anim** influence, then stack the tracking **delta** (tracking taken relative to rest) scaled by the section's **Track** weight on top. Each layer is scaled independently, so both sliders always affect the result. Corners:
+
+- Anim 1 / Track 0 → animation only
+- Anim 0 / Track 1 → tracking only
+- Anim 0 / Track 0 → rest
+- Anim 1 / Track 1 → base animation with full tracking stacked (the legacy default, `DEFAULT_SECTION_INFLUENCE`)
+
+The per-bone math is a pure, unit-tested helper — **`packages/frontend/src/components/editor/poseComposition.ts` (`stackBoneRotation`)**, tested in `packages/frontend/test/poseComposition.test.ts`. Change or verify the blend math there, not inline in `Viewport.tsx`.
+
+`final = slerp(rest, animQ, animInf) · slerp(identity, rest⁻¹·trackedQ, trackWeight)`. `trackWeight` is pre-clamped and already folds in the global transition ramp (`Track × blend`); an untracked bone (`trackedQ` null) drops the tracking term and follows the scaled base animation alone. `animQ` is the base-animation pose while a clip is driving, else `rest` (so `Track 0` doesn't freeze the last tracked pose). The explicit `poseMode === 'additive'` branch is unchanged.
+
+**Partial tracking (per-section blend).** A per-avatar-node `poseSource` property (`SceneNodeProperties.poseSource`, types `PoseSource` / `PoseSection` / `PoseSectionInfluence` — see [shared-types.md](shared-types.md)) scales the Anim/Track layers **independently per body section**: `head`, `gaze`, `body`, `arms`, `hands`, `legs`, each with an `anim` and a `track` influence in `0..1`. Typical use: play a full-body clip for the legs while live tracking drives the upper body. A static `BONE_TO_SECTION` map (`Viewport.tsx`, built from `POSE_SECTION_BONES`; unlisted bones fall under `hands`/fingers) assigns every VRM humanoid bone to a section; absent sections resolve to `{anim:1, track:1}`, so an unset `poseSource` changes nothing.
+
+**No-feed branch.** When `poseSourceIsActive` but there is **no live tracking feed**, a dedicated branch still applies each section's Anim influence (`stackBoneRotation` with `trackedQ = null`), so the sliders visibly droop a section toward rest even before a VMC / camera source connects.
+
+> Driving the **legs** from tracking needs a full-body VMC source — webcam MediaPipe tracking doesn't send legs.
+
+**Base animation slot.** `properties.animation.base = { url?, clipId?, speed? }` is a second clip slot distinct from `properties.animation.idle`. While a live tracking source is connected the **base** animation drives the anim layer (the loop tracking stacks onto); when tracking is lost/absent the avatar falls back to the **idle**. If `base` is unset, `idle` doubles as the base. The base⇄idle swap is driven by a reactive `trackingActive` flag set from the per-frame pose loop (`Viewport.tsx`, `AvatarNode`); `base` is resolved by `url` (or `clipId` if present) and passed as the idle arg to `_resolveAvatarAnimation`. Scheduled clips still win over both. Persisted via `schema.ts` (`animationSlotSchema = {clipId?, url?, speed?}` on `sceneNodePropertiesSchema.animation.{idle,base}`, `.passthrough()` to keep legacy sub-fields — a prior strict-object path was stripping the unknown `animation` key).
+
+UI: a "Partial Tracking" section in the PropertiesPanel avatar block (per-section `anim`/`track` sliders `vs-posesrc-anim-*` / `vs-posesrc-track-*`, a `vs-posesrc-reset`) plus a **Base Animation** picker in the Animation section (`vs-base-anim-url` / `vs-base-anim-clear` / `vs-base-anim-speed`), EN/DE i18n under `avatar.poseSource*` / `properties.avatar.baseAnimation` + `help.poseSource` / `properties.help.baseAnimation`, and an updated `{#partial-tracking}` help section in `avatar.md`.
+
 ### Motion snappiness (second-order dynamics)
 
 **Status:** implemented (2026-06-19). Frontend-only, per-avatar-node, disabled by default.

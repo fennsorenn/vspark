@@ -84,6 +84,12 @@ export function CameraCanvas({
   return (
     <Canvas
       frameloop={active ? 'always' : 'never'}
+      // Measure the OFFSET (layout) size, not getBoundingClientRect: the compose
+      // stage is CSS transform-scaled, so the bounding rect is the scaled size,
+      // which R3F would then apply back as the canvas' layout size (leaving it
+      // fractionally sized and not filling its layer). offsetWidth/Height are the
+      // unscaled canonical dimensions.
+      resize={{ offsetSize: true }}
       gl={{ alpha: true, antialias: true, toneMapping: THREE.NoToneMapping }}
       shadows={canvasShadowsProp(shadowsEnabled, cc?.shadowQuality)}
       style={{

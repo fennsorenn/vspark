@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Puzzle, Palette } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore, type PresetSummary } from '../../store/editorStore';
 import { HelpButton } from '../../help/HelpButton';
@@ -403,7 +404,18 @@ export function PresetLibrary() {
                           whiteSpace: 'nowrap',
                         }}
                       >
-                        {b.rootKind === 'scene_node' ? '🧩' : '🎨'} {b.name}
+                        {b.rootKind === 'scene_node' ? (
+                          <Puzzle
+                            size={14}
+                            style={{ verticalAlign: '-2px', marginRight: 4 }}
+                          />
+                        ) : (
+                          <Palette
+                            size={14}
+                            style={{ verticalAlign: '-2px', marginRight: 4 }}
+                          />
+                        )}
+                        {b.name}
                       </div>
                       {b.description && (
                         <div style={{ fontSize: 10, color: '#666' }}>
@@ -478,7 +490,18 @@ export function PresetLibrary() {
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {p.rootKind === 'scene_node' ? '🧩' : '🎨'} {p.name}
+                  {p.rootKind === 'scene_node' ? (
+                    <Puzzle
+                      size={14}
+                      style={{ verticalAlign: '-2px', marginRight: 4 }}
+                    />
+                  ) : (
+                    <Palette
+                      size={14}
+                      style={{ verticalAlign: '-2px', marginRight: 4 }}
+                    />
+                  )}
+                  {p.name}
                 </div>
                 {p.description && (
                   <div

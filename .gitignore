@@ -5,6 +5,8 @@ dist/
 *.db-shm
 *.db-wal
 *.db.bak-*
+*.db.pid
+*.db.lock/
 backups/
 *.exe
 .env
@@ -26,3 +28,4 @@ test-assets/.cache/
 packages/frontend/vite.config.b.ts
 # runtime config written by the config route at the install dir
 packages/backend/config.json
+config.json

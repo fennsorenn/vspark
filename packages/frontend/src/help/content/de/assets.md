@@ -33,6 +33,10 @@ Während des Hochladens wird ein Fortschrittsindikator angezeigt. Falls eine
 Datei nicht hochgeladen werden konnte, erscheint eine Meldung mit dem Namen
 der betroffenen Datei.
 
+Du kannst Bilddateien auch **direkt auf den 3D-Viewport ziehen** — jedes Bild
+wird hochgeladen und in einem Schritt als Billboard (Bildebene) zur Szene
+hinzugefügt.
+
 ## Asset-Kategorien {#kinds}
 
 Der Bereich ist in Reiter unterteilt, einen pro Dateityp:
