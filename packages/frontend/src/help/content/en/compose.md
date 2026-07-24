@@ -64,8 +64,50 @@ its reference point when you type a position. For example, anchoring to the
 bottom-right corner and setting X/Y to zero snaps the layer to the bottom-right
 of the canvas.
 
+When you drag **or resize** a layer in the preview it **snaps** to the centre and
+edges of its parent (the whole canvas, for a top-level layer): the layer's own
+edges and centre — or the edge you're resizing — pull onto the parent's edges and
+centre, and a pink guide line shows each active snap. Hold **Alt** while dragging
+to move freely without snapping, or toggle snapping off entirely with the magnet
+button in the compose toolbar (top-right).
+
 You can lock a layer in 2D so it cannot be accidentally dragged in the preview,
 or lock its 3D interaction if it overlaps the 3D viewport.
+
+When an image or video layer overlaps a **camera view** layer, right-clicking it
+(in the layer list **or** in the preview) offers **Send to 3D**: this creates a
+matching billboard (or video plane) inside that camera's 3D scene, positioned and
+sized so it lines up with where the 2D layer sat in the camera's view, then
+removes the flat 2D layer — the new 3D object shows through the camera view in its
+place. Handy for promoting a flat overlay into the 3D scene so it can be parented,
+animated, or lit like any other object. You stay in the compose view.
+
+## Editing 3D objects in a camera view {#camera-view-editing}
+
+Click a 3D object shown inside a **camera view** layer to select it, then
+manipulate it right there without leaving compose:
+
+- **Drag** — move it on the plane facing the camera.
+- **Ctrl + drag** — rotate it around its own axes: drag left/right to spin around
+  the object's vertical axis, up/down to tip it around its side-to-side axis.
+- **Ctrl + scroll** — roll it around its own front-to-back axis.
+- **Scroll** — resize it under an orthographic camera, or move it toward/away from
+  the camera under a perspective one.
+- **Shift + scroll** — swap those two: resize under a perspective camera, or move
+  along the view axis (adjust depth) under an orthographic one.
+
+## Attach to a bone {#attach-bone}
+
+Inside a **camera view** layer you can drag the 3D objects it shows. Turn on
+**Attach mode** with the bone button next to the snap toggle in the compose
+toolbar (or hold **Shift** while dragging), then drag an object onto a model and
+release it over the body part you want. The object binds to the bone that drives
+that part — the one with the strongest influence there — so drop it on a hand and
+it follows the hand, drop it on the head and it follows the head. Its on-screen
+position is preserved, and from then on its Transform is measured relative to that
+bone. Drop it clear of any model and it returns to the scene's top level, again
+keeping its position. This is the quickest way to put a sword in a hand or a hat
+on a head without hunting through the scene tree.
 
 ## Template / feed layers {#feed}
 
