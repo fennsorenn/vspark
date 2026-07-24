@@ -109,6 +109,13 @@ import { ObsOutputState } from './nodes/obs/output_state.js';
 import { ObsSetScene } from './nodes/obs/set_scene.js';
 import { ObsSetTransition } from './nodes/obs/set_transition.js';
 import { ObsControl } from './nodes/obs/control.js';
+// OBS power tier (obs-websocket) nodes
+import { ObsSetVolume } from './nodes/obs/set_volume.js';
+import { ObsMute } from './nodes/obs/mute.js';
+import { ObsVolumeChanged } from './nodes/obs/volume_changed.js';
+import { ObsMuteChanged } from './nodes/obs/mute_changed.js';
+import { ObsReplayPath } from './nodes/obs/replay_path.js';
+import { ObsConnectionState } from './nodes/obs/connection_state.js';
 // Render-client lifecycle (vspark-native, driven by the browser-source bridge)
 import { ClientLifecycle } from './nodes/client_lifecycle.js';
 
@@ -223,6 +230,13 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   ObsSetScene,
   ObsSetTransition,
   ObsControl,
+  // OBS power tier (obs-websocket) — audio + connection
+  ObsSetVolume,
+  ObsMute,
+  ObsVolumeChanged,
+  ObsMuteChanged,
+  ObsReplayPath,
+  ObsConnectionState,
   // Render-client lifecycle
   ClientLifecycle,
 ];

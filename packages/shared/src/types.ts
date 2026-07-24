@@ -545,7 +545,8 @@ export type WSMessageKind =
   | 'obs_event'
   | 'obs_command'
   | 'client_hello'
-  | 'client_status';
+  | 'client_status'
+  | 'obs_connection_status';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 
@@ -702,6 +703,30 @@ export interface ObsCommand {
 export interface ObsCommandMessage {
   kind: 'obs_command';
   command: ObsCommand;
+}
+
+// ── OBS power tier (obs-websocket connection) ────────────────────────────────
+// A per-project, backend-held obs-websocket connection unlocks OBS control the
+// browser-source API can't reach (audio volume/mute, replay path, source
+// control). Credentials live in the Accounts UI. See
+// dev-notes/plans/obs-websocket-tier.md.
+
+/** Connection state, mirroring the overlive account status vocabulary. */
+export type ObsConnectionStatus =
+  | 'connected'
+  | 'connecting'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'error';
+
+/** Backend → frontend: an obs-websocket connection's status changed. */
+export interface ObsConnectionStatusMessage {
+  kind: 'obs_connection_status';
+  connectionId: string;
+  projectId: string;
+  status: ObsConnectionStatus;
+  reason: string | null;
+  message: string | null;
 }
 
 // ── Render-client lifecycle ──────────────────────────────────────────────────

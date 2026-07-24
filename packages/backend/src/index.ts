@@ -236,6 +236,14 @@ async function start() {
     ws.on('close', () => obsManager.handleClientGone(ws));
   });
 
+  // OBS power tier — one backend-held obs-websocket connection per project
+  // (opt-in, credentials in the Accounts UI). Unlocks audio volume/mute + more
+  // that the browser-source API can't reach.
+  // See dev-notes/plans/obs-websocket-tier.md.
+  const { initObsWsManager } = await import('./obs/ws_manager.js');
+  const obsWsManager = initObsWsManager(wsSync);
+  obsWsManager.startAll();
+
   // Client-mesh signaling relay: track each client's participant id + tear it
   // down on disconnect so the roster stays accurate.
   clientMeshRelay.initWs(wsSync);
