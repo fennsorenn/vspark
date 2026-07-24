@@ -40,6 +40,29 @@ These nodes tell OBS to do something when triggered:
 > OBS quietly ignores actions above the level you granted, so if a control node
 > seems to do nothing, raise the permission level.
 
+## Deeper control with obs-websocket {#obs-websocket}
+
+The nodes above use OBS's built-in browser API, which can't touch audio. For
+that — and more — vspark can also connect to OBS over **obs-websocket**, a
+second, opt-in channel you enable in OBS under **Tools → WebSocket Server
+Settings**. Copy the **Server Port** and **Server Password** shown there into
+**Accounts → OBS Connections** in vspark. Because vspark runs on the same
+machine as OBS, the host stays `localhost`.
+
+Once connected, extra nodes light up:
+
+- **OBS Set Volume** / **OBS Mute** — set an audio input's volume (in dB or as a
+  linear multiplier) or mute / unmute / toggle it. Great for ducking music on a
+  donation, or a boss-key mute.
+- **OBS Volume Changed** / **OBS Mute Changed** — react when you move a fader or
+  mute a source.
+- **OBS Replay Path** — fetch the file path of the last saved replay clip (the
+  browser API only tells you *that* a clip saved, not *where*).
+- **OBS Connection State** — react when the OBS link connects or drops.
+
+The connection lives on the backend and reconnects automatically. Its status is
+shown as a pill next to the connection in the Accounts panel.
+
 ## Reacting to viewers appearing {#lifecycle}
 
 The **Client Lifecycle** node fires whenever a render client — an OBS Browser

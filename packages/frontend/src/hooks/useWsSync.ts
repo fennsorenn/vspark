@@ -438,6 +438,14 @@ export function useWsSync() {
           } else if (msg.kind === 'obs_command') {
             const p = msg.payload as { command: ObsCommand };
             if (p.command) handleObsCommand(p.command);
+          } else if (msg.kind === 'obs_connection_status') {
+            const p = msg.payload as {
+              connectionId: string;
+              status: import('../api/client').ObsConnectionStatus;
+              reason: string | null;
+              message: string | null;
+            };
+            useEditorStore.getState().patchObsConnectionStatus(p);
           } else if (msg.kind === 'data_channel_set') {
             const p = msg.payload as {
               scope: string;

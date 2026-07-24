@@ -44,6 +44,33 @@ Diese Knoten weisen OBS an, beim Auslösen etwas zu tun:
 > oberhalb der gewährten Stufe stillschweigend; wenn ein Steuerungsknoten also
 > nichts zu bewirken scheint, erhöhe die Berechtigungsstufe.
 
+## Tiefere Steuerung mit obs-websocket {#obs-websocket}
+
+Die obigen Knoten nutzen die eingebaute Browser-API von OBS, die kein Audio
+steuern kann. Dafür — und für mehr — kann sich vspark zusätzlich über
+**obs-websocket** mit OBS verbinden, einen zweiten, optionalen Kanal, den du in
+OBS unter **Werkzeuge → WebSocket-Servereinstellungen** aktivierst. Übertrage
+den dort angezeigten **Server-Port** und das **Server-Passwort** in vspark unter
+**Konten → OBS-Verbindungen**. Da vspark auf demselben Rechner wie OBS läuft,
+bleibt der Host `localhost`.
+
+Nach dem Verbinden werden zusätzliche Knoten verfügbar:
+
+- **OBS Lautstärke setzen** / **OBS Stumm** — die Lautstärke eines Audio-Eingangs
+  setzen (in dB oder als linearer Multiplikator) oder ihn stummschalten /
+  aufheben / umschalten. Ideal, um bei einer Spende die Musik abzusenken, oder
+  für eine Boss-Key-Stummschaltung.
+- **OBS Lautstärke geändert** / **OBS Stummschaltung geändert** — reagieren, wenn
+  du einen Regler bewegst oder eine Quelle stummschaltest.
+- **OBS Wiederholungspfad** — den Dateipfad des zuletzt gespeicherten
+  Wiederholungs-Clips abrufen (die Browser-API meldet nur, *dass* ein Clip
+  gespeichert wurde, nicht *wo*).
+- **OBS Verbindungsstatus** — reagieren, wenn die OBS-Verbindung auf- oder
+  abgebaut wird.
+
+Die Verbindung liegt im Backend und stellt sich automatisch wieder her. Ihr
+Status wird als Punkt neben der Verbindung im Konten-Panel angezeigt.
+
 ## Auf erscheinende Clients reagieren {#lifecycle}
 
 Der Knoten **Client-Lebenszyklus** löst aus, wenn sich ein Render-Client — eine
