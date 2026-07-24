@@ -249,13 +249,27 @@
     "modelClear": "Clear model",
     "animationHeader": "Animation",
     "idleAnimation": "Idle Animation",
+    "baseAnimation": "Base Animation",
     "animPlaceholder": "Search or paste URL…",
     "animNoAssets": "No animations uploaded yet",
     "animClear": "Clear animation",
     "animSpeed": "Speed",
     "twistHeader": "Forearm twist",
     "twistForce": "Force twist bone",
-    "twistExcludeSleeves": "Exclude sleeves"
+    "twistExcludeSleeves": "Exclude sleeves",
+    "poseSourceHeader": "Partial Tracking",
+    "poseSourceHint": "Tracking stacks on top of the base animation per body section, each scaled independently. Anim scales the base animation (rest→clip), Track scales the live tracking (VMC/camera) added on top. Both at 0 = rest pose. Legs from tracking need a full-body source.",
+    "poseSourceAnim": "Anim",
+    "poseSourceTrack": "Track",
+    "poseSourceReset": "Reset all sections",
+    "poseSection": {
+      "head": "Head",
+      "gaze": "Gaze",
+      "body": "Body",
+      "arms": "Arms",
+      "hands": "Hands",
+      "legs": "Legs"
+    }
   },
   "file": {
     "header": "File"
@@ -558,6 +572,8 @@
     "videoChroma": "Removes a specific background color from the video to composite green-screen or blue-screen footage directly in the scene",
     "audioType": "Simple plays at the same volume everywhere; Directional falls off with distance and can be shaped into a 3D cone",
     "audioSpatial": "Distance and cone parameters for directional audio — reference distance, rolloff, max distance, and the cone angles",
-    "twist": "Spread forearm roll along the arm instead of pinching at the elbow"
+    "twist": "Spread forearm roll along the arm instead of pinching at the elbow",
+    "poseSource": "Drive each body section from animation, live tracking, or a blend of both",
+    "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops"
   }
 }

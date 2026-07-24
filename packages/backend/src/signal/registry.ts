@@ -70,6 +70,39 @@ import { OverliveAdEnd } from './nodes/overlive/ad_end.js';
 import { OverliveBan } from './nodes/overlive/ban.js';
 import { OverliveStreamOnline } from './nodes/overlive/stream_online.js';
 import { OverliveStreamOffline } from './nodes/overlive/stream_offline.js';
+import { OverliveSendChat } from './nodes/overlive/send_chat.js';
+// Overlive outbound action nodes
+import { OverliveAnnounce, OverliveShoutout, OverliveChatColor } from './nodes/overlive/actions_chat.js';
+import {
+  OverliveUpdateChannel,
+  OverliveStreamMarker,
+  OverliveCommercial,
+  OverliveSnoozeAd,
+} from './nodes/overlive/actions_channel.js';
+import { OverliveRedemptionStatus } from './nodes/overlive/actions_points.js';
+import {
+  OverliveBanUser,
+  OverliveUnban,
+  OverliveDeleteMessage,
+  OverliveChatSettings,
+  OverliveWarn,
+  OverliveAutoMod,
+} from './nodes/overlive/actions_moderation.js';
+import {
+  OverliveAddVip,
+  OverliveRemoveVip,
+  OverliveAddModerator,
+  OverliveRemoveModerator,
+} from './nodes/overlive/actions_roles.js';
+import {
+  OverlivePollCreate,
+  OverlivePollEnd,
+  OverlivePredictionCreate,
+  OverlivePredictionEnd,
+  OverliveRaidStart,
+  OverliveRaidCancel,
+} from './nodes/overlive/actions_interactive.js';
+import { OverliveWhisper } from './nodes/overlive/actions_dm.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -149,6 +182,33 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   OverliveBan,
   OverliveStreamOnline,
   OverliveStreamOffline,
+  OverliveSendChat,
+  // Overlive outbound action nodes
+  OverliveAnnounce,
+  OverliveShoutout,
+  OverliveChatColor,
+  OverliveUpdateChannel,
+  OverliveStreamMarker,
+  OverliveCommercial,
+  OverliveSnoozeAd,
+  OverliveRedemptionStatus,
+  OverliveBanUser,
+  OverliveUnban,
+  OverliveDeleteMessage,
+  OverliveChatSettings,
+  OverliveWarn,
+  OverliveAutoMod,
+  OverliveAddVip,
+  OverliveRemoveVip,
+  OverliveAddModerator,
+  OverliveRemoveModerator,
+  OverlivePollCreate,
+  OverlivePollEnd,
+  OverlivePredictionCreate,
+  OverlivePredictionEnd,
+  OverliveRaidStart,
+  OverliveRaidCancel,
+  OverliveWhisper,
 ];
 
 export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> = new Map(

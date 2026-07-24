@@ -87,7 +87,7 @@ Key frontend files:
 
 ### Signal Graph
 
-Defined entirely in [packages/shared/src/signal.ts](packages/shared/src/signal.ts). Node classes are registered in the backend registry and serialized as `GraphDescriptor` objects. The 60 built-in node kinds live under [packages/backend/src/signal/nodes/](packages/backend/src/signal/nodes/).
+Defined entirely in [packages/shared/src/signal.ts](packages/shared/src/signal.ts). Node classes are registered in the backend registry and serialized as `GraphDescriptor` objects. The 86 built-in node kinds live under [packages/backend/src/signal/nodes/](packages/backend/src/signal/nodes/).
 
 The VMC pipeline graph shape is hardcoded in [packages/backend/src/behaviors/vmc_receiver/graph.ts](packages/backend/src/behaviors/vmc_receiver/graph.ts) — it wires source → mapper → calibration → broadcast nodes. Other behaviors follow the same `behaviors/<kind>/graph.ts` + `manager.ts` pattern.
 
@@ -201,6 +201,15 @@ Use conventional commit messages: `feat:`, `fix:`, `chore:`, `refactor:`, `docs:
 On a feature branch, commit proactively at natural stopping points — when a coherent unit of work is complete and the code is in a working state. Don't accumulate a session's worth of changes into one commit.
 
 Before switching to a new task or context, run `git status`. If there are uncommitted changes, complete and commit them first rather than carrying dirty state across task boundaries.
+
+## Commit and push before slow verification
+
+When a change is complete and passes the fast gates (`pnpm lint` + the relevant Vitest suites), **commit and push it before running any slow end-to-end verification** — a Playwright run, a booted-stack check, or anything that takes more than a few seconds. The point is that the user can `git pull` and confirm the change locally straight away instead of waiting on the e2e run to finish.
+
+- Order: fast gates → commit → push → *then* the slow e2e/Playwright/booted-stack verification.
+- If the slow verification then reveals a problem, fix it in a **follow-up commit** (and push again). Don't hold the first commit back waiting for e2e to go green.
+- Never let a slow verification gate the push of an otherwise-passing change. Lint/type-check and unit/API tests remain a hard pre-commit gate; e2e is a post-push confirmation, not a pre-commit one.
+- Any temporary instrumentation added purely to drive the verification (debug hooks, exposed globals, sampling scripts) must be reverted and kept out of the pushed commit.
 
 ## Confirming commits
 

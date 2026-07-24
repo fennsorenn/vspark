@@ -18,7 +18,14 @@ import {
   canvasShadowsProp,
   type ShadowQuality,
 } from '../components/editor/Viewport';
-import { ComposeLayerStack } from '../components/editor/ComposeLayerStack';
+import {
+  ComposeLayerStack,
+  ComposeStageSizeContext,
+} from '../components/editor/ComposeLayerStack';
+import {
+  ComposeStage,
+  composeSceneResolution,
+} from '../components/editor/ComposeView';
 import { useSceneFadeIn } from '../hooks/useSceneFadeIn';
 
 function getT(components: Record<string, unknown> | undefined) {
@@ -66,6 +73,7 @@ export function ViewerPage() {
     setTrackClips,
     nodes,
     composeLayers,
+    composeScenes,
     assets,
   } = useEditorStore();
 
@@ -171,6 +179,8 @@ export function ViewerPage() {
     const stackLayers = composeLayers.filter(
       (l) => l.rootComposeSceneId === composeSceneId
     );
+    const scene = composeScenes.find((s) => s.id === composeSceneId);
+    const { width: canonW, height: canonH } = composeSceneResolution(scene);
     return (
       <div
         style={{
@@ -180,7 +190,17 @@ export function ViewerPage() {
           position: 'relative',
         }}
       >
-        <ComposeLayerStack layers={stackLayers} assets={assets} mode="viewer" />
+        {/* Fixed-resolution canonical stage, letterbox-scaled to the viewer
+            window so streamed output matches the editor at any window size. */}
+        <ComposeStage canonW={canonW} canonH={canonH}>
+          <ComposeStageSizeContext.Provider value={`${canonW}x${canonH}`}>
+            <ComposeLayerStack
+              layers={stackLayers}
+              assets={assets}
+              mode="viewer"
+            />
+          </ComposeStageSizeContext.Provider>
+        </ComposeStage>
       </div>
     );
   }
@@ -210,13 +230,8 @@ export function ViewerPage() {
 
   const isHidden = camNode?.hidden ?? false;
 
-  // Scene-wide + this camera's own layers, across all compose scenes.
-  const stackLayers = composeLayers.filter(
-    (l) =>
-      l.kind !== 'camera_view' &&
-      (l.cameraNodeId == null || l.cameraNodeId === nodeId)
-  );
-
+  // Single-camera mode streams ONLY this camera's 3D output — no compose layers.
+  // Compose layers are shown exclusively by the compose-scene viewer above.
   return (
     <div
       style={{
@@ -241,7 +256,6 @@ export function ViewerPage() {
           alt=""
         />
       )}
-      <ComposeLayerStack layers={stackLayers} assets={assets} mode="viewer" />
       <Canvas
         gl={{ alpha: true, antialias: true, toneMapping: THREE.NoToneMapping }}
         shadows={canvasShadowsProp(shadowsEnabled, cc?.shadowQuality)}

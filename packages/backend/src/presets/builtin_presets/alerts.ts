@@ -1,9 +1,11 @@
 // Built-in event-alert overlay presets (Donations / Tips / Subs / Raids).
 //
 // Each is a compose `group` holding a visual badge (an `image` or, in the
-// `-video` variants, a `video` layer) + a `text` caption — both starting at
-// opacity 0 (invisible at rest) — plus a hidden `audio` compose layer that acts
-// as the alert's sound source.
+// `-video` variants, a `video` layer) + a `text` caption, plus a hidden `audio`
+// compose layer that acts as the alert's sound source. The GROUP starts at
+// opacity 0 (invisible at rest) and the fade clip animates the group's opacity,
+// so the whole overlay fades in/out as one unit (children stay fully opaque
+// relative to the group).
 //
 // On the matching Overlive event the graph packs the relevant field,
 // FIFO-queues it, and releases one alert per clock tick (so bursts don't
@@ -49,12 +51,13 @@ interface AlertSpec {
 function alertPreset(spec: AlertSpec): BuiltinPreset {
   const isVideo = spec.media === 'video';
 
-  // l2 — the visual badge (image or video), faded in/out by the clip.
+  // l2 — the visual badge (image or video). Fully opaque relative to the group;
+  // the group's opacity (animated by the clip) fades the whole overlay.
   const badge = isVideo
     ? composeLayer('l2', 'l1', 'Video', 'video', {
         config: {
           objectFit: 'contain',
-          opacity: 0,
+          opacity: 1,
           // Command-driven (restart on each alert); muted because the dedicated
           // audio layer carries the sound.
           autoplay: false,
@@ -63,18 +66,20 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
           muted: true,
           volume: 1,
         },
-        x: 40,
-        y: 40,
-        width: 160,
-        height: 120,
+        // On top, centred, full overlay width.
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 240,
         sceneOrder: -1,
       })
     : composeLayer('l2', 'l1', 'Badge', 'image', {
-        config: { objectFit: 'contain', opacity: 0 },
+        config: { objectFit: 'contain', opacity: 1 },
+        // On top, centred within the overlay.
         x: 40,
-        y: 40,
-        width: 120,
-        height: 120,
+        y: 0,
+        width: 240,
+        height: 240,
         sceneOrder: -1,
       });
 
@@ -91,22 +96,29 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
     spec.name,
     spec.description,
     [
-      composeLayer('l1', null, spec.name, 'group', { sceneOrder: -1 }),
+      // The group is the fade target — opacity 0 at rest, animated by the clip.
+      composeLayer('l1', null, spec.name, 'group', {
+        config: { opacity: 0 },
+        width: 320,
+        height: 350,
+        sceneOrder: -1,
+      }),
       badge,
+      // Caption sits directly beneath the badge, centred across the overlay.
       composeLayer('l3', 'l1', 'Caption', 'text', {
         config: {
           content: spec.caption,
           fontSize: 40,
           color: '#ffffff',
           weight: 700,
-          align: 'left',
+          align: 'center',
           allowHtml: false,
-          opacity: 0,
+          opacity: 1,
         },
-        x: 180,
-        y: 60,
-        width: 440,
-        height: 90,
+        x: 0,
+        y: 250,
+        width: 320,
+        height: 100,
         sceneOrder: -1,
       }),
       // l4 — the sound source. Invisible (visible:false still mounts + plays,
@@ -131,17 +143,13 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
           false,
           false,
           [
-            lane('ln1', 'compose_layer', 'l2', 'opacity', [
+            // Fade the GROUP's opacity — the whole overlay (badge + caption)
+            // fades in/out together instead of animating each child.
+            lane('ln1', 'compose_layer', 'l1', 'opacity', [
               kf('k1', 0, 0),
               kf('k2', 0.5, 1),
               kf('k3', 4, 1),
               kf('k4', 4.5, 0),
-            ]),
-            lane('ln2', 'compose_layer', 'l3', 'opacity', [
-              kf('k5', 0, 0),
-              kf('k6', 0.5, 1),
-              kf('k7', 4, 1),
-              kf('k8', 4.5, 0),
             ]),
           ],
           events

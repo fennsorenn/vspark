@@ -1,4 +1,5 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   useEditorStore,
   type ComposeLayerRecord,
@@ -11,10 +12,13 @@ import {
 } from './ComposeSceneInteractions';
 import {
   composeViewportRect,
+  composeStageScale,
   layersAtClientPoint,
   layerParentFrame,
 } from './composeHitTest';
 import type { ComposeFrame } from './composeLayerInteractions';
+import { ContextMenu, type ContextMenuItem } from './ContextMenu';
+import { canSendTo3D, sendComposeLayerTo3D } from './composeSendTo3D';
 
 const DRAG_THRESHOLD_PX = 3;
 
@@ -42,7 +46,37 @@ interface ComposeEventCaptureProps {
  *  rotate). The chrome's drag body is no longer needed for moves — drags from
  *  the capture overlay handle that. */
 export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
+  const { t } = useTranslation('compose');
   const captureRef = useRef<HTMLDivElement>(null);
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    layerId: string;
+  } | null>(null);
+
+  // Right-click a layer in the stage: offer "Send to 3D" for an image/video
+  // layer that overlaps a camera_view (same action as the compose tree row).
+  const onContextMenu = (e: React.MouseEvent) => {
+    const store = useEditorStore.getState();
+    const rect = composeViewportRect.current?.();
+    if (!rect) return;
+    const layers = store.composeLayers.filter(
+      (l) => l.rootComposeSceneId === store.activeComposeSceneId
+    );
+    const ids = layersAtClientPoint(rect, layers, e.clientX, e.clientY);
+    let target: ComposeLayerRecord | null = null;
+    for (const id of ids) {
+      const l = layers.find((x) => x.id === id);
+      if (l && (l.kind === 'image' || l.kind === 'video') && canSendTo3D(l)) {
+        target = l;
+        break;
+      }
+    }
+    if (!target) return;
+    e.preventDefault();
+    store.selectComposeLayer(target.id);
+    setCtxMenu({ x: e.clientX, y: e.clientY, layerId: target.id });
+  };
 
   useEffect(() => {
     const el = captureRef.current;
@@ -89,7 +123,13 @@ export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
       if (topLayer?.kind === 'camera_view' && topLayer.config.locked3d === true)
         return;
       ev.preventDefault();
-      composeSceneApplyWheel(ev.deltaY, ev.clientX, ev.clientY);
+      composeSceneApplyWheel(
+        ev.deltaY,
+        ev.clientX,
+        ev.clientY,
+        ev.ctrlKey,
+        ev.shiftKey
+      );
     };
 
     el.addEventListener('pointerdown', onPointerDown);
@@ -101,16 +141,40 @@ export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
   }, [viewportRef]);
 
   return (
-    <div
-      ref={captureRef}
-      style={{
-        position: 'absolute',
-        inset: 0,
-        zIndex: 50,
-        background: 'transparent',
-        cursor: 'default',
-      }}
-    />
+    <>
+      <div
+        ref={captureRef}
+        onContextMenu={onContextMenu}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 50,
+          background: 'transparent',
+          cursor: 'default',
+        }}
+      />
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          items={
+            [
+              {
+                kind: 'item',
+                label: t('tree.ctx.sendTo3d'),
+                onClick: () => {
+                  const layer = useEditorStore
+                    .getState()
+                    .composeLayers.find((l) => l.id === ctxMenu.layerId);
+                  if (layer) void sendComposeLayerTo3D(layer);
+                },
+              },
+            ] as ContextMenuItem[]
+          }
+        />
+      )}
+    </>
   );
 }
 
@@ -120,15 +184,19 @@ export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
 function parentFrameFor(layer: ComposeLayerRecord): ComposeFrame | undefined {
   const rect = composeViewportRect.current?.();
   if (!rect) return undefined;
+  // rect is the on-screen (scaled) stage rect; divide by the stage scale to get
+  // the parent frame in canonical px, and pass the scale so screen-space drag
+  // deltas are converted back to canonical.
+  const s = composeStageScale.current?.() ?? 1;
   const byId = new Map(
     useEditorStore.getState().composeLayers.map((l) => [l.id, l] as const)
   );
   const pf = layerParentFrame(
-    { width: rect.width, height: rect.height },
+    { width: rect.width / s, height: rect.height / s },
     layer,
     byId
   );
-  return { width: pf.hx * 2, height: pf.hy * 2, angle: pf.angle };
+  return { width: pf.hx * 2, height: pf.hy * 2, angle: pf.angle, scale: s };
 }
 
 /** Drag routing on the *current* selection at the moment the drag is detected.

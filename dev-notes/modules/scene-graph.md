@@ -48,10 +48,10 @@ Self-referential FK with cascade: deleting a parent deletes all descendants.
 | `avatar` | VRM character. Drives VMC/MediaPipe pipelines. |
 | `model` | GLTF/GLB static or animated mesh |
 | `light` | Point or directional light |
-| `camera` | Perspective camera; can have camera effects |
+| `camera` | Camera; can have camera effects. Config `camera: { projection: 'perspective' \| 'orthographic', fov, near, far, orthoSize?, backgroundImage? }`. **New camera nodes default to orthographic** (`createKinds.ts`: `projection: 'orthographic'`, `orthoSize: 2`) — flat, no perspective distortion. Orthographic cameras render via `FittedOrthoCamera`, which fits to the **shorter** viewport axis (the longer axis grows by aspect) and guards degenerate 0-dimension canvases mid-resize (previously a resized `camera_view` compose layer could collapse the ortho frustum to a vertical line). |
 | `group` | Empty transform container |
 | `particle` | Particle emitter |
-| `billboard` | 2D sprite always facing screen |
+| `billboard` | 2D sprite. `facing: 'screen' \| 'world'` — **defaults to `'world'`** (world-aligned quad) across every creation path (`createKinds.ts` palette + `createBillboardFromImageAsset`, AssetManager add-as-billboard, PropertiesPanel fallback, `BILLBOARD_DEFAULTS` in `Viewport.tsx`); switch to `'screen'` to quaternion-lock to the camera. `composeSendTo3D.ts` deliberately keeps `'screen'` (it replicates a 2D screen overlay). |
 | `prop` | Static mesh (alias of model, different semantic) |
 | `godray_caster` | Invisible sun mesh for the GodRays post-processing effect |
 | `text_troika` | SDF text via `troika-three-text`. Config: `{ content, fontSize, color, anchorX, anchorY, maxWidth, billboard? }`. With `billboard: true` the rendered text quaternion-locks to the active camera. `renderNodeElement` returns `null` for this kind so it mounts flat at the top level (like billboards/particles); the per-scene mount happens via `SceneNodes` `flatTextTroika`. |
@@ -207,7 +207,22 @@ Filters nodes to the active scene and optional exclusions. Recursively renders t
 
 ### Bone attachment
 
-`BoneAttacher` is a component that runs each frame and imperatively parents a node's group into the matching VRM bone node. This means bone-attached nodes (e.g., a prop on the right hand) follow skeleton motion without being part of the VRM's own bone hierarchy.
+`BoneAttacher` is a component whose effect imperatively parents a node's group into the matching VRM bone node **without touching the group's local transform** — the node's own position/rotation/scale (applied declaratively) become bone-local, so it keeps its offset relative to the bone. This means bone-attached nodes (e.g., a prop on the right hand) follow skeleton motion without being part of the VRM's own bone hierarchy.
+
+**Per-canvas resolution.** Every node is rendered once per Canvas (the always-mounted stage `Viewport` plus each `camera_view` `CameraCanvas`), so it has one registered group *per canvas* and each canvas loads its own VRM instance. `BoneAttacher` must therefore reparent the copy in **its own** scene, using `getNodeGroupForScene(nodeId, scene)` and `getVrmForScene(avatarNodeId, scene)` (the avatar's per-canvas VRM is stashed on its group's `userData.__vrm` at load). Using the global `getNodeGroup`/`vrmRegistry` (first/last-write-wins) here reparents one canvas's group into another canvas's bone and leaves a stray flat-mounted copy behind — the "duplicate billboard" bug.
+
+### Attach-on-drop (compose attach mode)
+
+Inside a **camera-view** compose layer you can drag the 3D scene objects it shows (`ComposeSceneInteractions`, the compose 3D drag/pick layer). When **`composeAttachEnabled`** is on **or Shift is held**, `ComposeSceneInteractions.onUp` (the drop) rebinds the dragged node instead of just persisting its position:
+
+- **Dropped over a model** → parent it to the bone under the drop: `{ parentId: avatarNodeId, boneAttachment: boneName, components.transform: <bone-local> }`, reusing the existing render path (`renderNodeElement`'s bone-followers + `BoneAttacher`).
+- **Dropped clear of any model** → if it was attached/non-top-level, detach back to top level (`parentId: null, boneAttachment: null`, transform = world).
+
+Both preserve world placement. The target bone is found by `pickBoneUnderRay` (in `ComposeSceneInteractions`), cast **from the cursor** (`ev.clientX/Y` → NDC → ray) so you pin to exactly what you point at. It does a real skinning-aware **triangle raycast** against the posed mesh — via `SkinnedMesh.prototype.raycast` (the instance `.raycast` is stubbed to `noop` for the fast AABB node-picker) — then reads the dominant skin weight at the closest vertex of the hit face (`dominantBoneForHit`). This is geometry- and animation-accurate, unlike the coarse per-bone boxes the *node* picker uses (which target bounding volumes, not the surface).
+
+- **`composeAttachEnabled`** is a store flag (`setComposeAttachEnabled`) persisted to `localStorage` key `vspark.composeAttach`, **default OFF**. The compose toolbar carries a `vs-compose-attach-toggle` (Bone icon) next to the snap toggle; i18n keys `compose:view.attachOn/attachOff`.
+- **Shared bone math lives in [`components/editor/boneAttachPick.ts`](../../packages/frontend/src/components/editor/boneAttachPick.ts) — the extension point.** `dominantBoneForHit(mesh, face, worldPoint)` returns the highest-skin-weight bone at the closest vertex of a hit face (posed, animation-aware). `humanoidBoneFor(vrm, bone)` resolves an arbitrary skeleton bone up its parent chain to the nearest VRM humanoid bone (so sleeve/twist bones map to their humanoid ancestor). `worldToBoneLocalTransform(object, boneNode)` converts a world transform into bone-local space (attach); `worldTransform(object)` decomposes the world matrix (detach → top level). Unit tests: `packages/frontend/test/boneAttachPick.test.ts`.
+- User-facing help: "Attach to a bone" `{#attach-bone}` section in `help/content/{en,de}/compose.md`.
 
 ## Transform update flow
 

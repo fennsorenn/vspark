@@ -49,3 +49,10 @@ reagieren — ein neuer Follower, ein Abo, ein Chat-Befehl, eine
 Kanalpunkt-Einlösung und mehr. Kombiniere einen Auslöser-Knoten mit einem
 Aktions-Knoten (eine Animation abspielen, ein Overlay zeigen, einen Effekt
 erzeugen), um automatische Reaktionen für dein Publikum zu erstellen.
+
+Logik kann auch antworten: Die Aktion **Chat senden** postet beim Auslösen eine
+Nachricht in deinen Kanal. Ihre Nachricht ist eine Vorlage — schreibe festen
+Text gemischt mit `${Platzhaltern}` und verbinde dann einen Wert mit jedem
+benannten Eingang, um die Lücken zu füllen (zum Beispiel einen neuen Follower
+mit Namen begrüßen). Zum Senden muss das Konto einmal neu verbunden werden,
+damit es die Berechtigung zum Schreiben im Chat erteilt.

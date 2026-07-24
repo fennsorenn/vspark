@@ -1,9 +1,11 @@
 name: CI
 
 # Runs on every PR targeting main. Two required checks:
-#   - build: mirrors the prep steps from release.yml (lint, build, backend
-#     bundle) so a PR that wouldn't ship a release can't merge. Catches
-#     regressions like missing esbuild alias entries before they reach main.
+#   - build: mirrors the prep steps from release.yml (lint, test, build,
+#     backend bundle) so a PR that wouldn't ship a release can't merge.
+#     Catches regressions like missing esbuild alias entries before they
+#     reach main. `pnpm test` is the fast unit+API tier (~30s, no booted
+#     stack); e2e stays a manual post-push confirmation, not a merge gate.
 #   - release-label: refuses merge unless the PR carries exactly one of
 #     release:patch / release:minor / release:major. tag.yml reads this
 #     label after merge to decide the semver bump.
@@ -40,6 +42,9 @@ jobs:
 
       - name: Lint
         run: pnpm lint
+
+      - name: Test
+        run: pnpm test
 
       - name: Build
         run: pnpm build

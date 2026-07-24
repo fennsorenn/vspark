@@ -3,8 +3,11 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
+  rmdirSync,
   unlinkSync,
+  writeFileSync,
 } from 'fs';
 import { fileURLToPath } from 'url';
 // esbuild handles CJS→ESM interop; this import gets bundled into bundle.cjs
@@ -159,12 +162,153 @@ export function getDb(): WasmDb {
   return _db;
 }
 
+// ─── Lock ownership (stale-lock reclaim) ────────────────────────────────────
+//
+// node-sqlite3-wasm has no OS file locks (WASM sandbox); it serialises via an
+// atomically-created `<db>.lock/` directory, acquired/released *per operation*.
+// So an idle backend holds no lock, and the DB open alone cannot distinguish
+// "another backend owns this file" from "a crashed predecessor left debris".
+// A crash strands the `.lock/` dir and/or the rollback journal (WAL does not
+// stick in this build — PRAGMA journal_mode=WAL silently stays 'delete'), and
+// every later open then fails with "database is locked".
+//
+// We therefore track the owner in a sidecar PID file and treat it as the
+// authoritative live-holder gate (see initDb): a live holder is refused (never
+// evicted), a dead/absent holder means we own the file — clear debris and open.
+//
+// In-memory DBs (:memory:, used by tests) are per-connection and never shared,
+// so all of this is skipped for them.
+const IS_MEMORY_DB = DB_PATH === ':memory:';
+const PID_PATH = `${DB_PATH}.pid`;
+const JOURNAL_PATH = `${DB_PATH}-journal`;
+// node-sqlite3-wasm has no OS file locks (WASM sandbox), so it locks via an
+// atomically-created `<db>.lock/` directory: mkdir to acquire, rmdir to
+// release. A crash strands this dir and every subsequent open then fails with
+// "database is locked" — this is the primary cause of the recurring lockups.
+const LOCK_DIR = `${DB_PATH}.lock`;
+
+// Signal 0 probes for existence without delivering a signal. ESRCH → no such
+// process (stale). EPERM → alive but owned by another user (treat as alive).
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+// Returns true if the lock looks reclaimable: no PID file, an unparseable one,
+// or one naming a dead process. A live, parseable holder returns false.
+function lockHolderIsStale(): { stale: boolean; pid: number | null } {
+  if (!existsSync(PID_PATH)) return { stale: true, pid: null };
+  let pid: number;
+  try {
+    pid = parseInt(readFileSync(PID_PATH, 'utf8').trim(), 10);
+  } catch {
+    return { stale: true, pid: null };
+  }
+  if (!Number.isInteger(pid) || pid <= 0) return { stale: true, pid: null };
+  if (pid === process.pid) return { stale: true, pid }; // our own re-open
+  return { stale: !isProcessAlive(pid), pid };
+}
+
+function claimLock(): void {
+  try {
+    writeFileSync(PID_PATH, String(process.pid), 'utf8');
+  } catch {
+    /* best-effort: recovery still works off journal presence */
+  }
+}
+
+function openDatabase(): DatabaseType {
+  const db = new Database(DB_PATH);
+  // Wait up to 5s for a transient holder (e.g. a watcher restart racing its
+  // predecessor's shutdown) to release, rather than failing instantly.
+  db.exec('PRAGMA busy_timeout = 5000;');
+  // The constructor is lazy — SQLite acquires no lock until the first
+  // read/write, so a locked DB would otherwise surface only later (inside
+  // runMigrations). Force the lock to materialize here with a write probe so
+  // the reclaim logic in initDb() can act on it. BEGIN IMMEDIATE takes the
+  // reserved lock without writing anything; COMMIT releases it.
+  try {
+    db.exec('BEGIN IMMEDIATE; COMMIT;');
+  } catch (err) {
+    db.close();
+    throw err;
+  }
+  return db;
+}
+
+function isLockedError(err: unknown): boolean {
+  const msg = (err as Error)?.message ?? '';
+  return /database is locked|SQLITE_BUSY/i.test(msg);
+}
+
+function reclaimStaleDebris(pid: number | null): void {
+  console.warn(
+    `[db] Reclaiming stale lock${pid ? ` from dead pid ${pid}` : ''} — ` +
+      `removing stale lock dir + journal.`
+  );
+  try {
+    if (existsSync(LOCK_DIR)) rmdirSync(LOCK_DIR);
+  } catch {
+    /* best-effort: dir should be empty (lock dirs hold no files) */
+  }
+  try {
+    if (existsSync(JOURNAL_PATH)) unlinkSync(JOURNAL_PATH);
+  } catch {
+    /* best-effort */
+  }
+}
+
 export async function initDb(): Promise<void> {
   if (_db) return;
+
+  // In-memory DBs are per-connection: no file, no cross-process lock, no PID
+  // bookkeeping. Open and return.
+  if (IS_MEMORY_DB) {
+    _db = new WasmDb(new Database(DB_PATH));
+    return;
+  }
+
   // node-sqlite3-wasm creates the DB file but not its parent dir; ensure it
   // exists so a custom VSPARK_DB_PATH (e.g. multiplayer test DBs) can open.
   mkdirSync(dirname(DB_PATH), { recursive: true });
-  const db = new Database(DB_PATH);
+
+  // The PID file is the authoritative live-holder gate. node-sqlite3-wasm's own
+  // lock (the `.lock/` dir) is per-operation, not per-process — an idle backend
+  // holds nothing, so the DB open alone can't tell "another backend owns this"
+  // from "crash debris". We consult the PID file first:
+  //   - live holder  → refuse (never evict a running peer).
+  //   - dead/absent  → we're the legitimate owner; clear any debris and open.
+  const { stale, pid } = lockHolderIsStale();
+  if (!stale) {
+    throw new Error(
+      `[db] Database is in use by a running vspark backend (pid ${pid}). ` +
+        `Stop it before starting another instance, or set VSPARK_DB_PATH / ` +
+        `PORT to run a second instance against a separate DB.`
+    );
+  }
+  // Clear any crash debris from a dead predecessor before opening. Harmless
+  // when there's none (pristine start).
+  if (existsSync(LOCK_DIR) || existsSync(JOURNAL_PATH)) {
+    reclaimStaleDebris(pid);
+  }
+
+  let db: DatabaseType;
+  try {
+    db = openDatabase();
+  } catch (err) {
+    // Fallback for a genuine concurrent-write race that slipped past the PID
+    // gate (e.g. a peer mid-transaction with no/stale PID file). busy_timeout
+    // already waited; one debris-clear + retry, then give up.
+    if (!isLockedError(err)) throw err;
+    reclaimStaleDebris(pid);
+    db = openDatabase();
+  }
+
+  claimLock();
   _db = new WasmDb(db);
 }
 
@@ -211,6 +355,18 @@ export function closeDb(): void {
   if (_db) {
     _db.close();
     _db = null;
+  }
+  if (IS_MEMORY_DB) return;
+  // Release our lock ownership so the next start sees no stale holder. Only
+  // remove the PID file if it still names us — a reclaiming successor may have
+  // already overwritten it.
+  try {
+    if (existsSync(PID_PATH)) {
+      const owner = parseInt(readFileSync(PID_PATH, 'utf8').trim(), 10);
+      if (owner === process.pid) unlinkSync(PID_PATH);
+    }
+  } catch {
+    /* best-effort */
   }
 }
 

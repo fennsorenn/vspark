@@ -65,6 +65,14 @@ export interface ChatFeedItem {
  *  node trims this snapshot to its own (smaller) configured `maxLength`. */
 const CHAT_BUFFER_MAX = 500;
 
+/** Valid Twitch announcement colors; anything else falls back to `primary`. */
+const ANNOUNCE_COLORS = ['blue', 'green', 'orange', 'purple', 'primary'] as const;
+type AnnounceColor = (typeof ANNOUNCE_COLORS)[number];
+function coerceColor(color?: string): AnnounceColor {
+  const c = (color ?? '').toLowerCase();
+  return (ANNOUNCE_COLORS as readonly string[]).includes(c) ? (c as AnnounceColor) : 'primary';
+}
+
 // ─── Row shapes (mirror the routes/overlive-accounts.ts types) ────────────────
 
 interface AccountRow {
@@ -260,6 +268,286 @@ export class OverliveManager {
       }
       this.projects.delete(id);
     }
+  }
+
+  /**
+   * Send a chat message as the given account. Used by the outbound
+   * `overlive_send_chat` signal node. `channel` is accepted for symmetry with
+   * the inbound nodes but is currently advisory — the Twitch adapter always
+   * posts to its own broadcaster channel. Best-effort: failures are logged and
+   * swallowed so a misconfigured graph never throws out of the node fire path.
+   */
+  async sendChat(
+    accountId: string,
+    _channel: string | undefined,
+    text: string
+  ): Promise<void> {
+    const message = text.trim();
+    if (!accountId || message.length === 0) return;
+    const row = getDb()
+      .prepare(
+        'SELECT project_id, platform FROM overlive_accounts WHERE id = ?'
+      )
+      .get(accountId) as { project_id: string; platform: string } | undefined;
+    if (!row) {
+      console.error(`[Overlive] sendChat: unknown account ${accountId}`);
+      return;
+    }
+    const entry = this.projects.get(row.project_id);
+    const adapter = entry?.kit.adapter(accountId);
+    if (!adapter) {
+      console.error(
+        `[Overlive] sendChat: account ${accountId} has no live adapter`
+      );
+      return;
+    }
+    if (!(adapter instanceof TwitchAdapter)) {
+      console.error(
+        `[Overlive] sendChat: ${row.platform} accounts cannot send chat`
+      );
+      return;
+    }
+    try {
+      await adapter.sendChatMessage(message);
+    } catch (e) {
+      console.error(`[Overlive] sendChat failed for ${accountId}:`, e);
+    }
+  }
+
+  // ─── Outbound actions ───────────────────────────────────────────────────────
+  //
+  // One method per Twitch action, each driven by a signal node. All are
+  // best-effort: an unknown account, dead adapter, non-Twitch platform, or a
+  // failed Helix call is logged and swallowed so a misconfigured graph never
+  // throws out of a node's fire path. Twitch is the only platform exposing
+  // outbound actions today.
+
+  /** Resolve a live Twitch adapter for an account, or log why not + return null. */
+  private twitchAdapter(accountId: string, action: string): TwitchAdapter | null {
+    if (!accountId) return null;
+    const row = getDb()
+      .prepare('SELECT project_id, platform FROM overlive_accounts WHERE id = ?')
+      .get(accountId) as { project_id: string; platform: string } | undefined;
+    if (!row) {
+      console.error(`[Overlive] ${action}: unknown account ${accountId}`);
+      return null;
+    }
+    const adapter = this.projects.get(row.project_id)?.kit.adapter(accountId);
+    if (!adapter) {
+      console.error(`[Overlive] ${action}: account ${accountId} has no live adapter`);
+      return null;
+    }
+    if (!(adapter instanceof TwitchAdapter)) {
+      console.error(`[Overlive] ${action}: ${row.platform} accounts do not support ${action}`);
+      return null;
+    }
+    return adapter;
+  }
+
+  /** Run `fn` against the account's Twitch adapter, swallowing + logging errors. */
+  private async run(
+    accountId: string,
+    action: string,
+    fn: (a: TwitchAdapter) => Promise<void>
+  ): Promise<void> {
+    const adapter = this.twitchAdapter(accountId, action);
+    if (!adapter) return;
+    try {
+      await fn(adapter);
+    } catch (e) {
+      console.error(`[Overlive] ${action} failed for ${accountId}:`, e);
+    }
+  }
+
+  // — Chat —
+
+  async sendAnnouncement(accountId: string, message: string, color?: string): Promise<void> {
+    const m = message.trim();
+    if (!m) return;
+    await this.run(accountId, 'announce', (a) => a.sendAnnouncement(m, coerceColor(color)));
+  }
+
+  async sendShoutout(accountId: string, toBroadcasterId: string): Promise<void> {
+    if (!toBroadcasterId) return;
+    await this.run(accountId, 'shoutout', (a) => a.sendShoutout(toBroadcasterId));
+  }
+
+  async updateChatColor(accountId: string, color: string): Promise<void> {
+    if (!color) return;
+    await this.run(accountId, 'chatColor', (a) => a.updateChatColor(color));
+  }
+
+  // — Channel —
+
+  async updateChannel(
+    accountId: string,
+    update: { title?: string; categoryName?: string; language?: string }
+  ): Promise<void> {
+    const u: { title?: string; categoryName?: string; language?: string } = {};
+    if (update.title) u.title = update.title;
+    if (update.categoryName) u.categoryName = update.categoryName;
+    if (update.language) u.language = update.language;
+    if (Object.keys(u).length === 0) return;
+    await this.run(accountId, 'updateChannel', (a) => a.updateChannel(u));
+  }
+
+  async createStreamMarker(accountId: string, description?: string): Promise<void> {
+    await this.run(accountId, 'marker', (a) => a.createStreamMarker(description || undefined));
+  }
+
+  async startCommercial(accountId: string, lengthSec: number): Promise<void> {
+    if (!Number.isFinite(lengthSec) || lengthSec <= 0) return;
+    await this.run(accountId, 'commercial', (a) => a.startCommercial(Math.round(lengthSec)));
+  }
+
+  async snoozeAd(accountId: string): Promise<void> {
+    await this.run(accountId, 'snoozeAd', (a) => a.snoozeAd());
+  }
+
+  // — Channel points —
+
+  async updateRedemptionStatus(
+    accountId: string,
+    rewardId: string,
+    redemptionId: string,
+    status: string
+  ): Promise<void> {
+    if (!rewardId || !redemptionId) return;
+    const s = status.toUpperCase() === 'CANCELED' ? 'CANCELED' : 'FULFILLED';
+    await this.run(accountId, 'redemption', (a) => a.updateRedemptionStatus(rewardId, redemptionId, s));
+  }
+
+  // — Moderation —
+
+  async banUser(accountId: string, userId: string, durationSec?: number, reason?: string): Promise<void> {
+    if (!userId) return;
+    const options: { durationSec?: number; reason?: string } = {};
+    if (Number.isFinite(durationSec) && (durationSec as number) > 0) options.durationSec = Math.round(durationSec as number);
+    if (reason) options.reason = reason;
+    await this.run(accountId, 'ban', (a) => a.banUser(userId, options));
+  }
+
+  async unbanUser(accountId: string, userId: string): Promise<void> {
+    if (!userId) return;
+    await this.run(accountId, 'unban', (a) => a.unbanUser(userId));
+  }
+
+  async deleteChatMessage(accountId: string, messageId?: string): Promise<void> {
+    await this.run(accountId, 'deleteMessage', (a) => a.deleteChatMessage(messageId || undefined));
+  }
+
+  async updateChatSettings(
+    accountId: string,
+    settings: {
+      emoteOnly?: boolean;
+      followersOnly?: boolean | number;
+      slowMode?: boolean | number;
+      subscribersOnly?: boolean;
+      uniqueChat?: boolean;
+    }
+  ): Promise<void> {
+    if (Object.keys(settings).length === 0) return;
+    await this.run(accountId, 'chatSettings', (a) => a.updateChatSettings(settings));
+  }
+
+  async warnUser(accountId: string, userId: string, reason: string): Promise<void> {
+    if (!userId || !reason) return;
+    await this.run(accountId, 'warn', (a) => a.warnUser(userId, reason));
+  }
+
+  async manageAutoMod(accountId: string, messageId: string, action: string): Promise<void> {
+    if (!messageId) return;
+    const act = action.toUpperCase() === 'DENY' ? 'DENY' : 'ALLOW';
+    await this.run(accountId, 'automod', (a) => a.manageAutoModMessage(messageId, act));
+  }
+
+  // — Roles —
+
+  async addVip(accountId: string, userId: string): Promise<void> {
+    if (!userId) return;
+    await this.run(accountId, 'addVip', (a) => a.addVip(userId));
+  }
+  async removeVip(accountId: string, userId: string): Promise<void> {
+    if (!userId) return;
+    await this.run(accountId, 'removeVip', (a) => a.removeVip(userId));
+  }
+  async addModerator(accountId: string, userId: string): Promise<void> {
+    if (!userId) return;
+    await this.run(accountId, 'addMod', (a) => a.addModerator(userId));
+  }
+  async removeModerator(accountId: string, userId: string): Promise<void> {
+    if (!userId) return;
+    await this.run(accountId, 'removeMod', (a) => a.removeModerator(userId));
+  }
+
+  // — Interactive —
+
+  async createPoll(
+    accountId: string,
+    title: string,
+    choices: string[],
+    durationSec: number,
+    channelPointsPerVote?: number
+  ): Promise<void> {
+    const cleaned = choices.map((c) => c.trim()).filter((c) => c.length > 0);
+    if (!title.trim() || cleaned.length < 2 || !Number.isFinite(durationSec) || durationSec <= 0) return;
+    const spec: { title: string; choices: string[]; durationSec: number; channelPointsPerVote?: number } = {
+      title: title.trim(),
+      choices: cleaned,
+      durationSec: Math.round(durationSec),
+    };
+    if (Number.isFinite(channelPointsPerVote) && (channelPointsPerVote as number) > 0) {
+      spec.channelPointsPerVote = Math.round(channelPointsPerVote as number);
+    }
+    await this.run(accountId, 'createPoll', (a) => a.createPoll(spec));
+  }
+
+  async endPoll(accountId: string, pollId: string, status: string): Promise<void> {
+    if (!pollId) return;
+    const s = status.toUpperCase() === 'ARCHIVED' ? 'ARCHIVED' : 'TERMINATED';
+    await this.run(accountId, 'endPoll', (a) => a.endPoll(pollId, s));
+  }
+
+  async createPrediction(
+    accountId: string,
+    title: string,
+    outcomes: string[],
+    windowSec: number
+  ): Promise<void> {
+    const cleaned = outcomes.map((o) => o.trim()).filter((o) => o.length > 0);
+    if (!title.trim() || cleaned.length < 2 || !Number.isFinite(windowSec) || windowSec <= 0) return;
+    await this.run(accountId, 'createPrediction', (a) =>
+      a.createPrediction({ title: title.trim(), outcomes: cleaned, windowSec: Math.round(windowSec) })
+    );
+  }
+
+  async endPrediction(
+    accountId: string,
+    predictionId: string,
+    status: string,
+    winningOutcomeId?: string
+  ): Promise<void> {
+    if (!predictionId) return;
+    const up = status.toUpperCase();
+    const s = up === 'CANCELED' ? 'CANCELED' : up === 'LOCKED' ? 'LOCKED' : 'RESOLVED';
+    await this.run(accountId, 'endPrediction', (a) => a.endPrediction(predictionId, s, winningOutcomeId || undefined));
+  }
+
+  async startRaid(accountId: string, toBroadcasterId: string): Promise<void> {
+    if (!toBroadcasterId) return;
+    await this.run(accountId, 'startRaid', (a) => a.startRaid(toBroadcasterId));
+  }
+
+  async cancelRaid(accountId: string): Promise<void> {
+    await this.run(accountId, 'cancelRaid', (a) => a.cancelRaid());
+  }
+
+  // — Direct messages —
+
+  async sendWhisper(accountId: string, toUserId: string, message: string): Promise<void> {
+    const m = message.trim();
+    if (!toUserId || !m) return;
+    await this.run(accountId, 'whisper', (a) => a.sendWhisper(toUserId, m));
   }
 
   // ─── Internals ────────────────────────────────────────────────────────────
