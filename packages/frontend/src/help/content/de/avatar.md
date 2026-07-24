@@ -59,6 +59,54 @@ Aktiviere sie pro Avatar und stelle dann drei Regler ein:
 > mehr Schwung. Fängt die Bewegung an zu wackeln oder zu schwingen, erhöhe die
 > **Dämpfung** oder senke die **Frequenz**.
 
+## Teilweises Tracking {#partial-tracking}
+
+**Teilweises Tracking** steuert verschiedene Körperbereiche gleichzeitig aus
+verschiedenen Quellen — zum Beispiel eine Tanz-Animation auf den **Beinen**,
+während dein Live-Tracking den **Oberkörper** steuert.
+
+Der Körper ist in sechs Bereiche unterteilt: **Kopf**, **Blick** (Augen),
+**Körper** (Rumpf), **Arme**, **Hände** (Finger) und **Beine**. Jeder Bereich
+hat zwei Regler:
+
+- **Anim** — wie stark die **Basis-Animation** diesen Bereich steuert.
+- **Track** — wie stark Live-Tracking (VMC oder Kamera) ihn steuert.
+
+Tracking wird **auf die Basis-Animation gestapelt**, und jeder Regler skaliert
+seine Ebene unabhängig. Der Bereich startet in der Ruhepose, **Anim** blendet
+die Basis-Animation ein, und **Track** legt das Live-Tracking darüber:
+
+- **Anim 1 / Track 1** — die Basis-Animation mit voll aufgesetztem Tracking.
+- **Anim 1 / Track 0** — nur Animation (z. B. Beine folgen einem Clip).
+- **Anim 0 / Track 1** — nur Tracking.
+- **Anim 0 / Track 0** — der Bereich ruht.
+- Werte dazwischen skalieren jede Ebene, sodass beide Regler stets wirken.
+
+Bereiche, die du nicht anfasst, bleiben auf dem Standard (**Anim 1 / Track 1**).
+
+> Die Hüfte gehört zum Bereich **Beine** — sowohl ihre Rotation als auch ihre
+> **Position** (die Root-Motion: das Auf-und-Ab-Wippen und die
+> Gewichtsverlagerung, die ein Clip mitbringt), da die Hüfte die untere
+> Körperhälfte führt. **Beine Anim 0** hält die Hüfte also an Ort und Stelle und
+> lässt sie zusammen mit den Beinen ruhen, während der Bereich **Körper**
+> Wirbelsäule und Brust abdeckt.
+
+### Basis-Animation
+
+Die **Basis-Animation** (im Animations-Abschnitt einstellbar) ist die Schleife,
+auf die Tracking gestapelt wird, solange eine Tracking-Quelle verbunden ist —
+getrennt von der **Leerlauf-Animation**. Bei Tracking-Verlust fällt der Avatar
+auf den Leerlauf zurück. Ohne gesetzte Basis-Animation dient der Leerlauf als
+Basis.
+
+Beide Schleifen lassen sich direkt im **Assets**-Panel zuweisen: bei
+ausgewähltem Avatar zeigt jeder Animations-Clip die Schaltflächen **Als Idle
+setzen** und **Als Basis setzen**.
+
+> Hinweis: Beine per Tracking brauchen eine Ganzkörperquelle (ein Ganzkörper-
+> VMC-Sender). Webcam-Tracking sendet noch keine Beine — nutze bei einer Webcam
+> also **Anim** für die Beine und **Track** für den Oberkörper.
+
 ## Mimik {#expressions}
 
 Mimik sind im VRM definierte Gesichtsposen wie Lächeln, Blinzeln oder

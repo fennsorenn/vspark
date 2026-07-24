@@ -14,20 +14,55 @@ import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { createLayer } from './createKinds';
 import { DND_CREATE_LAYER, dropZoneFromEvent, type DropZone } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
-import { usePrompt } from '../DialogProvider';
+import { usePrompt, useChoose, useConfirm } from '../DialogProvider';
+import { LAYER_KIND_ICON } from '../icons';
+import { canSendTo3D, sendComposeLayerTo3D } from './composeSendTo3D';
 
-const KIND_ICONS: Record<ComposeLayerKind, string> = {
-  image: '🖼',
-  video: '🎞',
-  audio: '🔊',
-  browser: '🌐',
-  group: '📁',
-  compose_scene: '🎬',
-  scene_include: '🎬',
-  camera_view: '📷',
-  text: '📝',
-  feed: '📜',
-};
+
+// Monochrome SVG icons (stroke = currentColor) so the button `color` actually
+// applies — unlike the coloured emoji they replace, which ignore CSS colour.
+function LockIcon({ locked, size = 12 }: { locked: boolean; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      {locked ? (
+        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+      ) : (
+        <path d="M8 11V7a4 4 0 0 1 7.8-1.3" />
+      )}
+    </svg>
+  );
+}
+
+function EyeIcon({ hidden, size = 13 }: { hidden: boolean; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+      {hidden && <line x1="3" y1="21" x2="21" y2="3" />}
+    </svg>
+  );
+}
 
 const addBtn: CSSProperties = {
   background: '#2563eb',
@@ -231,10 +266,62 @@ function LayerRow({
         ? `${layer.name}${includedScene ? ` · ${includedScene.name}` : ''}`
         : layer.name;
 
+  const choose = useChoose();
+  const confirm = useConfirm();
   const handleDelete = async () => {
-    if (!confirm(t('tree.deleteLayerConfirm', { name: layer.name }))) return;
-    useEditorStore.getState().removeComposeLayer(layer.id);
-    await api.deleteComposeLayer(layer.id).catch(() => {});
+    const store = useEditorStore.getState();
+    const directChildren = layersByParent.get(layer.id) ?? [];
+    const delOne = async (id: string) => {
+      store.removeComposeLayer(id);
+      await api.deleteComposeLayer(id).catch(() => {});
+    };
+
+    // Leaf layer: a simple confirm.
+    if (directChildren.length === 0) {
+      if (
+        !(await confirm({
+          message: t('tree.deleteLayerConfirm', { name: layer.name }),
+          danger: true,
+        }))
+      )
+        return;
+      await delOne(layer.id);
+      return;
+    }
+
+    // Has children: offer delete-with / delete-without / cancel so nested
+    // content isn't left abandoned.
+    const choice = await choose({
+      title: t('tree.deleteBranchTitle', { name: layer.name }),
+      message: t('tree.deleteBranchMsg', { count: directChildren.length }),
+      choices: [
+        { value: 'with', label: t('tree.deleteWithChildren'), danger: true },
+        { value: 'without', label: t('tree.deleteKeepChildren') },
+      ],
+    });
+    if (!choice) return; // cancel / dismiss
+
+    if (choice === 'with') {
+      // Collect the whole subtree (leaves first) and delete each — the backend
+      // delete doesn't cascade on parent_id, so we remove them explicitly.
+      const subtree: string[] = [];
+      const stack = [layer.id];
+      while (stack.length) {
+        const id = stack.pop()!;
+        subtree.push(id);
+        for (const c of layersByParent.get(id) ?? []) stack.push(c.id);
+      }
+      for (const id of subtree.reverse()) await delOne(id);
+    } else {
+      // Keep children: reparent the direct children onto this layer's parent,
+      // then delete this layer.
+      for (const c of directChildren) {
+        const patch = { parentId: layer.parentId ?? null };
+        store.updateComposeLayerLocal(c.id, patch);
+        await api.updateComposeLayer(c.id, patch).catch(() => {});
+      }
+      await delOne(layer.id);
+    }
   };
 
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
@@ -324,6 +411,13 @@ function LayerRow({
         kind: 'item',
         label: t('tree.ctx.pasteLogicHere'),
         onClick: () => void handlePasteLogicAtLayer(),
+      });
+    }
+    if (canSendTo3D(layer)) {
+      items.push({
+        kind: 'item',
+        label: t('tree.ctx.sendTo3d'),
+        onClick: () => void sendComposeLayerTo3D(layer),
       });
     }
     items.push(
@@ -477,7 +571,21 @@ function LayerRow({
           selectNode(null);
         }}
       >
-        <span style={{ width: 14 }}>{KIND_ICONS[layer.kind]}</span>
+        <span
+          style={{
+            width: 14,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            color: '#bbb',
+          }}
+        >
+          {(() => {
+            const Ico = LAYER_KIND_ICON[layer.kind];
+            return Ico ? <Ico size={13} /> : null;
+          })()}
+        </span>
         <span
           style={{
             flex: 1,
@@ -500,17 +608,23 @@ function LayerRow({
             style={{
               background: 'none',
               border: 'none',
-              color: locked3d ? '#e0a838' : '#555',
+              // Active lock = gold; inactive = grey.
+              color: locked3d ? '#e0a838' : '#888',
               cursor: 'pointer',
-              fontSize: 11,
+              fontSize: 9,
+              fontWeight: 700,
               padding: '0 2px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
             }}
             onClick={(e) => {
               e.stopPropagation();
               toggleLock('locked3d');
             }}
           >
-            {locked3d ? '🔒3D' : '🔓3D'}
+            <LockIcon locked={locked3d} size={11} />
+            3D
           </button>
         )}
         <button
@@ -521,17 +635,19 @@ function LayerRow({
           style={{
             background: 'none',
             border: 'none',
-            color: locked ? '#e0a838' : '#555',
+            // Active lock = gold; inactive = grey.
+            color: locked ? '#e0a838' : '#888',
             cursor: 'pointer',
-            fontSize: 12,
             padding: '0 2px',
+            display: 'inline-flex',
+            alignItems: 'center',
           }}
           onClick={(e) => {
             e.stopPropagation();
             toggleLock('locked');
           }}
         >
-          {locked ? '🔒' : '🔓'}
+          <LockIcon locked={locked} />
         </button>
         <button
           className="vs-layer-visibility"
@@ -539,17 +655,19 @@ function LayerRow({
           style={{
             background: 'none',
             border: 'none',
-            color: layer.visible ? '#888' : '#555',
+            // Visible = grey eye; hidden = struck-through eye in red.
+            color: layer.visible ? '#888' : '#e0483b',
             cursor: 'pointer',
-            fontSize: 12,
             padding: '0 2px',
+            display: 'inline-flex',
+            alignItems: 'center',
           }}
           onClick={(e) => {
             e.stopPropagation();
             handleToggleVisible();
           }}
         >
-          {layer.visible ? '👁' : '🙈'}
+          <EyeIcon hidden={!layer.visible} />
         </button>
         <button
           className="vs-layer-delete"
@@ -827,7 +945,19 @@ function ComposeSceneRoot({
         >
           {collapsed ? '▶' : '▼'}
         </span>
-        <span style={{ fontSize: 14, flexShrink: 0 }}>🎬</span>
+        <span
+          style={{
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            color: '#bbb',
+          }}
+        >
+          {(() => {
+            const Ico = LAYER_KIND_ICON.compose_scene;
+            return <Ico size={14} />;
+          })()}
+        </span>
         <span
           style={{
             flex: 1,

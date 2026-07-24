@@ -420,11 +420,17 @@ export function NumInput({
   );
 }
 
+// Cap displayed precision at 3 decimals everywhere (display + editable buffer).
+// The underlying stored value keeps full precision; only what the user sees is
+// rounded. An explicit `precision` prop is honoured but clamped to <= 3.
+const MAX_DISPLAY_DECIMALS = 3;
+
 function formatValue(v: number, precision?: number): string {
   if (!Number.isFinite(v)) return '';
-  if (precision != null) return v.toFixed(precision);
+  if (precision != null)
+    return v.toFixed(Math.min(precision, MAX_DISPLAY_DECIMALS));
   // Trim trailing zeros / unnecessary decimals so the input stays readable.
-  return String(parseFloat(v.toFixed(6)));
+  return String(parseFloat(v.toFixed(MAX_DISPLAY_DECIMALS)));
 }
 
 // ── VecInput ──────────────────────────────────────────────────────────────────

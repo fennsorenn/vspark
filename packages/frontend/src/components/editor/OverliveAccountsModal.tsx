@@ -12,6 +12,7 @@
  * Future Features → Multi-user usage.
  */
 import { useEffect, useState } from 'react';
+import { Circle } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../api/client';
@@ -345,8 +346,18 @@ export function OverliveAccountsModal({ onClose }: Props) {
                 acc.status === 'error' || acc.status === 'needs_reauth';
               return (
                 <div key={acc.id} style={rowStyle}>
-                  <span style={{ fontSize: 16, marginRight: 8 }}>
-                    {acc.platform === 'twitch' ? '🟣' : '🟢'}
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      marginRight: 8,
+                    }}
+                  >
+                    {acc.platform === 'twitch' ? (
+                      <Circle size={12} fill="#a970ff" color="#a970ff" />
+                    ) : (
+                      <Circle size={12} fill="#43b581" color="#43b581" />
+                    )}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={rowTitleStyle}>

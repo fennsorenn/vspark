@@ -71,9 +71,57 @@ für die eingegebene Position gilt. Wenn du beispielsweise den Ankerpunkt auf di
 untere rechte Ecke setzt und X/Y auf null stellst, rastet die Ebene an der
 unteren rechten Ecke des Ausgabebereichs ein.
 
+Wenn du eine Ebene in der Vorschau ziehst **oder ihre Größe änderst**, **rastet**
+sie an der Mitte und den Kanten ihres übergeordneten Elements ein (bei einer Ebene
+der obersten Ebene die gesamte Leinwand): Die Kanten und die Mitte der Ebene — oder
+die Kante, deren Größe du änderst — ziehen sich zu den Kanten und der Mitte des
+übergeordneten Elements, und eine rosa Hilfslinie zeigt jede aktive Einrastung.
+Halte beim Ziehen **Alt** gedrückt, um frei ohne Einrasten zu verschieben, oder
+schalte das Einrasten mit der Magnet-Schaltfläche in der Compose-Symbolleiste
+(oben rechts) ganz aus.
+
 Du kannst eine Ebene in 2D sperren, damit sie in der Vorschau nicht versehentlich
 verschoben wird, oder die 3D-Interaktion sperren, falls sie den 3D-Viewport
 überlappt.
+
+Wenn eine Bild- oder Videoebene eine **Kameraansicht**-Ebene überlappt, bietet ein
+Rechtsklick darauf (in der Ebenenliste **oder** in der Vorschau) **In 3D senden**:
+Dadurch wird ein passendes Billboard (oder eine Videoebene) in der 3D-Szene dieser
+Kamera erstellt — so positioniert und skaliert, dass es genau dort sitzt, wo die
+2D-Ebene in der Kameraansicht lag — und die flache 2D-Ebene anschließend entfernt;
+das neue 3D-Objekt erscheint an ihrer Stelle durch die Kameraansicht. Praktisch, um
+ein flaches Overlay in die 3D-Szene zu übernehmen, wo es wie jedes andere Objekt
+verschachtelt, animiert oder beleuchtet werden kann. Du bleibst in der Compose-Ansicht.
+
+## 3D-Objekte in einer Kameraansicht bearbeiten {#camera-view-editing}
+
+Klicke ein in einer **Kameraansicht**-Ebene gezeigtes 3D-Objekt an, um es
+auszuwählen, und bearbeite es direkt dort, ohne die Compose-Ansicht zu verlassen:
+
+- **Ziehen** — bewegt es auf der zur Kamera zeigenden Ebene.
+- **Strg + Ziehen** — dreht es um seine eigenen Achsen: nach links/rechts ziehen
+  dreht um die senkrechte Achse des Objekts, nach oben/unten kippt es um seine
+  seitliche Achse.
+- **Strg + Scrollen** — rollt es um seine eigene Vorne-hinten-Achse.
+- **Scrollen** — skaliert es unter einer orthografischen Kamera oder bewegt es
+  unter einer perspektivischen Kamera zur Kamera hin/weg.
+- **Umschalt + Scrollen** — vertauscht beides: skalieren unter einer
+  perspektivischen Kamera oder entlang der Sichtachse bewegen (Tiefe anpassen)
+  unter einer orthografischen Kamera.
+
+## An einen Knochen anheften {#attach-bone}
+
+Innerhalb einer **Kameraansicht**-Ebene kannst du die dort gezeigten 3D-Objekte
+ziehen. Aktiviere den **Anheften-Modus** über die Knochen-Schaltfläche neben dem
+Einrasten-Umschalter in der Compose-Werkzeugleiste (oder halte beim Ziehen die
+**Umschalttaste**), ziehe dann ein Objekt auf ein Modell und lasse es über dem
+gewünschten Körperteil los. Das Objekt bindet sich an den Knochen, der diesen Teil
+steuert — den mit dem stärksten Einfluss dort — lege es also auf eine Hand, folgt es
+der Hand; lege es auf den Kopf, folgt es dem Kopf. Seine Bildschirmposition bleibt
+erhalten, und ab da wird seine Transformation relativ zu diesem Knochen gemessen.
+Lasse es frei von jedem Modell los, kehrt es auf die oberste Ebene der Szene zurück
+und behält dabei seine Position. So bekommst du am schnellsten ein Schwert in die
+Hand oder einen Hut auf den Kopf, ohne den Szenenbaum zu durchsuchen.
 
 ## Vorlage / Feed-Ebenen {#feed}
 

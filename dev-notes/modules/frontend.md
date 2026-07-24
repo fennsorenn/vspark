@@ -41,6 +41,7 @@ Actions: `setUpdateAvailable(info)`, `setPendingReload(value)`.
 - `vrmBonesByNode: Record<nodeId, string[]>`
 - `vrmExpressionsByNode: Record<nodeId, string[]>`
 - `vrmMorphTargetsByNode: Record<nodeId, string[]>`
+- `vrmMaterialsByNode: Record<nodeId, string[]>` — VRM material (surface) names; written reactively after `vrmRegistry.set` so the Material section populates on first load (previously the materials list stayed empty until a reload — `MaterialSection` subscribes to this slice instead of reading the registry).
 
 Default per-avatar expression weights are stored on the scene node itself, not in a dedicated slice: `node.properties.defaultExpressions` (`Record<expressionName, number>`, only non-zero weights kept). Mirrored on the store `NodeProperties` and the api-client `NodeProperties`; the shared field is `SceneNodeProperties.defaultExpressions`.
 
@@ -117,6 +118,8 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 
   Bones absent from the broadcast pose are restored to `animQ`. This is how breathing (and any future additive producer) layers cleanly on top of an FBX-driven animation.
 
+**Tracking ↔ animation stacking**: in `override` blend mode Step 2 runs a universal per-bone **stacking** loop (rest → base animation by the section Anim influence, then the tracking delta scaled by Track stacked on top) via the pure `poseComposition.ts` `stackBoneRotation` helper + a `BONE_TO_SECTION` map. This replaced the old full-override `setNormalizedPose` + per-section branches. The avatar node's `poseSource` scales the layers per body section; a dedicated no-feed branch applies the Anim influence before any tracking source connects. See [animation.md](animation.md) (Tracking ↔ animation stacking + partial tracking).
+
 `blendTransitionTime` is now read from the VRM avatar node's `properties.blendTransitionTime` (default 0.5s) and controls the ramp between blend modes (and between "apply" and "don't apply" when the bus drops the last producer).
 
 **Motion snappiness (second-order dynamics)**: inside Step 2's broadcast-pose composition, after each bone is run through the One Euro `BoneFilterBank` (`boneFiltersRef`), an optional per-bone second-order dynamics (spring–damper) filter runs via `BoneDynamicsBank` (`boneDynamicsRef`, from `secondOrderDynamics.ts`). Gated on `node.properties.poseDynamics.enabled` (off by default; bank `.reset()` each frame while disabled). Unlike the low-pass One Euro filter it can lead/overshoot the target, so motion feels snappier without going choppy. Frontend-only; deliberately not a backend pose-interceptor so the One Euro filter stays in place to absorb unreliable packet delivery. See [animation.md](animation.md) (Motion snappiness).
@@ -188,6 +191,14 @@ Inspector for the selected node. Sections:
 
 **Motion Snappiness section (implemented)**:
 - New **Motion Snappiness** section on VRM avatar nodes — an enable checkbox plus `frequency`/`damping`/`response` `NumInput`s and a `HelpButton`. Persists the per-node `poseDynamics` property (`PoseDynamics` on shared `SceneNodeProperties`; mirrored on store + api-client `NodeProperties`), defaulting to `DEFAULT_POSE_DYNAMICS` (disabled). Drives the per-bone second-order dynamics filter applied in `Viewport.tsx` after the One Euro filter. i18n under `avatar.*` + `help.dynamics`; help `{#snappiness}` in `avatar.md`. See [animation.md](animation.md) (Motion snappiness).
+
+**Partial Tracking section (implemented)**:
+- New **Partial Tracking** section on VRM avatar nodes — per body-section (`head`/`gaze`/`body`/`arms`/`hands`/`legs`) `anim` and `track` influence sliders (`vs-posesrc-anim-<sec>` / `vs-posesrc-track-<sec>`) plus a `vs-posesrc-reset`. Persists the per-node `poseSource` property (shared `SceneNodeProperties.poseSource`; only non-default sections kept), scaling the per-section Anim/Track layers of the stacking composition in `Viewport.tsx` (override mode only). i18n under `avatar.poseSource*` + `help.poseSource`; help `{#partial-tracking}` in `avatar.md`. See [animation.md](animation.md) (Tracking ↔ animation stacking + partial tracking).
+
+**Base Animation picker (implemented)**:
+- New **Base Animation** control in the avatar Animation section — an animation picker (`vs-base-anim-url`), a clear button (`vs-base-anim-clear`), and a speed input (`vs-base-anim-speed`) plus a `HelpButton`. Persists `properties.animation.base = {url?, clipId?, speed?}` (distinct from `idle`): the base drives the anim layer while tracking is live, idle when tracking is absent. i18n keys `properties.avatar.baseAnimation` + `properties.help.baseAnimation` (EN/DE); help `{#partial-tracking}` in `avatar.md`. See [animation.md](animation.md).
+
+**Numeric inputs (implemented)**: `numericInputs.tsx` caps displayed precision at 3 decimals everywhere (`MAX_DISPLAY_DECIMALS`; an explicit `precision` prop is honoured but clamped to ≤3). Only the shown/editable text is rounded — the stored value keeps full precision.
 
 ### `AssetManager.tsx` (bottom dock)
 The bottom dock. Tabs (`BottomDockTab` in the store, persisted to localStorage

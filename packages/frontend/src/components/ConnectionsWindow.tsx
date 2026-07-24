@@ -12,6 +12,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Clapperboard, Package, Link2, X } from 'lucide-react';
 import { useConnectionsStore } from '../store/connectionsStore';
 import { useEditorStore } from '../store/editorStore';
 import { HelpButton } from '../help/HelpButton';
@@ -278,7 +279,11 @@ function ConnectedMember({
                       textOverflow: 'ellipsis',
                     }}
                   >
-                    🎬 {o.name || o.objectId.slice(0, 10)}
+                    <Clapperboard
+                      size={13}
+                      style={{ verticalAlign: '-2px', marginRight: 4 }}
+                    />
+                    {o.name || o.objectId.slice(0, 10)}
                   </span>
                   <button
                     style={S.btn('primary')}
@@ -385,7 +390,17 @@ function SharedByYou() {
               .map((g) => nameById[g] || g.slice(0, 8))
               .join(', ')}
           >
-            {s.shareKind === 'scene' ? '🎬 ' : '📦 '}
+            {s.shareKind === 'scene' ? (
+              <Clapperboard
+                size={13}
+                style={{ verticalAlign: '-2px', marginRight: 4 }}
+              />
+            ) : (
+              <Package
+                size={13}
+                style={{ verticalAlign: '-2px', marginRight: 4 }}
+              />
+            )}
             {s.name}
             <span style={{ color: C.dim }}>
               {' → '}
@@ -536,7 +551,10 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
           borderBottom: `1px solid ${C.border}`,
         }}
       >
-        <span style={{ fontWeight: 600, flex: 1 }}>🔗 {t('window.title')}</span>
+        <span style={{ fontWeight: 600, flex: 1 }}>
+          <Link2 size={14} style={{ verticalAlign: '-2px', marginRight: 4 }} />
+          {t('window.title')}
+        </span>
         <span
           style={{ ...S.dot(false), background: statusColor }}
           title={t(`status.${status}`)}
@@ -729,7 +747,7 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
                       onClick={() => setConfirmRemove(p.peerId)}
                       title={t('contacts.remove')}
                     >
-                      ✕
+                      <X size={14} />
                     </button>
                   )}
                 </div>

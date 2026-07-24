@@ -6,10 +6,17 @@ import {
 } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client';
+import { LAYER_KIND_ICON } from '../icons';
+import { Globe } from 'lucide-react';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { CSS_BLEND_MODES, readChroma } from './videoFx';
 import { HelpButton } from '../../help/HelpButton';
+import {
+  DEFAULT_COMPOSE_WIDTH,
+  DEFAULT_COMPOSE_HEIGHT,
+  type PreviewBg,
+} from './ComposeView';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -237,18 +244,11 @@ export function ComposeLayerProperties({
           marginBottom: 14,
         }}
       >
-        <span style={{ fontSize: 18 }}>
-          {layer.kind === 'image'
-            ? '🖼'
-            : layer.kind === 'video'
-              ? '🎞'
-              : layer.kind === 'camera_view'
-                ? '📷'
-                : layer.kind === 'group'
-                  ? '📁'
-                  : layer.kind === 'scene_include'
-                    ? '🎬'
-                    : '🌐'}
+        <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
+          {(() => {
+            const I = LAYER_KIND_ICON[layer.kind] ?? Globe;
+            return <I size={18} />;
+          })()}
         </span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{layer.name}</div>
@@ -541,6 +541,29 @@ export function ComposeLayerProperties({
             onChange={(e) => commit({ visible: e.target.checked })}
           />
           {t('properties.labelVisible')}
+        </label>
+      </div>
+      <div style={row}>
+        <label
+          className="vs-layer-clip"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 12,
+            color: '#bbb',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={layer.config.clipContents === true}
+            onChange={(e) =>
+              commit({
+                config: { ...layer.config, clipContents: e.target.checked },
+              })
+            }
+          />
+          {t('properties.labelClipContents')}
         </label>
       </div>
       <div style={row}>
@@ -887,6 +910,119 @@ export function ComposeLayerProperties({
         </>
       )}
 
+      {layer.kind === 'text' && (
+        <>
+          <div style={sectionHeader}>{t('properties.sectionText')}</div>
+          <textarea
+            value={(layer.config.content as string | undefined) ?? ''}
+            onChange={(e) =>
+              updateLayerLocal(layer.id, {
+                config: { ...layer.config, content: e.target.value },
+              })
+            }
+            onBlur={(e) =>
+              api
+                .updateComposeLayer(layer.id, {
+                  config: { ...layer.config, content: e.target.value },
+                })
+                .catch(() => {})
+            }
+            rows={3}
+            style={{ ...textInput, resize: 'vertical' }}
+          />
+          <div style={{ ...row, marginTop: 6 }}>
+            <span style={label}>{t('properties.labelFontSize')}</span>
+            <NumInput
+              className="vs-text-fontsize"
+              value={
+                typeof layer.config.fontSize === 'number'
+                  ? layer.config.fontSize
+                  : 16
+              }
+              min={1}
+              step={1}
+              precision={0}
+              onChange={(v) =>
+                commit({ config: { ...layer.config, fontSize: v } })
+              }
+              style={{ flex: 1, minWidth: 0 }}
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>{t('properties.labelColor')}</span>
+            <input
+              className="vs-text-color"
+              type="color"
+              value={(layer.config.color as string | undefined) ?? '#ffffff'}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, color: e.target.value } })
+              }
+              style={{
+                width: 40,
+                height: 26,
+                padding: 0,
+                border: '1px solid #3a3a3a',
+                borderRadius: 4,
+                background: '#2a2a2a',
+                cursor: 'pointer',
+              }}
+            />
+          </div>
+          <div style={row}>
+            <span style={label}>{t('properties.labelAlign')}</span>
+            <select
+              className="vs-text-align"
+              value={(layer.config.align as string | undefined) ?? 'left'}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, align: e.target.value } })
+              }
+              style={{ ...select, width: '100%' }}
+            >
+              <option value="left">{t('properties.alignLeft')}</option>
+              <option value="center">{t('properties.alignCenter')}</option>
+              <option value="right">{t('properties.alignRight')}</option>
+            </select>
+          </div>
+          <div style={row}>
+            <span style={label}>{t('properties.labelWeight')}</span>
+            <select
+              className="vs-text-weight"
+              value={String(layer.config.weight ?? 'normal')}
+              onChange={(e) =>
+                commit({ config: { ...layer.config, weight: e.target.value } })
+              }
+              style={{ ...select, width: '100%' }}
+            >
+              <option value="normal">Normal</option>
+              <option value="700">Bold</option>
+            </select>
+          </div>
+          <div style={row}>
+            <label
+              className="vs-text-allowhtml"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                color: '#bbb',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={layer.config.allowHtml === true}
+                onChange={(e) =>
+                  commit({
+                    config: { ...layer.config, allowHtml: e.target.checked },
+                  })
+                }
+              />
+              {t('properties.labelAllowHtml')}
+            </label>
+          </div>
+        </>
+      )}
+
       {layer.kind === 'feed' && (
         <>
           <div style={sectionHeader}>{t('properties.sectionTemplate')}</div>
@@ -994,5 +1130,108 @@ export function ComposeLayerProperties({
         {t('properties.stackOrderHint')}
       </div>
     </>
+  );
+}
+
+/** Properties for a selected compose scene (kind='compose_scene'): the fixed
+ *  canonical resolution and the editor preview background. Shown in the compose
+ *  tab when no layer is selected. */
+export function ComposeSceneProperties({
+  scene,
+}: {
+  scene: ComposeLayerRecord;
+}) {
+  const { t } = useTranslation('compose');
+  const assets = useEditorStore((s) => s.assets);
+  const updateSceneLocal = useEditorStore((s) => s.updateComposeSceneLocal);
+  const imageAssets = assets.filter((a) => a.kind === 'image');
+
+  const w = scene.width && scene.width > 0 ? scene.width : DEFAULT_COMPOSE_WIDTH;
+  const h =
+    scene.height && scene.height > 0 ? scene.height : DEFAULT_COMPOSE_HEIGHT;
+  const pb = (scene.config?.previewBg ?? {}) as PreviewBg;
+  const mode = pb.mode ?? 'transparent';
+
+  const commitSize = (values: number[]) => {
+    const nw = Math.max(16, Math.round(values[0]));
+    const nh = Math.max(16, Math.round(values[1]));
+    updateSceneLocal({ ...scene, width: nw, height: nh });
+    api.updateComposeLayer(scene.id, { width: nw, height: nh }).catch(() => {});
+  };
+  const setPb = (patch: Partial<PreviewBg>) => {
+    const config = { ...scene.config, previewBg: { ...pb, ...patch } };
+    updateSceneLocal({ ...scene, config });
+    api.updateComposeLayer(scene.id, { config }).catch(() => {});
+  };
+
+  return (
+    <div style={{ padding: '4px 2px' }}>
+      <div style={sectionHeader}>{t('sceneProps.resolution')}</div>
+      <VecInput
+        className="vs-compose-resolution"
+        values={[w, h]}
+        labels={['W', 'H']}
+        min={16}
+        step={1}
+        precision={0}
+        onCommit={commitSize}
+      />
+
+      <div style={sectionHeader}>{t('sceneProps.previewBgHeader')}</div>
+      <div style={{ fontSize: 10, color: '#666', lineHeight: 1.4, marginBottom: 8 }}>
+        {t('sceneProps.previewBgHint')}
+      </div>
+      <div style={row}>
+        <span style={label}>{t('sceneProps.previewBgMode')}</span>
+        <select
+          className="vs-compose-bg-mode"
+          value={mode}
+          onChange={(e) => setPb({ mode: e.target.value as PreviewBg['mode'] })}
+          style={{ ...select, width: '100%' }}
+        >
+          <option value="transparent">{t('sceneProps.bgTransparent')}</option>
+          <option value="color">{t('sceneProps.bgColor')}</option>
+          <option value="image">{t('sceneProps.bgImage')}</option>
+        </select>
+      </div>
+      {mode === 'color' && (
+        <div style={row}>
+          <span style={label}>{t('sceneProps.bgColor')}</span>
+          <input
+            className="vs-compose-bg-color"
+            type="color"
+            value={pb.color ?? '#000000'}
+            onChange={(e) => setPb({ color: e.target.value })}
+            style={{
+              width: 40,
+              height: 26,
+              padding: 0,
+              border: '1px solid #3a3a3a',
+              borderRadius: 4,
+              background: '#2a2a2a',
+              cursor: 'pointer',
+            }}
+          />
+          <span style={{ fontSize: 12, color: '#888' }}>
+            {pb.color ?? '#000000'}
+          </span>
+        </div>
+      )}
+      {mode === 'image' && (
+        <select
+          className="vs-compose-bg-image"
+          value={pb.assetId ?? ''}
+          onChange={(e) => setPb({ assetId: e.target.value || undefined })}
+          style={{ ...select, width: '100%' }}
+        >
+          <option value="">{t('properties.optionNoneAsset')}</option>
+          {imageAssets.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
   );
 }

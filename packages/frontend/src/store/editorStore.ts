@@ -119,6 +119,8 @@ const LS = {
   leftTab: 'vspark.leftTab',
   bottomTab: 'vspark.bottomTab',
   bottomDockHeight: 'vspark.bottomDockHeight',
+  composeSnap: 'vspark.composeSnap',
+  composeAttach: 'vspark.composeAttach',
 };
 function lsGet(key: string): string | null {
   try {
@@ -159,6 +161,12 @@ function initialBottomDockHeight(): number {
   const n = Number(lsGet(LS.bottomDockHeight));
   return Number.isFinite(n) && n >= 120 && n <= 800 ? n : 200;
 }
+function initialComposeSnap(): boolean {
+  return lsGet(LS.composeSnap) !== '0'; // default on
+}
+function initialComposeAttach(): boolean {
+  return lsGet(LS.composeAttach) === '1'; // default off (deliberate mode)
+}
 
 /** Per-node free-form properties (mirror of backend `scene_nodes.properties`). */
 export interface NodeProperties {
@@ -170,9 +178,14 @@ export interface NodeProperties {
   /** VRM avatar: per-material shader/param overrides (MToon ⇄ PBR), keyed by a
    *  stable material identity. See components/editor/materialOverrides.ts. */
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
-  /** Avatar animation config. `idle` is the content-addressed base loop
-   *  (animation_clip id + speed); the scheduled timeline layers over it. */
-  animation?: { idle?: { clipId: string; speed: number } };
+  /** Avatar animation config. `idle` is the content-addressed resting loop
+   *  (animation_clip id + speed); the scheduled timeline layers over it. `base`
+   *  is the loop live tracking stacks onto while a source is connected (raw url
+   *  slot; falls back to `idle` when unset). */
+  animation?: {
+    idle?: { clipId: string; speed: number };
+    base?: { clipId?: string; url?: string; speed?: number };
+  };
   /** VRM avatar: second-order "snappiness" dynamics applied to broadcast bone
    *  rotations after the jitter-smoothing filter. Disabled by default. */
   poseDynamics?: import('../secondOrderDynamics').PoseDynamicsConfig;
@@ -184,6 +197,9 @@ export interface NodeProperties {
    *  sleeve/cuff geometry (twist kept only on mesh reachable from the hand
    *  through connected twist-weighted vertices). */
   excludeSleeves?: boolean;
+  /** VRM avatar: per-body-section animation/tracking influence ("partial
+   *  tracking"). Absent sections default to { anim: 1, track: 1 }. */
+  poseSource?: import('@vspark/shared').PoseSource;
 }
 
 export interface StageObject {
@@ -266,6 +282,7 @@ interface EditorState {
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
+  vrmMaterialsByNode: Record<string, string[]>; // nodeId → VRM material (surface) names
   hoveredBoneName: string | null;
   behaviorKinds: BehaviorKindMeta[];
   /** Overlive login accounts for the current project. Populated lazily by Editor.tsx;
@@ -311,6 +328,14 @@ interface EditorState {
    *  viewport. Off by default so authoring isn't noisy; the viewer/output page
    *  always plays audio regardless. Session-only, not persisted. */
   editorAudioPreviewEnabled: boolean;
+  /** Compose editor: snap layers to their parent's edges/centre while dragging
+   *  or resizing. Persisted to localStorage. */
+  composeSnapEnabled: boolean;
+  /** Compose view: when on, dragging a 3D node inside a camera-view layer and
+   *  dropping it over a model binds it to the bone under the drop (world→
+   *  bone-local); dropping it clear of any model sends it back to top level.
+   *  Holding Shift during a drag does the same as a one-shot. Persisted. */
+  composeAttachEnabled: boolean;
   selectedComposeLayerId: string | null;
 
   // Track clips
@@ -382,6 +407,8 @@ interface EditorState {
   clearVrmExpressionsForNode: (nodeId: string) => void;
   setVrmMorphTargetsForNode: (nodeId: string, names: string[]) => void;
   clearVrmMorphTargetsForNode: (nodeId: string) => void;
+  setVrmMaterialsForNode: (nodeId: string, names: string[]) => void;
+  clearVrmMaterialsForNode: (nodeId: string) => void;
   setHoveredBone: (name: string | null) => void;
   setBehaviorKinds: (kinds: BehaviorKindMeta[]) => void;
   setOverliveAccounts: (
@@ -435,6 +462,8 @@ interface EditorState {
   requestFocusName: () => void;
   setBottomDockHeight: (h: number) => void;
   setEditorAudioPreviewEnabled: (on: boolean) => void;
+  setComposeSnapEnabled: (on: boolean) => void;
+  setComposeAttachEnabled: (on: boolean) => void;
   setClipboard: (
     payload: import('../clipboard').ClipboardPayload | null
   ) => void;
@@ -559,6 +588,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
   vrmMorphTargetsByNode: {},
+  vrmMaterialsByNode: {},
   hoveredBoneName: null,
   behaviorKinds: [],
   overliveAccounts: [],
@@ -581,6 +611,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   focusNameNonce: 0,
   bottomDockHeight: initialBottomDockHeight(),
   editorAudioPreviewEnabled: false,
+  composeSnapEnabled: initialComposeSnap(),
+  composeAttachEnabled: initialComposeAttach(),
   clipboardPayload: null,
   selectedComposeLayerId: null,
 
@@ -749,6 +781,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       delete next[nodeId];
       return { vrmMorphTargetsByNode: next };
     }),
+  setVrmMaterialsForNode: (nodeId, names) =>
+    set((s) => ({
+      vrmMaterialsByNode: { ...s.vrmMaterialsByNode, [nodeId]: names },
+    })),
+  clearVrmMaterialsForNode: (nodeId) =>
+    set((s) => {
+      const next = { ...s.vrmMaterialsByNode };
+      delete next[nodeId];
+      return { vrmMaterialsByNode: next };
+    }),
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
   setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
@@ -879,6 +921,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ bottomDockHeight: clamped });
   },
   setEditorAudioPreviewEnabled: (on) => set({ editorAudioPreviewEnabled: on }),
+  setComposeSnapEnabled: (on) => {
+    lsSet(LS.composeSnap, on ? '1' : '0');
+    set({ composeSnapEnabled: on });
+  },
+  setComposeAttachEnabled: (on) => {
+    lsSet(LS.composeAttach, on ? '1' : '0');
+    set({ composeAttachEnabled: on });
+  },
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
 
   dispatchUiAction: (action) => {

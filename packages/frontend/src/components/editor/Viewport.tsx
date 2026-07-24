@@ -7,6 +7,14 @@ import {
   useCallback,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  Move,
+  RotateCw,
+  Scaling,
+  Volume2,
+  VolumeX,
+  type LucideIcon,
+} from 'lucide-react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   OrbitControls,
@@ -87,6 +95,7 @@ import {
 import {
   applyMaterialOverrides,
   disposeMaterialOverrides,
+  getMaterialSlots,
   type MaterialOverrides,
 } from './materialOverrides';
 import {
@@ -96,7 +105,13 @@ import {
 } from '../../calibration';
 import type { VmcCalibration } from '../../calibration';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
+import type {
+  PoseSection,
+  PoseSectionInfluence,
+  PoseSource,
+} from '@vspark/shared';
 import { registerMedia } from './mediaRegistry';
+import { stackBoneRotation, composeHipsPosition } from './poseComposition';
 import {
   makeVideoMaterial,
   updateVideoMaterial,
@@ -158,6 +173,40 @@ export function findNodeIdForObject(obj: THREE.Object3D | null): string | null {
 export function getNodeGroup(nodeId: string): THREE.Group | null {
   const list = nodeGroupRegistry.get(nodeId);
   return list && list.length > 0 ? list[0] : null;
+}
+
+/** The registered group for `nodeId` that lives inside `sceneRoot`'s canvas.
+ *  Each node is rendered once per Canvas (the always-mounted stage Viewport plus
+ *  every camera_view CameraCanvas), so it has one registered group per canvas.
+ *  Anything that manipulates a group in a *specific* canvas (e.g. BoneAttacher,
+ *  which must reparent the copy in its own scene, not some other canvas's) has
+ *  to disambiguate by scene ancestry — `getNodeGroup` alone returns whichever
+ *  mounted first and would corrupt the other canvases. */
+export function getNodeGroupForScene(
+  nodeId: string,
+  sceneRoot: THREE.Object3D
+): THREE.Group | null {
+  const list = nodeGroupRegistry.get(nodeId);
+  if (!list) return null;
+  for (const g of list) {
+    let p: THREE.Object3D | null = g;
+    while (p) {
+      if (p === sceneRoot) return g;
+      p = p.parent;
+    }
+  }
+  return null;
+}
+
+/** The VRM instance for an avatar node in a specific canvas. The avatar's group
+ *  carries its own per-canvas VRM on `userData.__vrm` (set at load) — unlike the
+ *  global `vrmRegistry`, which is last-write-wins across canvases. */
+export function getVrmForScene(
+  avatarNodeId: string,
+  sceneRoot: THREE.Object3D
+): VRM | null {
+  const group = getNodeGroupForScene(avatarNodeId, sceneRoot);
+  return (group?.userData.__vrm as VRM | undefined) ?? null;
 }
 
 /** Enumerate `(nodeId, group)` pairs for every registered group. Lets the
@@ -342,14 +391,19 @@ function BoneAttacher({
 }) {
   const { scene } = useThree();
   useEffect(() => {
-    const group = getNodeGroup(nodeId);
-    const vrm = vrmRegistry.get(avatarNodeId);
+    // Resolve the group AND the bone in *this* canvas only — the node and the
+    // avatar are each rendered in every canvas, so using the global registries
+    // here would reparent one canvas's group into another canvas's bone and
+    // leave a stray flat-mounted copy behind (the "duplicate" bug).
+    const group = getNodeGroupForScene(nodeId, scene);
+    const vrm = getVrmForScene(avatarNodeId, scene);
     if (!group || !vrm) return;
     const bone = vrm.humanoid.getRawBoneNode(boneName as VRMHumanBoneName);
     if (!bone) return;
-    // Zero out stored world-space offset — position is now bone-local
-    group.position.set(0, 0, 0);
-    group.quaternion.identity();
+    // Re-parent under the bone without touching the group's local transform:
+    // the node's position/rotation/scale (applied declaratively via props) then
+    // become bone-local, so translation and rotation are relative to bone space
+    // rather than being discarded.
     bone.add(group);
     return () => {
       // Restore to scene root on detach so Three.js doesn't orphan it
@@ -481,6 +535,83 @@ const FBX_BONE_TO_VRM: Record<string, VRMHumanBoneName> = {
 };
 // Hips bone names across all supported rigs (used for root position track).
 const HIPS_BONE_NAMES = new Set(['mixamorigHips', 'pelvis']);
+
+// ── Partial tracking: map every VRM humanoid bone to a body section so each
+//    section can independently blend animation vs. live tracking. ────────────
+const POSE_SECTION_BONES: Record<PoseSection, string[]> = {
+  body: ['spine', 'chest', 'upperChest'],
+  head: ['neck', 'head', 'jaw'],
+  gaze: ['leftEye', 'rightEye'],
+  arms: [
+    'leftShoulder',
+    'leftUpperArm',
+    'leftLowerArm',
+    'leftHand',
+    'rightShoulder',
+    'rightUpperArm',
+    'rightLowerArm',
+    'rightHand',
+  ],
+  // The hips lead the lower body, so both its rotation (here) and its root
+  // position (see composeHipsPosition) follow the legs section.
+  legs: [
+    'hips',
+    'leftUpperLeg',
+    'leftLowerLeg',
+    'leftFoot',
+    'leftToes',
+    'rightUpperLeg',
+    'rightLowerLeg',
+    'rightFoot',
+    'rightToes',
+  ],
+  // Every remaining bone (all finger bones) belongs to 'hands'.
+  hands: [],
+};
+
+/** boneName → section. Bones not explicitly listed fall under 'hands' (fingers). */
+const BONE_TO_SECTION: Record<string, PoseSection> = (() => {
+  const m: Record<string, PoseSection> = {};
+  for (const [section, bones] of Object.entries(POSE_SECTION_BONES) as [
+    PoseSection,
+    string[],
+  ][]) {
+    for (const b of bones) m[b] = section;
+  }
+  for (const name of VRM_BONE_NAMES as unknown as string[]) {
+    if (!(name in m)) m[name] = 'hands';
+  }
+  return m;
+})();
+
+const DEFAULT_SECTION_INFLUENCE: PoseSectionInfluence = { anim: 1, track: 1 };
+
+/** Resolve a bone's { anim, track } influence from a node's poseSource map,
+ *  defaulting absent sections to { anim: 1, track: 1 } (legacy behaviour). */
+function sectionInfluenceForBone(
+  boneName: string,
+  poseSource: PoseSource | undefined
+): PoseSectionInfluence {
+  if (!poseSource) return DEFAULT_SECTION_INFLUENCE;
+  const section = BONE_TO_SECTION[boneName];
+  return poseSource[section] ?? DEFAULT_SECTION_INFLUENCE;
+}
+
+/** True when a poseSource map deviates from the legacy all-{anim:1,track:1}
+ *  default, i.e. the per-section blend path should run. */
+function poseSourceIsActive(poseSource: PoseSource | undefined): boolean {
+  if (!poseSource) return false;
+  for (const v of Object.values(poseSource)) {
+    if (v && (v.anim !== 1 || v.track !== 1)) return true;
+  }
+  return false;
+}
+
+// Hips root-motion scratch (captured pre/post resetNormalizedPose, fed to
+// composeHipsPosition). The per-frame loop is single-threaded, so module-scoped
+// scratch avoids per-frame allocation.
+const _hipsAnimPos = new THREE.Vector3();
+const _hipsRestPos = new THREE.Vector3();
 
 interface VmcRetarget {
   bonesInOrder: VRMHumanBoneName[];
@@ -967,6 +1098,9 @@ function AvatarNode({
   const boneFiltersRef = useRef(new BoneFilterBank());
   const boneDynamicsRef = useRef(new BoneDynamicsBank());
   const poseWasActiveRef = useRef(false);
+  // Mirrors `trackingActive` state for the useFrame loop (avoids a stale closure
+  // read); the loop calls setTrackingActive only when this flips.
+  const trackingActiveRef = useRef(false);
   const blendWeightRef = useRef(0); // 0 = animation, 1 = VMC
   // Active animation layer driving the clock-anchored playhead (read in useFrame).
   const activeLayerRef = useRef<ActiveAnimLayer | null>(null);
@@ -1033,6 +1167,8 @@ function AvatarNode({
     clearVrmExpressionsForNode,
     setVrmMorphTargetsForNode,
     clearVrmMorphTargetsForNode,
+    setVrmMaterialsForNode,
+    clearVrmMaterialsForNode,
   } = useEditorStore();
 
   // name → all meshes+indices that have that morph target
@@ -1073,11 +1209,34 @@ function AvatarNode({
       ? { url: legacyAnim.idleUrl, speed: legacyAnim.speed ?? 1 }
       : null;
 
+  // Base animation — the loop live tracking stacks onto while a source is
+  // connected (see the stacking composition in useFrame). Falls back to the idle
+  // when unset, so an avatar with only an idle keeps blending its idle under
+  // tracking. `trackingActive` flips from the per-frame pose loop below.
+  const animBaseCfg = (
+    node.properties as
+      | {
+          animation?: {
+            base?: { clipId?: string; url?: string; speed?: number };
+          };
+        }
+      | undefined
+  )?.animation?.base;
+  const baseClip = animBaseCfg?.clipId
+    ? animationClips[animBaseCfg.clipId]
+    : undefined;
+  const baseUrl = baseClip?.sourceFilePath ?? animBaseCfg?.url;
+  const base = baseUrl ? { url: baseUrl, speed: animBaseCfg?.speed ?? 1 } : null;
+  const [trackingActive, setTrackingActive] = useState(false);
+  // While tracking is live use the base animation (if any) as the loop tracking
+  // stacks onto; otherwise fall back to the idle. Scheduled clips still win.
+  const animLoop = trackingActive && base ? base : idle;
+
   // Tick that re-fires when the active timeline entry should change.
   const [animTick, setAnimTick] = useState(0);
   const animResolved = _resolveAvatarAnimation(
     node.id,
-    idle,
+    animLoop,
     scheduledForNode,
     animationClips,
     Date.now()
@@ -1149,6 +1308,17 @@ function AvatarNode({
       vrmRef.current = vrm ?? null;
       groupRef.current.clear();
       groupRef.current.add(vrmScene);
+      // Disable frustum culling on every mesh. A SkinnedMesh is culled against
+      // its *bind-pose* bounding sphere (three.js never re-derives it from the
+      // live skeleton), so a bone-driven pose that moves a mesh away from bind —
+      // e.g. a sitting clip dropping the head — leaves the face/hair spheres up
+      // at the standing head while the real geometry is elsewhere. Zooming in
+      // then frustum-culls those meshes even though they're on screen (the face
+      // vanishes). The avatar is a single hero object, so always drawing it is
+      // cheaper than the artifact.
+      vrmScene.traverse((o) => {
+        (o as THREE.Mesh).frustumCulled = false;
+      });
       // Yaw the avatar to face the camera (world +Z). VRM 0.x faces +Z while
       // VRM 1.0 faces −Z by spec, so the old blanket `rotation.y = Math.PI` only
       // ever worked for one convention and left the other facing backwards.
@@ -1213,6 +1383,17 @@ function AvatarNode({
         setVrmMorphTargetsForNode(node.id, [...morphMap.keys()].sort());
 
         vrmRegistry.set(node.id, vrm);
+        // Also stash this canvas's VRM on the avatar's own group so per-canvas
+        // consumers (BoneAttacher, compose attach targeting) can resolve the
+        // right instance instead of the global last-write-wins registry.
+        if (outerRef.current) outerRef.current.userData.__vrm = vrm;
+        // Materials: written LAST, after vrmRegistry.set, so the reactive
+        // store slice that MaterialSection subscribes to only fires once the
+        // registry it reads is guaranteed populated (fixes empty-until-reload).
+        setVrmMaterialsForNode(
+          node.id,
+          getMaterialSlots(vrm).map((s) => s.key)
+        );
       }
       setVrmLoaded(true);
     });
@@ -1231,8 +1412,10 @@ function AvatarNode({
       clearVrmExpressionsForNode(node.id);
       _sendExpressionsReport(node.id, []);
       clearVrmMorphTargetsForNode(node.id);
+      clearVrmMaterialsForNode(node.id);
       morphMapRef.current.clear();
       teardownForearmTwist(node.id);
+      if (outerRef.current) delete outerRef.current.userData.__vrm;
       vrmRegistry.delete(node.id);
     };
   }, [node.filePath]);
@@ -2345,6 +2528,22 @@ function AvatarNode({
       vrm?.humanoid.resetNormalizedPose();
     }
     poseWasActiveRef.current = poseActive;
+    // Base⇄idle swap keys off whether a genuine *tracking* source (VMC /
+    // MediaPipe) is live for this node, NOT off raw pose presence. Ambient
+    // producers like breathing keep publishing a pose forever, so `poseActive`
+    // stays true even after real tracking drops — using it here would pin the
+    // avatar to the base loop and never fall back to idle. Tracking sources
+    // emit `vmc_tracking_state` (→ store.vmcTracking); ambient ones don't, so
+    // they can't mask a loss. `blend` still follows poseActive below, so the
+    // ambient pose keeps applying while the animation swaps to idle.
+    const store = useEditorStore.getState();
+    const trackingLive = store.behaviors.some(
+      (b) => b.nodeId === node.id && store.vmcTracking[b.id] === true
+    );
+    if (trackingLive !== trackingActiveRef.current) {
+      trackingActiveRef.current = trackingLive;
+      setTrackingActive(trackingLive);
+    }
 
     // Ramp blend weight: 0 = pure animation, 1 = pure broadcast pose.
     // Configured per-avatar via the VRM node's `blendTransitionTime` property.
@@ -2456,22 +2655,17 @@ function AvatarNode({
         }
       }
 
-      if (poseMode === 'additive') {
-        // Additive: stack the broadcast on top of the animation.
-        //
-        // The broadcast pose is in normalized humanoid space; we need it in
-        // each bone's raw local space to compose with the anim's raw quats.
-        // We extract the per-bone raw delta in two passes:
-        //
-        //   1. Save the anim raw quats for all bones.
-        //   2. Reset normalized pose to identity + update → bones now hold
-        //      their *rest* raw quaternions. Save these as restRawQ per
-        //      broadcast bone.
-        //   3. Apply the broadcast as normalized pose + update → bones hold
-        //      (rest_raw ∘ broadcast_delta_raw). The delta is
-        //      restRawQ⁻¹ * bone.quaternion.
-        //   4. For each broadcast bone: bone.quaternion = animQ * delta,
-        //      slerped from animQ by `blend`. Restore other bones to animQ.
+      {
+        // "Tracking stacks on animation" — the single composition path for BOTH
+        // override producers (VMC/camera, which replace) and additive producers
+        // (e.g. Breathing, which stacks). For every bone, stackBoneRotation
+        // stacks the (scaled) broadcast delta on top of the (scaled) base
+        // animation, per body section independently. Default sections
+        // ({anim:1,track:1}) → base animation with the broadcast fully stacked
+        // once ramped in; the partial-tracking sliders scale each layer. The
+        // poseMode flag no longer selects a separate composition — an additive
+        // producer used to route here into a slider-ignoring branch, which is
+        // exactly why Breathing made the Anim/Track sliders appear inert.
         const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
         const animQuats: Array<
           [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion]
@@ -2484,50 +2678,128 @@ function AvatarNode({
           Object.keys(normalizedPose) as VRMHumanBoneName[]
         );
 
-        // Pass A: rest raw quats for the broadcast bones.
+        // Snapshot the animated hips position before resetNormalizedPose clobbers it.
+        const hipsBone = vrm.humanoid.getRawBoneNode('hips');
+        if (hipsBone) _hipsAnimPos.copy(hipsBone.position);
+
+        // Rest raw quats (all bones), then broadcast-posed raw quats. Compose
+        // per section with stackBoneRotation, exactly like the override branch:
+        // the additive delta is stacked (scaled by the section Track weight) on
+        // the base animation (scaled by the section Anim weight). At default
+        // weights ({anim:1,track:1}) this equals the old `animQ · delta`, but
+        // the partial-tracking sliders now bite in additive mode too. This
+        // matters because Breathing always publishes *additively* (an always-on
+        // producer), which pins poseMode to additive — so the old additive-only
+        // composition made the sliders appear to do nothing whenever Breathing
+        // (or any additive source) was attached.
         vrm.humanoid.resetNormalizedPose();
         (vrm.humanoid as unknown as { update?: () => void }).update?.();
+        if (hipsBone) _hipsRestPos.copy(hipsBone.position);
         const restRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
+        for (const [name, bone] of animQuats)
+          restRaw.set(name, bone.quaternion.clone());
+
+        vrm.humanoid.setNormalizedPose(normalizedPose);
+        (vrm.humanoid as unknown as { update?: () => void }).update?.();
+        const trackedRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
         for (const [name, bone] of animQuats) {
           if (broadcastSet.has(name))
-            restRaw.set(name, bone.quaternion.clone());
+            trackedRaw.set(name, bone.quaternion.clone());
         }
 
-        // Pass B: apply the broadcast, read posed raw quats, compute delta.
-        vrm.humanoid.setNormalizedPose(normalizedPose);
-        (vrm.humanoid as unknown as { update?: () => void }).update?.();
-
+        const poseSourceLive = node.properties?.poseSource as
+          | PoseSource
+          | undefined;
+        const animActive = !!(reg && layer);
         for (const [name, bone, animQ] of animQuats) {
-          if (broadcastSet.has(name)) {
-            const restQ = restRaw.get(name)!;
-            const posedQ = bone.quaternion; // (rest * delta)
-            const deltaQ = restQ.clone().invert().multiply(posedQ);
-            const finalQ = animQ.clone().multiply(deltaQ);
-            bone.quaternion.copy(
-              blend >= 1 ? finalQ : animQ.clone().slerp(finalQ, blend)
-            );
-          } else {
-            bone.quaternion.copy(animQ);
-          }
+          const inf = sectionInfluenceForBone(name, poseSourceLive);
+          const restQ = restRaw.get(name)!;
+          const animContribution = animActive ? animQ : restQ;
+          const tracked = trackedRaw.get(name) ?? null;
+          const tw = tracked ? Math.max(0, Math.min(1, inf.track * blend)) : 0;
+          stackBoneRotation(
+            restQ,
+            animContribution,
+            tracked,
+            inf.anim,
+            tw,
+            bone.quaternion
+          );
         }
-      } else if (blend >= 1) {
-        // Override at full weight — replace animation.
-        vrm.humanoid.setNormalizedPose(normalizedPose);
-        (vrm.humanoid as unknown as { update?: () => void }).update?.();
-      } else {
-        // Override mid-transition: save animation quats, apply pose, slerp back by (1-blend).
-        const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
-        const animQuats: Array<[THREE.Object3D, THREE.Quaternion]> = [];
-        for (const name of allBones) {
-          const bone = vrm.humanoid.getRawBoneNode(name);
-          if (bone) animQuats.push([bone, bone.quaternion.clone()]);
-        }
-        vrm.humanoid.setNormalizedPose(normalizedPose);
-        (vrm.humanoid as unknown as { update?: () => void }).update?.();
-        for (const [bone, animQ] of animQuats) {
-          bone.quaternion.slerp(animQ, 1 - blend);
-        }
+        if (hipsBone)
+          composeHipsPosition(
+            _hipsAnimPos,
+            _hipsRestPos,
+            sectionInfluenceForBone('leftUpperLeg', poseSourceLive).anim,
+            animActive,
+            hipsBone.position
+          );
       }
+    } else if (
+      vrm &&
+      poseSourceIsActive(node.properties?.poseSource as PoseSource | undefined)
+    ) {
+      // Partial tracking with NO live tracking feed: there's no broadcast pose to
+      // mix in, but the per-section ANIM influence (rest↔clip) still applies, so
+      // the sliders visibly droop a section toward rest even before any VMC /
+      // camera source is connected. Mirrors the anim half of the tracked branch.
+      //
+      // This runs only as the `else` of the live-broadcast branch above, i.e.
+      // when there's no active pose to composite (blend ramped to 0 / empty
+      // frame). It must NOT be gated on poseMode: when a VMC source is bound but
+      // not sending, the broadcast bus emits an *additive* fallback frame (empty
+      // bones) so tracking ramps back to animation — which sets poseMode to
+      // 'additive'. Gating on `poseMode !== 'additive'` there would skip this
+      // branch and leave the full animation playing with the sliders doing
+      // nothing. Genuine live additive tracking is handled by the branch above
+      // (this is its `else`), so dropping the guard can't double-apply.
+      const poseSource = node.properties?.poseSource as PoseSource | undefined;
+      const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
+      const animQuats: Array<
+        [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion]
+      > = [];
+      for (const name of allBones) {
+        const bone = vrm.humanoid.getRawBoneNode(name);
+        if (bone) animQuats.push([name, bone, bone.quaternion.clone()]);
+      }
+      // Snapshot the animated hips position before resetNormalizedPose clobbers it.
+      const hipsBone = vrm.humanoid.getRawBoneNode('hips');
+      if (hipsBone) _hipsAnimPos.copy(hipsBone.position);
+
+      // Rest raw quats (all bones).
+      vrm.humanoid.resetNormalizedPose();
+      (vrm.humanoid as unknown as { update?: () => void }).update?.();
+      if (hipsBone) _hipsRestPos.copy(hipsBone.position);
+      const restRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
+      for (const [name, bone] of animQuats)
+        restRaw.set(name, bone.quaternion.clone());
+
+      // Same animActive guard as the tracked branch: without a clip the captured
+      // "anim" quats are just the held pose, so fall back to rest. No tracked
+      // pose here, so the tracking term is dropped (trackedQ = null).
+      const animActive = !!(reg && layer);
+      for (const [name, bone, animQ] of animQuats) {
+        const inf = sectionInfluenceForBone(name, poseSource);
+        const restQ = restRaw.get(name)!;
+        const animContribution = animActive ? animQ : restQ;
+        stackBoneRotation(
+          restQ,
+          animContribution,
+          null,
+          inf.anim,
+          0,
+          bone.quaternion
+        );
+      }
+      // Hips root-motion position follows the legs section's Anim weight.
+      if (hipsBone)
+        composeHipsPosition(
+          _hipsAnimPos,
+          _hipsRestPos,
+          sectionInfluenceForBone('leftUpperLeg', poseSource).anim,
+          animActive,
+          hipsBone.position
+        );
     }
 
     // ── Step 3: remaining VRM subsystems on the final blended pose ───────────────
@@ -3152,8 +3424,8 @@ interface BillboardConfig {
 }
 
 const BILLBOARD_DEFAULTS: BillboardConfig = {
-  facing: 'screen',
-  backface: 'none',
+  facing: 'world',
+  backface: 'mirror',
   width: 1,
   height: 1,
   alpha: 1,
@@ -4672,7 +4944,9 @@ function renderNodeElement(
   const childElements = freeChildren.map((c) =>
     renderNodeElement(c, allNodes, viewerMode)
   );
-  // Bone-attached children render as normal top-level nodes; BoneFollower syncs their position each frame
+  // Bone-attached children render as normal top-level nodes; BoneAttacher
+  // re-parents each one's group under the target bone, so its transform is
+  // preserved as bone-local (translation/rotation relative to bone space).
   const boneFollowers = boneChildren.flatMap((c) => [
     renderNodeElement(c, allNodes, viewerMode),
     <BoneAttacher
@@ -4919,10 +5193,14 @@ function TransformGizmo({
   );
 }
 
-const GIZMO_BUTTONS: { mode: GizmoMode; icon: string; titleKey: string }[] = [
-  { mode: 'translate', icon: '↔', titleKey: 'viewport.gizmo.translate' },
-  { mode: 'rotate', icon: '○', titleKey: 'viewport.gizmo.rotate' },
-  { mode: 'scale', icon: '□', titleKey: 'viewport.gizmo.scale' },
+const GIZMO_BUTTONS: {
+  mode: GizmoMode;
+  icon: LucideIcon;
+  titleKey: string;
+}[] = [
+  { mode: 'translate', icon: Move, titleKey: 'viewport.gizmo.translate' },
+  { mode: 'rotate', icon: RotateCw, titleKey: 'viewport.gizmo.rotate' },
+  { mode: 'scale', icon: Scaling, titleKey: 'viewport.gizmo.scale' },
 ];
 
 function GizmoToolbar({
@@ -4948,7 +5226,7 @@ function GizmoToolbar({
         zIndex: 10,
       }}
     >
-      {GIZMO_BUTTONS.map(({ mode: m, icon, titleKey }) => (
+      {GIZMO_BUTTONS.map(({ mode: m, icon: Icon, titleKey }) => (
         <button
           key={m}
           title={t(titleKey)}
@@ -4968,7 +5246,7 @@ function GizmoToolbar({
             lineHeight: 1,
           }}
         >
-          {icon}
+          <Icon size={16} />
         </button>
       ))}
     </div>
@@ -5602,7 +5880,7 @@ function AudioPreviewToggle() {
         zIndex: 10,
       }}
     >
-      {on ? '🔊' : '🔇'}
+      {on ? <Volume2 size={15} /> : <VolumeX size={15} />}
     </button>
   );
 }

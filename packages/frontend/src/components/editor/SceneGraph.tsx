@@ -9,7 +9,7 @@ import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
-import { ContextMenu } from './ContextMenu';
+import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { HelpButton } from '../../help/HelpButton';
 import { useConnectionsStore } from '../../store/connectionsStore';
 import { isWritableRemoteNode as isWritableRemote } from '../../sync/remoteEdit';
@@ -19,7 +19,7 @@ import {
   shareCollabScene,
   getCollabScenes,
 } from '../../api/client';
-import { useConfirm, usePrompt } from '../DialogProvider';
+import { useConfirm, usePrompt, useChoose } from '../DialogProvider';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import {
   NODE_KIND_DEFS,
@@ -34,24 +34,248 @@ import {
   hasCreatePayload,
   type DropZone,
 } from './dnd';
+import {
+  NODE_KIND_ICON,
+  NODE_KIND_FALLBACK,
+  BEHAVIOR_ICON,
+  BEHAVIOR_FALLBACK,
+  CAMERA_EFFECT_ICON,
+  CAMERA_EFFECT_FALLBACK,
+} from '../icons';
+import {
+  Antenna,
+  Bone,
+  Settings2,
+  Sparkle,
+  Hexagon,
+  Trash2,
+  Eye,
+  EyeOff,
+  Check,
+  Square,
+  SquareCheck,
+  Clapperboard,
+  ExternalLink,
+} from 'lucide-react';
 
-const KIND_ICONS: Record<string, string> = {
-  scene: '🎬',
-  scene_instance: '🔗',
-  avatar: '🧍',
-  model: '📦',
-  light: '💡',
-  camera: '📷',
-  prop: '🔹',
-  group: '📁',
-  godray_caster: '☀️',
-  particle: '✨',
-  billboard: '🖼️',
-  video: '🎞️',
-  audio: '🔊',
-  feed: '📜',
-  remote_object: '🔗',
-};
+/** Inline scene-node kind icon (lucide), replacing the old emoji map. */
+function KindIcon({ kind, size = 14 }: { kind: string; size?: number }) {
+  const Ico = NODE_KIND_ICON[kind] ?? NODE_KIND_FALLBACK;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+      <Ico size={size} />
+    </span>
+  );
+}
+
+/** Inline behavior kind icon (lucide), keyed by behavior kind. */
+function BehaviorIcon({ kind, size = 14 }: { kind?: string; size?: number }) {
+  const Ico = (kind && BEHAVIOR_ICON[kind]) || BEHAVIOR_FALLBACK;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+      <Ico size={size} />
+    </span>
+  );
+}
+
+/** One merged box holding a node's (or scene's) behaviors, camera effects,
+ *  clips and logic as a single continuous list with a shared empty state and a
+ *  single "+ Add" menu. The sub-sections render flat (rows only); this owns the
+ *  chrome so it reads as one section instead of four. */
+function MergedSections({
+  nodeId,
+  isCamera,
+  include,
+}: {
+  nodeId: string;
+  isCamera: boolean;
+  /** Which groups to include — scenes only have clips + logic. */
+  include: { behaviors: boolean; effects: boolean };
+}) {
+  const { t } = useTranslation('sceneGraph');
+  const behaviorsFor = useEditorStore((s) => s.behaviorsFor);
+  const cameraEffectsFor = useEditorStore((s) => s.cameraEffectsFor);
+  const trackClips = useEditorStore((s) => s.trackClips);
+  const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
+  const nodeKind = useEditorStore(
+    (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
+  );
+  const addBehavior = useEditorStore((s) => s.addBehavior);
+  const addCameraEffect = useEditorStore((s) => s.addCameraEffect);
+  const addTrackClip = useEditorStore((s) => s.addTrackClip);
+  const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
+  const setBottomTab = useEditorStore((s) => s.setBottomTab);
+
+  const [logicCount, setLogicCount] = useState(0);
+  const [logicAddSignal, setLogicAddSignal] = useState(0);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const behaviors = include.behaviors
+    ? behaviorsFor(nodeId).filter(
+        (c) => !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
+      )
+    : [];
+  const effects = include.effects && isCamera ? cameraEffectsFor(nodeId) : [];
+  const clips = trackClips.filter((c) => c.ownerNodeId === nodeId);
+  const total =
+    behaviors.length + effects.length + clips.length + logicCount;
+
+  const addBehaviorKind = async (ct: (typeof behaviorKinds)[number]) => {
+    const comp = {
+      id: newBehaviorId(),
+      nodeId,
+      kind: ct.kind,
+      enabled: true,
+      config: { ...ct.defaultConfig },
+    };
+    addBehavior(comp);
+    try {
+      await api.createBehavior(nodeId, comp);
+    } catch {
+      /* non-fatal */
+    }
+  };
+  const addEffectKind = async (ek: (typeof CAMERA_EFFECT_KINDS)[number]) => {
+    if (effects.some((e) => e.kind === ek.kind)) return;
+    const effect = {
+      id: newBehaviorId(),
+      nodeId,
+      kind: ek.kind,
+      enabled: true,
+      config: { ...ek.defaultConfig },
+    };
+    addCameraEffect(effect);
+    try {
+      await api.createCameraEffect(nodeId, effect);
+    } catch {
+      /* non-fatal */
+    }
+  };
+  const addClip = async () => {
+    try {
+      const clip = await api.createTrackClipForNode(nodeId, {
+        name: 'Clip',
+        duration: 2,
+      });
+      addTrackClip(clip);
+      selectTrackClip(clip.id);
+      setBottomTab('clips');
+    } catch {
+      /* non-fatal */
+    }
+  };
+
+  const buildAddItems = (): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [];
+    if (include.behaviors) {
+      const compatible = behaviorKinds.filter((ct) =>
+        behaviorCompatibleWith(ct.applicableTo, nodeKind)
+      );
+      if (compatible.length)
+        items.push({
+          kind: 'submenu',
+          label: t('sections.behaviors'),
+          items: compatible.map((ct) => ({
+            kind: 'item',
+            label: ct.label,
+            onClick: () => void addBehaviorKind(ct),
+          })),
+        });
+    }
+    if (include.effects && isCamera) {
+      const avail = CAMERA_EFFECT_KINDS.filter(
+        (ek) => !effects.some((e) => e.kind === ek.kind)
+      );
+      items.push({
+        kind: 'submenu',
+        label: t('sections.effects'),
+        items: avail.map((ek) => ({
+          kind: 'item',
+          label: ek.label,
+          onClick: () => void addEffectKind(ek),
+        })),
+      });
+    }
+    items.push(
+      {
+        kind: 'item',
+        label: t('sections.addClip'),
+        onClick: () => void addClip(),
+      },
+      {
+        kind: 'item',
+        label: t('sections.addLogic'),
+        onClick: () => setLogicAddSignal((n) => n + 1),
+      }
+    );
+    return items;
+  };
+
+  return (
+    <div
+      style={{
+        marginLeft: 28,
+        marginRight: 4,
+        marginBottom: 4,
+        background: '#111',
+        borderRadius: 4,
+        border: '1px solid #222',
+        overflow: 'hidden',
+      }}
+    >
+      {total === 0 && (
+        <div
+          style={{
+            padding: '5px 10px',
+            fontSize: 11,
+            color: '#444',
+            fontStyle: 'italic',
+          }}
+        >
+          {t('sections.empty')}
+        </div>
+      )}
+      {include.behaviors && <BehaviorsSection nodeId={nodeId} flat />}
+      {include.effects && isCamera && (
+        <CameraEffectsSection nodeId={nodeId} flat />
+      )}
+      <ClipsSection owner={{ kind: 'node', id: nodeId }} flat />
+      <LogicSection
+        owner={{ kind: 'node', id: nodeId }}
+        flat
+        addSignal={logicAddSignal}
+        onCount={setLogicCount}
+      />
+      <div style={{ padding: '4px 6px' }}>
+        <button
+          className="vs-merged-add"
+          onClick={(e) => setMenu({ x: e.clientX, y: e.clientY })}
+          style={{
+            background: 'none',
+            border: '1px dashed #2a2a2a',
+            borderRadius: 4,
+            color: '#888',
+            cursor: 'pointer',
+            fontSize: 11,
+            padding: '3px 8px',
+            width: '100%',
+            textAlign: 'left',
+          }}
+        >
+          {t('sections.add')}
+        </button>
+      </div>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={buildAddItems()}
+        />
+      )}
+    </div>
+  );
+}
 
 // Node kinds the user can add. Sourced from the shared registry so the scene
 // tree, compose tree, and bottom-dock Create palette stay in lockstep.
@@ -170,7 +394,9 @@ function ShareWithMenuItem({
               title={t('context.shareCanEditHint')}
             >
               <span>{t('context.shareCanEdit')}</span>
-              <span>{shareWithEdit ? '☑' : '☐'}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                {shareWithEdit ? <SquareCheck size={14} /> : <Square size={14} />}
+              </span>
             </div>
           )}
           {connectedIds.length > 0 && (
@@ -181,8 +407,14 @@ function ShareWithMenuItem({
               onClick={() => void share('*')}
             >
               <span>{t('context.shareEveryone')}</span>
-              <span style={{ color: '#4ade80' }}>
-                {grantees.includes('*') ? '✓' : ''}
+              <span
+                style={{
+                  color: '#4ade80',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                {grantees.includes('*') ? <Check size={14} /> : null}
               </span>
             </div>
           )}
@@ -203,8 +435,14 @@ function ShareWithMenuItem({
               >
                 {nameById[peerId] || peerId.slice(0, 12)}
               </span>
-              <span style={{ color: '#4ade80' }}>
-                {grantees.includes(peerId) ? '✓' : ''}
+              <span
+                style={{
+                  color: '#4ade80',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                {grantees.includes(peerId) ? <Check size={14} /> : null}
               </span>
             </div>
           ))}
@@ -328,7 +566,7 @@ function SceneContextMenu({
                   onClose();
                 }}
               >
-                {KIND_ICONS[def.kind] ?? '🔹'}{' '}
+                <KindIcon kind={def.kind} size={13} />{' '}
                 {t(`kinds:node.${def.i18nKey}`, { defaultValue: def.label })}
               </div>
             ))}
@@ -528,7 +766,7 @@ function SceneNodeContextMenu({
                   onClose();
                 }}
               >
-                {KIND_ICONS[def.kind] ?? '🔹'}{' '}
+                <KindIcon kind={def.kind} size={13} />{' '}
                 {t(`kinds:node.${def.i18nKey}`, { defaultValue: def.label })}
               </div>
             ))}
@@ -592,7 +830,7 @@ function SceneNodeContextMenu({
                     onClose();
                   }}
                 >
-                  {KIND_ICONS[n.kind] ?? '🔹'} {n.name}
+                  <KindIcon kind={n.kind} size={13} /> {n.name}
                 </div>
               ))}
           </div>
@@ -711,7 +949,13 @@ function SceneNodeContextMenu({
 }
 
 // ---------- Inline components section ----------
-function BehaviorsSection({ nodeId }: { nodeId: string }) {
+function BehaviorsSection({
+  nodeId,
+  flat = false,
+}: {
+  nodeId: string;
+  flat?: boolean;
+}) {
   const { t } = useTranslation('sceneGraph');
   /** Open context menu state. Null when no menu is currently up. */
   const [ctxMenu, setCtxMenu] = useState<{
@@ -820,17 +1064,21 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
 
   return (
     <div
-      style={{
-        marginLeft: 28,
-        marginRight: 4,
-        marginBottom: 4,
-        background: '#111',
-        borderRadius: 4,
-        border: '1px solid #222',
-        overflow: 'hidden',
-      }}
+      style={
+        flat
+          ? { overflow: 'hidden' }
+          : {
+              marginLeft: 28,
+              marginRight: 4,
+              marginBottom: 4,
+              background: '#111',
+              borderRadius: 4,
+              border: '1px solid #222',
+              overflow: 'hidden',
+            }
+      }
     >
-      {components.length === 0 && (
+      {!flat && components.length === 0 && (
         <div
           style={{
             padding: '4px 10px',
@@ -845,9 +1093,13 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
       {components.map((comp) => {
         const ct = behaviorKinds.find((c) => c.kind === comp.kind);
         const isSelected = selectedBehaviorId === comp.id;
-        const hasStatus = comp.kind === 'vmc_receiver';
-        const isConnected = hasStatus && vmcStatus[comp.id] === true;
-        const isTracking = hasStatus && vmcTracking[comp.id] === true;
+        // VMC has a UDP connection dot; both VMC and MediaPipe have a tracking
+        // dot (MediaPipe is browser-driven, so it has no connection concept).
+        const hasConnection = comp.kind === 'vmc_receiver';
+        const hasTracking =
+          comp.kind === 'vmc_receiver' || comp.kind === 'mediapipe_tracker';
+        const isConnected = hasConnection && vmcStatus[comp.id] === true;
+        const isTracking = hasTracking && vmcTracking[comp.id] === true;
         return (
           <div
             key={comp.id}
@@ -867,7 +1119,7 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
               setCtxMenu({ x: e.clientX, y: e.clientY, comp });
             }}
           >
-            <span style={{ fontSize: 14 }}>{ct?.icon ?? '⚙️'}</span>
+            <BehaviorIcon kind={comp.kind} size={14} />
             <span
               style={{
                 flex: 1,
@@ -876,43 +1128,44 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
             >
               {ct?.label ?? comp.kind}
             </span>
-            {hasStatus && (
-              <>
-                <span
-                  title={
-                    isConnected ? t('vmc.clientConnected') : t('vmc.noClient')
-                  }
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    flexShrink: 0,
-                    background: isConnected ? '#4ade80' : '#444',
-                    boxShadow: isConnected ? '0 0 4px #4ade80' : 'none',
-                  }}
-                />
-                <span
-                  title={
-                    isConnected
-                      ? isTracking
-                        ? t('vmc.trackingActive')
-                        : t('vmc.trackingLost')
-                      : t('vmc.notConnected')
-                  }
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    flexShrink: 0,
-                    background: !isConnected
+            {hasConnection && (
+              <span
+                title={
+                  isConnected ? t('vmc.clientConnected') : t('vmc.noClient')
+                }
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  background: isConnected ? '#4ade80' : '#444',
+                  boxShadow: isConnected ? '0 0 4px #4ade80' : 'none',
+                }}
+              />
+            )}
+            {hasTracking && (
+              <span
+                title={
+                  hasConnection && !isConnected
+                    ? t('vmc.notConnected')
+                    : isTracking
+                      ? t('vmc.trackingActive')
+                      : t('vmc.trackingLost')
+                }
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  background:
+                    hasConnection && !isConnected
                       ? '#444'
                       : isTracking
                         ? '#facc15'
                         : '#555',
-                    boxShadow: isTracking ? '0 0 4px #facc15' : 'none',
-                  }}
-                />
-              </>
+                  boxShadow: isTracking ? '0 0 4px #facc15' : 'none',
+                }}
+              />
             )}
             <button
               title={
@@ -939,6 +1192,7 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
       })}
 
       {/* Add / paste component buttons */}
+      {!flat && (
       <div
         style={{
           position: 'relative',
@@ -1026,7 +1280,7 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
                   }
                   onClick={() => handleAdd(ct)}
                 >
-                  <span style={{ fontSize: 16 }}>{ct.icon}</span>
+                  <BehaviorIcon kind={ct.kind} size={16} />
                   <div>
                     <div style={{ fontWeight: 500 }}>{ct.label}</div>
                     <div style={{ fontSize: 10, color: '#666', marginTop: 1 }}>
@@ -1065,6 +1319,7 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
           </div>
         )}
       </div>
+      )}
       {ctxMenu && (
         <ContextMenu
           x={ctxMenu.x}
@@ -1098,7 +1353,13 @@ function BehaviorsSection({ nodeId }: { nodeId: string }) {
 }
 
 // ---------- Inline camera effects section ----------
-function CameraEffectsSection({ nodeId }: { nodeId: string }) {
+function CameraEffectsSection({
+  nodeId,
+  flat = false,
+}: {
+  nodeId: string;
+  flat?: boolean;
+}) {
   const { t } = useTranslation('sceneGraph');
   const cameraEffectsFor = useEditorStore((s) => s.cameraEffectsFor);
   const addCameraEffect = useEditorStore((s) => s.addCameraEffect);
@@ -1214,30 +1475,36 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
 
   return (
     <div
-      style={{
-        marginLeft: 28,
-        marginRight: 4,
-        marginBottom: 4,
-        background: '#0e0e18',
-        borderRadius: 4,
-        border: '1px solid #1e1e2e',
-        overflow: 'hidden',
-      }}
+      style={
+        flat
+          ? { overflow: 'hidden' }
+          : {
+              marginLeft: 28,
+              marginRight: 4,
+              marginBottom: 4,
+              background: '#0e0e18',
+              borderRadius: 4,
+              border: '1px solid #1e1e2e',
+              overflow: 'hidden',
+            }
+      }
     >
-      <div
-        style={{
-          padding: '3px 8px',
-          fontSize: 10,
-          color: '#556',
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: 0.5,
-          borderBottom: '1px solid #1a1a2a',
-        }}
-      >
-        {t('effects.header')}
-      </div>
-      {effects.length === 0 && (
+      {!flat && (
+        <div
+          style={{
+            padding: '3px 8px',
+            fontSize: 10,
+            color: '#556',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            borderBottom: '1px solid #1a1a2a',
+          }}
+        >
+          {t('effects.header')}
+        </div>
+      )}
+      {!flat && effects.length === 0 && (
         <div
           style={{
             padding: '4px 10px',
@@ -1277,7 +1544,14 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
               setCtxMenu({ x: e.clientX, y: e.clientY, effect });
             }}
           >
-            <span style={{ fontSize: 13 }}>{ek?.icon ?? '✦'}</span>
+            <span
+              style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+            >
+              {(() => {
+                const I = CAMERA_EFFECT_ICON[effect.kind] ?? CAMERA_EFFECT_FALLBACK;
+                return <I size={13} />;
+              })()}
+            </span>
             <span
               style={{
                 flex: 1,
@@ -1311,6 +1585,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
           </div>
         );
       })}
+      {!flat && (
       <div
         style={{
           position: 'relative',
@@ -1396,7 +1671,18 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
                     if (!alreadyAdded) handleAdd(ek);
                   }}
                 >
-                  <span style={{ fontSize: 15 }}>{ek.icon}</span>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {(() => {
+                      const I = CAMERA_EFFECT_ICON[ek.kind] ?? CAMERA_EFFECT_FALLBACK;
+                      return <I size={15} />;
+                    })()}
+                  </span>
                   <div>
                     <div style={{ fontWeight: 500 }}>
                       {t(`kinds:effect.${ek.kind}.label`, {
@@ -1415,6 +1701,7 @@ function CameraEffectsSection({ nodeId }: { nodeId: string }) {
           </div>
         )}
       </div>
+      )}
       {ctxMenu && (
         <ContextMenu
           x={ctxMenu.x}
@@ -1691,7 +1978,15 @@ function LogicListPanel() {
                 setCtxMenu({ x: e.clientX, y: e.clientY, graph: g });
               }}
             >
-              <span style={{ opacity: g.enabled ? 0.9 : 0.35 }}>⬡</span>
+              <span
+                style={{
+                  opacity: g.enabled ? 0.9 : 0.35,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                <Hexagon size={13} />
+              </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div
                   style={{
@@ -1874,7 +2169,15 @@ function LogicListPanel() {
                 setActiveLogic(g.id === activeLogicId ? null : g.id)
               }
             >
-              <span style={{ opacity: 0.6 }}>⬡</span>
+              <span
+                style={{
+                  opacity: 0.6,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                <Hexagon size={13} />
+              </span>
               <div>
                 <div style={{ fontWeight: 500 }}>{g.label}</div>
                 <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
@@ -1928,6 +2231,7 @@ export function SceneGraph() {
   const { projectId } = useParams<{ projectId: string }>();
   const confirm = useConfirm();
   const prompt = usePrompt();
+  const choose = useChoose();
   // Collab-scene chain badge: which scenes are shared + their role/peer.
   const collabScenes = useConnectionsStore((s) => s.collabScenes);
   const collabConnectedIds = useConnectionsStore((s) => s.connectedIds);
@@ -2111,17 +2415,59 @@ export function SceneGraph() {
   const handleDelete = async (nodeId: string) => {
     const node = sceneNodes.find((n) => n.id === nodeId);
     if (!node) return;
-    if (
-      !(await confirm({
-        message: t('nodes.confirmDelete', { name: node.name }),
-        confirmLabel: t('common:actions.delete'),
-        danger: true,
-      }))
-    )
-      return;
+    const directChildren = sceneNodes.filter((n) => n.parentId === nodeId);
+
     try {
-      await api.deleteNode(nodeId);
-      storeDeleteNode(nodeId);
+      if (directChildren.length === 0) {
+        if (
+          !(await confirm({
+            message: t('nodes.confirmDelete', { name: node.name }),
+            confirmLabel: t('common:actions.delete'),
+            danger: true,
+          }))
+        )
+          return;
+        await api.deleteNode(nodeId);
+        storeDeleteNode(nodeId);
+        return;
+      }
+
+      // Has children: with / without / cancel so nested nodes aren't left
+      // abandoned (the DB cascade deletes them, but a "keep" option reparents
+      // them onto this node's parent first).
+      const choice = await choose({
+        title: t('nodes.deleteBranchTitle', { name: node.name }),
+        message: t('nodes.deleteBranchMsg', { count: directChildren.length }),
+        choices: [
+          { value: 'with', label: t('nodes.deleteWithChildren'), danger: true },
+          { value: 'without', label: t('nodes.deleteKeepChildren') },
+        ],
+      });
+      if (!choice) return;
+
+      if (choice === 'with') {
+        // Backend cascades on parent_id; mirror it in the store so the subtree
+        // doesn't linger in the UI until reload.
+        const subtree: string[] = [];
+        const stack = [nodeId];
+        while (stack.length) {
+          const id = stack.pop()!;
+          subtree.push(id);
+          for (const c of sceneNodes.filter((n) => n.parentId === id))
+            stack.push(c.id);
+        }
+        await api.deleteNode(nodeId);
+        for (const id of subtree) storeDeleteNode(id);
+      } else {
+        // Keep children: reparent them onto this node's parent, then delete.
+        for (const c of directChildren) {
+          const patch = { parentId: node.parentId ?? null };
+          storeUpdateNode(c.id, patch);
+          await api.updateNode(c.id, patch).catch(() => {});
+        }
+        await api.deleteNode(nodeId);
+        storeDeleteNode(nodeId);
+      }
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('nodes.failDelete'));
     }
@@ -2419,7 +2765,7 @@ export function SceneGraph() {
         c.nodeId === node.id &&
         !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
     ).length;
-    const icon = KIND_ICONS[node.kind] ?? '🔹';
+    const NodeIco = NODE_KIND_ICON[node.kind] ?? NODE_KIND_FALLBACK;
     const isDragOver = dragOverNodeId === node.id;
     const dropZone = isDragOver ? dragOverZone : null;
 
@@ -2508,13 +2854,14 @@ export function SceneGraph() {
 
           <span
             style={{
-              fontSize: 16,
+              display: 'inline-flex',
+              alignItems: 'center',
               flexShrink: 0,
               marginRight: 6,
               alignSelf: 'center',
             }}
           >
-            {icon}
+            <NodeIco size={15} />
           </span>
           {/* Two-row body: name on top, action controls beneath. Keeping the
               actions on their own row stops them from crowding or being
@@ -2551,9 +2898,14 @@ export function SceneGraph() {
               {node.kind === 'remote_object' && (
                 <span
                   title={t('remote.tip')}
-                  style={{ fontSize: 11, flexShrink: 0, opacity: 0.7 }}
+                  style={{
+                    flexShrink: 0,
+                    opacity: 0.7,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                  }}
                 >
-                  📡
+                  <Antenna size={12} />
                 </span>
               )}
             </span>
@@ -2581,7 +2933,7 @@ export function SceneGraph() {
                     toggleBones(node.id);
                   }}
                 >
-                  🦴
+                  <Bone size={13} />
                 </button>
               )}
 
@@ -2610,7 +2962,7 @@ export function SceneGraph() {
                   toggleBehaviors(node.id);
                 }}
               >
-                ⚙
+                <Settings2 size={13} />
                 {compCount > 0 ? (
                   <sup style={{ fontSize: 8 }}>{compCount}</sup>
                 ) : null}
@@ -2640,7 +2992,7 @@ export function SceneGraph() {
                       setPreviewEffectsCamera(node.id);
                     }}
                   >
-                    ✦
+                    <Sparkle size={13} />
                   </button>
                   {projectId && (
                     <a
@@ -2658,7 +3010,7 @@ export function SceneGraph() {
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      ↗
+                      <ExternalLink size={12} />
                     </a>
                   )}
                 </>
@@ -2686,7 +3038,7 @@ export function SceneGraph() {
                     .catch(() => {});
                 }}
               >
-                {isHidden ? '🙈' : '👁'}
+                {isHidden ? <EyeOff size={13} /> : <Eye size={13} />}
               </button>
 
               {/* Delete button */}
@@ -2708,21 +3060,21 @@ export function SceneGraph() {
                 }}
                 title={t('nodes.deleteTitle')}
               >
-                🗑
+                <Trash2 size={14} />
               </button>
             </div>
           </div>
         </div>
 
-        {/* Inline components section */}
+        {/* Inline attachments: behaviors, camera effects, clips and logic
+            merged into one section with a shared + Add menu. */}
         {showBehaviors && (
           <div style={{ paddingLeft: 8 + depth * 16 }}>
-            <BehaviorsSection nodeId={node.id} />
-            {node.kind === 'camera' && (
-              <CameraEffectsSection nodeId={node.id} />
-            )}
-            <ClipsSection owner={{ kind: 'node', id: node.id }} />
-            <LogicSection owner={{ kind: 'node', id: node.id }} />
+            <MergedSections
+              nodeId={node.id}
+              isCamera={node.kind === 'camera'}
+              include={{ behaviors: true, effects: true }}
+            />
           </div>
         )}
 
@@ -2813,7 +3165,15 @@ export function SceneGraph() {
                         >
                           {isBoneCollapsed ? '▶' : '▼'}
                         </span>
-                        <span style={{ fontSize: 12, flexShrink: 0 }}>🦴</span>
+                        <span
+                          style={{
+                            flexShrink: 0,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Bone size={12} />
+                        </span>
                         <span
                           style={{
                             flex: 1,
@@ -2919,7 +3279,16 @@ export function SceneGraph() {
           >
             {isCollapsed ? '▶' : '▼'}
           </span>
-          <span style={{ fontSize: 14, flexShrink: 0 }}>🎬</span>
+          <span
+            style={{
+              flexShrink: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              color: '#bbb',
+            }}
+          >
+            <Clapperboard size={14} />
+          </span>
           <span
             style={{
               flex: 1,
@@ -3017,12 +3386,14 @@ export function SceneGraph() {
           </button>
         </div>
 
-        {/* Scene-level clips + graphs (owned by the scene node itself) */}
+        {/* Scene-level clips + graphs (owned by the scene node itself), merged
+            into one section to match a node's. */}
         {isSelected && (
-          <>
-            <ClipsSection owner={{ kind: 'node', id: scene.id }} />
-            <LogicSection owner={{ kind: 'node', id: scene.id }} />
-          </>
+          <MergedSections
+            nodeId={scene.id}
+            isCamera={false}
+            include={{ behaviors: false, effects: false }}
+          />
         )}
 
         {/* Scene's root nodes */}

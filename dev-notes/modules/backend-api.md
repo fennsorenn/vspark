@@ -149,6 +149,20 @@ PUT  /api/assistant-config  updates the AI Assistant settings; apiKey only overw
 - WAL pragma is omitted (VFS limitation with journal sidecar files in the WASM build).
 - Foreign keys are enabled by default in `node-sqlite3-wasm`; no explicit PRAGMA needed.
 
+### Stale-lock recovery (`db/index.ts`)
+
+**Why a lock exists.** `node-sqlite3-wasm` runs in a WASM sandbox with no OS file locks. It serialises access via an atomically-created `<db>.lock/` **directory** (mkdir to acquire, rmdir to release) plus a rollback `-journal`. WAL does **not** work in this build — `PRAGMA journal_mode=WAL` silently stays `delete` (verified empirically), so the DB always uses a rollback journal. Crucially the `.lock/` dir is acquired/released **per operation**, not held for the process lifetime, so an idle backend holds no lock. That means the SQLite lock alone cannot distinguish "another backend owns this file" from "a crashed predecessor left debris". A crash strands the `.lock/` dir and/or `-journal`, and every later open then fails with `database is locked` at migration time — historically a recurring manual-cleanup problem.
+
+**The PID gate.** A sidecar `<db>.pid` file records the owning process PID and is the authoritative live-holder gate. On startup `initDb()` reads it:
+- **Live holder** → refuse to start with a clear error (`Database is in use by a running vspark backend (pid N)…`). A running peer is **never** killed; recovery is for crashes only. Run a second instance against a separate DB via `VSPARK_DB_PATH` / `PORT`.
+- **Dead or absent holder** → we are the legitimate owner: clear any stale `.lock/` dir + `-journal` (`reclaimStaleDebris`) and open. `isProcessAlive(pid)` probes with `process.kill(pid, 0)` (ESRCH → stale; EPERM → alive under another user).
+
+`closeDb()` (wired to `SIGINT`/`SIGTERM` in `index.ts`) removes the PID file — but only if it still names this process, so a reclaiming successor that already overwrote it isn't clobbered. Clean exits therefore leave no debris.
+
+**Secondary net.** After the PID gate, `openDatabase()` sets `PRAGMA busy_timeout = 5000` and forces the lock to materialise with a `BEGIN IMMEDIATE; COMMIT;` write probe (the constructor is lazy and wouldn't otherwise lock until first use). If that still throws a locked error — a genuine concurrent-write race that slipped past the PID gate — `initDb()` does one debris-clear + retry, then gives up.
+
+**`:memory:` skip.** In-memory DBs (used by all backend tests, via `VSPARK_DB_PATH=':memory:'`) are per-connection and never shared, so the entire PID / lock / debris machinery is skipped. `.gitignore` ignores `*.db.pid` and `*.db.lock/`.
+
 **Migrations** run in order on startup from `db/migrations/`:
 
 | File | What it adds |
