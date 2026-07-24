@@ -187,8 +187,68 @@ obsManager.handleClientGone(ws))`. The WS `onMessage` dispatcher handles
    create a dedicated node (mirror `set_scene.ts`) calling
    `getObsManager().command({ verb, arg? })`. Register in `registry.ts`.
 
+## obs-websocket power tier
+
+The browser-source bridge above is the zero-config baseline. A second, **opt-in**
+tier connects the backend to OBS over **obs-websocket** for control the browser
+API can't reach (audio volume/mute, replay file path, and — future — scene-item /
+filter / transform control). See
+[plans/obs-websocket-tier.md](../plans/obs-websocket-tier.md).
+
+**Why a second tier:** `window.obsstudio` exposes no audio surface at all. Only
+obs-websocket has `SetInputVolume` / `SetInputMute`, `GetInputList`,
+`InputVolumeChanged` events, `GetLastReplayBufferReplay` (the replay path), etc.
+
+**Connection model.** One backend-held connection per project. vspark is
+self-hosted, so the backend is co-located with OBS and reaches
+`ws://localhost:4455` directly — no page relay. Credentials live in the Accounts
+UI (a new **OBS Connections** section in `OverliveAccountsModal`), persisted in
+the `obs_connections` table (migration 035).
+
+**Pieces:**
+- `packages/backend/src/obs/ws_client.ts` — `ObsWsClient`, a hand-rolled
+  obs-websocket v5 client over `ws` + Node `crypto` (Hello/Identify SHA256
+  handshake, request/response correlation, event emit). No new dependency;
+  reconnection is owned by the manager so the client stays unit-testable.
+- `packages/backend/src/obs/ws_manager.ts` — `ObsWsManager` (singleton
+  `initObsWsManager`/`getObsWsManager`, injectable client factory for tests).
+  Per-project connect + auto-reconnect, a status state machine
+  (`connecting`/`connected`/`reconnecting`/`disconnected`/`error`) persisted to
+  the row and broadcast as `obs_connection_status`, inbound event fan-out into
+  project graphs (same `_deliver` shape as `ObsManager`), and outbound request
+  methods (`setVolume`, `setMute`, `getLastReplayPath`, `listInputs`).
+- `packages/backend/src/routes/obs-connections.ts` — CRUD + `/test` reconnect +
+  `GET /projects/:id/obs/inputs` picker proxy. Mutations call `refreshProject`.
+
+**Nodes** (tag `'obs'`, under `signal/nodes/obs/`):
+
+| Kind | File | Role |
+|---|---|---|
+| `obs_set_volume` | `set_volume.ts` | Action — `SetInputVolume` (dB or linear via `config.mode`). |
+| `obs_mute` | `mute.ts` | Action — mute / unmute / toggle an input. |
+| `obs_volume_changed` | `volume_changed.ts` | Event source — `InputVolumeChanged` → input, mul, db. |
+| `obs_mute_changed` | `mute_changed.ts` | Event source — `InputMuteStateChanged` → input, muted. |
+| `obs_replay_path` | `replay_path.ts` | Action — on `fire`, `GetLastReplayBufferReplay` → `path` out. |
+| `obs_connection_state` | `connection_state.ts` | Event source — connect/disconnect edges + `isConnected`. |
+
+**Project targeting.** obs-websocket connections are per-project, but a signal
+node has no graph context of its own. `LogicManager._getNodeConfig` now injects
+`_projectId` into **every** logic node's config; the obs-websocket action nodes
+read `config._projectId` to target the right connection. Other nodes ignore the
+key. Inbound events fan out project-scoped via `logicManager.iterateNodes()`.
+
+**Frontend.** `editorStore.obsConnections` is the source of truth (so live
+`obs_connection_status` patches reach the status pills via
+`patchObsConnectionStatus` in `useWsSync`). The OBS Connections modal section
+reads/writes it through the `api.getObsConnections`/`createObsConnection`/… helpers.
+
 ## Tests
 
-- `packages/backend/test/nodes.obs.test.ts` — the OBS / `client_lifecycle` nodes.
+- `packages/backend/test/nodes.obs.test.ts` — the browser-bridge OBS /
+  `client_lifecycle` nodes.
 - `packages/backend/test/obs.manager.test.ts` — `ObsManager` dedup, fan-out,
   project scoping, and client-lifecycle bookkeeping.
+- `packages/backend/test/nodes.obs.ws.test.ts` — the obs-websocket nodes.
+- `packages/backend/test/obs.ws_manager.test.ts` — `ObsWsManager` lifecycle,
+  status broadcast, event routing, and outbound requests (fake client).
+- `packages/backend/test/api.obs-connections.test.ts` — connection REST CRUD.
