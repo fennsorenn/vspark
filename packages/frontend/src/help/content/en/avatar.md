@@ -55,6 +55,52 @@ Turn it on per avatar, then tune three dials:
 > snap. If motion starts to wobble or buzz, raise **Damping** or lower
 > **Frequency**.
 
+## Partial tracking {#partial-tracking}
+
+**Partial tracking** lets you drive different parts of the body from different
+sources at the same time — for example, play a looping dance animation on the
+**legs** while your live tracking drives the **upper body**.
+
+The body is split into six sections: **Head**, **Gaze** (eyes), **Body**
+(torso), **Arms**, **Hands** (fingers), and **Legs**. Each section has two
+sliders:
+
+- **Anim** — how strongly the **base animation** drives that section.
+- **Track** — how strongly live tracking (VMC or camera) drives it.
+
+Tracking **stacks on top of** the base animation, and each slider scales its
+layer independently. The section starts at its rest pose, **Anim** blends the
+base animation in, and **Track** adds the live tracking on top:
+
+- **Anim 1 / Track 1** — the base animation with full tracking stacked on it.
+- **Anim 1 / Track 0** — animation only (e.g. legs following a clip).
+- **Anim 0 / Track 1** — tracking only.
+- **Anim 0 / Track 0** — the section rests.
+- Values in between scale each layer, so both sliders always affect the pose.
+
+Sections you never touch stay at the default (**Anim 1 / Track 1**), so you only
+need to adjust the parts you want to change.
+
+> The hips belong to the **Legs** section — both their rotation and their
+> **position** (the root motion: the up/down bob and weight-shift a clip bakes
+> in), since the hips lead the lower body. So **Legs Anim 0** plants the hips in
+> place and rests them along with the legs, while the **Body** section covers the
+> spine and chest.
+
+### Base animation
+
+The **Base animation** (set in the Animation section) is the loop that tracking
+stacks onto while a tracking source is connected — separate from the **Idle
+animation**. When tracking drops, the avatar falls back to the idle. If you
+don't set a base animation, the idle doubles as the base.
+
+You can assign either loop straight from the **Assets** panel: with the avatar
+selected, each animation clip shows **Set as idle** and **Set as base** buttons.
+
+> Note: driving the **legs** from tracking needs a full-body tracking source
+> (a full-body VMC sender). Webcam tracking doesn't send legs yet, so with a
+> webcam use **Anim** for the legs and **Track** for the upper body.
+
 ## Expressions {#expressions}
 
 Expressions are facial poses defined inside the VRM, such as smiling, blinking,

@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { X } from 'lucide-react';
 import { ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { CameraCapture } from '../media/CameraCapture';
 import {
@@ -436,7 +437,7 @@ function FaceCalibrationWindow({ onClose }: { onClose: () => void }) {
           Face heuristic calibration
         </span>
         <button style={S.iconBtn} onClick={onClose}>
-          ✕
+          <X size={16} />
         </button>
       </div>
       <div style={S.body}>

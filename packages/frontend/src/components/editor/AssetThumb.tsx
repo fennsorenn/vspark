@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Film, Loader, Volume2, PersonStanding, Package } from 'lucide-react';
 import type { AssetFile } from '../../api/client';
 import { getModelThumb } from '../../modelThumb';
 import {
@@ -73,8 +74,8 @@ function AnimThumb({ asset }: { asset: AssetFile }) {
           }}
         />
       ) : (
-        <span style={{ fontSize: 30, opacity: failed ? 0.7 : 0.4 }}>
-          {failed ? '🎞️' : '⏳'}
+        <span style={{ opacity: failed ? 0.7 : 0.4 }}>
+          {failed ? <Film size={30} /> : <Loader size={30} />}
         </span>
       )}
     </div>
@@ -140,7 +141,9 @@ export function AssetThumb({ asset }: { asset: AssetFile }) {
   if (asset.kind === 'audio') {
     return (
       <div style={box}>
-        <span style={{ fontSize: 30, opacity: 0.5 }}>🔊</span>
+        <span style={{ opacity: 0.5 }}>
+          <Volume2 size={30} />
+        </span>
       </div>
     );
   }
@@ -158,8 +161,16 @@ export function AssetThumb({ asset }: { asset: AssetFile }) {
   }
   return (
     <div style={box}>
-      <span style={{ fontSize: 30, opacity: failed ? 0.7 : 0.4 }}>
-        {failed ? (ext === 'vrm' ? '🧍' : '📦') : '⏳'}
+      <span style={{ opacity: failed ? 0.7 : 0.4 }}>
+        {failed ? (
+          ext === 'vrm' ? (
+            <PersonStanding size={30} />
+          ) : (
+            <Package size={30} />
+          )
+        ) : (
+          <Loader size={30} />
+        )}
       </span>
     </div>
   );

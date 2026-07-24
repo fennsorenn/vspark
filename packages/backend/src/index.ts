@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createApp } from './app.js';
-import { runMigrations, getDb } from './db/index.js';
+import { runMigrations, getDb, closeDb } from './db/index.js';
 import {
   setVmcManager,
   setBreathingManager,
@@ -166,7 +166,7 @@ async function start() {
   const lipsyncManager = new LipsyncManager();
   setLipsyncManager(lipsyncManager);
 
-  const trackingManager = new TrackingManager();
+  const trackingManager = new TrackingManager(wsSync);
   setTrackingManager(trackingManager);
 
   const apiControllerManager = new ApiControllerManager();
@@ -413,5 +413,20 @@ async function start() {
     }
   });
 }
+
+// Clean shutdown releases the DB lock's PID file so the next start doesn't see
+// a stale holder. Handlers are idempotent; process.exit re-raises the default.
+let shuttingDown = false;
+function shutdown(signal: NodeJS.Signals): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try {
+    closeDb();
+  } finally {
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  }
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 start();

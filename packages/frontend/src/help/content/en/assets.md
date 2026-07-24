@@ -30,6 +30,9 @@ There are two ways to add files to the Assets dock:
 A progress indicator appears while the file is uploading. If a file fails to
 upload, a message will tell you which file could not be added.
 
+You can also **drop image files straight onto the 3D viewport** — each image is
+uploaded and added to the scene as a billboard (image plane) in one step.
+
 ## Asset categories {#kinds}
 
 The dock is split into tabs, one per file type:

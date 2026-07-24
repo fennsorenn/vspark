@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Play, Clapperboard } from 'lucide-react';
 import { useEditorStore } from '../../store/editorStore';
 import { api, type TrackClipRecord } from '../../api/client';
 import { ContextMenu } from './ContextMenu';
@@ -13,8 +14,11 @@ import { HelpButton } from '../../help/HelpButton';
  *  appears when the clipboard holds a clip. */
 export function ClipsSection({
   owner,
+  flat = false,
 }: {
   owner: { kind: 'node'; id: string } | { kind: 'layer'; id: string };
+  /** Render without the standalone bordered box (used inside a merged section). */
+  flat?: boolean;
 }) {
   const { t } = useTranslation('clips');
   const trackClips = useEditorStore((s) => s.trackClips);
@@ -184,17 +188,21 @@ export function ClipsSection({
 
   return (
     <div
-      style={{
-        marginLeft: 28,
-        marginRight: 4,
-        marginBottom: 4,
-        background: '#111',
-        borderRadius: 4,
-        border: '1px solid #222',
-        overflow: 'hidden',
-      }}
+      style={
+        flat
+          ? { overflow: 'hidden' }
+          : {
+              marginLeft: 28,
+              marginRight: 4,
+              marginBottom: 4,
+              background: '#111',
+              borderRadius: 4,
+              border: '1px solid #222',
+              overflow: 'hidden',
+            }
+      }
     >
-      {clips.length === 0 && (
+      {!flat && clips.length === 0 && (
         <div
           style={{
             padding: '4px 10px',
@@ -229,7 +237,9 @@ export function ClipsSection({
               setCtxMenu({ x: e.clientX, y: e.clientY, clip });
             }}
           >
-            <span style={{ fontSize: 13 }}>{playing ? '▶' : '🎬'}</span>
+            <span style={{ display: 'inline-flex' }}>
+              {playing ? <Play size={13} /> : <Clapperboard size={13} />}
+            </span>
             <span
               style={{
                 flex: 1,
@@ -244,6 +254,7 @@ export function ClipsSection({
           </div>
         );
       })}
+      {!flat && (
       <div style={{ padding: '3px 6px', display: 'flex', gap: 6, alignItems: 'center' }}>
         <button
           className="vs-clip-add"
@@ -287,6 +298,7 @@ export function ClipsSection({
           size={12}
         />
       </div>
+      )}
       {ctxMenu && (
         <ContextMenu
           x={ctxMenu.x}

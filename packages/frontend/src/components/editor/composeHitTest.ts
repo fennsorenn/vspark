@@ -1,8 +1,18 @@
 import type { ComposeLayerRecord } from '../../store/editorStore';
 
 /** Module-level handle installed by ComposeView so the cycle/capture helpers
- *  can resolve the viewport's current bounding rect without prop-drilling. */
+ *  can resolve the stage's current (on-screen, already-scaled) bounding rect
+ *  without prop-drilling. */
 export const composeViewportRect: { current: (() => DOMRect | null) | null } = {
+  current: null,
+};
+
+/** The scale factor applied to the fixed-resolution compose stage to fit it into
+ *  the available editor space (letterbox scale-to-fit). Layer coordinates live in
+ *  the stage's canonical pixel space; on-screen client coords must be divided by
+ *  this to convert back to canonical. Installed by ComposeView; defaults to 1
+ *  (no scaling) when unset. */
+export const composeStageScale: { current: (() => number) | null } = {
   current: null,
 };
 
@@ -166,10 +176,14 @@ export function layersAtClientPoint(
   cx: number,
   cy: number
 ): string[] {
-  const px = cx - viewportRect.left;
-  const py = cy - viewportRect.top;
-  if (px < 0 || py < 0 || px > viewportRect.width || py > viewportRect.height)
-    return [];
+  // viewportRect is the on-screen (scaled) stage rect; divide by the stage scale
+  // to work in the stage's canonical pixel space, which is what layer coords use.
+  const s = composeStageScale.current?.() ?? 1;
+  const px = (cx - viewportRect.left) / s;
+  const py = (cy - viewportRect.top) / s;
+  const vw = viewportRect.width / s;
+  const vh = viewportRect.height / s;
+  if (px < 0 || py < 0 || px > vw || py > vh) return [];
   const byId = new Map(layers.map((l) => [l.id, l] as const));
   // Sort ascending sceneOrder → smaller (more in front) first. Within the same
   // slot, larger cameraOrder paints last → also goes first in the result.
@@ -177,7 +191,7 @@ export function layersAtClientPoint(
     (a, b) => a.sceneOrder - b.sceneOrder || b.cameraOrder - a.cameraOrder
   );
   const out: string[] = [];
-  const viewport = { width: viewportRect.width, height: viewportRect.height };
+  const viewport = { width: vw, height: vh };
   for (const l of ordered) {
     if (pointInLayer(viewport, l, px, py, byId)) out.push(l.id);
   }

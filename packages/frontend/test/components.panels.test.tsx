@@ -124,10 +124,11 @@ vi.mock('../src/components/editor/dnd', () => ({
   DND_CREATE_LAYER: 'application/vspark-create-layer',
 }));
 
-// DialogProvider hooks — SceneGraph calls useConfirm / usePrompt
+// DialogProvider hooks — SceneGraph calls useConfirm / usePrompt / useChoose
 vi.mock('../src/components/DialogProvider', () => ({
   useConfirm: () => vi.fn().mockResolvedValue(false),
   usePrompt: () => vi.fn().mockResolvedValue(''),
+  useChoose: () => vi.fn().mockResolvedValue(null),
   DialogProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 

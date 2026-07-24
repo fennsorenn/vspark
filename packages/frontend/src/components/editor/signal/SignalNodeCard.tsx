@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
@@ -420,7 +421,7 @@ function PackFieldsEditor({
             }}
             title={t('nodeCard.removeField')}
           >
-            ✕
+            <X size={12} />
           </button>
         </div>
       ))}
