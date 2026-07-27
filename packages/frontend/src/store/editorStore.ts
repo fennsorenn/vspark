@@ -10,6 +10,28 @@ import type {
   TrackClipEventRecord,
 } from '../api/client';
 import type { UpdateChannel } from '@vspark/shared';
+import {
+  Aperture,
+  Blend,
+  Coffee,
+  Contrast,
+  Focus,
+  Frame,
+  Grid2x2,
+  Grip,
+  Moon,
+  Palette,
+  PenTool,
+  Rainbow,
+  ScanLine,
+  SlidersHorizontal,
+  Sparkles,
+  Tv,
+  Type,
+  Waves,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
 
 /** One entry on an avatar's animation timeline (a scheduled_animation doc). */
 export interface ScheduledAnimation {
@@ -116,6 +138,8 @@ const LS = {
   leftTab: 'vspark.leftTab',
   bottomTab: 'vspark.bottomTab',
   bottomDockHeight: 'vspark.bottomDockHeight',
+  composeSnap: 'vspark.composeSnap',
+  composeAttach: 'vspark.composeAttach',
 };
 function lsGet(key: string): string | null {
   try {
@@ -156,6 +180,12 @@ function initialBottomDockHeight(): number {
   const n = Number(lsGet(LS.bottomDockHeight));
   return Number.isFinite(n) && n >= 120 && n <= 800 ? n : 200;
 }
+function initialComposeSnap(): boolean {
+  return lsGet(LS.composeSnap) !== '0'; // default on
+}
+function initialComposeAttach(): boolean {
+  return lsGet(LS.composeAttach) === '1'; // default off (deliberate mode)
+}
 
 /** Per-node free-form properties (mirror of backend `scene_nodes.properties`). */
 export interface NodeProperties {
@@ -167,9 +197,14 @@ export interface NodeProperties {
   /** VRM avatar: per-material shader/param overrides (MToon ⇄ PBR), keyed by a
    *  stable material identity. See components/editor/materialOverrides.ts. */
   materialOverrides?: import('../components/editor/materialOverrides').MaterialOverrides;
-  /** Avatar animation config. `idle` is the content-addressed base loop
-   *  (animation_clip id + speed); the scheduled timeline layers over it. */
-  animation?: { idle?: { clipId: string; speed: number } };
+  /** Avatar animation config. `idle` is the content-addressed resting loop
+   *  (animation_clip id + speed); the scheduled timeline layers over it. `base`
+   *  is the loop live tracking stacks onto while a source is connected (raw url
+   *  slot; falls back to `idle` when unset). */
+  animation?: {
+    idle?: { clipId: string; speed: number };
+    base?: { clipId?: string; url?: string; speed?: number };
+  };
   /** VRM avatar: second-order "snappiness" dynamics applied to broadcast bone
    *  rotations after the jitter-smoothing filter. Disabled by default. */
   poseDynamics?: import('../secondOrderDynamics').PoseDynamicsConfig;
@@ -181,6 +216,9 @@ export interface NodeProperties {
    *  sleeve/cuff geometry (twist kept only on mesh reachable from the hand
    *  through connected twist-weighted vertices). */
   excludeSleeves?: boolean;
+  /** VRM avatar: per-body-section animation/tracking influence ("partial
+   *  tracking"). Absent sections default to { anim: 1, track: 1 }. */
+  poseSource?: import('@vspark/shared').PoseSource;
 }
 
 export interface StageObject {
@@ -238,7 +276,7 @@ export const newBehaviorId = () => `comp-${++_compSeq}-${Date.now()}`;
 export interface CameraEffectKind {
   kind: string;
   label: string;
-  icon: string;
+  icon: LucideIcon;
   description: string;
   defaultConfig: Record<string, unknown>;
 }
@@ -248,28 +286,28 @@ export const CAMERA_EFFECT_KINDS: CameraEffectKind[] = [
   {
     kind: 'fx_tone_mapping',
     label: 'Tone Mapping',
-    icon: '🎚',
+    icon: SlidersHorizontal,
     description: 'Controls how HDR values are mapped to the display',
     defaultConfig: { mode: 6 }, // 6 = ACES_FILMIC
   },
   {
     kind: 'fx_brightness_contrast',
     label: 'Brightness / Contrast',
-    icon: '☀',
+    icon: Contrast,
     description: 'Adjusts overall image brightness and contrast',
     defaultConfig: { brightness: 0, contrast: 0 },
   },
   {
     kind: 'fx_hue_saturation',
     label: 'Hue / Saturation',
-    icon: '🎨',
+    icon: Palette,
     description: 'Shifts hue and scales color saturation',
     defaultConfig: { hue: 0, saturation: 0 },
   },
   {
     kind: 'fx_sepia',
     label: 'Sepia',
-    icon: '🟫',
+    icon: Coffee,
     description: 'Warm brownish cinematic tint',
     defaultConfig: { intensity: 1.0 },
   },
@@ -277,7 +315,7 @@ export const CAMERA_EFFECT_KINDS: CameraEffectKind[] = [
   {
     kind: 'fx_bloom',
     label: 'Bloom',
-    icon: '✨',
+    icon: Sparkles,
     description: 'Glowing highlights bleed from bright areas',
     defaultConfig: {
       intensity: 1.0,
@@ -289,7 +327,7 @@ export const CAMERA_EFFECT_KINDS: CameraEffectKind[] = [
   {
     kind: 'fx_depth_of_field',
     label: 'Depth of Field',
-    icon: '📷',
+    icon: Aperture,
     description: 'Bokeh blur outside the focal plane',
     defaultConfig: {
       worldFocusDistance: 3,
@@ -308,14 +346,14 @@ export const CAMERA_EFFECT_KINDS: CameraEffectKind[] = [
   {
     kind: 'fx_chromatic_aberration',
     label: 'Chromatic Aberration',
-    icon: '🌈',
+    icon: Rainbow,
     description: 'RGB channel fringing along edges, like a real lens',
     defaultConfig: { offsetX: 0.002, offsetY: 0.002 },
   },
   {
     kind: 'fx_ssao',
     label: 'Ambient Occlusion',
-    icon: '🌑',
+    icon: Moon,
     description: 'Screen-space contact shadows in crevices',
     defaultConfig: {
       intensity: 1.5,
@@ -329,7 +367,7 @@ export const CAMERA_EFFECT_KINDS: CameraEffectKind[] = [
   {
     kind: 'fx_outline',
     label: 'Edge Outline',
-    icon: '🖊',
+    icon: PenTool,
     description: 'Depth-buffer edge detection outlines',
     defaultConfig: {
       color: '#000000',
@@ -343,35 +381,35 @@ export const CAMERA_EFFECT_KINDS: CameraEffectKind[] = [
   {
     kind: 'fx_vignette',
     label: 'Vignette',
-    icon: '🔲',
+    icon: Frame,
     description: 'Darkened edges around the frame',
     defaultConfig: { offset: 0.5, darkness: 0.5 },
   },
   {
     kind: 'fx_noise',
     label: 'Noise',
-    icon: '📺',
+    icon: Tv,
     description: 'Film grain overlay',
     defaultConfig: { opacity: 0.2 },
   },
   {
     kind: 'fx_scanline',
     label: 'Scanline',
-    icon: '📟',
+    icon: ScanLine,
     description: 'CRT horizontal scanline overlay',
     defaultConfig: { density: 1.25, opacity: 0.1 },
   },
   {
     kind: 'fx_pixelation',
     label: 'Pixelation',
-    icon: '🟦',
+    icon: Grid2x2,
     description: 'Retro pixel art look',
     defaultConfig: { granularity: 8 },
   },
   {
     kind: 'fx_ascii',
     label: 'ASCII',
-    icon: '🔤',
+    icon: Type,
     description: 'Renders the scene as ASCII characters',
     defaultConfig: {
       characters: ' .:-+*=%@#',
@@ -384,14 +422,14 @@ export const CAMERA_EFFECT_KINDS: CameraEffectKind[] = [
   {
     kind: 'fx_dot_screen',
     label: 'Dot Screen',
-    icon: '🔵',
+    icon: Grip,
     description: 'Halftone dot pattern overlay',
     defaultConfig: { angle: 1.57, scale: 1.0 },
   },
   {
     kind: 'fx_glitch',
     label: 'Glitch',
-    icon: '⚡',
+    icon: Zap,
     description: 'Digital glitch distortion',
     defaultConfig: {
       delay: [1.5, 3.5],
@@ -404,21 +442,21 @@ export const CAMERA_EFFECT_KINDS: CameraEffectKind[] = [
   {
     kind: 'fx_smaa',
     label: 'SMAA',
-    icon: '🔍',
+    icon: Blend,
     description: 'Subpixel morphological antialiasing',
     defaultConfig: {},
   },
   {
     kind: 'fx_tilt_shift',
     label: 'Tilt Shift',
-    icon: '📸',
+    icon: Focus,
     description: 'Miniature / tilt-shift blur effect',
     defaultConfig: { offset: 0.0, rotation: 0.0, focusArea: 0.4, feather: 0.3 },
   },
   {
     kind: 'fx_water',
     label: 'Water',
-    icon: '🌊',
+    icon: Waves,
     description: 'Watery ripple distortion',
     defaultConfig: { factor: 1.0 },
   },
@@ -448,6 +486,7 @@ interface EditorState {
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
   live2dParamsByNode: Record<string, string[]>; // nodeId → Live2D parameter ids
+  vrmMaterialsByNode: Record<string, string[]>; // nodeId → VRM material (surface) names
   hoveredBoneName: string | null;
   behaviorKinds: BehaviorKindMeta[];
   /** Overlive login accounts for the current project. Populated lazily by Editor.tsx;
@@ -493,6 +532,14 @@ interface EditorState {
    *  viewport. Off by default so authoring isn't noisy; the viewer/output page
    *  always plays audio regardless. Session-only, not persisted. */
   editorAudioPreviewEnabled: boolean;
+  /** Compose editor: snap layers to their parent's edges/centre while dragging
+   *  or resizing. Persisted to localStorage. */
+  composeSnapEnabled: boolean;
+  /** Compose view: when on, dragging a 3D node inside a camera-view layer and
+   *  dropping it over a model binds it to the bone under the drop (world→
+   *  bone-local); dropping it clear of any model sends it back to top level.
+   *  Holding Shift during a drag does the same as a one-shot. Persisted. */
+  composeAttachEnabled: boolean;
   selectedComposeLayerId: string | null;
 
   // Track clips
@@ -566,6 +613,8 @@ interface EditorState {
   clearVrmMorphTargetsForNode: (nodeId: string) => void;
   setLive2dParamsForNode: (nodeId: string, paramIds: string[]) => void;
   clearLive2dParamsForNode: (nodeId: string) => void;
+  setVrmMaterialsForNode: (nodeId: string, names: string[]) => void;
+  clearVrmMaterialsForNode: (nodeId: string) => void;
   setHoveredBone: (name: string | null) => void;
   setBehaviorKinds: (kinds: BehaviorKindMeta[]) => void;
   setOverliveAccounts: (
@@ -609,6 +658,8 @@ interface EditorState {
   requestFocusName: () => void;
   setBottomDockHeight: (h: number) => void;
   setEditorAudioPreviewEnabled: (on: boolean) => void;
+  setComposeSnapEnabled: (on: boolean) => void;
+  setComposeAttachEnabled: (on: boolean) => void;
   setClipboard: (
     payload: import('../clipboard').ClipboardPayload | null
   ) => void;
@@ -730,6 +781,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vrmExpressionsByNode: {},
   live2dParamsByNode: {},
   vrmMorphTargetsByNode: {},
+  vrmMaterialsByNode: {},
   hoveredBoneName: null,
   behaviorKinds: [],
   overliveAccounts: [],
@@ -752,6 +804,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   focusNameNonce: 0,
   bottomDockHeight: initialBottomDockHeight(),
   editorAudioPreviewEnabled: false,
+  composeSnapEnabled: initialComposeSnap(),
+  composeAttachEnabled: initialComposeAttach(),
   clipboardPayload: null,
   selectedComposeLayerId: null,
 
@@ -930,6 +984,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       delete next[nodeId];
       return { live2dParamsByNode: next };
     }),
+  setVrmMaterialsForNode: (nodeId, names) =>
+    set((s) => ({
+      vrmMaterialsByNode: { ...s.vrmMaterialsByNode, [nodeId]: names },
+    })),
+  clearVrmMaterialsForNode: (nodeId) =>
+    set((s) => {
+      const next = { ...s.vrmMaterialsByNode };
+      delete next[nodeId];
+      return { vrmMaterialsByNode: next };
+    }),
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
   setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
@@ -1052,6 +1116,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ bottomDockHeight: clamped });
   },
   setEditorAudioPreviewEnabled: (on) => set({ editorAudioPreviewEnabled: on }),
+  setComposeSnapEnabled: (on) => {
+    lsSet(LS.composeSnap, on ? '1' : '0');
+    set({ composeSnapEnabled: on });
+  },
+  setComposeAttachEnabled: (on) => {
+    lsSet(LS.composeAttach, on ? '1' : '0');
+    set({ composeAttachEnabled: on });
+  },
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
 
   setTrackClips: (clips) => set({ trackClips: clips }),

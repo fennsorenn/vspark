@@ -11,6 +11,45 @@ import {
   type NodeKindDef,
 } from './createKinds';
 
+/** True if the drag carries OS files (an image dropped from the desktop). */
+export function isFileDrag(e: React.DragEvent): boolean {
+  return Array.from(e.dataTransfer.types).includes('Files');
+}
+
+/** Handle an OS image-file drop onto the 3D viewport: upload each image and add
+ *  it to the scene as a billboard node (textured with the upload). Returns true
+ *  if it consumed the drop. Non-image files are ignored. */
+export async function handleSceneFileDrop(
+  e: React.DragEvent,
+  sceneId: string | null
+): Promise<boolean> {
+  if (!sceneId) return false;
+  const store = useEditorStore.getState();
+  const projectId = store.projectId;
+  if (!projectId) return false;
+  const files = Array.from(e.dataTransfer.files).filter((f) =>
+    f.type.startsWith('image/')
+  );
+  if (files.length === 0) return false;
+  e.preventDefault();
+  let lastId: string | null = null;
+  for (const file of files) {
+    try {
+      const asset = await api.uploadAsset(projectId, file);
+      store.addAsset(asset);
+      const node = await createBillboardFromImageAsset(asset, sceneId, null);
+      lastId = node.id;
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to upload image');
+    }
+  }
+  if (lastId) {
+    store.selectNode(lastId);
+    store.setSceneSelected(false);
+  }
+  return true;
+}
+
 // MIME types used to drag-create entities from the bottom dock onto the scene
 // tree / compose tree / viewport. Custom types so they never collide with the
 // existing internal scene-tree reparent drag (`text/compose-layer`, etc.).

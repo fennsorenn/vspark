@@ -11,6 +11,7 @@ import {
 } from './createKinds';
 import { DND_CREATE_NODE, DND_CREATE_LAYER } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
+import type { LucideIcon } from 'lucide-react';
 
 const grid: React.CSSProperties = {
   display: 'grid',
@@ -40,13 +41,13 @@ const hintStyle: React.CSSProperties = {
 };
 
 function Tile({
-  icon,
+  icon: Icon,
   label,
   onClick,
   onDragStart,
   tileTitle,
 }: {
-  icon: string;
+  icon: LucideIcon;
   label: string;
   onClick: () => void;
   onDragStart?: (e: React.DragEvent) => void;
@@ -62,7 +63,16 @@ function Tile({
       onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#2563eb')}
       onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#2a2a2a')}
     >
-      <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{icon}</span>
+      <span
+        style={{
+          display: 'inline-flex',
+          lineHeight: 1,
+          flexShrink: 0,
+          color: '#cfcfcf',
+        }}
+      >
+        <Icon size={20} strokeWidth={1.75} />
+      </span>
       <span style={{ fontWeight: 500 }}>{label}</span>
     </button>
   );

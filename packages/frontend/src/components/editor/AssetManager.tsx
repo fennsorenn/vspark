@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import type { AssetFile } from '../../api/client';
 import type { BottomDockTab, Behavior } from '../../store/editorStore';
 import { newBehaviorId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
+import { BEHAVIOR_ICON, BEHAVIOR_FALLBACK } from '../icons';
 import { TrackClipTimeline } from './TrackClipTimeline';
 import { PresetLibrary } from './PresetLibrary';
 import { CreatePalette } from './CreatePalette';
@@ -154,22 +155,6 @@ export function AssetManager() {
   const videos = assets.filter((a) => a.kind === 'video');
   const audioAssets = assets.filter((a) => a.kind === 'audio');
 
-  const handleUpload = async (file: File) => {
-    if (!projectId) {
-      alert(t('alerts.noProject'));
-      return;
-    }
-    setUploading(true);
-    try {
-      const asset = await api.uploadAsset(projectId, file);
-      addAsset(asset);
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : t('alerts.uploadFailed'));
-    } finally {
-      setUploading(false);
-    }
-  };
-
   // Live2D models upload as a folder (manifest + moc3 + textures) via the bundle
   // endpoint, preserving each file's path relative to the model root.
   const handleUploadLive2dFolder = async (files: FileList | File[]) => {
@@ -304,8 +289,8 @@ export function AssetManager() {
             sz: 1,
           },
           billboard: {
-            facing: 'screen',
-            backface: 'none',
+            facing: 'world',
+            backface: 'mirror',
             width: 1,
             height: 1,
             alpha: 1,
@@ -586,6 +571,29 @@ export function AssetManager() {
     }
   };
 
+  // Set the clip as the avatar's *base* animation — the loop live tracking
+  // stacks onto (properties.animation.base), distinct from the idle. Mirrors the
+  // Properties panel's base-animation edit path (url shape, replaces base
+  // wholesale so no stale clipId lingers).
+  const handleApplyAnimationAsBase = async (asset: AssetFile) => {
+    if (!selectedNode) return;
+    const prevProps = (selectedNode.properties as Record<string, unknown>) ?? {};
+    const prevAnim =
+      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
+    const prevSpeed =
+      (prevAnim.base as { speed?: number } | undefined)?.speed ?? 1;
+    const properties = {
+      ...prevProps,
+      animation: { ...prevAnim, base: { url: asset.url, speed: prevSpeed } },
+    };
+    try {
+      await api.updateNode(selectedNode.id, { properties });
+      storeUpdateNode(selectedNode.id, { properties });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
+    }
+  };
+
   const handleDelete = async (asset: AssetFile) => {
     try {
       await api.deleteAsset(asset.id);
@@ -694,8 +702,18 @@ export function AssetManager() {
           opacity: dimmed ? 0.55 : 1,
         }}
       >
-        <span style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}>
-          {ct.icon}
+        <span
+          style={{
+            display: 'inline-flex',
+            lineHeight: 1,
+            marginTop: 2,
+            color: '#cfcfcf',
+          }}
+        >
+          {(() => {
+            const I = BEHAVIOR_ICON[ct.kind] ?? BEHAVIOR_FALLBACK;
+            return <I size={20} />;
+          })()}
         </span>
         <div style={{ flex: 1 }}>
           <div
@@ -913,9 +931,9 @@ export function AssetManager() {
               type="file"
               accept=".vrm,.glb,.gltf"
               style={{ display: 'none' }}
+              multiple
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleUpload(file);
+                if (e.target.files) handleUploadFiles(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -954,9 +972,9 @@ export function AssetManager() {
               type="file"
               accept=".fbx,.bvh"
               style={{ display: 'none' }}
+              multiple
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleUpload(file);
+                if (e.target.files) handleUploadFiles(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -976,9 +994,9 @@ export function AssetManager() {
               type="file"
               accept=".jpg,.jpeg,.png,.webp,.gif,.avif"
               style={{ display: 'none' }}
+              multiple
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleUpload(file);
+                if (e.target.files) handleUploadFiles(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -998,9 +1016,9 @@ export function AssetManager() {
               type="file"
               accept=".mp4,.webm,.mov,.m4v,.ogv"
               style={{ display: 'none' }}
+              multiple
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleUpload(file);
+                if (e.target.files) handleUploadFiles(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -1020,9 +1038,9 @@ export function AssetManager() {
               type="file"
               accept=".mp3,.wav,.ogg,.m4a,.aac,.flac"
               style={{ display: 'none' }}
+              multiple
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleUpload(file);
+                if (e.target.files) handleUploadFiles(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -1131,9 +1149,17 @@ export function AssetManager() {
                         }}
                       >
                         <span
-                          style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}
+                          style={{
+                            display: 'inline-flex',
+                            lineHeight: 1,
+                            marginTop: 2,
+                            color: '#cfcfcf',
+                          }}
                         >
-                          {ek.icon}
+                          {(() => {
+                            const I = ek.icon;
+                            return <I size={20} />;
+                          })()}
                         </span>
                         <div style={{ flex: 1 }}>
                           <div
@@ -1388,14 +1414,32 @@ export function AssetManager() {
                               cursor: 'pointer',
                               fontSize: 11,
                             }}
-                            title={t('actions.applyAnimTitle', {
+                            title={t('actions.applyAnimIdleTitle', {
                               name: selectedNode!.name,
                             })}
                             onClick={() => handleApplyAnimation(asset)}
                           >
-                            {t('actions.applyToNode', {
+                            {t('actions.applyAnimIdle')}
+                          </button>
+                        )}
+                        {asset.kind === 'animation' && canApplyAnim && (
+                          <button
+                            className="vs-asset-apply-animation-base"
+                            style={{
+                              background: '#2a2a4a',
+                              border: 'none',
+                              color: '#99c',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={t('actions.applyAnimBaseTitle', {
                               name: selectedNode!.name,
                             })}
+                            onClick={() => handleApplyAnimationAsBase(asset)}
+                          >
+                            {t('actions.applyAnimBase')}
                           </button>
                         )}
                         {asset.kind === 'animation' && !canApplyAnim && (

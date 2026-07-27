@@ -1,0 +1,41 @@
+name: Release label
+
+# Refuses merge unless the PR carries exactly one of release:patch /
+# release:minor / release:major. release.yml reads this label after merge to
+# decide the semver bump, so a merged PR without it would fail to tag.
+#
+# `labeled`/`unlabeled` are in the trigger because release labels are applied
+# via REST *after* the PR is opened (the `gh pr edit --add-label` route is
+# broken on this repo — classic-Projects GraphQL deprecation). The initial
+# `opened` run would otherwise see no label and fail with no way to retrigger;
+# reacting to label events re-runs this check the moment a label changes.
+#
+# This is deliberately a SEPARATE workflow from ci.yml: that one gates on code
+# and must NOT re-run on label churn, while this one gates on labels and must.
+# Keeping them apart means every run is internally consistent — no skipped
+# jobs, no green-only-across-two-runs split.
+
+on:
+  pull_request:
+    types: [opened, reopened, labeled, unlabeled]
+    branches:
+      - main
+
+jobs:
+  release-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Require exactly one release: label"
+        env:
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          count=$(echo "$LABELS" | jq '[.[] | select(. == "release:patch" or . == "release:minor" or . == "release:major")] | length')
+          if [ "$count" -eq 0 ]; then
+            echo "::error::PR must carry one of: release:patch, release:minor, release:major"
+            exit 1
+          fi
+          if [ "$count" -gt 1 ]; then
+            echo "::error::PR carries multiple release: labels — pick one"
+            exit 1
+          fi
+          echo "OK — exactly one release label present"

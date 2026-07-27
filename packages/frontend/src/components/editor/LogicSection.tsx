@@ -12,8 +12,18 @@ import { useConfirm, usePrompt } from '../DialogProvider';
  *  in the bottom-dock graph canvas. */
 export function LogicSection({
   owner,
+  flat = false,
+  addSignal = 0,
+  onCount,
 }: {
   owner: { kind: 'node'; id: string } | { kind: 'layer'; id: string };
+  /** Render without the standalone bordered box (used inside a merged section). */
+  flat?: boolean;
+  /** Bumped by a parent to trigger "add graph" (used by the merged section's
+   *  unified add menu, since the logic list lives in this component's state). */
+  addSignal?: number;
+  /** Reports the current graph count to a parent (for a shared empty state). */
+  onCount?: (n: number) => void;
 }) {
   const { t } = useTranslation('signalGraph');
   const confirm = useConfirm();
@@ -67,6 +77,15 @@ export function LogicSection({
       alert(e instanceof Error ? e.message : t('logic.failCreate'));
     }
   };
+
+  // Merged-section hooks: trigger add on signal change, report count upward.
+  useEffect(() => {
+    if (addSignal) void handleAdd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addSignal]);
+  useEffect(() => {
+    onCount?.(logic.length);
+  }, [logic.length, onCount]);
 
   const handleDelete = async (g: LogicRecord) => {
     if (
@@ -138,17 +157,21 @@ export function LogicSection({
 
   return (
     <div
-      style={{
-        marginLeft: 28,
-        marginRight: 4,
-        marginBottom: 4,
-        background: '#111',
-        borderRadius: 4,
-        border: '1px solid #222',
-        overflow: 'hidden',
-      }}
+      style={
+        flat
+          ? { overflow: 'hidden' }
+          : {
+              marginLeft: 28,
+              marginRight: 4,
+              marginBottom: 4,
+              background: '#111',
+              borderRadius: 4,
+              border: '1px solid #222',
+              overflow: 'hidden',
+            }
+      }
     >
-      {logic.length === 0 && (
+      {!flat && logic.length === 0 && (
         <div
           style={{
             padding: '4px 10px',
@@ -222,6 +245,7 @@ export function LogicSection({
           </div>
         );
       })}
+      {!flat && (
       <div
         style={{
           padding: '3px 6px',
@@ -271,6 +295,7 @@ export function LogicSection({
           size={12}
         />
       </div>
+      )}
       {ctxMenu && (
         <ContextMenu
           x={ctxMenu.x}

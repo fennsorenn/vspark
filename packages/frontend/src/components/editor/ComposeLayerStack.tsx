@@ -1,4 +1,6 @@
 import {
+  createContext,
+  useContext,
   useEffect,
   useId,
   useMemo,
@@ -19,6 +21,7 @@ import type {
 import DOMPurify from 'dompurify';
 import { TEXT_SANITIZE_OPTS } from '../../lib/textSanitize';
 import { CameraCanvas } from './CameraCanvas';
+import { Camera } from 'lucide-react';
 import { compositeScalars, type ScalarLayer } from '../../compositor';
 import {
   compileTemplate,
@@ -104,7 +107,10 @@ function layerStyle(
     visibility: layer.visible ? 'visible' : 'hidden',
     opacity,
     mixBlendMode: blendMode,
-    overflow: 'hidden',
+    // Containers no longer clip their children by default — a group can hold
+    // children that extend past its own box. Opt back into cropping per-layer
+    // via `config.clipContents` (e.g. a framed image window).
+    overflow: cfg.clipContents === true ? 'hidden' : 'visible',
   };
   const xLen = cssLen(x, cfg, 'xUnit');
   const yLen = cssLen(y, cfg, 'yUnit');
@@ -115,9 +121,17 @@ function layerStyle(
   return style;
 }
 
+/** The compose stage's canonical size as a "WxH" string. The camera_view's R3F
+ *  Canvas is keyed on this so it remounts (re-measures its drawing buffer) when
+ *  the scene resolution changes — react-use-measure doesn't reliably re-measure
+ *  a Canvas that lives inside the CSS transform-scaled stage. Resolution changes
+ *  are rare + deliberate, so the brief re-init is acceptable. */
+export const ComposeStageSizeContext = createContext('');
+
 function CameraViewLayer({ layer }: { layer: ComposeLayerRecord }) {
   const { t } = useTranslation('compose');
   const nodes = useEditorStore((s) => s.nodes);
+  const stageSizeKey = useContext(ComposeStageSizeContext);
   const cam = layer.cameraNodeId
     ? nodes.find((n) => n.id === layer.cameraNodeId)
     : null;
@@ -137,13 +151,15 @@ function CameraViewLayer({ layer }: { layer: ComposeLayerRecord }) {
           border: '1px dashed #333',
         }}
       >
-        📷 {t('stack.noCamera')}
+        <Camera size={14} style={{ marginRight: 4, verticalAlign: '-2px' }} />
+        {t('stack.noCamera')}
       </div>
     );
   }
   return (
     <div style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
       <CameraCanvas
+        key={stageSizeKey}
         cameraNode={cam}
         sceneId={cam.rootSceneNodeId}
         composeLayerId={layer.id}
@@ -418,7 +434,8 @@ function LayerContent({
     (layer.config.objectFit as CSSProperties['objectFit']) ?? 'cover';
   if (layer.kind === 'image') {
     const url = resolveAssetUrl(layer, assets);
-    if (!url) return <Placeholder text={t('stack.noImage')} />;
+    if (!url)
+      return <Placeholder text={t('stack.noImage')} mode={mode} />;
     return (
       <img
         src={url}
@@ -436,7 +453,8 @@ function LayerContent({
   }
   if (layer.kind === 'video') {
     const url = resolveAssetUrl(layer, assets);
-    if (!url) return <Placeholder text={t('stack.noVideo')} />;
+    if (!url)
+      return <Placeholder text={t('stack.noVideo')} mode={mode} />;
     return (
       <VideoLayer layer={layer} url={url} objectFit={objectFit} mode={mode} />
     );
@@ -452,7 +470,7 @@ function LayerContent({
     return <FeedLayer layer={layer} />;
   }
   const url = (layer.config.url as string | undefined) ?? '';
-  if (!url) return <Placeholder text={t('stack.noUrl')} />;
+  if (!url) return <Placeholder text={t('stack.noUrl')} mode={mode} />;
   // Iframes always swallow events when active. We keep them pointer-events:none
   // in editor mode so selection works; the streamed output (viewer mode) makes
   // them interactive only there.
@@ -565,19 +583,39 @@ function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
   );
 }
 
-function Placeholder({ text }: { text: string }) {
+/** Placeholder shown for a layer that has no asset/url configured yet. It is an
+ *  editor-only affordance so an empty layer stays visible and selectable while
+ *  building a scene — in viewer (streamed) mode it renders nothing, keeping the
+ *  output clean. */
+function Placeholder({
+  text,
+  mode = 'editor',
+}: {
+  text: string;
+  mode?: 'editor' | 'viewer';
+}) {
+  if (mode === 'viewer') return null;
   return (
     <div
       style={{
         width: '100%',
         height: '100%',
-        background: '#222',
+        // Grey rectangle with light-grey diagonal stripes + a light-grey outline
+        // — fills the element so its dimensions are visible; label in black.
+        background:
+          'repeating-linear-gradient(45deg, #8f8f8f 0 10px, #a3a3a3 10px 20px)',
+        border: '1px solid #cfcfcf',
+        boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#555',
-        fontSize: 11,
+        color: '#000',
+        fontSize: 13,
+        fontWeight: 600,
+        textAlign: 'center',
+        padding: 4,
         pointerEvents: 'none',
+        overflow: 'hidden',
       }}
     >
       {text}
@@ -594,18 +632,27 @@ function orderSiblings(layers: ComposeLayerRecord[]): ComposeLayerRecord[] {
   );
 }
 
+/** In the editor, a selected layer (and its container ancestors) is forced to at
+ *  least this opacity so a near-invisible layer can still be seen and
+ *  manipulated. Never applied in viewer mode. */
+const SELECTED_MIN_OPACITY = 0.25;
+
 function LayerView({
   layer,
   assets,
   includeChain,
   childrenByParent,
   mode,
+  boostOpacityIds,
 }: {
   layer: ComposeLayerRecord;
   assets: AssetFile[];
   includeChain: string[];
   childrenByParent: Map<string | null, ComposeLayerRecord[]>;
   mode: 'editor' | 'viewer';
+  /** Layer ids (selected layer + its ancestors) whose opacity is floored in the
+   *  editor so the selection stays visible. */
+  boostOpacityIds: Set<string>;
 }) {
   // Per-layer subscription to its track-clip override: this keeps re-renders
   // localized to layers being animated; idle layers don't re-render each rAF.
@@ -618,6 +665,17 @@ function LayerView({
   // their rotation composes with ours — i.e. children are positioned, rotated
   // and sized relative to their parent rather than the viewport.
   const kids = orderSiblings(childrenByParent.get(layer.id) ?? []);
+  const baseStyle = layerStyle(layer, clipOverride, runtimeOverride);
+  const style =
+    mode === 'editor' && boostOpacityIds.has(layer.id)
+      ? {
+          ...baseStyle,
+          opacity: Math.max(
+            typeof baseStyle.opacity === 'number' ? baseStyle.opacity : 1,
+            SELECTED_MIN_OPACITY
+          ),
+        }
+      : baseStyle;
   // Layer wrappers are passive: pointer events go to the top-level capture
   // overlay (ComposeEventCapture), which hit-tests layers analytically (see
   // composeHitTest) via data-compose-layer-id. This single-owner model removes
@@ -626,7 +684,7 @@ function LayerView({
     <div
       data-compose-layer-id={layer.id}
       style={{
-        ...layerStyle(layer, clipOverride, runtimeOverride),
+        ...style,
         pointerEvents: 'none',
       }}
     >
@@ -644,6 +702,7 @@ function LayerView({
           includeChain={includeChain}
           childrenByParent={childrenByParent}
           mode={mode}
+          boostOpacityIds={boostOpacityIds}
         />
       ))}
     </div>
@@ -672,6 +731,45 @@ export function ComposeLayerStack({
   }
   const roots = orderSiblings(childrenByParent.get(null) ?? []);
 
+  // Editor-only: floor the opacity of the selected layer and its container
+  // whole branch (top-level ancestor + its entire subtree) so a near-invisible
+  // selection — and everything grouped with it — stays visible while editing.
+  const selectedId = useEditorStore((s) => s.selectedComposeLayerId);
+  const boostOpacityIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (mode !== 'editor' || !selectedId) return ids;
+    const byId = new Map(layers.map((l) => [l.id, l]));
+    // Walk up to the branch root (the top-level layer of the tree this item
+    // sits on — its parent is null or not part of the rendered set).
+    let root = byId.get(selectedId);
+    const upGuard = new Set<string>();
+    while (
+      root &&
+      root.parentId &&
+      byId.has(root.parentId) &&
+      !upGuard.has(root.id)
+    ) {
+      upGuard.add(root.id);
+      root = byId.get(root.parentId);
+    }
+    if (!root) return ids;
+    // Collect the root's entire subtree (the whole branch).
+    const childrenBy = new Map<string, ComposeLayerRecord[]>();
+    for (const l of layers) {
+      const key = l.parentId ?? '';
+      if (!childrenBy.has(key)) childrenBy.set(key, []);
+      childrenBy.get(key)!.push(l);
+    }
+    const stack = [root.id];
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (ids.has(id)) continue;
+      ids.add(id);
+      for (const c of childrenBy.get(id) ?? []) stack.push(c.id);
+    }
+    return ids;
+  }, [layers, selectedId, mode]);
+
   // The container stays pointer-transparent so empty space falls through to the
   // parent viewport (click-to-deselect). Individual layer wrappers re-enable
   // pointer events on their own bounds. Selection chrome lives on a separate
@@ -693,6 +791,7 @@ export function ComposeLayerStack({
           includeChain={includeChain}
           childrenByParent={childrenByParent}
           mode={mode}
+          boostOpacityIds={boostOpacityIds}
         />
       ))}
     </div>

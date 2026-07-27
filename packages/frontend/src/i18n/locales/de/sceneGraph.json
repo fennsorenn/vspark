@@ -4,6 +4,14 @@
     "compose": "Komposition",
     "logic": "Logik"
   },
+  "sections": {
+    "behaviors": "Verhalten",
+    "effects": "Effekte",
+    "add": "+ Hinzufügen…",
+    "addClip": "Neuer Clip",
+    "addLogic": "Neuer Logikgraph",
+    "empty": "Noch nichts hinzugefügt"
+  },
   "collab": {
     "badgeSharing": "Du teilst diese Szene",
     "badgeConnected": "Geteilte Szene – Peer verbunden",
@@ -26,6 +34,11 @@
     "deleteTitle": "Knoten löschen",
     "deleteScene": "Szene löschen",
     "confirmDelete": "„{{name}}“ löschen?",
+    "deleteBranchTitle": "„{{name}}“ löschen",
+    "deleteBranchMsg_one": "Dieser Knoten hat {{count}} untergeordnetes Element. Was soll damit geschehen?",
+    "deleteBranchMsg_other": "Dieser Knoten hat {{count}} untergeordnete Elemente. Was soll damit geschehen?",
+    "deleteWithChildren": "Mit untergeordneten Elementen löschen",
+    "deleteKeepChildren": "Löschen, untergeordnete Elemente behalten",
     "failCreate": "Knoten konnte nicht erstellt werden",
     "failDelete": "Knoten konnte nicht gelöscht werden",
     "failMove": "Knoten konnte nicht verschoben werden",

@@ -111,7 +111,28 @@ export interface SceneNodeProperties {
    *  hand through connected twist-weighted vertices. Applies to VRM avatar
    *  nodes. Default false. */
   excludeSleeves?: boolean;
+  /** Per-body-section pose source blending ("partial tracking"): each section
+   *  carries an animation influence and a live-tracking influence, letting e.g.
+   *  legs follow an animation clip while the upper body follows tracking. Absent
+   *  sections default to { anim: 1, track: 1 } (tracking replaces animation where
+   *  present, which is the legacy behaviour). Applies to VRM avatar nodes. */
+  poseSource?: PoseSource;
 }
+
+/** The body sections that can independently blend animation vs. live tracking. */
+export type PoseSection = 'legs' | 'body' | 'arms' | 'head' | 'gaze' | 'hands';
+
+/** Per-section influence weights. `anim` pulls the section from its rest pose
+ *  toward the animation clip; `track` then pulls it toward the live tracking
+ *  pose (scaled by the global blend ramp). Both 0..1. anim=1/track=1 = tracking
+ *  wins where present (legacy); anim=1/track=0 = animation only; anim=0/track=1
+ *  = tracking only; anim=0/track=0 = rest. */
+export interface PoseSectionInfluence {
+  anim: number;
+  track: number;
+}
+
+export type PoseSource = Partial<Record<PoseSection, PoseSectionInfluence>>;
 
 /** Per-bone second-order (spring–damper) dynamics that add anticipatory snap /
  *  overshoot to broadcast pose without becoming choppy. See the frontend

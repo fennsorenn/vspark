@@ -9,6 +9,7 @@ import {
 import { useEditorStore } from '../store/editorStore';
 import { setLive2dConsent } from '../lib/puppet2d/live2d/coreLoader';
 import { useWsSync } from '../hooks/useWsSync';
+import { useDeleteElement } from '../hooks/useDeleteElement';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
 import { useSharedSubscriptions } from '../hooks/useSharedSubscriptions';
 import { useClientMesh } from '../hooks/useClientMesh';
@@ -26,6 +27,8 @@ import { ComposeView } from '../components/editor/ComposeView';
 import { HelpWindow } from '../help/HelpWindow';
 import {
   handleSceneNodeDrop,
+  handleSceneFileDrop,
+  isFileDrag,
   hasCreatePayload,
 } from '../components/editor/dnd';
 import type { NodeKindMeta } from '@vspark/shared/signal';
@@ -44,6 +47,7 @@ export function Editor() {
     startMeshStoreFeeder();
   }, []);
   const { t } = useTranslation('editor');
+  const { deleteSelected } = useDeleteElement();
   const { projectId } = useParams<{ projectId: string }>();
   const {
     setProject,
@@ -86,58 +90,76 @@ export function Editor() {
       .catch(() => {});
   }, [projectId, setPresets]);
 
-  // Ctrl+C / Ctrl+V for preset copy/paste
-  const handleKeyDown = useCallback(async (e: KeyboardEvent) => {
-    if (
-      (e.target as HTMLElement)?.tagName === 'INPUT' ||
-      (e.target as HTMLElement)?.tagName === 'TEXTAREA'
-    )
-      return;
-    const state = useEditorStore.getState();
-    if (!state.projectId || !state.activeSceneId) return;
-    if (!e.ctrlKey && !e.metaKey) return;
+  // Del to remove the selected element; Ctrl+C / Ctrl+V for element copy/paste.
+  const handleKeyDown = useCallback(
+    async (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable
+      )
+        return;
+      const state = useEditorStore.getState();
+      if (!state.projectId || !state.activeSceneId) return;
 
-    if (e.key === 'c') {
-      const rootKind = state.selectedComposeLayerId
-        ? 'compose_layer'
-        : 'scene_node';
-      const rootId = state.selectedComposeLayerId ?? state.selectedNodeId;
-      if (!rootId) return;
-      e.preventDefault();
-      try {
-        const payload = await serializePreset(rootKind, rootId, false);
-        await navigator.clipboard.writeText(JSON.stringify(payload));
-      } catch {
-        /* ignore */
+      // Delete key removes the selected element (no modifier).
+      if (e.key === 'Delete') {
+        if (!state.selectedComposeLayerId && !state.selectedNodeId) return;
+        e.preventDefault();
+        await deleteSelected();
+        return;
       }
-    }
 
-    if (e.key === 'v') {
-      e.preventDefault();
-      try {
-        const text = await navigator.clipboard.readText();
-        const payload = JSON.parse(text);
-        if (
-          payload.format !== 'vspark.preset.v1' &&
-          payload.format !== 'vspark.preset.v2'
-        )
-          return;
-        await instantiatePresetApi(
-          payload,
-          state.projectId!,
-          state.activeSceneId!,
-          null, // rootComposeSceneId
-          state.selectedNodeId // parentId — drop under the selection, if any
-        );
-        const data = await api.getScenes(state.projectId!);
-        useEditorStore.getState().setNodes(data.nodes);
-        useEditorStore.getState().setComposeLayers(data.composeLayers);
-        useEditorStore.getState().setTrackClips(data.trackClips);
-      } catch {
-        /* not a preset on clipboard */
+      if (!e.ctrlKey && !e.metaKey) return;
+
+      if (e.key === 'c') {
+        // Don't hijack a real text selection — let the browser copy the text.
+        // Only copy the selected element when nothing is text-selected.
+        const sel = window.getSelection();
+        if (sel && sel.toString().length > 0) return;
+        const rootKind = state.selectedComposeLayerId
+          ? 'compose_layer'
+          : 'scene_node';
+        const rootId = state.selectedComposeLayerId ?? state.selectedNodeId;
+        if (!rootId) return;
+        e.preventDefault();
+        try {
+          const payload = await serializePreset(rootKind, rootId, false);
+          await navigator.clipboard.writeText(JSON.stringify(payload));
+        } catch {
+          /* ignore */
+        }
       }
-    }
-  }, []);
+
+      if (e.key === 'v') {
+        e.preventDefault();
+        try {
+          const text = await navigator.clipboard.readText();
+          const payload = JSON.parse(text);
+          if (
+            payload.format !== 'vspark.preset.v1' &&
+            payload.format !== 'vspark.preset.v2'
+          )
+            return;
+          await instantiatePresetApi(
+            payload,
+            state.projectId!,
+            state.activeSceneId!,
+            null, // rootComposeSceneId
+            state.selectedNodeId // parentId — drop under the selection, if any
+          );
+          const data = await api.getScenes(state.projectId!);
+          useEditorStore.getState().setNodes(data.nodes);
+          useEditorStore.getState().setComposeLayers(data.composeLayers);
+          useEditorStore.getState().setTrackClips(data.trackClips);
+        } catch {
+          /* not a preset on clipboard */
+        }
+      }
+    },
+    [deleteSelected]
+  );
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
@@ -241,21 +263,23 @@ export function Editor() {
         <div
           style={{ flex: 1, position: 'relative', overflow: 'hidden' }}
           onDragOver={(e) => {
-            // Accept drag-create drops from the bottom dock only while the 3D
-            // viewport is the visible tab.
+            // Accept drag-create drops from the bottom dock, and OS image-file
+            // drops (uploaded as billboards), only while the 3D viewport is the
+            // visible tab.
             if (leftTab !== 'scene') return;
-            if (hasCreatePayload(e)) {
+            if (hasCreatePayload(e) || isFileDrag(e)) {
               e.preventDefault();
               e.dataTransfer.dropEffect = 'copy';
             }
           }}
           onDrop={(e) => {
             if (leftTab !== 'scene') return;
-            void handleSceneNodeDrop(
-              e,
-              useEditorStore.getState().activeSceneId,
-              null
-            );
+            const sceneId = useEditorStore.getState().activeSceneId;
+            if (isFileDrag(e)) {
+              void handleSceneFileDrop(e, sceneId);
+              return;
+            }
+            void handleSceneNodeDrop(e, sceneId, null);
           }}
         >
           <div

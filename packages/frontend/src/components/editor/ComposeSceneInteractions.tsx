@@ -3,8 +3,19 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import { getNodeGroup, listRegisteredNodeGroups } from './Viewport';
+import {
+  getNodeGroup,
+  getVrmForScene,
+  listRegisteredNodeGroups,
+} from './Viewport';
 import { sendNodeTransformPreview } from '../../hooks/useWsSync';
+import {
+  humanoidBoneFor,
+  worldToBoneLocalTransform,
+  worldTransform,
+  dominantBoneForHit,
+} from './boneAttachPick';
+import { pivotForGroup, rotateAroundWorldAxis } from './composeRotate';
 
 const PREVIEW_INTERVAL_MS = 33; // ~30 Hz cap on outgoing transform previews
 
@@ -19,9 +30,54 @@ const WHEEL_DAMPING_PER_SEC = 0.005; // velocity multiplier per second (i.e. ret
 const WHEEL_VELOCITY_EPS = 1e-4; // m/s; below this, stop integrating and persist
 const MIN_CAM_DISTANCE = 0.05; // never push the object closer than this
 
+// Orthographic wheel = scale the selected node (dolly has no visual effect in
+// ortho), scaling about the cursor point with the same inertia as the
+// perspective dolly. The wheel adds an impulse to a log-scale velocity
+// (units: ln(scale)/sec) that a useFrame loop integrates with the shared
+// WHEEL_DAMPING. WHEEL_SCALE_STEP is the per-tick multiplicative step of the old
+// instant behaviour; the impulse is scaled so one tick's total integrated
+// log-scale still ≈ that step (∫ damping^t dt = 1/ln(1/damping)).
+const WHEEL_SCALE_STEP = 0.08;
+const WHEEL_SCALE_IMPULSE =
+  WHEEL_SCALE_STEP * Math.log(1 / WHEEL_DAMPING_PER_SEC);
+const WHEEL_SCALE_VEL_EPS = 1e-4; // ln(scale)/sec; below this, settle and persist
+const MIN_NODE_SCALE = 0.01;
+const MAX_NODE_SCALE = 100;
+
+// Ctrl+wheel rolls the node around the view axis (Z) with the same inertia as
+// the scale/dolly glides. Ctrl+drag rotates around the view's X/Y axes directly.
+const WHEEL_ROLL_STEP = 0.12; // radians of Z-roll per wheel tick (pre-damping)
+const WHEEL_ROLL_IMPULSE = WHEEL_ROLL_STEP * Math.log(1 / WHEEL_DAMPING_PER_SEC);
+const WHEEL_ROLL_VEL_EPS = 1e-3; // rad/sec; below this, settle and persist
+const DRAG_ROTATE_SENS = 0.01; // radians per pixel of Ctrl-drag rotation
+
 // Reusable scratch — raycaster + NDC vector, shared across handlers in this module.
 const wheelRay = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
+
+// Rotation gestures spin around the camera's axes, about the object's centre.
+const _rotAxis = new THREE.Vector3();
+const _objRight = new THREE.Vector3();
+const _objUp = new THREE.Vector3();
+const _center = new THREE.Vector3();
+
+/** Traverse `root`'s visible subtree without descending into any object listed
+ *  in `skip` — used so a node's mesh scan stops at nested registered groups
+ *  (e.g. a prop attached to this avatar's bone), keeping picks attributed to the
+ *  most specific node rather than its container. */
+function traverseOwnVisible(
+  root: THREE.Object3D,
+  skip: Set<THREE.Object3D>,
+  cb: (o: THREE.Object3D) => void
+): void {
+  if (root.visible === false) return;
+  cb(root);
+  const kids = root.children;
+  for (let i = 0; i < kids.length; i++) {
+    if (skip.has(kids[i])) continue;
+    traverseOwnVisible(kids[i], skip, cb);
+  }
+}
 
 /** Per-camera_view interaction registry. Each mounted ComposeSceneInteractions
  *  (one per camera_view layer's CameraCanvas) registers its handlers under its
@@ -36,7 +92,13 @@ type SceneDragStarter = (
   clientY: number,
   pointerId: number
 ) => boolean;
-type SceneWheel = (deltaY: number, clientX: number, clientY: number) => void;
+type SceneWheel = (
+  deltaY: number,
+  clientX: number,
+  clientY: number,
+  ctrlKey: boolean,
+  shiftKey: boolean
+) => void;
 
 const scenePickers = new Map<string, ScenePicker>();
 const sceneDragStarters = new Map<string, SceneDragStarter>();
@@ -88,13 +150,16 @@ export function composeSceneApplyWheel(
   deltaY: number,
   clientX: number,
   clientY: number,
+  ctrlKey: boolean,
+  shiftKey: boolean,
   composeLayerId?: string
 ): void {
   if (composeLayerId != null) {
-    sceneWheels.get(composeLayerId)?.(deltaY, clientX, clientY);
+    sceneWheels.get(composeLayerId)?.(deltaY, clientX, clientY, ctrlKey, shiftKey);
     return;
   }
-  for (const wheel of sceneWheels.values()) wheel(deltaY, clientX, clientY);
+  for (const wheel of sceneWheels.values())
+    wheel(deltaY, clientX, clientY, ctrlKey, shiftKey);
 }
 
 /** Inside-canvas component that turns mesh clicks into scene-node selection
@@ -107,12 +172,16 @@ export function composeSceneApplyWheel(
  *  scale unintentionally). */
 function transformPayload(
   group: THREE.Group,
-  node: { components: Record<string, unknown> } | undefined
+  node: { components: Record<string, unknown> } | undefined,
+  liveScale = false
 ): Record<string, number> {
   const p = group.position,
     r = group.rotation;
   const existing = (node?.components as Record<string, unknown> | undefined)
     ?.transform as Record<string, unknown> | undefined;
+  // `liveScale` gestures (the ortho wheel-to-scale glide) read scale from the
+  // live group; everything else preserves the stored scale so a move never
+  // clobbers it.
   return {
     x: p.x,
     y: p.y,
@@ -120,9 +189,9 @@ function transformPayload(
     rx: r.x,
     ry: r.y,
     rz: r.z,
-    sx: (existing?.sx as number | undefined) ?? group.scale.x,
-    sy: (existing?.sy as number | undefined) ?? group.scale.y,
-    sz: (existing?.sz as number | undefined) ?? group.scale.z,
+    sx: liveScale ? group.scale.x : (existing?.sx as number | undefined) ?? group.scale.x,
+    sy: liveScale ? group.scale.y : (existing?.sy as number | undefined) ?? group.scale.y,
+    sz: liveScale ? group.scale.z : (existing?.sz as number | undefined) ?? group.scale.z,
   };
 }
 
@@ -135,18 +204,22 @@ export function ComposeSceneInteractions({
    *  scope's handlers in the per-layer interaction registry. */
   composeLayerId?: string;
 }) {
-  const { camera, gl } = useThree();
+  const { camera, gl, scene } = useThree();
   // Per-gesture throttle: only emit when at least PREVIEW_INTERVAL_MS has passed
   // since the last emission for this nodeId.
   const lastPreviewAtRef = useRef<{ nodeId: string; t: number } | null>(null);
-  const emitPreview = (nodeId: string, group: THREE.Group) => {
+  const emitPreview = (
+    nodeId: string,
+    group: THREE.Group,
+    liveScale = false
+  ) => {
     const now = performance.now();
     const last = lastPreviewAtRef.current;
     if (last && last.nodeId === nodeId && now - last.t < PREVIEW_INTERVAL_MS)
       return;
     lastPreviewAtRef.current = { nodeId, t: now };
     const node = useEditorStore.getState().nodes.find((n) => n.id === nodeId);
-    sendNodeTransformPreview(nodeId, transformPayload(group, node));
+    sendNodeTransformPreview(nodeId, transformPayload(group, node, liveScale));
   };
 
   // Mirror the live group transform back into the store so React's declarative
@@ -155,7 +228,11 @@ export function ComposeSceneInteractions({
   // store update during a drag triggers a re-render that resets `position` to
   // the stale pre-drag value. Throttled to ~30 Hz to avoid re-render storms.
   const lastStoreSyncAtRef = useRef<{ nodeId: string; t: number } | null>(null);
-  const syncToStore = (nodeId: string, group: THREE.Group) => {
+  const syncToStore = (
+    nodeId: string,
+    group: THREE.Group,
+    liveScale = false
+  ) => {
     const now = performance.now();
     const last = lastStoreSyncAtRef.current;
     if (last && last.nodeId === nodeId && now - last.t < PREVIEW_INTERVAL_MS)
@@ -166,7 +243,10 @@ export function ComposeSceneInteractions({
     if (!node) return;
     const components = {
       ...node.components,
-      transform: { type: 'transform', ...transformPayload(group, node) },
+      transform: {
+        type: 'transform',
+        ...transformPayload(group, node, liveScale),
+      },
     };
     store.updateNode(nodeId, { components });
   };
@@ -177,6 +257,12 @@ export function ComposeSceneInteractions({
     startWorld: THREE.Vector3;
     startLocal: THREE.Vector3;
     grabOffset: THREE.Vector3;
+    /** Last pointer position — Ctrl-drag rotation integrates screen deltas. */
+    lastX: number;
+    lastY: number;
+    /** True once a Ctrl-drag rotation happened, so the drop persists rotation
+     *  and skips attach-on-drop (a rotate gesture shouldn't rebind the node). */
+    rotated: boolean;
   } | null>(null);
 
   /** Begin a drag-move gesture on the given node. Captures pointer, hooks the
@@ -185,7 +271,9 @@ export function ComposeSceneInteractions({
     nodeId: string,
     group: THREE.Group,
     ray: THREE.Ray,
-    pointerId: number
+    pointerId: number,
+    clientX: number,
+    clientY: number
   ) => {
     const objWorld = new THREE.Vector3();
     group.getWorldPosition(objWorld);
@@ -206,6 +294,9 @@ export function ComposeSceneInteractions({
       startWorld: objWorld.clone(),
       startLocal: group.position.clone(),
       grabOffset,
+      lastX: clientX,
+      lastY: clientY,
+      rotated: false,
     };
     const canvas = gl.domElement;
     canvas.setPointerCapture(pointerId);
@@ -216,6 +307,31 @@ export function ComposeSceneInteractions({
   const onMove = (ev: PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
+
+    // Ctrl-drag: rotate the node around its own local axes (model-relative)
+    // instead of translating. Horizontal drag → yaw around the model's up axis,
+    // vertical drag → pitch around the model's right axis. Spins about the
+    // object's centre (hips bone for avatars).
+    if (ev.ctrlKey) {
+      const dx = ev.clientX - d.lastX;
+      const dy = ev.clientY - d.lastY;
+      d.lastX = ev.clientX;
+      d.lastY = ev.clientY;
+      d.rotated = true;
+      d.group.updateWorldMatrix(true, false);
+      const e = d.group.matrixWorld.elements;
+      _objRight.set(e[0], e[1], e[2]).normalize();
+      _objUp.set(e[4], e[5], e[6]).normalize();
+      pivotForGroup(d.group, _center);
+      rotateAroundWorldAxis(d.group, _objUp, dx * DRAG_ROTATE_SENS, _center);
+      rotateAroundWorldAxis(d.group, _objRight, dy * DRAG_ROTATE_SENS, _center);
+      emitPreview(d.nodeId, d.group);
+      syncToStore(d.nodeId, d.group);
+      return;
+    }
+    d.lastX = ev.clientX;
+    d.lastY = ev.clientY;
+
     const rect = gl.domElement.getBoundingClientRect();
     ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
@@ -250,6 +366,53 @@ export function ComposeSceneInteractions({
     const store = useEditorStore.getState();
     const node = store.nodes.find((n) => n.id === d.nodeId);
     if (!node) return;
+
+    // Attach-on-drop: with attach mode on (or Shift held), a node dropped over a
+    // model binds to the bone under it; dropped clear of any model it returns to
+    // the scene's top level. Both preserve the node's world placement.
+    const attachActive =
+      !d.rotated && (store.composeAttachEnabled || ev.shiftKey);
+    if (attachActive) {
+      // Target by the cursor (where the user is pointing), not the object centre.
+      const rect = gl.domElement.getBoundingClientRect();
+      ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+      wheelRay.setFromCamera(ndc, camera);
+      const bhit = pickBoneUnderRay(wheelRay.ray.clone(), d.nodeId);
+      const vrm = bhit ? getVrmForScene(bhit.nodeId, scene) : null;
+      const humanoid = vrm && bhit ? humanoidBoneFor(vrm, bhit.bone) : null;
+      if (bhit && humanoid) {
+        const patch = {
+          parentId: bhit.nodeId,
+          boneAttachment: humanoid.name as string,
+          components: {
+            ...node.components,
+            transform: {
+              type: 'transform',
+              ...worldToBoneLocalTransform(d.group, humanoid.node),
+            },
+          },
+        };
+        store.updateNode(d.nodeId, patch);
+        api.updateNode(d.nodeId, patch).catch(() => {});
+        return;
+      }
+      // Missed a model: detach back to top level if it wasn't already there.
+      if (node.parentId || node.boneAttachment) {
+        const patch = {
+          parentId: null,
+          boneAttachment: null,
+          components: {
+            ...node.components,
+            transform: { type: 'transform', ...worldTransform(d.group) },
+          },
+        };
+        store.updateNode(d.nodeId, patch);
+        api.updateNode(d.nodeId, patch).catch(() => {});
+        return;
+      }
+    }
+
     const p = d.group.position;
     const r = d.group.rotation;
     const s = d.group.scale;
@@ -284,39 +447,108 @@ export function ComposeSceneInteractions({
     velocity: THREE.Vector3; // world-space units / sec
   } | null>(null);
 
+  // Orthographic wheel-to-scale: dollying a node along the view axis is
+  // invisible under an ortho camera, so scale the selected node instead — with
+  // the same impulse/damping inertia as the perspective dolly. `logVel` is the
+  // log-scale velocity (ln(scale)/sec); `pivot` is the fixed world point under
+  // the cursor (at the node's depth) that stays put as the node grows/shrinks.
+  const scaleStateRef = useRef<{
+    nodeId: string;
+    logVel: number;
+    pivot: THREE.Vector3;
+  } | null>(null);
+
+  // Ctrl+wheel roll: angular velocity (rad/sec) around the camera's view axis,
+  // integrated with the same damping as the scale/dolly glides.
+  const rollStateRef = useRef<{ nodeId: string; vel: number } | null>(null);
+
   // The wheel handler is now invoked from the capture overlay (which owns all
   // input events). It applies an impulse to the selected node's velocity; the
   // useFrame loop below integrates and persists.
+  //
+  // Modifiers:
+  //  - Ctrl  → roll around the view axis (Z).
+  //  - Shift → flip the default action: scale becomes view-axis translation and
+  //            vice-versa. Default is scale under an ortho camera (where dolly is
+  //            invisible) and dolly under perspective; Shift swaps them, so you
+  //            can push depth in ortho or scale in perspective.
   useEffect(() => {
     const key = composeLayerId ?? '';
-    sceneWheels.set(key, (deltaY: number, clientX: number, clientY: number) => {
-      const store = useEditorStore.getState();
-      const nodeId = store.selectedNodeId;
-      if (!nodeId) return;
-      const group = getNodeGroup(nodeId);
-      if (!group) return;
+    sceneWheels.set(
+      key,
+      (
+        deltaY: number,
+        clientX: number,
+        clientY: number,
+        ctrlKey: boolean,
+        shiftKey: boolean
+      ) => {
+        const store = useEditorStore.getState();
+        const nodeId = store.selectedNodeId;
+        if (!nodeId) return;
+        const group = getNodeGroup(nodeId);
+        if (!group) return;
 
-      const rect = gl.domElement.getBoundingClientRect();
-      ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-      ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-      wheelRay.setFromCamera(ndc, camera);
-      const axis = wheelRay.ray.direction.clone().normalize();
+        const rect = gl.domElement.getBoundingClientRect();
+        ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+        wheelRay.setFromCamera(ndc, camera);
 
-      const camPos = new THREE.Vector3();
-      camera.getWorldPosition(camPos);
-      const pivotWorld = group.getWorldPosition(new THREE.Vector3());
-      const distance = Math.max(
-        MIN_CAM_DISTANCE,
-        pivotWorld.distanceTo(camPos)
-      );
-      const impulse = axis.multiplyScalar(
-        distance * WHEEL_IMPULSE_FRACTION * -Math.sign(deltaY)
-      );
+        if (ctrlKey) {
+          const impulse = -Math.sign(deltaY) * WHEEL_ROLL_IMPULSE;
+          const st = rollStateRef.current;
+          if (st && st.nodeId === nodeId) st.vel += impulse;
+          else rollStateRef.current = { nodeId, vel: impulse };
+          return;
+        }
 
-      const cur = wheelStateRef.current;
-      if (cur && cur.nodeId === nodeId) cur.velocity.add(impulse);
-      else wheelStateRef.current = { nodeId, velocity: impulse };
-    });
+        const ortho =
+          (camera as THREE.OrthographicCamera).isOrthographicCamera === true;
+        // Default: scale under ortho, dolly under perspective. Shift flips it.
+        const doScale = ortho !== shiftKey;
+
+        if (doScale) {
+          // Scale about the cursor pivot — the pointer ray's hit on the plane
+          // (parallel to the near plane) through the node origin, so it grows
+          // out of / into the point under the cursor.
+          const forward = camera.getWorldDirection(new THREE.Vector3());
+          const originW = group.getWorldPosition(new THREE.Vector3());
+          const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+            forward,
+            originW
+          );
+          const pivot = new THREE.Vector3();
+          if (!wheelRay.ray.intersectPlane(plane, pivot)) pivot.copy(originW);
+          const impulse = -Math.sign(deltaY) * WHEEL_SCALE_IMPULSE;
+          const st = scaleStateRef.current;
+          if (st && st.nodeId === nodeId) {
+            st.logVel += impulse;
+            st.pivot.copy(pivot);
+          } else {
+            scaleStateRef.current = { nodeId, logVel: impulse, pivot };
+          }
+          return;
+        }
+
+        // View-axis translation (dolly). In ortho all rays are parallel to the
+        // view axis, so this shifts depth rather than apparent size.
+        const axis = wheelRay.ray.direction.clone().normalize();
+        const camPos = new THREE.Vector3();
+        camera.getWorldPosition(camPos);
+        const pivotWorld = group.getWorldPosition(new THREE.Vector3());
+        const distance = Math.max(
+          MIN_CAM_DISTANCE,
+          pivotWorld.distanceTo(camPos)
+        );
+        const impulse = axis.multiplyScalar(
+          distance * WHEEL_IMPULSE_FRACTION * -Math.sign(deltaY)
+        );
+
+        const cur = wheelStateRef.current;
+        if (cur && cur.nodeId === nodeId) cur.velocity.add(impulse);
+        else wheelStateRef.current = { nodeId, velocity: impulse };
+      }
+    );
     return () => {
       sceneWheels.delete(key);
     };
@@ -395,6 +627,102 @@ export function ComposeSceneInteractions({
     }
   });
 
+  // Integrate the ortho wheel-to-scale glide: apply the incremental scale factor
+  // this frame about the fixed cursor pivot, damp the velocity, and persist once
+  // it settles. Mirrors the perspective dolly loop above but in log-scale space.
+  useFrame((_state, dt) => {
+    const st = scaleStateRef.current;
+    if (!st) return;
+    const group = getNodeGroup(st.nodeId);
+    const stillSelected =
+      useEditorStore.getState().selectedNodeId === st.nodeId;
+    if (!group || !stillSelected) {
+      scaleStateRef.current = null;
+      return;
+    }
+
+    if (st.logVel !== 0) {
+      const curScale = group.scale.x || 1;
+      const next = Math.min(
+        MAX_NODE_SCALE,
+        Math.max(MIN_NODE_SCALE, curScale * Math.exp(st.logVel * dt))
+      );
+      const factor = next / curScale; // actual factor after clamping
+      if (next === MIN_NODE_SCALE || next === MAX_NODE_SCALE) st.logVel = 0;
+      // Keep the cursor pivot fixed: O' = P + (O − P)·factor.
+      const originW = group.getWorldPosition(new THREE.Vector3());
+      const target = st.pivot
+        .clone()
+        .add(originW.sub(st.pivot).multiplyScalar(factor));
+      group.scale.setScalar(next);
+      const parent = group.parent;
+      group.position.copy(
+        parent ? parent.worldToLocal(target) : target
+      );
+      emitPreview(st.nodeId, group, true);
+      syncToStore(st.nodeId, group, true);
+    }
+
+    // Exponential damping: v *= damping^dt
+    st.logVel *= Math.pow(WHEEL_DAMPING_PER_SEC, dt);
+
+    if (Math.abs(st.logVel) < WHEEL_SCALE_VEL_EPS) {
+      const s = useEditorStore.getState();
+      const node = s.nodes.find((n) => n.id === st.nodeId);
+      scaleStateRef.current = null;
+      if (!node) return;
+      const components = {
+        ...node.components,
+        transform: {
+          type: 'transform',
+          ...transformPayload(group, node, true),
+        },
+      };
+      s.updateNode(st.nodeId, { components });
+      api.updateNode(st.nodeId, { components }).catch(() => {});
+    }
+  });
+
+  // Integrate the Ctrl+wheel roll glide: spin the node around its own local
+  // forward axis (model-relative roll), damp the angular velocity, and persist
+  // once it settles. Mirrors the dolly/scale loops above.
+  useFrame((_state, dt) => {
+    const st = rollStateRef.current;
+    if (!st) return;
+    const group = getNodeGroup(st.nodeId);
+    const stillSelected =
+      useEditorStore.getState().selectedNodeId === st.nodeId;
+    if (!group || !stillSelected) {
+      rollStateRef.current = null;
+      return;
+    }
+
+    if (st.vel !== 0) {
+      group.updateWorldMatrix(true, false);
+      const e = group.matrixWorld.elements;
+      _rotAxis.set(e[8], e[9], e[10]).normalize();
+      pivotForGroup(group, _center);
+      rotateAroundWorldAxis(group, _rotAxis, st.vel * dt, _center);
+      emitPreview(st.nodeId, group);
+      syncToStore(st.nodeId, group);
+    }
+
+    st.vel *= Math.pow(WHEEL_DAMPING_PER_SEC, dt);
+
+    if (Math.abs(st.vel) < WHEEL_ROLL_VEL_EPS) {
+      const s = useEditorStore.getState();
+      const node = s.nodes.find((n) => n.id === st.nodeId);
+      rollStateRef.current = null;
+      if (!node) return;
+      const components = {
+        ...node.components,
+        transform: { type: 'transform', ...transformPayload(group, node) },
+      };
+      s.updateNode(st.nodeId, { components });
+      api.updateNode(st.nodeId, { components }).catch(() => {});
+    }
+  });
+
   // Custom raycast: AABB-only against registered node groups. Skips R3F's
   // default per-triangle raycast of every mesh under the wrapper, which was
   // killing frame rate while moving the cursor over a VRM.
@@ -467,9 +795,13 @@ export function ComposeSceneInteractions({
    *  transformed-to-world AABBs of each per-bone box (skinned meshes) and each
    *  static mesh's local AABB. Used only as a cheap prefilter; precise picking
    *  iterates each underlying OBB via {@link pickPreciseHit}. */
-  const computeMeshAabb = (root: THREE.Object3D, out: THREE.Box3): boolean => {
+  const computeMeshAabb = (
+    root: THREE.Object3D,
+    out: THREE.Box3,
+    skip: Set<THREE.Object3D>
+  ): boolean => {
     out.makeEmpty();
-    root.traverseVisible((o) => {
+    traverseOwnVisible(root, skip, (o) => {
       const mesh = o as THREE.Mesh;
       const isSkinned =
         (mesh as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh === true;
@@ -549,10 +881,11 @@ export function ComposeSceneInteractions({
    *  OBB (skinned) or static-mesh OBB. Returns world-space distance or -1. */
   const pickPreciseHit = (
     root: THREE.Object3D,
-    worldRay: THREE.Ray
+    worldRay: THREE.Ray,
+    skip: Set<THREE.Object3D>
   ): number => {
     let best = -1;
-    root.traverseVisible((o) => {
+    traverseOwnVisible(root, skip, (o) => {
       const mesh = o as THREE.Mesh;
       const isSkinned =
         (mesh as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh === true;
@@ -600,6 +933,11 @@ export function ComposeSceneInteractions({
       distance: number;
       point: THREE.Vector3;
     }[] = [];
+    // Every registered group is a boundary: a node's mesh scan must not descend
+    // into another node nested inside it (e.g. a prop attached to a bone), or the
+    // container (the avatar) would swallow the attached prop's click.
+    const registered = new Set<THREE.Object3D>();
+    for (const [, g] of listRegisteredNodeGroups()) registered.add(g);
     for (const [nodeId, group] of listRegisteredNodeGroups()) {
       // Only consider groups inside our wrapper subtree (skip the Scene-tab's
       // copy of the registered groups, which lives in another Canvas).
@@ -616,12 +954,12 @@ export function ComposeSceneInteractions({
 
       // Prefilter: ray-vs-union AABB.
       group.updateMatrixWorld(true);
-      if (!computeMeshAabb(group, aabb)) continue;
+      if (!computeMeshAabb(group, aabb, registered)) continue;
       if (aabb.containsPoint(ray.origin)) continue;
       if (!ray.intersectBox(aabb, new THREE.Vector3())) continue;
 
       // Precise: ray-vs-per-bone-OBB / static-mesh-OBB.
-      const distance = pickPreciseHit(group, ray);
+      const distance = pickPreciseHit(group, ray, registered);
       if (distance < 0) continue;
       const point = ray.origin
         .clone()
@@ -639,6 +977,61 @@ export function ComposeSceneInteractions({
       }
     }
     return hits[0] ?? null;
+  };
+
+  /** Find the bone driving the mesh surface a ray hits, across every avatar in
+   *  this canvas except `excludeNodeId`. Uses a real skinning-aware triangle
+   *  raycast against the posed mesh (via `SkinnedMesh.prototype.raycast`, since
+   *  the instance `.raycast` is stubbed out for the fast AABB picker), then reads
+   *  the dominant skin weight at the closest vertex of the hit face. Geometry- and
+   *  animation-accurate, unlike the coarse per-bone boxes the node picker uses.
+   *  Returns the owning node id + the skeleton bone, or null when nothing was hit. */
+  const boneRaycaster = useMemo(() => new THREE.Raycaster(), []);
+  const pickBoneUnderRay = (
+    ray: THREE.Ray,
+    excludeNodeId: string
+  ): { nodeId: string; bone: THREE.Object3D } | null => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return null;
+    boneRaycaster.ray.copy(ray);
+    const hits: { nodeId: string; hit: THREE.Intersection }[] = [];
+    for (const [nodeId, group] of listRegisteredNodeGroups()) {
+      if (nodeId === excludeNodeId) continue;
+      // Only skinned avatars are attach targets, and only the copy in this canvas.
+      if (!getVrmForScene(nodeId, scene)) continue;
+      let inside = false;
+      let p: THREE.Object3D | null = group;
+      while (p) {
+        if (p === wrapper) {
+          inside = true;
+          break;
+        }
+        p = p.parent;
+      }
+      if (!inside) continue;
+
+      group.updateMatrixWorld(true);
+      group.traverse((o) => {
+        const mesh = o as THREE.SkinnedMesh;
+        if (
+          (mesh as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh !== true
+        )
+          return;
+        const local: THREE.Intersection[] = [];
+        THREE.SkinnedMesh.prototype.raycast.call(mesh, boneRaycaster, local);
+        for (const h of local) hits.push({ nodeId, hit: h });
+      });
+    }
+    if (hits.length === 0) return null;
+    hits.sort((a, b) => a.hit.distance - b.hit.distance);
+    const { nodeId, hit } = hits[0];
+    if (!hit.face) return null;
+    const bone = dominantBoneForHit(
+      hit.object as THREE.SkinnedMesh,
+      hit.face,
+      hit.point
+    );
+    return bone ? { nodeId, bone } : null;
   };
 
   const customRaycast = (
@@ -697,7 +1090,7 @@ export function ComposeSceneInteractions({
       ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
       wheelRay.setFromCamera(ndc, camera);
-      beginDrag(nodeId, group, wheelRay.ray.clone(), pointerId);
+      beginDrag(nodeId, group, wheelRay.ray.clone(), pointerId, clientX, clientY);
       return true;
     });
     return () => {

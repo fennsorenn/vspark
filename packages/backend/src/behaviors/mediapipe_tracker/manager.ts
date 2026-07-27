@@ -11,6 +11,15 @@ import {
   FINGER_MIRROR_PAIRS,
 } from './graph.js';
 import type { Landmark } from '@vspark/shared';
+import type { WSSync } from '../../ws/index.js';
+import { broadcastBus } from '../../broadcast/bus.js';
+
+/** No landmark frame for this long ⇒ the browser stopped tracking (camera off,
+ *  tab hidden, person left frame). Unlike VMC — which must infer loss from
+ *  frame-to-frame /Body deltas — the camera pipeline simply stops sending, so a
+ *  plain silence timeout is enough. Loose enough to ride out a few dropped
+ *  frames at ~30 fps. */
+const TRACKING_TIMEOUT_MS = 1000;
 
 interface TrackingFrame {
   face?: Landmark[];
@@ -36,6 +45,52 @@ export class TrackingManager {
   private readonly nodeStates = new Map<string, Map<string, unknown>>();
   private readonly nodeIds = new Map<string, string>();
   private readonly configs = new Map<string, Record<string, unknown>>();
+  /** behaviorId → last landmark-frame timestamp (0 while never seen). */
+  private readonly lastInput = new Map<string, number>();
+  /** behaviorId → whether we currently consider this tracker live. */
+  private readonly trackingActive = new Map<string, boolean>();
+  private readonly timer: ReturnType<typeof setInterval>;
+
+  constructor(private readonly ws?: WSSync) {
+    // Poll for tracking loss (browser stopped sending). Half the timeout so a
+    // drop is noticed within ~1.5 windows.
+    this.timer = setInterval(
+      () => this.checkTimeouts(),
+      Math.floor(TRACKING_TIMEOUT_MS / 2)
+    );
+    // Re-send current tracking state to a freshly-connected client (refresh /
+    // new tab), mirroring the VMC receiver, so the SceneGraph indicator is right
+    // immediately.
+    this.ws?.onClientConnected((client) => {
+      for (const [behaviorId, active] of this.trackingActive) {
+        this.ws?.sendTo(client, 'vmc_tracking_state', {
+          behaviorId,
+          tracking: active,
+        });
+      }
+    });
+  }
+
+  private _setTracking(behaviorId: string, active: boolean): void {
+    if (this.trackingActive.get(behaviorId) === active) return;
+    this.trackingActive.set(behaviorId, active);
+    console.log(
+      `[MediaPipe] Tracking ${active ? 'ACTIVE' : 'LOST'} (component ${behaviorId})`
+    );
+    this.ws?.broadcast('vmc_tracking_state', { behaviorId, tracking: active });
+    // On loss, drop the bus slot so the tracked pose falls out of the merge
+    // (mirrors vmc_receiver). The next landmark frame re-creates it.
+    if (!active) broadcastBus.removeBehavior(behaviorId);
+  }
+
+  private checkTimeouts(): void {
+    const now = Date.now();
+    for (const [behaviorId, active] of this.trackingActive) {
+      if (!active) continue;
+      const last = this.lastInput.get(behaviorId) ?? 0;
+      if (now - last > TRACKING_TIMEOUT_MS) this._setTracking(behaviorId, false);
+    }
+  }
 
   private createGraph(behaviorId: string): SignalGraph {
     const descriptor = makeMediapipeGraphDescriptor(behaviorId);
@@ -124,6 +179,10 @@ export class TrackingManager {
   stop(behaviorId: string): void {
     if (!this.graphs.has(behaviorId)) return;
     this.graphs.delete(behaviorId);
+    // Behaviour removed/disabled: fall out of the merge and signal loss.
+    if (this.trackingActive.get(behaviorId)) this._setTracking(behaviorId, false);
+    this.trackingActive.delete(behaviorId);
+    this.lastInput.delete(behaviorId);
     console.log(`[Tracking] Stopped component ${behaviorId}`);
   }
 
@@ -168,6 +227,10 @@ export class TrackingManager {
     const graph = this.graphs.get(behaviorId);
     if (!graph) return;
     const ts = Date.now();
+    // Any landmark frame means the camera is tracking; refresh the watchdog and
+    // flip to active on the first frame after a gap.
+    this.lastInput.set(behaviorId, ts);
+    this._setTracking(behaviorId, true);
     if (frame.face) graph.fire('mp_source', 'face', mkEvent(frame.face, ts));
     if (frame.leftHand)
       graph.fire('mp_source', 'leftHand', mkEvent(frame.leftHand, ts));
@@ -197,6 +260,7 @@ export class TrackingManager {
   }
 
   close(): void {
+    clearInterval(this.timer);
     for (const id of [...this.graphs.keys()]) this.stop(id);
   }
 }
