@@ -666,6 +666,38 @@ describe('VmcManager (UDP mocked)', () => {
     expect(() => manager.stopReceiver('nope')).not.toThrow();
   });
 
+  it('stopReceiver() broadcasts tracking:false when tracking was active', () => {
+    manager.startReceiver('vmc1', 39539);
+    // Simulate the /Body handler having latched tracking on. Without a
+    // teardown broadcast, clients keep a stale `tracking: true` forever
+    // (avatars pin to their base animation and never fall back to idle).
+    (
+      manager as unknown as {
+        receivers: Map<string, { trackingActive: boolean | null }>;
+      }
+    ).receivers.get('vmc1')!.trackingActive = true;
+    ws.broadcast.mockClear();
+
+    manager.stopReceiver('vmc1');
+
+    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+      behaviorId: 'vmc1',
+      tracking: false,
+    });
+  });
+
+  it('stopReceiver() does not broadcast tracking state when never tracking', () => {
+    manager.startReceiver('vmc1', 39539); // trackingActive stays null
+    ws.broadcast.mockClear();
+
+    manager.stopReceiver('vmc1');
+
+    expect(ws.broadcast).not.toHaveBeenCalledWith(
+      'vmc_tracking_state',
+      expect.anything()
+    );
+  });
+
   it('syncBehaviors() starts enabled vmc_receiver components', () => {
     manager.syncBehaviors([
       {

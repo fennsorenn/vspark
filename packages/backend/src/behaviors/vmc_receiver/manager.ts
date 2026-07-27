@@ -494,6 +494,16 @@ export class VmcManager {
     broadcastBus.removeBehavior(behaviorId);
     if (info.connected)
       this.ws.broadcast('vmc_status', { behaviorId, connected: false });
+    // Signal tracking loss on teardown. Tracking-false is otherwise only emitted
+    // from the /Body handler, which needs packets still arriving — disabling the
+    // source stops them, so the transition would never fire and every client
+    // would keep a stale `tracking: true` forever (pinning avatars to their base
+    // animation, unreachable idle). Mirrors MediaPipeTrackerManager.stop().
+    if (info.trackingActive)
+      this.ws.broadcast('vmc_tracking_state', {
+        behaviorId,
+        tracking: false,
+      });
     console.log(`[VMC] Receiver stopped (component ${behaviorId})`);
   }
 
