@@ -102,6 +102,58 @@ export class SourceFade<T extends string> {
 }
 
 /**
+ * Holds the last tracked pose that actually had bones, so a fade-out has real
+ * tracking data to fade *from*.
+ *
+ * When every producer for a node drops out, the broadcast bus emits one final
+ * frame with **empty bones** (`bus.ts` `_emitFallback`). The pose object is
+ * therefore non-null but empty, so the composition still runs yet finds no bones:
+ * every bone's tracking term became null and its weight 0 in a single frame,
+ * regardless of `modeWeight`. `modeWeight` scales the tracking *weight*, and
+ * scaling a term that is already gone is a no-op — which is why the exit snapped
+ * while the entry (data arrives before the ramp starts) looked fine.
+ *
+ * Latching the last populated pose lets the ramp interpolate from a real tracked
+ * pose to the animation, which is what it was designed to do.
+ */
+export class TrackedPoseLatch {
+  private q = new Map<string, THREE.Quaternion>();
+  private valid = false;
+
+  /** Store a pose that has bones. Ignores empty poses — those are the fallback. */
+  update(pose: Record<string, { rotation: [number, number, number, number] }>): void {
+    const names = Object.keys(pose);
+    if (names.length === 0) return;
+    for (const name of names) {
+      const r = pose[name].rotation;
+      const stored = this.q.get(name);
+      if (stored) stored.set(r[0], r[1], r[2], r[3]);
+      else this.q.set(name, new THREE.Quaternion(r[0], r[1], r[2], r[3]));
+    }
+    this.valid = true;
+  }
+
+  /** Bone names held, for rebuilding a pose object. */
+  names(): string[] {
+    return this.valid ? [...this.q.keys()] : [];
+  }
+
+  get(name: string): THREE.Quaternion | null {
+    return (this.valid && this.q.get(name)) || null;
+  }
+
+  get active(): boolean {
+    return this.valid;
+  }
+
+  /** Release the latch once the fade has settled, so it can't leak into a later session. */
+  clear(): void {
+    this.valid = false;
+    this.q.clear();
+  }
+}
+
+/**
  * Compose one bone under the **unified** tracked/untracked path.
  *
  * There used to be two branches: a tracked one that scaled the animation by the

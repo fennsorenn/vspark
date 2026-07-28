@@ -16,6 +16,7 @@ import {
   SourceFade,
   composeBonePose,
   composeHipsPositionBlended,
+  TrackedPoseLatch,
 } from '../src/components/editor/poseComposition';
 
 const q = (x: number, y: number, z: number) =>
@@ -424,5 +425,95 @@ describe('composeHipsPositionBlended', () => {
       new THREE.Vector3()
     );
     expect(out.equals(restPos)).toBe(true);
+  });
+});
+
+// ── Fade-out with the tracking data removed mid-ramp ──────────────────────────
+//
+// The existing `composeBonePose (mode blend)` continuity test passes while the app
+// still snapped on exit, because it walks modeWeight 1→0 with the tracked pose
+// PRESENT the whole way. The real failure was in the data, not the math: the bus
+// emits a final empty-bones frame, so `tracked` went null and `tw` went 0 in one
+// frame while modeWeight was still ~1. These tests model that.
+describe('TrackedPoseLatch', () => {
+  const mkPose = (x: number) => ({
+    hips: { rotation: [x, 0, 0, Math.sqrt(1 - x * x)] as [number, number, number, number] },
+  });
+
+  it('starts empty', () => {
+    expect(new TrackedPoseLatch().active).toBe(false);
+    expect(new TrackedPoseLatch().names()).toEqual([]);
+  });
+
+  it('holds the last populated pose', () => {
+    const l = new TrackedPoseLatch();
+    l.update(mkPose(0.3));
+    expect(l.active).toBe(true);
+    expect(l.names()).toEqual(['hips']);
+    expect(l.get('hips')!.x).toBeCloseTo(0.3, 6);
+  });
+
+  it('ignores an empty pose — the bus fallback must not erase the latch', () => {
+    const l = new TrackedPoseLatch();
+    l.update(mkPose(0.3));
+    l.update({}); // the fallback frame
+    expect(l.active).toBe(true);
+    expect(l.get('hips')!.x).toBeCloseTo(0.3, 6);
+  });
+
+  it('clear() releases it so it cannot leak into a later session', () => {
+    const l = new TrackedPoseLatch();
+    l.update(mkPose(0.3));
+    l.clear();
+    expect(l.active).toBe(false);
+    expect(l.get('hips')).toBeNull();
+  });
+});
+
+describe('fade-out stays continuous when the pose empties mid-ramp', () => {
+  const rest = q(0.1, -0.2, 0.3);
+  const anim = q(0.8, 0.1, 0);
+  const tracked = q(-0.4, 0.3, 0.5);
+
+  // Walk modeWeight 1 → 0. At the FIRST step the incoming pose goes empty (the bus
+  // fallback). Without the latch the tracking term vanishes instantly; with it the
+  // held pose keeps feeding the ramp.
+  const walk = (useLatch: boolean) => {
+    const latch = new TrackedPoseLatch();
+    latch.update({
+      hips: {
+        rotation: [tracked.x, tracked.y, tracked.z, tracked.w] as [
+          number,
+          number,
+          number,
+          number,
+        ],
+      },
+    });
+    const steps = 40;
+    let prev: THREE.Quaternion | null = null;
+    let maxStep = 0;
+    for (let i = 0; i <= steps; i++) {
+      const m = 1 - i / steps;
+      // Frame 0 is live; every frame after it the bus has sent empty bones.
+      const posePopulated = i === 0;
+      const trackedQ = posePopulated
+        ? tracked
+        : useLatch
+          ? latch.get('hips')
+          : null; // the bug: no tracking data at all
+      const out = composeBonePose(rest, anim, trackedQ, 0, 1, m);
+      if (prev) maxStep = Math.max(maxStep, prev.angleTo(out));
+      prev = out.clone();
+    }
+    return maxStep;
+  };
+
+  it('without the latch the exit jumps (reproduces the reported snap)', () => {
+    expect(walk(false)).toBeGreaterThan(0.2);
+  });
+
+  it('with the latch every step is small', () => {
+    expect(walk(true)).toBeLessThan(0.05);
   });
 });

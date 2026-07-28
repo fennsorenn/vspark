@@ -117,6 +117,7 @@ import {
   SourceFade,
   composeBonePose,
   composeHipsPositionBlended,
+  TrackedPoseLatch,
 } from './poseComposition';
 import {
   makeVideoMaterial,
@@ -2064,6 +2065,9 @@ function AvatarNode({
   // today's hard-switch path through `_resolveAvatarAnimation` and land in the
   // `base` slot. Wiring it up (plus the fades) is the follow-up.
   const slotsRef = useRef<Partial<Record<ClipSlotName, ClipSlot>>>({});
+  // Slots no longer wanted but kept resident until any fade using them settles
+  // (see retireSlot). Excluded from source selection, still ticked and readable.
+  const retiredSlotsRef = useRef<Set<ClipSlotName>>(new Set());
   // Outgoing pose for a cross-fade whose source clip is being discarded.
   const frozenRef = useRef(new FrozenPose());
   // Per-slot playback layers (each source has its own clock anchor).
@@ -2076,6 +2080,8 @@ function AvatarNode({
   // tracking stacked. Ramps over blendTransitionTime so the tracked⇄untracked
   // boundary is continuous instead of a per-section jump. See composeBonePose.
   const modeWeightRef = useRef(0);
+  // Last tracked pose that had bones — the fade-out's source (see TrackedPoseLatch).
+  const trackedLatchRef = useRef(new TrackedPoseLatch());
   // Scene yaw applied to face the avatar at the camera (set at VRM load by
   // faceCameraYaw). The FBX retarget reuses it to reframe its root so the baked
   // animation faces the same way as the rest pose — see the retarget below.
@@ -2102,7 +2108,6 @@ function AvatarNode({
   // Mirrors `trackingActive` state for the useFrame loop (avoids a stale closure
   // read); the loop calls setTrackingActive only when this flips.
   const trackingActiveRef = useRef(false);
-  const blendWeightRef = useRef(0); // 0 = animation, 1 = VMC
   // Active animation layer driving the clock-anchored playhead (read in useFrame).
   const activeLayerRef = useRef<ActiveAnimLayer | null>(null);
   const [vrmLoaded, setVrmLoaded] = useState(false);
@@ -2584,6 +2589,21 @@ function AvatarNode({
     if (!slot) return;
     slot.mixer.stopAllAction();
     delete slotsRef.current[name];
+    retiredSlotsRef.current.delete(name);
+  }, []);
+
+  /**
+   * Mark a slot as no longer wanted, but keep it loaded and playable.
+   *
+   * A slot must outlive the decision to stop showing it: the frame loop needs it
+   * resident for one more frame to freeze its pose as the outgoing side of the
+   * cross-fade. Effects commit before the next frame, so tearing down here would
+   * always beat the fade. The frame loop drops retired slots once no fade needs
+   * them.
+   */
+  const retireSlot = useCallback((name: ClipSlotName) => {
+    if (!slotsRef.current[name]) return;
+    retiredSlotsRef.current.add(name);
   }, []);
 
   // --- Animation load (per slot) ---
@@ -2844,11 +2864,19 @@ function AvatarNode({
   const baseSlotUrl = animUrl && animUrl !== idleUrl ? animUrl : null;
   useEffect(() => {
     if (!baseSlotUrl || !node.filePath || !vrmLoaded) {
-      teardownSlot('base');
+      // Retire rather than tear down: React commits this effect BEFORE the next
+      // frame, so an immediate teardown deleted the slot before useFrame could
+      // freeze it as the fade's outgoing side. `fade.from` then pointed at a
+      // missing slot, the freeze fell through to `clear()`, and crossfadeAnimPose
+      // with a null `from` returns slerp(rest, to, k) — rest at k=0, not the
+      // outgoing pose. The base→idle animation cross-fade was silently skipped and
+      // the baseline cut in one frame. Marking it retired lets the frame loop take
+      // its final pose and drop it once the fade settles.
+      retireSlot('base');
       return;
     }
     return loadClipIntoSlot(baseSlotUrl, 'base');
-  }, [baseSlotUrl, node.filePath, vrmLoaded, loadClipIntoSlot, teardownSlot]);
+  }, [baseSlotUrl, node.filePath, vrmLoaded, loadClipIntoSlot, retireSlot]);
 
   // Scheduled slot — a timeline one-shot, loaded only while its entry is active.
   // Deliberately NOT torn down the instant the entry retires: the frame loop needs
@@ -2954,11 +2982,6 @@ function AvatarNode({
     // drops, so watching that alone would never fire the reset and stale filter
     // state (and the last tracked pose) would leak into the straight idle.
     const trackedActive = trackedComposeActive(trackingLive, poseActive);
-    if (!trackedActive && poseWasActiveRef.current) {
-      boneFiltersRef.current.reset();
-      vrm?.humanoid.resetNormalizedPose();
-    }
-    poseWasActiveRef.current = trackedActive;
     if (trackingLive !== trackingActiveRef.current) {
       trackingActiveRef.current = trackingLive;
       setTrackingActive(trackingLive);
@@ -2972,15 +2995,6 @@ function AvatarNode({
     const blendTime = Math.max(0, node.properties?.blendTransitionTime ?? 0.5);
     const BLEND_SPEED = blendTime > 0 ? 1 / blendTime : Infinity;
     const targetWeight = trackedActive ? 1 : 0;
-    const w = blendWeightRef.current;
-    blendWeightRef.current =
-      w === targetWeight
-        ? w
-        : Math.max(
-            0,
-            Math.min(1, w + Math.sign(targetWeight - w) * BLEND_SPEED * delta)
-          );
-    const blend = blendWeightRef.current;
     // The tracked-MODE weight ramps on the same clock. Previously the composition
     // switched branches instantly on `trackingLive` while only `blend` ramped, so at
     // the switchover the branches still differed by the section's Anim lever — every
@@ -2998,6 +3012,27 @@ function AvatarNode({
             Math.min(1, mw + Math.sign(targetWeight - mw) * BLEND_SPEED * delta)
           );
     const modeWeight = modeWeightRef.current;
+
+    // Transition reset, fired on the modeWeight >0 → 0 edge — i.e. when the
+    // fade-out has actually FINISHED, not when it starts.
+    //
+    // This used to key off `trackedActive` going false, which is the *first* frame
+    // of the exit, while modeWeight was still ~1 and the tracked path was still
+    // rendering at near-full weight. `BoneFilterBank.reset()` clears each One Euro
+    // filter's `initialized` flag, so the next `filter()` call returns the raw
+    // incoming sample verbatim instead of the smoothed one (oneEuroFilter.ts:39-43)
+    // — a one-frame jump from smoothed to raw at full tracking weight, which the
+    // ramp could not absorb because it had not started yet. And
+    // `resetNormalizedPose()` wiped the very pose the in-flight ramp was reading.
+    // Both are correct once the fade is over; neither is at its start.
+    if (modeWeight === 0 && poseWasActiveRef.current) {
+      boneFiltersRef.current.reset();
+      vrm?.humanoid.resetNormalizedPose();
+      // Release the held tracking pose too — the fade is over, and a stale pose
+      // must not resurface when tracking next starts.
+      trackedLatchRef.current.clear();
+    }
+    poseWasActiveRef.current = modeWeight > 0;
 
     // ── Step 1: animation (always runs, gives us the "animation raw pose") ──────
     // Clock-anchored drive: set each action's playhead from the active layer
@@ -3047,11 +3082,16 @@ function AvatarNode({
     // rather than cutting, which is only possible because every source stays
     // resident in its own slot.
     const fade = sourceFadeRef.current;
-    const desiredSlot: ClipSlotName | null = slots.scheduled
+    // Retired slots are still loaded (so a fade can read them) but must not be
+    // selected as the destination — otherwise the avatar would keep showing a
+    // source the resolution has already moved away from.
+    const retired = retiredSlotsRef.current;
+    const live = (name: ClipSlotName) => !!slots[name] && !retired.has(name);
+    const desiredSlot: ClipSlotName | null = live('scheduled')
       ? 'scheduled'
-      : slots.base
+      : live('base')
         ? 'base'
-        : slots.idle
+        : live('idle')
           ? 'idle'
           : null;
     const fadeSeconds = Math.max(
@@ -3073,6 +3113,16 @@ function AvatarNode({
     }
     fade.advance(delta, fadeSeconds);
     activeSlotRef.current = fade.to ?? 'idle';
+
+    // Drop retired slots once no in-flight fade still reads them. Deferring the
+    // teardown to here (rather than the effect that retired them) is what gives
+    // the fade a real outgoing pose to blend from.
+    if (retired.size > 0) {
+      for (const name of [...retired]) {
+        if (fade.fading && fade.from === name) continue; // still needed
+        teardownSlot(name);
+      }
+    }
 
     // Resolve the two sides of the fade. The outgoing side prefers its live slot
     // (still loaded ⇒ keeps animating through the fade) and falls back to the
@@ -3127,20 +3177,45 @@ function AvatarNode({
     // branch boundary left to snap across. The tracked side runs while the mode is
     // engaged *or still ramping down*, which is what keeps a fade-out rendering
     // after `trackingLive` has already gone false.
-    const wantTracked = (trackedActive || modeWeight > 0) && pose != null;
+    // No `pose != null` requirement: the latch supplies the tracking data during a
+    // fade-out, so the path keeps rendering even if the pose object disappears
+    // entirely (producer removed rather than merely gone quiet).
+    const wantTracked = trackedActive || modeWeight > 0;
     if (wantTracked && vrm) {
       // Build filtered broadcast normalized pose.
       const normalizedPose: VRMPose = {};
       const filters = boneFiltersRef.current;
+      const latch = trackedLatchRef.current;
+      // The bus's final frame carries EMPTY bones, so an exit would otherwise lose
+      // the whole tracking term in one frame while modeWeight was still high.
+      // Populated ⇒ latch it; empty/absent ⇒ replay the latch so the ramp has
+      // something real to fade from.
+      const posePopulated = pose != null && Object.keys(pose).length > 0;
       // Second-order "snappiness" runs *after* the One Euro filter (which keeps
       // absorbing jitter / uneven packet delivery). Disabled by default; reset
       // when off so re-enabling starts cleanly from the current pose.
       const dyn = node.properties?.poseDynamics ?? DEFAULT_POSE_DYNAMICS;
       const dynamics = boneDynamicsRef.current;
       if (!dyn.enabled) dynamics.reset();
-      for (const [boneName, q] of Object.entries(pose)) {
+      const sourceEntries: Array<[string, [number, number, number, number]]> =
+        posePopulated
+          ? (Object.entries(pose!) as Array<
+              [string, [number, number, number, number]]
+            >)
+          : latch
+              .names()
+              .map((n) => {
+                const lq = latch.get(n)!;
+                return [n, [lq.x, lq.y, lq.z, lq.w]] as [
+                  string,
+                  [number, number, number, number],
+                ];
+              });
+      for (const [boneName, q] of sourceEntries) {
         _q.set(q[0], q[1], q[2], q[3]);
-        let s = filters.filter(boneName, _q, delta);
+        // Skip the One Euro filter when replaying the latch: it is a held constant,
+        // and re-filtering it would drift the pose while the fade runs.
+        let s = posePopulated ? filters.filter(boneName, _q, delta) : _q;
         if (dyn.enabled) {
           s = dynamics.filter(
             boneName,
@@ -3155,6 +3230,9 @@ function AvatarNode({
           rotation: [s.x, s.y, s.z, s.w],
         };
       }
+      // Latch the FILTERED pose, so a replay during the fade matches the last frame
+      // actually rendered rather than the raw input.
+      if (posePopulated) latch.update(normalizedPose as Record<string, { rotation: [number, number, number, number] }>);
 
       // Arm calibration writes absolute rotations from world-space targets, which
       // only makes sense when broadcast replaces animation. Skip in additive mode.
@@ -3270,7 +3348,12 @@ function AvatarNode({
           // No source for this bone (clip not loaded / not animated) ⇒ rest.
           const animContribution = animActive && animQ ? animQ : restQ;
           const tracked = trackedRaw.get(name) ?? null;
-          const tw = tracked ? Math.max(0, Math.min(1, inf.track * blend)) : 0;
+          // NOTE: no `blend` factor here. `composeBonePose` already scales the
+          // tracking term by `modeWeight`, and blend === modeWeight (identical
+          // targets/speed/clamp), so multiplying by both faded tracking as
+          // modeWeight² — a quadratic that collapses in its final third and reads
+          // as a late snap. Linear is what the ramp is meant to be.
+          const tw = tracked ? Math.max(0, Math.min(1, inf.track)) : 0;
           // modeWeight ramps the levers in (1 → inf.anim) and the tracking term
           // with them, so modeWeight=0 equals the straight-animation path exactly.
           composeBonePose(
