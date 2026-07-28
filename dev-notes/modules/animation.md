@@ -341,7 +341,18 @@ The `api_controller` behavior PROJECTS its animation queue onto this timeline; t
 
 ### Deferred
 
-Crossfade/blend between clips; a global timeline transport (pause/seek over the whole schedule); preload of upcoming clips before their start; two-backend collab clock-sync verification (the clock is a synchronized stub today). Tracked in [plans/avatar-animation.md](../plans/avatar-animation.md).
+A global timeline transport (pause/seek over the whole schedule); preload of upcoming clips before their start; two-backend collab clock-sync verification (the clock is a synchronized stub today). Tracked in [plans/avatar-animation.md](../plans/avatar-animation.md).
+
+(Crossfade/blend between clips is **done** — see Clip slots and the source cross-fade above.)
+
+### Known non-critical issues
+
+Deliberately deferred; none affect correctness of normal playback.
+
+- **Every loaded slot ticks each frame.** `Step 1` advances all slots, including ones no fade is reading. Each write goes to its own shadow skeleton so nothing is corrupted, and keeping dormant slots current is what stops them jumping when a fade starts — but a slot that is neither showing nor fading could be skipped. Cheap, behaviour-preserving optimisation now that the fades are verified.
+- **Mid-fade interruption is approximate.** Interrupting a fade makes the *incoming* source the new outgoing one (`SourceFade.retarget`). Strictly the on-screen pose is a blend of two sources and cannot be named by one source id, so the new fade starts from the dominant side rather than the exact rendered pose. Close for late interruptions; the exact fix is to freeze the blended pose and fade from that (the machinery exists — `FrozenPose`).
+- **`fbx.animations[0]` is taken unconditionally.** Most Mixamo exports carry a second, empty clip (`Take 001`, 0 tracks, 0 duration) alongside the real one. Index 0 is the real clip today, but `FBXLoader`'s ordering is not contractual — if the empty clip ever came first the avatar would load zero tracks and render rest. Picking the clip with the most tracks (or a non-zero duration) would be robust.
+- **Dead frame-0 reference chain.** `fbxRefWQ` / `fbxRefWQInv` are computed in `bakeRetargetedClip` and never read; the bake uses `fbxBindWQInv`. Marked `DEAD CODE` in situ. Kept only in case the frame-0 scheme is wanted again — it is otherwise safe to delete, and the stale claim that retargeting is frame-0-relative has already misled debugging more than once.
 
 ## Two clip systems
 
