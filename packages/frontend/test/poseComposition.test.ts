@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import {
   stackBoneRotation,
   composeHipsPosition,
+  trackedComposeActive,
 } from '../src/components/editor/poseComposition';
 
 const q = (x: number, y: number, z: number) =>
@@ -136,6 +137,20 @@ describe('untracked idle plays straight (animInf=1, trackWeight=0)', () => {
     // Anim=0 erased the idle back to rest entirely.
     const erased = stackBoneRotation(rest, idle, null, 0, 0);
     expectQuatClose(erased, rest);
+  });
+
+  it('an ambient pose on the bus does not select the weighted path', () => {
+    // Breathing publishes additively and forever, so poseActive stays true after
+    // tracking drops. Selecting on pose presence alone kept the weighted tracked
+    // path running permanently and made a straight idle unreachable — the
+    // originally-reported "idle still goes through the weights".
+    expect(trackedComposeActive(false, true)).toBe(false);
+  });
+
+  it('selects the weighted path only when tracking is live', () => {
+    expect(trackedComposeActive(true, true)).toBe(true);
+    expect(trackedComposeActive(true, false)).toBe(false);
+    expect(trackedComposeActive(false, false)).toBe(false);
   });
 
   it('hips root motion plays at full strength (legsAnim=1)', () => {

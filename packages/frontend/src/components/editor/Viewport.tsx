@@ -108,7 +108,11 @@ import type {
   PoseSource,
 } from '@vspark/shared';
 import { registerMedia } from './mediaRegistry';
-import { stackBoneRotation, composeHipsPosition } from './poseComposition';
+import {
+  stackBoneRotation,
+  composeHipsPosition,
+  trackedComposeActive,
+} from './poseComposition';
 import {
   makeVideoMaterial,
   updateVideoMaterial,
@@ -2509,24 +2513,29 @@ function AvatarNode({
       lastPoseTime != null &&
       Date.now() - lastPoseTime < POSE_TIMEOUT_MS;
 
-    // Transition detection: reset filters when broadcast pose goes inactive.
-    if (!poseActive && poseWasActiveRef.current) {
-      boneFiltersRef.current.reset();
-      vrm?.humanoid.resetNormalizedPose();
-    }
-    poseWasActiveRef.current = poseActive;
     // Base⇄idle swap keys off whether a genuine *tracking* source (VMC /
     // MediaPipe) is live for this node, NOT off raw pose presence. Ambient
     // producers like breathing keep publishing a pose forever, so `poseActive`
     // stays true even after real tracking drops — using it here would pin the
     // avatar to the base loop and never fall back to idle. Tracking sources
     // emit `vmc_tracking_state` (→ store.vmcTracking); ambient ones don't, so
-    // they can't mask a loss. `blend` still follows poseActive below, so the
-    // ambient pose keeps applying while the animation swaps to idle.
+    // they can't mask a loss.
     const store = useEditorStore.getState();
     const trackingLive = store.behaviors.some(
       (b) => b.nodeId === node.id && store.vmcTracking[b.id] === true
     );
+
+    // Transition detection: reset filters + clear the applied pose when the
+    // composition leaves the tracked path. Keyed on `trackingLive`, matching the
+    // Step 2 gate — an ambient producer keeps `poseActive` true after tracking
+    // drops, so watching that alone would never fire the reset and stale filter
+    // state (and the last tracked pose) would leak into the straight idle.
+    const trackedActive = trackedComposeActive(trackingLive, poseActive);
+    if (!trackedActive && poseWasActiveRef.current) {
+      boneFiltersRef.current.reset();
+      vrm?.humanoid.resetNormalizedPose();
+    }
+    poseWasActiveRef.current = trackedActive;
     if (trackingLive !== trackingActiveRef.current) {
       trackingActiveRef.current = trackingLive;
       setTrackingActive(trackingLive);
@@ -2534,9 +2543,12 @@ function AvatarNode({
 
     // Ramp blend weight: 0 = pure animation, 1 = pure broadcast pose.
     // Configured per-avatar via the VRM node's `blendTransitionTime` property.
+    // Targets the *tracked* compose state, not raw pose presence: an ambient
+    // producer holds `poseActive` true forever, which would pin the weight at 1
+    // and stop it ever ramping down on tracking loss.
     const blendTime = Math.max(0, node.properties?.blendTransitionTime ?? 0.5);
     const BLEND_SPEED = blendTime > 0 ? 1 / blendTime : Infinity;
-    const targetWeight = poseActive ? 1 : 0;
+    const targetWeight = trackedActive ? 1 : 0;
     const w = blendWeightRef.current;
     blendWeightRef.current =
       w === targetWeight
@@ -2568,8 +2580,16 @@ function AvatarNode({
       (vrm.humanoid as unknown as { update?: () => void }).update?.();
     }
 
-    // ── Step 2: broadcast pose composition (skipped entirely when blend === 0) ──
-    if (blend > 0 && pose && vrm) {
+    // ── Step 2: broadcast pose composition ──────────────────────────────────────
+    //
+    // Gated on `trackingLive`, NOT on bus-pose presence. Ambient producers
+    // (Breathing publishes additively and forever, independent of tracking) keep
+    // `pose` non-null and `blend > 0` for the lifetime of the behavior, so a
+    // `blend > 0 && pose` gate ran the weighted tracked path permanently and the
+    // untracked idle path below could never be reached whenever an ambient
+    // producer was attached. Ambient poses merge into the *tracked* pose only;
+    // with no tracking the idle plays straight and they are not applied.
+    if (trackedActive && blend > 0 && pose && vrm) {
       // Build filtered broadcast normalized pose.
       const normalizedPose: VRMPose = {};
       const filters = boneFiltersRef.current;

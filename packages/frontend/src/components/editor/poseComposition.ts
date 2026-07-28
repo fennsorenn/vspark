@@ -1,5 +1,26 @@
 import * as THREE from 'three';
 
+/**
+ * True when the per-frame loop should run the **tracked** composition (weighted
+ * base animation + tracking) rather than playing the idle straight.
+ *
+ * `trackingLive` is load-bearing and must not be dropped in favour of pose
+ * presence alone. Ambient producers publish to the broadcast bus additively and
+ * forever — Breathing's `pose_broadcast` runs independent of tracking — so
+ * `poseActive` stays true for the lifetime of that behavior. Keying only on the
+ * bus meant the weighted path ran permanently and a straight idle was
+ * unreachable whenever Breathing was attached.
+ *
+ * The same predicate drives the blend ramp target and the filter-reset
+ * transition, so all three agree on what "tracked" means.
+ */
+export function trackedComposeActive(
+  trackingLive: boolean,
+  poseActive: boolean
+): boolean {
+  return trackingLive && poseActive;
+}
+
 // Scratch quats for the stacking composition. The per-frame pose loop is
 // single-threaded and calls this one bone at a time, so module-scoped scratch is
 // safe and avoids per-bone allocation.
