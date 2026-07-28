@@ -112,6 +112,11 @@ import {
   stackBoneRotation,
   composeHipsPosition,
   trackedComposeActive,
+  crossfadeAnimPose,
+  crossfadeHipsPosition,
+  SourceFade,
+  composeBonePose,
+  composeHipsPositionBlended,
 } from './poseComposition';
 import {
   makeVideoMaterial,
@@ -603,6 +608,9 @@ function sectionInfluenceForBone(
 // scratch avoids per-frame allocation.
 const _hipsAnimPos = new THREE.Vector3();
 const _hipsRestPos = new THREE.Vector3();
+// Scratch for the animation-source cross-fade (per-bone, single-threaded loop).
+const _fadeScratchQ = new THREE.Quaternion();
+const _fadeScratchV = new THREE.Vector3();
 
 /**
  * A **shadow skeleton**: a bone-only hierarchy, name-matched to the VRM's raw
@@ -1160,6 +1168,63 @@ function _resolveAvatarAnimation(
     };
   }
   return { url: null, layer: null, msUntilNext };
+}
+
+/**
+ * Resolve only the **scheduled** timeline entry active right now — no idle/base
+ * fallback. Used to drive the `scheduled` clip slot independently of the loop
+ * slots, so a one-shot can be faded against whatever loop is playing underneath
+ * instead of replacing it outright.
+ *
+ * Same selection rules as `_resolveAvatarAnimation`: the latest entry that has
+ * started, resolves to a known clip, and (when finite and non-looping) hasn't
+ * ended. `endsAtMs` is null for a looping entry (it never retires on its own).
+ */
+function _resolveScheduledAnimation(
+  nodeId: string,
+  scheduled: ScheduledAnimation[],
+  clips: Record<string, AnimationClipMeta>,
+  nowMs: number
+): {
+  url: string | null;
+  layer: ActiveAnimLayer | null;
+  /** When this entry stops being active, for fade-out scheduling. */
+  endsAtMs: number | null;
+  /** When the next not-yet-started entry begins, for re-resolution. */
+  nextStartMs: number | null;
+} {
+  let active: { entry: ScheduledAnimation; clip: AnimationClipMeta } | null =
+    null;
+  let nextStartMs: number | null = null;
+  for (const e of scheduled) {
+    if (e.avatarNodeId !== nodeId) continue;
+    const clip = clips[e.clipId];
+    if (!clip) continue; // not yet synced/preloaded — re-resolves when it lands
+    if (e.startEpoch > nowMs) {
+      if (nextStartMs == null || e.startEpoch < nextStartMs)
+        nextStartMs = e.startEpoch;
+      continue;
+    }
+    const speed = e.speed > 0 ? e.speed : 1;
+    const endMs = e.startEpoch + (clip.duration / speed) * 1000;
+    if (!e.loop && endMs <= nowMs) continue; // finished, non-looping
+    if (!active || e.startEpoch > active.entry.startEpoch)
+      active = { entry: e, clip };
+  }
+  if (!active) return { url: null, layer: null, endsAtMs: null, nextStartMs };
+  const speed = active.entry.speed > 0 ? active.entry.speed : 1;
+  return {
+    url: active.clip.sourceFilePath,
+    layer: {
+      startEpoch: active.entry.startEpoch,
+      speed,
+      loop: active.entry.loop,
+    },
+    endsAtMs: active.entry.loop
+      ? null
+      : active.entry.startEpoch + (active.clip.duration / speed) * 1000,
+    nextStartMs,
+  };
 }
 
 /**
@@ -2001,6 +2066,16 @@ function AvatarNode({
   const slotsRef = useRef<Partial<Record<ClipSlotName, ClipSlot>>>({});
   // Outgoing pose for a cross-fade whose source clip is being discarded.
   const frozenRef = useRef(new FrozenPose());
+  // Per-slot playback layers (each source has its own clock anchor).
+  const slotLayersRef = useRef<
+    Partial<Record<ClipSlotName, ActiveAnimLayer | null>>
+  >({});
+  // Cross-fade between animation sources (idle ⇄ base ⇄ scheduled).
+  const sourceFadeRef = useRef(new SourceFade<ClipSlotName>());
+  // Tracked-mode weight: 0 = animation straight (untracked), 1 = levers applied +
+  // tracking stacked. Ramps over blendTransitionTime so the tracked⇄untracked
+  // boundary is continuous instead of a per-section jump. See composeBonePose.
+  const modeWeightRef = useRef(0);
   // Scene yaw applied to face the avatar at the camera (set at VRM load by
   // faceCameraYaw). The FBX retarget reuses it to reframe its root so the baked
   // animation faces the same way as the rest pose — see the retarget below.
@@ -2160,22 +2235,38 @@ function AvatarNode({
 
   // Tick that re-fires when the active timeline entry should change.
   const [animTick, setAnimTick] = useState(0);
-  const animResolved = _resolveAvatarAnimation(
+  // Scheduled one-shots resolve INDEPENDENTLY of the loops now: they own the
+  // `scheduled` slot rather than displacing the loop's URL, so the frame loop can
+  // fade between a one-shot and whatever loop plays underneath instead of cutting.
+  const schedResolved = _resolveScheduledAnimation(
     node.id,
-    animLoop,
     scheduledForNode,
     animationClips,
     Date.now()
   );
-  useEffect(() => {
-    if (animResolved.msUntilNext == null) return;
-    const handle = setTimeout(
-      () => setAnimTick((n) => n + 1),
-      Math.max(0, animResolved.msUntilNext)
+  // Re-resolve when the active entry starts or ends. Both bounds matter: the end
+  // is what retires a one-shot (and triggers its fade back to the loop).
+  const schedNextChangeMs = (() => {
+    const now = Date.now();
+    const bounds = [schedResolved.endsAtMs, schedResolved.nextStartMs].filter(
+      (x): x is number => x != null
     );
+    return bounds.length > 0 ? Math.max(0, Math.min(...bounds) - now) : null;
+  })();
+  useEffect(() => {
+    if (schedNextChangeMs == null) return;
+    const handle = setTimeout(() => setAnimTick((n) => n + 1), schedNextChangeMs);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [animResolved.url, animResolved.msUntilNext, animTick]);
+  }, [schedResolved.url, schedNextChangeMs, animTick]);
+  // The loop layer (idle or base) — scheduled no longer participates here.
+  const animResolved = _resolveAvatarAnimation(
+    node.id,
+    animLoop,
+    [],
+    animationClips,
+    Date.now()
+  );
   const animUrl = animResolved.url;
   // Hand the active layer to the per-frame anchored drive. Keep the ref current
   // even when the clip is the same but its start/speed/loop changed (e.g. the
@@ -2186,6 +2277,22 @@ function AvatarNode({
     : '';
   useEffect(() => {
     activeLayerRef.current = animLayer;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animLayerKey]);
+  // Each slot advances on its own playhead: the loops are epoch-anchored (shared
+  // phase across clients) while a one-shot is anchored to its entry's startEpoch.
+  // A single shared layer would have driven the one-shot at the loop's phase.
+  const schedLayer = schedResolved.layer;
+  const schedLayerKey = schedLayer
+    ? `${schedLayer.startEpoch}:${schedLayer.speed}:${schedLayer.loop}`
+    : '';
+  useEffect(() => {
+    slotLayersRef.current.scheduled = schedLayer;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schedLayerKey]);
+  useEffect(() => {
+    slotLayersRef.current.idle = animLayer;
+    slotLayersRef.current.base = animLayer;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animLayerKey]);
 
@@ -2743,6 +2850,19 @@ function AvatarNode({
     return loadClipIntoSlot(baseSlotUrl, 'base');
   }, [baseSlotUrl, node.filePath, vrmLoaded, loadClipIntoSlot, teardownSlot]);
 
+  // Scheduled slot — a timeline one-shot, loaded only while its entry is active.
+  // Deliberately NOT torn down the instant the entry retires: the frame loop needs
+  // the clip resident to fade out of. It freezes the outgoing pose (FrozenPose) at
+  // the moment the fade starts, so teardown here is safe even mid-fade.
+  const schedSlotUrl = schedResolved.url;
+  useEffect(() => {
+    if (!schedSlotUrl || !node.filePath || !vrmLoaded) {
+      teardownSlot('scheduled');
+      return;
+    }
+    return loadClipIntoSlot(schedSlotUrl, 'scheduled');
+  }, [schedSlotUrl, node.filePath, vrmLoaded, loadClipIntoSlot, teardownSlot]);
+
   // Evict this avatar's clip from the shared registry on unmount (the load
   // effect's cleanup no longer does — it only cancels in-flight loads).
   useEffect(() => teardownActiveAnim, [teardownActiveAnim]);
@@ -2861,6 +2981,23 @@ function AvatarNode({
             Math.min(1, w + Math.sign(targetWeight - w) * BLEND_SPEED * delta)
           );
     const blend = blendWeightRef.current;
+    // The tracked-MODE weight ramps on the same clock. Previously the composition
+    // switched branches instantly on `trackingLive` while only `blend` ramped, so at
+    // the switchover the branches still differed by the section's Anim lever — every
+    // section below Anim 1 jumped by exactly `1 - anim`. Sections at Anim 1 didn't
+    // move (hence only *part* of the pose snapping), and each direction left `blend`
+    // at a different point (hence the two directions snapping differently).
+    // Ramping it makes the tracked⇄untracked boundary continuous. See
+    // composeBonePose.
+    const mw = modeWeightRef.current;
+    modeWeightRef.current =
+      mw === targetWeight
+        ? mw
+        : Math.max(
+            0,
+            Math.min(1, mw + Math.sign(targetWeight - mw) * BLEND_SPEED * delta)
+          );
+    const modeWeight = modeWeightRef.current;
 
     // ── Step 1: animation (always runs, gives us the "animation raw pose") ──────
     // Clock-anchored drive: set each action's playhead from the active layer
@@ -2874,37 +3011,105 @@ function AvatarNode({
     // with each other for free.
     const layer = activeLayerRef.current;
     const slots = slotsRef.current;
+    const slotLayers = slotLayersRef.current;
     const reg = animEntryRef.current;
-    if (layer) {
-      const now = Date.now();
-      if (reg) {
-        // FBX debug display (the side-by-side source rig), not a rotation source.
-        reg.fbxAction.time = _anchoredTime(now, layer, reg.duration);
-        reg.fbxMixer.update(0);
+    const now = Date.now();
+    if (reg && layer) {
+      // FBX debug display (the side-by-side source rig), not a rotation source.
+      reg.fbxAction.time = _anchoredTime(now, layer, reg.duration);
+      reg.fbxMixer.update(0);
+    }
+    if (vrm) {
+      // Drives the SHADOW skeletons only — the real bones are untouched here, so
+      // the composition below is the sole writer of `vrm` bone rotations. Each
+      // slot advances on its OWN layer: the loops are epoch-anchored while a
+      // one-shot is anchored to its entry, so a shared layer would misphase it.
+      let anyDriven = false;
+      for (const name of Object.keys(slots) as ClipSlotName[]) {
+        const slot = slots[name];
+        const slotLayer = slotLayers[name] ?? layer;
+        if (!slot || !slotLayer) continue;
+        slot.action.time = _anchoredTime(now, slotLayer, slot.vrmDuration);
+        slot.mixer.update(0);
+        anyDriven = true;
       }
-      if (vrm) {
-        // Drives the SHADOW skeletons only — the real bones are untouched here, so
-        // the composition below is the sole writer of `vrm` bone rotations.
-        for (const name of Object.keys(slots) as ClipSlotName[]) {
-          const slot = slots[name];
-          if (!slot) continue;
-          slot.action.time = _anchoredTime(now, layer, slot.vrmDuration);
-          slot.mixer.update(0);
-        }
+      if (!anyDriven) {
+        // No clip active (or still loading) — keep the humanoid normalized so any
+        // held/broadcast pose stays applied.
+        (vrm.humanoid as unknown as { update?: () => void }).update?.();
       }
-    } else if (vrm) {
-      // No clip active (or still loading) — keep the humanoid normalized so any
-      // held/broadcast pose stays applied.
-      (vrm.humanoid as unknown as { update?: () => void }).update?.();
     }
 
-    // Which slot is the animation source this frame. `base` holds whatever
-    // `_resolveAvatarAnimation` selected (the base loop, or a scheduled one-shot
-    // while its window is open) and wins when present; otherwise the idle plays.
-    // Both slots stay loaded either way, which is what a cross-fade will need.
-    const activeSlot: ClipSlotName = slots.base ? 'base' : 'idle';
-    activeSlotRef.current = activeSlot;
-    const animSource = slots[activeSlot]?.shadow ?? null;
+    // ── Animation source selection + cross-fade ──────────────────────────────────
+    //
+    // Precedence: a scheduled one-shot outranks the loops; otherwise base (when
+    // tracking is live and one is set) else idle. Changing source starts a fade
+    // rather than cutting, which is only possible because every source stays
+    // resident in its own slot.
+    const fade = sourceFadeRef.current;
+    const desiredSlot: ClipSlotName | null = slots.scheduled
+      ? 'scheduled'
+      : slots.base
+        ? 'base'
+        : slots.idle
+          ? 'idle'
+          : null;
+    const fadeSeconds = Math.max(
+      0,
+      node.properties?.blendTransitionTime ?? 0.5
+    );
+    if (fade.retarget(desiredSlot)) {
+      // A new fade began. Freeze the outgoing pose: its clip may be torn down
+      // before the fade finishes (a retiring one-shot is unloaded as soon as its
+      // entry stops resolving), and a frozen pose is the right thing for a clip
+      // with nothing left to play anyway.
+      const outgoing = fade.from ? slots[fade.from] : null;
+      if (outgoing)
+        frozenRef.current.captureFrom(
+          outgoing.shadow,
+          VRM_BONE_NAMES as unknown as VRMHumanBoneName[]
+        );
+      else frozenRef.current.clear();
+    }
+    fade.advance(delta, fadeSeconds);
+    activeSlotRef.current = fade.to ?? 'idle';
+
+    // Resolve the two sides of the fade. The outgoing side prefers its live slot
+    // (still loaded ⇒ keeps animating through the fade) and falls back to the
+    // frozen pose once that clip is gone.
+    const toShadow = fade.to ? (slots[fade.to]?.shadow ?? null) : null;
+    const fromSlot = fade.from ? slots[fade.from] : null;
+    const frozen = frozenRef.current;
+    const fading = fade.fading;
+    const fadeT = fade.progress;
+    const animSource = toShadow;
+    // Per-bone animation pose with the source cross-fade applied. Not fading ⇒ the
+    // incoming source verbatim; fading ⇒ blended against the outgoing side (its
+    // live slot while still loaded, else the pose frozen when the fade began).
+    const _fadeQ = _fadeScratchQ;
+    const animRotationFor = (
+      name: VRMHumanBoneName,
+      restQ: THREE.Quaternion
+    ): THREE.Quaternion | null => {
+      const to = toShadow?.rotation(name) ?? null;
+      if (!fading) return to;
+      const from =
+        (fromSlot ? fromSlot.shadow.rotation(name) : null) ??
+        frozen.rotation(name);
+      if (!from && !to) return null;
+      return crossfadeAnimPose(restQ, from, to, fadeT, _fadeQ);
+    };
+    const animHipsPositionFor = (
+      restPos: THREE.Vector3
+    ): THREE.Vector3 | null => {
+      const to = toShadow?.hipsPosition() ?? null;
+      if (!fading) return to;
+      const from =
+        (fromSlot ? fromSlot.shadow.hipsPosition() : null) ??
+        frozen.hipsPosition();
+      if (!from && !to) return null;
+      return crossfadeHipsPosition(restPos, from, to, fadeT, _fadeScratchV);
+    };
 
     // ── Step 2: broadcast pose composition ──────────────────────────────────────
     //
@@ -2915,7 +3120,15 @@ function AvatarNode({
     // untracked idle path below could never be reached whenever an ambient
     // producer was attached. Ambient poses merge into the *tracked* pose only;
     // with no tracking the idle plays straight and they are not applied.
-    if (trackedActive && blend > 0 && pose && vrm) {
+    // ── Step 2: unified composition ─────────────────────────────────────────────
+    //
+    // ONE path for tracked and untracked. `modeWeight` (0 = animation straight,
+    // 1 = levers + tracking) selects between them continuously, so there is no
+    // branch boundary left to snap across. The tracked side runs while the mode is
+    // engaged *or still ramping down*, which is what keeps a fade-out rendering
+    // after `trackingLive` has already gone false.
+    const wantTracked = (trackedActive || modeWeight > 0) && pose != null;
+    if (wantTracked && vrm) {
       // Build filtered broadcast normalized pose.
       const normalizedPose: VRMPose = {};
       const filters = boneFiltersRef.current;
@@ -3004,21 +3217,18 @@ function AvatarNode({
         // clip mixer writes. Reading `bone.quaternion` here would alias the buffer
         // this loop writes into, feeding the composed (tracked) pose back in as
         // its own baseline whenever the mixer skipped a write.
-        const shadow = animSource;
-        const animQuats: Array<
-          [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion | null]
-        > = [];
+        // Bones paired with their bone objects; the animation rotation is resolved
+        // later (it needs each bone's rest pose for the fade's null cases).
+        const animQuats: Array<[VRMHumanBoneName, THREE.Object3D]> = [];
         for (const name of allBones) {
           const bone = vrm.humanoid.getRawBoneNode(name);
-          if (bone) animQuats.push([name, bone, shadow?.rotation(name) ?? null]);
+          if (bone) animQuats.push([name, bone]);
         }
         const broadcastSet = new Set(
           Object.keys(normalizedPose) as VRMHumanBoneName[]
         );
 
         const hipsBone = vrm.humanoid.getRawBoneNode('hips');
-        const shadowHips = shadow?.hipsPosition();
-        if (shadowHips) _hipsAnimPos.copy(shadowHips);
 
         // Rest raw quats (all bones), then broadcast-posed raw quats. Compose
         // per section with stackBoneRotation, exactly like the override branch:
@@ -3033,6 +3243,10 @@ function AvatarNode({
         vrm.humanoid.resetNormalizedPose();
         (vrm.humanoid as unknown as { update?: () => void }).update?.();
         if (hipsBone) _hipsRestPos.copy(hipsBone.position);
+        {
+          const p = animHipsPositionFor(_hipsRestPos);
+          _hipsAnimPos.copy(p ?? _hipsRestPos);
+        }
         const restRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
         for (const [name, bone] of animQuats)
           restRaw.set(name, bone.quaternion.clone());
@@ -3048,79 +3262,66 @@ function AvatarNode({
         const poseSourceLive = node.properties?.poseSource as
           | PoseSource
           | undefined;
-        const animActive = !!(animSource && layer);
-        for (const [name, bone, animQ] of animQuats) {
+        const animActive = !!((animSource || fading) && layer);
+        for (const [name, bone] of animQuats) {
           const inf = sectionInfluenceForBone(name, poseSourceLive);
           const restQ = restRaw.get(name)!;
-          // No snapshot for this bone (clip not loaded / not animated) ⇒ rest.
+          const animQ = animRotationFor(name, restQ);
+          // No source for this bone (clip not loaded / not animated) ⇒ rest.
           const animContribution = animActive && animQ ? animQ : restQ;
           const tracked = trackedRaw.get(name) ?? null;
           const tw = tracked ? Math.max(0, Math.min(1, inf.track * blend)) : 0;
-          stackBoneRotation(
+          // modeWeight ramps the levers in (1 → inf.anim) and the tracking term
+          // with them, so modeWeight=0 equals the straight-animation path exactly.
+          composeBonePose(
             restQ,
             animContribution,
             tracked,
             inf.anim,
             tw,
+            modeWeight,
             bone.quaternion
           );
         }
         if (hipsBone)
-          composeHipsPosition(
+          composeHipsPositionBlended(
             _hipsAnimPos,
             _hipsRestPos,
             sectionInfluenceForBone('leftUpperLeg', poseSourceLive).anim,
             animActive,
+            modeWeight,
             hipsBone.position
           );
       }
     } else if (vrm) {
-      // No live tracking feed: the idle plays **straight** — full strength, not
-      // scaled by the partial-tracking sliders. Those levers describe how
-      // tracking blends against the *base* animation while a source is live;
-      // with nothing tracking there is nothing to weigh the idle against, and
-      // scaling it here made a section with Anim < 1 droop toward rest (Anim = 0
-      // erased the idle outright) whenever any slider was off-default.
+      // No broadcast pose on the bus at all (`pose == null`) — nothing to compose
+      // against, so the animation plays straight. This is NOT the untracked case:
+      // that is now `modeWeight → 0` of the unified path above, which keeps
+      // rendering while the mode ramps down. This branch only covers "there is no
+      // pose object to read", e.g. before any producer has ever published.
       //
-      // Runs on EVERY untracked frame, not just when a slider is off-default.
-      // This branch began life as a slider-preview path (gated on
-      // `poseSourceIsActive`, so it only ran with a lever moved) but it is also
-      // the only place an untracked idle gets composed — so with every slider at
-      // default it was skipped and the idle fell through to whatever Step 1's
-      // mixer left on the bones, with no resetNormalizedPose and no
-      // normalization. That worked by accident and made idle behaviour depend on
-      // whether a lever had been touched. The levers are meaningless without
-      // tracking, so they no longer gate this path.
-      //
-      // This runs only as the `else` of the live-broadcast branch above, i.e.
-      // when there's no active pose to composite (blend ramped to 0 / empty
-      // frame). It must NOT be gated on poseMode: when a VMC source is bound but
-      // not sending, the broadcast bus emits an *additive* fallback frame (empty
-      // bones) so tracking ramps back to animation — which sets poseMode to
-      // 'additive'. Gating on `poseMode !== 'additive'` there would skip this
-      // branch and leave the animation unplayed. Genuine live additive tracking
-      // is handled by the branch above (this is its `else`), so dropping the
-      // guard can't double-apply.
+      // Equivalent to composeBonePose(..., mode = 0) by construction: animInf = 1,
+      // no tracking term. Kept as its own loop only because it needs no
+      // setNormalizedPose pass.
       const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
       // Animation baseline from the shadow skeleton, not the live bones — see the
-      // tracked branch above and ShadowSkeleton for why reading `bone.quaternion`
+      // unified path above and ShadowSkeleton for why reading `bone.quaternion`
       // here is unsafe.
-      const shadow = animSource;
-      const animQuats: Array<
-        [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion | null]
-      > = [];
+      const animQuats: Array<[VRMHumanBoneName, THREE.Object3D]> = [];
       for (const name of allBones) {
         const bone = vrm.humanoid.getRawBoneNode(name);
-        if (bone) animQuats.push([name, bone, shadow?.rotation(name) ?? null]);
+        if (bone) animQuats.push([name, bone]);
       }
       const hipsBone = vrm.humanoid.getRawBoneNode('hips');
-      const shadowHips = shadow?.hipsPosition();
-      if (shadowHips) _hipsAnimPos.copy(shadowHips);
 
       // Rest raw quats (all bones).
       vrm.humanoid.resetNormalizedPose();
       (vrm.humanoid as unknown as { update?: () => void }).update?.();
       if (hipsBone) _hipsRestPos.copy(hipsBone.position);
+      {
+        const p = animHipsPositionFor(_hipsRestPos);
+        _hipsAnimPos.copy(p ?? _hipsRestPos);
+      }
       const restRaw = new Map<VRMHumanBoneName, THREE.Quaternion>();
       for (const [name, bone] of animQuats)
         restRaw.set(name, bone.quaternion.clone());
@@ -3128,9 +3329,10 @@ function AvatarNode({
       // Same animActive guard as the tracked branch: without a clip there is no
       // snapshot, so fall back to rest. No tracked pose here, so the tracking
       // term is dropped (trackedQ = null).
-      const animActive = !!(animSource && layer);
-      for (const [name, bone, animQ] of animQuats) {
+      const animActive = !!((animSource || fading) && layer);
+      for (const [name, bone] of animQuats) {
         const restQ = restRaw.get(name)!;
+        const animQ = animRotationFor(name, restQ);
         const animContribution = animActive && animQ ? animQ : restQ;
         // animInf = 1: straight idle, unscaled by the partial-tracking sliders.
         stackBoneRotation(restQ, animContribution, null, 1, 0, bone.quaternion);

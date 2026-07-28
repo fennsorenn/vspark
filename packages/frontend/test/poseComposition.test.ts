@@ -13,6 +13,9 @@ import {
   trackedComposeActive,
   crossfadeAnimPose,
   crossfadeHipsPosition,
+  SourceFade,
+  composeBonePose,
+  composeHipsPositionBlended,
 } from '../src/components/editor/poseComposition';
 
 const q = (x: number, y: number, z: number) =>
@@ -236,5 +239,190 @@ describe('crossfadeHipsPosition', () => {
     expect(out.equals(restPos)).toBe(true);
     const out2 = crossfadeHipsPosition(restPos, a, null, 1, new THREE.Vector3());
     expect(out2.equals(restPos)).toBe(true);
+  });
+});
+
+// ── Source fade state machine ─────────────────────────────────────────────────
+describe('SourceFade', () => {
+  it('starts settled with nothing showing', () => {
+    const f = new SourceFade<'idle' | 'base'>();
+    expect(f.fading).toBe(false);
+    expect(f.to).toBeNull();
+    expect(f.progress).toBe(1);
+  });
+
+  it('the first source appears instantly (nothing to fade from)', () => {
+    const f = new SourceFade<'idle' | 'base'>();
+    expect(f.retarget('idle')).toBe(false); // no freeze needed
+    expect(f.fading).toBe(false);
+    expect(f.to).toBe('idle');
+  });
+
+  it('a change to a different source starts a fade and asks for a freeze', () => {
+    const f = new SourceFade<'idle' | 'base'>();
+    f.retarget('idle');
+    expect(f.retarget('base')).toBe(true); // caller should freeze `idle`
+    expect(f.fading).toBe(true);
+    expect(f.from).toBe('idle');
+    expect(f.to).toBe('base');
+    expect(f.progress).toBe(0);
+  });
+
+  it('retargeting to the source already targeted is a no-op', () => {
+    const f = new SourceFade<'idle' | 'base'>();
+    f.retarget('idle');
+    expect(f.retarget('idle')).toBe(false);
+    expect(f.fading).toBe(false);
+  });
+
+  it('advance walks progress to 1 then settles', () => {
+    const f = new SourceFade<'idle' | 'base'>();
+    f.retarget('idle');
+    f.retarget('base');
+    f.advance(0.25, 0.5);
+    expect(f.progress).toBeCloseTo(0.5, 5);
+    expect(f.fading).toBe(true);
+    f.advance(0.25, 0.5);
+    expect(f.progress).toBe(1);
+    expect(f.fading).toBe(false);
+    expect(f.from).toBeNull(); // settled: no outgoing side left
+    expect(f.to).toBe('base');
+  });
+
+  it('a zero-length fade completes immediately', () => {
+    const f = new SourceFade<'idle' | 'base'>();
+    f.retarget('idle');
+    f.retarget('base');
+    f.advance(0.016, 0);
+    expect(f.progress).toBe(1);
+  });
+
+  // Reversing mid-fade must not snap: the outgoing side becomes whatever was
+  // being *shown*, so the new fade starts from the current blended pose.
+  it('reversing mid-fade fades from the source that was showing', () => {
+    const f = new SourceFade<'idle' | 'base'>();
+    f.retarget('idle');
+    f.retarget('base');
+    f.advance(0.1, 0.5); // part-way idle→base
+    expect(f.retarget('idle')).toBe(true);
+    expect(f.from).toBe('base'); // was heading to base, so base is now outgoing
+    expect(f.to).toBe('idle');
+    expect(f.progress).toBe(0);
+  });
+
+  it('fading to null (source retired, nothing to replace it) is a fade-out', () => {
+    const f = new SourceFade<'idle' | 'scheduled'>();
+    f.retarget('scheduled');
+    expect(f.retarget(null)).toBe(true);
+    expect(f.from).toBe('scheduled');
+    expect(f.to).toBeNull();
+  });
+
+  it('instant retarget skips the fade', () => {
+    const f = new SourceFade<'idle' | 'base'>();
+    f.retarget('idle');
+    expect(f.retarget('base', true)).toBe(false);
+    expect(f.fading).toBe(false);
+    expect(f.to).toBe('base');
+  });
+
+  it('settle() abandons an in-flight fade', () => {
+    const f = new SourceFade<'idle' | 'base'>();
+    f.retarget('idle');
+    f.retarget('base');
+    f.settle();
+    expect(f.fading).toBe(false);
+    expect(f.from).toBeNull();
+    expect(f.to).toBe('base');
+  });
+});
+
+// ── Unified tracked/untracked composition ─────────────────────────────────────
+//
+// The whole point of `mode` is that there is no longer a discontinuity to tune
+// away: mode=0 must equal the old untracked branch EXACTLY, mode=1 the old tracked
+// one, and everything between must be continuous. These tests pin that.
+describe('composeBonePose (mode blend)', () => {
+  const rest = q(0.1, -0.2, 0.3);
+  const anim = q(0.8, 0.1, 0);
+  const tracked = q(-0.3, 0.2, 0.6);
+
+  it('mode=0 is identical to the untracked branch (anim straight, no tracking)', () => {
+    for (const lever of [0, 0.3, 0.7, 1]) {
+      const unified = composeBonePose(rest, anim, tracked, lever, 1, 0);
+      const oldUntracked = stackBoneRotation(rest, anim, null, 1, 0);
+      expectQuatClose(unified, oldUntracked);
+    }
+  });
+
+  it('mode=1 is identical to the tracked branch (levers + tracking applied)', () => {
+    for (const lever of [0, 0.3, 0.7, 1]) {
+      const unified = composeBonePose(rest, anim, tracked, lever, 0.6, 1);
+      const oldTracked = stackBoneRotation(rest, anim, tracked, lever, 0.6);
+      expectQuatClose(unified, oldTracked);
+    }
+  });
+
+  // The reported bug: at the switchover the branches differed by exactly the
+  // lever, so any section below Anim 1 jumped and sections at 1 did not.
+  it('is continuous across mode for a lever that used to snap', () => {
+    const lever = 0; // legs Anim 0 — the worst case (was a full-strength jump)
+    let prev = composeBonePose(rest, anim, tracked, lever, 0, 0);
+    let maxStep = 0;
+    for (let i = 1; i <= 50; i++) {
+      const cur = composeBonePose(rest, anim, tracked, lever, 0, i / 50);
+      maxStep = Math.max(maxStep, prev.angleTo(cur));
+      prev = cur;
+    }
+    // No single step may approach the old jump (~0.8 rad for this pose).
+    expect(maxStep).toBeLessThan(0.05);
+  });
+
+  it('sections at Anim 1 are unaffected by mode when nothing is tracked', () => {
+    const a = composeBonePose(rest, anim, null, 1, 0, 0);
+    const b = composeBonePose(rest, anim, null, 1, 0, 1);
+    expectQuatClose(a, b);
+  });
+
+  it('clamps mode outside 0..1', () => {
+    expectQuatClose(
+      composeBonePose(rest, anim, tracked, 0.5, 1, -3),
+      composeBonePose(rest, anim, tracked, 0.5, 1, 0)
+    );
+    expectQuatClose(
+      composeBonePose(rest, anim, tracked, 0.5, 1, 7),
+      composeBonePose(rest, anim, tracked, 0.5, 1, 1)
+    );
+  });
+});
+
+describe('composeHipsPositionBlended', () => {
+  const animPos = new THREE.Vector3(0, 1.2, 0.3);
+  const restPos = new THREE.Vector3(0, 1.0, 0);
+
+  it('mode=0 → full root motion whatever the legs lever says', () => {
+    for (const lever of [0, 0.5, 1]) {
+      const out = composeHipsPositionBlended(
+        animPos,
+        restPos,
+        lever,
+        true,
+        0,
+        new THREE.Vector3()
+      );
+      expect(out.equals(animPos)).toBe(true);
+    }
+  });
+
+  it('mode=1 → the legs lever applies', () => {
+    const out = composeHipsPositionBlended(
+      animPos,
+      restPos,
+      0,
+      true,
+      1,
+      new THREE.Vector3()
+    );
+    expect(out.equals(restPos)).toBe(true);
   });
 });

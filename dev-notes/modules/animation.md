@@ -67,7 +67,7 @@ Uses the FBX **bind pose** as the reference: `worldDelta = fbxWorldQ × fbxBindW
 Per bone per frame:
 ```
 fbxWorldQ = parentFBXWorldQ × trackQ_at_frame
-worldDelta = fbxWorldQ × fbxRefWQ⁻¹         (frame 0 reference, not bind)
+worldDelta = fbxWorldQ × fbxBindWQ⁻¹        (bind-pose reference)
 targetWQ   = worldDelta × vrmAposeWQ
 vrmLocalQ  = vrmParentWorldQ⁻¹ × targetWQ
 ```
@@ -84,13 +84,13 @@ Creates `THREE.QuaternionKeyframeTrack` per bone, attached to the VRM's skeleton
 
 An avatar composes from three rotation sources: the **idle** loop, the **base** loop (what tracking stacks onto), and **tracking** itself. Each animation source owns a `ClipSlot` — its own loaded clip, its own `ShadowSkeleton` buffer, its own mixer and playhead. Sources therefore coexist rather than taking turns in one slot, which is the prerequisite for cross-fading: blending two poses requires both to be readable in the same frame.
 
-`loadClipIntoSlot(url, slot)` loads and bakes into one named slot; replacing a slot stops only that slot's mixer, so the other sources keep playing across the swap. Two effects drive it — one per slot — so changing the base never reloads the idle. **Every loaded slot is ticked each frame** (`Step 1`), not just the visible one: each writes only its own shadow, and a dormant slot that lagged would jump on the frame a fade began. Both clips are clock-anchored (`_anchoredTime` against `startEpoch`), so they stay mutually in phase for free.
+`loadClipIntoSlot(url, slot)` loads and bakes into one named slot; replacing a slot stops only that slot's mixer, so the other sources keep playing across the swap. One effect per slot (`idle`, `base`, `scheduled`) drives it, so changing one never reloads the others. **Every loaded slot is ticked each frame** (`Step 1`), not just the visible one: each writes only its own shadow, and a dormant slot that lagged would jump on the frame a fade began.
 
 The idle slot stays resident even while the base drives the avatar — that residency is the point, since it's what the avatar fades back to.
 
-Cost: an avatar with both an idle and a base loads and bakes **two** clips instead of one.
+Cost: an avatar loads and bakes one clip per populated slot — up to three (idle + base + an active one-shot) instead of one.
 
-**Not yet wired:** `scheduled` is declared as a slot name but timeline one-shots still take the old hard-switch path through `_resolveAvatarAnimation` and land in the `base` slot, replacing the base loop while their window is open. Giving them a third slot — plus the fade in/out when one starts and retires — is the follow-up. `FrozenPose` exists for that case: a retiring one-shot has nothing left to play, so its final pose is frozen as the outgoing side of the fade rather than kept on a live mixer (unlike idle/base, which must keep animating through a fade).
+Scheduled one-shots resolve through `_resolveScheduledAnimation` (scheduled-only, no idle/base fallback) into their own `scheduled` slot, so a one-shot fades against whatever loop plays underneath instead of displacing it. **Each slot advances on its own layer**: the loops are epoch-anchored (shared phase across clients) while a one-shot is anchored to its entry's `startEpoch` — a single shared layer would have driven the one-shot at the loop's phase.
 
 Blending between sources is `crossfadeAnimPose` / `crossfadeHipsPosition` (`poseComposition.ts`, unit-tested): it runs **before** tracking is stacked, so its result is what `stackBoneRotation` receives as `animQ`. A `null` side means "this source contributes nothing" and resolves to rest, so fading in from nothing or out to nothing needs no special case.
 
@@ -253,11 +253,27 @@ The per-bone math is a pure, unit-tested helper — **`packages/frontend/src/com
 
 **Partial tracking (per-section blend).** A per-avatar-node `poseSource` property (`SceneNodeProperties.poseSource`, types `PoseSource` / `PoseSection` / `PoseSectionInfluence` — see [shared-types.md](shared-types.md)) scales the Anim/Track layers **independently per body section**: `head`, `gaze`, `body`, `arms`, `hands`, `legs`, each with an `anim` and a `track` influence in `0..1`. Typical use: play a full-body clip for the legs while live tracking drives the upper body. A static `BONE_TO_SECTION` map (`Viewport.tsx`, built from `POSE_SECTION_BONES`; unlisted bones fall under `hands`/fingers) assigns every VRM humanoid bone to a section; absent sections resolve to `{anim:1, track:1}`, so an unset `poseSource` changes nothing.
 
+### Unified composition — one path, `modeWeight` selects tracked vs untracked
+
+There is a single composition path. `modeWeight` (0 = animation straight, 1 = levers applied + tracking stacked) ramps over `blendTransitionTime` and selects between the two continuously via `composeBonePose` / `composeHipsPositionBlended`: it scales the section's Anim lever from `1` toward its configured value and scales the tracking term with it. At `modeWeight = 0` the result is **identical by construction** to playing the animation straight, so the two modes cannot drift apart.
+
+This replaced two separate branches — a tracked one that applied `inf.anim`, and an untracked one that passed `1`. They switched instantly on `trackingLive` while only the tracking weight ramped, so at the switchover the sole remaining difference was the lever: **every section with Anim < 1 jumped by exactly `1 - anim`**. Sections at Anim 1 didn't move at all (so only *part* of the pose snapped), and the two directions left `blend` at different points (so the snap looked different each way) — the reported symptom. Note the source cross-fade (`SourceFade`, below) could not fix this: it blends between *clips*, while this discontinuity was between *composition modes* applied to the same clip.
+
+The unified path runs while the mode is engaged **or still ramping down**, which is what keeps a fade-out rendering after `trackingLive` has already gone false. A small `else` branch remains for `pose == null` (no producer has ever published, so there is no pose object to read); it is `modeWeight = 0` by construction.
+
+Only the tracked side composes anything new — at `modeWeight = 0` the result *is* the animation pose — so there is no second result buffer to build and blend against.
+
 **No-feed branch — idle plays straight.** With **no live tracking feed** (signal lost, or no enabled tracking source at all) the idle animation plays at **full strength**: the branch composes with `animInf = 1`, `trackedQ = null`, `trackWeight = 0`, and root motion at `legsAnim = 1`. The partial-tracking levers describe how tracking blends against the *base* animation while a source is live; with nothing tracking there is nothing to weigh the idle against, so they do not apply here. Nothing else is applied either — ambient producers (Breathing) merge into the **tracked** pose only, never into a straight idle.
 
 **Branch selection keys off `trackingLive`, not bus-pose presence.** Step 2's gate is `trackingLive && blend > 0 && pose`. The `trackingLive` term is essential: ambient producers publish additively and forever (Breathing's `pose_broadcast` runs at priority 10 with `animationBlendMode: 'additive'`, independent of tracking), so `pose` stays non-null and `poseActive` stays true for the lifetime of the behavior. Gating on those alone ran the weighted tracked path permanently and made the untracked idle branch unreachable whenever a Breathing behavior was attached — the originally-reported "idle still goes through the weights". For the same reason `targetWeight` (the blend ramp) and the filter-reset transition both key off `trackedComposeActive = trackingLive && poseActive` rather than `poseActive`, which an ambient producer would otherwise pin true forever.
 
-> **Known regression — no cross-fade on tracking loss.** Because the gate includes `trackingLive`, the tracked branch is skipped the instant tracking drops, so `blend` ramps down against a branch that no longer runs: the tracked→idle handover is a hard cut. Intended behaviour is a `blendTransitionTime` cross-fade between straight idle and weighted base+track. Fixing it means keeping the tracked branch alive while `blend > 0` and blending its output against the straight idle rather than switching between them. Deliberately deferred (lowest priority).
+**Source cross-fade.** Changing animation source no longer cuts. `SourceFade` (`poseComposition.ts`) tracks the transition: when the desired source changes, the previous one becomes the fade's `from`, the new one its `to`, and progress walks 0→1 over the avatar's `blendTransitionTime`. While in flight both sides are read per bone and blended through `crossfadeAnimPose` before tracking is stacked, so the fade happens in the animation channel rather than fighting the tracking weights.
+
+Source precedence: a scheduled one-shot outranks the loops; otherwise base (tracking live and a base set) else idle. Every source stays resident in its own slot, which is what makes reading two at once possible.
+
+Interrupting a fade mid-flight makes the *incoming* source the new outgoing one — an approximation, since the on-screen pose is really a blend of two and can't be named by one source id. It keeps the dominant side and is close for late interruptions; `SourceFade.retarget()` documents the tradeoff.
+
+A retiring one-shot is a special case: its clip is unloaded as soon as its entry stops resolving, so the pose is frozen (`FrozenPose`) at the instant the fade begins and the fade runs against that. Idle and base keep live mixers through a fade instead, since they still have something to play.
 
 This branch was originally a **slider-preview** path — gated on `poseSourceIsActive` (true only when some lever was off-default) and scaling the idle by each section's Anim influence, so moving a lever visibly drooped a section toward rest with nothing connected. That made it load-bearing for ordinary idle playback while carrying a gate unrelated to it: with every lever at default the branch was skipped entirely and the idle fell through to whatever the Step 1 mixer had left on the bones — no `resetNormalizedPose`, no normalization — so whether the idle was properly composed depended on whether a lever had been touched. The gate and the scaling are both gone; the branch now runs on every untracked frame (`else if (vrm)`) and `poseSourceIsActive` was deleted.
 

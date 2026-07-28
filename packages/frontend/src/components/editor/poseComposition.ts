@@ -22,6 +22,146 @@ export function trackedComposeActive(
 }
 
 /**
+ * Tracks a cross-fade between two animation sources.
+ *
+ * The frame loop asks "which source should be showing?" each frame. When that
+ * answer changes, the previous source becomes the fade's `from` and the new one
+ * its `to`, and `progress` walks 0→1 over `durationS`. Until it lands, both
+ * sources are read and blended — which is only possible because each lives in its
+ * own buffer (see ClipSlot / ShadowSkeleton in Viewport.tsx).
+ *
+ * Retargeting a fade mid-flight (the source changes again before it completes)
+ * restarts from the *current blended* position rather than snapping: the caller
+ * passes the pose it last rendered as the new `from`, so there's no discontinuity.
+ * That's why `retarget()` reports whether the caller needs to freeze the outgoing
+ * pose.
+ */
+export class SourceFade<T extends string> {
+  private _from: T | null = null;
+  private _to: T | null = null;
+  private _progress = 1;
+
+  /** The source being faded away from, or null when settled / fading in. */
+  get from(): T | null {
+    return this._progress >= 1 ? null : this._from;
+  }
+
+  /** The source being faded toward — the settled source once progress hits 1. */
+  get to(): T | null {
+    return this._to;
+  }
+
+  /** 0 = fully `from`, 1 = fully `to`. */
+  get progress(): number {
+    return this._progress;
+  }
+
+  /** True while a fade is in flight (both sides contribute). */
+  get fading(): boolean {
+    return this._progress < 1 && this._from !== null;
+  }
+
+  /**
+   * Point the fade at `next`. Returns true when this begins a NEW fade away from
+   * a different source — the caller's cue to freeze the outgoing pose if that
+   * source's clip is about to be torn down.
+   *
+   * Interrupting a fade in flight makes the *incoming* source (`_to`) the new
+   * outgoing one. That is an approximation: strictly, the pose on screen mid-fade
+   * is a blend of two sources and cannot be named by a single source id. Using
+   * `_to` keeps the dominant side (it's what the fade was converging on) and, for
+   * the common late-interruption case, is very close to what was rendered. The
+   * exact alternative is for the caller to freeze the blended pose and fade from
+   * that — which is what `FrozenPose` supports when the outgoing clip is also
+   * being discarded.
+   */
+  retarget(next: T | null, instant = false): boolean {
+    if (next === this._to) return false;
+    const wasShowing = this._to;
+    this._from = wasShowing;
+    this._to = next;
+    this._progress = instant || wasShowing === null ? 1 : 0;
+    return this._progress < 1;
+  }
+
+  /** Advance by `dt` seconds over a fade of `durationS`. */
+  advance(dt: number, durationS: number): void {
+    if (this._progress >= 1) return;
+    if (durationS <= 0) {
+      this._progress = 1;
+      return;
+    }
+    this._progress = Math.min(1, this._progress + dt / durationS);
+  }
+
+  /** Collapse to settled-on-`to`, discarding any in-flight fade. */
+  settle(): void {
+    this._progress = 1;
+    this._from = null;
+  }
+}
+
+/**
+ * Compose one bone under the **unified** tracked/untracked path.
+ *
+ * There used to be two branches: a tracked one that scaled the animation by the
+ * section's Anim lever, and an untracked one that played the animation straight
+ * (`animInf = 1`). They switched instantly on `trackingLive` while the tracking
+ * weight ramped separately, so at the switchover the only difference left was the
+ * lever — and every section with Anim < 1 jumped by exactly `1 - anim`. Sections
+ * at Anim 1 didn't move at all, which is why only *part* of the pose snapped, and
+ * the two directions left `blend` in different intermediate states, which is why
+ * the snapping looked different each way.
+ *
+ * `mode` collapses that boundary: 0 = fully untracked (animation straight, no
+ * tracking), 1 = fully tracked (levers applied, tracking stacked). The lever and
+ * the tracking weight are both scaled by it, so `mode = 0` is *identical by
+ * construction* to the old untracked branch rather than merely similar — the two
+ * paths cannot drift apart again.
+ *
+ * Only the tracked side needs composing: at `mode = 0` the result is the animation
+ * pose itself, so there is no second buffer to build and blend against.
+ */
+export function composeBonePose(
+  rest: THREE.Quaternion,
+  animQ: THREE.Quaternion,
+  trackedQ: THREE.Quaternion | null,
+  animInf: number,
+  trackWeight: number,
+  mode: number,
+  out: THREE.Quaternion = new THREE.Quaternion()
+): THREE.Quaternion {
+  const m = mode < 0 ? 0 : mode > 1 ? 1 : mode;
+  // animInf ramps 1 → lever as the tracked mode takes over.
+  const effAnim = 1 + (animInf - 1) * m;
+  // Tracking only contributes in proportion to the tracked mode.
+  const effTrack = trackWeight * m;
+  return stackBoneRotation(rest, animQ, trackedQ, effAnim, effTrack, out);
+}
+
+/**
+ * The hips-position counterpart of `composeBonePose`: the legs Anim lever ramps in
+ * with the tracked mode, so root motion plays at full strength when untracked.
+ */
+export function composeHipsPositionBlended(
+  animPos: THREE.Vector3,
+  restPos: THREE.Vector3,
+  legsAnim: number,
+  animActive: boolean,
+  mode: number,
+  outPos: THREE.Vector3
+): THREE.Vector3 {
+  const m = mode < 0 ? 0 : mode > 1 ? 1 : mode;
+  return composeHipsPosition(
+    animPos,
+    restPos,
+    1 + (legsAnim - 1) * m,
+    animActive,
+    outPos
+  );
+}
+
+/**
  * Cross-fade between two animation poses for one bone.
  *
  * `t` is the fade progress in 0..1: 0 = fully `from`, 1 = fully `to`. Either side
