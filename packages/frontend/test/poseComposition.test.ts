@@ -107,3 +107,47 @@ describe('composeHipsPosition', () => {
     expect(out.equals(anim)).toBe(true);
   });
 });
+
+// ── Untracked idle contract ───────────────────────────────────────────────────
+//
+// Spec: with no tracking signal (or no enabled tracking source), the idle plays
+// **straight** — never routed through the partial-tracking levers. The Viewport's
+// untracked branch encodes that as animInf=1 / trackWeight=0, so these pin the
+// values that branch relies on. Regression guard: the branch previously passed
+// the section's Anim weight here, which drooped the idle toward rest (and erased
+// it entirely at Anim=0) whenever a lever was off-default.
+describe('untracked idle plays straight (animInf=1, trackWeight=0)', () => {
+  const rest = q(0.1, -0.2, 0.3);
+  const idle = q(0.5, 0.4, -0.1);
+
+  it('returns the idle pose exactly, whatever the levers would have said', () => {
+    const out = stackBoneRotation(rest, idle, null, 1, 0);
+    expectQuatClose(out, idle);
+  });
+
+  it('a null tracked pose contributes nothing even at full track weight', () => {
+    const out = stackBoneRotation(rest, idle, null, 1, 1);
+    expectQuatClose(out, idle);
+  });
+
+  it('scaling anim (the old behaviour) does NOT equal the idle — the bug', () => {
+    const drooped = stackBoneRotation(rest, idle, null, 0.5, 0);
+    expect(drooped.angleTo(idle)).toBeGreaterThan(1e-3);
+    // Anim=0 erased the idle back to rest entirely.
+    const erased = stackBoneRotation(rest, idle, null, 0, 0);
+    expectQuatClose(erased, rest);
+  });
+
+  it('hips root motion plays at full strength (legsAnim=1)', () => {
+    const animPos = new THREE.Vector3(0, 1.2, 0.3);
+    const restPos = new THREE.Vector3(0, 1.0, 0);
+    const out = composeHipsPosition(
+      animPos,
+      restPos,
+      1,
+      true,
+      new THREE.Vector3()
+    );
+    expect(out.equals(animPos)).toBe(true);
+  });
+});

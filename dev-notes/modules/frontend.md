@@ -118,7 +118,7 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 
   Bones absent from the broadcast pose are restored to `animQ`. This is how breathing (and any future additive producer) layers cleanly on top of an FBX-driven animation.
 
-**Tracking ↔ animation stacking**: in `override` blend mode Step 2 runs a universal per-bone **stacking** loop (rest → base animation by the section Anim influence, then the tracking delta scaled by Track stacked on top) via the pure `poseComposition.ts` `stackBoneRotation` helper + a `BONE_TO_SECTION` map. This replaced the old full-override `setNormalizedPose` + per-section branches. The avatar node's `poseSource` scales the layers per body section; a dedicated no-feed branch applies the Anim influence before any tracking source connects. See [animation.md](animation.md) (Tracking ↔ animation stacking + partial tracking).
+**Tracking ↔ animation stacking**: in `override` blend mode Step 2 runs a universal per-bone **stacking** loop (rest → base animation by the section Anim influence, then the tracking delta scaled by Track stacked on top) via the pure `poseComposition.ts` `stackBoneRotation` helper + a `BONE_TO_SECTION` map. This replaced the old full-override `setNormalizedPose` + per-section branches. The avatar node's `poseSource` scales the layers per body section; a dedicated no-feed branch plays the idle **straight** (full strength, levers not applied) whenever there is no live tracking. See [animation.md](animation.md) (Tracking ↔ animation stacking + partial tracking).
 
 `blendTransitionTime` is now read from the VRM avatar node's `properties.blendTransitionTime` (default 0.5s) and controls the ramp between blend modes (and between "apply" and "don't apply" when the bus drops the last producer).
 

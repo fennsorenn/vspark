@@ -594,16 +594,6 @@ function sectionInfluenceForBone(
   return poseSource[section] ?? DEFAULT_SECTION_INFLUENCE;
 }
 
-/** True when a poseSource map deviates from the legacy all-{anim:1,track:1}
- *  default, i.e. the per-section blend path should run. */
-function poseSourceIsActive(poseSource: PoseSource | undefined): boolean {
-  if (!poseSource) return false;
-  for (const v of Object.values(poseSource)) {
-    if (v && (v.anim !== 1 || v.track !== 1)) return true;
-  }
-  return false;
-}
-
 // Hips root-motion scratch (captured pre/post resetNormalizedPose, fed to
 // composeHipsPosition). The per-frame loop is single-threaded, so module-scoped
 // scratch avoids per-frame allocation.
@@ -2732,14 +2722,23 @@ function AvatarNode({
             hipsBone.position
           );
       }
-    } else if (
-      vrm &&
-      poseSourceIsActive(node.properties?.poseSource as PoseSource | undefined)
-    ) {
-      // Partial tracking with NO live tracking feed: there's no broadcast pose to
-      // mix in, but the per-section ANIM influence (rest↔clip) still applies, so
-      // the sliders visibly droop a section toward rest even before any VMC /
-      // camera source is connected. Mirrors the anim half of the tracked branch.
+    } else if (vrm) {
+      // No live tracking feed: the idle plays **straight** — full strength, not
+      // scaled by the partial-tracking sliders. Those levers describe how
+      // tracking blends against the *base* animation while a source is live;
+      // with nothing tracking there is nothing to weigh the idle against, and
+      // scaling it here made a section with Anim < 1 droop toward rest (Anim = 0
+      // erased the idle outright) whenever any slider was off-default.
+      //
+      // Runs on EVERY untracked frame, not just when a slider is off-default.
+      // This branch began life as a slider-preview path (gated on
+      // `poseSourceIsActive`, so it only ran with a lever moved) but it is also
+      // the only place an untracked idle gets composed — so with every slider at
+      // default it was skipped and the idle fell through to whatever Step 1's
+      // mixer left on the bones, with no resetNormalizedPose and no
+      // normalization. That worked by accident and made idle behaviour depend on
+      // whether a lever had been touched. The levers are meaningless without
+      // tracking, so they no longer gate this path.
       //
       // This runs only as the `else` of the live-broadcast branch above, i.e.
       // when there's no active pose to composite (blend ramped to 0 / empty
@@ -2747,10 +2746,9 @@ function AvatarNode({
       // not sending, the broadcast bus emits an *additive* fallback frame (empty
       // bones) so tracking ramps back to animation — which sets poseMode to
       // 'additive'. Gating on `poseMode !== 'additive'` there would skip this
-      // branch and leave the full animation playing with the sliders doing
-      // nothing. Genuine live additive tracking is handled by the branch above
-      // (this is its `else`), so dropping the guard can't double-apply.
-      const poseSource = node.properties?.poseSource as PoseSource | undefined;
+      // branch and leave the animation unplayed. Genuine live additive tracking
+      // is handled by the branch above (this is its `else`), so dropping the
+      // guard can't double-apply.
       const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
       const animQuats: Array<
         [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion]
@@ -2776,24 +2774,18 @@ function AvatarNode({
       // pose here, so the tracking term is dropped (trackedQ = null).
       const animActive = !!(reg && layer);
       for (const [name, bone, animQ] of animQuats) {
-        const inf = sectionInfluenceForBone(name, poseSource);
         const restQ = restRaw.get(name)!;
         const animContribution = animActive ? animQ : restQ;
-        stackBoneRotation(
-          restQ,
-          animContribution,
-          null,
-          inf.anim,
-          0,
-          bone.quaternion
-        );
+        // animInf = 1: straight idle, unscaled by the partial-tracking sliders.
+        stackBoneRotation(restQ, animContribution, null, 1, 0, bone.quaternion);
       }
-      // Hips root-motion position follows the legs section's Anim weight.
+      // Root motion plays at full strength too — same reasoning as the
+      // rotations above (legs Anim must not shrink the idle's translation).
       if (hipsBone)
         composeHipsPosition(
           _hipsAnimPos,
           _hipsRestPos,
-          sectionInfluenceForBone('leftUpperLeg', poseSource).anim,
+          1,
           animActive,
           hipsBone.position
         );
