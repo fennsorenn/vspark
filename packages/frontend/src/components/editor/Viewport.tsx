@@ -1162,6 +1162,753 @@ function _resolveAvatarAnimation(
   return { url: null, layer: null, msUntilNext };
 }
 
+/**
+ * Retarget one FBX/BVH clip onto a VRM skeleton, baking the result into
+ * VRM-space keyframe tracks. **Pure**: reads only its arguments, mutates nothing
+ * outside them, touches no refs and no React state — so it can safely be run more
+ * than once per avatar (idle and base each get their own bake).
+ *
+ * Extracted verbatim from the animation-load effect, which had grown to ~930
+ * lines with this inline and could therefore only ever bake a single clip.
+ *
+ * The five phases and the world-space delta convention are documented in
+ * dev-notes/modules/animation.md. Note the delta is taken against the FBX **bind**
+ * pose (`fbxBindWQ`), not frame 0.
+ *
+ * @param fbx      the loaded FBX scene (also used for its bind pose)
+ * @param clip     the source clip to bake (`fbx.animations[0]` at the call site)
+ * @param vrm      the target VRM
+ * @param frontYaw yaw that brings the VRM's rest front onto +Z (`faceCameraYaw`)
+ * @returns baked VRM tracks plus the intermediates the caller needs for the
+ *          duration clamp (`allTimes`, `outQVals`) and debug axes (`newCorrAxes`).
+ */
+function bakeRetargetedClip(
+  fbx: THREE.Group,
+  clip: THREE.AnimationClip,
+  vrm: VRM,
+  frontYaw: number,
+  /** Bone local quaternions snapshotted at load time (FBX A-pose / bind). */
+  loadTimeQ: Record<string, THREE.Quaternion>
+): {
+  vrmTracks: THREE.KeyframeTrack[];
+  allTimes: number[];
+  outQVals: Partial<Record<VRMHumanBoneName, Float32Array>>;
+  newCorrAxes: THREE.Object3D[];
+  VRM_TO_FBX: Partial<Record<VRMHumanBoneName, string>>;
+} {
+  // --- World-space hierarchical retargeting, baked offline ---
+  //
+  // Per bone per keyframe (root → leaf):
+  //   fbxWorldQ  = parentFBXWorldQ × trackQ
+  //   worldDelta = fbxWorldQ × fbxBindWQ⁻¹
+  //   targetWQ   = worldDelta × vrmBindWQ
+  //   vrmLocalQ  = vrmParentWorldQ⁻¹ × targetWQ
+
+  // --- Phase 1: FBX bind world Qs (no scene rotation) ---
+  // Skinned FBX: boneInverses are exact. Animation-only FBX (no SkinnedMesh):
+  // Three.js places bones at bind pose on load, so we chain local Qs root→leaf.
+  let skeleton: THREE.Skeleton | null = null;
+  fbx.traverse((o) => {
+    if ((o as THREE.SkinnedMesh).isSkinnedMesh && !skeleton)
+      skeleton = (o as THREE.SkinnedMesh).skeleton;
+  });
+  let fbxHipsNode: THREE.Object3D | null = null;
+  fbx.traverse((o) => {
+    if (HIPS_BONE_NAMES.has(o.name) && !fbxHipsNode) fbxHipsNode = o;
+  });
+
+  const fbxBindWQ: Record<string, THREE.Quaternion> = {};
+  const fbxBindWQInv: Record<string, THREE.Quaternion> = {};
+  const fbxRestLocalQ: Record<string, THREE.Quaternion> = {};
+  const fbxBoneParent: Record<string, string | null> = {};
+  if (skeleton) {
+    // Skinned FBX: use boneInverses for exact bind world Qs.
+    const sk = skeleton as THREE.Skeleton;
+    const _tp = new THREE.Vector3(),
+      _tq = new THREE.Quaternion(),
+      _ts = new THREE.Vector3();
+    for (let i = 0; i < sk.bones.length; i++) {
+      const bone = sk.bones[i];
+      if (!FBX_BONE_TO_VRM[bone.name]) continue;
+      sk.boneInverses[i].clone().invert().decompose(_tp, _tq, _ts);
+      const wq = _tq.clone().normalize();
+      fbxBindWQ[bone.name] = wq;
+      fbxBindWQInv[bone.name] = wq.clone().invert();
+      let par = bone.parent as THREE.Bone | null;
+      while (par && !FBX_BONE_TO_VRM[par.name ?? ''])
+        par = par.parent as THREE.Bone | null;
+      fbxBoneParent[bone.name] = par?.name ?? null;
+    }
+    // Bind-local Qs for skinned FBX: parentBindWQ⁻¹ × childBindWQ (from boneInverses).
+    // bone.quaternion is unreliable for skinned FBX (reflects animated frame, not bind pose).
+    for (const name of Object.keys(fbxBindWQ)) {
+      const pn = fbxBoneParent[name];
+      fbxRestLocalQ[name] = pn
+        ? fbxBindWQ[pn]!.clone().invert().multiply(fbxBindWQ[name]!)
+        : fbxBindWQ[name]!.clone();
+    }
+  } else {
+    // Animation-only FBX (no SkinnedMesh): Three.js places bones at their bind
+    // pose on load, so we chain local quaternions root→leaf for the world Qs.
+    const rigNodes: Record<string, THREE.Object3D> = {};
+    fbx.traverse((o) => {
+      if (FBX_BONE_TO_VRM[o.name]) rigNodes[o.name] = o;
+    });
+    for (const [name, node] of Object.entries(rigNodes)) {
+      let par = node.parent;
+      while (par && !rigNodes[par.name]) par = par.parent;
+      fbxBoneParent[name] = par?.name ?? null;
+    }
+    const depthOf = (n: string): number => {
+      let d = 0,
+        cur: string | null = fbxBoneParent[n];
+      while (cur) {
+        d++;
+        cur = fbxBoneParent[cur];
+      }
+      return d;
+    };
+    const curWQ: Record<string, THREE.Quaternion> = {};
+    for (const name of Object.keys(rigNodes).sort(
+      (a, b) => depthOf(a) - depthOf(b)
+    )) {
+      const localQ = loadTimeQ[name] ?? rigNodes[name].quaternion;
+      const pWQ = fbxBoneParent[name]
+        ? curWQ[fbxBoneParent[name]!]
+        : undefined;
+      const wq = pWQ ? pWQ.clone().multiply(localQ) : localQ.clone();
+      curWQ[name] = wq;
+      fbxBindWQ[name] = wq.clone();
+      fbxBindWQInv[name] = wq.clone().invert();
+      fbxRestLocalQ[name] = localQ.clone();
+    }
+  }
+
+  // --- Phase 2: VRM bind world Qs (chain product, no scene rotation) ---
+  // The bind reference below is read from each bone's *live* local
+  // quaternion, so the rig must be at its rest pose when we bake. If a clip
+  // was already playing (e.g. switching idle A→B without clearing first),
+  // the bones still hold A's last pose and B would retarget against a
+  // distorted reference. Reset both pose layers (whichever the prior clip
+  // drove) to the model's rest pose so a direct switch bakes identically to
+  // a fresh load, then refresh world matrices for the world-space reads.
+  vrm.humanoid.resetNormalizedPose();
+  vrm.humanoid.resetRawPose();
+  vrm.humanoid.update();
+  vrm.scene.updateMatrixWorld(true);
+  const allVRMBoneNames = [
+    ...new Set(Object.values(FBX_BONE_TO_VRM) as VRMHumanBoneName[]),
+  ];
+  const vrmBoneObj: Partial<Record<VRMHumanBoneName, THREE.Object3D>> = {};
+  for (const n of allVRMBoneNames) {
+    const b = vrm.humanoid.getRawBoneNode(n);
+    if (b) vrmBoneObj[n] = b;
+  }
+
+  // Root reframe for the retarget: rotate the humanoid root by the same yaw
+  // that orients the avatar at the camera (frontYawRef, from faceCameraYaw).
+  // The clip is authored facing world +Z (e.g. Mixamo), and faceCameraYaw
+  // rotates the avatar's rest front onto +Z too — so threading this yaw
+  // through the bind (Phase 2) and per-frame (Phase 4) chains makes the
+  // retarget's basis line up with the clip (`fullRot` collapses to just the
+  // A-pose lean). The net rendered animation becomes `worldDelta × (camera-
+  // facing rest pose)`, identical across VRM 0.x / 1.0 instead of flipped
+  // 180° for whichever convention faces away from the clip. Identity when the
+  // rest pose already faces +Z (the historical no-op case).
+  const rootParentWQ = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0, 1, 0),
+    frontYaw
+  );
+  const rootParentWQInv = rootParentWQ.clone().invert();
+
+  const vrmNodeToName = new Map<THREE.Object3D, VRMHumanBoneName>();
+  for (const n of allVRMBoneNames) {
+    const b = vrmBoneObj[n];
+    if (b) vrmNodeToName.set(b, n);
+  }
+  const vrmBoneParent: Partial<
+    Record<VRMHumanBoneName, VRMHumanBoneName | null>
+  > = {};
+  for (const n of allVRMBoneNames) {
+    const b = vrmBoneObj[n];
+    if (!b) continue;
+    let par = b.parent,
+      found: VRMHumanBoneName | null = null,
+      limit = 64;
+    while (par && limit-- > 0) {
+      const m = vrmNodeToName.get(par);
+      if (m) {
+        found = m;
+        break;
+      }
+      par = par.parent;
+    }
+    vrmBoneParent[n] = found;
+  }
+
+  const depthCache: Record<string, number> = {};
+  const getDepth = (mb: string): number => {
+    if (depthCache[mb] !== undefined) return depthCache[mb];
+    const p = fbxBoneParent[mb];
+    let d = 0,
+      limit = 64;
+    let cur = p;
+    while (cur && limit-- > 0) {
+      d++;
+      cur = fbxBoneParent[cur];
+    }
+    return (depthCache[mb] = d);
+  };
+  const bonesInOrder = (Object.keys(FBX_BONE_TO_VRM) as string[])
+    .filter(
+      (mb) =>
+        fbxBindWQ[mb] && vrmBoneObj[FBX_BONE_TO_VRM[mb] as VRMHumanBoneName]
+    )
+    .sort((a, b) => getDepth(a) - getDepth(b));
+
+  const vrmBindWQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> = {};
+  const vrmBindWQInv: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
+    {};
+  for (const mb of bonesInOrder) {
+    const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
+    const bone = vrmBoneObj[vn]!;
+    const pn = vrmBoneParent[vn];
+    // Root bones (no humanoid parent) seed from the reframe rotation instead
+    // of identity, so the whole bind chain is expressed in the clip-aligned
+    // frame. See rootParentWQ above.
+    const pWQ = pn ? vrmBindWQ[pn]! : rootParentWQ;
+    const wq = pWQ.clone().multiply(bone.quaternion);
+    vrmBindWQ[vn] = wq;
+    vrmBindWQInv[vn] = wq.clone().invert();
+  }
+
+  // VRM bind-local Qs: vrmParentBindWQ⁻¹ × vrmBoneBindWQ
+  const vrmBindLocalQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
+    {};
+  for (const mb of bonesInOrder) {
+    const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
+    const vpn = vrmBoneParent[vn];
+    vrmBindLocalQ[vn] = vpn
+      ? vrmBindWQ[vpn]!.clone().invert().multiply(vrmBindWQ[vn]!)
+      : vrmBindWQ[vn]!.clone();
+  }
+
+  // Log bind world Qs for arm bones to verify A-pose vs T-pose
+  for (const [mb, vn] of [
+    ['upperarm_l', 'leftUpperArm'],
+    ['upperarm_r', 'rightUpperArm'],
+  ] as const) {
+    const fq = fbxBindWQ[mb];
+    const vq = vrmBindWQ[vn as VRMHumanBoneName];
+    if (fq)
+      console.log(
+        `[bindWQ] fbx ${mb} = (${fq.x.toFixed(3)},${fq.y.toFixed(3)},${fq.z.toFixed(3)},${fq.w.toFixed(3)})`
+      );
+    if (vq)
+      console.log(
+        `[bindWQ] vrm ${vn} = (${vq.x.toFixed(3)},${vq.y.toFixed(3)},${vq.z.toFixed(3)},${vq.w.toFixed(3)})`
+      );
+  }
+
+  // --- A-pose correction: compute per-bone VRM world Q after applying the FBX A-pose ---
+  // See memory:fbx-apose-retargeting. This is the same algorithm used in the bind-pose
+  // visualization, but computed purely from data (positions + world Qs) without
+  // touching any live Three.js objects, so it's available synchronously for Phase 4.
+  const vrmAposeWQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
+    {};
+  const vrmAposeWQInv: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
+    {};
+
+  const PREFERRED_VRM_CHILD: Partial<
+    Record<VRMHumanBoneName, VRMHumanBoneName>
+  > = {
+    hips: 'spine',
+    spine: 'chest',
+    chest: 'upperChest',
+    upperChest: 'neck',
+    neck: 'head',
+    leftShoulder: 'leftUpperArm',
+    rightShoulder: 'rightUpperArm',
+    leftUpperArm: 'leftLowerArm',
+    rightUpperArm: 'rightLowerArm',
+    leftLowerArm: 'leftHand',
+    rightLowerArm: 'rightHand',
+    leftUpperLeg: 'leftLowerLeg',
+    rightUpperLeg: 'rightLowerLeg',
+    leftLowerLeg: 'leftFoot',
+    rightLowerLeg: 'rightFoot',
+    leftFoot: 'leftToes',
+    rightFoot: 'rightToes',
+  };
+  const VRM_TO_FBX: Partial<Record<VRMHumanBoneName, string>> = {};
+  for (const [fb, vb] of Object.entries(FBX_BONE_TO_VRM)) {
+    if (!fbxBindWQ[fb]) continue;
+    if (!VRM_TO_FBX[vb as VRMHumanBoneName])
+      VRM_TO_FBX[vb as VRMHumanBoneName] = fb;
+  }
+  const fbxChild: Record<string, string | null> = {};
+  for (const name of Object.keys(fbxBindWQ)) {
+    const vn = FBX_BONE_TO_VRM[name] as VRMHumanBoneName | undefined;
+    const preferredV = vn ? PREFERRED_VRM_CHILD[vn] : undefined;
+    fbxChild[name] = preferredV ? (VRM_TO_FBX[preferredV] ?? null) : null;
+  }
+  for (const name of Object.keys(fbxBindWQ)) {
+    if (fbxChild[name]) continue;
+    for (const candidate of Object.keys(fbxBindWQ)) {
+      if (fbxBoneParent[candidate] === name) {
+        fbxChild[name] = candidate;
+        break;
+      }
+    }
+  }
+  const vrmChild: Partial<Record<VRMHumanBoneName, VRMHumanBoneName>> = {};
+  for (const n of allVRMBoneNames) {
+    const preferred = PREFERRED_VRM_CHILD[n];
+    if (preferred && vrmBoneObj[preferred]) {
+      vrmChild[n] = preferred;
+      continue;
+    }
+    for (const candidate of allVRMBoneNames) {
+      if (vrmBoneParent[candidate] === n) {
+        vrmChild[n] = candidate;
+        break;
+      }
+    }
+  }
+  const fbxBoneNode: Record<string, THREE.Object3D> = {};
+  fbx.traverse((o) => {
+    if (FBX_BONE_TO_VRM[o.name] && !fbxBoneNode[o.name])
+      fbxBoneNode[o.name] = o;
+  });
+
+  // Detect the FBX's "up axis" by looking at which world axis the hips→spine
+  // direction most aligns with. UE4 has root with 90°X (Z-up→Y-up baked in) →
+  // spine points +Y. UE5 has identity root → spine points +Z (Z-up native).
+  // Build a coordinate-fix rotation that brings whatever the FBX considers "up"
+  // back to world +Y. Apply this fix to ALL fbxBindWQ values.
+  const hipsFbxName = VRM_TO_FBX.hips;
+  const spineFbxName = VRM_TO_FBX.spine;
+  const fbxCoordFix = new THREE.Quaternion();
+  if (
+    hipsFbxName &&
+    spineFbxName &&
+    fbxBindWQ[hipsFbxName] &&
+    fbxBoneNode[spineFbxName]
+  ) {
+    const fbxSpineDir = fbxBoneNode[spineFbxName].position
+      .clone()
+      .normalize()
+      .applyQuaternion(fbxBindWQ[hipsFbxName]!);
+    // Find the world axis closest to fbxSpineDir
+    const ax = Math.abs(fbxSpineDir.x),
+      ay = Math.abs(fbxSpineDir.y),
+      az = Math.abs(fbxSpineDir.z);
+    let majorAxis = new THREE.Vector3(0, 1, 0);
+    if (ax > ay && ax > az) majorAxis.set(Math.sign(fbxSpineDir.x), 0, 0);
+    else if (az > ay) majorAxis.set(0, 0, Math.sign(fbxSpineDir.z));
+    else majorAxis.set(0, Math.sign(fbxSpineDir.y), 0);
+    // Rotation that maps majorAxis → world +Y
+    fbxCoordFix.setFromUnitVectors(majorAxis, new THREE.Vector3(0, 1, 0));
+    console.log(
+      `[fbxCoordFix] spineDir=(${fbxSpineDir.x.toFixed(2)},${fbxSpineDir.y.toFixed(2)},${fbxSpineDir.z.toFixed(2)}) major=(${majorAxis.x.toFixed(0)},${majorAxis.y.toFixed(0)},${majorAxis.z.toFixed(0)}) fix=(${fbxCoordFix.x.toFixed(3)},${fbxCoordFix.y.toFixed(3)},${fbxCoordFix.z.toFixed(3)},${fbxCoordFix.w.toFixed(3)})`
+    );
+    // Apply the fix to all fbxBindWQ values: newWQ = fix × oldWQ
+    for (const k of Object.keys(fbxBindWQ)) {
+      const fixed = fbxCoordFix.clone().multiply(fbxBindWQ[k]);
+      fbxBindWQ[k].copy(fixed);
+      fbxBindWQInv[k].copy(fixed).invert();
+    }
+  }
+
+  // 1. Hips: full 3-axis basis alignment.
+  const lThighFbxName = VRM_TO_FBX.leftUpperLeg;
+  const rThighFbxName = VRM_TO_FBX.rightUpperLeg;
+  if (
+    hipsFbxName &&
+    spineFbxName &&
+    lThighFbxName &&
+    rThighFbxName &&
+    vrmBoneObj.hips &&
+    vrmBoneObj.spine &&
+    vrmBoneObj.leftUpperLeg &&
+    vrmBoneObj.rightUpperLeg &&
+    fbxBoneNode[spineFbxName] &&
+    fbxBoneNode[lThighFbxName] &&
+    fbxBoneNode[rThighFbxName]
+  ) {
+    const hipsBindWQ = vrmBindWQ.hips!;
+    const vUp = vrmBoneObj.spine.position
+      .clone()
+      .normalize()
+      .applyQuaternion(hipsBindWQ);
+    const vRight = new THREE.Vector3()
+      .subVectors(
+        vrmBoneObj.leftUpperLeg.position,
+        vrmBoneObj.rightUpperLeg.position
+      )
+      .normalize()
+      .applyQuaternion(hipsBindWQ);
+    const vForward = new THREE.Vector3()
+      .crossVectors(vRight, vUp)
+      .normalize();
+    const vRight2 = new THREE.Vector3()
+      .crossVectors(vUp, vForward)
+      .normalize();
+    const vrmBasis = new THREE.Matrix4().makeBasis(vRight2, vUp, vForward);
+
+    const hipsFbxWQ = fbxBindWQ[hipsFbxName]!;
+    const fUp = fbxBoneNode[spineFbxName].position
+      .clone()
+      .normalize()
+      .applyQuaternion(hipsFbxWQ);
+    const fRight = new THREE.Vector3()
+      .subVectors(
+        fbxBoneNode[lThighFbxName].position,
+        fbxBoneNode[rThighFbxName].position
+      )
+      .normalize()
+      .applyQuaternion(hipsFbxWQ);
+    const fForward = new THREE.Vector3()
+      .crossVectors(fRight, fUp)
+      .normalize();
+    const fRight2 = new THREE.Vector3()
+      .crossVectors(fUp, fForward)
+      .normalize();
+    const fbxBasis = new THREE.Matrix4().makeBasis(fRight2, fUp, fForward);
+
+    const fullRot = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().multiplyMatrices(
+        fbxBasis,
+        vrmBasis.clone().invert()
+      )
+    );
+    vrmAposeWQ.hips = fullRot.clone().multiply(hipsBindWQ);
+  } else {
+    vrmAposeWQ.hips = vrmBindWQ.hips?.clone();
+  }
+
+  // 2. Other non-hips, non-leaf bones: single-axis swing aligning child direction.
+  // Process root→leaf using bonesInOrder.
+  for (const mb of bonesInOrder) {
+    const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
+    if (vn === 'hips') continue;
+    const bindWQ = vrmBindWQ[vn];
+    if (!bindWQ) continue;
+    const childMb = fbxChild[mb];
+    const childVn = vrmChild[vn];
+
+    // Start from bind WQ, then apply parent's accumulated swing in world space.
+    // The parent's "extra rotation" beyond bind = vrmAposeWQ[parent] × vrmBindWQInv[parent].
+    const vpn = vrmBoneParent[vn];
+    const parentExtra =
+      vpn && vrmAposeWQ[vpn] && vrmBindWQInv[vpn]
+        ? vrmAposeWQ[vpn]!.clone().multiply(vrmBindWQInv[vpn]!)
+        : new THREE.Quaternion();
+    const swungBoneBindWQ = parentExtra.clone().multiply(bindWQ);
+
+    if (childMb && childVn && vrmBoneObj[childVn] && fbxBoneNode[childMb]) {
+      const vrmChildPos = vrmBoneObj[childVn]!.position;
+      const fbxChildPos = fbxBoneNode[childMb].position;
+      if (
+        vrmChildPos.lengthSq() > 1e-10 &&
+        fbxChildPos.lengthSq() > 1e-10
+      ) {
+        const vrmDir = vrmChildPos
+          .clone()
+          .normalize()
+          .applyQuaternion(swungBoneBindWQ);
+        const fbxDir = fbxChildPos
+          .clone()
+          .normalize()
+          .applyQuaternion(fbxBindWQ[mb]!);
+        const swing = new THREE.Quaternion().setFromUnitVectors(
+          vrmDir,
+          fbxDir
+        );
+        // newWQ = swing × swungBoneBindWQ
+        const newWQ = swing.multiply(swungBoneBindWQ);
+
+        // Hand basis correction
+        const isHand = vn === 'leftHand' || vn === 'rightHand';
+        if (isHand) {
+          const middleVn = (
+            vn === 'leftHand' ? 'leftMiddleProximal' : 'rightMiddleProximal'
+          ) as VRMHumanBoneName;
+          const littleVn = (
+            vn === 'leftHand' ? 'leftLittleProximal' : 'rightLittleProximal'
+          ) as VRMHumanBoneName;
+          const middleFbx = VRM_TO_FBX[middleVn];
+          const littleFbx = VRM_TO_FBX[littleVn];
+          if (
+            vrmBoneObj[middleVn] &&
+            vrmBoneObj[littleVn] &&
+            middleFbx &&
+            littleFbx &&
+            fbxBoneNode[middleFbx] &&
+            fbxBoneNode[littleFbx]
+          ) {
+            const vMid = vrmBoneObj[middleVn]!.position.clone()
+              .normalize()
+              .applyQuaternion(newWQ);
+            const vLit = vrmBoneObj[littleVn]!.position.clone()
+              .normalize()
+              .applyQuaternion(newWQ);
+            const fMid = fbxBoneNode[middleFbx].position
+              .clone()
+              .normalize()
+              .applyQuaternion(fbxBindWQ[mb]!);
+            const fLit = fbxBoneNode[littleFbx].position
+              .clone()
+              .normalize()
+              .applyQuaternion(fbxBindWQ[mb]!);
+            const vF = vMid.clone().normalize();
+            const vS = vLit.clone().normalize();
+            const vU = new THREE.Vector3().crossVectors(vF, vS).normalize();
+            // Ensure vU and fU both point the same anatomical direction (palm normal
+            // = downward in world for A-pose). Use fU's sign as the reference and
+            // match vU to it so both bases represent the same palm orientation.
+            const fF = fMid.clone().normalize();
+            const fS = fLit.clone().normalize();
+            const fU = new THREE.Vector3().crossVectors(fF, fS).normalize();
+            // Canonical palm normal: whichever of ±fU points more downward (-Y)
+            if (fU.y > 0) fU.multiplyScalar(-1);
+            // Match vU chirality to fU
+            if (vU.dot(fU) < 0) vU.multiplyScalar(-1);
+            const vR = new THREE.Vector3().crossVectors(vU, vF).normalize();
+            const vMat = new THREE.Matrix4().makeBasis(vR, vU, vF);
+            const fR = new THREE.Vector3().crossVectors(fU, fF).normalize();
+            const fMat = new THREE.Matrix4().makeBasis(fR, fU, fF);
+            const handRot = new THREE.Quaternion().setFromRotationMatrix(
+              new THREE.Matrix4().multiplyMatrices(fMat, vMat.invert())
+            );
+            vrmAposeWQ[vn] = handRot.multiply(newWQ);
+            continue;
+          }
+        }
+        vrmAposeWQ[vn] = newWQ;
+        continue;
+      }
+    }
+    // Leaf or no valid child: just inherit parent extra (= swungBoneBindWQ)
+    vrmAposeWQ[vn] = swungBoneBindWQ;
+  }
+
+  for (const vn of Object.keys(vrmAposeWQ) as VRMHumanBoneName[]) {
+    if (vrmAposeWQ[vn])
+      vrmAposeWQInv[vn] = vrmAposeWQ[vn]!.clone().invert();
+  }
+  console.log(
+    '[apose] computed corrections for',
+    Object.keys(vrmAposeWQ).length,
+    'bones'
+  );
+
+  // --- Phase 3: Create interpolants, collect keyframe times ---
+  const qInterp: Record<string, THREE.Interpolant> = {};
+  let hipsPosTrack: THREE.KeyframeTrack | null = null;
+  for (const track of clip.tracks) {
+    const d = track.name.indexOf('.'),
+      bone = track.name.slice(0, d),
+      prop = track.name.slice(d + 1);
+    if (prop === 'quaternion') qInterp[bone] = track.createInterpolant();
+    if (prop === 'position' && HIPS_BONE_NAMES.has(bone))
+      hipsPosTrack = track;
+  }
+  const refTrack = clip.tracks.find((t) => t.name.endsWith('.quaternion'));
+  const allTimes = refTrack ? Array.from(refTrack.times) : [];
+
+  // --- Phase 4: Bake retargeted quaternions per-frame (world-space delta) ---
+  //
+  // Per bone per keyframe (root → leaf):
+  //   fbxWorldQ  = parentFBXWorldQ × trackQ      (fbxRootQ seeds root bones)
+  //   worldDelta = fbxWorldQ × fbxBindWQ⁻¹
+  //   targetWQ   = worldDelta × vrmBindWQ
+  //   vrmLocalQ  = vrmParentWorldQ⁻¹ × targetWQ
+  //
+  // fbxRootQ carries the FBXLoader's coordinate-system correction (e.g. Z-up→Y-up for
+  // UE4). Using it as the root parent ensures our world Qs match what SkeletonHelper sees.
+  const outQVals: Partial<Record<VRMHumanBoneName, Float32Array>> = {};
+  for (const mb of bonesInOrder)
+    outQVals[FBX_BONE_TO_VRM[mb] as VRMHumanBoneName] = new Float32Array(
+      allTimes.length * 4
+    );
+
+  const curFBXWQ: Record<string, THREE.Quaternion> = {};
+  const curVRMWQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> = {};
+  for (const mb of bonesInOrder) {
+    curFBXWQ[mb] = new THREE.Quaternion();
+    curVRMWQ[FBX_BONE_TO_VRM[mb] as VRMHumanBoneName] =
+      new THREE.Quaternion();
+  }
+
+  const IDQ = new THREE.Quaternion();
+  const _q = new THREE.Quaternion();
+  const _delta = new THREE.Quaternion();
+  const _inv = new THREE.Quaternion();
+
+  // DEAD CODE — computed but never read. The bake below uses `fbxBindWQInv`
+  // (the FBX *bind* pose) as its reference, not this frame-0 chain. Kept for
+  // now because the frame-0 scheme it implements may be wanted again, but the
+  // stale claim that retargeting is frame-0-relative (here and in
+  // animation.md) has already misled debugging more than once — treat
+  // `fbxBindWQInv` at the `_delta` computation as the source of truth.
+  const fbxRefWQ: Record<string, THREE.Quaternion> = {};
+  const fbxRefWQInv: Record<string, THREE.Quaternion> = {};
+  if (allTimes.length > 0) {
+    const t0 = allTimes[0];
+    const sortedBones = [...bonesInOrder];
+    // bonesInOrder is already in parent-before-child order (sort by depth happens earlier)
+    for (const mb of sortedBones) {
+      let lq: THREE.Quaternion;
+      if (qInterp[mb]) {
+        const r = qInterp[mb].evaluate(t0);
+        lq = new THREE.Quaternion(r[0], r[1], r[2], r[3]).normalize();
+      } else {
+        lq = (fbxRestLocalQ[mb] ?? new THREE.Quaternion()).clone();
+      }
+      const fbxPN = fbxBoneParent[mb];
+      const parentWQ = fbxPN ? fbxRefWQ[fbxPN] : IDQ;
+      const wq = parentWQ.clone().multiply(lq);
+      fbxRefWQ[mb] = wq;
+      fbxRefWQInv[mb] = wq.clone().invert();
+    }
+  } else {
+    for (const mb of bonesInOrder) {
+      fbxRefWQ[mb] = fbxBindWQ[mb]!.clone();
+      fbxRefWQInv[mb] = fbxBindWQInv[mb]!.clone();
+    }
+  }
+
+  // Log frame-0 track Q vs loadTimeQ for arm bones
+  for (const mb of ['upperarm_l', 'upperarm_r']) {
+    const lq = fbxRestLocalQ[mb];
+    const interp = qInterp[mb];
+    if (lq && interp && allTimes.length > 0) {
+      const r = interp.evaluate(allTimes[0]);
+      const tq = new THREE.Quaternion(r[0], r[1], r[2], r[3]).normalize();
+      console.log(
+        `[frame0] ${mb} loadTimeQ=(${lq.x.toFixed(3)},${lq.y.toFixed(3)},${lq.z.toFixed(3)},${lq.w.toFixed(3)}) trackQ[0]=(${tq.x.toFixed(3)},${tq.y.toFixed(3)},${tq.z.toFixed(3)},${tq.w.toFixed(3)})`
+      );
+    }
+  }
+
+  for (let ti = 0; ti < allTimes.length; ti++) {
+    const t = allTimes[ti];
+    for (const mb of bonesInOrder) {
+      const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
+      if (qInterp[mb]) {
+        const r = qInterp[mb].evaluate(t);
+        _q.set(r[0], r[1], r[2], r[3]).normalize();
+      } else {
+        _q.copy(IDQ);
+      }
+      const fbxPN = fbxBoneParent[mb];
+      const parentFBXWQ = fbxPN ? curFBXWQ[fbxPN] : fbxCoordFix;
+      curFBXWQ[mb].copy(parentFBXWQ).multiply(_q);
+      _delta
+        .copy(curFBXWQ[mb])
+        .multiply(fbxBindWQInv[mb]!)
+        .multiply(vrmAposeWQ[vn] ?? vrmBindWQ[vn]!);
+      if (
+        (ti === 0 ||
+          ti === allTimes.length - 1 ||
+          ti === allTimes.length - 2) &&
+        (mb === 'upperarm_l' || mb === 'upperarm_r')
+      ) {
+        const fwq2 = curFBXWQ[mb];
+        const bwq2 = fbxBindWQ[mb]!;
+        console.log(
+          `[ph4 ti=${ti}/${allTimes.length - 1} t=${t.toFixed(3)}] ${mb} curFBXWQ=(${fwq2.x.toFixed(3)},${fwq2.y.toFixed(3)},${fwq2.z.toFixed(3)},${fwq2.w.toFixed(3)}) bind=(${bwq2.x.toFixed(3)},${bwq2.y.toFixed(3)},${bwq2.z.toFixed(3)},${bwq2.w.toFixed(3)})`
+        );
+      }
+      if (ti === 0 && (mb === 'upperarm_l' || mb === 'upperarm_r')) {
+        const fwq = curFBXWQ[mb];
+        const bwq = fbxBindWQ[mb]!;
+        // angle of delta (how much frame0 rotated from bind)
+        const dAngle =
+          (2 * Math.acos(Math.min(1, Math.abs(_delta.w))) * 180) / Math.PI;
+        // angle of bind (how rotated bind itself is from identity)
+        const bAngle =
+          (2 * Math.acos(Math.min(1, Math.abs(bwq.w))) * 180) / Math.PI;
+        console.log(
+          `[ph4 ti=0] ${mb} bind=(${bwq.x.toFixed(3)},${bwq.y.toFixed(3)},${bwq.z.toFixed(3)},${bwq.w.toFixed(3)})[${bAngle.toFixed(1)}°] frame0=(${fwq.x.toFixed(3)},${fwq.y.toFixed(3)},${fwq.z.toFixed(3)},${fwq.w.toFixed(3)}) delta[${dAngle.toFixed(1)}°]`
+        );
+      }
+      curVRMWQ[vn]!.copy(_delta);
+      const vrmPN = vrmBoneParent[vn];
+      // Root bones convert to local against the reframe rotation (same seed
+      // as the bind chain in Phase 2), so the baked track renders back to the
+      // intended clip-aligned world pose. See rootParentWQ above.
+      const parentVRMWQ = vrmPN ? curVRMWQ[vrmPN] : rootParentWQ;
+      _inv.copy(parentVRMWQ ?? rootParentWQ).invert();
+      _q.copy(_inv).multiply(_delta);
+      const base = ti * 4,
+        arr = outQVals[vn]!;
+      arr[base] = _q.x;
+      arr[base + 1] = _q.y;
+      arr[base + 2] = _q.z;
+      arr[base + 3] = _q.w;
+    }
+  }
+
+  // --- Phase 5: Build VRM tracks ---
+  const vrmTracks: THREE.KeyframeTrack[] = [];
+  const newCorrAxes: THREE.Object3D[] = [];
+  const _v = new THREE.Vector3();
+
+  for (const mb of bonesInOrder) {
+    const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
+    const bone = vrmBoneObj[vn];
+    if (!bone) continue;
+    vrmTracks.push(
+      new THREE.QuaternionKeyframeTrack(
+        `${bone.name}.quaternion`,
+        allTimes,
+        outQVals[vn]!
+      )
+    );
+  }
+
+  // Hips position
+  if (hipsPosTrack && fbxHipsNode) {
+    const fbxRestPos = (fbxHipsNode as THREE.Object3D).position.clone();
+    const vrmHipsBone = vrmBoneObj['hips'];
+    const vrmRestPos = vrmHipsBone
+      ? vrmHipsBone.position.clone()
+      : new THREE.Vector3();
+    const values = new Float32Array(hipsPosTrack.values.length);
+    for (let i = 0; i < hipsPosTrack.values.length; i += 3) {
+      _v.set(
+        hipsPosTrack.values[i],
+        hipsPosTrack.values[i + 1],
+        hipsPosTrack.values[i + 2]
+      );
+      // Delta from FBX rest, in FBX coordinate frame
+      _v.sub(fbxRestPos);
+      // Map FBX coord frame → VRM coord frame (e.g. Z-up → Y-up)
+      _v.applyQuaternion(fbxCoordFix);
+      // Re-express the translation in the reframed hips-local frame so it
+      // matches the reframed rotation chain (identity when no reframe). See
+      // rootParentWQ above.
+      _v.applyQuaternion(rootParentWQInv);
+      _v.multiplyScalar(0.01).add(vrmRestPos);
+      values[i] = _v.x;
+      values[i + 1] = _v.y;
+      values[i + 2] = _v.z;
+    }
+    vrmTracks.push(
+      new THREE.VectorKeyframeTrack(
+        `${vrmHipsBone!.name}.position`,
+        Array.from(hipsPosTrack.times),
+        values
+      )
+    );
+  }
+
+  return { vrmTracks, allTimes, outQVals, newCorrAxes, VRM_TO_FBX };
+}
+
+
 function AvatarNode({
   node,
   children,
@@ -1748,715 +2495,14 @@ function AvatarNode({
         console.log('[fbxChain] fbx→pelvis:', path.join(' → '));
       }
 
-      // --- World-space hierarchical retargeting, baked offline ---
-      //
-      // Per bone per keyframe (root → leaf):
-      //   fbxWorldQ  = parentFBXWorldQ × trackQ
-      //   worldDelta = fbxWorldQ × fbxBindWQ⁻¹
-      //   targetWQ   = worldDelta × vrmBindWQ
-      //   vrmLocalQ  = vrmParentWorldQ⁻¹ × targetWQ
-
-      // --- Phase 1: FBX bind world Qs (no scene rotation) ---
-      // Skinned FBX: boneInverses are exact. Animation-only FBX (no SkinnedMesh):
-      // Three.js places bones at bind pose on load, so we chain local Qs root→leaf.
-      let skeleton: THREE.Skeleton | null = null;
-      fbx.traverse((o) => {
-        if ((o as THREE.SkinnedMesh).isSkinnedMesh && !skeleton)
-          skeleton = (o as THREE.SkinnedMesh).skeleton;
-      });
-      let fbxHipsNode: THREE.Object3D | null = null;
-      fbx.traverse((o) => {
-        if (HIPS_BONE_NAMES.has(o.name) && !fbxHipsNode) fbxHipsNode = o;
-      });
-
-      const fbxBindWQ: Record<string, THREE.Quaternion> = {};
-      const fbxBindWQInv: Record<string, THREE.Quaternion> = {};
-      const fbxRestLocalQ: Record<string, THREE.Quaternion> = {};
-      const fbxBoneParent: Record<string, string | null> = {};
-      if (skeleton) {
-        // Skinned FBX: use boneInverses for exact bind world Qs.
-        const sk = skeleton as THREE.Skeleton;
-        const _tp = new THREE.Vector3(),
-          _tq = new THREE.Quaternion(),
-          _ts = new THREE.Vector3();
-        for (let i = 0; i < sk.bones.length; i++) {
-          const bone = sk.bones[i];
-          if (!FBX_BONE_TO_VRM[bone.name]) continue;
-          sk.boneInverses[i].clone().invert().decompose(_tp, _tq, _ts);
-          const wq = _tq.clone().normalize();
-          fbxBindWQ[bone.name] = wq;
-          fbxBindWQInv[bone.name] = wq.clone().invert();
-          let par = bone.parent as THREE.Bone | null;
-          while (par && !FBX_BONE_TO_VRM[par.name ?? ''])
-            par = par.parent as THREE.Bone | null;
-          fbxBoneParent[bone.name] = par?.name ?? null;
-        }
-        // Bind-local Qs for skinned FBX: parentBindWQ⁻¹ × childBindWQ (from boneInverses).
-        // bone.quaternion is unreliable for skinned FBX (reflects animated frame, not bind pose).
-        for (const name of Object.keys(fbxBindWQ)) {
-          const pn = fbxBoneParent[name];
-          fbxRestLocalQ[name] = pn
-            ? fbxBindWQ[pn]!.clone().invert().multiply(fbxBindWQ[name]!)
-            : fbxBindWQ[name]!.clone();
-        }
-      } else {
-        // Animation-only FBX (no SkinnedMesh): Three.js places bones at their bind
-        // pose on load, so we chain local quaternions root→leaf for the world Qs.
-        const rigNodes: Record<string, THREE.Object3D> = {};
-        fbx.traverse((o) => {
-          if (FBX_BONE_TO_VRM[o.name]) rigNodes[o.name] = o;
-        });
-        for (const [name, node] of Object.entries(rigNodes)) {
-          let par = node.parent;
-          while (par && !rigNodes[par.name]) par = par.parent;
-          fbxBoneParent[name] = par?.name ?? null;
-        }
-        const depthOf = (n: string): number => {
-          let d = 0,
-            cur: string | null = fbxBoneParent[n];
-          while (cur) {
-            d++;
-            cur = fbxBoneParent[cur];
-          }
-          return d;
-        };
-        const curWQ: Record<string, THREE.Quaternion> = {};
-        for (const name of Object.keys(rigNodes).sort(
-          (a, b) => depthOf(a) - depthOf(b)
-        )) {
-          const localQ = loadTimeQ[name] ?? rigNodes[name].quaternion;
-          const pWQ = fbxBoneParent[name]
-            ? curWQ[fbxBoneParent[name]!]
-            : undefined;
-          const wq = pWQ ? pWQ.clone().multiply(localQ) : localQ.clone();
-          curWQ[name] = wq;
-          fbxBindWQ[name] = wq.clone();
-          fbxBindWQInv[name] = wq.clone().invert();
-          fbxRestLocalQ[name] = localQ.clone();
-        }
-      }
-
-      // --- Phase 2: VRM bind world Qs (chain product, no scene rotation) ---
-      // The bind reference below is read from each bone's *live* local
-      // quaternion, so the rig must be at its rest pose when we bake. If a clip
-      // was already playing (e.g. switching idle A→B without clearing first),
-      // the bones still hold A's last pose and B would retarget against a
-      // distorted reference. Reset both pose layers (whichever the prior clip
-      // drove) to the model's rest pose so a direct switch bakes identically to
-      // a fresh load, then refresh world matrices for the world-space reads.
-      vrm.humanoid.resetNormalizedPose();
-      vrm.humanoid.resetRawPose();
-      vrm.humanoid.update();
-      vrm.scene.updateMatrixWorld(true);
-      const allVRMBoneNames = [
-        ...new Set(Object.values(FBX_BONE_TO_VRM) as VRMHumanBoneName[]),
-      ];
-      const vrmBoneObj: Partial<Record<VRMHumanBoneName, THREE.Object3D>> = {};
-      for (const n of allVRMBoneNames) {
-        const b = vrm.humanoid.getRawBoneNode(n);
-        if (b) vrmBoneObj[n] = b;
-      }
-
-      // Root reframe for the retarget: rotate the humanoid root by the same yaw
-      // that orients the avatar at the camera (frontYawRef, from faceCameraYaw).
-      // The clip is authored facing world +Z (e.g. Mixamo), and faceCameraYaw
-      // rotates the avatar's rest front onto +Z too — so threading this yaw
-      // through the bind (Phase 2) and per-frame (Phase 4) chains makes the
-      // retarget's basis line up with the clip (`fullRot` collapses to just the
-      // A-pose lean). The net rendered animation becomes `worldDelta × (camera-
-      // facing rest pose)`, identical across VRM 0.x / 1.0 instead of flipped
-      // 180° for whichever convention faces away from the clip. Identity when the
-      // rest pose already faces +Z (the historical no-op case).
-      const rootParentWQ = new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        frontYawRef.current
+      const baked = bakeRetargetedClip(
+        fbx,
+        clip,
+        vrm,
+        frontYawRef.current,
+        loadTimeQ
       );
-      const rootParentWQInv = rootParentWQ.clone().invert();
-
-      const vrmNodeToName = new Map<THREE.Object3D, VRMHumanBoneName>();
-      for (const n of allVRMBoneNames) {
-        const b = vrmBoneObj[n];
-        if (b) vrmNodeToName.set(b, n);
-      }
-      const vrmBoneParent: Partial<
-        Record<VRMHumanBoneName, VRMHumanBoneName | null>
-      > = {};
-      for (const n of allVRMBoneNames) {
-        const b = vrmBoneObj[n];
-        if (!b) continue;
-        let par = b.parent,
-          found: VRMHumanBoneName | null = null,
-          limit = 64;
-        while (par && limit-- > 0) {
-          const m = vrmNodeToName.get(par);
-          if (m) {
-            found = m;
-            break;
-          }
-          par = par.parent;
-        }
-        vrmBoneParent[n] = found;
-      }
-
-      const depthCache: Record<string, number> = {};
-      const getDepth = (mb: string): number => {
-        if (depthCache[mb] !== undefined) return depthCache[mb];
-        const p = fbxBoneParent[mb];
-        let d = 0,
-          limit = 64;
-        let cur = p;
-        while (cur && limit-- > 0) {
-          d++;
-          cur = fbxBoneParent[cur];
-        }
-        return (depthCache[mb] = d);
-      };
-      const bonesInOrder = (Object.keys(FBX_BONE_TO_VRM) as string[])
-        .filter(
-          (mb) =>
-            fbxBindWQ[mb] && vrmBoneObj[FBX_BONE_TO_VRM[mb] as VRMHumanBoneName]
-        )
-        .sort((a, b) => getDepth(a) - getDepth(b));
-
-      const vrmBindWQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> = {};
-      const vrmBindWQInv: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
-        {};
-      for (const mb of bonesInOrder) {
-        const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
-        const bone = vrmBoneObj[vn]!;
-        const pn = vrmBoneParent[vn];
-        // Root bones (no humanoid parent) seed from the reframe rotation instead
-        // of identity, so the whole bind chain is expressed in the clip-aligned
-        // frame. See rootParentWQ above.
-        const pWQ = pn ? vrmBindWQ[pn]! : rootParentWQ;
-        const wq = pWQ.clone().multiply(bone.quaternion);
-        vrmBindWQ[vn] = wq;
-        vrmBindWQInv[vn] = wq.clone().invert();
-      }
-
-      // VRM bind-local Qs: vrmParentBindWQ⁻¹ × vrmBoneBindWQ
-      const vrmBindLocalQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
-        {};
-      for (const mb of bonesInOrder) {
-        const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
-        const vpn = vrmBoneParent[vn];
-        vrmBindLocalQ[vn] = vpn
-          ? vrmBindWQ[vpn]!.clone().invert().multiply(vrmBindWQ[vn]!)
-          : vrmBindWQ[vn]!.clone();
-      }
-
-      // Log bind world Qs for arm bones to verify A-pose vs T-pose
-      for (const [mb, vn] of [
-        ['upperarm_l', 'leftUpperArm'],
-        ['upperarm_r', 'rightUpperArm'],
-      ] as const) {
-        const fq = fbxBindWQ[mb];
-        const vq = vrmBindWQ[vn as VRMHumanBoneName];
-        if (fq)
-          console.log(
-            `[bindWQ] fbx ${mb} = (${fq.x.toFixed(3)},${fq.y.toFixed(3)},${fq.z.toFixed(3)},${fq.w.toFixed(3)})`
-          );
-        if (vq)
-          console.log(
-            `[bindWQ] vrm ${vn} = (${vq.x.toFixed(3)},${vq.y.toFixed(3)},${vq.z.toFixed(3)},${vq.w.toFixed(3)})`
-          );
-      }
-
-      // --- A-pose correction: compute per-bone VRM world Q after applying the FBX A-pose ---
-      // See memory:fbx-apose-retargeting. This is the same algorithm used in the bind-pose
-      // visualization, but computed purely from data (positions + world Qs) without
-      // touching any live Three.js objects, so it's available synchronously for Phase 4.
-      const vrmAposeWQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
-        {};
-      const vrmAposeWQInv: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
-        {};
-
-      const PREFERRED_VRM_CHILD: Partial<
-        Record<VRMHumanBoneName, VRMHumanBoneName>
-      > = {
-        hips: 'spine',
-        spine: 'chest',
-        chest: 'upperChest',
-        upperChest: 'neck',
-        neck: 'head',
-        leftShoulder: 'leftUpperArm',
-        rightShoulder: 'rightUpperArm',
-        leftUpperArm: 'leftLowerArm',
-        rightUpperArm: 'rightLowerArm',
-        leftLowerArm: 'leftHand',
-        rightLowerArm: 'rightHand',
-        leftUpperLeg: 'leftLowerLeg',
-        rightUpperLeg: 'rightLowerLeg',
-        leftLowerLeg: 'leftFoot',
-        rightLowerLeg: 'rightFoot',
-        leftFoot: 'leftToes',
-        rightFoot: 'rightToes',
-      };
-      const VRM_TO_FBX: Partial<Record<VRMHumanBoneName, string>> = {};
-      for (const [fb, vb] of Object.entries(FBX_BONE_TO_VRM)) {
-        if (!fbxBindWQ[fb]) continue;
-        if (!VRM_TO_FBX[vb as VRMHumanBoneName])
-          VRM_TO_FBX[vb as VRMHumanBoneName] = fb;
-      }
-      const fbxChild: Record<string, string | null> = {};
-      for (const name of Object.keys(fbxBindWQ)) {
-        const vn = FBX_BONE_TO_VRM[name] as VRMHumanBoneName | undefined;
-        const preferredV = vn ? PREFERRED_VRM_CHILD[vn] : undefined;
-        fbxChild[name] = preferredV ? (VRM_TO_FBX[preferredV] ?? null) : null;
-      }
-      for (const name of Object.keys(fbxBindWQ)) {
-        if (fbxChild[name]) continue;
-        for (const candidate of Object.keys(fbxBindWQ)) {
-          if (fbxBoneParent[candidate] === name) {
-            fbxChild[name] = candidate;
-            break;
-          }
-        }
-      }
-      const vrmChild: Partial<Record<VRMHumanBoneName, VRMHumanBoneName>> = {};
-      for (const n of allVRMBoneNames) {
-        const preferred = PREFERRED_VRM_CHILD[n];
-        if (preferred && vrmBoneObj[preferred]) {
-          vrmChild[n] = preferred;
-          continue;
-        }
-        for (const candidate of allVRMBoneNames) {
-          if (vrmBoneParent[candidate] === n) {
-            vrmChild[n] = candidate;
-            break;
-          }
-        }
-      }
-      const fbxBoneNode: Record<string, THREE.Object3D> = {};
-      fbx.traverse((o) => {
-        if (FBX_BONE_TO_VRM[o.name] && !fbxBoneNode[o.name])
-          fbxBoneNode[o.name] = o;
-      });
-
-      // Detect the FBX's "up axis" by looking at which world axis the hips→spine
-      // direction most aligns with. UE4 has root with 90°X (Z-up→Y-up baked in) →
-      // spine points +Y. UE5 has identity root → spine points +Z (Z-up native).
-      // Build a coordinate-fix rotation that brings whatever the FBX considers "up"
-      // back to world +Y. Apply this fix to ALL fbxBindWQ values.
-      const hipsFbxName = VRM_TO_FBX.hips;
-      const spineFbxName = VRM_TO_FBX.spine;
-      const fbxCoordFix = new THREE.Quaternion();
-      if (
-        hipsFbxName &&
-        spineFbxName &&
-        fbxBindWQ[hipsFbxName] &&
-        fbxBoneNode[spineFbxName]
-      ) {
-        const fbxSpineDir = fbxBoneNode[spineFbxName].position
-          .clone()
-          .normalize()
-          .applyQuaternion(fbxBindWQ[hipsFbxName]!);
-        // Find the world axis closest to fbxSpineDir
-        const ax = Math.abs(fbxSpineDir.x),
-          ay = Math.abs(fbxSpineDir.y),
-          az = Math.abs(fbxSpineDir.z);
-        let majorAxis = new THREE.Vector3(0, 1, 0);
-        if (ax > ay && ax > az) majorAxis.set(Math.sign(fbxSpineDir.x), 0, 0);
-        else if (az > ay) majorAxis.set(0, 0, Math.sign(fbxSpineDir.z));
-        else majorAxis.set(0, Math.sign(fbxSpineDir.y), 0);
-        // Rotation that maps majorAxis → world +Y
-        fbxCoordFix.setFromUnitVectors(majorAxis, new THREE.Vector3(0, 1, 0));
-        console.log(
-          `[fbxCoordFix] spineDir=(${fbxSpineDir.x.toFixed(2)},${fbxSpineDir.y.toFixed(2)},${fbxSpineDir.z.toFixed(2)}) major=(${majorAxis.x.toFixed(0)},${majorAxis.y.toFixed(0)},${majorAxis.z.toFixed(0)}) fix=(${fbxCoordFix.x.toFixed(3)},${fbxCoordFix.y.toFixed(3)},${fbxCoordFix.z.toFixed(3)},${fbxCoordFix.w.toFixed(3)})`
-        );
-        // Apply the fix to all fbxBindWQ values: newWQ = fix × oldWQ
-        for (const k of Object.keys(fbxBindWQ)) {
-          const fixed = fbxCoordFix.clone().multiply(fbxBindWQ[k]);
-          fbxBindWQ[k].copy(fixed);
-          fbxBindWQInv[k].copy(fixed).invert();
-        }
-      }
-
-      // 1. Hips: full 3-axis basis alignment.
-      const lThighFbxName = VRM_TO_FBX.leftUpperLeg;
-      const rThighFbxName = VRM_TO_FBX.rightUpperLeg;
-      if (
-        hipsFbxName &&
-        spineFbxName &&
-        lThighFbxName &&
-        rThighFbxName &&
-        vrmBoneObj.hips &&
-        vrmBoneObj.spine &&
-        vrmBoneObj.leftUpperLeg &&
-        vrmBoneObj.rightUpperLeg &&
-        fbxBoneNode[spineFbxName] &&
-        fbxBoneNode[lThighFbxName] &&
-        fbxBoneNode[rThighFbxName]
-      ) {
-        const hipsBindWQ = vrmBindWQ.hips!;
-        const vUp = vrmBoneObj.spine.position
-          .clone()
-          .normalize()
-          .applyQuaternion(hipsBindWQ);
-        const vRight = new THREE.Vector3()
-          .subVectors(
-            vrmBoneObj.leftUpperLeg.position,
-            vrmBoneObj.rightUpperLeg.position
-          )
-          .normalize()
-          .applyQuaternion(hipsBindWQ);
-        const vForward = new THREE.Vector3()
-          .crossVectors(vRight, vUp)
-          .normalize();
-        const vRight2 = new THREE.Vector3()
-          .crossVectors(vUp, vForward)
-          .normalize();
-        const vrmBasis = new THREE.Matrix4().makeBasis(vRight2, vUp, vForward);
-
-        const hipsFbxWQ = fbxBindWQ[hipsFbxName]!;
-        const fUp = fbxBoneNode[spineFbxName].position
-          .clone()
-          .normalize()
-          .applyQuaternion(hipsFbxWQ);
-        const fRight = new THREE.Vector3()
-          .subVectors(
-            fbxBoneNode[lThighFbxName].position,
-            fbxBoneNode[rThighFbxName].position
-          )
-          .normalize()
-          .applyQuaternion(hipsFbxWQ);
-        const fForward = new THREE.Vector3()
-          .crossVectors(fRight, fUp)
-          .normalize();
-        const fRight2 = new THREE.Vector3()
-          .crossVectors(fUp, fForward)
-          .normalize();
-        const fbxBasis = new THREE.Matrix4().makeBasis(fRight2, fUp, fForward);
-
-        const fullRot = new THREE.Quaternion().setFromRotationMatrix(
-          new THREE.Matrix4().multiplyMatrices(
-            fbxBasis,
-            vrmBasis.clone().invert()
-          )
-        );
-        vrmAposeWQ.hips = fullRot.clone().multiply(hipsBindWQ);
-      } else {
-        vrmAposeWQ.hips = vrmBindWQ.hips?.clone();
-      }
-
-      // 2. Other non-hips, non-leaf bones: single-axis swing aligning child direction.
-      // Process root→leaf using bonesInOrder.
-      for (const mb of bonesInOrder) {
-        const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
-        if (vn === 'hips') continue;
-        const bindWQ = vrmBindWQ[vn];
-        if (!bindWQ) continue;
-        const childMb = fbxChild[mb];
-        const childVn = vrmChild[vn];
-
-        // Start from bind WQ, then apply parent's accumulated swing in world space.
-        // The parent's "extra rotation" beyond bind = vrmAposeWQ[parent] × vrmBindWQInv[parent].
-        const vpn = vrmBoneParent[vn];
-        const parentExtra =
-          vpn && vrmAposeWQ[vpn] && vrmBindWQInv[vpn]
-            ? vrmAposeWQ[vpn]!.clone().multiply(vrmBindWQInv[vpn]!)
-            : new THREE.Quaternion();
-        const swungBoneBindWQ = parentExtra.clone().multiply(bindWQ);
-
-        if (childMb && childVn && vrmBoneObj[childVn] && fbxBoneNode[childMb]) {
-          const vrmChildPos = vrmBoneObj[childVn]!.position;
-          const fbxChildPos = fbxBoneNode[childMb].position;
-          if (
-            vrmChildPos.lengthSq() > 1e-10 &&
-            fbxChildPos.lengthSq() > 1e-10
-          ) {
-            const vrmDir = vrmChildPos
-              .clone()
-              .normalize()
-              .applyQuaternion(swungBoneBindWQ);
-            const fbxDir = fbxChildPos
-              .clone()
-              .normalize()
-              .applyQuaternion(fbxBindWQ[mb]!);
-            const swing = new THREE.Quaternion().setFromUnitVectors(
-              vrmDir,
-              fbxDir
-            );
-            // newWQ = swing × swungBoneBindWQ
-            const newWQ = swing.multiply(swungBoneBindWQ);
-
-            // Hand basis correction
-            const isHand = vn === 'leftHand' || vn === 'rightHand';
-            if (isHand) {
-              const middleVn = (
-                vn === 'leftHand' ? 'leftMiddleProximal' : 'rightMiddleProximal'
-              ) as VRMHumanBoneName;
-              const littleVn = (
-                vn === 'leftHand' ? 'leftLittleProximal' : 'rightLittleProximal'
-              ) as VRMHumanBoneName;
-              const middleFbx = VRM_TO_FBX[middleVn];
-              const littleFbx = VRM_TO_FBX[littleVn];
-              if (
-                vrmBoneObj[middleVn] &&
-                vrmBoneObj[littleVn] &&
-                middleFbx &&
-                littleFbx &&
-                fbxBoneNode[middleFbx] &&
-                fbxBoneNode[littleFbx]
-              ) {
-                const vMid = vrmBoneObj[middleVn]!.position.clone()
-                  .normalize()
-                  .applyQuaternion(newWQ);
-                const vLit = vrmBoneObj[littleVn]!.position.clone()
-                  .normalize()
-                  .applyQuaternion(newWQ);
-                const fMid = fbxBoneNode[middleFbx].position
-                  .clone()
-                  .normalize()
-                  .applyQuaternion(fbxBindWQ[mb]!);
-                const fLit = fbxBoneNode[littleFbx].position
-                  .clone()
-                  .normalize()
-                  .applyQuaternion(fbxBindWQ[mb]!);
-                const vF = vMid.clone().normalize();
-                const vS = vLit.clone().normalize();
-                const vU = new THREE.Vector3().crossVectors(vF, vS).normalize();
-                // Ensure vU and fU both point the same anatomical direction (palm normal
-                // = downward in world for A-pose). Use fU's sign as the reference and
-                // match vU to it so both bases represent the same palm orientation.
-                const fF = fMid.clone().normalize();
-                const fS = fLit.clone().normalize();
-                const fU = new THREE.Vector3().crossVectors(fF, fS).normalize();
-                // Canonical palm normal: whichever of ±fU points more downward (-Y)
-                if (fU.y > 0) fU.multiplyScalar(-1);
-                // Match vU chirality to fU
-                if (vU.dot(fU) < 0) vU.multiplyScalar(-1);
-                const vR = new THREE.Vector3().crossVectors(vU, vF).normalize();
-                const vMat = new THREE.Matrix4().makeBasis(vR, vU, vF);
-                const fR = new THREE.Vector3().crossVectors(fU, fF).normalize();
-                const fMat = new THREE.Matrix4().makeBasis(fR, fU, fF);
-                const handRot = new THREE.Quaternion().setFromRotationMatrix(
-                  new THREE.Matrix4().multiplyMatrices(fMat, vMat.invert())
-                );
-                vrmAposeWQ[vn] = handRot.multiply(newWQ);
-                continue;
-              }
-            }
-            vrmAposeWQ[vn] = newWQ;
-            continue;
-          }
-        }
-        // Leaf or no valid child: just inherit parent extra (= swungBoneBindWQ)
-        vrmAposeWQ[vn] = swungBoneBindWQ;
-      }
-
-      for (const vn of Object.keys(vrmAposeWQ) as VRMHumanBoneName[]) {
-        if (vrmAposeWQ[vn])
-          vrmAposeWQInv[vn] = vrmAposeWQ[vn]!.clone().invert();
-      }
-      console.log(
-        '[apose] computed corrections for',
-        Object.keys(vrmAposeWQ).length,
-        'bones'
-      );
-
-      // --- Phase 3: Create interpolants, collect keyframe times ---
-      const qInterp: Record<string, THREE.Interpolant> = {};
-      let hipsPosTrack: THREE.KeyframeTrack | null = null;
-      for (const track of clip.tracks) {
-        const d = track.name.indexOf('.'),
-          bone = track.name.slice(0, d),
-          prop = track.name.slice(d + 1);
-        if (prop === 'quaternion') qInterp[bone] = track.createInterpolant();
-        if (prop === 'position' && HIPS_BONE_NAMES.has(bone))
-          hipsPosTrack = track;
-      }
-      const refTrack = clip.tracks.find((t) => t.name.endsWith('.quaternion'));
-      const allTimes = refTrack ? Array.from(refTrack.times) : [];
-
-      // --- Phase 4: Bake retargeted quaternions per-frame (world-space delta) ---
-      //
-      // Per bone per keyframe (root → leaf):
-      //   fbxWorldQ  = parentFBXWorldQ × trackQ      (fbxRootQ seeds root bones)
-      //   worldDelta = fbxWorldQ × fbxBindWQ⁻¹
-      //   targetWQ   = worldDelta × vrmBindWQ
-      //   vrmLocalQ  = vrmParentWorldQ⁻¹ × targetWQ
-      //
-      // fbxRootQ carries the FBXLoader's coordinate-system correction (e.g. Z-up→Y-up for
-      // UE4). Using it as the root parent ensures our world Qs match what SkeletonHelper sees.
-      const outQVals: Partial<Record<VRMHumanBoneName, Float32Array>> = {};
-      for (const mb of bonesInOrder)
-        outQVals[FBX_BONE_TO_VRM[mb] as VRMHumanBoneName] = new Float32Array(
-          allTimes.length * 4
-        );
-
-      const curFBXWQ: Record<string, THREE.Quaternion> = {};
-      const curVRMWQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> = {};
-      for (const mb of bonesInOrder) {
-        curFBXWQ[mb] = new THREE.Quaternion();
-        curVRMWQ[FBX_BONE_TO_VRM[mb] as VRMHumanBoneName] =
-          new THREE.Quaternion();
-      }
-
-      const IDQ = new THREE.Quaternion();
-      const _q = new THREE.Quaternion();
-      const _delta = new THREE.Quaternion();
-      const _inv = new THREE.Quaternion();
-
-      // DEAD CODE — computed but never read. The bake below uses `fbxBindWQInv`
-      // (the FBX *bind* pose) as its reference, not this frame-0 chain. Kept for
-      // now because the frame-0 scheme it implements may be wanted again, but the
-      // stale claim that retargeting is frame-0-relative (here and in
-      // animation.md) has already misled debugging more than once — treat
-      // `fbxBindWQInv` at the `_delta` computation as the source of truth.
-      const fbxRefWQ: Record<string, THREE.Quaternion> = {};
-      const fbxRefWQInv: Record<string, THREE.Quaternion> = {};
-      if (allTimes.length > 0) {
-        const t0 = allTimes[0];
-        const sortedBones = [...bonesInOrder];
-        // bonesInOrder is already in parent-before-child order (sort by depth happens earlier)
-        for (const mb of sortedBones) {
-          let lq: THREE.Quaternion;
-          if (qInterp[mb]) {
-            const r = qInterp[mb].evaluate(t0);
-            lq = new THREE.Quaternion(r[0], r[1], r[2], r[3]).normalize();
-          } else {
-            lq = (fbxRestLocalQ[mb] ?? new THREE.Quaternion()).clone();
-          }
-          const fbxPN = fbxBoneParent[mb];
-          const parentWQ = fbxPN ? fbxRefWQ[fbxPN] : IDQ;
-          const wq = parentWQ.clone().multiply(lq);
-          fbxRefWQ[mb] = wq;
-          fbxRefWQInv[mb] = wq.clone().invert();
-        }
-      } else {
-        for (const mb of bonesInOrder) {
-          fbxRefWQ[mb] = fbxBindWQ[mb]!.clone();
-          fbxRefWQInv[mb] = fbxBindWQInv[mb]!.clone();
-        }
-      }
-
-      // Log frame-0 track Q vs loadTimeQ for arm bones
-      for (const mb of ['upperarm_l', 'upperarm_r']) {
-        const lq = fbxRestLocalQ[mb];
-        const interp = qInterp[mb];
-        if (lq && interp && allTimes.length > 0) {
-          const r = interp.evaluate(allTimes[0]);
-          const tq = new THREE.Quaternion(r[0], r[1], r[2], r[3]).normalize();
-          console.log(
-            `[frame0] ${mb} loadTimeQ=(${lq.x.toFixed(3)},${lq.y.toFixed(3)},${lq.z.toFixed(3)},${lq.w.toFixed(3)}) trackQ[0]=(${tq.x.toFixed(3)},${tq.y.toFixed(3)},${tq.z.toFixed(3)},${tq.w.toFixed(3)})`
-          );
-        }
-      }
-
-      for (let ti = 0; ti < allTimes.length; ti++) {
-        const t = allTimes[ti];
-        for (const mb of bonesInOrder) {
-          const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
-          if (qInterp[mb]) {
-            const r = qInterp[mb].evaluate(t);
-            _q.set(r[0], r[1], r[2], r[3]).normalize();
-          } else {
-            _q.copy(IDQ);
-          }
-          const fbxPN = fbxBoneParent[mb];
-          const parentFBXWQ = fbxPN ? curFBXWQ[fbxPN] : fbxCoordFix;
-          curFBXWQ[mb].copy(parentFBXWQ).multiply(_q);
-          _delta
-            .copy(curFBXWQ[mb])
-            .multiply(fbxBindWQInv[mb]!)
-            .multiply(vrmAposeWQ[vn] ?? vrmBindWQ[vn]!);
-          if (
-            (ti === 0 ||
-              ti === allTimes.length - 1 ||
-              ti === allTimes.length - 2) &&
-            (mb === 'upperarm_l' || mb === 'upperarm_r')
-          ) {
-            const fwq2 = curFBXWQ[mb];
-            const bwq2 = fbxBindWQ[mb]!;
-            console.log(
-              `[ph4 ti=${ti}/${allTimes.length - 1} t=${t.toFixed(3)}] ${mb} curFBXWQ=(${fwq2.x.toFixed(3)},${fwq2.y.toFixed(3)},${fwq2.z.toFixed(3)},${fwq2.w.toFixed(3)}) bind=(${bwq2.x.toFixed(3)},${bwq2.y.toFixed(3)},${bwq2.z.toFixed(3)},${bwq2.w.toFixed(3)})`
-            );
-          }
-          if (ti === 0 && (mb === 'upperarm_l' || mb === 'upperarm_r')) {
-            const fwq = curFBXWQ[mb];
-            const bwq = fbxBindWQ[mb]!;
-            // angle of delta (how much frame0 rotated from bind)
-            const dAngle =
-              (2 * Math.acos(Math.min(1, Math.abs(_delta.w))) * 180) / Math.PI;
-            // angle of bind (how rotated bind itself is from identity)
-            const bAngle =
-              (2 * Math.acos(Math.min(1, Math.abs(bwq.w))) * 180) / Math.PI;
-            console.log(
-              `[ph4 ti=0] ${mb} bind=(${bwq.x.toFixed(3)},${bwq.y.toFixed(3)},${bwq.z.toFixed(3)},${bwq.w.toFixed(3)})[${bAngle.toFixed(1)}°] frame0=(${fwq.x.toFixed(3)},${fwq.y.toFixed(3)},${fwq.z.toFixed(3)},${fwq.w.toFixed(3)}) delta[${dAngle.toFixed(1)}°]`
-            );
-          }
-          curVRMWQ[vn]!.copy(_delta);
-          const vrmPN = vrmBoneParent[vn];
-          // Root bones convert to local against the reframe rotation (same seed
-          // as the bind chain in Phase 2), so the baked track renders back to the
-          // intended clip-aligned world pose. See rootParentWQ above.
-          const parentVRMWQ = vrmPN ? curVRMWQ[vrmPN] : rootParentWQ;
-          _inv.copy(parentVRMWQ ?? rootParentWQ).invert();
-          _q.copy(_inv).multiply(_delta);
-          const base = ti * 4,
-            arr = outQVals[vn]!;
-          arr[base] = _q.x;
-          arr[base + 1] = _q.y;
-          arr[base + 2] = _q.z;
-          arr[base + 3] = _q.w;
-        }
-      }
-
-      // --- Phase 5: Build VRM tracks ---
-      const vrmTracks: THREE.KeyframeTrack[] = [];
-      const newCorrAxes: THREE.Object3D[] = [];
-      const _v = new THREE.Vector3();
-
-      for (const mb of bonesInOrder) {
-        const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
-        const bone = vrmBoneObj[vn];
-        if (!bone) continue;
-        vrmTracks.push(
-          new THREE.QuaternionKeyframeTrack(
-            `${bone.name}.quaternion`,
-            allTimes,
-            outQVals[vn]!
-          )
-        );
-      }
-
-      // Hips position
-      if (hipsPosTrack && fbxHipsNode) {
-        const fbxRestPos = (fbxHipsNode as THREE.Object3D).position.clone();
-        const vrmHipsBone = vrmBoneObj['hips'];
-        const vrmRestPos = vrmHipsBone
-          ? vrmHipsBone.position.clone()
-          : new THREE.Vector3();
-        const values = new Float32Array(hipsPosTrack.values.length);
-        for (let i = 0; i < hipsPosTrack.values.length; i += 3) {
-          _v.set(
-            hipsPosTrack.values[i],
-            hipsPosTrack.values[i + 1],
-            hipsPosTrack.values[i + 2]
-          );
-          // Delta from FBX rest, in FBX coordinate frame
-          _v.sub(fbxRestPos);
-          // Map FBX coord frame → VRM coord frame (e.g. Z-up → Y-up)
-          _v.applyQuaternion(fbxCoordFix);
-          // Re-express the translation in the reframed hips-local frame so it
-          // matches the reframed rotation chain (identity when no reframe). See
-          // rootParentWQ above.
-          _v.applyQuaternion(rootParentWQInv);
-          _v.multiplyScalar(0.01).add(vrmRestPos);
-          values[i] = _v.x;
-          values[i + 1] = _v.y;
-          values[i + 2] = _v.z;
-        }
-        vrmTracks.push(
-          new THREE.VectorKeyframeTrack(
-            `${vrmHipsBone!.name}.position`,
-            Array.from(hipsPosTrack.times),
-            values
-          )
-        );
-      }
-
+      const { vrmTracks, allTimes, outQVals, newCorrAxes, VRM_TO_FBX } = baked;
       corrAxesRef.current = newCorrAxes;
 
       // FBX display mixer — clipAction() captures node.quaternion as the PropertyMixer
