@@ -604,6 +604,111 @@ function sectionInfluenceForBone(
 const _hipsAnimPos = new THREE.Vector3();
 const _hipsRestPos = new THREE.Vector3();
 
+/**
+ * A **shadow skeleton**: a bone-only hierarchy, name-matched to the VRM's raw
+ * humanoid bones, that exists purely as the clip mixer's write target.
+ *
+ * ### Why this exists
+ *
+ * There is only ever one place a bone rotation lives — `bone.quaternion` on the
+ * skeleton. `mixer.update()` writes into it, and the composition step's result is
+ * written into it too. So the composition's *animation baseline* and its *output*
+ * were the same memory, and each frame's output became the next frame's baseline.
+ *
+ * That stayed invisible only because Step 1's mixer overwrote the bones before
+ * Step 2 read them. But `THREE.PropertyMixer` is **change-driven**: it caches the
+ * value it last wrote and skips the write when the freshly interpolated value is
+ * identical — and it compares against its own cache, not against the bone, so it
+ * cannot tell that something else clobbered the bone in between.
+ *
+ * A clip whose playhead never moves therefore stops writing after its first
+ * frame. A **static single-keyframe pose** (Mixamo "… Pose" exports: one rotation
+ * key, so `_anchoredTime` returns 0 forever) hits this immediately, and from frame
+ * 2 the baseline read back the previous frame's *composed* pose — i.e. tracking.
+ * Observed as: Anim 1 / Track 0 showing the tracked pose, and Track 1 compounding
+ * tracking onto itself every frame. Long animations hid the bug because their
+ * playhead advances, so the mixer always writes.
+ *
+ * Pointing the mixer at its own hierarchy dissolves the whole class of problem
+ * rather than timing around it: the animation pose gets a buffer nothing else
+ * writes to. A skipped mixer write is then *correct* — the shadow bone simply
+ * retains the right pose — so static and multi-key clips take an identical path
+ * with no special-casing. `Object3D.quaternion` is read-only so the buffer cannot
+ * be swapped in directly; a parallel hierarchy is the equivalent, and works
+ * because `AnimationMixer` binds by name path (`${bone.name}.quaternion`).
+ */
+class ShadowSkeleton {
+  /** Root of the shadow hierarchy — the mixer's binding root. */
+  readonly root = new THREE.Object3D();
+  private bones = new Map<VRMHumanBoneName, THREE.Bone>();
+  /** VRM bone name → shadow bone name, for retarget track naming. */
+  private nameOf = new Map<VRMHumanBoneName, string>();
+
+  /**
+   * Build a hierarchy mirroring the VRM's raw humanoid bones — same names, same
+   * parent/child structure, no meshes or skinning. Parent links follow the VRM's
+   * own bone parentage so a mixer-driven local rotation composes the same way.
+   */
+  constructor(vrm: VRM, boneNames: readonly VRMHumanBoneName[]) {
+    const made = new Map<VRMHumanBoneName, THREE.Bone>();
+    const realOf = new Map<VRMHumanBoneName, THREE.Object3D>();
+    for (const name of boneNames) {
+      const real = vrm.humanoid.getRawBoneNode(name);
+      if (!real) continue;
+      realOf.set(name, real);
+      const b = new THREE.Bone();
+      // Match the real bone's NAME so baked tracks (`${bone.name}.quaternion`)
+      // bind here, and seed its rest transform so local→world math matches.
+      b.name = real.name;
+      b.position.copy(real.position);
+      b.quaternion.copy(real.quaternion);
+      b.scale.copy(real.scale);
+      made.set(name, b);
+      this.nameOf.set(name, real.name);
+    }
+    // Re-create parentage: attach each shadow bone under the shadow copy of its
+    // real parent, falling back to the root when the parent isn't a humanoid bone.
+    for (const [name, b] of made) {
+      const real = realOf.get(name)!;
+      let parentName: VRMHumanBoneName | null = null;
+      for (const [otherName, otherReal] of realOf) {
+        if (otherReal === real.parent) {
+          parentName = otherName;
+          break;
+        }
+      }
+      const parent = parentName ? made.get(parentName) : null;
+      (parent ?? this.root).add(b);
+    }
+    this.bones = made;
+  }
+
+  /** The shadow bone for a VRM humanoid bone, if it exists. */
+  get(name: VRMHumanBoneName): THREE.Bone | undefined {
+    return this.bones.get(name);
+  }
+
+  /** The clip-driven local rotation for a bone — the animation buffer. */
+  rotation(name: VRMHumanBoneName): THREE.Quaternion | null {
+    return this.bones.get(name)?.quaternion ?? null;
+  }
+
+  /** The clip-driven hips position (root motion). */
+  hipsPosition(): THREE.Vector3 | null {
+    return this.bones.get('hips')?.position ?? null;
+  }
+
+  /** How many humanoid bones this shadow mirrors (diagnostics). */
+  get size(): number {
+    return this.bones.size;
+  }
+
+  /** Names present, for verifying a clip's tracks resolve here. */
+  boneNames(): string[] {
+    return [...this.nameOf.values()];
+  }
+}
+
 interface VmcRetarget {
   bonesInOrder: VRMHumanBoneName[];
   vrmBoneObj: Partial<Record<VRMHumanBoneName, THREE.Object3D>>;
@@ -1072,6 +1177,8 @@ function AvatarNode({
   const boneCylRef = useRef<THREE.Mesh>(null);
   const fbxMixerRef = useRef<THREE.AnimationMixer | null>(null);
   const vrmMixerRef = useRef<THREE.AnimationMixer | null>(null);
+  // Animation-pose buffer for the composition step (see ShadowSkeleton).
+  const shadowRef = useRef<ShadowSkeleton | null>(null);
   // Scene yaw applied to face the avatar at the camera (set at VRM load by
   // faceCameraYaw). The FBX retarget reuses it to reframe its root so the baked
   // animation faces the same way as the rest pose — see the retarget below.
@@ -1530,6 +1637,9 @@ function AvatarNode({
     fbxGroupRef.current?.clear();
     fbxHelperRef.current?.clear();
     animEntryRef.current = null;
+    // Drop the animation buffer with the clip that drove it, so the composition
+    // falls back to rest instead of holding the last clip's pose forever.
+    shadowRef.current = null;
   }, []);
 
   // --- Animation load ---
@@ -2188,12 +2298,12 @@ function AvatarNode({
       const _delta = new THREE.Quaternion();
       const _inv = new THREE.Quaternion();
 
-      // Compute FBX world Qs at animation frame 0 — this becomes the reference pose
-      // for retargeting. Many FBX animations (notably UE4 retargets) have a rig 'bind'
-      // pose that differs from the visually-expected A-pose at the animation start.
-      // Using frame 0 as the reference means "FBX frame 0 → VRM T-pose", and subsequent
-      // frames are deltas from there. For Mixamo this is ~identical to using the bind
-      // pose (frame 0 of idle ≈ T-pose ≈ bind), so no regression.
+      // DEAD CODE — computed but never read. The bake below uses `fbxBindWQInv`
+      // (the FBX *bind* pose) as its reference, not this frame-0 chain. Kept for
+      // now because the frame-0 scheme it implements may be wanted again, but the
+      // stale claim that retargeting is frame-0-relative (here and in
+      // animation.md) has already misled debugging more than once — treat
+      // `fbxBindWQInv` at the `_delta` computation as the source of truth.
       const fbxRefWQ: Record<string, THREE.Quaternion> = {};
       const fbxRefWQInv: Record<string, THREE.Quaternion> = {};
       if (allTimes.length > 0) {
@@ -2409,7 +2519,30 @@ function AvatarNode({
         vrmDuration,
         vrmTracks
       );
-      const vrmMixer = new THREE.AnimationMixer(vrm.scene);
+      // Bind the clip mixer to a SHADOW skeleton, not `vrm.scene`. The mixer then
+      // owns its write target exclusively, so the animation pose can never be
+      // overwritten by (nor read back from) the composed pose on the real
+      // skeleton. See ShadowSkeleton for the failure this prevents.
+      const shadow = new ShadowSkeleton(
+        vrm,
+        VRM_BONE_NAMES as unknown as VRMHumanBoneName[]
+      );
+      shadowRef.current = shadow;
+      // Fail loudly rather than silently rendering rest: if the baked tracks
+      // don't resolve against the shadow hierarchy, every bone would sit at its
+      // seeded rest pose and look like "the animation does nothing".
+      const shadowNames = new Set(shadow.boneNames());
+      const unresolved = vrmTracks
+        .map((t) => t.name.split('.')[0])
+        .filter((n) => !shadowNames.has(n));
+      if (unresolved.length > 0) {
+        console.error(
+          `[anim] ${unresolved.length}/${vrmTracks.length} baked tracks do not ` +
+            `resolve against the shadow skeleton (${shadow.size} bones) — the ` +
+            `animation would render as rest. Unresolved: ${unresolved.slice(0, 8).join(', ')}`
+        );
+      }
+      const vrmMixer = new THREE.AnimationMixer(shadow.root);
       vrmMixerRef.current = vrmMixer;
       const vrmAction = vrmMixer.clipAction(vrmClip);
       vrmAction.reset().play();
@@ -2570,7 +2703,8 @@ function AvatarNode({
       reg.fbxAction.time = _anchoredTime(now, layer, reg.duration);
       reg.fbxMixer.update(0);
       if (vrm) {
-        (vrm.humanoid as unknown as { update?: () => void }).update?.();
+        // Drives the SHADOW skeleton only — the real bones are untouched here, so
+        // the composition below is the sole writer of `vrm` bone rotations.
         reg.action.time = _anchoredTime(now, layer, reg.vrmDuration);
         reg.mixer.update(0);
       }
@@ -2674,20 +2808,25 @@ function AvatarNode({
         // producer used to route here into a slider-ignoring branch, which is
         // exactly why Breathing made the Anim/Track sliders appear inert.
         const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
+        // Animation baseline comes from the SHADOW skeleton — a buffer only the
+        // clip mixer writes. Reading `bone.quaternion` here would alias the buffer
+        // this loop writes into, feeding the composed (tracked) pose back in as
+        // its own baseline whenever the mixer skipped a write.
+        const shadow = shadowRef.current;
         const animQuats: Array<
-          [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion]
+          [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion | null]
         > = [];
         for (const name of allBones) {
           const bone = vrm.humanoid.getRawBoneNode(name);
-          if (bone) animQuats.push([name, bone, bone.quaternion.clone()]);
+          if (bone) animQuats.push([name, bone, shadow?.rotation(name) ?? null]);
         }
         const broadcastSet = new Set(
           Object.keys(normalizedPose) as VRMHumanBoneName[]
         );
 
-        // Snapshot the animated hips position before resetNormalizedPose clobbers it.
         const hipsBone = vrm.humanoid.getRawBoneNode('hips');
-        if (hipsBone) _hipsAnimPos.copy(hipsBone.position);
+        const shadowHips = shadow?.hipsPosition();
+        if (shadowHips) _hipsAnimPos.copy(shadowHips);
 
         // Rest raw quats (all bones), then broadcast-posed raw quats. Compose
         // per section with stackBoneRotation, exactly like the override branch:
@@ -2721,7 +2860,8 @@ function AvatarNode({
         for (const [name, bone, animQ] of animQuats) {
           const inf = sectionInfluenceForBone(name, poseSourceLive);
           const restQ = restRaw.get(name)!;
-          const animContribution = animActive ? animQ : restQ;
+          // No snapshot for this bone (clip not loaded / not animated) ⇒ rest.
+          const animContribution = animActive && animQ ? animQ : restQ;
           const tracked = trackedRaw.get(name) ?? null;
           const tw = tracked ? Math.max(0, Math.min(1, inf.track * blend)) : 0;
           stackBoneRotation(
@@ -2770,16 +2910,20 @@ function AvatarNode({
       // is handled by the branch above (this is its `else`), so dropping the
       // guard can't double-apply.
       const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
+      // Animation baseline from the shadow skeleton, not the live bones — see the
+      // tracked branch above and ShadowSkeleton for why reading `bone.quaternion`
+      // here is unsafe.
+      const shadow = shadowRef.current;
       const animQuats: Array<
-        [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion]
+        [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion | null]
       > = [];
       for (const name of allBones) {
         const bone = vrm.humanoid.getRawBoneNode(name);
-        if (bone) animQuats.push([name, bone, bone.quaternion.clone()]);
+        if (bone) animQuats.push([name, bone, shadow?.rotation(name) ?? null]);
       }
-      // Snapshot the animated hips position before resetNormalizedPose clobbers it.
       const hipsBone = vrm.humanoid.getRawBoneNode('hips');
-      if (hipsBone) _hipsAnimPos.copy(hipsBone.position);
+      const shadowHips = shadow?.hipsPosition();
+      if (shadowHips) _hipsAnimPos.copy(shadowHips);
 
       // Rest raw quats (all bones).
       vrm.humanoid.resetNormalizedPose();
@@ -2789,13 +2933,13 @@ function AvatarNode({
       for (const [name, bone] of animQuats)
         restRaw.set(name, bone.quaternion.clone());
 
-      // Same animActive guard as the tracked branch: without a clip the captured
-      // "anim" quats are just the held pose, so fall back to rest. No tracked
-      // pose here, so the tracking term is dropped (trackedQ = null).
+      // Same animActive guard as the tracked branch: without a clip there is no
+      // snapshot, so fall back to rest. No tracked pose here, so the tracking
+      // term is dropped (trackedQ = null).
       const animActive = !!(reg && layer);
       for (const [name, bone, animQ] of animQuats) {
         const restQ = restRaw.get(name)!;
-        const animContribution = animActive ? animQ : restQ;
+        const animContribution = animActive && animQ ? animQ : restQ;
         // animInf = 1: straight idle, unscaled by the partial-tracking sliders.
         stackBoneRotation(restQ, animContribution, null, 1, 0, bone.quaternion);
       }

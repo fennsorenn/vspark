@@ -60,7 +60,9 @@ VRM uses T-pose (arms parallel to shoulder line). Most FBX animations use A-pose
 
 **Phase 4 — Per-frame retargeting**
 
-Uses frame 0 of the FBX animation as the reference pose (not the bind pose). Many FBX files — especially UE4 retargets — have frame 0 ≠ bind pose, so using the bind pose as reference produces drift. Frame 0 is treated as "equivalent to VRM T-pose" and all subsequent frames are deltas from it.
+Uses the FBX **bind pose** as the reference: `worldDelta = fbxWorldQ × fbxBindWQ⁻¹`.
+
+> Previously documented here as "frame 0 is the reference pose, not the bind pose". That is **not** what the code does — the bake multiplies by `fbxBindWQInv`. A frame-0 reference (`fbxRefWQ` / `fbxRefWQInv`) *is* still computed in `Viewport.tsx` but is never read by the bake; it is dead code. Corrected after the stale description sent several debugging passes down the wrong path.
 
 Per bone per frame:
 ```
@@ -77,6 +79,28 @@ Result stored as `Float32Array` (xyzw × nFrames) per VRM bone.
 Creates `THREE.QuaternionKeyframeTrack` per bone, attached to the VRM's skeleton nodes. Hips position track is also created: delta from FBX rest position, mapped through coordinate fix, scaled by 0.01 (FBX centimetre → metre).
 
 **Loop clamping**: If the first and last keyframes match in quaternion distance (< 1e-3), the clip duration is trimmed to the second-to-last keyframe. This eliminates the single-frame hold at the loop boundary.
+
+### Animation buffer — the clip mixer drives a shadow skeleton
+
+The clip `AnimationMixer` is bound to a **`ShadowSkeleton`** (`Viewport.tsx`): a bone-only hierarchy, name-matched to the VRM's raw humanoid bones with their rest transforms copied, and *not* part of the rendered scene. Baked tracks bind to it because `AnimationMixer` resolves targets by name path (`${bone.name}.quaternion`). The composition step reads its animation baseline from those shadow bones; the real skeleton is written only by the composition, once per frame.
+
+This exists because a bone rotation has exactly one home — `bone.quaternion` — and the composition previously used it as *both* its animation input and its output. Each frame's composed pose became the next frame's "animation" baseline. That was harmless only while the mixer overwrote the bones first, and `THREE.PropertyMixer` is **change-driven**: it caches the value it last wrote and skips the write when the newly interpolated value is identical, comparing against its own cache rather than against the bone — so it cannot see that something else clobbered it.
+
+A clip whose playhead never advances therefore stops writing after its first frame. A **static single-keyframe pose** hits this immediately (see below), and from frame 2 the animation channel read back the composed pose, i.e. tracking. Symptom: with **Anim 1 / Track 0** a pose clip rendered the *tracked* pose, and Track 1 compounded tracking onto itself every frame. Multi-keyframe clips masked it entirely because their playhead moves.
+
+Binding the mixer to its own hierarchy dissolves the class of bug rather than timing around it: a skipped write is now *correct* (the shadow bone retains the right pose), so static and animated clips take one identical path with no special-casing. `Object3D.quaternion` is read-only, so a parallel hierarchy is the way to hand the mixer a private buffer. Regression cover: `test/animBuffer.test.ts`.
+
+### Static poses (single-keyframe clips)
+
+Some exports are a *pose*, not an animation. Mixamo's "… Pose" files (e.g. `Male Sitting Pose.fbx`) contain:
+
+- **52 quaternion tracks with exactly 1 keyframe each** — the pose itself
+- **1 hips position track with 2 identical keyframes** (t=0 and t=0.0333) — the sole source of the clip's 0.0333 s duration
+- a second, completely empty clip named `Take 001` (0 tracks, 0 duration) — a Mixamo export artifact present in most exports, animations included
+
+So `refTrack.times.length === 1` and `allTimes = [0]`: the loop-clamping test never fires (`lastIdx === 0`), and `vrmDuration` computes to `min(0.0333, 0) = 0`. Both are harmless — a 1-key track holds its value and a zero-duration clip still samples correctly. What broke static poses was the shared-buffer aliasing above, which their pinned playhead exposed. They need no special handling.
+
+> Note: the code takes `fbx.animations[0]` unconditionally. Today index 0 is the real clip, but `FBXLoader`'s ordering isn't contractual — if the empty `Take 001` ever came first, the avatar would load a clip with zero tracks and render rest.
 
 ### Why world-space delta, not local-space
 
@@ -339,7 +363,7 @@ The avatar idle picker writes `properties.animation.idle = { clipId, speed }` (s
 | VMC arms/hands flipped | RhyLive left-handed convention | Y/Z negate in rhylive_bone_mapper |
 | UE4 FBX character lies on side | Z-up source, Y-up target | Detect from spine direction; apply axis correction to fbxBindWQ |
 | T-pose vs A-pose drift | VRM T-pose ≠ FBX A-pose | Compute vrmAposeWQ per-bone and use in delta calculation |
-| Frame 0 drift on UE4 retargets | FBX frame 0 ≠ bind pose | Use frame 0 as reference, not bind pose |
+| Static "… Pose" clip renders the *tracked* pose (Anim 1 / Track 0), Track 1 compounds it | Composition read its animation baseline off `bone.quaternion` — the same field it writes its output to. A 1-keyframe clip pins the playhead, the change-driven `PropertyMixer` stops writing, and the baseline reads back last frame's composed pose | Bind the clip mixer to a `ShadowSkeleton` so the animation pose has a buffer nothing else writes |
 | Hand fingers point wrong direction | Palm chirality mismatch | Canonicalize palm normal before basis alignment |
 | Animation pops at loop point | First and last keyframe identical, single-frame hold | Trim duration to second-to-last keyframe |
 | Blendshapes exceed 1.0 | Multiple ARKit shapes accumulate to same target | Clamp after accumulation, not per-mapping |
