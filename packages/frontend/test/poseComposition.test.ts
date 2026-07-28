@@ -11,6 +11,8 @@ import {
   stackBoneRotation,
   composeHipsPosition,
   trackedComposeActive,
+  crossfadeAnimPose,
+  crossfadeHipsPosition,
 } from '../src/components/editor/poseComposition';
 
 const q = (x: number, y: number, z: number) =>
@@ -164,5 +166,75 @@ describe('untracked idle plays straight (animInf=1, trackWeight=0)', () => {
       new THREE.Vector3()
     );
     expect(out.equals(animPos)).toBe(true);
+  });
+});
+
+// ── Animation-source cross-fade ───────────────────────────────────────────────
+//
+// Blending between animation sources (idle ⇄ base ⇄ scheduled) happens BEFORE
+// tracking is stacked: the result is what stackBoneRotation receives as animQ.
+// Each source lives in its own buffer (a ClipSlot's shadow skeleton), which is
+// what makes reading two of them in the same frame possible at all.
+describe('crossfadeAnimPose', () => {
+  const rest = q(0.1, -0.2, 0.3);
+  const from = q(0.5, 0.4, -0.1);
+  const to = q(-0.3, 0.2, 0.6);
+
+  it('t=0 is fully the outgoing pose, t=1 fully the incoming', () => {
+    expectQuatClose(crossfadeAnimPose(rest, from, to, 0), from);
+    expectQuatClose(crossfadeAnimPose(rest, from, to, 1), to);
+  });
+
+  it('t=0.5 lands between the two', () => {
+    const mid = crossfadeAnimPose(rest, from, to, 0.5);
+    expect(mid.angleTo(from)).toBeGreaterThan(1e-3);
+    expect(mid.angleTo(to)).toBeGreaterThan(1e-3);
+    // Equidistant along the arc.
+    expect(Math.abs(mid.angleTo(from) - mid.angleTo(to))).toBeLessThan(1e-3);
+  });
+
+  it('clamps t outside 0..1', () => {
+    expectQuatClose(crossfadeAnimPose(rest, from, to, -5), from);
+    expectQuatClose(crossfadeAnimPose(rest, from, to, 5), to);
+  });
+
+  // A null side means "this source contributes nothing", so a fade in/out runs
+  // against rest rather than needing a synthetic pose.
+  it('fades in from rest when there is no outgoing source', () => {
+    expectQuatClose(crossfadeAnimPose(rest, null, to, 0), rest);
+    expectQuatClose(crossfadeAnimPose(rest, null, to, 1), to);
+  });
+
+  it('fades out to rest when there is no incoming source', () => {
+    expectQuatClose(crossfadeAnimPose(rest, from, null, 0), from);
+    expectQuatClose(crossfadeAnimPose(rest, from, null, 1), rest);
+  });
+
+  it('both sides absent → rest', () => {
+    expectQuatClose(crossfadeAnimPose(rest, null, null, 0.5), rest);
+  });
+});
+
+describe('crossfadeHipsPosition', () => {
+  const restPos = new THREE.Vector3(0, 1, 0);
+  const a = new THREE.Vector3(0, 1.2, 0.3);
+  const b = new THREE.Vector3(0, 0.7, -0.2);
+
+  it('interpolates between two root motions', () => {
+    expect(
+      crossfadeHipsPosition(restPos, a, b, 0, new THREE.Vector3()).equals(a)
+    ).toBe(true);
+    expect(
+      crossfadeHipsPosition(restPos, a, b, 1, new THREE.Vector3()).equals(b)
+    ).toBe(true);
+    const mid = crossfadeHipsPosition(restPos, a, b, 0.5, new THREE.Vector3());
+    expect(mid.y).toBeCloseTo(0.95, 5);
+  });
+
+  it('a missing side means rest, not the origin', () => {
+    const out = crossfadeHipsPosition(restPos, null, b, 0, new THREE.Vector3());
+    expect(out.equals(restPos)).toBe(true);
+    const out2 = crossfadeHipsPosition(restPos, a, null, 1, new THREE.Vector3());
+    expect(out2.equals(restPos)).toBe(true);
   });
 });

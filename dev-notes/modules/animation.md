@@ -80,6 +80,20 @@ Creates `THREE.QuaternionKeyframeTrack` per bone, attached to the VRM's skeleton
 
 **Loop clamping**: If the first and last keyframes match in quaternion distance (< 1e-3), the clip duration is trimmed to the second-to-last keyframe. This eliminates the single-frame hold at the loop boundary.
 
+### Clip slots — one buffer per rotation source
+
+An avatar composes from three rotation sources: the **idle** loop, the **base** loop (what tracking stacks onto), and **tracking** itself. Each animation source owns a `ClipSlot` — its own loaded clip, its own `ShadowSkeleton` buffer, its own mixer and playhead. Sources therefore coexist rather than taking turns in one slot, which is the prerequisite for cross-fading: blending two poses requires both to be readable in the same frame.
+
+`loadClipIntoSlot(url, slot)` loads and bakes into one named slot; replacing a slot stops only that slot's mixer, so the other sources keep playing across the swap. Two effects drive it — one per slot — so changing the base never reloads the idle. **Every loaded slot is ticked each frame** (`Step 1`), not just the visible one: each writes only its own shadow, and a dormant slot that lagged would jump on the frame a fade began. Both clips are clock-anchored (`_anchoredTime` against `startEpoch`), so they stay mutually in phase for free.
+
+The idle slot stays resident even while the base drives the avatar — that residency is the point, since it's what the avatar fades back to.
+
+Cost: an avatar with both an idle and a base loads and bakes **two** clips instead of one.
+
+**Not yet wired:** `scheduled` is declared as a slot name but timeline one-shots still take the old hard-switch path through `_resolveAvatarAnimation` and land in the `base` slot, replacing the base loop while their window is open. Giving them a third slot — plus the fade in/out when one starts and retires — is the follow-up. `FrozenPose` exists for that case: a retiring one-shot has nothing left to play, so its final pose is frozen as the outgoing side of the fade rather than kept on a live mixer (unlike idle/base, which must keep animating through a fade).
+
+Blending between sources is `crossfadeAnimPose` / `crossfadeHipsPosition` (`poseComposition.ts`, unit-tested): it runs **before** tracking is stacked, so its result is what `stackBoneRotation` receives as `animQ`. A `null` side means "this source contributes nothing" and resolves to rest, so fading in from nothing or out to nothing needs no special case.
+
 ### Animation buffer — the clip mixer drives a shadow skeleton
 
 The clip `AnimationMixer` is bound to a **`ShadowSkeleton`** (`Viewport.tsx`): a bone-only hierarchy, name-matched to the VRM's raw humanoid bones with their rest transforms copied, and *not* part of the rendered scene. Baked tracks bind to it because `AnimationMixer` resolves targets by name path (`${bone.name}.quaternion`). The composition step reads its animation baseline from those shadow bones; the real skeleton is written only by the composition, once per frame.

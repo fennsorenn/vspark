@@ -1909,6 +1909,72 @@ function bakeRetargetedClip(
 }
 
 
+/**
+ * One loaded, baked, independently-playable clip: its own shadow skeleton (the
+ * animation buffer — see ShadowSkeleton), its own mixer, and the playhead state
+ * needed to drive it against the synced clock.
+ *
+ * An avatar holds one of these per **rotation source**, so the sources coexist
+ * instead of overwriting each other in a single slot. That is what makes a
+ * cross-fade possible: blending two poses requires both to be readable at once.
+ */
+interface ClipSlot {
+  url: string;
+  shadow: ShadowSkeleton;
+  mixer: THREE.AnimationMixer;
+  action: THREE.AnimationAction;
+  /** Trimmed VRM-clip duration — the loop-wrap period. */
+  vrmDuration: number;
+  /** Source FBX clip duration, for the FBX debug display + UI scrubber. */
+  duration: number;
+}
+
+/** The three independent rotation sources an avatar composes from. */
+type ClipSlotName = 'idle' | 'base' | 'scheduled';
+
+/**
+ * A frozen pose, used as the *outgoing* side of a cross-fade when the clip that
+ * produced it is being discarded (a scheduled one-shot finishing, or a slot
+ * reloading). Unlike idle/base — which keep animating through a fade and so need
+ * live mixers — a retiring clip has nothing left to play, so holding its final
+ * pose is both cheaper and semantically right.
+ */
+class FrozenPose {
+  private q = new Map<VRMHumanBoneName, THREE.Quaternion>();
+  private hips = new THREE.Vector3();
+  private valid = false;
+
+  /** Freeze the current contents of a shadow skeleton. */
+  captureFrom(shadow: ShadowSkeleton, bones: readonly VRMHumanBoneName[]): void {
+    for (const name of bones) {
+      const src = shadow.rotation(name);
+      if (!src) continue;
+      const stored = this.q.get(name);
+      if (stored) stored.copy(src);
+      else this.q.set(name, src.clone());
+    }
+    const hp = shadow.hipsPosition();
+    if (hp) this.hips.copy(hp);
+    this.valid = true;
+  }
+
+  rotation(name: VRMHumanBoneName): THREE.Quaternion | null {
+    return (this.valid && this.q.get(name)) || null;
+  }
+
+  hipsPosition(): THREE.Vector3 | null {
+    return this.valid ? this.hips : null;
+  }
+
+  get active(): boolean {
+    return this.valid;
+  }
+
+  clear(): void {
+    this.valid = false;
+  }
+}
+
 function AvatarNode({
   node,
   children,
@@ -1924,8 +1990,17 @@ function AvatarNode({
   const boneCylRef = useRef<THREE.Mesh>(null);
   const fbxMixerRef = useRef<THREE.AnimationMixer | null>(null);
   const vrmMixerRef = useRef<THREE.AnimationMixer | null>(null);
-  // Animation-pose buffer for the composition step (see ShadowSkeleton).
-  const shadowRef = useRef<ShadowSkeleton | null>(null);
+  // One independently-loaded, independently-played clip per rotation source, each
+  // with its own animation buffer (see ClipSlot / ShadowSkeleton). Sources coexist
+  // rather than sharing one slot, so two poses can be read at once — the
+  // prerequisite for cross-fading between them.
+  //
+  // `scheduled` is declared but not yet populated: timeline one-shots still take
+  // today's hard-switch path through `_resolveAvatarAnimation` and land in the
+  // `base` slot. Wiring it up (plus the fades) is the follow-up.
+  const slotsRef = useRef<Partial<Record<ClipSlotName, ClipSlot>>>({});
+  // Outgoing pose for a cross-fade whose source clip is being discarded.
+  const frozenRef = useRef(new FrozenPose());
   // Scene yaw applied to face the avatar at the camera (set at VRM load by
   // faceCameraYaw). The FBX retarget reuses it to reframe its root so the baked
   // animation faces the same way as the rest pose — see the retarget below.
@@ -1934,7 +2009,13 @@ function AvatarNode({
   // (not a shared node.id-keyed map) so multiple AvatarNode instances for the
   // same avatar — the scene viewport plus every compose camera view — each drive
   // their own mixers instead of clobbering and evicting a single shared entry.
+  //
+  // Holds the FBX *debug display* clip only. The VRM-space playback lives in
+  // `slotsRef` (one entry per rotation source); this ref no longer carries the
+  // VRM mixer/action/shadow.
   const animEntryRef = useRef<AnimEntry | null>(null);
+  // Which slot the composition currently treats as its animation source.
+  const activeSlotRef = useRef<ClipSlotName>('idle');
   const vrmRef = useRef<VRM | null>(null);
   const corrAxesRef = useRef<THREE.Object3D[]>([]);
   const vmcCompRef = useRef<Behavior | null>(null);
@@ -2384,43 +2465,49 @@ function AvatarNode({
     fbxGroupRef.current?.clear();
     fbxHelperRef.current?.clear();
     animEntryRef.current = null;
-    // Drop the animation buffer with the clip that drove it, so the composition
-    // falls back to rest instead of holding the last clip's pose forever.
-    shadowRef.current = null;
+    for (const name of Object.keys(slotsRef.current) as ClipSlotName[])
+      slotsRef.current[name]?.mixer.stopAllAction();
+    slotsRef.current = {};
+    frozenRef.current.clear();
   }, []);
 
-  // --- Animation load ---
-  useEffect(() => {
-    // Nothing to play (no VRM yet, VRM reloading, idle cleared, or a non-FBX
-    // url) → drop the active clip now; a rest pose here is correct. When we DO
-    // have a clip to switch to, we deliberately leave the current one running
-    // and swap it inside the loader callback once the replacement is baked, so
-    // no frame ever renders with an empty registry (which forces the humanoid
-    // back to rest — the visible flash between two idle animations).
-    if (!animUrl || !node.filePath || !vrmLoaded) {
-      teardownActiveAnim();
-      return;
-    }
-    let cancelled = false;
+  /** Stop and drop a single slot, leaving the others playing. */
+  const teardownSlot = useCallback((name: ClipSlotName) => {
+    const slot = slotsRef.current[name];
+    if (!slot) return;
+    slot.mixer.stopAllAction();
+    delete slotsRef.current[name];
+  }, []);
 
-    const ext = animUrl.split('?')[0].split('.').pop()?.toLowerCase();
-    if (ext !== 'fbx') {
-      teardownActiveAnim();
-      return;
-    }
+  // --- Animation load (per slot) ---
+  //
+  // Loads one clip into one named slot. Each rotation source owns a slot, so
+  // loading/replacing one leaves the others playing — that independence is what
+  // lets two sources be read simultaneously for a cross-fade.
+  //
+  // Returns a cancel function; callers wire it into their effect cleanup so a
+  // dep change abandons an in-flight load without tearing down the live clip.
+  const loadClipIntoSlot = useCallback(
+    (url: string, slot: ClipSlotName): (() => void) => {
+      let cancelled = false;
+      const ext = url.split('?')[0].split('.').pop()?.toLowerCase();
+      if (ext !== 'fbx') {
+        teardownSlot(slot);
+        return () => {};
+      }
 
-    new FBXLoader().load(animUrl, (fbx) => {
+      new FBXLoader().load(url, (fbx) => {
       if (cancelled) return;
       const clip = fbx.animations[0];
       if (!clip) return;
       const vrm = vrmRef.current;
       if (!vrm) return;
 
-      // Swap point: stop the outgoing clip in the same synchronous callback that
-      // bakes and installs the incoming one, so the two never straddle a
-      // rendered frame. (Guards above return early without tearing down, so a
-      // failed/empty load leaves the current clip playing untouched.)
-      teardownActiveAnim();
+      // Swap point: the outgoing clip in THIS slot is stopped in the same
+      // synchronous callback that bakes and installs the incoming one (see the
+      // teardownSlot call below), so the two never straddle a rendered frame.
+      // Other slots are untouched. (Guards above return early without tearing
+      // down, so a failed/empty load leaves the current clip playing.)
 
       // Snapshot bone local quaternions at load time (A-pose / bind pose for animation-only FBX).
       const loadTimeQ: Record<string, THREE.Quaternion> = {};
@@ -2573,7 +2660,6 @@ function AvatarNode({
         vrm,
         VRM_BONE_NAMES as unknown as VRMHumanBoneName[]
       );
-      shadowRef.current = shadow;
       // Fail loudly rather than silently rendering rest: if the baked tracks
       // don't resolve against the shadow hierarchy, every bone would sit at its
       // seeded rest pose and look like "the animation does nothing".
@@ -2608,16 +2694,54 @@ function AvatarNode({
         fbxScene: fbx,
         duration: clip.duration,
       };
-    });
 
-    // Only cancel the in-flight load on a dep change. Tearing the active clip
-    // down here is what caused the rest-pose flash: it ran the instant animUrl
-    // changed, before the replacement had loaded. Teardown now happens at the
-    // swap point (above) and on unmount (below) instead.
-    return () => {
-      cancelled = true;
-    };
-  }, [node.filePath, animUrl, vrmLoaded, teardownActiveAnim]);
+      // Install as an independent slot. Replacing an existing slot stops only
+      // that slot's mixer, so the other source keeps playing across the swap.
+      teardownSlot(slot);
+      slotsRef.current[slot] = {
+        url,
+        shadow,
+        mixer: vrmMixer,
+        action: vrmAction,
+        vrmDuration,
+        duration: clip.duration,
+      };
+      });
+
+      // Only cancel the in-flight load. Tearing the live clip down here is what
+      // caused the rest-pose flash: it ran the instant the url changed, before
+      // the replacement had baked. Teardown happens at the swap point instead.
+      return () => {
+        cancelled = true;
+      };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [node.filePath, teardownSlot]
+  );
+
+  // Idle slot — always loaded when an idle clip is configured. Kept resident even
+  // while the base drives the avatar, so it is ready to be faded back to.
+  const idleUrl = idle?.url ?? null;
+  useEffect(() => {
+    if (!idleUrl || !node.filePath || !vrmLoaded) {
+      teardownSlot('idle');
+      return;
+    }
+    return loadClipIntoSlot(idleUrl, 'idle');
+  }, [idleUrl, node.filePath, vrmLoaded, loadClipIntoSlot, teardownSlot]);
+
+  // Base slot — the loop tracking stacks onto. Also the landing slot for
+  // scheduled one-shots for now: `animUrl` still resolves those through
+  // `_resolveAvatarAnimation`'s hard switch, so a scheduled clip temporarily
+  // replaces the base here. Giving `scheduled` its own slot is the follow-up.
+  const baseSlotUrl = animUrl && animUrl !== idleUrl ? animUrl : null;
+  useEffect(() => {
+    if (!baseSlotUrl || !node.filePath || !vrmLoaded) {
+      teardownSlot('base');
+      return;
+    }
+    return loadClipIntoSlot(baseSlotUrl, 'base');
+  }, [baseSlotUrl, node.filePath, vrmLoaded, loadClipIntoSlot, teardownSlot]);
 
   // Evict this avatar's clip from the shared registry on unmount (the load
   // effect's cleanup no longer does — it only cancels in-flight loads).
@@ -2742,23 +2866,45 @@ function AvatarNode({
     // Clock-anchored drive: set each action's playhead from the active layer
     // against the synced clock, then step the mixer with update(0). The mixer
     // never free-runs, so every client (and every reload) stays in phase.
+    //
+    // EVERY loaded slot is ticked, not just the visible one. Each writes only its
+    // own shadow skeleton, so this costs one interpolation per slot and keeps a
+    // dormant source current — a slot that lagged behind would jump on the frame a
+    // cross-fade started. Both clips are clock-anchored, so they stay in phase
+    // with each other for free.
     const layer = activeLayerRef.current;
+    const slots = slotsRef.current;
     const reg = animEntryRef.current;
-    if (reg && layer) {
+    if (layer) {
       const now = Date.now();
-      reg.fbxAction.time = _anchoredTime(now, layer, reg.duration);
-      reg.fbxMixer.update(0);
+      if (reg) {
+        // FBX debug display (the side-by-side source rig), not a rotation source.
+        reg.fbxAction.time = _anchoredTime(now, layer, reg.duration);
+        reg.fbxMixer.update(0);
+      }
       if (vrm) {
-        // Drives the SHADOW skeleton only — the real bones are untouched here, so
+        // Drives the SHADOW skeletons only — the real bones are untouched here, so
         // the composition below is the sole writer of `vrm` bone rotations.
-        reg.action.time = _anchoredTime(now, layer, reg.vrmDuration);
-        reg.mixer.update(0);
+        for (const name of Object.keys(slots) as ClipSlotName[]) {
+          const slot = slots[name];
+          if (!slot) continue;
+          slot.action.time = _anchoredTime(now, layer, slot.vrmDuration);
+          slot.mixer.update(0);
+        }
       }
     } else if (vrm) {
       // No clip active (or still loading) — keep the humanoid normalized so any
       // held/broadcast pose stays applied.
       (vrm.humanoid as unknown as { update?: () => void }).update?.();
     }
+
+    // Which slot is the animation source this frame. `base` holds whatever
+    // `_resolveAvatarAnimation` selected (the base loop, or a scheduled one-shot
+    // while its window is open) and wins when present; otherwise the idle plays.
+    // Both slots stay loaded either way, which is what a cross-fade will need.
+    const activeSlot: ClipSlotName = slots.base ? 'base' : 'idle';
+    activeSlotRef.current = activeSlot;
+    const animSource = slots[activeSlot]?.shadow ?? null;
 
     // ── Step 2: broadcast pose composition ──────────────────────────────────────
     //
@@ -2858,7 +3004,7 @@ function AvatarNode({
         // clip mixer writes. Reading `bone.quaternion` here would alias the buffer
         // this loop writes into, feeding the composed (tracked) pose back in as
         // its own baseline whenever the mixer skipped a write.
-        const shadow = shadowRef.current;
+        const shadow = animSource;
         const animQuats: Array<
           [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion | null]
         > = [];
@@ -2902,7 +3048,7 @@ function AvatarNode({
         const poseSourceLive = node.properties?.poseSource as
           | PoseSource
           | undefined;
-        const animActive = !!(reg && layer);
+        const animActive = !!(animSource && layer);
         for (const [name, bone, animQ] of animQuats) {
           const inf = sectionInfluenceForBone(name, poseSourceLive);
           const restQ = restRaw.get(name)!;
@@ -2959,7 +3105,7 @@ function AvatarNode({
       // Animation baseline from the shadow skeleton, not the live bones — see the
       // tracked branch above and ShadowSkeleton for why reading `bone.quaternion`
       // here is unsafe.
-      const shadow = shadowRef.current;
+      const shadow = animSource;
       const animQuats: Array<
         [VRMHumanBoneName, THREE.Object3D, THREE.Quaternion | null]
       > = [];
@@ -2982,7 +3128,7 @@ function AvatarNode({
       // Same animActive guard as the tracked branch: without a clip there is no
       // snapshot, so fall back to rest. No tracked pose here, so the tracking
       // term is dropped (trackedQ = null).
-      const animActive = !!(reg && layer);
+      const animActive = !!(animSource && layer);
       for (const [name, bone, animQ] of animQuats) {
         const restQ = restRaw.get(name)!;
         const animContribution = animActive && animQ ? animQ : restQ;

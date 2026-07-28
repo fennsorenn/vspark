@@ -21,6 +21,51 @@ export function trackedComposeActive(
   return trackingLive && poseActive;
 }
 
+/**
+ * Cross-fade between two animation poses for one bone.
+ *
+ * `t` is the fade progress in 0..1: 0 = fully `from`, 1 = fully `to`. Either side
+ * may be null, meaning "this source has nothing to contribute" — a null side
+ * resolves to the other, and both null resolves to `rest`. That lets a caller fade
+ * in from nothing (a scheduled clip starting) or out to nothing (a clip retiring
+ * with no loop to hand back to) without special-casing.
+ *
+ * Blending animation sources is separate from, and happens *before*, stacking
+ * tracking on top: the result of this is what `stackBoneRotation` receives as its
+ * `animQ`.
+ */
+export function crossfadeAnimPose(
+  rest: THREE.Quaternion,
+  from: THREE.Quaternion | null,
+  to: THREE.Quaternion | null,
+  t: number,
+  out: THREE.Quaternion = new THREE.Quaternion()
+): THREE.Quaternion {
+  const k = t < 0 ? 0 : t > 1 ? 1 : t;
+  if (!from && !to) return out.copy(rest);
+  if (!from) return out.copy(rest).slerp(to!, k);
+  if (!to) return out.copy(from).slerp(rest, k);
+  return out.copy(from).slerp(to, k);
+}
+
+/**
+ * Cross-fade two hips positions (root motion), matching `crossfadeAnimPose`'s
+ * null semantics: a missing side means "no root motion from this source", which is
+ * the rest position rather than the origin.
+ */
+export function crossfadeHipsPosition(
+  restPos: THREE.Vector3,
+  from: THREE.Vector3 | null,
+  to: THREE.Vector3 | null,
+  t: number,
+  out: THREE.Vector3 = new THREE.Vector3()
+): THREE.Vector3 {
+  const k = t < 0 ? 0 : t > 1 ? 1 : t;
+  const a = from ?? restPos;
+  const b = to ?? restPos;
+  return out.copy(a).lerp(b, k);
+}
+
 // Scratch quats for the stacking composition. The per-frame pose loop is
 // single-threaded and calls this one bone at a time, so module-scoped scratch is
 // safe and avoids per-bone allocation.
