@@ -81,6 +81,11 @@ base animation in, and **Track** adds the live tracking on top:
 Sections you never touch stay at the default (**Anim 1 / Track 1**), so you only
 need to adjust the parts you want to change.
 
+> These sliders only apply **while a tracking source is live**. With tracking
+> lost — or no tracking source enabled at all — the **idle animation** plays at
+> full strength and the sliders are ignored, so a low **Anim** value never
+> weakens your idle.
+
 > The hips belong to the **Legs** section — both their rotation and their
 > **position** (the root motion: the up/down bob and weight-shift a clip bakes
 > in), since the hips lead the lower body. So **Legs Anim 0** plants the hips in

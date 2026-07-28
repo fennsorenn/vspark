@@ -60,12 +60,14 @@ VRM uses T-pose (arms parallel to shoulder line). Most FBX animations use A-pose
 
 **Phase 4 — Per-frame retargeting**
 
-Uses frame 0 of the FBX animation as the reference pose (not the bind pose). Many FBX files — especially UE4 retargets — have frame 0 ≠ bind pose, so using the bind pose as reference produces drift. Frame 0 is treated as "equivalent to VRM T-pose" and all subsequent frames are deltas from it.
+Uses the FBX **bind pose** as the reference: `worldDelta = fbxWorldQ × fbxBindWQ⁻¹`.
+
+> Previously documented here as "frame 0 is the reference pose, not the bind pose". That is **not** what the code does — the bake multiplies by `fbxBindWQInv`. A frame-0 reference (`fbxRefWQ` / `fbxRefWQInv`) *is* still computed in `Viewport.tsx` but is never read by the bake; it is dead code. Corrected after the stale description sent several debugging passes down the wrong path.
 
 Per bone per frame:
 ```
 fbxWorldQ = parentFBXWorldQ × trackQ_at_frame
-worldDelta = fbxWorldQ × fbxRefWQ⁻¹         (frame 0 reference, not bind)
+worldDelta = fbxWorldQ × fbxBindWQ⁻¹        (bind-pose reference)
 targetWQ   = worldDelta × vrmAposeWQ
 vrmLocalQ  = vrmParentWorldQ⁻¹ × targetWQ
 ```
@@ -77,6 +79,42 @@ Result stored as `Float32Array` (xyzw × nFrames) per VRM bone.
 Creates `THREE.QuaternionKeyframeTrack` per bone, attached to the VRM's skeleton nodes. Hips position track is also created: delta from FBX rest position, mapped through coordinate fix, scaled by 0.01 (FBX centimetre → metre).
 
 **Loop clamping**: If the first and last keyframes match in quaternion distance (< 1e-3), the clip duration is trimmed to the second-to-last keyframe. This eliminates the single-frame hold at the loop boundary.
+
+### Clip slots — one buffer per rotation source
+
+An avatar composes from three rotation sources: the **idle** loop, the **base** loop (what tracking stacks onto), and **tracking** itself. Each animation source owns a `ClipSlot` — its own loaded clip, its own `ShadowSkeleton` buffer, its own mixer and playhead. Sources therefore coexist rather than taking turns in one slot, which is the prerequisite for cross-fading: blending two poses requires both to be readable in the same frame.
+
+`loadClipIntoSlot(url, slot)` loads and bakes into one named slot; replacing a slot stops only that slot's mixer, so the other sources keep playing across the swap. One effect per slot (`idle`, `base`, `scheduled`) drives it, so changing one never reloads the others. **Every loaded slot is ticked each frame** (`Step 1`), not just the visible one: each writes only its own shadow, and a dormant slot that lagged would jump on the frame a fade began.
+
+The idle slot stays resident even while the base drives the avatar — that residency is the point, since it's what the avatar fades back to.
+
+Cost: an avatar loads and bakes one clip per populated slot — up to three (idle + base + an active one-shot) instead of one.
+
+Scheduled one-shots resolve through `_resolveScheduledAnimation` (scheduled-only, no idle/base fallback) into their own `scheduled` slot, so a one-shot fades against whatever loop plays underneath instead of displacing it. **Each slot advances on its own layer**: the loops are epoch-anchored (shared phase across clients) while a one-shot is anchored to its entry's `startEpoch` — a single shared layer would have driven the one-shot at the loop's phase.
+
+Blending between sources is `crossfadeAnimPose` / `crossfadeHipsPosition` (`poseComposition.ts`, unit-tested): it runs **before** tracking is stacked, so its result is what `stackBoneRotation` receives as `animQ`. A `null` side means "this source contributes nothing" and resolves to rest, so fading in from nothing or out to nothing needs no special case.
+
+### Animation buffer — the clip mixer drives a shadow skeleton
+
+The clip `AnimationMixer` is bound to a **`ShadowSkeleton`** (`Viewport.tsx`): a bone-only hierarchy, name-matched to the VRM's raw humanoid bones with their rest transforms copied, and *not* part of the rendered scene. Baked tracks bind to it because `AnimationMixer` resolves targets by name path (`${bone.name}.quaternion`). The composition step reads its animation baseline from those shadow bones; the real skeleton is written only by the composition, once per frame.
+
+This exists because a bone rotation has exactly one home — `bone.quaternion` — and the composition previously used it as *both* its animation input and its output. Each frame's composed pose became the next frame's "animation" baseline. That was harmless only while the mixer overwrote the bones first, and `THREE.PropertyMixer` is **change-driven**: it caches the value it last wrote and skips the write when the newly interpolated value is identical, comparing against its own cache rather than against the bone — so it cannot see that something else clobbered it.
+
+A clip whose playhead never advances therefore stops writing after its first frame. A **static single-keyframe pose** hits this immediately (see below), and from frame 2 the animation channel read back the composed pose, i.e. tracking. Symptom: with **Anim 1 / Track 0** a pose clip rendered the *tracked* pose, and Track 1 compounded tracking onto itself every frame. Multi-keyframe clips masked it entirely because their playhead moves.
+
+Binding the mixer to its own hierarchy dissolves the class of bug rather than timing around it: a skipped write is now *correct* (the shadow bone retains the right pose), so static and animated clips take one identical path with no special-casing. `Object3D.quaternion` is read-only, so a parallel hierarchy is the way to hand the mixer a private buffer. Regression cover: `test/animBuffer.test.ts`.
+
+### Static poses (single-keyframe clips)
+
+Some exports are a *pose*, not an animation. Mixamo's "… Pose" files (e.g. `Male Sitting Pose.fbx`) contain:
+
+- **52 quaternion tracks with exactly 1 keyframe each** — the pose itself
+- **1 hips position track with 2 identical keyframes** (t=0 and t=0.0333) — the sole source of the clip's 0.0333 s duration
+- a second, completely empty clip named `Take 001` (0 tracks, 0 duration) — a Mixamo export artifact present in most exports, animations included
+
+So `refTrack.times.length === 1` and `allTimes = [0]`: the loop-clamping test never fires (`lastIdx === 0`), and `vrmDuration` computes to `min(0.0333, 0) = 0`. Both are harmless — a 1-key track holds its value and a zero-duration clip still samples correctly. What broke static poses was the shared-buffer aliasing above, which their pinned playhead exposed. They need no special handling.
+
+> Note: the code takes `fbx.animations[0]` unconditionally. Today index 0 is the real clip, but `FBXLoader`'s ordering isn't contractual — if the empty `Take 001` ever came first, the avatar would load a clip with zero tracks and render rest.
 
 ### Why world-space delta, not local-space
 
@@ -215,7 +253,36 @@ The per-bone math is a pure, unit-tested helper — **`packages/frontend/src/com
 
 **Partial tracking (per-section blend).** A per-avatar-node `poseSource` property (`SceneNodeProperties.poseSource`, types `PoseSource` / `PoseSection` / `PoseSectionInfluence` — see [shared-types.md](shared-types.md)) scales the Anim/Track layers **independently per body section**: `head`, `gaze`, `body`, `arms`, `hands`, `legs`, each with an `anim` and a `track` influence in `0..1`. Typical use: play a full-body clip for the legs while live tracking drives the upper body. A static `BONE_TO_SECTION` map (`Viewport.tsx`, built from `POSE_SECTION_BONES`; unlisted bones fall under `hands`/fingers) assigns every VRM humanoid bone to a section; absent sections resolve to `{anim:1, track:1}`, so an unset `poseSource` changes nothing.
 
-**No-feed branch.** When `poseSourceIsActive` but there is **no live tracking feed**, a dedicated branch still applies each section's Anim influence (`stackBoneRotation` with `trackedQ = null`), so the sliders visibly droop a section toward rest even before a VMC / camera source connects.
+### Unified composition — one path, `modeWeight` selects tracked vs untracked
+
+There is a single composition path. `modeWeight` (0 = animation straight, 1 = levers applied + tracking stacked) ramps over `blendTransitionTime` and selects between the two continuously via `composeBonePose` / `composeHipsPositionBlended`: it scales the section's Anim lever from `1` toward its configured value and scales the tracking term with it. At `modeWeight = 0` the result is **identical by construction** to playing the animation straight, so the two modes cannot drift apart.
+
+This replaced two separate branches — a tracked one that applied `inf.anim`, and an untracked one that passed `1`. They switched instantly on `trackingLive` while only the tracking weight ramped, so at the switchover the sole remaining difference was the lever: **every section with Anim < 1 jumped by exactly `1 - anim`**. Sections at Anim 1 didn't move at all (so only *part* of the pose snapped), and the two directions left `blend` at different points (so the snap looked different each way) — the reported symptom. Note the source cross-fade (`SourceFade`, below) could not fix this: it blends between *clips*, while this discontinuity was between *composition modes* applied to the same clip.
+
+The unified path runs while the mode is engaged **or still ramping down**, which is what keeps a fade-out rendering after `trackingLive` has already gone false.
+
+**Why the exit needed more than the ramp.** `modeWeight` scales the tracking *weight*; it cannot rescue tracking *data* that is already gone. Four separate mechanisms removed data or state in a single frame on the tracked→untracked exit, which is why entry looked smooth (data arrives before the ramp starts) while exit snapped:
+
+1. **The bus's empty-bones fallback frame.** When every producer drops out the bus emits one final frame with `bones: {}` (`bus.ts` `_emitFallback`). The pose object is non-null but empty, so composition ran and found no bones — every bone's tracking term went null and its weight 0 at once. Fixed by `TrackedPoseLatch`: the last *populated* (and filtered) pose is held and replayed while `modeWeight > 0`, so the ramp fades from a real pose. The latch ignores empty updates and is released on the settle edge. Replayed frames skip the One Euro filter — the latch is a held constant, and re-filtering it would drift.
+2. **The transition reset fired at the start of the exit.** It keyed off `trackedActive` going false — the *first* exit frame, with `modeWeight` still ~1 and the tracked path still rendering. `BoneFilterBank.reset()` clears each filter's `initialized` flag, so the next `filter()` returns the **raw** sample instead of the smoothed one, and `resetNormalizedPose()` wiped the pose the ramp was reading. Now fires on the `modeWeight >0 → 0` edge, i.e. once the fade has finished.
+3. **Tracking faded quadratically.** `tw = inf.track * blend` was then scaled again by `modeWeight` inside `composeBonePose`, and `blend === modeWeight` (identical ramps), giving `inf.track * modeWeight²` — a collapse in the final third that read as a late snap. `blend` is gone; `composeBonePose` owns the mode scaling, and the duplicate `blendWeightRef` ramp was removed.
+4. **The base slot was torn down before the fade could capture it.** `setTrackingActive(false)` → `baseSlotUrl` null → the slot effect called `teardownSlot('base')` in its **body**, which React commits before the next frame. `fade.from` then pointed at a missing slot, the freeze fell through to `clear()`, and `crossfadeAnimPose` with a null `from` returns `slerp(rest, to, k)` — rest at `k=0`, not the outgoing pose — so the base→idle animation cross-fade was silently skipped and the baseline cut. Slots are now **retired** (`retireSlot`) rather than torn down: excluded from source selection but kept loaded and ticked, and dropped by the frame loop once no fade reads them. A small `else` branch remains for `pose == null` (no producer has ever published, so there is no pose object to read); it is `modeWeight = 0` by construction.
+
+Only the tracked side composes anything new — at `modeWeight = 0` the result *is* the animation pose — so there is no second result buffer to build and blend against.
+
+**No-feed branch — idle plays straight.** With **no live tracking feed** (signal lost, or no enabled tracking source at all) the idle animation plays at **full strength**: the branch composes with `animInf = 1`, `trackedQ = null`, `trackWeight = 0`, and root motion at `legsAnim = 1`. The partial-tracking levers describe how tracking blends against the *base* animation while a source is live; with nothing tracking there is nothing to weigh the idle against, so they do not apply here. Nothing else is applied either — ambient producers (Breathing) merge into the **tracked** pose only, never into a straight idle.
+
+**Branch selection keys off `trackingLive`, not bus-pose presence.** Step 2's gate is `trackingLive && blend > 0 && pose`. The `trackingLive` term is essential: ambient producers publish additively and forever (Breathing's `pose_broadcast` runs at priority 10 with `animationBlendMode: 'additive'`, independent of tracking), so `pose` stays non-null and `poseActive` stays true for the lifetime of the behavior. Gating on those alone ran the weighted tracked path permanently and made the untracked idle branch unreachable whenever a Breathing behavior was attached — the originally-reported "idle still goes through the weights". For the same reason `targetWeight` (the blend ramp) and the filter-reset transition both key off `trackedComposeActive = trackingLive && poseActive` rather than `poseActive`, which an ambient producer would otherwise pin true forever.
+
+**Source cross-fade.** Changing animation source no longer cuts. `SourceFade` (`poseComposition.ts`) tracks the transition: when the desired source changes, the previous one becomes the fade's `from`, the new one its `to`, and progress walks 0→1 over the avatar's `blendTransitionTime`. While in flight both sides are read per bone and blended through `crossfadeAnimPose` before tracking is stacked, so the fade happens in the animation channel rather than fighting the tracking weights.
+
+Source precedence: a scheduled one-shot outranks the loops; otherwise base (tracking live and a base set) else idle. Every source stays resident in its own slot, which is what makes reading two at once possible.
+
+Interrupting a fade mid-flight makes the *incoming* source the new outgoing one — an approximation, since the on-screen pose is really a blend of two and can't be named by one source id. It keeps the dominant side and is close for late interruptions; `SourceFade.retarget()` documents the tradeoff.
+
+A retiring one-shot is a special case: its clip is unloaded as soon as its entry stops resolving, so the pose is frozen (`FrozenPose`) at the instant the fade begins and the fade runs against that. Idle and base keep live mixers through a fade instead, since they still have something to play.
+
+This branch was originally a **slider-preview** path — gated on `poseSourceIsActive` (true only when some lever was off-default) and scaling the idle by each section's Anim influence, so moving a lever visibly drooped a section toward rest with nothing connected. That made it load-bearing for ordinary idle playback while carrying a gate unrelated to it: with every lever at default the branch was skipped entirely and the idle fell through to whatever the Step 1 mixer had left on the bones — no `resetNormalizedPose`, no normalization — so whether the idle was properly composed depended on whether a lever had been touched. The gate and the scaling are both gone; the branch now runs on every untracked frame (`else if (vrm)`) and `poseSourceIsActive` was deleted.
 
 > Driving the **legs** from tracking needs a full-body VMC source — webcam MediaPipe tracking doesn't send legs.
 
@@ -274,7 +341,18 @@ The `api_controller` behavior PROJECTS its animation queue onto this timeline; t
 
 ### Deferred
 
-Crossfade/blend between clips; a global timeline transport (pause/seek over the whole schedule); preload of upcoming clips before their start; two-backend collab clock-sync verification (the clock is a synchronized stub today). Tracked in [plans/avatar-animation.md](../plans/avatar-animation.md).
+A global timeline transport (pause/seek over the whole schedule); preload of upcoming clips before their start; two-backend collab clock-sync verification (the clock is a synchronized stub today). Tracked in [plans/avatar-animation.md](../plans/avatar-animation.md).
+
+(Crossfade/blend between clips is **done** — see Clip slots and the source cross-fade above.)
+
+### Known non-critical issues
+
+Deliberately deferred; none affect correctness of normal playback.
+
+- **Every loaded slot ticks each frame.** `Step 1` advances all slots, including ones no fade is reading. Each write goes to its own shadow skeleton so nothing is corrupted, and keeping dormant slots current is what stops them jumping when a fade starts — but a slot that is neither showing nor fading could be skipped. Cheap, behaviour-preserving optimisation now that the fades are verified.
+- **Mid-fade interruption is approximate.** Interrupting a fade makes the *incoming* source the new outgoing one (`SourceFade.retarget`). Strictly the on-screen pose is a blend of two sources and cannot be named by one source id, so the new fade starts from the dominant side rather than the exact rendered pose. Close for late interruptions; the exact fix is to freeze the blended pose and fade from that (the machinery exists — `FrozenPose`).
+- **`fbx.animations[0]` is taken unconditionally.** Most Mixamo exports carry a second, empty clip (`Take 001`, 0 tracks, 0 duration) alongside the real one. Index 0 is the real clip today, but `FBXLoader`'s ordering is not contractual — if the empty clip ever came first the avatar would load zero tracks and render rest. Picking the clip with the most tracks (or a non-zero duration) would be robust.
+- **Dead frame-0 reference chain.** `fbxRefWQ` / `fbxRefWQInv` are computed in `bakeRetargetedClip` and never read; the bake uses `fbxBindWQInv`. Marked `DEAD CODE` in situ. Kept only in case the frame-0 scheme is wanted again — it is otherwise safe to delete, and the stale claim that retargeting is frame-0-relative has already misled debugging more than once.
 
 ## Two clip systems
 
@@ -333,7 +411,7 @@ The avatar idle picker writes `properties.animation.idle = { clipId, speed }` (s
 | VMC arms/hands flipped | RhyLive left-handed convention | Y/Z negate in rhylive_bone_mapper |
 | UE4 FBX character lies on side | Z-up source, Y-up target | Detect from spine direction; apply axis correction to fbxBindWQ |
 | T-pose vs A-pose drift | VRM T-pose ≠ FBX A-pose | Compute vrmAposeWQ per-bone and use in delta calculation |
-| Frame 0 drift on UE4 retargets | FBX frame 0 ≠ bind pose | Use frame 0 as reference, not bind pose |
+| Static "… Pose" clip renders the *tracked* pose (Anim 1 / Track 0), Track 1 compounds it | Composition read its animation baseline off `bone.quaternion` — the same field it writes its output to. A 1-keyframe clip pins the playhead, the change-driven `PropertyMixer` stops writing, and the baseline reads back last frame's composed pose | Bind the clip mixer to a `ShadowSkeleton` so the animation pose has a buffer nothing else writes |
 | Hand fingers point wrong direction | Palm chirality mismatch | Canonicalize palm normal before basis alignment |
 | Animation pops at loop point | First and last keyframe identical, single-frame hold | Trim duration to second-to-last keyframe |
 | Blendshapes exceed 1.0 | Multiple ARKit shapes accumulate to same target | Clamp after accumulation, not per-mapping |

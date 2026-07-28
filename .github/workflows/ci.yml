@@ -1,31 +1,30 @@
 name: CI
 
-# Runs on every PR targeting main. Two required checks:
-#   - build: mirrors the prep steps from release.yml (lint, test, build,
-#     backend bundle) so a PR that wouldn't ship a release can't merge.
-#     Catches regressions like missing esbuild alias entries before they
-#     reach main. `pnpm test` is the fast unit+API tier (~30s, no booted
-#     stack); e2e stays a manual post-push confirmation, not a merge gate.
-#   - release-label: refuses merge unless the PR carries exactly one of
-#     release:patch / release:minor / release:major. tag.yml reads this
-#     label after merge to decide the semver bump.
+# Build/test gate for PRs targeting main. Mirrors the prep steps from
+# release.yml (lint, test, build, backend bundle) so a PR that wouldn't ship
+# a release can't merge — catches regressions like missing esbuild alias
+# entries before they reach main. `pnpm test` is the fast unit+API tier
+# (~30s, no booted stack); e2e stays a manual post-push confirmation, not a
+# merge gate.
 #
-# `labeled`/`unlabeled` are included so the release-label check re-runs the
-# moment a label is added (release labels are applied via REST *after* the PR
-# is created, so the initial run would otherwise see no label and fail with no
-# way to retrigger). The build job skips on label events — only the label
-# check needs to react to them.
+# This reacts only to code changes (opened/synchronize/reopened) — NOT to
+# label events. The release: label requirement lives in its own workflow
+# (release-label.yml) because it must react to `labeled`/`unlabeled`, which
+# this job doesn't care about. Splitting them keeps every run internally
+# consistent: a build run never has a skipped job, and a label run never
+# re-runs the build. (Previously both jobs shared one workflow with a label
+# trigger, so the first `opened` run and the later `labeled` run each carried
+# one green + one failed/skipped job — the checks were green only across two
+# runs, never within one.)
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened]
     branches:
       - main
 
 jobs:
   build:
-    # No need to rebuild on label changes — only release-label cares about those.
-    if: github.event.action != 'labeled' && github.event.action != 'unlabeled'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,21 +50,3 @@ jobs:
 
       - name: Bundle backend
         run: pnpm --filter @vspark/backend bundle
-
-  release-label:
-    runs-on: ubuntu-latest
-    steps:
-      - name: "Require exactly one release: label"
-        env:
-          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
-        run: |
-          count=$(echo "$LABELS" | jq '[.[] | select(. == "release:patch" or . == "release:minor" or . == "release:major")] | length')
-          if [ "$count" -eq 0 ]; then
-            echo "::error::PR must carry one of: release:patch, release:minor, release:major"
-            exit 1
-          fi
-          if [ "$count" -gt 1 ]; then
-            echo "::error::PR carries multiple release: labels — pick one"
-            exit 1
-          fi
-          echo "OK — exactly one release label present"

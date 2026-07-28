@@ -84,6 +84,11 @@ die Basis-Animation ein, und **Track** legt das Live-Tracking darüber:
 
 Bereiche, die du nicht anfasst, bleiben auf dem Standard (**Anim 1 / Track 1**).
 
+> Diese Regler wirken nur, **solange eine Tracking-Quelle aktiv ist**. Ist das
+> Tracking verloren — oder gar keine Tracking-Quelle aktiviert —, läuft die
+> **Idle-Animation** in voller Stärke und die Regler werden ignoriert; ein
+> niedriger **Anim**-Wert schwächt deine Idle-Animation also nie ab.
+
 > Die Hüfte gehört zum Bereich **Beine** — sowohl ihre Rotation als auch ihre
 > **Position** (die Root-Motion: das Auf-und-Ab-Wippen und die
 > Gewichtsverlagerung, die ein Clip mitbringt), da die Hüfte die untere
