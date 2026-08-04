@@ -89,6 +89,8 @@ export class BroadcastBus {
     priority: number,
     animationBlendMode: AnimationBlendMode
   ): void {
+    if (!_isIterableMap(pose))
+      return this._rejectPublish('bones', behaviorId, pose);
     const slot = this._slot(sceneNodeId, behaviorId);
     if (!slot) return;
     slot.bones = { pose, priority, animationBlendMode };
@@ -100,9 +102,33 @@ export class BroadcastBus {
     behaviorId: string,
     blendshapes: Blendshapes
   ): void {
+    if (!_isIterableMap(blendshapes))
+      return this._rejectPublish('blendshapes', behaviorId, blendshapes);
     const slot = this._slot(sceneNodeId, behaviorId);
     if (!slot) return;
     slot.blendshapes = { blendshapes };
+  }
+
+  /** Behaviors already warned about, so a 60 Hz producer logs once, not per frame. */
+  private readonly _warned = new Set<string>();
+
+  /**
+   * Drop a malformed publication instead of parking it in a slot. Composition runs
+   * on a timer, so a bad value stored here would throw on every tick — outside any
+   * request scope — and take the process down with it.
+   */
+  private _rejectPublish(
+    what: string,
+    behaviorId: string,
+    value: unknown
+  ): void {
+    const key = `${what}:${behaviorId}`;
+    if (this._warned.has(key)) return;
+    this._warned.add(key);
+    console.warn(
+      `[BroadcastBus] Ignoring ${what} from behavior ${behaviorId}: ` +
+        `expected a ${what === 'bones' ? 'NormalizedPose' : 'Blendshapes'}, got ${_describe(value)}`
+    );
   }
 
   /** Drop all slots belonging to a component (call when the component is deleted/recreated,
@@ -122,6 +148,8 @@ export class BroadcastBus {
           sceneMap.delete(sceneNodeId);
           this._pendingModes.delete(sceneNodeId);
         }
+        this._warned.delete(`bones:${behaviorId}`);
+        this._warned.delete(`blendshapes:${behaviorId}`);
       }
     }
   }
@@ -230,7 +258,13 @@ export class BroadcastBus {
     if (!sceneMap || sceneMap.size === 0) return;
     for (const [sceneNodeId, nodeMap] of sceneMap) {
       if (nodeMap.size === 0) continue;
-      this._composeAndEmit(sceneNodeId, nodeMap);
+      try {
+        this._composeAndEmit(sceneNodeId, nodeMap);
+      } catch (err) {
+        // The tick has no caller to propagate to — an escaping throw would be an
+        // unhandled exception and stop the server. Skip this node, keep ticking.
+        console.error(`[BroadcastBus] compose failed for ${sceneNodeId}:`, err);
+      }
     }
   }
 
@@ -292,6 +326,26 @@ export class BroadcastBus {
     const hz = this._loadSceneTickHz(sceneId);
     this.setSceneTickRate(sceneId, hz);
   }
+}
+
+/**
+ * Structural check for the map-like value classes the bus composes
+ * (`NormalizedPose` / `Blendshapes`): it only ever calls `entries()` and
+ * `toRecord()` on them. Structural rather than `instanceof` so a value that
+ * crossed a module boundary (bundled build, duplicated package copy) still
+ * passes, while a JSON-revived plain object — which has neither method — does not.
+ */
+function _isIterableMap(v: unknown): boolean {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as { entries?: unknown; toRecord?: unknown };
+  return typeof o.entries === 'function' && typeof o.toRecord === 'function';
+}
+
+/** Short, log-safe description of a rejected publication. */
+function _describe(v: unknown): string {
+  if (v === null) return 'null';
+  if (typeof v !== 'object') return typeof v;
+  return `${(v as object).constructor?.name ?? 'object'} ${JSON.stringify(v)?.slice(0, 120) ?? ''}`;
 }
 
 function _clampHz(hz: number): number {
