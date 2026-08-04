@@ -49,9 +49,11 @@ export type StyleDriverName = (typeof STYLE_DRIVER_NAMES)[number];
  * - `body*` — torso orientation in world, ±1 at `response.bodyRange`.
  * - `armL` / `armR` — arm height relative to `response.armNeutral`, ±1 at
  *   `response.armRange`. Positive = raised.
- * - `energy` — 0..1 summary of how fast the drivers are currently moving. Nothing
- *   in the default rig consumes it; it is there to be wired into a Logic graph
- *   (expression intensity, particle rate, …).
+ * - `energy` — 0..1 summary of how fast the drivers are currently moving. No stock
+ *   rig entry consumes it, but it is offered in the rig editor like any other
+ *   driver, so it can be mapped onto bones (a bounce that grows with activity).
+ *   It cannot currently leave the behavior — the graph is readonly and has no
+ *   `set_data` bridge — so it can't yet drive expressions or particles.
  */
 export type StyleDrivers = Record<StyleDriverName, number>;
 

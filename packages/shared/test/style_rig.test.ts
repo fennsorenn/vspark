@@ -148,7 +148,7 @@ describe('DEFAULT_STYLE_RIG — the design invariants', () => {
       expect(DEFAULT_STYLE_RIG[bone].mode).toBe('add');
   });
 
-  it('leaves the `energy` driver unmapped — it is there to be wired by hand', () => {
+  it('leaves the `energy` driver unmapped — users opt into it per bone', () => {
     for (const entry of Object.values(DEFAULT_STYLE_RIG))
       expect(entry.drivers.energy).toBeUndefined();
   });

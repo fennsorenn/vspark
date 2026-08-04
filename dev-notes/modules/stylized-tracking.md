@@ -58,7 +58,7 @@ Nine normalized scalars, all clamped to ±1 (`armL`/`armR` signed, `energy` 0..1
 | `headYaw` / `headPitch` / `headRoll` | `neck · head` composed | Head orientation **relative to the torso**, ±1 at `headRange`. |
 | `bodyYaw` / `bodyPitch` / `bodyRoll` | `hips · spine · chest · upperChest` composed | Torso orientation in world, ±1 at `bodyRange`. |
 | `armL` / `armR` | `left/rightUpperArm` roll | Arm elevation above `armNeutral`, ±1 at `armRange`. Mirrored (the right arm's roll is negated), because the VRM rest arms point along ∓X. |
-| `energy` | Total driver motion per second ÷ `energyScale` | How busy the performance is. **Nothing in the default rig consumes it** — it is exposed so a Logic graph can drive expression intensity, particle rate, etc. |
+| `energy` | Total driver motion per second ÷ `energyScale` | How busy the performance is. **No stock rig entry consumes it**, but the rig editor's driver picker offers it like any other, so you can add e.g. `energy → chest roll` for a bounce that grows with activity. It is NOT reachable outside the behavior — see the limitation below. |
 
 ### The conditioning pipeline (this is the glitch gate)
 
@@ -222,6 +222,24 @@ the drivers edge is typed rather than `Any`. Both nodes are ordinary static node
 (shortest-arc, with a normalized-lerp fallback for nearly-parallel rotations).
 
 ---
+
+## Known limitations
+
+- **The behavior graph is `readonly: true`** — it cannot be rewired in the
+  substrate editor. Everything user-facing goes through the behavior config.
+- **`energy` cannot leave the behavior.** There is no `set_data` node in the
+  template and no other bridge, so it cannot currently drive a Logic graph,
+  expressions, or particles — only bones, via a rig entry. Adding a `set_data`
+  publish (or a drivers→data-channel node) would be the fix; see
+  [data-channels.md](data-channels.md).
+- **Interceptor priority is fixed at 8.** `_persistNodeState`'s sibling
+  `_getNodeConfig` does honour a `config.nodeConfig[nodeId]` override, but the
+  manager reads priority from `nodeDef.defaultConfig` at graph-construction time,
+  so that escape hatch does not reach it. Ordering against other interceptors
+  (manual calibration at 5, breathing) is not user-configurable.
+- **Driver extraction is hardcoded.** Which bone chains are read (`TORSO_CHAIN`,
+  `HEAD_CHAIN`) and the arm-elevation axis live in `pose_style_drivers.ts`. The
+  set of nine drivers is fixed; adding one is a code change.
 
 ## Extending
 
