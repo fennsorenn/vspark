@@ -3212,6 +3212,7 @@ function RigBoneRow({
   return (
     <div style={{ borderBottom: '1px solid #262626' }}>
       <div
+        className={`vs-stylize-bone-${bone}`}
         onClick={() => setOpen((v) => !v)}
         style={{
           display: 'flex',

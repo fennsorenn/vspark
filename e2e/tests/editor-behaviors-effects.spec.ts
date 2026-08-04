@@ -153,12 +153,18 @@ test('behaviors: Stylized Tracking panel edits persist via REST', async ({
   await item.dispatchEvent('click');
 
   // Helper: read the stylizer's stored config back over REST.
+  // This route serves raw DB rows, so `config` arrives as a JSON *string* — the
+  // frontend's mapBehavior() normalizes the same way.
   const readConfig = async (): Promise<Record<string, unknown>> => {
     const res = await request.get(`/api/scene-nodes/${nodeId}/behaviors`);
     const body = (await res.json()) as {
-      data: { kind: string; config: Record<string, unknown> }[];
+      data: { kind: string; config: string | Record<string, unknown> }[];
     };
-    return body.data.find((b) => b.kind === 'pose_stylizer')?.config ?? {};
+    const raw = body.data.find((b) => b.kind === 'pose_stylizer')?.config;
+    if (raw == null) return {};
+    return typeof raw === 'string'
+      ? (JSON.parse(raw) as Record<string, unknown>)
+      : raw;
   };
 
   await expect
@@ -169,19 +175,20 @@ test('behaviors: Stylized Tracking panel edits persist via REST', async ({
 
   // Selecting the behavior row opens its properties panel.
   await page.getByText('Stylized Tracking', { exact: true }).first().click();
-  await expect(page.locator('.vs-stylize-amount input').first()).toBeVisible({
-    timeout: 10_000,
-  });
+  await expect(
+    page.locator('.vs-stylize-amount input[type="range"]')
+  ).toBeVisible({ timeout: 10_000 });
 
   // --- Amount: the headline accurate ←→ stylized dial ---------------------
-  const amount = page
-    .locator('.vs-stylize-amount input[type="number"]')
-    .first();
-  await amount.fill('0.4');
-  await amount.press('Enter');
+  // SliderInput's numeric field only exists after a double-click on the readout;
+  // the range input underneath is the primary control, so drive that with the
+  // keyboard (each key-up commits). Starts at 1, step 0.05 → 4 lefts = 0.8.
+  const amount = page.locator('.vs-stylize-amount input[type="range"]');
+  await amount.focus();
+  for (let i = 0; i < 4; i++) await amount.press('ArrowLeft');
   await expect
     .poll(async () => (await readConfig()).amount, { timeout: 10_000 })
-    .toBe(0.4);
+    .toBeCloseTo(0.8, 5);
 
   // --- Follow-through ------------------------------------------------------
   const lag = page.locator('.vs-stylize-lag input').first();
@@ -213,10 +220,9 @@ test('behaviors: Stylized Tracking panel edits persist via REST', async ({
 
   // --- A rig bone override --------------------------------------------------
   await page.getByText('Response rig', { exact: false }).first().click();
-  await page.getByText('head', { exact: true }).first().click();
-  const headYaw = page
-    .locator('.vs-stylize-drv-head-headYaw input[type="number"]')
-    .nth(1); // X / Y / Z → Y is the yaw column
+  await page.locator('.vs-stylize-bone-head').click();
+  // VecInput renders three NumInputs (text fields) — X / Y / Z; Y is the yaw column.
+  const headYaw = page.locator('.vs-stylize-drv-head-headYaw input').nth(1);
   await expect(headYaw).toBeVisible({ timeout: 5_000 });
   await headYaw.fill('35');
   await headYaw.press('Enter');
