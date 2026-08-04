@@ -12,11 +12,15 @@ DB behaviors row
     → diff running vs desired state
     → start/stop/reload graph instances as needed
   → graph runs; nodes call setState(nodeId, state)
-    → manager persists state into config._nodeState namespace in DB
-  → on restart: syncBehaviors() restores state via getState callbacks
+    → engine routes DURABLE nodes to the manager's persist callback
+      → manager writes state into config._nodeState namespace in DB
+    → engine keeps every other node's state in the graph's scratch map
+  → on restart: syncBehaviors() restores durable state via getState callbacks
 ```
 
 State lives in `config._nodeState[nodeId]` so it survives restarts without a separate DB column.
+
+Only nodes declaring `static readonly persistState = true` (today: `body_calibration`, `arm_ik_calibration`) reach a manager's persist callback — see [signal-graph.md](signal-graph.md) → *Scratch vs durable state*. Per-frame node state never hits the DB, so a manager's `getState`/`onSetState` callbacks are called at user-action rate, not frame rate. Existing rows may still carry `_nodeState` entries for scratch nodes; they are inert and never read back.
 
 ---
 
