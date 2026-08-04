@@ -41,7 +41,7 @@ carrier for every bone the rig does not own.
 
 | File | Role |
 |---|---|
-| [`packages/shared/src/style_rig.ts`](../../packages/shared/src/style_rig.ts) | The data model: driver names, `StyleResponse`, `StyleRig`, `DEFAULT_STYLE_RIG`, `mergeStyleRig`, `evaluateBoneResponse`. Pure; lives in shared so the backend nodes and the properties panel read the *same* default rig. |
+| [`packages/shared/src/style_rig.ts`](../../packages/shared/src/style_rig.ts) | The data model: driver names, `StyleResponse`, `StyleRig`, the `follow`/`counter` presets, `mergeStyleRig`, `evaluateBoneResponse`. Pure; lives in shared so the backend nodes and the properties panel read the *same* default rig. |
 | [`packages/backend/src/signal/nodes/pose_style_drivers.ts`](../../packages/backend/src/signal/nodes/pose_style_drivers.ts) | Pose → drivers. Owns all the conditioning (and therefore all the glitch rejection). |
 | [`packages/backend/src/signal/nodes/pose_stylize.ts`](../../packages/backend/src/signal/nodes/pose_stylize.ts) | Drivers → pose. Owns the rig evaluation, per-bone lag, and the accurate↔stylized blend. |
 | [`packages/backend/src/behaviors/pose_stylizer/`](../../packages/backend/src/behaviors/pose_stylizer/) | `graph.ts` (the fixed descriptor) + `manager.ts` (lifecycle + interceptor registration). |
@@ -80,6 +80,34 @@ raw angle → ÷ range → clamp ±1 → deadzone → rate limit → EMA smooth
 guard.
 
 ---
+
+## Presets — the two 2D-rig conventions
+
+2D rigs are built on one of two conventions for how the torso answers the head,
+and both ship as presets (`STYLE_RIG_PRESETS`, selected by the behavior's
+`preset` config field; unknown/absent → `follow`):
+
+| Preset | head driver → torso | Reads as |
+|---|---|---|
+| `follow` (default) | same direction | the body leans into the look; warm, engaged |
+| `counter` | opposed | contrapposto / S-curve; theatrical, posed |
+
+Note the coupling is **directional**, and the two directions are set
+independently. Both presets keep the *other* coupling — body driver → head/neck —
+**opposed**, so the head stays level through a torso lean. That term is what
+separates "performer" from "puppet" and is not something you would want to flip.
+
+`STYLE_RIG_COUNTER` is built as `mergeStyleRig(STYLE_RIG_FOLLOW,
+COUNTER_HEAD_RESPONSE)` — the delta *is* the documentation of what differs, and
+it differs only in the head-driver terms. Body drivers, shoulders, arms, lags and
+modes are shared.
+
+**The non-obvious part**: counter is not a sign flip. Negating the four torso
+terms alone would take the summed head-in-world yaw from ~47° to ~13°, i.e. the
+avatar would stop looking where the performer looks. So the head and neck are
+scaled up to carry ~55°, netting back to `headRange`. Both presets are asserted
+against the same chain-total invariant in `style_rig.test.ts`, so a future preset
+cannot quietly break gaze tracking.
 
 ## The rig
 
@@ -133,7 +161,11 @@ level — the single term that does most of the work), shoulders lag behind a
 torso turn, each shoulder lifts with its own arm, and the arms pendulum against
 the torso.
 
-**Merging.** `mergeStyleRig(base, overrides)` merges per bone *and per driver*,
+**Merging.** Overrides merge over the **selected preset**, not always over
+`follow` — switching preset re-baselines every bone the user has not overridden.
+Overridden bones keep their stored numbers (they were seeded from whichever
+preset was active when they were edited); resetting a bone picks the new preset
+up. `mergeStyleRig(base, overrides)` merges per bone *and per driver*,
 so a stored override only carries what the user changed. A driver zeroed to
 `[0,0,0]` is pruned, and a bone whose drivers all end up pruned is dropped
 entirely — that is how the UI's "switch this bone off" round-trips.
@@ -147,10 +179,11 @@ entirely — that is how the UI's "switch this bone off" round-trips.
   "amount": 1,           // 0 = accurate passthrough, 1 = fully stylized (slerp blend)
   "lag": 0.08,           // base follow-through seconds; × the rig's per-bone lag
   "restUnmapped": false, // send bones the rig doesn't own back to rest (glitchy fingers)
+  "preset": "follow",    // 'follow' (torso moves with the head) | 'counter' (against it)
   "response": { "headRange": 45, "bodyRange": 25, "armRange": 90,
                 "armNeutral": -60, "deadzone": 0.03, "maxRate": 5,
                 "smoothing": 0.35, "energyScale": 4 },
-  "rig": null            // null = stock rig; otherwise per-bone/per-driver overrides only
+  "rig": null            // null = the preset verbatim; else per-bone/per-driver overrides
 }
 ```
 
@@ -199,8 +232,14 @@ the drivers edge is typed rather than `Any`. Both nodes are ordinary static node
 - **A new response knob**: add it to `StyleResponse` + `DEFAULT_STYLE_RESPONSE`,
   then add a row to `RESPONSE_FIELDS` in `PropertiesPanel.tsx` and the matching
   `response.<key>` / `responseTip.<key>` i18n keys.
-- **Retuning the stock rig**: edit `DEFAULT_STYLE_RIG`. The chain-total and
-  sign-convention tests will tell you if you broke the design contract.
+- **A new preset**: add it to `STYLE_RIG_PRESET_NAMES` + `STYLE_RIG_PRESETS`
+  (ideally as a `mergeStyleRig` delta on `STYLE_RIG_FOLLOW`, so the diff is
+  readable) and add `presetName.<id>` / `presetHint.<id>` i18n keys. The UI
+  dropdown and the shared preset invariants both iterate the name list, so a new
+  preset is automatically held to the gaze-on-target contract.
+- **Retuning a stock rig**: edit `STYLE_RIG_FOLLOW` or `COUNTER_HEAD_RESPONSE`.
+  The chain-total and sign-convention tests will tell you if you broke the design
+  contract.
 
 ## Tests
 

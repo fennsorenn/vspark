@@ -217,7 +217,9 @@ persisting a value that is meaningless after a restart.
 > `ManualCalibrationManager` lacks this guard and therefore does write a full pose
 > into SQLite on every interceptor frame. Worth applying the same fix there.
 
-Config: `{ amount, lag, restUnmapped, response, rig }` — see
+Config: `{ amount, lag, restUnmapped, preset, response, rig }` — `preset` picks
+between the two 2D-rig conventions (`follow` / `counter`) that the per-bone
+overrides then merge over. See
 [stylized-tracking.md](stylized-tracking.md) for the full data model, the default
 rig and its tuning invariants, replace-vs-add modes, and the extension recipes.
 

@@ -7,6 +7,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
 import {
   DEFAULT_STYLE_RESPONSE,
   DEFAULT_STYLE_RIG,
+  DEFAULT_STYLE_RIG_PRESET,
 } from '@vspark/shared/style_rig';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
@@ -34,14 +35,17 @@ const EPHEMERAL_STATE_KINDS = new Set(['on_pose_broadcast']);
   label: 'Stylized Tracking',
   icon: '🎭',
   description:
-    'Post-processes tracking into stylized motion: a few drivers (head, torso, arms) are read off the performance and fanned back out across the whole body, the way a 2D avatar is rigged. Adds follow-through and keeps tracking glitches from producing broken poses.',
+    'Post-processes tracking into stylized motion: a few drivers (head, torso, arms) are read off the performance and fanned back out across the whole body, the way a 2D avatar is rigged. Pick whether the body follows the head or twists against it. Adds follow-through and keeps tracking glitches from producing broken poses.',
   applicableTo: ['avatar'],
   defaultConfig: {
     amount: 1,
     lag: 0.08,
     restUnmapped: false,
     response: { ...DEFAULT_STYLE_RESPONSE },
-    // null = use the built-in rig verbatim; the UI writes only the bones it changes.
+    // Which stock rig to start from: the torso follows the head, or twists
+    // against it — the two conventions 2D rigs are built on.
+    preset: DEFAULT_STYLE_RIG_PRESET,
+    // null = use the preset verbatim; the UI writes only the bones it changes.
     rig: null,
   },
 })

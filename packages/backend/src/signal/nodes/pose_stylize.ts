@@ -10,6 +10,7 @@ import {
   ZERO_DRIVERS,
   mergeStyleRig,
   evaluateBoneResponse,
+  styleRigPreset,
 } from '@vspark/shared/style_rig';
 
 const DEG2RAD = Math.PI / 180;
@@ -65,7 +66,13 @@ export class PoseStylize extends Node {
   @valueIn('amount', 'Float') amountIn!: () => number | undefined;
   /** Base follow-through time constant in seconds; scaled per bone by the rig's `lag`. */
   @valueIn('lag', 'Float') lagIn!: () => number | undefined;
-  /** `StyleRig` overrides, merged over the built-in default rig. */
+  /**
+   * Which stock rig to start from: `'follow'` (the torso moves with the head) or
+   * `'counter'` (it twists against it) — the two conventions 2D rigs are built
+   * on. Unknown/absent falls back to `follow`.
+   */
+  @valueIn('preset', 'String') presetIn!: () => string | undefined;
+  /** `StyleRig` overrides, merged over the selected preset. */
   @valueIn('rig', 'Any') rigIn!: () => StyleRig | undefined;
   /** Send bones the rig does not own back to rest instead of passing tracking through. */
   @valueIn('restUnmapped', 'Bool') restUnmappedIn!: () => boolean | undefined;
@@ -73,8 +80,9 @@ export class PoseStylize extends Node {
   /** Per-bone lagged Euler triple (degrees), the integrator's carry. */
   private readonly _current = new Map<string, DriverResponse>();
   private _lastAt = 0;
-  /** Cached merged rig, rebuilt only when the override object identity changes. */
+  /** Cached merged rig, rebuilt only when the preset or override identity changes. */
   private _rigFor: StyleRig | undefined | null = null;
+  private _presetFor: string | undefined | null = null;
   private _rig: StyleRig = DEFAULT_STYLE_RIG;
   /** Memo so multiple pulls in one frame integrate the lag exactly once. */
   private _memoFor: NormalizedPose | null = null;
@@ -141,12 +149,17 @@ export class PoseStylize extends Node {
     return result;
   };
 
-  /** Merge the user's rig over the default, memoized on the override's identity. */
+  /**
+   * Merge the user's rig over the selected preset, memoized on the preset name
+   * and the override object's identity.
+   */
   private _resolveRig(): StyleRig {
     const overrides = this.rigIn();
-    if (this._rigFor !== overrides) {
+    const preset = this.presetIn();
+    if (this._rigFor !== overrides || this._presetFor !== preset) {
       this._rigFor = overrides;
-      this._rig = mergeStyleRig(DEFAULT_STYLE_RIG, overrides);
+      this._presetFor = preset;
+      this._rig = mergeStyleRig(styleRigPreset(preset), overrides);
     }
     return this._rig;
   }

@@ -433,6 +433,15 @@
   },
   "stylizedTracking": {
     "hint": "Rewrites accurate tracking as stylized motion: a few drivers read off your performance (head, torso, arms) are fanned back out across the whole body, the way a 2D avatar is rigged.",
+    "preset": "Body vs head",
+    "presetName": {
+      "follow": "Body follows head",
+      "counter": "Body counters head"
+    },
+    "presetHint": {
+      "follow": "Turn your head and the chest, spine and hips turn with it — the whole body leans into the look.",
+      "counter": "Turn your head and the torso twists the other way — a theatrical, posed silhouette. The head and neck carry more so you still look where you're looking."
+    },
     "amount": "Amount",
     "lag": "Follow-through",
     "restUnmapped": "Rest bones the rig doesn't drive",

@@ -19,6 +19,8 @@ import type { VRMBoneName } from '@vspark/shared/signal';
 import { mkEvent } from '@vspark/shared/signal';
 import {
   DEFAULT_STYLE_RIG,
+  STYLE_RIG_FOLLOW,
+  STYLE_RIG_COUNTER,
   ZERO_DRIVERS,
   STYLE_DRIVER_NAMES,
   type StyleDrivers,
@@ -588,5 +590,99 @@ describe('pose_style_drivers → pose_stylize', () => {
       DEFAULT_STYLE_RIG.hips.drivers.headYaw![1],
       2
     );
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// pose_stylize — rig presets (body follows the head vs twists against it)
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe('pose_stylize rig presets', () => {
+  const stylizeWith = (preset?: string) =>
+    pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ head: [0, 45, 0] }),
+      drivers: { ...ZERO_DRIVERS, headYaw: 1 },
+      amount: 1,
+      lag: 0,
+      ...(preset === undefined ? {} : { preset }),
+    }) as NormalizedPose;
+
+  const yawOf = (out: NormalizedPose, bone: string) =>
+    euler(out.get(bone as VRMBoneName))[1];
+
+  it('defaults to follow — the torso turns WITH the head', () => {
+    const out = stylizeWith();
+    for (const bone of ['hips', 'spine', 'chest', 'upperChest'])
+      expect(yawOf(out, bone)).toBeGreaterThan(0);
+    expect(yawOf(out, 'head')).toBeCloseTo(
+      STYLE_RIG_FOLLOW.head.drivers.headYaw![1],
+      2
+    );
+  });
+
+  it('counter turns the torso AGAINST the head', () => {
+    const out = stylizeWith('counter');
+    for (const bone of ['hips', 'spine', 'chest', 'upperChest'])
+      expect(yawOf(out, bone)).toBeLessThan(0);
+    expect(yawOf(out, 'head')).toBeCloseTo(
+      STYLE_RIG_COUNTER.head.drivers.headYaw![1],
+      2
+    );
+  });
+
+  it('both presets still land the head on target overall', () => {
+    const chain = ['hips', 'spine', 'chest', 'upperChest', 'neck', 'head'];
+    for (const preset of ['follow', 'counter']) {
+      const out = stylizeWith(preset);
+      const total = chain.reduce((acc, b) => acc + yawOf(out, b), 0);
+      expect(total).toBeGreaterThan(40);
+      expect(total).toBeLessThan(52);
+    }
+  });
+
+  it('an unknown preset name falls back to follow rather than emptying the rig', () => {
+    const out = stylizeWith('nonsense');
+    expect(yawOf(out, 'hips')).toBeGreaterThan(0);
+    expect(yawOf(out, 'head')).toBeCloseTo(
+      DEFAULT_STYLE_RIG.head.drivers.headYaw![1],
+      2
+    );
+  });
+
+  it('user overrides merge over the SELECTED preset, not always the default', () => {
+    const out = pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ head: [0, 45, 0] }),
+      drivers: { ...ZERO_DRIVERS, headYaw: 1 },
+      amount: 1,
+      lag: 0,
+      preset: 'counter',
+      // Only the head is overridden; the torso must still come from `counter`.
+      rig: { head: { drivers: { headYaw: [0, 30, 0] } } },
+    }) as NormalizedPose;
+    expect(yawOf(out, 'head')).toBeCloseTo(30, 2);
+    expect(yawOf(out, 'hips')).toBeLessThan(0);
+  });
+
+  it('switching preset on a live node re-resolves the rig', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(6_000_000);
+    const n = liveNode('pose_stylize', 'pose', {
+      pose: poseOf({ head: [0, 45, 0] }),
+      drivers: { ...ZERO_DRIVERS, headYaw: 1 },
+      amount: 1,
+      lag: 0,
+      preset: 'follow',
+    });
+    const before = n.pull({
+      pose: poseOf({ head: [0, 45, 0] }),
+    }) as NormalizedPose;
+    expect(yawOf(before, 'hips')).toBeGreaterThan(0);
+
+    vi.setSystemTime(6_000_016);
+    const after = n.pull({
+      pose: poseOf({ head: [0, 45, 0] }),
+      preset: 'counter',
+    }) as NormalizedPose;
+    expect(yawOf(after, 'hips')).toBeLessThan(0);
   });
 });

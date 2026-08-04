@@ -289,3 +289,80 @@ describe('PropertiesPanel — Stylized Tracking behavior', () => {
     expect(cfgOf().rig).toBeNull();
   });
 });
+
+describe('PropertiesPanel — Stylized Tracking rig presets', () => {
+  const openRig = (container: HTMLElement) =>
+    fireEvent.click(
+      screen.getByText(
+        new RegExp(`^${tp('stylizedTracking.rigSection')} \\(\\d+\\)$`)
+      )
+    ) && container;
+
+  const headYawField = (container: HTMLElement) => {
+    fireEvent.click(container.querySelector('.vs-stylize-bone-head')!);
+    return container.querySelectorAll(
+      '.vs-stylize-drv-head-headYaw input'
+    )[1] as HTMLInputElement;
+  };
+
+  it('offers both 2D-rig conventions and defaults to follow', () => {
+    seedStylizer();
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    const sel = container.querySelector(
+      '.vs-stylize-preset'
+    ) as HTMLSelectElement;
+    expect(sel.value).toBe('follow');
+    expect([...sel.options].map((o) => o.value)).toEqual(['follow', 'counter']);
+  });
+
+  it('writes the chosen preset to the behavior config', () => {
+    seedStylizer();
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    fireEvent.change(container.querySelector('.vs-stylize-preset')!, {
+      target: { value: 'counter' },
+    });
+    expect(cfgOf().preset).toBe('counter');
+  });
+
+  it('re-baselines the rig editor on the selected preset', () => {
+    // follow: the head carries 20° of yaw; counter cranks it to 38° because the
+    // torso is subtracting instead of adding.
+    seedStylizer({ preset: 'follow' });
+    const a = renderWithProviders(<PropertiesPanel />);
+    openRig(a.container);
+    expect(headYawField(a.container).value).toBe('20');
+    a.unmount();
+
+    seedStylizer({ preset: 'counter' });
+    const b = renderWithProviders(<PropertiesPanel />);
+    openRig(b.container);
+    expect(headYawField(b.container).value).toBe('38');
+  });
+
+  it('shows the torso countering the head under the counter preset', () => {
+    seedStylizer({ preset: 'counter' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    fireEvent.click(container.querySelector('.vs-stylize-bone-hips')!);
+    const hipsYaw = container.querySelectorAll(
+      '.vs-stylize-drv-hips-headYaw input'
+    )[1] as HTMLInputElement;
+    expect(parseFloat(hipsYaw.value)).toBeLessThan(0);
+  });
+
+  it('seeds an override from the SELECTED preset when a bone is edited', () => {
+    seedStylizer({ preset: 'counter' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    const yaw = headYawField(container);
+    fireEvent.change(yaw, { target: { value: '42' } });
+
+    const rig = cfgOf().rig as Record<
+      string,
+      { drivers?: Record<string, number[]> }
+    >;
+    expect(rig.head.drivers!.headYaw).toEqual([0, 42, 0]);
+    // The untouched drivers came from counter (37), not follow (22).
+    expect(rig.head.drivers!.headPitch).toEqual([37, 0, 0]);
+  });
+});

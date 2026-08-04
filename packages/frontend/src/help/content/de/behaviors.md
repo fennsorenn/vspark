@@ -82,6 +82,29 @@ als ein Mensch sich bewegen kann. Ein Tracking-Ruckler kann höchstens einen
 Steuerwert anstupsen — aus einem kaputten Bild wird also ein kleines Wackeln
 statt eines abgeknickten Gliedes.
 
+### Körper vs. Kopf
+
+2D-Rigs bauen auf einer von zwei Konventionen auf — hier wählst du zwischen ihnen.
+
+**Körper folgt dem Kopf** — du drehst den Kopf, und Brust, Wirbelsäule und Hüfte
+drehen sich mit. Der ganze Körper lehnt sich in den Blick hinein. Das wirkt warm
+und zugewandt und ist die sanftere der beiden Varianten.
+
+**Körper gegen den Kopf** — du drehst den Kopf, und der Oberkörper dreht sich
+dagegen. Das ist der Kontrapost- oder S-Kurven-Eindruck: theatralisch, gestellt,
+mehr „Figur". Wichtig: Es ist nicht einfach die Umkehrung der ersten Variante —
+Kopf und Hals tragen deutlich mehr Rotation, um auszugleichen, dass der
+Oberkörper abzieht statt zu addieren. So schaust du weiterhin dorthin, wohin du
+schaust.
+
+Keine von beiden ist richtiger; es sind unterschiedliche Charaktere. Probiere
+beide aus und behalte die, die zu deinem Avatar passt.
+
+(Es gibt eine zweite, davon unabhängige Kopplung in die andere Richtung: Dein
+Kopf dreht immer gegen die Neigung deines *Körpers*, damit dein Blick waagerecht
+bleibt. Die ist in beiden Varianten aktiv, denn sie ist es, die einen Körper wie
+einen Darsteller statt wie eine Marionette wirken lässt.)
+
 ### Die Regler
 
 **Stärke** ist der Regler zwischen beiden Welten: 0 ist dein Tracking unberührt,
@@ -124,6 +147,10 @@ vollständig aus den Steuerwerten gebaut und das Tracking verworfen — das mach
 ihn ruckelfest, und es ist die richtige Wahl für Wirbelsäule, Hals, Kopf und
 Schultern. **Addieren** behält deine getrackte Bewegung und legt den Beitrag des
 Rigs darüber; so arbeiten die Arme, damit deine eigenen Gesten erhalten bleiben.
+
+Ein Wechsel der Variante setzt den ganzen Editor neu auf, aber bereits
+überschriebene Knochen behalten deine Werte — setze einen Knochen (oder das ganze
+Rig) zurück, um die Werte der neuen Variante zu übernehmen.
 
 **Nachlauf** ist ein Multiplikator pro Knochen auf den globalen Nachlauf. Das
 Standard-Rig staffelt ihn die Kette hinunter — die Hüfte läuft am weitesten

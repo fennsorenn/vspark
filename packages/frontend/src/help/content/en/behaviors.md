@@ -75,6 +75,28 @@ not allowed to move faster than a person can move. A tracker that glitches can a
 worst nudge a driver, so a broken frame becomes a small wobble instead of a
 snapped limb.
 
+### Body vs head
+
+2D rigs are built on one of two conventions, and this picks between them.
+
+**Body follows head** — you turn your head, and the chest, spine and hips turn
+with it. The whole body leans into the look. It reads as warm and engaged, and
+it is the gentler of the two.
+
+**Body counters head** — you turn your head, and the torso twists the other way.
+This is the contrapposto or S-curve read: theatrical, posed, more of a
+"character" silhouette. Note that it is not simply the first one reversed — the
+head and neck carry noticeably more rotation to make up for the torso
+subtracting instead of adding, so you still end up looking where you're looking.
+
+Neither is more correct; they are different characters. Try both and keep the
+one that looks like your avatar.
+
+(There is a second, separate coupling that runs the other way: your head always
+counter-rotates against your *body's* lean, so your gaze stays level. That one is
+on in both, because it is what makes a body read as a performer rather than a
+puppet.)
+
 ### The controls
 
 **Amount** is the dial between the two worlds: 0 is your tracking untouched, 1 is
@@ -115,6 +137,10 @@ the drivers and tracking is discarded — that is what makes it glitch-proof, an
 it is the right choice for the spine, neck, head and shoulders. **Add** keeps
 your tracked motion and layers the rig's contribution on top, which is what the
 arms use so your own gestures survive.
+
+Switching preset re-baselines the whole editor, but bones you have already
+overridden keep your numbers — reset a bone (or the whole rig) to pick up the
+new preset's values for it.
 
 **Lag** is a per-bone multiplier on Follow-through. The stock rig staggers it
 down the chain — the hips trail furthest, the head barely at all — which is what

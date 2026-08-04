@@ -13,9 +13,10 @@ import {
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
 import {
-  DEFAULT_STYLE_RIG,
   DEFAULT_STYLE_RESPONSE,
   STYLE_DRIVER_NAMES,
+  STYLE_RIG_PRESET_NAMES,
+  styleRigPreset,
   type StyleDriverName,
   type StyleRig,
   type StyleBoneResponse,
@@ -3161,6 +3162,7 @@ interface StylizerConfig {
   amount?: number;
   lag?: number;
   restUnmapped?: boolean;
+  preset?: string;
   response?: Partial<StyleResponse>;
   rig?: StyleRig | null;
 }
@@ -3336,6 +3338,9 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
   const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as StylizerConfig;
   const overrides = cfg.rig ?? {};
+  // The rig editor shows the selected preset as the baseline; the stored
+  // override holds only the bones the user actually changed.
+  const baseRig = styleRigPreset(cfg.preset);
   const response: StyleResponse = {
     ...DEFAULT_STYLE_RESPONSE,
     ...(cfg.response ?? {}),
@@ -3350,10 +3355,10 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
   // Bones the panel offers: everything the stock rig drives, plus anything the
   // user has added on top. The stored override holds ONLY the deltas.
   const rigBones = [
-    ...new Set([...Object.keys(DEFAULT_STYLE_RIG), ...Object.keys(overrides)]),
+    ...new Set([...Object.keys(baseRig), ...Object.keys(overrides)]),
   ];
   const effectiveEntry = (bone: string): StyleBoneResponse => {
-    const base = DEFAULT_STYLE_RIG[bone];
+    const base = baseRig[bone];
     const over = overrides[bone];
     return {
       mode: over?.mode ?? base?.mode ?? 'replace',
@@ -3380,6 +3385,30 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
         {t('stylizedTracking.hint')}
+      </div>
+
+      {/* Which of the two 2D-rig conventions the body follows. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span
+          style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}
+        >
+          {t('stylizedTracking.preset')}
+        </span>
+        <select
+          className="vs-stylize-preset"
+          value={cfg.preset ?? 'follow'}
+          onChange={(e) => save({ preset: e.target.value })}
+          style={{ ...rigSelectStyle, flex: 1 }}
+        >
+          {STYLE_RIG_PRESET_NAMES.map((name) => (
+            <option key={name} value={name}>
+              {t(`stylizedTracking.presetName.${name}`)}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t(`stylizedTracking.presetHint.${cfg.preset ?? 'follow'}`)}
       </div>
 
       {/* Headline dial: accurate ←→ pretty. */}

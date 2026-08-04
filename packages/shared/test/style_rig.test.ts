@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   STYLE_DRIVER_NAMES,
+  STYLE_RIG_FOLLOW,
+  STYLE_RIG_COUNTER,
+  STYLE_RIG_PRESETS,
+  STYLE_RIG_PRESET_NAMES,
+  DEFAULT_STYLE_RIG_PRESET,
+  styleRigPreset,
   ZERO_DRIVERS,
   DEFAULT_STYLE_RESPONSE,
   DEFAULT_STYLE_RIG,
@@ -285,5 +291,113 @@ describe('evaluateBoneResponse', () => {
         drivers({ headYaw: -1 })
       )
     ).toEqual([0, -10, 0]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rig presets — the two conventions 2D rigs are built on
+// ---------------------------------------------------------------------------
+
+const TORSO = ['hips', 'spine', 'chest', 'upperChest'];
+const HEAD_CHAIN = ['neck', 'head'];
+const HEAD_AXES = [
+  ['headYaw', 1],
+  ['headPitch', 0],
+  ['headRoll', 2],
+] as const;
+
+const sum = (rig: StyleRig, bones: string[], driver: string, axis: number) =>
+  bones.reduce(
+    (acc, b) =>
+      acc +
+      (rig[b]?.drivers[driver as keyof (typeof rig)[string]['drivers']]?.[
+        axis
+      ] ?? 0),
+    0
+  );
+
+describe('style rig presets', () => {
+  it('exposes exactly the declared presets, with follow as the default', () => {
+    expect(Object.keys(STYLE_RIG_PRESETS).sort()).toEqual(
+      [...STYLE_RIG_PRESET_NAMES].sort()
+    );
+    expect(DEFAULT_STYLE_RIG_PRESET).toBe('follow');
+    expect(STYLE_RIG_PRESETS.follow).toBe(STYLE_RIG_FOLLOW);
+    expect(STYLE_RIG_PRESETS.counter).toBe(STYLE_RIG_COUNTER);
+  });
+
+  it('styleRigPreset resolves names and falls back to follow', () => {
+    expect(styleRigPreset('counter')).toBe(STYLE_RIG_COUNTER);
+    expect(styleRigPreset('follow')).toBe(STYLE_RIG_FOLLOW);
+    for (const bad of [undefined, null, '', 'nope'])
+      expect(styleRigPreset(bad)).toBe(STYLE_RIG_FOLLOW);
+  });
+
+  it('follow moves the torso WITH the head on every head axis', () => {
+    for (const [driver, axis] of HEAD_AXES)
+      expect(sum(STYLE_RIG_FOLLOW, TORSO, driver, axis)).toBeGreaterThan(0);
+  });
+
+  it('counter moves the torso AGAINST the head on every head axis', () => {
+    for (const [driver, axis] of HEAD_AXES)
+      expect(sum(STYLE_RIG_COUNTER, TORSO, driver, axis)).toBeLessThan(0);
+  });
+
+  it('counter compensates on the head+neck so the gaze still lands on target', () => {
+    // The trap this guards: negating the torso terms alone would drop the summed
+    // head-in-world rotation from ~47° to ~13°, i.e. the avatar would stop looking
+    // where the performer looks. Head + neck must carry MORE than the full range.
+    for (const [driver, axis] of HEAD_AXES) {
+      const headNeck = sum(STYLE_RIG_COUNTER, HEAD_CHAIN, driver, axis);
+      expect(headNeck).toBeGreaterThan(DEFAULT_STYLE_RESPONSE.headRange);
+      expect(headNeck).toBeGreaterThan(
+        sum(STYLE_RIG_FOLLOW, HEAD_CHAIN, driver, axis)
+      );
+    }
+  });
+
+  it('BOTH presets keep the whole-chain total at ~headRange', () => {
+    // The invariant that makes the presets interchangeable: whichever convention
+    // you pick, the head still ends up pointing where you are pointing it.
+    const chain = [...TORSO, ...HEAD_CHAIN];
+    for (const rig of [STYLE_RIG_FOLLOW, STYLE_RIG_COUNTER])
+      for (const [driver, axis] of HEAD_AXES) {
+        const total = sum(rig, chain, driver, axis);
+        expect(total).toBeGreaterThanOrEqual(
+          DEFAULT_STYLE_RESPONSE.headRange * 0.9
+        );
+        expect(total).toBeLessThanOrEqual(
+          DEFAULT_STYLE_RESPONSE.headRange * 1.15
+        );
+      }
+  });
+
+  it('the presets differ ONLY in how the torso answers the head', () => {
+    // Body drivers, shoulders, arms, lags and modes are shared — "follow vs
+    // counter" is only ever a statement about the head→torso coupling.
+    for (const bone of Object.keys(STYLE_RIG_FOLLOW)) {
+      const f = STYLE_RIG_FOLLOW[bone];
+      const c = STYLE_RIG_COUNTER[bone];
+      expect(c).toBeDefined();
+      expect(c.mode).toBe(f.mode);
+      expect(c.lag).toBe(f.lag);
+      for (const driver of Object.keys(f.drivers)) {
+        if (driver.startsWith('head')) continue;
+        expect(c.drivers[driver as keyof typeof c.drivers]).toEqual(
+          f.drivers[driver as keyof typeof f.drivers]
+        );
+      }
+    }
+  });
+
+  it('counter keeps the head countering torso lean, same as follow', () => {
+    // The OTHER coupling direction (body driver → head bone) is opposed in both.
+    expect(STYLE_RIG_COUNTER.head.drivers.bodyRoll![2]).toBeLessThan(0);
+    expect(STYLE_RIG_COUNTER.neck.drivers.bodyPitch![0]).toBeLessThan(0);
+  });
+
+  it('leaves the follow preset untouched when building counter', () => {
+    expect(STYLE_RIG_FOLLOW.head.drivers.headYaw).toEqual([0, 20, 0]);
+    expect(STYLE_RIG_COUNTER.head.drivers.headYaw).toEqual([0, 38, 0]);
   });
 });

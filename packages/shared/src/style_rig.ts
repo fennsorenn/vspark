@@ -168,7 +168,7 @@ export interface StyleBoneResponse {
 export type StyleRig = Record<string, StyleBoneResponse>;
 
 /**
- * The stock "pretty" rig.
+ * The "follow" rig — the body moves WITH the head.
  *
  * Read the primary chains column-wise: for each head driver the per-bone yaw /
  * pitch / roll contributions SUM to roughly `response.headRange` (45°), so the
@@ -183,8 +183,13 @@ export type StyleRig = Record<string, StyleBoneResponse>;
  *  - each shoulder lifts with its own arm — something tracking essentially never
  *    reproduces, and a strong readability cue;
  *  - the arms swing against the torso as a pendulum, layered over real tracking.
+ *
+ * Note that the head↔body coupling is DIRECTIONAL, and this rig deliberately runs
+ * it both ways: the torso follows the head (positive `head*` terms below), while
+ * the head counters the torso (negative `body*` terms on neck/head). See
+ * `STYLE_RIG_COUNTER` for the other convention.
  */
-export const DEFAULT_STYLE_RIG: StyleRig = {
+export const STYLE_RIG_FOLLOW: StyleRig = {
   hips: {
     mode: 'replace',
     lag: 2.6,
@@ -307,6 +312,97 @@ export const DEFAULT_STYLE_RIG: StyleRig = {
     },
   },
 };
+
+/**
+ * The head-driver half of the "counter" rig, expressed as a delta on the follow
+ * rig — the file's own documentation of what actually separates the two
+ * conventions. Everything else (body drivers, shoulders, arms, lags, modes) is
+ * shared, because "follow vs counter" is only ever a statement about how the
+ * torso answers the HEAD.
+ *
+ * Two things happen here, and the second is the one that is easy to get wrong:
+ *
+ *  1. The torso terms flip sign — turn your head right and the chest, spine and
+ *     hips twist LEFT. That is the contrapposto / S-curve read.
+ *  2. The head and neck are scaled UP to compensate. This is not optional: with
+ *     the torso subtracting instead of adding, simply negating those four numbers
+ *     would drop the summed head-in-world rotation from ~47° to ~13°, i.e. the
+ *     avatar would stop looking where the performer is looking. Head + neck carry
+ *     ~55° so that the net still lands on `headRange`.
+ */
+const COUNTER_HEAD_RESPONSE: StyleRig = {
+  hips: { drivers: { headYaw: [0, -1, 0], headPitch: [-1, 0, 0] } },
+  spine: {
+    drivers: {
+      headYaw: [0, -2, 0],
+      headPitch: [-2, 0, 0],
+      headRoll: [0, 0, -2],
+    },
+  },
+  chest: {
+    drivers: {
+      headYaw: [0, -3, 0],
+      headPitch: [-3, 0, 0],
+      headRoll: [0, 0, -2],
+    },
+  },
+  upperChest: {
+    drivers: {
+      headYaw: [0, -4, 0],
+      headPitch: [-4, 0, 0],
+      headRoll: [0, 0, -3],
+    },
+  },
+  neck: {
+    drivers: {
+      headYaw: [0, 17, 0],
+      headPitch: [18, 0, 0],
+      headRoll: [0, 0, 17],
+    },
+  },
+  head: {
+    drivers: {
+      headYaw: [0, 38, 0],
+      headPitch: [37, 0, 0],
+      headRoll: [0, 0, 35],
+    },
+  },
+};
+
+/**
+ * The "counter" rig — the body moves AGAINST the head.
+ *
+ * The other of the two conventions 2D rigs are built on. Where `STYLE_RIG_FOLLOW`
+ * reads as the whole body leaning into a look, this reads as a twist: the head
+ * cranks around and the torso resists, which is the more theatrical, more
+ * "posed" silhouette. Neither is more correct — they are different characters.
+ */
+export const STYLE_RIG_COUNTER: StyleRig = mergeStyleRig(
+  STYLE_RIG_FOLLOW,
+  COUNTER_HEAD_RESPONSE
+);
+
+export const STYLE_RIG_PRESET_NAMES = ['follow', 'counter'] as const;
+export type StyleRigPreset = (typeof STYLE_RIG_PRESET_NAMES)[number];
+
+export const STYLE_RIG_PRESETS: Record<StyleRigPreset, StyleRig> = {
+  follow: STYLE_RIG_FOLLOW,
+  counter: STYLE_RIG_COUNTER,
+};
+
+/** The preset used when a behavior does not name one. */
+export const DEFAULT_STYLE_RIG_PRESET: StyleRigPreset = 'follow';
+
+/** The rig a behavior starts from before its own per-bone overrides are merged. */
+export const DEFAULT_STYLE_RIG: StyleRig = STYLE_RIG_FOLLOW;
+
+/** Resolve a (possibly unknown / absent) preset name to its rig. */
+export function styleRigPreset(name?: string | null): StyleRig {
+  return (
+    STYLE_RIG_PRESETS[name as StyleRigPreset] ??
+    STYLE_RIG_PRESETS[DEFAULT_STYLE_RIG_PRESET]
+  );
+}
 
 /**
  * Merge a user rig over a base rig, per bone and per driver, so an override only

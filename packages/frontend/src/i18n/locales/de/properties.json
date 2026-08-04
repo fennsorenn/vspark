@@ -433,6 +433,15 @@
   },
   "stylizedTracking": {
     "hint": "Schreibt exaktes Tracking in stilisierte Bewegung um: Wenige Steuerwerte, die aus deiner Performance gelesen werden (Kopf, Oberkörper, Arme), werden über den ganzen Körper verteilt — so, wie ein 2D-Avatar gerigged ist.",
+    "preset": "Körper vs. Kopf",
+    "presetName": {
+      "follow": "Körper folgt dem Kopf",
+      "counter": "Körper gegen den Kopf"
+    },
+    "presetHint": {
+      "follow": "Drehst du den Kopf, drehen sich Brust, Wirbelsäule und Hüfte mit — der ganze Körper lehnt sich in den Blick hinein.",
+      "counter": "Drehst du den Kopf, dreht sich der Oberkörper dagegen — eine theatralische, gestellte Silhouette. Kopf und Hals tragen mehr, damit du weiterhin dorthin schaust, wohin du schaust."
+    },
     "amount": "Stärke",
     "lag": "Nachlauf",
     "restUnmapped": "Nicht gesteuerte Knochen in Ruhelage",

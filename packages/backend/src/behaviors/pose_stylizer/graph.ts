@@ -13,7 +13,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
  * performance, while `Stylize Pose` needs the original as the base to blend
  * against and as the carrier for every bone the rig does not own.
  *
- * All four knobs are surfaced as `behavior_config` (Behavior Settings) nodes so
+ * Every knob is surfaced as a `behavior_config` (Behavior Settings) node so
  * they are visible on the graph rather than read from config behind the nodes'
  * backs — same convention as the manual-calibration graph. Because node config
  * resolves live per access, edits in the properties panel hot-apply without a
@@ -55,15 +55,21 @@ export const POSE_STYLIZER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       defaultConfig: { field: 'lag', defaultValue: 0.08 },
     },
     {
-      id: 'cfg_rig',
+      id: 'cfg_preset',
       kind: 'behavior_config',
       position: { x: -360, y: 460 },
+      defaultConfig: { field: 'preset', defaultValue: 'follow' },
+    },
+    {
+      id: 'cfg_rig',
+      kind: 'behavior_config',
+      position: { x: -360, y: 540 },
       defaultConfig: { field: 'rig', defaultValue: null },
     },
     {
       id: 'cfg_rest_unmapped',
       kind: 'behavior_config',
-      position: { x: -360, y: 540 },
+      position: { x: -360, y: 620 },
       defaultConfig: { field: 'restUnmapped', defaultValue: false },
     },
     {
@@ -141,6 +147,13 @@ export const POSE_STYLIZER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromPort: 'value',
       toNodeId: 'stylize',
       toPort: 'lag',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'cfg_preset',
+      fromPort: 'value',
+      toNodeId: 'stylize',
+      toPort: 'preset',
       kind: 'value',
     },
     {
