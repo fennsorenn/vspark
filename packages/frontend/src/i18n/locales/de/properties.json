@@ -431,6 +431,61 @@
     "chestAmplitude": "Brustamplitude",
     "shoulderLift": "Schulterheben"
   },
+  "stylizedTracking": {
+    "hint": "Schreibt exaktes Tracking in stilisierte Bewegung um: Wenige Steuerwerte, die aus deiner Performance gelesen werden (Kopf, Oberkörper, Arme), werden über den ganzen Körper verteilt — so, wie ein 2D-Avatar gerigged ist.",
+    "amount": "Stärke",
+    "lag": "Nachlauf",
+    "restUnmapped": "Nicht gesteuerte Knochen in Ruhelage",
+    "responseSection": "Ansprechverhalten",
+    "responseHint": "Wie deine Bewegung in Steuerwerte übersetzt wird. Bereich = wie weit du dich für volle Wirkung bewegen musst; der Rest fängt Ruckler und Zittern ab.",
+    "resetResponse": "Ansprechverhalten zurücksetzen",
+    "rigSection": "Antwort-Rig",
+    "rigHint": "Pro Knochen: welche Steuerwerte ihn bewegen, um wie viel Grad bei voller Stärke, ob er das Tracking ersetzt oder sich darüberlegt, und wie weit er nachläuft.",
+    "rigStock": "Standard-Rig",
+    "rigModified": "{{count}} Knochen geändert",
+    "rigModified_other": "{{count}} Knochen geändert",
+    "resetRig": "Rig zurücksetzen",
+    "resetBone": "Knochen zurücksetzen",
+    "boneMode": "Modus",
+    "boneLag": "Nachlauf",
+    "addDriver": "+ Steuerwert…",
+    "addBone": "+ Knochen…",
+    "mode": {
+      "replace": "Ersetzen",
+      "add": "Addieren"
+    },
+    "driver": {
+      "headYaw": "Kopfdrehung",
+      "headPitch": "Kopfnicken",
+      "headRoll": "Kopfneigung",
+      "bodyYaw": "Körperdrehung",
+      "bodyPitch": "Körperbeuge",
+      "bodyRoll": "Körperschwung",
+      "armL": "Höhe linker Arm",
+      "armR": "Höhe rechter Arm",
+      "energy": "Energie"
+    },
+    "response": {
+      "headRange": "Kopfbereich",
+      "bodyRange": "Körperbereich",
+      "armRange": "Armbereich",
+      "armNeutral": "Arm-Ruhelage",
+      "deadzone": "Totzone",
+      "maxRate": "Maximale Rate",
+      "smoothing": "Glättung",
+      "energyScale": "Energie-Skala"
+    },
+    "responseTip": {
+      "headRange": "Wie weit du den Kopf drehst, damit der Kopf-Steuerwert voll ausschlägt.",
+      "bodyRange": "Wie weit du den Oberkörper neigst oder drehst, damit der Körper-Steuerwert voll ausschlägt.",
+      "armRange": "Wie weit du einen Arm über die Ruhelage hebst, damit der Arm-Steuerwert voll ausschlägt.",
+      "armNeutral": "Die Armhöhe, die als Ruhelage gilt — damit ein entspannter Arm die Schulter nicht absenkt.",
+      "deadzone": "Steuerwert-Stärke, unterhalb derer du als still giltst. Verhindert, dass Sensorzittern den Avatar flimmern lässt.",
+      "maxRate": "Wie schnell sich ein Steuerwert höchstens bewegen darf, pro Sekunde. Das ist die Ruckler-Bremse: Ein unmöglicher Sprung wird zu einer kurzen Fahrt statt zu einem Zucken.",
+      "smoothing": "Wie viel vom vorherigen Bild jeder Steuerwert behält. Höher ist weicher und später.",
+      "energyScale": "Wie viel Gesamtbewegung als volle Energie zählt."
+    }
+  },
   "behaviorFallback": "Keine konfigurierbaren Eigenschaften.",
   "effect": {
     "toneMapping": {
@@ -574,6 +629,7 @@
     "audioSpatial": "Abstands- und Kegelparameter für direktionales Audio — Referenzabstand, Abklingrate, maximaler Abstand und Kegelwinkel",
     "twist": "Unterarm-Drehung entlang des Arms verteilen statt am Ellbogen zu knicken",
     "poseSource": "Jeden Körperbereich per Animation, Live-Tracking oder einer Mischung steuern",
-    "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück"
+    "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück",
+    "stylizedTracking": "Erfahre, wie stilisiertes Tracking deine Bewegung umformt"
   }
 }

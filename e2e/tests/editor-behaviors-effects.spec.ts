@@ -12,6 +12,10 @@ import { seedProjectScene, seedNode } from '../fixtures/seed';
  *    "+ Add Effect" → pick "Bloom", then assert via REST GET
  *    /api/scene-nodes/:nodeId/effects.
  *
+ * 3. Stylized Tracking — same add flow, then drive the behavior's own properties
+ *    panel (amount / follow-through / rest-unmapped / a response knob / a rig
+ *    bone override) and assert each write landed in behaviors.config via REST.
+ *
  * Note: the add-menu opens upward (CSS bottom:100%) inside the scene graph
  * panel.  When the panel is short the menu items may extend above the visible
  * viewport; dispatchEvent('click') is used in those cases because it fires the
@@ -119,4 +123,113 @@ test('effects: adding Bloom to a camera node persists via REST', async ({
       { timeout: 10_000 }
     )
     .toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// 3. Stylized Tracking: add it, then edit its panel and read the config back
+// ---------------------------------------------------------------------------
+test('behaviors: Stylized Tracking panel edits persist via REST', async ({
+  page,
+  request,
+}) => {
+  const { projectId, sceneId } = await seedProjectScene(request);
+  const nodeId = await seedNode(request, sceneId, 'StyleAvatar', 'avatar');
+
+  await page.goto(`/editor/${projectId}`);
+  await expect(page.getByText('StyleAvatar', { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await page.locator('button[title="Show components"]').first().click();
+  const addBehaviorBtn = page.getByRole('button', {
+    name: '+ Add Behavior',
+    exact: true,
+  });
+  await expect(addBehaviorBtn).toBeVisible({ timeout: 5_000 });
+  await addBehaviorBtn.click();
+
+  const item = page.getByText('Stylized Tracking', { exact: true }).first();
+  await expect(item).toBeVisible({ timeout: 5_000 });
+  await item.dispatchEvent('click');
+
+  // Helper: read the stylizer's stored config back over REST.
+  const readConfig = async (): Promise<Record<string, unknown>> => {
+    const res = await request.get(`/api/scene-nodes/${nodeId}/behaviors`);
+    const body = (await res.json()) as {
+      data: { kind: string; config: Record<string, unknown> }[];
+    };
+    return body.data.find((b) => b.kind === 'pose_stylizer')?.config ?? {};
+  };
+
+  await expect
+    .poll(async () => Object.keys(await readConfig()).length > 0, {
+      timeout: 10_000,
+    })
+    .toBe(true);
+
+  // Selecting the behavior row opens its properties panel.
+  await page.getByText('Stylized Tracking', { exact: true }).first().click();
+  await expect(page.locator('.vs-stylize-amount input').first()).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // --- Amount: the headline accurate ←→ stylized dial ---------------------
+  const amount = page
+    .locator('.vs-stylize-amount input[type="number"]')
+    .first();
+  await amount.fill('0.4');
+  await amount.press('Enter');
+  await expect
+    .poll(async () => (await readConfig()).amount, { timeout: 10_000 })
+    .toBe(0.4);
+
+  // --- Follow-through ------------------------------------------------------
+  const lag = page.locator('.vs-stylize-lag input').first();
+  await lag.fill('0.25');
+  await lag.press('Enter');
+  await expect
+    .poll(async () => (await readConfig()).lag, { timeout: 10_000 })
+    .toBe(0.25);
+
+  // --- Rest-unmapped toggle (controlled by server state → click, then poll) --
+  await page.locator('.vs-stylize-rest-unmapped').first().click();
+  await expect
+    .poll(async () => (await readConfig()).restUnmapped, { timeout: 10_000 })
+    .toBe(true);
+
+  // --- A response knob (inside the collapsed "Response" section) ------------
+  await page.getByText('Response', { exact: true }).first().click();
+  const maxRate = page.locator('.vs-stylize-response-maxRate input').first();
+  await expect(maxRate).toBeVisible({ timeout: 5_000 });
+  await maxRate.fill('2');
+  await maxRate.press('Enter');
+  await expect
+    .poll(
+      async () =>
+        ((await readConfig()).response as Record<string, unknown>)?.maxRate,
+      { timeout: 10_000 }
+    )
+    .toBe(2);
+
+  // --- A rig bone override --------------------------------------------------
+  await page.getByText('Response rig', { exact: false }).first().click();
+  await page.getByText('head', { exact: true }).first().click();
+  const headYaw = page
+    .locator('.vs-stylize-drv-head-headYaw input[type="number"]')
+    .nth(1); // X / Y / Z → Y is the yaw column
+  await expect(headYaw).toBeVisible({ timeout: 5_000 });
+  await headYaw.fill('35');
+  await headYaw.press('Enter');
+  await expect
+    .poll(
+      async () => {
+        const rig = (await readConfig()).rig as Record<
+          string,
+          { drivers?: Record<string, number[]> }
+        > | null;
+        return rig?.head?.drivers?.headYaw?.[1];
+      },
+      { timeout: 10_000 }
+    )
+    .toBe(35);
 });

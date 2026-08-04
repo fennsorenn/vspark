@@ -50,6 +50,92 @@ Die Atmung fügt ein dezentes, automatisches Heben und Senken von Brust und
 Schultern hinzu, damit dein Avatar lebendig wirkt, selbst wenn du stillhältst.
 Das Ausmaß der Brust- und Schulterbewegung ist einstellbar.
 
+## Stilisiertes Tracking {#stylized}
+
+Exaktes Tracking ist nicht immer schmeichelhaftes Tracking. Eine Kamera oder ein
+VMC-Anzug liefert dir genau das, was dein Körper getan hat — einschließlich der
+Momente, in denen der Ellbogen für zwei Bilder verloren ging und dein Arm quer
+durch den Raum flog, und einschließlich der Tatsache, dass eine Kopfdrehung nur
+den Kopf bewegt, während der Rest von dir dasteht wie eine Schaufensterpuppe.
+
+Stilisiertes Tracking ist ein **Nachbearbeitungsschritt**. Es sitzt zwischen der
+Quelle deiner Bewegung und deinem Avatar und formt die Bewegung unterwegs um — so,
+wie ein 2D-Avatar gerigged ist: Eine Handvoll grober **Steuerwerte** wird aus
+deiner Performance gelesen — wohin dein Kopf zeigt, wohin dein Oberkörper lehnt,
+wie hoch deine Arme sind — und diese Steuerwerte werden dann wieder über deinen
+ganzen Körper verteilt.
+
+Das löst beide Probleme auf einmal.
+
+**Es wirkt lebendiger.** Eine Kopfdrehung endet nicht mehr am Hals: Sie wandert
+durch Brust, Wirbelsäule und Hüfte, jeweils etwas schwächer als darüber und
+jeweils etwas später, sodass dein Körper als eine zusammenhängende Performance
+gelesen wird. Der Kopf bleibt außerdem waagerecht, wenn sich der Körper neigt,
+die Schultern laufen einer Drehung hinterher, und jede Schulter hebt sich, wenn
+du den zugehörigen Arm hebst — die Kleinigkeiten, die ein Mensch tut, ohne
+darüber nachzudenken, und die Tracking fast nie einfängt.
+
+**Es geht nicht mehr kaputt.** Die vom Rig gesteuerten Knochen werden aus den
+Steuerwerten *neu aufgebaut* statt vom Tracking übernommen, und die Steuerwerte
+sind auf einen festen Bereich begrenzt und dürfen sich nicht schneller bewegen,
+als ein Mensch sich bewegen kann. Ein Tracking-Ruckler kann höchstens einen
+Steuerwert anstupsen — aus einem kaputten Bild wird also ein kleines Wackeln
+statt eines abgeknickten Gliedes.
+
+### Die Regler
+
+**Stärke** ist der Regler zwischen beiden Welten: 0 ist dein Tracking unberührt,
+1 ist voll stilisiert. Alles dazwischen ist eine Mischung, sodass du etwas von
+deiner eigenen Präzision behalten und trotzdem den Nachlauf bekommen kannst.
+Fang bei 1 an und geh herunter, wenn es dir zu weich wird.
+
+**Nachlauf** ist, wie weit der Körper den Steuerwerten hinterherläuft, in
+Sekunden. Größer ist lockerer und cartoonhafter; 0 lässt alles gleichzeitig
+laufen. Wenn die Bewegung *überschwingen* und ausschwingen soll, statt nur
+aufzuholen, schalte am Avatar selbst **Bewegungs-Schnappigkeit** ein — sie legt
+sich obendrauf.
+
+**Nicht gesteuerte Knochen in Ruhelage** schickt alles außerhalb des Rigs
+(Finger, Beine) in seine neutrale Haltung zurück, statt das Tracking
+durchzureichen. Genau richtig, wenn ausgerechnet dein Hand-Tracking spinnt.
+
+### Ansprechverhalten
+
+Der Abschnitt **Ansprechverhalten** entscheidet, wie aus deiner Bewegung
+Steuerwerte werden. Die drei *Bereich*-Werte sind, wie weit du dich für volle
+Wirkung bewegen musst — senke sie, um aus kleinen Bewegungen große stilisierte
+Bewegung zu holen, erhöhe sie, wenn der Avatar zappelig wirkt.
+
+Der Rest ist Aufbereitung. Die **Totzone** ist, wie viel Bewegung noch als
+Stillhalten gilt — das verhindert, dass Sensorrauschen den Avatar flimmern lässt.
+Die **maximale Rate** ist das Tempolimit, das aus einem Tracking-Ruckler eine
+kurze Fahrt statt eines Zuckens macht — sie zu senken macht den Avatar ruhiger
+und fehlertoleranter. **Glättung** macht alles weicher, um den Preis von etwas
+Verzögerung.
+
+### Antwort-Rig
+
+Das **Antwort-Rig** ist die Zuordnung selbst, und du kannst jeden Knochen darin
+bearbeiten. Zu jedem Knochen stehen die Steuerwerte, die ihn bewegen, und wie
+viele Grad jeder davon bei voller Stärke beiträgt, in X / Y / Z.
+
+Ein Knochen ist in einem von zwei Modi. **Ersetzen** heißt, der Knochen wird
+vollständig aus den Steuerwerten gebaut und das Tracking verworfen — das macht
+ihn ruckelfest, und es ist die richtige Wahl für Wirbelsäule, Hals, Kopf und
+Schultern. **Addieren** behält deine getrackte Bewegung und legt den Beitrag des
+Rigs darüber; so arbeiten die Arme, damit deine eigenen Gesten erhalten bleiben.
+
+**Nachlauf** ist ein Multiplikator pro Knochen auf den globalen Nachlauf. Das
+Standard-Rig staffelt ihn die Kette hinunter — die Hüfte läuft am weitesten
+hinterher, der Kopf kaum — und genau das erzeugt das Peitschen und Ausschwingen.
+Du kannst einem Knochen Steuerwerte hinzufügen, Knochen hinzufügen, die das
+Standard-Rig ignoriert (Beine, für ein wiegendes Ganzkörper-Idle), und jeden
+Knochen oder das ganze Rig jederzeit auf den Standard zurücksetzen.
+
+Ein schöner Nebeneffekt: Weil Knochen im Modus „Ersetzen“ erzeugt und nicht
+kopiert werden, werden sie auch dann gesteuert, wenn dein Tracker sie nie
+sendet. Ein reiner Gesichts-Tracker bewegt durch dieses Rig deinen ganzen Körper.
+
 ## Kamera & Mikrofon einrichten {#devices}
 
 Im **Medienfenster** wählst du aus, welche Kamera und welches Mikrofon vspark

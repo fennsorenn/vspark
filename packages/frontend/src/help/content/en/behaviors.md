@@ -46,6 +46,86 @@ Breathing adds a subtle, automatic rise-and-fall to the chest and shoulders so
 your avatar feels alive even when you're holding still. The amount of chest and
 shoulder movement is adjustable.
 
+## Stylized tracking {#stylized}
+
+Accurate tracking is not always flattering tracking. A camera or a VMC suit gives
+you exactly what your body did — including the moments where it lost your elbow
+for two frames and threw your arm across the room, and including the fact that a
+head turn moves only your head while the rest of you stands there like a
+mannequin.
+
+Stylized tracking is a **post-processor**. It sits between whatever is producing
+your motion and your avatar, and it reshapes the motion on the way through, the
+way a 2D avatar is rigged: a handful of broad **drivers** are read off your
+performance — where your head is pointing, where your torso is leaning, how high
+your arms are — and those drivers are then fanned back out across your whole body.
+
+That fixes both problems at once.
+
+**It looks more alive.** A head turn no longer stops at the neck: it travels down
+through the chest, the spine and the hips, each a little less than the one above
+and each a little later, so your body reads as one connected performance. The
+head also stays level when your body leans, your shoulders lag behind a turn, and
+each shoulder lifts when you raise that arm — the small things a person does
+without thinking, that tracking almost never captures.
+
+**It stops breaking.** The bones the rig drives are *rebuilt* from the drivers
+rather than copied from tracking, and the drivers are capped at a fixed range and
+not allowed to move faster than a person can move. A tracker that glitches can at
+worst nudge a driver, so a broken frame becomes a small wobble instead of a
+snapped limb.
+
+### The controls
+
+**Amount** is the dial between the two worlds: 0 is your tracking untouched, 1 is
+fully stylized. Anywhere in between is a blend, so you can keep some of your own
+precision and still get the follow-through. Start at 1 and come down if it feels
+too smooth.
+
+**Follow-through** is how far the body trails behind the drivers, in seconds.
+Larger is looser and more cartoon-like; 0 makes everything move together. If you
+want the motion to *overshoot* and settle rather than just catch up, turn on
+**Motion Snappiness** on the avatar itself — it layers on top of this.
+
+**Rest bones the rig doesn't drive** sends everything outside the rig (fingers,
+legs) back to its neutral pose instead of passing tracking through. Reach for it
+when your hand tracking is the thing misbehaving.
+
+### Response
+
+The **Response** section decides how your movement becomes drivers. The three
+*range* values are how far you have to move for a full-strength response — lower
+them to get big stylized motion out of small movements, raise them if the avatar
+feels twitchy.
+
+The rest is conditioning. **Deadzone** is how much movement still counts as
+holding still, which is what stops sensor noise from making the avatar shimmer.
+**Max rate** is the speed limit that turns a tracking glitch into a short slide
+instead of a pop — lowering it makes the avatar calmer and more forgiving.
+**Smoothing** softens everything at the cost of a little delay.
+
+### Response rig
+
+The **Response rig** is the mapping itself, and you can edit every bone of it.
+Each bone lists the drivers that move it and how many degrees each one
+contributes at full strength, in X / Y / Z.
+
+A bone is in one of two modes. **Replace** means the bone is built entirely from
+the drivers and tracking is discarded — that is what makes it glitch-proof, and
+it is the right choice for the spine, neck, head and shoulders. **Add** keeps
+your tracked motion and layers the rig's contribution on top, which is what the
+arms use so your own gestures survive.
+
+**Lag** is a per-bone multiplier on Follow-through. The stock rig staggers it
+down the chain — the hips trail furthest, the head barely at all — which is what
+produces the whip-and-settle feel. You can add drivers to a bone, add bones that
+the stock rig ignores (legs, for a full-body swaying idle), and reset any bone or
+the whole rig back to stock at any time.
+
+One nice side effect: because replace-mode bones are synthesized rather than
+copied, they are driven even if your tracker never sends them. A face-only
+tracker will move your entire body through this rig.
+
 ## Camera & microphone setup {#devices}
 
 The **Media** window is where you choose which webcam and microphone vspark

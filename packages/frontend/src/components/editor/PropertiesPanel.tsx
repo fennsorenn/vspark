@@ -12,6 +12,16 @@ import {
 } from '../../particleTextures';
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
+import {
+  DEFAULT_STYLE_RIG,
+  DEFAULT_STYLE_RESPONSE,
+  STYLE_DRIVER_NAMES,
+  type StyleDriverName,
+  type StyleRig,
+  type StyleBoneResponse,
+  type StyleResponse,
+  type DriverResponse,
+} from '@vspark/shared/style_rig';
 import type { PoseSection, PoseSource } from '@vspark/shared';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
@@ -2407,7 +2417,10 @@ function LipsyncCalibration({
           >
             {v}
             {draft[v] ? (
-              <Check size={12} style={{ marginLeft: 4, verticalAlign: '-1px' }} />
+              <Check
+                size={12}
+                style={{ marginLeft: 4, verticalAlign: '-1px' }}
+              />
             ) : null}
           </button>
         ))}
@@ -3133,6 +3146,423 @@ function ManualCalibrationProps({ comp }: { comp: Behavior }) {
   );
 }
 
+// ── Stylized tracking (pose_stylizer) component panel ────────────────────────
+
+const rigSelectStyle: React.CSSProperties = {
+  background: '#2a2a2a',
+  border: '1px solid #3a3a3a',
+  color: '#e0e0e0',
+  borderRadius: 4,
+  padding: '3px 6px',
+  fontSize: 11,
+};
+
+interface StylizerConfig {
+  amount?: number;
+  lag?: number;
+  restUnmapped?: boolean;
+  response?: Partial<StyleResponse>;
+  rig?: StyleRig | null;
+}
+
+/** The tunable half of `StyleResponse`, in panel order. */
+const RESPONSE_FIELDS: Array<{
+  key: keyof StyleResponse;
+  step: number;
+  min: number;
+  max?: number;
+  suffix?: string;
+}> = [
+  { key: 'headRange', step: 5, min: 5, max: 180, suffix: '°' },
+  { key: 'bodyRange', step: 5, min: 5, max: 180, suffix: '°' },
+  { key: 'armRange', step: 5, min: 5, max: 180, suffix: '°' },
+  { key: 'armNeutral', step: 5, min: -90, max: 90, suffix: '°' },
+  { key: 'deadzone', step: 0.01, min: 0, max: 0.5 },
+  { key: 'maxRate', step: 0.5, min: 0 },
+  { key: 'smoothing', step: 0.05, min: 0, max: 0.95 },
+  { key: 'energyScale', step: 0.5, min: 0.1 },
+];
+
+/**
+ * One bone of the response rig: which drivers move it, how far, in which mode,
+ * and how far it trails. Collapsed by default — same tight-row treatment as the
+ * manual-calibration bone list, since the rig runs to a dozen bones.
+ */
+function RigBoneRow({
+  bone,
+  entry,
+  modified,
+  onChange,
+  onReset,
+}: {
+  bone: string;
+  entry: StyleBoneResponse;
+  modified: boolean;
+  onChange: (patch: Partial<StyleBoneResponse>) => void;
+  onReset: () => void;
+}) {
+  const { t } = useTranslation('properties');
+  const [open, setOpen] = useState(false);
+  const used = Object.keys(entry.drivers) as StyleDriverName[];
+  const unused = STYLE_DRIVER_NAMES.filter((d) => !used.includes(d));
+
+  const setDriver = (driver: StyleDriverName, next: DriverResponse) =>
+    onChange({ drivers: { ...entry.drivers, [driver]: next } });
+
+  return (
+    <div style={{ borderBottom: '1px solid #262626' }}>
+      <div
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          cursor: 'pointer',
+          userSelect: 'none',
+          padding: '3px 2px',
+          fontSize: 11,
+          color: modified ? '#c9b86a' : '#aaa',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            color: '#666',
+            display: 'inline-block',
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: 'transform 120ms',
+          }}
+        >
+          ▶
+        </span>
+        <span style={{ flex: 1, minWidth: 0 }}>{bone}</span>
+        <span style={{ fontSize: 9, color: '#666' }}>
+          {t(`stylizedTracking.mode.${entry.mode ?? 'replace'}`)}
+        </span>
+        {modified && <span style={{ color: '#c9b86a', fontSize: 9 }}>●</span>}
+      </div>
+      {open && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            padding: '2px 2px 8px 16px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, color: '#888', width: 70 }}>
+              {t('stylizedTracking.boneMode')}
+            </span>
+            <select
+              className={`vs-stylize-mode-${bone}`}
+              value={entry.mode ?? 'replace'}
+              onChange={(e) =>
+                onChange({ mode: e.target.value as 'replace' | 'add' })
+              }
+              style={{ ...rigSelectStyle, flex: 1 }}
+            >
+              <option value="replace">
+                {t('stylizedTracking.mode.replace')}
+              </option>
+              <option value="add">{t('stylizedTracking.mode.add')}</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, color: '#888', width: 70 }}>
+              {t('stylizedTracking.boneLag')}
+            </span>
+            <NumInput
+              className={`vs-stylize-bonelag-${bone}`}
+              value={entry.lag ?? 1}
+              step={0.1}
+              min={0}
+              suffix="×"
+              style={{ width: 90 }}
+              onChange={(v) => onChange({ lag: v })}
+              onCommit={(v) => onChange({ lag: v })}
+            />
+          </div>
+          {used.map((driver) => (
+            <VecInput
+              key={driver}
+              className={`vs-stylize-drv-${bone}-${driver}`}
+              values={(entry.drivers[driver] ?? [0, 0, 0]) as number[]}
+              labels={['X', 'Y', 'Z']}
+              step={1}
+              suffix="°"
+              groupLabel={t(`stylizedTracking.driver.${driver}`)}
+              onChange={(next) => setDriver(driver, next as DriverResponse)}
+              onCommit={(next) => setDriver(driver, next as DriverResponse)}
+              style={{ minWidth: 0 }}
+            />
+          ))}
+          {unused.length > 0 && (
+            <select
+              className={`vs-stylize-adddrv-${bone}`}
+              value=""
+              onChange={(e) => {
+                if (e.target.value)
+                  setDriver(e.target.value as StyleDriverName, [0, 0, 0]);
+              }}
+              style={{ ...rigSelectStyle, alignSelf: 'flex-start' }}
+            >
+              <option value="">{t('stylizedTracking.addDriver')}</option>
+              {unused.map((d) => (
+                <option key={d} value={d}>
+                  {t(`stylizedTracking.driver.${d}`)}
+                </option>
+              ))}
+            </select>
+          )}
+          {modified && (
+            <button
+              className={`vs-stylize-resetbone-${bone}`}
+              onClick={onReset}
+              style={resetBtnStyle}
+            >
+              {t('stylizedTracking.resetBone')}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StylizedTrackingProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
+  const { updateBehavior } = useEditorStore();
+  const cfg = (comp.config ?? {}) as StylizerConfig;
+  const overrides = cfg.rig ?? {};
+  const response: StyleResponse = {
+    ...DEFAULT_STYLE_RESPONSE,
+    ...(cfg.response ?? {}),
+  };
+
+  const save = (patch: Record<string, unknown>) => {
+    const config = { ...comp.config, ...patch };
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
+  };
+
+  // Bones the panel offers: everything the stock rig drives, plus anything the
+  // user has added on top. The stored override holds ONLY the deltas.
+  const rigBones = [
+    ...new Set([...Object.keys(DEFAULT_STYLE_RIG), ...Object.keys(overrides)]),
+  ];
+  const effectiveEntry = (bone: string): StyleBoneResponse => {
+    const base = DEFAULT_STYLE_RIG[bone];
+    const over = overrides[bone];
+    return {
+      mode: over?.mode ?? base?.mode ?? 'replace',
+      lag: over?.lag ?? base?.lag ?? 1,
+      drivers: { ...(base?.drivers ?? {}), ...(over?.drivers ?? {}) },
+    };
+  };
+
+  const setBone = (bone: string, patch: Partial<StyleBoneResponse>) => {
+    const next: StyleRig = { ...overrides };
+    next[bone] = { ...effectiveEntry(bone), ...patch };
+    save({ rig: next });
+  };
+  const resetBone = (bone: string) => {
+    const next: StyleRig = { ...overrides };
+    delete next[bone];
+    save({ rig: Object.keys(next).length ? next : null });
+  };
+
+  const unusedBones = VRM_BONE_NAMES.filter((b) => !rigBones.includes(b));
+  const modifiedCount = Object.keys(overrides).length;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t('stylizedTracking.hint')}
+      </div>
+
+      {/* Headline dial: accurate ←→ pretty. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span
+          style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}
+        >
+          {t('stylizedTracking.amount')}
+        </span>
+        <SliderInput
+          className="vs-stylize-amount"
+          value={cfg.amount ?? 1}
+          min={0}
+          max={1}
+          step={0.05}
+          precision={2}
+          style={{ flex: 1, minWidth: 0 }}
+          onChange={(v) => save({ amount: v })}
+          onCommit={(v) => save({ amount: v })}
+        />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span
+          style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}
+        >
+          {t('stylizedTracking.lag')}
+        </span>
+        <NumInput
+          className="vs-stylize-lag"
+          value={cfg.lag ?? 0.08}
+          step={0.01}
+          min={0}
+          suffix="s"
+          style={{ width: 96 }}
+          onChange={(v) => save({ lag: v })}
+          onCommit={(v) => save({ lag: v })}
+        />
+      </div>
+
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12,
+          color: '#888',
+          cursor: 'pointer',
+        }}
+      >
+        <input
+          type="checkbox"
+          className="vs-stylize-rest-unmapped"
+          checked={cfg.restUnmapped ?? false}
+          onChange={(e) => save({ restUnmapped: e.target.checked })}
+        />
+        {t('stylizedTracking.restUnmapped')}
+      </label>
+
+      <CollapsibleSection title={t('stylizedTracking.responseSection')}>
+        <div
+          style={{
+            fontSize: 10,
+            color: '#555',
+            lineHeight: 1.4,
+            marginBottom: 6,
+          }}
+        >
+          {t('stylizedTracking.responseHint')}
+        </div>
+        {RESPONSE_FIELDS.map((f) => (
+          <div
+            key={f.key}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 4,
+            }}
+          >
+            <span
+              style={{ fontSize: 12, color: '#888', width: 110, flexShrink: 0 }}
+              title={t(`stylizedTracking.responseTip.${f.key}`)}
+            >
+              {t(`stylizedTracking.response.${f.key}`)}
+            </span>
+            <NumInput
+              className={`vs-stylize-response-${f.key}`}
+              value={response[f.key]}
+              step={f.step}
+              min={f.min}
+              max={f.max}
+              suffix={f.suffix}
+              style={{ width: 96 }}
+              onChange={(v) =>
+                save({ response: { ...cfg.response, [f.key]: v } })
+              }
+              onCommit={(v) =>
+                save({ response: { ...cfg.response, [f.key]: v } })
+              }
+            />
+          </div>
+        ))}
+        {cfg.response && Object.keys(cfg.response).length > 0 && (
+          <button
+            className="vs-stylize-reset-response"
+            style={resetBtnStyle}
+            onClick={() => save({ response: {} })}
+          >
+            {t('stylizedTracking.resetResponse')}
+          </button>
+        )}
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title={t('stylizedTracking.rigSection')}
+        count={rigBones.length}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginBottom: 4,
+          }}
+        >
+          <span style={{ fontSize: 11, color: '#888' }}>
+            {modifiedCount > 0
+              ? t('stylizedTracking.rigModified', { count: modifiedCount })
+              : t('stylizedTracking.rigStock')}
+          </span>
+          {modifiedCount > 0 && (
+            <button
+              className="vs-stylize-reset-rig"
+              style={resetBtnStyle}
+              onClick={() => save({ rig: null })}
+            >
+              {t('stylizedTracking.resetRig')}
+            </button>
+          )}
+        </div>
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t('stylizedTracking.rigHint')}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {rigBones.map((bone) => (
+            <RigBoneRow
+              key={bone}
+              bone={bone}
+              entry={effectiveEntry(bone)}
+              modified={bone in overrides}
+              onChange={(patch) => setBone(bone, patch)}
+              onReset={() => resetBone(bone)}
+            />
+          ))}
+        </div>
+        {unusedBones.length > 0 && (
+          <select
+            className="vs-stylize-addbone"
+            value=""
+            onChange={(e) => {
+              if (e.target.value)
+                setBone(e.target.value, {
+                  mode: 'add',
+                  lag: 1,
+                  drivers: { bodyRoll: [0, 0, 0] },
+                });
+            }}
+            style={{ ...rigSelectStyle, marginTop: 6 }}
+          >
+            <option value="">{t('stylizedTracking.addBone')}</option>
+            {unusedBones.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        )}
+      </CollapsibleSection>
+    </div>
+  );
+}
+
 // ── Component dispatcher ──────────────────────────────────────────────────────
 
 function BehaviorProps({ comp }: { comp: Behavior }) {
@@ -3150,6 +3580,8 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
       return <BreathingProps comp={comp} />;
     case 'manual_calibration':
       return <ManualCalibrationProps comp={comp} />;
+    case 'pose_stylizer':
+      return <StylizedTrackingProps comp={comp} />;
     default:
       return (
         <div style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>
@@ -4454,6 +4886,13 @@ export function PropertiesPanel() {
                   tip={t('help.breathing')}
                 />
               )}
+              {selectedBehavior.kind === 'pose_stylizer' && (
+                <HelpButton
+                  topic="behaviors"
+                  anchor="stylized"
+                  tip={t('help.stylizedTracking')}
+                />
+              )}
             </div>
             <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
               {selectedCompType.description}
@@ -5223,7 +5662,9 @@ export function PropertiesPanel() {
                     )}
                   </span>
                   <NumInput
-                    className={key === 'near' ? 'vs-camera-near' : 'vs-camera-far'}
+                    className={
+                      key === 'near' ? 'vs-camera-near' : 'vs-camera-far'
+                    }
                     value={camera[key]}
                     step={step}
                     style={{ flex: 1, minWidth: 0 }}
@@ -7880,7 +8321,9 @@ export function PropertiesPanel() {
                         onCommit={(v) => setInf(sec, { anim: v }, true)}
                         style={{ flex: 1, minWidth: 0 }}
                       />
-                      <span style={colLabel}>{t('avatar.poseSourceTrack')}</span>
+                      <span style={colLabel}>
+                        {t('avatar.poseSourceTrack')}
+                      </span>
                       <SliderInput
                         className={`vs-posesrc-track-${sec}`}
                         value={inf.track}
@@ -8242,7 +8685,10 @@ export function PropertiesPanel() {
                     defaultValue={baseUrlDisplay}
                     key={`${node.id}-base-${baseUrlDisplay}`}
                     onBlur={(e) => {
-                      writeBase(e.target.value.trim() || null, baseSpeedDisplay);
+                      writeBase(
+                        e.target.value.trim() || null,
+                        baseSpeedDisplay
+                      );
                     }}
                   />
                   {baseUrlDisplay && (
@@ -8334,12 +8780,12 @@ export function PropertiesPanel() {
                 }}
               >
                 <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
-            {(() => {
-              const I =
-                BEHAVIOR_ICON[selectedCompType.kind] ?? BEHAVIOR_FALLBACK;
-              return <I size={18} />;
-            })()}
-          </span>
+                  {(() => {
+                    const I =
+                      BEHAVIOR_ICON[selectedCompType.kind] ?? BEHAVIOR_FALLBACK;
+                    return <I size={18} />;
+                  })()}
+                </span>
                 <div style={{ flex: 1 }}>
                   <div
                     style={{

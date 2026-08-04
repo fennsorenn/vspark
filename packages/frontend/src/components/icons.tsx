@@ -77,6 +77,7 @@ export const BEHAVIOR_ICON: Record<string, LucideIcon> = {
   lipsync_processor: Mic,
   breathing: Wind,
   manual_calibration: Ruler,
+  pose_stylizer: Sparkles,
   api_controller: SlidersHorizontal,
 };
 
