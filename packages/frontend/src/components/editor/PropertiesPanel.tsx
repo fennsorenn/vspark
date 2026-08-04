@@ -1908,7 +1908,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
     port?: number;
     blendMode?: string;
     mirror?: boolean;
-    poseTimeout?: number;
     nodeConfig?: Record<
       string,
       { enabled?: boolean; mapping?: Record<string, [string, number][]> }
@@ -1918,7 +1917,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
   const [port, setPort] = useState(cfg.port ?? 39539);
   const [blendMode, setBlendMode] = useState(cfg.blendMode ?? 'override');
   const [mirror, setMirror] = useState(cfg.mirror ?? false);
-  const [poseTimeout, setPoseTimeout] = useState(cfg.poseTimeout ?? 2);
   const [localIps, setLocalIps] = useState<string[]>([]);
 
   // Build mapper config state from stored nodeConfig, filling defaults.
@@ -1942,7 +1940,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
     setPort(cfg.port ?? 39539);
     setBlendMode(cfg.blendMode ?? 'override');
     setMirror(cfg.mirror ?? false);
-    setPoseTimeout(cfg.poseTimeout ?? 2);
     setMapperConfigs(getMapperConfigs());
 
     // Persist defaults immediately if nodeConfig is absent so the stored config
@@ -2084,23 +2081,9 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
         </label>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12, color: '#888', width: 72, flexShrink: 0 }}>
-          {t('vmc.idleAfter')}
-        </span>
-        <NumInput
-          value={poseTimeout}
-          step={0.1}
-          min={0.1}
-          suffix="s"
-          style={{ width: 80 }}
-          onChange={(v) => setPoseTimeout(v)}
-          onCommit={(v) => {
-            setPoseTimeout(v);
-            save({ poseTimeout: v });
-          }}
-        />
-      </div>
+      {/* "Idle after" moved to the avatar node's properties (Idle fallback) —
+          it describes the avatar's transition, not this receiver, and every
+          tracking source on the node now shares the one setting. */}
 
       {/* Face mappers */}
       <div
@@ -7649,6 +7632,59 @@ export function PropertiesPanel() {
                   api
                     .updateNode(node.id, {
                       properties: { blendTransitionTime: v },
+                    })
+                    .catch(() => {});
+                }}
+              />
+            </div>
+
+            {/* Sits next to the blend time on purpose: that one is how *fast*
+                the return to idle runs, this one is *when* it starts. Every
+                tracking source on the avatar (VMC, MediaPipe) shares it. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span
+                style={{
+                  fontSize: 12,
+                  color: '#888',
+                  width: 110,
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                {t('avatar.trackingGracePeriod')}
+                <HelpButton
+                  topic="avatar"
+                  anchor="animation"
+                  tip={t('help.trackingGracePeriod')}
+                  size={12}
+                />
+              </span>
+              <NumInput
+                className="vs-avatar-tracking-grace"
+                value={node.properties?.trackingGracePeriod ?? 2}
+                step={0.1}
+                min={0.1}
+                max={60}
+                suffix="s"
+                style={{ flex: 1, minWidth: 0 }}
+                onChange={(v) => {
+                  const properties = {
+                    ...node.properties,
+                    trackingGracePeriod: v,
+                  };
+                  storeUpdateNode(node.id, { properties });
+                }}
+                onCommit={(v) => {
+                  const properties = {
+                    ...node.properties,
+                    trackingGracePeriod: v,
+                  };
+                  storeUpdateNode(node.id, { properties });
+                  api
+                    .updateNode(node.id, {
+                      properties: { trackingGracePeriod: v },
                     })
                     .catch(() => {});
                 }}

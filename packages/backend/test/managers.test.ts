@@ -91,7 +91,7 @@ import { LipsyncManager } from '../src/behaviors/lipsync/manager.js';
 import { TrackingManager } from '../src/behaviors/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from '../src/behaviors/api_controller/manager.js';
 import { VmcManager } from '../src/behaviors/vmc_receiver/manager.js';
-import { runMigrations, closeDb } from '../src/db/index.js';
+import { runMigrations, closeDb, getDb } from '../src/db/index.js';
 import { broadcastBus } from '../src/broadcast/bus.js';
 
 // ── Silence console during tests ─────────────────────────────────────────────
@@ -451,6 +451,103 @@ describe('TrackingManager', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TrackingManager — tracking-loss grace period
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The camera pipeline has only one loss path (frames stop arriving), but it
+// honours the same configured "Idle after" window as vmc_receiver so both
+// sources reach idle on one clock instead of each using its own constant.
+
+describe('TrackingManager tracking-loss grace period', () => {
+  const makeWs = () => ({
+    broadcast: vi.fn(),
+    onClientConnected: vi.fn(),
+    sendTo: vi.fn(),
+  });
+
+  let ws: ReturnType<typeof makeWs>;
+  let manager: TrackingManager;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    ws = makeWs();
+    manager = new TrackingManager(ws as never);
+  });
+
+  afterEach(() => {
+    manager.close();
+    vi.useRealTimers();
+  });
+
+  const startWith = (graceSeconds?: number) => {
+    const db = getDb();
+    db.prepare("INSERT INTO projects (id, name) VALUES ('pg', 'P')").run();
+    db.prepare(
+      `INSERT INTO scene_nodes (id, project_id, root_scene_node_id, name, kind, components, properties)
+       VALUES ('node1', 'pg', 'node1', 'Avatar', 'avatar', '{}', ?)`
+    ).run(
+      JSON.stringify(
+        graceSeconds == null ? {} : { trackingGracePeriod: graceSeconds }
+      )
+    );
+    manager.syncBehaviors([
+      {
+        id: 'mp1',
+        nodeId: 'node1',
+        kind: 'mediapipe_tracker',
+        enabled: true,
+        config: {},
+      },
+    ]);
+    manager.fireLandmarks('mp1', { face: [{ x: 0, y: 0, z: 0 }] });
+    ws.broadcast.mockClear();
+  };
+
+  const trackingLost = () =>
+    ws.broadcast.mock.calls.some(
+      ([kind, payload]) =>
+        kind === 'vmc_tracking_state' && payload.tracking === false
+    );
+
+  it('a brief frame gap does not report tracking loss', () => {
+    startWith(3);
+
+    vi.advanceTimersByTime(1500);
+
+    expect(trackingLost()).toBe(false);
+  });
+
+  it('reports loss once the configured window elapses', () => {
+    startWith(3);
+
+    vi.advanceTimersByTime(3500);
+
+    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+      behaviorId: 'mp1',
+      tracking: false,
+    });
+  });
+
+  it('a resumed frame clears the pending loss', () => {
+    startWith(3);
+
+    vi.advanceTimersByTime(2000);
+    manager.fireLandmarks('mp1', { face: [{ x: 0, y: 0, z: 0 }] });
+    vi.advanceTimersByTime(2000); // 4s total, but only 2s since the last frame
+
+    expect(trackingLost()).toBe(false);
+  });
+
+  it('falls back to the 1s camera default when the node sets none', () => {
+    startWith();
+
+    vi.advanceTimersByTime(1500);
+
+    expect(trackingLost()).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ApiControllerManager (no signal graph — pure state machine)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -776,5 +873,166 @@ describe('VmcManager (UDP mocked)', () => {
 
     expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
     expect(manager.getStates('vmc1')).toBeNull();
+  });
+
+  // ── tracking-loss grace period (the avatar node's trackingGracePeriod) ─────
+  //
+  // Both loss paths (the signal going still, and packets going away) must wait
+  // out the configured window. Before this, a single repeated /Body packet
+  // flipped tracking off at once and the avatar snapped straight into idle on
+  // every momentary dropout.
+  //
+  // The window lives on the avatar node, not the behavior, so these tests seed a
+  // real scene_nodes row — the manager reads it back through the DB.
+
+  /** Insert an avatar node carrying (or not) an explicit grace period. */
+  const seedAvatarNode = (nodeId: string, graceSeconds?: number) => {
+    const db = getDb();
+    db.prepare("INSERT INTO projects (id, name) VALUES ('pg', 'P')").run();
+    db.prepare(
+      `INSERT INTO scene_nodes (id, project_id, root_scene_node_id, name, kind, components, properties)
+       VALUES (?, 'pg', ?, 'Avatar', 'avatar', '{}', ?)`
+    ).run(
+      nodeId,
+      nodeId,
+      JSON.stringify(
+        graceSeconds == null ? {} : { trackingGracePeriod: graceSeconds }
+      )
+    );
+  };
+
+  /** Put a receiver in the "tracking, packets flowing" state the loss paths start from. */
+  const primeTracking = (id: string, graceSeconds?: number) => {
+    seedAvatarNode('node1', graceSeconds);
+    manager.syncBehaviors([
+      {
+        id,
+        nodeId: 'node1',
+        kind: 'vmc_receiver',
+        enabled: true,
+        config: { port: 39539 },
+      },
+    ]);
+    const info = (
+      manager as unknown as {
+        receivers: Map<
+          string,
+          {
+            trackingActive: boolean | null;
+            lastSeen: number;
+            connected: boolean;
+            quietSince: number | null;
+          }
+        >;
+      }
+    ).receivers.get(id)!;
+    info.trackingActive = true;
+    info.connected = true;
+    info.lastSeen = Date.now();
+    info.quietSince = null;
+    ws.broadcast.mockClear();
+    return info;
+  };
+
+  const trackingLost = () =>
+    ws.broadcast.mock.calls.some(
+      ([kind, payload]) =>
+        kind === 'vmc_tracking_state' && payload.tracking === false
+    );
+
+  it('a brief still patch does not report tracking loss', () => {
+    const info = primeTracking('vmc1', 2);
+    info.quietSince = Date.now(); // motion just stopped
+
+    vi.advanceTimersByTime(1000); // well inside the 2s window
+
+    expect(trackingLost()).toBe(false);
+  });
+
+  it('a still signal reports loss once the grace period elapses', () => {
+    const info = primeTracking('vmc1', 2);
+    info.quietSince = Date.now();
+
+    vi.advanceTimersByTime(2500);
+
+    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+      behaviorId: 'vmc1',
+      tracking: false,
+    });
+  });
+
+  it('packets going away reports loss on the same configured clock', () => {
+    // Loss path 2 previously only fired `vmc_status`, leaving `trackingActive`
+    // stuck true until the client's own hardcoded watchdog gave up.
+    primeTracking('vmc1', 2); // lastSeen = now, then no further packets
+
+    vi.advanceTimersByTime(1000);
+    expect(trackingLost()).toBe(false);
+
+    vi.advanceTimersByTime(1500);
+    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+      behaviorId: 'vmc1',
+      tracking: false,
+    });
+  });
+
+  it('honours a longer configured grace period', () => {
+    const info = primeTracking('vmc1', 6);
+    info.quietSince = Date.now();
+
+    vi.advanceTimersByTime(4000); // past the old hardcoded 2s
+    expect(trackingLost()).toBe(false);
+
+    vi.advanceTimersByTime(2500);
+    expect(trackingLost()).toBe(true);
+  });
+
+  it('falls back to a 2s grace period when the node sets none', () => {
+    const info = primeTracking('vmc1');
+    info.quietSince = Date.now();
+
+    vi.advanceTimersByTime(1000);
+    expect(trackingLost()).toBe(false);
+
+    vi.advanceTimersByTime(1500);
+    expect(trackingLost()).toBe(true);
+  });
+
+  it('reports loss only once while the signal stays quiet', () => {
+    const info = primeTracking('vmc1', 1);
+    info.quietSince = Date.now();
+
+    vi.advanceTimersByTime(10_000);
+
+    const losses = ws.broadcast.mock.calls.filter(
+      ([kind, payload]) =>
+        kind === 'vmc_tracking_state' && payload.tracking === false
+    );
+    expect(losses).toHaveLength(1);
+  });
+
+  it('never reports loss for a receiver that never tracked', () => {
+    // trackingActive stays null — there is no loss to announce, and the
+    // connect-time snapshot skips null for the same reason.
+    manager.startReceiver('vmc1', 39539);
+    ws.broadcast.mockClear();
+
+    vi.advanceTimersByTime(10_000);
+
+    expect(trackingLost()).toBe(false);
+  });
+
+  it('keeps the connection dot on its own fixed window', () => {
+    // "Is the source reachable" is a different question from "is it tracking";
+    // a long grace period must not delay the status dot going grey.
+    primeTracking('vmc1', 30);
+
+    vi.advanceTimersByTime(4000);
+
+    expect(ws.broadcast).toHaveBeenCalledWith('vmc_status', {
+      behaviorId: 'vmc1',
+      connected: false,
+    });
+    expect(trackingLost()).toBe(false);
   });
 });
