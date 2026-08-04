@@ -46,7 +46,7 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
 
 **Review-later**: `poseTimeout` on vmc_receiver is largely redundant now that tracking-loss drives an immediate bus-side additive transition. Kept on the frontend (`Viewport.tsx`) as a client-side safety net for missed WS transition messages; revisit once the new flow proves robust in practice.
 
-**Interceptors**: `OnPoseBroadcast` nodes from other behaviors (breathing, manual_calibration) are registered into the VMC graph's interceptor chain. Cleanup callbacks are stored per receiver so they're removed on stop.
+**Interceptors**: `OnPoseBroadcast` nodes from other behaviors (breathing, manual_calibration, pose_stylizer) are registered into the VMC graph's interceptor chain. Cleanup callbacks are stored per receiver so they're removed on stop.
 
 **VRM skeleton loading**: On start, parses the node's `.vrm`/`.glb` file to extract the humanoid bone hierarchy (used by `arm_ik_calibration` for forward kinematics). See `vrm/skeleton.ts`.
 
@@ -174,6 +174,55 @@ behavior_config (field: calibrations) ──┘ (→ calibrations input)
 **Caveat**: per-axis multiply/offset is an euler-space operation, so it's ZYX-order-dependent and degrades near the yaw=±90° gimbal singularity — expected for a manual fine-tuning knob.
 
 **BehaviorKind**: `@BehaviorKind({ kind: 'manual_calibration', label: 'Manual Calibration', icon: '🎚️', applicableTo: ['avatar'] })`. Frontend UI is `ManualCalibrationProps` in `PropertiesPanel.tsx` (see [frontend.md](frontend.md)).
+
+---
+
+## PoseStylizerManager — `pose_stylizer/manager.ts`
+
+Pose interceptor that converts accurate tracking into stylized, whole-body
+"pretty" motion. The **third interceptor-registering manager** (alongside
+`VmcManager` and `ManualCalibrationManager`) — it has no source of its own and
+only runs while some producer is broadcasting a pose for the avatar.
+
+**Input**: an upstream pose via the interceptor chain
+**Output**: the reshaped pose re-broadcast through the chain (`pose_interceptor_broadcast`)
+
+**Lifecycle**: mirrors `ManualCalibrationManager` — per-behavior `SignalGraph`,
+hot-applied config via `_behaviorConfig`, registration through
+`OnPoseBroadcast.register` instead of a clock/socket.
+
+**Priority 8**, deliberately above manual calibration's 5: the pose is stylized
+first, so a user's manual per-bone trim applies to the pose they can actually see.
+
+**Graph descriptor** (`pose_stylizer/graph.ts`):
+```
+on_pose_broadcast (priority 8) ─┬─→ pose_style_drivers ─→ pose_stylize ─→ pose_interceptor_broadcast
+                                └───────────────────────────↗ (pose, as blend base)
+behavior_config × 5 (response / amount / lag / rig / restUnmapped) ──┘
+```
+
+**The idea in one line**: instead of copying the tracked skeleton, read a handful
+of normalized *drivers* off the performance (head-vs-torso orientation, torso
+lean, arm height, motion energy) and synthesize the body back from them through a
+per-bone response rig. That gives whole-body follow-through *and* makes glitches
+structurally impossible on the bones the rig owns, because the drivers are
+clamped, deadzoned and rate-limited before anything is rebuilt.
+
+**Persist guard** (differs from the other managers): `_persistNodeState` skips
+node kinds in `EPHEMERAL_STATE_KINDS` — currently `on_pose_broadcast`, whose state
+is the *entire current pose*, injected fresh before every fire. Without the guard
+that would be a read-modify-write of the behavior row at the pose rate (~60Hz),
+persisting a value that is meaningless after a restart.
+
+> `ManualCalibrationManager` lacks this guard and therefore does write a full pose
+> into SQLite on every interceptor frame. Worth applying the same fix there.
+
+Config: `{ amount, lag, restUnmapped, response, rig }` — see
+[stylized-tracking.md](stylized-tracking.md) for the full data model, the default
+rig and its tuning invariants, replace-vs-add modes, and the extension recipes.
+
+**BehaviorKind**: `@BehaviorKind({ kind: 'pose_stylizer', label: 'Stylized Tracking', icon: '🎭', applicableTo: ['avatar'] })`.
+Frontend UI is `StylizedTrackingProps` in `PropertiesPanel.tsx`.
 
 ---
 
