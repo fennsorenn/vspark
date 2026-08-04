@@ -6,6 +6,7 @@ import { extractVrmMetadata } from '../vrm/metadata.js';
 import type { VmcManager } from '../behaviors/vmc_receiver/manager.js';
 import type { BreathingManager } from '../behaviors/breathing/manager.js';
 import type { ManualCalibrationManager } from '../behaviors/manual_calibration/manager.js';
+import type { PoseStylizerManager } from '../behaviors/pose_stylizer/manager.js';
 import type { LipsyncManager } from '../behaviors/lipsync/manager.js';
 import type { TrackingManager } from '../behaviors/mediapipe_tracker/manager.js';
 import type { ApiControllerManager } from '../behaviors/api_controller/manager.js';
@@ -27,6 +28,11 @@ export function setBreathingManager(m: BreathingManager) {
 export let _manualCalibration: ManualCalibrationManager | null = null;
 export function setManualCalibrationManager(m: ManualCalibrationManager) {
   _manualCalibration = m;
+}
+
+export let _poseStylizer: PoseStylizerManager | null = null;
+export function setPoseStylizerManager(m: PoseStylizerManager) {
+  _poseStylizer = m;
 }
 
 export let _lipsync: LipsyncManager | null = null;
@@ -102,6 +108,14 @@ export function refreshManualCalibration() {
   _manualCalibration.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
+export function refreshPoseStylizer() {
+  if (!_poseStylizer) return;
+  const rows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'pose_stylizer'")
+    .all() as Record<string, unknown>[];
+  _poseStylizer.syncBehaviors(rows.map(_mapBehaviorRow));
+}
+
 export function refreshLipsync() {
   if (!_lipsync) return;
   const rows = getDb()
@@ -130,6 +144,7 @@ export function refreshAllBehaviorManagers() {
   refreshVmc();
   refreshBreathing();
   refreshManualCalibration();
+  refreshPoseStylizer();
   refreshLipsync();
   refreshTracking();
   refreshApiController();

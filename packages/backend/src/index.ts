@@ -8,6 +8,7 @@ import {
   setVmcManager,
   setBreathingManager,
   setManualCalibrationManager,
+  setPoseStylizerManager,
   setLipsyncManager,
   setTrackingManager,
   setApiControllerManager,
@@ -20,6 +21,7 @@ import { WSSync } from './ws/index.js';
 import { VmcManager } from './behaviors/vmc_receiver/manager.js';
 import { BreathingManager } from './behaviors/breathing/manager.js';
 import { ManualCalibrationManager } from './behaviors/manual_calibration/manager.js';
+import { PoseStylizerManager } from './behaviors/pose_stylizer/manager.js';
 import { LipsyncManager } from './behaviors/lipsync/manager.js';
 import { TrackingManager } from './behaviors/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from './behaviors/api_controller/manager.js';
@@ -27,7 +29,10 @@ import { TrackClipPlaybackManager } from './track_clips/playback.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { broadcastBus } from './broadcast/bus.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
-import { initIkBroadcast, setIkStreamForwarder } from './signal/nodes/ik_broadcast.js';
+import {
+  initIkBroadcast,
+  setIkStreamForwarder,
+} from './signal/nodes/ik_broadcast.js';
 import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
 import { initStartClip } from './signal/nodes/start_clip.js';
 import { runtimeOverrideManager } from './runtime_overrides/manager.js';
@@ -160,6 +165,9 @@ async function start() {
 
   const manualCalibrationManager = new ManualCalibrationManager();
   setManualCalibrationManager(manualCalibrationManager);
+
+  const poseStylizerManager = new PoseStylizerManager();
+  setPoseStylizerManager(poseStylizerManager);
 
   const lipsyncManager = new LipsyncManager();
   setLipsyncManager(lipsyncManager);
@@ -366,6 +374,11 @@ async function start() {
     .prepare("SELECT * FROM behaviors WHERE kind = 'manual_calibration'")
     .all() as Record<string, unknown>[];
   manualCalibrationManager.syncBehaviors(manualCalibrationRows.map(mapRow));
+
+  const poseStylizerRows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'pose_stylizer'")
+    .all() as Record<string, unknown>[];
+  poseStylizerManager.syncBehaviors(poseStylizerRows.map(mapRow));
 
   const lipsyncRows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'lipsync_processor'")

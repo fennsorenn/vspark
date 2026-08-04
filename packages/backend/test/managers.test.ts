@@ -3,6 +3,7 @@
  *
  * Lifecycle tests for the behaviour-manager classes:
  *   - BreathingManager   (graph + Clock intervals — fake timers)
+ *   - PoseStylizerManager (graph + pose-interceptor registration)
  *   - LipsyncManager     (graph lifecycle + fireVisemes)
  *   - TrackingManager    (graph lifecycle + fireLandmarks)
  *   - ApiControllerManager (state-only, no graph)
@@ -51,6 +52,7 @@ vi.mock('dgram', () => ({
 vi.mock('../src/broadcast/bus.js', () => ({
   broadcastBus: {
     removeBehavior: vi.fn(),
+    emitMergedPose: vi.fn(),
     publishBones: vi.fn(),
     publishBlendshapes: vi.fn(),
     init: vi.fn(),
@@ -87,12 +89,15 @@ vi.mock('../src/mesh/index.js', () => ({
 
 // ── Now import everything after mocks are in place ───────────────────────────
 import { BreathingManager } from '../src/behaviors/breathing/manager.js';
+import { PoseStylizerManager } from '../src/behaviors/pose_stylizer/manager.js';
 import { LipsyncManager } from '../src/behaviors/lipsync/manager.js';
 import { TrackingManager } from '../src/behaviors/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from '../src/behaviors/api_controller/manager.js';
 import { VmcManager } from '../src/behaviors/vmc_receiver/manager.js';
 import { runMigrations, closeDb } from '../src/db/index.js';
 import { broadcastBus } from '../src/broadcast/bus.js';
+import { poseInterceptorRegistry } from '../src/signal/pose_interceptor_registry.js';
+import { NormalizedPose, Quaternion } from '@vspark/shared/signal';
 
 // ── Silence console during tests ─────────────────────────────────────────────
 beforeEach(() => {
@@ -776,5 +781,142 @@ describe('VmcManager (UDP mocked)', () => {
 
     expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
     expect(manager.getStates('vmc1')).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PoseStylizerManager
+//
+// Unlike the source-driven managers this one has no input of its own: it splices
+// into the pose interceptor chain and only runs while some other producer is
+// broadcasting a pose for the avatar.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PoseStylizerManager', () => {
+  let manager: PoseStylizerManager;
+
+  beforeEach(() => {
+    manager = new PoseStylizerManager();
+  });
+
+  afterEach(() => {
+    manager.close();
+  });
+
+  it('builds a graph when start() is called', () => {
+    manager.start('s1');
+    const descriptor = manager.getGraphDescriptor('s1');
+    expect(descriptor).not.toBeNull();
+    expect(descriptor!.id).toBe('pose_stylizer:s1');
+    expect(descriptor!.nodes.map((n) => n.kind)).toEqual(
+      expect.arrayContaining([
+        'on_pose_broadcast',
+        'pose_style_drivers',
+        'pose_stylize',
+        'pose_interceptor_broadcast',
+      ])
+    );
+  });
+
+  it('start() is idempotent', () => {
+    manager.start('s1');
+    const d1 = manager.getGraphDescriptor('s1');
+    manager.start('s1');
+    expect(manager.getGraphDescriptor('s1')).toBe(d1);
+  });
+
+  it('syncBehaviors() starts enabled stylizers and skips other kinds', () => {
+    manager.syncBehaviors([
+      { id: 's1', nodeId: 'n1', kind: 'pose_stylizer', enabled: true, config: {} },
+      { id: 's2', nodeId: 'n2', kind: 'pose_stylizer', enabled: false, config: {} },
+      { id: 's3', nodeId: 'n3', kind: 'breathing', enabled: true, config: {} },
+    ]);
+    expect(manager.getStates('s1')).not.toBeNull();
+    expect(manager.getStates('s2')).toBeNull();
+    expect(manager.getStates('s3')).toBeNull();
+  });
+
+  it('syncBehaviors() stops graphs that dropped out of the list', () => {
+    manager.start('s1');
+    manager.syncBehaviors([]);
+    expect(manager.getStates('s1')).toBeNull();
+    expect(broadcastBus.removeBehavior).toHaveBeenCalledWith('s1');
+  });
+
+  it('registers into the pose interceptor chain for its scene node', () => {
+    manager.syncBehaviors([
+      { id: 's1', nodeId: 'avatar-1', kind: 'pose_stylizer', enabled: true, config: {} },
+    ]);
+    // A pose for this scene node is now claimed by the chain rather than broadcast.
+    const claimed = poseInterceptorRegistry.start(
+      'avatar-1',
+      new NormalizedPose([['head', Quaternion.fromEuler(0, 0.5, 0)]])
+    );
+    expect(claimed).toBe(true);
+  });
+
+  it('unregisters from the chain on stop()', () => {
+    manager.syncBehaviors([
+      { id: 's1', nodeId: 'avatar-2', kind: 'pose_stylizer', enabled: true, config: {} },
+    ]);
+    manager.stop('s1');
+    expect(
+      poseInterceptorRegistry.start('avatar-2', new NormalizedPose())
+    ).toBe(false);
+  });
+
+  it('stylizes a pose end-to-end through the chain', () => {
+    manager.syncBehaviors([
+      {
+        id: 's1',
+        nodeId: 'avatar-3',
+        kind: 'pose_stylizer',
+        enabled: true,
+        config: { amount: 1, lag: 0, response: { maxRate: 1e6, smoothing: 0, deadzone: 0 } },
+      },
+    ]);
+
+    // A head-only pose goes in…
+    poseInterceptorRegistry.start(
+      'avatar-3',
+      new NormalizedPose([['head', Quaternion.fromEuler(0, (45 * Math.PI) / 180, 0)]])
+    );
+
+    // …and a whole-body pose comes out the far end of the chain.
+    const emit = vi.mocked(broadcastBus.emitMergedPose);
+    expect(emit).toHaveBeenCalled();
+    const [nodeId, pose] = emit.mock.calls.at(-1)!;
+    expect(nodeId).toBe('avatar-3');
+    const out = pose as NormalizedPose;
+    expect(out.has('hips')).toBe(true);
+    expect(out.has('spine')).toBe(true);
+    // The head no longer carries the full 45° on its own.
+    const headYaw = (out.get('head')!.toEuler().yaw * 180) / Math.PI;
+    expect(headYaw).toBeGreaterThan(0);
+    expect(headYaw).toBeLessThan(45);
+  });
+
+  it('hot-applies config edits without rebuilding the graph', () => {
+    manager.syncBehaviors([
+      { id: 's1', nodeId: 'n1', kind: 'pose_stylizer', enabled: true, config: { amount: 1 } },
+    ]);
+    const before = manager.getGraphDescriptor('s1');
+    manager.syncBehaviors([
+      { id: 's1', nodeId: 'n1', kind: 'pose_stylizer', enabled: true, config: { amount: 0.2 } },
+    ]);
+    expect(manager.getGraphDescriptor('s1')).toBe(before);
+    expect(manager.getStates('s1')).not.toBeNull();
+  });
+
+  it('close() stops every running graph', () => {
+    manager.start('s1');
+    manager.start('s2');
+    manager.close();
+    expect(manager.getStates('s1')).toBeNull();
+    expect(manager.getStates('s2')).toBeNull();
+  });
+
+  it('exposes the stock rig for callers that want to seed or display it', () => {
+    expect(manager.getDefaultRig().head.drivers.headYaw).toBeDefined();
   });
 });

@@ -135,6 +135,47 @@ export class Quaternion {
   }
 
   /**
+   * Spherical linear interpolation towards `to` by `t` (clamped to [0, 1]),
+   * along the shortest arc. Falls back to a normalized lerp when the two
+   * rotations are nearly parallel (where the sine denominator is unstable).
+   */
+  slerp(to: Quaternion, t: number): Quaternion {
+    const k = t <= 0 ? 0 : t >= 1 ? 1 : t;
+    if (k === 0) return this;
+    if (k === 1) return to;
+
+    const a = this.normalize();
+    let b = to.normalize();
+    let dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+    // Shortest arc: flip the destination when the rotations point apart.
+    if (dot < 0) {
+      b = new Quaternion(-b.x, -b.y, -b.z, -b.w);
+      dot = -dot;
+    }
+
+    if (dot > 0.9995) {
+      // Nearly parallel — lerp + renormalize (slerp's denominator → 0 here).
+      return new Quaternion(
+        a.x + (b.x - a.x) * k,
+        a.y + (b.y - a.y) * k,
+        a.z + (b.z - a.z) * k,
+        a.w + (b.w - a.w) * k
+      ).normalize();
+    }
+
+    const theta = Math.acos(dot);
+    const sinTheta = Math.sin(theta);
+    const wa = Math.sin((1 - k) * theta) / sinTheta;
+    const wb = Math.sin(k * theta) / sinTheta;
+    return new Quaternion(
+      a.x * wa + b.x * wb,
+      a.y * wa + b.y * wb,
+      a.z * wa + b.z * wb,
+      a.w * wa + b.w * wb
+    );
+  }
+
+  /**
    * Build a unit quaternion from intrinsic ZYX Euler angles (radians):
    * Rz(roll) · Ry(yaw) · Rx(pitch). pitch = X axis, yaw = Y axis, roll = Z axis.
    * Matches the `euler_to_quaternion` signal node convention; `toEuler` is its inverse.
@@ -406,6 +447,12 @@ export interface SignalTypeMap {
   InterceptorFrame: InterceptorFrame;
   /** A single unit quaternion rotation. */
   Quaternion: Quaternion;
+  /**
+   * One frame of stylized-tracking drivers — the low-dimensional performance
+   * summary (head/body orientation, arm height, energy) that the `pose_stylizer`
+   * behavior fans back out across the whole body. See `style_rig.ts`.
+   */
+  StyleDrivers: import('./style_rig.js').StyleDrivers;
   /** Wildcard — compatible with any other type for generic nodes. */
   Any: unknown;
   /** Raw MediaPipe landmark array (face=478, hand=21, pose=33 points). */
@@ -506,6 +553,7 @@ export const SIGNAL_TYPE_COLORS: Record<SignalTypeName, string> = {
   MappingTable: '#a07050',
   InterceptorFrame: '#9a5a8a',
   Quaternion: '#5a9a7a',
+  StyleDrivers: '#b06a9a',
   LandmarkList: '#7a9a6a',
   IkTargets: '#a06a9a',
   Account: '#9146ff',

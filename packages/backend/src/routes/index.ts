@@ -41,6 +41,7 @@ export {
   setVmcManager,
   setBreathingManager,
   setManualCalibrationManager,
+  setPoseStylizerManager,
   setLipsyncManager,
   setTrackingManager,
   setApiControllerManager,
