@@ -177,6 +177,76 @@ behavior_config (field: calibrations) ──┘ (→ calibrations input)
 
 ---
 
+## BlendshapeLimiterManager — `blendshape_limiter/manager.ts`
+
+Blendshape interceptor that stops expressions from stacking into exaggerated or
+broken faces. It is to the blendshape half of the frame what
+`ManualCalibrationManager` is to the pose half: no source of its own, it
+registers its graph's `on_blendshapes_broadcast` node into the **blendshape
+interceptor chain** and only acts when some other producer (VMC, tracking,
+lipsync, api_controller …) publishes expression weights for that avatar.
+
+**Input**: the merged blendshape frame via the interceptor chain
+**Output**: the corrected frame re-broadcast through the chain (`blendshapes_interceptor_broadcast`)
+
+**Lifecycle**: identical to `ManualCalibrationManager` — per-behavior
+`SignalGraph`, persisted node state (`config._nodeState[nodeId]`), hot-applied
+config, `OnBlendshapesBroadcast.register` at start and the unregister callbacks
+kept per behavior for teardown.
+
+**Graph descriptor** (`blendshape_limiter/graph.ts`):
+```
+on_blendshapes_broadcast (priority 5) → blendshape_limits → blendshapes_interceptor_broadcast
+behavior_config (field: limits) ──────┘ (→ limits input)
+```
+
+**Rule model** — the whole rule set is one JSON document under behavior config
+`limits`. The engine is the pure `applyBlendshapeLimits` in
+[`packages/shared/src/blendshapeLimits.ts`](../../packages/shared/src/blendshapeLimits.ts)
+(dependency-free, directly unit-tested, and importable from the frontend via the
+`@vspark/shared/blendshapeLimits` subpath):
+
+- **Exclusive groups** — a group holds *members*, and a member is one *concept*
+  carrying several name patterns, because the same expression is spelled
+  `happy` (VRM 1.0), `Joy` (VRM 0.x) or `Fcl_ALL_Joy` (VRoid morph target). A
+  member's weight is the strongest of its matched names, so two spellings of one
+  concept never suppress each other. In `suppress` mode the strongest member
+  wins and each loser is scaled by `1 − strength × winnerWeight` — proportional,
+  so competing emotions cross-fade rather than pop. In `normalize` mode nobody
+  wins, but a group summing above 1 is scaled back until it fits (interpolated
+  by `strength`).
+- **Clamp rules** — while a *driver* (`when`, strongest match; empty ⇒
+  unconditional) is above `threshold`, the `targets` are clamped into
+  `[min, max]`. With `ramp` (default) the effective bounds lerp from the
+  untouched `[0, 1]` toward the configured range as the driver grows.
+
+Ordering matters and is deliberate: **all groups run first, then all clamps**, so
+a clamp's driver reads the weight its driver *ends up with* after winning or
+losing its group. Group order is declaration order, so overlapping groups
+compose predictably.
+
+**Name matching**: case-insensitive, fully anchored, `*` as a wildcard
+(`Fcl_MTH_*` catches every VRoid mouth morph). Matching only ever considers
+shapes **present in the frame**, so a rule naming a shape the model doesn't drive
+is a silent no-op, and the input record is never mutated.
+
+**Shipped defaults** (`DEFAULT_BLENDSHAPE_LIMITS`, also the `@BehaviorKind`
+`defaultConfig`, so a freshly added behavior works immediately): one exclusive
+group over the five emotion presets (joy / angry / sad / relaxed / surprised,
+each member carrying its VRM 1.0 + 0.x + VRoid spellings), plus two clamp rules
+both driven by joy — eye-close/blink capped at 0.5 and mouth-open/lip-sync
+vowels at 0.6, each from a 0.3 threshold with ramping.
+
+**Tolerant parsing**: the node runs its config through
+`normalizeBlendshapeLimits` before applying it, so a hand-edited or
+partially-typed JSON document degrades to "fewer rules" instead of a crashed
+graph. The frontend uses the same function to render the panel.
+
+**BehaviorKind**: `@BehaviorKind({ kind: 'blendshape_limiter', label: 'Expression Limits', icon: '🚦', applicableTo: ['avatar'] })`.
+Frontend UI is `BlendshapeLimiterProps` in `PropertiesPanel.tsx` (see [frontend.md](frontend.md)).
+
+---
+
 ## BroadcastBus — `broadcast/bus.ts`
 
 Shared sink that merges per-behavior pose/blendshape outputs into the single `vmc_pose` / `vmc_blendshapes` WS streams. Each sceneNode owns a `nodeMap` of `behaviorId → latest contribution`; the bus combines entries and rebroadcasts.
@@ -187,6 +257,15 @@ Shared sink that merges per-behavior pose/blendshape outputs into the single `vm
   - `vmc_pose` with empty `bones` and `animationBlendMode: 'additive'`
   - `vmc_blendshapes` with empty `{}` record
 - The frontend Viewport sees the empty-bones frame, trips off pose application, and ramps back to pure animation. While *any* producer is still active (e.g. breathing) the fallback does not fire and other producers continue uninterrupted.
+
+**Two interceptor chains**: after composing a scene node's slots the bus offers
+the merged frame to a registry before emitting — `poseInterceptorRegistry` for
+bones, `blendshapeInterceptorRegistry` for expression weights. Both follow the
+same contract: `start()` returns true when a chain exists, in which case the bus
+does **not** emit and the chain's terminal node finalizes via `emitMergedPose` /
+`emitMergedBlendshapes`. With no interceptors registered the bus emits directly,
+exactly as before. The registries are independent, so an avatar can carry a pose
+interceptor, a blendshape interceptor, or both.
 
 **Producer requirement**: any source publishing into the bus (via `pose_broadcast` / `blendshapes_broadcast`) must supply a `behaviorId` so its contribution can be slotted and later cleared — wired through the broadcast nodes' `behaviorId` input port. The mediapipe tracker graph was previously missing this wiring (silent no-op); fixed by adding a `comp_id` node (the `behavior_id` node kind) feeding both broadcast nodes in `mediapipe_tracker/graph.ts`.
 
