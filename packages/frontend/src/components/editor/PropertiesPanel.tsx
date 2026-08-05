@@ -11,6 +11,14 @@ import {
   builtinParticleTextureUrl,
 } from '../../particleTextures';
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
+import {
+  defaultBlendshapeLimits,
+  normalizeBlendshapeLimits,
+  type BlendshapeLimitsConfig,
+  type ClampRule,
+  type ExclusiveGroup,
+  type ExclusiveMember,
+} from '@vspark/shared/blendshapeLimits';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
 import type { PoseSection, PoseSource } from '@vspark/shared';
 import { useParams } from 'react-router-dom';
@@ -3133,6 +3141,617 @@ function ManualCalibrationProps({ comp }: { comp: Behavior }) {
   );
 }
 
+// ── Expression limits (blendshape_limiter) ────────────────────────────────────
+
+const limitRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+};
+
+const limitCardStyle: React.CSSProperties = {
+  border: '1px solid #222',
+  borderRadius: 4,
+  padding: 8,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  background: '#141414',
+};
+
+const limitLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#888',
+  width: 74,
+  flexShrink: 0,
+};
+
+const limitTextInputStyle: React.CSSProperties = {
+  background: '#0d0d0d',
+  border: '1px solid #2a2a2a',
+  borderRadius: 3,
+  color: '#ccc',
+  fontSize: 11,
+  padding: '2px 6px',
+  minWidth: 0,
+  flex: 1,
+};
+
+const limitSmallBtnStyle: React.CSSProperties = {
+  background: '#1a2a3a',
+  border: '1px solid #2a3a4a',
+  borderRadius: 3,
+  color: '#8ab',
+  fontSize: 10,
+  padding: '2px 7px',
+  cursor: 'pointer',
+};
+
+/**
+ * Chip editor for a list of expression-name patterns. The add-field is backed by
+ * a datalist of the names the loaded avatar actually exposes, so users pick real
+ * shapes instead of guessing spellings — while still being free to type a `*`
+ * wildcard the model list can't offer.
+ */
+function NameListEditor({
+  values,
+  listId,
+  placeholder,
+  onChange,
+}: {
+  values: string[];
+  /** id of the shared <datalist> holding the model's real shape names. */
+  listId: string;
+  placeholder: string;
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const add = (raw: string) => {
+    const name = raw.trim();
+    if (!name || values.includes(name)) return;
+    onChange([...values, name]);
+    setDraft('');
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {values.map((v) => (
+          <span
+            key={v}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              background: '#1d1d1d',
+              border: '1px solid #2c2c2c',
+              borderRadius: 10,
+              padding: '1px 4px 1px 8px',
+              fontSize: 10,
+              fontFamily: 'monospace',
+              color: '#bbb',
+            }}
+          >
+            {v}
+            <button
+              className="vs-bslimits-name-remove"
+              onClick={() => onChange(values.filter((n) => n !== v))}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#a66',
+                cursor: 'pointer',
+                fontSize: 11,
+                lineHeight: 1,
+                padding: '0 2px',
+              }}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <input
+        className="vs-bslimits-name-add"
+        value={draft}
+        list={listId}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            add(draft);
+          }
+        }}
+        onBlur={() => add(draft)}
+        style={{ ...limitTextInputStyle, fontFamily: 'monospace' }}
+      />
+    </div>
+  );
+}
+
+function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
+  const {
+    updateBehavior,
+    vrmMorphTargetsByNode,
+    vrmExpressionsByNode,
+    nodes,
+    assets,
+  } = useEditorStore();
+
+  // Names the loaded model actually exposes — offered as datalist suggestions.
+  const meta = assetMetaForNode(
+    nodes.find((n) => n.id === comp.nodeId)?.filePath,
+    assets
+  );
+  const nameOptions = [
+    ...new Set([
+      ...liveOrMetaList(vrmExpressionsByNode[comp.nodeId], meta, 'expressions'),
+      ...liveOrMetaList(
+        vrmMorphTargetsByNode[comp.nodeId],
+        meta,
+        'morphTargets'
+      ),
+    ]),
+  ].sort();
+  const listId = `vs-bslimits-names-${comp.id}`;
+
+  const limits = normalizeBlendshapeLimits(
+    (comp.config as { limits?: unknown } | undefined)?.limits
+  );
+  const groups = limits.groups ?? [];
+  const clamps = limits.clamps ?? [];
+
+  const save = (next: BlendshapeLimitsConfig) => {
+    const config = { ...comp.config, limits: next };
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
+  };
+  const patch = (p: Partial<BlendshapeLimitsConfig>) =>
+    save({ ...limits, ...p });
+
+  const patchGroup = (idx: number, p: Partial<ExclusiveGroup>) =>
+    patch({ groups: groups.map((g, i) => (i === idx ? { ...g, ...p } : g)) });
+  const patchMember = (gi: number, mi: number, p: Partial<ExclusiveMember>) =>
+    patchGroup(gi, {
+      members: groups[gi].members.map((m, i) =>
+        i === mi ? { ...m, ...p } : m
+      ),
+    });
+  const patchClamp = (idx: number, p: Partial<ClampRule>) =>
+    patch({ clamps: clamps.map((c, i) => (i === idx ? { ...c, ...p } : c)) });
+
+  // Raw JSON escape hatch. Kept in local state while editing so a half-typed
+  // document doesn't get written back on every keystroke.
+  const [jsonDraft, setJsonDraft] = useState<string | null>(null);
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const applyJson = () => {
+    if (jsonDraft == null) return;
+    try {
+      save(normalizeBlendshapeLimits(JSON.parse(jsonDraft)));
+      setJsonDraft(null);
+      setJsonError(null);
+    } catch (e) {
+      setJsonError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <datalist id={listId}>
+        {nameOptions.map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
+
+      <div style={{ ...limitRowStyle, justifyContent: 'space-between' }}>
+        <label style={{ ...limitRowStyle, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            className="vs-bslimits-enabled"
+            checked={limits.enabled !== false}
+            onChange={(e) => patch({ enabled: e.target.checked })}
+          />
+          <span style={{ fontSize: 12, color: '#aaa' }}>
+            {t('blendshapeLimits.enabled')}
+          </span>
+        </label>
+        <div style={limitRowStyle}>
+          <HelpButton
+            topic="behaviors"
+            anchor="expression-limits"
+            tip={t('help.expressionLimits')}
+          />
+          <button
+            className="vs-bslimits-reset"
+            onClick={() => save(defaultBlendshapeLimits())}
+            style={resetBtnStyle}
+          >
+            {t('blendshapeLimits.resetDefaults')}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t('blendshapeLimits.hint')}
+      </div>
+
+      {/* ── Exclusive groups ─────────────────────────────────────────────── */}
+      <CollapsibleSection
+        title={t('blendshapeLimits.groupsHeader')}
+        count={groups.length}
+        defaultCollapsed={false}
+      >
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t('blendshapeLimits.groupsHint')}
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            marginTop: 6,
+          }}
+        >
+          {groups.map((g, gi) => (
+            <div key={g.id} style={limitCardStyle}>
+              <div
+                style={{ ...limitRowStyle, justifyContent: 'space-between' }}
+              >
+                <label style={{ ...limitRowStyle, flex: 1, minWidth: 0 }}>
+                  <input
+                    type="checkbox"
+                    className="vs-bslimits-group-enabled"
+                    checked={g.enabled !== false}
+                    onChange={(e) =>
+                      patchGroup(gi, { enabled: e.target.checked })
+                    }
+                  />
+                  <input
+                    className="vs-bslimits-group-label"
+                    value={g.label ?? g.id}
+                    onChange={(e) => patchGroup(gi, { label: e.target.value })}
+                    style={limitTextInputStyle}
+                  />
+                </label>
+                <button
+                  className="vs-bslimits-group-remove"
+                  onClick={() =>
+                    patch({ groups: groups.filter((_, i) => i !== gi) })
+                  }
+                  style={resetBtnStyle}
+                >
+                  {t('blendshapeLimits.remove')}
+                </button>
+              </div>
+
+              <div style={limitRowStyle}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.mode')}
+                </span>
+                <select
+                  className="vs-bslimits-group-mode"
+                  value={g.mode ?? 'suppress'}
+                  onChange={(e) =>
+                    patchGroup(gi, {
+                      mode: e.target.value as ExclusiveGroup['mode'],
+                    })
+                  }
+                  style={{ ...limitTextInputStyle, flex: 'none', width: 120 }}
+                >
+                  <option value="suppress">
+                    {t('blendshapeLimits.modeSuppress')}
+                  </option>
+                  <option value="normalize">
+                    {t('blendshapeLimits.modeNormalize')}
+                  </option>
+                </select>
+                <span style={{ ...limitLabelStyle, width: 'auto' }}>
+                  {t('blendshapeLimits.strength')}
+                </span>
+                <NumInput
+                  className="vs-bslimits-group-strength"
+                  value={g.strength ?? 1}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  style={{ width: 70 }}
+                  onCommit={(v) => patchGroup(gi, { strength: v })}
+                />
+              </div>
+
+              <div style={{ fontSize: 10, color: '#666' }}>
+                {t('blendshapeLimits.membersHeader')}
+              </div>
+              {g.members.map((m, mi) => (
+                <div
+                  key={m.id}
+                  style={{
+                    ...limitRowStyle,
+                    alignItems: 'flex-start',
+                    gap: 6,
+                  }}
+                >
+                  <input
+                    className="vs-bslimits-member-label"
+                    value={m.label ?? m.id}
+                    onChange={(e) =>
+                      patchMember(gi, mi, { label: e.target.value })
+                    }
+                    style={{ ...limitTextInputStyle, flex: '0 0 90px' }}
+                  />
+                  <NameListEditor
+                    values={m.patterns}
+                    listId={listId}
+                    placeholder={t('blendshapeLimits.addName')}
+                    onChange={(patterns) => patchMember(gi, mi, { patterns })}
+                  />
+                  <button
+                    className="vs-bslimits-member-remove"
+                    onClick={() =>
+                      patchGroup(gi, {
+                        members: g.members.filter((_, i) => i !== mi),
+                      })
+                    }
+                    style={resetBtnStyle}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button
+                className="vs-bslimits-add-member"
+                onClick={() =>
+                  patchGroup(gi, {
+                    members: [
+                      ...g.members,
+                      {
+                        id: `member-${Date.now()}`,
+                        label: t('blendshapeLimits.newMember'),
+                        patterns: [],
+                      },
+                    ],
+                  })
+                }
+                style={limitSmallBtnStyle}
+              >
+                + {t('blendshapeLimits.addMember')}
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          className="vs-bslimits-add-group"
+          onClick={() =>
+            patch({
+              groups: [
+                ...groups,
+                {
+                  id: `group-${Date.now()}`,
+                  label: t('blendshapeLimits.newGroup'),
+                  enabled: true,
+                  mode: 'suppress',
+                  strength: 1,
+                  members: [],
+                },
+              ],
+            })
+          }
+          style={{ ...limitSmallBtnStyle, marginTop: 6 }}
+        >
+          + {t('blendshapeLimits.addGroup')}
+        </button>
+      </CollapsibleSection>
+
+      {/* ── Clamp rules ──────────────────────────────────────────────────── */}
+      <CollapsibleSection
+        title={t('blendshapeLimits.clampsHeader')}
+        count={clamps.length}
+        defaultCollapsed={false}
+      >
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t('blendshapeLimits.clampsHint')}
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            marginTop: 6,
+          }}
+        >
+          {clamps.map((c, ci) => (
+            <div key={c.id} style={limitCardStyle}>
+              <div
+                style={{ ...limitRowStyle, justifyContent: 'space-between' }}
+              >
+                <label style={{ ...limitRowStyle, flex: 1, minWidth: 0 }}>
+                  <input
+                    type="checkbox"
+                    className="vs-bslimits-clamp-enabled"
+                    checked={c.enabled !== false}
+                    onChange={(e) =>
+                      patchClamp(ci, { enabled: e.target.checked })
+                    }
+                  />
+                  <input
+                    className="vs-bslimits-clamp-label"
+                    value={c.label ?? c.id}
+                    onChange={(e) => patchClamp(ci, { label: e.target.value })}
+                    style={limitTextInputStyle}
+                  />
+                </label>
+                <button
+                  className="vs-bslimits-clamp-remove"
+                  onClick={() =>
+                    patch({ clamps: clamps.filter((_, i) => i !== ci) })
+                  }
+                  style={resetBtnStyle}
+                >
+                  {t('blendshapeLimits.remove')}
+                </button>
+              </div>
+
+              <div style={{ ...limitRowStyle, alignItems: 'flex-start' }}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.when')}
+                </span>
+                <NameListEditor
+                  values={c.when ?? []}
+                  listId={listId}
+                  placeholder={t('blendshapeLimits.addDriver')}
+                  onChange={(when) => patchClamp(ci, { when })}
+                />
+              </div>
+
+              <div style={{ ...limitRowStyle, alignItems: 'flex-start' }}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.targets')}
+                </span>
+                <NameListEditor
+                  values={c.targets}
+                  listId={listId}
+                  placeholder={t('blendshapeLimits.addName')}
+                  onChange={(targets) => patchClamp(ci, { targets })}
+                />
+              </div>
+
+              <div style={limitRowStyle}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.range')}
+                </span>
+                <NumInput
+                  className="vs-bslimits-clamp-min"
+                  value={c.min ?? 0}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  prefix={t('blendshapeLimits.min')}
+                  style={{ width: 84 }}
+                  onCommit={(v) => patchClamp(ci, { min: v })}
+                />
+                <NumInput
+                  className="vs-bslimits-clamp-max"
+                  value={c.max ?? 1}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  prefix={t('blendshapeLimits.max')}
+                  style={{ width: 84 }}
+                  onCommit={(v) => patchClamp(ci, { max: v })}
+                />
+              </div>
+
+              <div style={limitRowStyle}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.threshold')}
+                </span>
+                <NumInput
+                  className="vs-bslimits-clamp-threshold"
+                  value={c.threshold ?? 0}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  style={{ width: 70 }}
+                  onCommit={(v) => patchClamp(ci, { threshold: v })}
+                />
+                <label style={{ ...limitRowStyle, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    className="vs-bslimits-clamp-ramp"
+                    checked={c.ramp !== false}
+                    onChange={(e) => patchClamp(ci, { ramp: e.target.checked })}
+                  />
+                  <span style={{ fontSize: 11, color: '#888' }}>
+                    {t('blendshapeLimits.ramp')}
+                  </span>
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button
+          className="vs-bslimits-add-clamp"
+          onClick={() =>
+            patch({
+              clamps: [
+                ...clamps,
+                {
+                  id: `clamp-${Date.now()}`,
+                  label: t('blendshapeLimits.newClamp'),
+                  enabled: true,
+                  when: [],
+                  threshold: 0.3,
+                  ramp: true,
+                  targets: [],
+                  min: 0,
+                  max: 1,
+                },
+              ],
+            })
+          }
+          style={{ ...limitSmallBtnStyle, marginTop: 6 }}
+        >
+          + {t('blendshapeLimits.addClamp')}
+        </button>
+      </CollapsibleSection>
+
+      {/* ── Raw JSON ─────────────────────────────────────────────────────── */}
+      <CollapsibleSection title={t('blendshapeLimits.jsonHeader')}>
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t('blendshapeLimits.jsonHint')}
+        </div>
+        <textarea
+          className="vs-bslimits-json"
+          value={jsonDraft ?? JSON.stringify(limits, null, 2)}
+          onChange={(e) => {
+            setJsonDraft(e.target.value);
+            setJsonError(null);
+          }}
+          spellCheck={false}
+          style={{
+            ...limitTextInputStyle,
+            width: '100%',
+            minHeight: 180,
+            marginTop: 6,
+            fontFamily: 'monospace',
+            resize: 'vertical',
+          }}
+        />
+        {jsonError && (
+          <div style={{ fontSize: 10, color: '#c66', marginTop: 4 }}>
+            {jsonError}
+          </div>
+        )}
+        <div style={{ ...limitRowStyle, marginTop: 6 }}>
+          <button
+            className="vs-bslimits-json-apply"
+            onClick={applyJson}
+            disabled={jsonDraft == null}
+            style={{
+              ...limitSmallBtnStyle,
+              opacity: jsonDraft == null ? 0.4 : 1,
+            }}
+          >
+            {t('blendshapeLimits.jsonApply')}
+          </button>
+          <button
+            className="vs-bslimits-json-revert"
+            onClick={() => {
+              setJsonDraft(null);
+              setJsonError(null);
+            }}
+            disabled={jsonDraft == null}
+            style={{ ...resetBtnStyle, opacity: jsonDraft == null ? 0.4 : 1 }}
+          >
+            {t('blendshapeLimits.jsonRevert')}
+          </button>
+        </div>
+      </CollapsibleSection>
+    </div>
+  );
+}
+
 // ── Component dispatcher ──────────────────────────────────────────────────────
 
 function BehaviorProps({ comp }: { comp: Behavior }) {
@@ -3150,6 +3769,8 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
       return <BreathingProps comp={comp} />;
     case 'manual_calibration':
       return <ManualCalibrationProps comp={comp} />;
+    case 'blendshape_limiter':
+      return <BlendshapeLimiterProps comp={comp} />;
     default:
       return (
         <div style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>
