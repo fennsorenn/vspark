@@ -18,6 +18,8 @@ import {
   styleRigPreset,
   styleRigPresetLag,
   resolveStyleResponse,
+  DEFAULT_STYLE_STRENGTH,
+  MAX_STYLE_STRENGTH,
   type StyleDriverName,
   type StyleRig,
   type StyleBoneResponse,
@@ -3161,6 +3163,7 @@ const rigSelectStyle: React.CSSProperties = {
 
 interface StylizerConfig {
   amount?: number;
+  strength?: number;
   lag?: number | null;
   restUnmapped?: boolean;
   preset?: string;
@@ -3419,6 +3422,7 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span
           style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}
+          title={t('stylizedTracking.amountHint')}
         >
           {t('stylizedTracking.amount')}
         </span>
@@ -3432,6 +3436,27 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
           style={{ flex: 1, minWidth: 0 }}
           onChange={(v) => save({ amount: v })}
           onCommit={(v) => save({ amount: v })}
+        />
+      </div>
+
+      {/* Overall multiplier on the rig's contributions — how FAR it travels. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span
+          style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}
+          title={t('stylizedTracking.strengthHint')}
+        >
+          {t('stylizedTracking.strength')}
+        </span>
+        <SliderInput
+          className="vs-stylize-strength"
+          value={cfg.strength ?? DEFAULT_STYLE_STRENGTH}
+          min={0}
+          max={MAX_STYLE_STRENGTH}
+          step={0.05}
+          precision={2}
+          style={{ flex: 1, minWidth: 0 }}
+          onChange={(v) => save({ strength: v })}
+          onCommit={(v) => save({ strength: v })}
         />
       </div>
 

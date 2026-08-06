@@ -232,7 +232,8 @@ entirely — that is how the UI's "switch this bone off" round-trips.
 
 ```jsonc
 {
-  "amount": 1,           // 0 = accurate passthrough, 1 = fully stylized (slerp blend)
+  "amount": 1,           // BLEND: 0 = accurate passthrough, 1 = fully stylized (slerp)
+  "strength": 1,         // MULTIPLIER on the rig's contributions; 0..2, 1 = as authored
   "lag": 0.08,           // base follow-through seconds; × the rig's per-bone lag
   "restUnmapped": false, // send bones the rig doesn't own back to rest (glitchy fingers)
   "preset": "follow",    // 'follow' (torso moves with the head) | 'counter' (against it)
@@ -248,6 +249,26 @@ Every field is surfaced through a `behavior_config` node wired into the graph
 per access, so properties-panel edits hot-apply without a graph rebuild.
 
 ---
+
+### Blend vs strength
+
+The two headline dials are independent axes and are deliberately labelled apart
+in the UI ("Blend" and "Strength"):
+
+| | `amount` (Blend) | `strength` (Strength) |
+|---|---|---|
+| What it does | slerps the stylized pose against the tracked one | multiplies every contribution the rig makes |
+| Range | 0..1 | 0..`MAX_STYLE_STRENGTH` (2) |
+| At 0 | tracking passes through untouched | the rig contributes nothing → replace bones go to REST |
+| Can exaggerate? | no — tops out at "fully stylized" | **yes**, above 1 |
+
+Strength is applied to the summed Euler triple *before* the lag integrator, so
+changing it eases in over the follow-through rather than snapping.
+
+Note it also scales the glitch bound: `replace` bones stay bounded by
+construction, but the bound is `driver(±1) × authored degrees × strength`. At
+strength 2 the authored ceiling doubles. That is the user's explicit choice, and
+the reason the slider stops at 2.
 
 ## Implementation notes
 

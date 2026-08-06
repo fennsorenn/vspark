@@ -23,6 +23,7 @@ import {
   STYLE_RIG_COUNTER,
   STYLE_RIG_HEAD_ONLY,
   STYLE_PRESETS,
+  MAX_STYLE_STRENGTH,
   ZERO_DRIVERS,
   STYLE_DRIVER_NAMES,
   type StyleDrivers,
@@ -822,5 +823,114 @@ describe('pose_stylize / pose_style_drivers preset bundles', () => {
     expect(STYLE_PRESETS.counter.response).toBeUndefined();
     expect(STYLE_RIG_FOLLOW).toBe(STYLE_PRESETS.follow.rig);
     expect(STYLE_RIG_COUNTER).toBe(STYLE_PRESETS.counter.rig);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// pose_stylize — overall strength (a MULTIPLIER, distinct from the amount BLEND)
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe('pose_stylize strength', () => {
+  const yawOf = (out: NormalizedPose, bone: string) =>
+    euler(out.get(bone as VRMBoneName))[1];
+
+  const mk = (extra: Record<string, unknown> = {}) =>
+    pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ head: [0, 45, 0] }),
+      drivers: { ...ZERO_DRIVERS, headYaw: 1 },
+      amount: 1,
+      lag: 0,
+      ...extra,
+    }) as NormalizedPose;
+
+  it('defaults to 1 — the rig exactly as authored', () => {
+    expect(yawOf(mk(), 'head')).toBeCloseTo(
+      yawOf(mk({ strength: 1 }), 'head'),
+      6
+    );
+    expect(yawOf(mk(), 'head')).toBeCloseTo(
+      STYLE_RIG_FOLLOW.head.drivers.headYaw![1],
+      2
+    );
+  });
+
+  it('scales every rig contribution proportionally', () => {
+    const half = mk({ strength: 0.5 });
+    const full = mk({ strength: 1 });
+    for (const bone of ['hips', 'spine', 'chest', 'upperChest', 'neck', 'head'])
+      expect(yawOf(half, bone)).toBeCloseTo(yawOf(full, bone) / 2, 2);
+  });
+
+  it('exaggerates past the authored rig above 1', () => {
+    // This is what `amount` structurally cannot do — it tops out at fully stylized.
+    expect(yawOf(mk({ strength: 2 }), 'head')).toBeGreaterThan(
+      yawOf(mk({ strength: 1 }), 'head')
+    );
+    expect(yawOf(mk({ strength: 2 }), 'head')).toBeCloseTo(
+      2 * STYLE_RIG_FOLLOW.head.drivers.headYaw![1],
+      1
+    );
+  });
+
+  it('strength 0 rests the replace bones — a different "off" from amount 0', () => {
+    // strength 0: the rig contributes nothing, so replace bones go to REST.
+    const noStrength = mk({ strength: 0 });
+    expect(yawOf(noStrength, 'head')).toBeCloseTo(0, 6);
+    expect(yawOf(noStrength, 'hips')).toBeCloseTo(0, 6);
+    // amount 0: tracking passes through untouched, so the head keeps its 45°.
+    expect(yawOf(mk({ amount: 0 }), 'head')).toBeCloseTo(45, 3);
+  });
+
+  it('leaves add-mode bones on their tracked rotation at strength 0', () => {
+    const out = pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ leftLowerArm: [0, 0, 40] }),
+      drivers: { ...ZERO_DRIVERS, bodyRoll: 1 },
+      amount: 1,
+      lag: 0,
+      strength: 0,
+    }) as NormalizedPose;
+    expect(euler(out.get('leftLowerArm' as VRMBoneName))[2]).toBeCloseTo(40, 3);
+  });
+
+  it('clamps out-of-range values instead of folding the avatar', () => {
+    expect(yawOf(mk({ strength: 99 }), 'head')).toBeCloseTo(
+      yawOf(mk({ strength: MAX_STYLE_STRENGTH }), 'head'),
+      6
+    );
+    expect(yawOf(mk({ strength: -5 }), 'head')).toBeCloseTo(0, 6);
+  });
+
+  it('composes with amount — they are independent axes', () => {
+    // Half strength then half blend lands between rest and the half-strength pose.
+    const halfStrength = yawOf(mk({ strength: 0.5 }), 'head');
+    const both = yawOf(mk({ strength: 0.5, amount: 0.5 }), 'head');
+    expect(both).toBeGreaterThan(halfStrength);
+    expect(both).toBeLessThan(45);
+  });
+
+  it('eases in through the lag integrator rather than snapping', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(8_000_000);
+    const n = liveNode('pose_stylize', 'pose', {
+      pose: poseOf({ head: [0, 45, 0] }),
+      drivers: { ...ZERO_DRIVERS, headYaw: 1 },
+      amount: 1,
+      lag: 0.15,
+      strength: 1,
+    });
+    const settled = n.pull({
+      pose: poseOf({ head: [0, 45, 0] }),
+    }) as NormalizedPose;
+    const before = yawOf(settled, 'head');
+
+    // Bump strength; one 16ms step must move only PART of the way to 2×.
+    vi.setSystemTime(8_000_016);
+    const stepped = n.pull({
+      pose: poseOf({ head: [0, 45, 0] }),
+      strength: 2,
+    }) as NormalizedPose;
+    const after = yawOf(stepped, 'head');
+    expect(after).toBeGreaterThan(before);
+    expect(after).toBeLessThan(before * 2);
   });
 });

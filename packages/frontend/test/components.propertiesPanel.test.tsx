@@ -163,6 +163,7 @@ describe('PropertiesPanel — Stylized Tracking behavior', () => {
     renderWithProviders(<PropertiesPanel />);
 
     expect(screen.getByText(tp('stylizedTracking.amount'))).toBeTruthy();
+    expect(screen.getByText(tp('stylizedTracking.strength'))).toBeTruthy();
     expect(screen.getByText(tp('stylizedTracking.lag'))).toBeTruthy();
     expect(screen.getByText(tp('stylizedTracking.restUnmapped'))).toBeTruthy();
     expect(
@@ -472,5 +473,47 @@ describe('PropertiesPanel — presets that reach past the rig', () => {
     fireEvent.click(container.querySelector('.vs-stylize-reset-response')!);
     expect(cfgOf().response).toEqual({});
     expect(cfgOf().lag).toBeNull();
+  });
+});
+
+describe('PropertiesPanel — Stylized Tracking strength', () => {
+  const slider = (container: HTMLElement, cls: string) =>
+    container.querySelector(`${cls} input[type="range"]`) as HTMLInputElement;
+
+  it('defaults to the neutral 1× and offers a 0–2 range', () => {
+    seedStylizer();
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    const s = slider(container, '.vs-stylize-strength');
+    expect(s.value).toBe('1');
+    expect(s.min).toBe('0');
+    expect(s.max).toBe('2');
+  });
+
+  it('writes the multiplier through to the behavior config', () => {
+    seedStylizer();
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    fireEvent.change(slider(container, '.vs-stylize-strength'), {
+      target: { value: '1.6' },
+    });
+    expect(cfgOf().strength).toBeCloseTo(1.6, 6);
+  });
+
+  it('is a separate control from the blend dial', () => {
+    seedStylizer({ amount: 0.4, strength: 1.5 });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    expect(slider(container, '.vs-stylize-amount').value).toBe('0.4');
+    expect(slider(container, '.vs-stylize-strength').value).toBe('1.5');
+    // Editing one leaves the other alone.
+    fireEvent.change(slider(container, '.vs-stylize-strength'), {
+      target: { value: '2' },
+    });
+    expect(cfgOf().amount).toBe(0.4);
+    expect(cfgOf().strength).toBe(2);
+  });
+
+  it('labels the pair distinguishably (blend vs multiplier)', () => {
+    expect(tp('stylizedTracking.amount')).not.toBe(
+      tp('stylizedTracking.strength')
+    );
   });
 });

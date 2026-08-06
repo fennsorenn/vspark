@@ -116,10 +116,22 @@ than a puppet.)
 
 ### The controls
 
-**Amount** is the dial between the two worlds: 0 is your tracking untouched, 1 is
-fully stylized. Anywhere in between is a blend, so you can keep some of your own
+**Blend** is the dial between the two worlds: 0 is your tracking untouched, 1 is
+fully stylized. Anywhere in between is a mix, so you can keep some of your own
 precision and still get the follow-through. Start at 1 and come down if it feels
 too smooth.
+
+**Strength** is the quick overall adjustment: a multiplier on how far the
+stylized motion travels. 1 is the rig as designed, below 1 tones the whole thing
+down, and above 1 exaggerates it — up to double.
+
+The two are easy to confuse, so: **Blend asks how much of the styling you want,
+Strength asks how big it should be.** Turning Blend down lets more of your real
+tracking show through. Turning Strength down keeps the styling in full control
+but makes it move less. Notably, Strength can go *above* 1 to push past the
+authored rig, which Blend cannot — it stops at "fully stylized". If the motion
+feels right but too big or too small, reach for Strength; if you want more of
+your own precision back, reach for Blend.
 
 **Follow-through** is how far the body trails behind the drivers, in seconds.
 Larger is looser and more cartoon-like; 0 makes everything move together. If you

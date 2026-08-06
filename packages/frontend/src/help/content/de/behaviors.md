@@ -124,10 +124,23 @@ Darsteller statt wie eine Marionette wirken lässt.)
 
 ### Die Regler
 
-**Stärke** ist der Regler zwischen beiden Welten: 0 ist dein Tracking unberührt,
+**Mischung** ist der Regler zwischen beiden Welten: 0 ist dein Tracking unberührt,
 1 ist voll stilisiert. Alles dazwischen ist eine Mischung, sodass du etwas von
 deiner eigenen Präzision behalten und trotzdem den Nachlauf bekommen kannst.
 Fang bei 1 an und geh herunter, wenn es dir zu weich wird.
+
+**Stärke** ist die schnelle Gesamtanpassung: ein Multiplikator darauf, wie weit
+die stilisierte Bewegung geht. 1 ist das Rig wie entworfen, unter 1 nimmt alles
+zurück, über 1 übertreibt es — bis zum Doppelten.
+
+Die beiden sind leicht zu verwechseln, also: **Mischung fragt, wie viel Stilisierung
+du willst, Stärke fragt, wie groß sie sein soll.** Die Mischung herunterzudrehen
+lässt mehr von deinem echten Tracking durch. Die Stärke herunterzudrehen behält die
+volle Kontrolle bei der Stilisierung, lässt sie aber weniger ausschlagen. Vor allem:
+Die Stärke kann *über* 1 gehen und damit über das Rig hinaus — die Mischung kann das
+nicht, sie endet bei „voll stilisiert“. Fühlt sich die Bewegung richtig an, ist aber
+zu groß oder zu klein, nimm die Stärke; willst du mehr eigene Präzision zurück, nimm
+die Mischung.
 
 **Nachlauf** ist, wie weit der Körper den Steuerwerten hinterherläuft, in
 Sekunden. Größer ist lockerer und cartoonhafter; 0 lässt alles gleichzeitig

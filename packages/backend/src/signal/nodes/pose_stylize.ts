@@ -12,6 +12,8 @@ import {
   evaluateBoneResponse,
   styleRigPreset,
   styleRigPresetLag,
+  DEFAULT_STYLE_STRENGTH,
+  MAX_STYLE_STRENGTH,
 } from '@vspark/shared/style_rig';
 
 const DEG2RAD = Math.PI / 180;
@@ -63,8 +65,16 @@ export class PoseStylize extends Node {
   @valueIn('drivers', 'StyleDrivers') driversIn!: () =>
     | StyleDrivers
     | undefined;
-  /** 0 = pass tracking through untouched, 1 = fully stylized. */
+  /** 0 = pass tracking through untouched, 1 = fully stylized. A BLEND. */
   @valueIn('amount', 'Float') amountIn!: () => number | undefined;
+  /**
+   * Overall multiplier on every contribution the rig makes — 0 = the rig does
+   * nothing, 1 = as authored, 2 = twice as far. Distinct from `amount`: that
+   * blends the result against tracking and cannot exceed "fully stylized", while
+   * this changes how far the stylized pose travels and CAN exaggerate past the
+   * authored rig. Applied before the lag integrator, so changing it eases in.
+   */
+  @valueIn('strength', 'Float') strengthIn!: () => number | undefined;
   /**
    * Base follow-through time constant in seconds; scaled per bone by the rig's
    * `lag`. Unset falls back to the preset's own base (`expressive` trails more).
@@ -99,6 +109,11 @@ export class PoseStylize extends Node {
     if (this._memoFor === pose && this._memo) return this._memo;
 
     const amount = clamp(this.amountIn() ?? 1, 0, 1);
+    const strength = clamp(
+      this.strengthIn() ?? DEFAULT_STYLE_STRENGTH,
+      0,
+      MAX_STYLE_STRENGTH
+    );
     const drivers = this.driversIn() ?? ZERO_DRIVERS;
     const rig = this._resolveRig();
     const restUnmapped = this.restUnmappedIn() ?? false;
@@ -123,7 +138,11 @@ export class PoseStylize extends Node {
 
     // 2. Lay the rig over the top.
     for (const [bone, entry] of Object.entries(rig)) {
-      const target = evaluateBoneResponse(entry, drivers);
+      const raw = evaluateBoneResponse(entry, drivers);
+      const target: DriverResponse =
+        strength === 1
+          ? raw
+          : [raw[0] * strength, raw[1] * strength, raw[2] * strength];
       const lagged = this._integrate(
         bone,
         target,

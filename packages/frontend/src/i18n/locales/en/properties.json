@@ -446,7 +446,10 @@
       "headOnly": "Only your head steers the avatar — torso and arm tracking are ignored entirely. Use it with a face-only tracker, or when your body tracking is too noisy to trust. The body moves more per unit of head movement to make up for it.",
       "expressive": "Follow's mapping, but it takes far less movement to reach full deflection and the body trails further. For staying fairly still and still reading as animated."
     },
-    "amount": "Amount",
+    "amount": "Blend",
+    "amountHint": "How much of the stylized pose replaces your tracking. 0 = your tracking untouched, 1 = fully stylized.",
+    "strength": "Strength",
+    "strengthHint": "Overall multiplier on how far the stylized motion travels. 1 = the rig as designed; below 1 tones the whole thing down, above 1 exaggerates it.",
     "lag": "Follow-through",
     "restUnmapped": "Rest bones the rig doesn't drive",
     "responseSection": "Response",

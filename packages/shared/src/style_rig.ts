@@ -499,6 +499,20 @@ export const STYLE_RIG_HEAD_ONLY: StyleRig = mergeStyleRig(
 export const DEFAULT_STYLE_LAG = 0.08;
 
 /**
+ * Neutral overall strength — the rig's authored degrees, verbatim.
+ *
+ * Strength is a MULTIPLIER on every contribution the rig makes, which is a
+ * different question from `amount`: amount blends the stylized pose against the
+ * tracked one (and so tops out at "fully stylized"), while strength changes how
+ * far the stylized pose travels in the first place, and can go past 1 to
+ * exaggerate. 0 leaves the rig contributing nothing.
+ */
+export const DEFAULT_STYLE_STRENGTH = 1;
+
+/** Ceiling offered by the UI slider. The value is clamped to [0, this]. */
+export const MAX_STYLE_STRENGTH = 2;
+
+/**
  * A named starting point for the whole behavior, not just the rig — a preset may
  * also shift the response (how much you have to move) and the base follow-through.
  * Everything it sets is a BASE: the behavior's own `response` / `lag` / `rig`

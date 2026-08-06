@@ -13,8 +13,9 @@ import { seedProjectScene, seedNode } from '../fixtures/seed';
  *    /api/scene-nodes/:nodeId/effects.
  *
  * 3. Stylized Tracking — same add flow, then drive the behavior's own properties
- *    panel (amount / follow-through / rest-unmapped / a response knob / a rig
- *    bone override) and assert each write landed in behaviors.config via REST.
+ *    panel (blend / strength / follow-through / rest-unmapped / a response knob /
+ *    a rig bone override) and assert each write landed in behaviors.config via
+ *    REST.
  *
  * Note: the add-menu opens upward (CSS bottom:100%) inside the scene graph
  * panel.  When the panel is short the menu items may extend above the visible
@@ -179,7 +180,7 @@ test('behaviors: Stylized Tracking panel edits persist via REST', async ({
     page.locator('.vs-stylize-amount input[type="range"]')
   ).toBeVisible({ timeout: 10_000 });
 
-  // --- Amount: the headline accurate ←→ stylized dial ---------------------
+  // --- Blend: the headline accurate ←→ stylized dial (config key `amount`) --
   // SliderInput's numeric field only exists after a double-click on the readout;
   // the range input underneath is the primary control, so drive that with the
   // keyboard (each key-up commits). Starts at 1, step 0.05 → 4 lefts = 0.8.
@@ -189,6 +190,17 @@ test('behaviors: Stylized Tracking panel edits persist via REST', async ({
   await expect
     .poll(async () => (await readConfig()).amount, { timeout: 10_000 })
     .toBeCloseTo(0.8, 5);
+
+  // --- Strength: the overall multiplier, a separate axis from Blend ---------
+  // Starts at 1, step 0.05, max 2 → 4 rights = 1.2.
+  const strength = page.locator('.vs-stylize-strength input[type="range"]');
+  await strength.focus();
+  for (let i = 0; i < 4; i++) await strength.press('ArrowRight');
+  await expect
+    .poll(async () => (await readConfig()).strength, { timeout: 10_000 })
+    .toBeCloseTo(1.2, 5);
+  // …and it did not disturb the blend dial.
+  expect((await readConfig()).amount).toBeCloseTo(0.8, 5);
 
   // --- Follow-through ------------------------------------------------------
   const lag = page.locator('.vs-stylize-lag input').first();

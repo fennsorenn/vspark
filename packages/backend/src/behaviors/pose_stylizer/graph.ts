@@ -49,28 +49,34 @@ export const POSE_STYLIZER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       defaultConfig: { field: 'amount', defaultValue: 1 },
     },
     {
-      id: 'cfg_lag',
+      id: 'cfg_strength',
       kind: 'behavior_config',
       position: { x: -360, y: 380 },
+      defaultConfig: { field: 'strength', defaultValue: 1 },
+    },
+    {
+      id: 'cfg_lag',
+      kind: 'behavior_config',
+      position: { x: -360, y: 460 },
       // null (not a number) so an unset lag falls through to the preset's base.
       defaultConfig: { field: 'lag', defaultValue: null },
     },
     {
       id: 'cfg_preset',
       kind: 'behavior_config',
-      position: { x: -360, y: 460 },
+      position: { x: -360, y: 540 },
       defaultConfig: { field: 'preset', defaultValue: 'follow' },
     },
     {
       id: 'cfg_rig',
       kind: 'behavior_config',
-      position: { x: -360, y: 540 },
+      position: { x: -360, y: 620 },
       defaultConfig: { field: 'rig', defaultValue: null },
     },
     {
       id: 'cfg_rest_unmapped',
       kind: 'behavior_config',
-      position: { x: -360, y: 620 },
+      position: { x: -360, y: 700 },
       defaultConfig: { field: 'restUnmapped', defaultValue: false },
     },
     {
@@ -141,6 +147,13 @@ export const POSE_STYLIZER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromPort: 'value',
       toNodeId: 'stylize',
       toPort: 'amount',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'cfg_strength',
+      fromPort: 'value',
+      toNodeId: 'stylize',
+      toPort: 'strength',
       kind: 'value',
     },
     {
