@@ -40,11 +40,11 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
                   → arkit_vrm_mapper (×3) → blendshapes_sum → blendshapes_broadcast
 ```
 
-**Tracking detection**: Frame-to-frame delta compared to a threshold; sets `vmcTracking` flag broadcast over WS.
+**Tracking detection** (two loss paths, one grace period): the `/Body` handler sums the frame-to-frame delta over the RhyLive float array against `TRACKING_THRESHOLD` — motion clears `Receiver.quietSince` and re-latches tracking, going still only *stamps* `quietSince`. Packets going away is the second path, detected off `lastSeen`. The 250ms `checkTimeouts()` sweep resolves both from `Math.min(quietSince ?? now, lastSeen)` against the avatar node's grace period, so whichever dropout started first drives the window. Connection status (the grey dot) keeps its own fixed 3s window — reachability is a separate question from tracking. See [animation.md](animation.md) (Tracking-loss grace period).
 
-**Tracking-loss → bus removal** (implemented): on the `nowTracking === false` transition the manager calls `broadcastBus.removeBehavior(behaviorId)`, which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic — the next `publishBones` re-creates the per-behavior slot in the bus's nodeMap.
+**`setTracking(behaviorId, tracking)`** is the single transition point: collapses no-op repeats, broadcasts `vmc_tracking_state`, and on loss calls `broadcastBus.removeBehavior(behaviorId)` — which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic: the next `publishBones` re-creates the per-behavior slot. Add new transition triggers by calling this, not by mutating `trackingActive` directly.
 
-**Review-later**: `poseTimeout` on vmc_receiver is largely redundant now that tracking-loss drives an immediate bus-side additive transition. Kept on the frontend (`Viewport.tsx`) as a client-side safety net for missed WS transition messages; revisit once the new flow proves robust in practice.
+**Grace period** is read per-sweep via `trackingGraceMs(sceneNodeId, fallbackMs)` from [`behaviors/tracking_grace.ts`](../../packages/backend/src/behaviors/tracking_grace.ts) — the avatar node's `properties.trackingGracePeriod`, shared with `mediapipe_tracker` and the extension point for any future tracking source. The old per-behavior `poseTimeout` config field is gone (migration 035).
 
 **Interceptors**: `OnPoseBroadcast` nodes from other behaviors (breathing, manual_calibration) are registered into the VMC graph's interceptor chain. Cleanup callbacks are stored per receiver so they're removed on stop.
 
@@ -123,6 +123,13 @@ capture+reset buttons in `PropertiesPanel.tsx`, dispatched by `POST /api/signal/
 IK calibration knobs (see PropertiesPanel `MediapipeTrackerProps`). All knobs are surfaced
 through `behavior_config` nodes wired into converter value ports — no `nodeConfig[nodeId]`
 side-channel.
+
+**Tracking loss**: only the silence path exists here (the camera pipeline simply stops sending;
+there is no frame-diff equivalent of VMC's "signal went still"). The 250ms `checkTimeouts()` sweep
+compares `lastInput` against `trackingGraceMs(nodeId, TRACKING_TIMEOUT_MS)` — the avatar node's
+`properties.trackingGracePeriod`, shared with `vmc_receiver`, with the camera-specific 1s constant
+as the fallback when the node sets nothing. Being per-node, this needs no MediaPipe-side UI
+control. See [animation.md](animation.md) (Tracking-loss grace period).
 
 ---
 

@@ -126,7 +126,7 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 
 **Forearm twist bones**: after the IK solve + pose application (`setNormalizedPose`/`update`) and before the spring/snappiness updates, `driveForearmTwist(node.id)` (from `components/editor/twistBones.ts`) routes the `lowerArm` roll onto a forearm twist bone so it spreads along the forearm instead of pinching at the elbow. Setup/teardown run in an `AvatarNode` effect keyed on VRM load + the `node.properties.forceTwistBone` flag; the drive is a no-op when no twist bone is set up. Frontend-only, additive over the backend's `ARM_ROLL_UPPER_SHARE` split. See [twist-bones.md](twist-bones.md).
 
-`poseTimeout` is retained as a client-side safety net for missed WS transition messages — flagged for review once the new flow proves robust. See [component-managers.md](component-managers.md) BroadcastBus section.
+**Client-side pose watchdog**: `POSE_TIMEOUT_MS = Math.max(0.1, node.properties?.trackingGracePeriod ?? 2) * 1000`. It exists only to cover the **server→client leg** — pose updates that stop arriving without a matching transition message (e.g. a WS reconnect mid-deactivation); the tracking sources hold their own grace period server-side. Reading the node property rather than a hardcoded 2s is load-bearing: at a fixed window any longer server-side setting was overruled before it had elapsed, dropping the avatar to idle early. See [animation.md](animation.md) (Tracking-loss grace period).
 
 **Animation retargeting**: FBX/BVH bone names → VRM bone names. Supports Mixamo and UE4 rig conventions. World-space delta retargeting (not local-space — see memory `feedback_fbx_retargeting.md`).
 

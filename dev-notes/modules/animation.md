@@ -290,6 +290,42 @@ This branch was originally a **slider-preview** path — gated on `poseSourceIsA
 
 UI: a "Partial Tracking" section in the PropertiesPanel avatar block (per-section `anim`/`track` sliders `vs-posesrc-anim-*` / `vs-posesrc-track-*`, a `vs-posesrc-reset`) plus a **Base Animation** picker in the Animation section (`vs-base-anim-url` / `vs-base-anim-clear` / `vs-base-anim-speed`), EN/DE i18n under `avatar.poseSource*` / `properties.avatar.baseAnimation` + `help.poseSource` / `properties.help.baseAnimation`, and an updated `{#partial-tracking}` help section in `avatar.md`.
 
+### Tracking-loss grace period — when the return to idle starts
+
+**Status:** implemented (2026-08-04, commit 86d6b06). Per-avatar-node, honoured by every backend tracking source.
+
+`blendTransitionTime` says **how fast** the tracked→untracked transition runs; `properties.trackingGracePeriod` (seconds) says **when it starts**. A dropout has to persist for the grace period before any source reports a loss, so a momentary signal gap no longer snaps the avatar into idle.
+
+Before this landed, the vmc_receiver carried a `poseTimeout` config field (UI label "Idle after") that was written to the DB and **read by nobody** — every dropout was declared instantly.
+
+**The two loss mechanisms.** They are genuinely different signals, and both now resolve on one clock:
+
+1. **The signal goes still** — VMC only. The `/Body` handler (`behaviors/vmc_receiver/manager.ts`) sums the absolute frame-to-frame delta over the 220-float RhyLive array and compares it against `TRACKING_THRESHOLD = 0.001`. Packets keep arriving; they just stop changing (mocap app paused, person left frame). A single repeated packet used to flip tracking off outright. Now motion above the threshold clears `Receiver.quietSince` and re-latches tracking immediately, while going still only *starts* the window by stamping `quietSince`.
+2. **The packets stop arriving** — VMC and MediaPipe. Resolved in the periodic `checkTimeouts()` sweep off `lastSeen`. Previously the VMC path fired `vmc_status {connected:false}` (the grey dot) but never `vmc_tracking_state`, so `trackingActive` stayed stuck `true` server-side and clients only reached idle via their own hardcoded watchdog.
+
+`checkTimeouts()` resolves both from `Math.min(quietSince ?? now, lastSeen)` — **whichever dropout began first drives the window**, so a source that freezes and *then* disconnects doesn't restart its grace period on the disconnect. It skips receivers whose `trackingActive !== true` (already lost, or never latched — `null`), matching the connect-time snapshot which skips `null` for the same reason.
+
+`setTracking(behaviorId, tracking)` is the single transition point: it collapses no-op repeats, broadcasts `vmc_tracking_state`, and keeps the `broadcastBus.removeBehavior` teardown paired with the loss that caused it. All three call sites (movement resume, both loss paths) funnel through it.
+
+**Sweep period is 250ms** in both managers (VMC dropped from 2000ms). The smallest configurable window is 0.1s, so a 2s tick would silently round every short setting up to its own period.
+
+**Connection status keeps its own fixed 3s window.** "Is the source reachable" is a different question from "is it tracking" — the status dot must not start lying because someone set a long grace period. Don't fold the two together.
+
+**Why the setting is per-node, not per-behavior.** It describes the *avatar's* transition, not the receiver's, and belongs beside `blendTransitionTime`. Consequences that matter:
+
+- `mediapipe_tracker` inherits it with no second UI control.
+- Two tracking sources on one avatar can no longer hold conflicting windows — which is exactly what previously forced the frontend watchdog to take a `Math.max` across behaviors.
+
+**Extension point — `packages/backend/src/behaviors/tracking_grace.ts`.** Any new tracking source should call `trackingGraceMs(sceneNodeId, fallbackMs)` from its timeout sweep rather than inventing its own constant. It reads `scene_nodes.properties.trackingGracePeriod` through the DB and returns milliseconds, falling back to the caller's default when the node is gone, the property is unset, or the value is non-positive (`DEFAULT_TRACKING_GRACE_MS = 2000`). Deliberately **uncached**: sources call it a few times a second and a stale cache would silently ignore edits made while a source is live. `mediapipe_tracker` passes its own camera-specific `TRACKING_TIMEOUT_MS = 1000` as the fallback (at ~30fps a shorter default is fine, and it only has loss path 2); `vmc_receiver` takes the shared default.
+
+**Frontend watchdog still exists, and now reads the same value.** `Viewport.tsx`'s `POSE_TIMEOUT_MS` is `Math.max(0.1, node.properties?.trackingGracePeriod ?? 2) * 1000`. It covers the **server→client leg** only — pose updates that stop arriving without a matching transition message (e.g. a WS reconnect mid-deactivation). At its old hardcoded 2s it overruled any longer server-side window before that window had elapsed, dropping the avatar to idle early.
+
+**Persistence.** `SceneNodeProperties.trackingGracePeriod` (`packages/shared/src/types.ts`), Zod `z.number().min(0.1).max(60).optional()` (`schema.ts`), mirrored in both frontend `NodeProperties` interfaces (`store/editorStore.ts`, `api/client.ts`). Migration `035_tracking_grace_period_to_node.ts` lifts existing `poseTimeout` values onto the owning node (largest wins where several behaviors on one node disagree), strips the dead key, skips nodes that already carry `trackingGracePeriod`, ignores non-numeric values, and is idempotent.
+
+**UI.** A `vs-avatar-tracking-grace` `NumInput` in the PropertiesPanel avatar section next to Blend transition (moved out of `VmcReceiverProps`), i18n `avatar.trackingGracePeriod` + `help.trackingGracePeriod` in EN/DE `properties.json` (the old `vmc.idleAfter` key is gone), `HelpButton` → topic `avatar`, anchor `animation`.
+
+**Tests.** 12 grace-period tests across both managers in `packages/backend/test/managers.test.ts`; 8 migration tests in `packages/backend/test/db.migrations.test.ts`.
+
 ### Motion snappiness (second-order dynamics)
 
 **Status:** implemented (2026-06-19). Frontend-only, per-avatar-node, disabled by default.
