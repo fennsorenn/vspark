@@ -13,10 +13,11 @@ import {
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
 import {
-  DEFAULT_STYLE_RESPONSE,
   STYLE_DRIVER_NAMES,
-  STYLE_RIG_PRESET_NAMES,
+  STYLE_PRESET_NAMES,
   styleRigPreset,
+  styleRigPresetLag,
+  resolveStyleResponse,
   type StyleDriverName,
   type StyleRig,
   type StyleBoneResponse,
@@ -3160,7 +3161,7 @@ const rigSelectStyle: React.CSSProperties = {
 
 interface StylizerConfig {
   amount?: number;
-  lag?: number;
+  lag?: number | null;
   restUnmapped?: boolean;
   preset?: string;
   response?: Partial<StyleResponse>;
@@ -3341,10 +3342,13 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
   // The rig editor shows the selected preset as the baseline; the stored
   // override holds only the bones the user actually changed.
   const baseRig = styleRigPreset(cfg.preset);
-  const response: StyleResponse = {
-    ...DEFAULT_STYLE_RESPONSE,
-    ...(cfg.response ?? {}),
-  };
+  // Response and follow-through layer defaults → the preset's own baseline → the
+  // user's overrides, so switching preset re-baselines anything untouched.
+  const response: StyleResponse = resolveStyleResponse(
+    cfg.response,
+    cfg.preset
+  );
+  const lag = cfg.lag ?? styleRigPresetLag(cfg.preset);
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
@@ -3400,7 +3404,7 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
           onChange={(e) => save({ preset: e.target.value })}
           style={{ ...rigSelectStyle, flex: 1 }}
         >
-          {STYLE_RIG_PRESET_NAMES.map((name) => (
+          {STYLE_PRESET_NAMES.map((name) => (
             <option key={name} value={name}>
               {t(`stylizedTracking.presetName.${name}`)}
             </option>
@@ -3439,7 +3443,7 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
         </span>
         <NumInput
           className="vs-stylize-lag"
-          value={cfg.lag ?? 0.08}
+          value={lag}
           step={0.01}
           min={0}
           suffix="s"
@@ -3512,11 +3516,12 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
             />
           </div>
         ))}
-        {cfg.response && Object.keys(cfg.response).length > 0 && (
+        {((cfg.response && Object.keys(cfg.response).length > 0) ||
+          cfg.lag != null) && (
           <button
             className="vs-stylize-reset-response"
             style={resetBtnStyle}
-            onClick={() => save({ response: {} })}
+            onClick={() => save({ response: {}, lag: null })}
           >
             {t('stylizedTracking.resetResponse')}
           </button>

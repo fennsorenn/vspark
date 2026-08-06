@@ -82,28 +82,45 @@ als ein Mensch sich bewegen kann. Ein Tracking-Ruckler kann höchstens einen
 Steuerwert anstupsen — aus einem kaputten Bild wird also ein kleines Wackeln
 statt eines abgeknickten Gliedes.
 
-### Körper vs. Kopf
+### Voreinstellungen
 
-2D-Rigs bauen auf einer von zwei Konventionen auf — hier wählst du zwischen ihnen.
+Eine Voreinstellung ist ein Ausgangspunkt für das ganze Verhalten — die
+Körperzuordnung, und teilweise auch, wie weit du dich bewegen musst und wie stark
+der Körper nachläuft. Alles danach kannst du anpassen; ein Wechsel setzt alles neu
+auf, was du nicht selbst geändert hast.
 
-**Körper folgt dem Kopf** — du drehst den Kopf, und Brust, Wirbelsäule und Hüfte
-drehen sich mit. Der ganze Körper lehnt sich in den Blick hinein. Das wirkt warm
-und zugewandt und ist die sanftere der beiden Varianten.
+**Körper folgt dem Kopf** *(Standard)* — du drehst den Kopf, und Brust,
+Wirbelsäule und Hüfte drehen sich mit. Der ganze Körper lehnt sich in den Blick
+hinein. Warm und zugewandt, und die sanftere der beiden Konventionen.
 
 **Körper gegen den Kopf** — du drehst den Kopf, und der Oberkörper dreht sich
-dagegen. Das ist der Kontrapost- oder S-Kurven-Eindruck: theatralisch, gestellt,
-mehr „Figur". Wichtig: Es ist nicht einfach die Umkehrung der ersten Variante —
-Kopf und Hals tragen deutlich mehr Rotation, um auszugleichen, dass der
-Oberkörper abzieht statt zu addieren. So schaust du weiterhin dorthin, wohin du
-schaust.
+dagegen. Der Kontrapost- oder S-Kurven-Eindruck: theatralisch, gestellt, mehr
+„Figur“. Es ist nicht einfach die Umkehrung der ersten Variante — Kopf und Hals
+tragen deutlich mehr Rotation, um auszugleichen, dass der Oberkörper abzieht statt
+zu addieren. So schaust du weiterhin dorthin, wohin du schaust.
 
-Keine von beiden ist richtiger; es sind unterschiedliche Charaktere. Probiere
-beide aus und behalte die, die zu deinem Avatar passt.
+**Nur kopfgesteuert** — dein Kopf ist das *einzige*, was den Avatar steuert.
+Oberkörper- und Arm-Tracking werden vollständig ignoriert. Gut in zwei Fällen: Du
+nutzt einen reinen Gesichts-Tracker (ein Handy- oder Webcam-Gesichtstracker
+liefert nur Kopfrotation — damit steuert sie einen ganzen Körper), oder dein
+Körper-Tracking ist zu verrauscht und der Kopf ist das einzige saubere Signal. Der
+Körper bewegt sich merklich stärker pro Kopfbewegung, weil es kein anderes Signal
+gibt.
 
-(Es gibt eine zweite, davon unabhängige Kopplung in die andere Richtung: Dein
-Kopf dreht immer gegen die Neigung deines *Körpers*, damit dein Blick waagerecht
-bleibt. Die ist in beiden Varianten aktiv, denn sie ist es, die einen Körper wie
-einen Darsteller statt wie eine Marionette wirken lässt.)
+**Ausdrucksstark** — dieselbe Zuordnung wie „Körper folgt dem Kopf“, aber es
+braucht viel weniger Bewegung für die volle Wirkung, und der Körper läuft weiter
+nach. Für alle, die sich wenig bewegen und trotzdem lebendig wirken wollen. Achtung:
+Diese Variante **verstärkt** bewusst — dein Avatar dreht sich etwa 1,5-mal so weit
+wie du. Wenn du originalgetreues Tracking mit lebendigerem Körper willst, bleib bei
+„Körper folgt dem Kopf“ und dreh stattdessen die Stärke hoch.
+
+Keine der ersten beiden ist richtiger; es sind unterschiedliche Charaktere.
+Probiere sie aus und behalte die, die zu deinem Avatar passt.
+
+(Es gibt eine zweite, davon unabhängige Kopplung in die andere Richtung: Dein Kopf
+dreht immer gegen die Neigung deines *Körpers*, damit dein Blick waagerecht bleibt.
+Die ist in jeder Voreinstellung aktiv, denn sie ist es, die einen Körper wie einen
+Darsteller statt wie eine Marionette wirken lässt.)
 
 ### Die Regler
 

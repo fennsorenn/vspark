@@ -5,9 +5,8 @@ import { makePoseStylizerGraphDescriptor } from './graph.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import {
-  DEFAULT_STYLE_RESPONSE,
   DEFAULT_STYLE_RIG,
-  DEFAULT_STYLE_RIG_PRESET,
+  DEFAULT_STYLE_PRESET,
 } from '@vspark/shared/style_rig';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
@@ -37,14 +36,17 @@ const EPHEMERAL_STATE_KINDS = new Set(['on_pose_broadcast']);
   description:
     'Post-processes tracking into stylized motion: a few drivers (head, torso, arms) are read off the performance and fanned back out across the whole body, the way a 2D avatar is rigged. Pick whether the body follows the head or twists against it. Adds follow-through and keeps tracking glitches from producing broken poses.',
   applicableTo: ['avatar'],
+  // NOTE: the scene-graph "add behavior" flow copies this object straight into
+  // the new row, so anything named here is PINNED and shadows the preset. `lag`
+  // and `response` are therefore deliberately absent — leaving them unset is what
+  // lets a preset supply them (and lets `expressive` mean anything at all). The
+  // UI writes them only once the user actually edits a value.
   defaultConfig: {
     amount: 1,
-    lag: 0.08,
     restUnmapped: false,
-    response: { ...DEFAULT_STYLE_RESPONSE },
-    // Which stock rig to start from: the torso follows the head, or twists
-    // against it — the two conventions 2D rigs are built on.
-    preset: DEFAULT_STYLE_RIG_PRESET,
+    // Named starting point for the whole behavior — rig, and optionally the
+    // response baseline and follow-through. See STYLE_PRESETS.
+    preset: DEFAULT_STYLE_PRESET,
     // null = use the preset verbatim; the UI writes only the bones it changes.
     rig: null,
   },

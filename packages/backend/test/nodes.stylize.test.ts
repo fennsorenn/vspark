@@ -21,6 +21,8 @@ import {
   DEFAULT_STYLE_RIG,
   STYLE_RIG_FOLLOW,
   STYLE_RIG_COUNTER,
+  STYLE_RIG_HEAD_ONLY,
+  STYLE_PRESETS,
   ZERO_DRIVERS,
   STYLE_DRIVER_NAMES,
   type StyleDrivers,
@@ -684,5 +686,141 @@ describe('pose_stylize rig presets', () => {
       preset: 'counter',
     }) as NormalizedPose;
     expect(yawOf(after, 'hips')).toBeLessThan(0);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Presets that reach beyond the rig (headOnly, expressive)
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe('pose_stylize / pose_style_drivers preset bundles', () => {
+  const yawOf = (out: NormalizedPose, bone: string) =>
+    euler(out.get(bone as VRMBoneName))[1];
+
+  it('headOnly ignores body drivers entirely', () => {
+    // A pose with a big torso twist and NO head rotation. follow moves the torso;
+    // headOnly must not, because it never reads the body drivers.
+    const twisted = () => poseOf({ hips: [0, 20, 0], spine: [0, 5, 0] });
+    const cfg = (preset: string) => ({
+      pose: twisted(),
+      drivers: { ...ZERO_DRIVERS, bodyYaw: 1 },
+      amount: 1,
+      lag: 0,
+      preset,
+    });
+
+    const followed = pullValue(
+      'pose_stylize',
+      'pose',
+      cfg('follow')
+    ) as NormalizedPose;
+    expect(Math.abs(yawOf(followed, 'chest'))).toBeGreaterThan(1);
+
+    const headOnly = pullValue(
+      'pose_stylize',
+      'pose',
+      cfg('headOnly')
+    ) as NormalizedPose;
+    expect(yawOf(headOnly, 'chest')).toBeCloseTo(0, 6);
+    expect(yawOf(headOnly, 'hips')).toBeCloseTo(0, 6);
+  });
+
+  it('headOnly drives the whole torso from head movement alone', () => {
+    const out = pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ head: [0, 45, 0] }),
+      drivers: { ...ZERO_DRIVERS, headYaw: 1 },
+      amount: 1,
+      lag: 0,
+      preset: 'headOnly',
+    }) as NormalizedPose;
+    for (const bone of ['hips', 'spine', 'chest', 'upperChest'])
+      expect(yawOf(out, bone)).toBeGreaterThan(0);
+    expect(yawOf(out, 'head')).toBeCloseTo(
+      STYLE_RIG_HEAD_ONLY.head.drivers.headYaw![1],
+      2
+    );
+  });
+
+  it('headOnly moves the body more, and the head less, than follow', () => {
+    const mk = (preset: string) =>
+      pullValue('pose_stylize', 'pose', {
+        pose: poseOf({ head: [0, 45, 0] }),
+        drivers: { ...ZERO_DRIVERS, headYaw: 1 },
+        amount: 1,
+        lag: 0,
+        preset,
+      }) as NormalizedPose;
+    const f = mk('follow');
+    const h = mk('headOnly');
+    expect(yawOf(h, 'chest')).toBeGreaterThan(yawOf(f, 'chest'));
+    expect(yawOf(h, 'head')).toBeLessThan(yawOf(f, 'head'));
+  });
+
+  it('headOnly leaves untracked forearms alone (they drop out of the rig)', () => {
+    const out = pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ head: [0, 45, 0], leftLowerArm: [0, 0, 40] }),
+      drivers: { ...ZERO_DRIVERS, headYaw: 1, bodyRoll: 1 },
+      amount: 1,
+      lag: 0,
+      preset: 'headOnly',
+    }) as NormalizedPose;
+    // follow would add a bodyRoll follow-through here; headOnly passes it through.
+    expect(euler(out.get('leftLowerArm' as VRMBoneName))[2]).toBeCloseTo(40, 3);
+  });
+
+  it('expressive reaches a full driver from less head movement', () => {
+    // 30° of head turn: a full driver under expressive, two-thirds under follow.
+    const drive = (preset?: string) =>
+      pullValue('pose_style_drivers', 'drivers', {
+        pose: poseOf({ head: [0, 30, 0] }),
+        response: { maxRate: 1e6, smoothing: 0, deadzone: 0 },
+        ...(preset === undefined ? {} : { preset }),
+      }) as StyleDrivers;
+
+    expect(drive('expressive').headYaw).toBeCloseTo(1, 3);
+    expect(drive('follow').headYaw).toBeCloseTo(30 / 45, 3);
+  });
+
+  it('a user response override still beats the preset', () => {
+    const d = pullValue('pose_style_drivers', 'drivers', {
+      pose: poseOf({ head: [0, 30, 0] }),
+      response: { maxRate: 1e6, smoothing: 0, deadzone: 0, headRange: 60 },
+      preset: 'expressive',
+    }) as StyleDrivers;
+    expect(d.headYaw).toBeCloseTo(30 / 60, 3);
+  });
+
+  it('an unset lag falls through to the preset’s base follow-through', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(7_000_000);
+    // expressive trails more than the global default, so after one 16ms step from
+    // rest it has travelled LESS of the way to target than follow has.
+    const step = (preset: string) => {
+      vi.setSystemTime(7_000_000);
+      const n = liveNode('pose_stylize', 'pose', {
+        pose: poseOf({ head: [0, 0, 0] }),
+        drivers: ZERO_DRIVERS,
+        amount: 1,
+        preset,
+        // `lag` deliberately absent → preset supplies it.
+      });
+      n.pull({ pose: poseOf({ head: [0, 0, 0] }) });
+      vi.setSystemTime(7_000_016);
+      return n.pull({
+        pose: poseOf({ head: [0, 45, 0] }),
+        drivers: { ...ZERO_DRIVERS, headYaw: 1 },
+      }) as NormalizedPose;
+    };
+    expect(yawOf(step('expressive'), 'head')).toBeLessThan(
+      yawOf(step('follow'), 'head')
+    );
+    expect(STYLE_PRESETS.expressive.lag).toBeGreaterThan(0.08);
+  });
+
+  it('follow and counter carry no response override of their own', () => {
+    expect(STYLE_PRESETS.follow.response).toBeUndefined();
+    expect(STYLE_PRESETS.counter.response).toBeUndefined();
+    expect(STYLE_RIG_FOLLOW).toBe(STYLE_PRESETS.follow.rig);
+    expect(STYLE_RIG_COUNTER).toBe(STYLE_PRESETS.counter.rig);
   });
 });

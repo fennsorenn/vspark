@@ -11,6 +11,7 @@ import {
   mergeStyleRig,
   evaluateBoneResponse,
   styleRigPreset,
+  styleRigPresetLag,
 } from '@vspark/shared/style_rig';
 
 const DEG2RAD = Math.PI / 180;
@@ -64,8 +65,11 @@ export class PoseStylize extends Node {
     | undefined;
   /** 0 = pass tracking through untouched, 1 = fully stylized. */
   @valueIn('amount', 'Float') amountIn!: () => number | undefined;
-  /** Base follow-through time constant in seconds; scaled per bone by the rig's `lag`. */
-  @valueIn('lag', 'Float') lagIn!: () => number | undefined;
+  /**
+   * Base follow-through time constant in seconds; scaled per bone by the rig's
+   * `lag`. Unset falls back to the preset's own base (`expressive` trails more).
+   */
+  @valueIn('lag', 'Float') lagIn!: () => number | null | undefined;
   /**
    * Which stock rig to start from: `'follow'` (the torso moves with the head) or
    * `'counter'` (it twists against it) — the two conventions 2D rigs are built
@@ -106,7 +110,10 @@ export class PoseStylize extends Node {
         : clamp((now - this._lastAt) / 1000, 1e-3, 0.5);
     this._lastAt = now;
 
-    const baseLag = Math.max(0, this.lagIn() ?? 0.08);
+    const baseLag = Math.max(
+      0,
+      this.lagIn() ?? styleRigPresetLag(this.presetIn())
+    );
     const out = new Map<VRMBoneName, Quaternion>();
 
     // 1. Carry over what tracking gave us (or flatten it, when asked to).

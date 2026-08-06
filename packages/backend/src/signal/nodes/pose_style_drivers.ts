@@ -76,10 +76,16 @@ export class PoseStyleDrivers extends Node {
   static readonly kind = 'pose_style_drivers';
 
   @valueIn('pose', 'NormalizedPose') poseIn!: () => NormalizedPose | undefined;
-  /** `StyleResponse` — ranges + conditioning knobs. Missing fields fall back to defaults. */
+  /** `StyleResponse` overrides. Missing fields fall back to the preset, then defaults. */
   @valueIn('response', 'Any') responseIn!: () =>
     | Partial<StyleResponse>
     | undefined;
+  /**
+   * Preset name. A preset may carry its own response baseline (`expressive`
+   * tightens the ranges), so the drivers node needs it too — not just the
+   * stylizer.
+   */
+  @valueIn('preset', 'String') presetIn!: () => string | undefined;
 
   /** Previous emitted drivers — the target of the rate limiter and smoother. */
   private _prev: StyleDrivers = { ...ZERO_DRIVERS };
@@ -94,7 +100,7 @@ export class PoseStyleDrivers extends Node {
     if (!pose) return this._prev;
     if (this._memoFor === pose) return this._memo;
 
-    const r = resolveStyleResponse(this.responseIn());
+    const r = resolveStyleResponse(this.responseIn(), this.presetIn());
     const now = Date.now();
     // First frame (or a long stall) → treat as a single 60Hz step so the first
     // pose does not blast through the rate limiter with a huge dt.

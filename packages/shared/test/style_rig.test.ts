@@ -3,10 +3,14 @@ import {
   STYLE_DRIVER_NAMES,
   STYLE_RIG_FOLLOW,
   STYLE_RIG_COUNTER,
-  STYLE_RIG_PRESETS,
-  STYLE_RIG_PRESET_NAMES,
-  DEFAULT_STYLE_RIG_PRESET,
+  STYLE_RIG_HEAD_ONLY,
+  STYLE_PRESETS,
+  STYLE_PRESET_NAMES,
+  DEFAULT_STYLE_PRESET,
+  DEFAULT_STYLE_LAG,
+  stylePreset,
   styleRigPreset,
+  styleRigPresetLag,
   ZERO_DRIVERS,
   DEFAULT_STYLE_RESPONSE,
   DEFAULT_STYLE_RIG,
@@ -316,22 +320,53 @@ const sum = (rig: StyleRig, bones: string[], driver: string, axis: number) =>
     0
   );
 
-describe('style rig presets', () => {
+describe('style presets', () => {
   it('exposes exactly the declared presets, with follow as the default', () => {
-    expect(Object.keys(STYLE_RIG_PRESETS).sort()).toEqual(
-      [...STYLE_RIG_PRESET_NAMES].sort()
+    expect(Object.keys(STYLE_PRESETS).sort()).toEqual(
+      [...STYLE_PRESET_NAMES].sort()
     );
-    expect(DEFAULT_STYLE_RIG_PRESET).toBe('follow');
-    expect(STYLE_RIG_PRESETS.follow).toBe(STYLE_RIG_FOLLOW);
-    expect(STYLE_RIG_PRESETS.counter).toBe(STYLE_RIG_COUNTER);
+    expect(DEFAULT_STYLE_PRESET).toBe('follow');
+    expect(STYLE_PRESETS.follow.rig).toBe(STYLE_RIG_FOLLOW);
+    expect(STYLE_PRESETS.counter.rig).toBe(STYLE_RIG_COUNTER);
+    expect(STYLE_PRESETS.headOnly.rig).toBe(STYLE_RIG_HEAD_ONLY);
   });
 
-  it('styleRigPreset resolves names and falls back to follow', () => {
+  it('resolves names and falls back to follow for junk', () => {
     expect(styleRigPreset('counter')).toBe(STYLE_RIG_COUNTER);
-    expect(styleRigPreset('follow')).toBe(STYLE_RIG_FOLLOW);
+    expect(styleRigPreset('headOnly')).toBe(STYLE_RIG_HEAD_ONLY);
     for (const bad of [undefined, null, '', 'nope'])
       expect(styleRigPreset(bad)).toBe(STYLE_RIG_FOLLOW);
+    expect(stylePreset('nope')).toBe(STYLE_PRESETS.follow);
   });
+
+  it('every preset rig names real bones and declared drivers', () => {
+    for (const { rig } of Object.values(STYLE_PRESETS))
+      for (const [bone, entry] of Object.entries(rig)) {
+        expect(VRM_BONE_NAMES).toContain(bone);
+        for (const driver of Object.keys(entry.drivers))
+          expect(STYLE_DRIVER_NAMES).toContain(driver);
+      }
+  });
+
+  it('EVERY preset rig totals ~headRange across the chain', () => {
+    // Every rig is authored against the DEFAULT design range, so at driver = 1 the
+    // chain produces about a full headRange of world rotation. That is what keeps
+    // "stylized" from also meaning "no longer looking where you are looking".
+    // (A preset that narrows `response.headRange` — see `expressive` — amplifies
+    // on top of this; the rig itself stays 1:1.)
+    const chain = [...TORSO, ...HEAD_CHAIN];
+    const range = DEFAULT_STYLE_RESPONSE.headRange;
+    for (const name of STYLE_PRESET_NAMES) {
+      const { rig } = STYLE_PRESETS[name];
+      for (const [driver, axis] of HEAD_AXES) {
+        const total = sum(rig, chain, driver, axis);
+        expect(total, `${name}/${driver}`).toBeGreaterThanOrEqual(range * 0.9);
+        expect(total, `${name}/${driver}`).toBeLessThanOrEqual(range * 1.15);
+      }
+    }
+  });
+
+  // ── follow vs counter: the two head↔torso conventions ────────────────────
 
   it('follow moves the torso WITH the head on every head axis', () => {
     for (const [driver, axis] of HEAD_AXES)
@@ -356,25 +391,7 @@ describe('style rig presets', () => {
     }
   });
 
-  it('BOTH presets keep the whole-chain total at ~headRange', () => {
-    // The invariant that makes the presets interchangeable: whichever convention
-    // you pick, the head still ends up pointing where you are pointing it.
-    const chain = [...TORSO, ...HEAD_CHAIN];
-    for (const rig of [STYLE_RIG_FOLLOW, STYLE_RIG_COUNTER])
-      for (const [driver, axis] of HEAD_AXES) {
-        const total = sum(rig, chain, driver, axis);
-        expect(total).toBeGreaterThanOrEqual(
-          DEFAULT_STYLE_RESPONSE.headRange * 0.9
-        );
-        expect(total).toBeLessThanOrEqual(
-          DEFAULT_STYLE_RESPONSE.headRange * 1.15
-        );
-      }
-  });
-
-  it('the presets differ ONLY in how the torso answers the head', () => {
-    // Body drivers, shoulders, arms, lags and modes are shared — "follow vs
-    // counter" is only ever a statement about the head→torso coupling.
+  it('follow and counter differ ONLY in how the torso answers the head', () => {
     for (const bone of Object.keys(STYLE_RIG_FOLLOW)) {
       const f = STYLE_RIG_FOLLOW[bone];
       const c = STYLE_RIG_COUNTER[bone];
@@ -391,13 +408,103 @@ describe('style rig presets', () => {
   });
 
   it('counter keeps the head countering torso lean, same as follow', () => {
-    // The OTHER coupling direction (body driver → head bone) is opposed in both.
     expect(STYLE_RIG_COUNTER.head.drivers.bodyRoll![2]).toBeLessThan(0);
     expect(STYLE_RIG_COUNTER.neck.drivers.bodyPitch![0]).toBeLessThan(0);
   });
 
-  it('leaves the follow preset untouched when building counter', () => {
+  // ── headOnly: head orientation is the only steering signal ───────────────
+
+  it('headOnly consumes NO body or arm driver anywhere in the rig', () => {
+    for (const [bone, entry] of Object.entries(STYLE_RIG_HEAD_ONLY))
+      for (const driver of Object.keys(entry.drivers))
+        expect(driver.startsWith('head'), `${bone}.${driver}`).toBe(true);
+  });
+
+  it('headOnly still drives the torso — off the head instead', () => {
+    for (const [driver, axis] of HEAD_AXES)
+      expect(sum(STYLE_RIG_HEAD_ONLY, TORSO, driver, axis)).toBeGreaterThan(0);
+  });
+
+  it('headOnly shifts work OFF the head and ONTO the body vs follow', () => {
+    // The point of the preset: with no other signal, the body has to carry more
+    // per unit of head movement or it reads as a bobbling head on a statue.
+    for (const [driver, axis] of HEAD_AXES) {
+      expect(sum(STYLE_RIG_HEAD_ONLY, TORSO, driver, axis)).toBeGreaterThan(
+        sum(STYLE_RIG_FOLLOW, TORSO, driver, axis)
+      );
+      expect(sum(STYLE_RIG_HEAD_ONLY, HEAD_CHAIN, driver, axis)).toBeLessThan(
+        sum(STYLE_RIG_FOLLOW, HEAD_CHAIN, driver, axis)
+      );
+    }
+  });
+
+  it('headOnly drops bones it has nothing left to drive', () => {
+    // The forearms exist in follow only for body-driver follow-through.
+    expect(STYLE_RIG_FOLLOW.leftLowerArm).toBeDefined();
+    expect(STYLE_RIG_HEAD_ONLY.leftLowerArm).toBeUndefined();
+    expect(STYLE_RIG_HEAD_ONLY.rightLowerArm).toBeUndefined();
+    // The shoulders survive because they trade their terms for a head-turn lag.
+    expect(STYLE_RIG_HEAD_ONLY.leftShoulder.drivers.headYaw).toBeDefined();
+    expect(STYLE_RIG_HEAD_ONLY.leftShoulder.drivers.armL).toBeUndefined();
+  });
+
+  // ── expressive: a response-level preset, not a rig-level one ─────────────
+
+  it('expressive reuses follow’s rig and changes only the response and lag', () => {
+    expect(STYLE_PRESETS.expressive.rig).toBe(STYLE_RIG_FOLLOW);
+    expect(STYLE_PRESETS.expressive.response).toBeDefined();
+    expect(STYLE_PRESETS.expressive.lag).toBeGreaterThan(DEFAULT_STYLE_LAG);
+  });
+
+  it('expressive AMPLIFIES — less performer movement, same avatar rotation', () => {
+    // The rig is unchanged (~45° of avatar head rotation at driver = 1), but the
+    // driver saturates at 30° of real movement, so the avatar out-rotates you.
+    const chain = [...TORSO, ...HEAD_CHAIN];
+    const avatarDeg = sum(STYLE_PRESETS.expressive.rig, chain, 'headYaw', 1);
+    const performerDeg = resolveStyleResponse(
+      undefined,
+      'expressive'
+    ).headRange;
+    expect(avatarDeg / performerDeg).toBeGreaterThan(1.3);
+    // Faithful presets stay ~1:1.
+    expect(
+      sum(STYLE_PRESETS.follow.rig, chain, 'headYaw', 1) /
+        resolveStyleResponse(undefined, 'follow').headRange
+    ).toBeLessThan(1.15);
+  });
+
+  it('expressive needs less movement for a full-strength driver', () => {
+    const e = resolveStyleResponse(undefined, 'expressive');
+    const f = resolveStyleResponse(undefined, 'follow');
+    expect(e.headRange).toBeLessThan(f.headRange);
+    expect(e.bodyRange).toBeLessThan(f.bodyRange);
+    // Untouched fields still come from the global defaults.
+    expect(e.maxRate).toBe(DEFAULT_STYLE_RESPONSE.maxRate);
+  });
+
+  it('resolveStyleResponse layers defaults → preset → user overrides', () => {
+    const r = resolveStyleResponse({ headRange: 99 }, 'expressive');
+    expect(r.headRange).toBe(99); // user wins over the preset
+    expect(r.bodyRange).toBe(STYLE_PRESETS.expressive.response!.bodyRange);
+    expect(r.smoothing).toBe(DEFAULT_STYLE_RESPONSE.smoothing);
+  });
+
+  it('omitting the preset name keeps the plain defaults (back-compat)', () => {
+    expect(resolveStyleResponse()).toEqual(DEFAULT_STYLE_RESPONSE);
+    expect(resolveStyleResponse({ maxRate: 1 }).headRange).toBe(
+      DEFAULT_STYLE_RESPONSE.headRange
+    );
+  });
+
+  it('styleRigPresetLag falls back to the global default', () => {
+    expect(styleRigPresetLag('expressive')).toBe(STYLE_PRESETS.expressive.lag);
+    expect(styleRigPresetLag('follow')).toBe(DEFAULT_STYLE_LAG);
+    expect(styleRigPresetLag('nope')).toBe(DEFAULT_STYLE_LAG);
+  });
+
+  it('leaves the follow preset untouched when deriving the others', () => {
     expect(STYLE_RIG_FOLLOW.head.drivers.headYaw).toEqual([0, 20, 0]);
     expect(STYLE_RIG_COUNTER.head.drivers.headYaw).toEqual([0, 38, 0]);
+    expect(STYLE_RIG_HEAD_ONLY.head.drivers.headYaw).toEqual([0, 10, 0]);
   });
 });

@@ -81,33 +81,89 @@ guard.
 
 ---
 
-## Presets — the two 2D-rig conventions
+## Presets
 
-2D rigs are built on one of two conventions for how the torso answers the head,
-and both ship as presets (`STYLE_RIG_PRESETS`, selected by the behavior's
-`preset` config field; unknown/absent → `follow`):
+A preset is a named starting point for the **whole behavior**, not just the rig:
+`{ rig, response?, lag? }`. Everything it sets is a BASE — the behavior's own
+`rig` / `response` / `lag` config fields are overrides layered on top, so
+switching preset re-baselines whatever the user has not explicitly pinned.
 
-| Preset | head driver → torso | Reads as |
-|---|---|---|
-| `follow` (default) | same direction | the body leans into the look; warm, engaged |
-| `counter` | opposed | contrapposto / S-curve; theatrical, posed |
+| Preset | Rig | Also sets | For |
+|---|---|---|---|
+| `follow` (default) | torso turns **with** the head | — | the body leans into the look; warm, engaged |
+| `counter` | torso twists **against** the head | — | contrapposto / S-curve; theatrical, posed |
+| `headOnly` | head drivers only | — | face-only trackers, or body data you don't trust |
+| `expressive` | follow's | tighter `response`, longer `lag` | staying still and still reading as animated |
 
-Note the coupling is **directional**, and the two directions are set
-independently. Both presets keep the *other* coupling — body driver → head/neck —
-**opposed**, so the head stays level through a torso lean. That term is what
-separates "performer" from "puppet" and is not something you would want to flip.
+Unknown or absent name → `follow`.
 
-`STYLE_RIG_COUNTER` is built as `mergeStyleRig(STYLE_RIG_FOLLOW,
-COUNTER_HEAD_RESPONSE)` — the delta *is* the documentation of what differs, and
-it differs only in the head-driver terms. Body drivers, shoulders, arms, lags and
-modes are shared.
+### follow vs counter — the two 2D-rig conventions
+
+The head↔body coupling is **directional**, and the two directions are set
+independently. `follow` and `counter` differ *only* in how the torso answers the
+head; **both** keep the other coupling — body driver → head/neck — **opposed**,
+so the head stays level through a torso lean. That term is what separates
+"performer" from "puppet" and is not something you would want to flip.
 
 **The non-obvious part**: counter is not a sign flip. Negating the four torso
 terms alone would take the summed head-in-world yaw from ~47° to ~13°, i.e. the
 avatar would stop looking where the performer looks. So the head and neck are
-scaled up to carry ~55°, netting back to `headRange`. Both presets are asserted
-against the same chain-total invariant in `style_rig.test.ts`, so a future preset
-cannot quietly break gaze tracking.
+scaled up to carry ~55°, netting back to `headRange`.
+
+### headOnly — head orientation as the sole signal
+
+Every `body*` and `arm*` term is zeroed. Because `mergeStyleRig` prunes zero
+triples and drops a bone once nothing drives it, the forearms (which existed only
+for body follow-through) fall out of the rig entirely and simply pass tracking
+through. The shoulders survive by trading their torso-follow and arm-lift terms
+for a head-turn lag.
+
+The torso terms are scaled **up** and head/neck **down** relative to follow: with
+no other signal, the body has to carry more per unit of head movement or the
+result reads as a bobbling head on a statue. The chain still totals `headRange`.
+
+Two situations want this: a face-only source (a phone/webcam face tracker gives
+head rotation and nothing else, and this makes it drive a whole body), or
+full-body tracking whose torso/arm data is too noisy to trust.
+
+### expressive — a response-level preset
+
+Reuses follow's rig and changes only the response and lag. This is what justifies
+presets covering more than the rig: "small movements read big" is not a mapping
+change, it's a question of how much performer movement saturates a driver.
+
+It is also the one preset that **deliberately breaks 1:1 gaze fidelity**. The rig
+still produces ~45° of avatar rotation at driver = 1, but the driver now saturates
+at 30° of real movement, so the avatar out-rotates the performer by ~1.5×. If you
+want faithful tracking with a livelier body, stay on `follow` and raise `amount`.
+
+### Invariants
+
+Every preset *rig* is authored against the default 45° design range and is tested
+to total that across the chain, so a new preset cannot quietly break gaze
+tracking. Amplification, when wanted, is expressed as a `response` narrowing on
+top — never by detuning the rig.
+
+`STYLE_RIG_COUNTER` and `STYLE_RIG_HEAD_ONLY` are both built as `mergeStyleRig`
+deltas on `STYLE_RIG_FOLLOW`, so each delta *is* the documentation of what that
+convention changes.
+
+### Resolution order
+
+```
+rig       = mergeStyleRig(preset.rig, config.rig)
+response  = { ...DEFAULT_STYLE_RESPONSE, ...preset.response, ...config.response }
+lag       = config.lag ?? preset.lag ?? DEFAULT_STYLE_LAG
+```
+
+Both nodes take a `preset` input — the drivers node needs it because a preset can
+carry a response baseline, not just a rig.
+
+> **Watch out**: the scene-graph "add behavior" flow copies the kind's
+> `defaultConfig` straight into the new row, so anything named there is PINNED and
+> shadows the preset. `lag` and `response` are deliberately absent from
+> `pose_stylizer`'s `defaultConfig` for exactly this reason, and `cfg_lag`'s
+> `defaultValue` is `null` rather than a number so an unset lag falls through.
 
 ## The rig
 

@@ -305,14 +305,21 @@ describe('PropertiesPanel — Stylized Tracking rig presets', () => {
     )[1] as HTMLInputElement;
   };
 
-  it('offers both 2D-rig conventions and defaults to follow', () => {
+  it('offers the full preset selection and defaults to follow', () => {
     seedStylizer();
     const { container } = renderWithProviders(<PropertiesPanel />);
     const sel = container.querySelector(
       '.vs-stylize-preset'
     ) as HTMLSelectElement;
     expect(sel.value).toBe('follow');
-    expect([...sel.options].map((o) => o.value)).toEqual(['follow', 'counter']);
+    expect([...sel.options].map((o) => o.value)).toEqual([
+      'follow',
+      'counter',
+      'headOnly',
+      'expressive',
+    ]);
+    // Every option is translated, not a raw key.
+    for (const o of [...sel.options]) expect(o.textContent).not.toContain('.');
   });
 
   it('writes the chosen preset to the behavior config', () => {
@@ -364,5 +371,106 @@ describe('PropertiesPanel — Stylized Tracking rig presets', () => {
     expect(rig.head.drivers!.headYaw).toEqual([0, 42, 0]);
     // The untouched drivers came from counter (37), not follow (22).
     expect(rig.head.drivers!.headPitch).toEqual([37, 0, 0]);
+  });
+});
+
+describe('PropertiesPanel — presets that reach past the rig', () => {
+  const openResponse = () =>
+    fireEvent.click(screen.getByText(tp('stylizedTracking.responseSection')));
+
+  it('headOnly drops the body-driven bones from the rig editor', () => {
+    seedStylizer({ preset: 'headOnly' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    fireEvent.click(
+      screen.getByText(
+        new RegExp(`^${tp('stylizedTracking.rigSection')} \\(\\d+\\)$`)
+      )
+    );
+    // The forearms exist only for body follow-through, so headOnly loses them.
+    expect(container.querySelector('.vs-stylize-bone-leftLowerArm')).toBeNull();
+    expect(container.querySelector('.vs-stylize-bone-chest')).toBeTruthy();
+  });
+
+  it('shows only head drivers on a headOnly bone', () => {
+    seedStylizer({ preset: 'headOnly' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    fireEvent.click(
+      screen.getByText(
+        new RegExp(`^${tp('stylizedTracking.rigSection')} \\(\\d+\\)$`)
+      )
+    );
+    fireEvent.click(container.querySelector('.vs-stylize-bone-chest')!);
+    expect(
+      container.querySelector('.vs-stylize-drv-chest-headYaw')
+    ).toBeTruthy();
+    expect(container.querySelector('.vs-stylize-drv-chest-bodyYaw')).toBeNull();
+  });
+
+  it('expressive re-baselines the response fields from its own preset values', () => {
+    seedStylizer({ preset: 'follow' });
+    const a = renderWithProviders(<PropertiesPanel />);
+    openResponse();
+    expect(
+      (
+        a.container.querySelector(
+          '.vs-stylize-response-headRange input'
+        ) as HTMLInputElement
+      ).value
+    ).toBe('45');
+    a.unmount();
+
+    seedStylizer({ preset: 'expressive' });
+    const b = renderWithProviders(<PropertiesPanel />);
+    openResponse();
+    expect(
+      (
+        b.container.querySelector(
+          '.vs-stylize-response-headRange input'
+        ) as HTMLInputElement
+      ).value
+    ).toBe('30');
+  });
+
+  it('expressive re-baselines follow-through too', () => {
+    seedStylizer({ preset: 'expressive' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    const lag = container.querySelector(
+      '.vs-stylize-lag input'
+    ) as HTMLInputElement;
+    expect(lag.value).toBe('0.12');
+  });
+
+  it('a user response edit still wins over the preset baseline', () => {
+    seedStylizer({ preset: 'expressive', response: { headRange: 60 } });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openResponse();
+    expect(
+      (
+        container.querySelector(
+          '.vs-stylize-response-headRange input'
+        ) as HTMLInputElement
+      ).value
+    ).toBe('60');
+    // …and an untouched field still comes from the preset.
+    expect(
+      (
+        container.querySelector(
+          '.vs-stylize-response-bodyRange input'
+        ) as HTMLInputElement
+      ).value
+    ).toBe('18');
+  });
+
+  it('reset response clears both the response override and the lag override', () => {
+    seedStylizer({
+      preset: 'expressive',
+      response: { headRange: 60 },
+      lag: 0.4,
+    });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openResponse();
+    fireEvent.click(container.querySelector('.vs-stylize-reset-response')!);
+    expect(cfgOf().response).toEqual({});
+    expect(cfgOf().lag).toBeNull();
   });
 });

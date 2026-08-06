@@ -52,7 +52,8 @@ export const POSE_STYLIZER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       id: 'cfg_lag',
       kind: 'behavior_config',
       position: { x: -360, y: 380 },
-      defaultConfig: { field: 'lag', defaultValue: 0.08 },
+      // null (not a number) so an unset lag falls through to the preset's base.
+      defaultConfig: { field: 'lag', defaultValue: null },
     },
     {
       id: 'cfg_preset',
@@ -153,6 +154,13 @@ export const POSE_STYLIZER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromNodeId: 'cfg_preset',
       fromPort: 'value',
       toNodeId: 'stylize',
+      toPort: 'preset',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'cfg_preset',
+      fromPort: 'value',
+      toNodeId: 'drivers',
       toPort: 'preset',
       kind: 'value',
     },

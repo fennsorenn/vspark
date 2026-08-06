@@ -121,11 +121,20 @@ export const DEFAULT_STYLE_RESPONSE: StyleResponse = {
   energyScale: 4,
 };
 
-/** Fill in any missing `StyleResponse` field from the defaults. */
+/**
+ * Fill in any missing `StyleResponse` field, layering global defaults → the
+ * preset's response → the user's own overrides. Passing no preset name keeps the
+ * plain defaults, so callers that don't know about presets still work.
+ */
 export function resolveStyleResponse(
-  partial?: Partial<StyleResponse> | null
+  partial?: Partial<StyleResponse> | null,
+  presetName?: string | null
 ): StyleResponse {
-  return { ...DEFAULT_STYLE_RESPONSE, ...(partial ?? {}) };
+  return {
+    ...DEFAULT_STYLE_RESPONSE,
+    ...(presetName == null ? {} : (stylePreset(presetName).response ?? {})),
+    ...(partial ?? {}),
+  };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -384,26 +393,179 @@ export const STYLE_RIG_COUNTER: StyleRig = mergeStyleRig(
   COUNTER_HEAD_RESPONSE
 );
 
-export const STYLE_RIG_PRESET_NAMES = ['follow', 'counter'] as const;
-export type StyleRigPreset = (typeof STYLE_RIG_PRESET_NAMES)[number];
+/**
+ * The head-driver half of the "head only" rig, again as a delta on follow.
+ *
+ * Every `body*` and `arm*` term is zeroed (`mergeStyleRig` prunes zero triples,
+ * and drops a bone once nothing is left driving it), so the ONLY thing steering
+ * the avatar is head orientation. Two situations want this:
+ *
+ *  - a face-only source — a phone or webcam face tracker gives you head rotation
+ *    and nothing else, and this makes that drive an entire body;
+ *  - full-body tracking whose torso/arm data you do not trust, where the head is
+ *    the one signal that is reliably clean.
+ *
+ * Because the head is now carrying the whole performance, the torso terms are
+ * scaled UP and the head/neck DOWN relative to follow — the body does more per
+ * unit of head movement, which is what stops a head-only setup reading as a
+ * bobbling head on a statue. The chain still totals `headRange`, so the gaze
+ * lands where it should.
+ */
+const HEAD_ONLY_OVERRIDES: StyleRig = {
+  hips: {
+    drivers: {
+      headYaw: [0, 4, 0],
+      headPitch: [3, 0, 0],
+      headRoll: [0, 0, 2],
+      bodyYaw: [0, 0, 0],
+      bodyPitch: [0, 0, 0],
+      bodyRoll: [0, 0, 0],
+    },
+  },
+  spine: {
+    drivers: {
+      headYaw: [0, 6, 0],
+      headPitch: [5, 0, 0],
+      headRoll: [0, 0, 5],
+      bodyYaw: [0, 0, 0],
+      bodyPitch: [0, 0, 0],
+      bodyRoll: [0, 0, 0],
+    },
+  },
+  chest: {
+    drivers: {
+      headYaw: [0, 8, 0],
+      headPitch: [7, 0, 0],
+      headRoll: [0, 0, 7],
+      bodyYaw: [0, 0, 0],
+      bodyPitch: [0, 0, 0],
+      bodyRoll: [0, 0, 0],
+    },
+  },
+  upperChest: {
+    drivers: {
+      headYaw: [0, 9, 0],
+      headPitch: [8, 0, 0],
+      headRoll: [0, 0, 8],
+      bodyYaw: [0, 0, 0],
+      bodyPitch: [0, 0, 0],
+      bodyRoll: [0, 0, 0],
+    },
+  },
+  neck: {
+    drivers: {
+      headYaw: [0, 8, 0],
+      headPitch: [10, 0, 0],
+      headRoll: [0, 0, 10],
+      bodyPitch: [0, 0, 0],
+      bodyRoll: [0, 0, 0],
+    },
+  },
+  head: {
+    drivers: {
+      headYaw: [0, 10, 0],
+      headPitch: [12, 0, 0],
+      headRoll: [0, 0, 13],
+      bodyPitch: [0, 0, 0],
+      bodyRoll: [0, 0, 0],
+    },
+  },
+  // The shoulders trade their torso-follow and arm-lift terms for a head-turn lag.
+  leftShoulder: {
+    drivers: { headYaw: [0, -3, 0], bodyYaw: [0, 0, 0], armL: [0, 0, 0] },
+  },
+  rightShoulder: {
+    drivers: { headYaw: [0, -3, 0], bodyYaw: [0, 0, 0], armR: [0, 0, 0] },
+  },
+  leftUpperArm: {
+    drivers: { headYaw: [0, -3, 0], bodyYaw: [0, 0, 0], bodyRoll: [0, 0, 0] },
+  },
+  rightUpperArm: {
+    drivers: { headYaw: [0, -3, 0], bodyYaw: [0, 0, 0], bodyRoll: [0, 0, 0] },
+  },
+  // Nothing head-driven left for the forearms — these bones drop out of the rig
+  // entirely and simply pass tracking through.
+  leftLowerArm: { drivers: { bodyYaw: [0, 0, 0], bodyRoll: [0, 0, 0] } },
+  rightLowerArm: { drivers: { bodyYaw: [0, 0, 0], bodyRoll: [0, 0, 0] } },
+};
 
-export const STYLE_RIG_PRESETS: Record<StyleRigPreset, StyleRig> = {
-  follow: STYLE_RIG_FOLLOW,
-  counter: STYLE_RIG_COUNTER,
+/** The "head only" rig — head orientation is the sole steering signal. */
+export const STYLE_RIG_HEAD_ONLY: StyleRig = mergeStyleRig(
+  STYLE_RIG_FOLLOW,
+  HEAD_ONLY_OVERRIDES
+);
+
+/** Base follow-through time (seconds) when neither the preset nor the user sets one. */
+export const DEFAULT_STYLE_LAG = 0.08;
+
+/**
+ * A named starting point for the whole behavior, not just the rig — a preset may
+ * also shift the response (how much you have to move) and the base follow-through.
+ * Everything it sets is a BASE: the behavior's own `response` / `lag` / `rig`
+ * config fields are overrides layered on top, so switching preset re-baselines
+ * whatever the user has not explicitly pinned.
+ */
+export interface StylePreset {
+  rig: StyleRig;
+  /** Overrides on `DEFAULT_STYLE_RESPONSE`. Omitted fields keep the global default. */
+  response?: Partial<StyleResponse>;
+  /** Base follow-through seconds; falls back to `DEFAULT_STYLE_LAG`. */
+  lag?: number;
+}
+
+export const STYLE_PRESET_NAMES = [
+  'follow',
+  'counter',
+  'headOnly',
+  'expressive',
+] as const;
+export type StylePresetName = (typeof STYLE_PRESET_NAMES)[number];
+
+export const STYLE_PRESETS: Record<StylePresetName, StylePreset> = {
+  follow: { rig: STYLE_RIG_FOLLOW },
+  counter: { rig: STYLE_RIG_COUNTER },
+  headOnly: { rig: STYLE_RIG_HEAD_ONLY },
+  /**
+   * Follow's rig, but it takes much less movement to reach full deflection and
+   * the body trails further. For performers who stay fairly still and want the
+   * avatar to read as animated anyway — a response change, not a rig change,
+   * which is exactly why presets cover more than the rig.
+   *
+   * This is the one preset that deliberately breaks 1:1 gaze fidelity. The rig
+   * still produces ~45° of avatar rotation at driver = 1, but the driver now
+   * saturates at 30° of real head movement, so the avatar out-rotates you by
+   * ~1.5×. That AMPLIFICATION is the point; if you want faithful tracking with a
+   * livelier body, stay on `follow` and raise `amount` instead.
+   */
+  expressive: {
+    rig: STYLE_RIG_FOLLOW,
+    response: { headRange: 30, bodyRange: 18, armRange: 70, deadzone: 0.02 },
+    lag: 0.12,
+  },
 };
 
 /** The preset used when a behavior does not name one. */
-export const DEFAULT_STYLE_RIG_PRESET: StyleRigPreset = 'follow';
+export const DEFAULT_STYLE_PRESET: StylePresetName = 'follow';
 
 /** The rig a behavior starts from before its own per-bone overrides are merged. */
 export const DEFAULT_STYLE_RIG: StyleRig = STYLE_RIG_FOLLOW;
 
+/** Resolve a (possibly unknown / absent) preset name to its bundle. */
+export function stylePreset(name?: string | null): StylePreset {
+  return (
+    STYLE_PRESETS[name as StylePresetName] ??
+    STYLE_PRESETS[DEFAULT_STYLE_PRESET]
+  );
+}
+
 /** Resolve a (possibly unknown / absent) preset name to its rig. */
 export function styleRigPreset(name?: string | null): StyleRig {
-  return (
-    STYLE_RIG_PRESETS[name as StyleRigPreset] ??
-    STYLE_RIG_PRESETS[DEFAULT_STYLE_RIG_PRESET]
-  );
+  return stylePreset(name).rig;
+}
+
+/** Base follow-through for a preset, before the user's own `lag` override. */
+export function styleRigPresetLag(name?: string | null): number {
+  return stylePreset(name).lag ?? DEFAULT_STYLE_LAG;
 }
 
 /**

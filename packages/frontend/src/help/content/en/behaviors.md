@@ -75,27 +75,44 @@ not allowed to move faster than a person can move. A tracker that glitches can a
 worst nudge a driver, so a broken frame becomes a small wobble instead of a
 snapped limb.
 
-### Body vs head
+### Presets
 
-2D rigs are built on one of two conventions, and this picks between them.
+A preset is a starting point for the whole behavior — the body mapping, and
+sometimes how much you have to move and how far the body trails. Everything after
+it is yours to adjust; switching preset re-baselines anything you haven't
+personally changed.
 
-**Body follows head** — you turn your head, and the chest, spine and hips turn
-with it. The whole body leans into the look. It reads as warm and engaged, and
-it is the gentler of the two.
+**Body follows head** *(default)* — you turn your head, and the chest, spine and
+hips turn with it. The whole body leans into the look. Warm and engaged, and the
+gentler of the two conventions.
 
 **Body counters head** — you turn your head, and the torso twists the other way.
-This is the contrapposto or S-curve read: theatrical, posed, more of a
-"character" silhouette. Note that it is not simply the first one reversed — the
-head and neck carry noticeably more rotation to make up for the torso
-subtracting instead of adding, so you still end up looking where you're looking.
+The contrapposto or S-curve read: theatrical, posed, more of a "character"
+silhouette. It is not simply the first one reversed — the head and neck carry
+noticeably more rotation to make up for the torso subtracting instead of adding,
+so you still end up looking where you're looking.
 
-Neither is more correct; they are different characters. Try both and keep the
-one that looks like your avatar.
+**Head-driven only** — your head is the *only* thing steering the avatar. Torso
+and arm tracking are ignored completely. Reach for it in two situations: you're
+using a face-only tracker (a phone or webcam face tracker gives head rotation and
+nothing else — this makes that drive a whole body), or your body tracking is too
+noisy to trust and the head is the one clean signal. The body moves noticeably
+more per unit of head movement to make up for having no other input.
+
+**Expressive** — the same mapping as *Body follows head*, but it takes far less
+movement to reach full strength, and the body trails further behind. For
+performers who stay fairly still and want the avatar to read as animated anyway.
+Note this one deliberately **amplifies**: your avatar rotates about 1½× as far as
+you do. If you want faithful tracking with a livelier body, stay on *Body follows
+head* and turn Amount up instead.
+
+Neither of the first two is more correct; they are different characters. Try them
+and keep the one that looks like your avatar.
 
 (There is a second, separate coupling that runs the other way: your head always
 counter-rotates against your *body's* lean, so your gaze stays level. That one is
-on in both, because it is what makes a body read as a performer rather than a
-puppet.)
+on in every preset, because it is what makes a body read as a performer rather
+than a puppet.)
 
 ### The controls
 
