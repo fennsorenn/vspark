@@ -7,6 +7,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
 import {
   DEFAULT_STYLE_RIG,
   DEFAULT_STYLE_PRESET,
+  DEFAULT_RIG_MODE,
 } from '@vspark/shared/style_rig';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
@@ -49,6 +50,10 @@ const EPHEMERAL_STATE_KINDS = new Set(['on_pose_broadcast']);
     preset: DEFAULT_STYLE_PRESET,
     // null = use the preset verbatim; the UI writes only the bones it changes.
     rig: null,
+    // Which editing surface the panel shows. Safe to pin: no preset supplies it.
+    rigMode: DEFAULT_RIG_MODE,
+    // Simplified-view section totals; null = the preset's own, unscaled.
+    simpleRig: null,
   },
 })
 export class PoseStylizerManager {

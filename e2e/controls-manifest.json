@@ -12,7 +12,7 @@
   "components/editor/LogicSection.tsx": "aec31b4569f9",
   "components/editor/OverliveAccountsModal.tsx": "0863053b3005",
   "components/editor/PresetLibrary.tsx": "5e213dcc738a",
-  "components/editor/PropertiesPanel.tsx": "7f1066c4152a",
+  "components/editor/PropertiesPanel.tsx": "587a820543b3",
   "components/editor/SceneGraph.tsx": "e7ab793dbd63",
   "components/editor/signal/NodePalette.tsx": "758b37aa1035",
   "components/editor/signal/SignalNodeCard.tsx": "365355ea3176",

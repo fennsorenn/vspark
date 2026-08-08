@@ -459,6 +459,31 @@
     "resetResponse": "Ansprechverhalten zurücksetzen",
     "rigSection": "Antwort-Rig",
     "rigHint": "Pro Knochen: welche Steuerwerte ihn bewegen, um wie viel Grad bei voller Stärke, ob er das Tracking ersetzt oder sich darüberlegt, und wie weit er nachläuft.",
+    "rigModeLabel": "Editor",
+    "rigMode": {
+      "simple": "Vereinfacht",
+      "detailed": "Pro Knochen"
+    },
+    "rigModeHint": {
+      "simple": "Kopf und Körper als zwei Bereiche. Jede Zelle sagt, wie weit diese Bewegung diesen Bereich dreht, in Grad. Änderst du eine, skaliert die ganze Kette mit und behält den Abfall der Voreinstellung — und die Arme gleichen den Körper automatisch weiter aus.",
+      "detailed": "Jeder Knochen einzeln. Beim Wechsel wurden deine vereinfachten Werte unverändert übernommen, du kannst also genau dort weitermachen, wo es lief."
+    },
+    "channel": {
+      "headTurn": "Kopf drehen",
+      "headTilt": "Kopf neigen",
+      "headNod": "Kopf nicken",
+      "bodyTurn": "Körper drehen",
+      "bodySway": "Körper schwingen",
+      "bodyLean": "Körper beugen"
+    },
+    "channelShort": {
+      "headTurn": "K dreh",
+      "headTilt": "K neig",
+      "headNod": "K nick",
+      "bodyTurn": "R dreh",
+      "bodySway": "R schw",
+      "bodyLean": "R beug"
+    },
     "rigStock": "Standard-Rig",
     "rigModified": "{{count}} Knochen geändert",
     "rigModified_other": "{{count}} Knochen geändert",

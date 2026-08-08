@@ -169,9 +169,26 @@ instead of a pop — lowering it makes the avatar calmer and more forgiving.
 
 ### Response rig
 
-The **Response rig** is the mapping itself, and you can edit every bone of it.
-Each bone lists the drivers that move it and how many degrees each one
-contributes at full strength, in X / Y / Z.
+The **Response rig** is the mapping itself, and there are two ways to edit it.
+
+**Simplified** (the default) treats you as a head and a body. Six motions — the
+head turns, tilts and nods; the body turns, sways and leans — laid out as a grid.
+Each cell says how far one of those motions moves that part, in degrees. Reading
+down the *Body turn* row tells you what makes the body turn: itself, or your head,
+or both.
+
+Change a cell and the whole chain rescales together, keeping the shape the preset
+gave it — the hips still move less than the chest, the falloff is preserved. Two
+things follow along on their own: the arms keep counteracting the body by the same
+proportion, and the head keeps counter-rotating so your gaze stays level. Those
+counter-motions are the negative cells in the grid, so you can see and change them.
+
+A tip for reading a preset: if the *Body turn* row is empty in its own column but
+has a value under *Head turn*, you're looking at a head-driven preset — the body
+is moving entirely because your head is.
+
+**Per bone** opens the full table: every bone lists the drivers that move it and
+how many degrees each contributes at full strength, in X / Y / Z.
 
 A bone is in one of two modes. **Replace** means the bone is built entirely from
 the drivers and tracking is discarded — that is what makes it glitch-proof, and
@@ -179,9 +196,10 @@ it is the right choice for the spine, neck, head and shoulders. **Add** keeps
 your tracked motion and layers the rig's contribution on top, which is what the
 arms use so your own gestures survive.
 
-Switching preset re-baselines the whole editor, but bones you have already
-overridden keep your numbers — reset a bone (or the whole rig) to pick up the
-new preset's values for it.
+**You can move between them freely.** Switching carries your setup across
+unchanged — your avatar will not so much as twitch. Going to *Per bone* writes out
+exactly what the simplified view was producing, so you can start fine-tuning from
+there; going back collapses to the section totals again.
 
 **Lag** is a per-bone multiplier on Follow-through. The stock rig staggers it
 down the chain — the hips trail furthest, the head barely at all — which is what

@@ -136,6 +136,9 @@ const STYLIZER_KIND = {
 
 /** Select a pose_stylizer behavior so PropertiesPanel renders its panel. */
 function seedStylizer(config: Record<string, unknown> = {}) {
+  // Most rig-editor tests target the per-bone list, so default these to it; the
+  // simplified grid has its own suite below.
+  if (!('rigMode' in config)) config = { ...config, rigMode: 'detailed' };
   seed({
     behaviors: [
       {
@@ -562,5 +565,158 @@ describe('PropertiesPanel — contrapposto head-only preset', () => {
       ).value
     );
     expect(Math.abs(nodX)).toBeLessThan(Math.abs(turnY));
+  });
+});
+
+describe('PropertiesPanel — simplified rig editor', () => {
+  const openRig = (container: HTMLElement) => {
+    fireEvent.click(
+      screen.getByText(
+        new RegExp(`^${tp('stylizedTracking.rigSection')} \\(\\d+\\)$`)
+      )
+    );
+    return container;
+  };
+  const cellInput = (container: HTMLElement, row: string, col: string) =>
+    container.querySelector(
+      `.vs-stylize-cell-${row}-${col} input`
+    ) as HTMLInputElement;
+
+  it('is the default editor for a new behavior', () => {
+    seedStylizer({ rigMode: undefined });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    expect(
+      (container.querySelector('.vs-stylize-rigmode') as HTMLSelectElement)
+        .value
+    ).toBe('simple');
+  });
+
+  it('renders a 6 x 6 grid of section totals', () => {
+    seedStylizer({ rigMode: 'simple' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    expect(
+      container.querySelectorAll('[class^="vs-stylize-cell-"]')
+    ).toHaveLength(36);
+  });
+
+  it('shows the preset’s own totals, and the head counter as a negative cell', () => {
+    seedStylizer({ rigMode: 'simple', preset: 'follow' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    // follow's bodyYaw chain sums to 26 across hips/spine/chest/upperChest.
+    expect(cellInput(container, 'bodyTurn', 'bodyTurn').value).toBe('26');
+    // The head counter-rotating against body sway is an off-diagonal negative.
+    expect(
+      parseFloat(cellInput(container, 'headTilt', 'bodySway').value)
+    ).toBeLessThan(0);
+  });
+
+  it('writes an edited cell as a section-total override', () => {
+    seedStylizer({ rigMode: 'simple' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    fireEvent.change(cellInput(container, 'bodyTurn', 'bodyTurn'), {
+      target: { value: '52' },
+    });
+    expect(
+      (cfgOf().simpleRig as Record<string, Record<string, number>>).bodyTurn
+        .bodyTurn
+    ).toBe(52);
+  });
+
+  it('reveals a head-only preset at a glance — empty diagonal, live cross cell', () => {
+    seedStylizer({ rigMode: 'simple', preset: 'headOnly' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    expect(cellInput(container, 'bodyTurn', 'bodyTurn').value).toBe('0');
+    expect(
+      parseFloat(cellInput(container, 'bodyTurn', 'headTurn').value)
+    ).toBeGreaterThan(0);
+  });
+
+  it('every preset populates the grid', () => {
+    for (const preset of [
+      'follow',
+      'counter',
+      'headOnlyCounter',
+      'expressive',
+    ]) {
+      seedStylizer({ rigMode: 'simple', preset });
+      const { container, unmount } = renderWithProviders(<PropertiesPanel />);
+      openRig(container);
+      expect(
+        parseFloat(cellInput(container, 'headTurn', 'headTurn').value),
+        preset
+      ).not.toBe(0);
+      unmount();
+    }
+  });
+
+  it('switching to per-bone BAKES the running rig so the pose cannot jump', () => {
+    seedStylizer({
+      rigMode: 'simple',
+      simpleRig: { bodyTurn: { bodyTurn: 52 } },
+    });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    fireEvent.change(container.querySelector('.vs-stylize-rigmode')!, {
+      target: { value: 'detailed' },
+    });
+
+    const cfg = cfgOf();
+    expect(cfg.rigMode).toBe('detailed');
+    expect(cfg.simpleRig).toBeNull();
+    // The compiled rig landed in the per-bone overrides, doubled as asked.
+    const rig = cfg.rig as Record<
+      string,
+      { drivers: Record<string, number[]> }
+    >;
+    const total = ['hips', 'spine', 'chest', 'upperChest'].reduce(
+      (sum, b) => sum + (rig[b]?.drivers.bodyYaw?.[1] ?? 0),
+      0
+    );
+    expect(total).toBeCloseTo(52, 6);
+  });
+
+  it('switching back to simplified needs no data change', () => {
+    seedStylizer({ rigMode: 'detailed' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    fireEvent.change(container.querySelector('.vs-stylize-rigmode')!, {
+      target: { value: 'simple' },
+    });
+    expect(cfgOf().rigMode).toBe('simple');
+    expect(cfgOf().simpleRig ?? null).toBeNull();
+  });
+
+  it('the per-bone list is baselined on the rig the simplified view produced', () => {
+    // Bake a doubled body turn, then read it back off a bone row.
+    seedStylizer({
+      rigMode: 'simple',
+      simpleRig: { bodyTurn: { bodyTurn: 52 } },
+    });
+    const a = renderWithProviders(<PropertiesPanel />);
+    openRig(a.container);
+    fireEvent.change(a.container.querySelector('.vs-stylize-rigmode')!, {
+      target: { value: 'detailed' },
+    });
+    const baked = cfgOf().rig as Record<
+      string,
+      { drivers: Record<string, number[]> }
+    >;
+    a.unmount();
+
+    seedStylizer({ rigMode: 'detailed', rig: baked });
+    const b = renderWithProviders(<PropertiesPanel />);
+    openRig(b.container);
+    fireEvent.click(b.container.querySelector('.vs-stylize-bone-chest')!);
+    const chestYaw = (
+      b.container.querySelectorAll(
+        '.vs-stylize-drv-chest-bodyYaw input'
+      )[1] as HTMLInputElement
+    ).value;
+    expect(parseFloat(chestYaw)).toBeCloseTo(14, 6); // follow's 7, doubled
   });
 });

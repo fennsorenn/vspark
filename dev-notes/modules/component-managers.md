@@ -217,7 +217,7 @@ persisting a value that is meaningless after a restart.
 > `ManualCalibrationManager` lacks this guard and therefore does write a full pose
 > into SQLite on every interceptor frame. Worth applying the same fix there.
 
-Config: `{ amount, lag, restUnmapped, preset, response, rig }` — `preset` names a base
+Config: `{ amount, strength, lag, restUnmapped, preset, response, rig, rigMode, simpleRig }` — `preset` names a base
 for the whole behavior (rig + optionally response and follow-through) — `follow`,
 `counter`, `headOnly`, `headOnlyCounter` or `expressive` — that the other fields override. Note that
 `lag` and `response` are deliberately absent from the kind's `defaultConfig`,

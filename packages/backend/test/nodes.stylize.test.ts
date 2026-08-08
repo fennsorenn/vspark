@@ -25,6 +25,7 @@ import {
   STYLE_RIG_HEAD_ONLY_COUNTER,
   STYLE_PRESETS,
   MAX_STYLE_STRENGTH,
+  deriveSimpleRig,
   ZERO_DRIVERS,
   STYLE_DRIVER_NAMES,
   type StyleDrivers,
@@ -1026,5 +1027,104 @@ describe('pose_stylize head-only presets', () => {
       expect(total, preset).toBeGreaterThan(40);
       expect(total, preset).toBeLessThan(52);
     }
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// pose_stylize — the simplified rig surface
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe('pose_stylize simplified rig mode', () => {
+  const run = (extra: Record<string, unknown>) =>
+    pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ head: [0, 45, 0] }),
+      drivers: { ...ZERO_DRIVERS, bodyYaw: 1 },
+      amount: 1,
+      lag: 0,
+      preset: 'follow',
+      ...extra,
+    }) as NormalizedPose;
+
+  const yawOf = (out: NormalizedPose, bone: string) =>
+    euler(out.get(bone as VRMBoneName))[1];
+
+  it('changes nothing when no section total is overridden', () => {
+    const simple = run({ rigMode: 'simple' });
+    const detailed = run({ rigMode: 'detailed' });
+    for (const bone of ['hips', 'spine', 'chest', 'upperChest', 'head'])
+      expect(yawOf(simple, bone), bone).toBeCloseTo(yawOf(detailed, bone), 6);
+  });
+
+  it('defaults to simple mode, which is still the identity', () => {
+    const implicit = run({});
+    const explicit = run({ rigMode: 'simple' });
+    for (const bone of ['hips', 'chest'])
+      expect(yawOf(implicit, bone)).toBeCloseTo(yawOf(explicit, bone), 6);
+  });
+
+  it('scales the whole body chain from one cell', () => {
+    const base = run({ rigMode: 'simple' });
+    const total = deriveSimpleRig(STYLE_RIG_FOLLOW).bodyTurn!.bodyTurn!;
+    const doubled = run({
+      rigMode: 'simple',
+      simpleRig: { bodyTurn: { bodyTurn: total * 2 } },
+    });
+    for (const bone of ['hips', 'spine', 'chest', 'upperChest'])
+      expect(yawOf(doubled, bone), bone).toBeCloseTo(yawOf(base, bone) * 2, 3);
+  });
+
+  it('ignores section totals when the mode is detailed', () => {
+    const base = run({ rigMode: 'detailed' });
+    const withTotals = run({
+      rigMode: 'detailed',
+      simpleRig: { bodyTurn: { bodyTurn: 200 } },
+    });
+    expect(yawOf(withTotals, 'chest')).toBeCloseTo(yawOf(base, 'chest'), 6);
+  });
+
+  it('an unknown mode name falls back to simple', () => {
+    const total = deriveSimpleRig(STYLE_RIG_FOLLOW).bodyTurn!.bodyTurn!;
+    const out = run({
+      rigMode: 'nonsense',
+      simpleRig: { bodyTurn: { bodyTurn: total * 2 } },
+    });
+    const base = run({ rigMode: 'simple' });
+    expect(yawOf(out, 'chest')).toBeCloseTo(yawOf(base, 'chest') * 2, 3);
+  });
+
+  it('composes with per-bone overrides — totals rescale the edited shape', () => {
+    const out = run({
+      rigMode: 'simple',
+      rig: { chest: { drivers: { bodyYaw: [0, 20, 0] } } },
+      simpleRig: null,
+    });
+    expect(yawOf(out, 'chest')).toBeCloseTo(20, 2);
+  });
+
+  it('re-resolves the rig when the mode changes on a live node', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(9_000_000);
+    const total = deriveSimpleRig(STYLE_RIG_FOLLOW).bodyTurn!.bodyTurn!;
+    const n = liveNode('pose_stylize', 'pose', {
+      pose: poseOf({ head: [0, 45, 0] }),
+      drivers: { ...ZERO_DRIVERS, bodyYaw: 1 },
+      amount: 1,
+      lag: 0,
+      preset: 'follow',
+      rigMode: 'simple',
+      simpleRig: { bodyTurn: { bodyTurn: total * 2 } },
+    });
+    const scaled = n.pull({
+      pose: poseOf({ head: [0, 45, 0] }),
+    }) as NormalizedPose;
+
+    vi.setSystemTime(9_000_016);
+    const plain = n.pull({
+      pose: poseOf({ head: [0, 45, 0] }),
+      rigMode: 'detailed',
+    }) as NormalizedPose;
+    expect(Math.abs(yawOf(plain, 'chest'))).toBeLessThan(
+      Math.abs(yawOf(scaled, 'chest'))
+    );
   });
 });

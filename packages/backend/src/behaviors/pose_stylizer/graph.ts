@@ -74,9 +74,21 @@ export const POSE_STYLIZER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       defaultConfig: { field: 'rig', defaultValue: null },
     },
     {
-      id: 'cfg_rest_unmapped',
+      id: 'cfg_rig_mode',
       kind: 'behavior_config',
       position: { x: -360, y: 700 },
+      defaultConfig: { field: 'rigMode', defaultValue: 'simple' },
+    },
+    {
+      id: 'cfg_simple_rig',
+      kind: 'behavior_config',
+      position: { x: -360, y: 780 },
+      defaultConfig: { field: 'simpleRig', defaultValue: null },
+    },
+    {
+      id: 'cfg_rest_unmapped',
+      kind: 'behavior_config',
+      position: { x: -360, y: 860 },
       defaultConfig: { field: 'restUnmapped', defaultValue: false },
     },
     {
@@ -182,6 +194,20 @@ export const POSE_STYLIZER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromPort: 'value',
       toNodeId: 'stylize',
       toPort: 'rig',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'cfg_rig_mode',
+      fromPort: 'value',
+      toNodeId: 'stylize',
+      toPort: 'rigMode',
+      kind: 'value',
+    },
+    {
+      fromNodeId: 'cfg_simple_rig',
+      fromPort: 'value',
+      toNodeId: 'stylize',
+      toPort: 'simpleRig',
       kind: 'value',
     },
     {

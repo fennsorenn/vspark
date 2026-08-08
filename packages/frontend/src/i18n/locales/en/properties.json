@@ -459,6 +459,31 @@
     "resetResponse": "Reset response",
     "rigSection": "Response rig",
     "rigHint": "Per bone: which drivers move it, by how many degrees at full driver strength, whether it replaces tracking or layers over it, and how far it trails.",
+    "rigModeLabel": "Editor",
+    "rigMode": {
+      "simple": "Simplified",
+      "detailed": "Per bone"
+    },
+    "rigModeHint": {
+      "simple": "Head and body as two sections. Each cell is how far that motion moves that section, in degrees. Changing one rescales the whole chain, keeping the preset’s falloff — and the arms keep counteracting the body automatically.",
+      "detailed": "Every bone individually. Switching here brought your simplified values across unchanged, so you can carry on from exactly what was running."
+    },
+    "channel": {
+      "headTurn": "Head turn",
+      "headTilt": "Head tilt",
+      "headNod": "Head nod",
+      "bodyTurn": "Body turn",
+      "bodySway": "Body sway",
+      "bodyLean": "Body lean"
+    },
+    "channelShort": {
+      "headTurn": "H turn",
+      "headTilt": "H tilt",
+      "headNod": "H nod",
+      "bodyTurn": "B turn",
+      "bodySway": "B sway",
+      "bodyLean": "B lean"
+    },
     "rigStock": "Stock rig",
     "rigModified": "{{count}} bone changed",
     "rigModified_other": "{{count}} bones changed",

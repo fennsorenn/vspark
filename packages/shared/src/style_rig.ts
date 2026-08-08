@@ -720,3 +720,255 @@ export function evaluateBoneResponse(
   }
   return [x, y, z];
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Simplified rig — the same mapping, expressed as six section totals
+//
+// The per-bone rig is expressive but wide: twelve bones × nine drivers × three
+// axes. The simplified view collapses the body into two SECTIONS (head and body)
+// and three motions each — the head turns / tilts / nods, the body turns / sways
+// / leans — giving a 6 × 6 matrix of "how much does this driver move that
+// section on that axis".
+//
+// The trick that makes the two views interchangeable: a simplified cell is a
+// SECTION TOTAL, and the detailed rig supplies the SHAPE. Compiling a total back
+// down just rescales the shape's per-bone weights to hit it, so
+// `compileSimpleRig(rig, deriveSimpleRig(rig))` is exactly `rig` — switching
+// modes without editing changes nothing at all, in either direction.
+//
+// Consequences worth knowing:
+//   - Editing a simplified cell rescales that section's whole chain, keeping the
+//     falloff the preset authored. It never flattens the distribution.
+//   - The arm bones ride along with the body channels at whatever ratio the shape
+//     rig gave them, so the arm counter-motion stays proportional automatically —
+//     "correct at the arms" needs no separate control.
+//   - The head↔body counter-rotations are not special-cased: they are simply the
+//     off-diagonal cells (e.g. `headTilt` ← `bodySway`), so they are visible and
+//     editable like anything else.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The six motions, used BOTH as matrix rows (what moves) and columns (what drives
+ * it). Sharing one vocabulary is what keeps the grid readable: the diagonal is a
+ * section answering its own driver, everything off it is cross-coupling.
+ */
+export const SIMPLE_CHANNELS = [
+  'headTurn',
+  'headTilt',
+  'headNod',
+  'bodyTurn',
+  'bodySway',
+  'bodyLean',
+] as const;
+
+export type SimpleChannel = (typeof SIMPLE_CHANNELS)[number];
+
+/** Bones each section owns. Everything else is untouched by the simplified view. */
+export const SIMPLE_SECTION_BONES: Record<'head' | 'body', readonly string[]> =
+  {
+    head: ['neck', 'head'],
+    body: ['hips', 'spine', 'chest', 'upperChest'],
+  };
+
+/**
+ * Bones that ride along with a BODY channel rather than being part of it — the
+ * arms and shoulders, whose job in the stock rigs is to counteract or lag the
+ * torso. They scale with their body channel so the correction stays proportional
+ * when a body total is dialled up or down.
+ */
+export const SIMPLE_CARRIED_BONES: readonly string[] = [
+  'leftShoulder',
+  'rightShoulder',
+  'leftUpperArm',
+  'rightUpperArm',
+  'leftLowerArm',
+  'rightLowerArm',
+];
+
+interface ChannelSpec {
+  /** Which underlying driver this column reads. */
+  driver: StyleDriverName;
+  /** Which Euler axis of `DriverResponse` this row writes (0 = X, 1 = Y, 2 = Z). */
+  axis: 0 | 1 | 2;
+  section: 'head' | 'body';
+}
+
+export const SIMPLE_CHANNEL_SPEC: Record<SimpleChannel, ChannelSpec> = {
+  headTurn: { driver: 'headYaw', axis: 1, section: 'head' },
+  headTilt: { driver: 'headRoll', axis: 2, section: 'head' },
+  headNod: { driver: 'headPitch', axis: 0, section: 'head' },
+  bodyTurn: { driver: 'bodyYaw', axis: 1, section: 'body' },
+  bodySway: { driver: 'bodyRoll', axis: 2, section: 'body' },
+  bodyLean: { driver: 'bodyPitch', axis: 0, section: 'body' },
+};
+
+/**
+ * `row → column → degrees`. The ROW is the motion being produced (and so fixes
+ * the section and the axis); the COLUMN is the driver producing it. Sparse — an
+ * absent cell means no response, exactly like an absent driver in the per-bone rig.
+ */
+export type StyleSimpleRig = Partial<
+  Record<SimpleChannel, Partial<Record<SimpleChannel, number>>>
+>;
+
+/**
+ * Fallback distribution, used only when the shape rig has NOTHING on a channel
+ * and so cannot supply a profile (dialling a section up from a flat zero — e.g.
+ * giving the body a response under a head-only preset). Deliberately mirrors the
+ * falloff of the stock rigs.
+ */
+const DEFAULT_SECTION_PROFILE: Record<
+  'head' | 'body',
+  Record<string, number>
+> = {
+  head: { neck: 0.4, head: 0.6 },
+  body: { hips: 0.23, spine: 0.26, chest: 0.26, upperChest: 0.25 },
+};
+
+function cellOf(
+  rig: StyleRig,
+  bone: string,
+  driver: StyleDriverName,
+  axis: 0 | 1 | 2
+): number {
+  return rig[bone]?.drivers[driver]?.[axis] ?? 0;
+}
+
+/**
+ * Collapse a per-bone rig into the 6 × 6 section totals. This is what the
+ * simplified editor displays, and it is exact: nothing about the chain's shape is
+ * consulted, only the sum the section produces.
+ */
+export function deriveSimpleRig(rig: StyleRig): StyleSimpleRig {
+  const out: StyleSimpleRig = {};
+  for (const row of SIMPLE_CHANNELS) {
+    const { axis, section } = SIMPLE_CHANNEL_SPEC[row];
+    const cells: Partial<Record<SimpleChannel, number>> = {};
+    for (const col of SIMPLE_CHANNELS) {
+      const driver = SIMPLE_CHANNEL_SPEC[col].driver;
+      const total = SIMPLE_SECTION_BONES[section].reduce(
+        (sum, bone) => sum + cellOf(rig, bone, driver, axis),
+        0
+      );
+      if (total !== 0) cells[col] = total;
+    }
+    if (Object.keys(cells).length > 0) out[row] = cells;
+  }
+  return out;
+}
+
+function setCell(
+  rig: StyleRig,
+  bone: string,
+  driver: StyleDriverName,
+  axis: 0 | 1 | 2,
+  value: number
+): void {
+  const entry = rig[bone];
+  if (!entry) return;
+  const existing = entry.drivers[driver];
+  const next: DriverResponse = existing
+    ? [existing[0], existing[1], existing[2]]
+    : [0, 0, 0];
+  next[axis] = value;
+  entry.drivers = { ...entry.drivers, [driver]: next };
+}
+
+/**
+ * Apply simplified section totals on top of a per-bone rig.
+ *
+ * For every cell the caller names, the section's bones (and, for body channels,
+ * the arm bones that ride with them) are rescaled so the section sums to the
+ * requested total, preserving the shape rig's falloff. Cells the caller omits are
+ * left completely alone, which is why an empty override is the identity — and why
+ * flipping between the simplified and detailed editors is lossless.
+ *
+ * When the shape rig has nothing on a channel there is no profile to preserve, so
+ * the total is laid out with `DEFAULT_SECTION_PROFILE` instead (and no arm
+ * correction is invented).
+ */
+export function compileSimpleRig(
+  shape: StyleRig,
+  overrides?: StyleSimpleRig | null
+): StyleRig {
+  if (!overrides || Object.keys(overrides).length === 0) return shape;
+
+  // Deep-enough copy: entries and their driver maps are replaced, never mutated.
+  const out: StyleRig = {};
+  for (const [bone, entry] of Object.entries(shape))
+    out[bone] = { ...entry, drivers: { ...entry.drivers } };
+
+  for (const row of SIMPLE_CHANNELS) {
+    const cells = overrides[row];
+    if (!cells) continue;
+    const { axis, section } = SIMPLE_CHANNEL_SPEC[row];
+    const sectionBones = SIMPLE_SECTION_BONES[section];
+
+    for (const col of SIMPLE_CHANNELS) {
+      const target = cells[col];
+      if (target === undefined) continue;
+      const driver = SIMPLE_CHANNEL_SPEC[col].driver;
+
+      const current = sectionBones.reduce(
+        (sum, bone) => sum + cellOf(shape, bone, driver, axis),
+        0
+      );
+
+      if (current !== 0) {
+        // Rescale the authored shape — section bones and the arms that ride with
+        // a body channel alike, so the counter-motion stays proportional.
+        const factor = target / current;
+        const scaled =
+          section === 'body'
+            ? [...sectionBones, ...SIMPLE_CARRIED_BONES]
+            : sectionBones;
+        for (const bone of scaled) {
+          const v = cellOf(shape, bone, driver, axis);
+          if (v !== 0) setCell(out, bone, driver, axis, v * factor);
+        }
+      } else if (target !== 0) {
+        // Nothing to rescale — lay the total out on the fallback profile. Bones
+        // the rig does not carry at all are created so the channel can exist.
+        for (const [bone, share] of Object.entries(
+          DEFAULT_SECTION_PROFILE[section]
+        )) {
+          out[bone] ??= {
+            mode: section === 'head' || section === 'body' ? 'replace' : 'add',
+            lag: 1,
+            drivers: {},
+          };
+          setCell(out, bone, driver, axis, target * share);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** The two editing surfaces over the same rig. */
+export const RIG_MODES = ['simple', 'detailed'] as const;
+export type RigMode = (typeof RIG_MODES)[number];
+export const DEFAULT_RIG_MODE: RigMode = 'simple';
+
+/** Normalize a (possibly unknown / absent) mode name. */
+export function resolveRigMode(name?: string | null): RigMode {
+  return (RIG_MODES as readonly string[]).includes(name ?? '')
+    ? (name as RigMode)
+    : DEFAULT_RIG_MODE;
+}
+
+/**
+ * The one place that turns a behavior's rig config into the rig the node runs:
+ * preset → per-bone overrides → (in simple mode) section-total overrides.
+ */
+export function resolveStyleRig(
+  presetName?: string | null,
+  detailedOverrides?: StyleRig | null,
+  mode?: string | null,
+  simpleOverrides?: StyleSimpleRig | null
+): StyleRig {
+  const shape = mergeStyleRig(styleRigPreset(presetName), detailedOverrides);
+  return resolveRigMode(mode) === 'simple'
+    ? compileSimpleRig(shape, simpleOverrides)
+    : shape;
+}

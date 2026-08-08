@@ -20,11 +20,19 @@ import {
   resolveStyleResponse,
   DEFAULT_STYLE_STRENGTH,
   MAX_STYLE_STRENGTH,
+  SIMPLE_CHANNELS,
+  deriveSimpleRig,
+  compileSimpleRig,
+  resolveRigMode,
+  mergeStyleRig,
   type StyleDriverName,
   type StyleRig,
   type StyleBoneResponse,
   type StyleResponse,
   type DriverResponse,
+  type StyleSimpleRig,
+  type SimpleChannel,
+  type RigMode,
 } from '@vspark/shared/style_rig';
 import type { PoseSection, PoseSource } from '@vspark/shared';
 import { useParams } from 'react-router-dom';
@@ -3169,6 +3177,91 @@ interface StylizerConfig {
   preset?: string;
   response?: Partial<StyleResponse>;
   rig?: StyleRig | null;
+  rigMode?: string;
+  simpleRig?: StyleSimpleRig | null;
+}
+
+/**
+ * The simplified rig editor: a 6 × 6 grid of section totals. Rows are the motion
+ * produced, columns the driver producing it, so the diagonal is a section
+ * answering its own driver and everything off it is cross-coupling (including the
+ * head↔body counter-rotations).
+ */
+function SimpleRigGrid({
+  effective,
+  overrides,
+  onChange,
+}: {
+  /** The rig actually running — supplies the displayed totals. */
+  effective: StyleRig;
+  overrides: StyleSimpleRig;
+  onChange: (next: StyleSimpleRig) => void;
+}) {
+  const { t } = useTranslation('properties');
+  const derived = deriveSimpleRig(effective);
+
+  const valueOf = (row: SimpleChannel, col: SimpleChannel) =>
+    overrides[row]?.[col] ?? derived[row]?.[col] ?? 0;
+
+  const setCell = (row: SimpleChannel, col: SimpleChannel, v: number) =>
+    onChange({ ...overrides, [row]: { ...overrides[row], [col]: v } });
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'collapse', fontSize: 11 }}>
+        <thead>
+          <tr>
+            <th />
+            {SIMPLE_CHANNELS.map((col) => (
+              <th
+                key={col}
+                title={t(`stylizedTracking.channel.${col}`)}
+                style={{
+                  fontWeight: 400,
+                  color: '#888',
+                  padding: '2px 4px',
+                  textAlign: 'center',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {t(`stylizedTracking.channelShort.${col}`)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {SIMPLE_CHANNELS.map((row) => (
+            <tr key={row}>
+              <th
+                style={{
+                  fontWeight: 400,
+                  color: '#888',
+                  padding: '2px 6px 2px 0',
+                  textAlign: 'right',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {t(`stylizedTracking.channel.${row}`)}
+              </th>
+              {SIMPLE_CHANNELS.map((col) => (
+                <td key={col} style={{ padding: 1 }}>
+                  <NumInput
+                    className={`vs-stylize-cell-${row}-${col}`}
+                    value={valueOf(row, col)}
+                    step={1}
+                    suffix="°"
+                    style={{ width: 62 }}
+                    onChange={(v) => setCell(row, col, v)}
+                    onCommit={(v) => setCell(row, col, v)}
+                  />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 /** The tunable half of `StyleResponse`, in panel order. */
@@ -3344,7 +3437,30 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
   const overrides = cfg.rig ?? {};
   // The rig editor shows the selected preset as the baseline; the stored
   // override holds only the bones the user actually changed.
+  const rigMode: RigMode = resolveRigMode(cfg.rigMode);
+  const simpleOverrides = cfg.simpleRig ?? {};
   const baseRig = styleRigPreset(cfg.preset);
+  // The detailed rig (preset + per-bone overrides) is the SHAPE; in simple mode
+  // the section totals rescale it. Both editors read this same effective rig, so
+  // whichever one is open is showing what is actually running.
+  const shapeRig = mergeStyleRig(baseRig, cfg.rig);
+  const effectiveRig =
+    rigMode === 'simple' ? compileSimpleRig(shapeRig, cfg.simpleRig) : shapeRig;
+
+  /**
+   * Switching editors must never change the pose. Going to `detailed` bakes the
+   * compiled result into the per-bone overrides so the bone list opens showing
+   * exactly what was running; going back to `simple` needs no data change at all,
+   * because an empty section-total override is the identity.
+   */
+  const setRigMode = (next: RigMode) => {
+    if (next === rigMode) return;
+    save(
+      next === 'detailed'
+        ? { rigMode: next, rig: effectiveRig, simpleRig: null }
+        : { rigMode: next }
+    );
+  };
   // Response and follow-through layer defaults → the preset's own baseline → the
   // user's overrides, so switching preset re-baselines anything untouched.
   const response: StyleResponse = resolveStyleResponse(
@@ -3362,10 +3478,10 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
   // Bones the panel offers: everything the stock rig drives, plus anything the
   // user has added on top. The stored override holds ONLY the deltas.
   const rigBones = [
-    ...new Set([...Object.keys(baseRig), ...Object.keys(overrides)]),
+    ...new Set([...Object.keys(effectiveRig), ...Object.keys(overrides)]),
   ];
   const effectiveEntry = (bone: string): StyleBoneResponse => {
-    const base = baseRig[bone];
+    const base = effectiveRig[bone];
     const over = overrides[bone];
     return {
       mode: over?.mode ?? base?.mode ?? 'replace',
@@ -3575,48 +3691,91 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
             <button
               className="vs-stylize-reset-rig"
               style={resetBtnStyle}
-              onClick={() => save({ rig: null })}
+              onClick={() => save({ rig: null, simpleRig: null })}
             >
               {t('stylizedTracking.resetRig')}
             </button>
           )}
         </div>
-        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
-          {t('stylizedTracking.rigHint')}
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {rigBones.map((bone) => (
-            <RigBoneRow
-              key={bone}
-              bone={bone}
-              entry={effectiveEntry(bone)}
-              modified={bone in overrides}
-              onChange={(patch) => setBone(bone, patch)}
-              onReset={() => resetBone(bone)}
-            />
-          ))}
-        </div>
-        {unusedBones.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: '#888' }}>
+            {t('stylizedTracking.rigModeLabel')}
+          </span>
           <select
-            className="vs-stylize-addbone"
-            value=""
-            onChange={(e) => {
-              if (e.target.value)
-                setBone(e.target.value, {
-                  mode: 'add',
-                  lag: 1,
-                  drivers: { bodyRoll: [0, 0, 0] },
-                });
-            }}
-            style={{ ...rigSelectStyle, marginTop: 6 }}
+            className="vs-stylize-rigmode"
+            value={rigMode}
+            onChange={(e) => setRigMode(e.target.value as RigMode)}
+            style={{ ...rigSelectStyle, flex: 1 }}
           >
-            <option value="">{t('stylizedTracking.addBone')}</option>
-            {unusedBones.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
+            <option value="simple">
+              {t('stylizedTracking.rigMode.simple')}
+            </option>
+            <option value="detailed">
+              {t('stylizedTracking.rigMode.detailed')}
+            </option>
           </select>
+        </div>
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t(`stylizedTracking.rigModeHint.${rigMode}`)}
+        </div>
+
+        {rigMode === 'simple' ? (
+          <>
+            <SimpleRigGrid
+              effective={effectiveRig}
+              overrides={simpleOverrides}
+              onChange={(next) => save({ simpleRig: next })}
+            />
+            {Object.keys(simpleOverrides).length > 0 && (
+              <button
+                className="vs-stylize-reset-simple"
+                style={resetBtnStyle}
+                onClick={() => save({ simpleRig: null })}
+              >
+                {t('stylizedTracking.resetRig')}
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+              {t('stylizedTracking.rigHint')}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {rigBones.map((bone) => (
+                <RigBoneRow
+                  key={bone}
+                  bone={bone}
+                  entry={effectiveEntry(bone)}
+                  modified={bone in overrides}
+                  onChange={(patch) => setBone(bone, patch)}
+                  onReset={() => resetBone(bone)}
+                />
+              ))}
+            </div>
+            {unusedBones.length > 0 && (
+              <select
+                className="vs-stylize-addbone"
+                value=""
+                onChange={(e) => {
+                  if (e.target.value)
+                    setBone(e.target.value, {
+                      mode: 'add',
+                      lag: 1,
+                      drivers: { bodyRoll: [0, 0, 0] },
+                    });
+                }}
+                style={{ ...rigSelectStyle, marginTop: 6 }}
+              >
+                <option value="">{t('stylizedTracking.addBone')}</option>
+                {unusedBones.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            )}
+          </>
         )}
       </CollapsibleSection>
     </div>

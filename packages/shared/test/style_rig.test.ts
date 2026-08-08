@@ -11,6 +11,15 @@ import {
   DEFAULT_STYLE_LAG,
   stylePreset,
   styleRigPreset,
+  SIMPLE_CHANNELS,
+  SIMPLE_SECTION_BONES,
+  SIMPLE_CHANNEL_SPEC,
+  deriveSimpleRig,
+  compileSimpleRig,
+  resolveRigMode,
+  resolveStyleRig,
+  DEFAULT_RIG_MODE,
+  RIG_MODES,
   styleRigPresetLag,
   ZERO_DRIVERS,
   DEFAULT_STYLE_RESPONSE,
@@ -568,5 +577,184 @@ describe('style presets', () => {
     expect(STYLE_RIG_HEAD_ONLY_COUNTER.head.drivers.headYaw).toEqual([
       0, 40, 0,
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Simplified rig — section totals over the same per-bone rig
+// ---------------------------------------------------------------------------
+
+const cell = (rig: StyleRig, bone: string, driver: string, axis: number) =>
+  (rig[bone]?.drivers as Record<string, number[] | undefined>)?.[driver]?.[
+    axis
+  ] ?? 0;
+
+describe('simplified rig', () => {
+  it('declares six channels, each bound to a driver, axis and section', () => {
+    expect(SIMPLE_CHANNELS).toHaveLength(6);
+    for (const c of SIMPLE_CHANNELS) {
+      const spec = SIMPLE_CHANNEL_SPEC[c];
+      expect(STYLE_DRIVER_NAMES).toContain(spec.driver);
+      expect([0, 1, 2]).toContain(spec.axis);
+      expect(Object.keys(SIMPLE_SECTION_BONES)).toContain(spec.section);
+    }
+  });
+
+  it('derives a section total by summing that section only', () => {
+    const simple = deriveSimpleRig(STYLE_RIG_FOLLOW);
+    const expected = SIMPLE_SECTION_BONES.body.reduce(
+      (sum, b) => sum + cell(STYLE_RIG_FOLLOW, b, 'bodyYaw', 1),
+      0
+    );
+    expect(simple.bodyTurn!.bodyTurn).toBe(expected);
+    // The head's counter-rotation shows up as an off-diagonal cell.
+    expect(simple.headTilt!.bodySway).toBeLessThan(0);
+  });
+
+  // THE property the whole two-editor design rests on.
+  it('round-trips EVERY preset exactly — switching editors cannot change the pose', () => {
+    for (const name of STYLE_PRESET_NAMES) {
+      const rig = STYLE_PRESETS[name].rig;
+      expect(compileSimpleRig(rig, deriveSimpleRig(rig)), name).toEqual(rig);
+    }
+  });
+
+  it('an empty or absent override is the identity', () => {
+    expect(compileSimpleRig(STYLE_RIG_FOLLOW, {})).toBe(STYLE_RIG_FOLLOW);
+    expect(compileSimpleRig(STYLE_RIG_FOLLOW, null)).toBe(STYLE_RIG_FOLLOW);
+    expect(compileSimpleRig(STYLE_RIG_FOLLOW)).toBe(STYLE_RIG_FOLLOW);
+  });
+
+  it('rescales the whole chain, preserving the preset’s falloff', () => {
+    const before = deriveSimpleRig(STYLE_RIG_FOLLOW).bodyTurn!.bodyTurn!;
+    const out = compileSimpleRig(STYLE_RIG_FOLLOW, {
+      bodyTurn: { bodyTurn: before * 2 },
+    });
+    for (const bone of SIMPLE_SECTION_BONES.body)
+      expect(cell(out, bone, 'bodyYaw', 1)).toBeCloseTo(
+        cell(STYLE_RIG_FOLLOW, bone, 'bodyYaw', 1) * 2,
+        6
+      );
+    expect(deriveSimpleRig(out).bodyTurn!.bodyTurn).toBeCloseTo(before * 2, 6);
+  });
+
+  it('carries the arms with a body channel so the correction stays proportional', () => {
+    const before = deriveSimpleRig(STYLE_RIG_FOLLOW).bodyTurn!.bodyTurn!;
+    const out = compileSimpleRig(STYLE_RIG_FOLLOW, {
+      bodyTurn: { bodyTurn: before * 2 },
+    });
+    for (const bone of ['leftUpperArm', 'rightUpperArm', 'leftShoulder'])
+      expect(cell(out, bone, 'bodyYaw', 1), bone).toBeCloseTo(
+        cell(STYLE_RIG_FOLLOW, bone, 'bodyYaw', 1) * 2,
+        6
+      );
+  });
+
+  it('does NOT carry the arms with a head channel', () => {
+    const before = deriveSimpleRig(STYLE_RIG_FOLLOW).headTurn!.headTurn!;
+    const out = compileSimpleRig(STYLE_RIG_FOLLOW, {
+      headTurn: { headTurn: before * 2 },
+    });
+    expect(cell(out, 'leftUpperArm', 'headYaw', 1)).toBe(
+      cell(STYLE_RIG_FOLLOW, 'leftUpperArm', 'headYaw', 1)
+    );
+  });
+
+  it('leaves every channel the override does not name completely alone', () => {
+    const out = compileSimpleRig(STYLE_RIG_FOLLOW, {
+      headTurn: { headTurn: 90 },
+    });
+    const before = deriveSimpleRig(STYLE_RIG_FOLLOW);
+    const after = deriveSimpleRig(out);
+    for (const row of SIMPLE_CHANNELS)
+      for (const col of SIMPLE_CHANNELS) {
+        if (row === 'headTurn' && col === 'headTurn') continue;
+        expect(after[row]?.[col], `${row}/${col}`).toBe(before[row]?.[col]);
+      }
+  });
+
+  it('lays a total onto the fallback profile when the shape has nothing there', () => {
+    // headOnly consumes no body DRIVERS, so the bodyTurn/bodyTurn diagonal is
+    // empty — while the bodyTurn ROW is alive, fed from the headTurn column.
+    // (That is exactly how the grid reveals a head-only rig at a glance.)
+    const headOnlySimple = deriveSimpleRig(STYLE_RIG_HEAD_ONLY);
+    expect(headOnlySimple.bodyTurn?.bodyTurn).toBeUndefined();
+    expect(headOnlySimple.bodyTurn?.headTurn).toBeGreaterThan(0);
+    const out = compileSimpleRig(STYLE_RIG_HEAD_ONLY, {
+      bodyTurn: { bodyTurn: 20 },
+    });
+    expect(deriveSimpleRig(out).bodyTurn!.bodyTurn).toBeCloseTo(20, 6);
+    for (const bone of SIMPLE_SECTION_BONES.body)
+      expect(cell(out, bone, 'bodyYaw', 1), bone).toBeGreaterThan(0);
+    // …and invents no arm correction it has no basis for.
+    expect(cell(out, 'leftUpperArm', 'bodyYaw', 1)).toBe(0);
+  });
+
+  it('never mutates the shape rig', () => {
+    const snapshot = JSON.stringify(STYLE_RIG_FOLLOW);
+    compileSimpleRig(STYLE_RIG_FOLLOW, { bodyTurn: { bodyTurn: 99 } });
+    expect(JSON.stringify(STYLE_RIG_FOLLOW)).toBe(snapshot);
+  });
+
+  it('can zero a channel out entirely', () => {
+    const out = compileSimpleRig(STYLE_RIG_FOLLOW, {
+      bodyTurn: { bodyTurn: 0 },
+    });
+    for (const bone of SIMPLE_SECTION_BONES.body)
+      expect(cell(out, bone, 'bodyYaw', 1)).toBe(0);
+  });
+});
+
+describe('resolveRigMode / resolveStyleRig', () => {
+  it('normalizes the mode name and defaults to simple', () => {
+    expect(RIG_MODES).toEqual(['simple', 'detailed']);
+    expect(DEFAULT_RIG_MODE).toBe('simple');
+    expect(resolveRigMode('detailed')).toBe('detailed');
+    for (const bad of [undefined, null, '', 'nope'])
+      expect(resolveRigMode(bad)).toBe('simple');
+  });
+
+  it('layers preset → per-bone overrides → section totals', () => {
+    const out = resolveStyleRig(
+      'follow',
+      { head: { drivers: { headYaw: [0, 30, 0] } } },
+      'simple',
+      null
+    );
+    expect(cell(out, 'head', 'headYaw', 1)).toBe(30);
+  });
+
+  it('ignores section totals in detailed mode', () => {
+    const args = [
+      'follow',
+      null,
+      'detailed',
+      { bodyTurn: { bodyTurn: 999 } },
+    ] as const;
+    expect(resolveStyleRig(...args)).toEqual(STYLE_RIG_FOLLOW);
+  });
+
+  it('applies section totals in simple mode', () => {
+    const out = resolveStyleRig('follow', null, 'simple', {
+      bodyTurn: { bodyTurn: 52 },
+    });
+    expect(deriveSimpleRig(out).bodyTurn!.bodyTurn).toBeCloseTo(52, 6);
+  });
+
+  it('is identical in both modes when nothing is overridden — seamless switching', () => {
+    for (const name of STYLE_PRESET_NAMES) {
+      const simple = resolveStyleRig(name, null, 'simple', null);
+      const detailed = resolveStyleRig(name, null, 'detailed', null);
+      expect(simple, name).toEqual(detailed);
+    }
+  });
+
+  it('baking simple → detailed preserves the rig exactly (the UI mode switch)', () => {
+    // What the panel does on switch: compile, store as per-bone overrides, drop
+    // the section totals. The resulting rig must be byte-identical.
+    const edited = { bodyTurn: { bodyTurn: 40 }, headNod: { headNod: 30 } };
+    const running = resolveStyleRig('counter', null, 'simple', edited);
+    const baked = resolveStyleRig('counter', running, 'detailed', null);
+    expect(baked).toEqual(running);
   });
 });

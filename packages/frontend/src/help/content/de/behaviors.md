@@ -179,9 +179,29 @@ Verzögerung.
 
 ### Antwort-Rig
 
-Das **Antwort-Rig** ist die Zuordnung selbst, und du kannst jeden Knochen darin
-bearbeiten. Zu jedem Knochen stehen die Steuerwerte, die ihn bewegen, und wie
-viele Grad jeder davon bei voller Stärke beiträgt, in X / Y / Z.
+Das **Antwort-Rig** ist die Zuordnung selbst, und es gibt zwei Wege, sie zu
+bearbeiten.
+
+**Vereinfacht** (Standard) behandelt dich als Kopf und Körper. Sechs Bewegungen —
+der Kopf dreht, neigt und nickt; der Körper dreht, schwingt und beugt sich — als
+Raster. Jede Zelle sagt, wie weit eine dieser Bewegungen diesen Teil dreht, in
+Grad. Die Zeile *Körper drehen* zu lesen sagt dir, was den Körper dreht: er selbst,
+dein Kopf, oder beides.
+
+Änderst du eine Zelle, skaliert die ganze Kette mit und behält die Form, die die
+Voreinstellung ihr gegeben hat — die Hüfte bewegt sich weiterhin weniger als die
+Brust, der Abfall bleibt erhalten. Zwei Dinge laufen von allein mit: Die Arme
+gleichen den Körper im selben Verhältnis weiter aus, und der Kopf dreht weiter
+dagegen, damit dein Blick waagerecht bleibt. Diese Gegenbewegungen sind die
+negativen Zellen im Raster — du kannst sie also sehen und ändern.
+
+Ein Lesetipp: Ist die Zeile *Körper drehen* in ihrer eigenen Spalte leer, hat aber
+einen Wert unter *Kopf drehen*, siehst du eine kopfgesteuerte Voreinstellung — der
+Körper bewegt sich ausschließlich, weil dein Kopf es tut.
+
+**Pro Knochen** öffnet die vollständige Tabelle: Zu jedem Knochen stehen die
+Steuerwerte, die ihn bewegen, und wie viele Grad jeder bei voller Stärke
+beiträgt, in X / Y / Z.
 
 Ein Knochen ist in einem von zwei Modi. **Ersetzen** heißt, der Knochen wird
 vollständig aus den Steuerwerten gebaut und das Tracking verworfen — das macht
@@ -189,9 +209,11 @@ ihn ruckelfest, und es ist die richtige Wahl für Wirbelsäule, Hals, Kopf und
 Schultern. **Addieren** behält deine getrackte Bewegung und legt den Beitrag des
 Rigs darüber; so arbeiten die Arme, damit deine eigenen Gesten erhalten bleiben.
 
-Ein Wechsel der Variante setzt den ganzen Editor neu auf, aber bereits
-überschriebene Knochen behalten deine Werte — setze einen Knochen (oder das ganze
-Rig) zurück, um die Werte der neuen Variante zu übernehmen.
+**Du kannst frei zwischen beiden wechseln.** Der Wechsel übernimmt deine
+Einstellung unverändert — dein Avatar zuckt nicht einmal. Der Wechsel zu *Pro
+Knochen* schreibt genau das aus, was die vereinfachte Ansicht erzeugt hat, sodass
+du von dort aus feinjustieren kannst; zurück fasst es wieder zu den Bereichssummen
+zusammen.
 
 **Nachlauf** ist ein Multiplikator pro Knochen auf den globalen Nachlauf. Das
 Standard-Rig staffelt ihn die Kette hinunter — die Hüfte läuft am weitesten

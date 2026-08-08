@@ -181,6 +181,80 @@ carry a response baseline, not just a rig.
 > `pose_stylizer`'s `defaultConfig` for exactly this reason, and `cfg_lag`'s
 > `defaultValue` is `null` rather than a number so an unset lag falls through.
 
+## Two editing surfaces
+
+The per-bone rig is expressive but wide — twelve bones × nine drivers × three
+axes. `rigMode` picks between it and a coarser view:
+
+| Mode | Surface | Config field |
+|---|---|---|
+| `simple` (default) | 6 × 6 grid of **section totals** | `simpleRig` |
+| `detailed` | the full per-bone table | `rig` |
+
+The simplified view collapses the body into two **sections** (head = neck + head,
+body = hips + spine + chest + upperChest) and three motions each — the head
+turns / tilts / nods, the body turns / sways / leans. Rows are the motion being
+produced (which fixes the section and the Euler axis), columns the driver
+producing it, so the diagonal is a section answering its own driver and
+everything off it is cross-coupling.
+
+### Why switching is lossless
+
+A simplified cell is a **section total**; the per-bone rig supplies the **shape**.
+Compiling a total back down just rescales the section's existing weights to hit
+it, so:
+
+```
+compileSimpleRig(rig, deriveSimpleRig(rig)) === rig        // exactly, for every preset
+compileSimpleRig(rig, {})                   === rig        // empty override is the identity
+```
+
+Both are asserted for all five presets. That gives seamless switching in both
+directions with no special cases:
+
+- **simple → detailed** — the panel bakes the compiled rig into `rig` and clears
+  `simpleRig`, so the bone list opens showing exactly what was running.
+- **detailed → simple** — nothing to write at all; the grid derives its totals
+  from the effective rig, and an empty override runs it unchanged.
+
+### What editing a cell does
+
+It rescales that section's whole chain, keeping the falloff the preset authored —
+it never flattens the distribution. Two things ride along automatically:
+
+- **The arms.** Shoulders and arms scale with their *body* channel at whatever
+  ratio the shape rig gave them, so the counter-motion stays proportional when a
+  body total is dialled up or down. "Correct at the arms" needs no separate
+  control. (Head channels do not carry them.)
+- **The head↔body counter-rotations.** These are not special-cased — they are
+  simply the off-diagonal cells (`headTilt` ← `bodySway`, `headNod` ← `bodyLean`),
+  so they are visible and editable like anything else.
+
+When the shape rig has *nothing* on a channel there is no profile to preserve, so
+the total is laid out on `DEFAULT_SECTION_PROFILE` instead, and no arm correction
+is invented. This is what lets you dial a body response up from flat zero under a
+head-only preset.
+
+### Reading a preset off the grid
+
+The grid makes a preset's character legible at a glance:
+
+| Preset | `bodyTurn` row |
+|---|---|
+| `follow` | positive on the `bodyTurn` diagonal |
+| `counter` | positive diagonal, and the head columns go negative |
+| `headOnly` | **diagonal empty**, `headTurn` column positive — the body is driven entirely by the head |
+
+### Resolution order
+
+```
+shape     = mergeStyleRig(preset.rig, config.rig)
+effective = rigMode === 'simple' ? compileSimpleRig(shape, config.simpleRig) : shape
+```
+
+`resolveStyleRig(preset, rig, rigMode, simpleRig)` is the single entry point;
+both the node and the panel call it, so they cannot drift.
+
 ## The rig
 
 `StyleRig` is `boneName → { mode, lag, drivers }`, where `drivers` maps a driver
@@ -256,7 +330,9 @@ entirely — that is how the UI's "switch this bone off" round-trips.
   "response": { "headRange": 45, "bodyRange": 25, "armRange": 90,
                 "armNeutral": -60, "deadzone": 0.03, "maxRate": 5,
                 "smoothing": 0.35, "energyScale": 4 },
-  "rig": null            // null = the preset verbatim; else per-bone/per-driver overrides
+  "rig": null,           // null = the preset verbatim; else per-bone/per-driver overrides
+  "rigMode": "simple",   // which editor: 'simple' (6x6 section totals) | 'detailed'
+  "simpleRig": null      // section-total overrides; null/{} is the identity
 }
 ```
 

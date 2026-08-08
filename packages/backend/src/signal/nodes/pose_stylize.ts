@@ -5,12 +5,12 @@ import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 import {
   type StyleDrivers,
   type StyleRig,
+  type StyleSimpleRig,
   type DriverResponse,
   DEFAULT_STYLE_RIG,
   ZERO_DRIVERS,
-  mergeStyleRig,
   evaluateBoneResponse,
-  styleRigPreset,
+  resolveStyleRig,
   styleRigPresetLag,
   DEFAULT_STYLE_STRENGTH,
   MAX_STYLE_STRENGTH,
@@ -88,15 +88,29 @@ export class PoseStylize extends Node {
   @valueIn('preset', 'String') presetIn!: () => string | undefined;
   /** `StyleRig` overrides, merged over the selected preset. */
   @valueIn('rig', 'Any') rigIn!: () => StyleRig | undefined;
+  /**
+   * Which editing surface the behavior is using: `'detailed'` runs the per-bone
+   * rig as-is, `'simple'` additionally applies `simpleRig`'s section totals on
+   * top. Unknown/absent → `simple`.
+   */
+  @valueIn('rigMode', 'String') rigModeIn!: () => string | undefined;
+  /**
+   * Simplified-view overrides: 6 × 6 section totals that rescale the per-bone rig
+   * without flattening its falloff. Empty/absent is the identity, which is what
+   * makes switching editors lossless.
+   */
+  @valueIn('simpleRig', 'Any') simpleRigIn!: () => StyleSimpleRig | undefined;
   /** Send bones the rig does not own back to rest instead of passing tracking through. */
   @valueIn('restUnmapped', 'Bool') restUnmappedIn!: () => boolean | undefined;
 
   /** Per-bone lagged Euler triple (degrees), the integrator's carry. */
   private readonly _current = new Map<string, DriverResponse>();
   private _lastAt = 0;
-  /** Cached merged rig, rebuilt only when the preset or override identity changes. */
+  /** Cached resolved rig, rebuilt only when one of its four inputs changes identity. */
   private _rigFor: StyleRig | undefined | null = null;
   private _presetFor: string | undefined | null = null;
+  private _modeFor: string | undefined | null = null;
+  private _simpleFor: StyleSimpleRig | undefined | null = null;
   private _rig: StyleRig = DEFAULT_STYLE_RIG;
   /** Memo so multiple pulls in one frame integrate the lag exactly once. */
   private _memoFor: NormalizedPose | null = null;
@@ -176,16 +190,25 @@ export class PoseStylize extends Node {
   };
 
   /**
-   * Merge the user's rig over the selected preset, memoized on the preset name
-   * and the override object's identity.
+   * preset → per-bone overrides → (in simple mode) section-total overrides,
+   * memoized on the identity of all four inputs.
    */
   private _resolveRig(): StyleRig {
     const overrides = this.rigIn();
     const preset = this.presetIn();
-    if (this._rigFor !== overrides || this._presetFor !== preset) {
+    const mode = this.rigModeIn();
+    const simple = this.simpleRigIn();
+    if (
+      this._rigFor !== overrides ||
+      this._presetFor !== preset ||
+      this._modeFor !== mode ||
+      this._simpleFor !== simple
+    ) {
       this._rigFor = overrides;
       this._presetFor = preset;
-      this._rig = mergeStyleRig(styleRigPreset(preset), overrides);
+      this._modeFor = mode;
+      this._simpleFor = simple;
+      this._rig = resolveStyleRig(preset, overrides, mode, simple);
     }
     return this._rig;
   }
