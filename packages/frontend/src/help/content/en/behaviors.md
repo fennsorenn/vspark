@@ -92,12 +92,24 @@ silhouette. It is not simply the first one reversed — the head and neck carry
 noticeably more rotation to make up for the torso subtracting instead of adding,
 so you still end up looking where you're looking.
 
-**Head-driven only** — your head is the *only* thing steering the avatar. Torso
-and arm tracking are ignored completely. Reach for it in two situations: you're
-using a face-only tracker (a phone or webcam face tracker gives head rotation and
-nothing else — this makes that drive a whole body), or your body tracking is too
-noisy to trust and the head is the one clean signal. The body moves noticeably
-more per unit of head movement to make up for having no other input.
+**Head-driven, body follows** — your head is the *only* thing steering the
+avatar. Torso and arm tracking are ignored completely. Reach for it in two
+situations: you're using a face-only tracker (a phone or webcam face tracker
+gives head rotation and nothing else — this makes that drive a whole body), or
+your body tracking is too noisy to trust and the head is the one clean signal.
+The body turns noticeably more per unit of head movement to make up for having no
+other input.
+
+**Head-driven, body counters** — the same, with the contrapposto twist: your head
+steers, and the torso turns against it. Pick between these two the same way you'd
+pick between the first pair; it's the same choice of character, on a head-only
+signal.
+
+In both head-driven presets, **nodding stays in your head and neck** rather than
+travelling down the spine. That's deliberate: turning and tilting are whole-body
+gestures — you pivot from the hips to look behind you — but a nod spread through
+the spine stops reading as a nod and starts reading as a *bow*, which means
+something else entirely.
 
 **Expressive** — the same mapping as *Body follows head*, but it takes far less
 movement to reach full strength, and the body trails further behind. For

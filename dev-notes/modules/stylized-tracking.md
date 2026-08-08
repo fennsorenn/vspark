@@ -92,7 +92,8 @@ switching preset re-baselines whatever the user has not explicitly pinned.
 |---|---|---|---|
 | `follow` (default) | torso turns **with** the head | — | the body leans into the look; warm, engaged |
 | `counter` | torso twists **against** the head | — | contrapposto / S-curve; theatrical, posed |
-| `headOnly` | head drivers only | — | face-only trackers, or body data you don't trust |
+| `headOnly` | head drivers only, torso **follows** | — | face-only trackers, or body data you don't trust |
+| `headOnlyCounter` | head drivers only, torso **counters** | — | the same, with a contrapposto silhouette |
 | `expressive` | follow's | tighter `response`, longer `lag` | staying still and still reading as animated |
 
 Unknown or absent name → `follow`.
@@ -110,7 +111,7 @@ terms alone would take the summed head-in-world yaw from ~47° to ~13°, i.e. th
 avatar would stop looking where the performer looks. So the head and neck are
 scaled up to carry ~55°, netting back to `headRange`.
 
-### headOnly — head orientation as the sole signal
+### headOnly / headOnlyCounter — head orientation as the sole signal
 
 Every `body*` and `arm*` term is zeroed. Because `mergeStyleRig` prunes zero
 triples and drops a bone once nothing drives it, the forearms (which existed only
@@ -118,13 +119,28 @@ for body follow-through) fall out of the rig entirely and simply pass tracking
 through. The shoulders survive by trading their torso-follow and arm-lift terms
 for a head-turn lag.
 
-The torso terms are scaled **up** and head/neck **down** relative to follow: with
-no other signal, the body has to carry more per unit of head movement or the
-result reads as a bobbling head on a statue. The chain still totals `headRange`.
-
 Two situations want this: a face-only source (a phone/webcam face tracker gives
 head rotation and nothing else, and this makes it drive a whole body), or
 full-body tracking whose torso/arm data is too noisy to trust.
+
+`headOnlyCounter` is built on top of `STYLE_RIG_HEAD_ONLY`, so it inherits the
+head-only property and the dropped bones for free — its delta is purely the
+torso direction, plus the same head/neck compensation `counter` needs. Its
+shoulders flip sign with the torso they lag.
+
+**Turn and tilt scale UP on the torso** relative to follow (and head/neck down):
+with no other signal the body has to carry more per unit of head movement, or the
+result reads as a bobbling head on a statue.
+
+**The nod is the deliberate exception.** It stays concentrated on head and neck
+— ~78% of it in `headOnly`, ~89% in `headOnlyCounter`, and *less* on the torso
+than `follow` puts there. Turning and tilting are whole-body gestures (you pivot
+from the hips to look behind you); nodding is not. A nod spread down the spine
+the way a turn is spread reads as **bowing**, which is a completely different
+gesture from agreeing. Two tests pin this: the nod must put less into the torso
+than the turn does, and head+neck must carry >70% of it.
+
+Every chain still totals `headRange`, so the gaze lands where it should.
 
 ### expressive — a response-level preset
 

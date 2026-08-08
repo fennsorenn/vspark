@@ -219,7 +219,7 @@ persisting a value that is meaningless after a restart.
 
 Config: `{ amount, lag, restUnmapped, preset, response, rig }` — `preset` names a base
 for the whole behavior (rig + optionally response and follow-through) — `follow`,
-`counter`, `headOnly` or `expressive` — that the other fields override. Note that
+`counter`, `headOnly`, `headOnlyCounter` or `expressive` — that the other fields override. Note that
 `lag` and `response` are deliberately absent from the kind's `defaultConfig`,
 because the add-behavior flow copies that object into the row and would otherwise
 pin them. See

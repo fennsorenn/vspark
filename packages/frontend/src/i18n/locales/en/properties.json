@@ -437,13 +437,15 @@
     "presetName": {
       "follow": "Body follows head",
       "counter": "Body counters head",
-      "headOnly": "Head-driven only",
+      "headOnly": "Head-driven, body follows",
+      "headOnlyCounter": "Head-driven, body counters",
       "expressive": "Expressive"
     },
     "presetHint": {
       "follow": "Turn your head and the chest, spine and hips turn with it — the whole body leans into the look.",
       "counter": "Turn your head and the torso twists the other way — a theatrical, posed silhouette. The head and neck carry more so you still look where you're looking.",
       "headOnly": "Only your head steers the avatar — torso and arm tracking are ignored entirely. Use it with a face-only tracker, or when your body tracking is too noisy to trust. The body moves more per unit of head movement to make up for it.",
+      "headOnlyCounter": "Only your head steers the avatar, and the torso twists against it — contrapposto on a face-only signal. Same use cases as the other head-driven preset, with a more posed silhouette.",
       "expressive": "Follow's mapping, but it takes far less movement to reach full deflection and the body trails further. For staying fairly still and still reading as animated."
     },
     "amount": "Blend",

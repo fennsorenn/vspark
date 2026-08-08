@@ -405,17 +405,24 @@ export const STYLE_RIG_COUNTER: StyleRig = mergeStyleRig(
  *  - full-body tracking whose torso/arm data you do not trust, where the head is
  *    the one signal that is reliably clean.
  *
- * Because the head is now carrying the whole performance, the torso terms are
- * scaled UP and the head/neck DOWN relative to follow — the body does more per
- * unit of head movement, which is what stops a head-only setup reading as a
- * bobbling head on a statue. The chain still totals `headRange`, so the gaze
- * lands where it should.
+ * Because the head is now carrying the whole performance, the TURN and TILT terms
+ * are scaled UP on the torso and DOWN on the head/neck relative to follow — the
+ * body does more per unit of head movement, which is what stops a head-only setup
+ * reading as a bobbling head on a statue.
+ *
+ * The NOD is deliberately the exception: it stays concentrated on the head and
+ * neck (~78% of it, vs ~22% on the torso). Turning and tilting are whole-body
+ * gestures — you pivot from the hips to look behind you — but nodding is not.
+ * Spreading a nod down the spine the way a turn is spread reads as bowing, which
+ * is a completely different gesture from agreeing.
+ *
+ * Every chain still totals `headRange`, so the gaze lands where it should.
  */
 const HEAD_ONLY_OVERRIDES: StyleRig = {
   hips: {
     drivers: {
       headYaw: [0, 4, 0],
-      headPitch: [3, 0, 0],
+      headPitch: [1, 0, 0],
       headRoll: [0, 0, 2],
       bodyYaw: [0, 0, 0],
       bodyPitch: [0, 0, 0],
@@ -425,7 +432,7 @@ const HEAD_ONLY_OVERRIDES: StyleRig = {
   spine: {
     drivers: {
       headYaw: [0, 6, 0],
-      headPitch: [5, 0, 0],
+      headPitch: [2, 0, 0],
       headRoll: [0, 0, 5],
       bodyYaw: [0, 0, 0],
       bodyPitch: [0, 0, 0],
@@ -435,7 +442,7 @@ const HEAD_ONLY_OVERRIDES: StyleRig = {
   chest: {
     drivers: {
       headYaw: [0, 8, 0],
-      headPitch: [7, 0, 0],
+      headPitch: [3, 0, 0],
       headRoll: [0, 0, 7],
       bodyYaw: [0, 0, 0],
       bodyPitch: [0, 0, 0],
@@ -445,7 +452,7 @@ const HEAD_ONLY_OVERRIDES: StyleRig = {
   upperChest: {
     drivers: {
       headYaw: [0, 9, 0],
-      headPitch: [8, 0, 0],
+      headPitch: [4, 0, 0],
       headRoll: [0, 0, 8],
       bodyYaw: [0, 0, 0],
       bodyPitch: [0, 0, 0],
@@ -455,7 +462,7 @@ const HEAD_ONLY_OVERRIDES: StyleRig = {
   neck: {
     drivers: {
       headYaw: [0, 8, 0],
-      headPitch: [10, 0, 0],
+      headPitch: [14, 0, 0],
       headRoll: [0, 0, 10],
       bodyPitch: [0, 0, 0],
       bodyRoll: [0, 0, 0],
@@ -464,7 +471,7 @@ const HEAD_ONLY_OVERRIDES: StyleRig = {
   head: {
     drivers: {
       headYaw: [0, 10, 0],
-      headPitch: [12, 0, 0],
+      headPitch: [21, 0, 0],
       headRoll: [0, 0, 13],
       bodyPitch: [0, 0, 0],
       bodyRoll: [0, 0, 0],
@@ -493,6 +500,77 @@ const HEAD_ONLY_OVERRIDES: StyleRig = {
 export const STYLE_RIG_HEAD_ONLY: StyleRig = mergeStyleRig(
   STYLE_RIG_FOLLOW,
   HEAD_ONLY_OVERRIDES
+);
+
+/**
+ * The contrapposto variant of head-only: the head is still the sole signal, but
+ * the torso twists AGAINST it instead of with it.
+ *
+ * Built on `STYLE_RIG_HEAD_ONLY`, so it inherits the head-only property for free
+ * — every `body*` and `arm*` term is already zeroed and the forearms already
+ * dropped out. The delta is purely about direction, and it needs the same
+ * head/neck compensation `counter` does: with the torso subtracting, head + neck
+ * carry more than the full range so the chain still nets to `headRange`.
+ *
+ * The nod keeps the head-only treatment — concentrated on head and neck, only a
+ * token counter-arch in the torso, because nodding is not a whole-body gesture.
+ *
+ * The shoulders flip with the torso: under `headOnly` they lag a head turn the
+ * torso is following, here they lag a torso that is twisting the other way.
+ */
+const HEAD_ONLY_COUNTER_OVERRIDES: StyleRig = {
+  hips: {
+    drivers: {
+      headYaw: [0, -2, 0],
+      headPitch: [-1, 0, 0],
+      headRoll: [0, 0, -1],
+    },
+  },
+  spine: {
+    drivers: {
+      headYaw: [0, -3, 0],
+      headPitch: [-1, 0, 0],
+      headRoll: [0, 0, -2],
+    },
+  },
+  chest: {
+    drivers: {
+      headYaw: [0, -4, 0],
+      headPitch: [-2, 0, 0],
+      headRoll: [0, 0, -3],
+    },
+  },
+  upperChest: {
+    drivers: {
+      headYaw: [0, -5, 0],
+      headPitch: [-2, 0, 0],
+      headRoll: [0, 0, -3],
+    },
+  },
+  neck: {
+    drivers: {
+      headYaw: [0, 19, 0],
+      headPitch: [17, 0, 0],
+      headRoll: [0, 0, 18],
+    },
+  },
+  head: {
+    drivers: {
+      headYaw: [0, 40, 0],
+      headPitch: [34, 0, 0],
+      headRoll: [0, 0, 36],
+    },
+  },
+  leftShoulder: { drivers: { headYaw: [0, 3, 0] } },
+  rightShoulder: { drivers: { headYaw: [0, 3, 0] } },
+  leftUpperArm: { drivers: { headYaw: [0, 3, 0] } },
+  rightUpperArm: { drivers: { headYaw: [0, 3, 0] } },
+};
+
+/** Head-only steering with a contrapposto torso. */
+export const STYLE_RIG_HEAD_ONLY_COUNTER: StyleRig = mergeStyleRig(
+  STYLE_RIG_HEAD_ONLY,
+  HEAD_ONLY_COUNTER_OVERRIDES
 );
 
 /** Base follow-through time (seconds) when neither the preset nor the user sets one. */
@@ -531,6 +609,7 @@ export const STYLE_PRESET_NAMES = [
   'follow',
   'counter',
   'headOnly',
+  'headOnlyCounter',
   'expressive',
 ] as const;
 export type StylePresetName = (typeof STYLE_PRESET_NAMES)[number];
@@ -539,6 +618,7 @@ export const STYLE_PRESETS: Record<StylePresetName, StylePreset> = {
   follow: { rig: STYLE_RIG_FOLLOW },
   counter: { rig: STYLE_RIG_COUNTER },
   headOnly: { rig: STYLE_RIG_HEAD_ONLY },
+  headOnlyCounter: { rig: STYLE_RIG_HEAD_ONLY_COUNTER },
   /**
    * Follow's rig, but it takes much less movement to reach full deflection and
    * the body trails further. For performers who stay fairly still and want the

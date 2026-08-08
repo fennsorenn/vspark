@@ -317,6 +317,7 @@ describe('PropertiesPanel — Stylized Tracking rig presets', () => {
       'follow',
       'counter',
       'headOnly',
+      'headOnlyCounter',
       'expressive',
     ]);
     // Every option is translated, not a raw key.
@@ -515,5 +516,51 @@ describe('PropertiesPanel — Stylized Tracking strength', () => {
     expect(tp('stylizedTracking.amount')).not.toBe(
       tp('stylizedTracking.strength')
     );
+  });
+});
+
+describe('PropertiesPanel — contrapposto head-only preset', () => {
+  it('re-baselines the rig editor on headOnlyCounter', () => {
+    seedStylizer({ preset: 'headOnlyCounter' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    fireEvent.click(
+      screen.getByText(
+        new RegExp(`^${tp('stylizedTracking.rigSection')} \\(\\d+\\)$`)
+      )
+    );
+    fireEvent.click(container.querySelector('.vs-stylize-bone-chest')!);
+    // Torso counters the head turn → negative yaw.
+    const chestYaw = container.querySelectorAll(
+      '.vs-stylize-drv-chest-headYaw input'
+    )[1] as HTMLInputElement;
+    expect(parseFloat(chestYaw.value)).toBeLessThan(0);
+    // …and it stays head-only: no body drivers offered on the bone.
+    expect(container.querySelector('.vs-stylize-drv-chest-bodyYaw')).toBeNull();
+  });
+
+  it('shows the nod weaker on the torso than the turn', () => {
+    seedStylizer({ preset: 'headOnlyCounter' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    fireEvent.click(
+      screen.getByText(
+        new RegExp(`^${tp('stylizedTracking.rigSection')} \\(\\d+\\)$`)
+      )
+    );
+    fireEvent.click(container.querySelector('.vs-stylize-bone-chest')!);
+    const nodX = parseFloat(
+      (
+        container.querySelectorAll(
+          '.vs-stylize-drv-chest-headPitch input'
+        )[0] as HTMLInputElement
+      ).value
+    );
+    const turnY = parseFloat(
+      (
+        container.querySelectorAll(
+          '.vs-stylize-drv-chest-headYaw input'
+        )[1] as HTMLInputElement
+      ).value
+    );
+    expect(Math.abs(nodX)).toBeLessThan(Math.abs(turnY));
   });
 });

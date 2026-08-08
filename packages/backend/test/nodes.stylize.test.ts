@@ -22,6 +22,7 @@ import {
   STYLE_RIG_FOLLOW,
   STYLE_RIG_COUNTER,
   STYLE_RIG_HEAD_ONLY,
+  STYLE_RIG_HEAD_ONLY_COUNTER,
   STYLE_PRESETS,
   MAX_STYLE_STRENGTH,
   ZERO_DRIVERS,
@@ -932,5 +933,98 @@ describe('pose_stylize strength', () => {
     const after = yawOf(stepped, 'head');
     expect(after).toBeGreaterThan(before);
     expect(after).toBeLessThan(before * 2);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// The head-only family: follow vs contrapposto, and the nod
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe('pose_stylize head-only presets', () => {
+  const drive = (preset: string, driver: keyof StyleDrivers) =>
+    pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ head: [0, 45, 0] }),
+      drivers: { ...ZERO_DRIVERS, [driver]: 1 },
+      amount: 1,
+      lag: 0,
+      preset,
+    }) as NormalizedPose;
+
+  const axisOf = (out: NormalizedPose, bone: string, axis: number) =>
+    euler(out.get(bone as VRMBoneName))[axis];
+
+  it('headOnlyCounter twists the torso against a head turn', () => {
+    const out = drive('headOnlyCounter', 'headYaw');
+    for (const bone of ['hips', 'spine', 'chest', 'upperChest'])
+      expect(axisOf(out, bone, 1)).toBeLessThan(0);
+    // …while the head itself carries far more, so the gaze still lands.
+    expect(axisOf(out, 'head', 1)).toBeCloseTo(
+      STYLE_RIG_HEAD_ONLY_COUNTER.head.drivers.headYaw![1],
+      2
+    );
+  });
+
+  it('the two head-only presets turn the torso opposite ways', () => {
+    expect(axisOf(drive('headOnly', 'headYaw'), 'chest', 1)).toBeGreaterThan(0);
+    expect(
+      axisOf(drive('headOnlyCounter', 'headYaw'), 'chest', 1)
+    ).toBeLessThan(0);
+  });
+
+  it('headOnlyCounter ignores body drivers, same as headOnly', () => {
+    const out = pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ hips: [0, 20, 0] }),
+      drivers: { ...ZERO_DRIVERS, bodyYaw: 1, bodyRoll: 1 },
+      amount: 1,
+      lag: 0,
+      preset: 'headOnlyCounter',
+    }) as NormalizedPose;
+    expect(axisOf(out, 'chest', 1)).toBeCloseTo(0, 6);
+    expect(axisOf(out, 'chest', 2)).toBeCloseTo(0, 6);
+  });
+
+  it('nods mostly with the head, not the spine, in BOTH head-only presets', () => {
+    // A nod spread down the spine reads as bowing, not agreeing.
+    for (const preset of ['headOnly', 'headOnlyCounter']) {
+      const out = drive(preset, 'headPitch');
+      const torso = ['hips', 'spine', 'chest', 'upperChest'].reduce(
+        (acc, b) => acc + Math.abs(axisOf(out, b, 0)),
+        0
+      );
+      const headNeck = ['neck', 'head'].reduce(
+        (acc, b) => acc + Math.abs(axisOf(out, b, 0)),
+        0
+      );
+      expect(headNeck / (headNeck + torso), preset).toBeGreaterThan(0.7);
+    }
+  });
+
+  it('nods less into the torso than it turns, in BOTH head-only presets', () => {
+    for (const preset of ['headOnly', 'headOnlyCounter']) {
+      const torsoOn = (driver: keyof StyleDrivers, axis: number) =>
+        ['hips', 'spine', 'chest', 'upperChest'].reduce(
+          (acc, b) => acc + Math.abs(axisOf(drive(preset, driver), b, axis)),
+          0
+        );
+      expect(torsoOn('headPitch', 0), preset).toBeLessThan(
+        torsoOn('headYaw', 1)
+      );
+    }
+  });
+
+  it('still lands the nod on target overall', () => {
+    for (const preset of ['headOnly', 'headOnlyCounter']) {
+      const out = drive(preset, 'headPitch');
+      const total = [
+        'hips',
+        'spine',
+        'chest',
+        'upperChest',
+        'neck',
+        'head',
+      ].reduce((acc, b) => acc + axisOf(out, b, 0), 0);
+      expect(total, preset).toBeGreaterThan(40);
+      expect(total, preset).toBeLessThan(52);
+    }
   });
 });

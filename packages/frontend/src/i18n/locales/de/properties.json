@@ -437,13 +437,15 @@
     "presetName": {
       "follow": "Körper folgt dem Kopf",
       "counter": "Körper gegen den Kopf",
-      "headOnly": "Nur kopfgesteuert",
+      "headOnly": "Kopfgesteuert, Körper folgt",
+      "headOnlyCounter": "Kopfgesteuert, Körper dagegen",
       "expressive": "Ausdrucksstark"
     },
     "presetHint": {
       "follow": "Drehst du den Kopf, drehen sich Brust, Wirbelsäule und Hüfte mit — der ganze Körper lehnt sich in den Blick hinein.",
       "counter": "Drehst du den Kopf, dreht sich der Oberkörper dagegen — eine theatralische, gestellte Silhouette. Kopf und Hals tragen mehr, damit du weiterhin dorthin schaust, wohin du schaust.",
       "headOnly": "Nur dein Kopf steuert den Avatar — Oberkörper- und Arm-Tracking werden vollständig ignoriert. Gut mit einem reinen Gesichts-Tracker oder wenn dein Körper-Tracking zu verrauscht ist. Der Körper bewegt sich dafür stärker pro Kopfbewegung.",
+      "headOnlyCounter": "Nur dein Kopf steuert den Avatar, und der Oberkörper dreht sich dagegen — Kontrapost auf einem reinen Gesichtssignal. Dieselben Anwendungsfälle wie die andere kopfgesteuerte Variante, nur mit gestellterer Silhouette.",
       "expressive": "Die Zuordnung von „Körper folgt dem Kopf“, aber es braucht viel weniger Bewegung für den vollen Ausschlag, und der Körper läuft weiter nach. Für alle, die sich wenig bewegen und trotzdem lebendig wirken wollen."
     },
     "amount": "Mischung",

@@ -99,13 +99,24 @@ dagegen. Der Kontrapost- oder S-Kurven-Eindruck: theatralisch, gestellt, mehr
 tragen deutlich mehr Rotation, um auszugleichen, dass der Oberkörper abzieht statt
 zu addieren. So schaust du weiterhin dorthin, wohin du schaust.
 
-**Nur kopfgesteuert** — dein Kopf ist das *einzige*, was den Avatar steuert.
-Oberkörper- und Arm-Tracking werden vollständig ignoriert. Gut in zwei Fällen: Du
-nutzt einen reinen Gesichts-Tracker (ein Handy- oder Webcam-Gesichtstracker
-liefert nur Kopfrotation — damit steuert sie einen ganzen Körper), oder dein
-Körper-Tracking ist zu verrauscht und der Kopf ist das einzige saubere Signal. Der
-Körper bewegt sich merklich stärker pro Kopfbewegung, weil es kein anderes Signal
-gibt.
+**Kopfgesteuert, Körper folgt** — dein Kopf ist das *einzige*, was den Avatar
+steuert. Oberkörper- und Arm-Tracking werden vollständig ignoriert. Gut in zwei
+Fällen: Du nutzt einen reinen Gesichts-Tracker (ein Handy- oder
+Webcam-Gesichtstracker liefert nur Kopfrotation — damit steuert sie einen ganzen
+Körper), oder dein Körper-Tracking ist zu verrauscht und der Kopf ist das einzige
+saubere Signal. Der Körper dreht sich merklich stärker pro Kopfbewegung, weil es
+kein anderes Signal gibt.
+
+**Kopfgesteuert, Körper dagegen** — dasselbe, mit der Kontrapost-Drehung: Dein
+Kopf steuert, und der Oberkörper dreht sich dagegen. Zwischen diesen beiden
+wählst du wie zwischen dem ersten Paar; es ist dieselbe Charakterfrage, nur auf
+einem reinen Kopfsignal.
+
+In beiden kopfgesteuerten Varianten bleibt das **Nicken in Kopf und Hals**, statt
+die Wirbelsäule hinunterzuwandern. Das ist Absicht: Drehen und Neigen sind
+Ganzkörper-Gesten — du drehst dich aus der Hüfte, um nach hinten zu schauen — aber
+ein über die Wirbelsäule verteiltes Nicken liest sich nicht mehr als Nicken,
+sondern als *Verbeugung*, und das bedeutet etwas ganz anderes.
 
 **Ausdrucksstark** — dieselbe Zuordnung wie „Körper folgt dem Kopf“, aber es
 braucht viel weniger Bewegung für die volle Wirkung, und der Körper läuft weiter

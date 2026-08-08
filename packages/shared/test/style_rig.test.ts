@@ -4,6 +4,7 @@ import {
   STYLE_RIG_FOLLOW,
   STYLE_RIG_COUNTER,
   STYLE_RIG_HEAD_ONLY,
+  STYLE_RIG_HEAD_ONLY_COUNTER,
   STYLE_PRESETS,
   STYLE_PRESET_NAMES,
   DEFAULT_STYLE_PRESET,
@@ -329,6 +330,7 @@ describe('style presets', () => {
     expect(STYLE_PRESETS.follow.rig).toBe(STYLE_RIG_FOLLOW);
     expect(STYLE_PRESETS.counter.rig).toBe(STYLE_RIG_COUNTER);
     expect(STYLE_PRESETS.headOnly.rig).toBe(STYLE_RIG_HEAD_ONLY);
+    expect(STYLE_PRESETS.headOnlyCounter.rig).toBe(STYLE_RIG_HEAD_ONLY_COUNTER);
   });
 
   it('resolves names and falls back to follow for junk', () => {
@@ -414,10 +416,18 @@ describe('style presets', () => {
 
   // ── headOnly: head orientation is the only steering signal ───────────────
 
-  it('headOnly consumes NO body or arm driver anywhere in the rig', () => {
-    for (const [bone, entry] of Object.entries(STYLE_RIG_HEAD_ONLY))
-      for (const driver of Object.keys(entry.drivers))
-        expect(driver.startsWith('head'), `${bone}.${driver}`).toBe(true);
+  const HEAD_ONLY_RIGS = [
+    ['headOnly', STYLE_RIG_HEAD_ONLY],
+    ['headOnlyCounter', STYLE_RIG_HEAD_ONLY_COUNTER],
+  ] as const;
+
+  it('NEITHER head-only rig consumes a body or arm driver anywhere', () => {
+    for (const [name, rig] of HEAD_ONLY_RIGS)
+      for (const [bone, entry] of Object.entries(rig))
+        for (const driver of Object.keys(entry.drivers))
+          expect(driver.startsWith('head'), `${name}.${bone}.${driver}`).toBe(
+            true
+          );
   });
 
   it('headOnly still drives the torso — off the head instead', () => {
@@ -425,10 +435,26 @@ describe('style presets', () => {
       expect(sum(STYLE_RIG_HEAD_ONLY, TORSO, driver, axis)).toBeGreaterThan(0);
   });
 
-  it('headOnly shifts work OFF the head and ONTO the body vs follow', () => {
-    // The point of the preset: with no other signal, the body has to carry more
-    // per unit of head movement or it reads as a bobbling head on a statue.
+  it('headOnlyCounter twists the torso AGAINST the head', () => {
+    for (const [driver, axis] of HEAD_AXES)
+      expect(
+        sum(STYLE_RIG_HEAD_ONLY_COUNTER, TORSO, driver, axis)
+      ).toBeLessThan(0);
+  });
+
+  it('headOnlyCounter compensates on head+neck like counter does', () => {
+    for (const [driver, axis] of HEAD_AXES)
+      expect(
+        sum(STYLE_RIG_HEAD_ONLY_COUNTER, HEAD_CHAIN, driver, axis)
+      ).toBeGreaterThan(DEFAULT_STYLE_RESPONSE.headRange);
+  });
+
+  it('headOnly shifts TURN and TILT onto the body vs follow', () => {
+    // With no other signal the body has to carry more per unit of head movement,
+    // or it reads as a bobbling head on a statue. The NOD is the deliberate
+    // exception — see the next test.
     for (const [driver, axis] of HEAD_AXES) {
+      if (driver === 'headPitch') continue;
       expect(sum(STYLE_RIG_HEAD_ONLY, TORSO, driver, axis)).toBeGreaterThan(
         sum(STYLE_RIG_FOLLOW, TORSO, driver, axis)
       );
@@ -436,6 +462,33 @@ describe('style presets', () => {
         sum(STYLE_RIG_FOLLOW, HEAD_CHAIN, driver, axis)
       );
     }
+  });
+
+  it('keeps the NOD on the head and off the body in both head-only rigs', () => {
+    // Turning and tilting are whole-body gestures — you pivot from the hips to
+    // look behind you. Nodding is not: spreading it down the spine the way a turn
+    // is spread reads as BOWING, which is a different gesture from agreeing.
+    for (const [name, rig] of HEAD_ONLY_RIGS) {
+      const nodTorso = Math.abs(sum(rig, TORSO, 'headPitch', 0));
+      const turnTorso = Math.abs(sum(rig, TORSO, 'headYaw', 1));
+      const tiltTorso = Math.abs(sum(rig, TORSO, 'headRoll', 2));
+      // The nod puts the least of all three axes into the torso…
+      expect(nodTorso, `${name} nod vs turn`).toBeLessThan(turnTorso);
+      expect(nodTorso, `${name} nod vs tilt`).toBeLessThan(tiltTorso);
+      // …and the head+neck carry the clear majority of it.
+      const nodHead = Math.abs(sum(rig, HEAD_CHAIN, 'headPitch', 0));
+      expect(
+        nodHead / (nodHead + nodTorso),
+        `${name} nod head share`
+      ).toBeGreaterThan(0.7);
+    }
+  });
+
+  it('gives the nod MORE to the head than follow does, in both head-only rigs', () => {
+    for (const [name, rig] of HEAD_ONLY_RIGS)
+      expect(Math.abs(sum(rig, TORSO, 'headPitch', 0)), `${name}`).toBeLessThan(
+        Math.abs(sum(STYLE_RIG_FOLLOW, TORSO, 'headPitch', 0))
+      );
   });
 
   it('headOnly drops bones it has nothing left to drive', () => {
@@ -446,6 +499,12 @@ describe('style presets', () => {
     // The shoulders survive because they trade their terms for a head-turn lag.
     expect(STYLE_RIG_HEAD_ONLY.leftShoulder.drivers.headYaw).toBeDefined();
     expect(STYLE_RIG_HEAD_ONLY.leftShoulder.drivers.armL).toBeUndefined();
+    // headOnlyCounter inherits the drop-outs from headOnly for free.
+    expect(STYLE_RIG_HEAD_ONLY_COUNTER.leftLowerArm).toBeUndefined();
+    // …and flips the shoulder lag with the torso it is following.
+    expect(
+      Math.sign(STYLE_RIG_HEAD_ONLY_COUNTER.leftShoulder.drivers.headYaw![1])
+    ).toBe(-Math.sign(STYLE_RIG_HEAD_ONLY.leftShoulder.drivers.headYaw![1]));
   });
 
   // ── expressive: a response-level preset, not a rig-level one ─────────────
@@ -506,5 +565,8 @@ describe('style presets', () => {
     expect(STYLE_RIG_FOLLOW.head.drivers.headYaw).toEqual([0, 20, 0]);
     expect(STYLE_RIG_COUNTER.head.drivers.headYaw).toEqual([0, 38, 0]);
     expect(STYLE_RIG_HEAD_ONLY.head.drivers.headYaw).toEqual([0, 10, 0]);
+    expect(STYLE_RIG_HEAD_ONLY_COUNTER.head.drivers.headYaw).toEqual([
+      0, 40, 0,
+    ]);
   });
 });
