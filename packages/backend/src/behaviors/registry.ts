@@ -1,4 +1,5 @@
 import './vmc_receiver/manager.js';
+import './ifacialmocap_receiver/manager.js';
 import './breathing/manager.js';
 import './manual_calibration/manager.js';
 import './lipsync/manager.js';

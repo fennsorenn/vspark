@@ -51,6 +51,7 @@
   },
   "behavior": {
     "vmc_receiver": { "label": "VMC-Empfänger", "description": "Empfängt Motion-Capture-Daten von RhyLive oder einer beliebigen VMC-kompatiblen App über UDP." },
+    "ifacialmocap_receiver": { "label": "iFacialMocap-Empfänger", "description": "Empfängt ARKit-Gesichtstracking der iFacialMocap-App (iOS) über UDP und steuert Kopf, Augen und Blendshapes." },
     "breathing": { "label": "Atmung", "description": "Fügt Brust- und Wirbelsäulenknochen prozedurale Atembewegung mittels eines Sinus-Oszillators hinzu." },
     "lipsync_processor": { "label": "Lippensynchronisation", "description": "Empfängt Mikrofon-Visemgewichte vom Browser und steuert VRM-Blendshapes in Echtzeit." },
     "mediapipe_tracker": { "label": "MediaPipe-Tracking", "description": "Empfängt Gesichts-, Hand- und Körperhaltungs-Landmarken von der Browser-Kamera und steuert VRM-Knochen und -Blendshapes in Echtzeit." },

@@ -13,6 +13,7 @@ import { SceneEntity } from './nodes/scene_entity.js';
 import { ManualTrigger } from './nodes/manual_trigger.js';
 import { ArmIkCalibration } from './nodes/arm_ik_calibration.js';
 import { VmcPacketSource } from './nodes/vmc_packet_source.js';
+import { IFacialMocapPacketSource } from './nodes/ifacialmocap_packet_source.js';
 import { RhyliveBoneMapper } from './nodes/rhylive_bone_mapper.js';
 import { ArkitVrmMapper } from './nodes/arkit_vrm_mapper.js';
 import { BodyCalibration } from './nodes/body_calibration.js';
@@ -117,6 +118,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   ArmIkCalibration,
   // Processing nodes
   VmcPacketSource,
+  IFacialMocapPacketSource,
   RhyliveBoneMapper,
   ArkitVrmMapper,
   BodyCalibration,

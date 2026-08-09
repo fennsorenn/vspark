@@ -1,6 +1,6 @@
 # vspark — Architecture
 
-Real-time 3D avatar streaming system. Motion capture data (VMC over UDP, MediaPipe from browser, mic lipsync) flows into server-side reactive signal graphs, which broadcast pose/blendshape updates to a Three.js/VRM viewport in the browser.
+Real-time 3D avatar streaming system. Motion capture data (VMC and iFacialMocap over UDP, MediaPipe from browser, mic lipsync) flows into server-side reactive signal graphs, which broadcast pose/blendshape updates to a Three.js/VRM viewport in the browser.
 
 ## Monorepo Layout
 
@@ -19,7 +19,7 @@ packages/
 | Scene | A `scene_nodes` row with `kind = 'scene'` — itself a node. The scene tree's root. (Migration 018 dropped the standalone `scenes` table; scene ids are reused as the kind=scene node ids.) |
 | Node | Spatial entity (VRM, camera, light, group, etc.). Unique ID, transform inheritance. Roots back to its scene via `root_scene_node_id`. |
 | Compose Scene | A `compose_layers` row with `kind = 'compose_scene'` — root of a per-project compose hierarchy (decoupled from 3D scenes). Layers nest via `parent_id` (migration 016) and root via `root_compose_scene_id`. |
-| Behavior | Behavioral driver attached to a node (VMC receiver, breathing, lipsync, tracking, api_controller, manual_calibration). Backed by a signal graph; shown in the "Behaviors" tab. Persisted in the `behaviors` table (renamed from `node_components` in migration 022); code identifier `Behavior`. |
+| Behavior | Behavioral driver attached to a node (VMC receiver, iFacialMocap receiver, breathing, lipsync, tracking, api_controller, manual_calibration). Backed by a signal graph; shown in the "Behaviors" tab. Persisted in the `behaviors` table (renamed from `node_components` in migration 022); code identifier `Behavior`. |
 | Logic | A user-built standalone signal graph attached to a project / object / layer. Persisted in the `logic` table (renamed from `graphs` via migrations 022 → 025); code type `Logic`, managed by `LogicManager`. A Logic *is* a signal graph; a Behavior is *backed by* one. |
 | Signal Graph | The reactive execution substrate (engine + `GraphDescriptor`): push-based events + pull-based values. One graph instance per Behavior or Logic. Stays named "signal graph"/"graph" at the substrate level. |
 | PoseFrame | Sparse bone rotation payload broadcast over WebSocket at ~60Hz. Carries a `behaviorId` (the producing behavior's instance id). |
@@ -36,10 +36,11 @@ packages/
 | Update routes | Implemented | `routes/update.ts`, `routes/config.ts` — GitHub Releases update check/download/apply (with download progress), config.json channel preference. Apply exits with sentinel code 42; the bundled `start.sh`/`start.bat` supervisor loop unzips the update in place and relaunches in the same console. See [updates.md](modules/updates.md). |
 | SQLite persistence | Implemented | `db/` — `node-sqlite3-wasm` (WASM, no native addon); `WasmDb` adapter; `initDb()` async. Stale-lock recovery: a sidecar `<db>.pid` file is the live-holder gate — a live holder is refused (never killed), a dead/absent one lets us reclaim (clear the `.lock/` dir + `-journal`) and open; `:memory:` skips it. See [backend-api.md](modules/backend-api.md#database--db). |
 | Signal graph engine | Implemented | `signal/engine.ts` — typed ports, value cache, cycle detection |
-| Signal node registry | Implemented | `signal/registry.ts` — 86 node kinds (mediapipe converters + IK, runtime mutation primitives `random` / `start_clip` / `spawn_clip` / `set_scene_node_param` / `set_compose_layer_param` / `set_text` / `set_data`, media `media_control`, `pose_manual_calibration`, `log` debug, plus 13 overlive event nodes + `overlive_chat_feed` + `overlive_send_chat` + 24 overlive outbound action nodes) |
+| Signal node registry | Implemented | `signal/registry.ts` — 87 node kinds (mediapipe converters + IK, runtime mutation primitives `random` / `start_clip` / `spawn_clip` / `set_scene_node_param` / `set_compose_layer_param` / `set_text` / `set_data`, media `media_control`, `pose_manual_calibration`, `log` debug, plus 13 overlive event nodes + `overlive_chat_feed` + `overlive_send_chat` + 24 overlive outbound action nodes) |
 | Engine value-input auto-fallback to `config.<port>` | Implemented | `signal/engine.ts` — unconnected value-input ports automatically resolve to `defaultConfig.<portName>`; nodes no longer need per-port `cfg?.X` boilerplate |
 | VMC receiver manager | Implemented | `behaviors/vmc_receiver/` |
-| Shared UDP socket pool (vmc_receiver) | Implemented | `vmc/udp_socket_pool.ts` — refcounted `UdpSocketPool` singleton (`udpSocketPool`) exposing `subscribe(port, listener, onBound?) -> unsubscribe`. First subscriber binds (currently `0.0.0.0`), last unsubscribe closes; listener dispatch snapshots the set so mid-dispatch unsubscribe is safe. `VmcManager.startReceiver` subscribes instead of binding its own `dgram` socket, so multiple `vmc_receiver` behaviors on the same port each receive every packet independently. See [component-managers.md](modules/component-managers.md). |
+| Shared UDP socket pool (vmc_receiver + ifacialmocap_receiver) | Implemented | `vmc/udp_socket_pool.ts` — refcounted `UdpSocketPool` singleton (`udpSocketPool`) exposing `subscribe(port, listener, onBound?) -> unsubscribe` plus `send(localPort, payload, host, remotePort)` (added for the iFacialMocap device handshake; it reuses the shared bound socket so the reply lands on the port we listen on). First subscriber binds (currently `0.0.0.0`), last unsubscribe closes; listener dispatch snapshots the set so mid-dispatch unsubscribe is safe. `VmcManager.startReceiver` subscribes instead of binding its own `dgram` socket, so multiple `vmc_receiver` behaviors on the same port each receive every packet independently. See [component-managers.md](modules/component-managers.md). |
+| iFacialMocap receiver manager | Implemented | `behaviors/ifacialmocap_receiver/` — ARKit face tracking from the iFacialMocap iOS app. Face-only sibling of `vmc_receiver`: same graph shape minus the arm-IK stage, same `vmc_status` / `vmc_tracking_state` WS surface, same broadcast-bus semantics, and every node but the source (`ifacialmocap_packet_source`) is shared with the VMC pipeline. Protocol differences: plain-text payload instead of OSC (pure, unit-tested `protocol.ts`), and an **outbound handshake** — the device only streams once poked, so the config carries a `deviceHost` and `UdpSocketPool` gained `send()`. Three per-axis invert toggles cover the euler convention the published spec leaves unpinned. See [ifacialmocap.md](modules/ifacialmocap.md). |
 | Breathing manager | Implemented | `behaviors/breathing/` |
 | Lipsync manager | Implemented | `behaviors/lipsync/` |
 | MediaPipe tracking manager | Implemented | `behaviors/mediapipe_tracker/` |
@@ -134,6 +135,22 @@ UDP port (configurable)
   → Frontend useWsSync → Zustand → Viewport.useFrame() → VRM bones
 ```
 
+### iFacialMocap face capture
+
+```
+Handshake out → iOS device:49983   (re-sent while silent/streaming)
+UDP port 49983 (configurable)
+  → IFacialMocapManager: parse the plain-text frame (52 ARKit shapes + head/eye euler)
+  → SignalGraph.fire() → ifacialmocap_packet_source
+  → rhylive_bone_mapper → body_calibration (head/eyes) → pose_broadcast → WS vmc_pose
+  → arkit_vrm_mapper ×3 → blendshapes_sum → blendshapes_broadcast → WS vmc_blendshapes
+  → [pose interceptors: breathing, manual_calibration, etc.]
+  → Frontend useWsSync → Zustand → Viewport.useFrame() → VRM bones + expressions
+```
+
+Face-only: no arm/leg data, so the arm-IK stage of the VMC pipeline is absent.
+See [ifacialmocap.md](modules/ifacialmocap.md).
+
 ### Lipsync
 
 ```
@@ -194,8 +211,8 @@ All five mutation rtypes (`scene_node`, `behavior`, `camera_effect`, `compose_la
 
 ## Module Docs
 
-- [signal-graph.md](modules/signal-graph.md) — engine (class-instance/decorator model + edge-time type inference), all 86 node kinds, how to add a new node
-- [component-managers.md](modules/component-managers.md) — Behavior managers (VMC, breathing, lipsync, tracking, api_controller, manual_calibration); lifecycle pattern. (Doc filename `component-managers.md` kept; managers live in the `behaviors/` source dir.)
+- [signal-graph.md](modules/signal-graph.md) — engine (class-instance/decorator model + edge-time type inference), all 87 node kinds, how to add a new node
+- [component-managers.md](modules/component-managers.md) — Behavior managers (VMC, iFacialMocap, breathing, lipsync, tracking, api_controller, manual_calibration); lifecycle pattern. (Doc filename `component-managers.md` kept; managers live in the `behaviors/` source dir.)
 - [api-controller.md](modules/api-controller.md) — REST-driven animation/blendshape control surface, the first behavior with public REST endpoints
 - [backend-api.md](modules/backend-api.md) — REST routes, WebSocket, DB migrations
 - [frontend.md](modules/frontend.md) — Zustand store, Viewport, editor panels, hooks
@@ -205,6 +222,7 @@ All five mutation rtypes (`scene_node`, `behavior`, `camera_effect`, `compose_la
 - [camera-effects.md](modules/camera-effects.md) — post-processing pipeline, all 18 effect kinds, config schemas
 - [animation.md](modules/animation.md) — FBX/BVH retargeting, VMC pose application, blendshape mapping, clip playback, the shared/scheduled/content-addressed avatar animation model (`scheduled_animation` rtype + clock-anchored frontend driver), all coordinate corrections
 - [nodes/particle.md](modules/nodes/particle.md) — GPU-instanced particle system, billboard node, shader, physics simulation, camera alignment
+- [ifacialmocap.md](modules/ifacialmocap.md) — iFacialMocap receiver: the plain-text UDP protocol + device handshake, what it shares with the VMC pipeline and where it must differ, the axis-flip escape hatch, tracking detection
 - [mediapipe-tracker.md](modules/mediapipe-tracker.md) — MediaPipe tracking pipeline: worker, signal graph, IK arms, head/finger calibration, open work
 - [lipsync.md](modules/lipsync.md) — MFCC vowel classification, per-component calibration, default templates
 - [compose.md](modules/compose.md) — Compose View: 2D layer composition over the 3D scene, ordering model, shared editor/viewer renderer, anchor-aware drag math

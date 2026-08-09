@@ -357,7 +357,8 @@
     "pipelineError": "Pipeline nicht erreichbar — ist das Tracking aktiv?",
     "resetAll": "Gesamte Kalibrierung zurücksetzen",
     "calibReset": "Kalibrierung zurückgesetzt",
-    "hint": "Kopf: natürliche Haltung einnehmen. Arme: Fingerspitze an Augenecke halten, ruhig bleiben."
+    "hint": "Kopf: natürliche Haltung einnehmen. Arme: Fingerspitze an Augenecke halten, ruhig bleiben.",
+    "headOnlyHint": "Kopf: entspannt gerade auf das Telefon blicken, dann erfassen."
   },
   "vmc": {
     "host": "Host",
@@ -380,6 +381,18 @@
     "mapperArkitPlaceholder": "ARKit-Form…",
     "mapperTargetPlaceholder": "Morph-Target oder Mimik…",
     "mapperInvalidJson": "Ungültiges JSON"
+  },
+  "ifm": {
+    "deviceHost": "Geräte-IP",
+    "deviceHostPlaceholder": "iPhone-/iPad-Adresse, z. B. 192.168.1.42",
+    "blendOverride": "Überschreiben — Tracking ersetzt Animation",
+    "axesHeader": "Kopfachsen",
+    "invertPitch": "Nicken umkehren",
+    "invertYaw": "Drehen umkehren",
+    "invertRoll": "Neigen umkehren",
+    "axesHint": "Kehre eine Achse um, wenn sich der Kopf in die falsche Richtung bewegt. Erfasse unten eine Kopf-Neutralhaltung, sobald die Achsen stimmen.",
+    "localIpsHeader": "IPs dieses Rechners — eine davon in der iFacialMocap-App eintragen",
+    "compatHint": "Funktioniert mit iFacialMocap (iOS). Trage oben die Geräte-IP ein, dann fordert vspark den Stream beim Telefon an — oder lass sie leer und richte die App auf eine der obigen Adressen. Beide Seiten nutzen Port {{port}}."
   },
   "lipsync": {
     "sensitivity": "Empfindlichkeit",
@@ -575,6 +588,7 @@
     "audioSpatial": "Abstands- und Kegelparameter für direktionales Audio — Referenzabstand, Abklingrate, maximaler Abstand und Kegelwinkel",
     "twist": "Unterarm-Drehung entlang des Arms verteilen statt am Ellbogen zu knicken",
     "poseSource": "Jeden Körperbereich per Animation, Live-Tracking oder einer Mischung steuern",
-    "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück"
+    "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück",
+    "ifacialmocap": "Erfahre, wie du die iFacialMocap-App (iOS) verbindest"
   }
 }

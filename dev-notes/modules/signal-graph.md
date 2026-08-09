@@ -53,7 +53,7 @@ After the Phase 2 re-architecture the engine is **wiring + lifecycle** over Node
 
 A graph executes when `fire(nodeId, portName, value)` is called from outside (by a manager). The event propagates forward through event subscriptions; each reached node pulls its value inputs on demand.
 
-**Source nodes** (`vmc_packet_source` / `mediapipe_source` / `lipsync_source`) declare `@eventOut` ports that are fired externally by their managers via `deliverExternal`. `clock` keeps a static `attach()`; `on_pose_broadcast` keeps a static `register()`.
+**Source nodes** (`vmc_packet_source` / `ifacialmocap_packet_source` / `mediapipe_source` / `lipsync_source`) declare `@eventOut` ports that are fired externally by their managers via `deliverExternal`. `clock` keeps a static `attach()`; `on_pose_broadcast` keeps a static `register()`.
 
 **Value-input auto-fallback to `config.<port>`**: when a value-input port is unconnected, the engine resolves its pull-thunk to `defaultConfig.<portName>` from the descriptor. Nodes just read `this.port()` and get the config fallback for free. This is the preferred pattern; reserve `behavior_config` nodes for values that must track live user edits at runtime. The breathing graph is the reference example (bone names / mode / priority / blend mode in per-port `defaultConfig`; only the two live-editable amplitudes remain `behavior_config` nodes).
 
@@ -74,7 +74,7 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → node class. All 86 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → node class. All 87 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
 
@@ -86,6 +86,7 @@ Organized by role:
 | Kind | Description |
 |------|-------------|
 | `vmc_packet_source` | Entry for VMC/RhyLive UDP data; outputs `bones` (BoneRotations) and `arkit` events |
+| `ifacialmocap_packet_source` | Entry for iFacialMocap UDP data; same `bones` / `arkit` event outputs, plus `deviceHost` + per-axis invert value inputs |
 | `mediapipe_source` | Entry for MediaPipe landmarks; outputs `face`, `leftHand`, `rightHand`, `pose`, and `arkit` (ARKit blendshape weights) events. The `arkit` weights are computed browser-side — by default a landmark-derived heuristic (`media/arkitHeuristic.ts`), or a trained `FaceLandmarker` when "HQ face" is enabled — both feeding the same `arkit_vrm_mapper` trio |
 | `lipsync_source` | Entry for viseme weights from mic analysis; outputs `visemes` event |
 | `manual_trigger` (kind string `component_trigger`, label "Behavior Trigger") | UI-facing trigger button; fires an event on demand |

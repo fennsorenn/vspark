@@ -357,7 +357,8 @@
     "pipelineError": "Could not reach pipeline — is tracking active?",
     "resetAll": "Reset all calibration",
     "calibReset": "Calibration reset",
-    "hint": "Head: relax into your natural posture. Arms: touch fingertip to eye corner, hold steady."
+    "hint": "Head: relax into your natural posture. Arms: touch fingertip to eye corner, hold steady.",
+    "headOnlyHint": "Head: look straight at the phone in a relaxed posture, then capture."
   },
   "vmc": {
     "host": "Host",
@@ -380,6 +381,18 @@
     "mapperArkitPlaceholder": "ARKit shape…",
     "mapperTargetPlaceholder": "Morph target or expression…",
     "mapperInvalidJson": "Invalid JSON"
+  },
+  "ifm": {
+    "deviceHost": "Device IP",
+    "deviceHostPlaceholder": "iPhone / iPad address, e.g. 192.168.1.42",
+    "blendOverride": "Override — tracking replaces animation",
+    "axesHeader": "Head Axes",
+    "invertPitch": "Invert nod",
+    "invertYaw": "Invert turn",
+    "invertRoll": "Invert tilt",
+    "axesHint": "Flip an axis if the head moves the wrong way. Capture a head neutral below once the axes look right.",
+    "localIpsHeader": "This machine's IPs — enter one in the iFacialMocap app",
+    "compatHint": "Works with iFacialMocap (iOS). Enter the Device IP above and vspark will ask the phone to stream, or leave it empty and point the app at one of the addresses above. Both ends use port {{port}}."
   },
   "lipsync": {
     "sensitivity": "Sensitivity",
@@ -575,6 +588,7 @@
     "audioSpatial": "Distance and cone parameters for directional audio — reference distance, rolloff, max distance, and the cone angles",
     "twist": "Spread forearm roll along the arm instead of pinching at the elbow",
     "poseSource": "Drive each body section from animation, live tracking, or a blend of both",
-    "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops"
+    "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops",
+    "ifacialmocap": "Learn how to connect the iFacialMocap iOS app"
   }
 }
