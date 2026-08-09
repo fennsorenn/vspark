@@ -111,18 +111,29 @@ users can fix it without a code change.
 
 ## Tracking detection
 
-Same shape as VMC's `/Body` frame diff, over a different vector. Each frame
-produces a fixed-length `signature` (head + both eyes' euler degrees, then the
-52 ARKit weights in canonical order); a summed absolute delta below
-`TRACKING_THRESHOLD` (0.01) is "not tracking". The app keeps streaming the last
-values when it loses the face, so silence alone would not detect a loss.
+Structurally identical to the VMC receiver's, over a different vector, and on
+the **same grace period** — see [component-managers.md](component-managers.md)
+for the shared contract.
 
-**One intentional improvement over VMC**: when the connect timeout fires (no
-packet for 3 s), the manager drops tracking as well as the connection. VMC only
-clears tracking on explicit teardown, so a phone that sleeps mid-session would
-otherwise leave every client latched at `tracking: true` — which pins avatars to
-their base animation and makes idle unreachable. The same fix would apply to
-`VmcManager.checkTimeouts` and is not done there yet.
+Each frame produces a fixed-length `signature` (head + both eyes' euler degrees,
+then the 52 ARKit weights in canonical order). A summed absolute frame-to-frame
+delta above `TRACKING_THRESHOLD` (0.01) clears `Receiver.quietSince` and
+re-latches tracking; going still only *stamps* `quietSince`. Packets going away
+is the second path, off `lastSeen`. The 250 ms `tick()` resolves both from
+`Math.min(quietSince ?? now, lastSeen)` against
+`trackingGraceMs(sceneNodeId)` — the avatar node's `trackingGracePeriod` — so
+whichever dropout started first drives the window.
+
+Why the debounce matters more here than for a body source: iFacialMocap keeps
+streaming the *last* values when it loses the face, so "still" and "silent" are
+genuinely different states, and a held expression is common and completely
+normal. Without the window, sitting still for two frames would snap the avatar
+to idle.
+
+Reachability (the grey status dot) keeps its own fixed 3 s window, as in
+`VmcManager`: whether the phone is reachable is a different question from
+whether it is tracking, and the dot must not start lying because someone set a
+long grace period.
 
 ## Shared surfaces (no new plumbing)
 
@@ -140,9 +151,11 @@ their base animation and makes idle unreachable. The same fix would apply to
 
 ## Frontend
 
-`IFacialMocapReceiverProps` mirrors `VmcReceiverProps` — same blend mode, mirror,
-idle-after and face-mapper controls (the three `arkit_vrm_mapper` sections are
-the same component with the same `nodeConfig` keys). Differences:
+`IFacialMocapReceiverProps` mirrors `VmcReceiverProps` — same blend mode, mirror
+and face-mapper controls (the three `arkit_vrm_mapper` sections are the same
+component with the same `nodeConfig` keys). Like the VMC panel it carries no
+"Idle after" field: the grace period is a property of the avatar, edited in the
+Avatar section as `trackingGracePeriod` (migration 035). Differences:
 
 - Device IP field instead of a bind Host field.
 - "Head Axes" invert toggles.

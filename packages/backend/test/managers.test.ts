@@ -1270,4 +1270,143 @@ describe('IFacialMocapManager (UDP mocked)', () => {
     expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
     expect(manager.getStates('ifm1')).toBeNull();
   });
+
+  // ── tracking-loss grace period (shared with vmc_receiver) ──────────────────
+  //
+  // Same contract as the VmcManager block above, over this source's frame
+  // signature: a held expression must not read as a loss. iFacialMocap keeps
+  // streaming the last values when it loses the face, so "still" and "silent"
+  // are genuinely different states — `pumpStill` keeps packets flowing so these
+  // exercise the debounce rather than the silence path.
+
+  /** Insert an avatar node carrying (or not) an explicit grace period. */
+  const seedAvatarNode = (nodeId: string, graceSeconds?: number) => {
+    const db = getDb();
+    db.prepare("INSERT INTO projects (id, name) VALUES ('pg', 'P')").run();
+    db.prepare(
+      `INSERT INTO scene_nodes (id, project_id, root_scene_node_id, name, kind, components, properties)
+       VALUES (?, 'pg', ?, 'Avatar', 'avatar', '{}', ?)`
+    ).run(
+      nodeId,
+      nodeId,
+      JSON.stringify(
+        graceSeconds == null ? {} : { trackingGracePeriod: graceSeconds }
+      )
+    );
+  };
+
+  /** Latch tracking on for real: two differing frames through the live listener. */
+  const primeTracking = (id: string, graceSeconds?: number) => {
+    seedAvatarNode('node1', graceSeconds);
+    manager.syncBehaviors([
+      {
+        id,
+        nodeId: 'node1',
+        kind: 'ifacialmocap_receiver',
+        enabled: true,
+        config: { port: 49983, deviceHost: '192.168.1.42' },
+      },
+    ]);
+    listener()(frame(10, 1), rinfo);
+    listener()(frame(40, 9), rinfo);
+    ws.broadcast.mockClear();
+  };
+
+  /** Advance `ms` while the device keeps streaming an unchanged frame. */
+  const pumpStill = (ms: number) => {
+    for (let t = 0; t < ms; t += 250) {
+      vi.advanceTimersByTime(250);
+      listener()(frame(40, 9), rinfo);
+    }
+  };
+
+  const trackingLost = () =>
+    ws.broadcast.mock.calls.some(
+      ([kind, payload]) =>
+        kind === 'vmc_tracking_state' && payload.tracking === false
+    );
+
+  it('a held expression does not report tracking loss', () => {
+    primeTracking('ifm1', 2);
+
+    pumpStill(1000); // well inside the 2s window
+
+    expect(trackingLost()).toBe(false);
+  });
+
+  it('a still face reports loss once the grace period elapses', () => {
+    primeTracking('ifm1', 2);
+
+    pumpStill(2500);
+
+    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+      behaviorId: 'ifm1',
+      tracking: false,
+    });
+  });
+
+  it('movement inside the window cancels the pending loss', () => {
+    primeTracking('ifm1', 2);
+
+    pumpStill(1500);
+    expect(trackingLost()).toBe(false);
+    listener()(frame(80, 25), rinfo); // moved again — restarts the window
+    pumpStill(1500);
+
+    expect(trackingLost()).toBe(false);
+  });
+
+  it('honours a longer configured grace period', () => {
+    primeTracking('ifm1', 6);
+
+    pumpStill(4000); // past the 2s default
+    expect(trackingLost()).toBe(false);
+
+    pumpStill(2500);
+    expect(trackingLost()).toBe(true);
+  });
+
+  it('falls back to a 2s grace period when the node sets none', () => {
+    primeTracking('ifm1');
+
+    pumpStill(1000);
+    expect(trackingLost()).toBe(false);
+
+    pumpStill(1500);
+    expect(trackingLost()).toBe(true);
+  });
+
+  it('reports loss only once while the face stays still', () => {
+    primeTracking('ifm1', 1);
+
+    pumpStill(10_000);
+
+    const losses = ws.broadcast.mock.calls.filter(
+      ([kind, payload]) =>
+        kind === 'vmc_tracking_state' && payload.tracking === false
+    );
+    expect(losses).toHaveLength(1);
+  });
+
+  it('never reports loss for a receiver that never tracked', () => {
+    manager.startReceiver('ifm1', 49983, '192.168.1.42');
+    ws.broadcast.mockClear();
+
+    vi.advanceTimersByTime(10_000);
+
+    expect(trackingLost()).toBe(false);
+  });
+
+  it('keeps the connection dot on its own fixed window', () => {
+    // A long grace period must not delay the status dot going grey.
+    primeTracking('ifm1', 30);
+
+    vi.advanceTimersByTime(4000); // no pump — the device went away
+
+    expect(ws.broadcast).toHaveBeenCalledWith('vmc_status', {
+      behaviorId: 'ifm1',
+      connected: false,
+    });
+    expect(trackingLost()).toBe(false);
+  });
 });

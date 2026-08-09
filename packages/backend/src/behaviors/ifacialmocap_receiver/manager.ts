@@ -17,16 +17,22 @@ import {
 } from './protocol.js';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
+import { trackingGraceMs } from '../tracking_grace.js';
 
-/** No packet for this long ⇒ the device stopped streaming. Matches the VMC receiver. */
+/** No packet for this long ⇒ the device is unreachable (the grey status dot).
+ *  Its own fixed window, same as the VMC receiver: "can we reach the source" is
+ *  a different question from "is it tracking", and the dot should not start
+ *  lying because someone set a long grace period. */
 const CONNECT_TIMEOUT_MS = 3000;
 /** Summed frame-to-frame delta over the frame signature below which we call it "not tracking". */
 const TRACKING_THRESHOLD = 0.01;
 /** Handshake re-send cadence while the device is silent / already streaming. */
 const HANDSHAKE_IDLE_MS = 1000;
 const HANDSHAKE_KEEPALIVE_MS = 5000;
-/** Manager tick — drives both the connect timeout and the handshake retry. */
-const TICK_MS = 1000;
+/** Sweep period — drives the connect timeout, the tracking grace period and the
+ *  handshake retry. 250ms matches the other tracking sources, keeping the
+ *  resolution finer than the smallest window "Idle after" allows (0.1s). */
+const SWEEP_MS = 250;
 
 interface Receiver {
   /** Returned by udpSocketPool.subscribe — drops our listener and closes the
@@ -43,6 +49,11 @@ interface Receiver {
   prevSignature: number[];
   /** null = not enough frames yet to determine. */
   trackingActive: boolean | null;
+  /** Timestamp the current tracking-loss candidate started, or null while the
+   *  face is moving. Set the moment motion stops (frame diff under threshold);
+   *  cleared by any real movement. `tracking: false` is only broadcast once this
+   *  has stood for the avatar's grace period. Mirrors `VmcManager`. */
+  quietSince: number | null;
 }
 
 /**
@@ -85,7 +96,7 @@ export class IFacialMocapManager {
   constructor(private readonly ws: WSSync) {
     initPoseBroadcast(ws);
     initBlendshapesBroadcast(ws);
-    this.timer = setInterval(() => this.tick(), TICK_MS);
+    this.timer = setInterval(() => this.tick(), SWEEP_MS);
 
     // Send current receiver state to any new WebSocket client (handles page refresh / new tabs).
     ws.onClientConnected((client) => {
@@ -242,6 +253,7 @@ export class IFacialMocapManager {
       connected: false,
       prevSignature: [],
       trackingActive: null,
+      quietSince: null,
     };
     this.receivers.set(behaviorId, info);
 
@@ -275,11 +287,21 @@ export class IFacialMocapManager {
       // Tracking detection: same frame-delta approach as the VMC receiver's
       // /Body diff. The app keeps streaming the last values when it loses the
       // face, so silence alone is not enough to tell tracking from idling.
+      //
+      // Movement resumes tracking immediately; going still only *starts* the
+      // grace period. The loss is declared in `tick()` once `quietSince` has
+      // stood for the avatar's configured window, so a held expression or a
+      // couple of repeated frames no longer snap the avatar to idle.
       if (info.prevSignature.length === frame.signature.length) {
         let diff = 0;
         for (let i = 0; i < frame.signature.length; i++)
           diff += Math.abs(frame.signature[i] - info.prevSignature[i]);
-        this.setTracking(behaviorId, info, diff > TRACKING_THRESHOLD);
+        if (diff > TRACKING_THRESHOLD) {
+          info.quietSince = null;
+          this.setTracking(behaviorId, info, true);
+        } else if (info.quietSince === null) {
+          info.quietSince = Date.now();
+        }
       }
       info.prevSignature = frame.signature;
 
@@ -411,6 +433,17 @@ export class IFacialMocapManager {
     if (sent) info.lastHandshake = Date.now();
   }
 
+  /**
+   * Grace period (ms) before a dropout is reported as a loss, read from the
+   * avatar node's `trackingGracePeriod` property via the shared helper. Same
+   * source of truth as `VmcManager` and `TrackingManager`, so every tracking
+   * source on an avatar reaches idle on one clock instead of each honouring its
+   * own constant.
+   */
+  private graceMs(behaviorId: string): number {
+    return trackingGraceMs(this.behaviorNodeIds.get(behaviorId));
+  }
+
   private setTracking(
     behaviorId: string,
     info: Receiver,
@@ -434,16 +467,31 @@ export class IFacialMocapManager {
   private tick() {
     const now = Date.now();
     for (const [behaviorId, info] of this.receivers) {
+      // Reachability (the status dot) keeps its own fixed window.
       if (info.connected && now - info.lastSeen > CONNECT_TIMEOUT_MS) {
         info.connected = false;
         console.log(`[iFacialMocap] Device timed out (behavior ${behaviorId})`);
         this.ws.broadcast('vmc_status', { behaviorId, connected: false });
-        // Unlike VMC — where loss is inferred from packet deltas that stop
-        // arriving — a silent device here means the app was closed or the phone
-        // slept, so drop tracking too instead of leaving it latched on.
-        if (info.trackingActive) this.setTracking(behaviorId, info, false);
         info.prevSignature = [];
       }
+
+      // Both loss paths resolve here on one clock, exactly as in `VmcManager`:
+      // the face going still (`quietSince`, stamped by the frame diff) and the
+      // device going away (`lastSeen` — app closed, phone asleep). Taking the
+      // earlier of the two means whichever dropout started first drives the
+      // window, so a device that freezes and then disconnects doesn't restart
+      // its grace period on the disconnect.
+      //
+      // `trackingActive !== true` covers both already-lost and never-tracked
+      // (null): a receiver that never latched on has no loss to report, and
+      // announcing one would contradict the connect-time snapshot, which skips
+      // null for exactly that reason.
+      if (info.trackingActive === true && info.lastSeen !== 0) {
+        const quietSince = Math.min(info.quietSince ?? now, info.lastSeen);
+        if (now - quietSince > this.graceMs(behaviorId))
+          this.setTracking(behaviorId, info, false);
+      }
+
       const due = info.connected ? HANDSHAKE_KEEPALIVE_MS : HANDSHAKE_IDLE_MS;
       if (now - info.lastHandshake >= due) this.sendHandshake(info);
     }

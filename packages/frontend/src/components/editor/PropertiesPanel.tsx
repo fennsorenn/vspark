@@ -2254,7 +2254,6 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
     invertPitch?: boolean;
     invertYaw?: boolean;
     invertRoll?: boolean;
-    poseTimeout?: number;
     nodeConfig?: Record<
       string,
       { enabled?: boolean; mapping?: Record<string, [string, number][]> }
@@ -2267,7 +2266,6 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
   const [invertPitch, setInvertPitch] = useState(cfg.invertPitch ?? false);
   const [invertYaw, setInvertYaw] = useState(cfg.invertYaw ?? false);
   const [invertRoll, setInvertRoll] = useState(cfg.invertRoll ?? false);
-  const [poseTimeout, setPoseTimeout] = useState(cfg.poseTimeout ?? 2);
   const [localIps, setLocalIps] = useState<string[]>([]);
 
   const getMapperConfigs = () =>
@@ -2293,7 +2291,6 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
     setInvertPitch(cfg.invertPitch ?? false);
     setInvertYaw(cfg.invertYaw ?? false);
     setInvertRoll(cfg.invertRoll ?? false);
-    setPoseTimeout(cfg.poseTimeout ?? 2);
     setMapperConfigs(getMapperConfigs());
 
     // Persist mapper defaults immediately so the stored config is always
@@ -2492,23 +2489,6 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
       </div>
       <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
         {t('ifm.axesHint')}
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={labelStyle}>{t('vmc.idleAfter')}</span>
-        <NumInput
-          className="vs-ifm-pose-timeout"
-          value={poseTimeout}
-          step={0.1}
-          min={0.1}
-          suffix="s"
-          style={{ width: 80 }}
-          onChange={(v) => setPoseTimeout(v)}
-          onCommit={(v) => {
-            setPoseTimeout(v);
-            save({ poseTimeout: v });
-          }}
-        />
       </div>
 
       {/* Face mappers */}
