@@ -720,3 +720,61 @@ describe('PropertiesPanel — simplified rig editor', () => {
     expect(parseFloat(chestYaw)).toBeCloseTo(14, 6); // follow's 7, doubled
   });
 });
+
+describe('PropertiesPanel — presets stay live in both editors', () => {
+  const openRig = (container: HTMLElement) =>
+    fireEvent.click(
+      screen.getByText(
+        new RegExp(`^${tp('stylizedTracking.rigSection')} \\(\\d+\\)$`)
+      )
+    );
+  const cellInput = (container: HTMLElement, row: string, col: string) =>
+    container.querySelector(
+      `.vs-stylize-cell-${row}-${col} input`
+    ) as HTMLInputElement;
+
+  it('the preset dropdown re-baselines the simplified grid', () => {
+    seedStylizer({ rigMode: 'simple', preset: 'follow' });
+    const a = renderWithProviders(<PropertiesPanel />);
+    openRig(a.container);
+    const followHead = cellInput(a.container, 'headTurn', 'headTurn').value;
+    a.unmount();
+
+    seedStylizer({ rigMode: 'simple', preset: 'counter' });
+    const b = renderWithProviders(<PropertiesPanel />);
+    openRig(b.container);
+    expect(cellInput(b.container, 'headTurn', 'headTurn').value).not.toBe(
+      followHead
+    );
+  });
+
+  it('leaving the simplified editor with no edits pins NOTHING', () => {
+    seedStylizer({ rigMode: 'simple' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    fireEvent.change(container.querySelector('.vs-stylize-rigmode')!, {
+      target: { value: 'detailed' },
+    });
+    // An empty bake must leave the preset completely in charge.
+    expect(cfgOf().rig).toBeNull();
+  });
+
+  it('baking one edited cell leaves the rest of the rig on the preset', () => {
+    seedStylizer({
+      rigMode: 'simple',
+      preset: 'follow',
+      simpleRig: { bodyTurn: { bodyTurn: 52 } },
+    });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    fireEvent.change(container.querySelector('.vs-stylize-rigmode')!, {
+      target: { value: 'detailed' },
+    });
+    const rig = cfgOf().rig as Record<string, unknown>;
+    // Only the body chain + the arms riding with it are pinned…
+    expect(Object.keys(rig)).toContain('chest');
+    // …the head is left free to follow the preset.
+    expect(Object.keys(rig)).not.toContain('head');
+    expect(Object.keys(rig)).not.toContain('neck');
+  });
+});

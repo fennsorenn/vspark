@@ -212,10 +212,23 @@ compileSimpleRig(rig, {})                   === rig        // empty override is 
 Both are asserted for all five presets. That gives seamless switching in both
 directions with no special cases:
 
-- **simple → detailed** — the panel bakes the compiled rig into `rig` and clears
-  `simpleRig`, so the bone list opens showing exactly what was running.
+- **simple → detailed** — the panel bakes `diffStyleRig(presetRig, effectiveRig)`
+  into `rig` and clears `simpleRig`, so the bone list opens showing exactly what
+  was running.
 - **detailed → simple** — nothing to write at all; the grid derives its totals
   from the effective rig, and an empty override runs it unchanged.
+
+**The bake must be a MINIMAL diff, not the whole rig.** Writing the full resolved
+rig is equally lossless, but it pins every bone as an override — and since
+`mergeStyleRig(preset, fullRig)` is just `fullRig`, the preset dropdown goes inert
+the moment you visit the detailed editor once. `diffStyleRig` keeps only the
+bones, drivers, modes and lags that genuinely changed, so an edit to one channel
+pins that chain and leaves everything else following the preset. With no
+simplified edits at all the diff is empty and `rig` stays `null`.
+
+`diffStyleRig` is the inverse of `mergeStyleRig` and handles the awkward cases:
+a driver the target dropped is written back as an explicit zero (otherwise the
+merge would resurrect it), as is a bone that disappeared entirely.
 
 ### What editing a cell does
 

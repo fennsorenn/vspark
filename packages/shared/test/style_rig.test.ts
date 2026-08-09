@@ -16,6 +16,7 @@ import {
   SIMPLE_CHANNEL_SPEC,
   deriveSimpleRig,
   compileSimpleRig,
+  diffStyleRig,
   resolveRigMode,
   resolveStyleRig,
   DEFAULT_RIG_MODE,
@@ -756,5 +757,88 @@ describe('resolveRigMode / resolveStyleRig', () => {
     const running = resolveStyleRig('counter', null, 'simple', edited);
     const baked = resolveStyleRig('counter', running, 'detailed', null);
     expect(baked).toEqual(running);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// diffStyleRig — the minimal override the mode switch bakes
+// ---------------------------------------------------------------------------
+
+describe('diffStyleRig', () => {
+  it('is empty when nothing changed', () => {
+    expect(diffStyleRig(STYLE_RIG_FOLLOW, STYLE_RIG_FOLLOW)).toEqual({});
+  });
+
+  it('inverts mergeStyleRig — merge(base, diff) reproduces the target', () => {
+    const target = compileSimpleRig(STYLE_RIG_FOLLOW, {
+      bodyTurn: { bodyTurn: 52 },
+      headNod: { headNod: 20 },
+    });
+    const diff = diffStyleRig(STYLE_RIG_FOLLOW, target);
+    expect(mergeStyleRig(STYLE_RIG_FOLLOW, diff)).toEqual(target);
+  });
+
+  it('names ONLY the bones that actually changed', () => {
+    // A bodyTurn edit touches the torso chain and the arms that ride with it —
+    // and must leave the head alone, so the preset still governs it.
+    const target = compileSimpleRig(STYLE_RIG_FOLLOW, {
+      bodyTurn: { bodyTurn: 52 },
+    });
+    const diff = diffStyleRig(STYLE_RIG_FOLLOW, target);
+    expect(Object.keys(diff)).not.toContain('head');
+    expect(Object.keys(diff)).not.toContain('neck');
+    expect(Object.keys(diff)).toContain('chest');
+  });
+
+  it('keeps only the changed DRIVERS within a changed bone', () => {
+    const target = compileSimpleRig(STYLE_RIG_FOLLOW, {
+      bodyTurn: { bodyTurn: 52 },
+    });
+    const diff = diffStyleRig(STYLE_RIG_FOLLOW, target);
+    expect(diff.chest.drivers.bodyYaw).toBeDefined();
+    // chest also responds to headYaw / bodyPitch / bodyRoll — untouched, so absent.
+    expect(diff.chest.drivers.headYaw).toBeUndefined();
+    expect(diff.chest.drivers.bodyRoll).toBeUndefined();
+  });
+
+  it('writes an explicit zero for a driver the target dropped', () => {
+    const stripped: StyleRig = {
+      ...STYLE_RIG_FOLLOW,
+      chest: {
+        ...STYLE_RIG_FOLLOW.chest,
+        drivers: { headYaw: STYLE_RIG_FOLLOW.chest.drivers.headYaw },
+      },
+    };
+    const diff = diffStyleRig(STYLE_RIG_FOLLOW, stripped);
+    expect(diff.chest.drivers.bodyYaw).toEqual([0, 0, 0]);
+    // …and merging it back really does drop the driver.
+    expect(
+      mergeStyleRig(STYLE_RIG_FOLLOW, diff).chest.drivers.bodyYaw
+    ).toBeUndefined();
+  });
+
+  it('zeroes a bone the target dropped entirely', () => {
+    const { leftLowerArm: _dropped, ...rest } = STYLE_RIG_FOLLOW;
+    const diff = diffStyleRig(STYLE_RIG_FOLLOW, rest as StyleRig);
+    expect(diff.leftLowerArm).toBeDefined();
+    expect(mergeStyleRig(STYLE_RIG_FOLLOW, diff).leftLowerArm).toBeUndefined();
+  });
+
+  it('leaves the preset live for everything the edit did not reach', () => {
+    // THE regression this guards: baking the whole resolved rig would pin every
+    // bone and make the preset dropdown inert.
+    const target = compileSimpleRig(STYLE_RIG_FOLLOW, {
+      bodyTurn: { bodyTurn: 52 },
+    });
+    const baked = diffStyleRig(STYLE_RIG_FOLLOW, target);
+    const asFollow = resolveStyleRig('follow', baked, 'detailed', null);
+    const asCounter = resolveStyleRig('counter', baked, 'detailed', null);
+    // The edited channel is pinned across both…
+    expect(deriveSimpleRig(asCounter).bodyTurn!.bodyTurn).toBeCloseTo(52, 6);
+    // …while an untouched one still follows the preset.
+    expect(deriveSimpleRig(asCounter).headTurn!.headTurn).not.toBeCloseTo(
+      deriveSimpleRig(asFollow).headTurn!.headTurn,
+      6
+    );
   });
 });

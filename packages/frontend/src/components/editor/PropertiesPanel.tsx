@@ -25,6 +25,7 @@ import {
   compileSimpleRig,
   resolveRigMode,
   mergeStyleRig,
+  diffStyleRig,
   type StyleDriverName,
   type StyleRig,
   type StyleBoneResponse,
@@ -3455,11 +3456,20 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
    */
   const setRigMode = (next: RigMode) => {
     if (next === rigMode) return;
-    save(
-      next === 'detailed'
-        ? { rigMode: next, rig: effectiveRig, simpleRig: null }
-        : { rigMode: next }
-    );
+    if (next !== 'detailed') {
+      save({ rigMode: next });
+      return;
+    }
+    // Bake the MINIMAL difference from the preset, not the whole resolved rig —
+    // pinning every bone would reproduce the pose but leave the preset dropdown
+    // with nothing left to change. With no simplified edits this is empty, so the
+    // preset stays completely live.
+    const baked = diffStyleRig(baseRig, effectiveRig);
+    save({
+      rigMode: next,
+      rig: Object.keys(baked).length > 0 ? baked : null,
+      simpleRig: null,
+    });
   };
   // Response and follow-through layer defaults → the preset's own baseline → the
   // user's overrides, so switching preset re-baselines anything untouched.

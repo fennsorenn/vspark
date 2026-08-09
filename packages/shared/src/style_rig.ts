@@ -972,3 +972,67 @@ export function resolveStyleRig(
     ? compileSimpleRig(shape, simpleOverrides)
     : shape;
 }
+
+/**
+ * The inverse of `mergeStyleRig`: what would have to be layered on `base` to get
+ * `full`. Only genuinely-changed bones, drivers, modes and lags survive.
+ *
+ * This is what the panel bakes when you leave the simplified editor. Writing the
+ * WHOLE resolved rig would also be lossless, but it would pin every bone as an
+ * override and so silently kill the preset dropdown — switching preset afterwards
+ * would change nothing. A minimal diff keeps `mergeStyleRig(preset, diff)`
+ * reproducing the same rig while leaving everything the user never touched free
+ * to follow the preset.
+ */
+export function diffStyleRig(base: StyleRig, full: StyleRig): StyleRig {
+  const EPS = 1e-9;
+  const out: StyleRig = {};
+
+  for (const [bone, entry] of Object.entries(full)) {
+    const b = base[bone];
+    const drivers: StyleBoneResponse['drivers'] = {};
+
+    for (const [driver, resp] of Object.entries(entry.drivers)) {
+      if (!resp) continue;
+      const prev = b?.drivers[driver as StyleDriverName];
+      const same =
+        prev &&
+        Math.abs(prev[0] - resp[0]) < EPS &&
+        Math.abs(prev[1] - resp[1]) < EPS &&
+        Math.abs(prev[2] - resp[2]) < EPS;
+      if (!same)
+        drivers[driver as StyleDriverName] = [...resp] as DriverResponse;
+    }
+
+    // A driver the base has but the resolved rig dropped has to be written back
+    // as an explicit zero, or the merge would resurrect it.
+    for (const driver of Object.keys(b?.drivers ?? {})) {
+      if (!entry.drivers[driver as StyleDriverName])
+        drivers[driver as StyleDriverName] = [0, 0, 0];
+    }
+
+    const modeChanged = b ? entry.mode !== b.mode : entry.mode !== undefined;
+    const lagChanged = b ? entry.lag !== b.lag : entry.lag !== undefined;
+    if (Object.keys(drivers).length === 0 && !modeChanged && !lagChanged)
+      continue;
+
+    out[bone] = {
+      ...(entry.mode !== undefined ? { mode: entry.mode } : {}),
+      ...(entry.lag !== undefined ? { lag: entry.lag } : {}),
+      drivers,
+    };
+  }
+
+  // Bones the base drives but the resolved rig does not: zero them so the merge
+  // prunes them away.
+  for (const [bone, entry] of Object.entries(base)) {
+    if (full[bone]) continue;
+    out[bone] = {
+      drivers: Object.fromEntries(
+        Object.keys(entry.drivers).map((d) => [d, [0, 0, 0]])
+      ) as StyleBoneResponse['drivers'],
+    };
+  }
+
+  return out;
+}
