@@ -14,6 +14,8 @@ import {
   setWsSync,
   setTrackClipPlaybackManager,
   setClipPlaybackForwarder,
+  setCaptureManager,
+  refreshCapture,
 } from './routes/index.js';
 import { initUpdateChecker, getInstallDir } from './routes/update.js';
 import { WSSync } from './ws/index.js';
@@ -23,6 +25,11 @@ import { ManualCalibrationManager } from './behaviors/manual_calibration/manager
 import { LipsyncManager } from './behaviors/lipsync/manager.js';
 import { TrackingManager } from './behaviors/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from './behaviors/api_controller/manager.js';
+import { CaptureManager } from './capture/manager.js';
+import { captureMetrics } from './capture/metrics.js';
+import { BrowserAgentProvider } from './capture/browser_agent/provider.js';
+import { NodeInferenceProvider } from './capture/node_inference/provider.js';
+import type { CaptureSink } from './capture/types.js';
 import { TrackClipPlaybackManager } from './track_clips/playback.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { broadcastBus } from './broadcast/bus.js';
@@ -167,6 +174,33 @@ async function start() {
   const trackingManager = new TrackingManager(wsSync);
   setTrackingManager(trackingManager);
 
+  // Server-side capture. The providers call the same fireLandmarks/fireVisemes entry
+  // points the browser uplink does, so nothing downstream knows which source is running.
+  // Every provider delivers through this one sink, so the metrics timestamp is taken at
+  // the same point regardless of source — that's what makes the A/B numbers comparable.
+  const captureSink: CaptureSink = {
+    landmarks: (behaviorId, frame) => {
+      captureMetrics.record(behaviorId);
+      trackingManager.fireLandmarks(behaviorId, frame);
+    },
+    visemes: (behaviorId, weights) => {
+      captureMetrics.record(behaviorId);
+      lipsyncManager.fireVisemes(behaviorId, weights);
+    },
+    error: (behaviorId, err) =>
+      console.error(`[capture] ${behaviorId}: ${err.message}`),
+  };
+  const captureManager = new CaptureManager(captureSink);
+  captureManager.register(
+    new BrowserAgentProvider({
+      port: Number(process.env.PORT) || 3001,
+      profileRoot: join(getInstallDir(), 'capture-profiles'),
+    })
+  );
+  captureManager.register(new NodeInferenceProvider(captureSink));
+  setCaptureManager(captureManager);
+  _captureManagerForShutdown = captureManager;
+
   const apiControllerManager = new ApiControllerManager();
   setApiControllerManager(apiControllerManager);
 
@@ -260,9 +294,13 @@ async function start() {
   wsSync.onMessage((kind, payload, sourceWs) => {
     if (kind === 'lipsync_input') {
       const msg = payload as LipsyncInputMessage;
+      // Dropped when this behaviour is server-sourced: two producers on one behaviorId
+      // would fight over a single broadcast-bus slot and the avatar would judder.
+      if (!captureManager.acceptsBrowserInput(msg.behaviorId)) return;
       lipsyncManager.fireVisemes(msg.behaviorId, msg.visemes ?? {});
     } else if (kind === 'tracking_input') {
       const msg = payload as TrackingInputMessage;
+      if (!captureManager.acceptsBrowserInput(msg.behaviorId)) return;
       trackingManager.fireLandmarks(msg.behaviorId, {
         face: msg.face,
         leftHand: msg.leftHand,
@@ -382,6 +420,10 @@ async function start() {
     .all() as Record<string, unknown>[];
   apiControllerManager.syncBehaviors(apiControllerRows.map(mapRow));
 
+  // Start server-side capture for any behaviour persisted with source: 'server'. This is
+  // the "starts with the server, survives closing the editor tab" half of the feature.
+  refreshCapture();
+
   // PORT override lets two instances run on one box (multiplayer testing).
   const port = Number(process.env.PORT) || 3001;
   server.listen(port, async () => {
@@ -396,9 +438,14 @@ async function start() {
 // Clean shutdown releases the DB lock's PID file so the next start doesn't see
 // a stale holder. Handlers are idempotent; process.exit re-raises the default.
 let shuttingDown = false;
+/** Set once the capture manager exists, so shutdown can reach it without a circular import. */
+let _captureManagerForShutdown: CaptureManager | null = null;
 function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
   shuttingDown = true;
+  // Kill capture children first: a spawned browser agent or ffmpeg must never outlive the
+  // server holding the camera open.
+  void _captureManagerForShutdown?.close().catch(() => {});
   try {
     closeDb();
   } finally {

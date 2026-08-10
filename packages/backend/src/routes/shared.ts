@@ -11,6 +11,7 @@ import type { TrackingManager } from '../behaviors/mediapipe_tracker/manager.js'
 import type { ApiControllerManager } from '../behaviors/api_controller/manager.js';
 import type { WSSync } from '../ws/index.js';
 import type { TrackClipPlaybackManager } from '../track_clips/playback.js';
+import type { CaptureManager } from '../capture/manager.js';
 
 // --- Manager singletons + setters ---
 
@@ -37,6 +38,14 @@ export function setLipsyncManager(m: LipsyncManager) {
 export let _tracking: TrackingManager | null = null;
 export function setTrackingManager(m: TrackingManager) {
   _tracking = m;
+}
+
+export let _capture: CaptureManager | null = null;
+export function setCaptureManager(m: CaptureManager) {
+  _capture = m;
+}
+export function getCaptureManager(): CaptureManager | null {
+  return _capture;
 }
 
 export let _apiController: ApiControllerManager | null = null;
@@ -108,6 +117,7 @@ export function refreshLipsync() {
     .prepare("SELECT * FROM behaviors WHERE kind = 'lipsync_processor'")
     .all() as Record<string, unknown>[];
   _lipsync.syncBehaviors(rows.map(_mapBehaviorRow));
+  refreshCapture();
 }
 
 export function refreshTracking() {
@@ -116,6 +126,7 @@ export function refreshTracking() {
     .prepare("SELECT * FROM behaviors WHERE kind = 'mediapipe_tracker'")
     .all() as Record<string, unknown>[];
   _tracking.syncBehaviors(rows.map(_mapBehaviorRow));
+  refreshCapture();
 }
 
 export function refreshApiController() {
@@ -126,6 +137,21 @@ export function refreshApiController() {
   _apiController.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
+/**
+ * Reconcile server-side capture. Both capture-capable behaviour kinds are read in one
+ * pass because the providers reconcile them together — a single browser agent serves the
+ * tracking and lipsync behaviours of the same project.
+ */
+export function refreshCapture() {
+  if (!_capture) return;
+  const rows = getDb()
+    .prepare(
+      "SELECT * FROM behaviors WHERE kind IN ('mediapipe_tracker', 'lipsync_processor')"
+    )
+    .all() as Record<string, unknown>[];
+  _capture.syncBehaviors(rows.map(_mapBehaviorRow));
+}
+
 export function refreshAllBehaviorManagers() {
   refreshVmc();
   refreshBreathing();
@@ -133,6 +159,7 @@ export function refreshAllBehaviorManagers() {
   refreshLipsync();
   refreshTracking();
   refreshApiController();
+  refreshCapture();
 }
 
 // --- Uploads + asset helpers ---
