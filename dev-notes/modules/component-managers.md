@@ -237,6 +237,23 @@ each member carrying its VRM 1.0 + 0.x + VRoid spellings), plus two clamp rules
 both driven by joy — eye-close/blink capped at 0.5 and mouth-open/lip-sync
 vowels at 0.6, each from a 0.3 threshold with ramping.
 
+> **TODO — hand-tune the shipped defaults.** They were authored from the VRM
+> spec rather than from watching real avatars, and the numbers above (0.5
+> eye-close cap, 0.6 mouth cap, 0.3 thresholds, `strength: 1` on the emotion
+> group) are first-pass estimates. Merged as-is deliberately: the rule *engine*
+> is what needed reviewing, and the values are a taste call better made against
+> live tracking. Two things to know before adjusting them:
+>
+> - Because `DEFAULT_BLENDSHAPE_LIMITS` is also the `@BehaviorKind`
+>   `defaultConfig`, the add-behavior flow **copies it into the row**. Retuning
+>   these constants therefore only affects *newly added* behaviors — existing
+>   ones keep the values they were seeded with until the user hits **Reset to
+>   defaults**. (Same `defaultConfig`-pins-config pattern noted in
+>   [stylized-tracking.md](stylized-tracking.md).)
+> - The joy→mouth clamp targets the lipsync vowels (`aa`/`ih`/`ou`), so smiling
+>   while speaking is the case it governs. Tune it against actual speech, not a
+>   static expression slider.
+
 **Tolerant parsing**: the node runs its config through
 `normalizeBlendshapeLimits` before applying it, so a hand-edited or
 partially-typed JSON document degrades to "fewer rules" instead of a crashed
