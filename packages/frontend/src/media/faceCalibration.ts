@@ -8,7 +8,7 @@ import type {
   LandmarkPoint,
   ArkitHeuristicConfig,
   ShapeEdge,
-} from './arkitHeuristic';
+} from '@vspark/shared/face_heuristic';
 
 // ── Live min/max tracking ──────────────────────────────────────────────────────
 

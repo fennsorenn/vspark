@@ -92,6 +92,8 @@ export default defineConfig({
       { find: '@vspark/shared/infer_nodes', replacement: shared('infer_nodes.ts') },
       { find: '@vspark/shared/schema', replacement: shared('schema.ts') },
       { find: '@vspark/shared/arkit', replacement: shared('arkit_tables.ts') },
+      { find: '@vspark/shared/face_heuristic', replacement: shared('face_heuristic.ts') },
+      { find: '@vspark/shared/mfcc', replacement: shared('mfcc.ts') },
       { find: '@vspark/shared/paramPaths', replacement: shared('paramPaths.ts') },
       { find: '@vspark/shared/sync', replacement: shared('sync.ts') },
       { find: '@vspark/shared', replacement: shared('types.ts') },

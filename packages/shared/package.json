@@ -13,6 +13,8 @@
     "./inference": "./src/inference.ts",
     "./infer_nodes": "./src/infer_nodes.ts",
     "./arkit": "./src/arkit_tables.ts",
+    "./face_heuristic": "./src/face_heuristic.ts",
+    "./mfcc": "./src/mfcc.ts",
     "./paramPaths": "./src/paramPaths.ts",
     "./sync": "./src/sync.ts"
   },

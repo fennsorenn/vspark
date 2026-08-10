@@ -7,6 +7,10 @@ const FRAME_MS = 1000 / TARGET_FPS;
 /**
  * Drives mic analysis at up to 30 fps and sends viseme weights to the server
  * via the provided WebSocket ref. Using a ref avoids stale closure issues.
+ *
+ * Timer-driven rather than `requestAnimationFrame`: rAF is compositor-driven and stalls
+ * in a backgrounded or offscreen window, which is exactly where the server-side
+ * browser-agent capture provider runs this page. Same reasoning as `MicCapture`'s loop.
  */
 export function useLipsyncUplink(
   wsRef: React.RefObject<WebSocket | null>,
@@ -14,24 +18,18 @@ export function useLipsyncUplink(
   micRef: React.RefObject<MicCapture | null>,
   active: boolean
 ): void {
-  const lastSentRef = useRef<number>(0);
-  const rafRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!active || !behaviorId) {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
+      if (timerRef.current !== null) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
       }
       return;
     }
 
-    function loop() {
-      rafRef.current = requestAnimationFrame(loop);
-      const now = performance.now();
-      if (now - lastSentRef.current < FRAME_MS) return;
-      lastSentRef.current = now;
-
+    function tick() {
       const mic = micRef.current;
       const ws = wsRef.current;
       if (
@@ -46,9 +44,10 @@ export function useLipsyncUplink(
       ws.send(JSON.stringify({ kind: 'lipsync_input', behaviorId, visemes }));
     }
 
-    rafRef.current = requestAnimationFrame(loop);
+    timerRef.current = setInterval(tick, FRAME_MS);
     return () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (timerRef.current !== null) clearInterval(timerRef.current);
+      timerRef.current = null;
     };
   }, [active, behaviorId, wsRef, micRef]);
 }
