@@ -214,8 +214,14 @@ is the *entire current pose*, injected fresh before every fire. Without the guar
 that would be a read-modify-write of the behavior row at the pose rate (~60Hz),
 persisting a value that is meaningless after a restart.
 
-> `ManualCalibrationManager` lacks this guard and therefore does write a full pose
-> into SQLite on every interceptor frame. Worth applying the same fix there.
+> **Watch item.** `ManualCalibrationManager` lacks this guard and therefore does
+> write a full pose into SQLite on every interceptor frame (~60Hz read-modify-write
+> of the behavior row, persisting state that is meaningless after a restart).
+> Pre-existing and accepted for now, but the two managers differ for no principled
+> reason and the fix is to lift `EPHEMERAL_STATE_KINDS` into the shared interceptor
+> path. Do this before anything else adopts `ManualCalibrationManager` as the
+> reference interceptor manager. Also listed in
+> [stylized-tracking.md](stylized-tracking.md#watch-list).
 
 Config: `{ amount, strength, lag, restUnmapped, preset, response, rig, rigMode, simpleRig }` — `preset` names a base
 for the whole behavior (rig + optionally response and follow-through) — `follow`,

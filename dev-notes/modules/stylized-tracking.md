@@ -471,6 +471,36 @@ the drivers edge is typed rather than `Any`. Both nodes are ordinary static node
   `HEAD_CHAIN`) and the arm-elevation axis live in `pose_style_drivers.ts`. The
   set of nine drivers is fixed; adding one is a code change.
 
+## Watch list
+
+Accepted for now, but flagged during PR review as the things most likely to bite
+later. None of these block the feature; they are recorded so they don't get
+rediscovered from scratch.
+
+- **`energy` is surfaced but unreachable.** The rig editor's driver picker offers
+  `energy` exactly like the other eight, so the UI implies it can drive anything a
+  driver can. It cannot leave the behavior — see the limitation above. Until a
+  `set_data` publish exists, expect users to wire it expecting Logic-graph or
+  particle reach and find only bones. If it starts generating confusion, the cheap
+  interim fix is a UI hint on the picker entry rather than a new node.
+- **`ManualCalibrationManager` writes a full pose to SQLite every interceptor
+  frame.** Pre-existing, not introduced here, and out of scope for this PR — but
+  this behavior's `EPHEMERAL_STATE_KINDS` guard is the fix, and the two managers
+  now differ for no principled reason. See the note in
+  [component-managers.md](component-managers.md). Worth doing before anything else
+  starts copying `ManualCalibrationManager` as the reference interceptor manager.
+- **Interceptor priority 8 is hardcoded and the escape hatch doesn't reach it.**
+  Fine while the interceptor set is small and its ordering is deliberate
+  (stylize at 8 → manual trim at 5). It becomes a real constraint the moment a
+  third-party or user-authored interceptor needs to sit between them. Fixing it
+  means having the manager read priority from `_getNodeConfig` rather than
+  `nodeDef.defaultConfig` at construction time.
+- **Blend 0 and Strength 0 are not the same thing, and the difference is not
+  obvious from the panel.** Blend 0 passes tracking through untouched; Strength 0
+  sends every `replace` bone to REST. Both are correct per the design, but
+  "turn it off" has two meanings here and only one of them is the one users
+  usually want. Watch for support questions phrased as "the avatar goes limp".
+
 ## Extending
 
 - **A new driver**: add it to `STYLE_DRIVER_NAMES` + `ZERO_DRIVERS`, populate it
