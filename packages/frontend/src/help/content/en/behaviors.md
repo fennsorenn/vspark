@@ -34,6 +34,19 @@ Both devices have to be on the same network. There are two ways to connect:
 
 Either way both ends talk on port **49983**, the port the app uses.
 
+### Nothing arrives, but the app says it is connected {#ifacialmocap-firewall}
+
+This is almost always the **firewall** on your computer.
+
+The app tells you it is connected as soon as it starts *sending*. It has no way
+to know whether anything reaches vspark, so a blocked incoming port looks exactly
+like a healthy connection from the phone's side — while vspark sits with a dark
+connection dot and a motionless avatar.
+
+Allow incoming **UDP on port 49983** and it starts working immediately, with no
+restart needed. On Windows the prompt usually appears the first time vspark
+opens the port; if you dismissed it once, the rule has to be added by hand.
+
 If your head moves the wrong way — nodding up when you nod down, for example —
 flip the matching switch under **Head Axes**. Once the directions look right,
 sit in a relaxed neutral pose and press **Capture** so your resting posture

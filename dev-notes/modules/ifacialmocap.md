@@ -62,6 +62,18 @@ The manager sends the handshake on bind, then re-sends it every 1 s while the
 device is silent and every 5 s while it is streaming, so an app restart
 re-attaches on its own.
 
+> **The handshake is one-way, and that makes firewalls look like bugs.** The
+> outbound poke leaves fine through a typical desktop firewall (outbound is
+> usually allowed), and the app then reports itself as *connected* — it is
+> describing its own send state, not a round trip. If inbound UDP 49983 is
+> blocked, nothing arrives, `lastSeen` never advances, and vspark shows a dark
+> connection dot and no motion while the phone insists it is streaming. This was
+> hit during review of #69 and cost real debugging time; the symptom is
+> indistinguishable from a broken receiver. Covered for users in the EN/DE help
+> under `{#ifacialmocap}`. If this recurs often, the fix worth considering is
+> surfacing "handshake sent, nothing received" as a distinct status rather than
+> folding it into the generic disconnected state.
+
 ## Graph
 
 `graph.ts` is the VMC pipeline with the body half removed:

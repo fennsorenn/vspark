@@ -392,7 +392,8 @@
     "invertRoll": "Invert tilt",
     "axesHint": "Flip an axis if the head moves the wrong way. Capture a head neutral below once the axes look right.",
     "localIpsHeader": "This machine's IPs — enter one in the iFacialMocap app",
-    "compatHint": "Works with iFacialMocap (iOS). Enter the Device IP above and vspark will ask the phone to stream, or leave it empty and point the app at one of the addresses above. Both ends use port {{port}}."
+    "compatHint": "Works with iFacialMocap (iOS). Enter the Device IP above and vspark will ask the phone to stream, or leave it empty and point the app at one of the addresses above. Both ends use port {{port}}.",
+    "firewallHint": "Port {{port}} needs to be open in your firewall."
   },
   "lipsync": {
     "sensitivity": "Sensitivity",
@@ -624,6 +625,7 @@
     "poseSource": "Drive each body section from animation, live tracking, or a blend of both",
     "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops",
     "ifacialmocap": "Learn how to connect the iFacialMocap iOS app",
+    "ifmFirewall": "Why the app can say “connected” while nothing reaches vspark",
     "expressionLimits": "Learn how expression limits stop exaggerated or broken faces"
   }
 }

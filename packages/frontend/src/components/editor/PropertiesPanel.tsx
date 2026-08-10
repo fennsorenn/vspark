@@ -2433,6 +2433,35 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
           }}
         />
       </div>
+
+      {/*
+        Sits directly under Port, aligned to the input column: the handshake is
+        one-way, so the app reports "connected" even when a blocked inbound port
+        means nothing arrives. One-line reminder; full symptom/fix behind the
+        help button.
+      */}
+      <div
+        className="vs-ifm-firewall-hint"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          marginLeft: 80,
+          marginTop: -4,
+          fontSize: 10,
+          color: '#8a7a4a',
+          lineHeight: 1.4,
+        }}
+      >
+        <span>{t('ifm.firewallHint', { port })}</span>
+        <HelpButton
+          topic="behaviors"
+          anchor="ifacialmocap-firewall"
+          tip={t('help.ifmFirewall')}
+          size={12}
+        />
+      </div>
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={labelStyle}>{t('vmc.blend')}</span>
         <select
