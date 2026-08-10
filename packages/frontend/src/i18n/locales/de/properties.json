@@ -392,7 +392,8 @@
     "invertRoll": "Neigen umkehren",
     "axesHint": "Kehre eine Achse um, wenn sich der Kopf in die falsche Richtung bewegt. Erfasse unten eine Kopf-Neutralhaltung, sobald die Achsen stimmen.",
     "localIpsHeader": "IPs dieses Rechners — eine davon in der iFacialMocap-App eintragen",
-    "compatHint": "Funktioniert mit iFacialMocap (iOS). Trage oben die Geräte-IP ein, dann fordert vspark den Stream beim Telefon an — oder lass sie leer und richte die App auf eine der obigen Adressen. Beide Seiten nutzen Port {{port}}."
+    "compatHint": "Funktioniert mit iFacialMocap (iOS). Trage oben die Geräte-IP ein, dann fordert vspark den Stream beim Telefon an — oder lass sie leer und richte die App auf eine der obigen Adressen. Beide Seiten nutzen Port {{port}}.",
+    "firewallHint": "Port {{port}} muss in deiner Firewall offen sein."
   },
   "lipsync": {
     "sensitivity": "Empfindlichkeit",
@@ -624,6 +625,7 @@
     "poseSource": "Jeden Körperbereich per Animation, Live-Tracking oder einer Mischung steuern",
     "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück",
     "ifacialmocap": "Erfahre, wie du die iFacialMocap-App (iOS) verbindest",
+    "ifmFirewall": "Warum die App „verbunden“ melden kann, ohne dass etwas bei vspark ankommt",
     "expressionLimits": "Erfahren, wie Mimik-Begrenzungen übertriebene oder kaputte Gesichter verhindern"
   }
 }

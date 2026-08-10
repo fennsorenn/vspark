@@ -35,6 +35,19 @@ Beide Geräte müssen im selben Netzwerk sein. Es gibt zwei Wege zu verbinden:
 
 In beiden Fällen sprechen beide Seiten über Port **49983**, den Port der App.
 
+### Es kommt nichts an, obwohl die App eine Verbindung meldet {#ifacialmocap-firewall}
+
+Das ist fast immer die **Firewall** deines Computers.
+
+Die App meldet eine Verbindung, sobald sie zu *senden* beginnt. Sie kann nicht
+erkennen, ob etwas bei vspark ankommt — ein blockierter eingehender Port sieht
+vom Telefon aus also genauso aus wie eine funktionierende Verbindung, während
+vspark mit dunklem Verbindungspunkt und reglosem Avatar dasteht.
+
+Erlaube eingehendes **UDP auf Port 49983**, dann funktioniert es sofort, ohne
+Neustart. Unter Windows erscheint die Abfrage meist beim ersten Öffnen des Ports;
+wenn du sie einmal weggeklickt hast, muss die Regel von Hand angelegt werden.
+
 Bewegt sich dein Kopf in die falsche Richtung — nickt er etwa nach oben, wenn du
 nach unten nickst — kehre den passenden Schalter unter **Kopfachsen** um. Wenn
 die Richtungen stimmen, nimm eine entspannte neutrale Haltung ein und drücke
