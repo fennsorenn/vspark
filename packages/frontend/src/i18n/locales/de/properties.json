@@ -465,7 +465,7 @@
       "detailed": "Pro Knochen"
     },
     "rigModeHint": {
-      "simple": "Kopf und Körper als zwei Bereiche. Jede Zelle sagt, wie weit diese Bewegung diesen Bereich dreht, in Grad. Änderst du eine, skaliert die ganze Kette mit und behält den Abfall der Voreinstellung — und die Arme gleichen den Körper automatisch weiter aus.",
+      "simple": "Kopf und Körper als zwei Bereiche, dazu der Versatz des Körpers. Rotationszellen sind Grad; Versatz-Zellen verschieben die Hüfte als Anteil der Hüfthöhe, sodass ein Rig auf einem anderen Avatar proportional verschiebt. Eine Zelle zu ändern skaliert die ganze Kette und behält den Abfall der Voreinstellung — und die Arme gleichen den Körper automatisch weiter aus.",
       "detailed": "Jeder Knochen einzeln. Beim Wechsel wurden deine vereinfachten Werte unverändert übernommen, du kannst also genau dort weitermachen, wo es lief."
     },
     "channel": {
@@ -474,7 +474,10 @@
       "headNod": "Kopf nicken",
       "bodyTurn": "Körper drehen",
       "bodySway": "Körper schwingen",
-      "bodyLean": "Körper beugen"
+      "bodyLean": "Körper beugen",
+      "shiftSide": "Versatz seitlich",
+      "shiftUp": "Versatz hoch",
+      "shiftForward": "Versatz vorn"
     },
     "channelShort": {
       "headTurn": "K dreh",
@@ -482,7 +485,10 @@
       "headNod": "K nick",
       "bodyTurn": "R dreh",
       "bodySway": "R schw",
-      "bodyLean": "R beug"
+      "bodyLean": "R beug",
+      "shiftSide": "Vers. X",
+      "shiftUp": "Vers. Y",
+      "shiftForward": "Vers. Z"
     },
     "rigStock": "Standard-Rig",
     "rigModified": "{{count}} Knochen geändert",

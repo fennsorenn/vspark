@@ -188,6 +188,13 @@ Raster. Jede Zelle sagt, wie weit eine dieser Bewegungen diesen Teil dreht, in
 Grad. Die Zeile *Körper drehen* zu lesen sagt dir, was den Körper dreht: er selbst,
 dein Kopf, oder beides.
 
+Die letzten drei Zeilen sind der **Körperversatz**: Statt zu drehen, schieben sie
+deinen ganzen Körper zur Seite, nach oben oder nach vorn. Reine Rotation dreht
+dich um ein festes Becken, was steif wirkt — die Hüfte tatsächlich ein wenig
+wandern zu lassen, macht aus einer Neigung erst echtes Gewicht. Diese Werte sind
+ein Anteil der Hüfthöhe deines Avatars statt Grad, damit dieselbe Einstellung auf
+einem großen wie auf einem kleinen Modell stimmt.
+
 Änderst du eine Zelle, skaliert die ganze Kette mit und behält die Form, die die
 Voreinstellung ihr gegeben hat — die Hüfte bewegt sich weiterhin weniger als die
 Brust, der Abfall bleibt erhalten. Zwei Dinge laufen von allein mit: Die Arme

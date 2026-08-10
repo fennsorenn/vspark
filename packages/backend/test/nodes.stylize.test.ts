@@ -26,6 +26,8 @@ import {
   STYLE_PRESETS,
   MAX_STYLE_STRENGTH,
   deriveSimpleRig,
+  HIP_SHIFT_KEY,
+  MAX_HIP_SHIFT,
   ZERO_DRIVERS,
   STYLE_DRIVER_NAMES,
   type StyleDrivers,
@@ -1126,5 +1128,128 @@ describe('pose_stylize simplified rig mode', () => {
     expect(Math.abs(yawOf(plain, 'chest'))).toBeLessThan(
       Math.abs(yawOf(scaled, 'chest'))
     );
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// pose_stylize — the body shift lands on the pose as a hips TRANSLATION
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe('pose_stylize body shift', () => {
+  const run = (extra: Record<string, unknown> = {}) =>
+    pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ hips: [0, 0, 0] }),
+      drivers: { ...ZERO_DRIVERS, bodyRoll: 1 },
+      amount: 1,
+      lag: 0,
+      preset: 'follow',
+      rigMode: 'detailed',
+      ...extra,
+    }) as NormalizedPose;
+
+  it('emits a hips offset when the rig asks for one', () => {
+    const out = run();
+    const off = out.offset('hips' as VRMBoneName);
+    expect(off).toBeDefined();
+    // follow shifts sideways with body sway.
+    expect(off![0]).toBeCloseTo(
+      STYLE_RIG_FOLLOW[HIP_SHIFT_KEY].drivers.bodyRoll![0],
+      4
+    );
+  });
+
+  it('stays rotation-only when no driver moves', () => {
+    const out = run({ drivers: ZERO_DRIVERS });
+    expect(out.offsetCount).toBe(0);
+    expect(out.offset('hips' as VRMBoneName)).toBeUndefined();
+  });
+
+  it('does NOT put the shift entry on a bone', () => {
+    // The reserved key must never leak into the rotation map.
+    const out = run();
+    expect([...out.keys()]).not.toContain(HIP_SHIFT_KEY);
+  });
+
+  it('scales with strength, like every other rig contribution', () => {
+    const base = run().offset('hips' as VRMBoneName)!;
+    const doubled = run({ strength: 2 }).offset('hips' as VRMBoneName)!;
+    expect(doubled[0]).toBeCloseTo(base[0] * 2, 5);
+  });
+
+  it('scales with the amount blend', () => {
+    const base = run().offset('hips' as VRMBoneName)!;
+    const half = run({ amount: 0.5 }).offset('hips' as VRMBoneName)!;
+    expect(half[0]).toBeCloseTo(base[0] / 2, 5);
+    // amount 0 means no styling at all, so no offset survives.
+    expect(run({ amount: 0 }).offsetCount).toBe(0);
+  });
+
+  it('clamps an extreme shift rather than teleporting the avatar', () => {
+    const out = run({
+      strength: 2,
+      rig: { [HIP_SHIFT_KEY]: { drivers: { bodyRoll: [99, 0, 0] } } },
+    });
+    expect(out.offset('hips' as VRMBoneName)![0]).toBeCloseTo(MAX_HIP_SHIFT, 6);
+  });
+
+  it('head-only presets shift off the HEAD, not the body', () => {
+    const fromBody = pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ hips: [0, 0, 0] }),
+      drivers: { ...ZERO_DRIVERS, bodyRoll: 1 },
+      amount: 1,
+      lag: 0,
+      preset: 'headOnly',
+      rigMode: 'detailed',
+    }) as NormalizedPose;
+    expect(fromBody.offsetCount).toBe(0);
+
+    const fromHead = pullValue('pose_stylize', 'pose', {
+      pose: poseOf({ hips: [0, 0, 0] }),
+      drivers: { ...ZERO_DRIVERS, headYaw: 1 },
+      amount: 1,
+      lag: 0,
+      preset: 'headOnly',
+      rigMode: 'detailed',
+    }) as NormalizedPose;
+    expect(fromHead.offset('hips' as VRMBoneName)![0]).toBeGreaterThan(0);
+  });
+
+  it('eases in through the lag integrator like the rotations do', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000_000);
+    const n = liveNode('pose_stylize', 'pose', {
+      pose: poseOf({ hips: [0, 0, 0] }),
+      drivers: ZERO_DRIVERS,
+      amount: 1,
+      lag: 0.2,
+      preset: 'follow',
+      rigMode: 'detailed',
+    });
+    n.pull({});
+    vi.setSystemTime(10_000_016);
+    const stepped = n.pull({
+      pose: poseOf({ hips: [0, 0, 0] }),
+      drivers: { ...ZERO_DRIVERS, bodyRoll: 1 },
+    }) as NormalizedPose;
+    const target = STYLE_RIG_FOLLOW[HIP_SHIFT_KEY].drivers.bodyRoll![0];
+    const got = stepped.offset('hips' as VRMBoneName)?.[0] ?? 0;
+    expect(got).toBeGreaterThan(0);
+    expect(got).toBeLessThan(target);
+  });
+
+  it('passes an upstream offset through untouched when it adds none', () => {
+    const withOffset = poseOf({ hips: [0, 0, 0] }).withOffset(
+      'hips' as VRMBoneName,
+      [0.2, 0, 0]
+    );
+    const out = pullValue('pose_stylize', 'pose', {
+      pose: withOffset,
+      drivers: ZERO_DRIVERS,
+      amount: 1,
+      lag: 0,
+      preset: 'follow',
+      rigMode: 'detailed',
+    }) as NormalizedPose;
+    expect(out.offset('hips' as VRMBoneName)).toEqual([0.2, 0, 0]);
   });
 });

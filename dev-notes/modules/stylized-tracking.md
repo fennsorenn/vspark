@@ -268,6 +268,54 @@ effective = rigMode === 'simple' ? compileSimpleRig(shape, config.simpleRig) : s
 `resolveStyleRig(preset, rig, rigMode, simpleRig)` is the single entry point;
 both the node and the panel call it, so they cannot drift.
 
+## Body shift — the one non-rotation output
+
+Rotation alone pivots the avatar around a fixed pelvis, which reads as stiff. The
+rig can also move the hips, via a reserved `StyleRig` key:
+
+```ts
+HIP_SHIFT_KEY = '@hipShift'      // triples read as [side, up, forward]
+```
+
+**Units are fractions of the avatar's hip height**, not scene units, so a rig
+authored on one model displaces proportionally on a taller or shorter one. The
+frontend scales by the loaded VRM's rest hips Y. Clamped to `MAX_HIP_SHIFT`
+(0.5 hip heights) per axis, and the stock values are far below that — this is a
+nudge, not a step.
+
+It rides in the bone table on purpose: `mergeStyleRig`, `diffStyleRig`, the
+preset layering, the simplified section totals and the per-bone lag integrator
+then all apply to it for free rather than needing a parallel structure. It carries
+a `mode` purely so its entry is the same SHAPE as a bone's (`'add'` — the honest
+label, since the shift is added to whatever root motion resolved). Two subtleties
+this bought, both caught by tests:
+
+- `mergeStyleRig` always materializes `mode`, while `compileSimpleRig` preserves
+  the entry as-is. Every stock BONE has a mode so the asymmetry never showed; the
+  shift entry exposed it, and the two produced different objects.
+- The head-only presets are deltas on `follow`, so they silently inherited its
+  body-driven shift — breaking "head-only consumes no body drivers". They now
+  re-point it at the head drivers.
+
+### How it reaches the screen
+
+The pose pipeline is rotation-first, so rather than teaching every mapper about
+translation, `NormalizedPose` gained an OPTIONAL per-bone offset map that rides
+alongside the rotations. `map()` and `with()` carry it through untouched, so no
+existing node had to change.
+
+```
+pose_stylize → NormalizedPose.withOffset('hips', …)
+  → BroadcastBus (offsets SUM across slots; omitted from the payload when empty)
+  → WS vmc_pose { offsets }
+  → vmcPoseStore.setVmcPose(…, offsets)
+  → Viewport.applyHipShift() — ADDITIVE on top of clip root motion
+```
+
+The frame carrying no offsets *clears* the stored one rather than leaving it
+stale, so switching the stylizer off snaps the hips back instead of freezing them
+displaced. In the simplified grid it appears as three extra rows.
+
 ## The rig
 
 `StyleRig` is `boneName → { mode, lag, drivers }`, where `drivers` maps a driver

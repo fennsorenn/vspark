@@ -12,7 +12,10 @@ import {
   stylePreset,
   styleRigPreset,
   SIMPLE_CHANNELS,
+  SIMPLE_COLUMNS,
   SIMPLE_SECTION_BONES,
+  HIP_SHIFT_KEY,
+  MAX_HIP_SHIFT,
   SIMPLE_CHANNEL_SPEC,
   deriveSimpleRig,
   compileSimpleRig,
@@ -67,9 +70,11 @@ describe('resolveStyleResponse', () => {
 });
 
 describe('DEFAULT_STYLE_RIG — the design invariants', () => {
-  it('only names real VRM humanoid bones', () => {
-    for (const bone of Object.keys(DEFAULT_STYLE_RIG))
+  it('only names real VRM humanoid bones (plus the reserved shift entry)', () => {
+    for (const bone of Object.keys(DEFAULT_STYLE_RIG)) {
+      if (bone === HIP_SHIFT_KEY) continue;
       expect(VRM_BONE_NAMES).toContain(bone);
+    }
   });
 
   it('only references declared drivers', () => {
@@ -354,7 +359,7 @@ describe('style presets', () => {
   it('every preset rig names real bones and declared drivers', () => {
     for (const { rig } of Object.values(STYLE_PRESETS))
       for (const [bone, entry] of Object.entries(rig)) {
-        expect(VRM_BONE_NAMES).toContain(bone);
+        if (bone !== HIP_SHIFT_KEY) expect(VRM_BONE_NAMES).toContain(bone);
         for (const driver of Object.keys(entry.drivers))
           expect(STYLE_DRIVER_NAMES).toContain(driver);
       }
@@ -591,13 +596,19 @@ const cell = (rig: StyleRig, bone: string, driver: string, axis: number) =>
   ] ?? 0;
 
 describe('simplified rig', () => {
-  it('declares six channels, each bound to a driver, axis and section', () => {
-    expect(SIMPLE_CHANNELS).toHaveLength(6);
+  it('has nine rows but only six driver columns', () => {
+    // The body can be SHIFTED, but there is no "shift" to read off a performer,
+    // so the three shift channels are outputs only.
+    expect(SIMPLE_CHANNELS).toHaveLength(9);
+    expect(SIMPLE_COLUMNS).toHaveLength(6);
+    for (const c of SIMPLE_COLUMNS)
+      expect(STYLE_DRIVER_NAMES).toContain(SIMPLE_CHANNEL_SPEC[c].driver);
     for (const c of SIMPLE_CHANNELS) {
       const spec = SIMPLE_CHANNEL_SPEC[c];
-      expect(STYLE_DRIVER_NAMES).toContain(spec.driver);
       expect([0, 1, 2]).toContain(spec.axis);
       expect(Object.keys(SIMPLE_SECTION_BONES)).toContain(spec.section);
+      // Only the shift rows lack a driver.
+      expect(spec.driver === undefined).toBe(spec.section === 'shift');
     }
   });
 
@@ -668,7 +679,7 @@ describe('simplified rig', () => {
     const before = deriveSimpleRig(STYLE_RIG_FOLLOW);
     const after = deriveSimpleRig(out);
     for (const row of SIMPLE_CHANNELS)
-      for (const col of SIMPLE_CHANNELS) {
+      for (const col of SIMPLE_COLUMNS) {
         if (row === 'headTurn' && col === 'headTurn') continue;
         expect(after[row]?.[col], `${row}/${col}`).toBe(before[row]?.[col]);
       }
@@ -840,5 +851,85 @@ describe('diffStyleRig', () => {
       deriveSimpleRig(asFollow).headTurn!.headTurn,
       6
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Body shift — the hips' translation output
+// ---------------------------------------------------------------------------
+
+describe('body shift (hip position)', () => {
+  it('rides in the rig table under a reserved key, so it inherits the machinery', () => {
+    expect(HIP_SHIFT_KEY.startsWith('@')).toBe(true);
+    expect(VRM_BONE_NAMES).not.toContain(HIP_SHIFT_KEY);
+    expect(STYLE_RIG_FOLLOW[HIP_SHIFT_KEY]).toBeDefined();
+  });
+
+  it('is driven by the body’s own sway and lean in the stock rig', () => {
+    const d = STYLE_RIG_FOLLOW[HIP_SHIFT_KEY].drivers;
+    expect(d.bodyRoll![0]).toBeGreaterThan(0); // sway → sideways travel
+    expect(d.bodyPitch![2]).toBeGreaterThan(0); // lean → forward travel
+  });
+
+  it('stays a nudge, well inside the clamp', () => {
+    for (const [, { rig }] of Object.entries(STYLE_PRESETS)) {
+      const entry = rig[HIP_SHIFT_KEY];
+      if (!entry) continue;
+      for (const resp of Object.values(entry.drivers))
+        for (const v of resp!) expect(Math.abs(v)).toBeLessThan(MAX_HIP_SHIFT);
+    }
+  });
+
+  it('lags the furthest of anything in the rig — bulk moves last', () => {
+    expect(STYLE_RIG_FOLLOW[HIP_SHIFT_KEY].lag).toBeGreaterThanOrEqual(
+      STYLE_RIG_FOLLOW.hips.lag!
+    );
+  });
+
+  it('surfaces in the simplified grid as three shift rows', () => {
+    const simple = deriveSimpleRig(STYLE_RIG_FOLLOW);
+    expect(simple.shiftSide!.bodySway).toBeCloseTo(
+      STYLE_RIG_FOLLOW[HIP_SHIFT_KEY].drivers.bodyRoll![0],
+      6
+    );
+    expect(simple.shiftForward!.bodyLean).toBeCloseTo(
+      STYLE_RIG_FOLLOW[HIP_SHIFT_KEY].drivers.bodyPitch![2],
+      6
+    );
+  });
+
+  it('round-trips through the simplified view like any other channel', () => {
+    const rig = STYLE_RIG_FOLLOW;
+    expect(compileSimpleRig(rig, deriveSimpleRig(rig))[HIP_SHIFT_KEY]).toEqual(
+      rig[HIP_SHIFT_KEY]
+    );
+  });
+
+  it('a simplified shift edit rescales only the shift entry', () => {
+    const before = deriveSimpleRig(STYLE_RIG_FOLLOW).shiftSide!.bodySway!;
+    const out = compileSimpleRig(STYLE_RIG_FOLLOW, {
+      shiftSide: { bodySway: before * 2 },
+    });
+    expect(out[HIP_SHIFT_KEY].drivers.bodyRoll![0]).toBeCloseTo(before * 2, 6);
+    // The rotation rows are untouched.
+    expect(out.hips.drivers.bodyRoll).toEqual(
+      STYLE_RIG_FOLLOW.hips.drivers.bodyRoll
+    );
+  });
+
+  it('can be dialled up from nothing on a rig that has no shift', () => {
+    const noShift: StyleRig = { ...STYLE_RIG_FOLLOW };
+    delete noShift[HIP_SHIFT_KEY];
+    const out = compileSimpleRig(noShift, { shiftSide: { bodySway: 0.2 } });
+    expect(out[HIP_SHIFT_KEY].drivers.bodyRoll![0]).toBeCloseTo(0.2, 6);
+  });
+
+  it('diffs like any other entry, so the bake stays minimal', () => {
+    const target = compileSimpleRig(STYLE_RIG_FOLLOW, {
+      shiftSide: { bodySway: 0.3 },
+    });
+    const diff = diffStyleRig(STYLE_RIG_FOLLOW, target);
+    expect(Object.keys(diff)).toEqual([HIP_SHIFT_KEY]);
+    expect(mergeStyleRig(STYLE_RIG_FOLLOW, diff)).toEqual(target);
   });
 });

@@ -14,6 +14,8 @@ import {
   styleRigPresetLag,
   DEFAULT_STYLE_STRENGTH,
   MAX_STYLE_STRENGTH,
+  HIP_SHIFT_KEY,
+  MAX_HIP_SHIFT,
 } from '@vspark/shared/style_rig';
 
 const DEG2RAD = Math.PI / 180;
@@ -151,6 +153,7 @@ export class PoseStylize extends Node {
     }
 
     // 2. Lay the rig over the top.
+    let hipShift: [number, number, number] | null = null;
     for (const [bone, entry] of Object.entries(rig)) {
       const raw = evaluateBoneResponse(entry, drivers);
       const target: DriverResponse =
@@ -168,6 +171,19 @@ export class PoseStylize extends Node {
         lagged[1] * DEG2RAD,
         lagged[2] * DEG2RAD
       );
+      // The reserved shift entry is a TRANSLATION, not a rotation — same
+      // evaluate/strength/lag treatment, but it lands on the pose's hips offset
+      // instead of a quaternion. Units are hip-height fractions, so the frontend
+      // scales it by the loaded avatar's own proportions.
+      if (bone === HIP_SHIFT_KEY) {
+        hipShift = [
+          clamp(lagged[0] * amount, -MAX_HIP_SHIFT, MAX_HIP_SHIFT),
+          clamp(lagged[1] * amount, -MAX_HIP_SHIFT, MAX_HIP_SHIFT),
+          clamp(lagged[2] * amount, -MAX_HIP_SHIFT, MAX_HIP_SHIFT),
+        ];
+        continue;
+      }
+
       const boneName = bone as VRMBoneName;
       const tracked = pose.get(boneName);
 
@@ -183,7 +199,15 @@ export class PoseStylize extends Node {
       }
     }
 
-    const result = new NormalizedPose(out);
+    let result = new NormalizedPose(out, pose.offsetEntries());
+    // Only write an offset when the rig actually asked for one, so a rotation-only
+    // rig keeps producing a rotation-only pose (and an empty wire payload).
+    if (
+      hipShift &&
+      (hipShift[0] !== 0 || hipShift[1] !== 0 || hipShift[2] !== 0)
+    )
+      result = result.withOffset('hips' as VRMBoneName, hipShift);
+
     this._memoFor = pose;
     this._memo = result;
     return result;

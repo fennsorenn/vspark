@@ -592,13 +592,35 @@ describe('PropertiesPanel — simplified rig editor', () => {
     ).toBe('simple');
   });
 
-  it('renders a 6 x 6 grid of section totals', () => {
+  it('renders a 9-row x 6-column grid — the extra rows are the body shift', () => {
     seedStylizer({ rigMode: 'simple' });
     const { container } = renderWithProviders(<PropertiesPanel />);
     openRig(container);
     expect(
       container.querySelectorAll('[class^="vs-stylize-cell-"]')
-    ).toHaveLength(36);
+    ).toHaveLength(54);
+  });
+
+  it('shows the body shift in hip-height fractions, not degrees', () => {
+    seedStylizer({ rigMode: 'simple', preset: 'follow' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    const side = cellInput(container, 'shiftSide', 'bodySway');
+    expect(parseFloat(side.value)).toBeGreaterThan(0);
+    expect(parseFloat(side.value)).toBeLessThan(1);
+  });
+
+  it('writes a shift edit as a section-total override like any other row', () => {
+    seedStylizer({ rigMode: 'simple' });
+    const { container } = renderWithProviders(<PropertiesPanel />);
+    openRig(container);
+    fireEvent.change(cellInput(container, 'shiftSide', 'bodySway'), {
+      target: { value: '0.25' },
+    });
+    expect(
+      (cfgOf().simpleRig as Record<string, Record<string, number>>).shiftSide
+        .bodySway
+    ).toBeCloseTo(0.25, 6);
   });
 
   it('shows the preset’s own totals, and the head counter as a negative cell', () => {

@@ -157,10 +157,7 @@ export class BroadcastBus {
       this._stopScene(sceneId);
   }
 
-  private _slot(
-    sceneNodeId: string,
-    behaviorId: string
-  ): ProducerSlots | null {
+  private _slot(sceneNodeId: string, behaviorId: string): ProducerSlots | null {
     const sceneId = this._resolveSceneId(sceneNodeId);
     if (!sceneId) return null;
     let sceneMap = this._slots.get(sceneId);
@@ -284,6 +281,8 @@ export class BroadcastBus {
       nodeId: sceneNodeId,
       bones: pose.toRecord(),
       animationBlendMode: mode,
+      // Omitted for rotation-only poses, which is nearly all of them.
+      ...(pose.offsetCount > 0 ? { offsets: pose.offsetsToRecord() } : {}),
     });
   }
 
@@ -307,13 +306,25 @@ function _clampHz(hz: number): number {
 function _composeBones(slots: BoneSlot[]): NormalizedPose {
   const sorted = [...slots].sort((a, b) => a.priority - b.priority);
   const acc = new Map<VRMBoneName, Quaternion>();
+  // Translations SUM across slots rather than composing like the rotations do —
+  // two producers each nudging the hips should displace them by the total.
+  const offsets = new Map<VRMBoneName, [number, number, number]>();
   for (const slot of sorted) {
     for (const [bone, q] of slot.pose.entries()) {
       const existing = acc.get(bone);
       acc.set(bone, existing ? q.multiply(existing) : q);
     }
+    for (const [bone, v] of slot.pose.offsetEntries()) {
+      const prev = offsets.get(bone);
+      offsets.set(
+        bone,
+        prev
+          ? [prev[0] + v[0], prev[1] + v[1], prev[2] + v[2]]
+          : [v[0], v[1], v[2]]
+      );
+    }
   }
-  return new NormalizedPose(acc.entries());
+  return new NormalizedPose(acc.entries(), offsets.entries());
 }
 
 /** Compose blendshapes additively across slots, clamped to [0, 1]. */

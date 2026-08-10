@@ -465,7 +465,7 @@
       "detailed": "Per bone"
     },
     "rigModeHint": {
-      "simple": "Head and body as two sections. Each cell is how far that motion moves that section, in degrees. Changing one rescales the whole chain, keeping the preset’s falloff — and the arms keep counteracting the body automatically.",
+      "simple": "Head and body as two sections, plus the body’s own shift. Rotation cells are degrees; shift cells move the hips as a fraction of hip height, so a rig ported to another avatar shifts proportionally. Changing a cell rescales the whole chain, keeping the preset’s falloff — and the arms keep counteracting the body automatically.",
       "detailed": "Every bone individually. Switching here brought your simplified values across unchanged, so you can carry on from exactly what was running."
     },
     "channel": {
@@ -474,7 +474,10 @@
       "headNod": "Head nod",
       "bodyTurn": "Body turn",
       "bodySway": "Body sway",
-      "bodyLean": "Body lean"
+      "bodyLean": "Body lean",
+      "shiftSide": "Body shift side",
+      "shiftUp": "Body shift up",
+      "shiftForward": "Body shift fwd"
     },
     "channelShort": {
       "headTurn": "H turn",
@@ -482,7 +485,10 @@
       "headNod": "H nod",
       "bodyTurn": "B turn",
       "bodySway": "B sway",
-      "bodyLean": "B lean"
+      "bodyLean": "B lean",
+      "shiftSide": "Shift X",
+      "shiftUp": "Shift Y",
+      "shiftForward": "Shift Z"
     },
     "rigStock": "Stock rig",
     "rigModified": "{{count}} bone changed",

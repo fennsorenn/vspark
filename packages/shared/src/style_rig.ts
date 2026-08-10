@@ -175,7 +175,26 @@ export interface StyleBoneResponse {
   drivers: Partial<Record<StyleDriverName, DriverResponse>>;
 }
 
-/** Bone name (a `VRMBoneName`) → its response. Bones absent from the rig are untouched. */
+/**
+ * Reserved `StyleRig` key for the **body shift** — the hips' TRANSLATION rather
+ * than any bone's rotation.
+ *
+ * It rides in the same table as the bones on purpose: every piece of machinery
+ * built for the rig (`mergeStyleRig`, `diffStyleRig`, the preset layering, the
+ * simplified section totals, the per-bone lag integrator) then applies to it for
+ * free, instead of needing a parallel structure and a parallel merge.
+ *
+ * Its `DriverResponse` triples are read as `[side, up, forward]` in **fractions
+ * of the avatar's hip height**, NOT degrees — so a rig authored on one model
+ * shifts proportionally on a taller or shorter one. `mode` and the rotation
+ * conventions do not apply to it.
+ */
+export const HIP_SHIFT_KEY = '@hipShift';
+
+/** Hip-height fractions beyond which a shift is clamped, per axis. */
+export const MAX_HIP_SHIFT = 0.5;
+
+/** Bone name (a `VRMBoneName`) → its response, plus the reserved `HIP_SHIFT_KEY`. */
 export type StyleRig = Record<string, StyleBoneResponse>;
 
 /**
@@ -320,6 +339,30 @@ export const STYLE_RIG_FOLLOW: StyleRig = {
     drivers: {
       bodyYaw: [0, -3, 0],
       bodyRoll: [0, 0, -2],
+    },
+  },
+  /**
+   * Body shift — `[side, up, forward]` as fractions of hip height. Rotation alone
+   * pivots the avatar around a fixed pelvis, which reads as stiff; letting the
+   * hips actually travel a little is most of what turns a lean into weight
+   * transfer. Small numbers on purpose — this is a nudge, not a step.
+   *
+   * Lags the furthest of anything in the rig: bulk moves last.
+   */
+  [HIP_SHIFT_KEY]: {
+    // `mode` is not meaningful for a translation, but carrying one keeps this
+    // entry the same SHAPE as every bone entry — which is what lets mergeStyleRig
+    // / diffStyleRig / compileSimpleRig stay interchangeable on it. 'add' is the
+    // honest label: the shift is added to whatever root motion already resolved.
+    mode: 'add',
+    lag: 3.0,
+    drivers: {
+      // Sway sideways into the lean, and dip very slightly as you do.
+      bodyRoll: [0.1, -0.02, 0],
+      // Lean forward/back travels mostly forward, with a touch of drop.
+      bodyPitch: [0, -0.02, 0.07],
+      // A big head turn pulls the weight a little to that side.
+      headYaw: [0.03, 0, 0],
     },
   },
 };
@@ -494,6 +537,17 @@ const HEAD_ONLY_OVERRIDES: StyleRig = {
   // entirely and simply pass tracking through.
   leftLowerArm: { drivers: { bodyYaw: [0, 0, 0], bodyRoll: [0, 0, 0] } },
   rightLowerArm: { drivers: { bodyYaw: [0, 0, 0], bodyRoll: [0, 0, 0] } },
+  // The body shift has to become head-driven too, or the preset would quietly
+  // keep consuming body drivers through it. The weight still shifts towards the
+  // side you look, just harder, since the head is the only thing saying so.
+  [HIP_SHIFT_KEY]: {
+    drivers: {
+      bodyRoll: [0, 0, 0],
+      bodyPitch: [0, 0, 0],
+      headYaw: [0.06, 0, 0],
+      headPitch: [0, -0.02, 0.04],
+    },
+  },
 };
 
 /** The "head only" rig — head orientation is the sole steering signal. */
@@ -759,16 +813,43 @@ export const SIMPLE_CHANNELS = [
   'bodyTurn',
   'bodySway',
   'bodyLean',
+  'shiftSide',
+  'shiftUp',
+  'shiftForward',
 ] as const;
 
 export type SimpleChannel = (typeof SIMPLE_CHANNELS)[number];
 
-/** Bones each section owns. Everything else is untouched by the simplified view. */
-export const SIMPLE_SECTION_BONES: Record<'head' | 'body', readonly string[]> =
-  {
-    head: ['neck', 'head'],
-    body: ['hips', 'spine', 'chest', 'upperChest'],
-  };
+/**
+ * The subset of channels that are also DRIVERS, i.e. the grid's columns.
+ *
+ * Rows and columns are deliberately not the same set: the body can be SHIFTED,
+ * but there is no "shift" to read off the performer, so the three shift channels
+ * are outputs only.
+ */
+export const SIMPLE_COLUMNS = [
+  'headTurn',
+  'headTilt',
+  'headNod',
+  'bodyTurn',
+  'bodySway',
+  'bodyLean',
+] as const;
+
+export type SimpleColumn = (typeof SIMPLE_COLUMNS)[number];
+
+export type SimpleSection = 'head' | 'body' | 'shift';
+
+/**
+ * Bones each section owns. Everything else is untouched by the simplified view.
+ * The `shift` section owns the reserved translation entry rather than any bone,
+ * which is what lets the same section-total machinery drive it.
+ */
+export const SIMPLE_SECTION_BONES: Record<SimpleSection, readonly string[]> = {
+  head: ['neck', 'head'],
+  body: ['hips', 'spine', 'chest', 'upperChest'],
+  shift: [HIP_SHIFT_KEY],
+};
 
 /**
  * Bones that ride along with a BODY channel rather than being part of it — the
@@ -786,11 +867,18 @@ export const SIMPLE_CARRIED_BONES: readonly string[] = [
 ];
 
 interface ChannelSpec {
-  /** Which underlying driver this column reads. */
-  driver: StyleDriverName;
-  /** Which Euler axis of `DriverResponse` this row writes (0 = X, 1 = Y, 2 = Z). */
+  /**
+   * Which underlying driver this channel reads WHEN USED AS A COLUMN. Absent for
+   * the shift channels, which are outputs only.
+   */
+  driver?: StyleDriverName;
+  /**
+   * Which slot of the `DriverResponse` triple this row writes. For rotation rows
+   * that is the Euler axis (0 = X, 1 = Y, 2 = Z); for shift rows it is the
+   * translation component (0 = side, 1 = up, 2 = forward).
+   */
   axis: 0 | 1 | 2;
-  section: 'head' | 'body';
+  section: SimpleSection;
 }
 
 export const SIMPLE_CHANNEL_SPEC: Record<SimpleChannel, ChannelSpec> = {
@@ -800,6 +888,9 @@ export const SIMPLE_CHANNEL_SPEC: Record<SimpleChannel, ChannelSpec> = {
   bodyTurn: { driver: 'bodyYaw', axis: 1, section: 'body' },
   bodySway: { driver: 'bodyRoll', axis: 2, section: 'body' },
   bodyLean: { driver: 'bodyPitch', axis: 0, section: 'body' },
+  shiftSide: { axis: 0, section: 'shift' },
+  shiftUp: { axis: 1, section: 'shift' },
+  shiftForward: { axis: 2, section: 'shift' },
 };
 
 /**
@@ -808,7 +899,7 @@ export const SIMPLE_CHANNEL_SPEC: Record<SimpleChannel, ChannelSpec> = {
  * absent cell means no response, exactly like an absent driver in the per-bone rig.
  */
 export type StyleSimpleRig = Partial<
-  Record<SimpleChannel, Partial<Record<SimpleChannel, number>>>
+  Record<SimpleChannel, Partial<Record<SimpleColumn, number>>>
 >;
 
 /**
@@ -817,12 +908,11 @@ export type StyleSimpleRig = Partial<
  * giving the body a response under a head-only preset). Deliberately mirrors the
  * falloff of the stock rigs.
  */
-const DEFAULT_SECTION_PROFILE: Record<
-  'head' | 'body',
-  Record<string, number>
-> = {
+const DEFAULT_SECTION_PROFILE: Record<SimpleSection, Record<string, number>> = {
   head: { neck: 0.4, head: 0.6 },
   body: { hips: 0.23, spine: 0.26, chest: 0.26, upperChest: 0.25 },
+  // One entry, so there is nothing to distribute.
+  shift: { [HIP_SHIFT_KEY]: 1 },
 };
 
 function cellOf(
@@ -843,9 +933,9 @@ export function deriveSimpleRig(rig: StyleRig): StyleSimpleRig {
   const out: StyleSimpleRig = {};
   for (const row of SIMPLE_CHANNELS) {
     const { axis, section } = SIMPLE_CHANNEL_SPEC[row];
-    const cells: Partial<Record<SimpleChannel, number>> = {};
-    for (const col of SIMPLE_CHANNELS) {
-      const driver = SIMPLE_CHANNEL_SPEC[col].driver;
+    const cells: Partial<Record<SimpleColumn, number>> = {};
+    for (const col of SIMPLE_COLUMNS) {
+      const driver = SIMPLE_CHANNEL_SPEC[col].driver!;
       const total = SIMPLE_SECTION_BONES[section].reduce(
         (sum, bone) => sum + cellOf(rig, bone, driver, axis),
         0
@@ -904,10 +994,10 @@ export function compileSimpleRig(
     const { axis, section } = SIMPLE_CHANNEL_SPEC[row];
     const sectionBones = SIMPLE_SECTION_BONES[section];
 
-    for (const col of SIMPLE_CHANNELS) {
+    for (const col of SIMPLE_COLUMNS) {
       const target = cells[col];
       if (target === undefined) continue;
-      const driver = SIMPLE_CHANNEL_SPEC[col].driver;
+      const driver = SIMPLE_CHANNEL_SPEC[col].driver!;
 
       const current = sectionBones.reduce(
         (sum, bone) => sum + cellOf(shape, bone, driver, axis),
@@ -932,11 +1022,7 @@ export function compileSimpleRig(
         for (const [bone, share] of Object.entries(
           DEFAULT_SECTION_PROFILE[section]
         )) {
-          out[bone] ??= {
-            mode: section === 'head' || section === 'body' ? 'replace' : 'add',
-            lag: 1,
-            drivers: {},
-          };
+          out[bone] ??= { mode: 'replace', lag: 1, drivers: {} };
           setCell(out, bone, driver, axis, target * share);
         }
       }

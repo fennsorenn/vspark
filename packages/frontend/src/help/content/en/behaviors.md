@@ -177,6 +177,13 @@ Each cell says how far one of those motions moves that part, in degrees. Reading
 down the *Body turn* row tells you what makes the body turn: itself, or your head,
 or both.
 
+The last three rows are the **body shift**: instead of turning, they slide your
+whole body sideways, up or forward. Rotation alone pivots you around a fixed
+pelvis, which looks stiff — letting the hips actually travel a little is most of
+what turns a lean into real weight. These are measured as a share of your
+avatar's hip height rather than in degrees, so the same setting looks right on a
+tall model and a small one.
+
 Change a cell and the whole chain rescales together, keeping the shape the preset
 gave it — the hips still move less than the chest, the falloff is preserved. Two
 things follow along on their own: the arms keep counteracting the body by the same

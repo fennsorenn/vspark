@@ -278,11 +278,54 @@ export class BoneRotations {
 // NormalizedPose — VRM-mapped, coordinate-corrected bone rotations
 // ──────────────────────────────────────────────────────────────────────────────
 
+/** A bone translation offset, `[x, y, z]`, as a fraction of the avatar's hip height. */
+export type BoneOffset = readonly [number, number, number];
+
 export class NormalizedPose {
   private readonly _bones: Map<VRMBoneName, Quaternion>;
+  /**
+   * Optional per-bone TRANSLATION, carried alongside the rotations.
+   *
+   * The pose pipeline is rotation-first and every mapper, calibration and merge
+   * step only ever touches `_bones`; offsets ride along untouched through `map`
+   * and `with` so none of them had to learn about translation. Currently only the
+   * hips are ever offset (by the stylizer's body-shift channels), and the unit is
+   * deliberately RELATIVE — a fraction of the avatar's own hip height — so a rig
+   * authored on one model reads the same on a taller or shorter one.
+   */
+  private readonly _offsets: Map<VRMBoneName, BoneOffset>;
 
-  constructor(entries: Iterable<readonly [VRMBoneName, Quaternion]> = []) {
+  constructor(
+    entries: Iterable<readonly [VRMBoneName, Quaternion]> = [],
+    offsets: Iterable<readonly [VRMBoneName, BoneOffset]> = []
+  ) {
     this._bones = new Map(entries);
+    this._offsets = new Map(offsets);
+  }
+
+  /** This bone's translation offset, if the pose carries one. */
+  offset(bone: VRMBoneName): BoneOffset | undefined {
+    return this._offsets.get(bone);
+  }
+  offsetEntries(): IterableIterator<[VRMBoneName, BoneOffset]> {
+    return this._offsets.entries();
+  }
+  get offsetCount(): number {
+    return this._offsets.size;
+  }
+
+  /** Copy with one bone's translation offset set (rotations untouched). */
+  withOffset(bone: VRMBoneName, value: BoneOffset): NormalizedPose {
+    const next = new Map(this._offsets);
+    next.set(bone, value);
+    return new NormalizedPose(this._bones, next);
+  }
+
+  /** Wire form for the offsets. Empty when the pose is rotation-only. */
+  offsetsToRecord(): Record<string, [number, number, number]> {
+    const out: Record<string, [number, number, number]> = {};
+    for (const [b, v] of this._offsets) out[b] = [v[0], v[1], v[2]];
+    return out;
   }
 
   get(bone: VRMBoneName): Quaternion | undefined {
@@ -304,12 +347,13 @@ export class NormalizedPose {
   with(bone: VRMBoneName, q: Quaternion): NormalizedPose {
     const next = new Map(this._bones);
     next.set(bone, q);
-    return new NormalizedPose(next);
+    return new NormalizedPose(next, this._offsets);
   }
 
   map(fn: (q: Quaternion, bone: VRMBoneName) => Quaternion): NormalizedPose {
     return new NormalizedPose(
-      Array.from(this._bones.entries()).map(([b, q]) => [b, fn(q, b)] as const)
+      Array.from(this._bones.entries()).map(([b, q]) => [b, fn(q, b)] as const),
+      this._offsets
     );
   }
 
@@ -393,10 +437,15 @@ export class PoseFrame {
   toWire(): {
     bones: Record<string, [number, number, number, number]>;
     blendshapes: Record<string, number>;
+    offsets?: Record<string, [number, number, number]>;
   } {
     return {
       bones: this.pose.toRecord(),
       blendshapes: this.blendshapes.toRecord(),
+      // Omitted entirely for rotation-only poses, which is nearly all of them.
+      ...(this.pose.offsetCount > 0
+        ? { offsets: this.pose.offsetsToRecord() }
+        : {}),
     };
   }
 }

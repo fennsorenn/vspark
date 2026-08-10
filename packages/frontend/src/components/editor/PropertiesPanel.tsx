@@ -21,6 +21,8 @@ import {
   DEFAULT_STYLE_STRENGTH,
   MAX_STYLE_STRENGTH,
   SIMPLE_CHANNELS,
+  SIMPLE_COLUMNS,
+  SIMPLE_CHANNEL_SPEC,
   deriveSimpleRig,
   compileSimpleRig,
   resolveRigMode,
@@ -33,6 +35,7 @@ import {
   type DriverResponse,
   type StyleSimpleRig,
   type SimpleChannel,
+  type SimpleColumn,
   type RigMode,
 } from '@vspark/shared/style_rig';
 import type { PoseSection, PoseSource } from '@vspark/shared';
@@ -3201,11 +3204,16 @@ function SimpleRigGrid({
   const { t } = useTranslation('properties');
   const derived = deriveSimpleRig(effective);
 
-  const valueOf = (row: SimpleChannel, col: SimpleChannel) =>
+  const valueOf = (row: SimpleChannel, col: SimpleColumn) =>
     overrides[row]?.[col] ?? derived[row]?.[col] ?? 0;
 
-  const setCell = (row: SimpleChannel, col: SimpleChannel, v: number) =>
+  const setCell = (row: SimpleChannel, col: SimpleColumn, v: number) =>
     onChange({ ...overrides, [row]: { ...overrides[row], [col]: v } });
+
+  // Shift rows are a TRANSLATION in hip-height fractions, not degrees, so they
+  // need their own unit and a finer step than the rotation rows.
+  const isShift = (row: SimpleChannel) =>
+    SIMPLE_CHANNEL_SPEC[row].section === 'shift';
 
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -3213,7 +3221,7 @@ function SimpleRigGrid({
         <thead>
           <tr>
             <th />
-            {SIMPLE_CHANNELS.map((col) => (
+            {SIMPLE_COLUMNS.map((col) => (
               <th
                 key={col}
                 title={t(`stylizedTracking.channel.${col}`)}
@@ -3244,13 +3252,14 @@ function SimpleRigGrid({
               >
                 {t(`stylizedTracking.channel.${row}`)}
               </th>
-              {SIMPLE_CHANNELS.map((col) => (
+              {SIMPLE_COLUMNS.map((col) => (
                 <td key={col} style={{ padding: 1 }}>
                   <NumInput
                     className={`vs-stylize-cell-${row}-${col}`}
                     value={valueOf(row, col)}
-                    step={1}
-                    suffix="°"
+                    step={isShift(row) ? 0.01 : 1}
+                    suffix={isShift(row) ? '×' : '°'}
+                    precision={isShift(row) ? 2 : undefined}
                     style={{ width: 62 }}
                     onChange={(v) => setCell(row, col, v)}
                     onCommit={(v) => setCell(row, col, v)}
