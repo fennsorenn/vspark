@@ -11,6 +11,14 @@ import {
   builtinParticleTextureUrl,
 } from '../../particleTextures';
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
+import {
+  defaultBlendshapeLimits,
+  normalizeBlendshapeLimits,
+  type BlendshapeLimitsConfig,
+  type ClampRule,
+  type ExclusiveGroup,
+  type ExclusiveMember,
+} from '@vspark/shared/blendshapeLimits';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
 import {
   STYLE_DRIVER_NAMES,
@@ -1117,7 +1125,20 @@ function MaterialSection({ node }: { node: StageObject }) {
 
 // ---------- Calibration wizard ----------
 
-function CalibrationSection({ comp }: { comp: Behavior }) {
+/**
+ * Head/arm neutral-pose capture. Shared by the VMC and iFacialMocap receivers —
+ * both wire the same `head_calib_capture` / `head_calib_reset` trigger nodes.
+ * `arms` is off for face-only sources, which have no arm calibration stage.
+ */
+function CalibrationSection({
+  comp,
+  graphPrefix = 'vmc-pipeline:',
+  arms = true,
+}: {
+  comp: Behavior;
+  graphPrefix?: string;
+  arms?: boolean;
+}) {
   const { t } = useTranslation('properties');
   const [headSet, setHeadSet] = useState(false);
   const [leftSet, setLeftSet] = useState(false);
@@ -1129,7 +1150,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
     setTimeout(() => setFlash(null), 1800);
   };
 
-  const graphId = `vmc-pipeline:${comp.id}`;
+  const graphId = `${graphPrefix}${comp.id}`;
 
   const fire = async (nodeId: string, label: string, onOk?: () => void) => {
     try {
@@ -1144,7 +1165,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
   const reset = async () => {
     await Promise.allSettled([
       fireSignalEvent(graphId, 'head_calib_reset', 'trigger'),
-      fireSignalEvent(graphId, 'arm_calib_reset', 'trigger'),
+      ...(arms ? [fireSignalEvent(graphId, 'arm_calib_reset', 'trigger')] : []),
     ]);
     setHeadSet(false);
     setLeftSet(false);
@@ -1224,38 +1245,42 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
         </button>
       </div>
 
-      <div style={rowStyle}>
-        <div style={dotStyle(leftSet)} />
-        <span style={labelStyle}>{t('calibration.leftArmLabel')}</span>
-        <button
-          style={btnStyle}
-          onClick={() =>
-            fire('left_arm_capture', t('calibration.leftCaptured'), () =>
-              setLeftSet(true)
-            )
-          }
-        >
-          {t('calibration.capture')}
-        </button>
-      </div>
+      {arms && (
+        <>
+          <div style={rowStyle}>
+            <div style={dotStyle(leftSet)} />
+            <span style={labelStyle}>{t('calibration.leftArmLabel')}</span>
+            <button
+              style={btnStyle}
+              onClick={() =>
+                fire('left_arm_capture', t('calibration.leftCaptured'), () =>
+                  setLeftSet(true)
+                )
+              }
+            >
+              {t('calibration.capture')}
+            </button>
+          </div>
 
-      <div style={rowStyle}>
-        <div style={dotStyle(rightSet)} />
-        <span style={labelStyle}>{t('calibration.rightArmLabel')}</span>
-        <button
-          style={btnStyle}
-          onClick={() =>
-            fire('right_arm_capture', t('calibration.rightCaptured'), () =>
-              setRightSet(true)
-            )
-          }
-        >
-          {t('calibration.capture')}
-        </button>
-      </div>
+          <div style={rowStyle}>
+            <div style={dotStyle(rightSet)} />
+            <span style={labelStyle}>{t('calibration.rightArmLabel')}</span>
+            <button
+              style={btnStyle}
+              onClick={() =>
+                fire('right_arm_capture', t('calibration.rightCaptured'), () =>
+                  setRightSet(true)
+                )
+              }
+            >
+              {t('calibration.capture')}
+            </button>
+          </div>
+        </>
+      )}
 
       <div style={{ fontSize: 10, color: '#444', lineHeight: 1.5 }}>
-        {t('calibration.hint')}
+        {arms ? t('calibration.hint') : t('calibration.headOnlyHint')}
       </div>
 
       {(headSet || leftSet || rightSet) && (
@@ -1934,7 +1959,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
     port?: number;
     blendMode?: string;
     mirror?: boolean;
-    poseTimeout?: number;
     nodeConfig?: Record<
       string,
       { enabled?: boolean; mapping?: Record<string, [string, number][]> }
@@ -1944,7 +1968,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
   const [port, setPort] = useState(cfg.port ?? 39539);
   const [blendMode, setBlendMode] = useState(cfg.blendMode ?? 'override');
   const [mirror, setMirror] = useState(cfg.mirror ?? false);
-  const [poseTimeout, setPoseTimeout] = useState(cfg.poseTimeout ?? 2);
   const [localIps, setLocalIps] = useState<string[]>([]);
 
   // Build mapper config state from stored nodeConfig, filling defaults.
@@ -1968,7 +1991,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
     setPort(cfg.port ?? 39539);
     setBlendMode(cfg.blendMode ?? 'override');
     setMirror(cfg.mirror ?? false);
-    setPoseTimeout(cfg.poseTimeout ?? 2);
     setMapperConfigs(getMapperConfigs());
 
     // Persist defaults immediately if nodeConfig is absent so the stored config
@@ -2110,23 +2132,9 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
         </label>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12, color: '#888', width: 72, flexShrink: 0 }}>
-          {t('vmc.idleAfter')}
-        </span>
-        <NumInput
-          value={poseTimeout}
-          step={0.1}
-          min={0.1}
-          suffix="s"
-          style={{ width: 80 }}
-          onChange={(v) => setPoseTimeout(v)}
-          onCommit={(v) => {
-            setPoseTimeout(v);
-            save({ poseTimeout: v });
-          }}
-        />
-      </div>
+      {/* "Idle after" moved to the avatar node's properties (Idle fallback) —
+          it describes the avatar's transition, not this receiver, and every
+          tracking source on the node now shares the one setting. */}
 
       {/* Face mappers */}
       <div
@@ -2209,6 +2217,422 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
 
       <div style={{ height: 1, background: '#222', margin: '4px 0' }} />
       <CalibrationSection comp={comp} />
+    </div>
+  );
+}
+
+// ── iFacialMocap props ────────────────────────────────────────────────────────
+
+/**
+ * iFacialMocap receiver settings. Deliberately laid out like `VmcReceiverProps`
+ * — same blend / mirror / idle-after / face-mapper controls, same calibration
+ * block — with three protocol-driven differences:
+ *   • Device IP instead of a bind Host (the phone only streams after we hand-
+ *     shake it, so the receiver needs to know where the phone is).
+ *   • Axis inversion toggles, because the published spec doesn't pin down the
+ *     sign convention of the head/eye euler angles.
+ *   • Head-only calibration — there is no arm data in an ARKit face stream.
+ */
+function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
+  const {
+    updateBehavior,
+    vrmMorphTargetsByNode,
+    vrmExpressionsByNode,
+    nodes,
+    assets,
+  } = useEditorStore();
+  const meta = assetMetaForNode(
+    nodes.find((n) => n.id === comp.nodeId)?.filePath,
+    assets
+  );
+  const morphTargets = liveOrMetaList(
+    vrmMorphTargetsByNode[comp.nodeId],
+    meta,
+    'morphTargets'
+  );
+  const expressions = liveOrMetaList(
+    vrmExpressionsByNode[comp.nodeId],
+    meta,
+    'expressions'
+  );
+
+  const fclSuggestions = [
+    ...new Set([
+      ...Object.values(ARKIT_TO_FCL as Record<string, [string, number][]>)
+        .flat()
+        .map(([target]) => target),
+      ...morphTargets,
+    ]),
+  ].sort();
+
+  const exprSuggestions = [
+    ...new Set([
+      ...VRM_EXPR_PRESETS,
+      ...Object.values(ARKIT_TO_VRM as Record<string, [string, number][]>)
+        .flat()
+        .map(([target]) => target),
+      ...expressions,
+    ]),
+  ].sort();
+
+  const passSuggestions = [
+    ...new Set([...(ARKIT_SHAPES as unknown as string[]), ...morphTargets]),
+  ].sort();
+
+  const cfg = (comp.config ?? {}) as {
+    deviceHost?: string;
+    port?: number;
+    blendMode?: string;
+    mirror?: boolean;
+    invertPitch?: boolean;
+    invertYaw?: boolean;
+    invertRoll?: boolean;
+    nodeConfig?: Record<
+      string,
+      { enabled?: boolean; mapping?: Record<string, [string, number][]> }
+    >;
+  };
+  const [deviceHost, setDeviceHost] = useState(cfg.deviceHost ?? '');
+  const [port, setPort] = useState(cfg.port ?? 49983);
+  const [blendMode, setBlendMode] = useState(cfg.blendMode ?? 'override');
+  const [mirror, setMirror] = useState(cfg.mirror ?? false);
+  const [invertPitch, setInvertPitch] = useState(cfg.invertPitch ?? false);
+  const [invertYaw, setInvertYaw] = useState(cfg.invertYaw ?? false);
+  const [invertRoll, setInvertRoll] = useState(cfg.invertRoll ?? false);
+  const [localIps, setLocalIps] = useState<string[]>([]);
+
+  const getMapperConfigs = () =>
+    Object.fromEntries(
+      MAPPER_NODES.map(({ id, defaultEnabled }) => [
+        id,
+        {
+          enabled: cfg.nodeConfig?.[id]?.enabled ?? defaultEnabled,
+          customMapping: cfg.nodeConfig?.[id]?.mapping
+            ? JSON.stringify(cfg.nodeConfig[id]!.mapping, null, 2)
+            : '',
+        } satisfies MapperNodeConfig,
+      ])
+    );
+  const [mapperConfigs, setMapperConfigs] =
+    useState<Record<string, MapperNodeConfig>>(getMapperConfigs);
+
+  useEffect(() => {
+    setDeviceHost(cfg.deviceHost ?? '');
+    setPort(cfg.port ?? 49983);
+    setBlendMode(cfg.blendMode ?? 'override');
+    setMirror(cfg.mirror ?? false);
+    setInvertPitch(cfg.invertPitch ?? false);
+    setInvertYaw(cfg.invertYaw ?? false);
+    setInvertRoll(cfg.invertRoll ?? false);
+    setMapperConfigs(getMapperConfigs());
+
+    // Persist mapper defaults immediately so the stored config is always
+    // explicit rather than relying on implicit fallbacks (mirrors the VMC panel).
+    if (!cfg.nodeConfig) {
+      const defaultNodeConfig = Object.fromEntries(
+        MAPPER_NODES.map(({ id, defaultEnabled }) => [
+          id,
+          { enabled: defaultEnabled, mapping: null },
+        ])
+      );
+      save({ nodeConfig: defaultNodeConfig });
+    }
+  }, [comp.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    api
+      .getLocalIps()
+      .then(setLocalIps)
+      .catch(() => {});
+  }, []);
+
+  const save = async (patch: Partial<Record<string, unknown>>) => {
+    const newConfig = { ...comp.config, ...patch };
+    updateBehavior(comp.id, { config: newConfig });
+    try {
+      await api.updateBehavior(comp.id, { config: newConfig });
+    } catch {
+      /* non-fatal */
+    }
+  };
+
+  const saveMapperNode = (nodeId: string, patch: Partial<MapperNodeConfig>) => {
+    const updated = {
+      ...mapperConfigs,
+      [nodeId]: { ...mapperConfigs[nodeId], ...patch },
+    };
+    setMapperConfigs(updated);
+    const nodeConfig = Object.fromEntries(
+      Object.entries(updated).map(([id, mc]) => [
+        id,
+        {
+          enabled: mc.enabled,
+          ...(mc.customMapping.trim()
+            ? { mapping: JSON.parse(mc.customMapping) }
+            : {}),
+        },
+      ])
+    );
+    save({ nodeConfig });
+  };
+
+  const inputStyle: React.CSSProperties = {
+    flex: 1,
+    background: '#2a2a2a',
+    border: '1px solid #3a3a3a',
+    color: '#e0e0e0',
+    borderRadius: 4,
+    padding: '4px 8px',
+    fontSize: 12,
+    outline: 'none',
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: 12,
+    color: '#888',
+    width: 72,
+    flexShrink: 0,
+  };
+  const checkLabelStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    cursor: 'pointer',
+    fontSize: 12,
+    color: '#ccc',
+  };
+
+  const axisToggles: {
+    key: 'invertPitch' | 'invertYaw' | 'invertRoll';
+    label: string;
+    value: boolean;
+    set: (v: boolean) => void;
+  }[] = [
+    {
+      key: 'invertPitch',
+      label: t('ifm.invertPitch'),
+      value: invertPitch,
+      set: setInvertPitch,
+    },
+    {
+      key: 'invertYaw',
+      label: t('ifm.invertYaw'),
+      value: invertYaw,
+      set: setInvertYaw,
+    },
+    {
+      key: 'invertRoll',
+      label: t('ifm.invertRoll'),
+      value: invertRoll,
+      set: setInvertRoll,
+    },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('ifm.deviceHost')}</span>
+        <input
+          className="vs-ifm-device-host"
+          style={inputStyle}
+          value={deviceHost}
+          onChange={(e) => setDeviceHost(e.target.value)}
+          onBlur={() => save({ deviceHost })}
+          placeholder={t('ifm.deviceHostPlaceholder')}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('vmc.port')}</span>
+        <NumInput
+          className="vs-ifm-port"
+          value={port}
+          step={1}
+          min={1}
+          max={65535}
+          precision={0}
+          style={{ flex: 1 }}
+          onChange={(v) => setPort(Math.round(v))}
+          onCommit={(v) => {
+            const p = Math.round(v);
+            setPort(p);
+            save({ port: p });
+          }}
+        />
+      </div>
+
+      {/*
+        Sits directly under Port, aligned to the input column: the handshake is
+        one-way, so the app reports "connected" even when a blocked inbound port
+        means nothing arrives. One-line reminder; full symptom/fix behind the
+        help button.
+      */}
+      <div
+        className="vs-ifm-firewall-hint"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          marginLeft: 80,
+          marginTop: -4,
+          fontSize: 10,
+          color: '#8a7a4a',
+          lineHeight: 1.4,
+        }}
+      >
+        <span>{t('ifm.firewallHint', { port })}</span>
+        <HelpButton
+          topic="behaviors"
+          anchor="ifacialmocap-firewall"
+          tip={t('help.ifmFirewall')}
+          size={12}
+        />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('vmc.blend')}</span>
+        <select
+          className="vs-ifm-blend-mode"
+          style={{ ...inputStyle, cursor: 'pointer' }}
+          value={blendMode}
+          onChange={(e) => {
+            setBlendMode(e.target.value);
+            save({ blendMode: e.target.value });
+          }}
+        >
+          <option value="override">{t('ifm.blendOverride')}</option>
+          <option value="additive">{t('vmc.blendAdditive')}</option>
+        </select>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('vmc.mirror')}</span>
+        <label style={checkLabelStyle}>
+          <input
+            className="vs-ifm-mirror"
+            type="checkbox"
+            checked={mirror}
+            onChange={(e) => {
+              setMirror(e.target.checked);
+              save({ mirror: e.target.checked });
+            }}
+            style={{ cursor: 'pointer' }}
+          />
+          {t('vmc.flipLR')}
+        </label>
+      </div>
+
+      {/* Head axis orientation */}
+      <div
+        style={{
+          fontSize: 10,
+          color: '#666',
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+          marginTop: 4,
+        }}
+      >
+        {t('ifm.axesHeader')}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        {axisToggles.map(({ key, label, value, set }) => (
+          <label key={key} style={checkLabelStyle}>
+            <input
+              className={`vs-ifm-${key.toLowerCase()}`}
+              type="checkbox"
+              checked={value}
+              onChange={(e) => {
+                set(e.target.checked);
+                save({ [key]: e.target.checked });
+              }}
+              style={{ cursor: 'pointer' }}
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t('ifm.axesHint')}
+      </div>
+
+      {/* Face mappers */}
+      <div
+        style={{
+          fontSize: 10,
+          color: '#666',
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+          marginTop: 4,
+        }}
+      >
+        {t('vmc.faceMappersHeader')}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {MAPPER_NODES.map(({ id, label, builtinMapping }, idx) => (
+          <MapperSection
+            key={id}
+            nodeId={id}
+            label={label}
+            builtinMapping={builtinMapping}
+            config={mapperConfigs[id]}
+            onSave={saveMapperNode}
+            targetSuggestions={
+              idx === 0
+                ? fclSuggestions
+                : idx === 1
+                  ? exprSuggestions
+                  : passSuggestions
+            }
+          />
+        ))}
+      </div>
+
+      {/* Local IPs — the address to type into the app when not using Device IP */}
+      {localIps.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          <div
+            style={{
+              fontSize: 10,
+              color: '#666',
+              marginBottom: 5,
+              textTransform: 'uppercase',
+              letterSpacing: 0.4,
+            }}
+          >
+            {t('ifm.localIpsHeader')}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {localIps.map((ip) => (
+              <span
+                key={ip}
+                style={{
+                  background: '#1e1e1e',
+                  border: '1px solid #2a2a2a',
+                  color: '#888',
+                  borderRadius: 4,
+                  padding: '2px 8px',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                }}
+              >
+                {ip}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div
+        style={{ fontSize: 10, color: '#555', lineHeight: 1.4, marginTop: 2 }}
+      >
+        {t('ifm.compatHint', { port })}
+      </div>
+
+      <div style={{ height: 1, background: '#222', margin: '4px 0' }} />
+      <CalibrationSection
+        comp={comp}
+        graphPrefix="ifacialmocap-pipeline:"
+        arms={false}
+      />
     </div>
   );
 }
@@ -3162,6 +3586,617 @@ function ManualCalibrationProps({ comp }: { comp: Behavior }) {
   );
 }
 
+// ── Expression limits (blendshape_limiter) ────────────────────────────────────
+
+const limitRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+};
+
+const limitCardStyle: React.CSSProperties = {
+  border: '1px solid #222',
+  borderRadius: 4,
+  padding: 8,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  background: '#141414',
+};
+
+const limitLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#888',
+  width: 74,
+  flexShrink: 0,
+};
+
+const limitTextInputStyle: React.CSSProperties = {
+  background: '#0d0d0d',
+  border: '1px solid #2a2a2a',
+  borderRadius: 3,
+  color: '#ccc',
+  fontSize: 11,
+  padding: '2px 6px',
+  minWidth: 0,
+  flex: 1,
+};
+
+const limitSmallBtnStyle: React.CSSProperties = {
+  background: '#1a2a3a',
+  border: '1px solid #2a3a4a',
+  borderRadius: 3,
+  color: '#8ab',
+  fontSize: 10,
+  padding: '2px 7px',
+  cursor: 'pointer',
+};
+
+/**
+ * Chip editor for a list of expression-name patterns. The add-field is backed by
+ * a datalist of the names the loaded avatar actually exposes, so users pick real
+ * shapes instead of guessing spellings — while still being free to type a `*`
+ * wildcard the model list can't offer.
+ */
+function NameListEditor({
+  values,
+  listId,
+  placeholder,
+  onChange,
+}: {
+  values: string[];
+  /** id of the shared <datalist> holding the model's real shape names. */
+  listId: string;
+  placeholder: string;
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const add = (raw: string) => {
+    const name = raw.trim();
+    if (!name || values.includes(name)) return;
+    onChange([...values, name]);
+    setDraft('');
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {values.map((v) => (
+          <span
+            key={v}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              background: '#1d1d1d',
+              border: '1px solid #2c2c2c',
+              borderRadius: 10,
+              padding: '1px 4px 1px 8px',
+              fontSize: 10,
+              fontFamily: 'monospace',
+              color: '#bbb',
+            }}
+          >
+            {v}
+            <button
+              className="vs-bslimits-name-remove"
+              onClick={() => onChange(values.filter((n) => n !== v))}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#a66',
+                cursor: 'pointer',
+                fontSize: 11,
+                lineHeight: 1,
+                padding: '0 2px',
+              }}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <input
+        className="vs-bslimits-name-add"
+        value={draft}
+        list={listId}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            add(draft);
+          }
+        }}
+        onBlur={() => add(draft)}
+        style={{ ...limitTextInputStyle, fontFamily: 'monospace' }}
+      />
+    </div>
+  );
+}
+
+function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
+  const {
+    updateBehavior,
+    vrmMorphTargetsByNode,
+    vrmExpressionsByNode,
+    nodes,
+    assets,
+  } = useEditorStore();
+
+  // Names the loaded model actually exposes — offered as datalist suggestions.
+  const meta = assetMetaForNode(
+    nodes.find((n) => n.id === comp.nodeId)?.filePath,
+    assets
+  );
+  const nameOptions = [
+    ...new Set([
+      ...liveOrMetaList(vrmExpressionsByNode[comp.nodeId], meta, 'expressions'),
+      ...liveOrMetaList(
+        vrmMorphTargetsByNode[comp.nodeId],
+        meta,
+        'morphTargets'
+      ),
+    ]),
+  ].sort();
+  const listId = `vs-bslimits-names-${comp.id}`;
+
+  const limits = normalizeBlendshapeLimits(
+    (comp.config as { limits?: unknown } | undefined)?.limits
+  );
+  const groups = limits.groups ?? [];
+  const clamps = limits.clamps ?? [];
+
+  const save = (next: BlendshapeLimitsConfig) => {
+    const config = { ...comp.config, limits: next };
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
+  };
+  const patch = (p: Partial<BlendshapeLimitsConfig>) =>
+    save({ ...limits, ...p });
+
+  const patchGroup = (idx: number, p: Partial<ExclusiveGroup>) =>
+    patch({ groups: groups.map((g, i) => (i === idx ? { ...g, ...p } : g)) });
+  const patchMember = (gi: number, mi: number, p: Partial<ExclusiveMember>) =>
+    patchGroup(gi, {
+      members: groups[gi].members.map((m, i) =>
+        i === mi ? { ...m, ...p } : m
+      ),
+    });
+  const patchClamp = (idx: number, p: Partial<ClampRule>) =>
+    patch({ clamps: clamps.map((c, i) => (i === idx ? { ...c, ...p } : c)) });
+
+  // Raw JSON escape hatch. Kept in local state while editing so a half-typed
+  // document doesn't get written back on every keystroke.
+  const [jsonDraft, setJsonDraft] = useState<string | null>(null);
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const applyJson = () => {
+    if (jsonDraft == null) return;
+    try {
+      save(normalizeBlendshapeLimits(JSON.parse(jsonDraft)));
+      setJsonDraft(null);
+      setJsonError(null);
+    } catch (e) {
+      setJsonError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <datalist id={listId}>
+        {nameOptions.map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
+
+      <div style={{ ...limitRowStyle, justifyContent: 'space-between' }}>
+        <label style={{ ...limitRowStyle, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            className="vs-bslimits-enabled"
+            checked={limits.enabled !== false}
+            onChange={(e) => patch({ enabled: e.target.checked })}
+          />
+          <span style={{ fontSize: 12, color: '#aaa' }}>
+            {t('blendshapeLimits.enabled')}
+          </span>
+        </label>
+        <div style={limitRowStyle}>
+          <HelpButton
+            topic="behaviors"
+            anchor="expression-limits"
+            tip={t('help.expressionLimits')}
+          />
+          <button
+            className="vs-bslimits-reset"
+            onClick={() => save(defaultBlendshapeLimits())}
+            style={resetBtnStyle}
+          >
+            {t('blendshapeLimits.resetDefaults')}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t('blendshapeLimits.hint')}
+      </div>
+
+      {/* ── Exclusive groups ─────────────────────────────────────────────── */}
+      <CollapsibleSection
+        title={t('blendshapeLimits.groupsHeader')}
+        count={groups.length}
+        defaultCollapsed={false}
+      >
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t('blendshapeLimits.groupsHint')}
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            marginTop: 6,
+          }}
+        >
+          {groups.map((g, gi) => (
+            <div key={g.id} style={limitCardStyle}>
+              <div
+                style={{ ...limitRowStyle, justifyContent: 'space-between' }}
+              >
+                <label style={{ ...limitRowStyle, flex: 1, minWidth: 0 }}>
+                  <input
+                    type="checkbox"
+                    className="vs-bslimits-group-enabled"
+                    checked={g.enabled !== false}
+                    onChange={(e) =>
+                      patchGroup(gi, { enabled: e.target.checked })
+                    }
+                  />
+                  <input
+                    className="vs-bslimits-group-label"
+                    value={g.label ?? g.id}
+                    onChange={(e) => patchGroup(gi, { label: e.target.value })}
+                    style={limitTextInputStyle}
+                  />
+                </label>
+                <button
+                  className="vs-bslimits-group-remove"
+                  onClick={() =>
+                    patch({ groups: groups.filter((_, i) => i !== gi) })
+                  }
+                  style={resetBtnStyle}
+                >
+                  {t('blendshapeLimits.remove')}
+                </button>
+              </div>
+
+              <div style={limitRowStyle}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.mode')}
+                </span>
+                <select
+                  className="vs-bslimits-group-mode"
+                  value={g.mode ?? 'suppress'}
+                  onChange={(e) =>
+                    patchGroup(gi, {
+                      mode: e.target.value as ExclusiveGroup['mode'],
+                    })
+                  }
+                  style={{ ...limitTextInputStyle, flex: 'none', width: 120 }}
+                >
+                  <option value="suppress">
+                    {t('blendshapeLimits.modeSuppress')}
+                  </option>
+                  <option value="normalize">
+                    {t('blendshapeLimits.modeNormalize')}
+                  </option>
+                </select>
+                <span style={{ ...limitLabelStyle, width: 'auto' }}>
+                  {t('blendshapeLimits.strength')}
+                </span>
+                <NumInput
+                  className="vs-bslimits-group-strength"
+                  value={g.strength ?? 1}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  style={{ width: 70 }}
+                  onCommit={(v) => patchGroup(gi, { strength: v })}
+                />
+              </div>
+
+              <div style={{ fontSize: 10, color: '#666' }}>
+                {t('blendshapeLimits.membersHeader')}
+              </div>
+              {g.members.map((m, mi) => (
+                <div
+                  key={m.id}
+                  style={{
+                    ...limitRowStyle,
+                    alignItems: 'flex-start',
+                    gap: 6,
+                  }}
+                >
+                  <input
+                    className="vs-bslimits-member-label"
+                    value={m.label ?? m.id}
+                    onChange={(e) =>
+                      patchMember(gi, mi, { label: e.target.value })
+                    }
+                    style={{ ...limitTextInputStyle, flex: '0 0 90px' }}
+                  />
+                  <NameListEditor
+                    values={m.patterns}
+                    listId={listId}
+                    placeholder={t('blendshapeLimits.addName')}
+                    onChange={(patterns) => patchMember(gi, mi, { patterns })}
+                  />
+                  <button
+                    className="vs-bslimits-member-remove"
+                    onClick={() =>
+                      patchGroup(gi, {
+                        members: g.members.filter((_, i) => i !== mi),
+                      })
+                    }
+                    style={resetBtnStyle}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button
+                className="vs-bslimits-add-member"
+                onClick={() =>
+                  patchGroup(gi, {
+                    members: [
+                      ...g.members,
+                      {
+                        id: `member-${Date.now()}`,
+                        label: t('blendshapeLimits.newMember'),
+                        patterns: [],
+                      },
+                    ],
+                  })
+                }
+                style={limitSmallBtnStyle}
+              >
+                + {t('blendshapeLimits.addMember')}
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          className="vs-bslimits-add-group"
+          onClick={() =>
+            patch({
+              groups: [
+                ...groups,
+                {
+                  id: `group-${Date.now()}`,
+                  label: t('blendshapeLimits.newGroup'),
+                  enabled: true,
+                  mode: 'suppress',
+                  strength: 1,
+                  members: [],
+                },
+              ],
+            })
+          }
+          style={{ ...limitSmallBtnStyle, marginTop: 6 }}
+        >
+          + {t('blendshapeLimits.addGroup')}
+        </button>
+      </CollapsibleSection>
+
+      {/* ── Clamp rules ──────────────────────────────────────────────────── */}
+      <CollapsibleSection
+        title={t('blendshapeLimits.clampsHeader')}
+        count={clamps.length}
+        defaultCollapsed={false}
+      >
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t('blendshapeLimits.clampsHint')}
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            marginTop: 6,
+          }}
+        >
+          {clamps.map((c, ci) => (
+            <div key={c.id} style={limitCardStyle}>
+              <div
+                style={{ ...limitRowStyle, justifyContent: 'space-between' }}
+              >
+                <label style={{ ...limitRowStyle, flex: 1, minWidth: 0 }}>
+                  <input
+                    type="checkbox"
+                    className="vs-bslimits-clamp-enabled"
+                    checked={c.enabled !== false}
+                    onChange={(e) =>
+                      patchClamp(ci, { enabled: e.target.checked })
+                    }
+                  />
+                  <input
+                    className="vs-bslimits-clamp-label"
+                    value={c.label ?? c.id}
+                    onChange={(e) => patchClamp(ci, { label: e.target.value })}
+                    style={limitTextInputStyle}
+                  />
+                </label>
+                <button
+                  className="vs-bslimits-clamp-remove"
+                  onClick={() =>
+                    patch({ clamps: clamps.filter((_, i) => i !== ci) })
+                  }
+                  style={resetBtnStyle}
+                >
+                  {t('blendshapeLimits.remove')}
+                </button>
+              </div>
+
+              <div style={{ ...limitRowStyle, alignItems: 'flex-start' }}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.when')}
+                </span>
+                <NameListEditor
+                  values={c.when ?? []}
+                  listId={listId}
+                  placeholder={t('blendshapeLimits.addDriver')}
+                  onChange={(when) => patchClamp(ci, { when })}
+                />
+              </div>
+
+              <div style={{ ...limitRowStyle, alignItems: 'flex-start' }}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.targets')}
+                </span>
+                <NameListEditor
+                  values={c.targets}
+                  listId={listId}
+                  placeholder={t('blendshapeLimits.addName')}
+                  onChange={(targets) => patchClamp(ci, { targets })}
+                />
+              </div>
+
+              <div style={limitRowStyle}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.range')}
+                </span>
+                <NumInput
+                  className="vs-bslimits-clamp-min"
+                  value={c.min ?? 0}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  prefix={t('blendshapeLimits.min')}
+                  style={{ width: 84 }}
+                  onCommit={(v) => patchClamp(ci, { min: v })}
+                />
+                <NumInput
+                  className="vs-bslimits-clamp-max"
+                  value={c.max ?? 1}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  prefix={t('blendshapeLimits.max')}
+                  style={{ width: 84 }}
+                  onCommit={(v) => patchClamp(ci, { max: v })}
+                />
+              </div>
+
+              <div style={limitRowStyle}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.threshold')}
+                </span>
+                <NumInput
+                  className="vs-bslimits-clamp-threshold"
+                  value={c.threshold ?? 0}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  style={{ width: 70 }}
+                  onCommit={(v) => patchClamp(ci, { threshold: v })}
+                />
+                <label style={{ ...limitRowStyle, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    className="vs-bslimits-clamp-ramp"
+                    checked={c.ramp !== false}
+                    onChange={(e) => patchClamp(ci, { ramp: e.target.checked })}
+                  />
+                  <span style={{ fontSize: 11, color: '#888' }}>
+                    {t('blendshapeLimits.ramp')}
+                  </span>
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button
+          className="vs-bslimits-add-clamp"
+          onClick={() =>
+            patch({
+              clamps: [
+                ...clamps,
+                {
+                  id: `clamp-${Date.now()}`,
+                  label: t('blendshapeLimits.newClamp'),
+                  enabled: true,
+                  when: [],
+                  threshold: 0.3,
+                  ramp: true,
+                  targets: [],
+                  min: 0,
+                  max: 1,
+                },
+              ],
+            })
+          }
+          style={{ ...limitSmallBtnStyle, marginTop: 6 }}
+        >
+          + {t('blendshapeLimits.addClamp')}
+        </button>
+      </CollapsibleSection>
+
+      {/* ── Raw JSON ─────────────────────────────────────────────────────── */}
+      <CollapsibleSection title={t('blendshapeLimits.jsonHeader')}>
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t('blendshapeLimits.jsonHint')}
+        </div>
+        <textarea
+          className="vs-bslimits-json"
+          value={jsonDraft ?? JSON.stringify(limits, null, 2)}
+          onChange={(e) => {
+            setJsonDraft(e.target.value);
+            setJsonError(null);
+          }}
+          spellCheck={false}
+          style={{
+            ...limitTextInputStyle,
+            width: '100%',
+            minHeight: 180,
+            marginTop: 6,
+            fontFamily: 'monospace',
+            resize: 'vertical',
+          }}
+        />
+        {jsonError && (
+          <div style={{ fontSize: 10, color: '#c66', marginTop: 4 }}>
+            {jsonError}
+          </div>
+        )}
+        <div style={{ ...limitRowStyle, marginTop: 6 }}>
+          <button
+            className="vs-bslimits-json-apply"
+            onClick={applyJson}
+            disabled={jsonDraft == null}
+            style={{
+              ...limitSmallBtnStyle,
+              opacity: jsonDraft == null ? 0.4 : 1,
+            }}
+          >
+            {t('blendshapeLimits.jsonApply')}
+          </button>
+          <button
+            className="vs-bslimits-json-revert"
+            onClick={() => {
+              setJsonDraft(null);
+              setJsonError(null);
+            }}
+            disabled={jsonDraft == null}
+            style={{ ...resetBtnStyle, opacity: jsonDraft == null ? 0.4 : 1 }}
+          >
+            {t('blendshapeLimits.jsonRevert')}
+          </button>
+        </div>
+      </CollapsibleSection>
+    </div>
+  );
+}
+
 // ── Stylized tracking (pose_stylizer) component panel ────────────────────────
 
 const rigSelectStyle: React.CSSProperties = {
@@ -3808,6 +4843,8 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
   switch (comp.kind) {
     case 'vmc_receiver':
       return <VmcReceiverProps comp={comp} />;
+    case 'ifacialmocap_receiver':
+      return <IFacialMocapReceiverProps comp={comp} />;
     case 'lipsync_processor':
       return <LipsyncProcessorProps comp={comp} />;
     case 'mediapipe_tracker':
@@ -3820,6 +4857,8 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
       return <ManualCalibrationProps comp={comp} />;
     case 'pose_stylizer':
       return <StylizedTrackingProps comp={comp} />;
+    case 'blendshape_limiter':
+      return <BlendshapeLimiterProps comp={comp} />;
     default:
       return (
         <div style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>
@@ -5129,6 +6168,13 @@ export function PropertiesPanel() {
                   topic="behaviors"
                   anchor="stylized"
                   tip={t('help.stylizedTracking')}
+                />
+              )}
+              {selectedBehavior.kind === 'ifacialmocap_receiver' && (
+                <HelpButton
+                  topic="behaviors"
+                  anchor="ifacialmocap"
+                  tip={t('help.ifacialmocap')}
                 />
               )}
             </div>
@@ -8328,6 +9374,59 @@ export function PropertiesPanel() {
                   api
                     .updateNode(node.id, {
                       properties: { blendTransitionTime: v },
+                    })
+                    .catch(() => {});
+                }}
+              />
+            </div>
+
+            {/* Sits next to the blend time on purpose: that one is how *fast*
+                the return to idle runs, this one is *when* it starts. Every
+                tracking source on the avatar (VMC, MediaPipe) shares it. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span
+                style={{
+                  fontSize: 12,
+                  color: '#888',
+                  width: 110,
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                {t('avatar.trackingGracePeriod')}
+                <HelpButton
+                  topic="avatar"
+                  anchor="animation"
+                  tip={t('help.trackingGracePeriod')}
+                  size={12}
+                />
+              </span>
+              <NumInput
+                className="vs-avatar-tracking-grace"
+                value={node.properties?.trackingGracePeriod ?? 2}
+                step={0.1}
+                min={0.1}
+                max={60}
+                suffix="s"
+                style={{ flex: 1, minWidth: 0 }}
+                onChange={(v) => {
+                  const properties = {
+                    ...node.properties,
+                    trackingGracePeriod: v,
+                  };
+                  storeUpdateNode(node.id, { properties });
+                }}
+                onCommit={(v) => {
+                  const properties = {
+                    ...node.properties,
+                    trackingGracePeriod: v,
+                  };
+                  storeUpdateNode(node.id, { properties });
+                  api
+                    .updateNode(node.id, {
+                      properties: { trackingGracePeriod: v },
                     })
                     .catch(() => {});
                 }}

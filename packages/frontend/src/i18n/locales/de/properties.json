@@ -236,6 +236,7 @@
     "defaultExpressionHint": "Ruhende Mimik-Gewichtungen, die so lange gehalten werden, bis eine Blendshape-Übertragung (VMC, Lipsync, Tracking) sie überschreibt.",
     "propertiesHeader": "Eigenschaften",
     "blendTransition": "Überblendzeit",
+    "trackingGracePeriod": "Leerlauf nach",
     "dynamicsHeader": "Bewegungsdynamik",
     "dynamicsEnable": "Bewegung dynamischer machen",
     "dynamicsFrequency": "Frequenz",
@@ -356,7 +357,8 @@
     "pipelineError": "Pipeline nicht erreichbar — ist das Tracking aktiv?",
     "resetAll": "Gesamte Kalibrierung zurücksetzen",
     "calibReset": "Kalibrierung zurückgesetzt",
-    "hint": "Kopf: natürliche Haltung einnehmen. Arme: Fingerspitze an Augenecke halten, ruhig bleiben."
+    "hint": "Kopf: natürliche Haltung einnehmen. Arme: Fingerspitze an Augenecke halten, ruhig bleiben.",
+    "headOnlyHint": "Kopf: entspannt gerade auf das Telefon blicken, dann erfassen."
   },
   "vmc": {
     "host": "Host",
@@ -366,7 +368,6 @@
     "blendAdditive": "Additiv — überlagert",
     "mirror": "Spiegeln",
     "flipLR": "Links / Rechts spiegeln",
-    "idleAfter": "Leerlauf nach",
     "faceMappersHeader": "Gesichts-Mapper",
     "localIpsHeader": "IPs dieses Rechners — richte deine Capture-App hierauf",
     "setHostTip": "Host auf {{ip}} setzen",
@@ -380,6 +381,19 @@
     "mapperArkitPlaceholder": "ARKit-Form…",
     "mapperTargetPlaceholder": "Morph-Target oder Mimik…",
     "mapperInvalidJson": "Ungültiges JSON"
+  },
+  "ifm": {
+    "deviceHost": "Geräte-IP",
+    "deviceHostPlaceholder": "iPhone-/iPad-Adresse, z. B. 192.168.1.42",
+    "blendOverride": "Überschreiben — Tracking ersetzt Animation",
+    "axesHeader": "Kopfachsen",
+    "invertPitch": "Nicken umkehren",
+    "invertYaw": "Drehen umkehren",
+    "invertRoll": "Neigen umkehren",
+    "axesHint": "Kehre eine Achse um, wenn sich der Kopf in die falsche Richtung bewegt. Erfasse unten eine Kopf-Neutralhaltung, sobald die Achsen stimmen.",
+    "localIpsHeader": "IPs dieses Rechners — eine davon in der iFacialMocap-App eintragen",
+    "compatHint": "Funktioniert mit iFacialMocap (iOS). Trage oben die Geräte-IP ein, dann fordert vspark den Stream beim Telefon an — oder lass sie leer und richte die App auf eine der obigen Adressen. Beide Seiten nutzen Port {{port}}.",
+    "firewallHint": "Port {{port}} muss in deiner Firewall offen sein."
   },
   "lipsync": {
     "sensitivity": "Empfindlichkeit",
@@ -535,6 +549,40 @@
       "energyScale": "Wie viel Gesamtbewegung als volle Energie zählt."
     }
   },
+  "blendshapeLimits": {
+    "enabled": "Begrenzung aktiv",
+    "hint": "Gesichtstracking, Lipsync und manuelle Mimik landen alle im selben Frame. Diese Regeln verhindern, dass sie sich zu übertriebenen oder kaputten Gesichtern aufaddieren.",
+    "resetDefaults": "Auf Standard zurücksetzen",
+    "groupsHeader": "Exklusive Gruppen",
+    "groupsHint": "Mimiken einer Gruppe können nicht gleichzeitig auftreten. Die stärkste setzt sich durch; die übrigen werden in dem Maß ausgeblendet, wie stark sie ist.",
+    "clampsHeader": "Begrenzungsregeln",
+    "clampsHint": "Solange die auslösende Mimik aktiv ist, werden die Zielformen in einen kleineren Bereich gedeckelt — Freude schließt z. B. schon die Augen, also wird Blinzeln zurückgehalten.",
+    "membersHeader": "Mitglieder — eine Zeile pro Mimik, mehrere Namen, falls dein Modell sie anders schreibt",
+    "mode": "Modus",
+    "modeSuppress": "Stärkste gewinnt",
+    "modeNormalize": "Summe normalisieren",
+    "strength": "Stärke",
+    "when": "Auslöser",
+    "targets": "Ziele",
+    "range": "Bereich",
+    "min": "Min",
+    "max": "Max",
+    "threshold": "Schwelle",
+    "ramp": "Mit Auslöser einblenden",
+    "addName": "Name oder Muster hinzufügen (* erlaubt), Enter bestätigt",
+    "addDriver": "Auslösende Mimik hinzufügen, leer = immer aktiv",
+    "addGroup": "Gruppe hinzufügen",
+    "addMember": "Mitglied hinzufügen",
+    "addClamp": "Begrenzungsregel hinzufügen",
+    "newGroup": "Neue Gruppe",
+    "newMember": "Neues Mitglied",
+    "newClamp": "Neue Begrenzung",
+    "remove": "Entfernen",
+    "jsonHeader": "Rohes JSON",
+    "jsonHint": "Der komplette Regelsatz. Direkt bearbeiten und anwenden — praktisch, um eine Konfiguration zwischen Avataren zu kopieren.",
+    "jsonApply": "JSON anwenden",
+    "jsonRevert": "Änderungen verwerfen"
+  },
   "behaviorFallback": "Keine konfigurierbaren Eigenschaften.",
   "effect": {
     "toneMapping": {
@@ -639,6 +687,7 @@
     "expressions": "Standard-Mimik für deinen Avatar festlegen",
     "materials": "Avatar-Materialien und Shader anpassen",
     "animation": "Leerlauf-Animationen und Überblendzeiten verstehen",
+    "trackingGracePeriod": "Verstehen, wie kurze Tracking-Aussetzer überbrückt werden, bevor der Avatar in den Leerlauf zurückkehrt",
     "dynamics": "Mocap-Bewegungen dynamischer wirken lassen",
     "camera": "Kamera-Eigenschaften und Projektionen erkunden",
     "light": "Lichttypen und Schatteneinstellungen erkunden",
@@ -679,6 +728,9 @@
     "twist": "Unterarm-Drehung entlang des Arms verteilen statt am Ellbogen zu knicken",
     "poseSource": "Jeden Körperbereich per Animation, Live-Tracking oder einer Mischung steuern",
     "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück",
-    "stylizedTracking": "Erfahre, wie stilisiertes Tracking deine Bewegung umformt"
+    "stylizedTracking": "Erfahre, wie stilisiertes Tracking deine Bewegung umformt",
+    "ifacialmocap": "Erfahre, wie du die iFacialMocap-App (iOS) verbindest",
+    "ifmFirewall": "Warum die App „verbunden“ melden kann, ohne dass etwas bei vspark ankommt",
+    "expressionLimits": "Erfahren, wie Mimik-Begrenzungen übertriebene oder kaputte Gesichter verhindern"
   }
 }

@@ -236,6 +236,7 @@
     "defaultExpressionHint": "Resting expression weights held until a blendshape broadcast (VMC, lipsync, tracking) overrides them.",
     "propertiesHeader": "Properties",
     "blendTransition": "Blend transition",
+    "trackingGracePeriod": "Idle after",
     "dynamicsHeader": "Motion Snappiness",
     "dynamicsEnable": "Add snappiness to motion",
     "dynamicsFrequency": "Frequency",
@@ -356,7 +357,8 @@
     "pipelineError": "Could not reach pipeline — is tracking active?",
     "resetAll": "Reset all calibration",
     "calibReset": "Calibration reset",
-    "hint": "Head: relax into your natural posture. Arms: touch fingertip to eye corner, hold steady."
+    "hint": "Head: relax into your natural posture. Arms: touch fingertip to eye corner, hold steady.",
+    "headOnlyHint": "Head: look straight at the phone in a relaxed posture, then capture."
   },
   "vmc": {
     "host": "Host",
@@ -366,7 +368,6 @@
     "blendAdditive": "Additive — layered on top",
     "mirror": "Mirror",
     "flipLR": "Flip left / right",
-    "idleAfter": "Idle after",
     "faceMappersHeader": "Face Mappers",
     "localIpsHeader": "This machine's IPs — point your capture app here",
     "setHostTip": "Set host to {{ip}}",
@@ -380,6 +381,19 @@
     "mapperArkitPlaceholder": "ARKit shape…",
     "mapperTargetPlaceholder": "Morph target or expression…",
     "mapperInvalidJson": "Invalid JSON"
+  },
+  "ifm": {
+    "deviceHost": "Device IP",
+    "deviceHostPlaceholder": "iPhone / iPad address, e.g. 192.168.1.42",
+    "blendOverride": "Override — tracking replaces animation",
+    "axesHeader": "Head Axes",
+    "invertPitch": "Invert nod",
+    "invertYaw": "Invert turn",
+    "invertRoll": "Invert tilt",
+    "axesHint": "Flip an axis if the head moves the wrong way. Capture a head neutral below once the axes look right.",
+    "localIpsHeader": "This machine's IPs — enter one in the iFacialMocap app",
+    "compatHint": "Works with iFacialMocap (iOS). Enter the Device IP above and vspark will ask the phone to stream, or leave it empty and point the app at one of the addresses above. Both ends use port {{port}}.",
+    "firewallHint": "Port {{port}} needs to be open in your firewall."
   },
   "lipsync": {
     "sensitivity": "Sensitivity",
@@ -535,6 +549,40 @@
       "energyScale": "How much total driver motion counts as full energy."
     }
   },
+  "blendshapeLimits": {
+    "enabled": "Limits active",
+    "hint": "Face tracking, lipsync and manual expressions all land in the same frame. These rules stop them from stacking into exaggerated or broken faces.",
+    "resetDefaults": "Reset to defaults",
+    "groupsHeader": "Exclusive groups",
+    "groupsHint": "Expressions in a group cannot occur together. The strongest one wins; the others fade out in proportion to how strong it is.",
+    "clampsHeader": "Clamp rules",
+    "clampsHint": "While the driver expression is active, the target shapes are capped into a reduced range — e.g. joy already closes the eyes, so blink is held back.",
+    "membersHeader": "Members — one row per expression, several names if your model spells it differently",
+    "mode": "Mode",
+    "modeSuppress": "Strongest wins",
+    "modeNormalize": "Normalise sum",
+    "strength": "Strength",
+    "when": "Driver",
+    "targets": "Targets",
+    "range": "Range",
+    "min": "min",
+    "max": "max",
+    "threshold": "Threshold",
+    "ramp": "Fade in with driver",
+    "addName": "Add name or pattern (* allowed), Enter to confirm",
+    "addDriver": "Add driver expression, empty = always on",
+    "addGroup": "Add group",
+    "addMember": "Add member",
+    "addClamp": "Add clamp rule",
+    "newGroup": "New group",
+    "newMember": "New member",
+    "newClamp": "New clamp",
+    "remove": "Remove",
+    "jsonHeader": "Raw JSON",
+    "jsonHint": "The full rule set. Edit it directly and apply — handy for copying a configuration between avatars.",
+    "jsonApply": "Apply JSON",
+    "jsonRevert": "Discard changes"
+  },
   "behaviorFallback": "No configurable properties.",
   "effect": {
     "toneMapping": {
@@ -639,6 +687,7 @@
     "expressions": "Learn how to set default expressions on your avatar",
     "materials": "Learn how to override avatar materials and shaders",
     "animation": "Learn about idle animations and blend timing",
+    "trackingGracePeriod": "Learn how brief tracking dropouts are ridden out before the avatar returns to idle",
     "dynamics": "Learn how to make motion-capture movement feel snappier",
     "camera": "Learn about camera properties and projections",
     "light": "Learn about light types and shadow settings",
@@ -679,6 +728,9 @@
     "twist": "Spread forearm roll along the arm instead of pinching at the elbow",
     "poseSource": "Drive each body section from animation, live tracking, or a blend of both",
     "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops",
-    "stylizedTracking": "Learn how stylized tracking reshapes your motion"
+    "stylizedTracking": "Learn how stylized tracking reshapes your motion",
+    "ifacialmocap": "Learn how to connect the iFacialMocap iOS app",
+    "ifmFirewall": "Why the app can say “connected” while nothing reaches vspark",
+    "expressionLimits": "Learn how expression limits stop exaggerated or broken faces"
   }
 }

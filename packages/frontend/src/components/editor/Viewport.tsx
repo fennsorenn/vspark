@@ -2958,10 +2958,17 @@ function AvatarNode({
     //   override → broadcast replaces animation
     //   additive → broadcast quats multiply onto animation quats
     //
-    // poseTimeout: client-side safety net for missed transition messages
-    // (e.g. WS reconnect mid-deactivation). Once the bus-driven transition
-    // flow has proven robust in production, this can likely be removed.
-    const POSE_TIMEOUT_MS = 2000;
+    // Client-side safety net for pose updates that stop arriving
+    // without a matching transition message (e.g. WS reconnect mid-deactivation).
+    // The tracking sources themselves now hold their own grace period server-side
+    // before declaring a loss, so this only covers the server→client leg.
+    //
+    // It reads the node's own grace period rather than a hardcoded window: at a
+    // fixed 2s, any longer setting was overruled by this watchdog before the
+    // server-side window had even elapsed, and the avatar dropped to idle early
+    // anyway.
+    const POSE_TIMEOUT_MS =
+      Math.max(0.1, node.properties?.trackingGracePeriod ?? 2) * 1000;
     const lastPoseTime = getVmcPoseTime(node.id);
     const pose = getVmcPose(node.id);
     const poseMode = getVmcPoseBlendMode(node.id);

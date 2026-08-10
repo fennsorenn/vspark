@@ -15,6 +15,7 @@
     "./arkit": "./src/arkit_tables.ts",
     "./paramPaths": "./src/paramPaths.ts",
     "./style_rig": "./src/style_rig.ts",
+    "./blendshapeLimits": "./src/blendshapeLimits.ts",
     "./sync": "./src/sync.ts"
   },
   "scripts": {

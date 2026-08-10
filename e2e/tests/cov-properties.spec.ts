@@ -26,6 +26,8 @@ import { seedProjectScene, seedNode, listNodes } from '../fixtures/seed';
  *   vs-camera-near            — camera near-plane NumInput (persists)
  *   vs-camera-far             — camera far-plane NumInput (persists)
  *   vs-camera-shadows-enable  — camera shadows-enable checkbox (persists)
+ *   vs-avatar-tracking-grace  — avatar tracking-loss grace period NumInput
+ *                               (persists to `properties`, not `components`)
  *
  * The shadow checkboxes are PATCH-controlled (state reflects the persisted
  * value), so we use .click() + a REST poll, never .check() (whose synchronous
@@ -48,6 +50,7 @@ type RawNode = {
   name: string;
   kind: string;
   components?: string | Record<string, unknown>;
+  properties?: string | Record<string, unknown>;
 };
 
 async function getNode(
@@ -69,6 +72,19 @@ function components(node: RawNode | undefined): Record<string, unknown> {
     }
   }
   return node.components;
+}
+
+/** Same shape as `components`, for the sibling `properties` JSON column. */
+function properties(node: RawNode | undefined): Record<string, unknown> {
+  if (!node?.properties) return {};
+  if (typeof node.properties === 'string') {
+    try {
+      return JSON.parse(node.properties) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  return node.properties;
 }
 
 // ---------------------------------------------------------------------------
@@ -421,4 +437,39 @@ test('cov-properties: camera controls (projection/fov/near/far/shadows) persist 
       { timeout: 10_000 }
     )
     .toBe('orthographic');
+});
+
+// ---------------------------------------------------------------------------
+// 8. vs-avatar-tracking-grace — the avatar's tracking-loss grace period.
+//
+// Persists to scene_nodes.properties (not `components`, like the controls
+// above), so this asserts through `properties` instead. The avatar panel
+// renders without a loaded VRM, so no model upload is needed here.
+// ---------------------------------------------------------------------------
+test('cov-properties: avatar tracking grace period persists via REST', async ({
+  page,
+  request,
+}) => {
+  const { projectId, sceneId } = await seedProjectScene(request);
+  const nodeId = await seedNode(request, sceneId, 'PropAvatar', 'avatar');
+
+  await page.goto(`/editor/${projectId}`);
+  const row = page.getByText('PropAvatar', { exact: true });
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click();
+
+  const grace = page.locator('.vs-avatar-tracking-grace input');
+  await expect(grace).toBeVisible({ timeout: 10_000 });
+  await grace.fill('4.5');
+  await grace.press('Enter');
+
+  await expect
+    .poll(
+      async () => {
+        const node = await getNode(request, sceneId, nodeId);
+        return properties(node).trackingGracePeriod;
+      },
+      { timeout: 10_000 }
+    )
+    .toBe(4.5);
 });

@@ -1091,11 +1091,12 @@ function BehaviorsSection({
       {components.map((comp) => {
         const ct = behaviorKinds.find((c) => c.kind === comp.kind);
         const isSelected = selectedBehaviorId === comp.id;
-        // VMC has a UDP connection dot; both VMC and MediaPipe have a tracking
-        // dot (MediaPipe is browser-driven, so it has no connection concept).
-        const hasConnection = comp.kind === 'vmc_receiver';
-        const hasTracking =
-          comp.kind === 'vmc_receiver' || comp.kind === 'mediapipe_tracker';
+        // The two UDP receivers have a connection dot; all three tracking
+        // sources have a tracking dot (MediaPipe is browser-driven, so it has
+        // no connection concept).
+        const hasConnection =
+          comp.kind === 'vmc_receiver' || comp.kind === 'ifacialmocap_receiver';
+        const hasTracking = hasConnection || comp.kind === 'mediapipe_tracker';
         const isConnected = hasConnection && vmcStatus[comp.id] === true;
         const isTracking = hasTracking && vmcTracking[comp.id] === true;
         return (

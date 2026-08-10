@@ -11,8 +11,18 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { getMeshCollection } from '../mesh/index.js';
 import { refreshAllBehaviorManagers } from './shared.js';
+import { getAllBehaviorKindMeta } from '../behaviors/registry.js';
 
 const router: ReturnType<typeof Router> = Router();
+
+/** The kind's registered `defaultConfig`, so a behavior created without one
+ *  arrives configured rather than inert — the editor's add-menu already seeds
+ *  it client-side; this makes the REST path match. An explicitly supplied
+ *  config (even `{}`) is always honoured as-is. */
+function _defaultConfigFor(kind: string): Record<string, unknown> {
+  const meta = getAllBehaviorKindMeta().find((m) => m.kind === kind);
+  return meta ? structuredClone(meta.defaultConfig) : {};
+}
 
 /**
  * @openapi
@@ -61,12 +71,13 @@ router.post('/scene-nodes/:nodeId/behaviors', async (req, res) => {
       .status(500)
       .json({ ok: false, error: { message: 'store not ready' } });
   const compId = id ?? randomUUID();
+  const resolvedConfig = config ?? _defaultConfigFor(kind);
   const outcome = await col.set(compId, '', {
     id: compId,
     nodeId: req.params.nodeId,
     kind,
     enabled: enabled ?? true,
-    config: config ?? {},
+    config: resolvedConfig,
     sortOrder: sortOrder ?? 0,
   }).ack;
   if (outcome.status === 'rejected')
@@ -79,7 +90,7 @@ router.post('/scene-nodes/:nodeId/behaviors', async (req, res) => {
       node_id: req.params.nodeId,
       kind,
       enabled: enabled ?? true,
-      config: config ?? {},
+      config: resolvedConfig,
       sort_order: sortOrder ?? 0,
     },
   });

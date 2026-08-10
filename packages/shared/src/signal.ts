@@ -422,6 +422,21 @@ export interface InterceptorFrame {
   readonly priority: number;
 }
 
+/**
+ * The blendshape counterpart of `InterceptorFrame` — passed through the
+ * blendshape interceptor chain (see the Expression Limits behavior). Kept as a
+ * separate type (rather than widening `InterceptorFrame`) so a pose frame can
+ * never be wired into a blendshape terminal.
+ */
+export interface BlendshapeInterceptorFrame {
+  /** Scene node the broadcast is addressed to. */
+  readonly nodeId: string;
+  /** Blendshapes at the point this interceptor was invoked. */
+  readonly blendshapes: Blendshapes;
+  /** Priority of the on_blendshapes_broadcast node that produced this frame. */
+  readonly priority: number;
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // PoseFrame — fully assembled frame, wire format for server → client broadcast
 // ──────────────────────────────────────────────────────────────────────────────
@@ -494,6 +509,8 @@ export interface SignalTypeMap {
   MappingTable: Record<string, [string, number][]> | null;
   /** Opaque token passed through the pose interceptor chain. */
   InterceptorFrame: InterceptorFrame;
+  /** Opaque token passed through the blendshape interceptor chain. */
+  BlendshapeInterceptorFrame: BlendshapeInterceptorFrame;
   /** A single unit quaternion rotation. */
   Quaternion: Quaternion;
   /**
@@ -601,6 +618,7 @@ export const SIGNAL_TYPE_COLORS: Record<SignalTypeName, string> = {
   ComposeLayer: '#6aaf9a',
   MappingTable: '#a07050',
   InterceptorFrame: '#9a5a8a',
+  BlendshapeInterceptorFrame: '#b5708a',
   Quaternion: '#5a9a7a',
   StyleDrivers: '#b06a9a',
   LandmarkList: '#7a9a6a',

@@ -4,6 +4,7 @@ import type { VRMBoneName } from '@vspark/shared/signal';
 import { getDb } from '../db/index.js';
 import type { WSSync } from '../ws/index.js';
 import { poseInterceptorRegistry } from '../signal/pose_interceptor_registry.js';
+import { blendshapeInterceptorRegistry } from '../signal/blendshape_interceptor_registry.js';
 
 const DEFAULT_TICK_HZ = 60;
 const MIN_TICK_HZ = 1;
@@ -256,10 +257,12 @@ export class BroadcastBus {
 
     if (bsSlots.length > 0) {
       const merged = _composeBlendshapes(bsSlots);
-      this._bcast('vmc_blendshapes', sceneNodeId, {
-        nodeId: sceneNodeId,
-        blendshapes: merged.toRecord(),
-      });
+      // Same hand-off as the pose path: if any blendshape interceptor is
+      // registered for this node (e.g. the Expression Limits behavior), the
+      // chain terminal emits via emitMergedBlendshapes instead.
+      if (!blendshapeInterceptorRegistry.start(sceneNodeId, merged)) {
+        this._emitBlendshapes(sceneNodeId, merged);
+      }
     }
   }
 
@@ -270,6 +273,21 @@ export class BroadcastBus {
   emitMergedPose(sceneNodeId: string, pose: NormalizedPose): void {
     const mode = this._pendingModes.get(sceneNodeId) ?? 'override';
     this._emitPose(sceneNodeId, pose, mode);
+  }
+
+  /** Called by the blendshape interceptor terminal after the chain runs. */
+  emitMergedBlendshapes(sceneNodeId: string, blendshapes: Blendshapes): void {
+    this._emitBlendshapes(sceneNodeId, blendshapes);
+  }
+
+  private _emitBlendshapes(
+    sceneNodeId: string,
+    blendshapes: Blendshapes
+  ): void {
+    this._bcast('vmc_blendshapes', sceneNodeId, {
+      nodeId: sceneNodeId,
+      blendshapes: blendshapes.toRecord(),
+    });
   }
 
   private _emitPose(

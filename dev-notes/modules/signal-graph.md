@@ -53,7 +53,7 @@ After the Phase 2 re-architecture the engine is **wiring + lifecycle** over Node
 
 A graph executes when `fire(nodeId, portName, value)` is called from outside (by a manager). The event propagates forward through event subscriptions; each reached node pulls its value inputs on demand.
 
-**Source nodes** (`vmc_packet_source` / `mediapipe_source` / `lipsync_source`) declare `@eventOut` ports that are fired externally by their managers via `deliverExternal`. `clock` keeps a static `attach()`; `on_pose_broadcast` keeps a static `register()`.
+**Source nodes** (`vmc_packet_source` / `ifacialmocap_packet_source` / `mediapipe_source` / `lipsync_source`) declare `@eventOut` ports that are fired externally by their managers via `deliverExternal`. `clock` keeps a static `attach()`; `on_pose_broadcast` keeps a static `register()`.
 
 **Value-input auto-fallback to `config.<port>`**: when a value-input port is unconnected, the engine resolves its pull-thunk to `defaultConfig.<portName>` from the descriptor. Nodes just read `this.port()` and get the config fallback for free. This is the preferred pattern; reserve `behavior_config` nodes for values that must track live user edits at runtime. The breathing graph is the reference example (bone names / mode / priority / blend mode in per-port `defaultConfig`; only the two live-editable amplitudes remain `behavior_config` nodes).
 
@@ -74,7 +74,7 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → node class. All 88 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → node class. All 92 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
 
@@ -86,6 +86,7 @@ Organized by role:
 | Kind | Description |
 |------|-------------|
 | `vmc_packet_source` | Entry for VMC/RhyLive UDP data; outputs `bones` (BoneRotations) and `arkit` events |
+| `ifacialmocap_packet_source` | Entry for iFacialMocap UDP data; same `bones` / `arkit` event outputs, plus `deviceHost` + per-axis invert value inputs |
 | `mediapipe_source` | Entry for MediaPipe landmarks; outputs `face`, `leftHand`, `rightHand`, `pose`, and `arkit` (ARKit blendshape weights) events. The `arkit` weights are computed browser-side — by default a landmark-derived heuristic (`media/arkitHeuristic.ts`), or a trained `FaceLandmarker` when "HQ face" is enabled — both feeding the same `arkit_vrm_mapper` trio |
 | `lipsync_source` | Entry for viseme weights from mic analysis; outputs `visemes` event |
 | `manual_trigger` (kind string `component_trigger`, label "Behavior Trigger") | UI-facing trigger button; fires an event on demand |
@@ -116,6 +117,7 @@ Organized by role:
 | `pose_manual_calibration` (label "Manual Calibration") | Static `pose` in → `pose` out. For each configured bone, decomposes the quaternion to ZYX euler and applies per axis `angle' = angle * multiplier + offset` (offset in DEGREES, converted to radians; multiplier unitless). Bones with no entry, or at identity (mult `[1,1,1]` / offset `[0,0,0]`), pass through. The per-bone map arrives via a wired `calibrations` value-input (fed by a `behavior_config` node, `field: 'calibrations'`), not a hidden config read; shape `Record<boneName, { multiplier?: [x,y,z]; offset?: [x,y,z] }>`. Ordinary static node (NOT in `INFER_BY_KIND`; ports via decorators / `defaultInfer`, like `body_calibration` / `pose_apply_bone`). Drives the `manual_calibration` behavior interceptor — see [component-managers.md](component-managers.md). Euler-space, so ZYX-order-dependent + degrades at the yaw=±90° gimbal singularity. |
 | `pose_style_drivers` (label "Style Drivers") | `pose` + `response` + `preset` in → `drivers` (`StyleDrivers`) out. (`preset` is needed here too because a preset may carry a response baseline — `expressive` tightens the ranges.) Collapses a full pose into nine normalized scalars: head orientation relative to the torso (`neck·head` composed), torso orientation (`hips·spine·chest·upperChest` composed), per-arm elevation, and a motion-`energy` summary. Each is conditioned `÷ range → clamp ±1 → deadzone → rate limit → EMA smooth`; the rate limit is the glitch gate that turns an impossible tracker jump into a human slew, and the frame-rate-compensated EMA keeps the feel constant across tracker rates. Previous-driver state lives on the node INSTANCE (not `setState`) because persisting it would put a SQLite write in the 60Hz pose path; the output memoizes on the input pose object so it integrates exactly once per frame. Ordinary static node (not in `INFER_BY_KIND`). Drives the `pose_stylizer` behavior — see [stylized-tracking.md](stylized-tracking.md). |
 | `pose_stylize` (label "Stylize Pose") | `pose` + `drivers` + `amount` + `lag` + `preset` + `rig` + `restUnmapped` in → `pose` out. Rebuilds the pose from the drivers through a `StyleRig` (`bone → {mode, lag, drivers: driverName → [pitch,yaw,roll] degrees at driver 1}`), merged over the rig named by `preset` (`follow` / `counter` / `headOnly` / `headOnlyCounter` / `expressive`; unknown/absent → `follow`). `preset` also supplies the base `lag` when the `lag` input is null. `rigMode` + `simpleRig` add the simplified 6×6 section-total surface on top (identity when empty, so the two editors are interchangeable); `strength` multiplies every rig contribution before the lag integrator. `replace` bones are synthesized outright (bounded by construction → glitch-proof; emitted even if the tracker never sent them, so a face-only source drives a whole body); `add` bones premultiply the offset onto the tracked rotation and are skipped when untracked. A per-bone first-order lag (base `lag` × the rig's per-bone multiplier) staggers the chain for follow-through; `amount` slerps the result against the untouched pose. Per-bone lag state on the instance + memoized on the input pose, same reasoning as above. Ordinary static node. See [stylized-tracking.md](stylized-tracking.md). |
+| `blendshape_limits` (label "Expression Limits") | Static `blendshapes` in → `blendshapes` out. Applies the expression-limit rule set: exclusive groups (only the strongest member of a set of competing expressions survives, losers scaled by `1 − strength × winnerWeight`) then clamp rules (targets capped into `[min, max]` while a driver expression is active, ramped by the driver's weight). The rule set arrives via a wired `limits` value-input (fed by a `behavior_config` node, `field: 'limits'`), not a hidden config read. The engine itself is the pure `applyBlendshapeLimits` in [`packages/shared/src/blendshapeLimits.ts`](../../packages/shared/src/blendshapeLimits.ts); the node is only the graph wrapper and runs the config through `normalizeBlendshapeLimits` so a malformed hand-edited document degrades to fewer rules instead of a crashed graph. Ordinary static node (NOT in `INFER_BY_KIND`). Drives the `blendshape_limiter` behavior interceptor — see [component-managers.md](component-managers.md). |
 
 ### Processing / utility
 | Kind | Description |
@@ -144,13 +146,23 @@ Organized by role:
 | `set_data` | Generic sibling of `set_text`: on `fire`, publishes the wired `data` (Any) payload to the named `channel` (String) on the data-channel bus → frontend `feed` layer. See [data-channels.md](data-channels.md). |
 | `media_control` | Fire-and-forget media command (play/pause/stop/restart/seek/setVolume/mute/unmute) onto the media-command bus. Config `action`/`targetKind`/`targetId`; inputs `target` (SceneEntity, picker-or-wired), `t` (Float, for seek), `volume` (Float, for setVolume); a `spawnRef` event retargets to a spawned instance for that fire. tags `['media','output']`. See [media.md](media.md). |
 
-### Pose interceptor chain
-The interceptor chain lets behaviors (e.g., breathing) modify poses in-flight before broadcast.
+### Interceptor chains
+Interceptor chains let behaviors modify a frame in-flight, after the broadcast bus
+has composed every producer's contribution but before it goes out over the
+WebSocket. There are two independent chains — one for bones, one for expression
+weights — with identical shapes and separate registries
+(`signal/pose_interceptor_registry.ts`, `signal/blendshape_interceptor_registry.ts`).
+Both are entered from `BroadcastBus._composeAndEmit`: if `start()` reports that a
+chain exists, the bus does NOT emit and the chain's terminal node does, via
+`emitMergedPose` / `emitMergedBlendshapes`. Priority orders the chain (higher runs
+first); ties break by registration order.
 
 | Kind | Description |
 |------|-------------|
-| `on_pose_broadcast` (label "Intercept Pose") | Entry for interceptor graph; receives InterceptorFrame from the registry |
-| `pose_interceptor_broadcast` (label "Send Intercepted Pose") | Exit for interceptor graph; re-broadcasts modified pose back through chain |
+| `on_pose_broadcast` (label "Intercept Pose") | Entry for a pose interceptor graph; receives an `InterceptorFrame` from the registry |
+| `pose_interceptor_broadcast` (label "Send Intercepted Pose") | Exit for a pose interceptor graph; advances the chain or performs the final broadcast |
+| `on_blendshapes_broadcast` (label "Intercept Blendshapes") | Entry for a blendshape interceptor graph; receives a `BlendshapeInterceptorFrame`. The frame type is deliberately distinct from `InterceptorFrame` so a pose frame can't be wired into a blendshape terminal. |
+| `blendshapes_interceptor_broadcast` (label "Send Intercepted Blendshapes") | Exit for a blendshape interceptor graph; advances the chain or performs the final broadcast |
 
 ### Config/context
 | Kind | Description |

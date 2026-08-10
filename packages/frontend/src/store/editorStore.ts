@@ -191,6 +191,11 @@ function initialComposeAttach(): boolean {
 export interface NodeProperties {
   /** VRM avatar: seconds to ramp between override and additive on bus mode flip. */
   blendTransitionTime?: number;
+  /** VRM avatar: seconds a tracking dropout is tolerated before the avatar is
+   *  treated as untracked and falls back to idle. Pairs with
+   *  `blendTransitionTime` — this is when the return starts, that is how fast it
+   *  runs. Shared by every tracking source on the node. Default 2. */
+  trackingGracePeriod?: number;
   /** VRM avatar: resting expression weights (expression name → 0..1) applied as a
    *  baseline each frame; live blendshape broadcasts override them per-key. */
   defaultExpressions?: Record<string, number>;
