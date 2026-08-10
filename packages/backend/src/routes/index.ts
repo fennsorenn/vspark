@@ -42,6 +42,7 @@ export {
   setIFacialMocapManager,
   setBreathingManager,
   setManualCalibrationManager,
+  setPoseStylizerManager,
   setBlendshapeLimiterManager,
   setLipsyncManager,
   setTrackingManager,

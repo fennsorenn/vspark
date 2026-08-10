@@ -18,6 +18,8 @@ import { RhyliveBoneMapper } from './nodes/rhylive_bone_mapper.js';
 import { ArkitVrmMapper } from './nodes/arkit_vrm_mapper.js';
 import { BodyCalibration } from './nodes/body_calibration.js';
 import { PoseManualCalibration } from './nodes/pose_manual_calibration.js';
+import { PoseStyleDrivers } from './nodes/pose_style_drivers.js';
+import { PoseStylize } from './nodes/pose_stylize.js';
 import { PoseBroadcast } from './nodes/pose_broadcast.js';
 import { BlendshapesBroadcast } from './nodes/blendshapes_broadcast.js';
 import { BlendshapesSum } from './nodes/blendshapes_sum.js';
@@ -126,6 +128,8 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   ArkitVrmMapper,
   BodyCalibration,
   PoseManualCalibration,
+  PoseStyleDrivers,
+  PoseStylize,
   // Output nodes
   PoseBroadcast,
   BlendshapesBroadcast,

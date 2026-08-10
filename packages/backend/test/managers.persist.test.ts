@@ -78,6 +78,7 @@ vi.mock('../src/signal/nodes/blendshapes_broadcast.js', async (importOriginal) =
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 import { BreathingManager } from '../src/behaviors/breathing/manager.js';
+import { PoseStylizerManager } from '../src/behaviors/pose_stylizer/manager.js';
 import { LipsyncManager } from '../src/behaviors/lipsync/manager.js';
 import { VmcManager } from '../src/behaviors/vmc_receiver/manager.js';
 import { ApiControllerManager } from '../src/behaviors/api_controller/manager.js';
@@ -638,5 +639,81 @@ describe('ApiControllerManager.setAnimationQueue', () => {
     );
     expect(entries).toHaveLength(1);
     expect(entries[0]['loop']).toBe(true); // loopMode 'queue' → loop last
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PoseStylizerManager — _persistNodeState (and what it deliberately skips)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PoseStylizerManager._persistNodeState', () => {
+  let manager: PoseStylizerManager;
+
+  beforeEach(() => {
+    manager = new PoseStylizerManager();
+  });
+
+  afterEach(() => {
+    manager.close();
+  });
+
+  const persistOf = (m: PoseStylizerManager) =>
+    (
+      m as unknown as {
+        _persistNodeState(a: string, b: string, c: unknown): void;
+      }
+    )._persistNodeState.bind(m);
+
+  it('no-ops when the behaviors row is absent (non-fatal)', () => {
+    expect(() => manager.start('b-absent')).not.toThrow();
+  });
+
+  it('writes _nodeState into behaviors.config for ordinary nodes', () => {
+    seedBehaviorRow('s1', 'sn1', 'pose_stylizer', 'p1');
+    manager.syncBehaviors([
+      { id: 's1', nodeId: 'sn1', kind: 'pose_stylizer', enabled: true, config: {} },
+    ]);
+
+    persistOf(manager)('s1', 'stylize', { some: 'state' });
+
+    const ns = getBehaviorConfig('s1')._nodeState as Record<string, unknown>;
+    expect(ns['stylize']).toEqual({ some: 'state' });
+  });
+
+  it('SKIPS the interceptor node — its state is a whole pose, injected at ~60Hz', () => {
+    // `on_pose_broadcast` has the current pose written into its state before every
+    // fire. Persisting that would mean a read-modify-write of the behaviors row at
+    // the pose rate, for a value that is meaningless after a restart.
+    seedBehaviorRow('s2', 'sn2', 'pose_stylizer', 'p2');
+    manager.syncBehaviors([
+      { id: 's2', nodeId: 'sn2', kind: 'pose_stylizer', enabled: true, config: {} },
+    ]);
+
+    persistOf(manager)('s2', 'intercept', { frame: { pose: 'huge' } });
+
+    const cfg = getBehaviorConfig('s2');
+    const ns = (cfg._nodeState ?? {}) as Record<string, unknown>;
+    expect(ns['intercept']).toBeUndefined();
+  });
+
+  it('merges into existing _nodeState without clobbering unrelated keys', () => {
+    const existingCfg = { amount: 0.6, _nodeState: { other: 'keep' } };
+    seedBehaviorRow('s3', 'sn3', 'pose_stylizer', 'p3', existingCfg);
+    manager.syncBehaviors([
+      {
+        id: 's3',
+        nodeId: 'sn3',
+        kind: 'pose_stylizer',
+        enabled: true,
+        config: existingCfg,
+      },
+    ]);
+
+    persistOf(manager)('s3', 'stylize', { v: 1 });
+
+    const ns = getBehaviorConfig('s3')._nodeState as Record<string, unknown>;
+    expect(ns['other']).toBe('keep');
+    expect(ns['stylize']).toEqual({ v: 1 });
+    expect(getBehaviorConfig('s3').amount).toBe(0.6);
   });
 });

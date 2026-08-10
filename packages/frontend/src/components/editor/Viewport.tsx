@@ -78,6 +78,7 @@ import { useSceneFadeIn } from '../../hooks/useSceneFadeIn';
 import type { AnimEntry } from '../../animRegistry';
 import {
   getVmcPose,
+  getVmcHipOffset,
   getVmcPoseTime,
   getVmcPoseBlendMode,
   getVmcBlendshapes,
@@ -609,6 +610,30 @@ function sectionInfluenceForBone(
 // scratch avoids per-frame allocation.
 const _hipsAnimPos = new THREE.Vector3();
 const _hipsRestPos = new THREE.Vector3();
+
+/**
+ * Add the stylizer's body shift on top of whatever root motion already resolved.
+ *
+ * The offset arrives as fractions of the avatar's HIP HEIGHT rather than scene
+ * units, so a rig authored on one model displaces proportionally on a taller or
+ * shorter one. The rest hips height is the scale reference — for a VRM humanoid
+ * the hips sit directly under the armature root, so its rest Y is the avatar's
+ * hip height in its own units.
+ *
+ * Additive on purpose: root motion from a clip and a stylized weight-shift are
+ * different things and should compose, not fight.
+ */
+function applyHipShift(
+  offset: [number, number, number] | null,
+  restPos: THREE.Vector3,
+  outPos: THREE.Vector3
+): void {
+  if (!offset) return;
+  const scale = Math.abs(restPos.y) || 1;
+  outPos.x += offset[0] * scale;
+  outPos.y += offset[1] * scale;
+  outPos.z += offset[2] * scale;
+}
 // Scratch for the animation-source cross-fade (per-bone, single-threaded loop).
 const _fadeScratchQ = new THREE.Quaternion();
 const _fadeScratchV = new THREE.Vector3();
@@ -1339,9 +1364,7 @@ function bakeRetargetedClip(
       (a, b) => depthOf(a) - depthOf(b)
     )) {
       const localQ = loadTimeQ[name] ?? rigNodes[name].quaternion;
-      const pWQ = fbxBoneParent[name]
-        ? curWQ[fbxBoneParent[name]!]
-        : undefined;
+      const pWQ = fbxBoneParent[name] ? curWQ[fbxBoneParent[name]!] : undefined;
       const wq = pWQ ? pWQ.clone().multiply(localQ) : localQ.clone();
       curWQ[name] = wq;
       fbxBindWQ[name] = wq.clone();
@@ -1433,8 +1456,7 @@ function bakeRetargetedClip(
     .sort((a, b) => getDepth(a) - getDepth(b));
 
   const vrmBindWQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> = {};
-  const vrmBindWQInv: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
-    {};
+  const vrmBindWQInv: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> = {};
   for (const mb of bonesInOrder) {
     const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
     const bone = vrmBoneObj[vn]!;
@@ -1449,8 +1471,7 @@ function bakeRetargetedClip(
   }
 
   // VRM bind-local Qs: vrmParentBindWQ⁻¹ × vrmBoneBindWQ
-  const vrmBindLocalQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
-    {};
+  const vrmBindLocalQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> = {};
   for (const mb of bonesInOrder) {
     const vn = FBX_BONE_TO_VRM[mb] as VRMHumanBoneName;
     const vpn = vrmBoneParent[vn];
@@ -1480,10 +1501,8 @@ function bakeRetargetedClip(
   // See memory:fbx-apose-retargeting. This is the same algorithm used in the bind-pose
   // visualization, but computed purely from data (positions + world Qs) without
   // touching any live Three.js objects, so it's available synchronously for Phase 4.
-  const vrmAposeWQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
-    {};
-  const vrmAposeWQInv: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> =
-    {};
+  const vrmAposeWQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> = {};
+  const vrmAposeWQInv: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> = {};
 
   const PREFERRED_VRM_CHILD: Partial<
     Record<VRMHumanBoneName, VRMHumanBoneName>
@@ -1614,12 +1633,8 @@ function bakeRetargetedClip(
       )
       .normalize()
       .applyQuaternion(hipsBindWQ);
-    const vForward = new THREE.Vector3()
-      .crossVectors(vRight, vUp)
-      .normalize();
-    const vRight2 = new THREE.Vector3()
-      .crossVectors(vUp, vForward)
-      .normalize();
+    const vForward = new THREE.Vector3().crossVectors(vRight, vUp).normalize();
+    const vRight2 = new THREE.Vector3().crossVectors(vUp, vForward).normalize();
     const vrmBasis = new THREE.Matrix4().makeBasis(vRight2, vUp, vForward);
 
     const hipsFbxWQ = fbxBindWQ[hipsFbxName]!;
@@ -1634,19 +1649,12 @@ function bakeRetargetedClip(
       )
       .normalize()
       .applyQuaternion(hipsFbxWQ);
-    const fForward = new THREE.Vector3()
-      .crossVectors(fRight, fUp)
-      .normalize();
-    const fRight2 = new THREE.Vector3()
-      .crossVectors(fUp, fForward)
-      .normalize();
+    const fForward = new THREE.Vector3().crossVectors(fRight, fUp).normalize();
+    const fRight2 = new THREE.Vector3().crossVectors(fUp, fForward).normalize();
     const fbxBasis = new THREE.Matrix4().makeBasis(fRight2, fUp, fForward);
 
     const fullRot = new THREE.Quaternion().setFromRotationMatrix(
-      new THREE.Matrix4().multiplyMatrices(
-        fbxBasis,
-        vrmBasis.clone().invert()
-      )
+      new THREE.Matrix4().multiplyMatrices(fbxBasis, vrmBasis.clone().invert())
     );
     vrmAposeWQ.hips = fullRot.clone().multiply(hipsBindWQ);
   } else {
@@ -1675,10 +1683,7 @@ function bakeRetargetedClip(
     if (childMb && childVn && vrmBoneObj[childVn] && fbxBoneNode[childMb]) {
       const vrmChildPos = vrmBoneObj[childVn]!.position;
       const fbxChildPos = fbxBoneNode[childMb].position;
-      if (
-        vrmChildPos.lengthSq() > 1e-10 &&
-        fbxChildPos.lengthSq() > 1e-10
-      ) {
+      if (vrmChildPos.lengthSq() > 1e-10 && fbxChildPos.lengthSq() > 1e-10) {
         const vrmDir = vrmChildPos
           .clone()
           .normalize()
@@ -1687,10 +1692,7 @@ function bakeRetargetedClip(
           .clone()
           .normalize()
           .applyQuaternion(fbxBindWQ[mb]!);
-        const swing = new THREE.Quaternion().setFromUnitVectors(
-          vrmDir,
-          fbxDir
-        );
+        const swing = new THREE.Quaternion().setFromUnitVectors(vrmDir, fbxDir);
         // newWQ = swing × swungBoneBindWQ
         const newWQ = swing.multiply(swungBoneBindWQ);
 
@@ -1760,8 +1762,7 @@ function bakeRetargetedClip(
   }
 
   for (const vn of Object.keys(vrmAposeWQ) as VRMHumanBoneName[]) {
-    if (vrmAposeWQ[vn])
-      vrmAposeWQInv[vn] = vrmAposeWQ[vn]!.clone().invert();
+    if (vrmAposeWQ[vn]) vrmAposeWQInv[vn] = vrmAposeWQ[vn]!.clone().invert();
   }
   console.log(
     '[apose] computed corrections for',
@@ -1777,8 +1778,7 @@ function bakeRetargetedClip(
       bone = track.name.slice(0, d),
       prop = track.name.slice(d + 1);
     if (prop === 'quaternion') qInterp[bone] = track.createInterpolant();
-    if (prop === 'position' && HIPS_BONE_NAMES.has(bone))
-      hipsPosTrack = track;
+    if (prop === 'position' && HIPS_BONE_NAMES.has(bone)) hipsPosTrack = track;
   }
   const refTrack = clip.tracks.find((t) => t.name.endsWith('.quaternion'));
   const allTimes = refTrack ? Array.from(refTrack.times) : [];
@@ -1803,8 +1803,7 @@ function bakeRetargetedClip(
   const curVRMWQ: Partial<Record<VRMHumanBoneName, THREE.Quaternion>> = {};
   for (const mb of bonesInOrder) {
     curFBXWQ[mb] = new THREE.Quaternion();
-    curVRMWQ[FBX_BONE_TO_VRM[mb] as VRMHumanBoneName] =
-      new THREE.Quaternion();
+    curVRMWQ[FBX_BONE_TO_VRM[mb] as VRMHumanBoneName] = new THREE.Quaternion();
   }
 
   const IDQ = new THREE.Quaternion();
@@ -1974,7 +1973,6 @@ function bakeRetargetedClip(
   return { vrmTracks, allTimes, outQVals, newCorrAxes, VRM_TO_FBX };
 }
 
-
 /**
  * One loaded, baked, independently-playable clip: its own shadow skeleton (the
  * animation buffer — see ShadowSkeleton), its own mixer, and the playhead state
@@ -2011,7 +2009,10 @@ class FrozenPose {
   private valid = false;
 
   /** Freeze the current contents of a shadow skeleton. */
-  captureFrom(shadow: ShadowSkeleton, bones: readonly VRMHumanBoneName[]): void {
+  captureFrom(
+    shadow: ShadowSkeleton,
+    bones: readonly VRMHumanBoneName[]
+  ): void {
     for (const name of bones) {
       const src = shadow.rotation(name);
       if (!src) continue;
@@ -2232,7 +2233,9 @@ function AvatarNode({
     ? animationClips[animBaseCfg.clipId]
     : undefined;
   const baseUrl = baseClip?.sourceFilePath ?? animBaseCfg?.url;
-  const base = baseUrl ? { url: baseUrl, speed: animBaseCfg?.speed ?? 1 } : null;
+  const base = baseUrl
+    ? { url: baseUrl, speed: animBaseCfg?.speed ?? 1 }
+    : null;
   const [trackingActive, setTrackingActive] = useState(false);
   // While tracking is live use the base animation (if any) as the loop tracking
   // stacks onto; otherwise fall back to the idle. Scheduled clips still win.
@@ -2260,7 +2263,10 @@ function AvatarNode({
   })();
   useEffect(() => {
     if (schedNextChangeMs == null) return;
-    const handle = setTimeout(() => setAnimTick((n) => n + 1), schedNextChangeMs);
+    const handle = setTimeout(
+      () => setAnimTick((n) => n + 1),
+      schedNextChangeMs
+    );
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schedResolved.url, schedNextChangeMs, animTick]);
@@ -2624,215 +2630,216 @@ function AvatarNode({
       }
 
       new FBXLoader().load(url, (fbx) => {
-      if (cancelled) return;
-      const clip = fbx.animations[0];
-      if (!clip) return;
-      const vrm = vrmRef.current;
-      if (!vrm) return;
+        if (cancelled) return;
+        const clip = fbx.animations[0];
+        if (!clip) return;
+        const vrm = vrmRef.current;
+        if (!vrm) return;
 
-      // Swap point: the outgoing clip in THIS slot is stopped in the same
-      // synchronous callback that bakes and installs the incoming one (see the
-      // teardownSlot call below), so the two never straddle a rendered frame.
-      // Other slots are untouched. (Guards above return early without tearing
-      // down, so a failed/empty load leaves the current clip playing.)
+        // Swap point: the outgoing clip in THIS slot is stopped in the same
+        // synchronous callback that bakes and installs the incoming one (see the
+        // teardownSlot call below), so the two never straddle a rendered frame.
+        // Other slots are untouched. (Guards above return early without tearing
+        // down, so a failed/empty load leaves the current clip playing.)
 
-      // Snapshot bone local quaternions at load time (A-pose / bind pose for animation-only FBX).
-      const loadTimeQ: Record<string, THREE.Quaternion> = {};
-      fbx.traverse((o) => {
-        if (FBX_BONE_TO_VRM[o.name]) loadTimeQ[o.name] = o.quaternion.clone();
-      });
-
-      // Snapshot bone WORLD quaternions at load time, in FBX-local space (before fbx.rotation.y
-      // is set and before adding to fbxGroup). These include the 'root' node's coordinate-
-      // system correction (Z-up→Y-up) but not any display transforms.
-      fbx.updateWorldMatrix(true, true);
-      const loadTimeWQ: Record<string, THREE.Quaternion> = {};
-      const _wqLoad = new THREE.Quaternion();
-      fbx.traverse((o) => {
-        if (FBX_BONE_TO_VRM[o.name]) {
-          o.getWorldQuaternion(_wqLoad);
-          loadTimeWQ[o.name] = _wqLoad.clone();
-        }
-      });
-
-      // FBXLoader's coordinate-system correction (e.g. Z-up→Y-up for UE4), captured before
-      // we overwrite fbx.rotation.y with our display flip.  For Y-up FBX (Mixamo) this is
-      // identity, so conjugating the world-space delta by it is a no-op for Mixamo.
-
-      // FBX skeleton display
-      if (fbxGroupRef.current) {
-        fbxGroupRef.current.clear();
-        fbx.scale.setScalar(0.01);
-        fbx.rotation.y = Math.PI;
-        fbxGroupRef.current.position.x = 2;
-        fbxGroupRef.current.add(fbx);
-        // addBoneAxes(fbx, 5)
-        fbxGroupRef.current.visible =
-          useEditorStore.getState().fbxDebugVisible[node.id] ?? false;
-      }
-      if (fbxHelperRef.current) {
-        fbxHelperRef.current.clear();
-        const helper = new THREE.SkeletonHelper(fbx);
-        (helper.material as THREE.LineBasicMaterial).color.set(0x00ff88);
-        (helper.material as THREE.LineBasicMaterial).depthTest = false;
-        fbxHelperRef.current.add(helper);
-        fbxHelperRef.current.visible =
-          useEditorStore.getState().fbxDebugVisible[node.id] ?? false;
-      }
-
-      // Collect FBX bone world Qs via getWorldQuaternion — same as what SkeletonHelper reads.
-      // updateWorldMatrix(true,true) propagates from parents down so world matrices are current.
-      fbxGroupRef.current?.updateWorldMatrix(true, true);
-      const fbxBoneWorldQ: Record<string, THREE.Quaternion> = {};
-      const _wqTmp = new THREE.Quaternion();
-      fbx.traverse((o) => {
-        if (FBX_BONE_TO_VRM[o.name]) {
-          o.getWorldQuaternion(_wqTmp);
-          fbxBoneWorldQ[o.name] = _wqTmp.clone();
-        }
-      });
-      // Log intermediate nodes between fbx root and pelvis to find hidden transforms
-      {
-        let cur: THREE.Object3D | null = null;
+        // Snapshot bone local quaternions at load time (A-pose / bind pose for animation-only FBX).
+        const loadTimeQ: Record<string, THREE.Quaternion> = {};
         fbx.traverse((o) => {
-          if (o.name === 'pelvis' && !cur) cur = o as THREE.Object3D;
+          if (FBX_BONE_TO_VRM[o.name]) loadTimeQ[o.name] = o.quaternion.clone();
         });
-        const path: string[] = [];
-        let n = cur as THREE.Object3D | null;
-        while (n && n !== fbx) {
-          const q = n.quaternion;
-          path.unshift(
-            `${n.name || '?'} q=(${q.x.toFixed(3)},${q.y.toFixed(3)},${q.z.toFixed(3)},${q.w.toFixed(3)})`
-          );
-          n = n.parent as THREE.Object3D | null;
+
+        // Snapshot bone WORLD quaternions at load time, in FBX-local space (before fbx.rotation.y
+        // is set and before adding to fbxGroup). These include the 'root' node's coordinate-
+        // system correction (Z-up→Y-up) but not any display transforms.
+        fbx.updateWorldMatrix(true, true);
+        const loadTimeWQ: Record<string, THREE.Quaternion> = {};
+        const _wqLoad = new THREE.Quaternion();
+        fbx.traverse((o) => {
+          if (FBX_BONE_TO_VRM[o.name]) {
+            o.getWorldQuaternion(_wqLoad);
+            loadTimeWQ[o.name] = _wqLoad.clone();
+          }
+        });
+
+        // FBXLoader's coordinate-system correction (e.g. Z-up→Y-up for UE4), captured before
+        // we overwrite fbx.rotation.y with our display flip.  For Y-up FBX (Mixamo) this is
+        // identity, so conjugating the world-space delta by it is a no-op for Mixamo.
+
+        // FBX skeleton display
+        if (fbxGroupRef.current) {
+          fbxGroupRef.current.clear();
+          fbx.scale.setScalar(0.01);
+          fbx.rotation.y = Math.PI;
+          fbxGroupRef.current.position.x = 2;
+          fbxGroupRef.current.add(fbx);
+          // addBoneAxes(fbx, 5)
+          fbxGroupRef.current.visible =
+            useEditorStore.getState().fbxDebugVisible[node.id] ?? false;
         }
-        console.log('[fbxChain] fbx→pelvis:', path.join(' → '));
-      }
+        if (fbxHelperRef.current) {
+          fbxHelperRef.current.clear();
+          const helper = new THREE.SkeletonHelper(fbx);
+          (helper.material as THREE.LineBasicMaterial).color.set(0x00ff88);
+          (helper.material as THREE.LineBasicMaterial).depthTest = false;
+          fbxHelperRef.current.add(helper);
+          fbxHelperRef.current.visible =
+            useEditorStore.getState().fbxDebugVisible[node.id] ?? false;
+        }
 
-      const baked = bakeRetargetedClip(
-        fbx,
-        clip,
-        vrm,
-        frontYawRef.current,
-        loadTimeQ
-      );
-      const { vrmTracks, allTimes, outQVals, newCorrAxes, VRM_TO_FBX } = baked;
-      corrAxesRef.current = newCorrAxes;
+        // Collect FBX bone world Qs via getWorldQuaternion — same as what SkeletonHelper reads.
+        // updateWorldMatrix(true,true) propagates from parents down so world matrices are current.
+        fbxGroupRef.current?.updateWorldMatrix(true, true);
+        const fbxBoneWorldQ: Record<string, THREE.Quaternion> = {};
+        const _wqTmp = new THREE.Quaternion();
+        fbx.traverse((o) => {
+          if (FBX_BONE_TO_VRM[o.name]) {
+            o.getWorldQuaternion(_wqTmp);
+            fbxBoneWorldQ[o.name] = _wqTmp.clone();
+          }
+        });
+        // Log intermediate nodes between fbx root and pelvis to find hidden transforms
+        {
+          let cur: THREE.Object3D | null = null;
+          fbx.traverse((o) => {
+            if (o.name === 'pelvis' && !cur) cur = o as THREE.Object3D;
+          });
+          const path: string[] = [];
+          let n = cur as THREE.Object3D | null;
+          while (n && n !== fbx) {
+            const q = n.quaternion;
+            path.unshift(
+              `${n.name || '?'} q=(${q.x.toFixed(3)},${q.y.toFixed(3)},${q.z.toFixed(3)},${q.w.toFixed(3)})`
+            );
+            n = n.parent as THREE.Object3D | null;
+          }
+          console.log('[fbxChain] fbx→pelvis:', path.join(' → '));
+        }
 
-      // FBX display mixer — clipAction() captures node.quaternion as the PropertyMixer
-      // origValue (what REST restores to). We create it here, after retargeting baked,
-      // so play/update never runs during Phase 1.
-      const fbxMixer = new THREE.AnimationMixer(fbx);
-      fbxMixerRef.current = fbxMixer;
-      const fbxAction = fbxMixer.clipAction(clip);
-      fbxAction.reset().play();
+        const baked = bakeRetargetedClip(
+          fbx,
+          clip,
+          vrm,
+          frontYawRef.current,
+          loadTimeQ
+        );
+        const { vrmTracks, allTimes, outQVals, newCorrAxes, VRM_TO_FBX } =
+          baked;
+        corrAxesRef.current = newCorrAxes;
 
-      // Clamp duration. If the last keyframe value duplicates the first (a "closed loop"
-      // where t=0 and t=lastKey hold the same pose), shorten to the second-to-last keyframe
-      // so the loop wraps cleanly without a single-frame discontinuity at the boundary.
-      let lastKeyTime =
-        allTimes.length > 0 ? allTimes[allTimes.length - 1] : clip.duration;
-      const lastIdx = allTimes.length - 1;
-      if (lastIdx >= 1) {
-        // Compare first and last baked quaternion for a representative bone (hips)
-        const hipsVn = FBX_BONE_TO_VRM[VRM_TO_FBX.hips ?? ''] as
-          | VRMHumanBoneName
-          | undefined;
-        const arr = hipsVn ? outQVals[hipsVn] : undefined;
-        if (arr) {
-          const dx = arr[0] - arr[lastIdx * 4];
-          const dy = arr[1] - arr[lastIdx * 4 + 1];
-          const dz = arr[2] - arr[lastIdx * 4 + 2];
-          const dw = arr[3] - arr[lastIdx * 4 + 3];
-          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz + dw * dw);
-          if (dist < 1e-3) {
-            lastKeyTime = allTimes[lastIdx - 1];
-            console.log(
-              `[clipDur] first==last detected (dist=${dist.toExponential(2)}), trimming duration to ${lastKeyTime.toFixed(3)}`
+        // FBX display mixer — clipAction() captures node.quaternion as the PropertyMixer
+        // origValue (what REST restores to). We create it here, after retargeting baked,
+        // so play/update never runs during Phase 1.
+        const fbxMixer = new THREE.AnimationMixer(fbx);
+        fbxMixerRef.current = fbxMixer;
+        const fbxAction = fbxMixer.clipAction(clip);
+        fbxAction.reset().play();
+
+        // Clamp duration. If the last keyframe value duplicates the first (a "closed loop"
+        // where t=0 and t=lastKey hold the same pose), shorten to the second-to-last keyframe
+        // so the loop wraps cleanly without a single-frame discontinuity at the boundary.
+        let lastKeyTime =
+          allTimes.length > 0 ? allTimes[allTimes.length - 1] : clip.duration;
+        const lastIdx = allTimes.length - 1;
+        if (lastIdx >= 1) {
+          // Compare first and last baked quaternion for a representative bone (hips)
+          const hipsVn = FBX_BONE_TO_VRM[VRM_TO_FBX.hips ?? ''] as
+            | VRMHumanBoneName
+            | undefined;
+          const arr = hipsVn ? outQVals[hipsVn] : undefined;
+          if (arr) {
+            const dx = arr[0] - arr[lastIdx * 4];
+            const dy = arr[1] - arr[lastIdx * 4 + 1];
+            const dz = arr[2] - arr[lastIdx * 4 + 2];
+            const dw = arr[3] - arr[lastIdx * 4 + 3];
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz + dw * dw);
+            if (dist < 1e-3) {
+              lastKeyTime = allTimes[lastIdx - 1];
+              console.log(
+                `[clipDur] first==last detected (dist=${dist.toExponential(2)}), trimming duration to ${lastKeyTime.toFixed(3)}`
+              );
+            }
+          }
+        }
+        const vrmDuration = Math.min(clip.duration, lastKeyTime);
+        // Diagnostics: per-track time ranges to spot mismatches
+        let minStart = Infinity,
+          maxEnd = -Infinity;
+        const trackTails: string[] = [];
+        for (const t of clip.tracks) {
+          const ts = t.times;
+          if (ts.length < 2) continue;
+          if (ts[0] < minStart) minStart = ts[0];
+          if (ts[ts.length - 1] > maxEnd) maxEnd = ts[ts.length - 1];
+          // Flag tracks whose end deviates from the consensus
+          if (Math.abs(ts[ts.length - 1] - lastKeyTime) > 0.001) {
+            trackTails.push(
+              `${t.name}@[${ts[0].toFixed(3)}…${ts[ts.length - 1].toFixed(3)},n=${ts.length}]`
             );
           }
         }
-      }
-      const vrmDuration = Math.min(clip.duration, lastKeyTime);
-      // Diagnostics: per-track time ranges to spot mismatches
-      let minStart = Infinity,
-        maxEnd = -Infinity;
-      const trackTails: string[] = [];
-      for (const t of clip.tracks) {
-        const ts = t.times;
-        if (ts.length < 2) continue;
-        if (ts[0] < minStart) minStart = ts[0];
-        if (ts[ts.length - 1] > maxEnd) maxEnd = ts[ts.length - 1];
-        // Flag tracks whose end deviates from the consensus
-        if (Math.abs(ts[ts.length - 1] - lastKeyTime) > 0.001) {
-          trackTails.push(
-            `${t.name}@[${ts[0].toFixed(3)}…${ts[ts.length - 1].toFixed(3)},n=${ts.length}]`
+        console.log(
+          `[clipDur] orig=${clip.duration.toFixed(3)} consensusEnd=${lastKeyTime.toFixed(3)} actualSpan=[${minStart.toFixed(3)}…${maxEnd.toFixed(3)}] outliers:`,
+          trackTails.slice(0, 10)
+        );
+        const vrmClip = new THREE.AnimationClip(
+          clip.name,
+          vrmDuration,
+          vrmTracks
+        );
+        // Bind the clip mixer to a SHADOW skeleton, not `vrm.scene`. The mixer then
+        // owns its write target exclusively, so the animation pose can never be
+        // overwritten by (nor read back from) the composed pose on the real
+        // skeleton. See ShadowSkeleton for the failure this prevents.
+        const shadow = new ShadowSkeleton(
+          vrm,
+          VRM_BONE_NAMES as unknown as VRMHumanBoneName[]
+        );
+        // Fail loudly rather than silently rendering rest: if the baked tracks
+        // don't resolve against the shadow hierarchy, every bone would sit at its
+        // seeded rest pose and look like "the animation does nothing".
+        const shadowNames = new Set(shadow.boneNames());
+        const unresolved = vrmTracks
+          .map((t) => t.name.split('.')[0])
+          .filter((n) => !shadowNames.has(n));
+        if (unresolved.length > 0) {
+          console.error(
+            `[anim] ${unresolved.length}/${vrmTracks.length} baked tracks do not ` +
+              `resolve against the shadow skeleton (${shadow.size} bones) — the ` +
+              `animation would render as rest. Unresolved: ${unresolved.slice(0, 8).join(', ')}`
           );
         }
-      }
-      console.log(
-        `[clipDur] orig=${clip.duration.toFixed(3)} consensusEnd=${lastKeyTime.toFixed(3)} actualSpan=[${minStart.toFixed(3)}…${maxEnd.toFixed(3)}] outliers:`,
-        trackTails.slice(0, 10)
-      );
-      const vrmClip = new THREE.AnimationClip(
-        clip.name,
-        vrmDuration,
-        vrmTracks
-      );
-      // Bind the clip mixer to a SHADOW skeleton, not `vrm.scene`. The mixer then
-      // owns its write target exclusively, so the animation pose can never be
-      // overwritten by (nor read back from) the composed pose on the real
-      // skeleton. See ShadowSkeleton for the failure this prevents.
-      const shadow = new ShadowSkeleton(
-        vrm,
-        VRM_BONE_NAMES as unknown as VRMHumanBoneName[]
-      );
-      // Fail loudly rather than silently rendering rest: if the baked tracks
-      // don't resolve against the shadow hierarchy, every bone would sit at its
-      // seeded rest pose and look like "the animation does nothing".
-      const shadowNames = new Set(shadow.boneNames());
-      const unresolved = vrmTracks
-        .map((t) => t.name.split('.')[0])
-        .filter((n) => !shadowNames.has(n));
-      if (unresolved.length > 0) {
-        console.error(
-          `[anim] ${unresolved.length}/${vrmTracks.length} baked tracks do not ` +
-            `resolve against the shadow skeleton (${shadow.size} bones) — the ` +
-            `animation would render as rest. Unresolved: ${unresolved.slice(0, 8).join(', ')}`
-        );
-      }
-      const vrmMixer = new THREE.AnimationMixer(shadow.root);
-      vrmMixerRef.current = vrmMixer;
-      const vrmAction = vrmMixer.clipAction(vrmClip);
-      vrmAction.reset().play();
-      // No initial seek here: the per-frame anchored drive (useFrame) sets
-      // action.time from the active layer's startEpoch against the synced clock,
-      // so the playhead is phase-accurate on the very first frame regardless of
-      // this client's (possibly seconds-long) load latency. timeScale stays 1 —
-      // speed is baked into the anchored time, and the mixer is stepped with
-      // update(0) so it never free-runs out of phase.
+        const vrmMixer = new THREE.AnimationMixer(shadow.root);
+        vrmMixerRef.current = vrmMixer;
+        const vrmAction = vrmMixer.clipAction(vrmClip);
+        vrmAction.reset().play();
+        // No initial seek here: the per-frame anchored drive (useFrame) sets
+        // action.time from the active layer's startEpoch against the synced clock,
+        // so the playhead is phase-accurate on the very first frame regardless of
+        // this client's (possibly seconds-long) load latency. timeScale stays 1 —
+        // speed is baked into the anchored time, and the mixer is stepped with
+        // update(0) so it never free-runs out of phase.
 
-      animEntryRef.current = {
-        action: vrmAction,
-        mixer: vrmMixer,
-        vrmDuration,
-        fbxAction,
-        fbxMixer,
-        fbxScene: fbx,
-        duration: clip.duration,
-      };
+        animEntryRef.current = {
+          action: vrmAction,
+          mixer: vrmMixer,
+          vrmDuration,
+          fbxAction,
+          fbxMixer,
+          fbxScene: fbx,
+          duration: clip.duration,
+        };
 
-      // Install as an independent slot. Replacing an existing slot stops only
-      // that slot's mixer, so the other source keeps playing across the swap.
-      teardownSlot(slot);
-      slotsRef.current[slot] = {
-        url,
-        shadow,
-        mixer: vrmMixer,
-        action: vrmAction,
-        vrmDuration,
-        duration: clip.duration,
-      };
+        // Install as an independent slot. Replacing an existing slot stops only
+        // that slot's mixer, so the other source keeps playing across the swap.
+        teardownSlot(slot);
+        slotsRef.current[slot] = {
+          url,
+          shadow,
+          mixer: vrmMixer,
+          action: vrmAction,
+          vrmDuration,
+          duration: clip.duration,
+        };
       });
 
       // Only cancel the in-flight load. Tearing the live clip down here is what
@@ -3209,15 +3216,13 @@ function AvatarNode({
           ? (Object.entries(pose!) as Array<
               [string, [number, number, number, number]]
             >)
-          : latch
-              .names()
-              .map((n) => {
-                const lq = latch.get(n)!;
-                return [n, [lq.x, lq.y, lq.z, lq.w]] as [
-                  string,
-                  [number, number, number, number],
-                ];
-              });
+          : latch.names().map((n) => {
+              const lq = latch.get(n)!;
+              return [n, [lq.x, lq.y, lq.z, lq.w]] as [
+                string,
+                [number, number, number, number],
+              ];
+            });
       for (const [boneName, q] of sourceEntries) {
         _q.set(q[0], q[1], q[2], q[3]);
         // Skip the One Euro filter when replaying the latch: it is a held constant,
@@ -3239,7 +3244,13 @@ function AvatarNode({
       }
       // Latch the FILTERED pose, so a replay during the fade matches the last frame
       // actually rendered rather than the raw input.
-      if (posePopulated) latch.update(normalizedPose as Record<string, { rotation: [number, number, number, number] }>);
+      if (posePopulated)
+        latch.update(
+          normalizedPose as Record<
+            string,
+            { rotation: [number, number, number, number] }
+          >
+        );
 
       // Arm calibration writes absolute rotations from world-space targets, which
       // only makes sense when broadcast replaces animation. Skip in additive mode.
@@ -3373,7 +3384,7 @@ function AvatarNode({
             bone.quaternion
           );
         }
-        if (hipsBone)
+        if (hipsBone) {
           composeHipsPositionBlended(
             _hipsAnimPos,
             _hipsRestPos,
@@ -3382,6 +3393,12 @@ function AvatarNode({
             modeWeight,
             hipsBone.position
           );
+          applyHipShift(
+            getVmcHipOffset(node.id),
+            _hipsRestPos,
+            hipsBone.position
+          );
+        }
       }
     } else if (vrm) {
       // No broadcast pose on the bus at all (`pose == null`) — nothing to compose

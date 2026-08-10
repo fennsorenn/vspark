@@ -87,7 +87,7 @@ Key frontend files:
 
 ### Signal Graph
 
-Defined entirely in [packages/shared/src/signal.ts](packages/shared/src/signal.ts). Node classes are registered in the backend registry and serialized as `GraphDescriptor` objects. The 90 built-in node kinds live under [packages/backend/src/signal/nodes/](packages/backend/src/signal/nodes/).
+Defined entirely in [packages/shared/src/signal.ts](packages/shared/src/signal.ts). Node classes are registered in the backend registry and serialized as `GraphDescriptor` objects. The 92 built-in node kinds live under [packages/backend/src/signal/nodes/](packages/backend/src/signal/nodes/).
 
 The VMC pipeline graph shape is hardcoded in [packages/backend/src/behaviors/vmc_receiver/graph.ts](packages/backend/src/behaviors/vmc_receiver/graph.ts) — it wires source → mapper → calibration → broadcast nodes. Other behaviors follow the same `behaviors/<kind>/graph.ts` + `manager.ts` pattern.
 

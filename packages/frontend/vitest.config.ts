@@ -23,7 +23,11 @@ export default defineConfig({
       { find: '@vspark/shared/schema', replacement: shared('schema.ts') },
       { find: '@vspark/shared/arkit', replacement: shared('arkit_tables.ts') },
       { find: '@vspark/shared/paramPaths', replacement: shared('paramPaths.ts') },
-      { find: '@vspark/shared/blendshapeLimits', replacement: shared('blendshapeLimits.ts') },
+      { find: '@vspark/shared/style_rig', replacement: shared('style_rig.ts') },
+      {
+        find: '@vspark/shared/blendshapeLimits',
+        replacement: shared('blendshapeLimits.ts'),
+      },
       { find: '@vspark/shared/sync', replacement: shared('sync.ts') },
       { find: '@vspark/shared', replacement: shared('types.ts') },
     ],
