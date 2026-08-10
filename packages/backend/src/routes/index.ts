@@ -39,6 +39,7 @@ router.use(meta);
 export { router as apiRoutes };
 export {
   setVmcManager,
+  setIFacialMocapManager,
   setBreathingManager,
   setManualCalibrationManager,
   setBlendshapeLimiterManager,

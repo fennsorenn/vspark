@@ -17,6 +17,31 @@ VMC; the VMC receiver behavior listens for it and feeds it to your avatar.
 You just tell it which port to listen on (the sending app shows this), and the
 motion flows in.
 
+## iFacialMocap receiver {#ifacialmocap}
+
+**iFacialMocap** is an iPhone/iPad app that uses Apple's face tracking to capture
+your expressions. This behavior receives that stream and drives your avatar's
+**head, eyes and facial blendshapes** — it is a face-only source, so arms, hands
+and legs keep playing their animation.
+
+Both devices have to be on the same network. There are two ways to connect:
+
+- **Fill in Device IP** with the address the app shows on your phone. vspark then
+  asks the phone to start streaming, and reconnects on its own if the app is
+  restarted.
+- **Leave Device IP empty** and type one of the listed machine addresses into the
+  app instead, then start streaming from the phone.
+
+Either way both ends talk on port **49983**, the port the app uses.
+
+If your head moves the wrong way — nodding up when you nod down, for example —
+flip the matching switch under **Head Axes**. Once the directions look right,
+sit in a relaxed neutral pose and press **Capture** so your resting posture
+becomes the avatar's resting posture.
+
+Expressions are mapped exactly like the [VMC receiver](topic:behaviors#vmc)'s —
+same three face mappers, same custom mapping editor.
+
 ## Camera tracking {#tracking}
 
 Camera tracking uses an ordinary **webcam** to estimate your face, hands, and

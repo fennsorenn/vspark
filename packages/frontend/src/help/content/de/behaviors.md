@@ -18,6 +18,31 @@ und leitet es an deinen Avatar weiter.
 Du gibst lediglich an, auf welchem Port es lauschen soll (die sendende App zeigt
 diesen an), und die Bewegung fließt herein.
 
+## iFacialMocap-Empfänger {#ifacialmocap}
+
+**iFacialMocap** ist eine iPhone-/iPad-App, die Apples Gesichtstracking nutzt, um
+deine Mimik aufzunehmen. Dieses Verhalten empfängt diesen Stream und steuert
+damit **Kopf, Augen und Gesichts-Blendshapes** deines Avatars — es ist eine reine
+Gesichtsquelle, Arme, Hände und Beine spielen also weiter ihre Animation.
+
+Beide Geräte müssen im selben Netzwerk sein. Es gibt zwei Wege zu verbinden:
+
+- **Trage die Geräte-IP ein**, die dir die App auf dem Telefon anzeigt. vspark
+  fordert den Stream dann beim Telefon an und verbindet sich von selbst neu,
+  wenn die App neu gestartet wird.
+- **Lass die Geräte-IP leer** und trage stattdessen eine der aufgeführten
+  Rechner-Adressen in der App ein; starte den Stream dann vom Telefon aus.
+
+In beiden Fällen sprechen beide Seiten über Port **49983**, den Port der App.
+
+Bewegt sich dein Kopf in die falsche Richtung — nickt er etwa nach oben, wenn du
+nach unten nickst — kehre den passenden Schalter unter **Kopfachsen** um. Wenn
+die Richtungen stimmen, nimm eine entspannte neutrale Haltung ein und drücke
+**Erfassen**, damit deine Ruhehaltung zur Ruhehaltung des Avatars wird.
+
+Die Mimik wird genau wie beim [VMC-Empfänger](topic:behaviors#vmc) zugeordnet —
+dieselben drei Gesichts-Mapper, derselbe Editor für eigene Zuordnungen.
+
 ## Kamera-Tracking {#tracking}
 
 Kamera-Tracking nutzt eine gewöhnliche **Webcam**, um deine Gesichts-, Hand- und

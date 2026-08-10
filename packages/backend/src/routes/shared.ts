@@ -4,6 +4,7 @@ import { join, extname, basename } from 'path';
 import { getDb } from '../db/index.js';
 import { extractVrmMetadata } from '../vrm/metadata.js';
 import type { VmcManager } from '../behaviors/vmc_receiver/manager.js';
+import type { IFacialMocapManager } from '../behaviors/ifacialmocap_receiver/manager.js';
 import type { BreathingManager } from '../behaviors/breathing/manager.js';
 import type { ManualCalibrationManager } from '../behaviors/manual_calibration/manager.js';
 import type { BlendshapeLimiterManager } from '../behaviors/blendshape_limiter/manager.js';
@@ -18,6 +19,11 @@ import type { TrackClipPlaybackManager } from '../track_clips/playback.js';
 export let _vmc: VmcManager | null = null;
 export function setVmcManager(m: VmcManager) {
   _vmc = m;
+}
+
+export let _ifacialMocap: IFacialMocapManager | null = null;
+export function setIFacialMocapManager(m: IFacialMocapManager) {
+  _ifacialMocap = m;
 }
 
 export let _breathing: BreathingManager | null = null;
@@ -92,6 +98,14 @@ export function refreshVmc() {
   _vmc.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
+export function refreshIFacialMocap() {
+  if (!_ifacialMocap) return;
+  const rows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'ifacialmocap_receiver'")
+    .all() as Record<string, unknown>[];
+  _ifacialMocap.syncBehaviors(rows.map(_mapBehaviorRow));
+}
+
 export function refreshBreathing() {
   if (!_breathing) return;
   const rows = getDb()
@@ -142,6 +156,7 @@ export function refreshApiController() {
 
 export function refreshAllBehaviorManagers() {
   refreshVmc();
+  refreshIFacialMocap();
   refreshBreathing();
   refreshManualCalibration();
   refreshBlendshapeLimiter();

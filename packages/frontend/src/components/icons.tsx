@@ -26,6 +26,7 @@ import {
   Settings2,
   Shapes,
   SlidersHorizontal,
+  Smartphone,
   Sparkles,
   Sun,
   Type,
@@ -73,6 +74,7 @@ export const LAYER_KIND_ICON: Record<string, LucideIcon> = {
  *  carries is never rendered). */
 export const BEHAVIOR_ICON: Record<string, LucideIcon> = {
   vmc_receiver: Antenna,
+  ifacialmocap_receiver: Smartphone,
   mediapipe_tracker: Camera,
   lipsync: Mic,
   lipsync_processor: Mic,

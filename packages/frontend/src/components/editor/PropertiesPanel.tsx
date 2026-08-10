@@ -1099,7 +1099,20 @@ function MaterialSection({ node }: { node: StageObject }) {
 
 // ---------- Calibration wizard ----------
 
-function CalibrationSection({ comp }: { comp: Behavior }) {
+/**
+ * Head/arm neutral-pose capture. Shared by the VMC and iFacialMocap receivers —
+ * both wire the same `head_calib_capture` / `head_calib_reset` trigger nodes.
+ * `arms` is off for face-only sources, which have no arm calibration stage.
+ */
+function CalibrationSection({
+  comp,
+  graphPrefix = 'vmc-pipeline:',
+  arms = true,
+}: {
+  comp: Behavior;
+  graphPrefix?: string;
+  arms?: boolean;
+}) {
   const { t } = useTranslation('properties');
   const [headSet, setHeadSet] = useState(false);
   const [leftSet, setLeftSet] = useState(false);
@@ -1111,7 +1124,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
     setTimeout(() => setFlash(null), 1800);
   };
 
-  const graphId = `vmc-pipeline:${comp.id}`;
+  const graphId = `${graphPrefix}${comp.id}`;
 
   const fire = async (nodeId: string, label: string, onOk?: () => void) => {
     try {
@@ -1126,7 +1139,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
   const reset = async () => {
     await Promise.allSettled([
       fireSignalEvent(graphId, 'head_calib_reset', 'trigger'),
-      fireSignalEvent(graphId, 'arm_calib_reset', 'trigger'),
+      ...(arms ? [fireSignalEvent(graphId, 'arm_calib_reset', 'trigger')] : []),
     ]);
     setHeadSet(false);
     setLeftSet(false);
@@ -1206,38 +1219,42 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
         </button>
       </div>
 
-      <div style={rowStyle}>
-        <div style={dotStyle(leftSet)} />
-        <span style={labelStyle}>{t('calibration.leftArmLabel')}</span>
-        <button
-          style={btnStyle}
-          onClick={() =>
-            fire('left_arm_capture', t('calibration.leftCaptured'), () =>
-              setLeftSet(true)
-            )
-          }
-        >
-          {t('calibration.capture')}
-        </button>
-      </div>
+      {arms && (
+        <>
+          <div style={rowStyle}>
+            <div style={dotStyle(leftSet)} />
+            <span style={labelStyle}>{t('calibration.leftArmLabel')}</span>
+            <button
+              style={btnStyle}
+              onClick={() =>
+                fire('left_arm_capture', t('calibration.leftCaptured'), () =>
+                  setLeftSet(true)
+                )
+              }
+            >
+              {t('calibration.capture')}
+            </button>
+          </div>
 
-      <div style={rowStyle}>
-        <div style={dotStyle(rightSet)} />
-        <span style={labelStyle}>{t('calibration.rightArmLabel')}</span>
-        <button
-          style={btnStyle}
-          onClick={() =>
-            fire('right_arm_capture', t('calibration.rightCaptured'), () =>
-              setRightSet(true)
-            )
-          }
-        >
-          {t('calibration.capture')}
-        </button>
-      </div>
+          <div style={rowStyle}>
+            <div style={dotStyle(rightSet)} />
+            <span style={labelStyle}>{t('calibration.rightArmLabel')}</span>
+            <button
+              style={btnStyle}
+              onClick={() =>
+                fire('right_arm_capture', t('calibration.rightCaptured'), () =>
+                  setRightSet(true)
+                )
+              }
+            >
+              {t('calibration.capture')}
+            </button>
+          </div>
+        </>
+      )}
 
       <div style={{ fontSize: 10, color: '#444', lineHeight: 1.5 }}>
-        {t('calibration.hint')}
+        {arms ? t('calibration.hint') : t('calibration.headOnlyHint')}
       </div>
 
       {(headSet || leftSet || rightSet) && (
@@ -1916,7 +1933,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
     port?: number;
     blendMode?: string;
     mirror?: boolean;
-    poseTimeout?: number;
     nodeConfig?: Record<
       string,
       { enabled?: boolean; mapping?: Record<string, [string, number][]> }
@@ -1926,7 +1942,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
   const [port, setPort] = useState(cfg.port ?? 39539);
   const [blendMode, setBlendMode] = useState(cfg.blendMode ?? 'override');
   const [mirror, setMirror] = useState(cfg.mirror ?? false);
-  const [poseTimeout, setPoseTimeout] = useState(cfg.poseTimeout ?? 2);
   const [localIps, setLocalIps] = useState<string[]>([]);
 
   // Build mapper config state from stored nodeConfig, filling defaults.
@@ -1950,7 +1965,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
     setPort(cfg.port ?? 39539);
     setBlendMode(cfg.blendMode ?? 'override');
     setMirror(cfg.mirror ?? false);
-    setPoseTimeout(cfg.poseTimeout ?? 2);
     setMapperConfigs(getMapperConfigs());
 
     // Persist defaults immediately if nodeConfig is absent so the stored config
@@ -2092,23 +2106,9 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
         </label>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12, color: '#888', width: 72, flexShrink: 0 }}>
-          {t('vmc.idleAfter')}
-        </span>
-        <NumInput
-          value={poseTimeout}
-          step={0.1}
-          min={0.1}
-          suffix="s"
-          style={{ width: 80 }}
-          onChange={(v) => setPoseTimeout(v)}
-          onCommit={(v) => {
-            setPoseTimeout(v);
-            save({ poseTimeout: v });
-          }}
-        />
-      </div>
+      {/* "Idle after" moved to the avatar node's properties (Idle fallback) —
+          it describes the avatar's transition, not this receiver, and every
+          tracking source on the node now shares the one setting. */}
 
       {/* Face mappers */}
       <div
@@ -2191,6 +2191,393 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
 
       <div style={{ height: 1, background: '#222', margin: '4px 0' }} />
       <CalibrationSection comp={comp} />
+    </div>
+  );
+}
+
+// ── iFacialMocap props ────────────────────────────────────────────────────────
+
+/**
+ * iFacialMocap receiver settings. Deliberately laid out like `VmcReceiverProps`
+ * — same blend / mirror / idle-after / face-mapper controls, same calibration
+ * block — with three protocol-driven differences:
+ *   • Device IP instead of a bind Host (the phone only streams after we hand-
+ *     shake it, so the receiver needs to know where the phone is).
+ *   • Axis inversion toggles, because the published spec doesn't pin down the
+ *     sign convention of the head/eye euler angles.
+ *   • Head-only calibration — there is no arm data in an ARKit face stream.
+ */
+function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
+  const {
+    updateBehavior,
+    vrmMorphTargetsByNode,
+    vrmExpressionsByNode,
+    nodes,
+    assets,
+  } = useEditorStore();
+  const meta = assetMetaForNode(
+    nodes.find((n) => n.id === comp.nodeId)?.filePath,
+    assets
+  );
+  const morphTargets = liveOrMetaList(
+    vrmMorphTargetsByNode[comp.nodeId],
+    meta,
+    'morphTargets'
+  );
+  const expressions = liveOrMetaList(
+    vrmExpressionsByNode[comp.nodeId],
+    meta,
+    'expressions'
+  );
+
+  const fclSuggestions = [
+    ...new Set([
+      ...Object.values(ARKIT_TO_FCL as Record<string, [string, number][]>)
+        .flat()
+        .map(([target]) => target),
+      ...morphTargets,
+    ]),
+  ].sort();
+
+  const exprSuggestions = [
+    ...new Set([
+      ...VRM_EXPR_PRESETS,
+      ...Object.values(ARKIT_TO_VRM as Record<string, [string, number][]>)
+        .flat()
+        .map(([target]) => target),
+      ...expressions,
+    ]),
+  ].sort();
+
+  const passSuggestions = [
+    ...new Set([...(ARKIT_SHAPES as unknown as string[]), ...morphTargets]),
+  ].sort();
+
+  const cfg = (comp.config ?? {}) as {
+    deviceHost?: string;
+    port?: number;
+    blendMode?: string;
+    mirror?: boolean;
+    invertPitch?: boolean;
+    invertYaw?: boolean;
+    invertRoll?: boolean;
+    nodeConfig?: Record<
+      string,
+      { enabled?: boolean; mapping?: Record<string, [string, number][]> }
+    >;
+  };
+  const [deviceHost, setDeviceHost] = useState(cfg.deviceHost ?? '');
+  const [port, setPort] = useState(cfg.port ?? 49983);
+  const [blendMode, setBlendMode] = useState(cfg.blendMode ?? 'override');
+  const [mirror, setMirror] = useState(cfg.mirror ?? false);
+  const [invertPitch, setInvertPitch] = useState(cfg.invertPitch ?? false);
+  const [invertYaw, setInvertYaw] = useState(cfg.invertYaw ?? false);
+  const [invertRoll, setInvertRoll] = useState(cfg.invertRoll ?? false);
+  const [localIps, setLocalIps] = useState<string[]>([]);
+
+  const getMapperConfigs = () =>
+    Object.fromEntries(
+      MAPPER_NODES.map(({ id, defaultEnabled }) => [
+        id,
+        {
+          enabled: cfg.nodeConfig?.[id]?.enabled ?? defaultEnabled,
+          customMapping: cfg.nodeConfig?.[id]?.mapping
+            ? JSON.stringify(cfg.nodeConfig[id]!.mapping, null, 2)
+            : '',
+        } satisfies MapperNodeConfig,
+      ])
+    );
+  const [mapperConfigs, setMapperConfigs] =
+    useState<Record<string, MapperNodeConfig>>(getMapperConfigs);
+
+  useEffect(() => {
+    setDeviceHost(cfg.deviceHost ?? '');
+    setPort(cfg.port ?? 49983);
+    setBlendMode(cfg.blendMode ?? 'override');
+    setMirror(cfg.mirror ?? false);
+    setInvertPitch(cfg.invertPitch ?? false);
+    setInvertYaw(cfg.invertYaw ?? false);
+    setInvertRoll(cfg.invertRoll ?? false);
+    setMapperConfigs(getMapperConfigs());
+
+    // Persist mapper defaults immediately so the stored config is always
+    // explicit rather than relying on implicit fallbacks (mirrors the VMC panel).
+    if (!cfg.nodeConfig) {
+      const defaultNodeConfig = Object.fromEntries(
+        MAPPER_NODES.map(({ id, defaultEnabled }) => [
+          id,
+          { enabled: defaultEnabled, mapping: null },
+        ])
+      );
+      save({ nodeConfig: defaultNodeConfig });
+    }
+  }, [comp.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    api
+      .getLocalIps()
+      .then(setLocalIps)
+      .catch(() => {});
+  }, []);
+
+  const save = async (patch: Partial<Record<string, unknown>>) => {
+    const newConfig = { ...comp.config, ...patch };
+    updateBehavior(comp.id, { config: newConfig });
+    try {
+      await api.updateBehavior(comp.id, { config: newConfig });
+    } catch {
+      /* non-fatal */
+    }
+  };
+
+  const saveMapperNode = (nodeId: string, patch: Partial<MapperNodeConfig>) => {
+    const updated = {
+      ...mapperConfigs,
+      [nodeId]: { ...mapperConfigs[nodeId], ...patch },
+    };
+    setMapperConfigs(updated);
+    const nodeConfig = Object.fromEntries(
+      Object.entries(updated).map(([id, mc]) => [
+        id,
+        {
+          enabled: mc.enabled,
+          ...(mc.customMapping.trim()
+            ? { mapping: JSON.parse(mc.customMapping) }
+            : {}),
+        },
+      ])
+    );
+    save({ nodeConfig });
+  };
+
+  const inputStyle: React.CSSProperties = {
+    flex: 1,
+    background: '#2a2a2a',
+    border: '1px solid #3a3a3a',
+    color: '#e0e0e0',
+    borderRadius: 4,
+    padding: '4px 8px',
+    fontSize: 12,
+    outline: 'none',
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: 12,
+    color: '#888',
+    width: 72,
+    flexShrink: 0,
+  };
+  const checkLabelStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    cursor: 'pointer',
+    fontSize: 12,
+    color: '#ccc',
+  };
+
+  const axisToggles: {
+    key: 'invertPitch' | 'invertYaw' | 'invertRoll';
+    label: string;
+    value: boolean;
+    set: (v: boolean) => void;
+  }[] = [
+    {
+      key: 'invertPitch',
+      label: t('ifm.invertPitch'),
+      value: invertPitch,
+      set: setInvertPitch,
+    },
+    {
+      key: 'invertYaw',
+      label: t('ifm.invertYaw'),
+      value: invertYaw,
+      set: setInvertYaw,
+    },
+    {
+      key: 'invertRoll',
+      label: t('ifm.invertRoll'),
+      value: invertRoll,
+      set: setInvertRoll,
+    },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('ifm.deviceHost')}</span>
+        <input
+          className="vs-ifm-device-host"
+          style={inputStyle}
+          value={deviceHost}
+          onChange={(e) => setDeviceHost(e.target.value)}
+          onBlur={() => save({ deviceHost })}
+          placeholder={t('ifm.deviceHostPlaceholder')}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('vmc.port')}</span>
+        <NumInput
+          className="vs-ifm-port"
+          value={port}
+          step={1}
+          min={1}
+          max={65535}
+          precision={0}
+          style={{ flex: 1 }}
+          onChange={(v) => setPort(Math.round(v))}
+          onCommit={(v) => {
+            const p = Math.round(v);
+            setPort(p);
+            save({ port: p });
+          }}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('vmc.blend')}</span>
+        <select
+          className="vs-ifm-blend-mode"
+          style={{ ...inputStyle, cursor: 'pointer' }}
+          value={blendMode}
+          onChange={(e) => {
+            setBlendMode(e.target.value);
+            save({ blendMode: e.target.value });
+          }}
+        >
+          <option value="override">{t('ifm.blendOverride')}</option>
+          <option value="additive">{t('vmc.blendAdditive')}</option>
+        </select>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('vmc.mirror')}</span>
+        <label style={checkLabelStyle}>
+          <input
+            className="vs-ifm-mirror"
+            type="checkbox"
+            checked={mirror}
+            onChange={(e) => {
+              setMirror(e.target.checked);
+              save({ mirror: e.target.checked });
+            }}
+            style={{ cursor: 'pointer' }}
+          />
+          {t('vmc.flipLR')}
+        </label>
+      </div>
+
+      {/* Head axis orientation */}
+      <div
+        style={{
+          fontSize: 10,
+          color: '#666',
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+          marginTop: 4,
+        }}
+      >
+        {t('ifm.axesHeader')}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        {axisToggles.map(({ key, label, value, set }) => (
+          <label key={key} style={checkLabelStyle}>
+            <input
+              className={`vs-ifm-${key.toLowerCase()}`}
+              type="checkbox"
+              checked={value}
+              onChange={(e) => {
+                set(e.target.checked);
+                save({ [key]: e.target.checked });
+              }}
+              style={{ cursor: 'pointer' }}
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t('ifm.axesHint')}
+      </div>
+
+      {/* Face mappers */}
+      <div
+        style={{
+          fontSize: 10,
+          color: '#666',
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+          marginTop: 4,
+        }}
+      >
+        {t('vmc.faceMappersHeader')}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {MAPPER_NODES.map(({ id, label, builtinMapping }, idx) => (
+          <MapperSection
+            key={id}
+            nodeId={id}
+            label={label}
+            builtinMapping={builtinMapping}
+            config={mapperConfigs[id]}
+            onSave={saveMapperNode}
+            targetSuggestions={
+              idx === 0
+                ? fclSuggestions
+                : idx === 1
+                  ? exprSuggestions
+                  : passSuggestions
+            }
+          />
+        ))}
+      </div>
+
+      {/* Local IPs — the address to type into the app when not using Device IP */}
+      {localIps.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          <div
+            style={{
+              fontSize: 10,
+              color: '#666',
+              marginBottom: 5,
+              textTransform: 'uppercase',
+              letterSpacing: 0.4,
+            }}
+          >
+            {t('ifm.localIpsHeader')}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {localIps.map((ip) => (
+              <span
+                key={ip}
+                style={{
+                  background: '#1e1e1e',
+                  border: '1px solid #2a2a2a',
+                  color: '#888',
+                  borderRadius: 4,
+                  padding: '2px 8px',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                }}
+              >
+                {ip}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div
+        style={{ fontSize: 10, color: '#555', lineHeight: 1.4, marginTop: 2 }}
+      >
+        {t('ifm.compatHint', { port })}
+      </div>
+
+      <div style={{ height: 1, background: '#222', margin: '4px 0' }} />
+      <CalibrationSection
+        comp={comp}
+        graphPrefix="ifacialmocap-pipeline:"
+        arms={false}
+      />
     </div>
   );
 }
@@ -3759,6 +4146,8 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
   switch (comp.kind) {
     case 'vmc_receiver':
       return <VmcReceiverProps comp={comp} />;
+    case 'ifacialmocap_receiver':
+      return <IFacialMocapReceiverProps comp={comp} />;
     case 'lipsync_processor':
       return <LipsyncProcessorProps comp={comp} />;
     case 'mediapipe_tracker':
@@ -5073,6 +5462,13 @@ export function PropertiesPanel() {
                   topic="behaviors"
                   anchor="breathing"
                   tip={t('help.breathing')}
+                />
+              )}
+              {selectedBehavior.kind === 'ifacialmocap_receiver' && (
+                <HelpButton
+                  topic="behaviors"
+                  anchor="ifacialmocap"
+                  tip={t('help.ifacialmocap')}
                 />
               )}
             </div>
@@ -8270,6 +8666,59 @@ export function PropertiesPanel() {
                   api
                     .updateNode(node.id, {
                       properties: { blendTransitionTime: v },
+                    })
+                    .catch(() => {});
+                }}
+              />
+            </div>
+
+            {/* Sits next to the blend time on purpose: that one is how *fast*
+                the return to idle runs, this one is *when* it starts. Every
+                tracking source on the avatar (VMC, MediaPipe) shares it. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span
+                style={{
+                  fontSize: 12,
+                  color: '#888',
+                  width: 110,
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                {t('avatar.trackingGracePeriod')}
+                <HelpButton
+                  topic="avatar"
+                  anchor="animation"
+                  tip={t('help.trackingGracePeriod')}
+                  size={12}
+                />
+              </span>
+              <NumInput
+                className="vs-avatar-tracking-grace"
+                value={node.properties?.trackingGracePeriod ?? 2}
+                step={0.1}
+                min={0.1}
+                max={60}
+                suffix="s"
+                style={{ flex: 1, minWidth: 0 }}
+                onChange={(v) => {
+                  const properties = {
+                    ...node.properties,
+                    trackingGracePeriod: v,
+                  };
+                  storeUpdateNode(node.id, { properties });
+                }}
+                onCommit={(v) => {
+                  const properties = {
+                    ...node.properties,
+                    trackingGracePeriod: v,
+                  };
+                  storeUpdateNode(node.id, { properties });
+                  api
+                    .updateNode(node.id, {
+                      properties: { trackingGracePeriod: v },
                     })
                     .catch(() => {});
                 }}

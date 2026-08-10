@@ -27,7 +27,7 @@ Manages VMC/RhyLive motion capture receivers. Each behavior owns a `SignalGraph`
 **Input**: UDP OSC packets on a configurable port  
 **Output**: `vmc_pose` and `vmc_blendshapes` WebSocket broadcasts
 
-**Shared UDP socket pool** (implemented): transport lives in `vmc/udp_socket_pool.ts` — a process-wide singleton (`udpSocketPool`) exporting `subscribe(port, listener, onBound?) -> unsubscribe`. Refcounted per port: the first subscriber binds, the last unsubscribe closes. Listener dispatch snapshots the subscriber set, so a listener can unsubscribe mid-dispatch safely. The pool currently binds `0.0.0.0` (the per-behavior `host` config is not yet honored — matches pre-refactor behavior). The `Receiver` struct no longer holds a `socket: Socket`; it holds an `unsubscribe: () => void` instead. `startReceiver` subscribes to the pool; `stopReceiver` calls the unsubscribe. Port changes go through the existing `stopReceiver` → `startReceiver` sequence. Multiple `vmc_receiver` behaviors on the same port now each receive every packet independently — per-behavior tracking detection, calibration and bus slot publication are unaffected. Verified with two avatars on the same port both animating from one source.
+**Shared UDP socket pool** (implemented): transport lives in `vmc/udp_socket_pool.ts` — a process-wide singleton (`udpSocketPool`) exporting `subscribe(port, listener, onBound?) -> unsubscribe` plus `send(localPort, payload, host, remotePort)` (added for the iFacialMocap handshake; unused by VMC). Refcounted per port: the first subscriber binds, the last unsubscribe closes. Listener dispatch snapshots the subscriber set, so a listener can unsubscribe mid-dispatch safely. The pool currently binds `0.0.0.0` (the per-behavior `host` config is not yet honored — matches pre-refactor behavior). The `Receiver` struct no longer holds a `socket: Socket`; it holds an `unsubscribe: () => void` instead. `startReceiver` subscribes to the pool; `stopReceiver` calls the unsubscribe. Port changes go through the existing `stopReceiver` → `startReceiver` sequence. Multiple `vmc_receiver` behaviors on the same port now each receive every packet independently — per-behavior tracking detection, calibration and bus slot publication are unaffected. Verified with two avatars on the same port both animating from one source.
 
 **Packet formats handled** (no external OSC library):
 - `/VMC/Ext/Bone/Pos` — Unity HumanBodyBones rotation array
@@ -40,17 +40,42 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
                   → arkit_vrm_mapper (×3) → blendshapes_sum → blendshapes_broadcast
 ```
 
-**Tracking detection**: Frame-to-frame delta compared to a threshold; sets `vmcTracking` flag broadcast over WS.
+**Tracking detection** (two loss paths, one grace period): the `/Body` handler sums the frame-to-frame delta over the RhyLive float array against `TRACKING_THRESHOLD` — motion clears `Receiver.quietSince` and re-latches tracking, going still only *stamps* `quietSince`. Packets going away is the second path, detected off `lastSeen`. The 250ms `checkTimeouts()` sweep resolves both from `Math.min(quietSince ?? now, lastSeen)` against the avatar node's grace period, so whichever dropout started first drives the window. Connection status (the grey dot) keeps its own fixed 3s window — reachability is a separate question from tracking. See [animation.md](animation.md) (Tracking-loss grace period).
 
-**Tracking-loss → bus removal** (implemented): on the `nowTracking === false` transition the manager calls `broadcastBus.removeBehavior(behaviorId)`, which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic — the next `publishBones` re-creates the per-behavior slot in the bus's nodeMap.
+**`setTracking(behaviorId, tracking)`** is the single transition point: collapses no-op repeats, broadcasts `vmc_tracking_state`, and on loss calls `broadcastBus.removeBehavior(behaviorId)` — which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic: the next `publishBones` re-creates the per-behavior slot. Add new transition triggers by calling this, not by mutating `trackingActive` directly.
 
-**Review-later**: `poseTimeout` on vmc_receiver is largely redundant now that tracking-loss drives an immediate bus-side additive transition. Kept on the frontend (`Viewport.tsx`) as a client-side safety net for missed WS transition messages; revisit once the new flow proves robust in practice.
+**Grace period** is read per-sweep via `trackingGraceMs(sceneNodeId, fallbackMs)` from [`behaviors/tracking_grace.ts`](../../packages/backend/src/behaviors/tracking_grace.ts) — the avatar node's `properties.trackingGracePeriod`, shared with `mediapipe_tracker` and the extension point for any future tracking source. The old per-behavior `poseTimeout` config field is gone (migration 035).
 
 **Interceptors**: `OnPoseBroadcast` nodes from other behaviors (breathing, manual_calibration) are registered into the VMC graph's interceptor chain. Cleanup callbacks are stored per receiver so they're removed on stop.
 
 **VRM skeleton loading**: On start, parses the node's `.vrm`/`.glb` file to extract the humanoid bone hierarchy (used by `arm_ik_calibration` for forward kinematics). See `vrm/skeleton.ts`.
 
 **Manual triggers**: `fireGraphEvent(behaviorId, nodeId, port)` — used by calibration buttons in the UI via `POST /api/signal/graphs/:id/fire` (substrate monitoring route, unchanged).
+
+---
+
+## IFacialMocapManager — `ifacialmocap_receiver/manager.ts`
+
+ARKit face tracking from the iFacialMocap iOS app. Built deliberately parallel to `VmcManager` — same graph lifecycle, same `_nodeState` persistence, same interceptor registration, same `vmc_status` / `vmc_tracking_state` WS surface, same broadcast-bus slot semantics, same shared UDP socket pool.
+
+**Input**: plain-text UDP datagrams on a configurable port (default 49983)
+**Output**: `vmc_pose` and `vmc_blendshapes` WebSocket broadcasts
+
+**Graph descriptor**: `makeIFacialMocapGraphDescriptor(behaviorId)` wires:
+```
+ifacialmocap_packet_source → rhylive_bone_mapper → body_calibration → pose_broadcast
+                           → arkit_vrm_mapper (×3) → blendshapes_sum → blendshapes_broadcast
+```
+Everything except the source node is shared verbatim with the VMC pipeline.
+
+**Differences from `VmcManager`** (full detail in [ifacialmocap.md](ifacialmocap.md)):
+
+- **Outbound handshake.** iFacialMocap only streams after the receiver sends it a magic string, so the config carries a `deviceHost` (the phone's address) and `UdpSocketPool` grew a `send(localPort, payload, host, remotePort)` that reuses the shared bound socket. Re-sent every 1 s while silent / 5 s while streaming, so an app restart re-attaches by itself. `deviceHost` is optional — the app can be pointed at this machine from the phone side instead.
+- **Face-only.** No `arm_ik_calibration` stage, no arm capture triggers, and no VRM skeleton load (that only fed arm IK). `HEAD_CALIB_BONES` is `head` / `leftEye` / `rightEye` only.
+- **Axis flips.** Three `invertPitch` / `invertYaw` / `invertRoll` config toggles, because the published spec doesn't pin down the euler convention; read live per packet, so they hot-apply.
+- **Tracking detection vector.** Same two-loss-path / one-grace-period contract as `VmcManager` (`quietSince` + `lastSeen` resolved on a 250 ms sweep against `trackingGraceMs(sceneNodeId)`), but diffed over a frame signature of head + eye euler degrees and the 52 ARKit weights rather than the RhyLive float array. The debounce carries more weight here: the app keeps streaming the last values when it loses the face, so a held expression would otherwise read as a loss. See [ifacialmocap.md](ifacialmocap.md#tracking-detection).
+
+**Packet parsing** lives in an exported, unit-tested `protocol.ts` rather than inline in the manager (the VMC OSC parser is unexported, which is why `subsystems.parse.test.ts` has to reimplement it).
 
 ---
 
@@ -123,6 +148,13 @@ capture+reset buttons in `PropertiesPanel.tsx`, dispatched by `POST /api/signal/
 IK calibration knobs (see PropertiesPanel `MediapipeTrackerProps`). All knobs are surfaced
 through `behavior_config` nodes wired into converter value ports — no `nodeConfig[nodeId]`
 side-channel.
+
+**Tracking loss**: only the silence path exists here (the camera pipeline simply stops sending;
+there is no frame-diff equivalent of VMC's "signal went still"). The 250ms `checkTimeouts()` sweep
+compares `lastInput` against `trackingGraceMs(nodeId, TRACKING_TIMEOUT_MS)` — the avatar node's
+`properties.trackingGracePeriod`, shared with `vmc_receiver`, with the camera-specific 1s constant
+as the fallback when the node sets nothing. Being per-node, this needs no MediaPipe-side UI
+control. See [animation.md](animation.md) (Tracking-loss grace period).
 
 ---
 
