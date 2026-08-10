@@ -431,6 +431,40 @@
     "chestAmplitude": "Chest amplitude",
     "shoulderLift": "Shoulder lift"
   },
+  "blendshapeLimits": {
+    "enabled": "Limits active",
+    "hint": "Face tracking, lipsync and manual expressions all land in the same frame. These rules stop them from stacking into exaggerated or broken faces.",
+    "resetDefaults": "Reset to defaults",
+    "groupsHeader": "Exclusive groups",
+    "groupsHint": "Expressions in a group cannot occur together. The strongest one wins; the others fade out in proportion to how strong it is.",
+    "clampsHeader": "Clamp rules",
+    "clampsHint": "While the driver expression is active, the target shapes are capped into a reduced range — e.g. joy already closes the eyes, so blink is held back.",
+    "membersHeader": "Members — one row per expression, several names if your model spells it differently",
+    "mode": "Mode",
+    "modeSuppress": "Strongest wins",
+    "modeNormalize": "Normalise sum",
+    "strength": "Strength",
+    "when": "Driver",
+    "targets": "Targets",
+    "range": "Range",
+    "min": "min",
+    "max": "max",
+    "threshold": "Threshold",
+    "ramp": "Fade in with driver",
+    "addName": "Add name or pattern (* allowed), Enter to confirm",
+    "addDriver": "Add driver expression, empty = always on",
+    "addGroup": "Add group",
+    "addMember": "Add member",
+    "addClamp": "Add clamp rule",
+    "newGroup": "New group",
+    "newMember": "New member",
+    "newClamp": "New clamp",
+    "remove": "Remove",
+    "jsonHeader": "Raw JSON",
+    "jsonHint": "The full rule set. Edit it directly and apply — handy for copying a configuration between avatars.",
+    "jsonApply": "Apply JSON",
+    "jsonRevert": "Discard changes"
+  },
   "behaviorFallback": "No configurable properties.",
   "effect": {
     "toneMapping": {
@@ -574,6 +608,7 @@
     "audioSpatial": "Distance and cone parameters for directional audio — reference distance, rolloff, max distance, and the cone angles",
     "twist": "Spread forearm roll along the arm instead of pinching at the elbow",
     "poseSource": "Drive each body section from animation, live tracking, or a blend of both",
-    "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops"
+    "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops",
+    "expressionLimits": "Learn how expression limits stop exaggerated or broken faces"
   }
 }

@@ -14,6 +14,7 @@
     "./infer_nodes": "./src/infer_nodes.ts",
     "./arkit": "./src/arkit_tables.ts",
     "./paramPaths": "./src/paramPaths.ts",
+    "./blendshapeLimits": "./src/blendshapeLimits.ts",
     "./sync": "./src/sync.ts"
   },
   "scripts": {

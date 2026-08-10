@@ -50,6 +50,52 @@ Die Atmung fügt ein dezentes, automatisches Heben und Senken von Brust und
 Schultern hinzu, damit dein Avatar lebendig wirkt, selbst wenn du stillhältst.
 Das Ausmaß der Brust- und Schulterbewegung ist einstellbar.
 
+## Mimik-Begrenzungen {#expression-limits}
+
+Gesichtstracking, Lippensynchronisation und manuell gesetzte Mimik landen alle
+im selben Frame und addieren sich standardmäßig einfach auf. Genau daraus
+entstehen die übertriebenen oder schlicht kaputten Gesichter, die man manchmal
+sieht: Volle **Freude** kneift die Augen bereits zusammen, ein zusätzliches
+Blinzeln lässt die Lider dann in sich zusammenfallen, und ein weit geöffneter
+Lipsync-Vokal auf einem Freude-Lächeln dehnt den Mund über das hinaus, wofür das
+Modell gebaut wurde.
+
+Das Verhalten **Mimik-Begrenzungen** ist ein korrigierender Durchgang über den
+fertigen Mimik-Frame, kurz bevor er den Avatar erreicht. Füge es einem Avatar
+hinzu, und es wirkt sofort — die mitgelieferten Standardwerte decken die
+üblichen Fälle ab.
+
+**Exklusive Gruppen.** Mimiken einer Gruppe können nicht gleichzeitig auftreten.
+Die stärkste setzt sich durch, die übrigen werden in dem Maß ausgeblendet, wie
+stark sie ist — konkurrierende Emotionen blenden also ineinander über, statt zu
+springen. Standardmäßig liegen alle fünf Emotions-Vorgaben — Freude, Wut,
+Trauer, Entspannung und Überraschung — in einer Gruppe, dein Avatar kann also
+immer nur eines davon sein. „Summe normalisieren“ ist die sanftere Alternative:
+Niemand gewinnt, aber wenn die Mimiken der Gruppe zusammen über 1 kommen, werden
+sie alle so weit zurückgenommen, bis es passt.
+
+**Begrenzungsregeln.** Solange eine auslösende Mimik aktiv ist, wird eine Menge
+von Zielformen in einen kleineren Bereich gedeckelt. Die beiden mitgelieferten
+Regeln nutzen beide Freude als Auslöser: Die eine hält die Augenschluss- und
+Blinzelformen zurück, die andere die Mundöffnungsformen und Lipsync-Vokale. Die
+„Schwelle“ legt fest, wie stark der Auslöser sein muss, bevor die Regel
+überhaupt greift; mit „Mit Auslöser einblenden“ zieht sich die Begrenzung
+allmählich zu, statt schlagartig einzusetzen.
+
+**Namen.** Namen werden ohne Rücksicht auf Groß- und Kleinschreibung verglichen,
+und `*` dient als Platzhalter — `Fcl_MTH_*` erfasst mit einem Eintrag sämtliche
+VRoid-Mundformen. So deckt ein Regelsatz Modelle ab, die dieselbe Mimik `happy`,
+`Joy` oder `Fcl_ALL_Joy` nennen. Eine Mitgliedszeile enthält gerade deshalb
+mehrere Namen, weil sie für dein Modell alle *dieselbe* Mimik sind; das
+Eingabefeld schlägt die Namen vor, die dein geladener Avatar tatsächlich
+anbietet. Eine Regel, die eine Form nennt, die dein Modell nicht hat, bewirkt
+schlicht nichts.
+
+**Rohes JSON.** Der gesamte Regelsatz ist unten im Panel als JSON editierbar —
+der schnellste Weg, eine eingestellte Konfiguration von einem Avatar auf einen
+anderen zu übertragen. „Auf Standard zurücksetzen“ stellt die mitgelieferten
+Regeln wieder her.
+
 ## Kamera & Mikrofon einrichten {#devices}
 
 Im **Medienfenster** wählst du aus, welche Kamera und welches Mikrofon vspark

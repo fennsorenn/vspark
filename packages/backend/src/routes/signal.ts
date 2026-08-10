@@ -4,6 +4,7 @@ import {
   _vmc,
   _breathing,
   _manualCalibration,
+  _blendshapeLimiter,
   _lipsync,
   _tracking,
 } from './shared.js';
@@ -16,6 +17,7 @@ function _allGraphDescriptors() {
     ...(_vmc?.getAllGraphDescriptors() ?? []),
     ...(_breathing?.getAllGraphDescriptors() ?? []),
     ...(_manualCalibration?.getAllGraphDescriptors() ?? []),
+    ...(_blendshapeLimiter?.getAllGraphDescriptors() ?? []),
     ...(_lipsync?.getAllGraphDescriptors() ?? []),
     ...(_tracking?.getAllGraphDescriptors() ?? []),
   ];
@@ -26,6 +28,7 @@ function _stripPrefix(graphId: string): string {
     'vmc-pipeline:',
     'breathing:',
     'manual_calibration:',
+    'blendshape_limiter:',
     'lipsync:',
     'mediapipe_tracker:',
   ];
@@ -93,11 +96,13 @@ router.get('/signal/graphs/:id/node-states', (req, res) => {
     ? _breathing?.getStates(behaviorId)
     : graphId.startsWith('manual_calibration:')
       ? _manualCalibration?.getStates(behaviorId)
-      : graphId.startsWith('lipsync:')
-        ? _lipsync?.getStates(behaviorId)
-        : graphId.startsWith('mediapipe_tracker:')
-          ? _tracking?.getStates(behaviorId)
-          : _vmc?.getStates(behaviorId);
+      : graphId.startsWith('blendshape_limiter:')
+        ? _blendshapeLimiter?.getStates(behaviorId)
+        : graphId.startsWith('lipsync:')
+          ? _lipsync?.getStates(behaviorId)
+          : graphId.startsWith('mediapipe_tracker:')
+            ? _tracking?.getStates(behaviorId)
+            : _vmc?.getStates(behaviorId);
   if (!states)
     return res.status(404).json({
       ok: false,
