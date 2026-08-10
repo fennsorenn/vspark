@@ -28,6 +28,8 @@ await build({
     '@vspark/shared/infer_nodes':     '../shared/src/infer_nodes.ts',
     '@vspark/shared/schema':          '../shared/src/schema.ts',
     '@vspark/shared/arkit':           '../shared/src/arkit_tables.ts',
+    '@vspark/shared/face_heuristic':  '../shared/src/face_heuristic.ts',
+    '@vspark/shared/mfcc':            '../shared/src/mfcc.ts',
     '@vspark/shared/paramPaths':      '../shared/src/paramPaths.ts',
     '@vspark/shared/sync':            '../shared/src/sync.ts',
     '@vspark/shared':                 '../shared/src/types.ts',

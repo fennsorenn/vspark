@@ -11,7 +11,7 @@
 
 import { HolisticLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
 import type { HolisticLandmarkerResult } from '@mediapipe/tasks-vision';
-import { estimateArkitBlendshapes } from './arkitHeuristic';
+import { estimateArkitBlendshapes } from '@vspark/shared/face_heuristic';
 
 export type { HolisticLandmarkerResult };
 

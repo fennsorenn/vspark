@@ -7,6 +7,11 @@
  * model emits, so it feeds the identical backend mapper pipeline (arkit_vrm_mapper trio) — the
  * mappers stay the single calibration/customization layer regardless of source.
  *
+ * SHARED (`@vspark/shared/face_heuristic`), not frontend-only: server-side capture providers
+ * derive face weights from the same 478-point FaceMesh topology and must produce byte-identical
+ * output, so this lives next to the other pure-math modules rather than in `frontend/src/media`.
+ * Pure math — no DOM, no imports. Keep it that way so both runtimes can use it.
+ *
  * Config-driven model (see dev-notes/plans/face-calibration.md):
  *   For each ARKit shape, the raw metric is a SIGNED SUM OF EDGE LENGTHS — each edge is a pair
  *   of landmarks contributing ±its 3D distance, divided by a stable reference distance (outer

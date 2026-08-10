@@ -25,7 +25,7 @@ import {
   type ArkitHeuristicConfig,
   type ArkitShapeConfig,
   type LandmarkPoint,
-} from '../media/arkitHeuristic';
+} from '@vspark/shared/face_heuristic';
 import {
   MinMaxTracker,
   faceBasis2D,

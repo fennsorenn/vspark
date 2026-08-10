@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
-import { MediaInputWindow } from '../components/MediaInputWindow';
+import {
+  MediaInputWindow,
+  type MediaAgentConfig,
+} from '../components/MediaInputWindow';
 import { useEditorStore } from '../store/editorStore';
 import { HelpButton } from '../help/HelpButton';
 
@@ -14,6 +17,32 @@ import { HelpButton } from '../help/HelpButton';
 export function MediaInputPage() {
   const { t } = useTranslation('media');
   const { projectId } = useParams<{ projectId: string }>();
+  const [search] = useSearchParams();
+
+  /**
+   * Agent mode. The server's browser-agent capture provider launches this page with
+   * ?agent=1 plus the behaviour ids (and optional device ids) it wants captured, e.g.
+   *   /media-input/<projectId>?agent=1&tracking=<behaviorId>&trackingDevice=<deviceId>
+   * The window then auto-starts those captures and uplinks over the normal WebSocket, so
+   * server-side capture reuses this page verbatim instead of duplicating the pipeline.
+   */
+  const agent = useMemo<MediaAgentConfig | null>(() => {
+    if (search.get('agent') !== '1') return null;
+    const cfg: MediaAgentConfig = {};
+    const tracking = search.get('tracking');
+    if (tracking)
+      cfg.tracking = {
+        behaviorId: tracking,
+        deviceId: search.get('trackingDevice') ?? undefined,
+      };
+    const lipsync = search.get('lipsync');
+    if (lipsync)
+      cfg.lipsync = {
+        behaviorId: lipsync,
+        deviceId: search.get('lipsyncDevice') ?? undefined,
+      };
+    return cfg;
+  }, [search]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { setNodes, setActiveScene, setBehaviors } = useEditorStore();
@@ -88,7 +117,7 @@ export function MediaInputPage() {
         <HelpButton topic="behaviors" anchor="devices" tip={t('help.devices')} />
       </div>
       {/* Window rendered in place (alwaysExpanded, no position dragging needed on this page) */}
-      <MediaInputWindow alwaysExpanded={true} />
+      <MediaInputWindow alwaysExpanded={true} agent={agent} />
     </div>
   );
 }

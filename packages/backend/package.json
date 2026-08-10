@@ -16,7 +16,8 @@
     "lint": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage",
-    "bundle": "node bundle.mjs"
+    "bundle": "node bundle.mjs",
+    "install:node-inference": "pnpm add -D @tensorflow/tfjs-node@4.22.0 @vladmandic/human @vladmandic/human-models"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",

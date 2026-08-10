@@ -224,6 +224,16 @@ function VisemeDisplay({
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
+/**
+ * Agent mode — this page was opened by the server-side browser-agent capture provider
+ * rather than by a human. It auto-starts the requested captures and reports its device
+ * list back, so the provider needs no per-OS device enumeration of its own.
+ */
+export interface MediaAgentConfig {
+  tracking?: { behaviorId: string; deviceId?: string };
+  lipsync?: { behaviorId: string; deviceId?: string };
+}
+
 interface Props {
   /** If provided, restricts to a specific component; otherwise finds first active one. */
   lipsyncBehaviorId?: string | null;
@@ -234,6 +244,8 @@ interface Props {
   ws?: WebSocket | null;
   /** When false, hide the window via CSS without unmounting — keeps active mic/cam streams alive. */
   visible?: boolean;
+  /** Set when running as the server's capture agent — see MediaAgentConfig. */
+  agent?: MediaAgentConfig | null;
 }
 
 export function MediaInputWindow({
@@ -242,6 +254,7 @@ export function MediaInputWindow({
   alwaysExpanded = false,
   ws: externalWs,
   visible = true,
+  agent = null,
 }: Props) {
   const { t } = useTranslation('media');
 
@@ -276,10 +289,12 @@ export function MediaInputWindow({
   // Resolve component IDs from store if not provided as props
   const behaviors = useEditorStore((s) => s.behaviors);
   const resolvedLipsyncId =
+    agent?.lipsync?.behaviorId ??
     lipsyncBehaviorId ??
     behaviors.find((c) => c.kind === 'lipsync_processor' && c.enabled)?.id ??
     null;
   const resolvedTrackingId =
+    agent?.tracking?.behaviorId ??
     trackingBehaviorId ??
     behaviors.find((c) => c.kind === 'mediapipe_tracker' && c.enabled)?.id ??
     null;
@@ -314,7 +329,7 @@ export function MediaInputWindow({
   }, []);
 
   // ── Lipsync activate/deactivate ────────────────────────────────────────────
-  const toggleLipsync = useCallback(async () => {
+  const toggleLipsync = useCallback(async (deviceOverride?: string) => {
     if (lipsyncActive) {
       await micRef.current?.stop();
       setLipsyncActive(false);
@@ -333,7 +348,7 @@ export function MediaInputWindow({
         mic.setTemplates(tpl as VowelTemplates);
       }
       try {
-        await mic.start(micDeviceId);
+        await mic.start(deviceOverride ?? micDeviceId);
         micRef.current = mic;
         setLipsyncActive(true);
       } catch (e) {
@@ -369,7 +384,7 @@ export function MediaInputWindow({
   }, [t]);
 
   // ── Tracking activate/deactivate ───────────────────────────────────────────
-  const toggleTracking = useCallback(async () => {
+  const toggleTracking = useCallback(async (deviceOverride?: string) => {
     if (trackingActive) {
       await cameraRef.current?.stop();
       cameraRef.current = null;
@@ -417,7 +432,7 @@ export function MediaInputWindow({
         }
       };
       try {
-        await cam.start(camDeviceId, {
+        await cam.start(deviceOverride ?? camDeviceId, {
           enableFace,
           enablePose,
           enableHands,
@@ -437,6 +452,45 @@ export function MediaInputWindow({
     enableHands,
     enableNativeFace,
   ]);
+
+  // ── Agent mode ─────────────────────────────────────────────────────────────
+  // Report the device list back to the server. This page has a standing permission grant
+  // (persistent profile + --use-fake-ui-for-media-stream), so enumerateDevices() returns
+  // *labelled* devices with no prompt — which is why the browser-agent provider needs no
+  // per-OS device enumeration code of its own.
+  useEffect(() => {
+    if (!agent) return;
+    if (!camDevices.length && !micDevices.length) return;
+    const devices = [
+      ...camDevices.map((d) => ({
+        id: d.deviceId,
+        label: d.label,
+        kind: 'videoinput' as const,
+      })),
+      ...micDevices.map((d) => ({
+        id: d.deviceId,
+        label: d.label,
+        kind: 'audioinput' as const,
+      })),
+    ];
+    void fetch('/api/capture/devices-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ devices }),
+    }).catch(() => {});
+  }, [agent, camDevices, micDevices]);
+
+  // Auto-start the captures the provider asked for. Guarded by a ref so a re-render never
+  // starts a second stream on the same device.
+  const agentStartedRef = useRef(false);
+  useEffect(() => {
+    if (!agent || agentStartedRef.current) return;
+    agentStartedRef.current = true;
+    void (async () => {
+      if (agent.lipsync) await toggleLipsync(agent.lipsync.deviceId);
+      if (agent.tracking) await toggleTracking(agent.tracking.deviceId);
+    })();
+  }, [agent, toggleLipsync, toggleTracking]);
 
   // ── Uplink hooks ───────────────────────────────────────────────────────────
   useLipsyncUplink(wsRef, resolvedLipsyncId, micRef, lipsyncActive);
@@ -566,7 +620,7 @@ export function MediaInputWindow({
               </select>
             </div>
             <div style={S.row}>
-              <button style={S.btn(lipsyncActive)} onClick={toggleLipsync}>
+              <button style={S.btn(lipsyncActive)} onClick={() => void toggleLipsync()}>
                 {lipsyncActive ? t('lipsync.stopBtn') : t('lipsync.startBtn')}
               </button>
               <LevelBar rmsRef={rmsRef} />
@@ -615,7 +669,7 @@ export function MediaInputWindow({
               </select>
             </div>
             <div style={S.row}>
-              <button style={S.btn(trackingActive)} onClick={toggleTracking}>
+              <button style={S.btn(trackingActive)} onClick={() => void toggleTracking()}>
                 {trackingActive
                   ? t('tracking.stopBtn')
                   : t('tracking.startBtn')}

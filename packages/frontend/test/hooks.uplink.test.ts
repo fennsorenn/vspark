@@ -2,14 +2,14 @@
  * hooks.uplink.test.ts — Phase 7 deferred uplink + remaining hook tests
  *
  * Covers:
- *   - useLipsyncUplink    (rAF loop, throttled send via WebSocket)
+ *   - useLipsyncUplink    (setInterval loop, send via WebSocket)
  *   - useTrackingUplink   (CameraCapture callback wirer)
  *   - useSharedSubscriptions (remote_object peer subscription logic)
  *   - useClientMesh       (WebRTC mesh init, configure, cleanup)
  *
  * Convention notes from prior attempt:
- *   - useLipsyncUplink reads performance.now() directly (not the rAF ts arg).
- *     We control performance.now() via vi.stubGlobal to bypass the throttle.
+ *   - useLipsyncUplink drives on setInterval (not rAF — see the hook's header),
+ *     so its loop is asserted through vitest fake timers.
  *   - useEditorStore / useConnectionsStore are reset in outer beforeEach.
  */
 
@@ -201,37 +201,31 @@ beforeEach(() => {
 import { useLipsyncUplink } from '../src/hooks/useLipsyncUplink';
 
 describe('useLipsyncUplink', () => {
-  let rafCallbacks: FrameRequestCallback[] = [];
-  let rafId = 0;
+  // The hook drives on setInterval, not rAF: rAF is compositor-driven and stalls in a
+  // backgrounded/offscreen window, which is where the server-side browser-agent capture
+  // provider runs this page. So the loop is asserted through fake timers.
+  const FRAME_MS = 1000 / 30;
 
-  function installFakeRaf() {
-    rafCallbacks = [];
-    rafId = 0;
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-      rafCallbacks.push(cb);
-      return ++rafId;
-    });
-    vi.stubGlobal('cancelAnimationFrame', () => {
-      rafCallbacks = [];
-    });
+  /** Pending interval count — the observable stand-in for "the loop is running". */
+  function loopCount() {
+    return vi.getTimerCount();
   }
 
-  function flushRaf() {
-    const pending = [...rafCallbacks];
-    rafCallbacks = [];
-    for (const cb of pending) cb(0);
+  function flushFrame() {
+    vi.advanceTimersByTime(FRAME_MS);
   }
 
   beforeEach(() => {
-    installFakeRaf();
+    vi.useFakeTimers();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it('does not schedule rAF when active=false', () => {
+  it('does not start the loop when active=false', () => {
     const wsRef = { current: null as WebSocket | null };
     const micRef = { current: null };
     renderHook(() =>
@@ -242,10 +236,10 @@ describe('useLipsyncUplink', () => {
         false
       )
     );
-    expect(rafCallbacks.length).toBe(0);
+    expect(loopCount()).toBe(0);
   });
 
-  it('does not schedule rAF when behaviorId is null', () => {
+  it('does not start the loop when behaviorId is null', () => {
     const wsRef = { current: null as WebSocket | null };
     const micRef = { current: null };
     renderHook(() =>
@@ -256,10 +250,10 @@ describe('useLipsyncUplink', () => {
         true
       )
     );
-    expect(rafCallbacks.length).toBe(0);
+    expect(loopCount()).toBe(0);
   });
 
-  it('schedules a rAF when active=true and behaviorId is set', () => {
+  it('starts the loop when active=true and behaviorId is set', () => {
     const wsRef = { current: null as WebSocket | null };
     const micRef = { current: null };
     const { unmount } = renderHook(() =>
@@ -270,11 +264,11 @@ describe('useLipsyncUplink', () => {
         true
       )
     );
-    expect(rafCallbacks.length).toBeGreaterThan(0);
+    expect(loopCount()).toBeGreaterThan(0);
     unmount();
   });
 
-  it('cancels rAF on unmount', () => {
+  it('clears the loop on unmount', () => {
     const wsRef = { current: null as WebSocket | null };
     const micRef = { current: null };
     const { unmount } = renderHook(() =>
@@ -285,16 +279,12 @@ describe('useLipsyncUplink', () => {
         true
       )
     );
-    expect(rafCallbacks.length).toBe(1);
+    expect(loopCount()).toBe(1);
     unmount();
-    expect(rafCallbacks.length).toBe(0);
+    expect(loopCount()).toBe(0);
   });
 
-  it('sends lipsync_input when mic is active and ws is open (throttle bypassed)', () => {
-    // Control performance.now so the throttle gate is always passed.
-    let mockNow = 0;
-    vi.stubGlobal('performance', { now: () => { mockNow += 100; return mockNow; } });
-
+  it('sends lipsync_input when mic is active and ws is open', () => {
     const sent: string[] = [];
     const fakeWs = {
       readyState: WebSocket.OPEN,
@@ -318,7 +308,7 @@ describe('useLipsyncUplink', () => {
       )
     );
 
-    act(() => { flushRaf(); });
+    act(() => { flushFrame(); });
 
     expect(sent.length).toBeGreaterThan(0);
     const msg = JSON.parse(sent[0]);
@@ -330,9 +320,6 @@ describe('useLipsyncUplink', () => {
   });
 
   it('does not send when mic is inactive', () => {
-    let mockNow = 0;
-    vi.stubGlobal('performance', { now: () => { mockNow += 100; return mockNow; } });
-
     const sent: string[] = [];
     const fakeWs = {
       readyState: WebSocket.OPEN,
@@ -355,16 +342,13 @@ describe('useLipsyncUplink', () => {
       )
     );
 
-    act(() => { flushRaf(); });
+    act(() => { flushFrame(); });
 
     expect(sent.length).toBe(0);
     unmount();
   });
 
   it('does not send when ws is not open', () => {
-    let mockNow = 0;
-    vi.stubGlobal('performance', { now: () => { mockNow += 100; return mockNow; } });
-
     const sent: string[] = [];
     const fakeWs = {
       readyState: WebSocket.CONNECTING,
@@ -387,13 +371,13 @@ describe('useLipsyncUplink', () => {
       )
     );
 
-    act(() => { flushRaf(); });
+    act(() => { flushFrame(); });
 
     expect(sent.length).toBe(0);
     unmount();
   });
 
-  it('cancels rAF loop when active flips to false', () => {
+  it('clears the loop when active flips to false', () => {
     const wsRef = { current: null as WebSocket | null };
     const micRef = { current: null };
     let active = true;
@@ -407,12 +391,12 @@ describe('useLipsyncUplink', () => {
       )
     );
 
-    expect(rafCallbacks.length).toBe(1);
+    expect(loopCount()).toBe(1);
 
     active = false;
     rerender();
 
-    expect(rafCallbacks.length).toBe(0);
+    expect(loopCount()).toBe(0);
     unmount();
   });
 });
