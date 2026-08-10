@@ -7,6 +7,7 @@ import type { VmcManager } from '../behaviors/vmc_receiver/manager.js';
 import type { IFacialMocapManager } from '../behaviors/ifacialmocap_receiver/manager.js';
 import type { BreathingManager } from '../behaviors/breathing/manager.js';
 import type { ManualCalibrationManager } from '../behaviors/manual_calibration/manager.js';
+import type { BlendshapeLimiterManager } from '../behaviors/blendshape_limiter/manager.js';
 import type { LipsyncManager } from '../behaviors/lipsync/manager.js';
 import type { TrackingManager } from '../behaviors/mediapipe_tracker/manager.js';
 import type { ApiControllerManager } from '../behaviors/api_controller/manager.js';
@@ -33,6 +34,11 @@ export function setBreathingManager(m: BreathingManager) {
 export let _manualCalibration: ManualCalibrationManager | null = null;
 export function setManualCalibrationManager(m: ManualCalibrationManager) {
   _manualCalibration = m;
+}
+
+export let _blendshapeLimiter: BlendshapeLimiterManager | null = null;
+export function setBlendshapeLimiterManager(m: BlendshapeLimiterManager) {
+  _blendshapeLimiter = m;
 }
 
 export let _lipsync: LipsyncManager | null = null;
@@ -116,6 +122,14 @@ export function refreshManualCalibration() {
   _manualCalibration.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
+export function refreshBlendshapeLimiter() {
+  if (!_blendshapeLimiter) return;
+  const rows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'blendshape_limiter'")
+    .all() as Record<string, unknown>[];
+  _blendshapeLimiter.syncBehaviors(rows.map(_mapBehaviorRow));
+}
+
 export function refreshLipsync() {
   if (!_lipsync) return;
   const rows = getDb()
@@ -145,6 +159,7 @@ export function refreshAllBehaviorManagers() {
   refreshIFacialMocap();
   refreshBreathing();
   refreshManualCalibration();
+  refreshBlendshapeLimiter();
   refreshLipsync();
   refreshTracking();
   refreshApiController();

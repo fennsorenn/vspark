@@ -444,6 +444,40 @@
     "chestAmplitude": "Brustamplitude",
     "shoulderLift": "Schulterheben"
   },
+  "blendshapeLimits": {
+    "enabled": "Begrenzung aktiv",
+    "hint": "Gesichtstracking, Lipsync und manuelle Mimik landen alle im selben Frame. Diese Regeln verhindern, dass sie sich zu übertriebenen oder kaputten Gesichtern aufaddieren.",
+    "resetDefaults": "Auf Standard zurücksetzen",
+    "groupsHeader": "Exklusive Gruppen",
+    "groupsHint": "Mimiken einer Gruppe können nicht gleichzeitig auftreten. Die stärkste setzt sich durch; die übrigen werden in dem Maß ausgeblendet, wie stark sie ist.",
+    "clampsHeader": "Begrenzungsregeln",
+    "clampsHint": "Solange die auslösende Mimik aktiv ist, werden die Zielformen in einen kleineren Bereich gedeckelt — Freude schließt z. B. schon die Augen, also wird Blinzeln zurückgehalten.",
+    "membersHeader": "Mitglieder — eine Zeile pro Mimik, mehrere Namen, falls dein Modell sie anders schreibt",
+    "mode": "Modus",
+    "modeSuppress": "Stärkste gewinnt",
+    "modeNormalize": "Summe normalisieren",
+    "strength": "Stärke",
+    "when": "Auslöser",
+    "targets": "Ziele",
+    "range": "Bereich",
+    "min": "Min",
+    "max": "Max",
+    "threshold": "Schwelle",
+    "ramp": "Mit Auslöser einblenden",
+    "addName": "Name oder Muster hinzufügen (* erlaubt), Enter bestätigt",
+    "addDriver": "Auslösende Mimik hinzufügen, leer = immer aktiv",
+    "addGroup": "Gruppe hinzufügen",
+    "addMember": "Mitglied hinzufügen",
+    "addClamp": "Begrenzungsregel hinzufügen",
+    "newGroup": "Neue Gruppe",
+    "newMember": "Neues Mitglied",
+    "newClamp": "Neue Begrenzung",
+    "remove": "Entfernen",
+    "jsonHeader": "Rohes JSON",
+    "jsonHint": "Der komplette Regelsatz. Direkt bearbeiten und anwenden — praktisch, um eine Konfiguration zwischen Avataren zu kopieren.",
+    "jsonApply": "JSON anwenden",
+    "jsonRevert": "Änderungen verwerfen"
+  },
   "behaviorFallback": "Keine konfigurierbaren Eigenschaften.",
   "effect": {
     "toneMapping": {
@@ -589,6 +623,7 @@
     "twist": "Unterarm-Drehung entlang des Arms verteilen statt am Ellbogen zu knicken",
     "poseSource": "Jeden Körperbereich per Animation, Live-Tracking oder einer Mischung steuern",
     "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück",
-    "ifacialmocap": "Erfahre, wie du die iFacialMocap-App (iOS) verbindest"
+    "ifacialmocap": "Erfahre, wie du die iFacialMocap-App (iOS) verbindest",
+    "expressionLimits": "Erfahren, wie Mimik-Begrenzungen übertriebene oder kaputte Gesichter verhindern"
   }
 }

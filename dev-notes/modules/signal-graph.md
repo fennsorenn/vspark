@@ -74,7 +74,7 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → node class. All 87 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → node class. All 90 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
 
@@ -115,6 +115,7 @@ Organized by role:
 | `body_calibration` | Captures neutral pose; subtracts offset via quaternion inversion. Supports optional `mirrorPairs` config + `mirrorSource` input port for one-hand symmetric calibration (used by finger_calib in MediaPipe tracker). |
 | `arm_ik_calibration` | Two-bone arm IK; captures arm reach (finger-to-eye-corner); applies corrected IK at runtime |
 | `pose_manual_calibration` (label "Manual Calibration") | Static `pose` in → `pose` out. For each configured bone, decomposes the quaternion to ZYX euler and applies per axis `angle' = angle * multiplier + offset` (offset in DEGREES, converted to radians; multiplier unitless). Bones with no entry, or at identity (mult `[1,1,1]` / offset `[0,0,0]`), pass through. The per-bone map arrives via a wired `calibrations` value-input (fed by a `behavior_config` node, `field: 'calibrations'`), not a hidden config read; shape `Record<boneName, { multiplier?: [x,y,z]; offset?: [x,y,z] }>`. Ordinary static node (NOT in `INFER_BY_KIND`; ports via decorators / `defaultInfer`, like `body_calibration` / `pose_apply_bone`). Drives the `manual_calibration` behavior interceptor — see [component-managers.md](component-managers.md). Euler-space, so ZYX-order-dependent + degrades at the yaw=±90° gimbal singularity. |
+| `blendshape_limits` (label "Expression Limits") | Static `blendshapes` in → `blendshapes` out. Applies the expression-limit rule set: exclusive groups (only the strongest member of a set of competing expressions survives, losers scaled by `1 − strength × winnerWeight`) then clamp rules (targets capped into `[min, max]` while a driver expression is active, ramped by the driver's weight). The rule set arrives via a wired `limits` value-input (fed by a `behavior_config` node, `field: 'limits'`), not a hidden config read. The engine itself is the pure `applyBlendshapeLimits` in [`packages/shared/src/blendshapeLimits.ts`](../../packages/shared/src/blendshapeLimits.ts); the node is only the graph wrapper and runs the config through `normalizeBlendshapeLimits` so a malformed hand-edited document degrades to fewer rules instead of a crashed graph. Ordinary static node (NOT in `INFER_BY_KIND`). Drives the `blendshape_limiter` behavior interceptor — see [component-managers.md](component-managers.md). |
 
 ### Processing / utility
 | Kind | Description |
@@ -143,13 +144,23 @@ Organized by role:
 | `set_data` | Generic sibling of `set_text`: on `fire`, publishes the wired `data` (Any) payload to the named `channel` (String) on the data-channel bus → frontend `feed` layer. See [data-channels.md](data-channels.md). |
 | `media_control` | Fire-and-forget media command (play/pause/stop/restart/seek/setVolume/mute/unmute) onto the media-command bus. Config `action`/`targetKind`/`targetId`; inputs `target` (SceneEntity, picker-or-wired), `t` (Float, for seek), `volume` (Float, for setVolume); a `spawnRef` event retargets to a spawned instance for that fire. tags `['media','output']`. See [media.md](media.md). |
 
-### Pose interceptor chain
-The interceptor chain lets behaviors (e.g., breathing) modify poses in-flight before broadcast.
+### Interceptor chains
+Interceptor chains let behaviors modify a frame in-flight, after the broadcast bus
+has composed every producer's contribution but before it goes out over the
+WebSocket. There are two independent chains — one for bones, one for expression
+weights — with identical shapes and separate registries
+(`signal/pose_interceptor_registry.ts`, `signal/blendshape_interceptor_registry.ts`).
+Both are entered from `BroadcastBus._composeAndEmit`: if `start()` reports that a
+chain exists, the bus does NOT emit and the chain's terminal node does, via
+`emitMergedPose` / `emitMergedBlendshapes`. Priority orders the chain (higher runs
+first); ties break by registration order.
 
 | Kind | Description |
 |------|-------------|
-| `on_pose_broadcast` (label "Intercept Pose") | Entry for interceptor graph; receives InterceptorFrame from the registry |
-| `pose_interceptor_broadcast` (label "Send Intercepted Pose") | Exit for interceptor graph; re-broadcasts modified pose back through chain |
+| `on_pose_broadcast` (label "Intercept Pose") | Entry for a pose interceptor graph; receives an `InterceptorFrame` from the registry |
+| `pose_interceptor_broadcast` (label "Send Intercepted Pose") | Exit for a pose interceptor graph; advances the chain or performs the final broadcast |
+| `on_blendshapes_broadcast` (label "Intercept Blendshapes") | Entry for a blendshape interceptor graph; receives a `BlendshapeInterceptorFrame`. The frame type is deliberately distinct from `InterceptorFrame` so a pose frame can't be wired into a blendshape terminal. |
+| `blendshapes_interceptor_broadcast` (label "Send Intercepted Blendshapes") | Exit for a blendshape interceptor graph; advances the chain or performs the final broadcast |
 
 ### Config/context
 | Kind | Description |

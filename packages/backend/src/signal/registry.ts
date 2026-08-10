@@ -26,6 +26,9 @@ import { PackEvent } from './nodes/pack_event.js';
 import { QueueEvents } from './nodes/queue_events.js';
 import { OnPoseBroadcast } from './nodes/on_pose_broadcast.js';
 import { PoseInterceptorBroadcast } from './nodes/pose_interceptor_broadcast.js';
+import { OnBlendshapesBroadcast } from './nodes/on_blendshapes_broadcast.js';
+import { BlendshapesInterceptorBroadcast } from './nodes/blendshapes_interceptor_broadcast.js';
+import { BlendshapeLimits } from './nodes/blendshape_limits.js';
 import { Clock } from './nodes/clock.js';
 import { Time } from './nodes/time.js';
 import { SineWave } from './nodes/sine_wave.js';
@@ -133,6 +136,9 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   // Interceptor nodes
   OnPoseBroadcast,
   PoseInterceptorBroadcast,
+  OnBlendshapesBroadcast,
+  BlendshapesInterceptorBroadcast,
+  BlendshapeLimits,
   // Math / procedural nodes
   Clock,
   Time,

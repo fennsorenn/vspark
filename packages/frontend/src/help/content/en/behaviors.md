@@ -71,6 +71,46 @@ Breathing adds a subtle, automatic rise-and-fall to the chest and shoulders so
 your avatar feels alive even when you're holding still. The amount of chest and
 shoulder movement is adjustable.
 
+## Expression limits {#expression-limits}
+
+Face tracking, lip sync and manually set expressions all land in the same frame,
+and by default they simply add up. That is what produces the exaggerated or
+outright broken faces you sometimes see: a full **joy** expression already
+squints the eyes, so a blink stacked on top collapses the eyelids, and a
+wide-open lip-sync vowel on top of a joy smile stretches the mouth past what the
+model was built for.
+
+The **Expression limits** behavior is a corrective pass that runs on the
+finished expression frame, just before it reaches the avatar. Add it to an
+avatar and it works immediately — the shipped defaults cover the common cases.
+
+**Exclusive groups.** Expressions in a group cannot occur together. The strongest
+one wins and the others fade out in proportion to how strong it is, so competing
+emotions cross-fade instead of popping. By default all five emotion presets —
+joy, angry, sad, relaxed and surprised — are in one group, so your avatar can
+only be one thing at a time. *Normalise sum* is the gentler alternative: nothing
+wins outright, but if the group's expressions add up past 1 they are all scaled
+back until they fit.
+
+**Clamp rules.** While a driver expression is active, a set of target shapes is
+capped into a reduced range. The two shipped rules both use joy as the driver:
+one holds back the eye-close and blink shapes, the other the mouth-open shapes
+and lip-sync vowels. *Threshold* is how strong the driver must be before the
+rule does anything, and with *fade in with driver* on, the cap tightens
+gradually as the driver grows rather than snapping on.
+
+**Naming.** Names are matched case-insensitively, and `*` works as a wildcard —
+`Fcl_MTH_*` catches every VRoid mouth morph in one entry. That is how one rule
+set covers models that spell the same expression `happy`, `Joy` or
+`Fcl_ALL_Joy`. A member row holds several names precisely because they are all
+the *same* expression to your model; the add-field suggests the names your
+loaded avatar actually exposes. A rule naming a shape your model doesn't have
+simply does nothing.
+
+**Raw JSON.** The whole rule set is editable as JSON at the bottom of the panel,
+which is the quickest way to copy a tuned configuration from one avatar to
+another. **Reset to defaults** puts the shipped rules back.
+
 ## Camera & microphone setup {#devices}
 
 The **Media** window is where you choose which webcam and microphone vspark

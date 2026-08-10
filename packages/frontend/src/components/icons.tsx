@@ -13,6 +13,7 @@ import {
   Clapperboard,
   Film,
   Folder,
+  Gauge,
   Globe,
   Image,
   Layers,
@@ -79,6 +80,7 @@ export const BEHAVIOR_ICON: Record<string, LucideIcon> = {
   lipsync_processor: Mic,
   breathing: Wind,
   manual_calibration: Ruler,
+  blendshape_limiter: Gauge,
   api_controller: SlidersHorizontal,
 };
 
