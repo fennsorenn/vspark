@@ -169,7 +169,7 @@ Available anchors per topic:
 | `overview` | `pieces`, `first-session`, `language` |
 | `avatar` | `loading`, `animation`, `expressions`, `materials`, `calibration` |
 | `scene` | `nodes`, `hierarchy`, `cameras`, `lights`, `compose` |
-| `behaviors` | `vmc`, `tracking`, `lipsync`, `breathing` |
+| `behaviors` | `vmc`, `tracking`, `lipsync`, `breathing`, `expression-limits`, `devices`, `api` |
 | `logic` | `automations`, `nodes`, `events`, `triggers` |
 
 ### docs.ts — `help/docs.ts`

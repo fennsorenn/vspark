@@ -31,7 +31,7 @@ Manages VMC/RhyLive motion capture receivers. Each behavior owns a `SignalGraph`
 **Input**: UDP OSC packets on a configurable port  
 **Output**: `vmc_pose` and `vmc_blendshapes` WebSocket broadcasts
 
-**Shared UDP socket pool** (implemented): transport lives in `vmc/udp_socket_pool.ts` — a process-wide singleton (`udpSocketPool`) exporting `subscribe(port, listener, onBound?) -> unsubscribe`. Refcounted per port: the first subscriber binds, the last unsubscribe closes. Listener dispatch snapshots the subscriber set, so a listener can unsubscribe mid-dispatch safely. The pool currently binds `0.0.0.0` (the per-behavior `host` config is not yet honored — matches pre-refactor behavior). The `Receiver` struct no longer holds a `socket: Socket`; it holds an `unsubscribe: () => void` instead. `startReceiver` subscribes to the pool; `stopReceiver` calls the unsubscribe. Port changes go through the existing `stopReceiver` → `startReceiver` sequence. Multiple `vmc_receiver` behaviors on the same port now each receive every packet independently — per-behavior tracking detection, calibration and bus slot publication are unaffected. Verified with two avatars on the same port both animating from one source.
+**Shared UDP socket pool** (implemented): transport lives in `vmc/udp_socket_pool.ts` — a process-wide singleton (`udpSocketPool`) exporting `subscribe(port, listener, onBound?) -> unsubscribe` plus `send(localPort, payload, host, remotePort)` (added for the iFacialMocap handshake; unused by VMC). Refcounted per port: the first subscriber binds, the last unsubscribe closes. Listener dispatch snapshots the subscriber set, so a listener can unsubscribe mid-dispatch safely. The pool currently binds `0.0.0.0` (the per-behavior `host` config is not yet honored — matches pre-refactor behavior). The `Receiver` struct no longer holds a `socket: Socket`; it holds an `unsubscribe: () => void` instead. `startReceiver` subscribes to the pool; `stopReceiver` calls the unsubscribe. Port changes go through the existing `stopReceiver` → `startReceiver` sequence. Multiple `vmc_receiver` behaviors on the same port now each receive every packet independently — per-behavior tracking detection, calibration and bus slot publication are unaffected. Verified with two avatars on the same port both animating from one source.
 
 **Packet formats handled** (no external OSC library):
 - `/VMC/Ext/Bone/Pos` — Unity HumanBodyBones rotation array
@@ -44,17 +44,42 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
                   → arkit_vrm_mapper (×3) → blendshapes_sum → blendshapes_broadcast
 ```
 
-**Tracking detection**: Frame-to-frame delta compared to a threshold; sets `vmcTracking` flag broadcast over WS.
+**Tracking detection** (two loss paths, one grace period): the `/Body` handler sums the frame-to-frame delta over the RhyLive float array against `TRACKING_THRESHOLD` — motion clears `Receiver.quietSince` and re-latches tracking, going still only *stamps* `quietSince`. Packets going away is the second path, detected off `lastSeen`. The 250ms `checkTimeouts()` sweep resolves both from `Math.min(quietSince ?? now, lastSeen)` against the avatar node's grace period, so whichever dropout started first drives the window. Connection status (the grey dot) keeps its own fixed 3s window — reachability is a separate question from tracking. See [animation.md](animation.md) (Tracking-loss grace period).
 
-**Tracking-loss → bus removal** (implemented): on the `nowTracking === false` transition the manager calls `broadcastBus.removeBehavior(behaviorId)`, which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic — the next `publishBones` re-creates the per-behavior slot in the bus's nodeMap.
+**`setTracking(behaviorId, tracking)`** is the single transition point: collapses no-op repeats, broadcasts `vmc_tracking_state`, and on loss calls `broadcastBus.removeBehavior(behaviorId)` — which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic: the next `publishBones` re-creates the per-behavior slot. Add new transition triggers by calling this, not by mutating `trackingActive` directly.
 
-**Review-later**: `poseTimeout` on vmc_receiver is largely redundant now that tracking-loss drives an immediate bus-side additive transition. Kept on the frontend (`Viewport.tsx`) as a client-side safety net for missed WS transition messages; revisit once the new flow proves robust in practice.
+**Grace period** is read per-sweep via `trackingGraceMs(sceneNodeId, fallbackMs)` from [`behaviors/tracking_grace.ts`](../../packages/backend/src/behaviors/tracking_grace.ts) — the avatar node's `properties.trackingGracePeriod`, shared with `mediapipe_tracker` and the extension point for any future tracking source. The old per-behavior `poseTimeout` config field is gone (migration 035).
 
-**Interceptors**: `OnPoseBroadcast` nodes from other behaviors (breathing, manual_calibration) are registered into the VMC graph's interceptor chain. Cleanup callbacks are stored per receiver so they're removed on stop.
+**Interceptors**: `OnPoseBroadcast` nodes from other behaviors (breathing, manual_calibration, pose_stylizer) are registered into the VMC graph's interceptor chain. Cleanup callbacks are stored per receiver so they're removed on stop.
 
 **VRM skeleton loading**: On start, parses the node's `.vrm`/`.glb` file to extract the humanoid bone hierarchy (used by `arm_ik_calibration` for forward kinematics). See `vrm/skeleton.ts`.
 
 **Manual triggers**: `fireGraphEvent(behaviorId, nodeId, port)` — used by calibration buttons in the UI via `POST /api/signal/graphs/:id/fire` (substrate monitoring route, unchanged).
+
+---
+
+## IFacialMocapManager — `ifacialmocap_receiver/manager.ts`
+
+ARKit face tracking from the iFacialMocap iOS app. Built deliberately parallel to `VmcManager` — same graph lifecycle, same `_nodeState` persistence, same interceptor registration, same `vmc_status` / `vmc_tracking_state` WS surface, same broadcast-bus slot semantics, same shared UDP socket pool.
+
+**Input**: plain-text UDP datagrams on a configurable port (default 49983)
+**Output**: `vmc_pose` and `vmc_blendshapes` WebSocket broadcasts
+
+**Graph descriptor**: `makeIFacialMocapGraphDescriptor(behaviorId)` wires:
+```
+ifacialmocap_packet_source → rhylive_bone_mapper → body_calibration → pose_broadcast
+                           → arkit_vrm_mapper (×3) → blendshapes_sum → blendshapes_broadcast
+```
+Everything except the source node is shared verbatim with the VMC pipeline.
+
+**Differences from `VmcManager`** (full detail in [ifacialmocap.md](ifacialmocap.md)):
+
+- **Outbound handshake.** iFacialMocap only streams after the receiver sends it a magic string, so the config carries a `deviceHost` (the phone's address) and `UdpSocketPool` grew a `send(localPort, payload, host, remotePort)` that reuses the shared bound socket. Re-sent every 1 s while silent / 5 s while streaming, so an app restart re-attaches by itself. `deviceHost` is optional — the app can be pointed at this machine from the phone side instead.
+- **Face-only.** No `arm_ik_calibration` stage, no arm capture triggers, and no VRM skeleton load (that only fed arm IK). `HEAD_CALIB_BONES` is `head` / `leftEye` / `rightEye` only.
+- **Axis flips.** Three `invertPitch` / `invertYaw` / `invertRoll` config toggles, because the published spec doesn't pin down the euler convention; read live per packet, so they hot-apply.
+- **Tracking detection vector.** Same two-loss-path / one-grace-period contract as `VmcManager` (`quietSince` + `lastSeen` resolved on a 250 ms sweep against `trackingGraceMs(sceneNodeId)`), but diffed over a frame signature of head + eye euler degrees and the 52 ARKit weights rather than the RhyLive float array. The debounce carries more weight here: the app keeps streaming the last values when it loses the face, so a held expression would otherwise read as a loss. See [ifacialmocap.md](ifacialmocap.md#tracking-detection).
+
+**Packet parsing** lives in an exported, unit-tested `protocol.ts` rather than inline in the manager (the VMC OSC parser is unexported, which is why `subsystems.parse.test.ts` has to reimplement it).
 
 ---
 
@@ -128,6 +153,13 @@ IK calibration knobs (see PropertiesPanel `MediapipeTrackerProps`). All knobs ar
 through `behavior_config` nodes wired into converter value ports — no `nodeConfig[nodeId]`
 side-channel.
 
+**Tracking loss**: only the silence path exists here (the camera pipeline simply stops sending;
+there is no frame-diff equivalent of VMC's "signal went still"). The 250ms `checkTimeouts()` sweep
+compares `lastInput` against `trackingGraceMs(nodeId, TRACKING_TIMEOUT_MS)` — the avatar node's
+`properties.trackingGracePeriod`, shared with `vmc_receiver`, with the camera-specific 1s constant
+as the fallback when the node sets nothing. Being per-node, this needs no MediaPipe-side UI
+control. See [animation.md](animation.md) (Tracking-loss grace period).
+
 ---
 
 ## ApiControllerManager — `api_controller/manager.ts`
@@ -181,6 +213,150 @@ behavior_config (field: calibrations) ──┘ (→ calibrations input)
 
 ---
 
+## PoseStylizerManager — `pose_stylizer/manager.ts`
+
+Pose interceptor that converts accurate tracking into stylized, whole-body
+"pretty" motion. The **third interceptor-registering manager** (alongside
+`VmcManager` and `ManualCalibrationManager`) — it has no source of its own and
+only runs while some producer is broadcasting a pose for the avatar.
+
+**Input**: an upstream pose via the interceptor chain
+**Output**: the reshaped pose re-broadcast through the chain (`pose_interceptor_broadcast`)
+
+**Lifecycle**: mirrors `ManualCalibrationManager` — per-behavior `SignalGraph`,
+hot-applied config via `_behaviorConfig`, registration through
+`OnPoseBroadcast.register` instead of a clock/socket.
+
+**Priority 8**, deliberately above manual calibration's 5: the pose is stylized
+first, so a user's manual per-bone trim applies to the pose they can actually see.
+
+**Graph descriptor** (`pose_stylizer/graph.ts`):
+```
+on_pose_broadcast (priority 8) ─┬─→ pose_style_drivers ─→ pose_stylize ─→ pose_interceptor_broadcast
+                                └───────────────────────────↗ (pose, as blend base)
+behavior_config × 5 (response / amount / lag / rig / restUnmapped) ──┘
+```
+
+**The idea in one line**: instead of copying the tracked skeleton, read a handful
+of normalized *drivers* off the performance (head-vs-torso orientation, torso
+lean, arm height, motion energy) and synthesize the body back from them through a
+per-bone response rig. That gives whole-body follow-through *and* makes glitches
+structurally impossible on the bones the rig owns, because the drivers are
+clamped, deadzoned and rate-limited before anything is rebuilt.
+
+**Persist guard** (differs from the other managers): `_persistNodeState` skips
+node kinds in `EPHEMERAL_STATE_KINDS` — currently `on_pose_broadcast`, whose state
+is the *entire current pose*, injected fresh before every fire. Without the guard
+that would be a read-modify-write of the behavior row at the pose rate (~60Hz),
+persisting a value that is meaningless after a restart.
+
+> **Watch item.** `ManualCalibrationManager` lacks this guard and therefore does
+> write a full pose into SQLite on every interceptor frame (~60Hz read-modify-write
+> of the behavior row, persisting state that is meaningless after a restart).
+> Pre-existing and accepted for now, but the two managers differ for no principled
+> reason and the fix is to lift `EPHEMERAL_STATE_KINDS` into the shared interceptor
+> path. Do this before anything else adopts `ManualCalibrationManager` as the
+> reference interceptor manager. Also listed in
+> [stylized-tracking.md](stylized-tracking.md#watch-list).
+
+Config: `{ amount, strength, lag, restUnmapped, preset, response, rig, rigMode, simpleRig }` — `preset` names a base
+for the whole behavior (rig + optionally response and follow-through) — `follow`,
+`counter`, `headOnly`, `headOnlyCounter` or `expressive` — that the other fields override. Note that
+`lag` and `response` are deliberately absent from the kind's `defaultConfig`,
+because the add-behavior flow copies that object into the row and would otherwise
+pin them. See
+[stylized-tracking.md](stylized-tracking.md) for the full data model, the default
+rig and its tuning invariants, replace-vs-add modes, and the extension recipes.
+
+**BehaviorKind**: `@BehaviorKind({ kind: 'pose_stylizer', label: 'Stylized Tracking', icon: '🎭', applicableTo: ['avatar'] })`.
+Frontend UI is `StylizedTrackingProps` in `PropertiesPanel.tsx`.
+## BlendshapeLimiterManager — `blendshape_limiter/manager.ts`
+
+Blendshape interceptor that stops expressions from stacking into exaggerated or
+broken faces. It is to the blendshape half of the frame what
+`ManualCalibrationManager` is to the pose half: no source of its own, it
+registers its graph's `on_blendshapes_broadcast` node into the **blendshape
+interceptor chain** and only acts when some other producer (VMC, tracking,
+lipsync, api_controller …) publishes expression weights for that avatar.
+
+**Input**: the merged blendshape frame via the interceptor chain
+**Output**: the corrected frame re-broadcast through the chain (`blendshapes_interceptor_broadcast`)
+
+**Lifecycle**: identical to `ManualCalibrationManager` — per-behavior
+`SignalGraph`, persisted node state (`config._nodeState[nodeId]`), hot-applied
+config, `OnBlendshapesBroadcast.register` at start and the unregister callbacks
+kept per behavior for teardown.
+
+**Graph descriptor** (`blendshape_limiter/graph.ts`):
+```
+on_blendshapes_broadcast (priority 5) → blendshape_limits → blendshapes_interceptor_broadcast
+behavior_config (field: limits) ──────┘ (→ limits input)
+```
+
+**Rule model** — the whole rule set is one JSON document under behavior config
+`limits`. The engine is the pure `applyBlendshapeLimits` in
+[`packages/shared/src/blendshapeLimits.ts`](../../packages/shared/src/blendshapeLimits.ts)
+(dependency-free, directly unit-tested, and importable from the frontend via the
+`@vspark/shared/blendshapeLimits` subpath):
+
+- **Exclusive groups** — a group holds *members*, and a member is one *concept*
+  carrying several name patterns, because the same expression is spelled
+  `happy` (VRM 1.0), `Joy` (VRM 0.x) or `Fcl_ALL_Joy` (VRoid morph target). A
+  member's weight is the strongest of its matched names, so two spellings of one
+  concept never suppress each other. In `suppress` mode the strongest member
+  wins and each loser is scaled by `1 − strength × winnerWeight` — proportional,
+  so competing emotions cross-fade rather than pop. In `normalize` mode nobody
+  wins, but a group summing above 1 is scaled back until it fits (interpolated
+  by `strength`).
+- **Clamp rules** — while a *driver* (`when`, strongest match; empty ⇒
+  unconditional) is above `threshold`, the `targets` are clamped into
+  `[min, max]`. With `ramp` (default) the effective bounds lerp from the
+  untouched `[0, 1]` toward the configured range as the driver grows.
+
+Ordering matters and is deliberate: **all groups run first, then all clamps**, so
+a clamp's driver reads the weight its driver *ends up with* after winning or
+losing its group. Group order is declaration order, so overlapping groups
+compose predictably.
+
+**Name matching**: case-insensitive, fully anchored, `*` as a wildcard
+(`Fcl_MTH_*` catches every VRoid mouth morph). Matching only ever considers
+shapes **present in the frame**, so a rule naming a shape the model doesn't drive
+is a silent no-op, and the input record is never mutated.
+
+**Shipped defaults** (`DEFAULT_BLENDSHAPE_LIMITS`, also the `@BehaviorKind`
+`defaultConfig`, so a freshly added behavior works immediately): one exclusive
+group over the five emotion presets (joy / angry / sad / relaxed / surprised,
+each member carrying its VRM 1.0 + 0.x + VRoid spellings), plus two clamp rules
+both driven by joy — eye-close/blink capped at 0.5 and mouth-open/lip-sync
+vowels at 0.6, each from a 0.3 threshold with ramping.
+
+> **TODO — hand-tune the shipped defaults.** They were authored from the VRM
+> spec rather than from watching real avatars, and the numbers above (0.5
+> eye-close cap, 0.6 mouth cap, 0.3 thresholds, `strength: 1` on the emotion
+> group) are first-pass estimates. Merged as-is deliberately: the rule *engine*
+> is what needed reviewing, and the values are a taste call better made against
+> live tracking. Two things to know before adjusting them:
+>
+> - Because `DEFAULT_BLENDSHAPE_LIMITS` is also the `@BehaviorKind`
+>   `defaultConfig`, the add-behavior flow **copies it into the row**. Retuning
+>   these constants therefore only affects *newly added* behaviors — existing
+>   ones keep the values they were seeded with until the user hits **Reset to
+>   defaults**. (Same `defaultConfig`-pins-config pattern noted in
+>   [stylized-tracking.md](stylized-tracking.md).)
+> - The joy→mouth clamp targets the lipsync vowels (`aa`/`ih`/`ou`), so smiling
+>   while speaking is the case it governs. Tune it against actual speech, not a
+>   static expression slider.
+
+**Tolerant parsing**: the node runs its config through
+`normalizeBlendshapeLimits` before applying it, so a hand-edited or
+partially-typed JSON document degrades to "fewer rules" instead of a crashed
+graph. The frontend uses the same function to render the panel.
+
+**BehaviorKind**: `@BehaviorKind({ kind: 'blendshape_limiter', label: 'Expression Limits', icon: '🚦', applicableTo: ['avatar'] })`.
+Frontend UI is `BlendshapeLimiterProps` in `PropertiesPanel.tsx` (see [frontend.md](frontend.md)).
+
+---
+
 ## BroadcastBus — `broadcast/bus.ts`
 
 Shared sink that merges per-behavior pose/blendshape outputs into the single `vmc_pose` / `vmc_blendshapes` WS streams. Each sceneNode owns a `nodeMap` of `behaviorId → latest contribution`; the bus combines entries and rebroadcasts.
@@ -191,6 +367,15 @@ Shared sink that merges per-behavior pose/blendshape outputs into the single `vm
   - `vmc_pose` with empty `bones` and `animationBlendMode: 'additive'`
   - `vmc_blendshapes` with empty `{}` record
 - The frontend Viewport sees the empty-bones frame, trips off pose application, and ramps back to pure animation. While *any* producer is still active (e.g. breathing) the fallback does not fire and other producers continue uninterrupted.
+
+**Two interceptor chains**: after composing a scene node's slots the bus offers
+the merged frame to a registry before emitting — `poseInterceptorRegistry` for
+bones, `blendshapeInterceptorRegistry` for expression weights. Both follow the
+same contract: `start()` returns true when a chain exists, in which case the bus
+does **not** emit and the chain's terminal node finalizes via `emitMergedPose` /
+`emitMergedBlendshapes`. With no interceptors registered the bus emits directly,
+exactly as before. The registries are independent, so an avatar can carry a pose
+interceptor, a blendshape interceptor, or both.
 
 **Producer requirement**: any source publishing into the bus (via `pose_broadcast` / `blendshapes_broadcast`) must supply a `behaviorId` so its contribution can be slotted and later cleared — wired through the broadcast nodes' `behaviorId` input port. The mediapipe tracker graph was previously missing this wiring (silent no-op); fixed by adding a `comp_id` node (the `behavior_id` node kind) feeding both broadcast nodes in `mediapipe_tracker/graph.ts`.
 

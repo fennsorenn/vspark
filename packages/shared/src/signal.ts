@@ -135,6 +135,47 @@ export class Quaternion {
   }
 
   /**
+   * Spherical linear interpolation towards `to` by `t` (clamped to [0, 1]),
+   * along the shortest arc. Falls back to a normalized lerp when the two
+   * rotations are nearly parallel (where the sine denominator is unstable).
+   */
+  slerp(to: Quaternion, t: number): Quaternion {
+    const k = t <= 0 ? 0 : t >= 1 ? 1 : t;
+    if (k === 0) return this;
+    if (k === 1) return to;
+
+    const a = this.normalize();
+    let b = to.normalize();
+    let dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+    // Shortest arc: flip the destination when the rotations point apart.
+    if (dot < 0) {
+      b = new Quaternion(-b.x, -b.y, -b.z, -b.w);
+      dot = -dot;
+    }
+
+    if (dot > 0.9995) {
+      // Nearly parallel — lerp + renormalize (slerp's denominator → 0 here).
+      return new Quaternion(
+        a.x + (b.x - a.x) * k,
+        a.y + (b.y - a.y) * k,
+        a.z + (b.z - a.z) * k,
+        a.w + (b.w - a.w) * k
+      ).normalize();
+    }
+
+    const theta = Math.acos(dot);
+    const sinTheta = Math.sin(theta);
+    const wa = Math.sin((1 - k) * theta) / sinTheta;
+    const wb = Math.sin(k * theta) / sinTheta;
+    return new Quaternion(
+      a.x * wa + b.x * wb,
+      a.y * wa + b.y * wb,
+      a.z * wa + b.z * wb,
+      a.w * wa + b.w * wb
+    );
+  }
+
+  /**
    * Build a unit quaternion from intrinsic ZYX Euler angles (radians):
    * Rz(roll) · Ry(yaw) · Rx(pitch). pitch = X axis, yaw = Y axis, roll = Z axis.
    * Matches the `euler_to_quaternion` signal node convention; `toEuler` is its inverse.
@@ -237,11 +278,54 @@ export class BoneRotations {
 // NormalizedPose — VRM-mapped, coordinate-corrected bone rotations
 // ──────────────────────────────────────────────────────────────────────────────
 
+/** A bone translation offset, `[x, y, z]`, as a fraction of the avatar's hip height. */
+export type BoneOffset = readonly [number, number, number];
+
 export class NormalizedPose {
   private readonly _bones: Map<VRMBoneName, Quaternion>;
+  /**
+   * Optional per-bone TRANSLATION, carried alongside the rotations.
+   *
+   * The pose pipeline is rotation-first and every mapper, calibration and merge
+   * step only ever touches `_bones`; offsets ride along untouched through `map`
+   * and `with` so none of them had to learn about translation. Currently only the
+   * hips are ever offset (by the stylizer's body-shift channels), and the unit is
+   * deliberately RELATIVE — a fraction of the avatar's own hip height — so a rig
+   * authored on one model reads the same on a taller or shorter one.
+   */
+  private readonly _offsets: Map<VRMBoneName, BoneOffset>;
 
-  constructor(entries: Iterable<readonly [VRMBoneName, Quaternion]> = []) {
+  constructor(
+    entries: Iterable<readonly [VRMBoneName, Quaternion]> = [],
+    offsets: Iterable<readonly [VRMBoneName, BoneOffset]> = []
+  ) {
     this._bones = new Map(entries);
+    this._offsets = new Map(offsets);
+  }
+
+  /** This bone's translation offset, if the pose carries one. */
+  offset(bone: VRMBoneName): BoneOffset | undefined {
+    return this._offsets.get(bone);
+  }
+  offsetEntries(): IterableIterator<[VRMBoneName, BoneOffset]> {
+    return this._offsets.entries();
+  }
+  get offsetCount(): number {
+    return this._offsets.size;
+  }
+
+  /** Copy with one bone's translation offset set (rotations untouched). */
+  withOffset(bone: VRMBoneName, value: BoneOffset): NormalizedPose {
+    const next = new Map(this._offsets);
+    next.set(bone, value);
+    return new NormalizedPose(this._bones, next);
+  }
+
+  /** Wire form for the offsets. Empty when the pose is rotation-only. */
+  offsetsToRecord(): Record<string, [number, number, number]> {
+    const out: Record<string, [number, number, number]> = {};
+    for (const [b, v] of this._offsets) out[b] = [v[0], v[1], v[2]];
+    return out;
   }
 
   get(bone: VRMBoneName): Quaternion | undefined {
@@ -263,12 +347,13 @@ export class NormalizedPose {
   with(bone: VRMBoneName, q: Quaternion): NormalizedPose {
     const next = new Map(this._bones);
     next.set(bone, q);
-    return new NormalizedPose(next);
+    return new NormalizedPose(next, this._offsets);
   }
 
   map(fn: (q: Quaternion, bone: VRMBoneName) => Quaternion): NormalizedPose {
     return new NormalizedPose(
-      Array.from(this._bones.entries()).map(([b, q]) => [b, fn(q, b)] as const)
+      Array.from(this._bones.entries()).map(([b, q]) => [b, fn(q, b)] as const),
+      this._offsets
     );
   }
 
@@ -337,6 +422,21 @@ export interface InterceptorFrame {
   readonly priority: number;
 }
 
+/**
+ * The blendshape counterpart of `InterceptorFrame` — passed through the
+ * blendshape interceptor chain (see the Expression Limits behavior). Kept as a
+ * separate type (rather than widening `InterceptorFrame`) so a pose frame can
+ * never be wired into a blendshape terminal.
+ */
+export interface BlendshapeInterceptorFrame {
+  /** Scene node the broadcast is addressed to. */
+  readonly nodeId: string;
+  /** Blendshapes at the point this interceptor was invoked. */
+  readonly blendshapes: Blendshapes;
+  /** Priority of the on_blendshapes_broadcast node that produced this frame. */
+  readonly priority: number;
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // PoseFrame — fully assembled frame, wire format for server → client broadcast
 // ──────────────────────────────────────────────────────────────────────────────
@@ -352,10 +452,15 @@ export class PoseFrame {
   toWire(): {
     bones: Record<string, [number, number, number, number]>;
     blendshapes: Record<string, number>;
+    offsets?: Record<string, [number, number, number]>;
   } {
     return {
       bones: this.pose.toRecord(),
       blendshapes: this.blendshapes.toRecord(),
+      // Omitted entirely for rotation-only poses, which is nearly all of them.
+      ...(this.pose.offsetCount > 0
+        ? { offsets: this.pose.offsetsToRecord() }
+        : {}),
     };
   }
 }
@@ -404,8 +509,16 @@ export interface SignalTypeMap {
   MappingTable: Record<string, [string, number][]> | null;
   /** Opaque token passed through the pose interceptor chain. */
   InterceptorFrame: InterceptorFrame;
+  /** Opaque token passed through the blendshape interceptor chain. */
+  BlendshapeInterceptorFrame: BlendshapeInterceptorFrame;
   /** A single unit quaternion rotation. */
   Quaternion: Quaternion;
+  /**
+   * One frame of stylized-tracking drivers — the low-dimensional performance
+   * summary (head/body orientation, arm height, energy) that the `pose_stylizer`
+   * behavior fans back out across the whole body. See `style_rig.ts`.
+   */
+  StyleDrivers: import('./style_rig.js').StyleDrivers;
   /** Wildcard — compatible with any other type for generic nodes. */
   Any: unknown;
   /** Raw MediaPipe landmark array (face=478, hand=21, pose=33 points). */
@@ -519,7 +632,9 @@ export const SIGNAL_TYPE_COLORS: Record<SignalTypeName, string> = {
   ComposeLayer: '#6aaf9a',
   MappingTable: '#a07050',
   InterceptorFrame: '#9a5a8a',
+  BlendshapeInterceptorFrame: '#b5708a',
   Quaternion: '#5a9a7a',
+  StyleDrivers: '#b06a9a',
   LandmarkList: '#7a9a6a',
   IkTargets: '#a06a9a',
   Account: '#9146ff',

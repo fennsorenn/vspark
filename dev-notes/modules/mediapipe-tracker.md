@@ -182,6 +182,25 @@ an active IK target:
 5. If new UI knobs are needed, extend `MediapipeTrackerProps` in
    `PropertiesPanel.tsx`.
 
+## Tracking loss
+
+Only one loss path exists here: the browser stops sending frames (camera off, tab
+hidden, person left frame). There is no equivalent of VMC's "packets keep arriving
+but stop changing" frame-diff — the camera pipeline just goes silent.
+
+`TrackingManager.checkTimeouts()` sweeps every 250ms (`SWEEP_MS`, fixed rather than
+derived from the configured window, whose minimum is 0.1s) and compares `lastInput`
+against `this.graceMs(behaviorId)` → `trackingGraceMs(nodeId, TRACKING_TIMEOUT_MS)`
+from `behaviors/tracking_grace.ts`. That resolves the avatar node's
+`properties.trackingGracePeriod`, shared with `vmc_receiver`, falling back to the
+camera-specific `TRACKING_TIMEOUT_MS = 1000` when the node carries no setting (at
+~30fps a shorter default is fine).
+
+Because the setting lives on the node rather than the behavior, MediaPipe needs no
+tracking-grace control of its own, and a VMC receiver on the same avatar cannot hold
+a conflicting window. See [animation.md](animation.md) (Tracking-loss grace period)
+for the full model and the extension point for new tracking sources.
+
 ## Open work
 
 1. **Face blendshape accuracy / configuration** — WIP. The default heuristic
