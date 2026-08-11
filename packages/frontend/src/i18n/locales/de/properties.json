@@ -236,6 +236,7 @@
     "defaultExpressionHint": "Ruhende Mimik-Gewichtungen, die so lange gehalten werden, bis eine Blendshape-Übertragung (VMC, Lipsync, Tracking) sie überschreibt.",
     "propertiesHeader": "Eigenschaften",
     "blendTransition": "Überblendzeit",
+    "trackingGracePeriod": "Leerlauf nach",
     "dynamicsHeader": "Bewegungsdynamik",
     "dynamicsEnable": "Bewegung dynamischer machen",
     "dynamicsFrequency": "Frequenz",
@@ -356,7 +357,8 @@
     "pipelineError": "Pipeline nicht erreichbar — ist das Tracking aktiv?",
     "resetAll": "Gesamte Kalibrierung zurücksetzen",
     "calibReset": "Kalibrierung zurückgesetzt",
-    "hint": "Kopf: natürliche Haltung einnehmen. Arme: Fingerspitze an Augenecke halten, ruhig bleiben."
+    "hint": "Kopf: natürliche Haltung einnehmen. Arme: Fingerspitze an Augenecke halten, ruhig bleiben.",
+    "headOnlyHint": "Kopf: entspannt gerade auf das Telefon blicken, dann erfassen."
   },
   "vmc": {
     "host": "Host",
@@ -366,7 +368,6 @@
     "blendAdditive": "Additiv — überlagert",
     "mirror": "Spiegeln",
     "flipLR": "Links / Rechts spiegeln",
-    "idleAfter": "Leerlauf nach",
     "faceMappersHeader": "Gesichts-Mapper",
     "localIpsHeader": "IPs dieses Rechners — richte deine Capture-App hierauf",
     "setHostTip": "Host auf {{ip}} setzen",
@@ -380,6 +381,19 @@
     "mapperArkitPlaceholder": "ARKit-Form…",
     "mapperTargetPlaceholder": "Morph-Target oder Mimik…",
     "mapperInvalidJson": "Ungültiges JSON"
+  },
+  "ifm": {
+    "deviceHost": "Geräte-IP",
+    "deviceHostPlaceholder": "iPhone-/iPad-Adresse, z. B. 192.168.1.42",
+    "blendOverride": "Überschreiben — Tracking ersetzt Animation",
+    "axesHeader": "Kopfachsen",
+    "invertPitch": "Nicken umkehren",
+    "invertYaw": "Drehen umkehren",
+    "invertRoll": "Neigen umkehren",
+    "axesHint": "Kehre eine Achse um, wenn sich der Kopf in die falsche Richtung bewegt. Erfasse unten eine Kopf-Neutralhaltung, sobald die Achsen stimmen.",
+    "localIpsHeader": "IPs dieses Rechners — eine davon in der iFacialMocap-App eintragen",
+    "compatHint": "Funktioniert mit iFacialMocap (iOS). Trage oben die Geräte-IP ein, dann fordert vspark den Stream beim Telefon an — oder lass sie leer und richte die App auf eine der obigen Adressen. Beide Seiten nutzen Port {{port}}.",
+    "firewallHint": "Port {{port}} muss in deiner Firewall offen sein."
   },
   "lipsync": {
     "sensitivity": "Empfindlichkeit",
@@ -430,6 +444,144 @@
   "breathing": {
     "chestAmplitude": "Brustamplitude",
     "shoulderLift": "Schulterheben"
+  },
+  "stylizedTracking": {
+    "hint": "Schreibt exaktes Tracking in stilisierte Bewegung um: Wenige Steuerwerte, die aus deiner Performance gelesen werden (Kopf, Oberkörper, Arme), werden über den ganzen Körper verteilt — so, wie ein 2D-Avatar gerigged ist.",
+    "preset": "Körper vs. Kopf",
+    "presetName": {
+      "follow": "Körper folgt dem Kopf",
+      "counter": "Körper gegen den Kopf",
+      "headOnly": "Kopfgesteuert, Körper folgt",
+      "headOnlyCounter": "Kopfgesteuert, Körper dagegen",
+      "expressive": "Ausdrucksstark"
+    },
+    "presetHint": {
+      "follow": "Drehst du den Kopf, drehen sich Brust, Wirbelsäule und Hüfte mit — der ganze Körper lehnt sich in den Blick hinein.",
+      "counter": "Drehst du den Kopf, dreht sich der Oberkörper dagegen — eine theatralische, gestellte Silhouette. Kopf und Hals tragen mehr, damit du weiterhin dorthin schaust, wohin du schaust.",
+      "headOnly": "Nur dein Kopf steuert den Avatar — Oberkörper- und Arm-Tracking werden vollständig ignoriert. Gut mit einem reinen Gesichts-Tracker oder wenn dein Körper-Tracking zu verrauscht ist. Der Körper bewegt sich dafür stärker pro Kopfbewegung.",
+      "headOnlyCounter": "Nur dein Kopf steuert den Avatar, und der Oberkörper dreht sich dagegen — Kontrapost auf einem reinen Gesichtssignal. Dieselben Anwendungsfälle wie die andere kopfgesteuerte Variante, nur mit gestellterer Silhouette.",
+      "expressive": "Die Zuordnung von „Körper folgt dem Kopf“, aber es braucht viel weniger Bewegung für den vollen Ausschlag, und der Körper läuft weiter nach. Für alle, die sich wenig bewegen und trotzdem lebendig wirken wollen."
+    },
+    "amount": "Mischung",
+    "amountHint": "Wie viel der stilisierten Pose dein Tracking ersetzt. 0 = dein Tracking unberührt, 1 = voll stilisiert.",
+    "strength": "Stärke",
+    "strengthHint": "Gesamt-Multiplikator dafür, wie weit die stilisierte Bewegung geht. 1 = das Rig wie entworfen; unter 1 nimmt alles zurück, über 1 übertreibt es.",
+    "lag": "Nachlauf",
+    "restUnmapped": "Nicht gesteuerte Knochen in Ruhelage",
+    "responseSection": "Ansprechverhalten",
+    "responseHint": "Wie deine Bewegung in Steuerwerte übersetzt wird. Bereich = wie weit du dich für volle Wirkung bewegen musst; der Rest fängt Ruckler und Zittern ab.",
+    "resetResponse": "Ansprechverhalten zurücksetzen",
+    "rigSection": "Antwort-Rig",
+    "rigHint": "Pro Knochen: welche Steuerwerte ihn bewegen, um wie viel Grad bei voller Stärke, ob er das Tracking ersetzt oder sich darüberlegt, und wie weit er nachläuft.",
+    "rigModeLabel": "Editor",
+    "rigMode": {
+      "simple": "Vereinfacht",
+      "detailed": "Pro Knochen"
+    },
+    "rigModeHint": {
+      "simple": "Kopf und Körper als zwei Bereiche, dazu der Versatz des Körpers. Rotationszellen sind Grad; Versatz-Zellen verschieben die Hüfte als Anteil der Hüfthöhe, sodass ein Rig auf einem anderen Avatar proportional verschiebt. Eine Zelle zu ändern skaliert die ganze Kette und behält den Abfall der Voreinstellung — und die Arme gleichen den Körper automatisch weiter aus.",
+      "detailed": "Jeder Knochen einzeln. Beim Wechsel wurden deine vereinfachten Werte unverändert übernommen, du kannst also genau dort weitermachen, wo es lief."
+    },
+    "channel": {
+      "headTurn": "Kopf drehen",
+      "headTilt": "Kopf neigen",
+      "headNod": "Kopf nicken",
+      "bodyTurn": "Körper drehen",
+      "bodySway": "Körper schwingen",
+      "bodyLean": "Körper beugen",
+      "shiftSide": "Versatz seitlich",
+      "shiftUp": "Versatz hoch",
+      "shiftForward": "Versatz vorn"
+    },
+    "channelShort": {
+      "headTurn": "K dreh",
+      "headTilt": "K neig",
+      "headNod": "K nick",
+      "bodyTurn": "R dreh",
+      "bodySway": "R schw",
+      "bodyLean": "R beug",
+      "shiftSide": "Vers. X",
+      "shiftUp": "Vers. Y",
+      "shiftForward": "Vers. Z"
+    },
+    "rigStock": "Standard-Rig",
+    "rigModified": "{{count}} Knochen geändert",
+    "rigModified_other": "{{count}} Knochen geändert",
+    "resetRig": "Rig zurücksetzen",
+    "resetBone": "Knochen zurücksetzen",
+    "boneMode": "Modus",
+    "boneLag": "Nachlauf",
+    "addDriver": "+ Steuerwert…",
+    "addBone": "+ Knochen…",
+    "mode": {
+      "replace": "Ersetzen",
+      "add": "Addieren"
+    },
+    "driver": {
+      "headYaw": "Kopfdrehung",
+      "headPitch": "Kopfnicken",
+      "headRoll": "Kopfneigung",
+      "bodyYaw": "Körperdrehung",
+      "bodyPitch": "Körperbeuge",
+      "bodyRoll": "Körperschwung",
+      "armL": "Höhe linker Arm",
+      "armR": "Höhe rechter Arm",
+      "energy": "Energie"
+    },
+    "response": {
+      "headRange": "Kopfbereich",
+      "bodyRange": "Körperbereich",
+      "armRange": "Armbereich",
+      "armNeutral": "Arm-Ruhelage",
+      "deadzone": "Totzone",
+      "maxRate": "Maximale Rate",
+      "smoothing": "Glättung",
+      "energyScale": "Energie-Skala"
+    },
+    "responseTip": {
+      "headRange": "Wie weit du den Kopf drehst, damit der Kopf-Steuerwert voll ausschlägt.",
+      "bodyRange": "Wie weit du den Oberkörper neigst oder drehst, damit der Körper-Steuerwert voll ausschlägt.",
+      "armRange": "Wie weit du einen Arm über die Ruhelage hebst, damit der Arm-Steuerwert voll ausschlägt.",
+      "armNeutral": "Die Armhöhe, die als Ruhelage gilt — damit ein entspannter Arm die Schulter nicht absenkt.",
+      "deadzone": "Steuerwert-Stärke, unterhalb derer du als still giltst. Verhindert, dass Sensorzittern den Avatar flimmern lässt.",
+      "maxRate": "Wie schnell sich ein Steuerwert höchstens bewegen darf, pro Sekunde. Das ist die Ruckler-Bremse: Ein unmöglicher Sprung wird zu einer kurzen Fahrt statt zu einem Zucken.",
+      "smoothing": "Wie viel vom vorherigen Bild jeder Steuerwert behält. Höher ist weicher und später.",
+      "energyScale": "Wie viel Gesamtbewegung als volle Energie zählt."
+    }
+  },
+  "blendshapeLimits": {
+    "enabled": "Begrenzung aktiv",
+    "hint": "Gesichtstracking, Lipsync und manuelle Mimik landen alle im selben Frame. Diese Regeln verhindern, dass sie sich zu übertriebenen oder kaputten Gesichtern aufaddieren.",
+    "resetDefaults": "Auf Standard zurücksetzen",
+    "groupsHeader": "Exklusive Gruppen",
+    "groupsHint": "Mimiken einer Gruppe können nicht gleichzeitig auftreten. Die stärkste setzt sich durch; die übrigen werden in dem Maß ausgeblendet, wie stark sie ist.",
+    "clampsHeader": "Begrenzungsregeln",
+    "clampsHint": "Solange die auslösende Mimik aktiv ist, werden die Zielformen in einen kleineren Bereich gedeckelt — Freude schließt z. B. schon die Augen, also wird Blinzeln zurückgehalten.",
+    "membersHeader": "Mitglieder — eine Zeile pro Mimik, mehrere Namen, falls dein Modell sie anders schreibt",
+    "mode": "Modus",
+    "modeSuppress": "Stärkste gewinnt",
+    "modeNormalize": "Summe normalisieren",
+    "strength": "Stärke",
+    "when": "Auslöser",
+    "targets": "Ziele",
+    "range": "Bereich",
+    "min": "Min",
+    "max": "Max",
+    "threshold": "Schwelle",
+    "ramp": "Mit Auslöser einblenden",
+    "addName": "Name oder Muster hinzufügen (* erlaubt), Enter bestätigt",
+    "addDriver": "Auslösende Mimik hinzufügen, leer = immer aktiv",
+    "addGroup": "Gruppe hinzufügen",
+    "addMember": "Mitglied hinzufügen",
+    "addClamp": "Begrenzungsregel hinzufügen",
+    "newGroup": "Neue Gruppe",
+    "newMember": "Neues Mitglied",
+    "newClamp": "Neue Begrenzung",
+    "remove": "Entfernen",
+    "jsonHeader": "Rohes JSON",
+    "jsonHint": "Der komplette Regelsatz. Direkt bearbeiten und anwenden — praktisch, um eine Konfiguration zwischen Avataren zu kopieren.",
+    "jsonApply": "JSON anwenden",
+    "jsonRevert": "Änderungen verwerfen"
   },
   "behaviorFallback": "Keine konfigurierbaren Eigenschaften.",
   "effect": {
@@ -535,6 +687,7 @@
     "expressions": "Standard-Mimik für deinen Avatar festlegen",
     "materials": "Avatar-Materialien und Shader anpassen",
     "animation": "Leerlauf-Animationen und Überblendzeiten verstehen",
+    "trackingGracePeriod": "Verstehen, wie kurze Tracking-Aussetzer überbrückt werden, bevor der Avatar in den Leerlauf zurückkehrt",
     "dynamics": "Mocap-Bewegungen dynamischer wirken lassen",
     "camera": "Kamera-Eigenschaften und Projektionen erkunden",
     "light": "Lichttypen und Schatteneinstellungen erkunden",
@@ -574,6 +727,10 @@
     "audioSpatial": "Abstands- und Kegelparameter für direktionales Audio — Referenzabstand, Abklingrate, maximaler Abstand und Kegelwinkel",
     "twist": "Unterarm-Drehung entlang des Arms verteilen statt am Ellbogen zu knicken",
     "poseSource": "Jeden Körperbereich per Animation, Live-Tracking oder einer Mischung steuern",
-    "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück"
+    "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück",
+    "stylizedTracking": "Erfahre, wie stilisiertes Tracking deine Bewegung umformt",
+    "ifacialmocap": "Erfahre, wie du die iFacialMocap-App (iOS) verbindest",
+    "ifmFirewall": "Warum die App „verbunden“ melden kann, ohne dass etwas bei vspark ankommt",
+    "expressionLimits": "Erfahren, wie Mimik-Begrenzungen übertriebene oder kaputte Gesichter verhindern"
   }
 }

@@ -13,7 +13,7 @@
   "components/editor/macros/MacrosPanel.tsx": "023cb5d509cf",
   "components/editor/OverliveAccountsModal.tsx": "0863053b3005",
   "components/editor/PresetLibrary.tsx": "5e213dcc738a",
-  "components/editor/PropertiesPanel.tsx": "579044dbb01f",
+  "components/editor/PropertiesPanel.tsx": "3d43750d64ec",
   "components/editor/SceneGraph.tsx": "c469fbb334d1",
   "components/editor/signal/NodePalette.tsx": "758b37aa1035",
   "components/editor/signal/SignalNodeCard.tsx": "365355ea3176",

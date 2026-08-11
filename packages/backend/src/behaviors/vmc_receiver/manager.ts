@@ -15,6 +15,7 @@ import type { VrmSkeletonData } from '../../vrm/skeleton.js';
 import { join } from 'path';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
+import { trackingGraceMs } from '../tracking_grace.js';
 
 // ---------- Minimal OSC parser ----------
 
@@ -184,6 +185,12 @@ interface Receiver {
   prevBodyArgs: number[];
   /** null = not enough frames yet to determine. */
   trackingActive: boolean | null;
+  /** Timestamp the current tracking-loss candidate started, or null when the
+   *  signal is live. Set the moment motion stops (frame diff under threshold)
+   *  or packets stop arriving; cleared by any real movement. `tracking: false`
+   *  is only broadcast once this has stood for the behavior's grace period, so
+   *  a brief dropout no longer snaps the avatar to idle. See `checkTimeouts`. */
+  quietSince: number | null;
 }
 
 @BehaviorKind({
@@ -217,7 +224,10 @@ export class VmcManager {
   constructor(private readonly ws: WSSync) {
     initPoseBroadcast(ws);
     initBlendshapesBroadcast(ws);
-    this.timer = setInterval(() => this.checkTimeouts(), 2000);
+    // 250ms, not 2s: the sweep now also resolves the tracking grace period, whose
+    // configured window starts at 0.1s. A 2s tick would round every short "Idle
+    // after" setting up to its own period.
+    this.timer = setInterval(() => this.checkTimeouts(), 250);
 
     // Send current receiver state to any new WebSocket client (handles page refresh / new tabs).
     ws.onClientConnected((client) => {
@@ -364,6 +374,37 @@ export class VmcManager {
     return graph.peekInput('head_calib', 'pose') as NormalizedPose | null;
   }
 
+  /**
+   * Grace period (ms) before a tracking dropout is reported as a loss, read from
+   * the avatar node's `trackingGracePeriod` property.
+   *
+   * Both loss paths share it: motion going still and packets going away. Without
+   * it a single repeated /Body packet flipped tracking off immediately, which
+   * snapped the avatar into idle on every momentary dropout.
+   */
+  private graceMs(behaviorId: string): number {
+    return trackingGraceMs(this.behaviorNodeIds.get(behaviorId));
+  }
+
+  /**
+   * Broadcast a tracking-state transition, collapsing no-op repeats.
+   * Both loss paths and the movement-resume path funnel through here so the
+   * bus-slot teardown stays paired with the transition that caused it.
+   */
+  private setTracking(behaviorId: string, tracking: boolean) {
+    const info = this.receivers.get(behaviorId);
+    if (!info || info.trackingActive === tracking) return;
+    info.trackingActive = tracking;
+    console.log(
+      `[VMC] Tracking ${tracking ? 'ACTIVE' : 'LOST'} (component ${behaviorId})`
+    );
+    this.ws.broadcast('vmc_tracking_state', { behaviorId, tracking });
+    // Drop our bus slot on tracking loss so the merge falls back to other
+    // producers (or the additive-identity fallback frame if we were the
+    // only one). Resume is automatic — the next publishBones re-creates it.
+    if (!tracking) broadcastBus.removeBehavior(behaviorId);
+  }
+
   // ── receiver lifecycle ─────────────────────────────────────────────────────
 
   startReceiver(behaviorId: string, port: number) {
@@ -383,6 +424,7 @@ export class VmcManager {
       connected: false,
       prevBodyArgs: [],
       trackingActive: null,
+      quietSince: null,
     };
     this.receivers.set(behaviorId, info);
 
@@ -425,20 +467,15 @@ export class VmcManager {
             let diff = 0;
             for (let i = 0; i < cur.length; i++)
               diff += Math.abs(cur[i] - info.prevBodyArgs[i]);
-            const nowTracking = diff > TRACKING_THRESHOLD;
-            if (nowTracking !== info.trackingActive) {
-              info.trackingActive = nowTracking;
-              console.log(
-                `[VMC] Tracking ${nowTracking ? 'ACTIVE' : 'LOST'} (component ${behaviorId})`
-              );
-              this.ws.broadcast('vmc_tracking_state', {
-                behaviorId,
-                tracking: nowTracking,
-              });
-              // Drop our bus slot on tracking loss so the merge falls back to other
-              // producers (or the additive-identity fallback frame if we were the
-              // only one). Resume is automatic — the next publishBones re-creates it.
-              if (!nowTracking) broadcastBus.removeBehavior(behaviorId);
+            // Movement resumes tracking immediately; going still only *starts*
+            // the grace period. The actual loss is declared in checkTimeouts once
+            // `quietSince` has stood for the configured window — a repeated packet
+            // or two no longer counts as a loss.
+            if (diff > TRACKING_THRESHOLD) {
+              info.quietSince = null;
+              this.setTracking(behaviorId, true);
+            } else if (info.quietSince === null) {
+              info.quietSince = Date.now();
             }
           }
           info.prevBodyArgs = cur.slice();
@@ -494,6 +531,16 @@ export class VmcManager {
     broadcastBus.removeBehavior(behaviorId);
     if (info.connected)
       this.ws.broadcast('vmc_status', { behaviorId, connected: false });
+    // Signal tracking loss on teardown. Tracking-false is otherwise only emitted
+    // from the /Body handler, which needs packets still arriving — disabling the
+    // source stops them, so the transition would never fire and every client
+    // would keep a stale `tracking: true` forever (pinning avatars to their base
+    // animation, unreachable idle). Mirrors MediaPipeTrackerManager.stop().
+    if (info.trackingActive)
+      this.ws.broadcast('vmc_tracking_state', {
+        behaviorId,
+        tracking: false,
+      });
     console.log(`[VMC] Receiver stopped (component ${behaviorId})`);
   }
 
@@ -578,11 +625,32 @@ export class VmcManager {
   private checkTimeouts() {
     const now = Date.now();
     for (const [behaviorId, info] of this.receivers) {
+      // Connection status (the status dot) keeps its own fixed window — "is the
+      // source reachable" is a different question from "is it tracking", and the
+      // dot should not start lying because someone set a long grace period.
       if (info.connected && now - info.lastSeen > 3000) {
         info.connected = false;
         console.log(`[VMC] Client timed out (component ${behaviorId})`);
         this.ws.broadcast('vmc_status', { behaviorId, connected: false });
       }
+
+      // Both loss paths resolve here, on one clock. The signal counts as alive
+      // until BOTH have gone quiet: the last movement (`quietSince`, set by the
+      // /Body frame-diff) and the last packet (`lastSeen`). Taking the earlier of
+      // the two means whichever dropout started first drives the window, so a
+      // source that freezes and then disconnects doesn't restart its grace period
+      // on the disconnect.
+      //
+      // Loss path 2 used to fire `vmc_status` only, leaving `trackingActive` stuck
+      // true and clients relying on their own hardcoded watchdog to reach idle.
+      // `trackingActive !== true` covers both already-lost and never-tracked
+      // (null): a receiver that never latched on has no loss to report, and
+      // announcing one would contradict the connect-time snapshot, which skips
+      // null for exactly that reason.
+      if (info.trackingActive !== true || info.lastSeen === 0) continue;
+      const quietSince = Math.min(info.quietSince ?? now, info.lastSeen);
+      if (now - quietSince > this.graceMs(behaviorId))
+        this.setTracking(behaviorId, false);
     }
   }
 

@@ -6,8 +6,11 @@ import { createApp } from './app.js';
 import { runMigrations, getDb, closeDb } from './db/index.js';
 import {
   setVmcManager,
+  setIFacialMocapManager,
   setBreathingManager,
   setManualCalibrationManager,
+  setPoseStylizerManager,
+  setBlendshapeLimiterManager,
   setLipsyncManager,
   setTrackingManager,
   setApiControllerManager,
@@ -18,8 +21,11 @@ import {
 import { initUpdateChecker, getInstallDir } from './routes/update.js';
 import { WSSync } from './ws/index.js';
 import { VmcManager } from './behaviors/vmc_receiver/manager.js';
+import { IFacialMocapManager } from './behaviors/ifacialmocap_receiver/manager.js';
 import { BreathingManager } from './behaviors/breathing/manager.js';
 import { ManualCalibrationManager } from './behaviors/manual_calibration/manager.js';
+import { PoseStylizerManager } from './behaviors/pose_stylizer/manager.js';
+import { BlendshapeLimiterManager } from './behaviors/blendshape_limiter/manager.js';
 import { LipsyncManager } from './behaviors/lipsync/manager.js';
 import { TrackingManager } from './behaviors/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from './behaviors/api_controller/manager.js';
@@ -27,7 +33,10 @@ import { TrackClipPlaybackManager } from './track_clips/playback.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { broadcastBus } from './broadcast/bus.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
-import { initIkBroadcast, setIkStreamForwarder } from './signal/nodes/ik_broadcast.js';
+import {
+  initIkBroadcast,
+  setIkStreamForwarder,
+} from './signal/nodes/ik_broadcast.js';
 import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
 import { initStartClip } from './signal/nodes/start_clip.js';
 import { runtimeOverrideManager } from './runtime_overrides/manager.js';
@@ -155,11 +164,20 @@ async function start() {
   const vmcManager = new VmcManager(wsSync);
   setVmcManager(vmcManager);
 
+  const ifacialMocapManager = new IFacialMocapManager(wsSync);
+  setIFacialMocapManager(ifacialMocapManager);
+
   const breathingManager = new BreathingManager();
   setBreathingManager(breathingManager);
 
   const manualCalibrationManager = new ManualCalibrationManager();
   setManualCalibrationManager(manualCalibrationManager);
+
+  const poseStylizerManager = new PoseStylizerManager();
+  setPoseStylizerManager(poseStylizerManager);
+
+  const blendshapeLimiterManager = new BlendshapeLimiterManager();
+  setBlendshapeLimiterManager(blendshapeLimiterManager);
 
   const lipsyncManager = new LipsyncManager();
   setLipsyncManager(lipsyncManager);
@@ -365,6 +383,11 @@ async function start() {
     .all() as Record<string, unknown>[];
   vmcManager.syncBehaviors(vmcRows.map(mapRow));
 
+  const ifacialMocapRows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'ifacialmocap_receiver'")
+    .all() as Record<string, unknown>[];
+  ifacialMocapManager.syncBehaviors(ifacialMocapRows.map(mapRow));
+
   const breathingRows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'breathing'")
     .all() as Record<string, unknown>[];
@@ -374,6 +397,16 @@ async function start() {
     .prepare("SELECT * FROM behaviors WHERE kind = 'manual_calibration'")
     .all() as Record<string, unknown>[];
   manualCalibrationManager.syncBehaviors(manualCalibrationRows.map(mapRow));
+
+  const poseStylizerRows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'pose_stylizer'")
+    .all() as Record<string, unknown>[];
+  poseStylizerManager.syncBehaviors(poseStylizerRows.map(mapRow));
+
+  const blendshapeLimiterRows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'blendshape_limiter'")
+    .all() as Record<string, unknown>[];
+  blendshapeLimiterManager.syncBehaviors(blendshapeLimiterRows.map(mapRow));
 
   const lipsyncRows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'lipsync_processor'")

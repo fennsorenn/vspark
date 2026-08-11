@@ -55,7 +55,7 @@ packages/
 ### Core Abstractions
 
 - **Project** → **Scene** → **Node** (VRM avatar, camera, light, group) — persistent hierarchy in SQLite. A Scene is itself a `scene_nodes` row (`kind = 'scene'`); the standalone `scenes` table was dropped (migration 018).
-- **Behavior** — behavioral driver attached to a node (e.g. `vmc_receiver`, `breathing`, `manual_calibration`, `lipsync_processor`, `mediapipe_tracker`, `api_controller`), stored in the `behaviors` table (renamed from `node_components` in migration 022)
+- **Behavior** — behavioral driver attached to a node (e.g. `vmc_receiver`, `ifacialmocap_receiver`, `breathing`, `manual_calibration`, `blendshape_limiter`, `lipsync_processor`, `mediapipe_tracker`, `api_controller`), stored in the `behaviors` table (renamed from `node_components` in migration 022)
 - **Signal Graph** — reactive execution engine instantiated per behavior; hybrid push (events) / pull (values) model
 - **PoseFrame** — sparse bone rotation payload produced by the graph and broadcast over WebSocket
 
@@ -87,7 +87,7 @@ Key frontend files:
 
 ### Signal Graph
 
-Defined entirely in [packages/shared/src/signal.ts](packages/shared/src/signal.ts). Node classes are registered in the backend registry and serialized as `GraphDescriptor` objects. The 89 built-in node kinds live under [packages/backend/src/signal/nodes/](packages/backend/src/signal/nodes/).
+Defined entirely in [packages/shared/src/signal.ts](packages/shared/src/signal.ts). Node classes are registered in the backend registry and serialized as `GraphDescriptor` objects. The 95 built-in node kinds live under [packages/backend/src/signal/nodes/](packages/backend/src/signal/nodes/).
 
 The VMC pipeline graph shape is hardcoded in [packages/backend/src/behaviors/vmc_receiver/graph.ts](packages/backend/src/behaviors/vmc_receiver/graph.ts) — it wires source → mapper → calibration → broadcast nodes. Other behaviors follow the same `behaviors/<kind>/graph.ts` + `manager.ts` pattern.
 
