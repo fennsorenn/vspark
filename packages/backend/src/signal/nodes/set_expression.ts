@@ -14,10 +14,13 @@ import { broadcastBus } from '../../broadcast/bus.js';
  * holds until this node fires again or the graph stops**. That latching pairs
  * naturally with the `cycle` node (press → weight, press again → 0/clear).
  *
- * The producer id is derived from this node's own graph id (`selfId`), so it
- * works in a standalone Logic graph with no behavior, stays unique per node
- * instance (two `set_expression` nodes sum rather than clobber), and is cleaned
- * up on graph teardown via `onUnbind`.
+ * The producer slot is keyed by **(target avatar, expression)** — NOT by this
+ * node — so that driving the same expression from a different node (e.g. the two
+ * `set_expression` nodes behind a `cycle`/toggle: "Happy=1" on one output,
+ * "Happy=0" on the other) writes the SAME slot and the LAST write wins. Keying
+ * per-node instead made the bus SUM the two slots, so the "off" node's 0 never
+ * cancelled the "on" node's 1 and the expression stuck on. Each instance tracks
+ * the slots it published so `onUnbind` releases exactly those on teardown.
  */
 @SignalNode({
   label: 'Set Expression',
@@ -33,8 +36,12 @@ export class SetExpression extends Node {
   @valueIn('expression', 'String') expression!: () => string | undefined;
   @valueIn('weight', 'Float') weight!: () => number | undefined;
 
-  private _producerId(): string {
-    return `set_expression:${this.selfId}`;
+  /** Producer slot ids this instance has written to, for teardown cleanup. */
+  private readonly _published = new Set<string>();
+
+  /** Bus producer key: last-writer-wins per (target avatar, expression). */
+  private _producerId(nodeId: string, expression: string): string {
+    return `set_expression:${nodeId}:${expression}`;
   }
 
   @eventIn('fire', 'Trigger')
@@ -44,16 +51,19 @@ export class SetExpression extends Node {
     if (!nodeId || !expression) return;
     const raw = this.weight();
     const weight = typeof raw === 'number' && Number.isFinite(raw) ? raw : 1;
+    const producerId = this._producerId(nodeId, expression);
+    this._published.add(producerId);
     broadcastBus.publishBlendshapes(
       nodeId,
-      this._producerId(),
+      producerId,
       Blendshapes.fromRecord({ [expression]: weight })
     );
   }
 
   protected override onUnbind(): void {
-    // Release our producer slot so the expression doesn't linger after the
+    // Release exactly the slots we wrote so expressions don't linger after the
     // graph stops / reconciles (mirrors set_data clearing its data channels).
-    broadcastBus.removeBehavior(this._producerId());
+    for (const id of this._published) broadcastBus.removeBehavior(id);
+    this._published.clear();
   }
 }
