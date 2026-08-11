@@ -32,7 +32,7 @@ function singleNodeAction(spec: {
   const entryPort = spec.entryPort ?? 'fire';
   return {
     id: spec.id,
-    labelKey: `macros.action.${spec.id}`,
+    labelKey: `action.${spec.id}`,
     nodeKind: spec.nodeKind,
     entryPort,
     fields: spec.fields,
@@ -74,7 +74,7 @@ const playClip = singleNodeAction({
   id: 'play_clip',
   nodeKind: 'start_clip',
   fields: [
-    { key: 'clipId', labelKey: 'macros.field.clip', control: 'clip', port: 'clipId' },
+    { key: 'clipId', labelKey: 'field.clip', control: 'clip', port: 'clipId' },
   ],
 });
 
@@ -83,9 +83,9 @@ const setExpression = singleNodeAction({
   id: 'set_expression',
   nodeKind: 'set_expression',
   fields: [
-    { key: 'nodeId', labelKey: 'macros.field.avatar', control: 'sceneNode', port: 'nodeId' },
-    { key: 'expression', labelKey: 'macros.field.expression', control: 'expression', port: 'expression' },
-    { key: 'weight', labelKey: 'macros.field.weight', control: 'number', port: 'weight', min: 0, max: 1, step: 0.05 },
+    { key: 'nodeId', labelKey: 'field.avatar', control: 'sceneNode', port: 'nodeId' },
+    { key: 'expression', labelKey: 'field.expression', control: 'expression', port: 'expression' },
+    { key: 'weight', labelKey: 'field.weight', control: 'number', port: 'weight', min: 0, max: 1, step: 0.05 },
   ],
 });
 
@@ -94,9 +94,29 @@ const setProperty = singleNodeAction({
   id: 'set_property',
   nodeKind: 'set_scene_node_param',
   fields: [
-    { key: 'targetId', labelKey: 'macros.field.target', control: 'sceneNode', port: 'targetId' },
-    { key: 'paramPath', labelKey: 'macros.field.property', control: 'paramPath', port: 'paramPath' },
-    { key: 'value', labelKey: 'macros.field.value', control: 'string', port: 'value' },
+    { key: 'targetId', labelKey: 'field.target', control: 'sceneNode', port: 'targetId' },
+    { key: 'paramPath', labelKey: 'field.property', control: 'paramPath', port: 'paramPath' },
+    { key: 'value', labelKey: 'field.value', control: 'string', port: 'value' },
+  ],
+});
+
+/** Set any registered compose-layer property (visibility, opacity, x/y, size, text…). */
+const setLayerProperty = singleNodeAction({
+  id: 'set_layer_property',
+  nodeKind: 'set_compose_layer_param',
+  fields: [
+    { key: 'targetId', labelKey: 'field.layer', control: 'composeLayer', port: 'targetId' },
+    { key: 'paramPath', labelKey: 'field.property', control: 'paramPath', port: 'paramPath', paramTargetKind: 'compose_layer' },
+    { key: 'value', labelKey: 'field.value', control: 'string', port: 'value', paramTargetKind: 'compose_layer' },
+  ],
+});
+
+/** Spawn a one-shot copy of a clip's owner and play it (auto-despawns). */
+const spawnClip = singleNodeAction({
+  id: 'spawn_clip',
+  nodeKind: 'spawn_clip',
+  fields: [
+    { key: 'clipId', labelKey: 'field.clip', control: 'clip', port: 'clipId' },
   ],
 });
 
@@ -105,18 +125,18 @@ const controlMedia = singleNodeAction({
   id: 'control_media',
   nodeKind: 'media_control',
   fields: [
-    { key: 'target', labelKey: 'macros.field.target', control: 'sceneEntity', port: 'target' },
+    { key: 'target', labelKey: 'field.target', control: 'sceneEntity', port: 'target' },
     {
       key: 'action',
-      labelKey: 'macros.field.action',
+      labelKey: 'field.action',
       control: 'enum',
       options: [
-        { value: 'play', labelKey: 'macros.mediaAction.play' },
-        { value: 'pause', labelKey: 'macros.mediaAction.pause' },
-        { value: 'stop', labelKey: 'macros.mediaAction.stop' },
-        { value: 'restart', labelKey: 'macros.mediaAction.restart' },
-        { value: 'mute', labelKey: 'macros.mediaAction.mute' },
-        { value: 'unmute', labelKey: 'macros.mediaAction.unmute' },
+        { value: 'play', labelKey: 'mediaAction.play' },
+        { value: 'pause', labelKey: 'mediaAction.pause' },
+        { value: 'stop', labelKey: 'mediaAction.stop' },
+        { value: 'restart', labelKey: 'mediaAction.restart' },
+        { value: 'mute', labelKey: 'mediaAction.mute' },
+        { value: 'unmute', labelKey: 'mediaAction.unmute' },
       ],
     },
   ],
@@ -124,8 +144,10 @@ const controlMedia = singleNodeAction({
 
 export const MACRO_ACTION_DEFS: readonly MacroActionDef[] = [
   playClip,
+  spawnClip,
   setExpression,
   setProperty,
+  setLayerProperty,
   controlMedia,
 ];
 

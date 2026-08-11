@@ -58,6 +58,9 @@ export interface MacroField {
   port?: string;
   /** Fixed options for `control: 'enum'`. */
   options?: MacroFieldOption[];
+  /** For `control: 'paramPath'` (and the value field that follows it): which
+   *  paramPath registry to list / type against. Defaults to 'scene_node'. */
+  paramTargetKind?: 'scene_node' | 'compose_layer';
   min?: number;
   max?: number;
   step?: number;

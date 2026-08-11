@@ -14,8 +14,10 @@
   "customActions": "Mehrere Aktionen",
   "action": {
     "play_clip": "Clip abspielen",
+    "spawn_clip": "Clip erzeugen",
     "set_expression": "Ausdruck setzen",
     "set_property": "Eigenschaft setzen",
+    "set_layer_property": "Ebenen-Eigenschaft setzen",
     "control_media": "Medien steuern"
   },
   "field": {
@@ -24,6 +26,7 @@
     "expression": "Ausdruck",
     "weight": "Gewicht",
     "target": "Ziel",
+    "layer": "Ebene",
     "property": "Eigenschaft",
     "value": "Wert",
     "action": "Aktion"

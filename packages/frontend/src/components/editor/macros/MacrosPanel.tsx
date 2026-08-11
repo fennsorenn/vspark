@@ -186,7 +186,10 @@ function FieldEditor({
     const nodeId = typeof values.nodeId === 'string' ? values.nodeId : '';
     options = (expressionsByNode[nodeId] ?? []).map((name) => ({ value: name, label: name }));
   } else if (field.control === 'paramPath') {
-    options = listAllParamPaths('scene_node').map((p) => ({ value: p.path, label: p.path }));
+    options = listAllParamPaths(field.paramTargetKind ?? 'scene_node').map((p) => ({
+      value: p.path,
+      label: p.path,
+    }));
   }
 
   if (options) {
@@ -214,13 +217,16 @@ function FieldEditor({
   );
 }
 
-/** Derive the value field's control from the chosen paramPath (Set Property). */
+/** For set-property actions, derive the value field's control from the chosen
+ *  paramPath's type (so "visible" is a checkbox, "opacity" a number, etc.). */
 function effectiveFields(instance: MacroActionInstance): MacroField[] {
   const def = macroActionById(instance.defId);
   if (!def) return [];
-  if (def.id !== 'set_property') return def.fields;
+  const valueField = def.fields.find((f) => f.key === 'value' && f.control === 'string' && f.port === 'value');
+  const pathField = def.fields.find((f) => f.control === 'paramPath');
+  if (!valueField || !pathField) return def.fields;
   const path = typeof instance.values.paramPath === 'string' ? instance.values.paramPath : '';
-  const spec = path ? getParamPathSpec('scene_node', path) : undefined;
+  const spec = path ? getParamPathSpec(pathField.paramTargetKind ?? 'scene_node', path) : undefined;
   const valueControl = spec?.type === 'Bool' ? 'bool' : spec?.type === 'Float' ? 'number' : 'string';
   return def.fields.map((f) => (f.key === 'value' ? { ...f, control: valueControl } : f));
 }

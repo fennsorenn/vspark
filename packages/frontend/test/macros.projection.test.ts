@@ -31,8 +31,10 @@ const COMBO: HotkeyCombo = {
 /** Representative field values per action def, for the round-trip check. */
 const SAMPLE_VALUES: Record<string, MacroActionValues> = {
   play_clip: { clipId: 'clip-123' },
+  spawn_clip: { clipId: 'clip-456' },
   set_expression: { nodeId: 'avatar-1', expression: 'Happy', weight: 0.8 },
   set_property: { targetId: 'node-1', paramPath: 'visible', value: false },
+  set_layer_property: { targetId: 'layer-1', paramPath: 'opacity', value: 0.5 },
   control_media: { target: 'video-1', action: 'play' },
 };
 

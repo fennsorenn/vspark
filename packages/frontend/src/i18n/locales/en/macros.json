@@ -14,8 +14,10 @@
   "customActions": "Multiple actions",
   "action": {
     "play_clip": "Play clip",
+    "spawn_clip": "Spawn clip",
     "set_expression": "Set expression",
     "set_property": "Set property",
+    "set_layer_property": "Set layer property",
     "control_media": "Control media"
   },
   "field": {
@@ -24,6 +26,7 @@
     "expression": "Expression",
     "weight": "Weight",
     "target": "Target",
+    "layer": "Layer",
     "property": "Property",
     "value": "Value",
     "action": "Action"
