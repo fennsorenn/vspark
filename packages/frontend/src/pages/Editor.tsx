@@ -12,7 +12,7 @@ import { useDeleteElement } from '../hooks/useDeleteElement';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
 import { useSharedSubscriptions } from '../hooks/useSharedSubscriptions';
 import { useClientMesh } from '../hooks/useClientMesh';
-import { initMeshPeer } from '../mesh/peer';
+import { initMeshPeer, meshUndo, meshRedo } from '../mesh/peer';
 import { startMeshProjection } from '../sync/meshProjection';
 import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import { TopBar } from '../components/editor/TopBar';
@@ -101,6 +101,22 @@ export function Editor() {
         return;
       const state = useEditorStore.getState();
       if (!state.projectId || !state.activeSceneId) return;
+
+      // Undo / redo (mesh-native, tab peer). Ctrl/Cmd+Z undoes; Ctrl+Shift+Z
+      // and Ctrl+Y redo. Shift uppercases e.key, so compare case-insensitively.
+      if (e.ctrlKey || e.metaKey) {
+        const k = e.key.toLowerCase();
+        if (k === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          meshUndo();
+          return;
+        }
+        if ((k === 'z' && e.shiftKey) || k === 'y') {
+          e.preventDefault();
+          meshRedo();
+          return;
+        }
+      }
 
       // Delete key removes the selected element (no modifier).
       if (e.key === 'Delete') {

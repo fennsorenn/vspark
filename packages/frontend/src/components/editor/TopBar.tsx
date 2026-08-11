@@ -11,10 +11,34 @@ import { UpdateDialog } from './UpdateDialog';
 import { OverliveAccountsModal } from './OverliveAccountsModal';
 import { LanguageSwitcher } from '../LanguageSwitcher';
 import { HelpButton } from '../../help/HelpButton';
+import {
+  meshUndo,
+  meshRedo,
+  onMeshUndoChange,
+  getMeshUndoStatus,
+} from '../../mesh/peer';
+
+/** Track the tab peer's undo/redo availability for button enablement. */
+function useMeshUndoStatus() {
+  const [status, setStatus] = useState(getMeshUndoStatus);
+  useEffect(() => onMeshUndoChange(setStatus), []);
+  return status;
+}
+
+const undoBtnStyle = (enabled: boolean): React.CSSProperties => ({
+  background: 'none',
+  border: 'none',
+  color: enabled ? '#ccc' : '#555',
+  cursor: enabled ? 'pointer' : 'default',
+  fontSize: 16,
+  lineHeight: 1,
+  padding: '2px 4px',
+});
 
 export function TopBar() {
   const navigate = useNavigate();
   const { t } = useTranslation('topbar');
+  const { canUndo, canRedo } = useMeshUndoStatus();
   const { projectId, projectName, updateAvailable, setUpdateAvailable } =
     useEditorStore();
   const [connected, setConnected] = useState(false);
@@ -114,6 +138,32 @@ export function TopBar() {
         <span style={{ color: '#e0e0e0', fontWeight: 500 }}>
           {projectName || t('loading')}
         </span>
+
+        {/* Undo / redo (mesh-native, this tab's actions) */}
+        <span style={{ color: '#444' }}>|</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <button
+            className="vs-topbar-undo"
+            style={undoBtnStyle(canUndo)}
+            disabled={!canUndo}
+            onClick={() => meshUndo()}
+            title={t('undo.title')}
+            aria-label={t('undo.label')}
+          >
+            ↶
+          </button>
+          <button
+            className="vs-topbar-redo"
+            style={undoBtnStyle(canRedo)}
+            disabled={!canRedo}
+            onClick={() => meshRedo()}
+            title={t('redo.title')}
+            aria-label={t('redo.label')}
+          >
+            ↷
+          </button>
+          <HelpButton topic="scene" anchor="undo" tip={t('undo.help')} />
+        </div>
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />

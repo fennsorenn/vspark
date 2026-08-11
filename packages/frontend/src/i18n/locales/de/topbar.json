@@ -14,6 +14,15 @@
     "connected": "Verbunden",
     "disconnected": "Getrennt"
   },
+  "undo": {
+    "label": "Rückgängig",
+    "title": "Rückgängig (Strg+Z)",
+    "help": "Über Rückgängig & Wiederholen"
+  },
+  "redo": {
+    "label": "Wiederholen",
+    "title": "Wiederholen (Strg+Umschalt+Z)"
+  },
   "accounts": {
     "label": "Konten",
     "title": "Stream-Konten (Twitch / StreamElements)"

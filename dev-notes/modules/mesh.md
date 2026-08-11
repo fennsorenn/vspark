@@ -105,6 +105,45 @@ collection.onCommitted(callback): Unsubscribe
 collection.canWrite(): boolean  // false while ack authority is known down
 ```
 
+## Undo / redo (per peer)
+
+Undo/redo is a **first-class primitive of the peer** (`MeshPeer`, in
+`packages/mesh/src/peer.ts`), so any client that mutates through the mesh gets
+it for free, collaboration-safe by construction.
+
+- **Logging.** In `localWrite`, every committed (retained-channel, non-hydrate)
+  write this peer *authors* pushes a `{ rtype, id, op, before, after }` entry —
+  `before`/`after` read from the replica (`raw(id)`, overlay-free) around the
+  apply. **Preview/ephemeral writes are never logged**: the commit is the action
+  boundary, so gizmo-drag coalescing is a non-issue. Remote-authority writes are
+  logged only once the authority confirms (acked / corrected value); a rejected
+  or timed-out optimistic write leaves no entry. Depth-capped (default 100).
+- **Replay.** `peer.undo()` re-emits the inverse as a fresh committed write
+  (`created→remove`, `removed`/`modified`→restore prior doc); `redo()` re-applies
+  the forward direction. Because the inverse is a normal write, propagation,
+  persistence, and LWW convergence all fall out of the standard path — no bespoke
+  protocol. A new committed write clears redo.
+- **Per-peer stacks.** Undo only ever replays *this peer's* own actions (the
+  agent loopback peer, once it exists, has its own stack).
+- **Concurrency policy** (`MeshPeerConfig.undo.policy`): `guarded` (default)
+  skips an inverse when the doc's current committed value diverged from what this
+  peer left it at (a collaborator edited it since); `naive` is last-writer-wins.
+- **API:** `undo()`, `redo()`, `canUndo()`, `canRedo()`, `undoStatus()`,
+  `clearUndoHistory()`, `onUndoChange(cb)`. Test matrix in
+  `packages/mesh/test/undo.test.ts`. Design:
+  [plans/mesh-native-undo.md](../plans/mesh-native-undo.md).
+
+**Consumer status.** Undo logs on the peer that *authors* the write. Backend REST
+writes author on the backend peer (its stack is process-global — shared across
+tabs). The **frontend** tab peer authors nothing today (UI writes go via REST →
+backend), so its undo stack is empty and the TopBar ↶/↷ buttons stay disabled
+until UI writes migrate onto the tab peer's collections (the open "writes →
+`collection.set`" work). The frontend plumbing
+(`meshUndo`/`meshRedo`/`onMeshUndoChange` in `frontend/src/mesh/peer.ts`,
+keybindings, buttons, i18n, help) is in place and lights up per write-path as
+they migrate. A dedicated **agent loopback peer** for assistant undo is not yet
+built.
+
 ## Channel mechanics
 
 Channels are declared when creating the collection:

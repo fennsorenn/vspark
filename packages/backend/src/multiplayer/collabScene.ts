@@ -15,7 +15,7 @@
 import { randomUUID } from 'crypto';
 import { basename } from 'path';
 import { getDb } from '../db/index.js';
-import { sync } from '../sync/index.js';
+import { getMeshCollection } from '../mesh/index.js';
 import { type SyncEnvelope } from '@vspark/shared/sync';
 import {
   type ObjectSnapshot,
@@ -359,62 +359,14 @@ function indexCollabSceneClips(sceneId: string): void {
   for (const r of rows) clipScene.set(r.id, sceneId);
 }
 
-/** Write a full clip from its DTO (delete + reinsert clip/lanes/keyframes/events).
- *  Children are cleared EXPLICITLY rather than via FK cascade — migrations toggle
- *  `foreign_keys`, and a re-mount/re-apply must be idempotent regardless. Without
- *  this, re-applying a clip hits a UNIQUE constraint on the stale lane ids.
- *  started_at is dropped (playback anchors are peer-local, synced separately) and
- *  the re-emit updates our own clients. */
+/** Write a full clip from its DTO through the mesh store: the onCommitted tap's
+ *  `save` does the same delete-then-reinsert of clip/lanes/keyframes/events (so
+ *  a re-mount/re-apply is idempotent) and emits the canonical `sync.document`
+ *  upsert; the store write also applies to the replica and fans out to mesh
+ *  subscribers with one stamp. started_at is dropped (playback anchors are
+ *  peer-local, synced separately). */
 function applyClipDto(dto: ClipDto): void {
-  const db = getDb();
-  const oldLanes = db
-    .prepare('SELECT id FROM track_clip_lanes WHERE clip_id = ?')
-    .all(dto.id) as { id: string }[];
-  for (const l of oldLanes)
-    db.prepare('DELETE FROM track_clip_keyframes WHERE lane_id = ?').run(l.id);
-  db.prepare('DELETE FROM track_clip_lanes WHERE clip_id = ?').run(dto.id);
-  db.prepare('DELETE FROM track_clip_events WHERE clip_id = ?').run(dto.id);
-  db.prepare('DELETE FROM track_clips WHERE id = ?').run(dto.id);
-  db.prepare(
-    `INSERT INTO track_clips
-       (id, owner_node_id, owner_layer_id, name, duration, loop, mode, autoplay, started_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`
-  ).run(
-    dto.id,
-    dto.ownerNodeId ?? null,
-    dto.ownerLayerId ?? null,
-    dto.name,
-    dto.duration,
-    dto.loop ? 1 : 0,
-    dto.mode,
-    dto.autoplay ? 1 : 0
-  );
-  for (const lane of dto.lanes ?? []) {
-    db.prepare(
-      `INSERT INTO track_clip_lanes (id, clip_id, target_kind, target_id, param_path, default_value)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(lane.id, dto.id, lane.targetKind, lane.targetId, lane.paramPath, lane.defaultValue);
-    for (const kf of lane.keyframes ?? [])
-      db.prepare(
-        `INSERT INTO track_clip_keyframes
-           (id, lane_id, t, value, easing, in_handle_t_fraction, in_handle_v_fraction,
-            out_handle_t_fraction, out_handle_v_fraction)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        kf.id, lane.id, kf.t, kf.value, kf.easing,
-        kf.inHandleTFraction, kf.inHandleVFraction,
-        kf.outHandleTFraction, kf.outHandleVFraction
-      );
-  }
-  for (const ev of dto.events ?? [])
-    db.prepare(
-      `INSERT INTO track_clip_events (id, clip_id, t, action, target_kind, target_id, payload)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      ev.id, dto.id, ev.t, ev.action, ev.targetKind, ev.targetId,
-      ev.payload ? JSON.stringify(ev.payload) : null
-    );
-  sync.document.upsert('track_clip', dto.id);
+  getMeshCollection('track_clip')?.set(dto.id, '', dto);
 }
 
 /** Write a collab scene's clips at mount/reconcile time, indexing them. A bad
@@ -450,21 +402,10 @@ interface CameraEffectDto {
 }
 
 function applyCameraEffectDto(dto: CameraEffectDto): void {
-  getDb()
-    .prepare(
-      `INSERT INTO camera_effects (id, node_id, kind, enabled, config)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         kind = excluded.kind, enabled = excluded.enabled, config = excluded.config`
-    )
-    .run(
-      dto.id,
-      dto.nodeId,
-      dto.kind,
-      dto.enabled ? 1 : 0,
-      JSON.stringify(dto.config ?? {})
-    );
-  sync.document.upsert('camera_effect', dto.id);
+  // Through the mesh store: the tap's `save` is the same idempotent upsert and
+  // emits the canonical sync.document upsert; the write also lands in the
+  // replica + fans out to mesh subscribers.
+  getMeshCollection('camera_effect')?.set(dto.id, '', dto);
 }
 
 /** Write a collab scene's camera effects at mount time (in the snapshot). */
