@@ -88,6 +88,14 @@ export interface SceneNodeProperties {
   /** Seconds to ramp between override and additive when the broadcast bus flips
    *  blend modes for this avatar. Applies to VRM avatar nodes. Default 0.5. */
   blendTransitionTime?: number;
+  /** Seconds a tracking dropout is tolerated before the avatar is considered
+   *  untracked and falls back to its idle animation. Paired with
+   *  `blendTransitionTime`: this is *when* the transition starts, that is how
+   *  fast it runs. Every tracking source on the node (vmc_receiver,
+   *  mediapipe_tracker) honours it, so the avatar cannot hold two conflicting
+   *  windows. Applies to VRM avatar nodes. Default 2.
+   *  Moved here from the per-behavior config in migration 035. */
+  trackingGracePeriod?: number;
   /** Resting expression weights (VRM expression preset name → 0..1) applied to
    *  the avatar every frame as a baseline. Live blendshape broadcasts (VMC,
    *  lipsync, tracking) override them per-key. Applies to VRM avatar nodes. */

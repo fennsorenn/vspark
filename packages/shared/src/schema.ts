@@ -66,6 +66,7 @@ const animationSlotSchema = z.object({
 export const sceneNodePropertiesSchema = z
   .object({
     blendTransitionTime: z.number().min(0).max(10).optional(),
+    trackingGracePeriod: z.number().min(0.1).max(60).optional(),
     broadcastTickHz: z.number().min(1).max(240).optional(),
     sourceSceneId: z.string().optional(),
     poseDynamics: z

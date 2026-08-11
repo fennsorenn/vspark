@@ -1,0 +1,530 @@
+# Stylized Tracking (`pose_stylizer`)
+
+A pose **post-processor** that re-expresses accurate tracking as stylized,
+whole-body motion — the way a 2D (Live2D-style) avatar is rigged, where the rig
+is not bound tightly to the performer and a handful of broad parameters fan out
+across the entire body.
+
+It exists to solve two problems at once:
+
+1. **Accurate is not the same as flattering.** Tracking moves exactly the bones
+   the performer moved. A head turn moves the head and nothing else, so the body
+   reads as a mannequin with a floating head.
+2. **Accurate is not the same as safe.** When a tracker drops a limb for a few
+   frames it produces poses no body can hold, and those go straight to the
+   avatar.
+
+Both fall out of the same design: don't copy the skeleton, **read a few drivers
+off the performance and synthesize the skeleton back from them.**
+
+Status: implemented. Related: [component-managers.md](component-managers.md),
+[signal-graph.md](signal-graph.md), [animation.md](animation.md) (Motion
+snappiness, which composes on top of this).
+
+---
+
+## Shape
+
+```
+Intercept Pose ──┬─→ Style Drivers ─→ Stylize Pose ─→ Send Intercepted Pose
+                 └────────────────────↗
+```
+
+A pose interceptor (priority **8**), so it only runs while some producer — VMC,
+camera tracking, anything — is broadcasting a pose for that avatar. Priority 8
+puts it ahead of `manual_calibration` (5): the pose is stylized first, and any
+manual per-bone trim then applies to the pose the user can actually see.
+
+The pose is tapped twice on purpose. `Style Drivers` reads it to summarise the
+performance; `Stylize Pose` needs the original as the blend base and as the
+carrier for every bone the rig does not own.
+
+| File | Role |
+|---|---|
+| [`packages/shared/src/style_rig.ts`](../../packages/shared/src/style_rig.ts) | The data model: driver names, `StyleResponse`, `StyleRig`, the `follow`/`counter` presets, `mergeStyleRig`, `evaluateBoneResponse`. Pure; lives in shared so the backend nodes and the properties panel read the *same* default rig. |
+| [`packages/backend/src/signal/nodes/pose_style_drivers.ts`](../../packages/backend/src/signal/nodes/pose_style_drivers.ts) | Pose → drivers. Owns all the conditioning (and therefore all the glitch rejection). |
+| [`packages/backend/src/signal/nodes/pose_stylize.ts`](../../packages/backend/src/signal/nodes/pose_stylize.ts) | Drivers → pose. Owns the rig evaluation, per-bone lag, and the accurate↔stylized blend. |
+| [`packages/backend/src/behaviors/pose_stylizer/`](../../packages/backend/src/behaviors/pose_stylizer/) | `graph.ts` (the fixed descriptor) + `manager.ts` (lifecycle + interceptor registration). |
+| `StylizedTrackingProps` in [`PropertiesPanel.tsx`](../../packages/frontend/src/components/editor/PropertiesPanel.tsx) | The UI: amount / follow-through / rest-unmapped, a Response section, and a full per-bone rig editor. |
+
+---
+
+## Drivers
+
+Nine normalized scalars, all clamped to ±1 (`armL`/`armR` signed, `energy` 0..1):
+
+| Driver | Read from | Meaning |
+|---|---|---|
+| `headYaw` / `headPitch` / `headRoll` | `neck · head` composed | Head orientation **relative to the torso**, ±1 at `headRange`. |
+| `bodyYaw` / `bodyPitch` / `bodyRoll` | `hips · spine · chest · upperChest` composed | Torso orientation in world, ±1 at `bodyRange`. |
+| `armL` / `armR` | `left/rightUpperArm` roll | Arm elevation above `armNeutral`, ±1 at `armRange`. Mirrored (the right arm's roll is negated), because the VRM rest arms point along ∓X. |
+| `energy` | Total driver motion per second ÷ `energyScale` | How busy the performance is. **No stock rig entry consumes it**, but the rig editor's driver picker offers it like any other, so you can add e.g. `energy → chest roll` for a bounce that grows with activity. It is NOT reachable outside the behavior — see the limitation below. |
+
+### The conditioning pipeline (this is the glitch gate)
+
+```
+raw angle → ÷ range → clamp ±1 → deadzone → rate limit → EMA smooth
+```
+
+- **clamp** bounds every driver, which is what ultimately bounds the output pose.
+- **deadzone** pins near-neutral values to exactly 0 and rescales the remainder
+  back to full range, so sensor jitter doesn't make a still performer shimmer.
+- **rate limit** (`maxRate`, driver units/second) is the important one: a tracker
+  that teleports a limb produces a physically impossible driver step, and
+  clipping it turns a violent pop into a short, human-looking slew.
+- **smoothing** is a frame-rate-compensated EMA — `smoothing` is the fraction of
+  the previous value retained *per 60Hz frame* (`alpha = 1 - smoothing^(dt*60)`),
+  so the feel doesn't change with the tracker's frame rate.
+
+`maxRate: 0` freezes the drivers entirely; that is deliberate, not a divide-by-zero
+guard.
+
+---
+
+## Presets
+
+A preset is a named starting point for the **whole behavior**, not just the rig:
+`{ rig, response?, lag? }`. Everything it sets is a BASE — the behavior's own
+`rig` / `response` / `lag` config fields are overrides layered on top, so
+switching preset re-baselines whatever the user has not explicitly pinned.
+
+| Preset | Rig | Also sets | For |
+|---|---|---|---|
+| `follow` (default) | torso turns **with** the head | — | the body leans into the look; warm, engaged |
+| `counter` | torso twists **against** the head | — | contrapposto / S-curve; theatrical, posed |
+| `headOnly` | head drivers only, torso **follows** | — | face-only trackers, or body data you don't trust |
+| `headOnlyCounter` | head drivers only, torso **counters** | — | the same, with a contrapposto silhouette |
+| `expressive` | follow's | tighter `response`, longer `lag` | staying still and still reading as animated |
+
+Unknown or absent name → `follow`.
+
+### follow vs counter — the two 2D-rig conventions
+
+The head↔body coupling is **directional**, and the two directions are set
+independently. `follow` and `counter` differ *only* in how the torso answers the
+head; **both** keep the other coupling — body driver → head/neck — **opposed**,
+so the head stays level through a torso lean. That term is what separates
+"performer" from "puppet" and is not something you would want to flip.
+
+**The non-obvious part**: counter is not a sign flip. Negating the four torso
+terms alone would take the summed head-in-world yaw from ~47° to ~13°, i.e. the
+avatar would stop looking where the performer looks. So the head and neck are
+scaled up to carry ~55°, netting back to `headRange`.
+
+### headOnly / headOnlyCounter — head orientation as the sole signal
+
+Every `body*` and `arm*` term is zeroed. Because `mergeStyleRig` prunes zero
+triples and drops a bone once nothing drives it, the forearms (which existed only
+for body follow-through) fall out of the rig entirely and simply pass tracking
+through. The shoulders survive by trading their torso-follow and arm-lift terms
+for a head-turn lag.
+
+Two situations want this: a face-only source (a phone/webcam face tracker gives
+head rotation and nothing else, and this makes it drive a whole body), or
+full-body tracking whose torso/arm data is too noisy to trust.
+
+`headOnlyCounter` is built on top of `STYLE_RIG_HEAD_ONLY`, so it inherits the
+head-only property and the dropped bones for free — its delta is purely the
+torso direction, plus the same head/neck compensation `counter` needs. Its
+shoulders flip sign with the torso they lag.
+
+**Turn and tilt scale UP on the torso** relative to follow (and head/neck down):
+with no other signal the body has to carry more per unit of head movement, or the
+result reads as a bobbling head on a statue.
+
+**The nod is the deliberate exception.** It stays concentrated on head and neck
+— ~78% of it in `headOnly`, ~89% in `headOnlyCounter`, and *less* on the torso
+than `follow` puts there. Turning and tilting are whole-body gestures (you pivot
+from the hips to look behind you); nodding is not. A nod spread down the spine
+the way a turn is spread reads as **bowing**, which is a completely different
+gesture from agreeing. Two tests pin this: the nod must put less into the torso
+than the turn does, and head+neck must carry >70% of it.
+
+Every chain still totals `headRange`, so the gaze lands where it should.
+
+### expressive — a response-level preset
+
+Reuses follow's rig and changes only the response and lag. This is what justifies
+presets covering more than the rig: "small movements read big" is not a mapping
+change, it's a question of how much performer movement saturates a driver.
+
+It is also the one preset that **deliberately breaks 1:1 gaze fidelity**. The rig
+still produces ~45° of avatar rotation at driver = 1, but the driver now saturates
+at 30° of real movement, so the avatar out-rotates the performer by ~1.5×. If you
+want faithful tracking with a livelier body, stay on `follow` and raise `amount`.
+
+### Invariants
+
+Every preset *rig* is authored against the default 45° design range and is tested
+to total that across the chain, so a new preset cannot quietly break gaze
+tracking. Amplification, when wanted, is expressed as a `response` narrowing on
+top — never by detuning the rig.
+
+`STYLE_RIG_COUNTER` and `STYLE_RIG_HEAD_ONLY` are both built as `mergeStyleRig`
+deltas on `STYLE_RIG_FOLLOW`, so each delta *is* the documentation of what that
+convention changes.
+
+### Resolution order
+
+```
+rig       = mergeStyleRig(preset.rig, config.rig)
+response  = { ...DEFAULT_STYLE_RESPONSE, ...preset.response, ...config.response }
+lag       = config.lag ?? preset.lag ?? DEFAULT_STYLE_LAG
+```
+
+Both nodes take a `preset` input — the drivers node needs it because a preset can
+carry a response baseline, not just a rig.
+
+> **Watch out**: the scene-graph "add behavior" flow copies the kind's
+> `defaultConfig` straight into the new row, so anything named there is PINNED and
+> shadows the preset. `lag` and `response` are deliberately absent from
+> `pose_stylizer`'s `defaultConfig` for exactly this reason, and `cfg_lag`'s
+> `defaultValue` is `null` rather than a number so an unset lag falls through.
+
+## Two editing surfaces
+
+The per-bone rig is expressive but wide — twelve bones × nine drivers × three
+axes. `rigMode` picks between it and a coarser view:
+
+| Mode | Surface | Config field |
+|---|---|---|
+| `simple` (default) | 6 × 6 grid of **section totals** | `simpleRig` |
+| `detailed` | the full per-bone table | `rig` |
+
+The simplified view collapses the body into two **sections** (head = neck + head,
+body = hips + spine + chest + upperChest) and three motions each — the head
+turns / tilts / nods, the body turns / sways / leans. Rows are the motion being
+produced (which fixes the section and the Euler axis), columns the driver
+producing it, so the diagonal is a section answering its own driver and
+everything off it is cross-coupling.
+
+### Why switching is lossless
+
+A simplified cell is a **section total**; the per-bone rig supplies the **shape**.
+Compiling a total back down just rescales the section's existing weights to hit
+it, so:
+
+```
+compileSimpleRig(rig, deriveSimpleRig(rig)) === rig        // exactly, for every preset
+compileSimpleRig(rig, {})                   === rig        // empty override is the identity
+```
+
+Both are asserted for all five presets. That gives seamless switching in both
+directions with no special cases:
+
+- **simple → detailed** — the panel bakes `diffStyleRig(presetRig, effectiveRig)`
+  into `rig` and clears `simpleRig`, so the bone list opens showing exactly what
+  was running.
+- **detailed → simple** — nothing to write at all; the grid derives its totals
+  from the effective rig, and an empty override runs it unchanged.
+
+**The bake must be a MINIMAL diff, not the whole rig.** Writing the full resolved
+rig is equally lossless, but it pins every bone as an override — and since
+`mergeStyleRig(preset, fullRig)` is just `fullRig`, the preset dropdown goes inert
+the moment you visit the detailed editor once. `diffStyleRig` keeps only the
+bones, drivers, modes and lags that genuinely changed, so an edit to one channel
+pins that chain and leaves everything else following the preset. With no
+simplified edits at all the diff is empty and `rig` stays `null`.
+
+`diffStyleRig` is the inverse of `mergeStyleRig` and handles the awkward cases:
+a driver the target dropped is written back as an explicit zero (otherwise the
+merge would resurrect it), as is a bone that disappeared entirely.
+
+### What editing a cell does
+
+It rescales that section's whole chain, keeping the falloff the preset authored —
+it never flattens the distribution. Two things ride along automatically:
+
+- **The arms.** Shoulders and arms scale with their *body* channel at whatever
+  ratio the shape rig gave them, so the counter-motion stays proportional when a
+  body total is dialled up or down. "Correct at the arms" needs no separate
+  control. (Head channels do not carry them.)
+- **The head↔body counter-rotations.** These are not special-cased — they are
+  simply the off-diagonal cells (`headTilt` ← `bodySway`, `headNod` ← `bodyLean`),
+  so they are visible and editable like anything else.
+
+When the shape rig has *nothing* on a channel there is no profile to preserve, so
+the total is laid out on `DEFAULT_SECTION_PROFILE` instead, and no arm correction
+is invented. This is what lets you dial a body response up from flat zero under a
+head-only preset.
+
+### Reading a preset off the grid
+
+The grid makes a preset's character legible at a glance:
+
+| Preset | `bodyTurn` row |
+|---|---|
+| `follow` | positive on the `bodyTurn` diagonal |
+| `counter` | positive diagonal, and the head columns go negative |
+| `headOnly` | **diagonal empty**, `headTurn` column positive — the body is driven entirely by the head |
+
+### Resolution order
+
+```
+shape     = mergeStyleRig(preset.rig, config.rig)
+effective = rigMode === 'simple' ? compileSimpleRig(shape, config.simpleRig) : shape
+```
+
+`resolveStyleRig(preset, rig, rigMode, simpleRig)` is the single entry point;
+both the node and the panel call it, so they cannot drift.
+
+## Body shift — the one non-rotation output
+
+Rotation alone pivots the avatar around a fixed pelvis, which reads as stiff. The
+rig can also move the hips, via a reserved `StyleRig` key:
+
+```ts
+HIP_SHIFT_KEY = '@hipShift'      // triples read as [side, up, forward]
+```
+
+**Units are fractions of the avatar's hip height**, not scene units, so a rig
+authored on one model displaces proportionally on a taller or shorter one. The
+frontend scales by the loaded VRM's rest hips Y. Clamped to `MAX_HIP_SHIFT`
+(0.5 hip heights) per axis, and the stock values are far below that — this is a
+nudge, not a step.
+
+It rides in the bone table on purpose: `mergeStyleRig`, `diffStyleRig`, the
+preset layering, the simplified section totals and the per-bone lag integrator
+then all apply to it for free rather than needing a parallel structure. It carries
+a `mode` purely so its entry is the same SHAPE as a bone's (`'add'` — the honest
+label, since the shift is added to whatever root motion resolved). Two subtleties
+this bought, both caught by tests:
+
+- `mergeStyleRig` always materializes `mode`, while `compileSimpleRig` preserves
+  the entry as-is. Every stock BONE has a mode so the asymmetry never showed; the
+  shift entry exposed it, and the two produced different objects.
+- The head-only presets are deltas on `follow`, so they silently inherited its
+  body-driven shift — breaking "head-only consumes no body drivers". They now
+  re-point it at the head drivers.
+
+### How it reaches the screen
+
+The pose pipeline is rotation-first, so rather than teaching every mapper about
+translation, `NormalizedPose` gained an OPTIONAL per-bone offset map that rides
+alongside the rotations. `map()` and `with()` carry it through untouched, so no
+existing node had to change.
+
+```
+pose_stylize → NormalizedPose.withOffset('hips', …)
+  → BroadcastBus (offsets SUM across slots; omitted from the payload when empty)
+  → WS vmc_pose { offsets }
+  → vmcPoseStore.setVmcPose(…, offsets)
+  → Viewport.applyHipShift() — ADDITIVE on top of clip root motion
+```
+
+The frame carrying no offsets *clears* the stored one rather than leaving it
+stale, so switching the stylizer off snaps the hips back instead of freezing them
+displaced. In the simplified grid it appears as three extra rows.
+
+## The rig
+
+`StyleRig` is `boneName → { mode, lag, drivers }`, where `drivers` maps a driver
+name to `[pitchX, yawY, rollZ]` **degrees contributed at driver = 1** (the same
+intrinsic-ZYX convention as `Quaternion.fromEuler` / `toEuler`).
+
+**Modes.**
+
+- `replace` — the bone is built entirely from the drivers and the tracked
+  rotation is discarded. This is what makes the pose glitch-proof: driver ∈ ±1
+  times fixed degrees is bounded by construction. Used for the spine chain, neck,
+  head and shoulders.
+  A replace bone is **emitted even if the tracker never sent it**, so a face-only
+  source drives an entire body through this rig. (Consequence worth knowing: those
+  bones then appear in the broadcast pose, so on the frontend they participate in
+  tracking↔animation stacking rather than being left to the animation layer.)
+- `add` — the authored offset is premultiplied onto the tracked rotation (parent
+  space), so the performer's own motion survives and only gains follow-through.
+  Used for the limbs. An add bone is skipped entirely when the tracker didn't
+  send it — the rig never invents limb motion.
+
+**Sign convention for left/right pairs.** A contribution describing a *global
+body motion* (the torso leans, both arms swing with it) uses the **same** sign on
+both sides, because it is one rotation of the whole avatar frame. A contribution
+describing an *anatomically mirrored motion* (each shoulder lifting with its own
+arm) **flips** sign between the sides. Both appear in the default rig, and
+`style_rig.test.ts` pins them.
+
+**Lag.** Per-bone multiplier on the behavior's base follow-through time, applied
+as a first-order lag on the summed Euler triple
+(`k = 1 - exp(-dt/tau)`, frame-rate independent). The stock rig staggers it down
+the chain — hips 2.6, spine 2.0, chest 1.5, upperChest 1.1, neck 0.5, head 0.2 —
+and that stagger is what produces the whip-and-settle that reads as alive.
+Overshoot is deliberately *not* done here; the avatar's frontend **Motion
+Snappiness** (second-order dynamics, see [animation.md](animation.md)) layers on
+top if you want spring.
+
+### Why the default rig is shaped the way it is
+
+The primary chains are tuned so that, summed over the whole chain, one unit of a
+head driver produces ≈`headRange` (45°) of world rotation and one unit of a body
+driver ≈`bodyRange` (25°). That keeps "stylized" from also meaning "no longer
+looking where you're looking" — the head still lands on target, it just gets
+there through the whole body. Both invariants are asserted in
+`packages/shared/test/style_rig.test.ts`, so retuning the table can't silently
+break them.
+
+The rest is styling: head and neck counter-rotate against torso lean (gaze stays
+level — the single term that does most of the work), shoulders lag behind a
+torso turn, each shoulder lifts with its own arm, and the arms pendulum against
+the torso.
+
+**Merging.** Overrides merge over the **selected preset**, not always over
+`follow` — switching preset re-baselines every bone the user has not overridden.
+Overridden bones keep their stored numbers (they were seeded from whichever
+preset was active when they were edited); resetting a bone picks the new preset
+up. `mergeStyleRig(base, overrides)` merges per bone *and per driver*,
+so a stored override only carries what the user changed. A driver zeroed to
+`[0,0,0]` is pruned, and a bone whose drivers all end up pruned is dropped
+entirely — that is how the UI's "switch this bone off" round-trips.
+
+---
+
+## Behavior config
+
+```jsonc
+{
+  "amount": 1,           // BLEND: 0 = accurate passthrough, 1 = fully stylized (slerp)
+  "strength": 1,         // MULTIPLIER on the rig's contributions; 0..2, 1 = as authored
+  "lag": 0.08,           // base follow-through seconds; × the rig's per-bone lag
+  "restUnmapped": false, // send bones the rig doesn't own back to rest (glitchy fingers)
+  "preset": "follow",    // 'follow' (torso moves with the head) | 'counter' (against it)
+  "response": { "headRange": 45, "bodyRange": 25, "armRange": 90,
+                "armNeutral": -60, "deadzone": 0.03, "maxRate": 5,
+                "smoothing": 0.35, "energyScale": 4 },
+  "rig": null,           // null = the preset verbatim; else per-bone/per-driver overrides
+  "rigMode": "simple",   // which editor: 'simple' (6x6 section totals) | 'detailed'
+  "simpleRig": null      // section-total overrides; null/{} is the identity
+}
+```
+
+Every field is surfaced through a `behavior_config` node wired into the graph
+(visible on the canvas, not a hidden config read), and node config resolves live
+per access, so properties-panel edits hot-apply without a graph rebuild.
+
+---
+
+### Blend vs strength
+
+The two headline dials are independent axes and are deliberately labelled apart
+in the UI ("Blend" and "Strength"):
+
+| | `amount` (Blend) | `strength` (Strength) |
+|---|---|---|
+| What it does | slerps the stylized pose against the tracked one | multiplies every contribution the rig makes |
+| Range | 0..1 | 0..`MAX_STYLE_STRENGTH` (2) |
+| At 0 | tracking passes through untouched | the rig contributes nothing → replace bones go to REST |
+| Can exaggerate? | no — tops out at "fully stylized" | **yes**, above 1 |
+
+Strength is applied to the summed Euler triple *before* the lag integrator, so
+changing it eases in over the follow-through rather than snapping.
+
+Note it also scales the glitch bound: `replace` bones stay bounded by
+construction, but the bound is `driver(±1) × authored degrees × strength`. At
+strength 2 the authored ceiling doubles. That is the user's explicit choice, and
+the reason the slider stops at 2.
+
+## Implementation notes
+
+**Per-frame state lives on the node instance, not in `setState`.** Both nodes
+carry integrator state (previous drivers; per-bone lagged Euler). The manager's
+`setState` callback persists into `behaviors.config._nodeState` in SQLite, so
+using it here would mean a read-modify-write of the behavior row at the pose rate
+(~60Hz) for a value that is meaningless after a restart. Node instances live for
+the graph's lifetime, so plain private fields are the right home.
+
+For the same reason `PoseStylizerManager._persistNodeState` **skips
+`on_pose_broadcast`** (`EPHEMERAL_STATE_KINDS`): the interceptor registry injects
+the entire current pose into that node's state before every fire.
+
+> Note: `ManualCalibrationManager` does not have this guard, so it does write a
+> full pose into SQLite on every interceptor frame. Same fix applies there.
+
+**Both value outputs memoize on the input pose object's identity.** Value outputs
+are pulled on demand and could in principle be pulled more than once per frame;
+memoizing on the (per-frame-fresh) `NormalizedPose` instance guarantees the lag
+integrators advance exactly once per frame.
+
+**Typing.** `StyleDrivers` is a `SignalTypeMap` entry with its own port colour, so
+the drivers edge is typed rather than `Any`. Both nodes are ordinary static nodes
+— decorated ports via `defaultInfer`, no `INFER_BY_KIND` entry.
+
+`Quaternion.slerp` was added to `shared/src/signal.ts` for the `amount` blend
+(shortest-arc, with a normalized-lerp fallback for nearly-parallel rotations).
+
+---
+
+## Known limitations
+
+- **The behavior graph is `readonly: true`** — it cannot be rewired in the
+  substrate editor. Everything user-facing goes through the behavior config.
+- **`energy` cannot leave the behavior.** There is no `set_data` node in the
+  template and no other bridge, so it cannot currently drive a Logic graph,
+  expressions, or particles — only bones, via a rig entry. Adding a `set_data`
+  publish (or a drivers→data-channel node) would be the fix; see
+  [data-channels.md](data-channels.md).
+- **Interceptor priority is fixed at 8.** `_persistNodeState`'s sibling
+  `_getNodeConfig` does honour a `config.nodeConfig[nodeId]` override, but the
+  manager reads priority from `nodeDef.defaultConfig` at graph-construction time,
+  so that escape hatch does not reach it. Ordering against other interceptors
+  (manual calibration at 5, breathing) is not user-configurable.
+- **Driver extraction is hardcoded.** Which bone chains are read (`TORSO_CHAIN`,
+  `HEAD_CHAIN`) and the arm-elevation axis live in `pose_style_drivers.ts`. The
+  set of nine drivers is fixed; adding one is a code change.
+
+## Watch list
+
+Accepted for now, but flagged during PR review as the things most likely to bite
+later. None of these block the feature; they are recorded so they don't get
+rediscovered from scratch.
+
+- **`energy` is surfaced but unreachable.** The rig editor's driver picker offers
+  `energy` exactly like the other eight, so the UI implies it can drive anything a
+  driver can. It cannot leave the behavior — see the limitation above. Until a
+  `set_data` publish exists, expect users to wire it expecting Logic-graph or
+  particle reach and find only bones. If it starts generating confusion, the cheap
+  interim fix is a UI hint on the picker entry rather than a new node.
+- **`ManualCalibrationManager` writes a full pose to SQLite every interceptor
+  frame.** Pre-existing, not introduced here, and out of scope for this PR — but
+  this behavior's `EPHEMERAL_STATE_KINDS` guard is the fix, and the two managers
+  now differ for no principled reason. See the note in
+  [component-managers.md](component-managers.md). Worth doing before anything else
+  starts copying `ManualCalibrationManager` as the reference interceptor manager.
+- **Interceptor priority 8 is hardcoded and the escape hatch doesn't reach it.**
+  Fine while the interceptor set is small and its ordering is deliberate
+  (stylize at 8 → manual trim at 5). It becomes a real constraint the moment a
+  third-party or user-authored interceptor needs to sit between them. Fixing it
+  means having the manager read priority from `_getNodeConfig` rather than
+  `nodeDef.defaultConfig` at construction time.
+- **Blend 0 and Strength 0 are not the same thing, and the difference is not
+  obvious from the panel.** Blend 0 passes tracking through untouched; Strength 0
+  sends every `replace` bone to REST. Both are correct per the design, but
+  "turn it off" has two meanings here and only one of them is the one users
+  usually want. Watch for support questions phrased as "the avatar goes limp".
+
+## Extending
+
+- **A new driver**: add it to `STYLE_DRIVER_NAMES` + `ZERO_DRIVERS`, populate it
+  in `PoseStyleDrivers._read`, and (optionally) give bones a response for it.
+  The conditioning loop, the UI driver picker, and the i18n key set all iterate
+  `STYLE_DRIVER_NAMES`, so only `driver.<name>` translations need adding by hand.
+- **A new response knob**: add it to `StyleResponse` + `DEFAULT_STYLE_RESPONSE`,
+  then add a row to `RESPONSE_FIELDS` in `PropertiesPanel.tsx` and the matching
+  `response.<key>` / `responseTip.<key>` i18n keys.
+- **A new preset**: add it to `STYLE_RIG_PRESET_NAMES` + `STYLE_RIG_PRESETS`
+  (ideally as a `mergeStyleRig` delta on `STYLE_RIG_FOLLOW`, so the diff is
+  readable) and add `presetName.<id>` / `presetHint.<id>` i18n keys. The UI
+  dropdown and the shared preset invariants both iterate the name list, so a new
+  preset is automatically held to the gaze-on-target contract.
+- **Retuning a stock rig**: edit `STYLE_RIG_FOLLOW` or `COUNTER_HEAD_RESPONSE`.
+  The chain-total and sign-convention tests will tell you if you broke the design
+  contract.
+
+## Tests
+
+| File | Covers |
+|---|---|
+| `packages/shared/test/style_rig.test.ts` | The pure data model: default-rig invariants (chain totals, counter-rotation, lag stagger, mirroring, modes), `mergeStyleRig` merge/prune/drop semantics, `evaluateBoneResponse`, `resolveStyleResponse`. |
+| `packages/backend/test/nodes.stylize.test.ts` | Both nodes through the real engine: driver extraction and normalization, clamp / deadzone / rate-limit / smoothing behaviour over fake-timer frames, rig fan-out, replace vs add, amount blending, `restUnmapped`, per-bone lag ordering and convergence, and the two nodes wired together. |
+| `packages/backend/test/managers.test.ts` | `PoseStylizerManager` lifecycle, interceptor register/unregister, hot-applied config, and an end-to-end pass through the interceptor chain. |
+| `packages/backend/test/managers.persist.test.ts` | The `_nodeState` persist path *and* the ephemeral-kind skip. |
+| `e2e/tests/editor-behaviors-effects.spec.ts` | Adding the behavior in the editor and round-tripping every panel control through REST. |

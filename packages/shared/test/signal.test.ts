@@ -56,6 +56,40 @@ describe('Quaternion', () => {
     expect(prod.z).toBeCloseTo(0, 6);
     expect(prod.w).toBeCloseTo(1, 6);
   });
+
+  it('slerp clamps t and returns the endpoints exactly', () => {
+    const a = Quaternion.fromEuler(0, 0, 0);
+    const b = Quaternion.fromEuler(0, Math.PI / 2, 0);
+    expect(a.slerp(b, 0)).toBe(a);
+    expect(a.slerp(b, 1)).toBe(b);
+    expect(a.slerp(b, -5)).toBe(a);
+    expect(a.slerp(b, 12)).toBe(b);
+  });
+
+  it('slerp halfway lands halfway along the arc and stays unit-length', () => {
+    const a = Quaternion.fromEuler(0, 0, 0);
+    const b = Quaternion.fromEuler(0, Math.PI / 2, 0);
+    const mid = a.slerp(b, 0.5);
+    expect(mid.toEuler().yaw).toBeCloseTo(Math.PI / 4, 6);
+    expect(mid.magnitudeSquared).toBeCloseTo(1, 12);
+  });
+
+  it('slerp takes the shortest arc even when the inputs point apart', () => {
+    const a = Quaternion.fromEuler(0, 0.2, 0);
+    // Same rotation, opposite sign — the long way round would swing ~360°.
+    const negB = new Quaternion(-a.x, -a.y, -a.z, -a.w);
+    const mid = Quaternion.IDENTITY.slerp(negB, 0.5);
+    expect(mid.toEuler().yaw).toBeCloseTo(0.1, 6);
+  });
+
+  it('slerp stays stable for nearly-parallel rotations (lerp fallback)', () => {
+    const a = Quaternion.fromEuler(0, 0, 0);
+    const b = Quaternion.fromEuler(0, 1e-6, 0);
+    const mid = a.slerp(b, 0.5);
+    expect(Number.isNaN(mid.x)).toBe(false);
+    expect(mid.magnitudeSquared).toBeCloseTo(1, 12);
+    expect(mid.toEuler().yaw).toBeCloseTo(5e-7, 10);
+  });
 });
 
 describe('BoneRotations', () => {
