@@ -1,8 +1,17 @@
 # Plan: Migrate frontend writes onto the tab mesh peer (make undo real)
 
-> Branch: `feature/mesh-frontend-writes` (create from `dev`) · Status: ready-for-handoff
+> Branch: `feature/mesh-frontend-writes` — **create from
+> `claude/mesh-cleanup-legacy-sync-undo-qgev05` (PR #63), not from `dev`.**
+> Status: ready-for-handoff
 > This plan is the seed context for a cloud worker. It is a starting point, not an
 > airtight spec — the worker is interactive and may ask to refine it.
+>
+> **Why that base:** #63 is unmerged, and it carries everything this plan builds on
+> — the undo engine in `packages/mesh/src/peer.ts`, the tab-peer bindings in
+> `frontend/src/mesh/peer.ts`, the TopBar ↶/↷ buttons, the Ctrl+Z handler, and this
+> plan file itself. None of it exists on `dev` (`git show origin/dev:packages/mesh/src/peer.ts`
+> has zero undo references). Branching from `dev` would give you nothing to migrate
+> onto. If #63 has since merged, branch from `dev` as normal and ignore this note.
 
 ## Goal
 
@@ -205,6 +214,12 @@ Once real writes flow, undo will surface UX questions the engine does not answer
 
 ## Output
 
-Open a PR into `dev` when done. Slices are independently landable — prefer several
-small PRs over one large one; step 1 alone is worth shipping, because it is the
-point where undo stops being inert.
+Open a PR when done. Slices are independently landable — prefer several small PRs
+over one large one; step 1 alone is worth shipping, because it is the point where
+undo stops being inert.
+
+**Target the base you branched from.** While #63 is unmerged, PR into
+`claude/mesh-cleanup-legacy-sync-undo-qgev05` so this work stacks on it rather than
+dragging the whole undo engine into an unrelated diff. Once #63 lands on `dev`,
+rebase onto `dev` and retarget. If that ordering looks wrong when you get there,
+ask — do not merge #63 yourself to simplify your own base.
