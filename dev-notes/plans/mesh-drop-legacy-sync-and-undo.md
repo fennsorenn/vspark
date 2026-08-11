@@ -256,3 +256,8 @@ Per `mesh-sync-refactor.md` §12 + "Remaining mesh work, by value":
   create/delete) and verify with `verify`/`smoketest`. The **assistant** undo
   additionally needs a dedicated **agent loopback mesh peer** (doesn't exist yet)
   so the agent has its own per-peer stack rather than sharing the backend's.
+
+  > **Planned out** in [mesh-frontend-writes.md](./mesh-frontend-writes.md) — the
+  > write-path migration, sliced by rtype, with the ~130 call sites inventoried and
+  > the `canWrite()`/`useMeshStatus` gap (both assumed by §12 but not built) called
+  > out. Step 1 of that plan is the point where undo stops being inert.
