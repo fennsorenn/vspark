@@ -312,6 +312,9 @@ export interface ArmIkConfig {
 })
 export class ArmIkCalibration extends Node {
   static readonly kind = 'arm_ik_calibration';
+  /** Per-arm scale/offset is user-produced calibration — it survives a restart.
+   *  State is plain numbers/arrays, so the JSON round-trip is lossless. */
+  static readonly persistState = true;
 
   @valueIn('pose', 'NormalizedPose') poseIn!: () => NormalizedPose | undefined;
 

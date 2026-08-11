@@ -575,6 +575,20 @@ import type { ResolvedType, Transport } from './signal_types.js';
 
 export interface SignalNodeClass {
   readonly kind: string;
+  /**
+   * Opt in to DURABLE state: `this.setState(...)` is written through to the graph
+   * owner's store (a behavior's `config._nodeState` / a logic row's `node_state`)
+   * and restored on the next boot. Only for state a user deliberately produced and
+   * expects to survive a restart — calibration offsets, captured neutral poses.
+   *
+   * Omitted (the default) means SCRATCH state: it lives in the running graph and is
+   * dropped on teardown. Every per-frame node belongs here. Scratch state must never
+   * be persisted, for two reasons: it churns a DB write per frame, and it round-trips
+   * through JSON, which strips class identity — a `Blendshapes`/`NormalizedPose`
+   * comes back as a plain object and blows up the first consumer that calls a method
+   * on it.
+   */
+  readonly persistState?: boolean;
   /** Construct a fresh node instance (the engine then calls `instance.bind(...)`). */
   new (): Node;
   /** Optional shape inference from connected inputs (pack/unpack/queue). */
