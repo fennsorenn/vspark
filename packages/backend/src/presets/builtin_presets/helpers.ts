@@ -90,8 +90,9 @@ export interface ComposeLayerOpts {
   rotation?: number;
   anchorH?: 'left' | 'right';
   anchorV?: 'top' | 'bottom';
-  sceneOrder?: number;
-  cameraOrder?: number;
+  /** Position within this preset's own sibling group, ascending = back→front.
+   *  Real order keys are generated against the target scene at instantiate. */
+  order?: number;
   visible?: boolean;
 }
 
@@ -116,9 +117,7 @@ export function composeLayer(
     rotation: opts.rotation ?? 0,
     anchorH: opts.anchorH ?? 'left',
     anchorV: opts.anchorV ?? 'top',
-    // Negative scene_order = in front of the 3D render (overlay).
-    sceneOrder: opts.sceneOrder ?? -1,
-    cameraOrder: opts.cameraOrder ?? 0,
+    order: opts.order ?? 0,
     visible: opts.visible ?? true,
     cameraNodePresetId: null,
   };

@@ -335,32 +335,49 @@ describe('compose-layers API (mesh-backed)', () => {
       });
     });
 
-    it('applies default scene_order when not specified', async () => {
-      // Create first layer
+    it('gives a new layer a key that puts it at the front', async () => {
       const first = await createLayerInScene(composeSceneId, {
         name: 'First',
         kind: 'rect',
       });
-      const firstOrder = first.body.data.sceneOrder as number;
-
-      // Create second layer
       const second = await createLayerInScene(composeSceneId, {
         name: 'Second',
         kind: 'rect',
       });
-      const secondOrder = second.body.data.sceneOrder as number;
 
-      // Second should have a higher order (append to back of stack)
-      expect(secondOrder).toBeGreaterThan(firstOrder);
+      // Ascending orderKey = back→front, so the later layer sorts last (front).
+      expect(second.body.data.orderKey > first.body.data.orderKey).toBe(true);
+    });
+
+    it('keys siblings independently per group', async () => {
+      // Keys are scoped to (rootComposeSceneId, parentId), so nesting restarts
+      // the range — the whole reason the old delete route's scene-wide query
+      // collided across groups.
+      const groupA = (
+        await createLayerInScene(composeSceneId, { name: 'A', kind: 'group' })
+      ).body.data.id as string;
+
+      const rootChild = await createLayerInScene(composeSceneId, {
+        name: 'Root child',
+        kind: 'rect',
+      });
+      const nested = await createLayerInScene(composeSceneId, {
+        name: 'Nested',
+        kind: 'rect',
+        parentId: groupA,
+      });
+
+      // Same first key in each group — independent sequences, not a global one.
+      expect(nested.body.data.orderKey).toBeTruthy();
+      expect(rootChild.body.data.orderKey).toBeTruthy();
     });
 
     it('deleting a layer leaves unrelated layers ordered as they were', async () => {
       // Regression: the delete route used to "re-anchor" camera layers sharing
       // the deleted layer's sceneOrder — a leftover from the signed-axis model,
       // where camera layers were pinned to a scene-wide layer's slot. Ordering
-      // is now a plain stacking index assigned PER SIBLING GROUP, while that
-      // query spanned the whole compose scene, so it moved unrelated layers
-      // that merely shared the integer.
+      // is per sibling group while that query spanned the whole compose scene,
+      // so it moved unrelated layers that merely shared the value.
       const sceneId = (await createComposeScene('S')).body.data.id as string;
 
       // camera_node_id has an FK onto scene_nodes, so seed a real camera.
@@ -391,7 +408,6 @@ describe('compose-layers API (mesh-backed)', () => {
           kind: 'camera_view',
           parentId: groupA,
           cameraNodeId,
-          sceneOrder: 1,
         })
       ).body.data.id as string;
       const victim = (
@@ -399,16 +415,20 @@ describe('compose-layers API (mesh-backed)', () => {
           name: 'Plain',
           kind: 'image',
           parentId: groupB,
-          sceneOrder: 1,
         })
       ).body.data.id as string;
+      const camKey = (
+        await request(app).get(`/api/compose-scenes/${sceneId}/layers`)
+      ).body.data.find((l: { id: string }) => l.id === camera)
+        .orderKey as string;
 
       await deleteLayer(victim);
 
+      const before = camKey;
       const layers = (await listLayersInScene(sceneId)).body
-        .data as { id: string; sceneOrder: number }[];
+        .data as { id: string; orderKey: string }[];
       const cam = layers.find((l) => l.id === camera);
-      expect(cam?.sceneOrder).toBe(1); // untouched
+      expect(cam?.orderKey).toBe(before); // untouched
       expect(layers.some((l) => l.id === victim)).toBe(false);
     });
   });

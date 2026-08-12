@@ -233,8 +233,8 @@ defineResource<ReturnType<typeof rowToLayer>>({
         `INSERT INTO compose_layers
            (id, project_id, root_compose_scene_id, camera_node_id, parent_id,
             name, kind, asset_id, config, x, y, width, height, rotation,
-            anchor_h, anchor_v, scene_order, camera_order, visible)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            anchor_h, anchor_v, order_key, visible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            project_id            = excluded.project_id,
            root_compose_scene_id = excluded.root_compose_scene_id,
@@ -251,8 +251,7 @@ defineResource<ReturnType<typeof rowToLayer>>({
            rotation              = excluded.rotation,
            anchor_h              = excluded.anchor_h,
            anchor_v              = excluded.anchor_v,
-           scene_order           = excluded.scene_order,
-           camera_order          = excluded.camera_order,
+           order_key             = excluded.order_key,
            visible               = excluded.visible,
            updated_at            = datetime('now')`
       )
@@ -273,14 +272,12 @@ defineResource<ReturnType<typeof rowToLayer>>({
         dto.rotation,
         dto.anchorH,
         dto.anchorV,
-        dto.sceneOrder,
-        dto.cameraOrder,
+        dto.orderKey,
         dto.visible ? 1 : 0
       );
   },
   remove: (id) => {
-    // Dependent camera layers (scene_order re-anchoring) is a UI concern handled
-    // by the REST route. For generic sync removal, a plain delete is sufficient —
+    // For generic sync removal a plain delete is sufficient —
     // the schema does not cascade on compose_layers.parent_id automatically, but
     // child layers reference the deleted parent via parent_id (nullable FK), so
     // they are left in place (orphaned) until the caller resolves them.

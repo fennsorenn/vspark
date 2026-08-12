@@ -29,7 +29,8 @@
       "@vspark/shared/paramPaths": ["../shared/src/paramPaths.ts"],
       "@vspark/shared/style_rig": ["../shared/src/style_rig.ts"],
       "@vspark/shared/blendshapeLimits": ["../shared/src/blendshapeLimits.ts"],
-      "@vspark/shared/sync": ["../shared/src/sync.ts"]
+      "@vspark/shared/sync": ["../shared/src/sync.ts"],
+      "@vspark/shared/fracIndex": ["../shared/src/fracIndex.ts"]
     }
   },
   "include": ["src"]

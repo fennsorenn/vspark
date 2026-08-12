@@ -303,8 +303,7 @@ export const createComposeLayerSchema = z
     rotation: z.number().optional(),
     anchorH: composeAnchorHSchema.optional(),
     anchorV: composeAnchorVSchema.optional(),
-    sceneOrder: z.number().int().optional(),
-    cameraOrder: z.number().int().optional(),
+    orderKey: z.string().optional(),
     visible: z.boolean().optional(),
   })
   .openapi('CreateComposeLayer');
@@ -322,25 +321,10 @@ export const updateComposeLayerSchema = z
     rotation: z.number().optional(),
     anchorH: composeAnchorHSchema.optional(),
     anchorV: composeAnchorVSchema.optional(),
-    sceneOrder: z.number().int().optional(),
-    cameraOrder: z.number().int().optional(),
+    orderKey: z.string().optional(),
     visible: z.boolean().optional(),
   })
   .openapi('UpdateComposeLayer');
-
-export const reorderComposeLayersSchema = z
-  .object({
-    updates: z
-      .array(
-        z.object({
-          id: z.string(),
-          sceneOrder: z.number().int(),
-          cameraOrder: z.number().int(),
-        })
-      )
-      .min(1),
-  })
-  .openapi('ReorderComposeLayers');
 
 // --- Track clips (timeline parameter animation) ---
 
@@ -503,8 +487,10 @@ export const presetComposeLayerSchema = z
     rotation: z.number(),
     anchorH: z.string(),
     anchorV: z.string(),
-    sceneOrder: z.number().int(),
-    cameraOrder: z.number().int(),
+    /** Position within this preset's own sibling group, ascending = back→front.
+     *  Presets carry RELATIVE order only — absolute keys are generated against
+     *  the target scene at instantiate time. */
+    order: z.number().int(),
     visible: z.boolean(),
     cameraNodePresetId: z.string().nullable(),
   })
@@ -714,9 +700,6 @@ export type CreateCameraEffectInput = z.infer<typeof createCameraEffectSchema>;
 export type UpdateCameraEffectInput = z.infer<typeof updateCameraEffectSchema>;
 export type CreateComposeLayerInput = z.infer<typeof createComposeLayerSchema>;
 export type UpdateComposeLayerInput = z.infer<typeof updateComposeLayerSchema>;
-export type ReorderComposeLayersInput = z.infer<
-  typeof reorderComposeLayersSchema
->;
 export type FireGraphEventInput = z.infer<typeof fireGraphEventSchema>;
 export type PresenceStateInput = z.infer<typeof presenceStateSchema>;
 export type AnimationStateInput = z.infer<typeof animationStateSchema>;

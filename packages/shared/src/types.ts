@@ -214,10 +214,6 @@ export type ComposeLayerKind =
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
 
-/** scene_order = 0 is the 3D render slot. Negative paints above the 3D, positive paints behind.
- *  Camera-specific layers carry a non-zero camera_order to interleave within a scene_order slot. */
-export const SCENE_RENDER_SLOT = 0;
-
 export interface ComposeLayer {
   id: string;
   projectId: string;
@@ -240,8 +236,10 @@ export interface ComposeLayer {
   rotation: number;
   anchorH: ComposeAnchorH;
   anchorV: ComposeAnchorV;
-  sceneOrder: number;
-  cameraOrder: number;
+  /** Sibling order: a string fractional key, sorted lexicographically and
+   *  tie-broken by `id`. Ascending = back→front. Scoped to the sibling set
+   *  (rootComposeSceneId, parentId). See fracIndex. */
+  orderKey: string;
   visible: boolean;
   createdAt: string;
   updatedAt: string;

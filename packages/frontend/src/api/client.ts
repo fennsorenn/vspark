@@ -290,8 +290,9 @@ export interface ComposeLayerRecord {
   rotation: number;
   anchorH: ComposeAnchorH;
   anchorV: ComposeAnchorV;
-  sceneOrder: number;
-  cameraOrder: number;
+  /** Sibling order: string fractional key, ascending = back→front, tie-broken
+   *  by id. Scoped to (rootComposeSceneId, parentId). */
+  orderKey: string;
   visible: boolean;
 }
 
@@ -510,8 +511,7 @@ export function mapComposeLayer(
     rotation: Number(r.rotation ?? 0),
     anchorH: (r.anchor_h ?? r.anchorH ?? 'left') as ComposeAnchorH,
     anchorV: (r.anchor_v ?? r.anchorV ?? 'top') as ComposeAnchorV,
-    sceneOrder: Number(r.scene_order ?? r.sceneOrder ?? 0),
-    cameraOrder: Number(r.camera_order ?? r.cameraOrder ?? 0),
+    orderKey: String(r.order_key ?? r.orderKey ?? ''),
     visible: r.visible === undefined ? true : Boolean(r.visible),
   };
 }
@@ -731,13 +731,6 @@ export const updateComposeLayer = (
 export const deleteComposeLayer = (id: string) =>
   request<{ id: string }>(`/compose-layers/${id}`, { method: 'DELETE' });
 
-export const reorderComposeLayers = (
-  updates: { id: string; sceneOrder: number; cameraOrder: number }[]
-) =>
-  request<void>('/compose-layers/reorder', {
-    method: 'POST',
-    body: JSON.stringify({ updates }),
-  });
 
 // Compose Scenes
 export const getComposeScenes = (projectId: string) =>
@@ -1341,7 +1334,6 @@ export const api = {
   deleteCameraEffect,
   updateComposeLayer,
   deleteComposeLayer,
-  reorderComposeLayers,
   getComposeScenes,
   createComposeScene,
   getComposeSceneLayers,

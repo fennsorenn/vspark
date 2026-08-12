@@ -130,9 +130,11 @@
     "sectionStyles": "Styles (CSS)",
     "stylesHint": "Static styles, scoped to this layer. Dynamic styles can go inline in the template (style=${{ color: m.color }}).",
     "sectionStackOrder": "Stack order",
-    "stackOrderHint": "scene_order < 0 = in front of 3D · 0 = at 3D · > 0 = behind 3D",
-    "prefixScene": "Scene",
-    "prefixCam": "Cam"
+    "stackOrderHint": "Drag in the Compose tree to reorder — higher in the list paints in front.",
+    "orderBack": "Back",
+    "orderBackward": "Backward",
+    "orderForward": "Forward",
+    "orderFront": "Front"
   },
   "stack": {
     "noCamera": "No camera",

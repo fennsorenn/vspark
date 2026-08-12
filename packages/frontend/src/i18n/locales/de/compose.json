@@ -130,9 +130,11 @@
     "sectionStyles": "Stile (CSS)",
     "stylesHint": "Statische Stile, auf diese Ebene beschränkt. Dynamische Stile können direkt in der Vorlage als Inline-Style angegeben werden (style=${{ color: m.color }}).",
     "sectionStackOrder": "Stapelreihenfolge",
-    "stackOrderHint": "scene_order < 0 = vor 3D · 0 = auf 3D-Ebene · > 0 = hinter 3D",
-    "prefixScene": "Szene",
-    "prefixCam": "Kam"
+    "stackOrderHint": "Zum Umsortieren im Compose-Baum ziehen — weiter oben liegt weiter vorne.",
+    "orderBack": "Ganz hinten",
+    "orderBackward": "Nach hinten",
+    "orderForward": "Nach vorne",
+    "orderFront": "Ganz vorne"
   },
   "stack": {
     "noCamera": "Keine Kamera",

@@ -167,7 +167,7 @@ export function pointInLayer(
 }
 
 /** Front-to-back-painter-order list of layer ids whose visible rect contains
- *  the client-space point (cx, cy). Front = smaller sceneOrder (drawn last).
+ *  the client-space point (cx, cy). Front = HIGHEST orderKey (drawn last).
  *  Caller provides the viewport's bounding rect so we can convert client coords
  *  to viewport-local. Nested layers are resolved relative to their parents. */
 export function layersAtClientPoint(
@@ -185,10 +185,12 @@ export function layersAtClientPoint(
   const vh = viewportRect.height / s;
   if (px < 0 || py < 0 || px > vw || py > vh) return [];
   const byId = new Map(layers.map((l) => [l.id, l] as const));
-  // Sort ascending sceneOrder → smaller (more in front) first. Within the same
-  // slot, larger cameraOrder paints last → also goes first in the result.
+  // Descending orderKey → front-most first, which is what a "topmost hit"
+  // caller wants. (This sorted ASCENDING while the paint order was ascending
+  // too, so it used to return the BACK-most layer first — a leftover from the
+  // signed model, where the more-negative sceneOrder really was in front.)
   const ordered = [...layers].sort(
-    (a, b) => a.sceneOrder - b.sceneOrder || b.cameraOrder - a.cameraOrder
+    (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
   );
   const out: string[] = [];
   const viewport = { width: vw, height: vh };

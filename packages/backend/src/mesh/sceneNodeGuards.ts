@@ -24,7 +24,9 @@ export class SceneNodeInvalid extends Error {
 /** The project a scene belongs to, or undefined when it isn't a scene. */
 export function sceneProjectId(sceneId: string): string | undefined {
   const row = getDb()
-    .prepare("SELECT project_id FROM scene_nodes WHERE id = ? AND kind = 'scene'")
+    .prepare(
+      "SELECT project_id FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+    )
     .get(sceneId) as { project_id: string } | undefined;
   return row?.project_id;
 }
@@ -51,7 +53,9 @@ export function assertSceneInstanceValid(
 
   const db = getDb();
   const source = db
-    .prepare("SELECT id, project_id FROM scene_nodes WHERE id = ? AND kind = 'scene'")
+    .prepare(
+      "SELECT id, project_id FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+    )
     .get(sourceSceneId) as { id: string; project_id: string } | undefined;
   if (!source || source.project_id !== projectId)
     throw new SceneNodeInvalid(

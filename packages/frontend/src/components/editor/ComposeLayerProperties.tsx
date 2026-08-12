@@ -12,6 +12,7 @@ import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { CSS_BLEND_MODES, readChroma } from './videoFx';
 import { HelpButton } from '../../help/HelpButton';
+import { keyBetween } from '@vspark/shared/fracIndex';
 import {
   DEFAULT_COMPOSE_WIDTH,
   DEFAULT_COMPOSE_HEIGHT,
@@ -73,6 +74,41 @@ const select: CSSProperties = {
   boxSizing: 'border-box',
 };
 
+/** One stack-order step. Reordering is primarily drag-and-drop in the compose
+ *  tree; these give a precise nudge without dragging. */
+function OrderButton({
+  className,
+  label,
+  disabled,
+  onClick,
+}: {
+  className: string;
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={className}
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      style={{
+        flex: 1,
+        background: '#1c1c1c',
+        border: '1px solid #2a2a2a',
+        borderRadius: 4,
+        color: disabled ? '#444' : '#bbb',
+        cursor: disabled ? 'default' : 'pointer',
+        fontSize: 11,
+        padding: '3px 0',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 export function ComposeLayerProperties({
   layer,
 }: {
@@ -80,6 +116,7 @@ export function ComposeLayerProperties({
 }) {
   const { t } = useTranslation('compose');
   const assets = useEditorStore((s) => s.assets);
+  const composeLayers = useEditorStore((s) => s.composeLayers);
   const updateLayerLocal = useEditorStore((s) => s.updateComposeLayerLocal);
   const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   const nodes = useEditorStore((s) => s.nodes);
@@ -97,6 +134,32 @@ export function ComposeLayerProperties({
   const commit = (patch: Partial<ComposeLayerRecord>) => {
     updateLayerLocal(layer.id, patch);
     api.updateComposeLayer(layer.id, patch).catch(() => {});
+  };
+
+  // Stack order. Drag-and-drop in the compose tree is the primary way to
+  // reorder; these buttons are the precision path. Paint order is ascending
+  // orderKey, so index 0 is the BACK and the last index is the front.
+  const siblings = composeLayers
+    .filter(
+      (l) =>
+        l.rootComposeSceneId === layer.rootComposeSceneId &&
+        (l.parentId ?? null) === (layer.parentId ?? null)
+    )
+    .sort(
+      (a, b) => a.orderKey.localeCompare(b.orderKey) || a.id.localeCompare(b.id)
+    );
+  const orderIdx = siblings.findIndex((l) => l.id === layer.id);
+
+  /** Re-key this layer so it sits at `target` in the back→front sequence. */
+  const moveTo = (target: number) => {
+    const rest = siblings.filter((l) => l.id !== layer.id);
+    const clamped = Math.max(0, Math.min(target, rest.length));
+    commit({
+      orderKey: keyBetween(
+        rest[clamped - 1]?.orderKey ?? null,
+        rest[clamped]?.orderKey ?? null
+      ),
+    });
   };
 
   // Mirror the 3D media nodes' "Pick…" affordance: jump to + flash the matching
@@ -1105,23 +1168,29 @@ export function ComposeLayerProperties({
 
       <div style={sectionHeader}>{t('properties.sectionStackOrder')}</div>
       <div style={row}>
-        <NumInput
-          className="vs-layer-scene-order"
-          value={layer.sceneOrder}
-          prefix={t('properties.prefixScene')}
-          step={1}
-          precision={0}
-          onCommit={(v) => commit({ sceneOrder: Math.round(v) })}
-          style={{ flex: 1 }}
+        <OrderButton
+          className="vs-layer-order-back"
+          label={t('properties.orderBack')}
+          disabled={orderIdx <= 0}
+          onClick={() => moveTo(0)}
         />
-        <NumInput
-          className="vs-layer-camera-order"
-          value={layer.cameraOrder}
-          prefix={t('properties.prefixCam')}
-          step={1}
-          precision={0}
-          onCommit={(v) => commit({ cameraOrder: Math.round(v) })}
-          style={{ flex: 1 }}
+        <OrderButton
+          className="vs-layer-order-backward"
+          label={t('properties.orderBackward')}
+          disabled={orderIdx <= 0}
+          onClick={() => moveTo(orderIdx - 1)}
+        />
+        <OrderButton
+          className="vs-layer-order-forward"
+          label={t('properties.orderForward')}
+          disabled={orderIdx < 0 || orderIdx >= siblings.length - 1}
+          onClick={() => moveTo(orderIdx + 1)}
+        />
+        <OrderButton
+          className="vs-layer-order-front"
+          label={t('properties.orderFront')}
+          disabled={orderIdx < 0 || orderIdx >= siblings.length - 1}
+          onClick={() => moveTo(siblings.length - 1)}
         />
       </div>
       <div

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { broadcastBus } from '../broadcast/bus.js';
+import { keyAfter } from '@vspark/shared/fracIndex';
 import { _ws } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
 import { getResource } from '../sync/registry.js';
@@ -147,7 +148,7 @@ router.get('/projects/:projectId/scenes', (req, res) => {
   // Compose layers are now project-scoped, not scene-scoped
   const composeLayers = db
     .prepare(
-      'SELECT * FROM compose_layers WHERE project_id = ? ORDER BY scene_order DESC, camera_order ASC'
+      'SELECT * FROM compose_layers WHERE project_id = ? ORDER BY order_key ASC, id ASC'
     )
     .all(projectId);
 
@@ -307,16 +308,16 @@ router.post('/projects/:projectId/scenes', (req, res) => {
     createdLayerIds.push(composeSceneId, cameraViewId);
     db.prepare(
       `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
-         x, y, width, height, rotation, anchor_h, anchor_v, scene_order, camera_order, visible)
-       VALUES (?, ?, NULL, NULL, NULL, ?, 'compose_scene', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', 0, 0, 1)`
-    ).run(composeSceneId, projectId, name + ' Output');
+         x, y, width, height, rotation, anchor_h, anchor_v, order_key, visible)
+       VALUES (?, ?, NULL, NULL, NULL, ?, 'compose_scene', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', ?, 1)`
+    ).run(composeSceneId, projectId, name + ' Output', keyAfter(null));
 
     // Default camera_view layer inside the compose scene
     db.prepare(
       `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
-         x, y, width, height, rotation, anchor_h, anchor_v, scene_order, camera_order, visible)
-       VALUES (?, ?, ?, ?, NULL, 'Camera View', 'camera_view', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', 0, 0, 1)`
-    ).run(cameraViewId, projectId, composeSceneId, camId);
+         x, y, width, height, rotation, anchor_h, anchor_v, order_key, visible)
+       VALUES (?, ?, ?, ?, NULL, 'Camera View', 'camera_view', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', ?, 1)`
+    ).run(cameraViewId, projectId, composeSceneId, camId, keyAfter(null));
   }
 
   // Write the created rows through the mesh store so they fan out to tabs +

@@ -16,7 +16,8 @@
     "./paramPaths": "./src/paramPaths.ts",
     "./style_rig": "./src/style_rig.ts",
     "./blendshapeLimits": "./src/blendshapeLimits.ts",
-    "./sync": "./src/sync.ts"
+    "./sync": "./src/sync.ts",
+    "./fracIndex": "./src/fracIndex.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

@@ -267,19 +267,6 @@ export function useWsSync() {
             // Tween numeric fields (x/y/width/height/rotation); apply other
             // fields immediately. Mirrors the smoothing applied to 3D node previews.
             smoothComposeLayer(p.id, p.patch);
-          } else if (msg.kind === 'compose_layer_reordered') {
-            const updates = (msg.payload.updates ?? []) as {
-              id: string;
-              sceneOrder: number;
-              cameraOrder: number;
-            }[];
-            const store = useEditorStore.getState();
-            for (const u of updates) {
-              store.updateComposeLayerLocal(u.id, {
-                sceneOrder: u.sceneOrder,
-                cameraOrder: u.cameraOrder,
-              });
-            }
           } else if (msg.kind === 'track_clip_added') {
             useEditorStore.getState().addTrackClip(mapTrackClip(msg.payload));
           } else if (msg.kind === 'track_clip_updated') {

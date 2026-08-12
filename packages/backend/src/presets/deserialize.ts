@@ -3,6 +3,7 @@ import { getDb } from '../db/index.js';
 import { matchAssetByHash, materializeAsset } from './assets.js';
 import { makeImportSubstituter } from './substitute.js';
 import { logicManager } from '../logic/manager.js';
+import { keysBetween } from '@vspark/shared/fracIndex';
 
 interface PresetPayload {
   format: string;
@@ -57,8 +58,7 @@ interface PresetPayload {
     rotation: number;
     anchorH: string;
     anchorV: string;
-    sceneOrder: number;
-    cameraOrder: number;
+    order: number;
     visible: boolean;
     cameraNodePresetId: string | null;
   }>;
@@ -333,6 +333,40 @@ export function instantiatePreset(
   }
 
   if (payload.rootKind === 'compose_layer' && payload.composeLayers) {
+    // Presets carry relative order only. Generate real keys against the target:
+    // top-level preset layers join an existing sibling group (so they land in
+    // FRONT of what's already there), while nested ones hang off a parent this
+    // preset is creating, whose group starts empty.
+    const orderKeys = new Map<string, string>();
+    {
+      const byParent = new Map<string | null, typeof payload.composeLayers>();
+      for (const l of payload.composeLayers) {
+        const k = l.parentPresetId ?? null;
+        const g = byParent.get(k);
+        if (g) g.push(l);
+        else byParent.set(k, [l]);
+      }
+      for (const [parentPresetId, group] of byParent) {
+        group.sort((a, b) => a.order - b.order);
+        const after =
+          parentPresetId === null
+            ? ((
+                db
+                  .prepare(
+                    `SELECT MAX(order_key) AS k FROM compose_layers
+                      WHERE root_compose_scene_id IS ? AND parent_id IS ?`
+                  )
+                  .get(
+                    target.rootComposeSceneId ?? null,
+                    target.parentId ?? null
+                  ) as { k: string | null } | undefined
+              )?.k ?? null)
+            : null;
+        const keys = keysBetween(after, null, group.length);
+        group.forEach((l, i) => orderKeys.set(l.presetId, keys[i]));
+      }
+    }
+
     for (const layer of payload.composeLayers) {
       const realId = mintId(layer.presetId);
       if (!rootId) rootId = realId;
@@ -347,8 +381,8 @@ export function instantiatePreset(
 
       db.prepare(
         `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, asset_id, config,
-           x, y, width, height, rotation, anchor_h, anchor_v, scene_order, camera_order, visible)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           x, y, width, height, rotation, anchor_h, anchor_v, order_key, visible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         realId,
         target.projectId,
@@ -366,8 +400,7 @@ export function instantiatePreset(
         layer.rotation,
         layer.anchorH,
         layer.anchorV,
-        layer.sceneOrder,
-        layer.cameraOrder,
+        orderKeys.get(layer.presetId) ?? '',
         layer.visible ? 1 : 0
       );
     }

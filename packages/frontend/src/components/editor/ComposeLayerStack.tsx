@@ -624,11 +624,11 @@ function Placeholder({
 }
 
 /** Siblings stack by DOM order (later = on top), so we render ASCENDING by
- *  sceneOrder: lowest first (back), highest last (front). This matches the
+ *  orderKey: lowest first (back), highest last (front). This matches the
  *  tree, where the top row is the front-most layer. */
 function orderSiblings(layers: ComposeLayerRecord[]): ComposeLayerRecord[] {
   return [...layers].sort(
-    (a, b) => a.sceneOrder - b.sceneOrder || a.cameraOrder - b.cameraOrder
+    (a, b) => a.orderKey.localeCompare(b.orderKey) || a.id.localeCompare(b.id)
   );
 }
 

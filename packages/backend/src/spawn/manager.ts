@@ -330,8 +330,7 @@ export class SpawnManager {
           rotation: number;
           anchor_h: string;
           anchor_v: string;
-          scene_order: number;
-          camera_order: number;
+          order_key: string;
           visible: number;
         }
       | undefined;
@@ -356,8 +355,9 @@ export class SpawnManager {
       rotation: row.rotation,
       anchorH: row.anchor_h,
       anchorV: row.anchor_v,
-      sceneOrder: row.scene_order,
-      cameraOrder: row.camera_order,
+      // Spawned copies sit exactly where their source does — an ephemeral tmp
+      // layer is a stand-in for it, not a new entry in the stack.
+      orderKey: row.order_key,
       // Always visible on spawn (matches the scene-node "always unhidden" rule).
       visible: true,
     };

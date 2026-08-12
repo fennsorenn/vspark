@@ -6,6 +6,7 @@ import {
   type ComposeLayerRecord,
 } from '../../store/editorStore';
 import { api } from '../../api/client';
+import { keyBetween } from '@vspark/shared/fracIndex';
 import type { ComposeLayerKind } from '../../api/client';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
@@ -136,12 +137,17 @@ function isSelfOrDescendant(
 }
 
 /** Move `draggedId` to `newParentId` and slot it into `index` among that
- *  parent's display-ordered siblings (front → back). Reassigns descending
- *  sceneOrder across the group (front-of-list = highest sceneOrder, since the
- *  layer stack paints higher sceneOrder further back and the tree lists
- *  front-first). Persists the parent change and the bulk reorder. Generalises
- *  the old same-parent reorder to also handle re-parenting (drag into a layer
- *  or across groups). */
+ *  parent's display-ordered siblings.
+ *
+ *  The tree lists front-first (descending orderKey) while the stack paints
+ *  back-to-front, so the neighbours around the drop index are swapped when
+ *  computing the key: the layer ABOVE in the tree is the one AFTER in paint
+ *  order.
+ *
+ *  Writes one key — not a renumbering of the group. That is the whole point of
+ *  fractional ordering: a move touches a single row, so concurrent moves by two
+ *  peers commute instead of LWW-merging two full renumberings into a stack
+ *  neither asked for. */
 function moveComposeLayer(
   orderedSiblings: ComposeLayerRecord[],
   draggedId: string,
@@ -152,31 +158,21 @@ function moveComposeLayer(
   const dragged = store.composeLayers.find((l) => l.id === draggedId);
   if (!dragged) return;
 
-  const order = orderedSiblings
-    .map((l) => l.id)
-    .filter((id) => id !== draggedId);
-  const clamped = Math.max(0, Math.min(index, order.length));
-  order.splice(clamped, 0, draggedId);
+  const rest = orderedSiblings.filter((l) => l.id !== draggedId);
+  const clamped = Math.max(0, Math.min(index, rest.length));
+  // rest is front-first; the neighbour below the slot in the tree is the one
+  // BEFORE it in paint order, and vice versa.
+  const above = rest[clamped - 1] ?? null; // nearer the front
+  const below = rest[clamped] ?? null; // nearer the back
+  const orderKey = keyBetween(
+    below?.orderKey ?? null,
+    above?.orderKey ?? null
+  );
 
-  // Persist the parent change first (a separate column from sceneOrder).
-  if ((dragged.parentId ?? null) !== newParentId) {
-    store.updateComposeLayerLocal(draggedId, { parentId: newParentId });
-    api
-      .updateComposeLayer(draggedId, { parentId: newParentId })
-      .catch(() => {});
-  }
-
-  // Assign descending sceneOrder so the top of the list paints in front.
-  const n = order.length;
-  const updates = order.map((id, i) => ({
-    id,
-    sceneOrder: n - i,
-    cameraOrder: 0,
-  }));
-  for (const u of updates) {
-    store.updateComposeLayerLocal(u.id, { sceneOrder: u.sceneOrder });
-  }
-  api.reorderComposeLayers(updates).catch(() => {});
+  const patch: Partial<ComposeLayerRecord> = { orderKey };
+  if ((dragged.parentId ?? null) !== newParentId) patch.parentId = newParentId;
+  store.updateComposeLayerLocal(draggedId, patch);
+  api.updateComposeLayer(draggedId, patch).catch(() => {});
 }
 
 /** Copy (or, with `copy=false`, move) a layer subtree into `targetSceneId`
@@ -242,7 +238,9 @@ function LayerRow({
   // Siblings in display order (front-first), used for drag-reorder.
   const siblings = (layersByParent.get(layer.parentId ?? null) ?? [])
     .slice()
-    .sort((a, b) => b.sceneOrder - a.sceneOrder);
+    .sort(
+      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+    );
 
   const selected = selectedComposeLayerId === layer.id;
   const children = layersByParent.get(layer.id) ?? [];
@@ -538,7 +536,9 @@ function LayerRow({
           if (zone === 'inside') {
             const childOrder = (layersByParent.get(layer.id) ?? [])
               .slice()
-              .sort((a, b) => b.sceneOrder - a.sceneOrder);
+              .sort(
+      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+    );
             moveComposeLayer(childOrder, draggedId, layer.id, 0);
           } else {
             const newParentId = layer.parentId ?? null;
@@ -693,7 +693,9 @@ function LayerRow({
       )}
       {children
         .slice()
-        .sort((a, b) => b.sceneOrder - a.sceneOrder)
+        .sort(
+      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+    )
         .map((child) => (
           <LayerRow
             key={child.id}
@@ -751,7 +753,9 @@ function ComposeSceneRoot({
   }
   const roots = (layersByParent.get(null) ?? [])
     .slice()
-    .sort((a, b) => b.sceneOrder - a.sceneOrder);
+    .sort(
+      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+    );
 
   const handleDeleteScene = async () => {
     if (!confirm(t('tree.deleteSceneConfirm', { name: scene.name }))) return;
