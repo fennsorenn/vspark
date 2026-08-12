@@ -35,7 +35,10 @@ import {
   queueAnimationAssetFollowUp,
   setAnimationClipCollection,
 } from './assets.js';
-import { guardClientSceneNode } from './sceneNodeGuards.js';
+import {
+  guardClientSceneNode,
+  guardClientComposeLayer,
+} from './docGuards.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { isClientParticipant } from '@vspark/shared/sync';
 import '../sync/resources.js'; // side effect: register the descriptors
@@ -148,6 +151,13 @@ const BINDINGS: RtypeBinding[] = [
             d.rootComposeSceneId !== d.id
           ? { rtype: 'compose_layer', id: d.rootComposeSceneId }
           : null,
+    // Tabs author layer creates directly (so they land on the authoring tab's
+    // undo stack), bypassing the REST route — so its server-owned fields are
+    // re-derived here instead. Collab peers are servers, not clients.
+    validate: (data, originId) =>
+      originId && isClientParticipant(originId)
+        ? guardClientComposeLayer({ ...(data as Dto) })
+        : (data as Dto),
     persists: (d) => rowExists('projects', d.projectId),
   },
   {

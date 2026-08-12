@@ -7,7 +7,7 @@ import {
   guardClientSceneNode,
   assertSceneInstanceValid,
   SceneNodeInvalid,
-} from '../src/mesh/sceneNodeGuards.js';
+} from '../src/mesh/docGuards.js';
 
 /**
  * Server-authoritative scene_node checks.
@@ -81,7 +81,10 @@ describe('scene-node guards', () => {
     it('rejects an instance that would close a cycle', async () => {
       const { sceneIds } = await seed(2);
       // S0 already instances S1; now try to place S0 inside S1.
-      expect((await createInstance(sceneIds[0], { sourceSceneId: sceneIds[1] })).status).toBe(201);
+      expect(
+        (await createInstance(sceneIds[0], { sourceSceneId: sceneIds[1] }))
+          .status
+      ).toBe(201);
 
       const res = await createInstance(sceneIds[1], {
         sourceSceneId: sceneIds[0],
@@ -118,7 +121,10 @@ describe('scene-node guards', () => {
 
     it('refuses a client-authored scene_instance that closes a cycle', async () => {
       const { projectId, sceneIds } = await seed(2);
-      expect((await createInstance(sceneIds[0], { sourceSceneId: sceneIds[1] })).status).toBe(201);
+      expect(
+        (await createInstance(sceneIds[0], { sourceSceneId: sceneIds[1] }))
+          .status
+      ).toBe(201);
 
       expect(() =>
         guardClientSceneNode({
@@ -159,7 +165,7 @@ describe('scene-node guards', () => {
       return entries;
     };
 
-    it('clears a deleted node\'s overrides from the persistence tap', async () => {
+    it("clears a deleted node's overrides from the persistence tap", async () => {
       const { sceneIds } = await seed();
       const nodeId = (
         await request(app)

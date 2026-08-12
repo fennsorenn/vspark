@@ -13,6 +13,7 @@ import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { CSS_BLEND_MODES, readChroma } from './videoFx';
 import { HelpButton } from '../../help/HelpButton';
 import { keyBetween } from '@vspark/shared/fracIndex';
+import { commitLayerPatch, commitLayerPath } from '../../mesh/layerWrites';
 import {
   DEFAULT_COMPOSE_WIDTH,
   DEFAULT_COMPOSE_HEIGHT,
@@ -131,10 +132,8 @@ export function ComposeLayerProperties({
       })
     : t('properties.scopeAllCameras');
 
-  const commit = (patch: Partial<ComposeLayerRecord>) => {
-    updateLayerLocal(layer.id, patch);
-    api.updateComposeLayer(layer.id, patch).catch(() => {});
-  };
+  const commit = (patch: Partial<ComposeLayerRecord>) =>
+    commitLayerPatch(layer.id, patch);
 
   // Stack order. Drag-and-drop in the compose tree is the primary way to
   // reorder; these buttons are the precision path. Paint order is ascending
@@ -1225,12 +1224,12 @@ export function ComposeSceneProperties({
     const nw = Math.max(16, Math.round(values[0]));
     const nh = Math.max(16, Math.round(values[1]));
     updateSceneLocal({ ...scene, width: nw, height: nh });
-    api.updateComposeLayer(scene.id, { width: nw, height: nh }).catch(() => {});
+    commitLayerPatch(scene.id, { width: nw, height: nh });
   };
   const setPb = (patch: Partial<PreviewBg>) => {
     const config = { ...scene.config, previewBg: { ...pb, ...patch } };
     updateSceneLocal({ ...scene, config });
-    api.updateComposeLayer(scene.id, { config }).catch(() => {});
+    commitLayerPath(scene.id, 'config', config);
   };
 
   return (

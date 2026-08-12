@@ -4,8 +4,8 @@ import {
   type ComposeLayerRecord,
   type StageObject,
 } from '../../store/editorStore';
-import { api } from '../../api/client';
 import { layerFrame } from './composeHitTest';
+import { commitPromoteLayerToNode } from '../../mesh/layerWrites';
 import { DEFAULT_COMPOSE_WIDTH, DEFAULT_COMPOSE_HEIGHT } from './ComposeView';
 
 /** Placement for a node sent from a 2D compose layer into a camera's 3D scene:
@@ -192,10 +192,27 @@ export async function sendComposeLayerTo3D(
     sz: 1,
   };
 
+  // Build the node doc here rather than creating it: the create and the
+  // layer removal have to be issued together so "send to 3D" is one undo step.
+  const draft = (spec: Partial<StageObject>): StageObject => ({
+    id: crypto.randomUUID(),
+    rootSceneNodeId: sceneId,
+    projectId: store.projectId ?? '',
+    parentId: null,
+    boneAttachment: null,
+    name: source.name,
+    kind: 'billboard',
+    filePath: null,
+    components: {},
+    properties: {},
+    hidden: false,
+    ...spec,
+  });
+
   try {
     let node: StageObject;
     if (source.kind === 'video') {
-      node = await api.createNode(sceneId, {
+      node = draft({
         parentId: null,
         name: source.name,
         kind: 'video',
@@ -223,9 +240,7 @@ export async function sendComposeLayerTo3D(
       const asset = source.assetId
         ? store.assets.find((a) => a.id === source.assetId)
         : null;
-      node = await api.createNode(sceneId, {
-        parentId: null,
-        name: source.name,
+      node = draft({
         kind: 'billboard',
         filePath: asset?.url ?? null,
         components: {
@@ -242,14 +257,12 @@ export async function sendComposeLayerTo3D(
         },
       });
     }
-    if (store.nodes.every((n) => n.id !== node.id)) store.addNode(node);
     // The 2D layer has been promoted into 3D — remove it, and stay in the
     // compose view (the new node lives in the camera's scene and shows through
     // the camera_view).
     if (store.selectedComposeLayerId === source.id)
       store.selectComposeLayer(null);
-    store.removeComposeLayer(source.id);
-    await api.deleteComposeLayer(source.id).catch(() => {});
+    await commitPromoteLayerToNode(node, source.id);
   } catch (err) {
     alert(err instanceof Error ? err.message : 'Failed to send layer to 3D');
   }

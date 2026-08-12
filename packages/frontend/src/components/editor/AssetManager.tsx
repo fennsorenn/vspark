@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import { commitNodeCreate } from '../../mesh/writes';
+import { commitLayerCreate, commitLayerPath } from '../../mesh/layerWrites';
 import type { AssetFile } from '../../api/client';
 import type { BottomDockTab, Behavior } from '../../store/editorStore';
 import { newBehaviorId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
@@ -66,7 +67,6 @@ export function AssetManager() {
   const setTab = useEditorStore((s) => s.setBottomTab);
   const leftTab = useEditorStore((s) => s.leftTab);
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
-  const addComposeLayer = useEditorStore((s) => s.addComposeLayer);
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
@@ -360,13 +360,12 @@ export function AssetManager() {
           }
         : { objectFit: 'contain' };
     try {
-      const created = await api.createComposeSceneLayer(activeComposeSceneId, {
+      const created = await commitLayerCreate(activeComposeSceneId, {
         name: asset.name,
         kind,
         assetId: asset.id,
         config,
       });
-      addComposeLayer(created);
       selectComposeLayer(created.id);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addLayerFailed'));
@@ -403,7 +402,7 @@ export function AssetManager() {
     const layer = selectedComposeLayer;
     if (!layer) return;
     try {
-      await api.updateComposeLayer(layer.id, { assetId: asset.id });
+      commitLayerPath(layer.id, 'assetId', asset.id);
       updateComposeLayerLocal(layer.id, { assetId: asset.id });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));

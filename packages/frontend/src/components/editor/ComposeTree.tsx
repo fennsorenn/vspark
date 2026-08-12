@@ -7,6 +7,12 @@ import {
 } from '../../store/editorStore';
 import { api } from '../../api/client';
 import { keyBetween } from '@vspark/shared/fracIndex';
+import {
+  commitLayerDelete,
+  commitLayerDeleteKeepChildren,
+  commitLayerPatch,
+  commitLayerPath,
+} from '../../mesh/layerWrites';
 import type { ComposeLayerKind } from '../../api/client';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
@@ -171,8 +177,7 @@ function moveComposeLayer(
 
   const patch: Partial<ComposeLayerRecord> = { orderKey };
   if ((dragged.parentId ?? null) !== newParentId) patch.parentId = newParentId;
-  store.updateComposeLayerLocal(draggedId, patch);
-  api.updateComposeLayer(draggedId, patch).catch(() => {});
+  commitLayerPatch(draggedId, patch);
 }
 
 /** Copy (or, with `copy=false`, move) a layer subtree into `targetSceneId`
@@ -199,10 +204,7 @@ async function transferComposeLayer(
       targetSceneId,
       parentId
     );
-    if (!copy) {
-      useEditorStore.getState().removeComposeLayer(draggedId);
-      await api.deleteComposeLayer(draggedId).catch(() => {});
-    }
+    if (!copy) await commitLayerDelete(draggedId);
     // deserialize inserts via raw INSERT without a WS broadcast, so re-pull the
     // project's compose layers from the scenes bundle.
     const bundle = await api.getScenes(projectId);
@@ -267,12 +269,7 @@ function LayerRow({
   const choose = useChoose();
   const confirm = useConfirm();
   const handleDelete = async () => {
-    const store = useEditorStore.getState();
     const directChildren = layersByParent.get(layer.id) ?? [];
-    const delOne = async (id: string) => {
-      store.removeComposeLayer(id);
-      await api.deleteComposeLayer(id).catch(() => {});
-    };
 
     // Leaf layer: a simple confirm.
     if (directChildren.length === 0) {
@@ -283,7 +280,7 @@ function LayerRow({
         }))
       )
         return;
-      await delOne(layer.id);
+      await commitLayerDelete(layer.id);
       return;
     }
 
@@ -300,25 +297,13 @@ function LayerRow({
     if (!choice) return; // cancel / dismiss
 
     if (choice === 'with') {
-      // Collect the whole subtree (leaves first) and delete each — the backend
-      // delete doesn't cascade on parent_id, so we remove them explicitly.
-      const subtree: string[] = [];
-      const stack = [layer.id];
-      while (stack.length) {
-        const id = stack.pop()!;
-        subtree.push(id);
-        for (const c of layersByParent.get(id) ?? []) stack.push(c.id);
-      }
-      for (const id of subtree.reverse()) await delOne(id);
+      // Removes the subtree explicitly, children before parents, as ONE undo
+      // action — see mesh/writes.ts on why the FK cascade alone isn't enough.
+      await commitLayerDelete(layer.id);
     } else {
-      // Keep children: reparent the direct children onto this layer's parent,
-      // then delete this layer.
-      for (const c of directChildren) {
-        const patch = { parentId: layer.parentId ?? null };
-        store.updateComposeLayerLocal(c.id, patch);
-        await api.updateComposeLayer(c.id, patch).catch(() => {});
-      }
-      await delOne(layer.id);
+      // Keep children: detach them onto this layer's parent, then delete —
+      // also one action, so the reparents don't unwind separately.
+      await commitLayerDeleteKeepChildren(layer.id, layer.parentId ?? null);
     }
   };
 
@@ -430,10 +415,8 @@ function LayerRow({
     return items;
   };
 
-  const handleToggleVisible = async () => {
-    const next = !layer.visible;
-    updateComposeLayerLocal(layer.id, { visible: next });
-    await api.updateComposeLayer(layer.id, { visible: next }).catch(() => {});
+  const handleToggleVisible = () => {
+    commitLayerPath(layer.id, 'visible', !layer.visible);
   };
 
   const locked = layer.config.locked === true;
@@ -759,8 +742,9 @@ function ComposeSceneRoot({
 
   const handleDeleteScene = async () => {
     if (!confirm(t('tree.deleteSceneConfirm', { name: scene.name }))) return;
-    useEditorStore.getState().removeComposeScene(scene.id);
-    await api.deleteComposeLayer(scene.id).catch(() => {});
+    // A compose scene is itself a compose_layer row, so this is a subtree
+    // delete: its layers are removed explicitly and come back on one undo.
+    await commitLayerDelete(scene.id);
   };
 
   // Drop a layer at this compose scene's top level (parentId = null). A

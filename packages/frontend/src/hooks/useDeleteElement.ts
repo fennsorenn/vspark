@@ -1,12 +1,15 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../store/editorStore';
-import { api } from '../api/client';
 import { useConfirm, useChoose } from '../components/DialogProvider';
 import {
   commitNodeDelete,
   commitNodeDeleteKeepChildren,
 } from '../mesh/writes';
+import {
+  commitLayerDelete,
+  commitLayerDeleteKeepChildren,
+} from '../mesh/layerWrites';
 
 /**
  * Shared "delete this element" flow used by the scene tree, the compose tree and
@@ -28,10 +31,6 @@ export function useDeleteElement() {
       const childrenOf = (pid: string) =>
         store.composeLayers.filter((l) => l.parentId === pid);
       const directChildren = childrenOf(id);
-      const delOne = async (lid: string) => {
-        store.removeComposeLayer(lid);
-        await api.deleteComposeLayer(lid).catch(() => {});
-      };
 
       if (directChildren.length === 0) {
         if (
@@ -41,7 +40,7 @@ export function useDeleteElement() {
           }))
         )
           return;
-        await delOne(id);
+        await commitLayerDelete(id);
         return;
       }
 
@@ -62,21 +61,10 @@ export function useDeleteElement() {
       if (!choice) return;
 
       if (choice === 'with') {
-        const subtree: string[] = [];
-        const stack = [id];
-        while (stack.length) {
-          const cur = stack.pop()!;
-          subtree.push(cur);
-          for (const c of childrenOf(cur)) stack.push(c.id);
-        }
-        for (const sid of subtree.reverse()) await delOne(sid);
+        // Subtree removed explicitly, children before parents, as one action.
+        await commitLayerDelete(id);
       } else {
-        for (const c of directChildren) {
-          const patch = { parentId: layer.parentId ?? null };
-          store.updateComposeLayerLocal(c.id, patch);
-          await api.updateComposeLayer(c.id, patch).catch(() => {});
-        }
-        await delOne(id);
+        await commitLayerDeleteKeepChildren(id, layer.parentId ?? null);
       }
     },
     [confirm, choose, t]

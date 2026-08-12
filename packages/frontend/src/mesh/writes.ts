@@ -41,7 +41,7 @@
  * surface is undoable by the tab that authored it. Two things make that safe:
  *
  *   - The backend validates client-authored whole-doc writes in its mesh
- *     `validate` hook (e.g. backend mesh/sceneNodeGuards.ts) and returns a
+ *     `validate` hook (e.g. backend mesh/docGuards.ts) and returns a
  *     nack, which rolls the client's optimistic write back. So a create the
  *     REST route would have refused is refused here on the same grounds.
  *   - A delete removes the doc's descendants EXPLICITLY, each before its

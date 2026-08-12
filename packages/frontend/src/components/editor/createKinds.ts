@@ -1,6 +1,6 @@
 import { useEditorStore, type StageObject } from '../../store/editorStore';
-import { api } from '../../api/client';
 import { commitNodeCreate } from '../../mesh/writes';
+import { commitLayerCreate } from '../../mesh/layerWrites';
 import { createRemoteChild } from '../../sync/remoteEdit';
 import type { AssetFile, ComposeLayerKind } from '../../api/client';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
@@ -443,7 +443,7 @@ export async function createLayer(
   const name = uniqueName(baseName, taken);
 
   try {
-    const created = await api.createComposeSceneLayer(composeSceneId, {
+    const created = await commitLayerCreate(composeSceneId, {
       name,
       kind,
       cameraNodeId,
@@ -451,8 +451,7 @@ export async function createLayer(
       config,
       ...sizeDefaults,
     });
-    // Optimistic insert; the WS broadcast dedupes by id.
-    useEditorStore.getState().addComposeLayer(created);
+    // The feeder mirrors the replica into the store; just select it.
     useEditorStore.getState().selectComposeLayer(created.id);
   } catch (e) {
     alert(e instanceof Error ? e.message : 'Failed to add layer');

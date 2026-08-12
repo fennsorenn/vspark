@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
-import { assertSceneInstanceValid } from '../mesh/sceneNodeGuards.js';
+import { assertSceneInstanceValid } from '../mesh/docGuards.js';
 
 const router: ReturnType<typeof Router> = Router();
 

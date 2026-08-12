@@ -1,6 +1,6 @@
 import type { ComposeLayerRecord } from '../../store/editorStore';
 import { useEditorStore } from '../../store/editorStore';
-import { api } from '../../api/client';
+import { commitLayerPatch } from '../../mesh/layerWrites';
 import { sendComposeLayerPreview } from '../../hooks/useWsSync';
 import { setSnapGuides, clearSnapGuides } from './composeSnap';
 
@@ -264,7 +264,7 @@ export function startDrag(
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     clearSnapGuides();
-    if (last) api.updateComposeLayer(layer.id, last).catch(() => {});
+    if (last) commitLayerPatch(layer.id, last);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
@@ -439,7 +439,7 @@ export function startResize(
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     clearSnapGuides();
-    if (last) api.updateComposeLayer(layer.id, last).catch(() => {});
+    if (last) commitLayerPatch(layer.id, last);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
@@ -476,7 +476,7 @@ export function startRotate(
   const up = () => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
-    if (last) api.updateComposeLayer(layer.id, last).catch(() => {});
+    if (last) commitLayerPatch(layer.id, last);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);

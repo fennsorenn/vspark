@@ -1,5 +1,5 @@
 /**
- * Server-authoritative checks for scene_node writes.
+ * Server-authoritative checks for client-authored document writes.
  *
  * These used to live inside `POST /scenes/:sceneId/nodes`, which was fine while
  * every create arrived over REST. Clients now author creates directly onto the
@@ -109,4 +109,30 @@ export function guardClientSceneNode(
     assertSceneInstanceValid(rootId, projectId, d.properties);
 
   return d.projectId === projectId ? d : { ...d, projectId };
+}
+
+/**
+ * Guard a whole-doc compose_layer write authored by a browser client.
+ *
+ * Compose layers have no cross-document invariant to check the way
+ * `scene_instance` does — ordering is a per-sibling fractional key, which can't
+ * be made inconsistent by a single write. What the server does own is
+ * `projectId`: it is re-derived from the compose scene the layer belongs to
+ * rather than taken from the writer. Docs whose compose scene we don't hold are
+ * left alone — those are collab projections.
+ */
+export function guardClientComposeLayer(
+  d: Record<string, unknown>
+): Record<string, unknown> {
+  const rootId =
+    typeof d.rootComposeSceneId === 'string' ? d.rootComposeSceneId : undefined;
+  // A compose_scene row is its own root and carries no parent scene.
+  if (!rootId || rootId === d.id) return d;
+  const row = getDb()
+    .prepare('SELECT project_id FROM compose_layers WHERE id = ?')
+    .get(rootId) as { project_id: string } | undefined;
+  if (!row) return d; // not ours — a collab projection
+  return d.projectId === row.project_id
+    ? d
+    : { ...d, projectId: row.project_id };
 }
