@@ -6,6 +6,7 @@ import { api } from '../../api/client';
 import type { StageObject, Behavior } from '../../store/editorStore';
 import { newBehaviorId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
+import { commitNodePatch } from '../../mesh/writes';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
@@ -2549,18 +2550,14 @@ export function SceneGraph() {
     newBoneAttachment?: string | null
   ) => {
     try {
-      const patch: Parameters<typeof api.updateNode>[1] = {
-        parentId: newParentId,
-      };
+      const patch: Partial<StageObject> = { parentId: newParentId };
       if (newBoneAttachment !== undefined)
         patch.boneAttachment = newBoneAttachment;
-      await api.updateNode(nodeId, patch);
-      storeUpdateNode(nodeId, {
-        parentId: newParentId,
-        ...(newBoneAttachment !== undefined
-          ? { boneAttachment: newBoneAttachment }
-          : {}),
-      });
+      // One op, so a drag is a single undo step even when it also moves the
+      // bone attachment. Containment is a plain field here — no server-side
+      // effects — which is why reparent can go through the mesh while create
+      // and delete still can't (see mesh/writes.ts).
+      commitNodePatch(nodeId, patch);
       if (newParentId)
         setCollapsedNodes((s) => {
           const n = new Set(s);

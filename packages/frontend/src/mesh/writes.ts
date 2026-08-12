@@ -28,6 +28,32 @@
  *     `remoteWriteRouter` diverts them to the owner), or
  *   - the tab peer isn't armed / the authority is offline (`canWrite()`), or
  *   - the replica doesn't hold the doc yet.
+ *
+ * ## Scope: field writes and reparents only
+ *
+ * Containment is a plain field, so reparenting goes through here. Node CREATE
+ * and DELETE deliberately stay on REST — each has a blocker that has to be
+ * cleared on the backend first, not worked around here:
+ *
+ *   - **Delete.** The route's `col.remove(id)` tombstones only that id; the
+ *     subtree dies via the SQL FK cascade in the persistence tap, which emits
+ *     no tombstones for the children. Undo restores the removed doc, so a
+ *     mesh-authored subtree delete would undo into a root whose children are
+ *     gone from SQLite for good — an undo that looks like it worked and
+ *     silently drops data. The route also calls
+ *     `runtimeOverrideManager.clearAllForTarget`, which the tap does not, so a
+ *     client-authored remove would leak runtime overrides.
+ *   - **Create.** `POST /scenes/:id/nodes` is server-authoritative: it derives
+ *     `projectId` from the scene row and, for `scene_instance`, validates the
+ *     source scene and walks the instance graph for cycles. A client-side
+ *     upsert would bypass that.
+ *   - **Multi-op edits.** The peer has no batch/transaction API — one write is
+ *     one undo entry. "Delete but keep children" is N reparents plus a remove,
+ *     so it would need N+1 undos to reverse. Anything that isn't a single
+ *     write needs batching before it belongs here.
+ *
+ * The consequence today is that renames, field edits and drags are undoable
+ * while creates and deletes are not.
  */
 import { flattenToLeaves, getPath, setPath } from '@vspark/mesh';
 import { getMeshHandles } from './peer';

@@ -184,6 +184,28 @@ describe('commitNodePatch', () => {
     });
   });
 
+  it('reparents to the root, keeping an explicit null through the fallback', () => {
+    // `parentId: null` is meaningful — REST uses field-presence semantics, so
+    // the null has to survive as a present key or the node never detaches.
+    state.armed = false;
+    seed(node({ parentId: 'old-parent' } as Partial<StageObject>));
+
+    commitNodePatch(NODE_ID, { parentId: null, boneAttachment: null });
+
+    expect(updateNode).toHaveBeenCalledWith(NODE_ID, {
+      parentId: null,
+      boneAttachment: null,
+    });
+    expect(useEditorStore.getState().nodes[0].parentId).toBeNull();
+  });
+
+  it('reparents through the mesh as one op when the peer is armed', () => {
+    commitNodePatch(NODE_ID, { parentId: 'new-parent' });
+
+    expect(updates).toEqual([[NODE_ID, { parentId: 'new-parent' }]]);
+    expect(updateNode).not.toHaveBeenCalled();
+  });
+
   it('merges leaf-wise on the fallback, keeping untouched sibling keys', () => {
     state.armed = false;
     seed(

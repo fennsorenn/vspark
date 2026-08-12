@@ -217,3 +217,77 @@ test('undo unwinds edits to different fields one at a time', async ({
   await undo.click();
   await expectPersistedName(request, sceneId, nodeId, 'TwoFieldNode');
 });
+
+/**
+ * Drive the scene tree's HTML5 drag-and-drop.
+ *
+ * Playwright's dragTo() moves the mouse, which doesn't drive HTML5 DnD in
+ * Chromium, so the events are dispatched directly. Two details matter:
+ *
+ *  - dragstart and drop must land in SEPARATE ticks. The tree carries the
+ *    dragged id in React state, so a drop dispatched in the same tick still
+ *    sees `dragNodeId` as null and bails out silently.
+ *  - no dragover. It sets the drop zone from the pointer's Y offset, and a
+ *    synthetic event's clientY of 0 reads as the row's top edge — zone
+ *    'before', which makes the node a SIBLING of the target rather than
+ *    nesting it. Leaving the zone unset resolves to 'inside'.
+ */
+async function dragNodeOnto(
+  page: import('@playwright/test').Page,
+  sourceName: string,
+  targetName: string
+): Promise<void> {
+  const dispatch = (name: string, type: string) =>
+    page.evaluate(
+      ([label, evType]) => {
+        const row = Array.from(document.querySelectorAll('*'))
+          .filter(
+            (e) => e.textContent?.trim() === label && e.children.length === 0
+          )[0]
+          ?.closest('[draggable="true"]');
+        if (!row) throw new Error(`draggable row not found for ${label}`);
+        const w = window as unknown as { __dndTransfer?: DataTransfer };
+        if (evType === 'dragstart') w.__dndTransfer = new DataTransfer();
+        row.dispatchEvent(
+          new DragEvent(evType, {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: w.__dndTransfer,
+          })
+        );
+      },
+      [name, type]
+    );
+
+  await dispatch(sourceName, 'dragstart');
+  // Let React commit setDragNodeId before the drop handler reads it.
+  await page.waitForTimeout(100);
+  await dispatch(targetName, 'drop');
+}
+
+test('a drag-reparent is one undo step and reverts the parent', async ({
+  page,
+  request,
+}) => {
+  const { projectId, sceneId } = await seedProjectScene(request);
+  const parentId = await seedNode(request, sceneId, 'DropTarget', 'group');
+  const childId = await seedNode(request, sceneId, 'Dragged', 'group');
+
+  await page.goto(`/editor/${projectId}`);
+  await expect(page.getByText('Dragged', { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  const parentOf = async () =>
+    (await getNodeRow(request, sceneId, childId))?.parent_id ??
+    (await getNodeRow(request, sceneId, childId))?.parentId;
+
+  expect(await parentOf()).toBeFalsy();
+
+  await dragNodeOnto(page, 'Dragged', 'DropTarget');
+  await expect.poll(parentOf, { timeout: 15_000 }).toBe(parentId);
+
+  // Containment is a plain field write, so the drag is undoable like any edit.
+  await page.locator('.vs-topbar-undo').click();
+  await expect.poll(parentOf, { timeout: 15_000 }).toBeFalsy();
+});
