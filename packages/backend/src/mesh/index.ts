@@ -35,6 +35,9 @@ import {
   queueAnimationAssetFollowUp,
   setAnimationClipCollection,
 } from './assets.js';
+import { guardClientSceneNode } from './sceneNodeGuards.js';
+import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
+import { isClientParticipant } from '@vspark/shared/sync';
 import '../sync/resources.js'; // side effect: register the descriptors
 
 type Dto = Record<string, unknown>;
@@ -84,8 +87,14 @@ const BINDINGS: RtypeBinding[] = [
     // docs (projectId ≠ our link's project): local writes pass through this
     // validate too now that REST routes write through the store (§10 hazard
     // e), and a local model swap must not be reverted.
-    validate: (data) => {
-      const d = { ...(data as Dto) };
+    validate: (data, originId) => {
+      let d = { ...(data as Dto) };
+      // Whole-doc writes from a browser tab are creates (or undo-restores of
+      // one). They bypass the REST route, so its server-authoritative checks
+      // run here instead — a throw nacks the write and the client rolls its
+      // optimistic copy back. Collab peers are servers, not clients, and their
+      // docs are re-scoped below rather than validated against our data.
+      if (originId && isClientParticipant(originId)) d = guardClientSceneNode(d);
       const rootId =
         typeof d.rootSceneNodeId === 'string' ? d.rootSceneNodeId : undefined;
       if (!rootId) return d;
@@ -404,6 +413,12 @@ function bindCollection(
     applyingFromMesh.add(key);
     try {
       if (c.op === 'remove') {
+        // Runtime overrides target a doc by id and outlive its row, so they are
+        // cleared here rather than in the DELETE route: a remove authored by a
+        // tab (undoable deletes) or a collab peer must clear them too. Only
+        // these two rtypes can carry overrides (ParamTargetKind).
+        if (b.rtype === 'scene_node' || b.rtype === 'compose_layer')
+          runtimeOverrideManager.clearAllForTarget(b.rtype, c.id);
         if (b.persists && !rowExists(b.table, c.id)) return; // never persisted
         r.remove?.(c.id);
         if (c.v) saveTombstone(b.rtype, c.id, c.v);
