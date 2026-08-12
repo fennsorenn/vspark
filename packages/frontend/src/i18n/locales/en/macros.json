@@ -12,6 +12,7 @@
   "openInGraph": "Open in graph",
   "toggleStates": "Toggle ({{count}} states)",
   "customActions": "Multiple actions",
+  "rowError": "This macro couldn't be shown here — open it in the graph.",
   "action": {
     "play_clip": "Play clip",
     "spawn_clip": "Spawn clip",

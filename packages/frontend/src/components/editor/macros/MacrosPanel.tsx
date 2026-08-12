@@ -6,7 +6,7 @@
  * "Open in graph" escape hatch to the full signal-graph editor.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import {
@@ -269,6 +269,25 @@ function ActionEditor({
   );
 }
 
+// ── Error boundary ────────────────────────────────────────────────────────────
+// The macros panel is a derived view over arbitrary logic graphs; a render
+// throw in one row must never white-screen the editor. Contain it per row.
+class RowBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(err: unknown) {
+    console.error('[macros] row render failed', err);
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
 // ── Row ───────────────────────────────────────────────────────────────────────
 
 function MacroRowView({
@@ -398,7 +417,16 @@ export function MacrosPanel() {
           <div style={{ fontSize: 11, color: '#555', padding: 12, textAlign: 'center' }}>{t('empty')}</div>
         )}
         {macros.rows.map((row) => (
-          <MacroRowView key={`${row.logicId}:${row.hotkeyNodeId}`} row={row} macros={macros} />
+          <RowBoundary
+            key={`${row.logicId}:${row.hotkeyNodeId}`}
+            fallback={
+              <div style={{ fontSize: 10, color: '#c66', padding: 8, border: '1px solid #402020', borderRadius: 5 }}>
+                {t('rowError')}
+              </div>
+            }
+          >
+            <MacroRowView row={row} macros={macros} />
+          </RowBoundary>
         ))}
       </div>
     </div>

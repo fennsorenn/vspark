@@ -12,6 +12,7 @@
   "openInGraph": "Im Graph öffnen",
   "toggleStates": "Umschalten ({{count}} Zustände)",
   "customActions": "Mehrere Aktionen",
+  "rowError": "Dieses Makro konnte hier nicht angezeigt werden — im Graph öffnen.",
   "action": {
     "play_clip": "Clip abspielen",
     "spawn_clip": "Clip erzeugen",

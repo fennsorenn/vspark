@@ -101,15 +101,31 @@ export function classifyHotkey(
   return { ...base, kind: 'single', action };
 }
 
-/** Project every `system_hotkey` in a set of logic graphs into macro rows. */
+/** Project every `system_hotkey` in a set of logic graphs into macro rows.
+ *
+ *  Defensive by construction: a malformed descriptor, or a single hotkey that
+ *  somehow throws during classification, must never crash the panel — the worst
+ *  outcome is that one row is dropped, because the macro view is a *derived*
+ *  read over whatever the logic graphs currently contain. */
 export function projectMacros(
   graphs: ReadonlyArray<{ logicId: string; descriptor: GraphDescriptor }>
 ): MacroRow[] {
   const rows: MacroRow[] = [];
   for (const { logicId, descriptor } of graphs) {
-    for (const node of descriptor.nodes) {
-      if (node.kind === HOTKEY_KIND) {
-        rows.push(classifyHotkey(node, logicId, descriptor));
+    const nodes = Array.isArray(descriptor?.nodes) ? descriptor.nodes : [];
+    const safeDescriptor: GraphDescriptor = {
+      id: descriptor?.id ?? logicId,
+      label: descriptor?.label ?? '',
+      readonly: descriptor?.readonly ?? false,
+      nodes,
+      edges: Array.isArray(descriptor?.edges) ? descriptor.edges : [],
+    };
+    for (const node of nodes) {
+      if (node?.kind !== HOTKEY_KIND) continue;
+      try {
+        rows.push(classifyHotkey(node, logicId, safeDescriptor));
+      } catch (err) {
+        console.error('[macros] failed to classify a hotkey node', node?.id, err);
       }
     }
   }
