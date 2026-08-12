@@ -160,7 +160,11 @@ export function buildToolSpecs(): ToolSpec[] {
     },
     {
       name: 'create_scene',
-      description: 'Create a new 3D scene in a project. Returns the scene id.',
+      description:
+        'Create a new 3D scene in a project. Returns the scene id. NOTE: the ' +
+        'new scene is NOT empty — it is seeded with a default Camera, a "Key ' +
+        'Light" and a "Fill Light". Call list_scene_nodes before adding lights ' +
+        'or a camera, or you will create duplicates alongside the defaults.',
       inputShape: { projectId: z.string(), name: z.string() },
       handler: (c, a) =>
         c.post(`/api/projects/${a.projectId}/scenes`, { name: a.name }),
