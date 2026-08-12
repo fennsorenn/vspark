@@ -29,8 +29,9 @@ test('node creation: clicking a palette tile adds node to tree and persists it',
   await page.getByRole('button', { name: 'Create', exact: true }).click();
 
   // Click the "Group" tile in the palette to add a node to the active scene.
-  // The tile is a button whose accessible name includes the emoji icon + label.
-  await page.getByRole('button', { name: '📁 Group' }).click();
+  // The tile renders a Lucide icon (no accessible text) plus the translated
+  // label, so the button's accessible name is the label alone.
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
 
   // The new node (default name "Group") appears in the scene graph tree.
   // The palette button is still visible, so scope to the first match — which is

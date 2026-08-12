@@ -291,3 +291,82 @@ test('a drag-reparent is one undo step and reverts the parent', async ({
   await page.locator('.vs-topbar-undo').click();
   await expect.poll(parentOf, { timeout: 15_000 }).toBeFalsy();
 });
+
+// --- structural edits -------------------------------------------------------
+
+/** Names of every non-scene node persisted in a scene. */
+async function persistedNames(
+  request: APIRequestContext,
+  sceneId: string
+): Promise<string[]> {
+  const res = await request.get(`/api/scenes/${sceneId}/nodes`);
+  const json = (await res.json()) as { data: { name: string }[] };
+  return json.data.map((n) => n.name).sort();
+}
+
+test('a created node undoes away and redoes back', async ({
+  page,
+  request,
+}) => {
+  const { projectId, sceneId } = await seedProjectScene(request);
+  await page.goto(`/editor/${projectId}`);
+
+  await expect(page.getByText('Scene', { exact: true }).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  // Create via the palette — the node is authored by this tab, not the server,
+  // which is what puts it on this tab's undo stack.
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
+
+  await expect.poll(() => persistedNames(request, sceneId)).toHaveLength(1);
+  const [created] = await persistedNames(request, sceneId);
+
+  const undo = page.locator('.vs-topbar-undo');
+  await expect(undo).toBeEnabled();
+  await undo.click();
+  await expect.poll(() => persistedNames(request, sceneId)).toEqual([]);
+
+  await page.locator('.vs-topbar-redo').click();
+  await expect.poll(() => persistedNames(request, sceneId)).toEqual([created]);
+});
+
+test('deleting a subtree restores every descendant on undo', async ({
+  page,
+  request,
+}) => {
+  const { projectId, sceneId } = await seedProjectScene(request);
+  const rootId = await seedNode(request, sceneId, 'Root', 'group');
+  const midId = await seedNode(request, sceneId, 'Mid', 'group');
+  const leafId = await seedNode(request, sceneId, 'Leaf', 'group');
+  // Root → Mid → Leaf.
+  await request.put(`/api/scene-nodes/${midId}`, {
+    data: { parentId: rootId },
+  });
+  await request.put(`/api/scene-nodes/${leafId}`, {
+    data: { parentId: midId },
+  });
+
+  await page.goto(`/editor/${projectId}`);
+  await expect(page.getByText('Root', { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  // Delete Root, choosing "with children" in the branch dialog.
+  await page.getByText('Root', { exact: true }).click({ button: 'right' });
+  await page
+    .getByText(/delete/i)
+    .first()
+    .click();
+  const withChildren = page.getByRole('button', { name: /with .*children/i });
+  await withChildren.click();
+
+  await expect.poll(() => persistedNames(request, sceneId)).toEqual([]);
+
+  // The whole subtree comes back in ONE undo. If descendants were left to the
+  // server's FK cascade they'd be gone from SQLite and unrecoverable here.
+  await page.locator('.vs-topbar-undo').click();
+  await expect
+    .poll(() => persistedNames(request, sceneId), { timeout: 15_000 })
+    .toEqual(['Leaf', 'Mid', 'Root']);
+});

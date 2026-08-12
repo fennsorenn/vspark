@@ -191,7 +191,9 @@ test('compose layer creation: palette tile adds layer to tree and persists', asy
   // for the tile button that contains the text "Image" but is NOT the "Images"
   // asset-manager tab. The compose palette tiles are buttons inside the dock
   // content area; use the "Camera View" sibling to find the grid, then click.
-  await page.getByRole('button', { name: '🖼 Image' }).click();
+  // Palette tiles render a Lucide icon (no accessible text) plus the label, so
+  // the button's accessible name is the label alone.
+  await page.getByRole('button', { name: 'Image', exact: true }).click();
 
   // The new layer appears in the compose tree.  The default name is "Image Layer".
   const layerRow = page.getByText('Image Layer', { exact: true });
