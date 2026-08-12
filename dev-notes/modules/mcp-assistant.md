@@ -676,6 +676,35 @@ assets (usable in feed CSS / as a `filePath`).
 All three build the identical server via `createMcpServer(client)`; they differ
 only in the transport and the base URL the `VsparkClient` points at.
 
+## Exposure / trust model
+
+`/mcp` is mounted **without authentication**, and `server.listen(port)` binds all
+interfaces — so on a normal LAN the MCP endpoint is reachable by anything that can
+route to the machine, and the catalog includes destructive tools
+(`delete_scene_node`, `delete_behavior`, `delete_logic`, `delete_compose_layer`,
+`delete_camera_effect`, `delete_track_clip`, `delete_track_clip_lane`,
+`clear_blendshapes`).
+
+**This does not widen the existing posture.** `/api` already exposes the same
+unauthenticated deletes on the same interface — `/mcp` is a second door on a house
+that was already unlocked, and it drives the REST API rather than bypassing it, so
+it cannot reach anything a REST caller could not. It inherits the single-trusted-
+local-user assumption documented in [ARCHITECTURE.md](../ARCHITECTURE.md)
+(Future Features → Multi-user usage).
+
+Worth knowing anyway, because the shape of the risk changed even though its scope
+did not: a tool catalog is *self-describing*. An unauthenticated caller that finds
+`/mcp` gets a machine-readable list of every mutation available, with argument
+schemas and semantics spelled out in the descriptions — which `/api` only offers
+via `/api-docs`. When auth lands (it must, per the multi-user note), `/mcp` and
+`/api` should be gated **together and by the same mechanism**; gating one alone
+achieves nothing.
+
+The **stdio** transport is a different story and is the safer default for external
+clients: it is spawned per-client, speaks JSON-RPC over the pipe, and reaches the
+backend over `VSPARK_BASE_URL` (loopback by default) with no listening socket of
+its own.
+
 ## Adding / changing a tool
 
 1. Add (or edit) a `ToolSpec` in `mcp/tools.ts`: `name`, a `description` that
