@@ -75,6 +75,36 @@ export class UdpSocketPool {
     return () => this._unsubscribe(port, listener);
   }
 
+  /**
+   * Send a datagram out of the socket bound to `localPort`. Receivers that have
+   * to poke their source — iFacialMocap only streams after the PC sends it a
+   * handshake — need the request to leave from the same port the reply comes
+   * back on, which means reusing the shared receive socket rather than opening
+   * an ephemeral one.
+   *
+   * Returns false when nothing is bound on `localPort` (no subscriber yet, or
+   * the bind is still in flight); callers just retry on their next tick.
+   */
+  send(
+    localPort: number,
+    payload: Buffer,
+    host: string,
+    remotePort: number
+  ): boolean {
+    const entry = this._entries.get(localPort);
+    if (!entry) return false;
+    try {
+      entry.socket.send(payload, remotePort, host);
+      return true;
+    } catch (err) {
+      console.error(
+        `[UdpSocketPool] send from port ${localPort} to ${host}:${remotePort} failed:`,
+        (err as Error).message
+      );
+      return false;
+    }
+  }
+
   private _unsubscribe(port: number, listener: UdpListener): void {
     const entry = this._entries.get(port);
     if (!entry) return;

@@ -50,7 +50,7 @@ import { registerAssetUrls } from '../sync/meshProjection';
 import { useConnectionsStore } from '../store/connectionsStore';
 import { clientMesh } from '../mesh/clientMesh';
 
-const WS_URL =`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 const RECONNECT_MS = 3000;
 
 /** Module-level ref so any component can send messages on the shared editor WS. */
@@ -61,7 +61,9 @@ export const editorWsRef = { current: null as WebSocket | null };
 setShareWriteRelay((owner, env) => {
   const ws = editorWsRef.current;
   if (ws?.readyState === WebSocket.OPEN)
-    ws.send(JSON.stringify({ kind: 'mp_share_write', payload: { owner, env } }));
+    ws.send(
+      JSON.stringify({ kind: 'mp_share_write', payload: { owner, env } })
+    );
 });
 
 /** Send a live in-flight transform update so other connected editors can preview
@@ -86,9 +88,7 @@ export function sendSharedNodeTransform(
 ) {
   const ws = editorWsRef.current;
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(
-    JSON.stringify({ kind: 'shared_node_transform', nodeId, transform })
-  );
+  ws.send(JSON.stringify({ kind: 'shared_node_transform', nodeId, transform }));
 }
 
 /** Send a live in-flight compose-layer patch (position/size/rotation) so other
@@ -179,7 +179,10 @@ export function useWsSync() {
               >,
               (msg.payload.animationBlendMode as
                 | AnimationBlendMode
-                | undefined) ?? 'override'
+                | undefined) ?? 'override',
+              msg.payload.offsets as
+                | Record<string, [number, number, number]>
+                | undefined
             );
           } else if (msg.kind === 'vmc_blendshapes') {
             setVmcBlendshapes(
@@ -518,9 +521,7 @@ export function useWsSync() {
               peerId: string;
               shares: import('../store/connectionsStore').SharedOffer[];
             };
-            useConnectionsStore
-              .getState()
-              .setOffers(p.peerId, p.shares ?? []);
+            useConnectionsStore.getState().setOffers(p.peerId, p.shares ?? []);
           } else if (msg.kind === 'mp_collab_mounted') {
             // A collaborative scene was just persisted into one of our projects
             // (straight to SQLite, so no per-node sync events) — reload that
@@ -602,7 +603,10 @@ export function useWsSync() {
                 f.nodeId as string,
                 f.bones as Record<string, [number, number, number, number]>,
                 (f.animationBlendMode as AnimationBlendMode | undefined) ??
-                  'override'
+                  'override',
+                f.offsets as
+                  | Record<string, [number, number, number]>
+                  | undefined
               );
             } else if (p.kind === 'vmc_blendshapes') {
               setVmcBlendshapes(
@@ -656,7 +660,9 @@ export function useWsSync() {
                 .getState()
                 .mergeDataChannels(p.scope ?? '', p.fields ?? {});
             } else {
-              useEditorStore.getState().clearDataChannels(p.scope ?? '', p.field);
+              useEditorStore
+                .getState()
+                .clearDataChannels(p.scope ?? '', p.field);
             }
           } else if (msg.kind === 'mesh_roster') {
             const p = msg.payload as { participants?: string[] };

@@ -380,6 +380,38 @@ describe('setVmcStatus / setVmcTracking', () => {
     useEditorStore.getState().setVmcTracking('beh-1', false);
     expect(useEditorStore.getState().vmcTracking['beh-1']).toBe(false);
   });
+
+  // A stale `tracking: true` outliving its behavior keeps consumers believing a
+  // tracking source is live — avatars pin to their base animation and can never
+  // fall back to idle. The flags must not outlive the behavior that set them.
+  test('removeBehavior drops its vmcTracking / vmcStatus entries', () => {
+    const st = useEditorStore.getState();
+    st.addBehavior(makeBehavior());
+    st.setVmcTracking('beh-1', true);
+    st.setVmcStatus('beh-1', true);
+
+    useEditorStore.getState().removeBehavior('beh-1');
+
+    const after = useEditorStore.getState();
+    expect(after.vmcTracking).not.toHaveProperty('beh-1');
+    expect(after.vmcStatus).not.toHaveProperty('beh-1');
+  });
+
+  test('setBehaviors prunes flags for behaviors that no longer exist', () => {
+    const st = useEditorStore.getState();
+    st.setBehaviors([makeBehavior({ id: 'b1' }), makeBehavior({ id: 'b2' })]);
+    st.setVmcTracking('b1', true);
+    st.setVmcTracking('b2', true);
+    st.setVmcStatus('b2', true);
+
+    // Wholesale replace (scene load / preset apply / WS resync) drops b2.
+    useEditorStore.getState().setBehaviors([makeBehavior({ id: 'b1' })]);
+
+    const after = useEditorStore.getState();
+    expect(after.vmcTracking['b1']).toBe(true); // survivor keeps its flag
+    expect(after.vmcTracking).not.toHaveProperty('b2');
+    expect(after.vmcStatus).not.toHaveProperty('b2');
+  });
 });
 
 // ── VRM skeleton registration ─────────────────────────────────────────────────

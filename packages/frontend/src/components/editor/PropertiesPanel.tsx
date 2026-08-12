@@ -11,7 +11,41 @@ import {
   builtinParticleTextureUrl,
 } from '../../particleTextures';
 import { ARKIT_TO_FCL, ARKIT_TO_VRM, ARKIT_SHAPES } from '@vspark/shared/arkit';
+import {
+  defaultBlendshapeLimits,
+  normalizeBlendshapeLimits,
+  type BlendshapeLimitsConfig,
+  type ClampRule,
+  type ExclusiveGroup,
+  type ExclusiveMember,
+} from '@vspark/shared/blendshapeLimits';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
+import {
+  STYLE_DRIVER_NAMES,
+  STYLE_PRESET_NAMES,
+  styleRigPreset,
+  styleRigPresetLag,
+  resolveStyleResponse,
+  DEFAULT_STYLE_STRENGTH,
+  MAX_STYLE_STRENGTH,
+  SIMPLE_CHANNELS,
+  SIMPLE_COLUMNS,
+  SIMPLE_CHANNEL_SPEC,
+  deriveSimpleRig,
+  compileSimpleRig,
+  resolveRigMode,
+  mergeStyleRig,
+  diffStyleRig,
+  type StyleDriverName,
+  type StyleRig,
+  type StyleBoneResponse,
+  type StyleResponse,
+  type DriverResponse,
+  type StyleSimpleRig,
+  type SimpleChannel,
+  type SimpleColumn,
+  type RigMode,
+} from '@vspark/shared/style_rig';
 import type { PoseSection, PoseSource } from '@vspark/shared';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
@@ -1096,7 +1130,20 @@ function MaterialSection({ node }: { node: StageObject }) {
 
 // ---------- Calibration wizard ----------
 
-function CalibrationSection({ comp }: { comp: Behavior }) {
+/**
+ * Head/arm neutral-pose capture. Shared by the VMC and iFacialMocap receivers —
+ * both wire the same `head_calib_capture` / `head_calib_reset` trigger nodes.
+ * `arms` is off for face-only sources, which have no arm calibration stage.
+ */
+function CalibrationSection({
+  comp,
+  graphPrefix = 'vmc-pipeline:',
+  arms = true,
+}: {
+  comp: Behavior;
+  graphPrefix?: string;
+  arms?: boolean;
+}) {
   const { t } = useTranslation('properties');
   const [headSet, setHeadSet] = useState(false);
   const [leftSet, setLeftSet] = useState(false);
@@ -1108,7 +1155,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
     setTimeout(() => setFlash(null), 1800);
   };
 
-  const graphId = `vmc-pipeline:${comp.id}`;
+  const graphId = `${graphPrefix}${comp.id}`;
 
   const fire = async (nodeId: string, label: string, onOk?: () => void) => {
     try {
@@ -1123,7 +1170,7 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
   const reset = async () => {
     await Promise.allSettled([
       fireSignalEvent(graphId, 'head_calib_reset', 'trigger'),
-      fireSignalEvent(graphId, 'arm_calib_reset', 'trigger'),
+      ...(arms ? [fireSignalEvent(graphId, 'arm_calib_reset', 'trigger')] : []),
     ]);
     setHeadSet(false);
     setLeftSet(false);
@@ -1203,38 +1250,42 @@ function CalibrationSection({ comp }: { comp: Behavior }) {
         </button>
       </div>
 
-      <div style={rowStyle}>
-        <div style={dotStyle(leftSet)} />
-        <span style={labelStyle}>{t('calibration.leftArmLabel')}</span>
-        <button
-          style={btnStyle}
-          onClick={() =>
-            fire('left_arm_capture', t('calibration.leftCaptured'), () =>
-              setLeftSet(true)
-            )
-          }
-        >
-          {t('calibration.capture')}
-        </button>
-      </div>
+      {arms && (
+        <>
+          <div style={rowStyle}>
+            <div style={dotStyle(leftSet)} />
+            <span style={labelStyle}>{t('calibration.leftArmLabel')}</span>
+            <button
+              style={btnStyle}
+              onClick={() =>
+                fire('left_arm_capture', t('calibration.leftCaptured'), () =>
+                  setLeftSet(true)
+                )
+              }
+            >
+              {t('calibration.capture')}
+            </button>
+          </div>
 
-      <div style={rowStyle}>
-        <div style={dotStyle(rightSet)} />
-        <span style={labelStyle}>{t('calibration.rightArmLabel')}</span>
-        <button
-          style={btnStyle}
-          onClick={() =>
-            fire('right_arm_capture', t('calibration.rightCaptured'), () =>
-              setRightSet(true)
-            )
-          }
-        >
-          {t('calibration.capture')}
-        </button>
-      </div>
+          <div style={rowStyle}>
+            <div style={dotStyle(rightSet)} />
+            <span style={labelStyle}>{t('calibration.rightArmLabel')}</span>
+            <button
+              style={btnStyle}
+              onClick={() =>
+                fire('right_arm_capture', t('calibration.rightCaptured'), () =>
+                  setRightSet(true)
+                )
+              }
+            >
+              {t('calibration.capture')}
+            </button>
+          </div>
+        </>
+      )}
 
       <div style={{ fontSize: 10, color: '#444', lineHeight: 1.5 }}>
-        {t('calibration.hint')}
+        {arms ? t('calibration.hint') : t('calibration.headOnlyHint')}
       </div>
 
       {(headSet || leftSet || rightSet) && (
@@ -1913,7 +1964,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
     port?: number;
     blendMode?: string;
     mirror?: boolean;
-    poseTimeout?: number;
     nodeConfig?: Record<
       string,
       { enabled?: boolean; mapping?: Record<string, [string, number][]> }
@@ -1923,7 +1973,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
   const [port, setPort] = useState(cfg.port ?? 39539);
   const [blendMode, setBlendMode] = useState(cfg.blendMode ?? 'override');
   const [mirror, setMirror] = useState(cfg.mirror ?? false);
-  const [poseTimeout, setPoseTimeout] = useState(cfg.poseTimeout ?? 2);
   const [localIps, setLocalIps] = useState<string[]>([]);
 
   // Build mapper config state from stored nodeConfig, filling defaults.
@@ -1947,7 +1996,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
     setPort(cfg.port ?? 39539);
     setBlendMode(cfg.blendMode ?? 'override');
     setMirror(cfg.mirror ?? false);
-    setPoseTimeout(cfg.poseTimeout ?? 2);
     setMapperConfigs(getMapperConfigs());
 
     // Persist defaults immediately if nodeConfig is absent so the stored config
@@ -2089,23 +2137,9 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
         </label>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12, color: '#888', width: 72, flexShrink: 0 }}>
-          {t('vmc.idleAfter')}
-        </span>
-        <NumInput
-          value={poseTimeout}
-          step={0.1}
-          min={0.1}
-          suffix="s"
-          style={{ width: 80 }}
-          onChange={(v) => setPoseTimeout(v)}
-          onCommit={(v) => {
-            setPoseTimeout(v);
-            save({ poseTimeout: v });
-          }}
-        />
-      </div>
+      {/* "Idle after" moved to the avatar node's properties (Idle fallback) —
+          it describes the avatar's transition, not this receiver, and every
+          tracking source on the node now shares the one setting. */}
 
       {/* Face mappers */}
       <div
@@ -2188,6 +2222,422 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
 
       <div style={{ height: 1, background: '#222', margin: '4px 0' }} />
       <CalibrationSection comp={comp} />
+    </div>
+  );
+}
+
+// ── iFacialMocap props ────────────────────────────────────────────────────────
+
+/**
+ * iFacialMocap receiver settings. Deliberately laid out like `VmcReceiverProps`
+ * — same blend / mirror / idle-after / face-mapper controls, same calibration
+ * block — with three protocol-driven differences:
+ *   • Device IP instead of a bind Host (the phone only streams after we hand-
+ *     shake it, so the receiver needs to know where the phone is).
+ *   • Axis inversion toggles, because the published spec doesn't pin down the
+ *     sign convention of the head/eye euler angles.
+ *   • Head-only calibration — there is no arm data in an ARKit face stream.
+ */
+function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
+  const {
+    updateBehavior,
+    vrmMorphTargetsByNode,
+    vrmExpressionsByNode,
+    nodes,
+    assets,
+  } = useEditorStore();
+  const meta = assetMetaForNode(
+    nodes.find((n) => n.id === comp.nodeId)?.filePath,
+    assets
+  );
+  const morphTargets = liveOrMetaList(
+    vrmMorphTargetsByNode[comp.nodeId],
+    meta,
+    'morphTargets'
+  );
+  const expressions = liveOrMetaList(
+    vrmExpressionsByNode[comp.nodeId],
+    meta,
+    'expressions'
+  );
+
+  const fclSuggestions = [
+    ...new Set([
+      ...Object.values(ARKIT_TO_FCL as Record<string, [string, number][]>)
+        .flat()
+        .map(([target]) => target),
+      ...morphTargets,
+    ]),
+  ].sort();
+
+  const exprSuggestions = [
+    ...new Set([
+      ...VRM_EXPR_PRESETS,
+      ...Object.values(ARKIT_TO_VRM as Record<string, [string, number][]>)
+        .flat()
+        .map(([target]) => target),
+      ...expressions,
+    ]),
+  ].sort();
+
+  const passSuggestions = [
+    ...new Set([...(ARKIT_SHAPES as unknown as string[]), ...morphTargets]),
+  ].sort();
+
+  const cfg = (comp.config ?? {}) as {
+    deviceHost?: string;
+    port?: number;
+    blendMode?: string;
+    mirror?: boolean;
+    invertPitch?: boolean;
+    invertYaw?: boolean;
+    invertRoll?: boolean;
+    nodeConfig?: Record<
+      string,
+      { enabled?: boolean; mapping?: Record<string, [string, number][]> }
+    >;
+  };
+  const [deviceHost, setDeviceHost] = useState(cfg.deviceHost ?? '');
+  const [port, setPort] = useState(cfg.port ?? 49983);
+  const [blendMode, setBlendMode] = useState(cfg.blendMode ?? 'override');
+  const [mirror, setMirror] = useState(cfg.mirror ?? false);
+  const [invertPitch, setInvertPitch] = useState(cfg.invertPitch ?? false);
+  const [invertYaw, setInvertYaw] = useState(cfg.invertYaw ?? false);
+  const [invertRoll, setInvertRoll] = useState(cfg.invertRoll ?? false);
+  const [localIps, setLocalIps] = useState<string[]>([]);
+
+  const getMapperConfigs = () =>
+    Object.fromEntries(
+      MAPPER_NODES.map(({ id, defaultEnabled }) => [
+        id,
+        {
+          enabled: cfg.nodeConfig?.[id]?.enabled ?? defaultEnabled,
+          customMapping: cfg.nodeConfig?.[id]?.mapping
+            ? JSON.stringify(cfg.nodeConfig[id]!.mapping, null, 2)
+            : '',
+        } satisfies MapperNodeConfig,
+      ])
+    );
+  const [mapperConfigs, setMapperConfigs] =
+    useState<Record<string, MapperNodeConfig>>(getMapperConfigs);
+
+  useEffect(() => {
+    setDeviceHost(cfg.deviceHost ?? '');
+    setPort(cfg.port ?? 49983);
+    setBlendMode(cfg.blendMode ?? 'override');
+    setMirror(cfg.mirror ?? false);
+    setInvertPitch(cfg.invertPitch ?? false);
+    setInvertYaw(cfg.invertYaw ?? false);
+    setInvertRoll(cfg.invertRoll ?? false);
+    setMapperConfigs(getMapperConfigs());
+
+    // Persist mapper defaults immediately so the stored config is always
+    // explicit rather than relying on implicit fallbacks (mirrors the VMC panel).
+    if (!cfg.nodeConfig) {
+      const defaultNodeConfig = Object.fromEntries(
+        MAPPER_NODES.map(({ id, defaultEnabled }) => [
+          id,
+          { enabled: defaultEnabled, mapping: null },
+        ])
+      );
+      save({ nodeConfig: defaultNodeConfig });
+    }
+  }, [comp.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    api
+      .getLocalIps()
+      .then(setLocalIps)
+      .catch(() => {});
+  }, []);
+
+  const save = async (patch: Partial<Record<string, unknown>>) => {
+    const newConfig = { ...comp.config, ...patch };
+    updateBehavior(comp.id, { config: newConfig });
+    try {
+      await api.updateBehavior(comp.id, { config: newConfig });
+    } catch {
+      /* non-fatal */
+    }
+  };
+
+  const saveMapperNode = (nodeId: string, patch: Partial<MapperNodeConfig>) => {
+    const updated = {
+      ...mapperConfigs,
+      [nodeId]: { ...mapperConfigs[nodeId], ...patch },
+    };
+    setMapperConfigs(updated);
+    const nodeConfig = Object.fromEntries(
+      Object.entries(updated).map(([id, mc]) => [
+        id,
+        {
+          enabled: mc.enabled,
+          ...(mc.customMapping.trim()
+            ? { mapping: JSON.parse(mc.customMapping) }
+            : {}),
+        },
+      ])
+    );
+    save({ nodeConfig });
+  };
+
+  const inputStyle: React.CSSProperties = {
+    flex: 1,
+    background: '#2a2a2a',
+    border: '1px solid #3a3a3a',
+    color: '#e0e0e0',
+    borderRadius: 4,
+    padding: '4px 8px',
+    fontSize: 12,
+    outline: 'none',
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: 12,
+    color: '#888',
+    width: 72,
+    flexShrink: 0,
+  };
+  const checkLabelStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    cursor: 'pointer',
+    fontSize: 12,
+    color: '#ccc',
+  };
+
+  const axisToggles: {
+    key: 'invertPitch' | 'invertYaw' | 'invertRoll';
+    label: string;
+    value: boolean;
+    set: (v: boolean) => void;
+  }[] = [
+    {
+      key: 'invertPitch',
+      label: t('ifm.invertPitch'),
+      value: invertPitch,
+      set: setInvertPitch,
+    },
+    {
+      key: 'invertYaw',
+      label: t('ifm.invertYaw'),
+      value: invertYaw,
+      set: setInvertYaw,
+    },
+    {
+      key: 'invertRoll',
+      label: t('ifm.invertRoll'),
+      value: invertRoll,
+      set: setInvertRoll,
+    },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('ifm.deviceHost')}</span>
+        <input
+          className="vs-ifm-device-host"
+          style={inputStyle}
+          value={deviceHost}
+          onChange={(e) => setDeviceHost(e.target.value)}
+          onBlur={() => save({ deviceHost })}
+          placeholder={t('ifm.deviceHostPlaceholder')}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('vmc.port')}</span>
+        <NumInput
+          className="vs-ifm-port"
+          value={port}
+          step={1}
+          min={1}
+          max={65535}
+          precision={0}
+          style={{ flex: 1 }}
+          onChange={(v) => setPort(Math.round(v))}
+          onCommit={(v) => {
+            const p = Math.round(v);
+            setPort(p);
+            save({ port: p });
+          }}
+        />
+      </div>
+
+      {/*
+        Sits directly under Port, aligned to the input column: the handshake is
+        one-way, so the app reports "connected" even when a blocked inbound port
+        means nothing arrives. One-line reminder; full symptom/fix behind the
+        help button.
+      */}
+      <div
+        className="vs-ifm-firewall-hint"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          marginLeft: 80,
+          marginTop: -4,
+          fontSize: 10,
+          color: '#8a7a4a',
+          lineHeight: 1.4,
+        }}
+      >
+        <span>{t('ifm.firewallHint', { port })}</span>
+        <HelpButton
+          topic="behaviors"
+          anchor="ifacialmocap-firewall"
+          tip={t('help.ifmFirewall')}
+          size={12}
+        />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('vmc.blend')}</span>
+        <select
+          className="vs-ifm-blend-mode"
+          style={{ ...inputStyle, cursor: 'pointer' }}
+          value={blendMode}
+          onChange={(e) => {
+            setBlendMode(e.target.value);
+            save({ blendMode: e.target.value });
+          }}
+        >
+          <option value="override">{t('ifm.blendOverride')}</option>
+          <option value="additive">{t('vmc.blendAdditive')}</option>
+        </select>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('vmc.mirror')}</span>
+        <label style={checkLabelStyle}>
+          <input
+            className="vs-ifm-mirror"
+            type="checkbox"
+            checked={mirror}
+            onChange={(e) => {
+              setMirror(e.target.checked);
+              save({ mirror: e.target.checked });
+            }}
+            style={{ cursor: 'pointer' }}
+          />
+          {t('vmc.flipLR')}
+        </label>
+      </div>
+
+      {/* Head axis orientation */}
+      <div
+        style={{
+          fontSize: 10,
+          color: '#666',
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+          marginTop: 4,
+        }}
+      >
+        {t('ifm.axesHeader')}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        {axisToggles.map(({ key, label, value, set }) => (
+          <label key={key} style={checkLabelStyle}>
+            <input
+              className={`vs-ifm-${key.toLowerCase()}`}
+              type="checkbox"
+              checked={value}
+              onChange={(e) => {
+                set(e.target.checked);
+                save({ [key]: e.target.checked });
+              }}
+              style={{ cursor: 'pointer' }}
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t('ifm.axesHint')}
+      </div>
+
+      {/* Face mappers */}
+      <div
+        style={{
+          fontSize: 10,
+          color: '#666',
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+          marginTop: 4,
+        }}
+      >
+        {t('vmc.faceMappersHeader')}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {MAPPER_NODES.map(({ id, label, builtinMapping }, idx) => (
+          <MapperSection
+            key={id}
+            nodeId={id}
+            label={label}
+            builtinMapping={builtinMapping}
+            config={mapperConfigs[id]}
+            onSave={saveMapperNode}
+            targetSuggestions={
+              idx === 0
+                ? fclSuggestions
+                : idx === 1
+                  ? exprSuggestions
+                  : passSuggestions
+            }
+          />
+        ))}
+      </div>
+
+      {/* Local IPs — the address to type into the app when not using Device IP */}
+      {localIps.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          <div
+            style={{
+              fontSize: 10,
+              color: '#666',
+              marginBottom: 5,
+              textTransform: 'uppercase',
+              letterSpacing: 0.4,
+            }}
+          >
+            {t('ifm.localIpsHeader')}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {localIps.map((ip) => (
+              <span
+                key={ip}
+                style={{
+                  background: '#1e1e1e',
+                  border: '1px solid #2a2a2a',
+                  color: '#888',
+                  borderRadius: 4,
+                  padding: '2px 8px',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                }}
+              >
+                {ip}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div
+        style={{ fontSize: 10, color: '#555', lineHeight: 1.4, marginTop: 2 }}
+      >
+        {t('ifm.compatHint', { port })}
+      </div>
+
+      <div style={{ height: 1, background: '#222', margin: '4px 0' }} />
+      <CalibrationSection
+        comp={comp}
+        graphPrefix="ifacialmocap-pipeline:"
+        arms={false}
+      />
     </div>
   );
 }
@@ -2412,7 +2862,10 @@ function LipsyncCalibration({
           >
             {v}
             {draft[v] ? (
-              <Check size={12} style={{ marginLeft: 4, verticalAlign: '-1px' }} />
+              <Check
+                size={12}
+                style={{ marginLeft: 4, verticalAlign: '-1px' }}
+              />
             ) : null}
           </button>
         ))}
@@ -3138,6 +3591,1256 @@ function ManualCalibrationProps({ comp }: { comp: Behavior }) {
   );
 }
 
+// ── Expression limits (blendshape_limiter) ────────────────────────────────────
+
+const limitRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+};
+
+const limitCardStyle: React.CSSProperties = {
+  border: '1px solid #222',
+  borderRadius: 4,
+  padding: 8,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  background: '#141414',
+};
+
+const limitLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#888',
+  width: 74,
+  flexShrink: 0,
+};
+
+const limitTextInputStyle: React.CSSProperties = {
+  background: '#0d0d0d',
+  border: '1px solid #2a2a2a',
+  borderRadius: 3,
+  color: '#ccc',
+  fontSize: 11,
+  padding: '2px 6px',
+  minWidth: 0,
+  flex: 1,
+};
+
+const limitSmallBtnStyle: React.CSSProperties = {
+  background: '#1a2a3a',
+  border: '1px solid #2a3a4a',
+  borderRadius: 3,
+  color: '#8ab',
+  fontSize: 10,
+  padding: '2px 7px',
+  cursor: 'pointer',
+};
+
+/**
+ * Chip editor for a list of expression-name patterns. The add-field is backed by
+ * a datalist of the names the loaded avatar actually exposes, so users pick real
+ * shapes instead of guessing spellings — while still being free to type a `*`
+ * wildcard the model list can't offer.
+ */
+function NameListEditor({
+  values,
+  listId,
+  placeholder,
+  onChange,
+}: {
+  values: string[];
+  /** id of the shared <datalist> holding the model's real shape names. */
+  listId: string;
+  placeholder: string;
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const add = (raw: string) => {
+    const name = raw.trim();
+    if (!name || values.includes(name)) return;
+    onChange([...values, name]);
+    setDraft('');
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {values.map((v) => (
+          <span
+            key={v}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              background: '#1d1d1d',
+              border: '1px solid #2c2c2c',
+              borderRadius: 10,
+              padding: '1px 4px 1px 8px',
+              fontSize: 10,
+              fontFamily: 'monospace',
+              color: '#bbb',
+            }}
+          >
+            {v}
+            <button
+              className="vs-bslimits-name-remove"
+              onClick={() => onChange(values.filter((n) => n !== v))}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#a66',
+                cursor: 'pointer',
+                fontSize: 11,
+                lineHeight: 1,
+                padding: '0 2px',
+              }}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <input
+        className="vs-bslimits-name-add"
+        value={draft}
+        list={listId}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            add(draft);
+          }
+        }}
+        onBlur={() => add(draft)}
+        style={{ ...limitTextInputStyle, fontFamily: 'monospace' }}
+      />
+    </div>
+  );
+}
+
+function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
+  const {
+    updateBehavior,
+    vrmMorphTargetsByNode,
+    vrmExpressionsByNode,
+    nodes,
+    assets,
+  } = useEditorStore();
+
+  // Names the loaded model actually exposes — offered as datalist suggestions.
+  const meta = assetMetaForNode(
+    nodes.find((n) => n.id === comp.nodeId)?.filePath,
+    assets
+  );
+  const nameOptions = [
+    ...new Set([
+      ...liveOrMetaList(vrmExpressionsByNode[comp.nodeId], meta, 'expressions'),
+      ...liveOrMetaList(
+        vrmMorphTargetsByNode[comp.nodeId],
+        meta,
+        'morphTargets'
+      ),
+    ]),
+  ].sort();
+  const listId = `vs-bslimits-names-${comp.id}`;
+
+  const limits = normalizeBlendshapeLimits(
+    (comp.config as { limits?: unknown } | undefined)?.limits
+  );
+  const groups = limits.groups ?? [];
+  const clamps = limits.clamps ?? [];
+
+  const save = (next: BlendshapeLimitsConfig) => {
+    const config = { ...comp.config, limits: next };
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
+  };
+  const patch = (p: Partial<BlendshapeLimitsConfig>) =>
+    save({ ...limits, ...p });
+
+  const patchGroup = (idx: number, p: Partial<ExclusiveGroup>) =>
+    patch({ groups: groups.map((g, i) => (i === idx ? { ...g, ...p } : g)) });
+  const patchMember = (gi: number, mi: number, p: Partial<ExclusiveMember>) =>
+    patchGroup(gi, {
+      members: groups[gi].members.map((m, i) =>
+        i === mi ? { ...m, ...p } : m
+      ),
+    });
+  const patchClamp = (idx: number, p: Partial<ClampRule>) =>
+    patch({ clamps: clamps.map((c, i) => (i === idx ? { ...c, ...p } : c)) });
+
+  // Raw JSON escape hatch. Kept in local state while editing so a half-typed
+  // document doesn't get written back on every keystroke.
+  const [jsonDraft, setJsonDraft] = useState<string | null>(null);
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const applyJson = () => {
+    if (jsonDraft == null) return;
+    try {
+      save(normalizeBlendshapeLimits(JSON.parse(jsonDraft)));
+      setJsonDraft(null);
+      setJsonError(null);
+    } catch (e) {
+      setJsonError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <datalist id={listId}>
+        {nameOptions.map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
+
+      <div style={{ ...limitRowStyle, justifyContent: 'space-between' }}>
+        <label style={{ ...limitRowStyle, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            className="vs-bslimits-enabled"
+            checked={limits.enabled !== false}
+            onChange={(e) => patch({ enabled: e.target.checked })}
+          />
+          <span style={{ fontSize: 12, color: '#aaa' }}>
+            {t('blendshapeLimits.enabled')}
+          </span>
+        </label>
+        <div style={limitRowStyle}>
+          <HelpButton
+            topic="behaviors"
+            anchor="expression-limits"
+            tip={t('help.expressionLimits')}
+          />
+          <button
+            className="vs-bslimits-reset"
+            onClick={() => save(defaultBlendshapeLimits())}
+            style={resetBtnStyle}
+          >
+            {t('blendshapeLimits.resetDefaults')}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t('blendshapeLimits.hint')}
+      </div>
+
+      {/* ── Exclusive groups ─────────────────────────────────────────────── */}
+      <CollapsibleSection
+        title={t('blendshapeLimits.groupsHeader')}
+        count={groups.length}
+        defaultCollapsed={false}
+      >
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t('blendshapeLimits.groupsHint')}
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            marginTop: 6,
+          }}
+        >
+          {groups.map((g, gi) => (
+            <div key={g.id} style={limitCardStyle}>
+              <div
+                style={{ ...limitRowStyle, justifyContent: 'space-between' }}
+              >
+                <label style={{ ...limitRowStyle, flex: 1, minWidth: 0 }}>
+                  <input
+                    type="checkbox"
+                    className="vs-bslimits-group-enabled"
+                    checked={g.enabled !== false}
+                    onChange={(e) =>
+                      patchGroup(gi, { enabled: e.target.checked })
+                    }
+                  />
+                  <input
+                    className="vs-bslimits-group-label"
+                    value={g.label ?? g.id}
+                    onChange={(e) => patchGroup(gi, { label: e.target.value })}
+                    style={limitTextInputStyle}
+                  />
+                </label>
+                <button
+                  className="vs-bslimits-group-remove"
+                  onClick={() =>
+                    patch({ groups: groups.filter((_, i) => i !== gi) })
+                  }
+                  style={resetBtnStyle}
+                >
+                  {t('blendshapeLimits.remove')}
+                </button>
+              </div>
+
+              <div style={limitRowStyle}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.mode')}
+                </span>
+                <select
+                  className="vs-bslimits-group-mode"
+                  value={g.mode ?? 'suppress'}
+                  onChange={(e) =>
+                    patchGroup(gi, {
+                      mode: e.target.value as ExclusiveGroup['mode'],
+                    })
+                  }
+                  style={{ ...limitTextInputStyle, flex: 'none', width: 120 }}
+                >
+                  <option value="suppress">
+                    {t('blendshapeLimits.modeSuppress')}
+                  </option>
+                  <option value="normalize">
+                    {t('blendshapeLimits.modeNormalize')}
+                  </option>
+                </select>
+                <span style={{ ...limitLabelStyle, width: 'auto' }}>
+                  {t('blendshapeLimits.strength')}
+                </span>
+                <NumInput
+                  className="vs-bslimits-group-strength"
+                  value={g.strength ?? 1}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  style={{ width: 70 }}
+                  onCommit={(v) => patchGroup(gi, { strength: v })}
+                />
+              </div>
+
+              <div style={{ fontSize: 10, color: '#666' }}>
+                {t('blendshapeLimits.membersHeader')}
+              </div>
+              {g.members.map((m, mi) => (
+                <div
+                  key={m.id}
+                  style={{
+                    ...limitRowStyle,
+                    alignItems: 'flex-start',
+                    gap: 6,
+                  }}
+                >
+                  <input
+                    className="vs-bslimits-member-label"
+                    value={m.label ?? m.id}
+                    onChange={(e) =>
+                      patchMember(gi, mi, { label: e.target.value })
+                    }
+                    style={{ ...limitTextInputStyle, flex: '0 0 90px' }}
+                  />
+                  <NameListEditor
+                    values={m.patterns}
+                    listId={listId}
+                    placeholder={t('blendshapeLimits.addName')}
+                    onChange={(patterns) => patchMember(gi, mi, { patterns })}
+                  />
+                  <button
+                    className="vs-bslimits-member-remove"
+                    onClick={() =>
+                      patchGroup(gi, {
+                        members: g.members.filter((_, i) => i !== mi),
+                      })
+                    }
+                    style={resetBtnStyle}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button
+                className="vs-bslimits-add-member"
+                onClick={() =>
+                  patchGroup(gi, {
+                    members: [
+                      ...g.members,
+                      {
+                        id: `member-${Date.now()}`,
+                        label: t('blendshapeLimits.newMember'),
+                        patterns: [],
+                      },
+                    ],
+                  })
+                }
+                style={limitSmallBtnStyle}
+              >
+                + {t('blendshapeLimits.addMember')}
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          className="vs-bslimits-add-group"
+          onClick={() =>
+            patch({
+              groups: [
+                ...groups,
+                {
+                  id: `group-${Date.now()}`,
+                  label: t('blendshapeLimits.newGroup'),
+                  enabled: true,
+                  mode: 'suppress',
+                  strength: 1,
+                  members: [],
+                },
+              ],
+            })
+          }
+          style={{ ...limitSmallBtnStyle, marginTop: 6 }}
+        >
+          + {t('blendshapeLimits.addGroup')}
+        </button>
+      </CollapsibleSection>
+
+      {/* ── Clamp rules ──────────────────────────────────────────────────── */}
+      <CollapsibleSection
+        title={t('blendshapeLimits.clampsHeader')}
+        count={clamps.length}
+        defaultCollapsed={false}
+      >
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t('blendshapeLimits.clampsHint')}
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            marginTop: 6,
+          }}
+        >
+          {clamps.map((c, ci) => (
+            <div key={c.id} style={limitCardStyle}>
+              <div
+                style={{ ...limitRowStyle, justifyContent: 'space-between' }}
+              >
+                <label style={{ ...limitRowStyle, flex: 1, minWidth: 0 }}>
+                  <input
+                    type="checkbox"
+                    className="vs-bslimits-clamp-enabled"
+                    checked={c.enabled !== false}
+                    onChange={(e) =>
+                      patchClamp(ci, { enabled: e.target.checked })
+                    }
+                  />
+                  <input
+                    className="vs-bslimits-clamp-label"
+                    value={c.label ?? c.id}
+                    onChange={(e) => patchClamp(ci, { label: e.target.value })}
+                    style={limitTextInputStyle}
+                  />
+                </label>
+                <button
+                  className="vs-bslimits-clamp-remove"
+                  onClick={() =>
+                    patch({ clamps: clamps.filter((_, i) => i !== ci) })
+                  }
+                  style={resetBtnStyle}
+                >
+                  {t('blendshapeLimits.remove')}
+                </button>
+              </div>
+
+              <div style={{ ...limitRowStyle, alignItems: 'flex-start' }}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.when')}
+                </span>
+                <NameListEditor
+                  values={c.when ?? []}
+                  listId={listId}
+                  placeholder={t('blendshapeLimits.addDriver')}
+                  onChange={(when) => patchClamp(ci, { when })}
+                />
+              </div>
+
+              <div style={{ ...limitRowStyle, alignItems: 'flex-start' }}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.targets')}
+                </span>
+                <NameListEditor
+                  values={c.targets}
+                  listId={listId}
+                  placeholder={t('blendshapeLimits.addName')}
+                  onChange={(targets) => patchClamp(ci, { targets })}
+                />
+              </div>
+
+              <div style={limitRowStyle}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.range')}
+                </span>
+                <NumInput
+                  className="vs-bslimits-clamp-min"
+                  value={c.min ?? 0}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  prefix={t('blendshapeLimits.min')}
+                  style={{ width: 84 }}
+                  onCommit={(v) => patchClamp(ci, { min: v })}
+                />
+                <NumInput
+                  className="vs-bslimits-clamp-max"
+                  value={c.max ?? 1}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  prefix={t('blendshapeLimits.max')}
+                  style={{ width: 84 }}
+                  onCommit={(v) => patchClamp(ci, { max: v })}
+                />
+              </div>
+
+              <div style={limitRowStyle}>
+                <span style={limitLabelStyle}>
+                  {t('blendshapeLimits.threshold')}
+                </span>
+                <NumInput
+                  className="vs-bslimits-clamp-threshold"
+                  value={c.threshold ?? 0}
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  style={{ width: 70 }}
+                  onCommit={(v) => patchClamp(ci, { threshold: v })}
+                />
+                <label style={{ ...limitRowStyle, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    className="vs-bslimits-clamp-ramp"
+                    checked={c.ramp !== false}
+                    onChange={(e) => patchClamp(ci, { ramp: e.target.checked })}
+                  />
+                  <span style={{ fontSize: 11, color: '#888' }}>
+                    {t('blendshapeLimits.ramp')}
+                  </span>
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button
+          className="vs-bslimits-add-clamp"
+          onClick={() =>
+            patch({
+              clamps: [
+                ...clamps,
+                {
+                  id: `clamp-${Date.now()}`,
+                  label: t('blendshapeLimits.newClamp'),
+                  enabled: true,
+                  when: [],
+                  threshold: 0.3,
+                  ramp: true,
+                  targets: [],
+                  min: 0,
+                  max: 1,
+                },
+              ],
+            })
+          }
+          style={{ ...limitSmallBtnStyle, marginTop: 6 }}
+        >
+          + {t('blendshapeLimits.addClamp')}
+        </button>
+      </CollapsibleSection>
+
+      {/* ── Raw JSON ─────────────────────────────────────────────────────── */}
+      <CollapsibleSection title={t('blendshapeLimits.jsonHeader')}>
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t('blendshapeLimits.jsonHint')}
+        </div>
+        <textarea
+          className="vs-bslimits-json"
+          value={jsonDraft ?? JSON.stringify(limits, null, 2)}
+          onChange={(e) => {
+            setJsonDraft(e.target.value);
+            setJsonError(null);
+          }}
+          spellCheck={false}
+          style={{
+            ...limitTextInputStyle,
+            width: '100%',
+            minHeight: 180,
+            marginTop: 6,
+            fontFamily: 'monospace',
+            resize: 'vertical',
+          }}
+        />
+        {jsonError && (
+          <div style={{ fontSize: 10, color: '#c66', marginTop: 4 }}>
+            {jsonError}
+          </div>
+        )}
+        <div style={{ ...limitRowStyle, marginTop: 6 }}>
+          <button
+            className="vs-bslimits-json-apply"
+            onClick={applyJson}
+            disabled={jsonDraft == null}
+            style={{
+              ...limitSmallBtnStyle,
+              opacity: jsonDraft == null ? 0.4 : 1,
+            }}
+          >
+            {t('blendshapeLimits.jsonApply')}
+          </button>
+          <button
+            className="vs-bslimits-json-revert"
+            onClick={() => {
+              setJsonDraft(null);
+              setJsonError(null);
+            }}
+            disabled={jsonDraft == null}
+            style={{ ...resetBtnStyle, opacity: jsonDraft == null ? 0.4 : 1 }}
+          >
+            {t('blendshapeLimits.jsonRevert')}
+          </button>
+        </div>
+      </CollapsibleSection>
+    </div>
+  );
+}
+
+// ── Stylized tracking (pose_stylizer) component panel ────────────────────────
+
+const rigSelectStyle: React.CSSProperties = {
+  background: '#2a2a2a',
+  border: '1px solid #3a3a3a',
+  color: '#e0e0e0',
+  borderRadius: 4,
+  padding: '3px 6px',
+  fontSize: 11,
+};
+
+interface StylizerConfig {
+  amount?: number;
+  strength?: number;
+  lag?: number | null;
+  restUnmapped?: boolean;
+  preset?: string;
+  response?: Partial<StyleResponse>;
+  rig?: StyleRig | null;
+  rigMode?: string;
+  simpleRig?: StyleSimpleRig | null;
+}
+
+/**
+ * The simplified rig editor: a 6 × 6 grid of section totals. Rows are the motion
+ * produced, columns the driver producing it, so the diagonal is a section
+ * answering its own driver and everything off it is cross-coupling (including the
+ * head↔body counter-rotations).
+ */
+function SimpleRigGrid({
+  effective,
+  overrides,
+  onChange,
+}: {
+  /** The rig actually running — supplies the displayed totals. */
+  effective: StyleRig;
+  overrides: StyleSimpleRig;
+  onChange: (next: StyleSimpleRig) => void;
+}) {
+  const { t } = useTranslation('properties');
+  const derived = deriveSimpleRig(effective);
+
+  const valueOf = (row: SimpleChannel, col: SimpleColumn) =>
+    overrides[row]?.[col] ?? derived[row]?.[col] ?? 0;
+
+  const setCell = (row: SimpleChannel, col: SimpleColumn, v: number) =>
+    onChange({ ...overrides, [row]: { ...overrides[row], [col]: v } });
+
+  // Shift rows are a TRANSLATION in hip-height fractions, not degrees, so they
+  // need their own unit and a finer step than the rotation rows.
+  const isShift = (row: SimpleChannel) =>
+    SIMPLE_CHANNEL_SPEC[row].section === 'shift';
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'collapse', fontSize: 11 }}>
+        <thead>
+          <tr>
+            <th />
+            {SIMPLE_COLUMNS.map((col) => (
+              <th
+                key={col}
+                title={t(`stylizedTracking.channel.${col}`)}
+                style={{
+                  fontWeight: 400,
+                  color: '#888',
+                  padding: '2px 4px',
+                  textAlign: 'center',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {t(`stylizedTracking.channelShort.${col}`)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {SIMPLE_CHANNELS.map((row) => (
+            <tr key={row}>
+              <th
+                style={{
+                  fontWeight: 400,
+                  color: '#888',
+                  padding: '2px 6px 2px 0',
+                  textAlign: 'right',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {t(`stylizedTracking.channel.${row}`)}
+              </th>
+              {SIMPLE_COLUMNS.map((col) => (
+                <td key={col} style={{ padding: 1 }}>
+                  <NumInput
+                    className={`vs-stylize-cell-${row}-${col}`}
+                    value={valueOf(row, col)}
+                    step={isShift(row) ? 0.01 : 1}
+                    suffix={isShift(row) ? '×' : '°'}
+                    precision={isShift(row) ? 2 : undefined}
+                    style={{ width: 62 }}
+                    onChange={(v) => setCell(row, col, v)}
+                    onCommit={(v) => setCell(row, col, v)}
+                  />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** The tunable half of `StyleResponse`, in panel order. */
+const RESPONSE_FIELDS: Array<{
+  key: keyof StyleResponse;
+  step: number;
+  min: number;
+  max?: number;
+  suffix?: string;
+}> = [
+  { key: 'headRange', step: 5, min: 5, max: 180, suffix: '°' },
+  { key: 'bodyRange', step: 5, min: 5, max: 180, suffix: '°' },
+  { key: 'armRange', step: 5, min: 5, max: 180, suffix: '°' },
+  { key: 'armNeutral', step: 5, min: -90, max: 90, suffix: '°' },
+  { key: 'deadzone', step: 0.01, min: 0, max: 0.5 },
+  { key: 'maxRate', step: 0.5, min: 0 },
+  { key: 'smoothing', step: 0.05, min: 0, max: 0.95 },
+  { key: 'energyScale', step: 0.5, min: 0.1 },
+];
+
+/**
+ * One bone of the response rig: which drivers move it, how far, in which mode,
+ * and how far it trails. Collapsed by default — same tight-row treatment as the
+ * manual-calibration bone list, since the rig runs to a dozen bones.
+ */
+function RigBoneRow({
+  bone,
+  entry,
+  modified,
+  onChange,
+  onReset,
+}: {
+  bone: string;
+  entry: StyleBoneResponse;
+  modified: boolean;
+  onChange: (patch: Partial<StyleBoneResponse>) => void;
+  onReset: () => void;
+}) {
+  const { t } = useTranslation('properties');
+  const [open, setOpen] = useState(false);
+  const used = Object.keys(entry.drivers) as StyleDriverName[];
+  const unused = STYLE_DRIVER_NAMES.filter((d) => !used.includes(d));
+
+  const setDriver = (driver: StyleDriverName, next: DriverResponse) =>
+    onChange({ drivers: { ...entry.drivers, [driver]: next } });
+
+  return (
+    <div style={{ borderBottom: '1px solid #262626' }}>
+      <div
+        className={`vs-stylize-bone-${bone}`}
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          cursor: 'pointer',
+          userSelect: 'none',
+          padding: '3px 2px',
+          fontSize: 11,
+          color: modified ? '#c9b86a' : '#aaa',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            color: '#666',
+            display: 'inline-block',
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: 'transform 120ms',
+          }}
+        >
+          ▶
+        </span>
+        <span style={{ flex: 1, minWidth: 0 }}>{bone}</span>
+        <span style={{ fontSize: 9, color: '#666' }}>
+          {t(`stylizedTracking.mode.${entry.mode ?? 'replace'}`)}
+        </span>
+        {modified && <span style={{ color: '#c9b86a', fontSize: 9 }}>●</span>}
+      </div>
+      {open && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            padding: '2px 2px 8px 16px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, color: '#888', width: 70 }}>
+              {t('stylizedTracking.boneMode')}
+            </span>
+            <select
+              className={`vs-stylize-mode-${bone}`}
+              value={entry.mode ?? 'replace'}
+              onChange={(e) =>
+                onChange({ mode: e.target.value as 'replace' | 'add' })
+              }
+              style={{ ...rigSelectStyle, flex: 1 }}
+            >
+              <option value="replace">
+                {t('stylizedTracking.mode.replace')}
+              </option>
+              <option value="add">{t('stylizedTracking.mode.add')}</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, color: '#888', width: 70 }}>
+              {t('stylizedTracking.boneLag')}
+            </span>
+            <NumInput
+              className={`vs-stylize-bonelag-${bone}`}
+              value={entry.lag ?? 1}
+              step={0.1}
+              min={0}
+              suffix="×"
+              style={{ width: 90 }}
+              onChange={(v) => onChange({ lag: v })}
+              onCommit={(v) => onChange({ lag: v })}
+            />
+          </div>
+          {used.map((driver) => (
+            <VecInput
+              key={driver}
+              className={`vs-stylize-drv-${bone}-${driver}`}
+              values={(entry.drivers[driver] ?? [0, 0, 0]) as number[]}
+              labels={['X', 'Y', 'Z']}
+              step={1}
+              suffix="°"
+              groupLabel={t(`stylizedTracking.driver.${driver}`)}
+              onChange={(next) => setDriver(driver, next as DriverResponse)}
+              onCommit={(next) => setDriver(driver, next as DriverResponse)}
+              style={{ minWidth: 0 }}
+            />
+          ))}
+          {unused.length > 0 && (
+            <select
+              className={`vs-stylize-adddrv-${bone}`}
+              value=""
+              onChange={(e) => {
+                if (e.target.value)
+                  setDriver(e.target.value as StyleDriverName, [0, 0, 0]);
+              }}
+              style={{ ...rigSelectStyle, alignSelf: 'flex-start' }}
+            >
+              <option value="">{t('stylizedTracking.addDriver')}</option>
+              {unused.map((d) => (
+                <option key={d} value={d}>
+                  {t(`stylizedTracking.driver.${d}`)}
+                </option>
+              ))}
+            </select>
+          )}
+          {modified && (
+            <button
+              className={`vs-stylize-resetbone-${bone}`}
+              onClick={onReset}
+              style={resetBtnStyle}
+            >
+              {t('stylizedTracking.resetBone')}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StylizedTrackingProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
+  const { updateBehavior } = useEditorStore();
+  const cfg = (comp.config ?? {}) as StylizerConfig;
+  const overrides = cfg.rig ?? {};
+  // The rig editor shows the selected preset as the baseline; the stored
+  // override holds only the bones the user actually changed.
+  const rigMode: RigMode = resolveRigMode(cfg.rigMode);
+  const simpleOverrides = cfg.simpleRig ?? {};
+  const baseRig = styleRigPreset(cfg.preset);
+  // The detailed rig (preset + per-bone overrides) is the SHAPE; in simple mode
+  // the section totals rescale it. Both editors read this same effective rig, so
+  // whichever one is open is showing what is actually running.
+  const shapeRig = mergeStyleRig(baseRig, cfg.rig);
+  const effectiveRig =
+    rigMode === 'simple' ? compileSimpleRig(shapeRig, cfg.simpleRig) : shapeRig;
+
+  /**
+   * Switching editors must never change the pose. Going to `detailed` bakes the
+   * compiled result into the per-bone overrides so the bone list opens showing
+   * exactly what was running; going back to `simple` needs no data change at all,
+   * because an empty section-total override is the identity.
+   */
+  const setRigMode = (next: RigMode) => {
+    if (next === rigMode) return;
+    if (next !== 'detailed') {
+      save({ rigMode: next });
+      return;
+    }
+    // Bake the MINIMAL difference from the preset, not the whole resolved rig —
+    // pinning every bone would reproduce the pose but leave the preset dropdown
+    // with nothing left to change. With no simplified edits this is empty, so the
+    // preset stays completely live.
+    const baked = diffStyleRig(baseRig, effectiveRig);
+    save({
+      rigMode: next,
+      rig: Object.keys(baked).length > 0 ? baked : null,
+      simpleRig: null,
+    });
+  };
+  // Response and follow-through layer defaults → the preset's own baseline → the
+  // user's overrides, so switching preset re-baselines anything untouched.
+  const response: StyleResponse = resolveStyleResponse(
+    cfg.response,
+    cfg.preset
+  );
+  const lag = cfg.lag ?? styleRigPresetLag(cfg.preset);
+
+  const save = (patch: Record<string, unknown>) => {
+    const config = { ...comp.config, ...patch };
+    updateBehavior(comp.id, { config });
+    api.updateBehavior(comp.id, { config }).catch(() => {});
+  };
+
+  // Bones the panel offers: everything the stock rig drives, plus anything the
+  // user has added on top. The stored override holds ONLY the deltas.
+  const rigBones = [
+    ...new Set([...Object.keys(effectiveRig), ...Object.keys(overrides)]),
+  ];
+  const effectiveEntry = (bone: string): StyleBoneResponse => {
+    const base = effectiveRig[bone];
+    const over = overrides[bone];
+    return {
+      mode: over?.mode ?? base?.mode ?? 'replace',
+      lag: over?.lag ?? base?.lag ?? 1,
+      drivers: { ...(base?.drivers ?? {}), ...(over?.drivers ?? {}) },
+    };
+  };
+
+  const setBone = (bone: string, patch: Partial<StyleBoneResponse>) => {
+    const next: StyleRig = { ...overrides };
+    next[bone] = { ...effectiveEntry(bone), ...patch };
+    save({ rig: next });
+  };
+  const resetBone = (bone: string) => {
+    const next: StyleRig = { ...overrides };
+    delete next[bone];
+    save({ rig: Object.keys(next).length ? next : null });
+  };
+
+  const unusedBones = VRM_BONE_NAMES.filter((b) => !rigBones.includes(b));
+  const modifiedCount = Object.keys(overrides).length;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t('stylizedTracking.hint')}
+      </div>
+
+      {/* Which of the two 2D-rig conventions the body follows. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span
+          style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}
+        >
+          {t('stylizedTracking.preset')}
+        </span>
+        <select
+          className="vs-stylize-preset"
+          value={cfg.preset ?? 'follow'}
+          onChange={(e) => save({ preset: e.target.value })}
+          style={{ ...rigSelectStyle, flex: 1 }}
+        >
+          {STYLE_PRESET_NAMES.map((name) => (
+            <option key={name} value={name}>
+              {t(`stylizedTracking.presetName.${name}`)}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t(`stylizedTracking.presetHint.${cfg.preset ?? 'follow'}`)}
+      </div>
+
+      {/* Headline dial: accurate ←→ pretty. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span
+          style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}
+          title={t('stylizedTracking.amountHint')}
+        >
+          {t('stylizedTracking.amount')}
+        </span>
+        <SliderInput
+          className="vs-stylize-amount"
+          value={cfg.amount ?? 1}
+          min={0}
+          max={1}
+          step={0.05}
+          precision={2}
+          style={{ flex: 1, minWidth: 0 }}
+          onChange={(v) => save({ amount: v })}
+          onCommit={(v) => save({ amount: v })}
+        />
+      </div>
+
+      {/* Overall multiplier on the rig's contributions — how FAR it travels. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span
+          style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}
+          title={t('stylizedTracking.strengthHint')}
+        >
+          {t('stylizedTracking.strength')}
+        </span>
+        <SliderInput
+          className="vs-stylize-strength"
+          value={cfg.strength ?? DEFAULT_STYLE_STRENGTH}
+          min={0}
+          max={MAX_STYLE_STRENGTH}
+          step={0.05}
+          precision={2}
+          style={{ flex: 1, minWidth: 0 }}
+          onChange={(v) => save({ strength: v })}
+          onCommit={(v) => save({ strength: v })}
+        />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span
+          style={{ fontSize: 12, color: '#888', width: 100, flexShrink: 0 }}
+        >
+          {t('stylizedTracking.lag')}
+        </span>
+        <NumInput
+          className="vs-stylize-lag"
+          value={lag}
+          step={0.01}
+          min={0}
+          suffix="s"
+          style={{ width: 96 }}
+          onChange={(v) => save({ lag: v })}
+          onCommit={(v) => save({ lag: v })}
+        />
+      </div>
+
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12,
+          color: '#888',
+          cursor: 'pointer',
+        }}
+      >
+        <input
+          type="checkbox"
+          className="vs-stylize-rest-unmapped"
+          checked={cfg.restUnmapped ?? false}
+          onChange={(e) => save({ restUnmapped: e.target.checked })}
+        />
+        {t('stylizedTracking.restUnmapped')}
+      </label>
+
+      <CollapsibleSection title={t('stylizedTracking.responseSection')}>
+        <div
+          style={{
+            fontSize: 10,
+            color: '#555',
+            lineHeight: 1.4,
+            marginBottom: 6,
+          }}
+        >
+          {t('stylizedTracking.responseHint')}
+        </div>
+        {RESPONSE_FIELDS.map((f) => (
+          <div
+            key={f.key}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 4,
+            }}
+          >
+            <span
+              style={{ fontSize: 12, color: '#888', width: 110, flexShrink: 0 }}
+              title={t(`stylizedTracking.responseTip.${f.key}`)}
+            >
+              {t(`stylizedTracking.response.${f.key}`)}
+            </span>
+            <NumInput
+              className={`vs-stylize-response-${f.key}`}
+              value={response[f.key]}
+              step={f.step}
+              min={f.min}
+              max={f.max}
+              suffix={f.suffix}
+              style={{ width: 96 }}
+              onChange={(v) =>
+                save({ response: { ...cfg.response, [f.key]: v } })
+              }
+              onCommit={(v) =>
+                save({ response: { ...cfg.response, [f.key]: v } })
+              }
+            />
+          </div>
+        ))}
+        {((cfg.response && Object.keys(cfg.response).length > 0) ||
+          cfg.lag != null) && (
+          <button
+            className="vs-stylize-reset-response"
+            style={resetBtnStyle}
+            onClick={() => save({ response: {}, lag: null })}
+          >
+            {t('stylizedTracking.resetResponse')}
+          </button>
+        )}
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title={t('stylizedTracking.rigSection')}
+        count={rigBones.length}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginBottom: 4,
+          }}
+        >
+          <span style={{ fontSize: 11, color: '#888' }}>
+            {modifiedCount > 0
+              ? t('stylizedTracking.rigModified', { count: modifiedCount })
+              : t('stylizedTracking.rigStock')}
+          </span>
+          {modifiedCount > 0 && (
+            <button
+              className="vs-stylize-reset-rig"
+              style={resetBtnStyle}
+              onClick={() => save({ rig: null, simpleRig: null })}
+            >
+              {t('stylizedTracking.resetRig')}
+            </button>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: '#888' }}>
+            {t('stylizedTracking.rigModeLabel')}
+          </span>
+          <select
+            className="vs-stylize-rigmode"
+            value={rigMode}
+            onChange={(e) => setRigMode(e.target.value as RigMode)}
+            style={{ ...rigSelectStyle, flex: 1 }}
+          >
+            <option value="simple">
+              {t('stylizedTracking.rigMode.simple')}
+            </option>
+            <option value="detailed">
+              {t('stylizedTracking.rigMode.detailed')}
+            </option>
+          </select>
+        </div>
+        <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+          {t(`stylizedTracking.rigModeHint.${rigMode}`)}
+        </div>
+
+        {rigMode === 'simple' ? (
+          <>
+            <SimpleRigGrid
+              effective={effectiveRig}
+              overrides={simpleOverrides}
+              onChange={(next) => save({ simpleRig: next })}
+            />
+            {Object.keys(simpleOverrides).length > 0 && (
+              <button
+                className="vs-stylize-reset-simple"
+                style={resetBtnStyle}
+                onClick={() => save({ simpleRig: null })}
+              >
+                {t('stylizedTracking.resetRig')}
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+              {t('stylizedTracking.rigHint')}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {rigBones.map((bone) => (
+                <RigBoneRow
+                  key={bone}
+                  bone={bone}
+                  entry={effectiveEntry(bone)}
+                  modified={bone in overrides}
+                  onChange={(patch) => setBone(bone, patch)}
+                  onReset={() => resetBone(bone)}
+                />
+              ))}
+            </div>
+            {unusedBones.length > 0 && (
+              <select
+                className="vs-stylize-addbone"
+                value=""
+                onChange={(e) => {
+                  if (e.target.value)
+                    setBone(e.target.value, {
+                      mode: 'add',
+                      lag: 1,
+                      drivers: { bodyRoll: [0, 0, 0] },
+                    });
+                }}
+                style={{ ...rigSelectStyle, marginTop: 6 }}
+              >
+                <option value="">{t('stylizedTracking.addBone')}</option>
+                {unusedBones.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            )}
+          </>
+        )}
+      </CollapsibleSection>
+    </div>
+  );
+}
+
 // ── Component dispatcher ──────────────────────────────────────────────────────
 
 function BehaviorProps({ comp }: { comp: Behavior }) {
@@ -3145,6 +4848,8 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
   switch (comp.kind) {
     case 'vmc_receiver':
       return <VmcReceiverProps comp={comp} />;
+    case 'ifacialmocap_receiver':
+      return <IFacialMocapReceiverProps comp={comp} />;
     case 'lipsync_processor':
       return <LipsyncProcessorProps comp={comp} />;
     case 'mediapipe_tracker':
@@ -3155,6 +4860,10 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
       return <BreathingProps comp={comp} />;
     case 'manual_calibration':
       return <ManualCalibrationProps comp={comp} />;
+    case 'pose_stylizer':
+      return <StylizedTrackingProps comp={comp} />;
+    case 'blendshape_limiter':
+      return <BlendshapeLimiterProps comp={comp} />;
     default:
       return (
         <div style={{ fontSize: 12, color: '#555', fontStyle: 'italic' }}>
@@ -4461,6 +6170,20 @@ export function PropertiesPanel() {
                   tip={t('help.breathing')}
                 />
               )}
+              {selectedBehavior.kind === 'pose_stylizer' && (
+                <HelpButton
+                  topic="behaviors"
+                  anchor="stylized"
+                  tip={t('help.stylizedTracking')}
+                />
+              )}
+              {selectedBehavior.kind === 'ifacialmocap_receiver' && (
+                <HelpButton
+                  topic="behaviors"
+                  anchor="ifacialmocap"
+                  tip={t('help.ifacialmocap')}
+                />
+              )}
             </div>
             <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
               {selectedCompType.description}
@@ -5230,7 +6953,9 @@ export function PropertiesPanel() {
                     )}
                   </span>
                   <NumInput
-                    className={key === 'near' ? 'vs-camera-near' : 'vs-camera-far'}
+                    className={
+                      key === 'near' ? 'vs-camera-near' : 'vs-camera-far'
+                    }
                     value={camera[key]}
                     step={step}
                     style={{ flex: 1, minWidth: 0 }}
@@ -7661,6 +9386,59 @@ export function PropertiesPanel() {
                 }}
               />
             </div>
+
+            {/* Sits next to the blend time on purpose: that one is how *fast*
+                the return to idle runs, this one is *when* it starts. Every
+                tracking source on the avatar (VMC, MediaPipe) shares it. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span
+                style={{
+                  fontSize: 12,
+                  color: '#888',
+                  width: 110,
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                {t('avatar.trackingGracePeriod')}
+                <HelpButton
+                  topic="avatar"
+                  anchor="animation"
+                  tip={t('help.trackingGracePeriod')}
+                  size={12}
+                />
+              </span>
+              <NumInput
+                className="vs-avatar-tracking-grace"
+                value={node.properties?.trackingGracePeriod ?? 2}
+                step={0.1}
+                min={0.1}
+                max={60}
+                suffix="s"
+                style={{ flex: 1, minWidth: 0 }}
+                onChange={(v) => {
+                  const properties = {
+                    ...node.properties,
+                    trackingGracePeriod: v,
+                  };
+                  storeUpdateNode(node.id, { properties });
+                }}
+                onCommit={(v) => {
+                  const properties = {
+                    ...node.properties,
+                    trackingGracePeriod: v,
+                  };
+                  storeUpdateNode(node.id, { properties });
+                  api
+                    .updateNode(node.id, {
+                      properties: { trackingGracePeriod: v },
+                    })
+                    .catch(() => {});
+                }}
+              />
+            </div>
           </>
         )}
 
@@ -7887,7 +9665,9 @@ export function PropertiesPanel() {
                         onCommit={(v) => setInf(sec, { anim: v }, true)}
                         style={{ flex: 1, minWidth: 0 }}
                       />
-                      <span style={colLabel}>{t('avatar.poseSourceTrack')}</span>
+                      <span style={colLabel}>
+                        {t('avatar.poseSourceTrack')}
+                      </span>
                       <SliderInput
                         className={`vs-posesrc-track-${sec}`}
                         value={inf.track}
@@ -8249,7 +10029,10 @@ export function PropertiesPanel() {
                     defaultValue={baseUrlDisplay}
                     key={`${node.id}-base-${baseUrlDisplay}`}
                     onBlur={(e) => {
-                      writeBase(e.target.value.trim() || null, baseSpeedDisplay);
+                      writeBase(
+                        e.target.value.trim() || null,
+                        baseSpeedDisplay
+                      );
                     }}
                   />
                   {baseUrlDisplay && (
@@ -8341,12 +10124,12 @@ export function PropertiesPanel() {
                 }}
               >
                 <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
-            {(() => {
-              const I =
-                BEHAVIOR_ICON[selectedCompType.kind] ?? BEHAVIOR_FALLBACK;
-              return <I size={18} />;
-            })()}
-          </span>
+                  {(() => {
+                    const I =
+                      BEHAVIOR_ICON[selectedCompType.kind] ?? BEHAVIOR_FALLBACK;
+                    return <I size={18} />;
+                  })()}
+                </span>
                 <div style={{ flex: 1 }}>
                   <div
                     style={{

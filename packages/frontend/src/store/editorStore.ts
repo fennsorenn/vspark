@@ -172,6 +172,11 @@ function initialComposeAttach(): boolean {
 export interface NodeProperties {
   /** VRM avatar: seconds to ramp between override and additive on bus mode flip. */
   blendTransitionTime?: number;
+  /** VRM avatar: seconds a tracking dropout is tolerated before the avatar is
+   *  treated as untracked and falls back to idle. Pairs with
+   *  `blendTransitionTime` — this is when the return starts, that is how fast it
+   *  runs. Shared by every tracking source on the node. Default 2. */
+  trackingGracePeriod?: number;
   /** VRM avatar: resting expression weights (expression name → 0..1) applied as a
    *  baseline each frame; live blendshape broadcasts override them per-key. */
   defaultExpressions?: Record<string, number>;
@@ -707,7 +712,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { nodes, activeSceneId } = get();
     return nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
   },
-  setBehaviors: (comps) => set({ behaviors: comps }),
+  setBehaviors: (comps) =>
+    set((s) => {
+      // Wholesale replace (scene load, preset apply, WS resync): prune tracking/
+      // connection flags for behaviors that no longer exist, so a stale
+      // `tracking: true` can't outlive the behavior that set it.
+      const live = new Set(comps.map((c) => c.id));
+      const prune = <T,>(rec: Record<string, T>): Record<string, T> =>
+        Object.fromEntries(Object.entries(rec).filter(([id]) => live.has(id)));
+      return {
+        behaviors: comps,
+        vmcTracking: prune(s.vmcTracking),
+        vmcStatus: prune(s.vmcStatus),
+      };
+    }),
   addBehavior: (comp) => set((s) => ({ behaviors: [...s.behaviors, comp] })),
   updateBehavior: (id, updates) =>
     set((s) => ({
@@ -716,11 +734,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ),
     })),
   removeBehavior: (id) =>
-    set((s) => ({
-      behaviors: s.behaviors.filter((c) => c.id !== id),
-      selectedBehaviorId:
-        s.selectedBehaviorId === id ? null : s.selectedBehaviorId,
-    })),
+    set((s) => {
+      // Drop the per-behavior tracking/connection flags with the behavior. Left
+      // behind, a stale `vmcTracking[id] === true` keeps every consumer thinking
+      // a tracking source is live (avatars pin to their base animation and can
+      // never fall back to idle), and the id is never reused to clear it.
+      const { [id]: _t, ...vmcTracking } = s.vmcTracking;
+      const { [id]: _c, ...vmcStatus } = s.vmcStatus;
+      return {
+        behaviors: s.behaviors.filter((c) => c.id !== id),
+        selectedBehaviorId:
+          s.selectedBehaviorId === id ? null : s.selectedBehaviorId,
+        vmcTracking,
+        vmcStatus,
+      };
+    }),
   behaviorsFor: (nodeId) => get().behaviors.filter((c) => c.nodeId === nodeId),
   setVmcStatus: (behaviorId, connected) =>
     set((s) => ({ vmcStatus: { ...s.vmcStatus, [behaviorId]: connected } })),

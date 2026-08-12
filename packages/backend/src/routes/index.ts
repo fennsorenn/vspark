@@ -41,8 +41,11 @@ router.use(ui);
 export { router as apiRoutes };
 export {
   setVmcManager,
+  setIFacialMocapManager,
   setBreathingManager,
   setManualCalibrationManager,
+  setPoseStylizerManager,
+  setBlendshapeLimiterManager,
   setLipsyncManager,
   setTrackingManager,
   setApiControllerManager,
