@@ -244,20 +244,16 @@ per-bone response rig. That gives whole-body follow-through *and* makes glitches
 structurally impossible on the bones the rig owns, because the drivers are
 clamped, deadzoned and rate-limited before anything is rebuilt.
 
-**Persist guard** (differs from the other managers): `_persistNodeState` skips
-node kinds in `EPHEMERAL_STATE_KINDS` — currently `on_pose_broadcast`, whose state
-is the *entire current pose*, injected fresh before every fire. Without the guard
-that would be a read-modify-write of the behavior row at the pose rate (~60Hz),
-persisting a value that is meaningless after a restart.
-
-> **Watch item.** `ManualCalibrationManager` lacks this guard and therefore does
-> write a full pose into SQLite on every interceptor frame (~60Hz read-modify-write
-> of the behavior row, persisting state that is meaningless after a restart).
-> Pre-existing and accepted for now, but the two managers differ for no principled
-> reason and the fix is to lift `EPHEMERAL_STATE_KINDS` into the shared interceptor
-> path. Do this before anything else adopts `ManualCalibrationManager` as the
-> reference interceptor manager. Also listed in
-> [stylized-tracking.md](stylized-tracking.md#watch-list).
+**Per-frame state never reaches persistence** — and this is now an engine
+guarantee rather than a per-manager one. `on_pose_broadcast` carries the *entire
+current pose* in its state, injected fresh before every fire; persisting that
+would be a read-modify-write of the behavior row at the pose rate (~60Hz) for a
+value that is meaningless after a restart. Since the scratch-vs-durable split
+(`static persistState`), only node classes that opt in reach a manager's
+`_persistNodeState` callback at all, so no manager needs to filter by kind. Both
+this manager and `ManualCalibrationManager` are covered; a local
+`EPHEMERAL_STATE_KINDS` guard that predated the engine fix has been removed as
+unreachable. See [signal-graph.md](signal-graph.md) (scratch vs durable state).
 
 Config: `{ amount, strength, lag, restUnmapped, preset, response, rig, rigMode, simpleRig }` — `preset` names a base
 for the whole behavior (rig + optionally response and follow-through) — `follow`,
