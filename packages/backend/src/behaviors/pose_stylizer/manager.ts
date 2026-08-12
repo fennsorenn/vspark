@@ -13,14 +13,6 @@ import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
 
 /**
- * Node kinds whose state is a transient per-frame carrier and must NOT be written
- * back to SQLite. `on_pose_broadcast` has the whole pose injected into its state
- * before every single fire, so persisting it would mean a read-modify-write of the
- * behavior row at the pose rate (~60Hz) — and the value is meaningless on restart.
- */
-const EPHEMERAL_STATE_KINDS = new Set(['on_pose_broadcast']);
-
-/**
  * Drives the `pose_stylizer` behavior: a pose interceptor that re-expresses
  * accurate tracking as stylized, whole-body motion (see
  * dev-notes/modules/stylized-tracking.md).
@@ -122,15 +114,15 @@ export class PoseStylizerManager {
     return { ...defaults, ...overrides, _behaviorConfig: cfg };
   }
 
+  // Only nodes declaring `static persistState` reach this callback — the engine
+  // routes everything else to graph-local scratch (see signal/engine.ts
+  // `_writeState`). Per-frame carriers like `on_pose_broadcast` therefore never
+  // arrive here, so no per-kind filtering is needed.
   private _persistNodeState(
     behaviorId: string,
     nodeId: string,
     state: unknown
   ): void {
-    const kind = this.descriptors
-      .get(behaviorId)
-      ?.nodes.find((n) => n.id === nodeId)?.kind;
-    if (kind && EPHEMERAL_STATE_KINDS.has(kind)) return;
     try {
       const existing = getDb()
         .prepare('SELECT config FROM behaviors WHERE id = ?')
