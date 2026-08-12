@@ -3,7 +3,6 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
-import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -397,7 +396,7 @@ router.put('/compose-layers/:id', async (req, res) => {
  * /api/compose-layers/{id}:
  *   delete:
  *     tags: [compose_layers]
- *     summary: Delete a compose layer (re-anchors dependent camera layers if scene-wide)
+ *     summary: Delete a compose layer
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
@@ -405,67 +404,16 @@ router.put('/compose-layers/:id', async (req, res) => {
  */
 router.delete('/compose-layers/:id', async (req, res) => {
   const id = req.params.id;
-  const db = getDb();
   const col = layersCol();
   if (!col)
     return res
       .status(500)
       .json({ ok: false, error: { message: 'store not ready' } });
 
-  const row = db
-    .prepare('SELECT * FROM compose_layers WHERE id = ?')
-    .get(id) as LayerRow | undefined;
-  if (!row) return res.json({ ok: true, data: {} });
-
+  // Runtime overrides are cleared by the mesh persistence tap, so a remove
+  // authored by a tab or a collab peer is cleaned up the same way.
   await col.remove(id).ack;
-
-  // If this was a scene-wide layer, re-anchor camera layers that sat in its scene_order slot.
-  const reanchored: { id: string; sceneOrder: number; cameraOrder: number }[] =
-    [];
-  if (row.camera_node_id == null && row.root_compose_scene_id != null) {
-    const camRows = db
-      .prepare(
-        `SELECT id, camera_order FROM compose_layers
-       WHERE root_compose_scene_id = ? AND camera_node_id IS NOT NULL AND scene_order = ?`
-      )
-      .all(row.root_compose_scene_id, row.scene_order) as {
-      id: string;
-      camera_order: number;
-    }[];
-    if (camRows.length > 0) {
-      const lower = db
-        .prepare(
-          `SELECT MAX(scene_order) AS s FROM compose_layers
-         WHERE root_compose_scene_id = ? AND camera_node_id IS NULL AND scene_order < ?`
-        )
-        .get(row.root_compose_scene_id, row.scene_order) as {
-        s: number | null;
-      };
-      const higher = db
-        .prepare(
-          `SELECT MIN(scene_order) AS s FROM compose_layers
-         WHERE root_compose_scene_id = ? AND camera_node_id IS NULL AND scene_order > ?`
-        )
-        .get(row.root_compose_scene_id, row.scene_order) as {
-        s: number | null;
-      };
-      const newSceneOrder = lower?.s ?? higher?.s ?? 0; // 0 = SCENE_RENDER_SLOT fallback
-      for (const cr of camRows) {
-        const cur = col.get(cr.id) as LayerDto | undefined;
-        if (cur) await col.set(cr.id, '', { ...cur, sceneOrder: newSceneOrder }).ack;
-        reanchored.push({
-          id: cr.id,
-          sceneOrder: newSceneOrder,
-          cameraOrder: cr.camera_order,
-        });
-      }
-    }
-  }
-
-  runtimeOverrideManager.clearAllForTarget('compose_layer', id);
-  if (reanchored.length > 0)
-    _ws?.broadcast('compose_layer_reordered', { updates: reanchored });
-  res.json({ ok: true, data: { id, reanchored } });
+  res.json({ ok: true, data: { id } });
 });
 
 /**

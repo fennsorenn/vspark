@@ -729,10 +729,7 @@ export const updateComposeLayer = (
   }).then(mapComposeLayer);
 
 export const deleteComposeLayer = (id: string) =>
-  request<{
-    id: string;
-    reanchored?: { id: string; sceneOrder: number; cameraOrder: number }[];
-  }>(`/compose-layers/${id}`, { method: 'DELETE' });
+  request<{ id: string }>(`/compose-layers/${id}`, { method: 'DELETE' });
 
 export const reorderComposeLayers = (
   updates: { id: string; sceneOrder: number; cameraOrder: number }[]

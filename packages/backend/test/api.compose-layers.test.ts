@@ -353,5 +353,63 @@ describe('compose-layers API (mesh-backed)', () => {
       // Second should have a higher order (append to back of stack)
       expect(secondOrder).toBeGreaterThan(firstOrder);
     });
+
+    it('deleting a layer leaves unrelated layers ordered as they were', async () => {
+      // Regression: the delete route used to "re-anchor" camera layers sharing
+      // the deleted layer's sceneOrder — a leftover from the signed-axis model,
+      // where camera layers were pinned to a scene-wide layer's slot. Ordering
+      // is now a plain stacking index assigned PER SIBLING GROUP, while that
+      // query spanned the whole compose scene, so it moved unrelated layers
+      // that merely shared the integer.
+      const sceneId = (await createComposeScene('S')).body.data.id as string;
+
+      // camera_node_id has an FK onto scene_nodes, so seed a real camera.
+      await request(app)
+        .post(`/api/projects/${projectId}/scenes`)
+        .send({ name: 'Stage', populate: false });
+      const stageId = (
+        await request(app).get(`/api/projects/${projectId}/scenes`)
+      ).body.data.scenes[0].id as string;
+      const cameraNodeId = (
+        await request(app)
+          .post(`/api/scenes/${stageId}/nodes`)
+          .send({ name: 'Cam', kind: 'camera' })
+      ).body.data.id as string;
+
+      const groupA = (
+        await createLayerInScene(sceneId, { name: 'A', kind: 'group' })
+      ).body.data.id as string;
+      const groupB = (
+        await createLayerInScene(sceneId, { name: 'B', kind: 'group' })
+      ).body.data.id as string;
+
+      // A camera layer in one group and an ordinary layer in another, both at
+      // the same sceneOrder — the collision the old query keyed on.
+      const camera = (
+        await createLayerInScene(sceneId, {
+          name: 'Cam',
+          kind: 'camera_view',
+          parentId: groupA,
+          cameraNodeId,
+          sceneOrder: 1,
+        })
+      ).body.data.id as string;
+      const victim = (
+        await createLayerInScene(sceneId, {
+          name: 'Plain',
+          kind: 'image',
+          parentId: groupB,
+          sceneOrder: 1,
+        })
+      ).body.data.id as string;
+
+      await deleteLayer(victim);
+
+      const layers = (await listLayersInScene(sceneId)).body
+        .data as { id: string; sceneOrder: number }[];
+      const cam = layers.find((l) => l.id === camera);
+      expect(cam?.sceneOrder).toBe(1); // untouched
+      expect(layers.some((l) => l.id === victim)).toBe(false);
+    });
   });
 });
