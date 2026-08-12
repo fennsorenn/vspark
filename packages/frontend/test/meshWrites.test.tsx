@@ -14,6 +14,7 @@ import { renderWithProviders, screen, fireEvent, act } from './helpers/render';
 import { useEditorStore, type StageObject } from '../src/store/editorStore';
 
 const sets: Array<[string, string, unknown]> = [];
+const updates: Array<[string, object]> = [];
 const state = { armed: true, docs: new Map<string, object>() };
 
 const collection = {
@@ -21,6 +22,10 @@ const collection = {
   get: (id: string) => state.docs.get(id),
   set: (id: string, path: string, value: unknown) => {
     sets.push([id, path, value]);
+    return { ack: Promise.resolve({ status: 'acked' }) };
+  },
+  update: (id: string, partial: object) => {
+    updates.push([id, partial]);
     return { ack: Promise.resolve({ status: 'acked' }) };
   },
 };
@@ -46,6 +51,7 @@ vi.mock('../src/api/client', () => {
 });
 
 import {
+  commitNodePatch,
   commitNodePath,
   previewNodePath,
   canMeshWrite,
@@ -72,6 +78,7 @@ function seed(n: StageObject = node()) {
 
 beforeEach(() => {
   sets.length = 0;
+  updates.length = 0;
   updateNode.mockClear();
   state.armed = true;
   state.docs = new Map();
@@ -141,6 +148,57 @@ describe('commitNodePath', () => {
     expect(canMeshWrite()).toBe(true);
     state.armed = false;
     expect(canMeshWrite()).toBe(false);
+  });
+});
+
+describe('commitNodePatch', () => {
+  it('sends a multi-field edit as one op, so it is one undo step', () => {
+    commitNodePatch(NODE_ID, {
+      filePath: 'a.vrm',
+      components: { animation: undefined },
+    } as Partial<StageObject>);
+
+    expect(updates).toEqual([
+      [NODE_ID, { filePath: 'a.vrm', components: { animation: undefined } }],
+    ]);
+    expect(sets).toEqual([]);
+    expect(updateNode).not.toHaveBeenCalled();
+  });
+
+  it('falls back to REST with whole top-level fields, not the nested partial', () => {
+    // REST replaces `components` wholesale, so sending the partial verbatim
+    // would wipe the sibling component.
+    state.armed = false;
+    seed(
+      node({
+        components: { transform: { type: 'transform' }, godray: { power: 1 } },
+      } as Partial<StageObject>)
+    );
+
+    commitNodePatch(NODE_ID, {
+      components: { godray: { power: 5 } },
+    } as Partial<StageObject>);
+
+    expect(updateNode).toHaveBeenCalledWith(NODE_ID, {
+      components: { transform: { type: 'transform' }, godray: { power: 5 } },
+    });
+  });
+
+  it('merges leaf-wise on the fallback, keeping untouched sibling keys', () => {
+    state.armed = false;
+    seed(
+      node({
+        components: { godray: { power: 1, color: '#fff' } },
+      } as Partial<StageObject>)
+    );
+
+    commitNodePatch(NODE_ID, {
+      components: { godray: { power: 5 } },
+    } as Partial<StageObject>);
+
+    expect(updateNode).toHaveBeenCalledWith(NODE_ID, {
+      components: { godray: { power: 5, color: '#fff' } },
+    });
   });
 });
 

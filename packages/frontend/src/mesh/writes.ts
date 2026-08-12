@@ -29,7 +29,7 @@
  *   - the tab peer isn't armed / the authority is offline (`canWrite()`), or
  *   - the replica doesn't hold the doc yet.
  */
-import { getPath, setPath } from '@vspark/mesh';
+import { flattenToLeaves, getPath, setPath } from '@vspark/mesh';
 import { getMeshHandles } from './peer';
 import { useEditorStore, type StageObject } from '../store/editorStore';
 import { api } from '../api/client';
@@ -41,18 +41,21 @@ export function canMeshWrite(rtype = 'scene_node'): boolean {
   return getMeshHandles()?.collections[rtype]?.canWrite() ?? false;
 }
 
-/** Committed dotted-path write onto the tab peer. False when the peer can't
- *  author it or the replica doesn't hold the doc — the caller falls back. */
-function meshSet(
+/** Committed write onto the tab peer — a dotted-path replace when `path` is
+ *  given, else a merge-patch of `value` (flattened to leaves under one stamp).
+ *  Either way it is a single op, so a single undo step. False when the peer
+ *  can't author it or the replica doesn't hold the doc — the caller falls back. */
+function meshWrite(
   rtype: string,
   id: string,
-  path: string,
+  path: string | null,
   value: unknown
 ): boolean {
   const col = getMeshHandles()?.collections[rtype];
   if (!col?.canWrite()) return false;
   if (!col.get(id)) return false;
-  col.set(id, path, value);
+  if (path === null) col.update(id, value as object);
+  else col.set(id, path, value);
   return true;
 }
 
@@ -100,8 +103,37 @@ export function commitNodePath(
   if (!node) return;
   // Remote (projected) nodes are owner-authoritative: their docs live in the
   // owner's replica, so the write has to travel the Phase-6 relay, not ours.
-  if (!node.remote && meshSet('scene_node', nodeId, path, value)) return;
+  if (!node.remote && meshWrite('scene_node', nodeId, path, value)) return;
   const patch = topLevelPatch(node, path, value);
   s.updateNode(nodeId, patch);
   void api.updateNode(nodeId, patch).catch(() => {});
+}
+
+/** Commit a (possibly nested) partial as one op — so an edit that genuinely
+ *  spans fields stays a single undo step instead of several.
+ *
+ *  Merge semantics, matching the mesh: the partial is flattened to leaves, so
+ *  `{ components: { godray: { power: 2 } } }` touches only that one leaf and
+ *  every sibling component survives. A whole-subtree *replace* is
+ *  {@link commitNodePath} with that path.
+ *
+ *  REST can't express any of that — `PUT` replaces `components` wholesale — so
+ *  the fallback rebuilds each touched top-level field from the current node and
+ *  sends it whole, reproducing the same result. */
+export function commitNodePatch(
+  nodeId: string,
+  patch: Partial<StageObject>
+): void {
+  const s = useEditorStore.getState();
+  const node = s.nodes.find((n) => n.id === nodeId);
+  if (!node) return;
+  if (!node.remote && meshWrite('scene_node', nodeId, null, patch)) return;
+
+  let next = node;
+  for (const [p, v] of flattenToLeaves(patch)) next = setPath(next, p, v);
+  const whole = Object.fromEntries(
+    Object.keys(patch).map((f) => [f, next[f as keyof StageObject]])
+  ) as Partial<StageObject>;
+  s.updateNode(nodeId, whole);
+  void api.updateNode(nodeId, whole).catch(() => {});
 }
