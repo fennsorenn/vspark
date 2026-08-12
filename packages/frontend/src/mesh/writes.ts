@@ -9,10 +9,16 @@
  *
  * Two levels, matching the mesh's own channels (packages/mesh/src/channels.ts):
  *
- *   - {@link previewNodePath} — live, uncommitted. Local store only: no mesh
- *     traffic, no undo entry. This is the value a control shows mid-gesture.
- *   - {@link commitNodePath} — a retained `committed` write: persisted by the
- *     backend tap and logged on this tab's undo stack (see mesh/peer.ts §undo).
+ *   - `preview*` — live, uncommitted. Local store only: no mesh traffic, no
+ *     undo entry. This is the value a control shows mid-gesture.
+ *   - `commit*` — a retained `committed` write: persisted by the backend tap
+ *     and logged on this tab's undo stack (see mesh/peer.ts §undo).
+ *
+ * The helpers are generic over document type: an rtype supplies a
+ * {@link MeshDocAdapter} saying where its docs live in the store and which REST
+ * route backs them, and everything below — the fallback ladder, the merge-patch
+ * rebuild, the batched bottom-up subtree delete — is shared. Thin per-rtype
+ * wrappers (`commitNodePath`, …) keep call sites reading naturally.
  *
  * Commit granularity is therefore a UI decision, and it matters: every committed
  * write is one undo step, so a control that commits per keystroke makes undo
@@ -24,8 +30,8 @@
  * longer clobber each other the way the whole-doc REST PUT did.
  *
  * Fallback ladder for commits — mesh is skipped, REST takes over, when:
- *   - the node is a projected remote node (Phase 6 owns those writes; api/client's
- *     `remoteWriteRouter` diverts them to the owner), or
+ *   - the doc is owner-authoritative (a Phase-6 projection; api/client's
+ *     `remoteWriteRouter` diverts those to the owner), or
  *   - the tab peer isn't armed / the authority is offline (`canWrite()`), or
  *   - the replica doesn't hold the doc yet.
  *
@@ -35,13 +41,13 @@
  * surface is undoable by the tab that authored it. Two things make that safe:
  *
  *   - The backend validates client-authored whole-doc writes in its mesh
- *     `validate` hook (backend mesh/sceneNodeGuards.ts) and returns a nack,
- *     which rolls the client's optimistic write back. So a create the REST
- *     route would have refused is refused here on the same grounds.
- *   - A delete removes the node's descendants EXPLICITLY, each before its
- *     parent, inside one {@link meshBatch}. Relying on the server's FK cascade
- *     would tombstone only the root, and undo would then restore a node whose
- *     children are gone from the database for good.
+ *     `validate` hook (e.g. backend mesh/sceneNodeGuards.ts) and returns a
+ *     nack, which rolls the client's optimistic write back. So a create the
+ *     REST route would have refused is refused here on the same grounds.
+ *   - A delete removes the doc's descendants EXPLICITLY, each before its
+ *     parent, inside one `meshBatch`. Relying on the server's FK cascade would
+ *     tombstone only the root, and undo would then restore a doc whose children
+ *     are gone from the database for good.
  *
  * Anything that spans several writes belongs in a `meshBatch` so the user
  * undoes the action rather than its individual writes.
@@ -50,6 +56,43 @@ import { flattenToLeaves, getPath, setPath } from '@vspark/mesh';
 import { getMeshHandles, meshBatch } from './peer';
 import { useEditorStore, type StageObject } from '../store/editorStore';
 import { api } from '../api/client';
+
+/** Everything a document type has to supply for the generic write helpers.
+ *
+ *  The helpers below own the parts that were subtly wrong the first time and
+ *  are now pinned by tests — the mesh/REST fallback ladder, the merge-patch
+ *  rebuild, and the batched bottom-up subtree delete. An rtype supplies only
+ *  what actually differs: where its docs live in the store, and which REST
+ *  route backs them. */
+export interface MeshDocAdapter<T extends { id: string }> {
+  rtype: string;
+  /** Current docs of this type in the store. */
+  list(): T[];
+  /** Apply a partial locally. Only the REST fallback needs it — a mesh write
+   *  echoes back through the store feeder on its own. */
+  applyLocal(id: string, patch: Partial<T>): void;
+  addLocal(doc: T): void;
+  removeLocal(id: string): void;
+  restUpdate(id: string, patch: Partial<T>): Promise<unknown>;
+  restDelete(id: string): Promise<unknown>;
+  /** Direct children of `id` — the containment the subtree delete walks. */
+  childrenOf(id: string): T[];
+  /** The patch that re-parents a doc, for "delete but keep children". */
+  parentPatch(parentId: string | null): Partial<T>;
+  /** True for docs another peer is authoritative for (Phase-6 projections),
+   *  which must travel their own relay rather than our mesh. */
+  isRemote?(doc: T): boolean;
+}
+
+const find = <T extends { id: string }>(
+  a: MeshDocAdapter<T>,
+  id: string
+): T | undefined => a.list().find((d) => d.id === id);
+
+const mine = <T extends { id: string }>(
+  a: MeshDocAdapter<T>,
+  doc: T
+): boolean => !a.isRemote?.(doc);
 
 /** Whether the tab peer can author writes right now (armed + authority online).
  *  UI may use this to explain why an edit fell back to REST; the write helpers
@@ -76,54 +119,56 @@ function meshWrite(
   return true;
 }
 
-/** Read the current value at `path` on a node (undefined if absent). */
-export function readNodePath(nodeId: string, path: string): unknown {
-  const node = useEditorStore.getState().nodes.find((n) => n.id === nodeId);
-  return node ? getPath(node, path) : undefined;
-}
-
-/** The `Partial<StageObject>` equivalent of a dotted-path write. REST and the
- *  Phase-6 remote relay both take whole top-level fields rather than paths, so
- *  the spine is rebuilt from the current node and the touched field sent whole. */
-function topLevelPatch(
-  node: StageObject,
+/** The whole-field partial equivalent of a dotted-path write. REST and the
+ *  Phase-6 relay both take whole top-level fields rather than paths, so the
+ *  spine is rebuilt from the current doc and the touched field sent whole. */
+function topLevelPatch<T extends object>(
+  doc: T,
   path: string,
   value: unknown
-): Partial<StageObject> {
-  const field = path.split('.')[0] as keyof StageObject;
-  const next = setPath(node, path, value);
-  return { [field]: next[field] } as Partial<StageObject>;
+): Partial<T> {
+  const field = path.split('.')[0] as keyof T;
+  const next = setPath(doc, path, value);
+  return { [field]: next[field] } as Partial<T>;
+}
+
+/** Read the current value at `path` on a doc (undefined if absent). */
+export function readDocPath<T extends { id: string }>(
+  a: MeshDocAdapter<T>,
+  id: string,
+  path: string
+): unknown {
+  const doc = find(a, id);
+  return doc ? getPath(doc, path) : undefined;
 }
 
 /** Live, uncommitted edit: applies locally so the viewport and panels track the
- *  gesture. Nothing leaves the tab and no undo entry is logged — call
- *  {@link commitNodePath} when the gesture settles. */
-export function previewNodePath(
-  nodeId: string,
+ *  gesture. Nothing leaves the tab and no undo entry is logged — commit when
+ *  the gesture settles. */
+export function previewDocPath<T extends { id: string }>(
+  a: MeshDocAdapter<T>,
+  id: string,
   path: string,
   value: unknown
 ): void {
-  const s = useEditorStore.getState();
-  const node = s.nodes.find((n) => n.id === nodeId);
-  if (!node) return;
-  s.updateNode(nodeId, topLevelPatch(node, path, value));
+  const doc = find(a, id);
+  if (!doc) return;
+  a.applyLocal(id, topLevelPatch(doc, path, value));
 }
 
 /** Commit one field. One call = one undo step. */
-export function commitNodePath(
-  nodeId: string,
+export function commitDocPath<T extends { id: string }>(
+  a: MeshDocAdapter<T>,
+  id: string,
   path: string,
   value: unknown
 ): void {
-  const s = useEditorStore.getState();
-  const node = s.nodes.find((n) => n.id === nodeId);
-  if (!node) return;
-  // Remote (projected) nodes are owner-authoritative: their docs live in the
-  // owner's replica, so the write has to travel the Phase-6 relay, not ours.
-  if (!node.remote && meshWrite('scene_node', nodeId, path, value)) return;
-  const patch = topLevelPatch(node, path, value);
-  s.updateNode(nodeId, patch);
-  void api.updateNode(nodeId, patch).catch(() => {});
+  const doc = find(a, id);
+  if (!doc) return;
+  if (mine(a, doc) && meshWrite(a.rtype, id, path, value)) return;
+  const patch = topLevelPatch(doc, path, value);
+  a.applyLocal(id, patch);
+  void a.restUpdate(id, patch).catch(() => {});
 }
 
 /** Commit a (possibly nested) partial as one op — so an edit that genuinely
@@ -131,58 +176,190 @@ export function commitNodePath(
  *
  *  Merge semantics, matching the mesh: the partial is flattened to leaves, so
  *  `{ components: { godray: { power: 2 } } }` touches only that one leaf and
- *  every sibling component survives. A whole-subtree *replace* is
- *  {@link commitNodePath} with that path.
+ *  every sibling survives. A whole-subtree *replace* is {@link commitDocPath}
+ *  with that path.
  *
- *  REST can't express any of that — `PUT` replaces `components` wholesale — so
- *  the fallback rebuilds each touched top-level field from the current node and
+ *  REST can't express any of that — `PUT` replaces a field wholesale — so the
+ *  fallback rebuilds each touched top-level field from the current doc and
  *  sends it whole, reproducing the same result. */
-export function commitNodePatch(
-  nodeId: string,
-  patch: Partial<StageObject>
+export function commitDocPatch<T extends { id: string }>(
+  a: MeshDocAdapter<T>,
+  id: string,
+  patch: Partial<T>
 ): void {
-  const s = useEditorStore.getState();
-  const node = s.nodes.find((n) => n.id === nodeId);
-  if (!node) return;
-  if (!node.remote && meshWrite('scene_node', nodeId, null, patch)) return;
+  const doc = find(a, id);
+  if (!doc) return;
+  if (mine(a, doc) && meshWrite(a.rtype, id, null, patch)) return;
 
-  let next = node;
+  let next = doc;
   for (const [p, v] of flattenToLeaves(patch)) next = setPath(next, p, v);
   const whole = Object.fromEntries(
-    Object.keys(patch).map((f) => [f, next[f as keyof StageObject]])
-  ) as Partial<StageObject>;
-  s.updateNode(nodeId, whole);
-  void api.updateNode(nodeId, whole).catch(() => {});
+    Object.keys(patch).map((f) => [f, next[f as keyof T]])
+  ) as Partial<T>;
+  a.applyLocal(id, whole);
+  void a.restUpdate(id, whole).catch(() => {});
 }
 
-/** Nodes under `rootId` (excluding it), ordered so every node comes before its
+/** Create a doc the caller has already built (id included, so the write is
+ *  authored by this tab and lands on its undo stack). Throws on refusal, like
+ *  the REST create it replaces. `restCreate` returns the server's own record
+ *  for the fallback path, which mints its own id. */
+export async function commitDocCreate<T extends { id: string }>(
+  a: MeshDocAdapter<T>,
+  doc: T,
+  restCreate: () => Promise<T>
+): Promise<T> {
+  const col = getMeshHandles()?.collections[a.rtype];
+  if (col?.canWrite()) {
+    const outcome = await col.set(doc.id, '', doc).ack;
+    if (outcome.status === 'rejected')
+      throw new Error(outcome.reason ?? `${a.rtype} create refused`);
+    // The feeder mirrors the replica into the store; nothing to apply here.
+    return doc;
+  }
+  const created = await restCreate();
+  if (a.list().every((d) => d.id !== created.id)) a.addLocal(created);
+  return created;
+}
+
+/** Docs under `rootId` (excluding it), ordered so every doc comes before its
  *  own parent — the order a subtree has to be removed in, so each doc gets its
  *  own tombstone and undo entry and no parent is removed out from under a
  *  child still to come. (Undo then replays it in reverse, restoring parents
  *  first.) Depth-first preorder puts a parent ahead of its descendants, so
  *  reversing it gives exactly that. */
-function descendantsBottomUp(rootId: string): StageObject[] {
-  const nodes = useEditorStore.getState().nodes;
-  const out: StageObject[] = [];
+function descendantsBottomUp<T extends { id: string }>(
+  a: MeshDocAdapter<T>,
+  rootId: string
+): T[] {
+  const out: T[] = [];
   const walk = (id: string) => {
-    for (const n of nodes.filter((c) => c.parentId === id)) {
-      out.push(n);
-      walk(n.id);
+    for (const c of a.childrenOf(id)) {
+      out.push(c);
+      walk(c.id);
     }
   };
   walk(rootId);
   return out.reverse();
 }
 
-/** Create a node.
+/** Delete a doc and everything under it, as ONE undo action.
  *
- *  The id is minted here so the create is authored by this tab and lands on
- *  its undo stack; the backend re-derives `projectId` and validates the doc,
- *  nacking anything it would have refused over REST.
- *
- *  Throws on refusal, like the REST create it replaces, so existing callers
- *  keep their error handling. */
-export async function commitNodeCreate(
+ *  Descendants are removed explicitly rather than left to the server's FK
+ *  cascade, so each one carries a tombstone and can be restored. Undo re-creates
+ *  the whole subtree; without this it would restore the root alone and the
+ *  children would be unrecoverable. */
+export async function commitDocDelete<T extends { id: string }>(
+  a: MeshDocAdapter<T>,
+  id: string
+): Promise<boolean> {
+  const doc = find(a, id);
+  if (!doc) return false;
+  const col = getMeshHandles()?.collections[a.rtype];
+  const subtree = descendantsBottomUp(a, id);
+
+  if (mine(a, doc) && col?.canWrite() && col.get(id)) {
+    const acks = meshBatch(() => [
+      ...subtree.map((d) => col.remove(d.id).ack),
+      col.remove(id).ack,
+    ]);
+    const outcomes = await Promise.all(acks);
+    return outcomes.every((o) => o.status !== 'rejected');
+  }
+
+  const ok = await a
+    .restDelete(id)
+    .then(() => true)
+    .catch(() => false);
+  if (ok) {
+    for (const d of subtree) a.removeLocal(d.id);
+    a.removeLocal(id);
+  }
+  return ok;
+}
+
+/** Re-parent a doc's direct children onto `newParentId`, then delete it — one
+ *  undo action, so "delete but keep children" reverses in a single step. */
+export async function commitDocDeleteKeepChildren<T extends { id: string }>(
+  a: MeshDocAdapter<T>,
+  id: string,
+  newParentId: string | null
+): Promise<boolean> {
+  const doc = find(a, id);
+  if (!doc) return false;
+  const children = a.childrenOf(id);
+  const col = getMeshHandles()?.collections[a.rtype];
+
+  if (mine(a, doc) && col?.canWrite() && col.get(id)) {
+    const acks = meshBatch(() => [
+      ...children.map((c) => col.set(c.id, 'parentId', newParentId).ack),
+      col.remove(id).ack,
+    ]);
+    const outcomes = await Promise.all(acks);
+    return outcomes.every((o) => o.status !== 'rejected');
+  }
+
+  for (const c of children) {
+    const patch = a.parentPatch(newParentId);
+    a.applyLocal(c.id, patch);
+    await a.restUpdate(c.id, patch).catch(() => {});
+  }
+  const ok = await a
+    .restDelete(id)
+    .then(() => true)
+    .catch(() => false);
+  if (ok) a.removeLocal(id);
+  return ok;
+}
+
+// --- scene_node ---------------------------------------------------------------
+
+const nodes: MeshDocAdapter<StageObject> = {
+  rtype: 'scene_node',
+  list: () => useEditorStore.getState().nodes,
+  applyLocal: (id, patch) => useEditorStore.getState().updateNode(id, patch),
+  addLocal: (doc) => useEditorStore.getState().addNode(doc),
+  removeLocal: (id) => useEditorStore.getState().deleteNode(id),
+  restUpdate: (id, patch) => api.updateNode(id, patch),
+  restDelete: (id) => api.deleteNode(id),
+  childrenOf: (id) =>
+    useEditorStore.getState().nodes.filter((n) => n.parentId === id),
+  parentPatch: (parentId) => ({ parentId }),
+  isRemote: (n) => n.remote === true,
+};
+
+export const readNodePath = (nodeId: string, path: string): unknown =>
+  readDocPath(nodes, nodeId, path);
+
+export const previewNodePath = (
+  nodeId: string,
+  path: string,
+  value: unknown
+): void => previewDocPath(nodes, nodeId, path, value);
+
+export const commitNodePath = (
+  nodeId: string,
+  path: string,
+  value: unknown
+): void => commitDocPath(nodes, nodeId, path, value);
+
+export const commitNodePatch = (
+  nodeId: string,
+  patch: Partial<StageObject>
+): void => commitDocPatch(nodes, nodeId, patch);
+
+export const commitNodeDelete = (nodeId: string): Promise<boolean> =>
+  commitDocDelete(nodes, nodeId);
+
+export const commitNodeDeleteKeepChildren = (
+  nodeId: string,
+  newParentId: string | null
+): Promise<boolean> => commitDocDeleteKeepChildren(nodes, nodeId, newParentId);
+
+/** Create a node. The id is minted here so the create is authored by this tab;
+ *  the backend re-derives `projectId` and validates the doc, nacking anything
+ *  it would have refused over REST. */
+export function commitNodeCreate(
   sceneId: string,
   spec: {
     name: string;
@@ -194,12 +371,10 @@ export async function commitNodeCreate(
     properties?: StageObject['properties'];
   }
 ): Promise<StageObject> {
-  const s = useEditorStore.getState();
-  const col = getMeshHandles()?.collections.scene_node;
-  const node: StageObject = {
+  const doc: StageObject = {
     id: crypto.randomUUID(),
     rootSceneNodeId: sceneId,
-    projectId: s.projectId ?? '',
+    projectId: useEditorStore.getState().projectId ?? '',
     parentId: spec.parentId ?? null,
     boneAttachment: spec.boneAttachment ?? null,
     name: spec.name,
@@ -209,92 +384,20 @@ export async function commitNodeCreate(
     properties: spec.properties ?? {},
     hidden: false,
   };
-
-  if (col?.canWrite()) {
-    const outcome = await col.set(node.id, '', node).ack;
-    if (outcome.status === 'rejected')
-      throw new Error(outcome.reason ?? 'node create refused');
-    // The feeder mirrors the replica into the store; nothing to apply here.
-    return node;
-  }
-
-  // Same fields, normalized — REST requires `components` and mints its own id.
-  const created = (await api.createNode(sceneId, {
-    name: node.name,
-    kind: node.kind,
-    parentId: node.parentId,
-    boneAttachment: node.boneAttachment,
-    filePath: node.filePath,
-    components: node.components,
-    properties: node.properties,
-    hidden: false,
-  })) as StageObject;
-  if (s.nodes.every((n) => n.id !== created.id)) s.addNode(created);
-  return created;
-}
-
-/** Delete a node and everything under it, as ONE undo action.
- *
- *  Descendants are removed explicitly (deepest first) rather than left to the
- *  server's FK cascade, so each one carries a tombstone and can be restored.
- *  Undo re-creates the whole subtree; without this it would restore the root
- *  alone and the children would be unrecoverable. */
-export async function commitNodeDelete(nodeId: string): Promise<boolean> {
-  const s = useEditorStore.getState();
-  const node = s.nodes.find((n) => n.id === nodeId);
-  if (!node) return false;
-  const col = getMeshHandles()?.collections.scene_node;
-  const subtree = descendantsBottomUp(nodeId);
-
-  if (!node.remote && col?.canWrite() && col.get(nodeId)) {
-    const acks = meshBatch(() => [
-      ...subtree.map((n) => col.remove(n.id).ack),
-      col.remove(nodeId).ack,
-    ]);
-    const outcomes = await Promise.all(acks);
-    return outcomes.every((o) => o.status !== 'rejected');
-  }
-
-  const ok = await api
-    .deleteNode(nodeId)
-    .then(() => true)
-    .catch(() => false);
-  if (ok) {
-    for (const n of subtree) s.deleteNode(n.id);
-    s.deleteNode(nodeId);
-  }
-  return ok;
-}
-
-/** Reparent a node's direct children onto `newParentId`, then delete it — one
- *  undo action, so "delete but keep children" reverses in a single step. */
-export async function commitNodeDeleteKeepChildren(
-  nodeId: string,
-  newParentId: string | null
-): Promise<boolean> {
-  const s = useEditorStore.getState();
-  const children = s.nodes.filter((n) => n.parentId === nodeId);
-  const col = getMeshHandles()?.collections.scene_node;
-  const node = s.nodes.find((n) => n.id === nodeId);
-  if (!node) return false;
-
-  if (!node.remote && col?.canWrite() && col.get(nodeId)) {
-    const acks = meshBatch(() => [
-      ...children.map((c) => col.set(c.id, 'parentId', newParentId).ack),
-      col.remove(nodeId).ack,
-    ]);
-    const outcomes = await Promise.all(acks);
-    return outcomes.every((o) => o.status !== 'rejected');
-  }
-
-  for (const c of children) {
-    s.updateNode(c.id, { parentId: newParentId });
-    await api.updateNode(c.id, { parentId: newParentId }).catch(() => {});
-  }
-  const ok = await api
-    .deleteNode(nodeId)
-    .then(() => true)
-    .catch(() => false);
-  if (ok) s.deleteNode(nodeId);
-  return ok;
+  return commitDocCreate(
+    nodes,
+    doc,
+    // Same fields, normalized — REST requires `components` and mints its own id.
+    () =>
+      api.createNode(sceneId, {
+        name: doc.name,
+        kind: doc.kind,
+        parentId: doc.parentId,
+        boneAttachment: doc.boneAttachment,
+        filePath: doc.filePath,
+        components: doc.components,
+        properties: doc.properties,
+        hidden: false,
+      }) as Promise<StageObject>
+  );
 }
