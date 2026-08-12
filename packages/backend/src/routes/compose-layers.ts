@@ -334,7 +334,7 @@ router.post('/compose-scenes/:composeSceneId/layers', async (req, res) => {
  *         application/json:
  *           schema: { $ref: '#/components/schemas/UpdateComposeLayer' }
  *     responses:
- *       200: { description: Updated; broadcast as compose_layer_updated }
+ *       200: { description: Updated }
  */
 router.put('/compose-layers/:id', async (req, res) => {
   const id = req.params.id;
@@ -402,7 +402,6 @@ router.put('/compose-layers/:id', async (req, res) => {
     .prepare('SELECT * FROM compose_layers WHERE id = ?')
     .get(id) as LayerRow;
   const data = rowToLayer(row);
-  _ws?.broadcast('compose_layer_updated', data);
   res.json({ ok: true, data });
 });
 

@@ -1,7 +1,7 @@
 import type { ComposeLayerRecord } from '../../store/editorStore';
 import { useEditorStore } from '../../store/editorStore';
 import { commitLayerPatch } from '../../mesh/layerWrites';
-import { sendComposeLayerPreview } from '../../hooks/useWsSync';
+import { previewLayerFields } from '../../mesh/layerWrites';
 import { setSnapGuides, clearSnapGuides } from './composeSnap';
 
 const PREVIEW_INTERVAL_MS = 33; // ~30 Hz cap on outgoing layer previews
@@ -168,7 +168,7 @@ function makePreviewEmitter(id: string) {
     const now = performance.now();
     if (now - last < PREVIEW_INTERVAL_MS) return;
     last = now;
-    sendComposeLayerPreview(id, patch as Record<string, unknown>);
+    previewLayerFields(id, patch as Record<string, unknown>);
   };
 }
 

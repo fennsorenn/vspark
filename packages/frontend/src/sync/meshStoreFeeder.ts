@@ -19,6 +19,7 @@
  * Started from the Editor AND the Viewer page (both render live state).
  */
 import { initMeshPeer } from '../mesh/peer';
+import { hasLayerTween, smoothComposeLayer } from '../previewSmoother';
 import {
   useEditorStore,
   type Behavior,
@@ -26,7 +27,11 @@ import {
   type ScheduledAnimation,
   type AnimationClipMeta,
 } from '../store/editorStore';
-import type { CameraEffectRecord, ComposeLayerRecord, TrackClipRecord } from '../api/client';
+import type {
+  CameraEffectRecord,
+  ComposeLayerRecord,
+  TrackClipRecord,
+} from '../api/client';
 
 let started = false;
 
@@ -107,7 +112,6 @@ export function startMeshStoreFeeder(): void {
         else s.addCameraEffect(e);
       });
       h.collections.compose_layer.observe('**', (c) => {
-        if (c.op === 'ephemeral') return;
         const s = useEditorStore.getState();
         if (c.op === 'remove') {
           if (s.composeScenes.some((cs) => cs.id === c.id))
@@ -117,12 +121,39 @@ export function startMeshStoreFeeder(): void {
         }
         const layer = c.doc as unknown as ComposeLayerRecord | undefined;
         if (!layer) return;
+
+        // An ephemeral op IS an in-flight gesture, by construction — that's
+        // what the lossy `preview` channel carries. So it tweens, while
+        // retained ops (page-load snapshots, committed edits) are model state.
+        // The channel is the discriminator; no heuristic needed, and a cold
+        // load can't animate every layer in from wherever the store sat.
+        if (c.op === 'ephemeral') {
+          // `c.doc` is the composed doc (retained + overlays), so read just the
+          // field this op touched rather than re-tweening every numeric field
+          // toward a value that didn't change.
+          const rec = layer as unknown as Record<string, unknown>;
+          smoothComposeLayer(
+            layer.id,
+            c.path ? { [c.path]: rec[c.path] } : rec
+          );
+          return;
+        }
+
         if (layer.kind === 'compose_scene') {
           if (s.composeScenes.some((cs) => cs.id === layer.id))
             s.updateComposeSceneLocal(layer);
           else s.addComposeScene(layer);
         } else if (s.composeLayers.some((l) => l.id === layer.id)) {
-          s.updateComposeLayerLocal(layer.id, layer);
+          // Mid-gesture the committed value retargets the running tween so the
+          // layer glides into its final position instead of snapping (the
+          // preview channel is lossy, so the last frame may never have landed).
+          // Outside a gesture it applies immediately.
+          if (hasLayerTween(layer.id))
+            smoothComposeLayer(
+              layer.id,
+              layer as unknown as Record<string, unknown>
+            );
+          else s.updateComposeLayerLocal(layer.id, layer);
         } else {
           s.addComposeLayer(layer);
         }
@@ -137,7 +168,10 @@ export function startMeshStoreFeeder(): void {
         // A remote edit (new keyframes, rename, lane change …) re-sends the
         // whole aggregate; an existing clip must be REPLACED, not skipped.
         const clip = c.doc as unknown as TrackClipRecord | undefined;
-        if (!clip || parentIsRemote((clip as { ownerNodeId?: unknown }).ownerNodeId))
+        if (
+          !clip ||
+          parentIsRemote((clip as { ownerNodeId?: unknown }).ownerNodeId)
+        )
           return;
         if (s.trackClips.some((x) => x.id === clip.id))
           s.updateTrackClipLocal(clip);

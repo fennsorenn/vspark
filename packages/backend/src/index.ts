@@ -335,17 +335,6 @@ async function start() {
       const p = payload as { owner?: string; env?: SyncEnvelope };
       if (typeof p.owner === 'string' && p.env)
         multiplayerManager.relayWrite(p.owner, p.env);
-    } else if (kind === 'compose_layer_preview') {
-      // Same idea for compose layer drag/resize/rotate: relay the patch without
-      // touching the DB; the final REST PUT will write+broadcast the canonical row.
-      const p = payload as { id?: string; patch?: Record<string, unknown> };
-      if (typeof p.id === 'string' && p.patch) {
-        wsSync.broadcast(
-          'compose_layer_preview',
-          { id: p.id, patch: p.patch },
-          sourceWs
-        );
-      }
     } else if (kind === 'mesh_hello') {
       // A browser client registers its participant id for the client mesh.
       const p = payload as { participantId?: string };

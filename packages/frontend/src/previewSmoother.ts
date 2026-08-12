@@ -126,6 +126,18 @@ function ensureLoop() {
   rafHandle = requestAnimationFrame(tick);
 }
 
+/** Whether a tween is currently animating this layer.
+ *
+ *  The mesh feeder uses this to decide how a COMMITTED value should land: mid
+ *  gesture it retargets the running tween so the layer glides into its final
+ *  position, but a value arriving cold (page load, a remote panel edit) applies
+ *  immediately rather than animating in from wherever the store happened to be. */
+export function hasLayerTween(id: string): boolean {
+  for (const t of scalarTweens.values())
+    if (t.scope === 'layer' && t.id === id) return true;
+  return false;
+}
+
 /** Retarget a scalar tween, re-baselining from the current displayed value. */
 function retargetScalar(
   scope: Scope,

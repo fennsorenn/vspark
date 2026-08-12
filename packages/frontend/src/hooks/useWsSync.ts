@@ -13,7 +13,7 @@ import {
   getCollabScenes,
 } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
-import { smoothNodeTransform, smoothComposeLayer } from '../previewSmoother';
+import { smoothNodeTransform } from '../previewSmoother';
 import { setIkTargets } from '../ikTargetStore';
 import type {
   IkTargetFrame,
@@ -76,17 +76,6 @@ export function sendSharedNodeTransform(
   const ws = editorWsRef.current;
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ kind: 'shared_node_transform', nodeId, transform }));
-}
-
-/** Send a live in-flight compose-layer patch (position/size/rotation) so other
- *  editors see the change before the user releases the mouse. */
-export function sendComposeLayerPreview(
-  id: string,
-  patch: Record<string, unknown>
-) {
-  const ws = editorWsRef.current;
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ kind: 'compose_layer_preview', id, patch }));
 }
 
 export function useWsSync() {
@@ -242,15 +231,6 @@ export function useWsSync() {
             } else {
               useEditorStore.getState().addComposeLayer(added);
             }
-          } else if (msg.kind === 'compose_layer_updated') {
-            // Final committed state from a PUT. Route through the smoother so
-            // numeric fields (x/y/w/h/rotation) tween from the last preview
-            // into the canonical value instead of snapping.
-            const layer = mapComposeLayer(msg.payload);
-            smoothComposeLayer(
-              layer.id,
-              layer as unknown as Record<string, unknown>
-            );
           } else if (msg.kind === 'compose_layer_removed') {
             const removedId = msg.payload.id as string;
             const st = useEditorStore.getState();
@@ -259,14 +239,6 @@ export function useWsSync() {
             } else {
               st.removeComposeLayer(removedId);
             }
-          } else if (msg.kind === 'compose_layer_preview') {
-            const p = msg.payload as {
-              id: string;
-              patch: Record<string, unknown>;
-            };
-            // Tween numeric fields (x/y/width/height/rotation); apply other
-            // fields immediately. Mirrors the smoothing applied to 3D node previews.
-            smoothComposeLayer(p.id, p.patch);
           } else if (msg.kind === 'track_clip_added') {
             useEditorStore.getState().addTrackClip(mapTrackClip(msg.payload));
           } else if (msg.kind === 'track_clip_updated') {
