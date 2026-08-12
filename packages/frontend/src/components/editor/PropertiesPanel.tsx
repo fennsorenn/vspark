@@ -59,6 +59,8 @@ import {
 import type { AssetFile } from '../../api/client';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
+import { useMeshField } from '../../hooks/useMeshField';
+import { commitNodePath, previewNodePath } from '../../mesh/writes';
 
 /** Small "Pick…" button that routes the user to a bottom-dock asset tab and
  *  flashes it as a hint. The asset tab's existing "Apply to <node>" buttons do
@@ -356,7 +358,6 @@ function MaterialRow({
   slot: ReturnType<typeof getMaterialSlots>[number];
 }) {
   const { t } = useTranslation('properties');
-  const { updateNode: storeUpdateNode } = useEditorStore();
   const [open, setOpen] = useState(false);
   const [advOpen, setAdvOpen] = useState(false);
   const overrides = (node.properties?.materialOverrides ??
@@ -368,23 +369,23 @@ function MaterialRow({
   if (shader === 'mtoon' && !slot.supportsMToon) shader = 'pbr';
   const isStandard = shader === 'pbr' || shader === 'apbr';
 
-  const writeOverrides = (next: MaterialOverrides, persist: boolean) => {
-    const properties = { ...node.properties, materialOverrides: next };
-    storeUpdateNode(node.id, { properties });
-    if (persist)
-      api
-        .updateNode(node.id, { properties: { materialOverrides: next } })
-        .catch(() => {});
-  };
+  const overridesPath = 'properties.materialOverrides';
+  const slotPath = `${overridesPath}.${slot.key}`;
 
+  /** Whole-map replace — used by reset, which removes a slot entry. */
+  const writeOverrides = (next: MaterialOverrides, persist: boolean) =>
+    (persist ? commitNodePath : previewNodePath)(node.id, overridesPath, next);
+
+  /** One field of this material. Path writes stamp exactly the field touched,
+   *  so editing two materials (or two params) concurrently no longer clobbers.
+   *  `persist: false` is the live gesture value; `true` commits one undo step. */
   const patch = (p: Partial<MaterialOverride>, persist: boolean) => {
-    const prev = (node.properties?.materialOverrides ??
-      {}) as MaterialOverrides;
-    const prevEntry: MaterialOverride = prev[slot.key] ?? {
-      shader: defaultShader,
-    };
-    const next = { ...prev, [slot.key]: { ...prevEntry, ...p } };
-    writeOverrides(next, persist);
+    const write = persist ? commitNodePath : previewNodePath;
+    // No entry yet: seed shader + fields as one write, so the slot never exists
+    // in a half-formed state and the edit stays a single undo step.
+    if (!ov) return write(node.id, slotPath, { shader: defaultShader, ...p });
+    for (const [k, v] of Object.entries(p))
+      write(node.id, `${slotPath}.${k}`, v);
   };
 
   const reset = () => {
@@ -5796,7 +5797,10 @@ export function PropertiesPanel() {
     : null;
 
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
-  const [name, setName] = useState('');
+  // Bound straight to the node's mesh doc: no draft state, no re-sync effect,
+  // and (unlike the old `useState` + `[node.id]` effect) it tracks renames from
+  // other tabs live instead of going stale until the node is reselected.
+  const nameField = useMeshField<string>(node?.id ?? '', 'name', '');
   const nameInputRef = useRef<HTMLInputElement>(null);
   const focusNameNonce = useEditorStore((s) => s.focusNameNonce);
   const lastFocusNonce = useRef(focusNameNonce);
@@ -5849,7 +5853,6 @@ export function PropertiesPanel() {
 
   useEffect(() => {
     if (!node) return;
-    setName(node.name);
     const t = getTransform(node);
     setTransform(t);
     transformRef.current = t;
@@ -6191,14 +6194,6 @@ export function PropertiesPanel() {
   // At this point node is guaranteed to be non-null (component-only path handled above).
   if (!node) return null;
 
-  const saveName = () => {
-    if (name === node.name) return;
-    storeUpdateNode(node.id, { name });
-    api
-      .updateNode(node.id, { name })
-      .catch(() => storeUpdateNode(node.id, { name: node.name }));
-  };
-
   // Called on blur: applies to Viewport + persists to DB in one shot.
   // Uses the ref (not state) so the value is always current regardless of render timing.
   const saveTransform = () => {
@@ -6262,9 +6257,7 @@ export function PropertiesPanel() {
           ref={nameInputRef}
           className="vs-node-name"
           style={textInput}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={saveName}
+          {...nameField.bind()}
         />
 
         {/* Kind badge */}
