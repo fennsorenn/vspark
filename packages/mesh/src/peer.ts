@@ -82,6 +82,19 @@ export interface UndoStatus {
   canRedo: boolean;
 }
 
+/** One user-level action: the committed writes {@link MeshPeer.batch} grouped
+ *  together, undone/redone as a unit. A write made outside a batch is its own
+ *  group of one. `placed` flips when the group reaches the undo stack — a batch
+ *  whose writes are all rejected never lands there.
+ *
+ *  Membership is fixed when the write is issued, not when it is logged: with a
+ *  remote authority the entry is only pushed on ack, so acks that arrive late
+ *  or out of order still land in the right group. */
+interface UndoGroup {
+  entries: UndoEntry[];
+  placed: boolean;
+}
+
 export interface MeshStatus {
   peers: { id: string }[];
   pendingAcks: number;
@@ -108,6 +121,8 @@ interface PendingAck {
    *  confirmed (acked/corrected), discarded on reject/timeout, so a rolled-back
    *  optimistic write never leaves a bogus undo action. */
   undo?: UndoEntry;
+  /** The action this write belongs to (see `MeshPeer.batch`). */
+  undoGroup?: UndoGroup | null;
 }
 
 interface OutSub {
@@ -172,9 +187,11 @@ export class MeshPeer implements PeerCore {
   private readonly clocks = new Map<string, ClockState>();
   private readonly now: () => number;
 
-  /** Per-peer undo/redo log (committed writes only). */
-  private readonly undoStack: UndoEntry[] = [];
-  private readonly redoStack: UndoEntry[] = [];
+  /** Per-peer undo/redo log (committed writes only), one entry per action. */
+  private readonly undoStack: UndoGroup[] = [];
+  private readonly redoStack: UndoGroup[] = [];
+  /** The batch currently open on this peer, if any (see `batch`). */
+  private currentGroup: UndoGroup | null = null;
   private readonly undoDepth: number;
   private readonly undoPolicy: UndoPolicy;
   /** While replaying an inverse (undo) or forward (redo), local committed
@@ -290,6 +307,25 @@ export class MeshPeer implements PeerCore {
   // protocol. Preview/ephemeral writes are never logged (the commit is the
   // action boundary), so gizmo-drag coalescing is a non-issue.
 
+  /** Run `fn`, grouping every committed write it issues into ONE undo action.
+   *
+   *  For edits that are conceptually single but structurally several — deleting
+   *  a node and its descendants, or reparenting a node's children before
+   *  removing it — so the user undoes the action, not its individual writes.
+   *  Nested batches join the outer one. Writes are still issued (and acked)
+   *  independently; only the undo grouping is affected, and rejected writes
+   *  simply never join the group. */
+  batch<T>(fn: () => T): T {
+    if (this.currentGroup) return fn(); // nested: join the open action
+    const group: UndoGroup = { entries: [], placed: false };
+    this.currentGroup = group;
+    try {
+      return fn();
+    } finally {
+      this.currentGroup = null;
+    }
+  }
+
   canUndo(): boolean {
     return this.undoStack.length > 0;
   }
@@ -307,33 +343,51 @@ export class MeshPeer implements PeerCore {
    *  collection is gone, or (guarded policy) a collaborator has since changed
    *  the doc — in which case the action is consumed without applying. */
   undo(): boolean {
-    const entry = this.undoStack.pop();
-    if (!entry) return false;
-    const col = this.collections.get(entry.rtype);
-    if (col && this.policyAllows(col, entry.id, entry.after)) {
-      this.replay('undo', () => this.applyInverse(col, entry));
-      this.redoStack.push(entry);
-      this.notifyUndoObservers();
-      return true;
+    const group = this.undoStack.pop();
+    if (!group) return false;
+    // All-or-nothing: a partially applied action would leave the graph in a
+    // state the user never authored (half a deleted subtree restored).
+    const resolved = group.entries.map((e) => ({
+      e,
+      col: this.collections.get(e.rtype),
+    }));
+    // Policy is checked on the action's NET effect, not every write: an action that
+    // touched one doc twice leaves only its final value on that doc, and the
+    // intermediate state it passed through was never the committed state.
+    const ok = this.groupPolicyAllows(resolved, 'last');
+    if (ok) {
+      this.replay('undo', () => {
+        // Reverse order: children were removed before their parent, so the
+        // parent must come back first.
+        for (let i = resolved.length - 1; i >= 0; i--)
+          this.applyInverse(resolved[i].col!, resolved[i].e);
+      });
+      this.redoStack.push(group);
     }
     this.notifyUndoObservers();
-    return false;
+    return ok;
   }
 
   /** Re-apply the last undone action (forward direction). Same policy gate as
    *  `undo`, checked against the value the undo restored. */
   redo(): boolean {
-    const entry = this.redoStack.pop();
-    if (!entry) return false;
-    const col = this.collections.get(entry.rtype);
-    if (col && this.policyAllows(col, entry.id, entry.before)) {
-      this.replay('redo', () => this.applyForward(col, entry));
-      this.undoStack.push(entry);
-      this.notifyUndoObservers();
-      return true;
+    const group = this.redoStack.pop();
+    if (!group) return false;
+    const resolved = group.entries.map((e) => ({
+      e,
+      col: this.collections.get(e.rtype),
+    }));
+    // Mirror of undo: the pre-action value of each doc is the FIRST entry's
+    // `before`, whatever the action did to it afterwards.
+    const ok = this.groupPolicyAllows(resolved, 'first');
+    if (ok) {
+      this.replay('redo', () => {
+        for (const { e, col } of resolved) this.applyForward(col!, e);
+      });
+      this.undoStack.push(group);
     }
     this.notifyUndoObservers();
-    return false;
+    return ok;
   }
 
   /** Drop the whole undo/redo history (e.g. on project/scene switch). */
@@ -353,11 +407,20 @@ export class MeshPeer implements PeerCore {
     };
   }
 
-  private pushUndo(entry: UndoEntry): void {
-    this.undoStack.push(entry);
-    if (this.undoStack.length > this.undoDepth) this.undoStack.shift();
-    // A new committed action invalidates the redo future.
-    this.redoStack.length = 0;
+  /** Log one confirmed write into its action. A group reaches the stack on its
+   *  first confirmed write, so a batch whose writes all fail leaves no action;
+   *  later writes of the same batch append to the group already in place. */
+  private pushUndo(entry: UndoEntry, group?: UndoGroup | null): void {
+    const g = group ?? { entries: [], placed: false };
+    g.entries.push(entry);
+    if (!g.placed) {
+      g.placed = true;
+      this.undoStack.push(g);
+      if (this.undoStack.length > this.undoDepth) this.undoStack.shift();
+      // A new action invalidates the redo future — but only when the action
+      // starts, not on every write that joins it.
+      this.redoStack.length = 0;
+    }
     this.notifyUndoObservers();
   }
 
@@ -380,6 +443,28 @@ export class MeshPeer implements PeerCore {
   private applyForward(col: AnyCollection, e: UndoEntry): void {
     if (e.op === 'removed') col.remove(e.id);
     else col.set(e.id, '', e.after);
+  }
+
+  /** Guarded policy for a whole action: every doc it touched must still hold
+   *  the value this peer left it at. `edge` picks which end of the action to
+   *  compare — 'last' (undo: the doc as the action left it) or 'first' (redo:
+   *  the doc as it was before the action). Docs touched more than once are
+   *  collapsed so the action's intermediate states are never compared. */
+  private groupPolicyAllows(
+    resolved: { e: UndoEntry; col: AnyCollection | undefined }[],
+    edge: 'first' | 'last'
+  ): boolean {
+    const net = new Map<string, { e: UndoEntry; col: AnyCollection | undefined }>();
+    for (const r of resolved) {
+      const key = `${r.e.rtype}\u0000${r.e.id}`;
+      if (edge === 'last' || !net.has(key)) net.set(key, r);
+    }
+    for (const { e, col } of net.values()) {
+      if (!col) return false;
+      if (!this.policyAllows(col, e.id, edge === 'last' ? e.after : e.before))
+        return false;
+    }
+    return true;
   }
 
   /** Guarded policy: apply only if the doc's current committed value still
@@ -572,6 +657,9 @@ export class MeshPeer implements PeerCore {
     const undoEntry = loggable
       ? makeUndoEntry(col.rtype, w.id, before, col.replica.raw(w.id))
       : undefined;
+    // Bound now, not at push time: with a remote authority the entry is logged
+    // on ack, by which point the batch has long since closed.
+    const undoGroup = undoEntry ? this.currentGroup : null;
 
     const opId = guarded && authority !== 'self' ? uuid() : undefined;
     const env = this.envelope(col, { ...w, data }, v, opId);
@@ -599,7 +687,7 @@ export class MeshPeer implements PeerCore {
       // value the authority actually stored).
       if (undoEntry) {
         if (corrected) undoEntry.after = data;
-        this.pushUndo(undoEntry);
+        this.pushUndo(undoEntry, undoGroup);
       }
       return done(
         corrected ? { status: 'corrected', value: data } : { status: 'acked' }
@@ -622,6 +710,7 @@ export class MeshPeer implements PeerCore {
         timer,
         resolve,
         undo: undoEntry,
+        undoGroup,
       });
     });
     return { ack };
@@ -1014,7 +1103,7 @@ export class MeshPeer implements PeerCore {
     clearTimeout(p.timer);
 
     if (msg.status === 'acked') {
-      if (p.undo) this.pushUndo(p.undo);
+      if (p.undo) this.pushUndo(p.undo, p.undoGroup);
       p.resolve({ status: 'acked' });
       return;
     }
@@ -1035,7 +1124,7 @@ export class MeshPeer implements PeerCore {
       // result so a later guarded undo matches the doc's real state.
       if (p.undo) {
         p.undo.after = p.col.replica.raw(p.id);
-        this.pushUndo(p.undo);
+        this.pushUndo(p.undo, p.undoGroup);
       }
       p.resolve({ status: 'corrected', value: msg.value });
       return;

@@ -303,3 +303,146 @@ describe('mesh undo/redo — collaboration', () => {
     expect(r.na.get('n1')?.name).toBe('b-edit');
   });
 });
+
+// --- batched actions --------------------------------------------------------
+
+describe('mesh undo/redo — batch()', () => {
+  it('groups several writes into one action, undone as a unit', () => {
+    const { p, nodes } = solo();
+    nodes.create({ id: 'parent', name: 'p' });
+    nodes.create({ id: 'kid1', name: 'k1' });
+    nodes.create({ id: 'kid2', name: 'k2' });
+
+    // Delete a subtree: children first, then the parent.
+    p.batch(() => {
+      nodes.remove('kid1');
+      nodes.remove('kid2');
+      nodes.remove('parent');
+    });
+    expect(nodes.get('parent')).toBeUndefined();
+    expect(nodes.get('kid1')).toBeUndefined();
+
+    // ONE undo brings the whole subtree back.
+    expect(p.undo()).toBe(true);
+    expect(nodes.get('parent')).toEqual({ id: 'parent', name: 'p' });
+    expect(nodes.get('kid1')).toEqual({ id: 'kid1', name: 'k1' });
+    expect(nodes.get('kid2')).toEqual({ id: 'kid2', name: 'k2' });
+
+    // The three creates before it are still separate actions.
+    expect(p.undoStatus()).toEqual({ canUndo: true, canRedo: true });
+
+    expect(p.redo()).toBe(true);
+    expect(nodes.get('parent')).toBeUndefined();
+    expect(nodes.get('kid1')).toBeUndefined();
+    expect(nodes.get('kid2')).toBeUndefined();
+  });
+
+  it('undoes a mixed batch (reparent children, then remove the parent)', () => {
+    const { p, nodes } = solo();
+    nodes.create({ id: 'p1', name: 'p', parentId: null });
+    nodes.create({ id: 'c1', name: 'c', parentId: 'p1' });
+
+    p.batch(() => {
+      nodes.set('c1', 'parentId', null); // keep the child, detach it
+      nodes.remove('p1');
+    });
+    expect(nodes.get('c1')?.parentId).toBeNull();
+    expect(nodes.get('p1')).toBeUndefined();
+
+    expect(p.undo()).toBe(true);
+    expect(nodes.get('p1')).toEqual({ id: 'p1', name: 'p', parentId: null });
+    expect(nodes.get('c1')?.parentId).toBe('p1');
+  });
+
+  it('restores the parent before its children (inverse runs in reverse)', () => {
+    const { p, nodes } = solo();
+    nodes.create({ id: 'root', name: 'r' });
+    nodes.create({ id: 'leaf', name: 'l', parentId: 'root' });
+
+    const order: string[] = [];
+    nodes.observe('**', (c) => {
+      if (c.op === 'upsert') order.push(c.id);
+    });
+
+    p.batch(() => {
+      nodes.remove('leaf');
+      nodes.remove('root');
+    });
+    p.undo();
+
+    expect(order).toEqual(['root', 'leaf']);
+  });
+
+  it('nested batches join the outer action', () => {
+    const { p, nodes } = solo();
+    nodes.create({ id: 'a', name: 'a' });
+
+    p.batch(() => {
+      nodes.update('a', { name: 'b' });
+      p.batch(() => nodes.update('a', { val: 1 }));
+    });
+
+    expect(p.undo()).toBe(true);
+    expect(nodes.get('a')).toEqual({ id: 'a', name: 'a' });
+  });
+
+  it('a batch of one behaves exactly like an ungrouped write', () => {
+    const { p, nodes } = solo();
+    p.batch(() => nodes.create({ id: 'a', name: 'a' }));
+
+    expect(p.undo()).toBe(true);
+    expect(nodes.get('a')).toBeUndefined();
+    expect(p.redo()).toBe(true);
+    expect(nodes.get('a')).toEqual({ id: 'a', name: 'a' });
+  });
+
+  it('leaves no action behind when every write in the batch is rejected', async () => {
+    const { p, nodes } = solo();
+    const guarded = p.collection<Node>('guarded', {
+      authority: 'self',
+      validate: () => {
+        throw new Error('nope');
+      },
+    });
+    nodes.create({ id: 'keep', name: 'k' }); // an earlier, unrelated action
+
+    const outcome = await p.batch(() => guarded.create({ id: 'x', name: 'x' }))
+      .ack;
+
+    expect(outcome.status).toBe('rejected');
+    // The batch contributed nothing, so undo still points at the create.
+    expect(p.undoStatus()).toEqual({ canUndo: true, canRedo: false });
+    expect(p.undo()).toBe(true);
+    expect(nodes.get('keep')).toBeUndefined();
+    expect(p.undoStatus()).toEqual({ canUndo: false, canRedo: true });
+  });
+
+  it('groups across async acks from a remote authority', async () => {
+    const r = pair();
+    await r.b.subscribe('A', {
+      entityRtype: 'node',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+    });
+    r.na.create({ id: 'n1', name: 'a' });
+    r.na.create({ id: 'n2', name: 'b' });
+    await r.flush();
+
+    // B authors both removes in one batch; the entries are only logged when
+    // A's acks come back, well after the batch closed.
+    r.b.batch(() => {
+      r.nb.remove('n1');
+      r.nb.remove('n2');
+    });
+    await r.flush();
+
+    expect(r.b.undoStatus().canUndo).toBe(true);
+    expect(r.b.undo()).toBe(true);
+    await r.flush();
+
+    expect(r.na.get('n1')).toEqual({ id: 'n1', name: 'a' });
+    expect(r.na.get('n2')).toEqual({ id: 'n2', name: 'b' });
+    expect(r.b.undoStatus()).toEqual({ canUndo: false, canRedo: true });
+  });
+});
