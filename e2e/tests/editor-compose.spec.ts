@@ -195,8 +195,11 @@ test('compose layer creation: palette tile adds layer to tree and persists', asy
   // the button's accessible name is the label alone.
   await page.getByRole('button', { name: 'Image', exact: true }).click();
 
-  // The new layer appears in the compose tree.  The default name is "Image Layer".
-  const layerRow = page.getByText('Image Layer', { exact: true });
+  // The new layer appears in the compose tree.  The default name is "Image
+  // Layer". Creating it also selects it, so the name is rendered in the
+  // properties panel too — scope to the first match, which is the tree row
+  // (rendered before the panel in DOM order).
+  const layerRow = page.getByText('Image Layer', { exact: true }).first();
   await expect(layerRow).toBeVisible({ timeout: 10_000 });
 
   // REST read-back: the layer was persisted to the backend.

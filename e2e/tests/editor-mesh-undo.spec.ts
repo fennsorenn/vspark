@@ -370,3 +370,59 @@ test('deleting a subtree restores every descendant on undo', async ({
     .poll(() => persistedNames(request, sceneId), { timeout: 15_000 })
     .toEqual(['Leaf', 'Mid', 'Root']);
 });
+
+// --- compose layers ---------------------------------------------------------
+
+/** Names of the layers persisted in a compose scene. */
+async function layerNames(
+  request: APIRequestContext,
+  composeSceneId: string
+): Promise<string[]> {
+  const res = await request.get(`/api/compose-scenes/${composeSceneId}/layers`);
+  const json = (await res.json()) as { data: { name: string }[] };
+  return json.data.map((l) => l.name).sort();
+}
+
+/** Seed a compose scene — seedProjectScene creates the 3D scene unpopulated,
+ *  so a project has no compose scene of its own. */
+async function seedComposeScene(
+  request: APIRequestContext,
+  projectId: string
+): Promise<string> {
+  const res = await request.post(`/api/projects/${projectId}/compose-scenes`, {
+    data: { name: 'Output', width: 1920, height: 1080 },
+  });
+  return ((await res.json()) as { data: { id: string } }).data.id;
+}
+
+test('a created compose layer undoes away and redoes back', async ({
+  page,
+  request,
+}) => {
+  const { projectId } = await seedProjectScene(request);
+  const composeSceneId = await seedComposeScene(request, projectId);
+  const before = await layerNames(request, composeSceneId);
+
+  await page.goto(`/editor/${projectId}`);
+  await expect(page.getByText('Scene', { exact: true }).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByRole('button', { name: 'Compose', exact: true }).click();
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Image', exact: true }).click();
+
+  await expect
+    .poll(() => layerNames(request, composeSceneId), { timeout: 15_000 })
+    .toHaveLength(before.length + 1);
+
+  // The layer is authored by this tab, so it is on this tab's undo stack.
+  await page.locator('.vs-topbar-undo').click();
+  await expect
+    .poll(() => layerNames(request, composeSceneId), { timeout: 15_000 })
+    .toEqual(before);
+
+  await page.locator('.vs-topbar-redo').click();
+  await expect
+    .poll(() => layerNames(request, composeSceneId), { timeout: 15_000 })
+    .toHaveLength(before.length + 1);
+});
