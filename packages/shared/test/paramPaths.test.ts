@@ -19,6 +19,25 @@ describe('getParamPathSpec', () => {
     // A compose-layer path is not valid under scene_node.
     expect(getParamPathSpec('scene_node', 'width')).toBeUndefined();
   });
+
+  it('registers `visible` as a non-animatable Bool on both target kinds', () => {
+    for (const kind of ['scene_node', 'compose_layer'] as const) {
+      const spec = getParamPathSpec(kind, 'visible');
+      expect(spec).toMatchObject({
+        type: 'Bool',
+        defaultValue: true,
+        animatable: false,
+      });
+    }
+    // Boolean coercion works for graph-driven show/hide values.
+    const spec = getParamPathSpec('scene_node', 'visible')!;
+    expect(coerceParamValue(spec, false)).toBe(false);
+    expect(coerceParamValue(spec, 'true')).toBe(true);
+    // Non-animatable → excluded from clip-lane targeting.
+    expect(
+      listAnimatableParamPaths('scene_node').some((p) => p.path === 'visible')
+    ).toBe(false);
+  });
 });
 
 describe('isParamPathValid', () => {

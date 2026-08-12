@@ -14,6 +14,11 @@ await build({
   format: 'cjs',
   outfile: 'dist/bundle.cjs',
   tsconfig: 'tsconfig.json',
+  // Optional native-ish dep: ships per-platform key-server binaries it resolves
+  // relative to its own package dir, so it can't be inlined. Kept external and
+  // require()d at runtime from node_modules; the HotkeyManager loads it with a
+  // guarded dynamic import and degrades gracefully if it can't be resolved.
+  external: ['node-global-key-listener'],
   // Must mirror the exports map in ../shared/package.json one-for-one.
   // esbuild's alias matching is prefix-based, so a missing subpath entry
   // gets greedily caught by the bare `@vspark/shared` alias below and

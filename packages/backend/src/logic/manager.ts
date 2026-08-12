@@ -58,6 +58,27 @@ interface RunningGraph {
 
 export class LogicManager {
   private readonly running = new Map<string, RunningGraph>();
+  private readonly runningChangedHooks: Array<() => void> = [];
+
+  /**
+   * Register a callback fired whenever the set of running graphs changes
+   * (start/stop). The HotkeyManager uses this to (re)evaluate whether any
+   * `system_hotkey` node exists and start/stop its global keyboard hook
+   * without LogicManager importing it (avoids a cycle).
+   */
+  onGraphsChanged(fn: () => void): void {
+    this.runningChangedHooks.push(fn);
+  }
+
+  private notifyGraphsChanged(): void {
+    for (const fn of this.runningChangedHooks) {
+      try {
+        fn();
+      } catch {
+        /* a hook must never break graph lifecycle */
+      }
+    }
+  }
 
   // ── REST API entry points ─────────────────────────────────────────────────
 
@@ -194,6 +215,7 @@ export class LogicManager {
       console.log(
         `[Logic] Started ${row.name} (${id}) — ${descriptor.nodes.length} nodes, ${descriptor.edges.length} edges`
       );
+      this.notifyGraphsChanged();
     } catch (e) {
       console.error(`[Logic] Failed to start ${row.name} (${id}):`, e);
     }
@@ -209,6 +231,7 @@ export class LogicManager {
     r.graph.dispose();
     this.running.delete(id);
     console.log(`[Logic] Stopped ${id}`);
+    this.notifyGraphsChanged();
   }
 
   /**

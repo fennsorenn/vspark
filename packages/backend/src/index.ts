@@ -242,6 +242,14 @@ async function start() {
   const overliveManager = initOverliveManager(wsSync);
   await overliveManager.startAll();
 
+  // System-wide hotkeys — installs a global keyboard hook (lazily, only while a
+  // `system_hotkey` node exists in some running graph) and fires matching key
+  // presses into those nodes. Best-effort: degrades gracefully where the OS
+  // hook is unavailable. See dev-notes/modules/hotkeys.md.
+  const { hotkeyManager } = await import('./hotkeys/manager.js');
+  logicManager.onGraphsChanged(() => hotkeyManager.sync());
+  hotkeyManager.sync();
+
   // Client-mesh signaling relay: track each client's participant id + tear it
   // down on disconnect so the roster stays accurate.
   clientMeshRelay.initWs(wsSync);

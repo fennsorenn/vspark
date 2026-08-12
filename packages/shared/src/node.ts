@@ -105,6 +105,10 @@ export type Thunk<T> = () => T;
 // ──────────────────────────────────────────────────────────────────────────────
 
 export interface NodeBindContext {
+  /** This node's stable graph id (the descriptor node id). Lets a node key
+   *  external resources it owns per-instance — e.g. a broadcast-bus producer
+   *  slot — without needing a wired behavior id. */
+  readonly selfId: string;
   /** Live config object for this node (defaultConfig merged with stored overrides). */
   readonly config: Record<string, unknown>;
   /** Read this node's persisted state. */
@@ -214,6 +218,10 @@ export abstract class Node {
   }
   protected get config(): Record<string, unknown> {
     return this._ctx!.config;
+  }
+  /** This node's stable graph id (see NodeBindContext.selfId). */
+  protected get selfId(): string {
+    return this._ctx!.selfId;
   }
   protected get enabled(): boolean {
     return this._ctx!.isEnabled();

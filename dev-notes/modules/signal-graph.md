@@ -83,7 +83,7 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → node class. All 92 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → node class. All 95 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
 
@@ -106,6 +106,7 @@ Organized by role:
 | `start_clip` | Canonical generalisation of `track_clip_trigger`. Same surface: `fire` event + `clipId` value, calls `playbackManager.trigger(clipId)`. |
 | `spawn_clip` | Inputs `fire` + `clipId`; output `spawned: Event<SpawnRef>`. Clones the clip's owner + duplicates the clip with lanes remapped, plays it once ephemerally, despawns on completion. See [spawn.md](spawn.md). |
 | `random` | Inputs `fire`, `min`, `max`, `mode: 'float'\|'int'`. Outputs `fire` event + `value` (Float, pull-cached). Recomputes on fire. |
+| `system_hotkey` (label "System Hotkey") | Fires when a system-wide keyboard shortcut is pressed on the machine running the server (even when vspark is unfocused). Combo config `key` (String) + `ctrl`/`shift`/`alt`/`meta` (Bool); outputs `event` (Trigger) + `key` (String). Driven externally by `HotkeyManager` — a global OS keyboard hook that walks running graphs and fires matching nodes (overlive-event pattern). Optional dep `node-global-key-listener`, lazily loaded + graceful-degrade. See [hotkeys.md](hotkeys.md). |
 
 ### Bone/blendshape mappers
 | Kind | Description |
@@ -142,12 +143,14 @@ Organized by role:
 | `hand_height_compare` | Compares left/right hand Y positions; outputs which hand is higher (mirror calibration helper) |
 | `multiply` | Scalar `a × b`. Used by breathing to derive the counter-rotated amplitude (`amp × -1`). |
 | `log` | Debug node: on the `trigger` event path, prints the event payload plus every value wired into its `inputs` **list** port (Any) to the backend console, in connection order. Optional `label` value port / `config.label` prefixes log lines. **Breaking change:** its value-input port was renamed from `input` (single Any) to `inputs` (Any list) — saved graphs wired into the old `input` port need re-wiring. |
+| `cycle` | Routes one incoming `Event<T>` to one of N outgoing `Event<T>` ports, advancing the active output each fire (round-robin). `N = 2` is a toggle. Output COUNT from `config.count` (>= 2); active index in `getState/setState` (survives reconcile). Outputs are DYNAMIC (`out0..outN-1`, no decorated members, emitted via `this.emitOn`) and mirror the resolved `in` payload type (see `inferCycle` in `infer_nodes.ts`). First node to use dynamic event-outs. |
 
 ### Output/broadcast
 | Kind | Description |
 |------|-------------|
 | `pose_broadcast` (label "Send Pose") | NormalizedPose → WebSocket `vmc_pose` broadcast; respects interceptor chain. Its `behaviorId` value-in port supplies the producing behavior's instance id. |
 | `blendshapes_broadcast` (label "Send Blendshapes") | Blendshapes → WebSocket `vmc_blendshapes` broadcast. Same `behaviorId`-port note as `pose_broadcast`. |
+| `set_expression` (label "Set Expression") | Sets a single VRM expression weight (0..1) on an avatar at runtime. Inputs `fire` (Trigger), `nodeId` (SceneNode target), `expression` (String), `weight` (Float, default 1). On fire, publishes a one-entry `Blendshapes` to the broadcast bus (same path as `blendshapes_broadcast` / `api_controller`) — a **sticky** producer slot that holds until re-fired or the graph stops. Producer id derived from the node's own `selfId` so it works in standalone Logic (no behavior) and is cleaned up in `onUnbind`. Pairs with `cycle` for toggle/clear (weight 0). |
 | `ik_broadcast` (label "Send IK Targets") | IkTargetFrame → WebSocket `ik_targets` broadcast (consumed by frontend `ikTargetStore` + Viewport Step 2.5 solver) |
 | `set_scene_node_param` (label "Set Object Property") | Writes a scalar/coerced paramPath into the runtime override bus for a scene node. Optional `spawnRef` event input retargets the fire to a tmp id. See [runtime-overrides.md](runtime-overrides.md). |
 | `set_compose_layer_param` (label "Set Layer Property") | Same shape, compose-layer target. |
