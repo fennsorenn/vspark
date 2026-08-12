@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
+import { commitNodeCreate } from '../../mesh/writes';
 import type { AssetFile } from '../../api/client';
 import type { BottomDockTab, Behavior } from '../../store/editorStore';
 import { newBehaviorId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
@@ -41,7 +42,6 @@ export function AssetManager() {
     addAsset,
     deleteAsset,
     activeSceneId,
-    addNode,
     projectId,
     selectedNodeId,
     nodes,
@@ -190,7 +190,7 @@ export function AssetManager() {
     const ext = asset.name.split('.').pop()?.toLowerCase();
     const nodeKind = ext === 'vrm' ? 'avatar' : 'model';
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: nodeKind,
@@ -210,8 +210,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addSceneFailed'));
     }
@@ -223,7 +221,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'billboard',
@@ -251,8 +249,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addBillboardFailed'));
     }
@@ -277,7 +273,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'video',
@@ -301,8 +297,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addVideoFailed'));
     }
@@ -314,7 +308,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'audio',
@@ -340,8 +334,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addAudioFailed'));
     }

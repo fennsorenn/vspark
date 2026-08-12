@@ -119,6 +119,16 @@ export function meshRedo(): boolean {
   return _handles?.peer.redo() ?? false;
 }
 
+/** Run `fn`, grouping every committed mesh write it makes into ONE undo
+ *  action. Use for edits that are conceptually single but structurally
+ *  several — deleting a node together with its descendants, or detaching
+ *  children before removing their parent. No-op wrapper when the peer isn't
+ *  up yet (those writes fall back to REST and aren't undoable anyway). */
+export function meshBatch<T>(fn: () => T): T {
+  const peer = _handles?.peer;
+  return peer ? peer.batch(fn) : fn();
+}
+
 /** Current undo/redo availability (button enablement). */
 export function getMeshUndoStatus(): UndoStatus {
   return _undoStatus;

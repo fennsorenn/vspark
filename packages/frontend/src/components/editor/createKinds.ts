@@ -1,5 +1,6 @@
 import { useEditorStore, type StageObject } from '../../store/editorStore';
 import { api } from '../../api/client';
+import { commitNodeCreate } from '../../mesh/writes';
 import { createRemoteChild } from '../../sync/remoteEdit';
 import type { AssetFile, ComposeLayerKind } from '../../api/client';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
@@ -285,18 +286,13 @@ export async function createSceneNode(
     if (remoteNode) return remoteNode;
   }
 
-  const node = await api.createNode(sceneId, {
+  return commitNodeCreate(sceneId, {
     parentId,
     name,
     kind: def.kind,
     filePath: null,
     components,
   });
-  // The WS broadcast may also deliver this node; dedupe by id.
-  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-    useEditorStore.getState().addNode(node);
-  }
-  return node;
 }
 
 // ---------------------------------------------------------------------------
@@ -311,17 +307,13 @@ export async function createNodeFromModelAsset(
 ): Promise<StageObject> {
   const ext = asset.name.split('.').pop()?.toLowerCase();
   const kind = ext === 'vrm' ? 'avatar' : 'model';
-  const node = await api.createNode(sceneId, {
+  return commitNodeCreate(sceneId, {
     parentId,
     name: asset.name,
     kind,
     filePath: asset.url,
     components: { ...DEFAULT_COMPONENTS },
   });
-  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-    useEditorStore.getState().addNode(node);
-  }
-  return node;
 }
 
 /** Add an image asset to a scene as a billboard node textured with it. */
@@ -330,7 +322,7 @@ export async function createBillboardFromImageAsset(
   sceneId: string,
   parentId: string | null = null
 ): Promise<StageObject> {
-  const node = await api.createNode(sceneId, {
+  return commitNodeCreate(sceneId, {
     parentId,
     name: asset.name,
     kind: 'billboard',
@@ -347,10 +339,6 @@ export async function createBillboardFromImageAsset(
       },
     },
   });
-  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-    useEditorStore.getState().addNode(node);
-  }
-  return node;
 }
 
 // ---------------------------------------------------------------------------

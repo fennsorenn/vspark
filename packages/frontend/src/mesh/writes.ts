@@ -29,34 +29,25 @@
  *   - the tab peer isn't armed / the authority is offline (`canWrite()`), or
  *   - the replica doesn't hold the doc yet.
  *
- * ## Scope: field writes and reparents only
+ * ## Structural edits
  *
- * Containment is a plain field, so reparenting goes through here. Node CREATE
- * and DELETE deliberately stay on REST — each has a blocker that has to be
- * cleared on the backend first, not worked around here:
+ * Creates, deletes and reparents are committed here too, so the whole CRUD
+ * surface is undoable by the tab that authored it. Two things make that safe:
  *
- *   - **Delete.** The route's `col.remove(id)` tombstones only that id; the
- *     subtree dies via the SQL FK cascade in the persistence tap, which emits
- *     no tombstones for the children. Undo restores the removed doc, so a
- *     mesh-authored subtree delete would undo into a root whose children are
- *     gone from SQLite for good — an undo that looks like it worked and
- *     silently drops data. The route also calls
- *     `runtimeOverrideManager.clearAllForTarget`, which the tap does not, so a
- *     client-authored remove would leak runtime overrides.
- *   - **Create.** `POST /scenes/:id/nodes` is server-authoritative: it derives
- *     `projectId` from the scene row and, for `scene_instance`, validates the
- *     source scene and walks the instance graph for cycles. A client-side
- *     upsert would bypass that.
- *   - **Multi-op edits.** The peer has no batch/transaction API — one write is
- *     one undo entry. "Delete but keep children" is N reparents plus a remove,
- *     so it would need N+1 undos to reverse. Anything that isn't a single
- *     write needs batching before it belongs here.
+ *   - The backend validates client-authored whole-doc writes in its mesh
+ *     `validate` hook (backend mesh/sceneNodeGuards.ts) and returns a nack,
+ *     which rolls the client's optimistic write back. So a create the REST
+ *     route would have refused is refused here on the same grounds.
+ *   - A delete removes the node's descendants EXPLICITLY, each before its
+ *     parent, inside one {@link meshBatch}. Relying on the server's FK cascade
+ *     would tombstone only the root, and undo would then restore a node whose
+ *     children are gone from the database for good.
  *
- * The consequence today is that renames, field edits and drags are undoable
- * while creates and deletes are not.
+ * Anything that spans several writes belongs in a `meshBatch` so the user
+ * undoes the action rather than its individual writes.
  */
 import { flattenToLeaves, getPath, setPath } from '@vspark/mesh';
-import { getMeshHandles } from './peer';
+import { getMeshHandles, meshBatch } from './peer';
 import { useEditorStore, type StageObject } from '../store/editorStore';
 import { api } from '../api/client';
 
@@ -162,4 +153,148 @@ export function commitNodePatch(
   ) as Partial<StageObject>;
   s.updateNode(nodeId, whole);
   void api.updateNode(nodeId, whole).catch(() => {});
+}
+
+/** Nodes under `rootId` (excluding it), ordered so every node comes before its
+ *  own parent — the order a subtree has to be removed in, so each doc gets its
+ *  own tombstone and undo entry and no parent is removed out from under a
+ *  child still to come. (Undo then replays it in reverse, restoring parents
+ *  first.) Depth-first preorder puts a parent ahead of its descendants, so
+ *  reversing it gives exactly that. */
+function descendantsBottomUp(rootId: string): StageObject[] {
+  const nodes = useEditorStore.getState().nodes;
+  const out: StageObject[] = [];
+  const walk = (id: string) => {
+    for (const n of nodes.filter((c) => c.parentId === id)) {
+      out.push(n);
+      walk(n.id);
+    }
+  };
+  walk(rootId);
+  return out.reverse();
+}
+
+/** Create a node.
+ *
+ *  The id is minted here so the create is authored by this tab and lands on
+ *  its undo stack; the backend re-derives `projectId` and validates the doc,
+ *  nacking anything it would have refused over REST.
+ *
+ *  Throws on refusal, like the REST create it replaces, so existing callers
+ *  keep their error handling. */
+export async function commitNodeCreate(
+  sceneId: string,
+  spec: {
+    name: string;
+    kind: string;
+    parentId?: string | null;
+    boneAttachment?: string | null;
+    filePath?: string | null;
+    components?: Record<string, unknown>;
+    properties?: StageObject['properties'];
+  }
+): Promise<StageObject> {
+  const s = useEditorStore.getState();
+  const col = getMeshHandles()?.collections.scene_node;
+  const node: StageObject = {
+    id: crypto.randomUUID(),
+    rootSceneNodeId: sceneId,
+    projectId: s.projectId ?? '',
+    parentId: spec.parentId ?? null,
+    boneAttachment: spec.boneAttachment ?? null,
+    name: spec.name,
+    kind: spec.kind,
+    filePath: spec.filePath ?? null,
+    components: spec.components ?? {},
+    properties: spec.properties ?? {},
+    hidden: false,
+  };
+
+  if (col?.canWrite()) {
+    const outcome = await col.set(node.id, '', node).ack;
+    if (outcome.status === 'rejected')
+      throw new Error(outcome.reason ?? 'node create refused');
+    // The feeder mirrors the replica into the store; nothing to apply here.
+    return node;
+  }
+
+  // Same fields, normalized — REST requires `components` and mints its own id.
+  const created = (await api.createNode(sceneId, {
+    name: node.name,
+    kind: node.kind,
+    parentId: node.parentId,
+    boneAttachment: node.boneAttachment,
+    filePath: node.filePath,
+    components: node.components,
+    properties: node.properties,
+    hidden: false,
+  })) as StageObject;
+  if (s.nodes.every((n) => n.id !== created.id)) s.addNode(created);
+  return created;
+}
+
+/** Delete a node and everything under it, as ONE undo action.
+ *
+ *  Descendants are removed explicitly (deepest first) rather than left to the
+ *  server's FK cascade, so each one carries a tombstone and can be restored.
+ *  Undo re-creates the whole subtree; without this it would restore the root
+ *  alone and the children would be unrecoverable. */
+export async function commitNodeDelete(nodeId: string): Promise<boolean> {
+  const s = useEditorStore.getState();
+  const node = s.nodes.find((n) => n.id === nodeId);
+  if (!node) return false;
+  const col = getMeshHandles()?.collections.scene_node;
+  const subtree = descendantsBottomUp(nodeId);
+
+  if (!node.remote && col?.canWrite() && col.get(nodeId)) {
+    const acks = meshBatch(() => [
+      ...subtree.map((n) => col.remove(n.id).ack),
+      col.remove(nodeId).ack,
+    ]);
+    const outcomes = await Promise.all(acks);
+    return outcomes.every((o) => o.status !== 'rejected');
+  }
+
+  const ok = await api
+    .deleteNode(nodeId)
+    .then(() => true)
+    .catch(() => false);
+  if (ok) {
+    for (const n of subtree) s.deleteNode(n.id);
+    s.deleteNode(nodeId);
+  }
+  return ok;
+}
+
+/** Reparent a node's direct children onto `newParentId`, then delete it — one
+ *  undo action, so "delete but keep children" reverses in a single step. */
+export async function commitNodeDeleteKeepChildren(
+  nodeId: string,
+  newParentId: string | null
+): Promise<boolean> {
+  const s = useEditorStore.getState();
+  const children = s.nodes.filter((n) => n.parentId === nodeId);
+  const col = getMeshHandles()?.collections.scene_node;
+  const node = s.nodes.find((n) => n.id === nodeId);
+  if (!node) return false;
+
+  if (!node.remote && col?.canWrite() && col.get(nodeId)) {
+    const acks = meshBatch(() => [
+      ...children.map((c) => col.set(c.id, 'parentId', newParentId).ack),
+      col.remove(nodeId).ack,
+    ]);
+    const outcomes = await Promise.all(acks);
+    return outcomes.every((o) => o.status !== 'rejected');
+  }
+
+  for (const c of children) {
+    s.updateNode(c.id, { parentId: newParentId });
+    await api.updateNode(c.id, { parentId: newParentId }).catch(() => {});
+  }
+  const ok = await api
+    .deleteNode(nodeId)
+    .then(() => true)
+    .catch(() => false);
+  if (ok) s.deleteNode(nodeId);
+  return ok;
 }

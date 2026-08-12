@@ -6,7 +6,11 @@ import { api } from '../../api/client';
 import type { StageObject, Behavior } from '../../store/editorStore';
 import { newBehaviorId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
-import { commitNodePatch } from '../../mesh/writes';
+import {
+  commitNodeDelete,
+  commitNodeDeleteKeepChildren,
+  commitNodePatch,
+} from '../../mesh/writes';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
@@ -2248,7 +2252,6 @@ export function SceneGraph() {
     selectedNodeId,
     selectNode,
     deleteNode: storeDeleteNode,
-    updateNode: storeUpdateNode,
     behaviors,
     vrmBonesByNode,
     assets,
@@ -2427,8 +2430,7 @@ export function SceneGraph() {
           }))
         )
           return;
-        await api.deleteNode(nodeId);
-        storeDeleteNode(nodeId);
+        await commitNodeDelete(nodeId);
         return;
       }
 
@@ -2446,27 +2448,13 @@ export function SceneGraph() {
       if (!choice) return;
 
       if (choice === 'with') {
-        // Backend cascades on parent_id; mirror it in the store so the subtree
-        // doesn't linger in the UI until reload.
-        const subtree: string[] = [];
-        const stack = [nodeId];
-        while (stack.length) {
-          const id = stack.pop()!;
-          subtree.push(id);
-          for (const c of sceneNodes.filter((n) => n.parentId === id))
-            stack.push(c.id);
-        }
-        await api.deleteNode(nodeId);
-        for (const id of subtree) storeDeleteNode(id);
+        // Removes the subtree explicitly (deepest first) as ONE undo action —
+        // see mesh/writes.ts on why the FK cascade alone isn't enough.
+        await commitNodeDelete(nodeId);
       } else {
-        // Keep children: reparent them onto this node's parent, then delete.
-        for (const c of directChildren) {
-          const patch = { parentId: node.parentId ?? null };
-          storeUpdateNode(c.id, patch);
-          await api.updateNode(c.id, patch).catch(() => {});
-        }
-        await api.deleteNode(nodeId);
-        storeDeleteNode(nodeId);
+        // Keep children: detach them onto this node's parent, then delete —
+        // also one action, so the reparents don't unwind separately.
+        await commitNodeDeleteKeepChildren(nodeId, node.parentId ?? null);
       }
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('nodes.failDelete'));
