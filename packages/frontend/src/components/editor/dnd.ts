@@ -1,6 +1,7 @@
 import i18n from 'i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
+import { commitNodePath } from '../../mesh/writes';
 import { isWritableRemoteNode } from '../../sync/remoteEdit';
 import {
   createSceneNode,
@@ -154,8 +155,7 @@ export async function handleSceneNodeDrop(
         animation: { idleUrl: asset.url },
       };
       try {
-        await api.updateNode(target.id, { components });
-        store.updateNode(target.id, { components });
+        commitNodePath(target.id, 'components', components);
         store.selectNode(target.id);
         store.setSceneSelected(false);
       } catch (err) {

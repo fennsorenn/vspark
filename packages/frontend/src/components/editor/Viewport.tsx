@@ -73,6 +73,7 @@ import type {
   AnimationClipMeta,
 } from '../../store/editorStore';
 import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync';
+import { commitNodePatch, commitNodePath } from '../../mesh/writes';
 import { useSceneFadeIn } from '../../hooks/useSceneFadeIn';
 
 import type { AnimEntry } from '../../animRegistry';
@@ -127,7 +128,6 @@ import {
   readChroma,
   type VideoBlend3D,
 } from './videoFx';
-import { api } from '../../api/client';
 import { BoneFilterBank } from '../../oneEuroFilter';
 import {
   BoneDynamicsBank,
@@ -2329,9 +2329,12 @@ function AvatarNode({
       ...prevProps,
       animation: { ...prevAnim, idle: { clipId: clip.id, speed } },
     };
-    const components = { ...node.components, animation: undefined };
-    useEditorStore.getState().updateNode(node.id, { properties, components });
-    api.updateNode(node.id, { properties, components }).catch(() => {});
+    // Both fields in one op: migrating the legacy components.animation slot
+    // onto properties.animation.idle is one edit, so one undo step.
+    commitNodePatch(node.id, {
+      properties,
+      components: { animation: undefined },
+    } as Partial<StageObject>);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legacyIdleUrl, animIdle?.clipId, animationClips, node.id, node.remote]);
 
@@ -5777,7 +5780,7 @@ function TransformGizmo({
   mode: GizmoMode;
   orbitRef: React.RefObject<any>;
 }) {
-  const { selectedNodeId, updateNode: storeUpdateNode } = useEditorStore();
+  const { selectedNodeId } = useEditorStore();
   const group = selectedNodeId ? getNodeGroup(selectedNodeId) : null;
   // Throttle outgoing live previews to ~30 Hz; the gizmo fires onObjectChange
   // on every animation frame while dragging, which would otherwise spam the WS.
@@ -5815,13 +5818,11 @@ function TransformGizmo({
       .getState()
       .nodes.find((n) => n.id === selectedNodeId);
     if (!node) return;
-    const transform = buildTransform();
-    const components = {
-      ...node.components,
-      transform: { type: 'transform', ...transform },
-    };
-    storeUpdateNode(node.id, { components });
-    api.updateNode(node.id, { components }).catch(() => {});
+    // Gizmo drag settles: one committed write, so one undo step for the drag.
+    commitNodePath(node.id, 'components.transform', {
+      type: 'transform',
+      ...buildTransform(),
+    });
   };
 
   return (

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useEditorStore } from '../../store/editorStore';
-import { api } from '../../api/client';
+import { commitNodePatch, commitNodePath } from '../../mesh/writes';
 import {
   getNodeGroup,
   getVrmForScene,
@@ -393,8 +393,7 @@ export function ComposeSceneInteractions({
             },
           },
         };
-        store.updateNode(d.nodeId, patch);
-        api.updateNode(d.nodeId, patch).catch(() => {});
+        commitNodePatch(d.nodeId, patch);
         return;
       }
       // Missed a model: detach back to top level if it wasn't already there.
@@ -407,8 +406,7 @@ export function ComposeSceneInteractions({
             transform: { type: 'transform', ...worldTransform(d.group) },
           },
         };
-        store.updateNode(d.nodeId, patch);
-        api.updateNode(d.nodeId, patch).catch(() => {});
+        commitNodePatch(d.nodeId, patch);
         return;
       }
     }
@@ -434,8 +432,7 @@ export function ComposeSceneInteractions({
         sz: (existing?.sz as number | undefined) ?? s.z,
       },
     };
-    store.updateNode(d.nodeId, { components });
-    api.updateNode(d.nodeId, { components }).catch(() => {});
+    commitNodePath(d.nodeId, 'components', components);
   };
 
   // Wheel: instead of moving the object directly, each tick imparts an impulse
@@ -622,8 +619,7 @@ export function ComposeSceneInteractions({
           sz: (existing?.sz as number | undefined) ?? group.scale.z,
         },
       };
-      s.updateNode(w.nodeId, { components });
-      api.updateNode(w.nodeId, { components }).catch(() => {});
+      commitNodePath(w.nodeId, 'components', components);
     }
   });
 
@@ -678,8 +674,7 @@ export function ComposeSceneInteractions({
           ...transformPayload(group, node, true),
         },
       };
-      s.updateNode(st.nodeId, { components });
-      api.updateNode(st.nodeId, { components }).catch(() => {});
+      commitNodePath(st.nodeId, 'components', components);
     }
   });
 
@@ -718,8 +713,7 @@ export function ComposeSceneInteractions({
         ...node.components,
         transform: { type: 'transform', ...transformPayload(group, node) },
       };
-      s.updateNode(st.nodeId, { components });
-      api.updateNode(st.nodeId, { components }).catch(() => {});
+      commitNodePath(st.nodeId, 'components', components);
     }
   });
 

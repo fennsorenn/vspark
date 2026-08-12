@@ -2,7 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import { commitNodeCreate } from '../../mesh/writes';
+import {
+  commitNodeCreate,
+  commitNodePatch,
+  commitNodePath,
+} from '../../mesh/writes';
 import { commitLayerCreate, commitLayerPath } from '../../mesh/layerWrites';
 import type { AssetFile } from '../../api/client';
 import type { BottomDockTab, Behavior } from '../../store/editorStore';
@@ -46,7 +50,6 @@ export function AssetManager() {
     projectId,
     selectedNodeId,
     nodes,
-    updateNode: storeUpdateNode,
     addBehavior,
     behaviors,
     behaviorKinds,
@@ -386,11 +389,7 @@ export function AssetManager() {
       [key]: { ...existing, assetId: asset.id, sourceUrl: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, {
-        components,
-        filePath: asset.url,
-      });
-      storeUpdateNode(selectedNode.id, { components, filePath: asset.url });
+      commitNodePatch(selectedNode.id, { components, filePath: asset.url });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));
     }
@@ -421,8 +420,7 @@ export function AssetManager() {
       [key]: { ...existing, textureUrl: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, { components });
-      storeUpdateNode(selectedNode.id, { components });
+      commitNodePath(selectedNode.id, 'components', components);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyTextureFailed'));
     }
@@ -439,8 +437,7 @@ export function AssetManager() {
       camera: { ...existing, backgroundImage: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, { components });
-      storeUpdateNode(selectedNode.id, { components });
+      commitNodePath(selectedNode.id, 'components', components);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyCameraBgFailed'));
     }
@@ -449,8 +446,7 @@ export function AssetManager() {
   const handleApplyModel = async (asset: AssetFile) => {
     if (!selectedNode) return;
     try {
-      await api.updateNode(selectedNode.id, { filePath: asset.url });
-      storeUpdateNode(selectedNode.id, { filePath: asset.url });
+      commitNodePath(selectedNode.id, 'filePath', asset.url);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyModelFailed'));
     }
@@ -478,8 +474,7 @@ export function AssetManager() {
     };
     const properties = { ...prevProps, animation: { ...prevAnim, idle: undefined } };
     try {
-      await api.updateNode(selectedNode.id, { components, properties });
-      storeUpdateNode(selectedNode.id, { components, properties });
+      commitNodePatch(selectedNode.id, { components, properties });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
     }
@@ -501,8 +496,7 @@ export function AssetManager() {
       animation: { ...prevAnim, base: { url: asset.url, speed: prevSpeed } },
     };
     try {
-      await api.updateNode(selectedNode.id, { properties });
-      storeUpdateNode(selectedNode.id, { properties });
+      commitNodePath(selectedNode.id, 'properties', properties);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
     }
