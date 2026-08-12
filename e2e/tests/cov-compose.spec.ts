@@ -246,17 +246,10 @@ test('cov-compose: exercise ComposeTree and layer-property controls', async ({
   // Reset.
   await xUnit.selectOption('px');
 
-  // vs-layer-scene-order — scene order NumInput.
-  const sceneOrderInput = page.locator('.vs-layer-scene-order');
-  await expect(sceneOrderInput).toBeVisible();
-  const sceneOrderNumberInput = sceneOrderInput.locator('input');
-  await sceneOrderNumberInput.fill('2');
-  await sceneOrderNumberInput.blur();
-
-  // vs-layer-camera-order — camera order NumInput.
-  const cameraOrderInput = page.locator('.vs-layer-camera-order');
-  await expect(cameraOrderInput).toBeVisible();
-  const cameraOrderNumberInput = cameraOrderInput.locator('input');
-  await cameraOrderNumberInput.fill('1');
-  await cameraOrderNumberInput.blur();
+  // Stack order is a fractional key now, so it's driven by these four buttons
+  // rather than typing an integer. With a single layer in the group there is
+  // nowhere to move, so they are all disabled — assert that, then exercise the
+  // enabled path below once a second layer exists.
+  await expect(page.locator('.vs-layer-order-back')).toBeDisabled();
+  await expect(page.locator('.vs-layer-order-front')).toBeDisabled();
 });
