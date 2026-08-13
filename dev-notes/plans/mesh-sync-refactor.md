@@ -1,6 +1,20 @@
 # Mesh / Multiplayer — State & Structural Issues (handoff)
 
-> Branch: `feature/multiplayer-phase6` (not yet merged to `dev`). This is a
+> **Status:** shipped — **this is the plan that was actually executed.** The code
+> cites its section numbers directly: §8 (`packages/mesh/src/{index,peer,channels}.ts`,
+> `packages/frontend/src/mesh/peer.ts`, `packages/backend/src/mesh/index.ts`), §9
+> (`backend/src/mesh/{collab,shares,streams}.ts`, `frontend/src/sync/meshProjection.ts`,
+> migration `032_mesh_tombstones`), §10 (write-through in `backend/src/routes/*`), §11
+> (`frontend/src/sync/meshStoreFeeder.ts`, `frontend/src/mesh/writes.ts`). §12 is an
+> analysis that *declines* a migration (Phase-6 `_share_write` stays legacy), not a
+> to-do. Read this before any other mesh plan.
+> **Supersedes:** [`unified-sync-layer.md`](./unified-sync-layer.md) (+ its diagrams) and
+> the execution half of [`permissioned-sync-mesh.md`](./permissioned-sync-mesh.md).
+> **Followed by:** [`mesh-native-undo.md`](./mesh-native-undo.md) →
+> [`mesh-drop-legacy-sync-and-undo.md`](./mesh-drop-legacy-sync-and-undo.md) →
+> [`mesh-frontend-writes.md`](./mesh-frontend-writes.md).
+
+> *(Historical handoff note.)* Branch: `feature/multiplayer-phase6`. This is a
 > handoff for a fresh session that will **refactor the mesh onto a clean
 > abstraction**. It summarizes what exists, why the architecture is wrong, and the
 > target design. Read this first, then `dev-notes/plans/collaborative-scene-share.md`

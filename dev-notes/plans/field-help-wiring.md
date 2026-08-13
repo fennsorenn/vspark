@@ -1,5 +1,12 @@
 # Field-level help wiring spec (PropertiesPanel)
 
+> **Status:** shipped — the mechanism is in place (`SliderInput`'s `help={{topic, anchor,
+> tip}}` prop in `frontend/src/components/editor/numericInputs.tsx`, `HelpButton` for
+> non-slider controls). The field → `topic#anchor` map below is a work list from that
+> pass, not a description of current coverage; **verify an anchor still exists before
+> relying on a row of it.**
+> **Convention reference:** [`../modules/i18n-help.md`](../modules/i18n-help.md).
+
 Goal: replace the generic per-section "Learn about X" help buttons with
 **field-level** help on genuinely non-obvious controls. Each affordance shows a
 real one-line explanation on hover and deep-links to that parameter in the docs.

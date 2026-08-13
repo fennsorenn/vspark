@@ -1,12 +1,20 @@
 /**
  * Mesh → editorStore feeder (§11 frontend bindings, reads-first).
  *
- * Feeds the editorStore's synced slices from the tab's mesh replica — all
- * five document rtypes; the legacy 'sync'-envelope bindings are retired.
- * The mesh replica already does HLC LWW internally, so observe() only
- * ever fires for applied changes — no client-side stale-drop needed.
- * Smoothing-sensitive patches (node_transform_preview, compose_layer_
- * preview, node_updated) still ride their dedicated /ws messages.
+ * Feeds the editorStore's synced slices from the tab's mesh replica — every
+ * document rtype the tab subscribes to (RTYPES in mesh/peer.ts; seven at time
+ * of writing); the legacy 'sync'-envelope bindings are retired. The mesh
+ * replica already does HLC LWW internally, so observe() only ever fires for
+ * applied changes — no client-side stale-drop needed.
+ *
+ * In-flight gesture values arrive on the mesh 'preview' channel as per-key
+ * ephemeral overlays composed over the retained doc, so the CHANNEL is the
+ * discriminator — an ephemeral op is a gesture by construction and a retained
+ * op is model state (see the compose_layer observer below). The bespoke
+ * `compose_layer_preview` / `compose_layer_updated` WS kinds that used to carry
+ * that beside the mesh have no producer or consumer left. One gesture lane is
+ * still on /ws — `node_transform_preview` (useWsSync.ts) — because the
+ * scene_node observer here drops ephemeral ops rather than tweening them.
  *
  * Foreign docs: the tab replica also holds behaviors/effects of PLACED
  * remote objects (their subtree subscription is cross-type). Projections

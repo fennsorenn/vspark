@@ -181,8 +181,12 @@ router.put('/scene-nodes/:id', async (req, res) => {
       .status(500)
       .json({ ok: false, error: { message: outcome.reason } });
 
-  // Broadcast the patch to all other connected clients (viewer pages, etc.) —
-  // local + smoothing-aware; the canonical doc re-sync rides the store tap.
+  // Double-apply, not a smoothing lane: the `col.set` above already fanned the
+  // full canonical doc to every subscribed tab, and meshStoreFeeder applies it
+  // with the same `updateNode` call this patch ends up in. Nothing smooths this
+  // kind — useWsSync's `node_updated` branch is a plain updateNode, and
+  // previewSmoother is reachable only from `node_transform_preview` and the
+  // compose_layer feeder. Retiring the kind is outstanding migration debt.
   const patch: Record<string, unknown> = { id: req.params.id };
   if (name != null) patch.name = name;
   if ('parentId' in req.body) patch.parentId = req.body.parentId ?? null;

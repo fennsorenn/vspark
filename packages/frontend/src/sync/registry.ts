@@ -2,11 +2,15 @@
  * Client-side resource registry + the single remote-apply dispatcher for the
  * unified sync layer.
  *
- * Each resource type binds once (rtype → how to apply it to the store). The
- * `useWsSync` hook routes every `sync` envelope through `applyRemote`, replacing
- * the per-message if/else chain as resources are migrated.
+ * INERT. `bindResource` has no callers anywhere in the repo, so BINDINGS is
+ * always empty and `applyRemote` returns immediately — every `sync` envelope
+ * useWsSync routes here is dropped. Documents reach the store from
+ * the tab's mesh replica instead (sync/meshStoreFeeder.ts); the server still
+ * emits envelopes for other consumers, which is the only reason the dispatcher
+ * is still called. Kept as a landing pad in case a binding ever returns.
  *
- * Design: dev-notes/plans/unified-sync-layer.md
+ * Historical design (the envelope layer this was written for, superseded by
+ * the mesh): dev-notes/plans/unified-sync-layer.md.
  */
 import {
   compareHLC,

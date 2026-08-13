@@ -1,6 +1,18 @@
 # Plan: Retire the legacy sync envelope + mesh-native undo/redo
 
-> Branch: work off `feature/mesh-cleanup` (create from `dev`) · Status: ready-for-handoff
+> **Status:** in progress — **workstream B (mesh-native undo) shipped**; workstream A
+> (retire the `SyncEnvelope`) is partly done and partly blocked. A2 (`routes/scenes.ts`
+> onto the store) and A3 (collab mount appliers) landed; A4/A5 are blocked because the
+> mesh→`sync.document` emission is *not* dead code on the backend — it still feeds
+> `backend/src/sync/containmentIndex.ts` and `multiplayer/manager.ts`. See the
+> "Implementation status" section at the foot of this file for the verified detail;
+> `routes/presets.ts` still emits `sync.document.upsert` directly.
+> **Follows:** [`mesh-sync-refactor.md`](./mesh-sync-refactor.md) ·
+> **Its workstream B design is** [`mesh-native-undo.md`](./mesh-native-undo.md) ·
+> **Its "B is inert" blocker is planned out in**
+> [`mesh-frontend-writes.md`](./mesh-frontend-writes.md).
+
+> *(Historical handoff note.)* Branch: work off `feature/mesh-cleanup` (create from `dev`)
 > This plan is the seed context for a cloud/interactive session. It is a starting
 > point, not an airtight spec — refine it interactively and ask before guessing on
 > anything underspecified.

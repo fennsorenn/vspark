@@ -405,10 +405,16 @@ router.put('/scenes/:sceneId', (req, res) => {
       .get(sceneId) as { properties: string };
     patch.runtimeSettings = JSON.parse(updated.properties || '{}');
   }
+  // Load-bearing, and NOT a smoothing lane (useWsSync's `scene_updated` branch
+  // is a plain updateSceneItem). A Scene is a scene_nodes row, so the mesh
+  // mirror below does reach every tab — but meshStoreFeeder's scene_node
+  // observer writes only the `nodes` slice, and nothing feeds the `scenes`
+  // slice at runtime (setScenes/updateSceneItem are otherwise only called from
+  // REST loads and this handler). Dropping this broadcast would leave
+  // scenes[].runtimeSettings stale on other tabs until a reload.
   _ws?.broadcast('scene_updated', patch);
-  // Mirror the canonical doc through the mesh store (clients already got the
-  // smoothing-aware scene_updated patch above; this keeps the replica + fan-out
-  // in sync).
+  // Mirror the canonical doc through the mesh store (keeps the replica +
+  // fan-out in sync).
   mirrorRow('scene_node', sceneId);
 
   res.json({ ok: true, data: patch });

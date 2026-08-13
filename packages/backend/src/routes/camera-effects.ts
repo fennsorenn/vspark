@@ -114,7 +114,10 @@ router.put('/camera-effects/:id', async (req, res) => {
     return res
       .status(500)
       .json({ ok: false, error: { message: outcome.reason } });
-  // Local smoothing broadcast (the canonical doc re-sync rides the store tap).
+  // Double-apply, not a smoothing lane: the `col.set` above already delivered
+  // the same { enabled, config } to every subscribed tab via meshStoreFeeder's
+  // camera_effect observer, and useWsSync's `camera_effect_updated` branch is a
+  // plain updateCameraEffect. Retiring the kind is outstanding migration debt.
   _ws?.broadcast('camera_effect_updated', {
     id: req.params.id,
     enabled,

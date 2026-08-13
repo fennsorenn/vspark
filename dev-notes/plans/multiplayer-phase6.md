@@ -1,10 +1,18 @@
 # Plan: Multiplayer Phase 6 — owner-authoritative multi-writer
 
-> Branch: `feature/multiplayer-phase6`, **off `claude/preset-object-sync-wn2HT`**
-> (not `dev` — `dev` doesn't have the multiplayer tier yet). · Status:
-> **implemented + user-verified (update/delete, both transports — direct edge +
-> server relay); create-routing on the frontend still pending** (the backend
-> create path is implemented + tested, only the `createNode` seam is unwired).
+> **Status:** shipped, in full for the v1 scope. The old header below said frontend
+> create-routing was still pending; it is wired — `createRemoteChild`
+> (`frontend/src/sync/remoteEdit.ts:102`) is called from
+> `frontend/src/components/editor/createKinds.ts:285`. The `_share_write` /
+> `_share_write_nak` request-response path this plan built is **deliberately retained**
+> and that decision is analysed, not assumed: `mesh-sync-refactor.md` §12 shows a placed
+> write is two hops (tab → own backend → owner backend) while the mesh's guarded-write
+> ack protocol is single-hop, so migrating it means multi-hop ack routing in the mesh
+> core. If you revisit it, read §12 first.
+> **Follows:** [`multiplayer-phase5.md`](./multiplayer-phase5.md) ·
+> **Companion:** [`collaborative-scene-share.md`](./collaborative-scene-share.md).
+
+> *(Historical.)* Branch: `feature/multiplayer-phase6`, **off `claude/preset-object-sync-wn2HT`**.
 > The sections below are kept as the historical design record.
 > Builds on [permissioned-sync-mesh.md](permissioned-sync-mesh.md) and the
 > shipped read/live-preview tier (object-share + `MeshRouter`). This adds the

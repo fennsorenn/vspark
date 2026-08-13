@@ -1,8 +1,23 @@
 # Plan: Migrate frontend writes onto the tab mesh peer (make undo real)
 
+> **Status:** in progress — **this is the LIVE plan.** Step 0 was decided as shape
+> **(b)**: free functions in `packages/frontend/src/mesh/writes.ts` (generic over rtype,
+> with `mesh/layerWrites.ts` for compose layers) and `canMeshWrite()` as the gate; REST
+> survives only as the in-helper fallback for foreign/unwritable docs. Landed: `scene_node`
+> update + create + delete + reparent (undo is no longer inert), compose-layer CRUD,
+> compose-layer drag previews on the mesh `preview` channel, fractional sibling ordering
+> (`packages/shared/src/fracIndex.ts`, migration `036_compose_layer_order_key`), and
+> `peer.batch()` grouping. Verified by `e2e/tests/editor-mesh-undo.spec.ts` (9 tests —
+> the plan calls it `cov-undo.spec.ts`). **Not yet migrated:** `behavior`,
+> `camera_effect`, `track_clip` and `logic` writes (still `api.update*`), and node
+> transform previews (still `node_transform_preview` on `/ws`).
+> **Follows:** [`mesh-drop-legacy-sync-and-undo.md`](./mesh-drop-legacy-sync-and-undo.md)
+> (this plan is that document's "B frontend/assistant are inert" blocker) and
+> [`mesh-sync-refactor.md`](./mesh-sync-refactor.md) §11.
+
+> *(Historical handoff note — the base branch below is stale.)*
 > Branch: `feature/mesh-frontend-writes` — **create from
 > `claude/mesh-cleanup-legacy-sync-undo-qgev05` (PR #63), not from `dev`.**
-> Status: ready-for-handoff
 > This plan is the seed context for a cloud worker. It is a starting point, not an
 > airtight spec — the worker is interactive and may ask to refine it.
 >

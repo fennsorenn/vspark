@@ -1,6 +1,22 @@
 # Plan: Permissioned hierarchical sync over a full mesh
 
-> Branch: `claude/preset-object-sync-wn2HT` · Status: design (converged)
+> **Status:** design-only — a design-alignment document, **not** an execution plan.
+> It has no implementation slices; the plan that was executed is
+> [`mesh-sync-refactor.md`](./mesh-sync-refactor.md). Individual primitives named here
+> were later adopted piecemeal: the typed containment index
+> (`packages/shared/src/containment.ts`, `backend/src/sync/containmentIndex.ts`), the
+> grant store (`backend/src/sync/grants.ts`), namespace routing
+> (`backend/src/sync/meshRouter.ts`), and the backend↔browser WebRTC edge
+> (`backend/src/multiplayer/browserMesh.ts`). The string fractional index
+> (`packages/shared/src/fracIndex.ts`) was written and unit-tested here but stayed
+> **unreachable** — missing from `@vspark/shared`'s exports map, the frontend tsconfig
+> paths, and the vite/vitest aliases — until compose-layer ordering adopted it in
+> 2026-08 (migration `036_compose_layer_order_key`). Do not read anything here as
+> a description of running code.
+> **Superseded by:** [`mesh-sync-refactor.md`](./mesh-sync-refactor.md) for execution.
+> **Supersedes:** the "full flat mesh" wording in [`live-mesh.md`](./live-mesh.md).
+
+> *(Historical.)* Branch: `claude/preset-object-sync-wn2HT`
 > Refines/extends [unified-sync-layer.md](unified-sync-layer.md) and
 > [live-mesh.md](live-mesh.md). This is the target architecture for the
 > synced-state layer; it supersedes the "full flat mesh" wording in live-mesh.md
