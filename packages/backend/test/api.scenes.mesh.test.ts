@@ -96,4 +96,63 @@ describe('scenes API → mesh store write-through', () => {
     const list = await request(app).get(`/api/projects/${projectId}/scenes`);
     expect(list.body.data.scenes).toEqual([]);
   });
+
+  it('scene DELETE tombstones the dependent docs, not just the nodes', async () => {
+    // Regression: the dependent tables were cleared with raw SQL, which removes
+    // the ROW but leaves the DOCUMENT alive in the replica with no tombstone.
+    // A tab subscribing after the delete then received a snapshot describing
+    // behaviors / effects / layers / clips whose rows no longer existed.
+    const projectId = await newProject();
+    const create = await request(app)
+      .post(`/api/projects/${projectId}/scenes`)
+      .send({ name: 'S', populate: true });
+    const sceneId = create.body.data.id as string;
+
+    const nodes = getMeshCollection('scene_node')!;
+    const cameraId = nodes
+      .all()
+      .filter(
+        (n) => (n as { rootSceneNodeId?: string }).rootSceneNodeId === sceneId
+      )
+      .find((n) => (n as { kind?: string }).kind === 'camera')!.id as string;
+
+    const behaviorId = (
+      await request(app)
+        .post(`/api/scene-nodes/${cameraId}/behaviors`)
+        .send({ kind: 'breathing' })
+    ).body.data.id as string;
+    const effectId = (
+      await request(app)
+        .post(`/api/scene-nodes/${cameraId}/effects`)
+        .send({ kind: 'bloom' })
+    ).body.data.id as string;
+    const clipId = (
+      await request(app)
+        .post(`/api/scene-nodes/${cameraId}/track-clips`)
+        .send({ name: 'C' })
+    ).body.data.id as string;
+
+    // populate:true creates a camera_view layer pointed at this scene's camera.
+    const layers = getMeshCollection('compose_layer')!;
+    const layerId = layers
+      .all()
+      .find((l) => (l as { cameraNodeId?: string }).cameraNodeId === cameraId)!
+      .id as string;
+
+    // All four are live in their replicas before the delete.
+    expect(getMeshCollection('behavior')!.get(behaviorId)).toBeDefined();
+    expect(getMeshCollection('camera_effect')!.get(effectId)).toBeDefined();
+    expect(getMeshCollection('track_clip')!.get(clipId)).toBeDefined();
+    expect(layers.get(layerId)).toBeDefined();
+
+    expect((await request(app).delete(`/api/scenes/${sceneId}`)).status).toBe(
+      200
+    );
+
+    // ...and gone from the replica afterwards, not just from SQLite.
+    expect(getMeshCollection('behavior')!.get(behaviorId)).toBeUndefined();
+    expect(getMeshCollection('camera_effect')!.get(effectId)).toBeUndefined();
+    expect(getMeshCollection('track_clip')!.get(clipId)).toBeUndefined();
+    expect(layers.get(layerId)).toBeUndefined();
+  });
 });

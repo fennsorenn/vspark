@@ -476,15 +476,40 @@ router.delete('/scenes/:sceneId', (req, res) => {
     // cascade-delete a sibling out from under a later remove.
     const nodeCol = getMeshCollection('scene_node');
     for (const nid of nodeIds) nodeCol?.remove(nid);
-    for (const nid of nodeIds) {
-      db.prepare('DELETE FROM behaviors WHERE node_id = ?').run(nid);
-      db.prepare('DELETE FROM camera_effects WHERE node_id = ?').run(nid);
-      // Drop camera_view compose layers that targeted this scene's cameras.
-      db.prepare('DELETE FROM compose_layers WHERE camera_node_id = ?').run(
-        nid
-      );
+
+    // The dependent rows go through their collections too, for the same reason
+    // the nodes do. A raw DELETE removes the row but leaves the DOCUMENT alive
+    // in the replica with no tombstone, so a tab that subscribes afterwards
+    // gets a snapshot full of behaviors / effects / layers / clips whose rows
+    // are gone. Only col.remove() writes the tombstone that suppresses them.
+    const dependents: { table: string; column: string; rtype: string }[] = [
+      { table: 'behaviors', column: 'node_id', rtype: 'behavior' },
+      { table: 'camera_effects', column: 'node_id', rtype: 'camera_effect' },
+      // camera_view compose layers that targeted this scene's cameras.
+      {
+        table: 'compose_layers',
+        column: 'camera_node_id',
+        rtype: 'compose_layer',
+      },
       // Track clips owned by this node (scene root included).
-      db.prepare('DELETE FROM track_clips WHERE owner_node_id = ?').run(nid);
+      { table: 'track_clips', column: 'owner_node_id', rtype: 'track_clip' },
+    ];
+    for (const { table, column, rtype } of dependents) {
+      const col = getMeshCollection(rtype);
+      for (const nid of nodeIds) {
+        // Read the ids BEFORE deleting: the persist tap's `persists` guard
+        // early-returns once the row is gone, so a remove issued after the
+        // DELETE would never write its tombstone.
+        const ids = (
+          db
+            .prepare(`SELECT id FROM ${table} WHERE ${column} = ?`)
+            .all(nid) as { id: string }[]
+        ).map((r) => r.id);
+        for (const id of ids) col?.remove(id);
+        // Safety net for the same reason as the scene_nodes sweep below: the
+        // mesh store may not be initialised in a bare context.
+        db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(nid);
+      }
     }
     // Safety net: drop any scene_nodes row the store remove missed (e.g. the
     // mesh store not yet initialised in a bare context).
