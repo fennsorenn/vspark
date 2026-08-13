@@ -71,26 +71,78 @@ export const configRoutes = Router();
 configRoutes.get('/config', async (_req, res) => {
   const cfg = await readConfig();
   const assistant = toPublic(await resolveAssistantConfig());
-  // Never leak the raw assistant.apiKey; expose a redacted view instead.
-  res.json({ ok: true, data: { channel: cfg.channel, assistant } });
+  // Spread the stored config so any field persists through a round-trip, then
+  // overwrite `assistant` with the redacted view — the apiKey must never leave
+  // the backend. Listing fields explicitly here is what silently dropped
+  // `live2dLicenseAccepted` (written by PATCH, never read back, so consent
+  // reset on every reload); a new AppConfig field should not need this handler
+  // edited to work.
+  res.json({ ok: true, data: { ...cfg, assistant } });
 });
 
-configRoutes.put('/config', async (req, res) => {
-  const { channel } = req.body as Partial<AppConfig>;
-  if (!channel || !VALID_CHANNELS.includes(channel)) {
+/**
+ * Partial update of the app config. PATCH, not PUT: `config.json` holds
+ * unrelated settings (update channel, Live2D licence acknowledgement, assistant
+ * endpoint) and no caller ever writes all of them together — both existing
+ * callers send exactly one field. A PUT would promise a whole-resource replace
+ * that nothing wants and that would let one setting clobber another.
+ *
+ * Rejects an empty body and any key outside the known set, so a typo
+ * (`chanel`) is a 400 rather than a silent no-op that reports success.
+ */
+const PATCHABLE_CONFIG_KEYS = ['channel', 'live2dLicenseAccepted'] as const;
+
+configRoutes.patch('/config', async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const keys = Object.keys(body);
+
+  if (keys.length === 0) {
+    res.status(400).json({
+      ok: false,
+      error: { message: 'empty patch: send at least one field to change' },
+    });
+    return;
+  }
+
+  const unknown = keys.filter(
+    (k) => !(PATCHABLE_CONFIG_KEYS as readonly string[]).includes(k)
+  );
+  if (unknown.length) {
     res.status(400).json({
       ok: false,
       error: {
-        message: `channel must be one of: ${VALID_CHANNELS.join(', ')}`,
+        message: `unknown field(s): ${unknown.join(', ')}. Patchable: ${PATCHABLE_CONFIG_KEYS.join(', ')}`,
       },
     });
     return;
   }
+
   const current = await readConfig();
-  const updated: AppConfig = { ...current, channel };
+  const updated: AppConfig = { ...current };
+
+  if (body.channel !== undefined) {
+    const channel = body.channel as AppConfig['channel'];
+    if (!VALID_CHANNELS.includes(channel)) {
+      res.status(400).json({
+        ok: false,
+        error: {
+          message: `channel must be one of: ${VALID_CHANNELS.join(', ')}`,
+        },
+      });
+      return;
+    }
+    updated.channel = channel;
+  }
+
+  if (body.live2dLicenseAccepted !== undefined) {
+    updated.live2dLicenseAccepted = Boolean(body.live2dLicenseAccepted);
+  }
+
   await writeConfig(updated);
-  void checkForUpdates();
-  res.json({ ok: true, data: { channel: updated.channel } });
+  // Only re-check when the channel actually moved; this used to fire on every
+  // config write regardless of what changed.
+  if (body.channel !== undefined) void checkForUpdates();
+  res.json({ ok: true, data: updated });
 });
 
 /**

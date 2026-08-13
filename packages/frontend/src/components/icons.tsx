@@ -18,6 +18,7 @@ import {
   Clapperboard,
   Coffee,
   Contrast,
+  Drama,
   Film,
   Focus,
   Folder,
@@ -73,6 +74,7 @@ export const NODE_KIND_ICON: Record<string, LucideIcon> = {
   audio: Volume2,
   feed: Rss,
   remote_object: Antenna,
+  live2d: Drama,
 };
 
 /** Compose-layer kinds (compose tree, layer properties, placeholders). */
