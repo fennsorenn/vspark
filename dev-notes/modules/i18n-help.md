@@ -25,7 +25,9 @@ Dependencies added: `i18next`, `react-i18next`, `i18next-browser-languagedetecto
 
 One namespace per component area. Namespace names match the component area they cover:
 
-`common`, `help`, `topbar`, `update`, `editor`, `home`, `sceneGraph`, `assets`, `properties`, `compose`, `signalGraph`, `clips`, `accounts`, `presets`, `media`, `misc`.
+`common`, `help`, `topbar`, `update`, `editor`, `home`, `sceneGraph`, `assets`, `properties`, `compose`, `signalGraph`, `clips`, `accounts`, `presets`, `media`, `assistant`, `misc`.
+
+The `assistant` namespace covers the in-app AI Assistant window; its help page (`help/content/{en,de}/assistant.md`, anchors `{#how-to-use}` `{#setup}` `{#capabilities}` `{#attach}` `{#limits}`, `'assistant'` in `TOPIC_ORDER`) documents the agent for end users; `{#attach}` covers the 📎 attach picker (attach editor elements so "this/that" resolves to a concrete id/url). See [mcp-assistant.md](mcp-assistant.md).
 
 ### Language switcher — `components/LanguageSwitcher.tsx`
 

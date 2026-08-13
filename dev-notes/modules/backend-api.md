@@ -126,11 +126,16 @@ Uses built-in `https` with redirect following for download. Inline semver compar
 ### `routes/config.ts`
 
 ```
-GET /api/config       reads config.json next to the executable (or process.cwd() in dev)
-PUT /api/config       writes config.json; channel change triggers checkForUpdates()
+GET  /api/config            reads config.json; returns { channel, assistant } with a REDACTED assistant view (hasApiKey, never the raw key)
+PUT  /api/config            writes config.json; channel change triggers checkForUpdates()
+PUT  /api/assistant-config  updates the AI Assistant settings; apiKey only overwritten when a non-empty string is sent
 ```
 
-`config.json` shape matches `AppConfig` from `packages/shared/src/types.ts`.
+`config.json` shape matches `AppConfig` from `packages/shared/src/types.ts` (documented by repo-root `config.example.json`); it lives at `getInstallDir()/config.json`, overridable via `VSPARK_CONFIG_PATH` (tests, custom installs). `resolveAssistantConfig()` merges `config.json` over env defaults — provider-neutral `ASSISTANT_BASE_URL`/`ASSISTANT_API_KEY`/`ASSISTANT_MODEL`, with legacy `VLLM_HOST`/`VLLM_AUTH` still honored (generic wins when both set); the endpoint is any OpenAI-compatible base URL. See [mcp-assistant.md](mcp-assistant.md).
+
+## MCP server — `mcp/` (mounted at `/mcp`)
+
+`app.use('/mcp', createMcpHttpRouter(...))` mounts a stateless Streamable-HTTP MCP server exposing the REST surface as 57 tools; the tools call back into this same backend over loopback, exercising the real REST validation path. The same tool catalog also ships as the standalone stdio `vspark-mcp` bin and powers the in-app assistant. See [mcp-assistant.md](mcp-assistant.md).
 
 ## Database — `db/`
 

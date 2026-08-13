@@ -114,6 +114,30 @@ router.post('/projects/:projectId/assets', (req, res) => {
 
 /**
  * @openapi
+ * /api/assets/{id}:
+ *   get:
+ *     tags: [assets]
+ *     summary: Fetch a single asset's metadata row by id
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: The asset row }
+ *       404: { description: Asset not found }
+ */
+router.get('/assets/:id', (req, res) => {
+  const row = getDb()
+    .prepare('SELECT * FROM asset_files WHERE id = ?')
+    .get(req.params.id);
+  if (!row)
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'asset not found', code: 'NOT_FOUND' },
+    });
+  res.json({ ok: true, data: row });
+});
+
+/**
+ * @openapi
  * /api/assets/{id}/thumbnail:
  *   put:
  *     tags: [assets]

@@ -39,6 +39,8 @@ import {
   NODE_KIND_FALLBACK,
   BEHAVIOR_ICON,
   BEHAVIOR_FALLBACK,
+  CAMERA_EFFECT_ICON,
+  CAMERA_EFFECT_FALLBACK,
 } from '../icons';
 import {
   Antenna,
@@ -1547,7 +1549,7 @@ function CameraEffectsSection({
               style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
             >
               {(() => {
-                const I = ek?.icon ?? Sparkle;
+                const I = CAMERA_EFFECT_ICON[effect.kind] ?? CAMERA_EFFECT_FALLBACK;
                 return <I size={13} />;
               })()}
             </span>
@@ -1678,7 +1680,7 @@ function CameraEffectsSection({
                     }}
                   >
                     {(() => {
-                      const I = ek.icon;
+                      const I = CAMERA_EFFECT_ICON[ek.kind] ?? CAMERA_EFFECT_FALLBACK;
                       return <I size={15} />;
                     })()}
                   </span>
@@ -2773,6 +2775,9 @@ export function SceneGraph() {
         {/* Node row */}
         <div
           className="vs-node-row"
+          data-attach-kind="scene_node"
+          data-attach-id={node.id}
+          data-attach-name={node.name}
           draggable
           onDragStart={(e) => handleDragStart(e, node.id)}
           onDragEnd={() => {

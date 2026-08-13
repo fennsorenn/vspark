@@ -10,28 +10,9 @@ import type {
   TrackClipEventRecord,
 } from '../api/client';
 import type { UpdateChannel } from '@vspark/shared';
-import {
-  Aperture,
-  Blend,
-  Coffee,
-  Contrast,
-  Focus,
-  Frame,
-  Grid2x2,
-  Grip,
-  Moon,
-  Palette,
-  PenTool,
-  Rainbow,
-  ScanLine,
-  SlidersHorizontal,
-  Sparkles,
-  Tv,
-  Type,
-  Waves,
-  Zap,
-  type LucideIcon,
-} from 'lucide-react';
+import { useHelpStore } from '../help/helpStore';
+import { useAssistantStore } from './assistantStore';
+import { highlightControl } from '../lib/uiHighlight';
 
 /** One entry on an avatar's animation timeline (a scheduled_animation doc). */
 export interface ScheduledAnimation {
@@ -278,194 +259,10 @@ export interface PresetSummary {
 let _compSeq = 0;
 export const newBehaviorId = () => `comp-${++_compSeq}-${Date.now()}`;
 
-export interface CameraEffectKind {
-  kind: string;
-  label: string;
-  icon: LucideIcon;
-  description: string;
-  defaultConfig: Record<string, unknown>;
-}
-
-export const CAMERA_EFFECT_KINDS: CameraEffectKind[] = [
-  // --- Color & Tone ---
-  {
-    kind: 'fx_tone_mapping',
-    label: 'Tone Mapping',
-    icon: SlidersHorizontal,
-    description: 'Controls how HDR values are mapped to the display',
-    defaultConfig: { mode: 6 }, // 6 = ACES_FILMIC
-  },
-  {
-    kind: 'fx_brightness_contrast',
-    label: 'Brightness / Contrast',
-    icon: Contrast,
-    description: 'Adjusts overall image brightness and contrast',
-    defaultConfig: { brightness: 0, contrast: 0 },
-  },
-  {
-    kind: 'fx_hue_saturation',
-    label: 'Hue / Saturation',
-    icon: Palette,
-    description: 'Shifts hue and scales color saturation',
-    defaultConfig: { hue: 0, saturation: 0 },
-  },
-  {
-    kind: 'fx_sepia',
-    label: 'Sepia',
-    icon: Coffee,
-    description: 'Warm brownish cinematic tint',
-    defaultConfig: { intensity: 1.0 },
-  },
-  // --- Depth & Atmosphere ---
-  {
-    kind: 'fx_bloom',
-    label: 'Bloom',
-    icon: Sparkles,
-    description: 'Glowing highlights bleed from bright areas',
-    defaultConfig: {
-      intensity: 1.0,
-      luminanceThreshold: 0.9,
-      luminanceSmoothing: 0.025,
-      mipmapBlur: true,
-    },
-  },
-  {
-    kind: 'fx_depth_of_field',
-    label: 'Depth of Field',
-    icon: Aperture,
-    description: 'Bokeh blur outside the focal plane',
-    defaultConfig: {
-      worldFocusDistance: 3,
-      worldFocusRange: 2,
-      bokehScale: 2,
-      autofocus: false,
-      afMode: 'point', // 'point' | 'percentile'
-      afPointX: 0.5,
-      afPointY: 0.5,
-      afPercentile: 15,
-      afSpeed: 4, // convergence speed (higher = faster)
-      afDelay: 0.2, // seconds before AF starts moving
-      afOvershoot: 0.15, // fraction of delta to overshoot by
-    },
-  },
-  {
-    kind: 'fx_chromatic_aberration',
-    label: 'Chromatic Aberration',
-    icon: Rainbow,
-    description: 'RGB channel fringing along edges, like a real lens',
-    defaultConfig: { offsetX: 0.002, offsetY: 0.002 },
-  },
-  {
-    kind: 'fx_ssao',
-    label: 'Ambient Occlusion',
-    icon: Moon,
-    description: 'Screen-space contact shadows in crevices',
-    defaultConfig: {
-      intensity: 1.5,
-      radius: 0.2,
-      bias: 0.025,
-      rings: 4,
-      samples: 30,
-    },
-  },
-  // --- Stylization ---
-  {
-    kind: 'fx_outline',
-    label: 'Edge Outline',
-    icon: PenTool,
-    description: 'Depth-buffer edge detection outlines',
-    defaultConfig: {
-      color: '#000000',
-      threshold: 0.001,
-      thickness: 1.0,
-      alpha: 1.0,
-      normalStrength: 1.0,
-      blendMode: 'NORMAL',
-    },
-  },
-  {
-    kind: 'fx_vignette',
-    label: 'Vignette',
-    icon: Frame,
-    description: 'Darkened edges around the frame',
-    defaultConfig: { offset: 0.5, darkness: 0.5 },
-  },
-  {
-    kind: 'fx_noise',
-    label: 'Noise',
-    icon: Tv,
-    description: 'Film grain overlay',
-    defaultConfig: { opacity: 0.2 },
-  },
-  {
-    kind: 'fx_scanline',
-    label: 'Scanline',
-    icon: ScanLine,
-    description: 'CRT horizontal scanline overlay',
-    defaultConfig: { density: 1.25, opacity: 0.1 },
-  },
-  {
-    kind: 'fx_pixelation',
-    label: 'Pixelation',
-    icon: Grid2x2,
-    description: 'Retro pixel art look',
-    defaultConfig: { granularity: 8 },
-  },
-  {
-    kind: 'fx_ascii',
-    label: 'ASCII',
-    icon: Type,
-    description: 'Renders the scene as ASCII characters',
-    defaultConfig: {
-      characters: ' .:-+*=%@#',
-      fontSize: 54,
-      cellSize: 16,
-      color: '#ffffff',
-      invert: false,
-    },
-  },
-  {
-    kind: 'fx_dot_screen',
-    label: 'Dot Screen',
-    icon: Grip,
-    description: 'Halftone dot pattern overlay',
-    defaultConfig: { angle: 1.57, scale: 1.0 },
-  },
-  {
-    kind: 'fx_glitch',
-    label: 'Glitch',
-    icon: Zap,
-    description: 'Digital glitch distortion',
-    defaultConfig: {
-      delay: [1.5, 3.5],
-      duration: [0.06, 0.3],
-      strength: [0.3, 1.0],
-      columns: 0.05,
-      ratio: 0.85,
-    },
-  },
-  {
-    kind: 'fx_smaa',
-    label: 'SMAA',
-    icon: Blend,
-    description: 'Subpixel morphological antialiasing',
-    defaultConfig: {},
-  },
-  {
-    kind: 'fx_tilt_shift',
-    label: 'Tilt Shift',
-    icon: Focus,
-    description: 'Miniature / tilt-shift blur effect',
-    defaultConfig: { offset: 0.0, rotation: 0.0, focusArea: 0.4, feather: 0.3 },
-  },
-  {
-    kind: 'fx_water',
-    label: 'Water',
-    icon: Waves,
-    description: 'Watery ripple distortion',
-    defaultConfig: { factor: 1.0 },
-  },
-];
+export {
+  CAMERA_EFFECT_KINDS,
+  type CameraEffectKind,
+} from '@vspark/shared/cameraEffects';
 
 interface EditorState {
   projectId: string | null;
@@ -656,6 +453,16 @@ interface EditorState {
   setBottomTab: (tab: BottomDockTab) => void;
   /** Switch the bottom dock to `tab` and pulse it as a hint. */
   flashBottomTab: (tab: BottomDockTab) => void;
+  /** Top-bar windows, store-driven so the assistant can open them via a
+   *  ui_action (open_window). */
+  accountsModalOpen: boolean;
+  setAccountsModalOpen: (open: boolean) => void;
+  mediaModalOpen: boolean;
+  setMediaModalOpen: (open: boolean) => void;
+  connectionsModalOpen: boolean;
+  setConnectionsModalOpen: (open: boolean) => void;
+  updateDialogOpen: boolean;
+  setUpdateDialogOpen: (open: boolean) => void;
   /** Ask the Properties name field to focus + select-all. */
   requestFocusName: () => void;
   setBottomDockHeight: (h: number) => void;
@@ -666,6 +473,10 @@ interface EditorState {
     payload: import('../clipboard').ClipboardPayload | null
   ) => void;
   selectComposeLayer: (id: string | null) => void;
+
+  /** Apply a UI-control action pushed by the assistant agent over the
+   *  ui_action WS message (select entity, open panel/help/window, highlight). */
+  dispatchUiAction: (action: unknown) => void;
 
   // Track clip actions
   setTrackClips: (clips: TrackClipRecord[]) => void;
@@ -1121,6 +932,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     lsSet(LS.bottomTab, tab);
     set({ bottomTab: tab, bottomTabFlash: Date.now() });
   },
+  accountsModalOpen: false,
+  setAccountsModalOpen: (open) => set({ accountsModalOpen: open }),
+  mediaModalOpen: false,
+  setMediaModalOpen: (open) => set({ mediaModalOpen: open }),
+  connectionsModalOpen: false,
+  setConnectionsModalOpen: (open) => set({ connectionsModalOpen: open }),
+  updateDialogOpen: false,
+  setUpdateDialogOpen: (open) => set({ updateDialogOpen: open }),
   requestFocusName: () =>
     set((s) => ({ focusNameNonce: s.focusNameNonce + 1 })),
   setClipboard: (payload) => set({ clipboardPayload: payload }),
@@ -1139,6 +958,88 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ composeAttachEnabled: on });
   },
   selectComposeLayer: (id) => set({ selectedComposeLayerId: id }),
+
+  dispatchUiAction: (action) => {
+    if (!action || typeof action !== 'object') return;
+    const a = action as Record<string, unknown>;
+    const s = get();
+    switch (a.type) {
+      case 'select_entity': {
+        const id = typeof a.id === 'string' ? a.id : null;
+        if (a.entityKind === 'scene_node') {
+          s.setLeftTab('scene');
+          s.selectNode(id);
+        } else if (a.entityKind === 'compose_layer') {
+          s.setLeftTab('compose');
+          s.selectComposeLayer(id);
+        } else if (a.entityKind === 'scene') {
+          if (id) s.setActiveScene(id);
+          s.setSceneSelected(true);
+        } else if (a.entityKind === 'compose_scene') {
+          s.setLeftTab('compose');
+          s.selectComposeScene(id);
+        } else if (a.entityKind === 'behavior') {
+          s.selectBehavior(id);
+        }
+        break;
+      }
+      case 'select_effect': {
+        if (typeof a.nodeId === 'string' && typeof a.kind === 'string') {
+          s.selectNode(a.nodeId);
+          s.selectEffect(a.nodeId, a.kind);
+        }
+        break;
+      }
+      case 'open_logic': {
+        if (typeof a.id === 'string') {
+          s.setLeftTab('graphs');
+          s.setActiveLogic(a.id);
+        }
+        break;
+      }
+      case 'open_panel': {
+        const tab = a.tab;
+        if (a.dock === 'left' && LEFT_TABS.includes(tab as LeftDockTab))
+          s.setLeftTab(tab as LeftDockTab);
+        else if (
+          a.dock === 'bottom' &&
+          BOTTOM_TABS.includes(tab as BottomDockTab)
+        )
+          s.flashBottomTab(tab as BottomDockTab);
+        break;
+      }
+      case 'open_help': {
+        if (typeof a.topic === 'string')
+          useHelpStore
+            .getState()
+            .openHelp(
+              a.topic,
+              typeof a.anchor === 'string' ? a.anchor : null
+            );
+        break;
+      }
+      case 'open_window': {
+        if (a.window === 'assistant') {
+          const as = useAssistantStore.getState();
+          if (a.open === false) as.closeAssistant();
+          else as.openAssistant();
+        } else if (a.window === 'accounts') {
+          s.setAccountsModalOpen(a.open !== false);
+        } else if (a.window === 'media') {
+          s.setMediaModalOpen(a.open !== false);
+        } else if (a.window === 'connections') {
+          s.setConnectionsModalOpen(a.open !== false);
+        } else if (a.window === 'update') {
+          s.setUpdateDialogOpen(a.open !== false);
+        }
+        break;
+      }
+      case 'highlight_control': {
+        if (typeof a.handle === 'string') highlightControl(a.handle);
+        break;
+      }
+    }
+  },
 
   setTrackClips: (clips) => set({ trackClips: clips }),
   addTrackClip: (clip) =>
@@ -1349,3 +1250,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ updateAvailable: available, updateInfo: info }),
   setPendingReload: (pending) => set({ pendingReload: pending }),
 }));
+
+// Dev-only handle for debugging / e2e harnesses (inspect or poke store state
+// from the console or Playwright). Never present in production builds.
+if (import.meta.env.DEV) {
+  (
+    globalThis as unknown as { __editorStore?: typeof useEditorStore }
+  ).__editorStore = useEditorStore;
+}

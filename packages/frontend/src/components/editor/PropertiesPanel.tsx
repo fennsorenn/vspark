@@ -86,7 +86,12 @@ function PickButton({ onClick }: { onClick: () => void }) {
 }
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { vrmRegistry } from '../../vrmRegistry';
-import { BEHAVIOR_ICON, BEHAVIOR_FALLBACK } from '../icons';
+import {
+  BEHAVIOR_ICON,
+  BEHAVIOR_FALLBACK,
+  CAMERA_EFFECT_ICON,
+  CAMERA_EFFECT_FALLBACK,
+} from '../icons';
 import { Check, Clapperboard } from 'lucide-react';
 import {
   getMaterialSlots,
@@ -6045,7 +6050,9 @@ export function PropertiesPanel() {
         >
           <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
             {(() => {
-              const I = selectedEffectKind.icon;
+              const I =
+                CAMERA_EFFECT_ICON[selectedEffectKind.kind] ??
+                CAMERA_EFFECT_FALLBACK;
               return <I size={18} />;
             })()}
           </span>

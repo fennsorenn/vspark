@@ -28,8 +28,31 @@
 **Update / config types**:
 - `UpdateChannel` — `'stable' | 'recent' | 'experimental'`
 - `UpdateStatus` — `{ updateAvailable, downloadReady, downloadedBytes, totalBytes, currentVersion, latestVersion, releaseNotes, channel }`
-- `AppConfig` — shape of `config.json` on disk; includes `channel: UpdateChannel`
+- `AppConfig` — shape of `config.json` on disk; includes `channel: UpdateChannel` and optional `assistant?: AssistantConfig`
 - `server_update` in `WSMessageKind` — payload carries update availability info; `reloadOnReconnect: true` triggers a page reload after server restart
+
+**AI Assistant types** (see [mcp-assistant.md](mcp-assistant.md)):
+- `AssistantConfig` — `{ enabled, baseUrl, apiKey, model }`; the OpenAI-compatible LLM endpoint the in-app agent uses
+- `AssistantConfigPublic` — the API-exposed view; `apiKey` replaced by `hasApiKey: boolean` (the raw key never leaves the server)
+- `assistant_user_message` / `assistant_reset` / `assistant_text` / `assistant_tool_call` / `assistant_tool_result` / `assistant_error` / `assistant_done` in `WSMessageKind` — the assistant request/stream protocol
+
+**UI-control channel** (see [mcp-assistant.md](mcp-assistant.md)):
+- `session_hello` / `ui_register` / `ui_action` in `WSMessageKind` — the channel that lets the in-app assistant and external MCP clients drive one editor tab. Outbound `session_hello` hands a client its `sessionId` on connect; inbound `ui_register` tags the session with its open `projectId`; outbound `ui_action` carries one UI-control action (`select_entity` / `open_panel` / `open_help` / `open_window` / `highlight_control`) to a single socket.
+
+## `cameraEffects.ts` — Camera effect catalog
+
+`CAMERA_EFFECT_KINDS: CameraEffectKind[]` — the single source of truth for the
+post-processing effect catalog, exported via the `@vspark/shared/cameraEffects`
+subpath (added to `package.json` exports, frontend `tsconfig` paths, and the
+`vite.config` alias). Each `CameraEffectKind` is `{ kind, label, icon,
+description, defaultConfig }`; `defaultConfig` is the canonical config shape
+(the camera-effects route stores `config` as an opaque blob, so this catalog is
+how a caller discovers valid keys). 19 `fx_`-prefixed kinds. Moved here from the
+frontend `editorStore`, which now re-exports `CAMERA_EFFECT_KINDS` /
+`CameraEffectKind` from this module (no behaviour change). Consumed by the
+frontend effect picker / PropertiesPanel and the backend MCP
+`list_camera_effect_kinds` tool. See [camera-effects.md](camera-effects.md) and
+[mcp-assistant.md](mcp-assistant.md).
 
 ## `schema.ts` — Zod validation schemas
 

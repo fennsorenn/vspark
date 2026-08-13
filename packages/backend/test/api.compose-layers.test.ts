@@ -307,6 +307,77 @@ describe('compose-layers API (mesh-backed)', () => {
       expect(res.body.error.code).toBe('NOT_FOUND');
       expect(res.body.error.message).toContain('compose layer not found');
     });
+
+    it('rejects a feed layer with a syntactically broken template (400)', async () => {
+      const res = await createLayerInScene(composeSceneId, {
+        name: 'BadFeed',
+        kind: 'feed',
+        config: { template: '<div>`${chat.map((m) => <p>${m.text}</p>)}</div>' },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toMatch(/Template syntax error/);
+    });
+
+    it('rejects a feed layer with structurally broken CSS (400)', async () => {
+      const res = await createLayerInScene(composeSceneId, {
+        name: 'BadCss',
+        kind: 'feed',
+        config: { template: '<div></div>', css: '.chat { border-width: 20px;' },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toMatch(/unclosed "{"/);
+    });
+
+    it('accepts a feed layer with valid template + border-image CSS (201)', async () => {
+      const res = await createLayerInScene(composeSceneId, {
+        name: 'GoodFeed',
+        kind: 'feed',
+        config: {
+          template: '<div>${chat.map((m) => html`<p>${m.text}</p>`)}</div>',
+          css: '.chat { border-image: url(/u/border.png) 120 stretch; }',
+        },
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.ok).toBe(true);
+    });
+
+    it('merges config on update — a css-only patch keeps the template', async () => {
+      const created = await createLayerInScene(composeSceneId, {
+        name: 'Feed',
+        kind: 'feed',
+        config: { template: '<div>${chat}</div>', css: '.chat { color: red; }' },
+      });
+      const layerId = created.body.data.id as string;
+      const res = await updateLayer(layerId, {
+        config: { css: '.chat { border-image: url(/u/b.png) 120 stretch; }' },
+      });
+      expect(res.status).toBe(200);
+      // Template is preserved (not wiped by the css-only patch); css is updated.
+      const layers = (
+        await request(app).get(`/api/compose-scenes/${composeSceneId}/layers`)
+      ).body.data as Array<{ id: string; config: Record<string, unknown> }>;
+      const l = layers.find((x) => x.id === layerId);
+      expect(l?.config.template).toBe('<div>${chat}</div>');
+      expect(l?.config.css).toMatch(/border-image/);
+    });
+
+    it('rejects an update that introduces a broken template (400)', async () => {
+      const created = await createLayerInScene(composeSceneId, {
+        name: 'Feed',
+        kind: 'feed',
+        config: { template: '<div></div>' },
+      });
+      const layerId = created.body.data.id as string;
+      const res = await updateLayer(layerId, {
+        config: { template: '<div>${chat' },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toMatch(/Template syntax error/);
+    });
   });
 
   describe('compose-layer defaults', () => {

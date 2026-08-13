@@ -549,7 +549,22 @@ export type WSMessageKind =
   | 'data_channel_set'
   | 'data_channel_clear'
   | 'data_channel_snapshot'
-  | 'media_control';
+  | 'media_control'
+  // Assistant (in-app agent). Inbound: assistant_user_message, assistant_reset.
+  // Outbound (per-connection): the rest.
+  | 'assistant_user_message'
+  | 'assistant_reset'
+  | 'assistant_text'
+  | 'assistant_tool_call'
+  | 'assistant_tool_result'
+  | 'assistant_error'
+  | 'assistant_done'
+  // UI-control channel. Outbound session_hello hands the client its session id;
+  // inbound ui_register tags the session with its project; outbound ui_action
+  // drives the editor (select entity, open panel/help/window, highlight control).
+  | 'session_hello'
+  | 'ui_register'
+  | 'ui_action';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 
@@ -566,8 +581,39 @@ export interface UpdateStatus {
   channel: UpdateChannel;
 }
 
+/** In-app assistant (agent) configuration. Points at any OpenAI-compatible
+ *  chat endpoint (vLLM, Ollama, OpenAI, …). Persisted in config.json; the
+ *  apiKey is redacted when read back over the API. */
+export interface AssistantConfig {
+  enabled: boolean;
+  baseUrl: string;
+  /** Bearer token for the LLM endpoint. Optional for keyless local servers. */
+  apiKey: string;
+  model: string;
+}
+
 export interface AppConfig {
   channel: UpdateChannel;
+  assistant?: AssistantConfig;
+}
+
+/** An editor element the user attached to an assistant message via the attach
+ *  picker, so the agent can resolve "this/that" references to a concrete id. */
+export interface AssistantAttachment {
+  kind: 'asset' | 'scene_node' | 'compose_layer';
+  id: string;
+  name: string;
+  /** For assets: the served /uploads URL (usable in feed CSS / as filePath). */
+  url?: string;
+}
+
+/** Shape of the assistant config exposed over the API — apiKey replaced by a
+ *  boolean so the secret never leaves the backend. */
+export interface AssistantConfigPublic {
+  enabled: boolean;
+  baseUrl: string;
+  hasApiKey: boolean;
+  model: string;
 }
 
 export interface WSMessage {
