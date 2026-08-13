@@ -74,6 +74,7 @@ import type {
 } from '../../store/editorStore';
 import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync';
 import { commitNodePatch, commitNodePath } from '../../mesh/writes';
+import { mergedTransform } from './transformMerge';
 import { useSceneFadeIn } from '../../hooks/useSceneFadeIn';
 
 import type { AnimEntry } from '../../animRegistry';
@@ -5819,10 +5820,13 @@ function TransformGizmo({
       .nodes.find((n) => n.id === selectedNodeId);
     if (!node) return;
     // Gizmo drag settles: one committed write, so one undo step for the drag.
-    commitNodePath(node.id, 'components.transform', {
-      type: 'transform',
-      ...buildTransform(),
-    });
+    // Merged, not replaced — see mergedTransform: this write REPLACES the whole
+    // component, and a drag must not delete opacity / shadow flags it never drove.
+    commitNodePath(
+      node.id,
+      'components.transform',
+      mergedTransform(node, buildTransform())
+    );
   };
 
   return (

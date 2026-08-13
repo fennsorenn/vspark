@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useEditorStore } from '../../store/editorStore';
 import { commitNodePatch, commitNodePath } from '../../mesh/writes';
+import { mergedTransform } from './transformMerge';
 import {
   getNodeGroup,
   getVrmForScene,
@@ -243,10 +244,7 @@ export function ComposeSceneInteractions({
     if (!node) return;
     const components = {
       ...node.components,
-      transform: {
-        type: 'transform',
-        ...transformPayload(group, node, liveScale),
-      },
+      transform: mergedTransform(node, transformPayload(group, node, liveScale)),
     };
     store.updateNode(nodeId, { components });
   };
@@ -669,10 +667,7 @@ export function ComposeSceneInteractions({
       if (!node) return;
       const components = {
         ...node.components,
-        transform: {
-          type: 'transform',
-          ...transformPayload(group, node, true),
-        },
+        transform: mergedTransform(node, transformPayload(group, node, true)),
       };
       commitNodePath(st.nodeId, 'components', components);
     }
@@ -711,7 +706,7 @@ export function ComposeSceneInteractions({
       if (!node) return;
       const components = {
         ...node.components,
-        transform: { type: 'transform', ...transformPayload(group, node) },
+        transform: mergedTransform(node, transformPayload(group, node)),
       };
       commitNodePath(st.nodeId, 'components', components);
     }
