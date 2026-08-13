@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import type {
+  ClipPlayback,
   ComposeLayerOverride,
   NodeTransformOverride,
+  TrackClipPlayback,
 } from '../store/editorStore';
 import type {
   TrackClipLaneRecord,
@@ -156,6 +158,48 @@ function syncSharedClipTransforms(
  *  the absolute value here, so the consumer can treat both modes the same: "if an
  *  override is present for this scalar, replace the persisted value with the override."
  */
+/** Project a synced `clip_playback` document onto the shape the evaluator reads.
+ *
+ *  `clockOffsetMs` is 0 because there is nothing to correct for: `startEpoch`
+ *  was already translated onto this peer's clock by the collection's `validate`
+ *  hook on arrival, so it is a local timestamp by the time it reaches here. The
+ *  legacy entries carry a per-message offset instead, sampled against a
+ *  `serverNow` the old broadcasts shipped alongside. */
+function asLegacyEntry(pb: ClipPlayback): TrackClipPlayback | null {
+  if (pb.state === 'paused')
+    return {
+      kind: 'paused',
+      pausedAtT: pb.pausedAtT ?? 0,
+      loop: pb.loop,
+      clockOffsetMs: 0,
+    };
+  if (pb.state === 'playing' && pb.startEpoch != null)
+    return {
+      kind: 'playing',
+      startedAt: pb.startEpoch,
+      loop: pb.loop,
+      clockOffsetMs: 0,
+    };
+  return null; // stopped — drive nothing
+}
+
+/** Mesh documents layered over the legacy slice, mesh winning per clip. */
+function mergedPlayback(
+  s: ReturnType<typeof useEditorStore.getState>
+): Record<string, TrackClipPlayback> {
+  const meshIds = Object.keys(s.clipPlayback);
+  if (meshIds.length === 0) return s.trackClipPlayback;
+  const out: Record<string, TrackClipPlayback> = { ...s.trackClipPlayback };
+  for (const clipId of meshIds) {
+    const entry = asLegacyEntry(s.clipPlayback[clipId]);
+    // A stopped document is authoritative too: it must REMOVE the clip from the
+    // set, not fall through to a stale legacy entry that would keep it running.
+    if (entry) out[clipId] = entry;
+    else delete out[clipId];
+  }
+  return out;
+}
+
 export function useTrackClipEvaluator(): void {
   useEffect(() => {
     let raf = 0;
@@ -163,7 +207,13 @@ export function useTrackClipEvaluator(): void {
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const s = useEditorStore.getState();
-      const playback = s.trackClipPlayback;
+      // Parallel run: the mesh `clip_playback` document is the destination, the
+      // backend-authoritative `trackClipPlayback` slice is still fed by the /ws
+      // kinds until that playhead is deleted. A clip present in both takes the
+      // MESH entry, so any peer that has the document evaluates from the same
+      // inputs as every other; a clip only the backend knows about (a signal
+      // node or spawn trigger, not yet migrated) keeps working meanwhile.
+      const playback = mergedPlayback(s);
       const playbackEntries = Object.entries(playback);
       // Fast exit + cleanup when nothing is playing.
       if (playbackEntries.length === 0) {

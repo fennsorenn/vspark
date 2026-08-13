@@ -2,6 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api, ApiError } from '../../api/client';
+import {
+  commitPause,
+  commitPlay,
+  commitResume,
+  commitSeek,
+  commitStop,
+  previewSeek,
+} from '../../mesh/playbackWrites';
 import { HelpButton } from '../../help/HelpButton';
 import type {
   TrackClipRecord,
@@ -136,12 +144,36 @@ function TimelineEditor({
     onUpdate(updated);
   };
 
-  const handlePlay = () => api.triggerTrackClip(clip.id).catch(() => {});
-  const handleStop = () => api.stopTrackClip(clip.id).catch(() => {});
-  const handlePause = () => api.pauseTrackClip(clip.id).catch(() => {});
-  const handleResume = () => api.resumeTrackClip(clip.id).catch(() => {});
-  const handleSeek = (t: number) =>
+  // Transport writes the mesh document AND still calls the REST endpoint, for
+  // the length of the parallel run. The mesh entry is what the evaluator reads;
+  // the REST call keeps the backend playhead in step, which other things still
+  // hang off (the clip-finished callback that tears down spawned entities, and
+  // the signal nodes that trigger clips). Both go when that playhead does.
+  //
+  // None of these are undoable — see mesh/playbackWrites.
+  const handlePlay = () => {
+    commitPlay(clip.id, clip.loop);
+    api.triggerTrackClip(clip.id).catch(() => {});
+  };
+  const handleStop = () => {
+    commitStop(clip.id);
+    api.stopTrackClip(clip.id).catch(() => {});
+  };
+  const handlePause = () => {
+    commitPause(clip.id);
+    api.pauseTrackClip(clip.id).catch(() => {});
+  };
+  const handleResume = () => {
+    commitResume(clip.id);
+    api.resumeTrackClip(clip.id).catch(() => {});
+  };
+  /** Scrub released. The in-flight drag rides the preview channel (see
+   *  ScrubRuler); this is the commit. */
+  const handleSeek = (t: number) => {
+    commitSeek(clip.id, t);
     api.seekTrackClip(clip.id, t).catch(() => {});
+  };
+  const handleScrubPreview = (t: number) => previewSeek(clip.id, t);
 
   const handleAddLane = async (
     kind: TrackClipTargetKind,
@@ -344,6 +376,7 @@ function TimelineEditor({
         clip={clip}
         playback={activePlayback ?? null}
         onSeek={handleSeek}
+        onScrub={handleScrubPreview}
       />
 
       {/* Selected-keyframe properties bar */}
@@ -723,16 +756,22 @@ function computePlayheadT(
   return Math.max(0, Math.min(duration, tRaw));
 }
 
-/** Top ruler row: shows tick marks + a draggable playhead. Pointer-drag seeks
- *  the backend playhead, which broadcasts back via `track_clip_started/paused`. */
+/** Top ruler row: tick marks plus a draggable playhead.
+ *
+ *  The drag is a gesture like any other: every move is a PREVIEW on the mesh's
+ *  lossy channel, so other peers follow the scrub without it becoming model
+ *  state, and only the release commits. It previously fired a REST seek per
+ *  pointer move — one request per frame of the drag, each racing the last. */
 function ScrubRuler({
   clip,
   playback,
   onSeek,
+  onScrub,
 }: {
   clip: TrackClipRecord;
   playback: import('../../store/editorStore').TrackClipPlayback | null;
   onSeek: (t: number) => void;
+  onScrub: (t: number) => void;
 }) {
   const { t: tl } = useTranslation('clips');
   const ref = useRef<HTMLDivElement>(null);
@@ -762,13 +801,20 @@ function ScrubRuler({
     );
   };
 
+  const dragging = useRef(false);
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    onSeek(xToT(e.clientX));
+    dragging.current = true;
+    onScrub(xToT(e.clientX));
   };
   const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if ((e.buttons & 1) === 0) return;
+    onScrub(xToT(e.clientX));
+  };
+  const onUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging.current) return;
+    dragging.current = false;
     onSeek(xToT(e.clientX));
   };
 
@@ -804,6 +850,8 @@ function ScrubRuler({
         ref={ref}
         onPointerDown={onDown}
         onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
         style={{
           flex: 1,
           position: 'relative',

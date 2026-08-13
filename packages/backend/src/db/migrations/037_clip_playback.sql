@@ -15,8 +15,15 @@
 -- Why its own id rather than reusing clip_id as the primary key: the mesh's
 -- ContainmentIndex (packages/shared/src/containment.ts) keys by id ALONE,
 -- across every rtype. A clip_playback doc sharing an id with its track_clip
--- would collide in that index. So: own uuid, plus a UNIQUE clip_id that carries
--- the 1-to-0..1 relation and the FK cascade.
+-- would collide in that index. So: its own id, plus a UNIQUE clip_id that
+-- carries the 1-to-0..1 relation and the FK cascade.
+--
+-- That id is DERIVED, not minted — 'pb:' || clip_id (see playbackDocId in
+-- packages/frontend/src/clipPlayhead.ts). Two tabs pressing Play on a
+-- never-played clip would otherwise each mint a uuid, producing two documents
+-- for one clip: both replicate, and the second trips UNIQUE(clip_id) here. A
+-- deterministic id turns that concurrent create into a plain LWW race on one
+-- document, needing no coordination.
 --
 -- state 'stopped' is a ROW, not the absence of one. Absence-means-stopped would
 -- make every Stop a document delete and every Play a create — tombstone churn
