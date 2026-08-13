@@ -232,6 +232,31 @@ describe('expressions + meta + config API', () => {
       // Default when no config.json exists is 'stable'
       expect(['stable', 'recent', 'experimental']).toContain(res.body.data.channel);
     });
+
+    it('round-trips every patched field, not just the ones GET names', async () => {
+      // Regression: GET used to hand-pick { channel, assistant }, so
+      // live2dLicenseAccepted was written by PATCH and never read back — the
+      // Live2D licence consent silently reset on every page reload.
+      await request(app)
+        .patch('/api/config')
+        .send({ live2dLicenseAccepted: true });
+
+      const res = await request(app).get('/api/config');
+      expect(res.body.data.live2dLicenseAccepted).toBe(true);
+    });
+
+    it('never exposes the raw assistant apiKey', async () => {
+      // The spread in GET must not undo the redaction: `assistant` is
+      // overwritten with the public view after `...cfg`.
+      await request(app)
+        .put('/api/assistant-config')
+        .send({ baseUrl: 'http://localhost:1234', apiKey: 'super-secret' });
+
+      const res = await request(app).get('/api/config');
+      expect(res.body.data.assistant.hasApiKey).toBe(true);
+      expect(res.body.data.assistant).not.toHaveProperty('apiKey');
+      expect(JSON.stringify(res.body)).not.toContain('super-secret');
+    });
   });
 
   // --- config: PATCH /api/config ---

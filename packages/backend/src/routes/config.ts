@@ -71,8 +71,13 @@ export const configRoutes = Router();
 configRoutes.get('/config', async (_req, res) => {
   const cfg = await readConfig();
   const assistant = toPublic(await resolveAssistantConfig());
-  // Never leak the raw assistant.apiKey; expose a redacted view instead.
-  res.json({ ok: true, data: { channel: cfg.channel, assistant } });
+  // Spread the stored config so any field persists through a round-trip, then
+  // overwrite `assistant` with the redacted view — the apiKey must never leave
+  // the backend. Listing fields explicitly here is what silently dropped
+  // `live2dLicenseAccepted` (written by PATCH, never read back, so consent
+  // reset on every reload); a new AppConfig field should not need this handler
+  // edited to work.
+  res.json({ ok: true, data: { ...cfg, assistant } });
 });
 
 /**
