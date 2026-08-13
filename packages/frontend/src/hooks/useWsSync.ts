@@ -54,8 +54,18 @@ setShareWriteRelay((owner, env) => {
     );
 });
 
-/** Send a live in-flight transform update so other connected editors can preview
- *  the motion without waiting for the final PUT. Silently no-ops if the WS isn't open. */
+/** Forward an in-flight transform to OBJECT-SHARE SUBSCRIBERS, so dragging a
+ *  shared object is smooth on the receiver's screen.
+ *
+ *  Local tabs no longer go through here: they get the gesture as per-key
+ *  overlays on the mesh `preview` channel (`previewNodeTransform` in
+ *  mesh/writes.ts), so the backend does not relay this locally any more.
+ *
+ *  This survives only because a subscriber's projection is fed separately from
+ *  the mesh store feeder; it goes when the object-share streams migrate. Note
+ *  that means PropertiesPanel drags — which only write the mesh — are not
+ *  forwarded to subscribers, matching their previous behaviour of having no
+ *  preview at all. Silently no-ops if the WS isn't open. */
 export function sendNodeTransformPreview(
   nodeId: string,
   transform: Record<string, number>
@@ -158,15 +168,6 @@ export function useWsSync() {
               unknown
             >;
             useEditorStore.getState().updateNode(id, updates);
-          } else if (msg.kind === 'node_transform_preview') {
-            // In-flight transform from another client's drag/wheel; tween the
-            // displayed value towards it instead of snapping. The originating
-            // client follows up with a node_updated when the gesture settles.
-            const p = msg.payload as {
-              nodeId: string;
-              transform: Record<string, number>;
-            };
-            smoothNodeTransform(p.nodeId, p.transform);
           } else if (msg.kind === 'node_added') {
             const store = useEditorStore.getState();
             const node = msg.payload as unknown as StageObject;

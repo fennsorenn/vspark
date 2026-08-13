@@ -185,8 +185,8 @@ router.put('/scene-nodes/:id', async (req, res) => {
   // full canonical doc to every subscribed tab, and meshStoreFeeder applies it
   // with the same `updateNode` call this patch ends up in. Nothing smooths this
   // kind — useWsSync's `node_updated` branch is a plain updateNode, and
-  // previewSmoother is reachable only from `node_transform_preview` and the
-  // compose_layer feeder. Retiring the kind is outstanding migration debt.
+  // previewSmoother is now driven by the mesh feeder's ephemeral branch plus
+  // the object-share stream. Retiring this kind is outstanding migration debt.
   const patch: Record<string, unknown> = { id: req.params.id };
   if (name != null) patch.name = name;
   if ('parentId' in req.body) patch.parentId = req.body.parentId ?? null;

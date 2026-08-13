@@ -5815,9 +5815,10 @@ function TransformGizmo({
     if (now - lastPreviewAtRef.current < 33) return;
     lastPreviewAtRef.current = now;
     const t = buildTransform();
-    // Parallel run: the mesh preview channel is the destination, the /ws lane
-    // is still live until it is retired. Both retarget the same tween toward
-    // the same value on a receiver, so the overlap is wasteful, not wrong.
+    // Two audiences, no longer two paths to the same one: the mesh preview
+    // channel carries the gesture to local tabs, while the /ws send reaches
+    // object-share subscribers, whose projection is fed outside the mesh store
+    // feeder. The second goes when the share streams migrate.
     previewNodeTransform(selectedNodeId, t);
     sendNodeTransformPreview(selectedNodeId, t);
   };

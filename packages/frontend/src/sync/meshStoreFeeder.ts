@@ -12,9 +12,10 @@
  * discriminator — an ephemeral op is a gesture by construction and a retained
  * op is model state (see the compose_layer observer below). The bespoke
  * `compose_layer_preview` / `compose_layer_updated` WS kinds that used to carry
- * that beside the mesh have no producer or consumer left. One gesture lane is
- * still on /ws — `node_transform_preview` (useWsSync.ts) — because the
- * scene_node observer here drops ephemeral ops rather than tweening them.
+ * that beside the mesh have no producer or consumer left, and node gestures now
+ * ride the same channel. `node_transform_preview` survives on /ws for object-
+ * share subscribers ONLY — their projection is fed outside this feeder — and
+ * goes when the share streams migrate.
  *
  * Foreign docs: the tab replica also holds behaviors/effects of PLACED
  * remote objects (their subtree subscription is cross-type). Projections

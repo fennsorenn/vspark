@@ -158,18 +158,33 @@ test('preview: a gesture does not put an entry on the undo stack', async ({
   const tabA = await context.newPage();
   await openAndSelect(tabA, projectId, 'UndoNode');
 
+  // Drive undo through the toolbar button rather than the keyboard, and gate on
+  // its enabled state. That is the only signal that the tab's peer is armed:
+  // until it is, commitNodePath falls back to REST, the write is authored by
+  // the SERVER, and it lands on nobody's undo stack. Pressing Ctrl+Z before
+  // then does nothing — which made this test fail on a worker's first (cold)
+  // run and pass on every later one.
+  const undo = tabA.locator('.vs-topbar-undo');
+
+  // Three preview frames, no commit: previews are not model state, so the undo
+  // stack stays empty throughout the gesture.
   await xBox(tabA).fill('1');
   await xBox(tabA).fill('2');
   await xBox(tabA).fill('3.5');
+  await expect(undo).toBeDisabled();
+
   await xBox(tabA).blur();
 
+  // One commit → exactly one undo entry, no matter how many frames the gesture
+  // produced.
+  await expect(undo).toBeEnabled();
   await expect
     .poll(async () => (await persistedTransform(request, sceneId, nodeId)).x, {
       timeout: 10_000,
     })
     .toBeCloseTo(3.5, 2);
 
-  await tabA.keyboard.press('Control+z');
+  await undo.click();
 
   await expect
     .poll(
@@ -177,6 +192,8 @@ test('preview: a gesture does not put an entry on the undo stack', async ({
       { timeout: 10_000 }
     )
     .toBe(0);
+  // Back to empty: one gesture cost one entry, so undoing once drains it.
+  await expect(undo).toBeDisabled();
 
   await context.close();
 });

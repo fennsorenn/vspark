@@ -225,7 +225,8 @@ export function ComposeSceneInteractions({
     lastPreviewAtRef.current = { nodeId, t: now };
     const node = useEditorStore.getState().nodes.find((n) => n.id === nodeId);
     const t = transformPayload(group, node, liveScale);
-    // Parallel run — see the matching note in Viewport's gizmo onChange.
+    // Mesh → local tabs, /ws → object-share subscribers. See the matching note
+    // in Viewport's gizmo onChange.
     previewNodeTransform(nodeId, t);
     sendNodeTransformPreview(nodeId, t);
   };

@@ -295,26 +295,23 @@ async function start() {
         msg.expressions ?? []
       );
     } else if (kind === 'node_transform_preview') {
-      // Live in-flight transform from a drag/wheel gesture in one client; relay
-      // to every other client without persisting. The eventual mouseup/settle
-      // commits via the REST PUT, which re-broadcasts the canonical state.
+      // Object-share subscribers only. The local relay that used to sit here is
+      // gone: a gesture now reaches every local tab as per-key overlays on the
+      // mesh `preview` channel, and broadcasting here as well just made every
+      // receiver tween the same value twice.
+      //
+      // A subscriber's projection is fed separately from the mesh store feeder,
+      // so it does not see those overlays yet — that is what still keeps this
+      // forward alive, and it goes when the object-share streams migrate.
       const p = payload as {
         nodeId?: string;
         transform?: Record<string, number>;
       };
-      if (typeof p.nodeId === 'string' && p.transform) {
-        wsSync.broadcast(
-          'node_transform_preview',
-          { nodeId: p.nodeId, transform: p.transform },
-          sourceWs
-        );
-        // Forward to share subscribers so dragging a shared object is smooth on
-        // the receiver (the committed PUT already forwards via sync.document).
+      if (typeof p.nodeId === 'string' && p.transform)
         multiplayerManager.forwardStream('node_transform_preview', p.nodeId, {
           nodeId: p.nodeId,
           transform: p.transform,
         });
-      }
     } else if (kind === 'shared_node_transform') {
       // Clip-driven transform of a *shared* object: forward to subscribers only,
       // never broadcast locally — the owner's own co-editor tabs evaluate the
