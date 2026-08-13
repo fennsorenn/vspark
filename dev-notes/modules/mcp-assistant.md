@@ -705,36 +705,42 @@ clients: it is spawned per-client, speaks JSON-RPC over the pipe, and reaches th
 backend over `VSPARK_BASE_URL` (loopback by default) with no listening socket of
 its own.
 
-## Known rough edge: seeded scenes duplicate
+## Case study: why "seeded scenes" became "empty scenes"
 
-`create_scene` is not a blank-scene constructor — `routes/scenes.ts` seeds every
-new scene with a **Camera**, a **"Key Light"** and a **"Fill Light"**. Ask the
-assistant to "create a scene with a key and fill light" and you get **four**
-lights: the seeded pair plus the pair it was told to add.
+Worth keeping, because it is a clean example of a class of bug this layer is
+uniquely prone to — and of what does *not* fix it.
 
-Verified live against a local vLLM (`gemma-4-12B`, 16k ctx):
+`POST /api/projects/:id/scenes` used to seed every new scene with a Camera, a
+"Key Light" and a "Fill Light". Driving the assistant against a local vLLM
+(`gemma-4-12B`, 16k ctx) with *"create a scene, add a Key Light and a Fill Light"*
+produced **four** lights: the seeded pair plus the requested pair.
 
-- Before documenting the seeding, the agent created the duplicate pair — it had no
-  way to know the scene was non-empty.
-- After adding the warning to the description, **the duplicate still happens**. The
-  model reads the note correctly (asked to create a scene and report its contents,
-  it lists the three defaults accurately) but an explicit "add a Key Light"
-  instruction outranks a cautionary note, which is reasonable behaviour.
+The instructive part is the two-step diagnosis:
 
-So the description is necessary but not sufficient, and this is **not** fixable by
-prompt-wording alone. Options, roughly in order of preference:
+1. **First hypothesis — the description was incomplete.** True, and worth fixing:
+   the description said only "Create a new 3D scene", omitting a materially
+   non-discoverable side effect. Fixed.
+2. **But the duplicate persisted.** The model *reads* the warning correctly —
+   asked to create a scene and report its contents, it accurately lists the three
+   seeded defaults. It simply won't let a cautionary note override an explicit
+   "add a Key Light" instruction, which is right of it.
 
-1. Give `create_scene` an `empty: boolean` (default false) that skips seeding, and
-   have the tool description tell the agent to prefer `empty: true` when the user
-   has specified their own lighting. Fixes the cause rather than the symptom.
-2. Make the seeding discoverable in the *return value* — have `create_scene`
-   return the seeded node list, not just the id, so the agent sees what exists
-   without a follow-up `list_scene_nodes`.
-3. Leave it, and let users delete the extras. Cheapest, but it makes the very
-   first thing an agent does look broken.
+**The lesson: a tool description can convey knowledge, but it cannot reliably
+override a user instruction.** If a tool's behaviour would make an agent's obvious
+next action wrong, fix the behaviour — do not paper over it in the description.
 
-Worth fixing before the assistant is put in front of non-technical users, since
-"make me a scene" is close to the most likely opening request.
+The fix inverted the default. Scenes are now **empty** unless the caller passes
+`populate: true`, since creating a scene and furnishing it are separate acts.
+Seeding survives as first-run onboarding, requested by exactly one caller
+(`Home.tsx`, on new-project creation). The seeded camera also gained an explicit
+`camera` component — it previously had none and so fell back to *perspective*,
+making it the one camera in the app that disagreed with the orthographic default
+every manually created camera uses (`createKinds.ts`).
+
+Re-verified live after the change: the same prompt now yields exactly two lights,
+and the agent additionally calls `lookup_component_schema` before creating them.
+Covered by two tests in `api.scenes.test.ts` (empty by default, seeded-and-
+orthographic on `populate: true`) — the old behaviour had no test at all.
 
 ## Adding / changing a tool
 

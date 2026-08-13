@@ -36,11 +36,14 @@ export function Home() {
         newDesc.trim() || undefined
       );
       // Give new projects a ready-to-use starting scene so the editor opens onto
-      // something instead of an empty void with no obvious next step. The backend
-      // auto-populates the scene with a camera + key/fill lights. Best-effort:
-      // the project is still usable if this fails and the user can add a scene.
+      // something instead of an empty void with no obvious next step. This is the
+      // ONLY caller that opts into seeding (`populate`) — scenes are otherwise
+      // empty, because furnishing one is a separate act from creating it.
+      // Best-effort: the project is still usable if this fails.
       try {
-        await api.createScene(project.id, t('defaultSceneName'));
+        await api.createScene(project.id, t('defaultSceneName'), {
+          populate: true,
+        });
       } catch {
         /* non-fatal */
       }

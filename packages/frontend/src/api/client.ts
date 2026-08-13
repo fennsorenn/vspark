@@ -543,10 +543,19 @@ export const getScenes = (projectId: string) =>
     })
   );
 
-export const createScene = (projectId: string, name: string) =>
+/**
+ * Create a scene. Empty by default — pass `populate: true` to seed it with a
+ * camera and key/fill lights, which is first-run onboarding rather than
+ * something scene creation should do on its own.
+ */
+export const createScene = (
+  projectId: string,
+  name: string,
+  opts?: { populate?: boolean }
+) =>
   request<Record<string, unknown>>(`/projects/${projectId}/scenes`, {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, populate: opts?.populate === true }),
   }).then(mapScene);
 
 export const updateScene = (

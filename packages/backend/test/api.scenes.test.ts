@@ -42,6 +42,45 @@ describe('scenes + scene-nodes API', () => {
       expect(list.body.data.scenes[0].id).toBe(sceneId);
     });
 
+    it('creates an EMPTY scene by default — no camera, no lights', async () => {
+      // Creating a scene and furnishing it are separate acts. Seeding used to be
+      // the default, which made an agent asked for "a scene with key and fill
+      // lights" produce four lights: the seeded pair plus the requested pair.
+      const projectId = await newProject();
+      const sceneId = await newScene(projectId);
+
+      const nodes = (await request(app).get(`/api/scenes/${sceneId}/nodes`)).body
+        .data as { kind: string; name: string }[];
+      expect(nodes).toEqual([]);
+    });
+
+    it('seeds a camera + key/fill lights when populate is explicitly true', async () => {
+      const projectId = await newProject();
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/scenes`)
+        .send({ name: 'Seeded', populate: true });
+      expect(res.status).toBe(201);
+
+      const nodes = (
+        await request(app).get(`/api/scenes/${res.body.data.id}/nodes`)
+      ).body.data as { kind: string; name: string; components: string }[];
+
+      expect(nodes.map((n) => n.name).sort()).toEqual([
+        'Camera',
+        'Fill Light',
+        'Key Light',
+      ]);
+      // The seeded camera must agree with a manually created one
+      // (createKinds.ts), which is orthographic. It previously carried no camera
+      // component at all and so silently fell back to perspective.
+      // NB this route returns `components` as a raw JSON string, not an object.
+      const cam = nodes.find((n) => n.kind === 'camera')!;
+      const camComponents = JSON.parse(cam.components) as {
+        camera?: { projection?: string };
+      };
+      expect(camComponents.camera?.projection).toBe('orthographic');
+    });
+
     it('rejects a scene without a name (400)', async () => {
       const projectId = await newProject();
       const res = await request(app).post(`/api/projects/${projectId}/scenes`).send({});
