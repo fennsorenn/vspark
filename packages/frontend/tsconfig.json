@@ -30,7 +30,8 @@
       "@vspark/shared/style_rig": ["../shared/src/style_rig.ts"],
       "@vspark/shared/blendshapeLimits": ["../shared/src/blendshapeLimits.ts"],
       "@vspark/shared/sync": ["../shared/src/sync.ts"],
-      "@vspark/shared/fracIndex": ["../shared/src/fracIndex.ts"]
+      "@vspark/shared/fracIndex": ["../shared/src/fracIndex.ts"],
+      "@vspark/shared/clipPlayback": ["../shared/src/clipPlayback.ts"]
     }
   },
   "include": ["src"]

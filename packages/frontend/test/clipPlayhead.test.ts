@@ -7,7 +7,11 @@
  * up as a clip that jumps whenever it is resumed or scrubbed.
  */
 import { describe, it, expect } from 'vitest';
-import { anchorFor, playbackDocId, playheadAt } from '../src/clipPlayhead';
+import {
+  anchorFor,
+  playbackDocId,
+  playheadAt,
+} from '@vspark/shared/clipPlayback';
 import type { ClipPlayback } from '../src/store/editorStore';
 
 const NOW = 1_700_000_000_000;

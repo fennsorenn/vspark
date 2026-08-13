@@ -15,6 +15,10 @@ export default defineConfig({
     // More-specific aliases must come before less-specific ones.
     alias: [
       { find: '@vspark/shared/fracIndex', replacement: shared('fracIndex.ts') },
+      {
+        find: '@vspark/shared/clipPlayback',
+        replacement: shared('clipPlayback.ts'),
+      },
       { find: '@vspark/shared/signal_types', replacement: shared('signal_types.ts') },
       { find: '@vspark/shared/signal', replacement: shared('signal.ts') },
       { find: '@vspark/shared/node_decorators', replacement: shared('node_decorators.ts') },

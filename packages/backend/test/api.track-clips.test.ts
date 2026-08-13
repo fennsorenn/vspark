@@ -234,22 +234,32 @@ describe('track-clips API (mesh-backed)', () => {
 
   // ── PLAYBACK CONTROL (503 without playback manager) ──────────────────────
 
-  it('returns 503 for trigger/stop/pause/resume/seek when playback manager is absent', async () => {
+  it('serves transport whenever the mesh store is up', async () => {
+    // This used to assert 503 across the board: the routes drove a separate
+    // in-memory playback manager, and an app with a working mesh store but no
+    // injected manager refused every transport call. They now write the
+    // clip_playback collection, so the manager is not a thing that can be
+    // missing — one fewer piece of wiring between an HTTP caller and a result.
     const clipId = (
       await request(app)
         .post(`/api/scene-nodes/${NODE}/track-clips`)
         .send({ name: 'PbClip' })
     ).body.data.id as string;
 
-    for (const verb of ['trigger', 'stop', 'pause', 'resume']) {
+    for (const verb of ['trigger', 'pause', 'resume', 'stop']) {
       const res = await request(app).post(`/api/track-clips/${clipId}/${verb}`);
-      expect(res.status).toBe(503);
-      expect(res.body.error.code).toBe('NOT_READY');
+      expect(res.status).toBe(200);
+      expect(res.body.data.id).toBe(clipId);
     }
     const seek = await request(app)
       .post(`/api/track-clips/${clipId}/seek`)
       .send({ t: 0 });
-    expect(seek.status).toBe(503);
-    expect(seek.body.error.code).toBe('NOT_READY');
+    expect(seek.status).toBe(200);
+  });
+
+  it('404s transport on an unknown clip', async () => {
+    const res = await request(app).post('/api/track-clips/nope/trigger');
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
   });
 });

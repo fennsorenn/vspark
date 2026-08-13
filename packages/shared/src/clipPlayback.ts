@@ -6,8 +6,23 @@
  * principle 1 in dev-notes/modules/mesh.md. These are the pure functions that
  * derivation is made of, kept apart from both the evaluator (which runs them 60
  * times a second) and the write helpers (which run them in reverse to re-anchor).
+ *
+ * Shared rather than per-package on purpose: the backend runs the same functions
+ * to answer REST transport calls and to spot a finished clip, and a second copy
+ * of the arithmetic would drift from this one silently.
  */
-import type { ClipPlayback } from './store/editorStore';
+/** A track clip's transport state — the `clip_playback` document. */
+export interface ClipPlaybackDoc {
+  id: string;
+  clipId: string;
+  state: 'playing' | 'paused' | 'stopped';
+  /** Clock-anchored start (ms), localized onto the reading peer's clock. */
+  startEpoch: number | null;
+  /** Playhead in seconds, frozen while paused. */
+  pausedAtT: number | null;
+  speed: number;
+  loop: boolean;
+}
 
 /** The doc id for a clip's playback state.
  *
@@ -25,7 +40,7 @@ export const playbackDocId = (clipId: string): string => `pb:${clipId}`;
  *  frozen value. Stopped (or never played): null — the caller should drive
  *  nothing at all rather than hold the clip at zero. */
 export function playheadAt(
-  pb: ClipPlayback | undefined,
+  pb: ClipPlaybackDoc | undefined,
   now = Date.now()
 ): number | null {
   if (!pb || pb.state === 'stopped') return null;

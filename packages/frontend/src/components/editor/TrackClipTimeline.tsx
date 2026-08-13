@@ -144,35 +144,18 @@ function TimelineEditor({
     onUpdate(updated);
   };
 
-  // Transport writes the mesh document AND still calls the REST endpoint, for
-  // the length of the parallel run. The mesh entry is what the evaluator reads;
-  // the REST call keeps the backend playhead in step, which other things still
-  // hang off (the clip-finished callback that tears down spawned entities, and
-  // the signal nodes that trigger clips). Both go when that playhead does.
+  // Transport writes the mesh document, and nothing else. The REST endpoints
+  // still exist for outside services, but they now write the same collection —
+  // so calling them from here would just author the same document twice.
   //
   // None of these are undoable — see mesh/playbackWrites.
-  const handlePlay = () => {
-    commitPlay(clip.id, clip.loop);
-    api.triggerTrackClip(clip.id).catch(() => {});
-  };
-  const handleStop = () => {
-    commitStop(clip.id);
-    api.stopTrackClip(clip.id).catch(() => {});
-  };
-  const handlePause = () => {
-    commitPause(clip.id);
-    api.pauseTrackClip(clip.id).catch(() => {});
-  };
-  const handleResume = () => {
-    commitResume(clip.id);
-    api.resumeTrackClip(clip.id).catch(() => {});
-  };
+  const handlePlay = () => commitPlay(clip.id, clip.loop);
+  const handleStop = () => commitStop(clip.id);
+  const handlePause = () => commitPause(clip.id);
+  const handleResume = () => commitResume(clip.id);
   /** Scrub released. The in-flight drag rides the preview channel (see
    *  ScrubRuler); this is the commit. */
-  const handleSeek = (t: number) => {
-    commitSeek(clip.id, t);
-    api.seekTrackClip(clip.id, t).catch(() => {});
-  };
+  const handleSeek = (t: number) => commitSeek(clip.id, t);
   const handleScrubPreview = (t: number) => previewSeek(clip.id, t);
 
   const handleAddLane = async (

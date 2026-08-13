@@ -1,6 +1,14 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
+import {
+  clipExists,
+  pauseClip,
+  resumeClip,
+  seekClip,
+  stopClip,
+  triggerClip,
+} from '../track_clips/playbackDoc.js';
 import { _ws, _trackClipPlayback, _clipPlaybackForwarder } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
 
@@ -544,25 +552,23 @@ router.put('/track-clip-lanes/:id/keyframes', async (req, res) => {
  * /api/track-clips/{id}/trigger:
  *   post:
  *     tags: [track_clips]
- *     summary: Start playback now. Broadcasts track_clip_started.
+ *     summary: Start playback now. Writes the clip_playback document.
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
  *       200: { description: Triggered }
  */
 router.post('/track-clips/:id/trigger', (req, res) => {
-  if (!_trackClipPlayback) {
+  if (!clipExists(req.params.id))
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  if (!triggerClip(req.params.id))
     return res.status(503).json({
       ok: false,
-      error: {
-        status: 503,
-        message: 'playback manager not ready',
-        code: 'NOT_READY',
-      },
+      error: { status: 503, message: 'store not ready', code: 'NOT_READY' },
     });
-  }
-  _trackClipPlayback.trigger(req.params.id);
-  _clipPlaybackForwarder?.(req.params.id, 'trigger');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -571,25 +577,23 @@ router.post('/track-clips/:id/trigger', (req, res) => {
  * /api/track-clips/{id}/stop:
  *   post:
  *     tags: [track_clips]
- *     summary: Stop playback. Broadcasts track_clip_stopped.
+ *     summary: Stop playback. Writes the clip_playback document.
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
  *       200: { description: Stopped }
  */
 router.post('/track-clips/:id/stop', (req, res) => {
-  if (!_trackClipPlayback) {
+  if (!clipExists(req.params.id))
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  if (!stopClip(req.params.id))
     return res.status(503).json({
       ok: false,
-      error: {
-        status: 503,
-        message: 'playback manager not ready',
-        code: 'NOT_READY',
-      },
+      error: { status: 503, message: 'store not ready', code: 'NOT_READY' },
     });
-  }
-  _trackClipPlayback.stop(req.params.id);
-  _clipPlaybackForwarder?.(req.params.id, 'stop');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -605,18 +609,16 @@ router.post('/track-clips/:id/stop', (req, res) => {
  *       200: { description: Paused }
  */
 router.post('/track-clips/:id/pause', (req, res) => {
-  if (!_trackClipPlayback) {
+  if (!clipExists(req.params.id))
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  if (!pauseClip(req.params.id))
     return res.status(503).json({
       ok: false,
-      error: {
-        status: 503,
-        message: 'playback manager not ready',
-        code: 'NOT_READY',
-      },
+      error: { status: 503, message: 'store not ready', code: 'NOT_READY' },
     });
-  }
-  _trackClipPlayback.pause(req.params.id);
-  _clipPlaybackForwarder?.(req.params.id, 'pause');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -632,18 +634,16 @@ router.post('/track-clips/:id/pause', (req, res) => {
  *       200: { description: Resumed }
  */
 router.post('/track-clips/:id/resume', (req, res) => {
-  if (!_trackClipPlayback) {
+  if (!clipExists(req.params.id))
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  if (!resumeClip(req.params.id))
     return res.status(503).json({
       ok: false,
-      error: {
-        status: 503,
-        message: 'playback manager not ready',
-        code: 'NOT_READY',
-      },
+      error: { status: 503, message: 'store not ready', code: 'NOT_READY' },
     });
-  }
-  _trackClipPlayback.resume(req.params.id);
-  _clipPlaybackForwarder?.(req.params.id, 'resume');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -667,18 +667,8 @@ router.post('/track-clips/:id/resume', (req, res) => {
  *       200: { description: Seeked }
  */
 router.post('/track-clips/:id/seek', (req, res) => {
-  if (!_trackClipPlayback) {
-    return res.status(503).json({
-      ok: false,
-      error: {
-        status: 503,
-        message: 'playback manager not ready',
-        code: 'NOT_READY',
-      },
-    });
-  }
   const t = Number(req.body?.t);
-  if (!Number.isFinite(t)) {
+  if (!Number.isFinite(t))
     return res.status(400).json({
       ok: false,
       error: {
@@ -687,9 +677,16 @@ router.post('/track-clips/:id/seek', (req, res) => {
         code: 'VALIDATION_ERROR',
       },
     });
-  }
-  _trackClipPlayback.seek(req.params.id, t);
-  _clipPlaybackForwarder?.(req.params.id, 'seek', t);
+  if (!clipExists(req.params.id))
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  if (!seekClip(req.params.id, t))
+    return res.status(503).json({
+      ok: false,
+      error: { status: 503, message: 'store not ready', code: 'NOT_READY' },
+    });
   res.json({ ok: true, data: { id: req.params.id, t } });
 });
 

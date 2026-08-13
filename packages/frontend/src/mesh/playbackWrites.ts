@@ -13,7 +13,11 @@
  * dev-notes/modules/mesh.md (Undo / redo → Opting out).
  */
 import { getMeshHandles } from './peer';
-import { anchorFor, playbackDocId, playheadAt } from '../clipPlayhead';
+import {
+  anchorFor,
+  playbackDocId,
+  playheadAt,
+} from '@vspark/shared/clipPlayback';
 import { useEditorStore, type ClipPlayback } from '../store/editorStore';
 
 /** Transport never lands on the undo stack. */

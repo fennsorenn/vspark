@@ -104,7 +104,28 @@ The mount must still be an **explicit act** rather than inferred from "we hold
 no state for this": a dropped socket and a fresh mount look alike at the
 transport level.
 
-### 5. Seed at create
+### 5. The REST API stays — it writes THROUGH the mesh
+
+Migrating a write off REST means changing what the endpoint does, never deleting
+it. `/api` is a **public surface for outside services** (stream tooling,
+automation, integrations), and it keeps working regardless of what the editor UI
+does.
+
+So a migrated endpoint becomes a thin adapter: validate, then write the
+collection, exactly as a tab would. It does not touch SQLite directly and does
+not broadcast its own WS message — persistence and fan-out both fall out of the
+mesh write.
+
+The one thing an external caller does not get is undo, and that is correct
+rather than a gap: a REST write is authored by the SERVER, so it lands on no
+peer's undo stack. Undo belongs to the peer that made the edit, and an HTTP
+client is not one.
+
+What DOES get deleted is the bespoke machinery beside the mesh — in-memory state
+that duplicates a collection, WS kinds that re-send what the mesh already fanned
+out, and snapshot-on-connect handlers that reimplement retention.
+
+### 6. Seed at create
 
 "Set this only if nobody has set it" is a read-then-write, and last-write-wins
 cannot protect the gap between the read and the write — two peers can both

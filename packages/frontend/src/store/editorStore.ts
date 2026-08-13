@@ -10,6 +10,7 @@ import type {
   TrackClipEventRecord,
 } from '../api/client';
 import type { UpdateChannel } from '@vspark/shared';
+import type { ClipPlaybackDoc } from '@vspark/shared/clipPlayback';
 import {
   Aperture,
   Blend,
@@ -53,17 +54,7 @@ export interface ScheduledAnimation {
  *
  *  `state: 'stopped'` is a real entry, not an absent one; a clip that has never
  *  been played simply has no entry at all. */
-export interface ClipPlayback {
-  id: string;
-  clipId: string;
-  state: 'playing' | 'paused' | 'stopped';
-  /** Clock-anchored start (ms), translated onto this client's clock. */
-  startEpoch: number | null;
-  /** Playhead in seconds, frozen while paused. */
-  pausedAtT: number | null;
-  speed: number;
-  loop: boolean;
-}
+export type ClipPlayback = ClipPlaybackDoc;
 
 /** A content-addressed animation clip (an animation_clip doc). The avatar
  *  animation driver resolves a timeline/idle `clipId` to its source asset URL

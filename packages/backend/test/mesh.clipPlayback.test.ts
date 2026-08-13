@@ -182,3 +182,118 @@ describe('clip_playback collection', () => {
     expect(col.get('pb1')).toBeDefined();
   });
 });
+
+/**
+ * The REST transport endpoints stay — `/api` is a public surface for outside
+ * services — but they now write the clip_playback collection instead of driving
+ * an in-memory playhead and broadcasting their own WS kinds. These assert the
+ * HTTP contract is unchanged AND that the document is what actually moves.
+ */
+describe('REST transport endpoints write through the mesh', () => {
+  let app: Express;
+  beforeEach(async () => {
+    ({ app } = await makeTestApp({ mesh: true }));
+  });
+
+  async function seedClip(): Promise<string> {
+    const projectId = (
+      await request(app).post('/api/projects').send({ name: 'P' })
+    ).body.data.id as string;
+    const sceneId = (
+      await request(app)
+        .post(`/api/projects/${projectId}/scenes`)
+        .send({ name: 'S', populate: false })
+    ).body.data.id as string;
+    const nodeId = (
+      await request(app)
+        .post(`/api/scenes/${sceneId}/nodes`)
+        .send({ name: 'N', kind: 'group' })
+    ).body.data.id as string;
+    return (
+      await request(app)
+        .post(`/api/scene-nodes/${nodeId}/track-clips`)
+        .send({ name: 'C', duration: 10 })
+    ).body.data.id as string;
+  }
+
+  const doc = (clipId: string) =>
+    getMeshCollection('clip_playback')!.get(`pb:${clipId}`) as
+      | Record<string, unknown>
+      | undefined;
+
+  it('trigger starts the clip in the document', async () => {
+    const clipId = await seedClip();
+    const res = await request(app).post(`/api/track-clips/${clipId}/trigger`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.id).toBe(clipId);
+    expect(doc(clipId)).toMatchObject({ clipId, state: 'playing' });
+    expect(typeof doc(clipId)?.startEpoch).toBe('number');
+  });
+
+  it('pause / resume / stop move the same document', async () => {
+    const clipId = await seedClip();
+    await request(app).post(`/api/track-clips/${clipId}/trigger`);
+
+    expect(
+      (await request(app).post(`/api/track-clips/${clipId}/pause`)).status
+    ).toBe(200);
+    expect(doc(clipId)?.state).toBe('paused');
+
+    expect(
+      (await request(app).post(`/api/track-clips/${clipId}/resume`)).status
+    ).toBe(200);
+    expect(doc(clipId)?.state).toBe('playing');
+
+    expect(
+      (await request(app).post(`/api/track-clips/${clipId}/stop`)).status
+    ).toBe(200);
+    expect(doc(clipId)).toMatchObject({
+      state: 'stopped',
+      startEpoch: null,
+      pausedAtT: null,
+    });
+  });
+
+  it('seek on a stopped clip parks the playhead', async () => {
+    const clipId = await seedClip();
+    const res = await request(app)
+      .post(`/api/track-clips/${clipId}/seek`)
+      .send({ t: 4 });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ id: clipId, t: 4 });
+    expect(doc(clipId)).toMatchObject({ state: 'paused', pausedAtT: 4 });
+  });
+
+  it('seek while playing keeps it playing, re-anchored', async () => {
+    const clipId = await seedClip();
+    await request(app).post(`/api/track-clips/${clipId}/trigger`);
+    await request(app).post(`/api/track-clips/${clipId}/seek`).send({ t: 3 });
+    const d = doc(clipId)!;
+    expect(d.state).toBe('playing');
+    // Anchored 3s in the past, so the derived playhead reads ~3.
+    expect(Date.now() - (d.startEpoch as number)).toBeGreaterThanOrEqual(2900);
+  });
+
+  it('the write is persisted, not just replicated', async () => {
+    const clipId = await seedClip();
+    await request(app).post(`/api/track-clips/${clipId}/trigger`);
+    const row = getDb()
+      .prepare('SELECT state FROM clip_playback WHERE clip_id = ?')
+      .get(clipId) as { state: string } | undefined;
+    expect(row?.state).toBe('playing');
+  });
+
+  it('still validates: seek without a numeric t is a 400', async () => {
+    const clipId = await seedClip();
+    const res = await request(app)
+      .post(`/api/track-clips/${clipId}/seek`)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('404s on a clip that does not exist, rather than writing a document', async () => {
+    const res = await request(app).post('/api/track-clips/nope/trigger');
+    expect(res.status).toBe(404);
+    expect(doc('nope')).toBeUndefined();
+  });
+});
