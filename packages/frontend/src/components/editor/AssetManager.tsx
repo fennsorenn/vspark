@@ -144,12 +144,17 @@ export function AssetManager() {
 
   // A Live2D model is a folder (manifest + moc3 + textures), not a single file;
   // `webkitdirectory` isn't in React's input attribute types, so set it directly.
+  //
+  // Depends on `tab`: the input is only RENDERED while the Models tab is open,
+  // so a mount-only effect ran when the ref was still null, silently left the
+  // attribute unset, and the picker offered single files — which made the whole
+  // bundle flow look broken.
   useEffect(() => {
     const el = live2dInputRef.current;
     if (!el) return;
     el.setAttribute('webkitdirectory', '');
     el.setAttribute('directory', '');
-  }, []);
+  }, [tab]);
 
   // The Models tab holds both 3D models (vrm/glb) and Live2D bundles.
   const models = assets.filter(
