@@ -15,6 +15,7 @@ import {
   makeKey,
   subscriptionMatches,
   compareHLC,
+  randomUUID,
   type Grant,
   type HLC,
   type Right,
@@ -114,7 +115,7 @@ const CLOCK_INTERVAL_MS = 10_000;
 /** Sliding sample window for the minimum-delay filter. */
 const CLOCK_WINDOW = 8;
 
-const uuid = (): string => globalThis.crypto.randomUUID();
+const uuid = (): string => randomUUID();
 
 export class MeshPeer implements PeerCore {
   readonly id: string;

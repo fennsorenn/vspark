@@ -11,6 +11,7 @@
     "prebundle": "node scripts/buildMigrations.mjs",
     "pretest": "node scripts/buildMigrations.mjs",
     "dev": "tsx watch src/index.ts",
+    "mcp:stdio": "tsx src/mcp/stdio.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "tsc --noEmit",
@@ -18,8 +19,12 @@
     "test:coverage": "vitest run --coverage",
     "bundle": "node bundle.mjs"
   },
+  "bin": {
+    "vspark-mcp": "dist/mcp-stdio.cjs"
+  },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@overlive/core": "^0.3.0",
     "@overlive/emotes": "^0.2.0",
     "@overlive/se": "^0.2.0",

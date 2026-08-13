@@ -181,6 +181,11 @@ export interface NodeProperties {
   /** VRM avatar: seconds to ramp between override and additive when the bus flips
    *  blend mode (e.g. on tracking loss). Default 0.5. */
   blendTransitionTime?: number;
+  /** VRM avatar: seconds a tracking dropout is tolerated before the avatar is
+   *  treated as untracked and falls back to idle. Pairs with
+   *  `blendTransitionTime` — this is when the return starts, that is how fast it
+   *  runs. Shared by every tracking source on the node. Default 2. */
+  trackingGracePeriod?: number;
   /** VRM avatar: resting expression weights (expression name → 0..1) applied as a
    *  baseline each frame; live blendshape broadcasts override them per-key. */
   defaultExpressions?: Record<string, number>;
@@ -546,10 +551,19 @@ export const getScenes = (projectId: string) =>
     })
   );
 
-export const createScene = (projectId: string, name: string) =>
+/**
+ * Create a scene. Empty by default — pass `populate: true` to seed it with a
+ * camera and key/fill lights, which is first-run onboarding rather than
+ * something scene creation should do on its own.
+ */
+export const createScene = (
+  projectId: string,
+  name: string,
+  opts?: { populate?: boolean }
+) =>
   request<Record<string, unknown>>(`/projects/${projectId}/scenes`, {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, populate: opts?.populate === true }),
   }).then(mapScene);
 
 export const updateScene = (
@@ -1001,9 +1015,14 @@ export const applyUpdate = () =>
 export const getConfig = () =>
   request<import('@vspark/shared').AppConfig>('/config');
 
-export const putConfig = (cfg: Partial<import('@vspark/shared').AppConfig>) =>
+/**
+ * Patch one or more app-config fields. PATCH, not PUT: nothing ever writes the
+ * whole config at once, and a partial PUT would be a lie about the semantics.
+ * Unknown keys and empty bodies are rejected server-side (400).
+ */
+export const patchConfig = (cfg: Partial<import('@vspark/shared').AppConfig>) =>
   request<import('@vspark/shared').AppConfig>('/config', {
-    method: 'PUT',
+    method: 'PATCH',
     body: JSON.stringify(cfg),
   });
 
@@ -1360,7 +1379,7 @@ export const api = {
   startUpdateDownload,
   applyUpdate,
   getConfig,
-  putConfig,
+  patchConfig,
   getProjects,
   createProject,
   deleteProject,

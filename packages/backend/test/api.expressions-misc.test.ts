@@ -234,12 +234,12 @@ describe('expressions + meta + config API', () => {
     });
   });
 
-  // --- config: PUT /api/config ---
+  // --- config: PATCH /api/config ---
 
-  describe('config (PUT /api/config)', () => {
+  describe('config (PATCH /api/config)', () => {
     it('updates channel to a valid value', async () => {
       const update = await request(app)
-        .put('/api/config')
+        .patch('/api/config')
         .send({ channel: 'experimental' });
       expect(update.status).toBe(200);
       expect(update.body.ok).toBe(true);
@@ -252,28 +252,48 @@ describe('expressions + meta + config API', () => {
 
     it('preserves existing config when updating', async () => {
       // Set an initial state
-      await request(app).put('/api/config').send({ channel: 'stable' });
+      await request(app).patch('/api/config').send({ channel: 'stable' });
 
       // Update
       const update = await request(app)
-        .put('/api/config')
+        .patch('/api/config')
         .send({ channel: 'recent' });
       expect(update.body.data.channel).toBe('recent');
     });
 
-    it('treats a channel-less body as a partial update (preserves channel)', async () => {
-      // PUT /config is a partial update (it also carries live2dLicenseAccepted),
-      // so a body without `channel` is a valid no-op for the channel and keeps
-      // whatever channel was already stored.
-      await request(app).put('/api/config').send({ channel: 'recent' });
-      const res = await request(app).put('/api/config').send({});
+    it('400s on an empty patch instead of silently succeeding', async () => {
+      // PATCH means "change these fields"; changing nothing is a caller mistake,
+      // not a no-op worth reporting as success.
+      await request(app).patch('/api/config').send({ channel: 'recent' });
+      const res = await request(app).patch('/api/config').send({});
+      expect(res.status).toBe(400);
+
+      // …and the stored channel is untouched.
+      const read = await request(app).get('/api/config');
+      expect(read.body.data.channel).toBe('recent');
+    });
+
+    it('400s on an unknown field so a typo is not a silent no-op', async () => {
+      const res = await request(app)
+        .patch('/api/config')
+        .send({ chanel: 'stable' });
+      expect(res.status).toBe(400);
+      expect(res.body.error.message).toContain('chanel');
+    });
+
+    it('patches live2dLicenseAccepted without touching the channel', async () => {
+      await request(app).patch('/api/config').send({ channel: 'experimental' });
+      const res = await request(app)
+        .patch('/api/config')
+        .send({ live2dLicenseAccepted: true });
       expect(res.status).toBe(200);
-      expect(res.body.data.channel).toBe('recent');
+      expect(res.body.data.live2dLicenseAccepted).toBe(true);
+      expect(res.body.data.channel).toBe('experimental');
     });
 
     it('400s when channel is not a valid update channel', async () => {
       const res = await request(app)
-        .put('/api/config')
+        .patch('/api/config')
         .send({ channel: 'invalid-channel' });
       expect(res.status).toBe(400);
       expect(res.body.error).toBeDefined();
@@ -281,16 +301,16 @@ describe('expressions + meta + config API', () => {
     });
 
     it('400s when channel is null or empty string', async () => {
-      const res1 = await request(app).put('/api/config').send({ channel: null });
+      const res1 = await request(app).patch('/api/config').send({ channel: null });
       expect(res1.status).toBe(400);
 
-      const res2 = await request(app).put('/api/config').send({ channel: '' });
+      const res2 = await request(app).patch('/api/config').send({ channel: '' });
       expect(res2.status).toBe(400);
     });
 
     it('accepts all three valid channels', async () => {
       for (const channel of ['stable', 'recent', 'experimental']) {
-        const res = await request(app).put('/api/config').send({ channel });
+        const res = await request(app).patch('/api/config').send({ channel });
         expect(res.status).toBe(200);
         expect(res.body.data.channel).toBe(channel);
       }

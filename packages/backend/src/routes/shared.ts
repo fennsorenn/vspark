@@ -4,8 +4,11 @@ import { join, extname, basename } from 'path';
 import { getDb } from '../db/index.js';
 import { extractVrmMetadata } from '../vrm/metadata.js';
 import type { VmcManager } from '../behaviors/vmc_receiver/manager.js';
+import type { IFacialMocapManager } from '../behaviors/ifacialmocap_receiver/manager.js';
 import type { BreathingManager } from '../behaviors/breathing/manager.js';
 import type { ManualCalibrationManager } from '../behaviors/manual_calibration/manager.js';
+import type { PoseStylizerManager } from '../behaviors/pose_stylizer/manager.js';
+import type { BlendshapeLimiterManager } from '../behaviors/blendshape_limiter/manager.js';
 import type { LipsyncManager } from '../behaviors/lipsync/manager.js';
 import type { TrackingManager } from '../behaviors/mediapipe_tracker/manager.js';
 import type { ApiControllerManager } from '../behaviors/api_controller/manager.js';
@@ -19,6 +22,11 @@ export function setVmcManager(m: VmcManager) {
   _vmc = m;
 }
 
+export let _ifacialMocap: IFacialMocapManager | null = null;
+export function setIFacialMocapManager(m: IFacialMocapManager) {
+  _ifacialMocap = m;
+}
+
 export let _breathing: BreathingManager | null = null;
 export function setBreathingManager(m: BreathingManager) {
   _breathing = m;
@@ -27,6 +35,16 @@ export function setBreathingManager(m: BreathingManager) {
 export let _manualCalibration: ManualCalibrationManager | null = null;
 export function setManualCalibrationManager(m: ManualCalibrationManager) {
   _manualCalibration = m;
+}
+
+export let _poseStylizer: PoseStylizerManager | null = null;
+export function setPoseStylizerManager(m: PoseStylizerManager) {
+  _poseStylizer = m;
+}
+
+export let _blendshapeLimiter: BlendshapeLimiterManager | null = null;
+export function setBlendshapeLimiterManager(m: BlendshapeLimiterManager) {
+  _blendshapeLimiter = m;
 }
 
 export let _lipsync: LipsyncManager | null = null;
@@ -88,6 +106,14 @@ export function refreshVmc() {
   _vmc.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
+export function refreshIFacialMocap() {
+  if (!_ifacialMocap) return;
+  const rows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'ifacialmocap_receiver'")
+    .all() as Record<string, unknown>[];
+  _ifacialMocap.syncBehaviors(rows.map(_mapBehaviorRow));
+}
+
 export function refreshBreathing() {
   if (!_breathing) return;
   const rows = getDb()
@@ -102,6 +128,22 @@ export function refreshManualCalibration() {
     .prepare("SELECT * FROM behaviors WHERE kind = 'manual_calibration'")
     .all() as Record<string, unknown>[];
   _manualCalibration.syncBehaviors(rows.map(_mapBehaviorRow));
+}
+
+export function refreshPoseStylizer() {
+  if (!_poseStylizer) return;
+  const rows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'pose_stylizer'")
+    .all() as Record<string, unknown>[];
+  _poseStylizer.syncBehaviors(rows.map(_mapBehaviorRow));
+}
+
+export function refreshBlendshapeLimiter() {
+  if (!_blendshapeLimiter) return;
+  const rows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'blendshape_limiter'")
+    .all() as Record<string, unknown>[];
+  _blendshapeLimiter.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
 export function refreshLipsync() {
@@ -130,8 +172,11 @@ export function refreshApiController() {
 
 export function refreshAllBehaviorManagers() {
   refreshVmc();
+  refreshIFacialMocap();
   refreshBreathing();
   refreshManualCalibration();
+  refreshPoseStylizer();
+  refreshBlendshapeLimiter();
   refreshLipsync();
   refreshTracking();
   refreshApiController();

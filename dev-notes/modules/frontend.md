@@ -118,7 +118,7 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 
   Bones absent from the broadcast pose are restored to `animQ`. This is how breathing (and any future additive producer) layers cleanly on top of an FBX-driven animation.
 
-**Tracking ↔ animation stacking**: in `override` blend mode Step 2 runs a universal per-bone **stacking** loop (rest → base animation by the section Anim influence, then the tracking delta scaled by Track stacked on top) via the pure `poseComposition.ts` `stackBoneRotation` helper + a `BONE_TO_SECTION` map. This replaced the old full-override `setNormalizedPose` + per-section branches. The avatar node's `poseSource` scales the layers per body section; a dedicated no-feed branch applies the Anim influence before any tracking source connects. See [animation.md](animation.md) (Tracking ↔ animation stacking + partial tracking).
+**Tracking ↔ animation stacking**: in `override` blend mode Step 2 runs a universal per-bone **stacking** loop (rest → base animation by the section Anim influence, then the tracking delta scaled by Track stacked on top) via the pure `poseComposition.ts` `stackBoneRotation` helper + a `BONE_TO_SECTION` map. This replaced the old full-override `setNormalizedPose` + per-section branches. The avatar node's `poseSource` scales the layers per body section; a dedicated no-feed branch plays the idle **straight** (full strength, levers not applied) whenever there is no live tracking. See [animation.md](animation.md) (Tracking ↔ animation stacking + partial tracking).
 
 `blendTransitionTime` is now read from the VRM avatar node's `properties.blendTransitionTime` (default 0.5s) and controls the ramp between blend modes (and between "apply" and "don't apply" when the bus drops the last producer).
 
@@ -126,7 +126,7 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 
 **Forearm twist bones**: after the IK solve + pose application (`setNormalizedPose`/`update`) and before the spring/snappiness updates, `driveForearmTwist(node.id)` (from `components/editor/twistBones.ts`) routes the `lowerArm` roll onto a forearm twist bone so it spreads along the forearm instead of pinching at the elbow. Setup/teardown run in an `AvatarNode` effect keyed on VRM load + the `node.properties.forceTwistBone` flag; the drive is a no-op when no twist bone is set up. Frontend-only, additive over the backend's `ARM_ROLL_UPPER_SHARE` split. See [twist-bones.md](twist-bones.md).
 
-`poseTimeout` is retained as a client-side safety net for missed WS transition messages — flagged for review once the new flow proves robust. See [component-managers.md](component-managers.md) BroadcastBus section.
+**Client-side pose watchdog**: `POSE_TIMEOUT_MS = Math.max(0.1, node.properties?.trackingGracePeriod ?? 2) * 1000`. It exists only to cover the **server→client leg** — pose updates that stop arriving without a matching transition message (e.g. a WS reconnect mid-deactivation); the tracking sources hold their own grace period server-side. Reading the node property rather than a hardcoded 2s is load-bearing: at a fixed window any longer server-side setting was overruled before it had elapsed, dropping the avatar to idle early. See [animation.md](animation.md) (Tracking-loss grace period).
 
 **Animation retargeting**: FBX/BVH bone names → VRM bone names. Supports Mixamo and UE4 rig conventions. World-space delta retargeting (not local-space — see memory `feedback_fbx_retargeting.md`).
 
@@ -177,6 +177,8 @@ Inspector for the selected node. Sections:
 - New `BreathingProps` panel for breathing behaviors: **Chest amplitude** + **Shoulder lift** fields, writing to behavior config `chestAmplitude` / `shoulderAmplitude`. See [component-managers.md](component-managers.md) BreathingManager.
 
 **Manual calibration panel (implemented)**: `ManualCalibrationProps` (dispatcher case `manual_calibration`) lists ALL VRM bones (`VRM_BONE_NAMES`), each a collapsible section with **Multiplier** (X/Y/Z, default 1) and **Offset** (X/Y/Z, in degrees, default 0) `VecInput`s, a per-bone reset, a **Reset all** button, and a modified-bone marker (●) + count. Persists only non-default bone entries into behavior config `calibrations`. See [component-managers.md](component-managers.md) ManualCalibrationManager.
+
+**Expression limits panel (implemented)**: `BlendshapeLimiterProps` (dispatcher case `blendshape_limiter`) edits the behavior's `limits` rule set. Layout: a master **Limits active** switch + **Reset to defaults**, an *Exclusive groups* section (per-group card: enable, label, mode `suppress`/`normalize`, strength, then one row per member with its name patterns), a *Clamp rules* section (per-rule card: enable, label, driver, targets, min/max, threshold, ramp), and a collapsed *Raw JSON* section with **Apply**/**Discard** for copying a tuned configuration between avatars. Name patterns are edited with `NameListEditor` — removable chips plus an add-field backed by a shared `<datalist>` of the loaded avatar's real expression + morph-target names (via `assetMetaForNode` / `liveOrMetaList`, so it populates before the viewport loads the model), while still accepting a typed `*` wildcard the model list can't offer. The panel renders through `normalizeBlendshapeLimits`, so a malformed stored document shows as "fewer rules" rather than blowing up, and the JSON editor keeps its draft in local state until Apply so half-typed documents are never written. Controls carry `vs-bslimits-*` handles. See [component-managers.md](component-managers.md) BlendshapeLimiterManager.
 
 **Avatar section (implemented)**:
 - The inline animation-asset list (the grid of clickable animation buttons) was removed. Animations are picked via the bottom-dock **Animations** tab; the Avatar section's **Pick…** button only flashes that tab. The idle picker now writes a content-addressed `properties.animation.idle = { clipId, speed }` (it reads either the new shape or the legacy `components.animation.idleUrl`, but editing always writes the legacy shape + clears the migrated idle so the frontend lazy migration re-derives a fresh clip id — a single edit path). The offset input and the local pause/seek/stop transport were dropped; playback is driven by the synced `scheduled_animation` timeline. See [animation.md](animation.md).
@@ -242,6 +244,12 @@ formerly labelled "Components" and "Clips"). File upload sends base64 to
 
 ### `signal/SignalGraphCanvas.tsx`
 Visual graph editor. Renders `SignalNodeCard` components connected by bezier edges. Node palette via `NodePalette`. Supports node drag, edge drawing, and live port value display (via `/api/signal/graphs/:id/node-states` polling).
+
+## AI Assistant window — `components/editor/AssistantWindow.tsx`
+
+A draggable floating chat window (mirrors `HelpWindow`), mounted in `Editor.tsx` and toggled from the TopBar `🤖 Assistant` button (`vs-topbar-assistant`). It renders the conversation transcript plus a tool-activity trace, and probes `/api/config` on mount to learn whether an assistant LLM endpoint is configured (`available`).
+
+State lives in a **standalone** `store/assistantStore.ts` (Zustand, mirroring `helpStore`'s self-contained pattern), not the main editor store. The transcript is a flat `entries` list of `user` / `assistant` / `tool` / `error` items; `tool` entries are created on call and patched in place when the result arrives. `useWsSync` gains `sendAssistantMessage` / `sendAssistantReset` helpers and inbound `assistant_text` / `assistant_tool_call` / `assistant_tool_result` / `assistant_error` / `assistant_done` handlers that feed the store. New `vs-` handles: `vs-assistant-input/-send/-close/-clear/-reset`. The agent itself runs server-side — see [mcp-assistant.md](mcp-assistant.md).
 
 ## VRM loading
 

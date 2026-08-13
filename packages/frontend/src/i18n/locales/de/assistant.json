@@ -1,0 +1,15 @@
+{
+  "title": "Assistent",
+  "label": "Assistent",
+  "topbarTip": "KI-Assistenten öffnen",
+  "helpTip": "Über den Assistenten",
+  "close": "Schließen",
+  "clear": "Unterhaltung leeren",
+  "send": "Senden",
+  "placeholder": "Bitte den Assistenten, etwas zu erstellen oder zu ändern…",
+  "emptyHint": "Bitte mich, Objekte, Compose-Ebenen, Feed-Vorlagen zu erstellen oder einen Logikgraphen zu verdrahten. Ich nutze dafür die Projektwerkzeuge.",
+  "working": "Arbeite…",
+  "notConfigured": "Für den Assistenten ist kein Sprachmodell-Endpunkt konfiguriert. Lege einen in den Assistenten-Einstellungen fest, um ihn zu aktivieren.",
+  "resetConversation": "Unterhaltung zurücksetzen",
+  "attachTip": "Objekt, Ebene oder Asset anhängen, auf das sich der Assistent beziehen soll"
+}

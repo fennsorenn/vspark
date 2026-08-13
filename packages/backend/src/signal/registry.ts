@@ -13,10 +13,13 @@ import { SceneEntity } from './nodes/scene_entity.js';
 import { ManualTrigger } from './nodes/manual_trigger.js';
 import { ArmIkCalibration } from './nodes/arm_ik_calibration.js';
 import { VmcPacketSource } from './nodes/vmc_packet_source.js';
+import { IFacialMocapPacketSource } from './nodes/ifacialmocap_packet_source.js';
 import { RhyliveBoneMapper } from './nodes/rhylive_bone_mapper.js';
 import { ArkitVrmMapper } from './nodes/arkit_vrm_mapper.js';
 import { BodyCalibration } from './nodes/body_calibration.js';
 import { PoseManualCalibration } from './nodes/pose_manual_calibration.js';
+import { PoseStyleDrivers } from './nodes/pose_style_drivers.js';
+import { PoseStylize } from './nodes/pose_stylize.js';
 import { PoseBroadcast } from './nodes/pose_broadcast.js';
 import { BlendshapesBroadcast } from './nodes/blendshapes_broadcast.js';
 import { BlendshapesSum } from './nodes/blendshapes_sum.js';
@@ -25,6 +28,9 @@ import { PackEvent } from './nodes/pack_event.js';
 import { QueueEvents } from './nodes/queue_events.js';
 import { OnPoseBroadcast } from './nodes/on_pose_broadcast.js';
 import { PoseInterceptorBroadcast } from './nodes/pose_interceptor_broadcast.js';
+import { OnBlendshapesBroadcast } from './nodes/on_blendshapes_broadcast.js';
+import { BlendshapesInterceptorBroadcast } from './nodes/blendshapes_interceptor_broadcast.js';
+import { BlendshapeLimits } from './nodes/blendshape_limits.js';
 import { Clock } from './nodes/clock.js';
 import { Time } from './nodes/time.js';
 import { SineWave } from './nodes/sine_wave.js';
@@ -117,10 +123,13 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   ArmIkCalibration,
   // Processing nodes
   VmcPacketSource,
+  IFacialMocapPacketSource,
   RhyliveBoneMapper,
   ArkitVrmMapper,
   BodyCalibration,
   PoseManualCalibration,
+  PoseStyleDrivers,
+  PoseStylize,
   // Output nodes
   PoseBroadcast,
   BlendshapesBroadcast,
@@ -131,6 +140,9 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   // Interceptor nodes
   OnPoseBroadcast,
   PoseInterceptorBroadcast,
+  OnBlendshapesBroadcast,
+  BlendshapesInterceptorBroadcast,
+  BlendshapeLimits,
   // Math / procedural nodes
   Clock,
   Time,

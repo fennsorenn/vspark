@@ -5,7 +5,12 @@ import { api } from '../../api/client';
 import type { AssetFile } from '../../api/client';
 import type { BottomDockTab, Behavior } from '../../store/editorStore';
 import { newBehaviorId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
-import { BEHAVIOR_ICON, BEHAVIOR_FALLBACK } from '../icons';
+import {
+  BEHAVIOR_ICON,
+  BEHAVIOR_FALLBACK,
+  CAMERA_EFFECT_ICON,
+  CAMERA_EFFECT_FALLBACK,
+} from '../icons';
 import { TrackClipTimeline } from './TrackClipTimeline';
 import { PresetLibrary } from './PresetLibrary';
 import { CreatePalette } from './CreatePalette';
@@ -1157,7 +1162,7 @@ export function AssetManager() {
                           }}
                         >
                           {(() => {
-                            const I = ek.icon;
+                            const I = CAMERA_EFFECT_ICON[ek.kind] ?? CAMERA_EFFECT_FALLBACK;
                             return <I size={20} />;
                           })()}
                         </span>
@@ -1297,6 +1302,10 @@ export function AssetManager() {
                   {list.map((asset) => (
                     <div
                       key={asset.id}
+                      data-attach-kind="asset"
+                      data-attach-id={asset.id}
+                      data-attach-name={asset.name}
+                      data-attach-url={asset.url}
                       style={{ ...cardStyle, cursor: 'grab' }}
                       draggable
                       title={t('card.dragHint')}

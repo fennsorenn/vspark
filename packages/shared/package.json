@@ -14,6 +14,10 @@
     "./infer_nodes": "./src/infer_nodes.ts",
     "./arkit": "./src/arkit_tables.ts",
     "./paramPaths": "./src/paramPaths.ts",
+    "./cameraEffects": "./src/cameraEffects.ts",
+    "./feedValidation": "./src/feedValidation.ts",
+    "./style_rig": "./src/style_rig.ts",
+    "./blendshapeLimits": "./src/blendshapeLimits.ts",
     "./sync": "./src/sync.ts"
   },
   "scripts": {

@@ -17,7 +17,7 @@ import {
   type MeshPeer,
 } from '@vspark/mesh';
 import { WsBackendTransport } from '@vspark/mesh-transports/wsClient';
-import { makeClientParticipantId } from '@vspark/shared/sync';
+import { makeClientParticipantId, randomUUID } from '@vspark/shared/sync';
 
 type Dto = Record<string, unknown>;
 
@@ -79,7 +79,7 @@ function tabUuid(): string {
   const KEY = 'vspark.mesh.tab';
   let id = sessionStorage.getItem(KEY);
   if (!id) {
-    id = crypto.randomUUID();
+    id = randomUUID();
     sessionStorage.setItem(KEY, id);
   }
   return id;

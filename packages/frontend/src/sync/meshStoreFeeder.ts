@@ -117,6 +117,11 @@ export function startMeshStoreFeeder(): void {
         }
         const layer = c.doc as unknown as ComposeLayerRecord | undefined;
         if (!layer) return;
+        // Only adopt compose scenes/layers of the OPEN project. The replica also
+        // holds other local projects' docs (mirror the scene_node feeder above,
+        // which filters the same way) — without this, every project's compose
+        // scenes pile into the tree and appear to "duplicate" as they hydrate.
+        if (s.projectId && layer.projectId !== s.projectId) return;
         if (layer.kind === 'compose_scene') {
           if (s.composeScenes.some((cs) => cs.id === layer.id))
             s.updateComposeSceneLocal(layer);
