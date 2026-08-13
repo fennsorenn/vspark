@@ -1,12 +1,7 @@
 import { SignalNode } from '@vspark/shared/signal';
 import { Node } from '@vspark/shared/node';
 import { eventIn, valueIn } from '@vspark/shared/node_decorators';
-import type { TrackClipPlaybackManager } from '../../track_clips/playback.js';
-
-let _playback: TrackClipPlaybackManager | null = null;
-export function initTrackClipTrigger(mgr: TrackClipPlaybackManager): void {
-  _playback = mgr;
-}
+import { triggerClip } from '../../track_clips/playbackDoc.js';
 
 /**
  * Fires playback of a track clip when its `fire` event input receives a trigger.
@@ -28,7 +23,9 @@ export class TrackClipTrigger extends Node {
   @eventIn('fire', 'Trigger')
   onFire(): void {
     const clipId = this.clipId();
-    if (!clipId || !_playback) return;
-    _playback.trigger(clipId);
+    if (!clipId) return;
+    // Writes the clip_playback document; every peer derives the playhead
+    // from it. No injected playhead to be missing.
+    triggerClip(clipId);
   }
 }

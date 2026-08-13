@@ -63,9 +63,6 @@ interface RuntimeEvent {
 let _col: Collection<StreamFrame> | null = null;
 let _clipCol: Collection<ClipControlEvent> | null = null;
 let _runtimeCol: Collection<RuntimeEvent> | null = null;
-let _applyClipPlayback:
-  | ((clipId: string, action: ClipPlaybackAction, t?: number) => void)
-  | null = null;
 let _applyRuntime:
   | ((kind: string, payload: Record<string, unknown>, from: string) => void)
   | null = null;
@@ -73,13 +70,7 @@ let _applyRuntime:
 const seenRuntimeEvents = new Set<string>();
 const SEEN_CAP = 1024;
 
-/** The manager injects its local appliers (avoids an import cycle). */
-export function setClipPlaybackApplier(
-  fn: (clipId: string, action: ClipPlaybackAction, t?: number) => void
-): void {
-  _applyClipPlayback = fn;
-}
-
+/** The manager injects its local applier (avoids an import cycle). */
 export function setCollabRuntimeApplier(
   fn: (kind: string, payload: Record<string, unknown>, from: string) => void
 ): void {
@@ -104,16 +95,6 @@ export function initMeshStreams(
     if (c.origin === peer.id || !c.doc) return; // our own publish — tabs got /ws
     if (!collabSceneForNode(c.id)) return; // not a collab node here — drop
     broadcast(c.doc.kind, c.doc.payload);
-  });
-  // Clip playback control: each peer re-anchors locally on receipt (no clock
-  // sync — seek carries the playhead), replacing the legacy _collab_playback.
-  _clipCol = peer.collection<ClipControlEvent>(CLIP_CONTROL_RTYPE, {
-    channels: [CONTROL_CHANNEL],
-  });
-  _clipCol.observe('**', (c) => {
-    if (c.origin === peer.id || !c.doc) return;
-    if (!clipCollabScene(c.id)) return; // clip's scene isn't collab here — drop
-    _applyClipPlayback?.(c.id, c.doc.action, c.doc.t);
   });
   // Runtime events (Set Data / overrides / media / spawn), replacing the
   // legacy _collab_runtime broadcast. Keyed by scene id, deduped by eventId.

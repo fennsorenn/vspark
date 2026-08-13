@@ -24,7 +24,12 @@
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import type { WSSync } from '../ws/index.js';
-import type { TrackClipPlaybackManager } from '../track_clips/playback.js';
+import {
+  clearEphemeralDuration,
+  onClipFinished,
+  setEphemeralDuration,
+} from '../track_clips/lifecycle.js';
+import { triggerClip } from '../track_clips/playbackDoc.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { nodeWorldTransform } from './worldTransform.js';
 
@@ -44,7 +49,6 @@ interface ActiveSpawn {
 
 export class SpawnManager {
   private _ws: WSSync | null = null;
-  private _playback: TrackClipPlaybackManager | null = null;
   private _unsubFinished: (() => void) | null = null;
   /** Active spawns keyed by tmpClipId — that's what the playback manager
    *  reports when a clip finishes. */
@@ -56,11 +60,12 @@ export class SpawnManager {
     return this._byClipId.has(clipId);
   }
 
-  init(ws: WSSync, playback: TrackClipPlaybackManager): void {
+  init(ws: WSSync): void {
     this._ws = ws;
-    this._playback = playback;
     this._unsubFinished?.();
-    this._unsubFinished = playback.onClipFinished((clipId) => {
+    // Finishing is derived from the clip_playback document now, not reported by
+    // an in-memory playhead — but the teardown hook is unchanged.
+    this._unsubFinished = onClipFinished((clipId) => {
       const active = this._byClipId.get(clipId);
       if (!active) return;
       this._cleanup(active);
@@ -70,7 +75,7 @@ export class SpawnManager {
   /** Spawn a tmp clone of the given clip's owner and play a tmp clip on it.
    *  Returns the SpawnRef payload (or null on lookup failure). */
   spawn(clipId: string): SpawnRef | null {
-    if (!this._ws || !this._playback) return null;
+    if (!this._ws) return null;
     const db = getDb();
     const clipRow = db
       .prepare(
@@ -240,11 +245,11 @@ export class SpawnManager {
     const active: ActiveSpawn = { tmpId, tmpClipId, kind };
     this._byClipId.set(tmpClipId, active);
 
-    this._playback.triggerEphemeral(
-      tmpClipId,
-      clipRow.duration,
-      clipRow.loop === 1
-    );
+    // The clone has no track_clips row, so the lifecycle sweep cannot look its
+    // duration up — register it before starting, or the clip would play forever
+    // and never tear down.
+    setEphemeralDuration(tmpClipId, clipRow.duration);
+    triggerClip(tmpClipId, clipRow.loop === 1);
 
     return { tmpNodeId: tmpId, tmpClipId, kind };
   }
@@ -369,6 +374,7 @@ export class SpawnManager {
   private _cleanup(active: ActiveSpawn): void {
     if (!this._ws) return;
     this._byClipId.delete(active.tmpClipId);
+    clearEphemeralDuration(active.tmpClipId);
     // Clear runtime overrides on the tmp entity first so the override-bus
     // snapshot doesn't replay them after entity removal on the next reconnect.
     runtimeOverrideManager.clearAllForTarget(active.kind, active.tmpId);

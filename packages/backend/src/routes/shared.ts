@@ -13,7 +13,6 @@ import type { LipsyncManager } from '../behaviors/lipsync/manager.js';
 import type { TrackingManager } from '../behaviors/mediapipe_tracker/manager.js';
 import type { ApiControllerManager } from '../behaviors/api_controller/manager.js';
 import type { WSSync } from '../ws/index.js';
-import type { TrackClipPlaybackManager } from '../track_clips/playback.js';
 
 // --- Manager singletons + setters ---
 
@@ -67,23 +66,9 @@ export function setWsSync(w: WSSync) {
   _ws = w;
 }
 
-export let _trackClipPlayback: TrackClipPlaybackManager | null = null;
-export function setTrackClipPlaybackManager(m: TrackClipPlaybackManager) {
-  _trackClipPlayback = m;
-}
-
 /** Relay a user-initiated clip playback control to collab peers. Injected by the
  *  entrypoint (avoids a routes→multiplayer import cycle); only the playback routes
  *  call it, so collab-applied playback can't echo back. */
-export let _clipPlaybackForwarder:
-  | ((clipId: string, action: string, t?: number) => void)
-  | null = null;
-export function setClipPlaybackForwarder(
-  f: (clipId: string, action: string, t?: number) => void
-) {
-  _clipPlaybackForwarder = f;
-}
-
 // --- Component row mapping + refresh helpers ---
 
 export function _mapBehaviorRow(r: Record<string, unknown>) {

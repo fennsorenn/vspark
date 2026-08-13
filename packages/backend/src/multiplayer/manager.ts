@@ -25,7 +25,6 @@ import {
   publishNodeStream,
   publishClipPlayback,
   publishCollabRuntime,
-  setClipPlaybackApplier,
   setCollabRuntimeApplier,
 } from '../mesh/streams.js';
 import { setAssetTransfer } from '../mesh/assets.js';
@@ -61,7 +60,6 @@ import {
   COLLAB_SNAPSHOT_RTYPE,
   type ClipPlaybackAction,
 } from './collabScene.js';
-import { _trackClipPlayback } from '../routes/shared.js';
 import { dataChannelManager } from '../data_channels/manager.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { spawnManager } from '../spawn/manager.js';
@@ -169,9 +167,6 @@ class MultiplayerManager {
     if (broadcast) this.broadcast = broadcast;
     // Remote clip playback + runtime events arrive over the mesh `control`
     // channel; the bridges apply them locally (guarded against re-relay).
-    setClipPlaybackApplier((clipId, action, t) =>
-      this.applyClipPlayback(clipId, action, t)
-    );
     setCollabRuntimeApplier((kind, payload, from) =>
       this.applyCollabRuntime(kind, payload, from)
     );
@@ -756,50 +751,14 @@ class MultiplayerManager {
     if (collabSceneForNode(nodeId)) publishNodeStream(nodeId, kind, payload);
   }
 
-  /** Relay a local clip playback control to collab peers (called by the playback
-   *  routes). Rides the mesh `control` channel (reliable events); each peer
-   *  replicates it on its own playback manager. */
-  relayClipPlayback(
-    clipId: string,
-    action: ClipPlaybackAction,
-    t?: number
-  ): void {
-    if (clipCollabScene(clipId)) publishClipPlayback(clipId, action, t);
-  }
-
-  /** Replicate a peer's clip playback control locally (no re-forward — only
-   *  user-initiated route actions relay, so this can't echo). */
-  private applyClipPlayback(
-    clipId: string,
-    action: ClipPlaybackAction,
-    t?: number
-  ): void {
-    const pb = _trackClipPlayback;
-    if (!pb) return;
-    if (action === 'trigger') pb.trigger(clipId);
-    else if (action === 'stop') pb.stop(clipId);
-    else if (action === 'pause') pb.pause(clipId);
-    else if (action === 'resume') pb.resume(clipId);
-    else if (action === 'seek' && t != null) pb.seek(clipId, t);
-  }
-
   /** Tap on every local WS broadcast (set via wsSync.setCollabRelay): mirror the
-   *  runtime kinds that have no other mesh path to collab peers. Regular clip play
-   *  frames are relayed (re-anchored) via relayClipPlayback, so here we relay
-   *  track_clip play frames only for ephemeral spawn clips (the receiver has just
-   *  the clone). The echo guard stops a re-applied broadcast bouncing back. */
+   *  runtime kinds that have no other mesh path to collab peers. Clip transport
+   *  is not among them any more — it is a replicated document, so peers get it
+   *  the same way they get any other doc, spawned clones included. The echo
+   *  guard stops a re-applied broadcast bouncing back. */
   relayCollabRuntime(kind: string, payload: Record<string, unknown>): void {
     if (this.applyingCollabRuntime || !this.mesh) return;
-    if (
-      kind === 'track_clip_started' ||
-      kind === 'track_clip_paused' ||
-      kind === 'track_clip_stopped'
-    ) {
-      const clipId = (payload.clipId ?? payload.id) as string | undefined;
-      if (!clipId || !spawnManager.isEphemeralClip(clipId)) return;
-    } else if (!COLLAB_RELAY_KINDS.has(kind)) {
-      return;
-    }
+    if (!COLLAB_RELAY_KINDS.has(kind)) return;
     publishCollabRuntime(kind, payload);
   }
 

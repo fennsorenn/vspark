@@ -15,8 +15,6 @@ import {
   setTrackingManager,
   setApiControllerManager,
   setWsSync,
-  setTrackClipPlaybackManager,
-  setClipPlaybackForwarder,
 } from './routes/index.js';
 import { initUpdateChecker, getInstallDir } from './routes/update.js';
 import { WSSync } from './ws/index.js';
@@ -29,7 +27,6 @@ import { BlendshapeLimiterManager } from './behaviors/blendshape_limiter/manager
 import { LipsyncManager } from './behaviors/lipsync/manager.js';
 import { TrackingManager } from './behaviors/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from './behaviors/api_controller/manager.js';
-import { TrackClipPlaybackManager } from './track_clips/playback.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { broadcastBus } from './broadcast/bus.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
@@ -37,8 +34,7 @@ import {
   initIkBroadcast,
   setIkStreamForwarder,
 } from './signal/nodes/ik_broadcast.js';
-import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
-import { initStartClip } from './signal/nodes/start_clip.js';
+import { startClipLifecycle } from './track_clips/lifecycle.js';
 import { runtimeOverrideManager } from './runtime_overrides/manager.js';
 import { dataChannelManager } from './data_channels/manager.js';
 import { mediaControlManager } from './media_control/manager.js';
@@ -188,19 +184,11 @@ async function start() {
   const apiControllerManager = new ApiControllerManager();
   setApiControllerManager(apiControllerManager);
 
-  const trackClipPlayback = new TrackClipPlaybackManager(wsSync);
-  trackClipPlayback.hydrateAutoplay();
-  setTrackClipPlaybackManager(trackClipPlayback);
-  // Mirror user-initiated clip playback control to collab-scene peers.
-  setClipPlaybackForwarder((clipId, action, t) =>
-    multiplayerManager.relayClipPlayback(
-      clipId,
-      action as Parameters<typeof multiplayerManager.relayClipPlayback>[1],
-      t
-    )
-  );
-  initTrackClipTrigger(trackClipPlayback);
-  initStartClip(trackClipPlayback);
+  // Clip lifecycle. There is no playhead to own: it is derived from the
+  // clip_playback document, so this only starts the autoplay clips and sweeps
+  // for ones that have run past their duration. Collab peers get transport
+  // through the document itself, so nothing relays it by hand any more.
+  startClipLifecycle();
 
   // Runtime override bus — graph-driven, parallel to track-clip overrides.
   // The persist hook is left unset until set_*_param nodes land in Phase 1.5;
@@ -229,7 +217,7 @@ async function start() {
   // Spawn manager — ephemeral clip-clone spawning. Subscribes to playback
   // completion events so it can tear down tmp entities on clip end.
   // See dev-notes/modules/spawn.md.
-  spawnManager.init(wsSync, trackClipPlayback);
+  spawnManager.init(wsSync);
 
   // Standalone project graphs — start every persisted-enabled graph on boot.
   // See dev-notes/modules/project-graphs.md.
@@ -251,9 +239,6 @@ async function start() {
 
   // Rebroadcast current state to any newly-connecting client.
   wsSync.onClientConnected((ws) => {
-    trackClipPlayback.sendSnapshotTo((kind, payload) =>
-      wsSync.sendTo(ws, kind, payload)
-    );
     runtimeOverrideManager.sendSnapshotTo((kind, payload) =>
       wsSync.sendTo(ws, kind, payload)
     );

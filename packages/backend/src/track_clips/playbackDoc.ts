@@ -90,3 +90,21 @@ export function seekClip(clipId: string, t: number): boolean {
     ? put(clipId, { startEpoch: anchorFor(t, cur.speed) })
     : put(clipId, { state: 'paused', pausedAtT: t, startEpoch: null });
 }
+
+/** Mirror a clip's `loop` onto its transport document. Peers read loop from the
+ *  playback doc when deriving the playhead, so the two must not drift. */
+export function syncPlaybackLoop(clipId: string, loop: boolean): void {
+  if (playbackOf(clipId)) put(clipId, { loop });
+}
+
+/** Drop a clip's transport document through the collection.
+ *
+ *  Deleting the clip cascades the ROW away in SQLite, but a row is not a
+ *  document: without an explicit remove there is no tombstone, so the doc stays
+ *  live in every replica and a tab subscribing later sees playback state for a
+ *  clip that is gone. */
+export async function removePlayback(clipId: string): Promise<void> {
+  const c = col();
+  const id = playbackDocId(clipId);
+  if (c?.get(id)) await c.remove(id, OPTS).ack;
+}

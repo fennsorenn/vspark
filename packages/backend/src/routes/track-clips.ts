@@ -3,13 +3,15 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import {
   clipExists,
+  removePlayback,
+  syncPlaybackLoop,
   pauseClip,
   resumeClip,
   seekClip,
   stopClip,
   triggerClip,
 } from '../track_clips/playbackDoc.js';
-import { _ws, _trackClipPlayback, _clipPlaybackForwarder } from './shared.js';
+import { _ws } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -319,7 +321,10 @@ router.put('/track-clips/:id', async (req, res) => {
   }
   if (changed) {
     await col.set(id, '', next).ack;
-    _trackClipPlayback?.onClipUpdated(id);
+    // Keep the transport document's `loop` in step with the clip's. Every peer
+    // reads loop off the playback doc when deriving the playhead, so editing it
+    // on the clip alone would leave them wrapping (or not) against the old value.
+    if (patch.loop !== undefined) syncPlaybackLoop(id, !!patch.loop);
   }
   const data = loadClip(id);
   _ws?.broadcast('track_clip_updated', data as Record<string, unknown>);
@@ -341,7 +346,11 @@ router.delete('/track-clips/:id', async (req, res) => {
   const id = req.params.id;
   const col = clipsCol();
   if (!col) return storeNotReady(res);
-  _trackClipPlayback?.onClipDeleted(id);
+  // Remove the transport document through its collection, not by leaning on the
+  // FK cascade: a raw row delete leaves the DOCUMENT alive in every replica with
+  // no tombstone, so a tab subscribing afterwards would see playback state for a
+  // clip that no longer exists (the same gap fixed for scene deletes).
+  await removePlayback(id);
   await col.remove(id).ack;
   res.json({ ok: true, data: { id } });
 });
