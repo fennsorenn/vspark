@@ -10,6 +10,7 @@ import {
   commitStop,
   previewSeek,
 } from '../../mesh/playbackWrites';
+import { displayPlayhead } from '@vspark/shared/clipPlayback';
 import { HelpButton } from '../../help/HelpButton';
 import type {
   TrackClipRecord,
@@ -113,7 +114,7 @@ function TimelineEditor({
   const selectedComposeId = useEditorStore((s) => s.selectedComposeLayerId);
   const nodes = useEditorStore((s) => s.nodes);
   const composeLayers = useEditorStore((s) => s.composeLayers);
-  const playback = useEditorStore((s) => s.trackClipPlayback);
+  const playback = useEditorStore((s) => s.clipPlayback);
   const addTrackClipLane = useEditorStore((s) => s.addTrackClipLane);
   const removeTrackClipLaneStore = useEditorStore((s) => s.removeTrackClipLane);
   const replaceTrackClipLaneKeyframes = useEditorStore(
@@ -329,7 +330,7 @@ function TimelineEditor({
           <option value="relative">{t('header.blendRelative')}</option>
         </select>
         <div style={{ flex: 1 }} />
-        {activePlayback?.kind === 'playing' ? (
+        {activePlayback?.state === 'playing' ? (
           <>
             <button className="vs-clip-pause" onClick={handlePause} style={btnNeutral}>
               {t('transport.pause')}
@@ -338,7 +339,7 @@ function TimelineEditor({
               {t('transport.stop')}
             </button>
           </>
-        ) : activePlayback?.kind === 'paused' ? (
+        ) : activePlayback?.state === 'paused' ? (
           <>
             <button className="vs-clip-play" onClick={handleResume} style={btnPlay}>
               {t('transport.resume')}
@@ -423,7 +424,7 @@ function TimelineEditor({
       <EventLane
         clip={clip}
         targets={mediaTargets}
-        playheadT={computePlayheadT(activePlayback ?? null, clip.duration) ?? 0}
+        playheadT={displayPlayhead(activePlayback, clip.duration) ?? 0}
         onReplace={handleReplaceEvents}
       />
 
@@ -723,22 +724,6 @@ function AddLanePicker({
 
 /** Compute the current playhead time (seconds) for a playback entry, handling
  *  both live playback (advances with wall clock) and paused (frozen). */
-function computePlayheadT(
-  playback: import('../../store/editorStore').TrackClipPlayback | null,
-  duration: number
-): number | null {
-  if (!playback) return null;
-  if (duration <= 0) return 0;
-  if (playback.kind === 'paused') return playback.pausedAtT;
-  const tRaw =
-    (Date.now() + playback.clockOffsetMs - playback.startedAt) / 1000;
-  if (playback.loop) {
-    const w = tRaw % duration;
-    return w < 0 ? w + duration : w;
-  }
-  return Math.max(0, Math.min(duration, tRaw));
-}
-
 /** Top ruler row: tick marks plus a draggable playhead.
  *
  *  The drag is a gesture like any other: every move is a PREVIEW on the mesh's
@@ -752,7 +737,7 @@ function ScrubRuler({
   onScrub,
 }: {
   clip: TrackClipRecord;
-  playback: import('../../store/editorStore').TrackClipPlayback | null;
+  playback: import('../../store/editorStore').ClipPlayback | null;
   onSeek: (t: number) => void;
   onScrub: (t: number) => void;
 }) {
@@ -761,7 +746,7 @@ function ScrubRuler({
   const [, forceTick] = useState(0);
   // Re-render the playhead each frame while playing (so the indicator advances live).
   useEffect(() => {
-    if (playback?.kind !== 'playing') return;
+    if (playback?.state !== 'playing') return;
     let raf = 0;
     const tick = () => {
       forceTick((n) => (n + 1) % 1_000_000);
@@ -769,9 +754,9 @@ function ScrubRuler({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playback?.kind]);
+  }, [playback?.state]);
 
-  const t = computePlayheadT(playback, clip.duration) ?? 0;
+  const t = displayPlayhead(playback ?? undefined, clip.duration) ?? 0;
   const pct = (t / Math.max(0.0001, clip.duration)) * 100;
 
   const xToT = (clientX: number) => {
@@ -943,7 +928,7 @@ function LaneRow({
 }) {
   const { t } = useTranslation('clips');
   const trackRef = useRef<HTMLDivElement>(null);
-  const playback = useEditorStore((s) => s.trackClipPlayback[clip.id]);
+  const playback = useEditorStore((s) => s.clipPlayback[clip.id]);
   const [, forceTick] = useState(0);
   // Local size so SVG can render in pixel coordinates instead of percentages
   // (we need pixel-accurate handle math).
@@ -955,7 +940,7 @@ function LaneRow({
   // Keep the playhead repainting while the clip is playing. (Not while paused —
   // the playhead doesn't move; a single render off the store update is enough.)
   useEffect(() => {
-    if (playback?.kind !== 'playing') return;
+    if (playback?.state !== 'playing') return;
     let raf = 0;
     const tick = () => {
       forceTick((n) => (n + 1) % 1_000_000);
@@ -963,7 +948,7 @@ function LaneRow({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playback?.kind]);
+  }, [playback?.state]);
 
   // Track lane width with ResizeObserver so the SVG scales with the bottom dock.
   useEffect(() => {
@@ -992,7 +977,7 @@ function LaneRow({
     return range.min + ((size.h - y) / size.h) * span;
   };
 
-  const playheadT = computePlayheadT(playback ?? null, clip.duration);
+  const playheadT = displayPlayhead(playback ?? undefined, clip.duration);
 
   const handleTrackPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     // Only respond to plain clicks on empty area — keyframe / handle nodes call stopPropagation.

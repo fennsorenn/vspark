@@ -58,3 +58,23 @@ export function playheadAt(
 export function anchorFor(t: number, speed = 1, now = Date.now()): number {
   return Math.round(now - (t * 1000) / (speed || 1));
 }
+
+/** The playhead clamped or wrapped into `[0, duration]`, for display.
+ *
+ *  A looping clip wraps; a non-looping one clamps at its end. Null when the
+ *  clip is not running at all, so a caller can tell "at zero" from "not
+ *  playing" — the distinction that decides whether anything is driven. */
+export function displayPlayhead(
+  pb: ClipPlaybackDoc | undefined,
+  duration: number,
+  now = Date.now()
+): number | null {
+  const t = playheadAt(pb, now);
+  if (t === null) return null;
+  if (duration <= 0) return 0;
+  if (pb?.loop) {
+    const w = t % duration;
+    return w < 0 ? w + duration : w;
+  }
+  return Math.max(0, Math.min(duration, t));
+}
