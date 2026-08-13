@@ -36,10 +36,18 @@ const RTYPES = [
   'track_clip',
   'animation_clip',
   'scheduled_animation',
+  'clip_playback',
 ] as const;
 
 const childOfNode = (d: Dto) =>
   typeof d.nodeId === 'string' ? { rtype: 'scene_node', id: d.nodeId } : null;
+
+// Transport state → its clip. Keyed on `clipId`, NOT `id`: the mesh
+// ContainmentIndex keys by id alone across every rtype, so a playback doc
+// sharing its clip's id would collide with the clip's own entry. Must match
+// the backend BINDINGS entry exactly or the two indexes diverge silently.
+const childOfClip = (d: Dto) =>
+  typeof d.clipId === 'string' ? { rtype: 'track_clip', id: d.clipId } : null;
 
 const PARENTS: Partial<
   Record<string, (d: Dto) => { rtype: string; id: string } | null>
@@ -72,6 +80,7 @@ const PARENTS: Partial<
     typeof d.avatarNodeId === 'string'
       ? { rtype: 'scene_node', id: d.avatarNodeId }
       : null,
+  clip_playback: childOfClip,
 };
 
 let _init: Promise<MeshHandles> | null = null;

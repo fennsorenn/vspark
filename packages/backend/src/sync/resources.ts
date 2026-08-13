@@ -569,6 +569,82 @@ defineResource({
   },
 });
 
+interface ClipPlaybackRow {
+  id: string;
+  clip_id: string;
+  state: string;
+  start_epoch: number | null;
+  paused_at_t: number | null;
+  speed: number;
+  loop: number;
+  created_at: string;
+}
+
+/** A clip's transport state. Peers derive the playhead from `startEpoch`
+ *  against the wall clock rather than receiving evaluated frames — see
+ *  migration 037 and principle 1 in dev-notes/modules/mesh.md. */
+defineResource({
+  rtype: 'clip_playback',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare('SELECT * FROM clip_playback WHERE id = ?')
+      .get(id) as unknown as ClipPlaybackRow | undefined;
+    if (!r) return undefined;
+    return {
+      id: r.id,
+      clipId: r.clip_id,
+      state: r.state,
+      startEpoch: r.start_epoch,
+      pausedAtT: r.paused_at_t,
+      speed: r.speed,
+      loop: r.loop === 1,
+      createdAt: r.created_at,
+    };
+  },
+  save: (dto) => {
+    const d = dto as {
+      id: string;
+      clipId: string;
+      state?: string;
+      startEpoch?: number | null;
+      pausedAtT?: number | null;
+      speed?: number;
+      loop?: boolean;
+      createdAt?: string;
+    };
+    const db = getDb();
+    const prior = db
+      .prepare('SELECT created_at FROM clip_playback WHERE id = ?')
+      .get(d.id) as { created_at: string } | undefined;
+    db.prepare(
+      `INSERT INTO clip_playback
+         (id, clip_id, state, start_epoch, paused_at_t, speed, loop, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+       ON CONFLICT(id) DO UPDATE SET
+         clip_id     = excluded.clip_id,
+         state       = excluded.state,
+         start_epoch = excluded.start_epoch,
+         paused_at_t = excluded.paused_at_t,
+         speed       = excluded.speed,
+         loop        = excluded.loop,
+         updated_at  = datetime('now')`
+    ).run(
+      d.id,
+      d.clipId,
+      d.state ?? 'stopped',
+      d.startEpoch ?? null,
+      d.pausedAtT ?? null,
+      d.speed ?? 1,
+      d.loop ? 1 : 0,
+      d.createdAt ?? prior?.created_at ?? null
+    );
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM clip_playback WHERE id = ?').run(id);
+  },
+});
+
 // legacy WS kinds; migrating that 90 Hz hot path onto sync.stream.publish is
 // deferred until it can be runtime-verified (see the design doc, Phase 3).
 defineResource({ rtype: 'vmc_pose', cls: 'stream' });

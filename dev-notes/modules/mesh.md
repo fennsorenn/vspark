@@ -531,34 +531,69 @@ what that costs.
 
 ## Extending: adding a new synced rtype
 
+**Every step is load-bearing, and a missed one fails SILENTLY** — this is the
+`fracIndex` failure mode: a module with passing unit tests that nothing can
+reach. The list below was re-derived by adding `clip_playback` end to end;
+the previous version of this section named three steps that do not exist
+(`load`/`save`/`remove` on `BINDINGS`, a per-table `syncV` column, manual
+hydration) and omitted three that do.
+
+Two failures worth knowing in advance, because neither announces itself:
+
+- An rtype registered on only ONE peer: the receiving side drops the op and
+  sends no ack, so the write reverts ~4s later with nothing logged.
+- A collection missing from the frontend list: the feeder throws on
+  `.observe`, catches it into a console warning, and **every other observer
+  stops being registered too**. The tab goes quiet, not red.
+
 ### Backend
 
-1. Add a row to the `BINDINGS` schema in `packages/backend/src/mesh/index.ts`:
-   ```ts
-   {
-     rtype: 'my_entity',
-     parent: (doc) => ({ rtype: 'scene', id: doc.sceneId }),
-     load: async (id) => db.getMyEntity(id),
-     save: async (doc, v) => db.saveMyEntity(doc, v),
-     remove: async (id) => db.deleteMyEntity(id),
-   }
-   ```
-
-2. Migrate the database: add `syncV` column to the entity table (or a generic `(rtype, id, hlc)` version table), add tombstone retention.
-
-3. Add hydration in the boot sequence (same pattern as scene_node above).
-
-4. Add a persistence tap (same pattern as scene_node above).
+1. **Migration** — a `.sql` file in `packages/backend/src/db/migrations/`, then
+   `node packages/backend/scripts/buildMigrations.mjs` for its `.ts` mirror.
+2. **Register the migration** in the `MIGRATIONS` array in
+   `packages/backend/src/db/index.ts` (import + list entry). Easy to miss: the
+   generated mirror existing is not the same as it running.
+3. **Resource descriptor** — `defineResource({ rtype, cls: 'document', load,
+   save, remove })` in `packages/backend/src/sync/resources.ts`. This is where
+   row ⇄ DTO mapping lives (snake_case ⇄ camelCase). Persistence, hydration and
+   tombstone rehydration are all driven from it; `bindCollection` returns early
+   without one, leaving a replicate-only collection.
+4. **Binding** — a row in `BINDINGS` in `packages/backend/src/mesh/index.ts`:
+   `rtype`, `table`, `parent`, optional `validate`, and `persists` (which gates
+   SQLite only — a doc that fails it still fans out to every replica).
 
 ### Frontend
 
-1. Add to `PARENTS` in `PARENTS` in `packages/frontend/src/mesh/peer.ts` (containment schema).
+5. **`RTYPES`** in `packages/frontend/src/mesh/peer.ts` — creates the collection
+   and subscribes to it.
+6. **`PARENTS`** in the same file. It must match the backend `parent` **exactly**;
+   the two containment indexes diverge with no error otherwise.
+7. **Store slice** — state + actions in
+   `packages/frontend/src/store/editorStore.ts`.
+8. **Feeder observer** — `packages/frontend/src/sync/meshStoreFeeder.ts`,
+   mirroring the replica into that slice. Handle `remove` explicitly, and decide
+   whether `ephemeral` ops mean anything for this rtype.
+9. **Writes** — a `MeshDocAdapter` in `packages/frontend/src/mesh/writes.ts`
+   (or a sibling like `layerWrites.ts`) rather than REST calls, so the write is
+   authored by the tab and lands on its undo stack.
 
-2. Add to `RTYPES` (registered in the frontend peer at creation).
+### Two constraints on the doc shape
 
-3. Bind reads: dispatch from `useMeshDoc` / `useMeshSubtree` / `useMeshValue` where the UI currently reads from Zustand.
+- **Ids are globally unique across rtypes.** The `ContainmentIndex`
+  (`packages/shared/src/containment.ts`) keys by id alone, so a doc must not
+  reuse its parent's id — carry the parent as a field instead. `clip_playback`
+  has its own uuid plus a `clipId`, precisely for this.
+- **Nothing in `packages/shared` needs changing.** `SyncEnvelope.rtype` is a
+  free-form string; there is no rtype union or zod schema to extend. Nor is
+  `backend/src/sync/containmentIndex.ts` a registration point — that index
+  serves the legacy object-share code, and `MeshPeer` keeps its own private one.
 
-4. Bind writes: replace Zustand mutations with `collection.create` / `collection.update` / `collection.remove` calls.
+### Gate it
+
+Add a backend test asserting `getMeshCollection('<rtype>')` is defined after
+init, that a committed write reaches SQLite, and that the containment parent is
+what you intended — see `packages/backend/test/mesh.clipPlayback.test.ts`. Those
+three catch every wiring break above; behaviour tests do not.
 
 ## Integration roadmap
 

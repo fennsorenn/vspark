@@ -247,8 +247,10 @@ const BINDINGS: RtypeBinding[] = [
     // foreign doc is translated onto ours via the mesh peer-clock API (identity
     // for our own writes, where originId is our own peer). Our tabs then read
     // it against their local clock exactly like a locally-authored timeline.
-    // (Clocks are a synchronized-clocks stub today, so this is numerically a
-    // no-op — the call site is final, per dev-notes/plans/avatar-animation.md.)
+    // (The peer runs real NTP-style offset tracking — a ping burst plus a
+    // steady-state interval per link, folded into a best-RTT offset window —
+    // so this subtracts a genuinely measured offset. Only the first sample
+    // window is zero. A previous comment here called it a no-op stub; it is not.)
     parent: (d) =>
       typeof d.avatarNodeId === 'string'
         ? { rtype: 'scene_node', id: d.avatarNodeId }
@@ -261,6 +263,31 @@ const BINDINGS: RtypeBinding[] = [
       return d;
     },
     persists: (d) => rowExists('scene_nodes', d.avatarNodeId),
+  },
+  {
+    rtype: 'clip_playback',
+    table: 'clip_playback',
+    // Transport state → its clip, which itself parents to the owning node or
+    // compose layer — so a scene-subtree grant covers playback transitively,
+    // without this needing to know anything about nodes.
+    //
+    // Note the parent is `clipId`, NOT `id`: the mesh ContainmentIndex keys by
+    // id alone across every rtype, so a playback doc sharing its clip's id
+    // would collide with the clip's own index entry.
+    parent: (d) =>
+      typeof d.clipId === 'string'
+        ? { rtype: 'track_clip', id: d.clipId }
+        : null,
+    // startEpoch is anchored on the AUTHOR's clock; translate it onto ours so
+    // every peer derives the same playhead. Identity for our own writes.
+    validate: (data, originId) => {
+      const d = { ...(data as Dto) };
+      const peer = getMeshPeer();
+      if (peer && originId && typeof d.startEpoch === 'number')
+        d.startEpoch = Math.round(peer.toLocalTime(originId, d.startEpoch));
+      return d;
+    },
+    persists: (d) => rowExists('track_clips', d.clipId),
   },
 ];
 

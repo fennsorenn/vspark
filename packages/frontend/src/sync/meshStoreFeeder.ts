@@ -40,6 +40,7 @@ import {
   type SceneItem,
   type StageObject,
   type ScheduledAnimation,
+  type ClipPlayback,
   type AnimationClipMeta,
 } from '../store/editorStore';
 import type {
@@ -307,6 +308,18 @@ export function startMeshStoreFeeder(): void {
         const e = c.doc as unknown as ScheduledAnimation | undefined;
         if (!e || parentIsRemote(e.avatarNodeId)) return;
         s.upsertScheduledAnimation(e);
+      });
+      h.collections.clip_playback.observe('**', (c) => {
+        // No ephemeral branch yet: a scrub rides the preview channel, and the
+        // slice below is read through a derivation that reads the doc as-is —
+        // so an overlay composes into `c.doc` and needs no special handling.
+        const s = useEditorStore.getState();
+        if (c.op === 'remove') {
+          s.removeClipPlayback(c.id);
+          return;
+        }
+        const e = c.doc as unknown as ClipPlayback | undefined;
+        if (e) s.upsertClipPlayback(e);
       });
       h.collections.animation_clip.observe('**', (c) => {
         if (c.op === 'ephemeral') return;

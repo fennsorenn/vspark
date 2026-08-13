@@ -20,24 +20,21 @@ type Observer = (c: Op) => void;
 /** Captures the observer the feeder registers per rtype so tests can drive ops. */
 const observers = new Map<string, Observer>();
 
-const RTYPES = [
-  'scene_node',
-  'behavior',
-  'camera_effect',
-  'compose_layer',
-  'track_clip',
-  'scheduled_animation',
-  'animation_clip',
-];
-
+// Answer for ANY rtype rather than listing them. A hardcoded list here is a
+// second copy of RTYPES in mesh/peer.ts, and it drifts the moment one is added:
+// the feeder then throws on the missing collection, and because it swallows
+// that into a console warning, EVERY observer silently stops being registered —
+// so the whole suite goes green-but-inert rather than failing loudly.
 vi.mock('../src/mesh/peer', () => ({
   initMeshPeer: () =>
     Promise.resolve({
-      collections: Object.fromEntries(
-        RTYPES.map((rt) => [
-          rt,
-          { observe: (_p: string, cb: Observer) => observers.set(rt, cb) },
-        ])
+      collections: new Proxy(
+        {},
+        {
+          get: (_t, rtype: string) => ({
+            observe: (_p: string, cb: Observer) => observers.set(rtype, cb),
+          }),
+        }
       ),
     }),
 }));

@@ -44,6 +44,27 @@ export interface ScheduledAnimation {
   loop: boolean;
 }
 
+/** A track clip's transport state (a clip_playback doc), keyed by clip id.
+ *
+ *  The playhead is DERIVED, not stored: while playing it is
+ *  `(now - startEpoch) * speed / 1000`, and while paused it is `pausedAtT`.
+ *  Nothing streams evaluated frames — every peer holds the clip and this, and
+ *  evaluates for itself (principle 1 in dev-notes/modules/mesh.md).
+ *
+ *  `state: 'stopped'` is a real entry, not an absent one; a clip that has never
+ *  been played simply has no entry at all. */
+export interface ClipPlayback {
+  id: string;
+  clipId: string;
+  state: 'playing' | 'paused' | 'stopped';
+  /** Clock-anchored start (ms), translated onto this client's clock. */
+  startEpoch: number | null;
+  /** Playhead in seconds, frozen while paused. */
+  pausedAtT: number | null;
+  speed: number;
+  loop: boolean;
+}
+
 /** A content-addressed animation clip (an animation_clip doc). The avatar
  *  animation driver resolves a timeline/idle `clipId` to its source asset URL
  *  (already localized per-server) and authored `duration`. Fed from the mesh
@@ -484,6 +505,8 @@ interface EditorState {
    *  Fed from the mesh replica; the avatar's animation effect reads the entries
    *  for its node, ordered by startEpoch. */
   scheduledAnimations: Record<string, ScheduledAnimation>;
+  /** clip_playback docs, keyed by CLIP id (not doc id) — callers look up by clip. */
+  clipPlayback: Record<string, ClipPlayback>;
   /** Animation clips (animation_clip docs), keyed by clip id. Resolves a
    *  timeline/idle clipId to its source asset URL + duration. */
   animationClips: Record<string, AnimationClipMeta>;
@@ -607,6 +630,8 @@ interface EditorState {
   setVmcTracking: (behaviorId: string, tracking: boolean) => void;
   upsertScheduledAnimation: (entry: ScheduledAnimation) => void;
   removeScheduledAnimation: (id: string) => void;
+  upsertClipPlayback: (entry: ClipPlayback) => void;
+  removeClipPlayback: (docId: string) => void;
   upsertAnimationClip: (entry: AnimationClipMeta) => void;
   removeAnimationClip: (id: string) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
@@ -778,6 +803,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vmcStatus: {},
   vmcTracking: {},
   scheduledAnimations: {},
+  clipPlayback: {},
   animationClips: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
@@ -955,6 +981,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const next = { ...s.scheduledAnimations };
       delete next[id];
       return { scheduledAnimations: next };
+    }),
+  // Keyed by CLIP id: every reader has a clip in hand and wants its transport,
+  // never the other way round. The doc's own id only matters for removes, which
+  // arrive carrying it and nothing else.
+  upsertClipPlayback: (entry) =>
+    set((s) => ({ clipPlayback: { ...s.clipPlayback, [entry.clipId]: entry } })),
+  removeClipPlayback: (docId) =>
+    set((s) => {
+      const key = Object.keys(s.clipPlayback).find(
+        (clipId) => s.clipPlayback[clipId].id === docId
+      );
+      if (key === undefined) return {};
+      const next = { ...s.clipPlayback };
+      delete next[key];
+      return { clipPlayback: next };
     }),
   upsertAnimationClip: (entry) =>
     set((s) => ({

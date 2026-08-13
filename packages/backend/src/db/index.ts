@@ -49,6 +49,7 @@ import m033 from './migrations/033_scheduled_animations.js';
 import m034 from './migrations/034_asset_metadata.js';
 import m035 from './migrations/035_tracking_grace_period_to_node.js';
 import m036 from './migrations/036_compose_layer_order_key.js';
+import m037 from './migrations/037_clip_playback.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -108,6 +109,7 @@ const MIGRATIONS: Migration[] = [
   { name: '034_asset_metadata.sql', sql: m034 },
   { name: '035_tracking_grace_period_to_node.ts', run: m035 },
   { name: '036_compose_layer_order_key.ts', run: m036 },
+  { name: '037_clip_playback.sql', sql: m037 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.
