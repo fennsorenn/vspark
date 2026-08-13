@@ -53,6 +53,10 @@ let started = false;
  *  x/y/width/height — so a preview path is `components.transform.<field>`. */
 const TRANSFORM_PREFIX = 'components.transform.';
 
+/** Tweened as a single quaternion, so these three cannot be fed in one at a
+ *  time — see the ephemeral branch of the scene_node observer. */
+const ROTATION_FIELDS = new Set(['rx', 'ry', 'rz']);
+
 /** The transform component's numeric fields, or null if the node has none. */
 function transformFieldsOf(
   node: StageObject
@@ -93,10 +97,22 @@ export function startMeshStoreFeeder(): void {
           const field = c.path?.startsWith(TRANSFORM_PREFIX)
             ? c.path.slice(TRANSFORM_PREFIX.length)
             : null;
-          smoothNodeTransform(
-            node.id,
-            field ? { [field]: t[field] } : t
-          );
+          if (!field) {
+            smoothNodeTransform(node.id, t);
+            return;
+          }
+          // Rotation is the exception: it tweens as ONE quaternion, and
+          // smoothNodeTransform rebuilds the whole target from any axis it is
+          // not given — reading those out of the store, which lags the running
+          // tween. Feeding it the axes one at a time therefore lets the last
+          // op cancel the ones before it (an rz:0 arriving after ry:90 recomputes
+          // the target as (0,0,0) and the node never turns). `t` is the COMPOSED
+          // doc, so all three axes there already carry the in-flight overlays.
+          if (ROTATION_FIELDS.has(field)) {
+            smoothNodeTransform(node.id, { rx: t.rx, ry: t.ry, rz: t.rz });
+            return;
+          }
+          smoothNodeTransform(node.id, { [field]: t[field] });
           return;
         }
         if (c.op === 'remove') {

@@ -207,6 +207,35 @@ describe('meshStoreFeeder — scene_node previews', () => {
     expect(smoother.hasNodeTween('n1')).toBe(true);
   });
 
+  it('a trailing rotation axis does not cancel the ones before it', () => {
+    // A rotation gesture fans out as three per-axis ops. Rotation tweens as ONE
+    // quaternion, and the smoother rebuilds the whole target from any axis it
+    // is not handed — reading those from the store, which lags the running
+    // tween. Fed one axis at a time, the trailing rz:0 recomputed the target as
+    // (0,0,0) and the node never turned. Caught by the two-tab e2e spec first.
+    // Capture the rAF callback BEFORE the first feed: ensureLoop only registers
+    // one while `rafHandle` is null, so a stub installed afterwards never sees it.
+    const rafs: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      rafs.push(cb);
+      return 1;
+    });
+
+    const doc = withTransform({ x: 0, y: 0, z: 0, rx: 0, ry: 1.5708, rz: 0 });
+    for (const axis of ['rx', 'ry', 'rz'])
+      feed({
+        op: 'ephemeral',
+        id: 'n1',
+        path: `components.transform.${axis}`,
+        doc,
+      });
+
+    // Drive the tween past SMOOTH_MS so it lands exactly on its target.
+    vi.spyOn(performance, 'now').mockReturnValue(1e6);
+    rafs.forEach((cb) => cb(1e6));
+    expect(transformOf().ry).toBeCloseTo(1.5708, 3);
+  });
+
   it('a committed transform lands immediately when no gesture is in flight', () => {
     feed({ op: 'upsert', id: 'n1', doc: withTransform({ x: 42, y: 0, z: 0 }) });
     expect(transformOf().x).toBe(42);
