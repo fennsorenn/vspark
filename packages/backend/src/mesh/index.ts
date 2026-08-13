@@ -40,6 +40,7 @@ import {
   guardClientComposeLayer,
 } from './docGuards.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
+import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { isClientParticipant } from '@vspark/shared/sync';
 import '../sync/resources.js'; // side effect: register the descriptors
 
@@ -460,11 +461,22 @@ function bindCollection(
         r.remove?.(c.id);
         if (c.v) saveTombstone(b.rtype, c.id, c.v);
         sync.document.remove(b.rtype, c.id);
+        // Detaching a behavior tears down its signal graph. This has to happen
+        // HERE, not in the DELETE route: a remove authored by a tab, an undo, or
+        // a collab peer never passes through a route, and would otherwise leave
+        // the graph running for a behavior that no longer exists. After the row
+        // is gone, so the refresh re-reads without it.
+        if (b.rtype === 'behavior') refreshAllBehaviorManagers();
       } else if (c.doc) {
         if (b.persists && !b.persists(c.doc)) return;
         r.save?.(c.doc);
         clearTombstone(b.rtype, c.id);
         sync.document.upsert(b.rtype, c.id);
+        // Attaching or reconfiguring a behavior instantiates its signal graph —
+        // same reasoning as the remove branch above. The refresh hands each
+        // manager the full row set, so it is idempotent and needs no knowledge
+        // of what changed.
+        if (b.rtype === 'behavior') refreshAllBehaviorManagers();
       }
     } finally {
       applyingFromMesh.delete(key);
