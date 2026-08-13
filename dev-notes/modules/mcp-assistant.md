@@ -38,8 +38,12 @@ Grouped by area (all defined in `tools.ts`):
   `lookup_component_schema`, `list_ui_controls`.
 - **Presets (prefer over building from scratch):** `list_presets`,
   `instantiate_preset`.
-- **Scene (3D) writes:** `create_scene`, `create_scene_node`,
-  `update_scene_node`, `delete_scene_node`.
+- **Scene (3D) writes:** `create_project`, `create_scene`, `create_scene_node`,
+  `update_scene_node`, `delete_scene_node`. (`create_project` exists so an
+  MCP-only client — the stdio bin in Claude Desktop, say — can bootstrap a fresh
+  install; every other tool is project-scoped, so without it `list_projects`
+  returning `[]` is a dead end. The in-app assistant rarely needs it: it is
+  grounded on the tab's current project.)
 - **Compose (2D overlay) writes:** `create_compose_scene`,
   `create_compose_layer`, `delete_compose_layer`, `update_compose_layer`.
 - **Logic (signal graph) writes:** `create_project_logic`, `update_logic`,
@@ -741,6 +745,34 @@ Re-verified live after the change: the same prompt now yields exactly two lights
 and the agent additionally calls `lookup_component_schema` before creating them.
 Covered by two tests in `api.scenes.test.ts` (empty by default, seeded-and-
 orthographic on `populate: true`) — the old behaviour had no test at all.
+
+## Mistakes are surfaced, not swallowed
+
+The catalog's descriptions are detailed, but description ≠ enforcement, and a
+caller can only correct a mistake it is *told* about. Three places where a wrong
+call used to look like a working one — all found by driving `/mcp` directly:
+
+| Mistake | Was | Now |
+|---|---|---|
+| Undeclared argument (`search` where the tool takes `tag`) | zod stripped it; the call ran unfiltered and looked fine | `.strict()` input schema → `Unrecognized key: "search"` |
+| Mistyped component field (`brightness`, `kind` for `lightType`) | stored verbatim, HTTP 200, object never rendered as asked | write succeeds + `_warnings` naming each bad field |
+| Bad enum value (`directonal`) | stored verbatim | `_warnings`: not one of point, directional, ambient, spot |
+
+Two deliberate asymmetries:
+
+- **Arguments are rejected; components are only warned about.** The `components`
+  bag is a free-form blob by design and consumers read fields the schema table
+  doesn't list, so a strict validator would refuse writes that work today. It
+  warns and stores. Tool arguments are a closed set, so those hard-fail.
+- **`_warnings` rides on the success payload**, alongside a `_note` pointing at
+  `lookup_component_schema` + `update_scene_node`. The write already happened;
+  the goal is to give the caller its next action, not to hide the result.
+
+`COMPONENT_SCHEMAS` doubles as the validator's field list, so **an incomplete
+entry produces false warnings**. It drifted once already (`light` was missing
+`castShadow` and the five shadow fields; `camera` was missing `projection` and
+`orthoSize`, which is also why seeded cameras were silently perspective). When a
+consumer starts reading a new component field, add it there in the same change.
 
 ## Adding / changing a tool
 

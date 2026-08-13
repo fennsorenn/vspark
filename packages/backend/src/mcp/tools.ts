@@ -83,14 +83,92 @@ const COMPONENT_SCHEMAS: Record<string, unknown> = {
     lightType: 'point | directional | ambient | spot',
     color: '#rrggbb',
     intensity: 1,
+    castShadow: false,
+    shadowMapSize: 1024,
+    shadowBias: 0,
+    shadowNormalBias: 0,
+    shadowCameraSize: 5,
+    shadowCameraFar: 50,
   },
-  camera: { type: 'camera', fov: 50, near: 0.1, far: 1000 },
+  camera: {
+    type: 'camera',
+    projection: 'orthographic | perspective',
+    fov: 50,
+    orthoSize: 2,
+    near: 0.1,
+    far: 1000,
+  },
   feed: {
     type: 'feed',
     template: '<htm template, chat data exposed as `chat`>',
     css: '...',
   },
 };
+
+/**
+ * Warn about `components` entries that look mistyped, without rejecting them.
+ *
+ * The scene-node `components` bag is a free-form JSON blob — no schema is
+ * enforced anywhere in the stack, and consumers read whatever fields they know
+ * about. That flexibility is deliberate, so this must NOT reject: a strict
+ * validator would refuse valid-but-undocumented fields and break writes that
+ * work today.
+ *
+ * But silence is worse for an agent. A misspelled field (`kind` for `lightType`,
+ * `directonal` for `directional`) previously stored fine and returned 200, so the
+ * caller had no signal at all and the object simply never rendered as asked. A
+ * smaller model guesses field names often; it needs the correction in the tool
+ * result where it can act on it.
+ *
+ * Checks two things per known component, both purely advisory:
+ *  - field names not in `COMPONENT_SCHEMAS` (likely typos or invented fields)
+ *  - values outside a documented `a | b | c` enum
+ */
+function componentWarnings(
+  components: Record<string, unknown> | undefined
+): string[] {
+  if (!components) return [];
+  const out: string[] = [];
+  for (const [name, raw] of Object.entries(components)) {
+    const schema = COMPONENT_SCHEMAS[name] as Record<string, unknown> | undefined;
+    if (!schema || typeof raw !== 'object' || raw === null) continue;
+    const known = Object.keys(schema);
+    for (const [field, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (!known.includes(field)) {
+        out.push(
+          `${name}.${field} is not a known field (expected one of: ${known.join(', ')})`
+        );
+        continue;
+      }
+      // Documented enums are written as 'a | b | c' in the schema table.
+      const spec = schema[field];
+      if (
+        typeof spec === 'string' &&
+        spec.includes(' | ') &&
+        typeof value === 'string'
+      ) {
+        const allowed = spec.split(' | ').map((s) => s.trim());
+        if (!allowed.includes(value))
+          out.push(
+            `${name}.${field}="${value}" is not one of: ${allowed.join(', ')}`
+          );
+      }
+    }
+  }
+  return out;
+}
+
+/** Attach advisory warnings to a write result without changing its shape. */
+function withWarnings<T>(result: T, warnings: string[]): T {
+  if (!warnings.length) return result;
+  return {
+    ...(result as object),
+    _warnings: warnings,
+    _note:
+      'The write succeeded as sent. These fields look wrong and were stored ' +
+      'verbatim — call lookup_component_schema and update_scene_node to fix them.',
+  } as T;
+}
 
 /** Real `vs-` control handles by UI area, for ui_highlight_control. Surfaced via
  *  list_ui_controls so the agent uses real handles instead of inventing them. */
@@ -150,6 +228,24 @@ export function buildToolSpecs(): ToolSpec[] {
       description: 'List all vspark projects (id + name).',
       inputShape: {},
       handler: (c) => c.get('/api/projects'),
+    },
+    {
+      name: 'create_project',
+      description:
+        'Create a new, empty vspark project. Returns its id. A project is the ' +
+        'top-level container — every other tool is scoped to one — so this is the ' +
+        'starting point when list_projects is empty. The project has NO scene: ' +
+        'follow with create_scene, then create_scene_node to add a camera and ' +
+        'whatever else the user asked for.',
+      inputShape: {
+        name: z.string(),
+        description: z.string().optional(),
+      },
+      handler: (c, a) =>
+        c.post('/api/projects', {
+          name: a.name,
+          ...(a.description !== undefined ? { description: a.description } : {}),
+        }),
     },
     {
       name: 'list_scenes',
@@ -260,9 +356,15 @@ export function buildToolSpecs(): ToolSpec[] {
         components: z.record(z.string(), z.unknown()).optional(),
         properties: z.record(z.string(), z.unknown()).optional(),
       },
-      handler: (c, a) => {
+      handler: async (c, a) => {
         const { sceneId, ...body } = a;
-        return c.post(`/api/scenes/${sceneId}/nodes`, body);
+        const warnings = componentWarnings(
+          a.components as Record<string, unknown> | undefined
+        );
+        return withWarnings(
+          await c.post(`/api/scenes/${sceneId}/nodes`, body),
+          warnings
+        );
       },
     },
     {
@@ -281,9 +383,15 @@ export function buildToolSpecs(): ToolSpec[] {
         properties: z.record(z.string(), z.unknown()).optional(),
         hidden: z.boolean().optional(),
       },
-      handler: (c, a) => {
+      handler: async (c, a) => {
         const { id, ...body } = a;
-        return c.put(`/api/scene-nodes/${id}`, body);
+        const warnings = componentWarnings(
+          a.components as Record<string, unknown> | undefined
+        );
+        return withWarnings(
+          await c.put(`/api/scene-nodes/${id}`, body),
+          warnings
+        );
       },
     },
     {

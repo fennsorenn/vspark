@@ -119,6 +119,79 @@ describe('MCP server', () => {
     expect(text(listed)).toContain('Hero');
   });
 
+  it('bootstraps a project from nothing (create_project)', async () => {
+    // Every other tool is project-scoped, so without this an MCP-only client
+    // (e.g. the stdio bin in Claude Desktop) hits a dead end on a fresh install.
+    const created = (await mcp.callTool({
+      name: 'create_project',
+      arguments: { name: 'Bootstrapped' },
+    })) as { content: { type: string; text?: string }[] };
+    expect(text(created)).toContain('"id"');
+
+    const listed = (await mcp.callTool({
+      name: 'list_projects',
+      arguments: {},
+    })) as { content: { type: string; text?: string }[] };
+    expect(text(listed)).toContain('Bootstrapped');
+  });
+
+  it('rejects an undeclared argument instead of silently dropping it', async () => {
+    // The SDK strips unknown keys from a permissive shape, so a guessed
+    // parameter name used to look like a working call returning odd results.
+    // `.strict()` names the offending key so the caller can correct it.
+    const res = (await mcp.callTool({
+      name: 'list_node_kinds',
+      arguments: { search: 'clock' }, // the real parameter is `tag`
+    })) as { isError?: boolean; content: { type: string; text?: string }[] };
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('search');
+  });
+
+  it('warns about mistyped component fields but still writes', async () => {
+    // `components` is a free-form blob by design, so this must NOT reject —
+    // it only tells the caller what looks wrong, which is the difference
+    // between a recoverable mistake and silent corruption.
+    const proj = (await request(app).post('/api/projects').send({ name: 'P' }))
+      .body.data;
+    const scene = (
+      await request(app)
+        .post(`/api/projects/${proj.id}/scenes`)
+        .send({ name: 'Main' })
+    ).body.data;
+
+    const bad = (await mcp.callTool({
+      name: 'create_scene_node',
+      arguments: {
+        sceneId: scene.id,
+        name: 'Bogus',
+        kind: 'light',
+        components: {
+          light: { lightType: 'directonal', brightness: 'very' },
+        },
+      },
+    })) as { isError?: boolean; content: { type: string; text?: string }[] };
+
+    expect(bad.isError).toBeFalsy(); // written, not rejected
+    expect(text(bad)).toContain('_warnings');
+    expect(text(bad)).toContain('brightness'); // unknown field named
+    expect(text(bad)).toContain('directonal'); // bad enum value named
+
+    // A correct component must produce no warnings at all — including fields
+    // that are valid but were previously absent from the schema table.
+    const good = (await mcp.callTool({
+      name: 'create_scene_node',
+      arguments: {
+        sceneId: scene.id,
+        name: 'Good',
+        kind: 'light',
+        components: {
+          light: { type: 'light', lightType: 'directional', castShadow: true },
+        },
+      },
+    })) as { content: { type: string; text?: string }[] };
+    expect(text(good)).not.toContain('_warnings');
+  });
+
   it('reports a tool error without throwing the protocol', async () => {
     const res = (await mcp.callTool({
       name: 'create_scene_node',

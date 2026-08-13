@@ -4,6 +4,7 @@
  * and the in-memory pair the assistant agent connects to (assistant/agent.ts).
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import type { VsparkClient } from './client.js';
 import { buildToolSpecs, isToolMediaResult } from './tools.js';
 
@@ -21,9 +22,18 @@ export function createMcpServer(client: VsparkClient): McpServer {
   });
 
   for (const spec of buildToolSpecs()) {
+    // STRICT input schema. Given a bare shape the SDK builds a permissive object,
+    // so zod silently strips any argument the tool doesn't declare: a call with a
+    // guessed parameter name (`search` where the tool takes `tag`) then looks like
+    // it succeeded and just returns unfiltered results, with nothing anywhere
+    // saying the argument was dropped. `.strict()` turns that into an explicit
+    // "Unrecognized key" validation error naming the offending argument, which a
+    // caller can actually act on. Costs nothing for correct calls.
+    const inputSchema = z.object(spec.inputShape ?? {}).strict();
+
     server.registerTool(
       spec.name,
-      { description: spec.description, inputSchema: spec.inputShape },
+      { description: spec.description, inputSchema },
       async (args: Record<string, unknown>) => {
         try {
           const result = await spec.handler(client, args ?? {});
