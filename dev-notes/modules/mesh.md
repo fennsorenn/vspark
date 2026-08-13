@@ -25,6 +25,81 @@ the model underneath them changed. Judge a path by whether a mesh-native
 equivalent *exists and is wired* — read the collection registration and the
 feeder — never by what a comment next to it asserts.
 
+## Core principles
+
+**Decided by the user, 2026-08-13.** These are prescriptive: they constrain what
+may be built, and reversing one needs the user's agreement. Everything else in
+this document describes how the code behaves today and may be changed by whoever
+has a reason to.
+
+### 1. Sync the inputs, derive the outputs
+
+Stream only what cannot be computed — external sensor data (mocap pose,
+blendshapes, IK targets). Anything derivable from documents is derived locally,
+on every peer, from the same inputs.
+
+Worked example: animation clip playback does **not** stream evaluated
+transforms. The clip document and the playback state (`state`, `startEpoch`,
+`speed`) sync; every peer derives the playhead from `startEpoch` against the
+wall clock and evaluates the clip itself. A "peer that can't evaluate" is a peer
+that is missing an input — widen its grant, never reintroduce the stream.
+
+### 2. A document has exactly one truth
+
+Never deliberately different between clients. A document's content is the same
+everywhere, whoever is asking. It may be in flight, or divided across
+documents — it is never per-client.
+
+If a client needs a diverging view, it takes a **local copy**, or writes a
+**local patch document merged at render time**. It does not rewrite the shared
+document's fields for itself.
+
+> Note this indicts current code: `meshStoreFeeder`'s `scene_node` observer
+> preserves local `projectId`/`rootSceneNodeId` while taking remote content, and
+> `mountSharedScene` localizes `projectId` per peer. Both give one id different
+> parent links on different peers, which makes "what is this document" answerable
+> only by knowing who is asking. This is recorded as a defect to fix, not as a
+> pattern to copy.
+
+### 3. Mounting is rendering, not merging
+
+A shared tree stays whole and unmodified — the owner's ids, the owner's parent
+links. It is **not** spliced into the receiver's tree. The receiver's tree holds
+a share container node, and the renderer walks into the foreign tree at that
+point. Two trees, joined at display time.
+
+The mesh transports trees; it does not merge them. This is what makes principle
+2 achievable: the field rewriting exists only to force a foreign tree into the
+local one, so removing that job removes the reason to rewrite.
+
+### 4. A mount is not a reconnect
+
+Two distinct operations, and they must not be inferred from each other:
+
+- **Reconnect** — peers with shared history, comparable clocks. Reconcile
+  normally through last-write-wins.
+- **Mount** — no shared history with the incoming scene. Incoming documents are
+  stamped **at the moment of the mount**, so they are newer than any tombstone
+  the receiver still holds for those ids.
+
+Without this, mounting a scene whose ids you once deleted lets your tombstones
+out-stamp the author's live documents: the mount lands empty, and the mutual
+subscription then propagates those tombstones back and deletes the author's
+scene. Two constraints when implementing: the re-stamp is **local adoption
+only** (re-published stamps would make the receiver look like the author of the
+owner's scene, putting it on the wrong undo stack), and the mount must be an
+**explicit act** rather than inferred from "we hold no state for this".
+
+### 5. Seed at create
+
+"Set this only if nobody has set it" is a read-then-write, and last-write-wins
+cannot protect the gap between the read and the write — two peers can both
+observe "absent" and both write. So defaults are written **when the document is
+created**, where there is no gap.
+
+If a field must be backfilled onto documents created before it existed, that is
+an ordinary update, and it gets a **single owning writer** so there is no race.
+
 ## Architecture overview
 
 ### Three packages
