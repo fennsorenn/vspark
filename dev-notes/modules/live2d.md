@@ -5,10 +5,43 @@ per-node tracking data that drives VRM `avatar` nodes (MediaPipe face, mic
 lipsync, VMC/ARKit blendshapes, head pose) — no signal-graph changes, because
 the per-node blendshape/pose broadcast bus already routes to a node's id.
 
-> Status: implemented end-to-end **except in-browser rendering**, which was not
-> verifiable in the headless dev environment. The runtime-only spots most likely
-> to need tuning are flagged `// VERIFY` in `Live2DRuntime.ts` (MVP/projection
-> fit, `flipY`/premultiplied-alpha, the `setRenderState` framebuffer target).
+> **Status: WIP — merged deliberately unfinished.** A model uploads, loads and
+> **renders in the viewport**, and it **does respond to tracking** — both
+> confirmed in-browser with the official Hiyori sample. The gap is quality, not
+> wiring: the blendshape / head-pose → `Param*` mapping in
+> `lib/live2dParamMap.ts` is **sparse**, so the puppet moves but does not yet
+> look good. Widening and tuning that mapping is the next work.
+>
+> Merged at 0.x on the "land it, then iterate" principle — the alternative was a
+> branch drifting further behind `dev` (it was 105 commits behind at merge, and
+> reconciling that surfaced three separate bugs). Rendering-tuning spots remain
+> flagged `// VERIFY` in `Live2DRuntime.ts` (MVP/projection fit,
+> `flipY`/premultiplied-alpha, the `setRenderState` framebuffer target); they are
+> no longer *unverified*, but they have only been eyeballed on one model.
+
+### Known gaps (as merged)
+
+- **The param mapping is sparse.** Tracking reaches the puppet and moves it, but
+  the result reads as under-driven — too few `Param*` targets covered, and the
+  ones that are covered are untuned. This is the main thing standing between
+  "works" and "usable". Start from `lib/live2dParamMap.ts` (it is a pure module,
+  so it is cheap to iterate on) and the per-node override editor in the
+  properties panel, which lets a user compensate without a code change.
+- **Bundle uploads fail silently on a malformed model.** The upload path does not
+  validate the manifest against the files that arrived, so a model whose
+  `FileReferences` point at paths the folder doesn't contain uploads "fine" and
+  then shows only a placeholder, with nothing saying why. This cost real
+  debugging time on a flattened Hiyori download whose manifest wanted
+  `hiyori_free_t08.2048/texture_00.png` and `motion/*.motion3.json` while every
+  file sat at the root. Parsing the manifest on upload and reporting the diff is
+  the fix.
+- **Dropping a model folder onto the asset dock does not work.** Drag-and-drop
+  routes each file through the single-file upload endpoint, flattening the bundle
+  into separate unusable assets. Only the Models-tab **Upload Live2D** button
+  (folder picker) takes the bundle path. Zip ingestion and an incremental
+  "missing files" flow were discussed and are unbuilt.
+- **A lone `.model3.json` uploads successfully** via the single-file endpoint and
+  produces an asset classified as `live2d` that can never load.
 
 ## Key decisions
 
