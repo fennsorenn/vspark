@@ -77,18 +77,6 @@ export function sendNodeTransformPreview(
   );
 }
 
-/** Forward a clip-driven transform of a *shared* object to subscribers only (no
- *  local co-editor broadcast — they evaluate the same clip themselves). The
- *  backend reuses the `node_transform_preview` stream kind toward subscribers. */
-export function sendSharedNodeTransform(
-  nodeId: string,
-  transform: Record<string, number>
-) {
-  const ws = editorWsRef.current;
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ kind: 'shared_node_transform', nodeId, transform }));
-}
-
 export function useWsSync() {
   const setVmcStatus = useEditorStore((s) => s.setVmcStatus);
   const setVmcTracking = useEditorStore((s) => s.setVmcTracking);
@@ -280,80 +268,6 @@ export function useWsSync() {
             useEditorStore
               .getState()
               .replaceTrackClipEvents(clipId, rows.map(mapTrackClipEvent));
-          } else if (msg.kind === 'track_clip_started') {
-            const p = msg.payload as {
-              clipId: string;
-              startedAt: number;
-              loop: boolean;
-              serverNow: number;
-            };
-            const clockOffsetMs = p.serverNow - Date.now();
-            // Any pending user-override suppressions are dropped: triggering /
-            // resuming / seeking re-asserts the clip as the source of truth.
-            useEditorStore.getState().clearOverrideSuppressions();
-            useEditorStore.getState().setTrackClipPlayback(p.clipId, {
-              kind: 'playing',
-              startedAt: p.startedAt,
-              loop: p.loop,
-              clockOffsetMs,
-            });
-          } else if (msg.kind === 'track_clip_paused') {
-            const p = msg.payload as {
-              clipId: string;
-              pausedAtT: number;
-              serverNow: number;
-            };
-            const clockOffsetMs = p.serverNow - Date.now();
-            const prev = useEditorStore.getState().trackClipPlayback[p.clipId];
-            const loop = prev?.loop ?? false;
-            // Pausing here is reached via the Pause button OR a Seek operation;
-            // either way we want the clip's value back in the inputs.
-            useEditorStore.getState().clearOverrideSuppressions();
-            useEditorStore.getState().setTrackClipPlayback(p.clipId, {
-              kind: 'paused',
-              pausedAtT: p.pausedAtT,
-              loop,
-              clockOffsetMs,
-            });
-          } else if (msg.kind === 'track_clip_stopped') {
-            useEditorStore
-              .getState()
-              .setTrackClipPlayback(msg.payload.clipId as string, null);
-            useEditorStore.getState().clearOverrideSuppressions();
-          } else if (msg.kind === 'track_clip_playback_snapshot') {
-            const p = msg.payload as {
-              entries: {
-                clipId: string;
-                loop: boolean;
-                startedAt?: number;
-                pausedAtT?: number;
-              }[];
-              serverNow: number;
-            };
-            const clockOffsetMs = p.serverNow - Date.now();
-            const next: Record<
-              string,
-              import('../store/editorStore').TrackClipPlayback
-            > = {};
-            for (const e of p.entries ?? []) {
-              if (e.startedAt != null) {
-                next[e.clipId] = {
-                  kind: 'playing',
-                  startedAt: e.startedAt,
-                  loop: e.loop,
-                  clockOffsetMs,
-                };
-              } else if (e.pausedAtT != null) {
-                next[e.clipId] = {
-                  kind: 'paused',
-                  pausedAtT: e.pausedAtT,
-                  loop: e.loop,
-                  clockOffsetMs,
-                };
-              }
-            }
-            useEditorStore.getState().clearOverrideSuppressions();
-            useEditorStore.getState().replaceTrackClipPlayback(next);
           } else if (msg.kind === 'runtime_override_set') {
             const p = msg.payload as {
               targetKind: 'scene_node' | 'compose_layer';

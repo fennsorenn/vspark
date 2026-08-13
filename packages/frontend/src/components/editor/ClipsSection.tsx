@@ -27,7 +27,7 @@ export function ClipsSection({
   const addTrackClip = useEditorStore((s) => s.addTrackClip);
   const removeTrackClip = useEditorStore((s) => s.removeTrackClip);
   const setBottomTab = useEditorStore((s) => s.setBottomTab);
-  const playback = useEditorStore((s) => s.trackClipPlayback);
+  const playback = useEditorStore((s) => s.clipPlayback);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteClip = clipboardPayload?.kind === 'track-clip';
@@ -216,7 +216,7 @@ export function ClipsSection({
       )}
       {clips.map((clip) => {
         const isSelected = selectedTrackClipId === clip.id;
-        const playing = !!playback[clip.id];
+        const playing = playback[clip.id]?.state === 'playing';
         return (
           <div
             key={clip.id}

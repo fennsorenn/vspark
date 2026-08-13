@@ -63,7 +63,7 @@ const INITIAL_STATE = {
   selectedComposeLayerId: null,
   trackClips: [],
   selectedTrackClipId: null,
-  trackClipPlayback: {},
+  clipPlayback: {},
   nodeTransformOverrides: {},
   composeLayerOverrides: {},
   runtimeNodeOverrides: {},
@@ -816,22 +816,44 @@ describe('track clip CRUD', () => {
   });
 });
 
-describe('setTrackClipPlayback / replaceTrackClipPlayback', () => {
-  test('sets and clears playback for a clip', () => {
-    const playing = { kind: 'playing' as const, startedAt: 1000, loop: false, clockOffsetMs: 0 };
-    useEditorStore.getState().setTrackClipPlayback('clip-1', playing);
-    expect(useEditorStore.getState().trackClipPlayback['clip-1']).toEqual(playing);
-    useEditorStore.getState().setTrackClipPlayback('clip-1', null);
-    expect(useEditorStore.getState().trackClipPlayback['clip-1']).toBeUndefined();
+describe('clipPlayback slice', () => {
+  const doc = (over = {}) => ({
+    id: 'pb:clip-1',
+    clipId: 'clip-1',
+    state: 'playing' as const,
+    startEpoch: 1000,
+    pausedAtT: null,
+    speed: 1,
+    loop: false,
+    ...over,
   });
 
-  test('replaceTrackClipPlayback bulk-replaces', () => {
-    const p1 = { kind: 'playing' as const, startedAt: 0, loop: true, clockOffsetMs: 0 };
-    useEditorStore.getState().setTrackClipPlayback('old-clip', p1);
-    useEditorStore.getState().replaceTrackClipPlayback({ 'clip-A': p1 });
-    const pb = useEditorStore.getState().trackClipPlayback;
-    expect(pb['clip-A']).toEqual(p1);
-    expect(pb['old-clip']).toBeUndefined();
+  test('is keyed by CLIP id, not document id', () => {
+    // Every reader has a clip in hand and wants its transport; the doc id only
+    // matters for removes, which arrive carrying it and nothing else.
+    useEditorStore.getState().upsertClipPlayback(doc());
+    expect(useEditorStore.getState().clipPlayback['clip-1']).toEqual(doc());
+    expect(useEditorStore.getState().clipPlayback['pb:clip-1']).toBeUndefined();
+  });
+
+  test('upserting replaces the entry for that clip', () => {
+    useEditorStore.getState().upsertClipPlayback(doc());
+    useEditorStore.getState().upsertClipPlayback(doc({ state: 'paused', pausedAtT: 2 }));
+    const pb = useEditorStore.getState().clipPlayback['clip-1'];
+    expect(pb.state).toBe('paused');
+    expect(pb.pausedAtT).toBe(2);
+  });
+
+  test('removing resolves the DOCUMENT id back to its clip key', () => {
+    useEditorStore.getState().upsertClipPlayback(doc());
+    useEditorStore.getState().removeClipPlayback('pb:clip-1');
+    expect(useEditorStore.getState().clipPlayback['clip-1']).toBeUndefined();
+  });
+
+  test('removing an unknown document id is a no-op', () => {
+    useEditorStore.getState().upsertClipPlayback(doc());
+    useEditorStore.getState().removeClipPlayback('pb:nope');
+    expect(useEditorStore.getState().clipPlayback['clip-1']).toBeDefined();
   });
 });
 

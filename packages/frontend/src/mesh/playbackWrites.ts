@@ -33,7 +33,6 @@ export const playbackOf = (clipId: string): ClipPlayback | undefined =>
  *  a partial would leave the anchor and the state disagreeing between ops. */
 function put(clipId: string, patch: Partial<ClipPlayback>): void {
   const c = col();
-  if (!c?.canWrite()) return;
   const cur = playbackOf(clipId);
   const doc: ClipPlayback = {
     id: playbackDocId(clipId),
@@ -46,7 +45,15 @@ function put(clipId: string, patch: Partial<ClipPlayback>): void {
     ...cur,
     ...patch,
   };
-  c.set(doc.id, '', doc, OPTS);
+  if (c?.canWrite()) {
+    c.set(doc.id, '', doc, OPTS);
+    return;
+  }
+  // No peer to author through — keep this tab coherent anyway. Nothing
+  // persists and nothing fans out, but the transport still responds, which
+  // matters for the window before the peer arms and for a viewer running
+  // without one.
+  useEditorStore.getState().upsertClipPlayback(doc);
 }
 
 /** Start from the beginning. */

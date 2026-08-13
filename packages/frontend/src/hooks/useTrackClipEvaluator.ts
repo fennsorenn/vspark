@@ -1,10 +1,8 @@
 import { useEffect } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import type {
-  ClipPlayback,
   ComposeLayerOverride,
   NodeTransformOverride,
-  TrackClipPlayback,
 } from '../store/editorStore';
 import type {
   TrackClipLaneRecord,
@@ -16,8 +14,8 @@ import {
   resolveClipTime,
 } from '../components/editor/trackClipEvaluator';
 import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
-import { useConnectionsStore } from '../store/connectionsStore';
-import { sendSharedNodeTransform } from './useWsSync';
+import { playheadAt } from '@vspark/shared/clipPlayback';
+import { commitStop } from '../mesh/playbackWrites';
 import type { MediaCommand, MediaAction } from '@vspark/shared';
 
 // Per-clip last evaluated playhead time, kept across rAF ticks (module scope so
@@ -46,100 +44,7 @@ interface NodeAccumulator {
   opacity?: number;
 }
 
-// --- shared-object clip animation forwarding --------------------------------
-//
-// A track clip animating a *shared* object's transform must reach subscribers,
-// but clip evaluation is frontend-local (no graph output, no persisted edit), so
-// it rides the existing `node_transform_preview` stream: emit the live transform
-// each frame for animated nodes, and emit the *base* transform once when a node
-// stops animating so the receiver smooths back (the preview path has no auto-
-// clear). The backend's forwardStream filters to actually-subscribed roots, so
-// emitting for any animated node when a peer is connected is safe; we just gate
-// on connectivity to avoid per-frame WS chatter when no one's listening.
-//
-// Boundary: forwardStream keys on the shared-object *root* id, so a clip
-// animating a child *inside* a shared subtree isn't forwarded (same as a drag of
-// a shared child). Opacity isn't carried by the transform preview either.
-const forwardedClipNodes = new Set<string>();
-/** Nodes that just stopped animating → re-emit base for a few frames so the
- *  revert isn't lost on the lossy stream channel (server-relay subscribers;
- *  the browser-direct edge is reliable). id → frames left. */
-const revertingClipNodes = new Map<string, number>();
-const REVERT_REPEATS = 4;
-const EMPTY_ACC = new Map<string, NodeAccumulator>();
-let lastClipEmitAt = 0;
-const CLIP_EMIT_MS = 33; // ~30 Hz, matching the drag-preview cadence
-
-/** The node's persisted transform as a flat `{x,y,z,rx,…,sz}` payload, with any
- *  animated axes from `acc` (absolute values) overlaid. */
-function buildFlatTransform(
-  node: { components: Record<string, unknown> },
-  acc?: NodeAccumulator
-): Record<string, number> {
-  const t = (node.components?.transform ?? {}) as FlatTransform;
-  const flat: Record<string, number> = {
-    x: t.x ?? 0,
-    y: t.y ?? 0,
-    z: t.z ?? 0,
-    rx: t.rx ?? 0,
-    ry: t.ry ?? 0,
-    rz: t.rz ?? 0,
-    sx: t.sx ?? 1,
-    sy: t.sy ?? 1,
-    sz: t.sz ?? 1,
-  };
-  const overlay = (
-    group: Record<'x' | 'y' | 'z', number | undefined> | undefined,
-    prefix: string
-  ): void => {
-    if (!group) return;
-    for (const a of ['x', 'y', 'z'] as const)
-      if (group[a] !== undefined) flat[prefix + a] = group[a]!;
-  };
-  overlay(acc?.position, '');
-  overlay(acc?.rotation, 'r');
-  overlay(acc?.scale, 's');
-  return flat;
-}
-
-function syncSharedClipTransforms(
-  s: ReturnType<typeof useEditorStore.getState>,
-  nodeAcc: Map<string, NodeAccumulator>,
-  cleared: Iterable<string>
-): void {
-  // Only when a contact is connected (a potential subscriber). The backend
-  // narrows to actually-shared roots; this just avoids idle WS traffic.
-  if (useConnectionsStore.getState().connectedIds.length === 0) {
-    forwardedClipNodes.clear();
-    revertingClipNodes.clear();
-    return;
-  }
-  // Nodes that stopped animating this frame → schedule a base-transform revert.
-  for (const id of cleared)
-    if (forwardedClipNodes.delete(id)) revertingClipNodes.set(id, REVERT_REPEATS);
-  // Emit pending reverts every frame (unthrottled) until exhausted, so a dropped
-  // frame on the lossy channel doesn't leave the receiver stuck at the last pose.
-  for (const [id, left] of revertingClipNodes) {
-    const node = s.nodes.find((n) => n.id === id);
-    if (node) sendSharedNodeTransform(id, buildFlatTransform(node));
-    if (left <= 1) revertingClipNodes.delete(id);
-    else revertingClipNodes.set(id, left - 1);
-  }
-  // Active animations (throttled).
-  const now =
-    typeof performance !== 'undefined' ? performance.now() : Date.now();
-  if (now - lastClipEmitAt < CLIP_EMIT_MS) return;
-  lastClipEmitAt = now;
-  for (const [id, acc] of nodeAcc) {
-    const node = s.nodes.find((n) => n.id === id);
-    if (!node) continue;
-    revertingClipNodes.delete(id); // re-animated → cancel any pending revert
-    sendSharedNodeTransform(id, buildFlatTransform(node, acc));
-    forwardedClipNodes.add(id);
-  }
-}
-
-/** Per-frame evaluator. Reads `trackClipPlayback` + `trackClips`, computes scalar
+/** Per-frame evaluator. Reads `clipPlayback` + `trackClips`, computes scalar
  *  values for every active lane, and pushes results into:
  *    - `nodeTransformOverrides` (read by Viewport in its useFrame and applied via direct Three.js mutation)
  *    - `composeLayerOverrides`  (read by ComposeLayerStack / ComposeView when rendering layers)
@@ -158,48 +63,6 @@ function syncSharedClipTransforms(
  *  the absolute value here, so the consumer can treat both modes the same: "if an
  *  override is present for this scalar, replace the persisted value with the override."
  */
-/** Project a synced `clip_playback` document onto the shape the evaluator reads.
- *
- *  `clockOffsetMs` is 0 because there is nothing to correct for: `startEpoch`
- *  was already translated onto this peer's clock by the collection's `validate`
- *  hook on arrival, so it is a local timestamp by the time it reaches here. The
- *  legacy entries carry a per-message offset instead, sampled against a
- *  `serverNow` the old broadcasts shipped alongside. */
-function asLegacyEntry(pb: ClipPlayback): TrackClipPlayback | null {
-  if (pb.state === 'paused')
-    return {
-      kind: 'paused',
-      pausedAtT: pb.pausedAtT ?? 0,
-      loop: pb.loop,
-      clockOffsetMs: 0,
-    };
-  if (pb.state === 'playing' && pb.startEpoch != null)
-    return {
-      kind: 'playing',
-      startedAt: pb.startEpoch,
-      loop: pb.loop,
-      clockOffsetMs: 0,
-    };
-  return null; // stopped — drive nothing
-}
-
-/** Mesh documents layered over the legacy slice, mesh winning per clip. */
-function mergedPlayback(
-  s: ReturnType<typeof useEditorStore.getState>
-): Record<string, TrackClipPlayback> {
-  const meshIds = Object.keys(s.clipPlayback);
-  if (meshIds.length === 0) return s.trackClipPlayback;
-  const out: Record<string, TrackClipPlayback> = { ...s.trackClipPlayback };
-  for (const clipId of meshIds) {
-    const entry = asLegacyEntry(s.clipPlayback[clipId]);
-    // A stopped document is authoritative too: it must REMOVE the clip from the
-    // set, not fall through to a stale legacy entry that would keep it running.
-    if (entry) out[clipId] = entry;
-    else delete out[clipId];
-  }
-  return out;
-}
-
 export function useTrackClipEvaluator(): void {
   useEffect(() => {
     let raf = 0;
@@ -207,14 +70,9 @@ export function useTrackClipEvaluator(): void {
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const s = useEditorStore.getState();
-      // Parallel run: the mesh `clip_playback` document is the destination, the
-      // backend-authoritative `trackClipPlayback` slice is still fed by the /ws
-      // kinds until that playhead is deleted. A clip present in both takes the
-      // MESH entry, so any peer that has the document evaluates from the same
-      // inputs as every other; a clip only the backend knows about (a signal
-      // node or spawn trigger, not yet migrated) keeps working meanwhile.
-      const playback = mergedPlayback(s);
-      const playbackEntries = Object.entries(playback);
+      // The synced documents ARE the transport state — the parallel run is
+      // over. A clip with no document is not playing anywhere.
+      const playbackEntries = Object.entries(s.clipPlayback);
       // Fast exit + cleanup when nothing is playing.
       if (playbackEntries.length === 0) {
         if (lastTByClip.size > 0) lastTByClip.clear();
@@ -226,9 +84,6 @@ export function useTrackClipEvaluator(): void {
           for (const id of Object.keys(s.composeLayerOverrides))
             s.setComposeLayerOverride(id, null);
         }
-        // Revert any shared objects we were animating back to their base on
-        // subscribers (nothing playing → all forwarded nodes are cleared).
-        syncSharedClipTransforms(s, EMPTY_ACC, [...forwardedClipNodes]);
         return;
       }
 
@@ -242,23 +97,20 @@ export function useTrackClipEvaluator(): void {
       for (const [clipId, entry] of playbackEntries) {
         const clip = clipById.get(clipId);
         if (!clip) continue;
-        let t: number | null;
-        if (entry.kind === 'paused') {
-          // Frozen — don't advance, don't complete. Still re-eval each frame so
-          // any lane/keyframe edits while paused take effect immediately.
-          t = resolveClipTime(entry.pausedAtT, clip.duration, entry.loop);
-        } else {
-          const tRaw =
-            (Date.now() + entry.clockOffsetMs - entry.startedAt) / 1000;
-          t = resolveClipTime(tRaw, clip.duration, entry.loop);
-        }
+        // Derived, never received. `playheadAt` is the same function the
+        // backend and every other peer run, so all of them agree without
+        // anybody shipping a frame. Paused freezes rather than completes, so a
+        // lane edit made while paused still takes effect on the next tick.
+        const raw = playheadAt(entry);
+        const t =
+          raw === null ? null : resolveClipTime(raw, clip.duration, entry.loop);
         if (t == null) {
           completed.push(clipId);
           continue;
         }
         // Fire event-lane markers crossed since the last tick (playing only;
         // paused clips don't advance so nothing is crossed).
-        if (entry.kind === 'playing' && clip.events.length > 0) {
+        if (entry.state === 'playing' && clip.events.length > 0) {
           const prevT = lastTByClip.has(clipId)
             ? lastTByClip.get(clipId)!
             : -Infinity;
@@ -302,7 +154,6 @@ export function useTrackClipEvaluator(): void {
 
       // Forward clip-driven transforms of shared objects to subscribers, and
       // revert nodes that stopped animating this frame (prevNodeIds) to base.
-      syncSharedClipTransforms(s, nodeAcc, prevNodeIds);
 
       const prevLayerIds = new Set(Object.keys(s.composeLayerOverrides));
       for (const [layerId, override] of layerAcc) {
@@ -312,8 +163,11 @@ export function useTrackClipEvaluator(): void {
       for (const layerId of prevLayerIds)
         s.setComposeLayerOverride(layerId, null);
 
+      // A clip that ran past its end stops in the document, so every peer sees
+      // the same thing. The backend sweep does this too and one of them wins
+      // harmlessly — both write `stopped` from the same derivation.
       for (const id of completed) {
-        s.setTrackClipPlayback(id, null);
+        commitStop(id);
         lastTByClip.delete(id);
       }
     };

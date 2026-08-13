@@ -78,24 +78,6 @@ export type {
   TrackClipEventRecord,
 };
 
-/** Active playback for one track clip — either playing (wall clock advances from
- *  `startedAt`) or paused at a fixed `pausedAtT` seconds.
- *  `clockOffsetMs = serverNow − clientNow` sampled when the anchor was received,
- *  used to keep evaluation in phase with the backend-authoritative playhead. */
-export type TrackClipPlayback =
-  | {
-      kind: 'playing';
-      startedAt: number; // ms epoch in server clock
-      loop: boolean;
-      clockOffsetMs: number;
-    }
-  | {
-      kind: 'paused';
-      pausedAtT: number; // seconds into the clip
-      loop: boolean;
-      clockOffsetMs: number;
-    };
-
 /** Per-node ephemeral transform overrides produced by the track-clip evaluator.
  *  Never persisted; cleared each frame the evaluator decides to stop driving a param.
  *  Read by Viewport.tsx inside an existing useFrame and applied directly to Three.js objects. */
@@ -564,7 +546,6 @@ interface EditorState {
   trackClips: TrackClipRecord[];
   selectedTrackClipId: string | null;
   /** clipId → active playback anchor */
-  trackClipPlayback: Record<string, TrackClipPlayback>;
   /** nodeId → ephemeral transform override produced by the evaluator (never persisted) */
   nodeTransformOverrides: Record<string, NodeTransformOverride>;
   /** composeLayerId → ephemeral DOM-space override produced by the evaluator */
@@ -700,14 +681,7 @@ interface EditorState {
     clipId: string,
     events: TrackClipEventRecord[]
   ) => void;
-  setTrackClipPlayback: (
-    clipId: string,
-    entry: TrackClipPlayback | null
-  ) => void;
   /** Bulk replace (used by playback snapshot on (re)connect). */
-  replaceTrackClipPlayback: (
-    entries: Record<string, TrackClipPlayback>
-  ) => void;
   setNodeTransformOverride: (
     nodeId: string,
     override: NodeTransformOverride | null
@@ -829,7 +803,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   trackClips: [],
   selectedTrackClipId: null,
-  trackClipPlayback: {},
   nodeTransformOverrides: {},
   composeLayerOverrides: {},
   runtimeNodeOverrides: {},
@@ -1185,7 +1158,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })),
   removeTrackClip: (id) =>
     set((s) => {
-      const nextPlayback = { ...s.trackClipPlayback };
+      const nextPlayback = { ...s.clipPlayback };
       delete nextPlayback[id];
 
       // Drop any overrides/suppressions this clip's lanes left behind so the
@@ -1208,7 +1181,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         trackClips: s.trackClips.filter((c) => c.id !== id),
         selectedTrackClipId:
           s.selectedTrackClipId === id ? null : s.selectedTrackClipId,
-        trackClipPlayback: nextPlayback,
+        clipPlayback: nextPlayback,
         composeLayerOverrides: nextLayerOverrides,
         nodeTransformOverrides: nextNodeOverrides,
         ...(suppressionsTouched ? { suppressedOverrides: nextSuppressed } : {}),
@@ -1257,14 +1230,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         c.id === clipId ? { ...c, events } : c
       ),
     })),
-  setTrackClipPlayback: (clipId, entry) =>
-    set((s) => {
-      const next = { ...s.trackClipPlayback };
-      if (entry == null) delete next[clipId];
-      else next[clipId] = entry;
-      return { trackClipPlayback: next };
-    }),
-  replaceTrackClipPlayback: (entries) => set({ trackClipPlayback: entries }),
   setNodeTransformOverride: (nodeId, override) =>
     set((s) => {
       const next = { ...s.nodeTransformOverrides };

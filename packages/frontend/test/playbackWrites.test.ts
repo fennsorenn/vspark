@@ -157,10 +157,18 @@ describe('transport writes', () => {
     expect(calls[0].opts?.channel).toBeUndefined(); // committed channel
   });
 
-  it('emits nothing when the peer cannot author', async () => {
+  it('falls back to a local apply when the peer cannot author', async () => {
+    // Nothing persists and nothing fans out, but the transport still responds —
+    // which matters for the window before the peer arms, and for a viewer
+    // running without one.
     const w = await setup();
+    const { useEditorStore } = await import('../src/store/editorStore');
     canWrite = false;
     w.commitPlay('c1');
     expect(calls).toHaveLength(0);
+    expect(useEditorStore.getState().clipPlayback.c1).toMatchObject({
+      clipId: 'c1',
+      state: 'playing',
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
+import { displayPlayhead } from '@vspark/shared/clipPlayback';
 import { api } from '../api/client';
 import type {
   TrackClipKeyframeRecord,
@@ -28,7 +29,7 @@ export function useTrackClipRecorder(): {
   const bottomTab = useEditorStore((s) => s.bottomTab);
   const selectedClipId = useEditorStore((s) => s.selectedTrackClipId);
   const trackClips = useEditorStore((s) => s.trackClips);
-  const playback = useEditorStore((s) => s.trackClipPlayback);
+  const playback = useEditorStore((s) => s.clipPlayback);
   const addTrackClipLane = useEditorStore((s) => s.addTrackClipLane);
   const replaceTrackClipLaneKeyframes = useEditorStore(
     (s) => s.replaceTrackClipLaneKeyframes
@@ -39,16 +40,11 @@ export function useTrackClipRecorder(): {
 
   const currentPlayhead = useCallback((): number => {
     if (!selectedClip) return 0;
-    const entry = playback[selectedClip.id];
-    if (!entry) return 0;
-    if (entry.kind === 'paused') return entry.pausedAtT;
-    if (selectedClip.duration <= 0) return 0;
-    const tRaw = (Date.now() + entry.clockOffsetMs - entry.startedAt) / 1000;
-    if (entry.loop) {
-      const w = tRaw % selectedClip.duration;
-      return w < 0 ? w + selectedClip.duration : w;
-    }
-    return Math.max(0, Math.min(selectedClip.duration, tRaw));
+    // Derived from the synced document, same as everywhere else — recording a
+    // keyframe at "now" has to mean the same instant the viewport is showing.
+    return (
+      displayPlayhead(playback[selectedClip.id], selectedClip.duration) ?? 0
+    );
   }, [selectedClip, playback]);
 
   /** Find an existing lane for (targetKind, targetId, paramPath), or create it. */

@@ -155,7 +155,7 @@ const INITIAL_STATE = {
   selectedComposeLayerId: null,
   trackClips: [],
   selectedTrackClipId: null,
-  trackClipPlayback: {},
+  clipPlayback: {},
   nodeTransformOverrides: {},
   composeLayerOverrides: {},
   runtimeNodeOverrides: {},
@@ -444,81 +444,8 @@ describe('useWsSync', () => {
     unmount();
   });
 
-  it('handles track_clip_started message → sets playing playback in editorStore', async () => {
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-    const now = Date.now();
 
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'track_clip_started',
-        payload: {
-          clipId: 'clip-1',
-          startedAt: now,
-          loop: false,
-          serverNow: now,
-        },
-      });
-    });
 
-    const pb = useEditorStore.getState().trackClipPlayback['clip-1'];
-    expect(pb?.kind).toBe('playing');
-    unmount();
-  });
-
-  it('handles track_clip_stopped message → removes playback entry', async () => {
-    useEditorStore.getState().setTrackClipPlayback('clip-stop', {
-      kind: 'playing',
-      startedAt: Date.now(),
-      loop: false,
-      clockOffsetMs: 0,
-    });
-
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'track_clip_stopped',
-        payload: { clipId: 'clip-stop' },
-      });
-    });
-
-    expect(useEditorStore.getState().trackClipPlayback['clip-stop']).toBeUndefined();
-    unmount();
-  });
-
-  it('handles track_clip_paused message → sets paused playback in editorStore', async () => {
-    // Seed playing state so the handler can read loop from it.
-    useEditorStore.getState().setTrackClipPlayback('clip-p', {
-      kind: 'playing',
-      startedAt: Date.now(),
-      loop: true,
-      clockOffsetMs: 0,
-    });
-
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-    const now = Date.now();
-
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'track_clip_paused',
-        payload: { clipId: 'clip-p', pausedAtT: 1.5, serverNow: now },
-      });
-    });
-
-    const pb = useEditorStore.getState().trackClipPlayback['clip-p'];
-    expect(pb?.kind).toBe('paused');
-    if (pb?.kind === 'paused') expect(pb.pausedAtT).toBe(1.5);
-    unmount();
-  });
 
   it('schedules reconnect when connection closes then reconnects', async () => {
     vi.useFakeTimers();
@@ -677,11 +604,14 @@ describe('useTrackClipEvaluator', () => {
     act(() => {
       useEditorStore.getState().addNode(node);
       useEditorStore.getState().addTrackClip(clip);
-      useEditorStore.getState().setTrackClipPlayback('clip-eval', {
-        kind: 'playing',
-        startedAt,
+      useEditorStore.getState().upsertClipPlayback({
+        id: 'pb:clip-eval',
+        clipId: 'clip-eval',
+        state: 'playing',
+        startEpoch: startedAt,
+        pausedAtT: null,
+        speed: 1,
         loop: false,
-        clockOffsetMs: 0,
       });
     });
 
@@ -720,11 +650,14 @@ describe('useTrackClipEvaluator', () => {
     const startedAt = Date.now() - 2000;
     act(() => {
       useEditorStore.getState().addTrackClip(clip);
-      useEditorStore.getState().setTrackClipPlayback('clip-done', {
-        kind: 'playing',
-        startedAt,
+      useEditorStore.getState().upsertClipPlayback({
+        id: 'pb:clip-done',
+        clipId: 'clip-done',
+        state: 'playing',
+        startEpoch: startedAt,
+        pausedAtT: null,
+        speed: 1,
         loop: false,
-        clockOffsetMs: 0,
       });
     });
 
@@ -734,7 +667,10 @@ describe('useTrackClipEvaluator', () => {
       flushRaf();
     });
 
-    expect(useEditorStore.getState().trackClipPlayback['clip-done']).toBeUndefined();
+    // The evaluator stops a finished clip in the document.
+    expect(
+      useEditorStore.getState().clipPlayback['clip-done']?.state
+    ).not.toBe('playing');
     unmount();
   });
 
@@ -788,11 +724,14 @@ describe('useTrackClipEvaluator', () => {
       useEditorStore.getState().addNode(node);
       useEditorStore.getState().addTrackClip(clip);
       // Paused at t=5 → position.x = 50 (halfway)
-      useEditorStore.getState().setTrackClipPlayback('clip-paused', {
-        kind: 'paused',
+      useEditorStore.getState().upsertClipPlayback({
+        id: 'pb:clip-paused',
+        clipId: 'clip-paused',
+        state: 'paused',
+        startEpoch: null,
         pausedAtT: 5,
+        speed: 1,
         loop: false,
-        clockOffsetMs: 0,
       });
     });
 
@@ -810,7 +749,7 @@ describe('useTrackClipEvaluator', () => {
     expect(override2?.position?.x).toBeCloseTo(50, 0);
 
     // Paused clip must still be in playback (not completed)
-    expect(useEditorStore.getState().trackClipPlayback['clip-paused']).toBeDefined();
+    expect(useEditorStore.getState().clipPlayback['clip-paused']).toBeDefined();
 
     unmount();
   });
