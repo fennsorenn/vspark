@@ -705,6 +705,37 @@ clients: it is spawned per-client, speaks JSON-RPC over the pipe, and reaches th
 backend over `VSPARK_BASE_URL` (loopback by default) with no listening socket of
 its own.
 
+## Known rough edge: seeded scenes duplicate
+
+`create_scene` is not a blank-scene constructor — `routes/scenes.ts` seeds every
+new scene with a **Camera**, a **"Key Light"** and a **"Fill Light"**. Ask the
+assistant to "create a scene with a key and fill light" and you get **four**
+lights: the seeded pair plus the pair it was told to add.
+
+Verified live against a local vLLM (`gemma-4-12B`, 16k ctx):
+
+- Before documenting the seeding, the agent created the duplicate pair — it had no
+  way to know the scene was non-empty.
+- After adding the warning to the description, **the duplicate still happens**. The
+  model reads the note correctly (asked to create a scene and report its contents,
+  it lists the three defaults accurately) but an explicit "add a Key Light"
+  instruction outranks a cautionary note, which is reasonable behaviour.
+
+So the description is necessary but not sufficient, and this is **not** fixable by
+prompt-wording alone. Options, roughly in order of preference:
+
+1. Give `create_scene` an `empty: boolean` (default false) that skips seeding, and
+   have the tool description tell the agent to prefer `empty: true` when the user
+   has specified their own lighting. Fixes the cause rather than the symptom.
+2. Make the seeding discoverable in the *return value* — have `create_scene`
+   return the seeded node list, not just the id, so the agent sees what exists
+   without a follow-up `list_scene_nodes`.
+3. Leave it, and let users delete the extras. Cheapest, but it makes the very
+   first thing an agent does look broken.
+
+Worth fixing before the assistant is put in front of non-technical users, since
+"make me a scene" is close to the most likely opening request.
+
 ## Adding / changing a tool
 
 1. Add (or edit) a `ToolSpec` in `mcp/tools.ts`: `name`, a `description` that
