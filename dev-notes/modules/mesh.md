@@ -226,6 +226,22 @@ it for free, collaboration-safe by construction.
   boundary, so gizmo-drag coalescing is a non-issue. Remote-authority writes are
   logged only once the authority confirms (acked / corrected value); a rejected
   or timed-out optimistic write leaves no entry. Depth-capped (default 100).
+- **Opting out.** `WriteOpts.undo: false` keeps a committed write off the stack.
+  It suppresses the entry only — the write applies, replicates, persists and acks
+  like any other. For changes that are not document edits: **Decided:** transport
+  controls (play / pause / stop, and scrub-release) pass `undo: false`, because
+  otherwise pressing Play makes the next Ctrl+Z un-pause rather than undo the
+  user's last edit.
+
+  Sharp edge worth knowing before using it on a doc users also edit: the guarded
+  policy skips an inverse when the doc changed since the entry was logged, and it
+  compares values — so it cannot tell a collaborator's edit from a non-undoable
+  one. An `undo: false` write therefore **guards the doc against its own earlier
+  entries**, and an undo that would otherwise apply is skipped. That is the
+  conservative direction (skip rather than clobber), and transport state does not
+  hit it because it lives in its own collection with no undoable writes. Pinned
+  by "SHARP EDGE: an opted-out write blocks a later undo of the same doc" in
+  `packages/mesh/test/undo.test.ts`.
 - **Replay.** `peer.undo()` re-emits the inverse as a fresh committed write
   (`created→remove`, `removed`/`modified`→restore prior doc); `redo()` re-applies
   the forward direction. Because the inverse is a normal write, propagation,

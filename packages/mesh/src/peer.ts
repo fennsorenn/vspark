@@ -642,8 +642,15 @@ export class MeshPeer implements PeerCore {
     // Undo-log: only genuine committed (retained-channel, non-hydrate) writes
     // that this peer authors directly — never previews, hydration, or the
     // inverse/forward replays of an undo/redo (those move the stacks by hand).
+    //
+    // `undo: false` opts a write out explicitly, for changes that are not
+    // document edits at all (see WriteOpts.undo). It suppresses the entry only;
+    // the write still replicates, persists and acks like any other.
     const loggable =
-      this.replayMode === 'none' && guarded && w.channel === col.retainedChannel;
+      w.undo !== false &&
+      this.replayMode === 'none' &&
+      guarded &&
+      w.channel === col.retainedChannel;
     const before = loggable ? col.replica.raw(w.id) : undefined;
 
     // For removes, routing/ancestry must be resolved before the index entry dies.

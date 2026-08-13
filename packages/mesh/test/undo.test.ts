@@ -446,3 +446,103 @@ describe('mesh undo/redo — batch()', () => {
     expect(r.b.undoStatus()).toEqual({ canUndo: false, canRedo: true });
   });
 });
+
+describe('mesh undo/redo — the undo:false opt-out', () => {
+  /**
+   * Some committed writes are not document edits: transport controls change
+   * what the user is LOOKING AT, not what the document says. Without an opt-out
+   * every retained committed write is logged, so pressing Play would make the
+   * next Ctrl+Z un-pause instead of undoing the user's last real edit.
+   *
+   * The opt-out suppresses the undo ENTRY only. Everything else about the write
+   * is unchanged — it applies, replicates, persists and acks like any other.
+   */
+  it('a committed write with undo:false logs no entry', () => {
+    const { p, nodes } = solo();
+    nodes.create({ id: 'n1', name: 'a' }, { undo: false });
+
+    // Applied...
+    expect(nodes.get('n1')).toEqual({ id: 'n1', name: 'a' });
+    // ...but nothing to undo.
+    expect(p.undoStatus()).toEqual({ canUndo: false, canRedo: false });
+  });
+
+  it('undo takes the last LOGGED write, stepping over the opted-out one', () => {
+    const { p, nodes } = solo();
+    nodes.create({ id: 'n1', name: 'a' }); // logged
+    nodes.update('n1', { val: 1 }, { undo: false }); // not logged
+    nodes.update('n1', { name: 'b' }); // logged
+
+    expect(p.undo()).toBe(true);
+    // name reverted; the opted-out value stays, because it was never an action
+    // and so nothing restores or removes it.
+    expect(nodes.get('n1')).toEqual({ id: 'n1', name: 'a', val: 1 });
+  });
+
+  it('SHARP EDGE: an opted-out write blocks a later undo of the same doc', () => {
+    // The guarded policy (the default) skips an inverse when the doc has changed
+    // since the entry was logged — and it compares values, so it cannot tell
+    // "a collaborator changed this" from "a non-undoable write changed this".
+    // An undo:false write therefore guards the doc against its own earlier
+    // entries, exactly as a collaborator's edit would.
+    //
+    // This is the conservative direction (skip rather than clobber), and the
+    // motivating use case does not hit it: transport writes live in their own
+    // collection whose docs have no undoable writes at all. Worth knowing
+    // before putting an undo:false write on a doc users also edit.
+    const { p, nodes } = solo();
+    nodes.create({ id: 'n1', name: 'a' });
+    nodes.update('n1', { val: 1 }, { undo: false });
+    nodes.update('n1', { name: 'b' });
+
+    expect(p.undo()).toBe(true); // reverts name → 'a'
+    expect(p.undo()).toBe(false); // create's inverse is SKIPPED: val changed
+    expect(nodes.get('n1')).toEqual({ id: 'n1', name: 'a', val: 1 });
+  });
+
+  it('under the naive policy the same undo goes through', () => {
+    const { p, nodes } = solo({ policy: 'naive' });
+    nodes.create({ id: 'n1', name: 'a' });
+    nodes.update('n1', { val: 1 }, { undo: false });
+    nodes.update('n1', { name: 'b' });
+
+    expect(p.undo()).toBe(true);
+    expect(p.undo()).toBe(true);
+    expect(nodes.get('n1')).toBeUndefined();
+  });
+
+  it('applies to every write method', () => {
+    const { p, nodes } = solo();
+    nodes.create({ id: 'n1', name: 'a' }, { undo: false });
+    nodes.update('n1', { name: 'b' }, { undo: false });
+    nodes.set('n1', 'val', 3, { undo: false });
+    nodes.remove('n1', { undo: false });
+    expect(p.undoStatus()).toEqual({ canUndo: false, canRedo: false });
+  });
+
+  it('defaults to logging — omitting the option changes nothing', () => {
+    const { p, nodes } = solo();
+    nodes.create({ id: 'n1', name: 'a' }, {});
+    nodes.set('n1', 'val', 3, { channel: 'committed' });
+    expect(p.undoStatus()).toEqual({ canUndo: true, canRedo: false });
+    expect(p.undo()).toBe(true);
+    expect(nodes.get('n1')).toEqual({ id: 'n1', name: 'a' });
+  });
+
+  it('an opted-out write still lands on other peers', async () => {
+    // The point of the opt-out is undo, not visibility: a Play pressed in one
+    // tab has to reach the others.
+    const r = pair();
+    await r.b.subscribe('A', {
+      entityRtype: 'node',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+    });
+    r.na.create({ id: 'n1', name: 'a' }, { undo: false });
+    await r.flush();
+
+    expect(r.nb.get('n1')).toEqual({ id: 'n1', name: 'a' });
+    expect(r.a.undoStatus().canUndo).toBe(false);
+  });
+});
