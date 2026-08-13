@@ -142,9 +142,11 @@ export function readDocPath<T extends { id: string }>(
   return doc ? getPath(doc, path) : undefined;
 }
 
-/** Live, uncommitted edit: applies locally so the viewport and panels track the
- *  gesture. Nothing leaves the tab and no undo entry is logged — commit when
- *  the gesture settles. */
+/** Live, uncommitted edit, LOCAL ONLY: applies to this tab's store so the
+ *  viewport and panels track the gesture, and goes nowhere else.
+ *
+ *  Prefer {@link previewDocFields} for anything another peer should see —
+ *  this one emits no mesh traffic at all. */
 export function previewDocPath<T extends { id: string }>(
   a: MeshDocAdapter<T>,
   id: string,
@@ -154,6 +156,45 @@ export function previewDocPath<T extends { id: string }>(
   const doc = find(a, id);
   if (!doc) return;
   a.applyLocal(id, topLevelPatch(doc, path, value));
+}
+
+/** In-flight gesture values, on the mesh's lossy `preview` channel.
+ *
+ *  An ephemeral write lands as a per-key overlay composed over the retained
+ *  doc, so watching tabs see the gesture without it ever becoming model state —
+ *  no persistence, no undo entry, and the overlay clears the moment the
+ *  committed write arrives.
+ *
+ *  ONE OVERLAY PER PATH, always. A pathless ephemeral write is a *root* overlay:
+ *  it clears the per-path ones and replaces the composed doc wholesale, so
+ *  `{x: 400}` would compose to a doc that is only `{x: 400}` — losing the id
+ *  along with everything else. Paths must also be as deep as the value being
+ *  driven: an overlay at `components.transform` would blank every sibling field
+ *  on that component (opacity, shadow flags) for the whole gesture, so a node
+ *  gesture writes `components.transform.x`, not `components.transform`. */
+export function previewDocFields<T extends { id: string }>(
+  a: MeshDocAdapter<T>,
+  id: string,
+  patch: Record<string, unknown>
+): void {
+  const col = getMeshHandles()?.collections[a.rtype];
+  if (col?.canWrite() && col.get(id)) {
+    for (const [path, value] of Object.entries(patch))
+      col.set(id, path, value, { channel: 'preview' });
+    return;
+  }
+  // No peer to fan out to — still show the gesture locally. Accumulate so that
+  // sibling paths under one top-level field don't each rebuild it from the
+  // stored doc and drop the ones before them.
+  const doc = find(a, id);
+  if (!doc) return;
+  let merged = doc;
+  for (const [path, value] of Object.entries(patch))
+    merged = setPath(merged, path, value);
+  const fields = new Set(Object.keys(patch).map((p) => p.split('.')[0]));
+  const local: Record<string, unknown> = {};
+  for (const f of fields) local[f] = (merged as Record<string, unknown>)[f];
+  a.applyLocal(id, local as Partial<T>);
 }
 
 /** Commit one field. One call = one undo step. */
@@ -336,6 +377,30 @@ export const previewNodePath = (
   path: string,
   value: unknown
 ): void => previewDocPath(nodes, nodeId, path, value);
+
+/** In-flight transform values for a node gesture, fanned out on the mesh
+ *  `preview` channel. See {@link previewDocFields}.
+ *
+ *  Takes the flat gesture payload (`{x, y, rx, …}`) and writes ONE overlay PER
+ *  SCALAR, at `components.transform.<field>`. Not one overlay at
+ *  `components.transform`: that would blank the component's other fields —
+ *  opacity, castShadow, receiveShadow — for every watching tab for the duration
+ *  of the drag, which is the live-preview twin of the commit bug fixed in
+ *  `mergedTransform`. */
+export const previewNodeTransform = (
+  nodeId: string,
+  transform: Record<string, number>
+): void =>
+  previewDocFields(
+    nodes,
+    nodeId,
+    Object.fromEntries(
+      Object.entries(transform).map(([f, v]) => [
+        `components.transform.${f}`,
+        v,
+      ])
+    )
+  );
 
 export const commitNodePath = (
   nodeId: string,

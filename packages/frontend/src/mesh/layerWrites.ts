@@ -27,6 +27,7 @@ import {
   commitDocDeleteKeepChildren,
   commitDocPatch,
   commitDocPath,
+  previewDocFields,
   previewDocPath,
   type MeshDocAdapter,
 } from './writes';
@@ -92,30 +93,14 @@ export function orderKeyForIndex(
   return keyBetween(rest[at - 1]?.orderKey ?? null, rest[at]?.orderKey ?? null);
 }
 
-/** In-flight gesture value, on the mesh's lossy `preview` channel.
- *
- *  An ephemeral write lands as a per-key overlay composed over the retained
- *  doc, so watching tabs see it without it ever becoming model state — no
- *  persistence, no undo entry, and the overlay is cleared the moment the
- *  committed write arrives. This replaces the bespoke `compose_layer_preview`
- *  WS message, which did the same job beside the mesh rather than through it. */
-export function previewLayerFields(
+/** In-flight gesture value, on the mesh's lossy `preview` channel. See
+ *  {@link previewDocFields} for the mechanics and the one-overlay-per-path
+ *  rule. This replaces the bespoke `compose_layer_preview` WS message, which
+ *  did the same job beside the mesh rather than through it. */
+export const previewLayerFields = (
   id: string,
   patch: Record<string, unknown>
-): void {
-  const col = getMeshHandles()?.collections.compose_layer;
-  if (col?.canWrite() && col.get(id)) {
-    // One overlay PER FIELD. A pathless ephemeral write is a ROOT overlay: it
-    // clears the per-path ones and replaces the composed doc wholesale, so
-    // `{x: 400}` would compose to a doc that is only `{x: 400}` — losing the
-    // id along with everything else.
-    for (const [field, value] of Object.entries(patch))
-      col.set(id, field, value, { channel: 'preview' });
-    return;
-  }
-  // No peer to fan out to — still show the gesture locally.
-  useEditorStore.getState().updateComposeLayerLocal(id, patch);
-}
+): void => previewDocFields(layers, id, patch);
 
 export const previewLayerPath = (
   id: string,

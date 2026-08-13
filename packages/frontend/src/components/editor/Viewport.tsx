@@ -73,7 +73,11 @@ import type {
   AnimationClipMeta,
 } from '../../store/editorStore';
 import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync';
-import { commitNodePatch, commitNodePath } from '../../mesh/writes';
+import {
+  commitNodePatch,
+  commitNodePath,
+  previewNodeTransform,
+} from '../../mesh/writes';
 import { mergedTransform } from './transformMerge';
 import { useSceneFadeIn } from '../../hooks/useSceneFadeIn';
 
@@ -5810,7 +5814,12 @@ function TransformGizmo({
     const now = performance.now();
     if (now - lastPreviewAtRef.current < 33) return;
     lastPreviewAtRef.current = now;
-    sendNodeTransformPreview(selectedNodeId, buildTransform());
+    const t = buildTransform();
+    // Parallel run: the mesh preview channel is the destination, the /ws lane
+    // is still live until it is retired. Both retarget the same tween toward
+    // the same value on a receiver, so the overlap is wasteful, not wrong.
+    previewNodeTransform(selectedNodeId, t);
+    sendNodeTransformPreview(selectedNodeId, t);
   };
 
   const onEnd = () => {

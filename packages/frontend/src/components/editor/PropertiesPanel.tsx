@@ -64,6 +64,7 @@ import {
   commitNodePatch,
   commitNodePath,
   previewNodePath,
+  previewNodeTransform,
 } from '../../mesh/writes';
 
 /** Small "Pick…" button that routes the user to a bottom-dock asset tab and
@@ -6285,6 +6286,10 @@ export function PropertiesPanel() {
             };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { x: t.x, y: t.y, z: t.z });
             // Suppress any active clip override for this axis so the user sees
             // their typed value land; cleared on the next clip event.
             const path =
@@ -6360,6 +6365,10 @@ export function PropertiesPanel() {
             };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { rx: t.rx, ry: t.ry, rz: t.rz });
             const path =
               axis === 0
                 ? 'rotation.x'
@@ -6429,6 +6438,10 @@ export function PropertiesPanel() {
             };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { sx: t.sx, sy: t.sy, sz: t.sz });
             const path =
               axis === 0 ? 'scale.x' : axis === 1 ? 'scale.y' : 'scale.z';
             useEditorStore
@@ -6487,6 +6500,10 @@ export function PropertiesPanel() {
             const t = { ...transformRef.current, opacity: next };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { opacity: t.opacity });
             useEditorStore
               .getState()
               .suppressOverride('scene_node', node.id, 'opacity');

@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useEditorStore } from '../../store/editorStore';
-import { commitNodePatch, commitNodePath } from '../../mesh/writes';
+import {
+  commitNodePatch,
+  commitNodePath,
+  previewNodeTransform,
+} from '../../mesh/writes';
 import { mergedTransform } from './transformMerge';
 import {
   getNodeGroup,
@@ -220,7 +224,10 @@ export function ComposeSceneInteractions({
       return;
     lastPreviewAtRef.current = { nodeId, t: now };
     const node = useEditorStore.getState().nodes.find((n) => n.id === nodeId);
-    sendNodeTransformPreview(nodeId, transformPayload(group, node, liveScale));
+    const t = transformPayload(group, node, liveScale);
+    // Parallel run — see the matching note in Viewport's gizmo onChange.
+    previewNodeTransform(nodeId, t);
+    sendNodeTransformPreview(nodeId, t);
   };
 
   // Mirror the live group transform back into the store so React's declarative

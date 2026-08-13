@@ -241,6 +241,24 @@ export function smoothNodeTransform(
     retargetScalar('node', nodeId, f, to, cur?.[f] ?? to);
   }
 
+  // Anything else on the component (opacity, shadow flags) applies immediately
+  // — same as smoothComposeLayer's `immediate` set. Without this an opacity
+  // drag would fan out and be silently dropped by every receiver, since it is
+  // neither a tweened scalar nor part of the rotation quaternion.
+  const rotationFields = new Set(['rx', 'ry', 'rz']);
+  const immediate: Record<string, unknown> = {};
+  for (const [f, v] of Object.entries(transform))
+    if (!scalarFields.includes(f) && !rotationFields.has(f) && f !== 'type')
+      immediate[f] = v;
+  if (Object.keys(immediate).length > 0) {
+    store.updateNode(nodeId, {
+      components: {
+        ...node.components,
+        transform: { type: 'transform', ...(cur ?? {}), ...immediate },
+      },
+    });
+  }
+
   // Rotation: if any of rx/ry/rz is present, target the full rotation as a
   // quaternion. Missing axes fall back to the current value so partial updates
   // still produce a coherent quaternion target.
