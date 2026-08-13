@@ -31,6 +31,7 @@ import { hasLayerTween, smoothComposeLayer } from '../previewSmoother';
 import {
   useEditorStore,
   type Behavior,
+  type SceneItem,
   type StageObject,
   type ScheduledAnimation,
   type AnimationClipMeta,
@@ -60,6 +61,13 @@ export function startMeshStoreFeeder(): void {
         if (c.op === 'ephemeral') return;
         const s = useEditorStore.getState();
         if (c.op === 'remove') {
+          // A Scene is a scene_nodes row too, but it lives in the `scenes`
+          // slice, and tearing one down means dropping its whole subtree and
+          // re-picking activeSceneId — which only removeScene does.
+          if (s.scenes.some((sc) => sc.id === c.id)) {
+            s.removeScene(c.id);
+            return;
+          }
           // Projected (remote) nodes are owned by the projection feeder
           // (sync/meshProjection.ts) — only local nodes are removed here.
           const existing = s.nodes.find((n) => n.id === c.id);
@@ -68,6 +76,24 @@ export function startMeshStoreFeeder(): void {
         }
         const node = c.doc as unknown as StageObject | undefined;
         if (!node) return;
+        // Scene roots go to the `scenes` slice, never to `nodes`. The REST
+        // bundle deliberately excludes kind==='scene' from `nodes`, so adopting
+        // one here left a stray entry behind whenever the mesh snapshot landed
+        // after setNodes.
+        if (node.kind === 'scene') {
+          // Same guard as the node path below, for the same reason: unknown
+          // projectId means don't adopt.
+          if (!s.projectId || node.projectId !== s.projectId) return;
+          const item = {
+            id: node.id,
+            name: node.name,
+            runtimeSettings: (node.properties ?? {}) as SceneItem['runtimeSettings'],
+          };
+          if (s.scenes.some((sc) => sc.id === node.id))
+            s.updateSceneItem(node.id, item);
+          else s.setScenes([...s.scenes, item]);
+          return;
+        }
         const existing = s.nodes.find((n) => n.id === node.id);
         if (existing) {
           // A placed remote-object projection is owned by the projection feeder
@@ -91,7 +117,13 @@ export function startMeshStoreFeeder(): void {
         // project. Foreign docs (other local projects, and placed projections —
         // which carry the OWNER's projectId and are mirrored by the projection
         // feeder) stay out of the store.
-        if (s.projectId && node.projectId !== s.projectId) return;
+        //
+        // Unknown projectId means DON'T adopt, not "adopt anything". The feeder
+        // starts on mount while projectId arrives with the async REST load, so
+        // there is a real window where it is null — and the old
+        // `s.projectId && …` form let every foreign doc through it. Dropping is
+        // safe because the REST bundle populates `nodes` immediately after.
+        if (!s.projectId || node.projectId !== s.projectId) return;
         s.addNode(node);
       });
       h.collections.behavior.observe('**', (c) => {
