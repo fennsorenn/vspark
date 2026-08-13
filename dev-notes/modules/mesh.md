@@ -78,17 +78,31 @@ Two distinct operations, and they must not be inferred from each other:
 
 - **Reconnect** — peers with shared history, comparable clocks. Reconcile
   normally through last-write-wins.
-- **Mount** — no shared history with the incoming scene. Incoming documents are
-  stamped **at the moment of the mount**, so they are newer than any tombstone
-  the receiver still holds for those ids.
+- **Mount** — no shared history with the incoming scene. The mount records its
+  own timestamp as **local metadata on the share**, and reconciliation compares
+  against `max(document write stamp, mount stamp)`.
 
 Without this, mounting a scene whose ids you once deleted lets your tombstones
 out-stamp the author's live documents: the mount lands empty, and the mutual
 subscription then propagates those tombstones back and deletes the author's
-scene. Two constraints when implementing: the re-stamp is **local adoption
-only** (re-published stamps would make the receiver look like the author of the
-owner's scene, putting it on the wrong undo stack), and the mount must be an
-**explicit act** rather than inferred from "we hold no state for this".
+scene.
+
+**The mount stamp goes on the share, never on the document.** Re-stamping the
+incoming documents would work, and it would violate principle 2 — the same
+document would carry a different stamp on the receiver than on its author. Two
+things follow from keeping it beside the document instead:
+
+- Nothing can leak back to the author. The document is untouched, so there are
+  no receiver-authored stamps to re-publish and no way for the receiver to
+  appear as the author of the owner's scene (which would put it on the wrong
+  undo stack). This is structural, not a rule to remember.
+- It expires by itself. Once a document's own write stamp passes the mount
+  stamp, `max` is the write stamp and ordinary LWW resumes — no flag to clear,
+  no state to go stale.
+
+The mount must still be an **explicit act** rather than inferred from "we hold
+no state for this": a dropped socket and a fresh mount look alike at the
+transport level.
 
 ### 5. Seed at create
 
