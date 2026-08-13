@@ -60,13 +60,18 @@ const meshDoc = (id: string, projectId: string) => ({
 });
 
 let useEditorStore: typeof import('../src/store/editorStore').useEditorStore;
+/** Same module instance the feeder holds — both are imported into the registry
+ *  created by the resetModules() below, so the tween maps are shared. */
+let smoother: typeof import('../src/previewSmoother');
 
 /** Fresh module registry per test: the feeder guards itself with a module-level
- *  `started` flag, so it would only ever run once across the file. */
+ *  `started` flag, so it would only ever run once across the file — and
+ *  previewSmoother's tween maps would leak between tests. */
 async function startFeeder() {
   vi.resetModules();
   observers.clear();
   ({ useEditorStore } = await import('../src/store/editorStore'));
+  smoother = await import('../src/previewSmoother');
   const { startMeshStoreFeeder } = await import('../src/sync/meshStoreFeeder');
   startMeshStoreFeeder();
   await Promise.resolve();
@@ -138,8 +143,101 @@ describe('meshStoreFeeder — scene_node routing', () => {
     expect(useEditorStore.getState().nodes.map((n) => n.id)).toEqual(['n1']);
   });
 
-  it('ignores ephemeral ops', () => {
+  it('does not adopt a new node from an ephemeral op', () => {
+    // A preview is an in-flight gesture on a doc you already hold; it must
+    // never bring a node into existence.
     feed({ op: 'ephemeral', id: 'n1', doc: meshDoc('n1', 'p1') });
     expect(useEditorStore.getState().nodes).toEqual([]);
+  });
+});
+
+describe('meshStoreFeeder — scene_node previews', () => {
+  beforeEach(async () => {
+    // rAF never fires here, so a started tween stays live and the store keeps
+    // the pre-gesture value — which is what lets us assert "tweening, not
+    // snapped" without driving frames.
+    vi.stubGlobal('requestAnimationFrame', () => 1);
+    await startFeeder();
+    useEditorStore.setState({
+      projectId: 'p1',
+      scenes: [],
+      nodes: [
+        {
+          ...meshDoc('n1', 'p1'),
+          components: {
+            transform: { type: 'transform', x: 0, y: 0, z: 0, ry: 0 },
+          },
+        } as never,
+      ],
+    });
+  });
+
+  const transformOf = () =>
+    (
+      useEditorStore.getState().nodes[0].components as Record<string, unknown>
+    ).transform as Record<string, number>;
+
+  const withTransform = (t: Record<string, number>) => ({
+    ...meshDoc('n1', 'p1'),
+    components: { transform: { type: 'transform', ...t } },
+  });
+
+  it('hands an ephemeral transform to the smoother instead of dropping it', () => {
+    expect(smoother.hasNodeTween('n1')).toBe(false);
+    feed({
+      op: 'ephemeral',
+      id: 'n1',
+      path: 'components.transform.x',
+      doc: withTransform({ x: 100, y: 0, z: 0, ry: 0 }),
+    });
+    // A tween is now running — this is the assertion that distinguishes
+    // "tweened" from "dropped on the floor", which the store value alone
+    // cannot (it reads 0 either way).
+    expect(smoother.hasNodeTween('n1')).toBe(true);
+    expect(transformOf().x).toBe(0);
+  });
+
+  it('tweens a rotate-only ephemeral op', () => {
+    feed({
+      op: 'ephemeral',
+      id: 'n1',
+      path: 'components.transform.ry',
+      doc: withTransform({ x: 0, y: 0, z: 0, ry: 1.2 }),
+    });
+    expect(smoother.hasNodeTween('n1')).toBe(true);
+  });
+
+  it('a committed transform lands immediately when no gesture is in flight', () => {
+    feed({ op: 'upsert', id: 'n1', doc: withTransform({ x: 42, y: 0, z: 0 }) });
+    expect(transformOf().x).toBe(42);
+  });
+
+  it('a committed transform mid-gesture retargets rather than snapping', () => {
+    feed({
+      op: 'ephemeral',
+      id: 'n1',
+      path: 'components.transform.x',
+      doc: withTransform({ x: 100, y: 0, z: 0, ry: 0 }),
+    });
+    feed({ op: 'upsert', id: 'n1', doc: withTransform({ x: 100, y: 0, z: 0 }) });
+    // Still gliding: the committed value must not jump the node to its final
+    // pose, or the drag ends with a visible snap on every watching tab.
+    expect(transformOf().x).toBe(0);
+  });
+
+  it('a committed NON-transform change still applies mid-gesture', () => {
+    feed({
+      op: 'ephemeral',
+      id: 'n1',
+      path: 'components.transform.x',
+      doc: withTransform({ x: 100, y: 0, z: 0, ry: 0 }),
+    });
+    feed({
+      op: 'upsert',
+      id: 'n1',
+      doc: { ...withTransform({ x: 100, y: 0, z: 0 }), name: 'Renamed' },
+    });
+    expect(useEditorStore.getState().nodes[0].name).toBe('Renamed');
+    expect(transformOf().x).toBe(0);
   });
 });

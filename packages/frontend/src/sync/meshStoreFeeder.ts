@@ -27,7 +27,12 @@
  * Started from the Editor AND the Viewer page (both render live state).
  */
 import { initMeshPeer } from '../mesh/peer';
-import { hasLayerTween, smoothComposeLayer } from '../previewSmoother';
+import {
+  hasLayerTween,
+  hasNodeTween,
+  smoothComposeLayer,
+  smoothNodeTransform,
+} from '../previewSmoother';
 import {
   useEditorStore,
   type Behavior,
@@ -44,6 +49,19 @@ import type {
 
 let started = false;
 
+/** Node transforms are nested inside `components`, unlike a compose layer's flat
+ *  x/y/width/height — so a preview path is `components.transform.<field>`. */
+const TRANSFORM_PREFIX = 'components.transform.';
+
+/** The transform component's numeric fields, or null if the node has none. */
+function transformFieldsOf(
+  node: StageObject
+): Record<string, number> | undefined {
+  return (node.components as Record<string, unknown> | undefined)?.transform as
+    | Record<string, number>
+    | undefined;
+}
+
 function parentIsRemote(nodeId: unknown): boolean {
   if (typeof nodeId !== 'string') return false;
   return (
@@ -58,8 +76,29 @@ export function startMeshStoreFeeder(): void {
   void initMeshPeer()
     .then((h) => {
       h.collections.scene_node.observe('**', (c) => {
-        if (c.op === 'ephemeral') return;
         const s = useEditorStore.getState();
+        // An ephemeral op IS an in-flight gesture, by construction — that's what
+        // the lossy `preview` channel carries, so it tweens. Retained ops (page
+        // load, committed edits) are model state and apply directly. The channel
+        // is the discriminator; no heuristic, and a cold load can't animate.
+        if (c.op === 'ephemeral') {
+          const node = c.doc as unknown as StageObject | undefined;
+          if (!node) return;
+          const t = transformFieldsOf(node);
+          if (!t) return;
+          // Previews are written one overlay PER SCALAR PATH, so read back just
+          // the field this op touched rather than re-tweening every axis toward
+          // a value that never changed. A pathless op (shouldn't happen) falls
+          // back to the whole transform.
+          const field = c.path?.startsWith(TRANSFORM_PREFIX)
+            ? c.path.slice(TRANSFORM_PREFIX.length)
+            : null;
+          smoothNodeTransform(
+            node.id,
+            field ? { [field]: t[field] } : t
+          );
+          return;
+        }
         if (c.op === 'remove') {
           // A Scene is a scene_nodes row too, but it lives in the `scenes`
           // slice, and tearing one down means dropping its whole subtree and
@@ -106,6 +145,30 @@ export function startMeshStoreFeeder(): void {
           // drop every shared-scene edit (this broke receiver→author sync).
           // Preserve our local structure (projectId/rootSceneNodeId), take the
           // rest — content is owner-authoritative on the wire.
+          //
+          // (That preservation is a principle-2 violation tracked separately:
+          // it gives one id different parent links per peer. Left as-is here so
+          // this change stays about previews.)
+          const committed = transformFieldsOf(node);
+          if (committed && hasNodeTween(node.id)) {
+            // Mid-gesture: the committed value RETARGETS the running tween so
+            // the node glides to its final pose instead of snapping (the
+            // preview channel is lossy, so the last frame may never have
+            // landed). Apply everything else immediately, but hand the tween
+            // back the transform it is animating — writing the committed
+            // transform here would snap first and glide from nowhere.
+            s.updateNode(node.id, {
+              ...node,
+              projectId: existing.projectId,
+              rootSceneNodeId: existing.rootSceneNodeId,
+              components: {
+                ...node.components,
+                transform: transformFieldsOf(existing),
+              },
+            });
+            smoothNodeTransform(node.id, committed);
+            return;
+          }
           s.updateNode(node.id, {
             ...node,
             projectId: existing.projectId,

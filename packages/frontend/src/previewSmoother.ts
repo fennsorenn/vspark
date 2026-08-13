@@ -138,6 +138,19 @@ export function hasLayerTween(id: string): boolean {
   return false;
 }
 
+/** Whether a tween is currently animating this node. Same job as
+ *  {@link hasLayerTween}, but it must check BOTH maps: node position and scale
+ *  are scalar tweens, while rotation is only ever a quaternion tween (see
+ *  `retargetQuat`). A layer-style scan of `scalarTweens` alone would report "no
+ *  tween" for a rotate-only drag, so the committed value would snap the node
+ *  instead of gliding it in. */
+export function hasNodeTween(id: string): boolean {
+  if (quatTweens.has(id)) return true;
+  for (const t of scalarTweens.values())
+    if (t.scope === 'node' && t.id === id) return true;
+  return false;
+}
+
 /** Retarget a scalar tween, re-baselining from the current displayed value. */
 function retargetScalar(
   scope: Scope,
