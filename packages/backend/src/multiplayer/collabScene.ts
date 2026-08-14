@@ -163,6 +163,9 @@ export function listAllCollabScenes(): CollabLink[] {
 
 interface SnapshotNode {
   id: string;
+  /** The AUTHOR's values. Kept verbatim on mount — see mountSharedScene. */
+  projectId?: string;
+  rootSceneNodeId?: string;
   parentId: string | null;
   boneAttachment: string | null;
   name: string;
@@ -223,11 +226,26 @@ export async function persistCollabAssets(
       n.filePath = localByAuthorPath.get(n.filePath);
 }
 
-/** Mount a received scene snapshot as a real, persisted scene in `projectId`,
- *  preserving the author's node ids (shared id space) and the scene id as the
- *  `root_scene_node_id`. Idempotent: an existing node is upserted, so a re-mount
- *  (resubscribe) refreshes rather than duplicates. Records the 'mounted' link.
- *  Nodes arrive BFS-ordered (root first) so parent rows exist before children. */
+/** A project we hold but do not own, so a mounted tree can be stored exactly as
+ *  its author wrote it (migration 039). Idempotent; never overwrites one of
+ *  ours, so a peer claiming an id we already use cannot take it over. */
+export function ensurePeerProject(projectId: string, peerId: string): void {
+  getDb()
+    .prepare(
+      `INSERT INTO projects (id, name, owner_peer_id, created_at, updated_at)
+       VALUES (?, ?, ?, datetime('now'), datetime('now'))
+       ON CONFLICT(id) DO NOTHING`
+    )
+    .run(projectId, `Peer ${peerId.slice(0, 8)}`, peerId);
+}
+
+/** Mount a received scene snapshot as a real, persisted scene, keeping the
+ *  author's documents EXACTLY as they wrote them — their node ids, their
+ *  `project_id`, their parent links. `projectId` is the local project the mount
+ *  is recorded against on the share link; it is not written into the documents.
+ *  Idempotent: an existing node is upserted, so a re-mount (resubscribe)
+ *  refreshes rather than duplicates. Nodes arrive BFS-ordered (root first) so
+ *  parent rows exist before children. */
 export function mountSharedScene(
   snapshot: ObjectSnapshot,
   projectId: string,
@@ -235,6 +253,13 @@ export function mountSharedScene(
 ): void {
   const db = getDb();
   const sceneId = snapshot.objectId; // the scene root node id
+  // The author's project has to exist here for the FK to hold. Taken from the
+  // documents themselves rather than passed in, because it is THEIR value —
+  // that is the whole point of not rewriting it.
+  const authorProjectId = (snapshot.nodes as unknown as SnapshotNode[]).find(
+    (n) => typeof n.projectId === 'string'
+  )?.projectId;
+  if (authorProjectId) ensurePeerProject(authorProjectId, peerId);
   const SQL = `INSERT INTO scene_nodes
        (id, project_id, root_scene_node_id, parent_id, bone_attachment,
         name, kind, file_path, components, properties, hidden)
@@ -248,8 +273,8 @@ export function mountSharedScene(
   for (const n of snapshot.nodes as unknown as SnapshotNode[]) {
     db.prepare(SQL).run(
       n.id,
-      projectId,
-      sceneId,
+      n.projectId ?? projectId,
+      n.rootSceneNodeId ?? sceneId,
       n.parentId,
       n.boneAttachment ?? null,
       n.name,

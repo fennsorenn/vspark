@@ -43,6 +43,10 @@ import {
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { logicLifecycle } from '../logic/lifecycle.js';
+import {
+  ensurePeerProject,
+  isCollabScene,
+} from '../multiplayer/collabScene.js';
 import { validateDescriptor } from '../logic/manager.js';
 import {
   toGraphDescriptor,
@@ -75,6 +79,12 @@ interface RtypeBinding {
 const rowExists = (table: string, id: unknown): boolean =>
   !!getDb().prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id as string);
 
+/** A project of OURS — not one we merely hold for a peer (migration 039). */
+const ownProject = (id: unknown): boolean =>
+  !!getDb()
+    .prepare('SELECT 1 FROM projects WHERE id = ? AND owner_peer_id IS NULL')
+    .get(id as string);
+
 const childOfNode = (d: Dto) =>
   typeof d.nodeId === 'string' ? { rtype: 'scene_node', id: d.nodeId } : null;
 
@@ -90,19 +100,20 @@ const BINDINGS: RtypeBinding[] = [
         : typeof d.rootSceneNodeId === 'string' && d.rootSceneNodeId !== d.id
           ? { rtype: 'scene_node', id: d.rootSceneNodeId }
           : null,
-    // Incoming collab docs carry the SENDER's project id (FK fail here) and
-    // the sender's local file path (unusable here until its blob is cached).
-    // Re-scope the project to our collab link and queue an asset follow-up
-    // (mesh/assets.ts) for any path we can't resolve — whether it's a swap
-    // from a prior path OR a first model assignment to a node that had none.
-    // The follow-up fetches the content over the blob protocol and re-points
-    // the row to our local /uploads/_shared URL once it lands. We keep our
-    // existing local path in the interim if we have one (so a converged
-    // _shared URL isn't clobbered); a node with no prior path takes the owner
-    // path verbatim until the follow-up corrects it. Fires ONLY for foreign
-    // docs (projectId ≠ our link's project): local writes pass through this
-    // validate too now that REST routes write through the store (§10 hazard
-    // e), and a local model swap must not be reverted.
+    // Incoming collab docs carry the AUTHOR's project id, and they KEEP it: a
+    // document has exactly one truth, so re-scoping it here would give one id
+    // different content on two peers (mesh.md principle 2). What used to force
+    // the rewrite was the foreign key — we hold a row for the author's project
+    // now instead (migration 039).
+    //
+    // The file path is a different matter and is still localized: it names a
+    // file on the SENDER's disk, which is not a fact about the document so much
+    // as a pointer into a store we do not share. The follow-up
+    // (mesh/assets.ts) fetches the content over the blob protocol and re-points
+    // the row at our /uploads/_shared URL once it lands; we keep our existing
+    // local path in the interim (so a converged _shared URL isn't clobbered),
+    // and a node with no prior path takes the owner path verbatim until the
+    // follow-up corrects it.
     validate: (data, originId) => {
       let d = { ...(data as Dto) };
       // Whole-doc writes from a browser tab are creates (or undo-restores of
@@ -120,7 +131,10 @@ const BINDINGS: RtypeBinding[] = [
         )
         .get(rootId) as { project_id: string } | undefined;
       if (!link || d.projectId === link.project_id) return d;
-      d.projectId = link.project_id;
+      // A collab doc from the author's project: hold a row for that project so
+      // the FK holds, and leave the document alone.
+      if (originId && typeof d.projectId === 'string')
+        ensurePeerProject(d.projectId, originId);
       const incoming = typeof d.filePath === 'string' ? d.filePath : null;
       if (incoming) {
         // queueCollabAssetFollowUp skips when we already hold the content
@@ -134,9 +148,17 @@ const BINDINGS: RtypeBinding[] = [
       }
       return d;
     },
-    // Placed-share projections keep the OWNER's projectId (no collab link to
-    // re-scope it) — that marks them foreign, so they stay replica-only.
-    persists: (d) => rowExists('projects', d.projectId),
+    // What we persist is our own data, plus the collab scenes we deliberately
+    // keep (authored or mounted — a mount is stored so it survives the author
+    // going offline). Everything else is a projection: replica-only, fanned out
+    // to tabs, never touching SQLite.
+    //
+    // This cannot be "does a projects row exist" any more. Peer-owned project
+    // rows exist now (migration 039), and a placed-share projection from a peer
+    // whose scene we also mount would have one — it must still not persist.
+    persists: (d) =>
+      ownProject(d.projectId) ||
+      (typeof d.rootSceneNodeId === 'string' && isCollabScene(d.rootSceneNodeId)),
   },
   {
     rtype: 'behavior',

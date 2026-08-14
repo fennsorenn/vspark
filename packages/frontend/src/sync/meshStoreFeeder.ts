@@ -140,8 +140,13 @@ export function startMeshStoreFeeder(): void {
         // after setNodes.
         if (node.kind === 'scene') {
           // Same guard as the node path below, for the same reason: unknown
-          // projectId means don't adopt.
-          if (!s.projectId || node.projectId !== s.projectId) return;
+          // projectId means don't adopt. A MOUNTED scene root carries its
+          // author's projectId, so a scene we already hold counts as ours to
+          // update — otherwise the author renaming a shared scene would never
+          // reach the receiver.
+          const known = s.scenes.some((sc) => sc.id === node.id);
+          if (!s.projectId) return;
+          if (node.projectId !== s.projectId && !known) return;
           const item = {
             id: node.id,
             name: node.name,
@@ -158,16 +163,11 @@ export function startMeshStoreFeeder(): void {
           // (sync/sharedProjection.ts) — leave it alone here.
           if (existing.remote) return;
           // Already a local node here → apply the edit by IDENTITY, not by
-          // projectId. A mounted collab scene localizes projectId per peer
-          // (mountSharedScene), so an edit fanned from the other peer carries
-          // THEIR projectId; a raw `node.projectId !== s.projectId` check would
-          // drop every shared-scene edit (this broke receiver→author sync).
-          // Preserve our local structure (projectId/rootSceneNodeId), take the
-          // rest — content is owner-authoritative on the wire.
-          //
-          // (That preservation is a principle-2 violation tracked separately:
-          // it gives one id different parent links per peer. Left as-is here so
-          // this change stays about previews.)
+          // projectId. The document is taken WHOLE, including projectId and
+          // rootSceneNodeId: a mounted scene keeps its author's values on every
+          // peer now (mesh.md principle 2), so there is nothing local to
+          // preserve. This used to rewrite both fields on the way in, which is
+          // what made one id mean different things depending on who was asked.
           const committed = transformFieldsOf(node);
           if (committed && hasNodeTween(node.id)) {
             // Mid-gesture: the committed value RETARGETS the running tween so
@@ -178,8 +178,6 @@ export function startMeshStoreFeeder(): void {
             // transform here would snap first and glide from nowhere.
             s.updateNode(node.id, {
               ...node,
-              projectId: existing.projectId,
-              rootSceneNodeId: existing.rootSceneNodeId,
               components: {
                 ...node.components,
                 transform: transformFieldsOf(existing),
@@ -188,11 +186,7 @@ export function startMeshStoreFeeder(): void {
             smoothNodeTransform(node.id, committed);
             return;
           }
-          s.updateNode(node.id, {
-            ...node,
-            projectId: existing.projectId,
-            rootSceneNodeId: existing.rootSceneNodeId,
-          });
+          s.updateNode(node.id, node);
           return;
         }
         // A node we don't hold yet: adopt it only if it belongs to the open
@@ -205,7 +199,16 @@ export function startMeshStoreFeeder(): void {
         // there is a real window where it is null — and the old
         // `s.projectId && …` form let every foreign doc through it. Dropping is
         // safe because the REST bundle populates `nodes` immediately after.
-        if (!s.projectId || node.projectId !== s.projectId) return;
+        //
+        // A node of a MOUNTED scene carries its author's projectId, so ownership
+        // alone is not the test any more: a node also belongs here when its
+        // scene is one we hold. `scenes` comes from the bundle, which lists our
+        // own scenes and the ones mounted into this project.
+        if (!s.projectId) return;
+        const ours =
+          node.projectId === s.projectId ||
+          s.scenes.some((sc) => sc.id === node.rootSceneNodeId);
+        if (!ours) return;
         s.addNode(node);
       });
       h.collections.behavior.observe('**', (c) => {

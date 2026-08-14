@@ -1,0 +1,24 @@
+-- 039_peer_projects: a project we hold but do not own.
+--
+-- Mounting a collaborator's scene used to copy their tree into OUR project and
+-- rewrite project_id on the way in, so one document id had different content on
+-- two peers, so what a document IS could only be answered by also knowing who was
+-- asking. That is the violation of the one-truth-per-document principle
+-- (dev-notes/modules/mesh.md, principle 2), and it propagated: because the rows
+-- carried our project id, every edit fanned back from the author carried
+-- THEIRS, so the frontend feeder had to rewrite the fields again on the read
+-- path to defend itself. Two rewrites, each keeping the other necessary.
+--
+-- Keeping the author's project_id needs their project to exist here, because
+-- scene_nodes.project_id is NOT NULL REFERENCES projects(id) (migration 018).
+-- So we hold a row for it, marked with the peer that owns it.
+--
+-- owner_peer_id NULL = ours, as every existing row is. A peer-owned project is
+-- excluded from the project list and is not a place the user can author into;
+-- it exists so a mounted tree can be stored exactly as its author wrote it.
+--
+-- The alternative considered was not persisting mounted trees at all
+-- (replica-only, re-fetched on mount). It is cleaner, and it would cost the
+-- receiver the mounted scene whenever the author is offline — see
+-- dev-notes/plans/mounted-scenes-stop-rewriting.md §3.
+ALTER TABLE projects ADD COLUMN owner_peer_id TEXT;

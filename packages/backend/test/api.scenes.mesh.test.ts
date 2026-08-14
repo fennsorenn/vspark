@@ -156,3 +156,75 @@ describe('scenes API → mesh store write-through', () => {
     expect(layers.get(layerId)).toBeUndefined();
   });
 });
+
+/**
+ * The scene bundle after mounting stopped rewriting project ids (#27).
+ *
+ * A mounted scene keeps its author's `project_id`, so "everything with my
+ * project id" no longer finds it. The share link is what says it belongs here —
+ * which is the honest relationship: the receiver renders it, it does not own it.
+ */
+describe('scene bundle — mounted scenes', () => {
+  let app: Express;
+  let projectId: string;
+
+  beforeEach(async () => {
+    ({ app } = await makeTestApp({ mesh: true }));
+    projectId = (await request(app).post('/api/projects').send({ name: 'Mine' }))
+      .body.data.id as string;
+  });
+
+  it('lists a mounted scene even though it carries the author project id', async () => {
+    const { getDb } = await import('../src/db/index.js');
+    const { mountSharedScene } = await import(
+      '../src/multiplayer/collabScene.js'
+    );
+    mountSharedScene(
+      {
+        objectId: 'mounted-scene',
+        rootName: 'Theirs',
+        nodes: [
+          {
+            id: 'mounted-scene',
+            projectId: 'author-project',
+            rootSceneNodeId: 'mounted-scene',
+            parentId: null,
+            name: 'Theirs',
+            kind: 'scene',
+            components: {},
+            properties: {},
+          },
+        ],
+        behaviors: [],
+        cameraEffects: [],
+        assets: [],
+      } as never,
+      projectId,
+      'PEER'
+    );
+
+    const res = await request(app).get(`/api/projects/${projectId}/scenes`);
+    const names = (res.body.data.scenes as { id: string }[]).map((s) => s.id);
+    expect(names).toContain('mounted-scene');
+    // And the row itself still says the author's project — the bundle found it
+    // through the link, not by rewriting anything.
+    const row = getDb()
+      .prepare('SELECT project_id FROM scene_nodes WHERE id = ?')
+      .get('mounted-scene') as { project_id: string };
+    expect(row.project_id).toBe('author-project');
+  });
+
+  it('does not list the peer-owned project we hold for it', async () => {
+    const { ensurePeerProject } = await import(
+      '../src/multiplayer/collabScene.js'
+    );
+    ensurePeerProject('author-project', 'PEER');
+
+    const res = await request(app).get('/api/projects');
+    const ids = (res.body.data as { id: string }[]).map((p) => p.id);
+    expect(ids).toContain(projectId);
+    // We hold it so a mounted tree can be stored as written; nobody authors
+    // into it, so it is not a project the user sees.
+    expect(ids).not.toContain('author-project');
+  });
+});

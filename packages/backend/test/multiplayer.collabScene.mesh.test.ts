@@ -212,3 +212,123 @@ describe('collab scene mount stamp', () => {
     expect(getMeshPeer()!.mountStampFor(sceneId)).toBeUndefined();
   });
 });
+
+/**
+ * Mounting keeps the author's documents (migration 039).
+ *
+ * A mounted tree used to be copied into the receiver's project with
+ * `project_id` rewritten on the way in, so one document id had different
+ * content on two peers. That is the violation of "a document has exactly one
+ * truth", and it propagated: the rows carried our project id, so every edit
+ * fanned back from the author carried theirs, and the frontend feeder had to
+ * rewrite the fields again on the read path.
+ *
+ * Keeping the author's value needs their project to exist here, because
+ * scene_nodes.project_id is NOT NULL with an FK. So we hold a row for it,
+ * marked with the peer that owns it.
+ */
+describe('mount keeps the author fields', () => {
+  let ctx: Awaited<ReturnType<typeof setup>>;
+  const AUTHOR_PROJECT = 'author-project';
+  const LOCAL_PROJECT = 'local-project';
+  const SCENE = 'shared-scene';
+
+  beforeEach(async () => {
+    ctx = await setup();
+    ctx
+      .getDb()
+      .prepare(
+        `INSERT INTO projects (id, name, created_at, updated_at)
+         VALUES (?, 'Mine', datetime('now'), datetime('now'))`
+      )
+      .run(LOCAL_PROJECT);
+  });
+
+  const mount = () =>
+    ctx.collab.mountSharedScene(
+      {
+        objectId: SCENE,
+        rootName: 'Shared',
+        nodes: [
+          {
+            id: SCENE,
+            projectId: AUTHOR_PROJECT,
+            rootSceneNodeId: SCENE,
+            parentId: null,
+            name: 'Shared',
+            kind: 'scene',
+            components: {},
+            properties: {},
+          },
+          {
+            id: 'inner',
+            projectId: AUTHOR_PROJECT,
+            rootSceneNodeId: SCENE,
+            parentId: null,
+            name: 'Inner',
+            kind: 'group',
+            components: {},
+            properties: {},
+          },
+        ],
+        behaviors: [],
+        cameraEffects: [],
+        assets: [],
+      } as never,
+      LOCAL_PROJECT,
+      'PEER'
+    );
+
+  it('stores the nodes with the AUTHOR project id, not ours', () => {
+    mount();
+    const rows = ctx
+      .getDb()
+      .prepare('SELECT id, project_id FROM scene_nodes ORDER BY id')
+      .all() as { id: string; project_id: string }[];
+    expect(rows.map((r) => r.project_id)).toEqual([
+      AUTHOR_PROJECT,
+      AUTHOR_PROJECT,
+    ]);
+  });
+
+  it('holds a peer-owned row for the author project so the FK holds', () => {
+    mount();
+    const p = ctx
+      .getDb()
+      .prepare('SELECT owner_peer_id FROM projects WHERE id = ?')
+      .get(AUTHOR_PROJECT) as { owner_peer_id: string | null } | undefined;
+    expect(p?.owner_peer_id).toBe('PEER');
+  });
+
+  it('records where it is mounted on the share, not on the documents', () => {
+    mount();
+    const link = ctx
+      .getDb()
+      .prepare('SELECT project_id, role FROM collab_scenes WHERE scene_id = ?')
+      .get(SCENE) as { project_id: string; role: string };
+    // The link says "this scene is mounted into that project" — the
+    // relationship lives here, which is why the documents need not carry it.
+    expect(link).toMatchObject({ project_id: LOCAL_PROJECT, role: 'mounted' });
+  });
+
+  it('never takes over a project we already own', () => {
+    // A peer announcing an id we use must not be able to relabel our project
+    // as theirs.
+    ctx.collab.ensurePeerProject(LOCAL_PROJECT, 'PEER');
+    const p = ctx
+      .getDb()
+      .prepare('SELECT owner_peer_id FROM projects WHERE id = ?')
+      .get(LOCAL_PROJECT) as { owner_peer_id: string | null };
+    expect(p.owner_peer_id).toBeNull();
+  });
+
+  it('is idempotent — a re-mount refreshes rather than duplicates', () => {
+    mount();
+    mount();
+    const n = ctx
+      .getDb()
+      .prepare('SELECT COUNT(*) AS n FROM scene_nodes')
+      .get() as { n: number };
+    expect(n.n).toBe(2);
+  });
+});

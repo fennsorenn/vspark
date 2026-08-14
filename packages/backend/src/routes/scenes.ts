@@ -53,12 +53,27 @@ router.get('/projects/:projectId/scenes', (req, res) => {
   const db = getDb();
   const projectId = req.params.projectId;
 
-  // Scenes are now scene_nodes with kind='scene'
+  // Scenes are now scene_nodes with kind='scene'.
+  //
+  // Two sources, deliberately: this project's own scenes, and the scenes
+  // MOUNTED into it. A mounted scene keeps its author's project_id — the
+  // documents are theirs and are not rewritten (mesh.md principle 2, migration
+  // 039) — so "project_id = mine" no longer finds it. The share link is what
+  // says it belongs here, which is the honest relationship: we render it, we do
+  // not own it.
   const sceneRows = db
     .prepare(
-      "SELECT * FROM scene_nodes WHERE project_id = ? AND kind = 'scene'"
+      `SELECT * FROM scene_nodes
+       WHERE kind = 'scene'
+         AND (project_id = ?
+              OR id IN (SELECT scene_id FROM collab_scenes
+                        WHERE project_id = ? AND role = 'mounted'))`
     )
-    .all(projectId) as { id: string; name: string; properties: string }[];
+    .all(projectId, projectId) as {
+    id: string;
+    name: string;
+    properties: string;
+  }[];
 
   // Map scene_node rows to the shape the frontend expects (id, name, runtime_settings)
   const scenes = sceneRows.map((s) => ({
@@ -98,15 +113,20 @@ router.get('/projects/:projectId/scenes', (req, res) => {
   // Track clips are owned by a scene node or a compose layer (project-wide, no
   // longer scene-scoped). Gather all clips whose owner belongs to this project.
   {
+    // Owner nodes of a mounted scene carry the author's project id, so match on
+    // the scenes gathered above rather than on project_id alone.
+    const sceneIds = sceneRows.map((r) => r.id);
+    const placeholders = sceneIds.map(() => '?').join(',') || "''";
     const clips = db
       .prepare(
         `SELECT tc.* FROM track_clips tc
          LEFT JOIN scene_nodes sn ON sn.id = tc.owner_node_id
          LEFT JOIN compose_layers cl ON cl.id = tc.owner_layer_id
          WHERE sn.project_id = ? OR cl.project_id = ?
+            OR sn.root_scene_node_id IN (${placeholders})
          ORDER BY tc.created_at`
       )
-      .all(projectId, projectId) as { id: string }[];
+      .all(projectId, projectId, ...sceneIds) as { id: string }[];
     // One clip shape, one mapping: loadClip is what the mesh document and the
     // per-owner GET routes are built from, and it is what the frontend mappers
     // expect (id-keyed lanes/keyframes/events). This used to re-query the rows
