@@ -251,7 +251,6 @@ export async function commitClipCreate(
     loop: spec.loop ?? false,
     mode: (spec.mode ?? 'override') as TrackClipRecord['mode'],
     autoplay: false,
-    startedAt: null,
     lanes: [],
     events: [],
   };

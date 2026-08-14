@@ -22,8 +22,8 @@ const router: ReturnType<typeof Router> = Router();
 // writes the ONE PATH it changes rather than re-setting the whole aggregate.
 // That is what lets two people edit different lanes of a clip at once; see
 // @vspark/shared/idMap. The onCommitted tap persists (delete-then-reinsert,
-// started_at/created_at round-trip) and emits sync.document. Playback control
-// routes don't touch the document.
+// created_at round-trip) and emits sync.document. Playback control routes
+// don't touch the document.
 type ClipDto = {
   id: string;
   lanes: IdMap<LaneDto>;
@@ -72,7 +72,6 @@ type ClipRow = {
   loop: number;
   mode: string;
   autoplay: number;
-  started_at: number | null;
   created_at: string;
 };
 
@@ -165,7 +164,6 @@ function mapClip(
     loop: r.loop === 1,
     mode: r.mode,
     autoplay: r.autoplay === 1,
-    startedAt: r.started_at,
     createdAt: r.created_at,
     // Keyed, not listed: the rows come back ordered, but the document holds
     // them by id so an edit addresses one element. Order is recovered from the
@@ -243,7 +241,6 @@ async function insertClip(
     loop: !!loop,
     mode: (mode as string) ?? 'override',
     autoplay: !!autoplay,
-    startedAt: null,
     lanes: {},
     events: {},
   }).ack;

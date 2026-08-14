@@ -105,7 +105,6 @@ async function seedClip() {
         loop: false,
         mode: 'override',
         autoplay: false,
-        startedAt: null,
         lanes: [
           {
             id: 'l1',

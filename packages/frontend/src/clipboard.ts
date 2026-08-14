@@ -53,7 +53,7 @@ export type ClipboardPayload =
        *  Ids inside (lane.id, kf.id, lane.clipId) are NOT carried — paste
        *  re-mints them. lane.targetId is preserved so the paste-side can
        *  rewrite it conditionally (see ClipsSection.handlePasteClip). */
-      clip: Omit<TrackClipRecord, 'id' | 'ownerNodeId' | 'ownerLayerId' | 'startedAt'>;
+      clip: Omit<TrackClipRecord, 'id' | 'ownerNodeId' | 'ownerLayerId'>;
       /** Owner id at the time of copy. Used by paste to decide which lane
        *  targets to retarget to the destination owner. */
       sourceOwnerId: string;

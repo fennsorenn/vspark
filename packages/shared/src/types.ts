@@ -340,39 +340,14 @@ export interface TrackClip {
   duration: number; // seconds
   loop: boolean;
   mode: TrackClipMode;
-  /** When true AND loop=true, playback auto-resumes on backend boot using the persisted startedAt. */
+  /** When true AND loop=true, playback resumes at boot — the anchor lives on
+   *  the clip's `clip_playback` document, not here. */
   autoplay: boolean;
-  /** ms-epoch anchor for an active loop+autoplay playhead; null when not autoplaying. */
-  startedAt: number | null;
   createdAt: string;
   /** Keyed by lane id — see the note on `TrackClipLane.keyframes`. */
   lanes: IdMap<TrackClipLane>;
   /** Timed media-command markers (event lane), keyed by event id. */
   events: IdMap<TrackClipEvent>;
-}
-
-/** WS payload broadcast when a clip begins playback. Clients compute their own clock offset
- *  from (serverNow - Date.now()) on the first such message and evaluate locally thereafter. */
-export interface TrackClipStartedMessage {
-  clipId: string;
-  startedAt: number;
-  loop: boolean;
-  serverNow: number;
-}
-
-export interface TrackClipPlaybackEntry {
-  clipId: string;
-  loop: boolean;
-  /** ms epoch anchor when playing; null when paused. */
-  startedAt?: number;
-  /** seconds-into-clip when paused; null when playing. */
-  pausedAtT?: number;
-}
-
-/** Snapshot of currently-active playback, sent to each freshly-connected WS client. */
-export interface TrackClipPlaybackSnapshot {
-  entries: TrackClipPlaybackEntry[];
-  serverNow: number;
 }
 
 // Player/identity

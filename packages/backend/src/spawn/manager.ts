@@ -225,7 +225,6 @@ export class SpawnManager {
       loop: clipRow.loop === 1,
       mode: clipRow.mode,
       autoplay: false,
-      startedAt: null,
       // Keyed like any clip document (@vspark/shared/idMap) — the spawned clip
       // is read by the same evaluator as a persisted one.
       lanes: byId(lanes),

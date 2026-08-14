@@ -305,8 +305,8 @@ defineResource({
     // Persist strategy: delete-then-reinsert children (same as applyClipDto in
     // collabScene.ts) so re-applying an existing clip is idempotent without
     // hitting UNIQUE constraint errors on stale child ids.
-    // started_at and created_at are preserved when present in the DTO so that
-    // load(id) after save(dto) returns the same values.
+    // created_at is preserved when present in the DTO so that load(id) after
+    // save(dto) returns the same value.
     const d = dto as {
       id: string;
       ownerNodeId: string | null;
@@ -316,7 +316,6 @@ defineResource({
       loop: boolean;
       mode: string;
       autoplay: boolean;
-      startedAt?: number | null;
       createdAt?: string;
       lanes: IdMap<{
         id: string;
@@ -361,12 +360,12 @@ defineResource({
     db.prepare('DELETE FROM track_clip_lanes WHERE clip_id = ?').run(d.id);
     db.prepare('DELETE FROM track_clip_events WHERE clip_id = ?').run(d.id);
     db.prepare('DELETE FROM track_clips WHERE id = ?').run(d.id);
-    // Reinsert the clip row, preserving started_at and created_at for round-trip.
+    // Reinsert the clip row, preserving created_at for round-trip.
     db.prepare(
       `INSERT INTO track_clips
          (id, owner_node_id, owner_layer_id, name, duration, loop, mode, autoplay,
-          started_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`
+          created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`
     ).run(
       d.id,
       d.ownerNodeId ?? null,
@@ -376,7 +375,6 @@ defineResource({
       d.loop ? 1 : 0,
       d.mode,
       d.autoplay ? 1 : 0,
-      d.startedAt ?? null,
       d.createdAt ?? prior?.created_at ?? null
     );
     for (const lane of itemsOf(d.lanes)) {

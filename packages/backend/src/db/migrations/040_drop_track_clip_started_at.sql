@@ -1,0 +1,12 @@
+-- 040_drop_track_clip_started_at: the playhead anchor left this row in 037.
+--
+-- track_clips.started_at held the anchor for an autoplaying loop, back when the
+-- backend owned a playhead and pushed track_clip_started over the socket. That
+-- playhead is gone: transport state is the clip_playback document (migration
+-- 037) and every peer derives the playhead from that document's start_epoch.
+--
+-- Nothing has written this column since. It was still round-tripped through the
+-- DTO, the mesh document, the frontend record and the clipboard payload — a
+-- field five layers carried and none read, which is exactly the sort of thing a
+-- later reader reinstates a use for.
+ALTER TABLE track_clips DROP COLUMN started_at;

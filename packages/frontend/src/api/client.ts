@@ -347,7 +347,6 @@ export interface TrackClipRecord {
   loop: boolean;
   mode: TrackClipMode;
   autoplay: boolean;
-  startedAt: number | null;
   lanes: TrackClipLaneRecord[];
   events: TrackClipEventRecord[];
 }
@@ -492,12 +491,6 @@ export function mapTrackClip(r: Record<string, unknown>): TrackClipRecord {
     loop: r.loop === undefined ? false : Boolean(r.loop),
     mode: (r.mode ?? 'override') as TrackClipMode,
     autoplay: r.autoplay === undefined ? false : Boolean(r.autoplay),
-    startedAt:
-      r.started_at != null
-        ? Number(r.started_at)
-        : r.startedAt != null
-          ? Number(r.startedAt)
-          : null,
     lanes: rawLanes.map(mapTrackClipLane),
     events: rawEvents.map(mapTrackClipEvent),
   };

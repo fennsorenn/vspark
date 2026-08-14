@@ -562,7 +562,6 @@ describe('useTrackClipEvaluator', () => {
       loop: false,
       mode: 'override' as const,
       autoplay: false,
-      startedAt: null,
       lanes: [
         {
           id: 'lane-1',
@@ -641,7 +640,6 @@ describe('useTrackClipEvaluator', () => {
       loop: false,
       mode: 'override' as const,
       autoplay: false,
-      startedAt: null,
       lanes: [],
       events: [],
     };
@@ -684,7 +682,6 @@ describe('useTrackClipEvaluator', () => {
       loop: false,
       mode: 'override' as const,
       autoplay: false,
-      startedAt: null,
       lanes: [
         {
           id: 'lane-p',

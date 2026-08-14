@@ -130,7 +130,6 @@ function makeTrackClip(overrides: Partial<TrackClipRecord> = {}): TrackClipRecor
     loop: false,
     mode: 'override',
     autoplay: false,
-    startedAt: null,
     lanes: [],
     events: [],
     ...overrides,
