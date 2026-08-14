@@ -8,6 +8,7 @@ import type {
   TrackClipLaneRecord,
   TrackClipKeyframeRecord,
   TrackClipEventRecord,
+  LogicRecord,
 } from '../api/client';
 import type { UpdateChannel } from '@vspark/shared';
 import type { ClipPlaybackDoc } from '@vspark/shared/clipPlayback';
@@ -480,6 +481,9 @@ interface EditorState {
   scheduledAnimations: Record<string, ScheduledAnimation>;
   /** clip_playback docs, keyed by CLIP id (not doc id) — callers look up by clip. */
   clipPlayback: Record<string, ClipPlayback>;
+  /** logic (signal graph) docs, keyed by id. Fed from the mesh replica; the
+   *  panels used to re-poll REST every 3 seconds for this. */
+  logic: Record<string, LogicRecord>;
   /** Animation clips (animation_clip docs), keyed by clip id. Resolves a
    *  timeline/idle clipId to its source asset URL + duration. */
   animationClips: Record<string, AnimationClipMeta>;
@@ -604,6 +608,8 @@ interface EditorState {
   removeScheduledAnimation: (id: string) => void;
   upsertClipPlayback: (entry: ClipPlayback) => void;
   removeClipPlayback: (docId: string) => void;
+  upsertLogic: (entry: LogicRecord) => void;
+  removeLogicLocal: (id: string) => void;
   upsertAnimationClip: (entry: AnimationClipMeta) => void;
   removeAnimationClip: (id: string) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
@@ -769,6 +775,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vmcTracking: {},
   scheduledAnimations: {},
   clipPlayback: {},
+  logic: {},
   animationClips: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
@@ -951,6 +958,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   // arrive carrying it and nothing else.
   upsertClipPlayback: (entry) =>
     set((s) => ({ clipPlayback: { ...s.clipPlayback, [entry.clipId]: entry } })),
+  upsertLogic: (entry) =>
+    set((s) => ({ logic: { ...s.logic, [entry.id]: entry } })),
+  removeLogicLocal: (id) =>
+    set((s) => {
+      if (!(id in s.logic)) return {};
+      const next = { ...s.logic };
+      delete next[id];
+      return { logic: next };
+    }),
   removeClipPlayback: (docId) =>
     set((s) => {
       const key = Object.keys(s.clipPlayback).find(

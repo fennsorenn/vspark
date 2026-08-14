@@ -13,6 +13,7 @@ import {
   commitLayerPatch,
   commitLayerPath,
 } from '../../mesh/layerWrites';
+import { commitLogicCreate } from '../../mesh/logicWrites';
 import type { ComposeLayerKind } from '../../api/client';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
@@ -357,11 +358,11 @@ function LayerRow({
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createLayerLogic(layer.id, payload.name);
-      await api.updateLogic(created.id, {
-        descriptor: payload.descriptor,
-        enabled: true,
-      });
+      await commitLogicCreate(
+        { kind: 'compose_layer', id: layer.id },
+        payload.name,
+        payload.descriptor
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.pasteGraphFailed'));
     }
@@ -793,11 +794,11 @@ function ComposeSceneRoot({
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createLayerLogic(scene.id, payload.name);
-      await api.updateLogic(created.id, {
-        descriptor: payload.descriptor,
-        enabled: true,
-      });
+      await commitLogicCreate(
+        { kind: 'compose_layer', id: scene.id },
+        payload.name,
+        payload.descriptor
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.pasteGraphFailed'));
     }

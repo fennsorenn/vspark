@@ -11,6 +11,12 @@ import {
   commitEffectDelete,
   commitEffectPatch,
 } from '../../mesh/effectWrites';
+import {
+  commitLogicCreate,
+  commitLogicDelete,
+  commitLogicPatch,
+  commitLogicPath,
+} from '../../mesh/logicWrites';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { StageObject, Behavior } from '../../store/editorStore';
@@ -1704,8 +1710,6 @@ function LogicListPanel() {
   const prompt = usePrompt();
   const { activeLogicId, setActiveLogic } = useEditorStore();
   const [behaviorLogic, setBehaviorLogic] = useState<GraphDescriptor[]>([]);
-  const [projectLogic, setProjectLogic] = useState<LogicRecord[]>([]);
-  const [scopedLogic, setScopedLogic] = useState<ScopedLogicRecord[]>([]);
   const [scopedLogicOpen, setScopedLogicOpen] = useState(true);
   const [behaviorLogicOpen, setBehaviorLogicOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
@@ -1717,42 +1721,80 @@ function LogicListPanel() {
     graph: LogicRecord;
   } | null>(null);
 
-  const refresh = () => {
+  // Graph documents come from the mesh replica. This panel used to re-poll all
+  // three lists every 3 seconds, which is why another tab's rename showed up
+  // late and two people editing one graph overwrote each other silently.
+  const storeLogic = useEditorStore((s) => s.logic);
+  const storeBehaviors = useEditorStore((s) => s.behaviors);
+
+  const projectLogic = useMemo(
+    () =>
+      Object.values(storeLogic)
+        .filter((g) => g.ownerKind === 'project' && g.ownerId === projectId)
+        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '')),
+    [storeLogic, projectId]
+  );
+
+  // The scoped list shows each graph's OWNER name, a join the store cannot do:
+  // it is project-wide, while only the open scene's nodes are loaded. So the
+  // join alone is fetched (and re-fetched when the mesh reports an owned graph
+  // we have no name for); every doc field still comes from the store, so
+  // renames and enable-toggles are live between fetches. A graph whose owner
+  // lives in another project never appears in the response — `tried` keeps that
+  // from re-firing the fetch on every store change.
+  const [ownerNames, setOwnerNames] = useState<
+    Record<string, { ownerName: string; ownerNodeKind?: string }>
+  >({});
+  const triedOwnerNames = useRef(new Set<string>());
+  const ownedLogic = useMemo(
+    () => Object.values(storeLogic).filter((g) => g.ownerKind !== 'project'),
+    [storeLogic]
+  );
+  useEffect(() => {
+    if (!projectId) return;
+    const unknown = ownedLogic.filter(
+      (g) => !ownerNames[g.id] && !triedOwnerNames.current.has(g.id)
+    );
+    if (unknown.length === 0) return;
+    for (const g of unknown) triedOwnerNames.current.add(g.id);
+    api
+      .getProjectScopedLogic(projectId)
+      .then((rows) =>
+        setOwnerNames((prev) => ({
+          ...prev,
+          ...Object.fromEntries(
+            rows.map((r) => [
+              r.id,
+              { ownerName: r.ownerName, ownerNodeKind: r.ownerNodeKind },
+            ])
+          ),
+        }))
+      )
+      .catch(() => {});
+  }, [ownedLogic, ownerNames, projectId]);
+  const scopedLogic: ScopedLogicRecord[] = useMemo(
+    () =>
+      ownedLogic
+        .filter((g) => ownerNames[g.id])
+        .map((g) => ({ ...g, ...ownerNames[g.id] }))
+        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '')),
+    [ownedLogic, ownerNames]
+  );
+
+  const handleToggleScopedEnabled = (g: ScopedLogicRecord) => {
+    commitLogicPatch(g.id, { enabled: !g.enabled });
+  };
+
+  // Behavior graphs are runtime state, not documents: the descriptors are built
+  // by the behavior managers, so there is nothing to sync. Their set changes
+  // only when a behavior or a graph document does, which is the trigger here —
+  // a timer would only re-fetch the same answer.
+  useEffect(() => {
     api
       .getSignalGraphs()
       .then(setBehaviorLogic)
       .catch(() => {});
-    if (projectId) {
-      api
-        .getProjectLogic(projectId)
-        .then(setProjectLogic)
-        .catch(() => {});
-      api
-        .getProjectScopedLogic(projectId)
-        .then(setScopedLogic)
-        .catch(() => {});
-    }
-  };
-
-  const handleToggleScopedEnabled = async (g: ScopedLogicRecord) => {
-    try {
-      const updated = await api.updateLogic(g.id, { enabled: !g.enabled });
-      setScopedLogic((prev) =>
-        prev.map((x) =>
-          x.id === g.id ? { ...x, enabled: updated.enabled } : x
-        )
-      );
-    } catch (e) {
-      alert(e instanceof Error ? e.message : t('logic.failToggle'));
-    }
-  };
-
-  useEffect(() => {
-    refresh();
-    const iv = setInterval(refresh, 3000);
-    return () => clearInterval(iv);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [storeBehaviors, storeLogic]);
 
   const rowStyle = (active: boolean): React.CSSProperties => ({
     padding: '7px 12px',
@@ -1776,8 +1818,10 @@ function LogicListPanel() {
     });
     if (!name?.trim()) return;
     try {
-      const created = await api.createProjectLogic(projectId, name.trim());
-      setProjectLogic((prev) => [...prev, created]);
+      const created = await commitLogicCreate(
+        { kind: 'project', id: projectId },
+        name.trim()
+      );
       setActiveLogic(created.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failCreate'));
@@ -1791,23 +1835,11 @@ function LogicListPanel() {
       confirmLabel: t('common:actions.rename'),
     });
     if (!name?.trim() || name.trim() === g.name) return;
-    try {
-      const updated = await api.updateLogic(g.id, { name: name.trim() });
-      setProjectLogic((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
-    } catch (e) {
-      alert(e instanceof Error ? e.message : t('logic.failRename'));
-    }
+    commitLogicPath(g.id, 'name', name.trim());
   };
 
-  const handleToggleEnabled = async (g: LogicRecord) => {
-    try {
-      const updated = await api.updateLogic(g.id, {
-        enabled: !g.enabled,
-      });
-      setProjectLogic((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
-    } catch (e) {
-      alert(e instanceof Error ? e.message : t('logic.failToggle'));
-    }
+  const handleToggleEnabled = (g: LogicRecord) => {
+    commitLogicPath(g.id, 'enabled', !g.enabled);
   };
 
   const handleDelete = async (g: LogicRecord) => {
@@ -1820,8 +1852,7 @@ function LogicListPanel() {
     )
       return;
     try {
-      await api.deleteLogic(g.id);
-      setProjectLogic((prev) => prev.filter((x) => x.id !== g.id));
+      await commitLogicDelete(g.id);
       if (activeLogicId === g.id) setActiveLogic(null);
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failDelete'));
@@ -1845,13 +1876,14 @@ function LogicListPanel() {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createProjectLogic(projectId, payload.name);
-      const updated = await api.updateLogic(created.id, {
-        descriptor: payload.descriptor,
-        enabled: true,
-      });
-      setProjectLogic((prev) => [...prev, updated]);
-      setActiveLogic(updated.id);
+      // Name and descriptor land in one committed write, so a paste is a single
+      // undoable action rather than the create + PUT pair it used to be.
+      const created = await commitLogicCreate(
+        { kind: 'project', id: projectId },
+        payload.name,
+        payload.descriptor
+      );
+      setActiveLogic(created.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failPaste'));
     }
@@ -2474,11 +2506,11 @@ export function SceneGraph() {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createNodeLogic(nodeId, payload.name);
-      await api.updateLogic(created.id, {
-        descriptor: payload.descriptor,
-        enabled: true,
-      });
+      await commitLogicCreate(
+        { kind: 'scene_node', id: nodeId },
+        payload.name,
+        payload.descriptor
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failPaste'));
     }

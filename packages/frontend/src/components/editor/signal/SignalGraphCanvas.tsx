@@ -35,6 +35,7 @@ import { inferForKind } from '@vspark/shared/infer_nodes';
 import { transportOf, type ResolvedPort } from '@vspark/shared/signal_types';
 import type { PortMeta } from '@vspark/shared/node';
 import type { LogicOwnerKind } from '@vspark/shared/types';
+import { commitLogicPath } from '../../../mesh/logicWrites';
 import { SignalNodeCard } from './SignalNodeCard';
 import type { SignalNodeData } from './SignalNodeCard';
 import { FlashEdge } from './FlashEdge';
@@ -558,7 +559,30 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
 
   // ── persistence ─────────────────────────────────────────────────────────
 
-  /** Replace the in-memory descriptor and schedule a debounced PUT. */
+  /** Commit the editable descriptor, minus the wrapper fields (id/label/
+   *  readonly) that the canvas adds and the row doesn't store. */
+  const persistDescriptor = useCallback((id: string) => {
+    const next = editableRef.current;
+    if (!next) return;
+    commitLogicPath(id, 'descriptor', {
+      id: next.id,
+      label: next.label,
+      readonly: false,
+      nodes: next.nodes,
+      edges: next.edges,
+    });
+  }, []);
+
+  /** Replace the in-memory descriptor and schedule a debounced commit.
+   *
+   *  The whole descriptor is still one value, so this is last-writer-wins over
+   *  the entire graph: two people editing the SAME graph at once still lose one
+   *  side's work, the difference being that the loser now sees it happen. Making
+   *  concurrent edits merge needs the descriptor re-keyed from `nodes[]`/`edges[]`
+   *  into id-keyed objects, so each element is its own path — the same change
+   *  track_clip lanes need, tracked with it.
+   *
+   *  The debounce stays: it keeps a drag from writing 60 undo entries. */
   const mutateDescriptor = useCallback(
     (mut: (d: GraphDescriptor) => GraphDescriptor) => {
       if (!writableRef.current) return;
@@ -568,48 +592,21 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       editableRef.current = next;
       setDescriptor(next);
       if (persistTimer.current) clearTimeout(persistTimer.current);
-      persistTimer.current = setTimeout(() => {
-        // Strip the wrapper fields the backend doesn't store on the row.
-        void api
-          .updateLogic(graphId, {
-            descriptor: {
-              id: next.id,
-              label: next.label,
-              readonly: false,
-              nodes: next.nodes,
-              edges: next.edges,
-            },
-          })
-          .catch((e) => {
-            console.error('[SignalGraphCanvas] persist failed:', e);
-          });
-      }, 400);
+      persistTimer.current = setTimeout(() => persistDescriptor(graphId), 400);
     },
-    [graphId]
+    [graphId, persistDescriptor]
   );
 
-  // Flush pending PUT on unmount so a quick edit-then-leave doesn't lose data.
+  // Flush the pending commit on unmount so a quick edit-then-leave doesn't lose
+  // data.
   useEffect(() => {
     return () => {
       if (!persistTimer.current) return;
       clearTimeout(persistTimer.current);
       persistTimer.current = null;
-      const next = editableRef.current;
-      if (writableRef.current && next) {
-        void api
-          .updateLogic(graphId, {
-            descriptor: {
-              id: next.id,
-              label: next.label,
-              readonly: false,
-              nodes: next.nodes,
-              edges: next.edges,
-            },
-          })
-          .catch(() => {});
-      }
+      if (writableRef.current) persistDescriptor(graphId);
     };
-  }, [graphId]);
+  }, [graphId, persistDescriptor]);
 
   // ── React Flow event handlers ───────────────────────────────────────────
 

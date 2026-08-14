@@ -37,6 +37,7 @@ const RTYPES = [
   'animation_clip',
   'scheduled_animation',
   'clip_playback',
+  'logic',
 ] as const;
 
 const childOfNode = (d: Dto) =>
@@ -81,6 +82,14 @@ const PARENTS: Partial<
       ? { rtype: 'scene_node', id: d.avatarNodeId }
       : null,
   clip_playback: childOfClip,
+  // Owned polymorphically. A project-owned graph has no parent: there is no
+  // `project` rtype in the mesh. Must match the backend BINDINGS entry exactly.
+  logic: (d) =>
+    d.ownerKind === 'scene_node' && typeof d.ownerId === 'string'
+      ? { rtype: 'scene_node', id: d.ownerId }
+      : d.ownerKind === 'compose_layer' && typeof d.ownerId === 'string'
+        ? { rtype: 'compose_layer', id: d.ownerId }
+        : null,
 };
 
 let _init: Promise<MeshHandles> | null = null;

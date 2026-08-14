@@ -2,7 +2,7 @@
  * Mesh → editorStore feeder (§11 frontend bindings, reads-first).
  *
  * Feeds the editorStore's synced slices from the tab's mesh replica — every
- * document rtype the tab subscribes to (RTYPES in mesh/peer.ts; seven at time
+ * document rtype the tab subscribes to (RTYPES in mesh/peer.ts; nine at time
  * of writing); the legacy 'sync'-envelope bindings are retired. The mesh
  * replica already does HLC LWW internally, so observe() only ever fires for
  * applied changes — no client-side stale-drop needed.
@@ -47,6 +47,7 @@ import type {
   CameraEffectRecord,
   ComposeLayerRecord,
   TrackClipRecord,
+  LogicRecord,
 } from '../api/client';
 
 let started = false;
@@ -309,6 +310,22 @@ export function startMeshStoreFeeder(): void {
         if (!e || parentIsRemote(e.avatarNodeId)) return;
         s.upsertScheduledAnimation(e);
       });
+      h.collections.logic.observe('**', (c) => {
+        if (c.op === 'ephemeral') return;
+        const s = useEditorStore.getState();
+        if (c.op === 'remove') {
+          s.removeLogicLocal(c.id);
+          return;
+        }
+        const g = c.doc as unknown as LogicRecord | undefined;
+        if (g) s.upsertLogic(g);
+      });
+      // Every other slice is hydrated by the Editor page's REST load and only
+      // takes deltas here; `logic` has no such load, so a subscription snapshot
+      // that landed before this observer registered would be lost. Seed from
+      // whatever the replica already holds.
+      for (const g of h.collections.logic.all())
+        useEditorStore.getState().upsertLogic(g as unknown as LogicRecord);
       h.collections.clip_playback.observe('**', (c) => {
         // No ephemeral branch yet: a scrub rides the preview channel, and the
         // slice below is read through a derivation that reads the doc as-is —
