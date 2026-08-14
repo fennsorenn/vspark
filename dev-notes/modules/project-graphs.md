@@ -42,8 +42,8 @@ A single generic router serves all three owner kinds.
 | `POST /api/scene-nodes/:nodeId/logic` | Create scene-node-scope logic; manager auto-injects `scene_entity` bound to the node. |
 | `GET  /api/compose-layers/:layerId/logic` | List compose-layer-scope logic. |
 | `POST /api/compose-layers/:layerId/logic` | Create compose-layer-scope logic; manager auto-injects `scene_entity` bound to the layer. |
-| `PUT  /api/logic/:id` | Patch `name` / `enabled` / `descriptor`. Goes through `logicManager.update` (validates + `reconcile`s). |
-| `DELETE /api/logic/:id` | `logicManager.remove` (stops runtime + deletes). |
+| `PUT  /api/logic/:id` | Patch `name` / `enabled` / `descriptor`. Commits the doc; the tap persists + reconciles. `400` on a descriptor the graph cannot run. |
+| `DELETE /api/logic/:id` | Removes the doc; the tap stops the runtime and deletes the row. |
 
 `mapLogicRow` returns the unified `LogicRecord` shape: `{ id, ownerKind, ownerId, name, enabled, descriptor, createdAt, updatedAt }`.
 
@@ -52,14 +52,22 @@ through the `logic` mesh collection rather than straight to SQLite — the route
 stay available to outside services, but the mesh is the single write path (see
 [mesh.md](mesh.md), principle 5). The id matters for the editor: a server-minted
 one would make the create server-authored, which puts it on nobody's undo stack.
+A route answers `500 store not ready` when the mesh is not up (tests that boot
+the app without it); persisting behind the replica's back would leave every
+connected tab stale, which is the bug the write-through exists to prevent.
+
+`LogicManager` no longer has `create` / `update` / `remove` / `list`: with the
+routes writing through the collection, those had no callers. Descriptor
+validation moved out of `update` into the collection `guard` below, which is
+why it is exported.
 
 ## Backend lifecycle — `logic/manager.ts`
 
 `LogicManager` (singleton `logicManager`, mounted via `routes/shared.ts`) owns the runtime instances for all three scopes.
 
 - **`startAllEnabled()`** — called at server boot. Hydrates and starts every `enabled = 1` row across all owner kinds.
-- **`reconcile(id)`** — called on every create/update. If `enabled` it stops then re-starts the instance (picks up descriptor + node_state changes); if disabled, stops only.
-- **Descriptor validation** — `validateDescriptor()` always rejects the behavior-context kinds `{ behavior_config, behavior_id }` (no behavior to read from). `scene_entity` is allowed in **scene-node- and compose-layer-scoped** logic and rejected only in **project**-scoped logic (no owner entity). Thrown errors surface as `400` from the PUT handler. For the allowed scopes the user authors a `scene_entity` node directly; the manager feeds its `config.nodeId` = `owner_id` at start time, and the node's **output type follows the scope** — `SceneNode` for scene-node-scoped, `ComposeLayer` for compose-layer-scoped — via `inferSceneEntity` (the scope reaches inference through `SignalGraph.fromDescriptor(..., ownerKind)` → `InferGraph` → `InferCtx.ownerKind`).
+- **`reconcile(id)`** — called from the mesh `onCommitted` tap (`logic/lifecycle.ts`) on every committed write, whoever authored it. If `enabled` it stops then re-starts the instance (picks up descriptor + node_state changes); if disabled, stops only.
+- **Descriptor validation** — `validateDescriptor()` (exported; run from the `logic` binding's `guard` in `mesh/index.ts`, so a tab-authored descriptor is checked on the same terms as one PUT over REST — a throw nacks the write and rolls the author back) always rejects the behavior-context kinds `{ behavior_config, behavior_id }` (no behavior to read from). `scene_entity` is allowed in **scene-node- and compose-layer-scoped** logic and rejected only in **project**-scoped logic (no owner entity). Thrown errors surface as `400` from the PUT handler. For the allowed scopes the user authors a `scene_entity` node directly; the manager feeds its `config.nodeId` = `owner_id` at start time, and the node's **output type follows the scope** — `SceneNode` for scene-node-scoped, `ComposeLayer` for compose-layer-scoped — via `inferSceneEntity` (the scope reaches inference through `SignalGraph.fromDescriptor(..., ownerKind)` → `InferGraph` → `InferCtx.ownerKind`).
 - **State persistence** — each `setState(nodeId, state)` writes the JSON map back to the row's `node_state` column.
 - **Clock self-tick** — for each `clock` node in the descriptor, the manager calls `Clock.attach(...)` and stashes the cleanup; defaults to 30Hz or `defaultConfig.hz`.
 

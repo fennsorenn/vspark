@@ -1,10 +1,52 @@
+/**
+ * Logic (signal-graph) routes — written THROUGH the mesh store: the route
+ * builds the canonical DTO and writes the `logic` collection, and the
+ * onCommitted tap persists it and reconciles the running instance. The routes
+ * stay available to outside services; they just no longer own the write.
+ *
+ * Writing SQLite directly here would leave every connected tab showing stale
+ * graphs until its next reload — the replica is what tabs read now.
+ *
+ * Descriptor validation moved to the collection's `validate` hook, so a graph
+ * authored by a tab is checked on exactly the same terms as one PUT over REST.
+ */
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
-import {
-  logicManager,
-  type LogicRow,
-} from '../logic/manager.js';
+import { getMeshCollection } from '../mesh/index.js';
+import { type LogicRow } from '../logic/manager.js';
+
+/** The collection, or null when the mesh isn't up (tests that skip it). */
+const logicCol = () => getMeshCollection('logic');
+
+/** Commit a whole logic doc, answering 500/400 on refusal. Returns false when
+ *  the response has already been sent. */
+async function commit(
+  res: import('express').Response,
+  id: string,
+  doc: Record<string, unknown>
+): Promise<boolean> {
+  const col = logicCol();
+  if (!col) {
+    res.status(500).json({ ok: false, error: { message: 'store not ready' } });
+    return false;
+  }
+  const outcome = await col.set(id, '', doc).ack;
+  if (outcome.status === 'rejected') {
+    // A refusal here is a rejected descriptor far more often than a broken
+    // store, and that is a 400 — same status the manager's throw produced.
+    res.status(400).json({ ok: false, error: { message: outcome.reason } });
+    return false;
+  }
+  return true;
+}
+
+/** Read a row back for the response body. The DTO the route just wrote lacks
+ *  the DB-generated timestamps, so the row is the honest answer. */
+const rowOf = (id: string) =>
+  getDb().prepare('SELECT * FROM logic WHERE id = ?').get(id) as unknown as
+    | LogicRow
+    | undefined;
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -21,6 +63,39 @@ function mapLogicRow(r: LogicRow) {
   };
 }
 
+/** Create one graph on any owner and answer 201 with the stored row. New
+ *  graphs boot enabled with an empty descriptor: nothing fires until the user
+ *  wires nodes, but the instance is running, so later edits reconcile without
+ *  a restart. */
+async function created(
+  res: import('express').Response,
+  id: string,
+  ownerKind: string,
+  ownerId: string,
+  name: string
+): Promise<boolean> {
+  if (
+    !(await commit(res, id, {
+      id,
+      ownerKind,
+      ownerId,
+      name,
+      enabled: true,
+      descriptor: { nodes: [], edges: [] },
+    }))
+  )
+    return false;
+  const row = rowOf(id);
+  if (!row) {
+    res
+      .status(500)
+      .json({ ok: false, error: { message: 'graph was not persisted' } });
+    return false;
+  }
+  res.status(201).json({ ok: true, data: mapLogicRow(row) });
+  return true;
+}
+
 router.get('/projects/:projectId/logic', (req, res) => {
   const rows = getDb()
     .prepare(
@@ -30,22 +105,14 @@ router.get('/projects/:projectId/logic', (req, res) => {
   res.json({ ok: true, data: rows.map(mapLogicRow) });
 });
 
-router.post('/projects/:projectId/logic', (req, res) => {
+router.post('/projects/:projectId/logic', async (req, res) => {
   const { id: clientId, name } = req.body as { id?: string; name?: string };
   if (!name)
     return res
       .status(400)
       .json({ ok: false, error: { message: 'name is required' } });
   const id = clientId ?? randomUUID();
-  // Route project graphs through the manager so the new graph starts
-  // immediately (and gets validated/reconciled) rather than only on next boot.
-  const row = logicManager.create({
-    id,
-    projectId: req.params.projectId,
-    name,
-  });
-  logicManager.reconcile(id);
-  res.status(201).json({ ok: true, data: mapLogicRow(row) });
+  if (!(await created(res, id, 'project', req.params.projectId, name))) return;
 });
 
 /** All scene-node- and compose-layer-scoped graphs for a project, in one
@@ -90,27 +157,14 @@ router.get('/scene-nodes/:nodeId/logic', (req, res) => {
   res.json({ ok: true, data: rows.map(mapLogicRow) });
 });
 
-router.post('/scene-nodes/:nodeId/logic', (req, res) => {
+router.post('/scene-nodes/:nodeId/logic', async (req, res) => {
   const { id: clientId, name } = req.body as { id?: string; name?: string };
   if (!name)
     return res
       .status(400)
       .json({ ok: false, error: { message: 'name is required' } });
   const id = clientId ?? randomUUID();
-  getDb()
-    .prepare(
-      "INSERT INTO logic (id, owner_kind, owner_id, name) VALUES (?, 'scene_node', ?, ?)"
-    )
-    .run(id, req.params.nodeId, name);
-  // Route through the manager so the new graph starts immediately (it boots
-  // empty-descriptor + enabled by default — nothing fires until the user
-  // wires nodes via PUT, but having it `running` means subsequent PUTs
-  // reconcile cleanly without a server restart).
-  logicManager.reconcile(id);
-  const row = getDb()
-    .prepare('SELECT * FROM logic WHERE id = ?')
-    .get(id) as unknown as LogicRow;
-  res.status(201).json({ ok: true, data: mapLogicRow(row) });
+  if (!(await created(res, id, 'scene_node', req.params.nodeId, name))) return;
 });
 
 router.get('/compose-layers/:layerId/logic', (req, res) => {
@@ -122,67 +176,45 @@ router.get('/compose-layers/:layerId/logic', (req, res) => {
   res.json({ ok: true, data: rows.map(mapLogicRow) });
 });
 
-router.post('/compose-layers/:layerId/logic', (req, res) => {
+router.post('/compose-layers/:layerId/logic', async (req, res) => {
   const { id: clientId, name } = req.body as { id?: string; name?: string };
   if (!name)
     return res
       .status(400)
       .json({ ok: false, error: { message: 'name is required' } });
   const id = clientId ?? randomUUID();
-  getDb()
-    .prepare(
-      "INSERT INTO logic (id, owner_kind, owner_id, name) VALUES (?, 'compose_layer', ?, ?)"
-    )
-    .run(id, req.params.layerId, name);
-  logicManager.reconcile(id);
-  const row = getDb()
-    .prepare('SELECT * FROM logic WHERE id = ?')
-    .get(id) as unknown as LogicRow;
-  res.status(201).json({ ok: true, data: mapLogicRow(row) });
+  if (!(await created(res, id, 'compose_layer', req.params.layerId, name)))
+    return;
 });
 
-router.put('/logic/:id', (req, res) => {
+router.put('/logic/:id', async (req, res) => {
   const { name, enabled, descriptor } = req.body as {
     name?: string;
     enabled?: boolean;
     descriptor?: unknown;
   };
-  const db = getDb();
-  const existing = db
-    .prepare('SELECT * FROM logic WHERE id = ?')
-    .get(req.params.id) as unknown as LogicRow | undefined;
-  if (!existing)
+  const col = logicCol();
+  const cur = col?.get(req.params.id) as Record<string, unknown> | undefined;
+  if (!col || !cur)
     return res
       .status(404)
       .json({ ok: false, error: { message: 'graph not found' } });
 
-  // All logic (project / scene_node / compose_layer) go through
-  // the manager so the underlying SignalGraph is reconciled (validated,
-  // restarted) after every edit. Behavior-owned graphs aren't reachable
-  // via this route — they have no logic row.
-  try {
-    const row = logicManager.update(req.params.id, {
-      ...(name !== undefined ? { name } : {}),
-      ...(enabled !== undefined ? { enabled } : {}),
-      ...(descriptor !== undefined
-        ? {
-            descriptor: descriptor as Parameters<
-              typeof logicManager.update
-            >[1]['descriptor'],
-          }
-        : {}),
-    });
-    if (!row)
-      return res
-        .status(404)
-        .json({ ok: false, error: { message: 'graph not found' } });
-    res.json({ ok: true, data: mapLogicRow(row) });
-  } catch (e) {
-    res.status(400).json({
-      ok: false,
-      error: { message: e instanceof Error ? e.message : String(e) },
-    });
-  }
+  // The reconcile that used to live in logicManager.update now rides the
+  // onCommitted tap, so it fires for a tab's write as well as this one.
+  const doc = {
+    ...cur,
+    ...(name !== undefined ? { name } : {}),
+    ...(enabled !== undefined ? { enabled } : {}),
+    ...(descriptor !== undefined ? { descriptor } : {}),
+  };
+  if (!(await commit(res, req.params.id, doc))) return;
+  const row = rowOf(req.params.id);
+  if (!row)
+    return res
+      .status(404)
+      .json({ ok: false, error: { message: 'graph not found' } });
+  res.json({ ok: true, data: mapLogicRow(row) });
 });
 
 /** Generic GET /graphs/:id for any owner kind. Used by the canvas to
@@ -199,11 +231,15 @@ router.get('/logic/:id', (req, res) => {
   res.json({ ok: true, data: mapLogicRow(row) });
 });
 
-router.delete('/logic/:id', (req, res) => {
-  // The manager stops the running instance (if any) and deletes the row.
-  // Safe to call for any owner kind — non-running graphs become a no-op stop
-  // before the DELETE runs.
-  logicManager.remove(req.params.id);
+router.delete('/logic/:id', async (req, res) => {
+  const col = logicCol();
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  // The tap stops the running instance and deletes the row. A remove of an
+  // unknown id is a no-op, matching the old manager call.
+  await col.remove(req.params.id).ack;
   res.json({ ok: true, data: {} });
 });
 

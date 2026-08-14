@@ -1,6 +1,6 @@
 # Mesh — Replicated Store (@vspark/mesh, @vspark/mesh-react, @vspark/mesh-transports)
 
-**Status:** Core package implemented with 29 vitest tests; three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend hydration + persistence complete; reads fully mesh-fed (`sync/meshStoreFeeder.ts`); writes mesh-authored for `scene_node` and `compose_layer`, still REST for `behavior` / `camera_effect` / `track_clip`. See [Remaining](#remaining) for the rest.
+**Status:** Core package implemented with 29 vitest tests; three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend hydration + persistence complete; reads fully mesh-fed (`sync/meshStoreFeeder.ts`); writes mesh-authored for every document rtype (see the per-rtype table under [Undo / redo](#undo--redo-per-peer)). See [Remaining](#remaining) for the rest.
 
 A **schema-agnostic in-memory replicated store** with symmetric read/write API on both frontend and backend, HLC last-write-wins convergence, grant-gated access control, and authority-driven ack lifecycle. No durability in the package itself; durable peers hydrate from persistent store and persist incoming mutations via observe taps. Designed to replace both the legacy sync layer and the entity-aware collab-scene sharing model.
 
@@ -584,8 +584,20 @@ Two failures worth knowing in advance, because neither announces itself:
    tombstone rehydration are all driven from it; `bindCollection` returns early
    without one, leaving a replicate-only collection.
 4. **Binding** — a row in `BINDINGS` in `packages/backend/src/mesh/index.ts`:
-   `rtype`, `table`, `parent`, optional `validate`, and `persists` (which gates
-   SQLite only — a doc that fails it still fans out to every replica).
+   `rtype`, `table`, `parent`, optional `validate` / `guard`, and `persists`
+   (which gates SQLite only — a doc that fails it still fans out to every
+   replica).
+
+   `validate` vs `guard`, which is easy to get wrong: **`validate` only runs on
+   whole-doc writes.** A dotted-path write is a `patch` op, and patches pass
+   through unvalidated — the hook is never called, so a check placed there is
+   silently skipped by exactly the writes a UI makes most (`set(id, 'field',
+   v)`). `validate` is for transforming an incoming doc (localizing a
+   peer-relative timestamp, say); it can also reject by throwing. `guard` runs
+   in the persistence tap on the COMPOSED doc, so it sees every write shape;
+   throwing there nacks the write and restores the author's pre-write state.
+   Anything that must hold regardless of how the write was shaped belongs in
+   `guard` (`logic` validates its descriptor there).
 
 ### Frontend
 

@@ -43,6 +43,7 @@ import {
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { logicLifecycle } from '../logic/lifecycle.js';
+import { validateDescriptor } from '../logic/manager.js';
 import { isClientParticipant } from '@vspark/shared/sync';
 import '../sync/resources.js'; // side effect: register the descriptors
 
@@ -60,6 +61,11 @@ interface RtypeBinding {
    *  a remote projection riding a placed-object subscription (replica-only:
    *  fans out to our tabs, never touches SQLite). §9 step D. */
   persists?: (dto: Dto) => boolean;
+  /** Refuse a committed doc: throw and the write is nacked and rolled back on
+   *  its author. Runs on the COMPOSED doc in the persistence tap, so unlike
+   *  `validate` it sees dotted-path writes as well as whole-doc ones — use it
+   *  for anything that has to hold however the write was shaped. */
+  guard?: (dto: Dto) => void;
 }
 
 const rowExists = (table: string, id: unknown): boolean =>
@@ -296,6 +302,21 @@ const BINDINGS: RtypeBinding[] = [
         : d.ownerKind === 'compose_layer' && typeof d.ownerId === 'string'
           ? { rtype: 'compose_layer', id: d.ownerId }
           : null,
+    // The descriptor IS the program, so an unrunnable one is refused rather
+    // than persisted and left to fail at reconcile. This is the mesh
+    // equivalent of the 400 the PUT route used to return, and now the only
+    // place the check lives, since REST and tabs both write through here.
+    //
+    // A `guard`, not `validate`: the canvas commits `set(id, 'descriptor', …)`,
+    // which is a PATCH op, and patches skip validate entirely — the hook would
+    // be handed the descriptor with no doc around it and wave it through.
+    guard: (d) => {
+      if (d.descriptor)
+        validateDescriptor(
+          d.descriptor as Parameters<typeof validateDescriptor>[0],
+          String(d.ownerKind)
+        );
+    },
     persists: (d) =>
       d.ownerKind === 'project'
         ? rowExists('projects', d.ownerId)
@@ -510,6 +531,9 @@ function bindCollection(
         if (b.rtype === 'logic') logicLifecycle.onRemoved(c.id);
       } else if (c.doc) {
         if (b.persists && !b.persists(c.doc)) return;
+        // Before persisting: a throw here nacks the write and restores the
+        // pre-write state on the author.
+        b.guard?.(c.doc);
         r.save?.(c.doc);
         clearTombstone(b.rtype, c.id);
         sync.document.upsert(b.rtype, c.id);

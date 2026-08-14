@@ -142,6 +142,64 @@ describe('logic collection', () => {
     expect(res.body.data.id).toBe('client-chosen');
   });
 
+  it('lands a REST-created graph in the collection, not just the DB', async () => {
+    // Tabs read the replica now, so a route that wrote SQLite directly would
+    // leave every connected editor showing stale graphs until it reloaded.
+    // This is exactly what an e2e caught: seed over REST, open the editor,
+    // graph missing.
+    await request(app)
+      .post(`/api/projects/${projectId}/logic`)
+      .send({ id: 'seeded', name: 'Seeded' });
+    expect(getMeshCollection('logic')!.get('seeded')).toMatchObject({
+      name: 'Seeded',
+      ownerKind: 'project',
+    });
+  });
+
+  it('lands REST edits and deletes in the collection too', async () => {
+    await request(app)
+      .post(`/api/scene-nodes/${nodeId}/logic`)
+      .send({ id: 'g1', name: 'Before' });
+
+    await request(app).put('/api/logic/g1').send({ name: 'After' });
+    expect(getMeshCollection('logic')!.get('g1')).toMatchObject({
+      name: 'After',
+    });
+
+    await request(app).delete('/api/logic/g1');
+    expect(getMeshCollection('logic')!.get('g1')).toBeUndefined();
+    expect(
+      getDb().prepare('SELECT 1 FROM logic WHERE id = ?').get('g1')
+    ).toBeUndefined();
+  });
+
+  it('refuses a descriptor the graph cannot run, over REST and on the mesh', async () => {
+    // Validation moved to the collection's validate hook when the routes
+    // stopped owning the write; a tab-authored descriptor has to be checked on
+    // the same terms as a PUT, so both paths are pinned here.
+    await request(app)
+      .post(`/api/projects/${projectId}/logic`)
+      .send({ id: 'g1', name: 'G' });
+    const bad = { nodes: [{ id: 'n', kind: 'behavior_config' }], edges: [] };
+
+    const res = await request(app)
+      .put('/api/logic/g1')
+      .send({ descriptor: bad });
+    expect(res.status).toBe(400);
+
+    const outcome = await getMeshCollection('logic')!.set(
+      'g1',
+      'descriptor',
+      bad
+    ).ack;
+    expect(outcome.status).toBe('rejected');
+    // And the stored program is untouched by either attempt.
+    expect(
+      (getMeshCollection('logic')!.get('g1') as { descriptor: unknown })
+        .descriptor
+    ).toEqual({ nodes: [], edges: [] });
+  });
+
   it('still mints an id when the caller does not supply one', async () => {
     const res = await request(app)
       .post(`/api/scene-nodes/${nodeId}/logic`)
