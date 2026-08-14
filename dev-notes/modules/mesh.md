@@ -38,6 +38,12 @@ Stream only what cannot be computed — external sensor data (mocap pose,
 blendshapes, IK targets). Anything derivable from documents is derived locally,
 on every peer, from the same inputs.
 
+Those three are what is left on the stream path. Everything else that used to
+ride it is gone: the clip playhead (derived from the transport document), and
+the drag preview for a shared object (`node_transform_preview`, which the
+receiver now reads as preview-channel overlays on `scene_node` — the same ones
+a local tab gets).
+
 Worked example: animation clip playback does **not** stream evaluated
 transforms. The clip document and the playback state (`state`, `startEpoch`,
 `speed`) sync; every peer derives the playhead from `startEpoch` against the
@@ -705,7 +711,7 @@ three catch every wiring break above; behaviour tests do not.
   - `packages/frontend/src/sync/meshStoreFeeder.ts` (new) — observes each collection via `collection.observe('**')` and writes changes into the editorStore's synced slices: `scene_node`, `behavior`, `camera_effect`, `compose_layer` (incl. the `compose_scene` kind branch) and `track_clip`. The whole `'sync'`-envelope bindings file (`sync/resources.ts`) is deleted; no tab reads the envelope. The replica does HLC LWW internally, so `observe()` only ever fires for applied changes and the client-side stale-drop (`lastVersion`) is obsolete.
   - Foreign docs riding placed-object subscriptions are filtered by the parent node's `remote` flag (projections stay inert and remain owned by `sync/meshProjection.ts`).
   - ViewerPage starts the mesh peer + feeder alongside the editor, since it renders the same live state.
-  - The migration re-points the store's TRANSPORT (envelope → replica observation); components still read the Zustand store (mesh-react hooks remain open). Its file header still says "Smoothing-sensitive patches … still ride their dedicated /ws messages" — true for `node_transform_preview` and `node_updated`, **stale for `compose_layer_preview`**, which now rides the mesh `preview` channel a few lines below.
+  - The migration re-points the store's TRANSPORT (envelope → replica observation); components still read the Zustand store (mesh-react hooks remain open). Its file header still says "Smoothing-sensitive patches … still ride their dedicated /ws messages" — true at the time for `node_transform_preview` and `node_updated`, **stale for `compose_layer_preview`**, which now rides the mesh `preview` channel a few lines below. (`node_transform_preview` has since been deleted outright.)
 - **Compose containment scope DONE** (a0d4da0): top-level compose layers anchor to their compose scene via `rootComposeSceneId` (scene_node-style fallback) in both backend BINDINGS (`packages/backend/src/mesh/index.ts`) and frontend PARENTS (`packages/frontend/src/mesh/peer.ts`). Closes the 'compose layers need a containment scope' deferred item from §9 status; compose subtrees are now correctly grant-routed.
   - See [plans/mesh-sync-refactor.md §11](../plans/mesh-sync-refactor.md) for the full slice spec and verification log.
 
@@ -738,41 +744,10 @@ three catch every wiring break above; behaviour tests do not.
 <a id="remaining"></a>
 
 **Remaining:**
-- **Writes for `behavior` / `camera_effect` / `track_clip`** — still REST, so
-  still server-authored and undoable by nobody (see the table under Undo/redo).
-  `behavior` additionally needs its manager lifecycle side effects moved into the
-  `onCommitted` tap before the route can stop being the write path.
-- **Node drag previews** — `previewNodePath` writes the local store only; the
-  in-flight transform still rides the `node_transform_preview` WS kind
-  (`backend/src/index.ts` relay → `useWsSync.ts` → `previewSmoother`). The
-  mesh-native form is the same one-overlay-per-field `preview` write compose
-  layers already use, plus an `ephemeral` branch in the `scene_node` feeder.
-- **Clip playback state** — the playhead is backend-authoritative
-  (`track_clips/playback.ts`, broadcast as `track_clip_started` / `_paused` /
-  `_stopped` / `_playback_snapshot`), and a clip animating a *shared* object
-  streams an evaluated transform per frame as a `node_transform_preview` frame.
-  That last part is self-contradictory: clip evaluation is frontend-local, so the
-  thing to sync is the INPUTS — the clip doc (already a mesh rtype) plus a
-  retained play anchor — and let every peer evaluate. A persisted `clip_playback`
-  collection replaces both the streaming chain and the snapshot kind.
-- **Document WS kinds that are pure double-applies** — `node_updated`,
-  `camera_effect_updated`, `track_clip_updated`,
-  `track_clip_keyframes_replaced`, `track_clip_events_replaced`,
-  `track_clip_lane_removed`. Each is broadcast by a route that has *already*
-  written the same doc through the collection, and the feeder has already applied
-  it. The "smoothing-aware" / "local smoothing broadcast" comments on those
-  broadcasts are false — `previewSmoother` exports only `smoothNodeTransform` and
-  `smoothComposeLayer`, and neither is reachable from those handlers.
-- **`scene_updated` / `scene_removed` are NOT yet redundant** — two real gaps
-  keep them load-bearing. (a) The feeder's `scene_node` observer routes
-  `kind='scene'` docs into the `nodes` slice and never into the `scenes` slice,
-  so `scenes[].runtimeSettings` would go stale on other tabs; it also has no
-  `activeSceneId` reselection. (b) `DELETE /api/scenes/:id` deletes the scene's
-  behaviors / camera_effects / compose_layers / track_clips with **raw SQL that
-  bypasses the collection**, so those docs live on in the backend replica with no
-  tombstone and a later subscriber gets a snapshot of rows that no longer exist.
-  Route the deletions through `getMeshCollection(...).remove()` in one batch
-  first.
+
+The list below was rewritten after the write migration finished; most of what
+used to be here is done, and saying so wrongly is worse than saying nothing.
+
 - **Runtime-control kinds ride three transports at once** —
   `runtime_override_set` / `_clear` (+`_snapshot`), `data_channel_set` / `_clear`
   (+`_snapshot`) and `media_control` travel the local `/ws` hop, the collab
@@ -787,12 +762,34 @@ three catch every wiring break above; behaviour tests do not.
   `${targetKind}:${targetId}:${paramPath}` with the target as containment parent
   so existing scene-subtree grants route it. The existing `control` channel is
   `retained: false` and would silently drop the late-joiner guarantee.
-- **Logic** has no mesh collection at all: `LogicSection.tsx` re-fetches over REST
-  on a 3s `setInterval` (as does the behaviors list in `SceneGraph.tsx`).
+- **Document WS kinds that are pure double-applies** — `node_updated`,
+  `camera_effect_updated`, `track_clip_updated`,
+  `track_clip_keyframes_replaced`, `track_clip_events_replaced`,
+  `track_clip_lane_removed`. Each is broadcast by a route that has *already*
+  written the same doc through the collection, and the feeder has already applied
+  it. Kept for now only because outside consumers may listen to them.
+- **Preset deserialization writes SQL directly** — `presets/deserialize.ts`
+  inserts nodes, clips, lanes, keyframes, events and logic rows behind the
+  replica's back, so importing a preset leaves every connected tab stale until
+  it reloads. The same defect the REST routes had, across every rtype a preset
+  carries.
+- **Principle 3's share container** — a mounted scene is still a scene in the
+  receiver's scene list rather than a node in their tree with the renderer
+  walking into the foreign tree. Principle 2 no longer depends on it (the
+  documents are unmodified either way); this is the presentation half, and
+  `sync/sharedProjection.ts` already shows its shape for placed objects.
 - Component reads → mesh-react hooks (`useMeshDoc` / `useMeshSubtree` / etc.),
   with ack outcomes surfaced as toasts.
 - Phase-6 guarded writes (`_share_write`/NAK) onto guarded mesh writes (per-doc authority).
 - Advertise/offer flow: still legacy.
+
+**Done since this list was first written** (kept short deliberately — the
+details live in the sections above): writes are mesh-authored for every document
+rtype; `logic` has a collection and no polls; clip playback is a document and
+the backend playhead is gone; node and clip previews ride the `preview` channel,
+including for object-share subscribers, so `node_transform_preview` is deleted;
+scene deletion cascades through the collection; list-shaped document fields
+(clip lanes/keyframes/events, graph nodes/edges) are keyed by id.
 
 ## Key files
 
