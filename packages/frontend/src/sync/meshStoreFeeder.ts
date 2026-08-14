@@ -205,6 +205,17 @@ export function startMeshStoreFeeder(): void {
         }
         const layer = c.doc as unknown as ComposeLayerRecord | undefined;
         if (!layer) return;
+        // Adopt only what belongs to the open project. The tab subscribes to
+        // `compose_layer` across the whole server (entityId '*'), so without
+        // this the Compose tree of one project listed the scenes of every
+        // other one — which is what an e2e saw the moment a run created a
+        // second project. Same guard the scene_node observer has, and unknown
+        // projectId means DON'T adopt (the feeder starts before the REST load
+        // sets it).
+        const held =
+          s.composeScenes.some((cs) => cs.id === layer.id) ||
+          s.composeLayers.some((l) => l.id === layer.id);
+        if (!held && (!s.projectId || layer.projectId !== s.projectId)) return;
 
         // An ephemeral op IS an in-flight gesture, by construction — that's
         // what the lossy `preview` channel carries. So it tweens, while

@@ -267,3 +267,77 @@ describe('meshStoreFeeder — scene_node previews', () => {
     expect(transformOf().x).toBe(0);
   });
 });
+
+/**
+ * The same guard, for compose layers.
+ *
+ * The tab subscribes to `compose_layer` across the whole server (entityId
+ * '*'), and this observer adopted everything it saw — so opening one project
+ * listed the compose scenes of every other one. An e2e caught it the moment a
+ * full run had created a second project; a user with two projects would have
+ * hit it on the first switch.
+ */
+describe('meshStoreFeeder — compose_layer scoping', () => {
+  const layerDoc = (id: string, projectId: string, kind = 'image') => ({
+    id,
+    projectId,
+    kind,
+    name: id,
+    rootComposeSceneId: kind === 'compose_scene' ? null : 'cs-1',
+    parentId: null,
+    orderKey: 'a0',
+  });
+
+  const feedLayer = (op: Op) => observers.get('compose_layer')!(op);
+
+  beforeEach(async () => {
+    await startFeeder();
+    useEditorStore.setState({
+      projectId: 'p1',
+      composeScenes: [],
+      composeLayers: [],
+    });
+  });
+
+  it('adopts a layer of the open project', () => {
+    feedLayer({ op: 'upsert', id: 'l1', doc: layerDoc('l1', 'p1') });
+    expect(useEditorStore.getState().composeLayers.map((l) => l.id)).toEqual([
+      'l1',
+    ]);
+  });
+
+  it('ignores a layer belonging to another project', () => {
+    feedLayer({ op: 'upsert', id: 'l2', doc: layerDoc('l2', 'other') });
+    expect(useEditorStore.getState().composeLayers).toEqual([]);
+  });
+
+  it('ignores a compose SCENE belonging to another project', () => {
+    // The visible symptom: another project's scenes listed in this project's
+    // Compose tree.
+    feedLayer({
+      op: 'upsert',
+      id: 'cs2',
+      doc: layerDoc('cs2', 'other', 'compose_scene'),
+    });
+    expect(useEditorStore.getState().composeScenes).toEqual([]);
+  });
+
+  it('drops everything while projectId is still unknown', () => {
+    // The feeder starts on mount; projectId arrives with the async REST load.
+    // Unknown means DON'T adopt — the bundle fills the slices right after.
+    useEditorStore.setState({ projectId: null });
+    feedLayer({ op: 'upsert', id: 'l3', doc: layerDoc('l3', 'p1') });
+    expect(useEditorStore.getState().composeLayers).toEqual([]);
+  });
+
+  it('still applies edits to a layer it already holds', async () => {
+    const { addComposeLayer } = useEditorStore.getState();
+    addComposeLayer(layerDoc('l1', 'p1') as never);
+    feedLayer({
+      op: 'upsert',
+      id: 'l1',
+      doc: { ...layerDoc('l1', 'p1'), name: 'renamed' },
+    });
+    expect(useEditorStore.getState().composeLayers[0].name).toBe('renamed');
+  });
+});
