@@ -294,6 +294,9 @@ interface EditorState {
   /** Overlive login accounts for the current project. Populated lazily by Editor.tsx;
    *  consumed by signal-graph Account port dropdowns. */
   overliveAccounts: import('../api/client').OverliveAccountRecord[];
+  /** OBS (obs-websocket) connections for the current project. Populated lazily
+   *  by the OBS Connections modal; status kept live via obs_connection_status. */
+  obsConnections: import('../api/client').ObsConnectionRecord[];
   activeLogicId: string | null;
   /** True when the active graph is a writable standalone project graph;
    *  false when it's a behavior-owned (read-only) graph or no graph is active.
@@ -422,6 +425,16 @@ interface EditorState {
   setOverliveAccounts: (
     accounts: import('../api/client').OverliveAccountRecord[]
   ) => void;
+  setObsConnections: (
+    connections: import('../api/client').ObsConnectionRecord[]
+  ) => void;
+  /** Patch one connection's live status from an obs_connection_status message. */
+  patchObsConnectionStatus: (patch: {
+    connectionId: string;
+    status: import('../api/client').ObsConnectionStatus;
+    reason: string | null;
+    message: string | null;
+  }) => void;
   setActiveLogic: (id: string | null) => void;
   setActiveLogicWritable: (writable: boolean) => void;
   setSelectedSignalNode: (id: string | null) => void;
@@ -601,6 +614,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   hoveredBoneName: null,
   behaviorKinds: [],
   overliveAccounts: [],
+  obsConnections: [],
   activeLogicWritable: false,
   activeLogicId: null,
   selectedSignalNodeId: null,
@@ -836,6 +850,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setHoveredBone: (name) => set({ hoveredBoneName: name }),
   setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
+  setObsConnections: (connections) => set({ obsConnections: connections }),
+  patchObsConnectionStatus: (patch) =>
+    set((s) => ({
+      obsConnections: s.obsConnections.map((c) =>
+        c.id === patch.connectionId
+          ? {
+              ...c,
+              status: patch.status,
+              statusReason: patch.reason,
+              statusMessage: patch.message,
+            }
+          : c
+      ),
+    })),
   setActiveLogicWritable: (writable) => set({ activeLogicWritable: writable }),
   setActiveLogic: (id) => {
     // Opening a graph (from any list — including scoped graphs in the scene /

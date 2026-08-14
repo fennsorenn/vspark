@@ -1203,6 +1203,80 @@ export const setDefaultOverliveAccount = (id: string) =>
     method: 'POST',
   });
 
+// ── OBS connections (obs-websocket power tier) ───────────────────────────────
+
+export type ObsConnectionStatus =
+  | 'connected'
+  | 'connecting'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'error';
+
+export interface ObsConnectionRecord {
+  id: string;
+  projectId: string;
+  label: string;
+  host: string;
+  port: number;
+  password: string;
+  enabled: boolean;
+  status: ObsConnectionStatus;
+  statusReason: string | null;
+  statusMessage: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const getObsConnections = (projectId: string) =>
+  request<ObsConnectionRecord[]>(`/projects/${projectId}/obs-connections`);
+
+export const createObsConnection = (
+  projectId: string,
+  body: Partial<{
+    label: string;
+    host: string;
+    port: number;
+    password: string;
+    enabled: boolean;
+  }>
+) =>
+  request<ObsConnectionRecord>(`/projects/${projectId}/obs-connections`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const updateObsConnection = (
+  id: string,
+  patch: Partial<{
+    label: string;
+    host: string;
+    port: number;
+    password: string;
+    enabled: boolean;
+  }>
+) =>
+  request<ObsConnectionRecord>(`/obs-connections/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+
+export const deleteObsConnection = (id: string) =>
+  request<Record<string, never>>(`/obs-connections/${id}`, {
+    method: 'DELETE',
+  });
+
+/** Trigger a reconnect and return the resulting status. */
+export const testObsConnection = (id: string) =>
+  request<{ status: ObsConnectionStatus }>(`/obs-connections/${id}/test`, {
+    method: 'POST',
+  });
+
+/** OBS input names for the node-editor picker (empty when disconnected). */
+export const getObsInputs = (projectId: string) =>
+  request<Array<{ name: string; kind: string }>>(
+    `/projects/${projectId}/obs/inputs`
+  );
+
 // ─── Overlive: OAuth (Twitch) ────────────────────────────────────────────────
 
 /**
@@ -1446,6 +1520,12 @@ export const api = {
   deleteOverliveAccount,
   setDefaultOverliveAccount,
   startTwitchOAuth,
+  getObsConnections,
+  createObsConnection,
+  updateObsConnection,
+  deleteObsConnection,
+  testObsConnection,
+  getObsInputs,
   getPresets,
   createPreset,
   getPreset,

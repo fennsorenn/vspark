@@ -48,6 +48,11 @@ import m032 from './migrations/032_mesh_tombstones.js';
 import m033 from './migrations/033_scheduled_animations.js';
 import m034 from './migrations/034_asset_metadata.js';
 import m035 from './migrations/035_tracking_grace_period_to_node.js';
+// Renumbered from 035 on merge: dev's 035 (tracking grace period) shipped with
+// #69 and has already run on real databases, so it owns that number. Migrations
+// are keyed by FILENAME in `_migrations`, so 036 is simply pending on any DB
+// that already applied 035.
+import m036 from './migrations/036_obs_connections.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -106,6 +111,7 @@ const MIGRATIONS: Migration[] = [
   { name: '033_scheduled_animations.sql', sql: m033 },
   { name: '034_asset_metadata.sql', sql: m034 },
   { name: '035_tracking_grace_period_to_node.ts', run: m035 },
+  { name: '036_obs_connections.sql', sql: m036 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

@@ -102,6 +102,22 @@ describe('Migration runner — expected tables', () => {
   it('creates the mesh_tombstones table (migration 032)', () => {
     expect(getTables().has('mesh_tombstones')).toBe(true);
   });
+
+  it('creates the obs_connections table (migration 036)', () => {
+    // Renumbered from 035 when this branch merged: dev's 035 (tracking grace
+    // period) had already shipped and run on real databases, so it owns that
+    // number. `_migrations` is keyed by FILENAME, so 036 is simply pending on a
+    // DB that already applied 035 — both must be present and applied.
+    expect(getTables().has('obs_connections')).toBe(true);
+
+    const names = (
+      getDb().prepare('SELECT name FROM _migrations').all() as {
+        name: string;
+      }[]
+    ).map((r) => r.name);
+    expect(names).toContain('035_tracking_grace_period_to_node.ts');
+    expect(names).toContain('036_obs_connections.sql');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -176,14 +192,14 @@ describe('Migration runner — idempotency', () => {
     expect(countAfter).toBe(countBefore);
   });
 
-  it('all 35 migrations are recorded in _migrations after a full run', () => {
+  it('all 36 migrations are recorded in _migrations after a full run', () => {
     const count = (
       getDb()
         .prepare('SELECT COUNT(*) AS cnt FROM _migrations')
         .all() as { cnt: number }[]
     )[0].cnt;
-    // There are 35 migrations (001 – 035).
-    expect(count).toBe(35);
+    // There are 36 migrations (001 – 036).
+    expect(count).toBe(36);
   });
 
   it('each migration name appears exactly once in _migrations', () => {

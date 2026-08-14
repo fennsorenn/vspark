@@ -72,6 +72,8 @@ import type {
   LipsyncInputMessage,
   TrackingInputMessage,
   AvatarExpressionsReportMessage,
+  ObsEventMessage,
+  ClientHelloMessage,
 } from '@vspark/shared';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -257,6 +259,24 @@ async function start() {
   const overliveManager = initOverliveManager(wsSync);
   await overliveManager.startAll();
 
+  // OBS browser-source bridge — routes window.obsstudio events into project
+  // graphs and pushes obs_command control calls back. Also owns render-client
+  // lifecycle (client_hello / disconnect → client_lifecycle nodes).
+  // See dev-notes/modules/obs.md.
+  const { initObsManager } = await import('./obs/manager.js');
+  const obsManager = initObsManager(wsSync);
+  wsSync.onClientConnected((ws) => {
+    ws.on('close', () => obsManager.handleClientGone(ws));
+  });
+
+  // OBS power tier — one backend-held obs-websocket connection per project
+  // (opt-in, credentials in the Accounts UI). Unlocks audio volume/mute + more
+  // that the browser-source API can't reach.
+  // See dev-notes/plans/obs-websocket-tier.md.
+  const { initObsWsManager } = await import('./obs/ws_manager.js');
+  const obsWsManager = initObsWsManager(wsSync);
+  obsWsManager.startAll();
+
   // Client-mesh signaling relay: track each client's participant id + tear it
   // down on disconnect so the roster stays accurate.
   clientMeshRelay.initWs(wsSync);
@@ -312,6 +332,15 @@ async function start() {
         msg.nodeId,
         msg.expressions ?? []
       );
+    } else if (kind === 'obs_event') {
+      // OBS browser-source event forwarded from the page's window.obsstudio.
+      const msg = payload as ObsEventMessage;
+      if (msg.event) obsManager.handleEvent(sourceWs, msg.event);
+    } else if (kind === 'client_hello') {
+      // Render client announcing its identity (projectId + stable target marker).
+      const msg = payload as ClientHelloMessage;
+      if (typeof msg.projectId === 'string')
+        obsManager.handleHello(sourceWs, msg.projectId, msg.target ?? '');
     } else if (kind === 'node_transform_preview') {
       // Live in-flight transform from a drag/wheel gesture in one client; relay
       // to every other client without persisting. The eventual mouseup/settle
