@@ -1,8 +1,27 @@
+/**
+ * Instantiating a preset — written THROUGH the mesh store.
+ *
+ * Every entity a preset creates is committed to its collection, and the
+ * onCommitted tap persists it, emits `sync.document`, and runs the lifecycle
+ * side effects (a behavior's signal graph, a logic graph's running instance).
+ * This module used to INSERT the rows itself and then ask the route to emit
+ * each one afterwards; that list omitted `logic`, so an imported preset's
+ * graphs were invisible to every connected tab until it reloaded — the failure
+ * mode a bypass of the store produces every time, just in a different rtype
+ * each time.
+ *
+ * Order is not cosmetic: `persists` predicates gate a child on its parent's row
+ * existing, so nodes and layers are committed before the behaviors, effects,
+ * clips and graphs that hang off them. Each write's tap runs synchronously on
+ * this peer (it is the authority), so awaiting the ack is enough to sequence
+ * them.
+ */
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
+import { getMeshCollection } from '../mesh/index.js';
 import { matchAssetByHash, materializeAsset } from './assets.js';
 import { makeImportSubstituter } from './substitute.js';
-import { logicManager } from '../logic/manager.js';
+import { byId } from '@vspark/shared/idMap';
 import { keysBetween } from '@vspark/shared/fracIndex';
 
 interface PresetPayload {
@@ -125,7 +144,24 @@ export interface InstantiateResult {
   missingAssets: string[];
 }
 
-export function instantiatePreset(
+/** Commit one document and wait for it to be stored, or throw with the reason.
+ *
+ *  A rejection is the collection refusing the document (an unrunnable graph
+ *  descriptor, a failed guard) — the same 400 the caller would have got from
+ *  the equivalent REST route, rather than a half-imported preset. */
+async function commit(
+  rtype: string,
+  id: string,
+  doc: Record<string, unknown>
+): Promise<void> {
+  const col = getMeshCollection(rtype);
+  if (!col) throw new Error(`store not ready (${rtype})`);
+  const outcome = await col.set(id, '', doc).ack;
+  if (outcome.status === 'rejected')
+    throw new Error(`${rtype} ${id} rejected: ${outcome.reason}`);
+}
+
+export async function instantiatePreset(
   payloadInput: PresetPayload,
   target: {
     projectId: string;
@@ -139,14 +175,14 @@ export function instantiatePreset(
      *  rootKind = 'scene_node' and parentId is the avatar node's id. */
     boneAttachment?: string | null;
   }
-): InstantiateResult {
+): Promise<InstantiateResult> {
   const db = getDb();
   const idMap: Record<string, string> = {};
   const missingAssets: string[] = [];
 
   // Pre-mint a real id for every entity in the payload, then substitute
   // `__preset:<tag>` tokens inside any nested JSON blob (descriptors,
-  // configs, properties) with the corresponding real id BEFORE inserting.
+  // configs, properties) with the corresponding real id BEFORE committing.
   // This is what makes graph descriptors with embedded clip/node ids
   // round-trip across projects. See packages/backend/src/presets/substitute.ts.
   const presetToReal = new Map<string, string>();
@@ -184,9 +220,10 @@ export function instantiatePreset(
   const substituted = makeImportSubstituter(presetToReal)(payloadInput);
   const payload = substituted as PresetPayload;
 
-  // Existing helpers now just read from the pre-built map. We keep them
-  // around so the existing insert code (which calls resolveId for parent /
-  // owner / target refs in top-level fields) keeps working unchanged.
+  // These two just read the pre-built map. They stay because the write code
+  // below resolves parent / owner / target refs that live in TOP-LEVEL fields,
+  // which the substituter does not touch (it rewrites tokens inside nested JSON
+  // blobs).
   function mintId(presetId: string): string {
     // Idempotent: returns the pre-minted id if present, else a fresh one
     // (defensive — every preset id we encounter should have been pre-minted
@@ -258,77 +295,64 @@ export function instantiatePreset(
         ? (assetMap.get(node.filePresetAssetId)?.filePath ?? null)
         : null;
 
-      db.prepare(
-        `INSERT INTO scene_nodes (id, project_id, root_scene_node_id, parent_id, bone_attachment, name, kind, file_path, components, properties, hidden)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        realId,
-        target.projectId,
-        target.rootSceneNodeId ?? '',
+      // The node before the things attached to it: a behavior or effect whose
+      // node has no row yet is treated as a projection and never persisted.
+      await commit('scene_node', realId, {
+        id: realId,
+        projectId: target.projectId,
+        rootSceneNodeId: target.rootSceneNodeId ?? '',
         parentId,
         boneAttachment,
-        node.name,
-        node.kind,
+        name: node.name,
+        kind: node.kind,
         filePath,
-        JSON.stringify(node.componentsBag ?? {}),
-        JSON.stringify(node.properties),
-        node.hidden ? 1 : 0
-      );
+        components: node.componentsBag ?? {},
+        properties: node.properties,
+        hidden: node.hidden,
+      });
 
-      // Insert components
       for (const comp of node.components) {
         const compId = mintId(comp.presetId);
-        db.prepare(
-          `INSERT INTO behaviors (id, node_id, kind, enabled, config, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(
-          compId,
-          realId,
-          comp.kind,
-          comp.enabled ? 1 : 0,
-          JSON.stringify(comp.config),
-          comp.sortOrder
-        );
+        await commit('behavior', compId, {
+          id: compId,
+          nodeId: realId,
+          kind: comp.kind,
+          enabled: comp.enabled,
+          config: comp.config,
+          sortOrder: comp.sortOrder,
+        });
       }
 
-      // Insert camera effects
       for (const eff of node.cameraEffects ?? []) {
         const effId = mintId(eff.presetId);
-        db.prepare(
-          `INSERT INTO camera_effects (id, node_id, kind, enabled, config)
-           VALUES (?, ?, ?, ?, ?)`
-        ).run(
-          effId,
-          realId,
-          eff.kind,
-          eff.enabled ? 1 : 0,
-          JSON.stringify(eff.config)
-        );
+        await commit('camera_effect', effId, {
+          id: effId,
+          nodeId: realId,
+          kind: eff.kind,
+          enabled: eff.enabled,
+          config: eff.config,
+        });
       }
     }
 
-    // Insert animation clips
     for (const clip of payload.animationClips ?? []) {
       const clipId = mintId(clip.presetId);
       const sourceNodeId = resolveId(clip.sourceNodePresetId);
       const sourceFilePath = clip.sourceFilePresetAssetId
         ? (assetMap.get(clip.sourceFilePresetAssetId)?.filePath ?? '')
         : '';
-      db.prepare(
-        `INSERT INTO animation_clips (id, name, source_node_id, source_file_path, clip_index, label, start_time, end_time, duration, fps)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        clipId,
-        clip.label,
+      await commit('animation_clip', clipId, {
+        id: clipId,
+        name: clip.label,
         sourceNodeId,
         sourceFilePath,
-        clip.clipIndex,
-        clip.label,
-        clip.startTime,
-        clip.endTime,
-        clip.duration,
-        clip.fps
-      );
+        clipIndex: clip.clipIndex,
+        label: clip.label,
+        startTime: clip.startTime,
+        endTime: clip.endTime,
+        duration: clip.duration,
+        fps: clip.fps,
+      });
     }
   }
 
@@ -379,136 +403,103 @@ export function instantiatePreset(
         ? (assetMap.get(layer.assetPresetAssetId)?.assetFileId ?? null)
         : null;
 
-      db.prepare(
-        `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, asset_id, config,
-           x, y, width, height, rotation, anchor_h, anchor_v, order_key, visible)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        realId,
-        target.projectId,
-        target.rootComposeSceneId ?? null,
-        null,
+      await commit('compose_layer', realId, {
+        id: realId,
+        projectId: target.projectId,
+        rootComposeSceneId: target.rootComposeSceneId ?? null,
+        cameraNodeId: null,
         parentId,
-        layer.name,
-        layer.kind,
+        name: layer.name,
+        kind: layer.kind,
         assetId,
-        JSON.stringify(layer.config),
-        layer.x,
-        layer.y,
-        layer.width,
-        layer.height,
-        layer.rotation,
-        layer.anchorH,
-        layer.anchorV,
-        orderKeys.get(layer.presetId) ?? '',
-        layer.visible ? 1 : 0
-      );
+        config: layer.config,
+        x: layer.x,
+        y: layer.y,
+        width: layer.width,
+        height: layer.height,
+        rotation: layer.rotation,
+        anchorH: layer.anchorH,
+        anchorV: layer.anchorV,
+        orderKey: orderKeys.get(layer.presetId) ?? '',
+        visible: layer.visible,
+      });
     }
   }
 
-  // Insert logic + reconcile so enabled standalone logic start running
-  // immediately (parity with POST /scene-nodes/:nodeId/logic and
-  // POST /compose-layers/:layerId/logic).
-  const insertedLogicIds: string[] = [];
+  // Committing a graph starts it: the tap reconciles the running instance, so
+  // an enabled imported graph fires without waiting for a restart. The
+  // descriptor is checked by the collection's guard, and a preset carrying an
+  // unrunnable one fails the import rather than persisting a broken program.
   for (const graph of payload.logic ?? []) {
     const graphId = mintId(graph.presetId);
-    const ownerId = resolveId(graph.ownerPresetId);
-    db.prepare(
-      `INSERT INTO logic (id, owner_kind, owner_id, name, enabled, descriptor, node_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      graphId,
-      graph.ownerKind,
-      ownerId,
-      graph.name,
-      graph.enabled ? 1 : 0,
-      JSON.stringify(graph.descriptor),
-      JSON.stringify(graph.nodeState)
+    await commit('logic', graphId, {
+      id: graphId,
+      ownerKind: graph.ownerKind,
+      ownerId: resolveId(graph.ownerPresetId),
+      name: graph.name,
+      enabled: graph.enabled,
+      descriptor: graph.descriptor,
+    });
+    // `node_state` is runtime scratch owned by the running graph, not document
+    // content — the logic DTO leaves it out on purpose (sync/resources.ts), so
+    // a preset that carries it restores it on the row directly. This is not a
+    // write the store should be carrying: nothing replicates it, and the
+    // running instance overwrites it as it goes.
+    db.prepare('UPDATE logic SET node_state = ? WHERE id = ?').run(
+      JSON.stringify(graph.nodeState ?? {}),
+      graphId
     );
-    insertedLogicIds.push(graphId);
   }
 
-  // Insert track clips
+  // A clip is ONE document: its lanes, keyframes and events are keyed children
+  // of the aggregate (@vspark/shared/idMap), not rows to be written separately.
+  // So the whole clip goes in a single commit and the tap writes the three
+  // tables from it.
   for (const tc of payload.trackClips ?? []) {
     const clipId = mintId(tc.presetId);
     const ownerId = resolveId(tc.ownerPresetId);
-    const ownerNodeId = tc.ownerKind === 'scene_node' ? ownerId : null;
-    const ownerLayerId = tc.ownerKind === 'compose_layer' ? ownerId : null;
-    db.prepare(
-      `INSERT INTO track_clips (id, owner_node_id, owner_layer_id, name, duration, loop, mode, autoplay)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      clipId,
-      ownerNodeId,
-      ownerLayerId,
-      tc.name,
-      tc.duration,
-      tc.loop ? 1 : 0,
-      tc.mode,
-      tc.autoplay ? 1 : 0
-    );
-
-    for (const lane of tc.lanes) {
-      const laneId = mintId(lane.presetId);
-      const targetId = resolveId(lane.targetPresetId);
-      db.prepare(
-        `INSERT INTO track_clip_lanes (id, clip_id, target_kind, target_id, param_path, default_value)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(
-        laneId,
-        clipId,
-        lane.targetKind,
-        targetId,
-        lane.paramPath,
-        lane.defaultValue
-      );
-
-      for (const kf of lane.keyframes) {
-        const kfId = mintId(kf.presetId);
-        db.prepare(
-          `INSERT INTO track_clip_keyframes (id, lane_id, t, value, easing, in_handle_t_fraction, in_handle_v_fraction, out_handle_t_fraction, out_handle_v_fraction)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          kfId,
-          laneId,
-          kf.t,
-          kf.value,
-          kf.easing,
-          kf.inHandleTFraction,
-          kf.inHandleVFraction,
-          kf.outHandleTFraction,
-          kf.outHandleVFraction
-        );
-      }
-    }
-
-    for (const ev of tc.events ?? []) {
-      const evId = mintId(ev.presetId);
-      const targetId = resolveId(ev.targetPresetId);
-      db.prepare(
-        `INSERT INTO track_clip_events (id, clip_id, t, action, target_kind, target_id, payload)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        evId,
-        clipId,
-        ev.t,
-        ev.action,
-        ev.targetKind,
-        targetId,
-        ev.payload ? JSON.stringify(ev.payload) : null
-      );
-    }
-  }
-
-  // Start any enabled standalone logic we just inserted. Without this they
-  // sit in the DB but never instantiate (their nodes don't fire) until the
-  // next server restart, which would silently break preset-bundled logic.
-  for (const gid of insertedLogicIds) {
-    try {
-      logicManager.reconcile(gid);
-    } catch (e) {
-      console.warn(`[preset] failed to start imported graph ${gid}:`, e);
-    }
+    await commit('track_clip', clipId, {
+      id: clipId,
+      ownerNodeId: tc.ownerKind === 'scene_node' ? ownerId : null,
+      ownerLayerId: tc.ownerKind === 'compose_layer' ? ownerId : null,
+      name: tc.name,
+      duration: tc.duration,
+      loop: tc.loop,
+      mode: tc.mode,
+      autoplay: tc.autoplay,
+      lanes: byId(
+        tc.lanes.map((lane) => ({
+          id: mintId(lane.presetId),
+          clipId,
+          targetKind: lane.targetKind,
+          targetId: resolveId(lane.targetPresetId),
+          paramPath: lane.paramPath,
+          defaultValue: lane.defaultValue,
+          keyframes: byId(
+            lane.keyframes.map((kf) => ({
+              id: mintId(kf.presetId),
+              t: kf.t,
+              value: kf.value,
+              easing: kf.easing,
+              inHandleTFraction: kf.inHandleTFraction,
+              inHandleVFraction: kf.inHandleVFraction,
+              outHandleTFraction: kf.outHandleTFraction,
+              outHandleVFraction: kf.outHandleVFraction,
+            }))
+          ),
+        }))
+      ),
+      events: byId(
+        (tc.events ?? []).map((ev) => ({
+          id: mintId(ev.presetId),
+          t: ev.t,
+          action: ev.action,
+          targetKind: ev.targetKind,
+          targetId: resolveId(ev.targetPresetId),
+          payload: ev.payload ?? null,
+        }))
+      ),
+    });
   }
 
   return { rootId, idMap, missingAssets };

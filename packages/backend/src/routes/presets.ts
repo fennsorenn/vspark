@@ -7,7 +7,6 @@ import {
 } from '../presets/serialize.js';
 import { instantiatePreset } from '../presets/deserialize.js';
 import { BUILTIN_PRESETS, getBuiltinPreset } from '../presets/builtins.js';
-import { sync } from '../sync/index.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -204,7 +203,7 @@ router.post('/presets/serialize', (req, res) => {
   res.json({ ok: true, data: payload });
 });
 
-router.post('/presets/instantiate', (req, res) => {
+router.post('/presets/instantiate', async (req, res) => {
   const {
     payload,
     projectId,
@@ -238,7 +237,12 @@ router.post('/presets/instantiate', (req, res) => {
   }
 
   try {
-    const result = instantiatePreset(payload, {
+    // The deserializer writes every entity through the mesh store, whose tap
+    // persists it and emits `sync.document` — so there is nothing to broadcast
+    // here. This handler used to re-query each table by id and emit the rows
+    // itself, from a hardcoded table list that had never grown a `logic` entry:
+    // an imported preset's graphs reached SQLite and nothing else.
+    const result = await instantiatePreset(payload, {
       projectId,
       rootSceneNodeId: rootSceneNodeId ?? undefined,
       rootComposeSceneId: rootComposeSceneId ?? undefined,
@@ -246,45 +250,6 @@ router.post('/presets/instantiate', (req, res) => {
       boneAttachment:
         typeof boneAttachment === 'string' ? boneAttachment : null,
     });
-
-    // Broadcast every newly-created entity through the unified sync layer so
-    // other clients (and collab peers) update live. `result.idMap` values are
-    // exactly the rows we just created across every table, so we emit by id
-    // membership per table — NOT by re-querying a root column, which depended
-    // on the (sometimes-falsy / mis-passed) rootSceneNodeId/rootComposeSceneId
-    // and silently skipped all emissions when it didn't match. Order: parent
-    // entities first (nodes/layers), then attached behaviours/effects, then
-    // track clips (lanes/keyframes/events ride the track_clip aggregate).
-    // Logic graphs have no sync rtype yet — still local-only.
-    const db = getDb();
-    const createdIds = [...new Set(Object.values(result.idMap))];
-    // table/rtype are fixed literals (never user input) — safe to interpolate.
-    const emitTable = (table: string, rtype: string) => {
-      for (let i = 0; i < createdIds.length; i += 400) {
-        const batch = createdIds.slice(i, i + 400);
-        const ph = batch.map(() => '?').join(',');
-        const rows = db
-          .prepare(`SELECT id FROM ${table} WHERE id IN (${ph})`)
-          .all(...batch) as { id: string }[];
-        for (const { id } of rows)
-          // Resilient: one entity's emit failing (a doc listener throwing)
-          // must not abort the rest or fail the already-committed instantiate.
-          try {
-            sync.document.upsert(rtype, id);
-          } catch (e) {
-            console.error(`[presets] sync emit failed for ${rtype}:${id}:`, e);
-          }
-      }
-    };
-    if (createdIds.length > 0) {
-      emitTable('scene_nodes', 'scene_node');
-      emitTable('compose_layers', 'compose_layer');
-      emitTable('behaviors', 'behavior');
-      emitTable('camera_effects', 'camera_effect');
-      emitTable('track_clips', 'track_clip');
-      emitTable('animation_clips', 'animation_clip');
-    }
-
     res.json({ ok: true, data: result });
   } catch (e) {
     res.status(400).json({
