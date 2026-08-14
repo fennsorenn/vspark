@@ -224,19 +224,63 @@ export class ObsWsManager {
     return conn && conn.client.identified ? conn.client : null;
   }
 
+  /**
+   * Resolve the client for an action node, logging *why* when it can't act.
+   *
+   * These actions are fire-and-forget by design, but silence made a failed
+   * action indistinguishable from a working one: a wrong input name, a project
+   * with no OBS connection, and a dropped socket all produced exactly nothing.
+   * Every early return now says which case it hit, once per occurrence.
+   */
+  private _clientFor(
+    projectId: string,
+    inputName: string,
+    what: string
+  ): ObsWsClient | null {
+    if (!projectId) {
+      console.warn(`[obs-ws] ${what}: no projectId on the node config`);
+      return null;
+    }
+    if (!inputName) {
+      console.warn(`[obs-ws] ${what}: no input name (wire \`input\` or set config.inputName)`);
+      return null;
+    }
+    const conn = this._byProject.get(projectId);
+    if (!conn) {
+      console.warn(`[obs-ws] ${what}: project ${projectId} has no OBS connection`);
+      return null;
+    }
+    if (!conn.client.identified) {
+      console.warn(`[obs-ws] ${what}: OBS connection not identified (status=${conn.status})`);
+      return null;
+    }
+    return conn.client;
+  }
+
+  /** Log a rejected obs-websocket request rather than dropping it. */
+  private _report(what: string, req: Promise<unknown>): void {
+    void req.catch((e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[obs-ws] ${what} failed: ${msg}`);
+    });
+  }
+
   /** Set an input's volume by dB or linear multiplier (fire-and-forget). */
   setVolume(
     projectId: string,
     inputName: string,
     value: { db?: number; mul?: number }
   ): void {
-    const client = this._client(projectId);
-    if (!client || !inputName) return;
+    const client = this._clientFor(projectId, inputName, 'SetInputVolume');
+    if (!client) return;
     const data: Record<string, unknown> = { inputName };
     if (typeof value.mul === 'number') data.inputVolumeMul = value.mul;
     else if (typeof value.db === 'number') data.inputVolumeDb = value.db;
-    else return;
-    void client.request('SetInputVolume', data).catch(() => {});
+    else {
+      console.warn('[obs-ws] SetInputVolume: neither `db` nor `mul` was provided');
+      return;
+    }
+    this._report(`SetInputVolume(${inputName})`, client.request('SetInputVolume', data));
   }
 
   /** Mute / unmute / toggle an input (fire-and-forget). */
@@ -245,8 +289,8 @@ export class ObsWsManager {
     inputName: string,
     action: 'mute' | 'unmute' | 'toggle'
   ): void {
-    const client = this._client(projectId);
-    if (!client || !inputName) return;
+    const client = this._clientFor(projectId, inputName, 'SetInputMute');
+    if (!client) return;
     const req =
       action === 'toggle'
         ? client.request('ToggleInputMute', { inputName })
@@ -254,7 +298,7 @@ export class ObsWsManager {
             inputName,
             inputMuted: action === 'mute',
           });
-    void req.catch(() => {});
+    this._report(`SetInputMute(${inputName}, ${action})`, req);
   }
 
   /** Resolve the last saved replay-buffer file path, or '' if unavailable. */
