@@ -31,18 +31,22 @@ Diese Knoten lösen aus, wenn sich in OBS etwas ändert:
 
 Diese Knoten weisen OBS an, beim Auslösen etwas zu tun:
 
-- **OBS Szene setzen** / **OBS Übergang setzen** — die aktive Szene oder den
-  aktiven Übergang per Namen wechseln.
+- **OBS Szene setzen** — die aktive Programmszene per Namen wechseln. Dieser
+  Knoten läuft über **obs-websocket** (siehe unten) und benötigt daher eine
+  OBS-Verbindung unter **Konten → OBS-Verbindungen** — dafür kein Hantieren mit
+  Seitenberechtigungen, und er meldet, wenn etwas schiefgeht.
+- **OBS Übergang setzen** — den aktiven Szenenübergang per Namen wechseln.
 - **OBS Steuerung** — Streaming, Aufnahme (samt Pause/Fortsetzen), den
   Wiederholungspuffer (einschließlich *Speichern*) oder die virtuelle Kamera
   starten/stoppen.
 
-> **Berechtigungen.** Steuerungsaktionen funktionieren nur, wenn die
-> **Seitenberechtigungen** der Browserquelle (in deren OBS-Eigenschaften) hoch
-> genug sind — „Erweitert" für Szenen- und Übergangswechsel, „Alle" für die
-> Steuerung von Streaming/Aufnahme/virtueller Kamera. OBS ignoriert Aktionen
-> oberhalb der gewährten Stufe stillschweigend; wenn ein Steuerungsknoten also
-> nichts zu bewirken scheint, erhöhe die Berechtigungsstufe.
+> **Berechtigungen.** Außer bei *OBS Szene setzen* funktionieren
+> Steuerungsaktionen nur, wenn die **Seitenberechtigungen** der Browserquelle
+> (in deren OBS-Eigenschaften) hoch genug sind — „Erweitert" für
+> Übergangswechsel, „Alle" für die Steuerung von Streaming/Aufnahme/virtueller
+> Kamera. OBS ignoriert Aktionen oberhalb der gewährten Stufe stillschweigend;
+> wenn ein Steuerungsknoten also nichts zu bewirken scheint, erhöhe die
+> Berechtigungsstufe.
 
 ## Tiefere Steuerung mit obs-websocket {#obs-websocket}
 

@@ -163,6 +163,46 @@ describe('ObsWsManager outbound requests', () => {
     });
   });
 
+  it('setScene issues SetCurrentProgramScene', async () => {
+    const mgr = await connected();
+    mgr.setScene('p1', 'Intro');
+    expect(fake.request).toHaveBeenCalledWith('SetCurrentProgramScene', {
+      sceneName: 'Intro',
+    });
+  });
+
+  it('setTransition issues SetCurrentSceneTransition', async () => {
+    const mgr = await connected();
+    mgr.setTransition('p1', 'Fade');
+    expect(fake.request).toHaveBeenCalledWith('SetCurrentSceneTransition', {
+      transitionName: 'Fade',
+    });
+  });
+
+  it('control maps a verb onto its obs-websocket request', async () => {
+    const mgr = await connected();
+    mgr.control('p1', 'saveReplayBuffer');
+    expect(fake.request).toHaveBeenCalledWith('SaveReplayBuffer');
+    mgr.control('p1', 'unpauseRecording');
+    expect(fake.request).toHaveBeenCalledWith('ResumeRecord');
+  });
+
+  it('setScene with an empty name warns instead of requesting', async () => {
+    const mgr = await connected();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mgr.setScene('p1', '   ');
+    expect(fake.request).not.toHaveBeenCalled();
+    expect(warn.mock.calls[0]?.[0]).toContain('SetCurrentProgramScene');
+  });
+
+  it('setScene without a connection warns instead of requesting', async () => {
+    const mgr = new ObsWsManager(makeWsStub().ws, () => fake);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mgr.setScene('p1', 'Intro');
+    expect(fake.request).not.toHaveBeenCalled();
+    expect(warn.mock.calls[0]?.[0]).toContain('has no OBS connection');
+  });
+
   it('getLastReplayPath returns savedReplayPath', async () => {
     const mgr = await connected();
     fake.request.mockResolvedValueOnce({ savedReplayPath: '/clips/x.mp4' });

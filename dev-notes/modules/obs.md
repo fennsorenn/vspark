@@ -96,7 +96,6 @@ overlive action nodes).
 |---|---|---|---|
 | `obs_scene_changed` | `obs/scene_changed.ts` | Event source — OBS active program scene changed. Config `onlyScene` filter. | out: `event` (Trigger), `name` (String), `width` (Float), `height` (Float); in: `event` (Any, manager entry) |
 | `obs_output_state` | `obs/output_state.ts` | Event source — streaming / recording / replay / virtualcam run-state changed. Config `onlyOutput` filter. | out: `event` (Trigger), `output` (String), `state` (String), `active` (Bool); in: `event` (Any) |
-| `obs_set_scene` | `obs/set_scene.ts` | Action — `setCurrentScene`. Name from `scene` input or `config.scene`. Needs OBS permission ADVANCED (4). | in: `fire` (Trigger), `scene` (String) |
 | `obs_set_transition` | `obs/set_transition.ts` | Action — `setCurrentTransition`. Name from `transition` input or `config.transition`. Needs ADVANCED (4). | in: `fire` (Trigger), `transition` (String) |
 | `obs_control` | `obs/control.ts` | Action — arg-less verb chosen by `config.action` (start/stop streaming, recording + pause/unpause, replay buffer incl. save, virtualcam). Permission-gated per verb. | in: `fire` (Trigger) |
 | `client_lifecycle` | `client_lifecycle.ts` | Event source — render client connect/disconnect. Config `onlyTarget` filter. | out: `connected` (Trigger), `disconnected` (Trigger), `target` (String), `count` (Float); in: `event` (Any) |
@@ -156,16 +155,17 @@ obsManager.handleClientGone(ws))`. The WS `onMessage` dispatcher handles
   and streaming/recording/virtualcam need ALL.
 
   > **In practice this reads as "the feature is broken".** A browser source's
-  > default permission is below ADVANCED, so `obs_set_scene` does *nothing* out
+  > default permission is below ADVANCED, so `obs_set_scene` did *nothing* out
   > of the box: OBS does not expose `setCurrentScene` at that level, the
   > frontend's `api.setCurrentScene?.(name)` optional-chains into a no-op, and
   > the graph reports success. Confirmed live — a `clock → obs_set_scene` graph
   > fired repeatedly against a real OBS and produced no scene change and no log
-  > line anywhere. The user must know to set Properties → Page permissions →
-  > "Advanced access to OBS" on the source, with nothing in the app hinting at
-  > it. obs-websocket has no such gate and returns a status per request, which is
-  > why [obs-consolidate-on-websocket.md](../plans/obs-consolidate-on-websocket.md)
-  > proposes moving these nodes onto it.
+  > line anywhere. obs-websocket has no such gate and returns a status per
+  > request, which is why
+  > [obs-consolidate-on-websocket.md](../plans/obs-consolidate-on-websocket.md)
+  > moves these nodes onto it. **`obs_set_scene` has already moved** (see the
+  > power-tier table below); `obs_set_transition` and `obs_control` still carry
+  > the caveat until the rest of that plan lands.
 
 - **Per-source visible/active events intentionally NOT modeled.** OBS exposes
   per-source `obsSourceVisibleChanged` / `obsSourceActiveChanged` events, but
@@ -228,7 +228,13 @@ the `obs_connections` table (migration 035).
   (`connecting`/`connected`/`reconnecting`/`disconnected`/`error`) persisted to
   the row and broadcast as `obs_connection_status`, inbound event fan-out into
   project graphs (same `_deliver` shape as `ObsManager`), and outbound request
-  methods (`setVolume`, `setMute`, `getLastReplayPath`, `listInputs`).
+  methods (`setScene`, `setTransition`, `control`, `setVolume`, `setMute`,
+  `getLastReplayPath`, `listInputs`). Every fire-and-forget action resolves its
+  client through `_clientFor` and pipes the request through `_report`, so a
+  failure names itself (`[obs-ws] SetCurrentProgramScene failed: …`) instead of
+  going quiet. `control`'s verb keys are the old `window.obsstudio` method names
+  (`startStreaming`, …), kept verbatim so existing `obs_control` node configs
+  survive the transport change; `CONTROL_REQUESTS` maps them onto requests.
 - `packages/backend/src/routes/obs-connections.ts` — CRUD + `/test` reconnect +
   `GET /projects/:id/obs/inputs` picker proxy. Mutations call `refreshProject`.
 
@@ -236,6 +242,7 @@ the `obs_connections` table (migration 035).
 
 | Kind | File | Role |
 |---|---|---|
+| `obs_set_scene` | `set_scene.ts` | Action — `SetCurrentProgramScene`. Name from `scene` input or `config.scene`. Moved here off the browser bridge (see [obs-consolidate-on-websocket.md](../plans/obs-consolidate-on-websocket.md)); node kind and ports unchanged. |
 | `obs_set_volume` | `set_volume.ts` | Action — `SetInputVolume` (dB or linear via `config.mode`). |
 | `obs_mute` | `mute.ts` | Action — mute / unmute / toggle an input. |
 | `obs_volume_changed` | `volume_changed.ts` | Event source — `InputVolumeChanged` → input, mul, db. |

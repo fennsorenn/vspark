@@ -99,19 +99,7 @@ describe('client_lifecycle', () => {
   });
 });
 
-describe('obs_set_scene', () => {
-  it('issues setCurrentScene with the config scene name', () => {
-    const n = loneNode('obs_set_scene', { scene: 'Intro' });
-    n.deliver('fire', undefined);
-    expect(command).toHaveBeenCalledWith({ verb: 'setCurrentScene', arg: 'Intro' });
-  });
-
-  it('no-ops with no scene name', () => {
-    const n = loneNode('obs_set_scene');
-    n.deliver('fire', undefined);
-    expect(command).not.toHaveBeenCalled();
-  });
-});
+// obs_set_scene moved onto obs-websocket — see nodes.obs.ws.test.ts.
 
 describe('obs_set_transition', () => {
   it('issues setCurrentTransition with the config name', () => {

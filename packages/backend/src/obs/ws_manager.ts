@@ -38,6 +38,34 @@ interface Conn {
 /** Delay before retrying a dropped connection (fixed; OBS is local). */
 const RECONNECT_MS = 5_000;
 
+/**
+ * Arg-less control verbs → their obs-websocket request name.
+ *
+ * The verb keys are the historical `window.obsstudio` method names, kept
+ * verbatim so existing `obs_control` node configs (`config.action`) keep
+ * working after the transport moved off the browser bridge.
+ */
+const CONTROL_REQUESTS = {
+  startStreaming: 'StartStream',
+  stopStreaming: 'StopStream',
+  startRecording: 'StartRecord',
+  stopRecording: 'StopRecord',
+  pauseRecording: 'PauseRecord',
+  unpauseRecording: 'ResumeRecord',
+  startReplayBuffer: 'StartReplayBuffer',
+  stopReplayBuffer: 'StopReplayBuffer',
+  saveReplayBuffer: 'SaveReplayBuffer',
+  startVirtualcam: 'StartVirtualCam',
+  stopVirtualcam: 'StopVirtualCam',
+} as const;
+
+/** The verbs `obs_control` can issue. */
+export type ObsControlVerb = keyof typeof CONTROL_REQUESTS;
+
+export function isObsControlVerb(v: string): v is ObsControlVerb {
+  return v in CONTROL_REQUESTS;
+}
+
 /** Injectable so tests can supply a fake client without a real socket. */
 export type ObsWsClientFactory = (opts: ObsWsClientOptions) => ObsWsClient;
 
@@ -232,17 +260,9 @@ export class ObsWsManager {
    * with no OBS connection, and a dropped socket all produced exactly nothing.
    * Every early return now says which case it hit, once per occurrence.
    */
-  private _clientFor(
-    projectId: string,
-    inputName: string,
-    what: string
-  ): ObsWsClient | null {
+  private _clientFor(projectId: string, what: string): ObsWsClient | null {
     if (!projectId) {
       console.warn(`[obs-ws] ${what}: no projectId on the node config`);
-      return null;
-    }
-    if (!inputName) {
-      console.warn(`[obs-ws] ${what}: no input name (wire \`input\` or set config.inputName)`);
       return null;
     }
     const conn = this._byProject.get(projectId);
@@ -257,6 +277,18 @@ export class ObsWsManager {
     return conn.client;
   }
 
+  /** Require a name argument, saying where to supply it when it's missing. */
+  private _requireName(
+    name: string | undefined,
+    what: string,
+    hint: string
+  ): string | null {
+    const trimmed = (name ?? '').trim();
+    if (trimmed) return trimmed;
+    console.warn(`[obs-ws] ${what}: no name given (${hint})`);
+    return null;
+  }
+
   /** Log a rejected obs-websocket request rather than dropping it. */
   private _report(what: string, req: Promise<unknown>): void {
     void req.catch((e: unknown) => {
@@ -265,13 +297,66 @@ export class ObsWsManager {
     });
   }
 
+  /** Switch OBS's active program scene (fire-and-forget). */
+  setScene(projectId: string, scene: string): void {
+    const what = 'SetCurrentProgramScene';
+    const sceneName = this._requireName(
+      scene,
+      what,
+      'wire `scene` or set config.scene'
+    );
+    if (!sceneName) return;
+    const client = this._clientFor(projectId, what);
+    if (!client) return;
+    this._report(
+      `${what}(${sceneName})`,
+      client.request(what, { sceneName })
+    );
+  }
+
+  /** Set OBS's active scene transition (fire-and-forget). */
+  setTransition(projectId: string, transition: string): void {
+    const what = 'SetCurrentSceneTransition';
+    const transitionName = this._requireName(
+      transition,
+      what,
+      'wire `transition` or set config.transition'
+    );
+    if (!transitionName) return;
+    const client = this._clientFor(projectId, what);
+    if (!client) return;
+    this._report(
+      `${what}(${transitionName})`,
+      client.request(what, { transitionName })
+    );
+  }
+
+  /** Issue an arg-less control verb (start/stop stream, record, replay, cam). */
+  control(projectId: string, verb: ObsControlVerb): void {
+    const request = CONTROL_REQUESTS[verb];
+    if (!request) {
+      console.warn(`[obs-ws] control: unknown action "${verb}"`);
+      return;
+    }
+    const client = this._clientFor(projectId, request);
+    if (!client) return;
+    this._report(request, client.request(request));
+  }
+
   /** Set an input's volume by dB or linear multiplier (fire-and-forget). */
   setVolume(
     projectId: string,
-    inputName: string,
+    input: string,
     value: { db?: number; mul?: number }
   ): void {
-    const client = this._clientFor(projectId, inputName, 'SetInputVolume');
+    const what = 'SetInputVolume';
+    const inputName = this._requireName(
+      input,
+      what,
+      'wire `input` or set config.inputName'
+    );
+    if (!inputName) return;
+    const client = this._clientFor(projectId, what);
     if (!client) return;
     const data: Record<string, unknown> = { inputName };
     if (typeof value.mul === 'number') data.inputVolumeMul = value.mul;
@@ -286,10 +371,17 @@ export class ObsWsManager {
   /** Mute / unmute / toggle an input (fire-and-forget). */
   setMute(
     projectId: string,
-    inputName: string,
+    input: string,
     action: 'mute' | 'unmute' | 'toggle'
   ): void {
-    const client = this._clientFor(projectId, inputName, 'SetInputMute');
+    const what = 'SetInputMute';
+    const inputName = this._requireName(
+      input,
+      what,
+      'wire `input` or set config.inputName'
+    );
+    if (!inputName) return;
+    const client = this._clientFor(projectId, what);
     if (!client) return;
     const req =
       action === 'toggle'

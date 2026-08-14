@@ -8,9 +8,10 @@ import { loneNode } from './helpers/nodeHarness.js';
 
 const setVolume = vi.fn();
 const setMute = vi.fn();
+const setScene = vi.fn();
 const getLastReplayPath = vi.fn(async () => '/clips/last.mp4');
 vi.mock('../src/obs/ws_manager.js', () => ({
-  getObsWsManager: () => ({ setVolume, setMute, getLastReplayPath }),
+  getObsWsManager: () => ({ setVolume, setMute, setScene, getLastReplayPath }),
 }));
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -18,6 +19,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 beforeEach(() => {
   setVolume.mockClear();
   setMute.mockClear();
+  setScene.mockClear();
   getLastReplayPath.mockClear();
 });
 
@@ -103,6 +105,20 @@ describe('obs_mute', () => {
     });
     n.deliver('fire', undefined);
     expect(setMute).toHaveBeenCalledWith('p1', 'Mic', 'mute');
+  });
+});
+
+describe('obs_set_scene', () => {
+  it('sets the scene from config', () => {
+    const n = loneNode('obs_set_scene', { _projectId: 'p1', scene: 'Intro' });
+    n.deliver('fire', undefined);
+    expect(setScene).toHaveBeenCalledWith('p1', 'Intro');
+  });
+
+  it('passes an empty name through so the manager can name the reason', () => {
+    const n = loneNode('obs_set_scene', { _projectId: 'p1' });
+    n.deliver('fire', undefined);
+    expect(setScene).toHaveBeenCalledWith('p1', '');
   });
 });
 
