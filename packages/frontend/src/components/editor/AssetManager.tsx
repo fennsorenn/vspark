@@ -1,4 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
+import {
+  commitBehaviorCreate,
+} from '../../mesh/behaviorWrites';
 import { useTranslation } from 'react-i18next';
 import {
   commitEffectCreate,
@@ -53,7 +56,6 @@ export function AssetManager() {
     projectId,
     selectedNodeId,
     nodes,
-    addBehavior,
     behaviors,
     behaviorKinds,
     cameraEffects,
@@ -524,12 +526,7 @@ export function AssetManager() {
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addBehavior(comp);
-    try {
-      await api.createBehavior(selectedNode.id, comp);
-    } catch {
-      /* non-fatal */
-    }
+    await commitBehaviorCreate(selectedNode.id, comp);
   };
 
   const handleAddEffect = async (kind: string) => {

@@ -1,4 +1,9 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import {
+  commitBehaviorCreate,
+  commitBehaviorDelete,
+  commitBehaviorPatch,
+} from '../../mesh/behaviorWrites';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -108,7 +113,6 @@ function MergedSections({
   const nodeKind = useEditorStore(
     (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
   );
-  const addBehavior = useEditorStore((s) => s.addBehavior);
   const addTrackClip = useEditorStore((s) => s.addTrackClip);
   const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
   const setBottomTab = useEditorStore((s) => s.setBottomTab);
@@ -135,12 +139,7 @@ function MergedSections({
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addBehavior(comp);
-    try {
-      await api.createBehavior(nodeId, comp);
-    } catch {
-      /* non-fatal */
-    }
+    await commitBehaviorCreate(nodeId, comp);
   };
   const addEffectKind = async (ek: (typeof CAMERA_EFFECT_KINDS)[number]) => {
     if (effects.some((e) => e.kind === ek.kind)) return;
@@ -969,9 +968,6 @@ function BehaviorsSection({
   const nodeKind = useEditorStore(
     (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
   );
-  const addBehavior = useEditorStore((s) => s.addBehavior);
-  const updateBehavior = useEditorStore((s) => s.updateBehavior);
-  const removeBehavior = useEditorStore((s) => s.removeBehavior);
   const selectedBehaviorId = useEditorStore((s) => s.selectedBehaviorId);
   const selectBehavior = useEditorStore((s) => s.selectBehavior);
   const vmcStatus = useEditorStore((s) => s.vmcStatus);
@@ -1008,12 +1004,7 @@ function BehaviorsSection({
       enabled: payload.component.enabled,
       config: { ...payload.component.config },
     };
-    addBehavior(comp);
-    try {
-      await api.createBehavior(nodeId, comp);
-    } catch {
-      /* non-fatal */
-    }
+    await commitBehaviorCreate(nodeId, comp);
   };
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1037,31 +1028,16 @@ function BehaviorsSection({
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addBehavior(comp);
-    try {
-      await api.createBehavior(nodeId, comp);
-    } catch {
-      /* non-fatal — state already updated locally */
-    }
+    await commitBehaviorCreate(nodeId, comp);
   };
 
   const handleToggleEnabled = async (comp: Behavior) => {
     const next = !comp.enabled;
-    updateBehavior(comp.id, { enabled: next });
-    try {
-      await api.updateBehavior(comp.id, { enabled: next });
-    } catch {
-      /* non-fatal */
-    }
+    commitBehaviorPatch(comp.id, { enabled: next });
   };
 
   const handleRemove = async (comp: Behavior) => {
-    removeBehavior(comp.id);
-    try {
-      await api.deleteBehavior(comp.id);
-    } catch {
-      /* non-fatal */
-    }
+    await commitBehaviorDelete(comp.id);
   };
 
   return (

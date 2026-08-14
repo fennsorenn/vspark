@@ -1,11 +1,13 @@
 import { useState } from 'react';
+import {
+  commitBehaviorPatch,
+} from '../../../mesh/behaviorWrites';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
 import type { NodeDisplay, NodePortMeta } from '@vspark/shared/signal';
 import { useEditorStore } from '../../../store/editorStore';
-import { api } from '../../../api/client';
 
 export interface SignalNodeData extends Record<string, unknown> {
   nodeId: string;
@@ -505,7 +507,7 @@ export function SignalNodeCard({
       },
     };
     updateBehavior(behaviorId, { config: newConfig });
-    api.updateBehavior(behaviorId, { config: newConfig }).catch(() => {});
+    commitBehaviorPatch(behaviorId, { config: newConfig });
   };
 
   // pack_event / set_data: user-defined named input fields (config.fields:

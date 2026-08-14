@@ -129,6 +129,13 @@ const BINDINGS: RtypeBinding[] = [
   },
   {
     rtype: 'behavior',
+    // Tabs author behaviors directly now, so the route's owner check runs here
+    // — and it matters more than for effects, because a committed behavior doc
+    // makes the onCommitted tap instantiate its signal graph.
+    validate: (data, originId) =>
+      originId && isClientParticipant(originId)
+        ? guardClientNodeChild(data as Dto, 'behavior')
+        : (data as Dto),
     table: 'behaviors',
     parent: childOfNode,
     persists: (d) => rowExists('scene_nodes', d.nodeId),

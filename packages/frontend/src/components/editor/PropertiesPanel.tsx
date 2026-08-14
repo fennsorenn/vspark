@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import {
+  commitBehaviorPatch,
+} from '../../mesh/behaviorWrites';
 import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
 import {
@@ -1918,7 +1921,6 @@ function liveOrMetaList(
 function VmcReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
   const {
-    updateBehavior,
     vrmMorphTargetsByNode,
     vrmExpressionsByNode,
     nodes,
@@ -2022,12 +2024,7 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
 
   const save = async (patch: Partial<Record<string, unknown>>) => {
     const newConfig = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config: newConfig });
-    try {
-      await api.updateBehavior(comp.id, { config: newConfig });
-    } catch {
-      /* non-fatal */
-    }
+    commitBehaviorPatch(comp.id, { config: newConfig });
   };
 
   const saveMapperNode = (nodeId: string, patch: Partial<MapperNodeConfig>) => {
@@ -2243,7 +2240,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
 function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
   const {
-    updateBehavior,
     vrmMorphTargetsByNode,
     vrmExpressionsByNode,
     nodes,
@@ -2356,12 +2352,7 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
 
   const save = async (patch: Partial<Record<string, unknown>>) => {
     const newConfig = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config: newConfig });
-    try {
-      await api.updateBehavior(comp.id, { config: newConfig });
-    } catch {
-      /* non-fatal */
-    }
+    commitBehaviorPatch(comp.id, { config: newConfig });
   };
 
   const saveMapperNode = (nodeId: string, patch: Partial<MapperNodeConfig>) => {
@@ -2648,7 +2639,6 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
 
 function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
     sensitivity?: number;
@@ -2658,8 +2648,7 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   const rowStyle: React.CSSProperties = {
@@ -2901,7 +2890,6 @@ function LipsyncCalibration({
 
 function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
     enableFace?: boolean;
@@ -2955,8 +2943,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   const saveIk = (patch: Record<string, unknown>) => {
@@ -3329,7 +3316,6 @@ function ApiControllerProps({ comp }: { comp: Behavior }) {
 
 function BreathingProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as {
     chestAmplitude?: number;
     shoulderAmplitude?: number;
@@ -3344,8 +3330,7 @@ function BreathingProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   return (
@@ -3521,7 +3506,6 @@ function BoneCalibRow({
 }
 
 function ManualCalibrationProps({ comp }: { comp: Behavior }) {
-  const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as {
     calibrations?: Record<string, BoneCalibration>;
   };
@@ -3529,8 +3513,7 @@ function ManualCalibrationProps({ comp }: { comp: Behavior }) {
 
   const saveCalibrations = (next: Record<string, BoneCalibration>) => {
     const config = { ...comp.config, calibrations: next };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   const setBone = (bone: string, patch: BoneCalibration) => {
@@ -3724,7 +3707,6 @@ function NameListEditor({
 function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
   const {
-    updateBehavior,
     vrmMorphTargetsByNode,
     vrmExpressionsByNode,
     nodes,
@@ -3756,8 +3738,7 @@ function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
 
   const save = (next: BlendshapeLimitsConfig) => {
     const config = { ...comp.config, limits: next };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
   const patch = (p: Partial<BlendshapeLimitsConfig>) =>
     save({ ...limits, ...p });
@@ -4484,7 +4465,6 @@ function RigBoneRow({
 
 function StylizedTrackingProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as StylizerConfig;
   const overrides = cfg.rig ?? {};
   // The rig editor shows the selected preset as the baseline; the stored
@@ -4532,8 +4512,7 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   // Bones the panel offers: everything the stock rig drives, plus anything the
