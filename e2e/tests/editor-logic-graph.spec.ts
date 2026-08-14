@@ -14,10 +14,10 @@ import type { APIRequestContext } from '@playwright/test';
  *   4. Assert the graph name appears in the Logic list.
  *   5. REST read-back: GET /api/projects/:projectId/logic confirms persistence.
  *
- * Node-add via NodePalette is SKIPPED: the palette is drag-only (draggable cards
- * dropped onto a React-Flow canvas); click-to-add is not implemented. Drag
- * interactions on React-Flow in headless Playwright are too flakey to be
- * reliable without injecting synthetic pointer events at exact canvas coordinates.
+ * Node-add via NodePalette is SKIPPED: the palette is drag-only (HTML5 drag of
+ * a card onto the canvas), and click-to-add is not implemented. Dragging a node
+ * that is already ON the canvas is a different matter — React Flow moves it
+ * from pointer events, which Playwright drives fine; test 4 does exactly that.
  */
 
 // ---------------------------------------------------------------------------
