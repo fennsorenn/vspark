@@ -309,7 +309,11 @@ Current state, per rtype:
 |---|---|---|
 | `scene_node` | tab peer (`frontend/src/mesh/writes.ts`) | yes |
 | `compose_layer` | tab peer (`frontend/src/mesh/layerWrites.ts`) | yes |
-| `behavior`, `camera_effect`, `track_clip` | REST (`api.updateBehavior`, `api.updateCameraEffect`, `api.updateTrackClip`, …) | no — server-authored |
+| `behavior` | tab peer (`frontend/src/mesh/behaviorWrites.ts`) | yes |
+| `camera_effect` | tab peer (`frontend/src/mesh/effectWrites.ts`) | yes |
+| `track_clip` | tab peer (`frontend/src/mesh/writes.ts` adapter) | yes |
+| `logic` | tab peer (`frontend/src/mesh/logicWrites.ts`) | yes |
+| `clip_playback` | tab peer (`frontend/src/mesh/playbackWrites.ts`), `undo: false` | no — deliberately; transport is a view action, not a document edit |
 
 The fallback ladder in `writes.ts` drops a *mesh-eligible* write back to REST
 when the doc is owner-authoritative (a Phase-6 projection), the tab peer isn't

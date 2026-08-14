@@ -36,7 +36,7 @@ A single generic router serves all three owner kinds.
 | Method + path | Purpose |
 |---|---|
 | `GET  /api/projects/:projectId/logic` | List project-scope logic. |
-| `POST /api/projects/:projectId/logic` | Create project-scope logic (body: `{ name }`). Routes through `logicManager.create` + `reconcile`. |
+| `POST /api/projects/:projectId/logic` | Create project-scope logic (body: `{ name, id? }`). Routes through `logicManager.create` + `reconcile`. |
 | `GET  /api/projects/:projectId/scoped-logic` | List **all** scene-node- and compose-layer-scoped logic for the project in one query, each tagged with its owner's display name (`ownerName`) and kind (`ownerNodeKind`). Powers the Logic panel's "Scoped Logic" section. |
 | `GET  /api/scene-nodes/:nodeId/logic` | List scene-node-scope logic. |
 | `POST /api/scene-nodes/:nodeId/logic` | Create scene-node-scope logic; manager auto-injects `scene_entity` bound to the node. |
@@ -46,6 +46,12 @@ A single generic router serves all three owner kinds.
 | `DELETE /api/logic/:id` | `logicManager.remove` (stops runtime + deletes). |
 
 `mapLogicRow` returns the unified `LogicRecord` shape: `{ id, ownerKind, ownerId, name, enabled, descriptor, createdAt, updatedAt }`.
+
+Every `POST` accepts an optional client-supplied `id`, and every mutation writes
+through the `logic` mesh collection rather than straight to SQLite — the routes
+stay available to outside services, but the mesh is the single write path (see
+[mesh.md](mesh.md), principle 5). The id matters for the editor: a server-minted
+one would make the create server-authored, which puts it on nobody's undo stack.
 
 ## Backend lifecycle — `logic/manager.ts`
 
@@ -75,15 +81,17 @@ for (const { graphId, node, projectId } of logicManager.iterateNodes()) { ... }
 
 ### `components/editor/LogicSection.tsx` (renamed from `GraphsSection.tsx`)
 
-Inline expandable list of logic attached to a single scene node ("object") or compose layer. Polls `api.getNodeLogic(ownerId)` / `api.getLayerLogic(ownerId)` every 3s, supports add / rename / toggle / delete via right-click `ContextMenu`. Selecting a logic sets `activeLogicId` in the store.
+Inline expandable list of logic attached to a single scene node ("object") or compose layer. Reads the store's `logic` slice, fed from the mesh replica (see [mesh.md](mesh.md)); supports add / rename / toggle / delete via right-click `ContextMenu`, each authored on the tab peer through `mesh/logicWrites.ts` and so undoable. Selecting a logic sets `activeLogicId` in the store.
 
 `setActiveLogic(id)` (store) does double duty: when `id != null` it also flips `leftTab` to `'graphs'` (the tab-id string is unchanged; the tab's UI label is "Logic"), so opening any logic — including a scoped one from the scene/compose trees — switches the main view to the writable `SignalGraphCanvas` (the substrate editor). Clearing the active logic (`null`) leaves the current tab alone. This is the mechanism behind "the main view is bound to the active tab" (see [frontend.md](frontend.md)).
 
-The Logic panel (`LogicListPanel` in `SceneGraph.tsx`) lists three groups: **Global Logic** (project scope), **Scoped Logic** (scene-node + compose-layer owned, via `GET /api/projects/:id/scoped-logic`, each row labelled with its owner name + scope), and **Behavior Logic** (read-only). The Scoped Logic section exists so the active scoped logic shows as selected and can be switched without leaving the Logic tab — the inline per-owner lists in the scene/compose trees remain the place to create them.
+The Logic panel (`LogicListPanel` in `SceneGraph.tsx`) lists three groups: **Global Logic** (project scope), **Scoped Logic** (scene-node + compose-layer owned, each row labelled with its owner name + scope), and **Behavior Logic** (read-only). All three come from the store rather than the 3-second REST poll they used to. The scoped rows are the one hybrid: the documents come from the mesh, but the owner NAME is a join the store cannot do (the panel is project-wide, while only the open scene's nodes are loaded), so `GET /api/projects/:id/scoped-logic` is still fetched for the names — re-fetched when the mesh reports an owned graph whose name is unknown, not on a timer. Behavior Logic is runtime state (`GET /api/signal/graphs`, built by the behavior managers), so it is re-fetched when a behavior or graph document changes. The Scoped Logic section exists so the active scoped logic shows as selected and can be switched without leaving the Logic tab — the inline per-owner lists in the scene/compose trees remain the place to create them.
 
 ### `SignalGraphCanvas` — writable
 
-The canvas (the signal-graph substrate editor, name kept) is writable for all logic: node add / move / connect / disconnect / edit dispatches a `PUT /api/logic/:id` with the updated descriptor, and the manager's `reconcile()` rehydrates the running instance. The 500ms state poll preserves React Flow selection across reloads (see `4a72b34`); noodles are independently selectable + deletable (`61af21c`).
+The canvas (the signal-graph substrate editor, name kept) is writable for all logic: node add / move / connect / disconnect / edit commits the updated descriptor on the tab peer (`commitLogicPath(id, 'descriptor', …)`, debounced 400ms so a drag is one undo step, flushed on unmount), and the backend's `onCommitted` tap reconciles the running instance. The 500ms state poll preserves React Flow selection across reloads (see `4a72b34`); noodles are independently selectable + deletable (`61af21c`).
+
+The descriptor is still ONE value, so concurrent edits to the same graph are last-writer-wins over the whole graph — the difference from the old debounced PUT is that the loser now sees it happen rather than silently overwriting. Making them merge needs the descriptor re-keyed from `nodes[]`/`edges[]` into id-keyed objects so each element is its own path; that is tracked with the same change for `track_clip` lanes.
 
 ### `api/client.ts` — unified `LogicRecord`
 
