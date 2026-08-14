@@ -29,8 +29,7 @@ Three scene-scoped tables:
 ```
 track_clips
   id, scene_id, name, duration (s), loop, mode ('override' | 'relative'),
-  autoplay, started_at (nullable epoch ms, persisted only for autoplay+loop+playing),
-  created_at
+  autoplay, created_at
 
 track_clip_lanes
   id, clip_id, target_kind ('scene_node' | 'compose_layer'),
@@ -47,7 +46,7 @@ Each lane is a single scalar. The UI groups three sibling lanes (`position.x/y/z
 
 Order is therefore not storage: keyframes and events sort by `t`, lanes by (targetKind, targetId, paramPath). `mapTrackClip` in the frontend api client is the boundary — above it the keyed document, below it the ordered lists the store and UI use.
 
-`track_clips.started_at` is vestigial: the playhead anchor moved to `clip_playback.start_epoch` (migration 037). The column and its DTO field are still carried but nothing reads them for playback.
+There is no playhead anchor on the clip row. It lives on the clip's `clip_playback` document (`start_epoch`), and every peer derives the playhead from there — see "Playback State Model" below. (`track_clips.started_at` was the old anchor; migration 040 dropped it once nothing read it.)
 
 **Supported `param_path` values** (Phase 1 — sourced from the shared paramPath registry, scalar/animatable entries only; see [paramPaths.md](paramPaths.md)):
 
@@ -255,7 +254,7 @@ Sixth tab `'clips'` in `packages/frontend/src/components/editor/AssetManager.tsx
     - Paused → **▶ Resume** / **■ Stop**
   - **`ScrubRuler`** row above the lanes: tick marks every 0.5s (1s if duration > 10s, 5s if > 30s), red playhead with arrow tip, draggable to seek. Works in all three states:
     - Stopped → seek creates a paused entry at the dragged `t`.
-    - Playing → shifts the `startedAt` anchor.
+    - Playing → shifts the document's `startEpoch` anchor.
     - Paused → moves the frozen playhead.
   - **Lane rows**: one per lane with a delete button; click-to-insert-keyframe, draggable dots, double-click to edit value, right-click to delete. A live red playhead is drawn through each row.
   - Both `ScrubRuler` and the per-lane playhead share a single `computePlayheadT` helper so they always agree.
