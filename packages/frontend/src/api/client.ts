@@ -1,3 +1,5 @@
+import { itemsOf, type IdMap } from '@vspark/shared/idMap';
+
 const BASE = '/api';
 
 /** Thrown by `request()` on a non-ok response. `status` is the HTTP status so
@@ -436,7 +438,9 @@ export function mapTrackClipKeyframe(
 export function mapTrackClipLane(
   r: Record<string, unknown>
 ): TrackClipLaneRecord {
-  const rawKfs = (r.keyframes as Record<string, unknown>[] | undefined) ?? [];
+  const rawKfs = itemsOf(
+    r.keyframes as IdMap<Record<string, unknown>> | undefined
+  ).sort((a, b) => Number(a.t ?? 0) - Number(b.t ?? 0));
   return {
     id: r.id as string,
     clipId: (r.clip_id ?? r.clipId ?? '') as string,
@@ -464,8 +468,20 @@ export function mapTrackClipEvent(
 }
 
 export function mapTrackClip(r: Record<string, unknown>): TrackClipRecord {
-  const rawLanes = (r.lanes as Record<string, unknown>[] | undefined) ?? [];
-  const rawEvents = (r.events as Record<string, unknown>[] | undefined) ?? [];
+  // The document keys its children by id so each is its own mesh path; the UI
+  // wants them ordered — keyframes and events by `t`, lanes by target so a
+  // node's x/y/z stay adjacent. This mapper IS that boundary: everything above
+  // it works with the keyed document, everything below with ordered lists.
+  const laneKey = (l: Record<string, unknown>) =>
+    `${l.target_kind ?? l.targetKind}\u0000${l.target_id ?? l.targetId}\u0000${
+      l.param_path ?? l.paramPath
+    }`;
+  const rawLanes = itemsOf(
+    r.lanes as IdMap<Record<string, unknown>> | undefined
+  ).sort((a, b) => laneKey(a).localeCompare(laneKey(b)));
+  const rawEvents = itemsOf(
+    r.events as IdMap<Record<string, unknown>> | undefined
+  ).sort((a, b) => Number(a.t ?? 0) - Number(b.t ?? 0));
   return {
     id: r.id as string,
     ownerNodeId: (r.owner_node_id ?? r.ownerNodeId ?? null) as string | null,

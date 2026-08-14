@@ -24,6 +24,7 @@ import { getDb } from '../db/index.js';
 import { defineResource } from './registry.js';
 import { rowToLayer, type LayerRow } from '../routes/compose-layers.js';
 import { loadClip } from '../routes/track-clips.js';
+import { itemsOf, type IdMap } from '@vspark/shared/idMap';
 
 interface StageObjectRow {
   id: string;
@@ -290,10 +291,11 @@ defineResource({
   cls: 'document',
   load: (id) => loadClip(id) ?? undefined,
   save: (dto) => {
-    // `dto` is the canonical DTO returned by loadClip/mapClip:
-    //   { id, ownerNodeId, ownerLayerId, name, duration, loop, mode, autoplay,
-    //     startedAt, createdAt, lanes:[{id, clipId, targetKind, targetId,
-    //     paramPath, defaultValue, keyframes:[...]}], events:[...] }
+    // `dto` is the canonical DTO returned by loadClip/mapClip. Its child
+    // collections are id-keyed maps, not arrays (see @vspark/shared/idMap), so
+    // each element is its own mesh path; a deleted one is present as `null`
+    // and `itemsOf` skips it. Only live elements get rows, which is why
+    // tombstones never reach SQLite and a reload comes back clean.
     //
     // Persist strategy: delete-then-reinsert children (same as applyClipDto in
     // collabScene.ts) so re-applying an existing clip is idempotent without
@@ -311,14 +313,14 @@ defineResource({
       autoplay: boolean;
       startedAt?: number | null;
       createdAt?: string;
-      lanes: Array<{
+      lanes: IdMap<{
         id: string;
         clipId?: string;
         targetKind: string;
         targetId: string;
         paramPath: string;
         defaultValue: number;
-        keyframes: Array<{
+        keyframes: IdMap<{
           id: string;
           t: number;
           value: number;
@@ -329,7 +331,7 @@ defineResource({
           outHandleVFraction: number | null;
         }>;
       }>;
-      events: Array<{
+      events: IdMap<{
         id: string;
         t: number;
         action: string;
@@ -372,13 +374,13 @@ defineResource({
       d.startedAt ?? null,
       d.createdAt ?? prior?.created_at ?? null
     );
-    for (const lane of d.lanes ?? []) {
+    for (const lane of itemsOf(d.lanes)) {
       db.prepare(
         `INSERT INTO track_clip_lanes
            (id, clip_id, target_kind, target_id, param_path, default_value)
          VALUES (?, ?, ?, ?, ?, ?)`
       ).run(lane.id, d.id, lane.targetKind, lane.targetId, lane.paramPath, lane.defaultValue);
-      for (const kf of lane.keyframes ?? [])
+      for (const kf of itemsOf(lane.keyframes))
         db.prepare(
           `INSERT INTO track_clip_keyframes
              (id, lane_id, t, value, easing, in_handle_t_fraction, in_handle_v_fraction,
@@ -390,7 +392,7 @@ defineResource({
           kf.outHandleTFraction ?? null, kf.outHandleVFraction ?? null
         );
     }
-    for (const ev of d.events ?? [])
+    for (const ev of itemsOf(d.events))
       db.prepare(
         `INSERT INTO track_clip_events (id, clip_id, t, action, target_kind, target_id, payload)
          VALUES (?, ?, ?, ?, ?, ?, ?)`

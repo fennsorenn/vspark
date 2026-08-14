@@ -53,8 +53,10 @@ describe('track-clips API (mesh-backed)', () => {
     expect(create.body.data.ownerNodeId).toBe(NODE);
     expect(create.body.data.duration).toBe(4);
     expect(create.body.data.loop).toBe(false);
-    expect(create.body.data.lanes).toEqual([]);
-    expect(create.body.data.events).toEqual([]);
+    // Keyed by id, so an empty clip carries empty MAPS, not empty arrays —
+    // an array would put every lane on one mesh path (@vspark/shared/idMap).
+    expect(create.body.data.lanes).toEqual({});
+    expect(create.body.data.events).toEqual({});
 
     // READ-BACK via list
     const clips = await listClips();
@@ -130,6 +132,81 @@ describe('track-clips API (mesh-backed)', () => {
     const laneDel = await request(app).delete(`/api/track-clip-lanes/${laneId}`);
     expect(laneDel.status).toBe(200);
     expect(laneDel.body.data.id).toBe(laneId);
+  });
+
+  it('addresses one lane per mesh path, and tombstones it on delete', async () => {
+    // The whole point of keying children by id: a lane edit writes
+    // `lanes.<id>`, so two people editing different lanes of one clip merge
+    // instead of overwriting. Deleting writes a null there — `set` can write a
+    // path but not remove one — and readers skip it.
+    const { getMeshCollection } = await import('../src/mesh/index.js');
+    const clipId = (
+      await request(app)
+        .post(`/api/scene-nodes/${NODE}/track-clips`)
+        .send({ name: 'Keyed' })
+    ).body.data.id as string;
+    const laneId = (
+      await request(app)
+        .post(`/api/track-clips/${clipId}/lanes`)
+        .send({ targetKind: 'scene_node', targetId: NODE, paramPath: 'pos.x' })
+    ).body.data.id as string;
+
+    type Doc = {
+      lanes: Record<string, unknown>;
+      events: Record<string, unknown>;
+    };
+    const doc = () =>
+      getMeshCollection('track_clip')!.get(clipId) as unknown as Doc;
+    expect(doc().lanes[laneId]).toMatchObject({ paramPath: 'pos.x' });
+
+    await request(app).delete(`/api/track-clip-lanes/${laneId}`);
+    expect(doc().lanes[laneId]).toBeNull();
+    // The tombstone stays in the replica but never reaches SQLite, so the
+    // reload is clean.
+    const reloaded = (await listClips()) as unknown as Doc[];
+    expect(reloaded[0].lanes).toEqual({});
+  });
+
+  it('keys keyframes by id under their lane', async () => {
+    const { getMeshCollection } = await import('../src/mesh/index.js');
+    const clipId = (
+      await request(app)
+        .post(`/api/scene-nodes/${NODE}/track-clips`)
+        .send({ name: 'KfKeyed' })
+    ).body.data.id as string;
+    const laneId = (
+      await request(app)
+        .post(`/api/track-clips/${clipId}/lanes`)
+        .send({ targetKind: 'scene_node', targetId: NODE, paramPath: 'pos.y' })
+    ).body.data.id as string;
+    await request(app)
+      .put(`/api/track-clip-lanes/${laneId}/keyframes`)
+      .send({
+        keyframes: [
+          { id: 'k1', t: 0, value: 0 },
+          { id: 'k2', t: 1, value: 1 },
+        ],
+      });
+
+    const doc = getMeshCollection('track_clip')!.get(clipId) as unknown as {
+      lanes: Record<string, { keyframes: Record<string, { value: number }> }>;
+    };
+    expect(Object.keys(doc.lanes[laneId].keyframes).sort()).toEqual([
+      'k1',
+      'k2',
+    ]);
+    // A single keyframe is now its own path — this is the write a dragging tab
+    // makes, and it must not disturb its neighbour.
+    await getMeshCollection('track_clip')!.set(
+      clipId,
+      `lanes.${laneId}.keyframes.k1.value`,
+      9
+    ).ack;
+    const after = getMeshCollection('track_clip')!.get(clipId) as unknown as {
+      lanes: Record<string, { keyframes: Record<string, { value: number }> }>;
+    };
+    expect(after.lanes[laneId].keyframes.k1.value).toBe(9);
+    expect(after.lanes[laneId].keyframes.k2.value).toBe(1);
   });
 
   it('returns 400 when lane is missing required fields', async () => {

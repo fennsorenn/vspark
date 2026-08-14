@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
+import { loadClip } from './track-clips.js';
 import { broadcastBus } from '../broadcast/bus.js';
 import { keyAfter } from '@vspark/shared/fracIndex';
 import { _ws } from './shared.js';
@@ -106,42 +107,13 @@ router.get('/projects/:projectId/scenes', (req, res) => {
          ORDER BY tc.created_at`
       )
       .all(projectId, projectId) as { id: string }[];
+    // One clip shape, one mapping: loadClip is what the mesh document and the
+    // per-owner GET routes are built from, and it is what the frontend mappers
+    // expect (id-keyed lanes/keyframes/events). This used to re-query the rows
+    // by hand, which is how the bundle came to drop clip events once already.
     for (const c of clips) {
-      const lanes = db
-        .prepare('SELECT * FROM track_clip_lanes WHERE clip_id = ?')
-        .all(c.id) as { id: string }[];
-      const lanesWithKfs = lanes.map((lane) => ({
-        ...lane,
-        keyframes: db
-          .prepare(
-            'SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t'
-          )
-          .all(lane.id),
-      }));
-      // Event/marker lane (media-command triggers) — without this the scene
-      // bundle would drop clip events, so an instantiated alert preset's
-      // play/restart markers would silently vanish on the post-import refetch.
-      const events = (
-        db
-          .prepare(
-            'SELECT * FROM track_clip_events WHERE clip_id = ? ORDER BY t'
-          )
-          .all(c.id) as Record<string, unknown>[]
-      ).map((e) => {
-        let payload: Record<string, unknown> | null = null;
-        if (e.payload) {
-          try {
-            payload = JSON.parse(e.payload as string) as Record<
-              string,
-              unknown
-            >;
-          } catch {
-            payload = null;
-          }
-        }
-        return { ...e, payload };
-      });
-      trackClips.push({ ...c, lanes: lanesWithKfs, events });
+      const clip = loadClip(c.id);
+      if (clip) trackClips.push(clip);
     }
   }
 

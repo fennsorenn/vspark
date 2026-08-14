@@ -21,6 +21,7 @@
  *
  * See dev-notes/modules/spawn.md.
  */
+import { byId } from '@vspark/shared/idMap';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import type { WSSync } from '../ws/index.js';
@@ -167,16 +168,18 @@ export class SpawnManager {
         targetId: newTargetId,
         paramPath: lane.param_path,
         defaultValue: lane.default_value,
-        keyframes: kfRows.map((k) => ({
-          id: `__spawn:${randomUUID()}`,
-          t: k.t,
-          value: k.value,
-          easing: k.easing,
-          inHandleTFraction: k.in_handle_t_fraction,
-          inHandleVFraction: k.in_handle_v_fraction,
-          outHandleTFraction: k.out_handle_t_fraction,
-          outHandleVFraction: k.out_handle_v_fraction,
-        })),
+        keyframes: byId(
+          kfRows.map((k) => ({
+            id: `__spawn:${randomUUID()}`,
+            t: k.t,
+            value: k.value,
+            easing: k.easing,
+            inHandleTFraction: k.in_handle_t_fraction,
+            inHandleVFraction: k.in_handle_v_fraction,
+            outHandleTFraction: k.out_handle_t_fraction,
+            outHandleVFraction: k.out_handle_v_fraction,
+          }))
+        ),
       };
     });
 
@@ -223,8 +226,10 @@ export class SpawnManager {
       mode: clipRow.mode,
       autoplay: false,
       startedAt: null,
-      lanes,
-      events,
+      // Keyed like any clip document (@vspark/shared/idMap) — the spawned clip
+      // is read by the same evaluator as a persisted one.
+      lanes: byId(lanes),
+      events: byId(events),
     };
 
     // Order matters: entity first (so the renderer can mount it), then clip

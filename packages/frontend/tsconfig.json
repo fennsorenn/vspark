@@ -31,7 +31,8 @@
       "@vspark/shared/blendshapeLimits": ["../shared/src/blendshapeLimits.ts"],
       "@vspark/shared/sync": ["../shared/src/sync.ts"],
       "@vspark/shared/fracIndex": ["../shared/src/fracIndex.ts"],
-      "@vspark/shared/clipPlayback": ["../shared/src/clipPlayback.ts"]
+      "@vspark/shared/clipPlayback": ["../shared/src/clipPlayback.ts"],
+      "@vspark/shared/idMap": ["../shared/src/idMap.ts"]
     }
   },
   "include": ["src"]

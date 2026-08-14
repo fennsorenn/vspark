@@ -13,18 +13,21 @@ import {
 } from '../track_clips/playbackDoc.js';
 import { _ws } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
+import { byId, itemOf, type IdMap } from '@vspark/shared/idMap';
 
 const router: ReturnType<typeof Router> = Router();
 
 // Write-through (§10): a track clip is ONE aggregate document (clip + lanes +
-// keyframes + events). Mutation routes load the current DTO from the replica,
-// apply the change in memory, and set the whole aggregate; the onCommitted
-// tap persists it (delete-then-reinsert, started_at/created_at round-trip)
-// and emits sync.document. Playback control routes don't touch the document.
+// keyframes + events), and its children are keyed by id, so a mutation route
+// writes the ONE PATH it changes rather than re-setting the whole aggregate.
+// That is what lets two people edit different lanes of a clip at once; see
+// @vspark/shared/idMap. The onCommitted tap persists (delete-then-reinsert,
+// started_at/created_at round-trip) and emits sync.document. Playback control
+// routes don't touch the document.
 type ClipDto = {
   id: string;
-  lanes: LaneDto[];
-  events: EventDto[];
+  lanes: IdMap<LaneDto>;
+  events: IdMap<EventDto>;
   [k: string]: unknown;
 };
 type LaneDto = {
@@ -34,7 +37,7 @@ type LaneDto = {
   targetId: string;
   paramPath: string;
   defaultValue: number;
-  keyframes: KeyframeDto[];
+  keyframes: IdMap<KeyframeDto>;
 };
 type KeyframeDto = {
   id: string;
@@ -144,7 +147,7 @@ function mapLane(r: LaneRow, keyframes: KeyframeRow[]) {
     targetId: r.target_id,
     paramPath: r.param_path,
     defaultValue: r.default_value,
-    keyframes: keyframes.map(mapKeyframe),
+    keyframes: byId(keyframes.map(mapKeyframe)),
   };
 }
 
@@ -164,8 +167,11 @@ function mapClip(
     autoplay: r.autoplay === 1,
     startedAt: r.started_at,
     createdAt: r.created_at,
-    lanes: lanes.map(({ lane, kfs }) => mapLane(lane, kfs)),
-    events: events.map(mapEvent),
+    // Keyed, not listed: the rows come back ordered, but the document holds
+    // them by id so an edit addresses one element. Order is recovered from the
+    // data (keyframes and events sort by `t`).
+    lanes: byId(lanes.map(({ lane, kfs }) => mapLane(lane, kfs))),
+    events: byId(events.map(mapEvent)),
   };
 }
 
@@ -238,8 +244,8 @@ async function insertClip(
     mode: (mode as string) ?? 'override',
     autoplay: !!autoplay,
     startedAt: null,
-    lanes: [],
-    events: [],
+    lanes: {},
+    events: {},
   }).ack;
   return loadClip(clipId);
 }
@@ -398,12 +404,9 @@ router.post('/track-clips/:clipId/lanes', async (req, res) => {
     targetId,
     paramPath,
     defaultValue: defaultValue ?? 0,
-    keyframes: [],
+    keyframes: {},
   };
-  await col.set(clipId, '', {
-    ...cur,
-    lanes: [...(cur.lanes ?? []), data],
-  }).ack;
+  await col.set(clipId, `lanes.${data.id}`, data).ack;
   _ws?.broadcast(
     'track_clip_lane_added',
     data as unknown as Record<string, unknown>
@@ -434,8 +437,10 @@ router.put('/track-clip-lanes/:id', async (req, res) => {
     .prepare('SELECT clip_id FROM track_clip_lanes WHERE id = ?')
     .get(id) as { clip_id: string } | undefined;
   const col = clipsCol();
-  const cur = owner ? (col?.get(owner.clip_id) as ClipDto | undefined) : undefined;
-  const lane = cur?.lanes?.find((l) => l.id === id);
+  const cur = owner
+    ? (col?.get(owner.clip_id) as ClipDto | undefined)
+    : undefined;
+  const lane = itemOf(cur?.lanes, id);
   if (!col || !cur || !lane)
     return res.status(404).json({
       ok: false,
@@ -450,10 +455,7 @@ router.put('/track-clip-lanes/:id', async (req, res) => {
   ] as const) {
     if (patch[k] !== undefined) (data as Record<string, unknown>)[k] = patch[k];
   }
-  await col.set(cur.id, '', {
-    ...cur,
-    lanes: cur.lanes.map((l) => (l.id === id ? data : l)),
-  }).ack;
+  await col.set(cur.id, `lanes.${id}`, data).ack;
   _ws?.broadcast(
     'track_clip_lane_updated',
     data as unknown as Record<string, unknown>
@@ -479,11 +481,9 @@ router.delete('/track-clip-lanes/:id', async (req, res) => {
     .get(id) as { clip_id: string } | undefined;
   const col = clipsCol();
   const cur = row ? (col?.get(row.clip_id) as ClipDto | undefined) : undefined;
-  if (col && cur)
-    await col.set(cur.id, '', {
-      ...cur,
-      lanes: (cur.lanes ?? []).filter((l) => l.id !== id),
-    }).ack;
+  // Deleting a key means writing a null over it — `set` can write a path but
+  // not remove one, and readers skip nulls (idMap.ts).
+  if (col && cur) await col.set(cur.id, `lanes.${id}`, null).ack;
   _ws?.broadcast('track_clip_lane_removed', {
     id,
     clipId: row?.clip_id ?? null,
@@ -527,7 +527,7 @@ router.put('/track-clip-lanes/:id/keyframes', async (req, res) => {
   const cur = laneRow
     ? (col?.get(laneRow.clip_id) as ClipDto | undefined)
     : undefined;
-  if (!col || !cur || !cur.lanes?.some((l) => l.id === laneId)) {
+  if (!col || !cur || !itemOf(cur.lanes, laneId)) {
     return res.status(404).json({
       ok: false,
       error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' },
@@ -545,12 +545,10 @@ router.put('/track-clip-lanes/:id/keyframes', async (req, res) => {
       outHandleVFraction: k.outHandleVFraction ?? null,
     }))
     .sort((a, b) => a.t - b.t);
-  await col.set(cur.id, '', {
-    ...cur,
-    lanes: cur.lanes.map((l) =>
-      l.id === laneId ? { ...l, keyframes: next } : l
-    ),
-  }).ack;
+  // Replaces the lane's whole keyframe map in one write. The endpoint is the
+  // drag-then-commit shape a REST caller has; a tab commits the single
+  // keyframe it moved instead (see the frontend clip write helpers).
+  await col.set(cur.id, `lanes.${laneId}.keyframes`, byId(next)).ack;
   const data = { laneId, keyframes: next };
   _ws?.broadcast('track_clip_keyframes_replaced', data);
   res.json({ ok: true, data });
@@ -738,7 +736,9 @@ router.put('/track-clips/:id/events', async (req, res) => {
       payload: e.payload ?? null,
     }))
     .sort((a, b) => a.t - b.t);
-  await col.set(clipId, '', { ...cur, events: next }).ack;
+  // The whole event map in one write, matching the endpoint's replace
+  // semantics; a tab commits the single marker it moved instead.
+  await col.set(clipId, 'events', byId(next)).ack;
   const data = { clipId, events: next };
   _ws?.broadcast('track_clip_events_replaced', data);
   res.json({ ok: true, data });

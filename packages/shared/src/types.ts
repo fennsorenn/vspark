@@ -1,3 +1,5 @@
+import type { IdMap } from './idMap.js';
+
 // Core identity types
 export type NodeKind =
   | 'scene'
@@ -274,6 +276,9 @@ export type TrackClipEasing = 'linear' | 'step' | 'bezier';
  *  Compose layer: 'x' | 'y' | 'rotation' */
 export type TrackClipParamPath = string;
 
+/** The clip document's child collections are id-keyed, not arrays: an array is
+ *  a single path, so two peers editing different keyframes would clobber each
+ *  other. See idMap.ts for the reasoning and the read helpers. */
 export interface TrackClipKeyframe {
   id: string;
   t: number; // seconds from clip start
@@ -303,7 +308,10 @@ export interface TrackClipLane {
   paramPath: TrackClipParamPath;
   /** "Rest" value the keyframes are offsets from when the clip is in relative mode. */
   defaultValue: number;
-  keyframes: TrackClipKeyframe[];
+  /** Keyed by keyframe id so each one is its own mesh path — two people can
+   *  drag different keyframes on the same lane without one losing. Read with
+   *  `sortedBy(kfs, k => k.t)`; the map itself has no order. */
+  keyframes: IdMap<TrackClipKeyframe>;
 }
 
 /** A discrete marker on a track clip that fires a fire-and-forget media command
@@ -337,9 +345,10 @@ export interface TrackClip {
   /** ms-epoch anchor for an active loop+autoplay playhead; null when not autoplaying. */
   startedAt: number | null;
   createdAt: string;
-  lanes: TrackClipLane[];
-  /** Timed media-command markers (event lane). */
-  events: TrackClipEvent[];
+  /** Keyed by lane id — see the note on `TrackClipLane.keyframes`. */
+  lanes: IdMap<TrackClipLane>;
+  /** Timed media-command markers (event lane), keyed by event id. */
+  events: IdMap<TrackClipEvent>;
 }
 
 /** WS payload broadcast when a clip begins playback. Clients compute their own clock offset

@@ -43,10 +43,10 @@ import {
   type ClipPlayback,
   type AnimationClipMeta,
 } from '../store/editorStore';
+import { mapTrackClip } from '../api/client';
 import type {
   CameraEffectRecord,
   ComposeLayerRecord,
-  TrackClipRecord,
   LogicRecord,
 } from '../api/client';
 
@@ -287,14 +287,17 @@ export function startMeshStoreFeeder(): void {
           s.removeTrackClip(c.id);
           return;
         }
-        // A remote edit (new keyframes, rename, lane change …) re-sends the
-        // whole aggregate; an existing clip must be REPLACED, not skipped.
-        const clip = c.doc as unknown as TrackClipRecord | undefined;
-        if (
-          !clip ||
-          parentIsRemote((clip as { ownerNodeId?: unknown }).ownerNodeId)
-        )
-          return;
+        // `c.doc` is the clip DOCUMENT: lanes, keyframes and events keyed by
+        // id (@vspark/shared/idMap), because each has to be its own mesh path.
+        // mapTrackClip is the boundary that turns them into the ordered lists
+        // the store and UI work with — a raw cast would hand the timeline a
+        // map where it expects an array.
+        //
+        // A remote edit re-sends the whole doc even when one keyframe moved,
+        // so an existing clip must be REPLACED, not skipped.
+        const raw = c.doc as unknown as Record<string, unknown> | undefined;
+        if (!raw || parentIsRemote(raw.ownerNodeId)) return;
+        const clip = mapTrackClip(raw);
         if (s.trackClips.some((x) => x.id === clip.id))
           s.updateTrackClipLocal(clip);
         else s.addTrackClip(clip);

@@ -16,6 +16,7 @@ import { randomUUID } from 'crypto';
 import { basename } from 'path';
 import { getDb } from '../db/index.js';
 import { getMeshCollection } from '../mesh/index.js';
+import type { IdMap } from '@vspark/shared/idMap';
 import { type SyncEnvelope } from '@vspark/shared/sync';
 import {
   type ObjectSnapshot,
@@ -310,7 +311,7 @@ interface ClipLaneDto {
   targetId: string;
   paramPath: string;
   defaultValue: number;
-  keyframes: ClipKeyframeDto[];
+  keyframes: IdMap<ClipKeyframeDto>;
 }
 interface ClipEventDto {
   id: string;
@@ -329,8 +330,9 @@ interface ClipDto {
   loop: boolean;
   mode: string;
   autoplay: boolean;
-  lanes: ClipLaneDto[];
-  events: ClipEventDto[];
+  // Id-keyed, matching the document the sender loaded (@vspark/shared/idMap).
+  lanes: IdMap<ClipLaneDto>;
+  events: IdMap<ClipEventDto>;
 }
 
 /** Resolve a clip's collab scene (its owner node's root scene), cache-first. */
