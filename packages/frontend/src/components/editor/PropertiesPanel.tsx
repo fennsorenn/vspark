@@ -66,6 +66,7 @@ import {
   previewNodePath,
   previewNodeTransform,
 } from '../../mesh/writes';
+import { commitEffectPatch } from '../../mesh/effectWrites';
 
 /** Small "Pick…" button that routes the user to a bottom-dock asset tab and
  *  flashes it as a hint. The asset tab's existing "Apply to <node>" buttons do
@@ -4941,16 +4942,15 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
   const effect = useEditorStore((s) =>
     s.cameraEffects.find((e) => e.id === effectId)
   );
-  const updateCameraEffect = useEditorStore((s) => s.updateCameraEffect);
 
   if (!effect) return null;
   const cfg = effect.config;
   const ek = CAMERA_EFFECT_KINDS.find((k) => k.kind === kind)!;
 
   const save = (patch: Record<string, unknown>) => {
-    const config = { ...cfg, ...patch };
-    updateCameraEffect(effectId, { config });
-    api.updateCameraEffect(effectId, { config }).catch(() => {});
+    // One committed write per settled edit, so one undo step — the helper
+    // applies locally too, so the panel still updates immediately.
+    commitEffectPatch(effectId, { config: { ...cfg, ...patch } });
   };
 
   const TONE_MAPPING_MODES: { label: string; value: number }[] = [

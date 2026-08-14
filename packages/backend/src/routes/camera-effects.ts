@@ -95,7 +95,7 @@ router.post('/scene-nodes/:nodeId/effects', async (req, res) => {
  *         application/json:
  *           schema: { $ref: '#/components/schemas/UpdateCameraEffect' }
  *     responses:
- *       200: { description: Updated; broadcast as camera_effect_updated over WebSocket }
+ *       200: { description: Updated; fans out through the camera_effect collection }
  */
 router.put('/camera-effects/:id', async (req, res) => {
   const { enabled, config } = req.body;
@@ -114,15 +114,6 @@ router.put('/camera-effects/:id', async (req, res) => {
     return res
       .status(500)
       .json({ ok: false, error: { message: outcome.reason } });
-  // Double-apply, not a smoothing lane: the `col.set` above already delivered
-  // the same { enabled, config } to every subscribed tab via meshStoreFeeder's
-  // camera_effect observer, and useWsSync's `camera_effect_updated` branch is a
-  // plain updateCameraEffect. Retiring the kind is outstanding migration debt.
-  _ws?.broadcast('camera_effect_updated', {
-    id: req.params.id,
-    enabled,
-    config,
-  });
   res.json({ ok: true, data: { id: req.params.id } });
 });
 

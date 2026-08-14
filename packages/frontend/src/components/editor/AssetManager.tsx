@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  commitEffectCreate,
+} from '../../mesh/effectWrites';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import {
@@ -54,7 +57,6 @@ export function AssetManager() {
     behaviors,
     behaviorKinds,
     cameraEffects,
-    addCameraEffect,
   } = useEditorStore();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const canApplyAnim =
@@ -541,12 +543,7 @@ export function AssetManager() {
       enabled: true,
       config: { ...ek.defaultConfig },
     };
-    addCameraEffect(effect);
-    try {
-      await api.createCameraEffect(selectedNode.id, effect);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectCreate(selectedNode.id, effect);
   };
 
   const tabBtn = (tabId: BottomDockTab): React.CSSProperties => {

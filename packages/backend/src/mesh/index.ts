@@ -38,6 +38,7 @@ import {
 import {
   guardClientSceneNode,
   guardClientComposeLayer,
+  guardClientNodeChild,
 } from './docGuards.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
@@ -134,6 +135,13 @@ const BINDINGS: RtypeBinding[] = [
   },
   {
     rtype: 'camera_effect',
+    // Tabs author effects directly now, so the route's owner check has to run
+    // here too — see guardClientNodeChild. Collab peers are servers, not
+    // clients, and their docs are gated by `persists` instead.
+    validate: (data, originId) =>
+      originId && isClientParticipant(originId)
+        ? guardClientNodeChild(data as Dto, 'camera_effect')
+        : (data as Dto),
     table: 'camera_effects',
     parent: childOfNode,
     persists: (d) => rowExists('scene_nodes', d.nodeId),

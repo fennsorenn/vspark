@@ -200,16 +200,6 @@ export function useWsSync() {
             const store = useEditorStore.getState();
             if (store.cameraEffects.every((e) => e.id !== effect.id))
               store.addCameraEffect(effect);
-          } else if (msg.kind === 'camera_effect_updated') {
-            const p = msg.payload as {
-              id: string;
-              enabled?: boolean;
-              config?: Record<string, unknown>;
-            };
-            useEditorStore.getState().updateCameraEffect(p.id, {
-              ...(p.enabled != null ? { enabled: p.enabled } : {}),
-              ...(p.config != null ? { config: p.config } : {}),
-            });
           } else if (msg.kind === 'camera_effect_removed') {
             useEditorStore
               .getState()

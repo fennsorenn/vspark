@@ -136,3 +136,28 @@ export function guardClientComposeLayer(
     ? d
     : { ...d, projectId: row.project_id };
 }
+
+/**
+ * Client-authored camera effects and behaviors.
+ *
+ * Both hang off a scene node and carry no project scope of their own, so the
+ * only thing a client can get wrong here is the owner: a tab must not attach an
+ * effect or a behavior to a node this server does not have.
+ *
+ * Throwing NACKs the write, which rolls the tab's optimistic copy back. That
+ * matters because `persists` would not: it gates SQLite only, so a doc that
+ * fails it still fans out to every replica and shows up in every other tab as
+ * an effect on a node that does not exist.
+ */
+export function guardClientNodeChild(
+  d: Record<string, unknown>,
+  what: string
+): Record<string, unknown> {
+  const nodeId = typeof d.nodeId === 'string' ? d.nodeId : undefined;
+  if (!nodeId) throw new Error(`${what}: nodeId is required`);
+  const row = getDb()
+    .prepare('SELECT 1 FROM scene_nodes WHERE id = ?')
+    .get(nodeId);
+  if (!row) throw new Error(`${what}: node ${nodeId} not found`);
+  return d;
+}

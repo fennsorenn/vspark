@@ -1,6 +1,11 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import {
+  commitEffectCreate,
+  commitEffectDelete,
+  commitEffectPatch,
+} from '../../mesh/effectWrites';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { StageObject, Behavior } from '../../store/editorStore';
@@ -104,7 +109,6 @@ function MergedSections({
     (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
   );
   const addBehavior = useEditorStore((s) => s.addBehavior);
-  const addCameraEffect = useEditorStore((s) => s.addCameraEffect);
   const addTrackClip = useEditorStore((s) => s.addTrackClip);
   const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
   const setBottomTab = useEditorStore((s) => s.setBottomTab);
@@ -147,12 +151,7 @@ function MergedSections({
       enabled: true,
       config: { ...ek.defaultConfig },
     };
-    addCameraEffect(effect);
-    try {
-      await api.createCameraEffect(nodeId, effect);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectCreate(nodeId, effect);
   };
   const addClip = async () => {
     try {
@@ -1366,9 +1365,6 @@ function CameraEffectsSection({
 }) {
   const { t } = useTranslation('sceneGraph');
   const cameraEffectsFor = useEditorStore((s) => s.cameraEffectsFor);
-  const addCameraEffect = useEditorStore((s) => s.addCameraEffect);
-  const updateCameraEffect = useEditorStore((s) => s.updateCameraEffect);
-  const removeCameraEffect = useEditorStore((s) => s.removeCameraEffect);
   const selectedEffect = useEditorStore((s) => s.selectedEffect);
   const selectEffect = useEditorStore((s) => s.selectEffect);
   const clearSelectedEffect = useEditorStore((s) => s.clearSelectedEffect);
@@ -1411,12 +1407,7 @@ function CameraEffectsSection({
       enabled: payload.effect.enabled,
       config: { ...payload.effect.config },
     };
-    addCameraEffect(effect);
-    try {
-      await api.createCameraEffect(nodeId, effect);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectCreate(nodeId, effect);
   };
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1441,40 +1432,25 @@ function CameraEffectsSection({
       enabled: true,
       config: { ...ek.defaultConfig },
     };
-    addCameraEffect(effect);
-    try {
-      await api.createCameraEffect(nodeId, effect);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectCreate(nodeId, effect);
   };
 
   const handleToggleEnabled = async (
     effect: import('../../store/editorStore').CameraEffectRecord
   ) => {
     const next = !effect.enabled;
-    updateCameraEffect(effect.id, { enabled: next });
-    try {
-      await api.updateCameraEffect(effect.id, { enabled: next });
-    } catch {
-      /* non-fatal */
-    }
+    commitEffectPatch(effect.id, { enabled: next });
   };
 
   const handleRemove = async (
     effect: import('../../store/editorStore').CameraEffectRecord
   ) => {
-    removeCameraEffect(effect.id);
     if (
       selectedEffect?.nodeId === nodeId &&
       selectedEffect.kind === effect.kind
     )
       clearSelectedEffect();
-    try {
-      await api.deleteCameraEffect(effect.id);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectDelete(effect.id);
   };
 
   return (
