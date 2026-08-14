@@ -176,6 +176,11 @@ Enumerate as planned; don't build until Phase 1 lands.
 - Multi-connection-per-project and an `Account`-style connection selector port.
 - Re-routing the existing browser-source `obs_set_scene`/`obs_control` nodes through
   obs-websocket (they keep using the browser bridge).
+  > **Reversed later.** `obs_set_scene` turns out to fail *silently* unless the
+  > browser source's page permission is set to "Advanced" — OBS simply does not
+  > expose `setCurrentScene` below that, so the call no-ops with no log and no
+  > error. obs-websocket needs no such permission and returns a status. See
+  > [obs-consolidate-on-websocket.md](./obs-consolidate-on-websocket.md).
 
 ## Approach
 

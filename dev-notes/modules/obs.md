@@ -148,12 +148,24 @@ obsManager.handleClientGone(ws))`. The WS `onMessage` dispatcher handles
   null`) reaches **all** projects, since OBS events are machine-global. Logic
   graphs are project-scoped, never per-client.
 
-- **Permission levels.** OBS browser-source control calls are gated by the
-  source's "page permission" level (READ_OBS / READ_USER / BASIC(3) /
-  ADVANCED(4) / ALL(5)). OBS silently ignores calls above the granted level, so
-  outbound actions are best-effort with no failure signal. `saveReplayBuffer`
-  needs BASIC, scene/transition/replay-start need ADVANCED, and
-  streaming/recording/virtualcam need ALL.
+- **Permission levels — and the silent failure they cause.** OBS browser-source
+  control calls are gated by the source's "page permission" level (READ_OBS /
+  READ_USER / BASIC(3) / ADVANCED(4) / ALL(5)). OBS silently ignores calls above
+  the granted level, so outbound actions are best-effort with no failure signal.
+  `saveReplayBuffer` needs BASIC, scene/transition/replay-start need ADVANCED,
+  and streaming/recording/virtualcam need ALL.
+
+  > **In practice this reads as "the feature is broken".** A browser source's
+  > default permission is below ADVANCED, so `obs_set_scene` does *nothing* out
+  > of the box: OBS does not expose `setCurrentScene` at that level, the
+  > frontend's `api.setCurrentScene?.(name)` optional-chains into a no-op, and
+  > the graph reports success. Confirmed live — a `clock → obs_set_scene` graph
+  > fired repeatedly against a real OBS and produced no scene change and no log
+  > line anywhere. The user must know to set Properties → Page permissions →
+  > "Advanced access to OBS" on the source, with nothing in the app hinting at
+  > it. obs-websocket has no such gate and returns a status per request, which is
+  > why [obs-consolidate-on-websocket.md](../plans/obs-consolidate-on-websocket.md)
+  > proposes moving these nodes onto it.
 
 - **Per-source visible/active events intentionally NOT modeled.** OBS exposes
   per-source `obsSourceVisibleChanged` / `obsSourceActiveChanged` events, but
