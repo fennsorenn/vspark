@@ -31,12 +31,12 @@ router.get('/projects/:projectId/logic', (req, res) => {
 });
 
 router.post('/projects/:projectId/logic', (req, res) => {
-  const { name } = req.body as { name?: string };
+  const { id: clientId, name } = req.body as { id?: string; name?: string };
   if (!name)
     return res
       .status(400)
       .json({ ok: false, error: { message: 'name is required' } });
-  const id = randomUUID();
+  const id = clientId ?? randomUUID();
   // Route project graphs through the manager so the new graph starts
   // immediately (and gets validated/reconciled) rather than only on next boot.
   const row = logicManager.create({
@@ -91,12 +91,12 @@ router.get('/scene-nodes/:nodeId/logic', (req, res) => {
 });
 
 router.post('/scene-nodes/:nodeId/logic', (req, res) => {
-  const { name } = req.body as { name?: string };
+  const { id: clientId, name } = req.body as { id?: string; name?: string };
   if (!name)
     return res
       .status(400)
       .json({ ok: false, error: { message: 'name is required' } });
-  const id = randomUUID();
+  const id = clientId ?? randomUUID();
   getDb()
     .prepare(
       "INSERT INTO logic (id, owner_kind, owner_id, name) VALUES (?, 'scene_node', ?, ?)"
@@ -123,12 +123,12 @@ router.get('/compose-layers/:layerId/logic', (req, res) => {
 });
 
 router.post('/compose-layers/:layerId/logic', (req, res) => {
-  const { name } = req.body as { name?: string };
+  const { id: clientId, name } = req.body as { id?: string; name?: string };
   if (!name)
     return res
       .status(400)
       .json({ ok: false, error: { message: 'name is required' } });
-  const id = randomUUID();
+  const id = clientId ?? randomUUID();
   getDb()
     .prepare(
       "INSERT INTO logic (id, owner_kind, owner_id, name) VALUES (?, 'compose_layer', ?, ?)"

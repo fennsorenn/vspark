@@ -42,6 +42,7 @@ import {
 } from './docGuards.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
+import { logicLifecycle } from '../logic/lifecycle.js';
 import { isClientParticipant } from '@vspark/shared/sync';
 import '../sync/resources.js'; // side effect: register the descriptors
 
@@ -281,6 +282,28 @@ const BINDINGS: RtypeBinding[] = [
     persists: (d) => rowExists('scene_nodes', d.avatarNodeId),
   },
   {
+    rtype: 'logic',
+    table: 'logic',
+    // Owned polymorphically: by a project, a scene node, or a compose layer.
+    // The two entity kinds parent normally so a scene-subtree grant covers a
+    // node's graphs. A project-owned graph gets a NULL parent — there is no
+    // `project` rtype in the mesh, and grants use entityRtype '*' anyway, so
+    // routing does not consult it. The cost is that project graphs cannot be
+    // subtree-scoped (shared or collab-scoped) until a project rtype exists.
+    parent: (d) =>
+      d.ownerKind === 'scene_node' && typeof d.ownerId === 'string'
+        ? { rtype: 'scene_node', id: d.ownerId }
+        : d.ownerKind === 'compose_layer' && typeof d.ownerId === 'string'
+          ? { rtype: 'compose_layer', id: d.ownerId }
+          : null,
+    persists: (d) =>
+      d.ownerKind === 'project'
+        ? rowExists('projects', d.ownerId)
+        : d.ownerKind === 'scene_node'
+          ? rowExists('scene_nodes', d.ownerId)
+          : rowExists('compose_layers', d.ownerId),
+  },
+  {
     rtype: 'clip_playback',
     table: 'clip_playback',
     // Transport state → its clip, which itself parents to the owning node or
@@ -482,6 +505,9 @@ function bindCollection(
         // the graph running for a behavior that no longer exists. After the row
         // is gone, so the refresh re-reads without it.
         if (b.rtype === 'behavior') refreshAllBehaviorManagers();
+        // A graph's descriptor IS its program: committing one has to start,
+        // restart or stop the running instance, exactly as a behavior's does.
+        if (b.rtype === 'logic') logicLifecycle.onRemoved(c.id);
       } else if (c.doc) {
         if (b.persists && !b.persists(c.doc)) return;
         r.save?.(c.doc);
@@ -492,6 +518,7 @@ function bindCollection(
         // manager the full row set, so it is idempotent and needs no knowledge
         // of what changed.
         if (b.rtype === 'behavior') refreshAllBehaviorManagers();
+        if (b.rtype === 'logic') logicLifecycle.onCommitted(c.id);
       }
     } finally {
       applyingFromMesh.delete(key);

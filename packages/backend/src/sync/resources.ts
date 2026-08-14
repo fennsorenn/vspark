@@ -410,6 +410,81 @@ defineResource({
 // Declared so the four-class API surface is complete and these names are
 // reserved. Lossy/latest-wins, no load/scope/snapshot. The live broadcasts
 // (pose_broadcast / blendshapes_broadcast / ik_broadcast) still emit their
+interface LogicRowShape {
+  id: string;
+  owner_kind: string;
+  owner_id: string;
+  name: string;
+  enabled: number;
+  descriptor: string;
+  node_state: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A signal graph. Owned polymorphically — by a project, a scene node, or a
+ *  compose layer — which is why the DTO carries `ownerKind` alongside
+ *  `ownerId`. `node_state` is runtime scratch owned by the running graph, not
+ *  document content, so it is deliberately absent from the DTO and left alone
+ *  by `save`. */
+defineResource({
+  rtype: 'logic',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare('SELECT * FROM logic WHERE id = ?')
+      .get(id) as unknown as LogicRowShape | undefined;
+    if (!r) return undefined;
+    return {
+      id: r.id,
+      ownerKind: r.owner_kind,
+      ownerId: r.owner_id,
+      name: r.name,
+      enabled: r.enabled === 1,
+      descriptor: JSON.parse(r.descriptor) as unknown,
+      createdAt: r.created_at,
+    };
+  },
+  save: (dto) => {
+    const d = dto as {
+      id: string;
+      ownerKind: string;
+      ownerId: string;
+      name: string;
+      enabled?: boolean;
+      descriptor?: unknown;
+      createdAt?: string;
+    };
+    const db = getDb();
+    const prior = db
+      .prepare('SELECT created_at FROM logic WHERE id = ?')
+      .get(d.id) as { created_at: string } | undefined;
+    db.prepare(
+      `INSERT INTO logic
+         (id, owner_kind, owner_id, name, enabled, descriptor, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         owner_kind = excluded.owner_kind,
+         owner_id   = excluded.owner_id,
+         name       = excluded.name,
+         enabled    = excluded.enabled,
+         descriptor = excluded.descriptor,
+         updated_at = datetime('now')`
+    ).run(
+      d.id,
+      d.ownerKind,
+      d.ownerId,
+      d.name,
+      d.enabled === false ? 0 : 1,
+      JSON.stringify(d.descriptor ?? { nodes: [], edges: [] }),
+      d.createdAt ?? prior?.created_at ?? null
+    );
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM logic WHERE id = ?').run(id);
+  },
+});
+
 // legacy WS kinds; migrating that 90 Hz hot path onto sync.stream.publish is
 // deferred until it can be runtime-verified (see the design doc, Phase 3).
 interface AnimationClipRow {
