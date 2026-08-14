@@ -25,7 +25,7 @@ Behavior graphs (one per `behaviors` row, hardcoded shape) are a separate concep
 | `owner_id` | TEXT | Project / scene-node / compose-layer id |
 | `name` | TEXT | |
 | `enabled` | INTEGER 0/1, default 1 | |
-| `descriptor` | TEXT (JSON `GraphDescriptor`), default `{"nodes":[],"edges":[]}` | |
+| `descriptor` | TEXT (JSON `GraphDescriptorDoc`), default `{"nodes":[],"edges":[]}` | Nodes and edges keyed by id — see [signal-graph.md](signal-graph.md). Rows written before the keying hold the list form and are converted on read. |
 | `node_state` | TEXT (JSON, keyed by node id), default `{}` | Per-node persisted state. Mirrors the `_nodeState` convention used by behavior managers, but lives on the row directly. |
 | `created_at` / `updated_at` | TEXT | |
 
@@ -36,7 +36,7 @@ A single generic router serves all three owner kinds.
 | Method + path | Purpose |
 |---|---|
 | `GET  /api/projects/:projectId/logic` | List project-scope logic. |
-| `POST /api/projects/:projectId/logic` | Create project-scope logic (body: `{ name, id? }`). Routes through `logicManager.create` + `reconcile`. |
+| `POST /api/projects/:projectId/logic` | Create project-scope logic (body: `{ name, id? }`). Commits the doc; the tap persists + starts it. |
 | `GET  /api/projects/:projectId/scoped-logic` | List **all** scene-node- and compose-layer-scoped logic for the project in one query, each tagged with its owner's display name (`ownerName`) and kind (`ownerNodeKind`). Powers the Logic panel's "Scoped Logic" section. |
 | `GET  /api/scene-nodes/:nodeId/logic` | List scene-node-scope logic. |
 | `POST /api/scene-nodes/:nodeId/logic` | Create scene-node-scope logic; manager auto-injects `scene_entity` bound to the node. |
@@ -97,9 +97,22 @@ The Logic panel (`LogicListPanel` in `SceneGraph.tsx`) lists three groups: **Glo
 
 ### `SignalGraphCanvas` — writable
 
-The canvas (the signal-graph substrate editor, name kept) is writable for all logic: node add / move / connect / disconnect / edit commits the updated descriptor on the tab peer (`commitLogicPath(id, 'descriptor', …)`, debounced 400ms so a drag is one undo step, flushed on unmount), and the backend's `onCommitted` tap reconciles the running instance. The 500ms state poll preserves React Flow selection across reloads (see `4a72b34`); noodles are independently selectable + deletable (`61af21c`).
+The canvas (the signal-graph substrate editor, name kept) is writable for all logic, and it reads the graph FROM THE STORE — the mesh feeder keeps it current, so another tab's edit appears without a refetch. Every edit commits the ELEMENT it changes through `mesh/logicWrites.ts`:
 
-The descriptor is still ONE value, so concurrent edits to the same graph are last-writer-wins over the whole graph — the difference from the old debounced PUT is that the loser now sees it happen rather than silently overwriting. Making them merge needs the descriptor re-keyed from `nodes[]`/`edges[]` into id-keyed objects so each element is its own path; that is tracked with the same change for `track_clip` lanes.
+| Edit | Path written |
+|---|---|
+| move a node (on release) | `descriptor.nodes.<nodeId>` |
+| drag a node (in flight) | same path, `preview` channel — no persistence, no undo entry |
+| edit an inline literal | `descriptor.nodes.<nodeId>.defaultConfig.<port>` |
+| connect / disconnect | `descriptor.edges.<fromId:fromPort:toId:toPort>` |
+| delete a node | its path, plus every edge touching it, in one batch |
+| paste | one batch of node + edge writes |
+
+So two people can work on one graph at once: moving a node and wiring an edge elsewhere no longer collide, and each settled edit is one undo step. The backend's `onCommitted` tap reconciles the running instance on every write.
+
+There is no local descriptor copy and no debounced PUT any more — that shape is what made concurrent edits overwrite each other, and it needed a flush-on-unmount so the last edit was not lost. Behavior-owned graphs are not documents (their descriptors are built by the managers), so those are still fetched, and read-only.
+
+The 500ms state poll preserves React Flow selection across reloads (see `4a72b34`); noodles are independently selectable + deletable (`61af21c`).
 
 ### `api/client.ts` — unified `LogicRecord`
 

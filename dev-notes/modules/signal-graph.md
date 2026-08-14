@@ -184,6 +184,8 @@ A `GraphDescriptor` (defined in `packages/shared/src/signal.ts`) is a static tem
 }
 ```
 
+**Two shapes, one meaning.** The above is the RUNTIME shape — what the engine instantiates from and what the canvas renders, both of which want lists. A *persisted* graph (the `logic` table, see [project-graphs.md](project-graphs.md)) is stored and synced as a `GraphDescriptorDoc`, with `nodes` and `edges` keyed by id: a list is one mesh path, so two people editing one graph would overwrite each other's whole program. `toGraphDescriptor` / `toDescriptorDoc` convert at the boundary, and `toGraphDescriptor` also accepts the list form, so a descriptor written before the keying still loads. An edge's key is DERIVED from its endpoints (`edgeKey`), because edges carry no id — which also means two peers drawing the same connection converge instead of duplicating it. Behavior graphs are built in code and never persisted, so they only ever exist in the runtime shape.
+
 Edges no longer carry a `kind` — transport is derived from the resolved port types at load time (the old `PortKind` is deleted). Each manager creates its own descriptor factory (e.g., `makeVmcGraphDescriptor(behaviorId)`). The descriptor is passed to `SignalGraph.fromDescriptor()` along with live config/state callbacks; `fromDescriptor` replays the edges through `InferGraph.tryAddEdge` and silently skips any the inference rejects.
 
 ## In-Flight & Planned Work
