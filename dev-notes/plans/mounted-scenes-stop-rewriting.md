@@ -1,13 +1,14 @@
 # Mounted scenes: stop rewriting the author's documents
 
-> **Status: proposed.** The decision in §3 is the user's; everything after it
-> depends on which way it goes. Written while doing #27 in the mesh-frontend-writes
-> branch, after #28 (the mount stamp) shipped.
+> **Status: decided and shipped** (option B, migration 039). The user chose
+> "persist + peer project row" over replica-only, to keep a mounted scene
+> available when its author is offline. §4 is what was built; §3 is kept for the
+> reasoning and for the option that was not taken.
 
-## 1. What is wrong today
+## 1. What was wrong
 
-Mounting a collaborative scene copies the author's tree into the receiver's
-project and **edits it on the way in** (`mountSharedScene`,
+Mounting a collaborative scene copied the author's tree into the receiver's
+project and **edited it on the way in** (`mountSharedScene`,
 `packages/backend/src/multiplayer/collabScene.ts`):
 
 ```
@@ -15,21 +16,21 @@ project_id          := the RECEIVER's project      (author's value discarded)
 root_scene_node_id  := the shared scene id         (fine — same on both peers)
 ```
 
-So one document id has different content on two peers. That breaks core
+So one document id had different content on two peers. That breaks core
 principle 2 (a document has exactly one truth): "what is this document" is only
 answerable if you also know who is asking.
 
-It is not a cosmetic divergence — it propagates. Because the mounted rows carry
-the receiver's `projectId`, an edit fanned back from the author carries the
-AUTHOR's, and the frontend feeder has to defend itself:
+It was not a cosmetic divergence — it propagated. Because the mounted rows
+carried the receiver's `projectId`, an edit fanned back from the author carried
+the AUTHOR's, and the frontend feeder had to defend itself:
 
 ```ts
 // meshStoreFeeder.ts, scene_node observer
 // Preserve our local structure (projectId/rootSceneNodeId), take the rest.
 ```
 
-That is the same rewrite again, on the read path, and it exists only because of
-the first one. Two per-client rewrites, each keeping the other necessary.
+That was the same rewrite again, on the read path, existing only because of the
+first one. Two per-client rewrites, each keeping the other necessary.
 
 ## 2. What principle 3 asks for instead
 
@@ -97,17 +98,36 @@ row is a small, contained concept — one flag column and one filter in the
 project list. A is cleaner in the abstract and can be revisited once mounted
 scenes are re-fetched fast enough that nobody notices the empty window.
 
-## 4. Work, once §3 is decided
+## 4. What was built
 
-1. Migration: `projects.owner_peer_id` (B), or the `persists` predicate change (A).
-2. `mountSharedScene` stops rewriting `project_id`; registers the container.
-3. Scene bundle: union of own scenes and mounted scenes from `collab_scenes`.
-4. Feeder: delete the local-structure preservation; adopt by identity.
-5. Frontend: mounted scenes render from the container, marked as foreign in the
-   scene list (they are already visually distinguished as collab scenes).
-6. Tests: a mounted document is byte-identical on both peers; an author's edit
-   converges without either side rewriting a field; a receiver restart behaves
-   as §3 decided.
+1. Migration 039: `projects.owner_peer_id` (NULL = ours). `ensurePeerProject`
+   holds a row for the author's project; it never overwrites one of ours, so a
+   peer announcing an id we already use cannot take it over.
+2. `mountSharedScene` writes the author's `project_id` and `root_scene_node_id`
+   verbatim, taken from the documents rather than from a parameter — it is their
+   value, which is the point.
+3. The `scene_node` mesh binding stops re-scoping `projectId` on incoming collab
+   docs; it ensures the peer project row instead. `filePath` is still localized,
+   and that is a different kind of thing: it names a file on the sender's disk,
+   which is a pointer into a store we do not share rather than a fact about the
+   document.
+4. `persists` became "our own project, or a collab scene we keep". It could not
+   stay "does a projects row exist" once peer rows exist — a placed-object
+   projection from a peer whose scene we also mount would have started
+   persisting.
+5. Scene bundle: own scenes UNION scenes mounted into this project (via the
+   links). Track clips gathered by scene rather than by project id alone.
+6. Project list: peer-owned rows excluded.
+7. Feeder: the local-structure preservation is deleted (the document is taken
+   whole), and adoption asks whether the node's SCENE is one we hold rather than
+   whether its project matches.
+
+Not done, and not required by the principle: the **share container node** of
+principle 3. A mounted scene is still a scene in the receiver's scene list
+rather than a node in their tree. What principle 2 needed was for the documents
+to stop being rewritten, and that is what shipped; principle 3's container is a
+presentation change on top, and the placed-object path
+(`sync/sharedProjection.ts`) already shows what it looks like.
 
 ## 5. What is already done
 

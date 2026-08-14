@@ -54,12 +54,26 @@ If a client needs a diverging view, it takes a **local copy**, or writes a
 **local patch document merged at render time**. It does not rewrite the shared
 document's fields for itself.
 
-> Note this indicts current code: `meshStoreFeeder`'s `scene_node` observer
-> preserves local `projectId`/`rootSceneNodeId` while taking remote content, and
-> `mountSharedScene` localizes `projectId` per peer. Both give one id different
-> parent links on different peers, which makes "what is this document" answerable
-> only by knowing who is asking. This is recorded as a defect to fix, not as a
-> pattern to copy.
+**Held for scene documents** (migration 039). Mounting used to copy the
+author's tree into the receiver's project and rewrite `project_id` on the way
+in; the feeder then had to re-preserve the local values on every incoming edit,
+so the two rewrites kept each other necessary. Both are gone: a mounted tree is
+stored with its author's `project_id`, and the receiver holds a **peer-owned
+project row** (`projects.owner_peer_id`) so the foreign key holds. The share
+link (`collab_scenes`) carries "this scene is mounted into that project", which
+is where a per-peer relationship belongs — beside the documents, not inside
+them.
+
+Consequences worth knowing:
+
+- "Everything with my project id" no longer finds a mounted scene, so the scene
+  bundle unions own scenes with the links, and the feeder adopts a node when its
+  SCENE is one we hold rather than when its project matches.
+- Peer-owned projects are excluded from the project list. They are places to
+  keep documents, not places to author.
+- `persists` for `scene_node` can no longer be "does a projects row exist" —
+  peer rows exist now. It is "our own project, or a collab scene we keep", so a
+  placed-object projection still stays replica-only.
 
 ### 3. Mounting is rendering, not merging
 
