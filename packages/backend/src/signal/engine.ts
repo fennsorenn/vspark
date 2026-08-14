@@ -47,6 +47,8 @@ interface RuntimeNode {
   outputThunks: Map<string, Thunk<unknown>>;
   /** Resolver for dynamic value (pull) outputs (e.g. unpack_event fields), or null. */
   dynamicOutputs: ((portName: string) => unknown) | null;
+  /** Node class opted into durable state (`static persistState`); else scratch. */
+  persistState: boolean;
   lastInputs: Map<string, unknown>;
   lastOutputs: Map<string, unknown>;
   lastExecutedAt: number | null;
@@ -76,6 +78,14 @@ export class SignalGraph {
 
   /** Guard against infinite pull recursion (value cycles). */
   private readonly _pulling = new Set<string>();
+
+  /**
+   * Scratch state for nodes that did NOT opt into `static persistState`, keyed by
+   * node id. It lives and dies with the graph and is never handed to the owner's
+   * store, which keeps per-frame state (unpacked payloads, scaled visemes,
+   * interceptor frames) out of SQLite — see `SignalNodeClass.persistState`.
+   */
+  private readonly _scratchState = new Map<string, unknown>();
 
   constructor(
     private readonly _getConfig: (nodeId: string) => unknown,
@@ -164,6 +174,7 @@ export class SignalGraph {
       handlers: new Map(),
       outputThunks: new Map(),
       dynamicOutputs: null,
+      persistState: cls.persistState === true,
       lastInputs: new Map(),
       lastOutputs: new Map(),
       lastExecutedAt: null,
@@ -218,8 +229,8 @@ export class SignalGraph {
       get config() {
         return (self._getConfig(rt.id) ?? {}) as Record<string, unknown>;
       },
-      getState: <T>() => self._getState(rt.id) as T,
-      setState: (s) => self._onSetState(rt.id, s),
+      getState: <T>() => self._readState(rt) as T,
+      setState: (s) => self._writeState(rt, s),
       isEnabled: () =>
         (self._getConfig(rt.id) as Record<string, unknown> | null)?.enabled !==
         false,
@@ -376,11 +387,27 @@ export class SignalGraph {
   // ── state access ──────────────────────────────────────────────────────────
 
   setNodeState(nodeId: string, state: unknown): void {
-    this._onSetState(nodeId, state);
+    const rt = this._nodes.get(nodeId);
+    if (!rt) return void this._onSetState(nodeId, state);
+    this._writeState(rt, state);
   }
 
   getNodeState(nodeId: string): unknown {
-    return this._getState(nodeId);
+    const rt = this._nodes.get(nodeId);
+    return rt ? this._readState(rt) : this._getState(nodeId);
+  }
+
+  /** Durable nodes read from the owner's store; everything else from scratch. */
+  private _readState(rt: RuntimeNode): unknown {
+    return rt.persistState
+      ? this._getState(rt.id)
+      : this._scratchState.get(rt.id);
+  }
+
+  /** Counterpart of `_readState` — only durable nodes reach the owner's store. */
+  private _writeState(rt: RuntimeNode, state: unknown): void {
+    if (rt.persistState) this._onSetState(rt.id, state);
+    else this._scratchState.set(rt.id, state);
   }
 
   // ── inspection ────────────────────────────────────────────────────────────

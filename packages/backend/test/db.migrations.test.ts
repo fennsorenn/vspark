@@ -15,6 +15,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { runMigrations, closeDb, getDb } from '../src/db/index.js';
+import migrate035 from '../src/db/migrations/035_tracking_grace_period_to_node.js';
 
 // ── Reset between tests so each suite gets a clean :memory: DB ───────────────
 beforeEach(async () => {
@@ -28,7 +29,7 @@ afterEach(() => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core tables created by migrations 001 – 033
+// Core tables created by migrations 001 – 035
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Migration runner — expected tables', () => {
@@ -100,6 +101,22 @@ describe('Migration runner — expected tables', () => {
 
   it('creates the mesh_tombstones table (migration 032)', () => {
     expect(getTables().has('mesh_tombstones')).toBe(true);
+  });
+
+  it('creates the obs_connections table (migration 036)', () => {
+    // Renumbered from 035 when this branch merged: dev's 035 (tracking grace
+    // period) had already shipped and run on real databases, so it owns that
+    // number. `_migrations` is keyed by FILENAME, so 036 is simply pending on a
+    // DB that already applied 035 — both must be present and applied.
+    expect(getTables().has('obs_connections')).toBe(true);
+
+    const names = (
+      getDb().prepare('SELECT name FROM _migrations').all() as {
+        name: string;
+      }[]
+    ).map((r) => r.name);
+    expect(names).toContain('035_tracking_grace_period_to_node.ts');
+    expect(names).toContain('036_obs_connections.sql');
   });
 });
 
@@ -175,14 +192,14 @@ describe('Migration runner — idempotency', () => {
     expect(countAfter).toBe(countBefore);
   });
 
-  it('all 35 migrations are recorded in _migrations after a full run', () => {
+  it('all 36 migrations are recorded in _migrations after a full run', () => {
     const count = (
       getDb()
         .prepare('SELECT COUNT(*) AS cnt FROM _migrations')
         .all() as { cnt: number }[]
     )[0].cnt;
-    // There are 35 migrations (001 – 035).
-    expect(count).toBe(35);
+    // There are 36 migrations (001 – 036).
+    expect(count).toBe(36);
   });
 
   it('each migration name appears exactly once in _migrations', () => {
@@ -245,5 +262,121 @@ describe('Migration runner — basic DML after migrations', () => {
     expect(row).toBeDefined();
     expect(row!.name).toBe('Idle');
     expect(row!.duration).toBe(5);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 035_tracking_grace_period_to_node — data migration, so worth asserting
+// directly rather than only through the runner.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('035_tracking_grace_period_to_node', () => {
+  /** Seed an avatar node plus its behaviors, then run the migration over them. */
+  function seedAndMigrate(
+    behaviors: Array<{ id: string; config: Record<string, unknown> }>,
+    nodeProperties: Record<string, unknown> = {}
+  ) {
+    const db = getDb();
+    db.prepare("INSERT INTO projects (id, name) VALUES ('pm', 'P')").run();
+    db.prepare(
+      `INSERT INTO scene_nodes (id, project_id, root_scene_node_id, name, kind, components, properties)
+       VALUES ('nm', 'pm', 'nm', 'Avatar', 'avatar', '{}', ?)`
+    ).run(JSON.stringify(nodeProperties));
+    for (const b of behaviors) {
+      db.prepare(
+        "INSERT INTO behaviors (id, node_id, kind, enabled, config) VALUES (?, 'nm', 'vmc_receiver', 1, ?)"
+      ).run(b.id, JSON.stringify(b.config));
+    }
+    migrate035(db as never);
+    return db;
+  }
+
+  const nodeProps = (db: ReturnType<typeof getDb>) =>
+    JSON.parse(
+      (
+        db.prepare('SELECT properties FROM scene_nodes WHERE id = ?').get('nm') as {
+          properties: string;
+        }
+      ).properties
+    ) as Record<string, unknown>;
+
+  const behaviorConfig = (db: ReturnType<typeof getDb>, id: string) =>
+    JSON.parse(
+      (
+        db.prepare('SELECT config FROM behaviors WHERE id = ?').get(id) as {
+          config: string;
+        }
+      ).config
+    ) as Record<string, unknown>;
+
+  it('lifts poseTimeout onto the node as trackingGracePeriod', () => {
+    const db = seedAndMigrate([
+      { id: 'b1', config: { port: 39539, poseTimeout: 5 } },
+    ]);
+
+    expect(nodeProps(db).trackingGracePeriod).toBe(5);
+  });
+
+  it('strips the lifted key from the behavior config', () => {
+    const db = seedAndMigrate([
+      { id: 'b1', config: { port: 39539, poseTimeout: 5 } },
+    ]);
+
+    const cfg = behaviorConfig(db, 'b1');
+    expect(cfg.poseTimeout).toBeUndefined();
+    expect(cfg.port).toBe(39539); // unrelated keys survive
+  });
+
+  it('takes the largest value when several behaviors disagree', () => {
+    // The grace period is a tolerance; the most forgiving setting is the safe
+    // merge, since it never drops an avatar to idle sooner than asked.
+    const db = seedAndMigrate([
+      { id: 'b1', config: { poseTimeout: 2 } },
+      { id: 'b2', config: { poseTimeout: 7 } },
+    ]);
+
+    expect(nodeProps(db).trackingGracePeriod).toBe(7);
+  });
+
+  it('leaves an existing node value alone', () => {
+    const db = seedAndMigrate(
+      [{ id: 'b1', config: { poseTimeout: 5 } }],
+      { trackingGracePeriod: 9 }
+    );
+
+    expect(nodeProps(db).trackingGracePeriod).toBe(9);
+  });
+
+  it('preserves other node properties', () => {
+    const db = seedAndMigrate([{ id: 'b1', config: { poseTimeout: 5 } }], {
+      blendTransitionTime: 0.8,
+    });
+
+    expect(nodeProps(db).blendTransitionTime).toBe(0.8);
+    expect(nodeProps(db).trackingGracePeriod).toBe(5);
+  });
+
+  it('writes nothing when no behavior carried the key', () => {
+    const db = seedAndMigrate([{ id: 'b1', config: { port: 39539 } }]);
+
+    expect(nodeProps(db).trackingGracePeriod).toBeUndefined();
+  });
+
+  it('strips an unusable value without writing it to the node', () => {
+    // A dead setting left behind is what made this ambiguous to begin with.
+    const db = seedAndMigrate([
+      { id: 'b1', config: { poseTimeout: 'soon' } },
+    ]);
+
+    expect(nodeProps(db).trackingGracePeriod).toBeUndefined();
+    expect(behaviorConfig(db, 'b1').poseTimeout).toBeUndefined();
+  });
+
+  it('is idempotent', () => {
+    const db = seedAndMigrate([{ id: 'b1', config: { poseTimeout: 5 } }]);
+    migrate035(db as never);
+    migrate035(db as never);
+
+    expect(nodeProps(db).trackingGracePeriod).toBe(5);
   });
 });

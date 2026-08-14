@@ -17,6 +17,7 @@ import obsConnections from './obs-connections.js';
 import signal from './signal.js';
 import connections from './connections.js';
 import meta from './meta.js';
+import ui from './ui.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(projects);
@@ -37,12 +38,16 @@ router.use(obsConnections);
 router.use(signal);
 router.use(connections);
 router.use(meta);
+router.use(ui);
 
 export { router as apiRoutes };
 export {
   setVmcManager,
+  setIFacialMocapManager,
   setBreathingManager,
   setManualCalibrationManager,
+  setPoseStylizerManager,
+  setBlendshapeLimiterManager,
   setLipsyncManager,
   setTrackingManager,
   setApiControllerManager,

@@ -7,6 +7,7 @@ import {
   instantiatePreset as instantiatePresetApi,
 } from '../api/client';
 import { useEditorStore } from '../store/editorStore';
+import { setLive2dConsent } from '../lib/puppet2d/live2d/coreLoader';
 import { useWsSync } from '../hooks/useWsSync';
 import { useDeleteElement } from '../hooks/useDeleteElement';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
@@ -24,6 +25,8 @@ import { SignalGraphCanvas } from '../components/editor/signal/SignalGraphCanvas
 import { NodePalette } from '../components/editor/signal/NodePalette';
 import { ComposeView } from '../components/editor/ComposeView';
 import { HelpWindow } from '../help/HelpWindow';
+import { AssistantWindow } from '../components/editor/AssistantWindow';
+import { AttachOverlay } from '../components/editor/AttachOverlay';
 import {
   handleSceneNodeDrop,
   handleSceneFileDrop,
@@ -164,6 +167,18 @@ export function Editor() {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
+
+  // Mirror the persisted Live2D license acceptance into the runtime consent gate
+  // so Live2D nodes can fetch the Cubism Core even before their Properties panel
+  // is opened.
+  useEffect(() => {
+    api
+      .getConfig()
+      .then((c) => {
+        if (c.live2dLicenseAccepted) setLive2dConsent(true);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!projectId) return;
@@ -312,6 +327,8 @@ export function Editor() {
         <AssetManager />
       )}
       <HelpWindow />
+      <AssistantWindow />
+      <AttachOverlay />
     </div>
   );
 }

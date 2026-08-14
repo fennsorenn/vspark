@@ -37,6 +37,16 @@ const resilientProxy: ProxyOptions['configure'] = (proxy) => {
   });
 };
 
+// Vendored Live2D Cubism Web Framework (git submodule). tsc resolves the
+// `@cubism/framework/*` specifiers to ambient declarations (src/types/
+// cubism-framework.d.ts); Vite resolves them to the real submodule source here
+// for the actual bundle.
+function cubism(sub: string) {
+  return fileURLToPath(
+    new URL(`./vendor/CubismWebFramework/src/${sub}`, import.meta.url)
+  );
+}
+
 export default defineConfig({
   // Istanbul instrumentation for e2e code coverage. Gated on COVERAGE so it
   // NEVER touches the production build — only the e2e coverage run sets it
@@ -84,6 +94,7 @@ export default defineConfig({
   resolve: {
     // More-specific aliases must come before less-specific ones.
     alias: [
+      { find: /^@cubism\/framework\/(.*)/, replacement: cubism('$1') },
       { find: '@vspark/shared/signal_types', replacement: shared('signal_types.ts') },
       { find: '@vspark/shared/signal', replacement: shared('signal.ts') },
       { find: '@vspark/shared/node_decorators', replacement: shared('node_decorators.ts') },
@@ -93,6 +104,13 @@ export default defineConfig({
       { find: '@vspark/shared/schema', replacement: shared('schema.ts') },
       { find: '@vspark/shared/arkit', replacement: shared('arkit_tables.ts') },
       { find: '@vspark/shared/paramPaths', replacement: shared('paramPaths.ts') },
+      { find: '@vspark/shared/cameraEffects', replacement: shared('cameraEffects.ts') },
+      { find: '@vspark/shared/feedValidation', replacement: shared('feedValidation.ts') },
+      { find: '@vspark/shared/style_rig', replacement: shared('style_rig.ts') },
+      {
+        find: '@vspark/shared/blendshapeLimits',
+        replacement: shared('blendshapeLimits.ts'),
+      },
       { find: '@vspark/shared/sync', replacement: shared('sync.ts') },
       { find: '@vspark/shared', replacement: shared('types.ts') },
     ],

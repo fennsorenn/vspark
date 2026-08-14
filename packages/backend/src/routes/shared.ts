@@ -4,8 +4,11 @@ import { join, extname, basename } from 'path';
 import { getDb } from '../db/index.js';
 import { extractVrmMetadata } from '../vrm/metadata.js';
 import type { VmcManager } from '../behaviors/vmc_receiver/manager.js';
+import type { IFacialMocapManager } from '../behaviors/ifacialmocap_receiver/manager.js';
 import type { BreathingManager } from '../behaviors/breathing/manager.js';
 import type { ManualCalibrationManager } from '../behaviors/manual_calibration/manager.js';
+import type { PoseStylizerManager } from '../behaviors/pose_stylizer/manager.js';
+import type { BlendshapeLimiterManager } from '../behaviors/blendshape_limiter/manager.js';
 import type { LipsyncManager } from '../behaviors/lipsync/manager.js';
 import type { TrackingManager } from '../behaviors/mediapipe_tracker/manager.js';
 import type { ApiControllerManager } from '../behaviors/api_controller/manager.js';
@@ -19,6 +22,11 @@ export function setVmcManager(m: VmcManager) {
   _vmc = m;
 }
 
+export let _ifacialMocap: IFacialMocapManager | null = null;
+export function setIFacialMocapManager(m: IFacialMocapManager) {
+  _ifacialMocap = m;
+}
+
 export let _breathing: BreathingManager | null = null;
 export function setBreathingManager(m: BreathingManager) {
   _breathing = m;
@@ -27,6 +35,16 @@ export function setBreathingManager(m: BreathingManager) {
 export let _manualCalibration: ManualCalibrationManager | null = null;
 export function setManualCalibrationManager(m: ManualCalibrationManager) {
   _manualCalibration = m;
+}
+
+export let _poseStylizer: PoseStylizerManager | null = null;
+export function setPoseStylizerManager(m: PoseStylizerManager) {
+  _poseStylizer = m;
+}
+
+export let _blendshapeLimiter: BlendshapeLimiterManager | null = null;
+export function setBlendshapeLimiterManager(m: BlendshapeLimiterManager) {
+  _blendshapeLimiter = m;
 }
 
 export let _lipsync: LipsyncManager | null = null;
@@ -81,9 +99,19 @@ export function _mapBehaviorRow(r: Record<string, unknown>) {
 export function refreshVmc() {
   if (!_vmc) return;
   const rows = getDb()
-    .prepare("SELECT * FROM behaviors WHERE kind = 'vmc_receiver'")
+    .prepare(
+      "SELECT * FROM behaviors WHERE kind IN ('vmc_receiver', 'vmc_receiver_2d')"
+    )
     .all() as Record<string, unknown>[];
   _vmc.syncBehaviors(rows.map(_mapBehaviorRow));
+}
+
+export function refreshIFacialMocap() {
+  if (!_ifacialMocap) return;
+  const rows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'ifacialmocap_receiver'")
+    .all() as Record<string, unknown>[];
+  _ifacialMocap.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
 export function refreshBreathing() {
@@ -100,6 +128,22 @@ export function refreshManualCalibration() {
     .prepare("SELECT * FROM behaviors WHERE kind = 'manual_calibration'")
     .all() as Record<string, unknown>[];
   _manualCalibration.syncBehaviors(rows.map(_mapBehaviorRow));
+}
+
+export function refreshPoseStylizer() {
+  if (!_poseStylizer) return;
+  const rows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'pose_stylizer'")
+    .all() as Record<string, unknown>[];
+  _poseStylizer.syncBehaviors(rows.map(_mapBehaviorRow));
+}
+
+export function refreshBlendshapeLimiter() {
+  if (!_blendshapeLimiter) return;
+  const rows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'blendshape_limiter'")
+    .all() as Record<string, unknown>[];
+  _blendshapeLimiter.syncBehaviors(rows.map(_mapBehaviorRow));
 }
 
 export function refreshLipsync() {
@@ -128,8 +172,11 @@ export function refreshApiController() {
 
 export function refreshAllBehaviorManagers() {
   refreshVmc();
+  refreshIFacialMocap();
   refreshBreathing();
   refreshManualCalibration();
+  refreshPoseStylizer();
+  refreshBlendshapeLimiter();
   refreshLipsync();
   refreshTracking();
   refreshApiController();
@@ -195,6 +242,16 @@ export function assetSubfolder(ext: string): string {
   return SUBFOLDER_BY_EXT[ext.toLowerCase()] ?? 'other';
 }
 
+// Live2D models are multi-file bundles filed under `live2d/<model>/…`; the
+// asset row points at the manifest and sibling files resolve relative to it.
+export const LIVE2D_SUBFOLDER = 'live2d';
+export const LIVE2D_MODEL_MIME = 'application/x-live2d-model';
+
+/** A Live2D model manifest, identified by the compound `.model3.json` ext. */
+export function isLive2dManifest(name: string): boolean {
+  return name.toLowerCase().endsWith('.model3.json');
+}
+
 /** Sanitize originalName → safe filename stem (no path traversal, no spaces). */
 export function sanitizeStem(originalName: string): string {
   const stem = basename(originalName, extname(originalName));
@@ -249,6 +306,48 @@ function modelMetadataJson(absPath: string, ext: string): string | null {
   return meta ? JSON.stringify(meta) : null;
 }
 
+/** Register one asset row per Live2D bundle dir under `live2d/`, pointing at
+ *  the bundle's `*.model3.json` manifest. Sibling files (moc3, textures,
+ *  physics, motions) are served statically and fetched relative to it. */
+function registerLive2dBundles(
+  db: ReturnType<typeof getDb>,
+  projectId: string,
+  live2dDir: string,
+  existing: Set<string>
+): void {
+  for (const bundle of readdirSync(live2dDir, { withFileTypes: true })) {
+    if (!bundle.isDirectory()) continue;
+    const bundleDir = join(live2dDir, bundle.name);
+    let manifest: string | undefined;
+    try {
+      manifest = readdirSync(bundleDir).find((f) => isLive2dManifest(f));
+    } catch {
+      continue;
+    }
+    if (!manifest) continue;
+    const storedPath = `/uploads/${projectId}/${LIVE2D_SUBFOLDER}/${bundle.name}/${manifest}`;
+    if (existing.has(storedPath)) continue;
+    try {
+      const absPath = join(bundleDir, manifest);
+      const stat = statSync(absPath);
+      if (!stat.isFile()) continue;
+      db.prepare(
+        'INSERT INTO asset_files (id, project_id, original_name, stored_path, mime_type, size, hash) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        randomUUID(),
+        projectId,
+        manifest,
+        storedPath,
+        LIVE2D_MODEL_MIME,
+        stat.size,
+        sha256File(absPath)
+      );
+    } catch {
+      /* skip unreadable */
+    }
+  }
+}
+
 export function discoverAssets(projectId: string): void {
   const projectDir = join(UPLOADS_DIR, projectId);
   if (!existsSync(projectDir)) return;
@@ -266,6 +365,12 @@ export function discoverAssets(projectId: string): void {
     // user assets — never register those as asset_files.
     if (entry.name === 'thumbnails') continue;
     const subDir = join(projectDir, entry.name);
+    // `live2d/` is nested one level deeper (`live2d/<model>/…`): each immediate
+    // subdirectory is one bundle, registered by its manifest, siblings skipped.
+    if (entry.name === LIVE2D_SUBFOLDER) {
+      registerLive2dBundles(db, projectId, subDir, existing);
+      continue;
+    }
     for (const file of readdirSync(subDir)) {
       const storedPath = `/uploads/${projectId}/${entry.name}/${file}`;
       if (existing.has(storedPath)) continue;

@@ -9,11 +9,21 @@ import { fileURLToPath, URL } from 'url';
 const shared = (file: string) =>
   fileURLToPath(new URL(`../shared/src/${file}`, import.meta.url));
 
+// Vendored Live2D Cubism Web Framework (git submodule) — mirror vite.config.ts's
+// alias so a test that transitively imports Live2DRuntime (which dynamically
+// imports `@cubism/framework/*`) can resolve the specifier instead of failing to
+// load the whole module graph.
+const cubism = (sub: string) =>
+  fileURLToPath(
+    new URL(`./vendor/CubismWebFramework/src/${sub}`, import.meta.url)
+  );
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
     // More-specific aliases must come before less-specific ones.
     alias: [
+      { find: /^@cubism\/framework\/(.*)/, replacement: cubism('$1') },
       { find: '@vspark/shared/signal_types', replacement: shared('signal_types.ts') },
       { find: '@vspark/shared/signal', replacement: shared('signal.ts') },
       { find: '@vspark/shared/node_decorators', replacement: shared('node_decorators.ts') },
@@ -23,6 +33,13 @@ export default defineConfig({
       { find: '@vspark/shared/schema', replacement: shared('schema.ts') },
       { find: '@vspark/shared/arkit', replacement: shared('arkit_tables.ts') },
       { find: '@vspark/shared/paramPaths', replacement: shared('paramPaths.ts') },
+      { find: '@vspark/shared/cameraEffects', replacement: shared('cameraEffects.ts') },
+      { find: '@vspark/shared/feedValidation', replacement: shared('feedValidation.ts') },
+      { find: '@vspark/shared/style_rig', replacement: shared('style_rig.ts') },
+      {
+        find: '@vspark/shared/blendshapeLimits',
+        replacement: shared('blendshapeLimits.ts'),
+      },
       { find: '@vspark/shared/sync', replacement: shared('sync.ts') },
       { find: '@vspark/shared', replacement: shared('types.ts') },
     ],

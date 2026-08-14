@@ -34,6 +34,16 @@ Schleife sehen.
 Wenn beides aktiv ist, überblendet vspark sie, damit der Übergang sanft wirkt
 statt zu springen. Die Überblendzeit lässt sich pro Avatar einstellen.
 
+Tracking ist selten perfekt: Das Signal kann kurz einfrieren oder ein paar Pakete
+können ausbleiben, ohne dass die Verbindung tatsächlich abbricht. **Leerlauf
+nach** legt fest, wie lange eine solche Lücke toleriert wird, bevor der Avatar
+aufgibt und in seine Leerlauf-Animation zurückkehrt. Erhöhe den Wert, wenn dein
+Avatar bei kurzen Aussetzern in den Leerlauf fällt; verringere ihn, wenn er nach
+dem Ende des Trackings zu lange in einer eingefrorenen Pose verharrt. Der Wert
+ergänzt die Überblendzeit: Diese Einstellung bestimmt, *wann* die Rückkehr in den
+Leerlauf beginnt, die Überblendzeit, *wie schnell* sie abläuft. Alle
+Tracking-Quellen des Avatars (VMC, Kamera-Tracking) nutzen dieselbe Einstellung.
+
 > Tipp: Wirkt dein Avatar eingefroren, prüfe, ob ein Motion-Capture-Verhalten
 > angehängt und verbunden ist — siehe [Verhalten](topic:behaviors).
 
@@ -83,6 +93,11 @@ die Basis-Animation ein, und **Track** legt das Live-Tracking darüber:
 - Werte dazwischen skalieren jede Ebene, sodass beide Regler stets wirken.
 
 Bereiche, die du nicht anfasst, bleiben auf dem Standard (**Anim 1 / Track 1**).
+
+> Diese Regler wirken nur, **solange eine Tracking-Quelle aktiv ist**. Ist das
+> Tracking verloren — oder gar keine Tracking-Quelle aktiviert —, läuft die
+> **Idle-Animation** in voller Stärke und die Regler werden ignoriert; ein
+> niedriger **Anim**-Wert schwächt deine Idle-Animation also nie ab.
 
 > Die Hüfte gehört zum Bereich **Beine** — sowohl ihre Rotation als auch ihre
 > **Position** (die Root-Motion: das Auf-und-Ab-Wippen und die

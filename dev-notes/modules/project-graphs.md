@@ -54,7 +54,7 @@ A single generic router serves all three owner kinds.
 - **`startAllEnabled()`** — called at server boot. Hydrates and starts every `enabled = 1` row across all owner kinds.
 - **`reconcile(id)`** — called on every create/update. If `enabled` it stops then re-starts the instance (picks up descriptor + node_state changes); if disabled, stops only.
 - **Descriptor validation** — `validateDescriptor()` always rejects the behavior-context kinds `{ behavior_config, behavior_id }` (no behavior to read from). `scene_entity` is allowed in **scene-node- and compose-layer-scoped** logic and rejected only in **project**-scoped logic (no owner entity). Thrown errors surface as `400` from the PUT handler. For the allowed scopes the user authors a `scene_entity` node directly; the manager feeds its `config.nodeId` = `owner_id` at start time, and the node's **output type follows the scope** — `SceneNode` for scene-node-scoped, `ComposeLayer` for compose-layer-scoped — via `inferSceneEntity` (the scope reaches inference through `SignalGraph.fromDescriptor(..., ownerKind)` → `InferGraph` → `InferCtx.ownerKind`).
-- **State persistence** — each `setState(nodeId, state)` writes the JSON map back to the row's `node_state` column.
+- **State persistence** — a `setState(nodeId, state)` from a node declaring `static persistState` writes the JSON map back to the row's `node_state` column; every other node's state stays in the graph's scratch map and never touches the row (see [signal-graph.md](signal-graph.md) → *Scratch vs durable state*).
 - **Clock self-tick** — for each `clock` node in the descriptor, the manager calls `Clock.attach(...)` and stashes the cleanup; defaults to 30Hz or `defaultConfig.hz`.
 
 External event entry point:
