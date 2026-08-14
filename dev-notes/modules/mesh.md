@@ -311,7 +311,7 @@ Current state, per rtype:
 | `compose_layer` | tab peer (`frontend/src/mesh/layerWrites.ts`) | yes |
 | `behavior` | tab peer (`frontend/src/mesh/behaviorWrites.ts`) | yes |
 | `camera_effect` | tab peer (`frontend/src/mesh/effectWrites.ts`) | yes |
-| `track_clip` | tab peer (`frontend/src/mesh/writes.ts` adapter) | yes |
+| `track_clip` | tab peer (`frontend/src/mesh/clipWrites.ts`, per element) | yes |
 | `logic` | tab peer (`frontend/src/mesh/logicWrites.ts`) | yes |
 | `clip_playback` | tab peer (`frontend/src/mesh/playbackWrites.ts`), `undo: false` | no — deliberately; transport is a view action, not a document edit |
 
@@ -614,8 +614,16 @@ Two failures worth knowing in advance, because neither announces itself:
    (or a sibling like `layerWrites.ts`) rather than REST calls, so the write is
    authored by the tab and lands on its undo stack.
 
-### Two constraints on the doc shape
+### Three constraints on the doc shape
 
+- **A list of things is a keyed map, never an array.** An array field is ONE
+  path, so two peers editing different elements write the same path and LWW
+  throws one edit away whole. Key by id and each element is its own path
+  (`lanes.<laneId>.keyframes.<kfId>`). See `@vspark/shared/idMap` for the read
+  helpers and the two consequences: a deleted element is present as `null`
+  (`set` writes a key, it cannot remove one), and a map has no order, so order
+  must come from the data (`t`) or a field (a fractional index). Persistence
+  writes rows for the live elements only, so tombstones never reach SQLite.
 - **Ids are globally unique across rtypes.** The `ContainmentIndex`
   (`packages/shared/src/containment.ts`) keys by id alone, so a doc must not
   reuse its parent's id — carry the parent as a field instead. `clip_playback`

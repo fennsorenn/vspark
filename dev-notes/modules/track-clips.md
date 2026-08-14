@@ -7,7 +7,7 @@
 > fire fire-and-forget media commands at marker times, dispatched client-side to the
 > media registry. See [Event/Marker Lane](#eventmarker-lane) below and [media.md](media.md).
 
-Timeline-based parameter animation. A **track clip** is a short, triggerable, optionally-looping clip that animates scalar parameters on scene nodes or compose layers. Authored in the bottom-dock tab whose `bottomTab` id is `'clips'` (UI label is **Timeline** after the vocab rename; the tab-id string was kept); played back with a backend-authoritative playhead so multiple clients (editor + `ViewerPage`) stay in sync. Supports play / pause / resume / stop / seek (scrub).
+Timeline-based parameter animation. A **track clip** is a short, triggerable, optionally-looping clip that animates scalar parameters on scene nodes or compose layers. Authored in the bottom-dock tab whose `bottomTab` id is `'clips'` (UI label is **Timeline** after the vocab rename; the tab-id string was kept); played back from a synced transport document (`clip_playback`) that every peer derives its own playhead from, so the editor and `ViewerPage` stay in sync without anyone streaming a playhead. Supports play / pause / resume / stop / seek (scrub).
 
 ## How this differs from `animation_clips`
 
@@ -43,6 +43,12 @@ track_clip_keyframes
 
 Each lane is a single scalar. The UI groups three sibling lanes (`position.x/y/z`, etc.) into a collapsible row.
 
+**The document keys its children by id.** SQLite stays relational (three tables), but the clip DTO — what the mesh replicates and what the REST routes return — carries `lanes`, `lanes[].keyframes` and `events` as `{ [id]: element }` maps, not arrays. An array is ONE mesh path, so two people editing different keyframes of a lane overwrote each other wholesale; keyed, each element is its own path (`lanes.<laneId>.keyframes.<kfId>`) and the edits merge. A deleted element is present as `null` and readers skip it; only live elements get rows, so tombstones never reach the DB. See `@vspark/shared/idMap` and [mesh.md](mesh.md).
+
+Order is therefore not storage: keyframes and events sort by `t`, lanes by (targetKind, targetId, paramPath). `mapTrackClip` in the frontend api client is the boundary — above it the keyed document, below it the ordered lists the store and UI use.
+
+`track_clips.started_at` is vestigial: the playhead anchor moved to `clip_playback.start_epoch` (migration 037). The column and its DTO field are still carried but nothing reads them for playback.
+
 **Supported `param_path` values** (Phase 1 — sourced from the shared paramPath registry, scalar/animatable entries only; see [paramPaths.md](paramPaths.md)):
 
 - Scene node: `position.x|y|z`, `rotation.x|y|z` (radians), `scale.x|y|z`, `opacity`.
@@ -53,52 +59,58 @@ Non-scalar registry entries (e.g. `text.content`) are excluded from lane creatio
 **Phase 1 additions (signal-graph expansion) — implemented:**
 
 - New animatable paramPaths: `opacity` on both target kinds; `width`, `height` on compose layers. The evaluator's `NodeAccumulator` now carries `opacity`, and `readNodeParam`/`writeNodeParam` handle `opacity` for `scene_node`. The compose-layer write path was refactored from a hardcoded `x`/`y`/`rotation` switch into a `readComposeParam` / `writeComposeParam` table covering `x/y/rotation/width/height/opacity` — adding a future scalar compose paramPath is one table entry.
-- `TrackClipPlaybackManager.onClipFinished(listener)` listener registry; the spawn manager subscribes to it for tmp-entity cleanup.
-- `TrackClipPlaybackManager.triggerEphemeral(clipId, duration, loop)`: plays a clip without DB reads or `started_at` writes; the manager tracks an internal `ephemeral: Set<clipId>` so `stopInternal` skips persistence and fires the `onClipFinished` listeners for ephemeral entries. Used by `spawn_clip`. See [spawn.md](spawn.md).
+- `onClipFinished(listener)` (now in `track_clips/lifecycle.ts`) listener registry; the spawn manager subscribes to it for tmp-entity cleanup.
+- Ephemeral (spawned) clips: `setEphemeralDuration` / `clearEphemeralDuration` in `track_clips/lifecycle.ts` let a clip that has no row be swept for completion like a persisted one. Used by `spawn_clip`. See [spawn.md](spawn.md).
 - New canonical `start_clip` signal node generalises `track_clip_trigger` (existing kind retained for back-compat).
 
 **Easing kinds:** `linear`, `step`, `bezier` (per-keyframe outgoing-segment easing; bezier uses the four handle fields).
 
-Shared types (`TrackClip`, `TrackClipLane`, `TrackClipKeyframe`, `TrackClipMode`, `TargetKind`, `Easing`, `TrackClipPlaybackEntry`) live in `packages/shared/src/types.ts`; Zod schemas in `schema.ts`.
+Shared types (`TrackClip`, `TrackClipLane`, `TrackClipKeyframe`, `TrackClipMode`, `TargetKind`, `Easing`) live in `packages/shared/src/types.ts`; Zod schemas in `schema.ts`. The transport document's type is `ClipPlaybackDoc` in `packages/shared/src/clipPlayback.ts`, next to the derivation helpers.
 
 ## Playback State Model
 
-Playback state per clip is a discriminated union, used identically on both backend (`packages/backend/src/track_clips/playback.ts`) and frontend (`TrackClipPlayback` in `packages/frontend/src/store/editorStore.ts`):
+One document per clip that has ever been played (`ClipPlaybackDoc` in
+`packages/shared/src/clipPlayback.ts`):
 
 ```
-{ kind: 'playing', startedAt: number }   // epoch ms anchor; t = (now - startedAt) / 1000
-{ kind: 'paused',  pausedAtT: number }   // frozen seconds-from-clip-start
+{ id: 'pb:<clipId>', clipId, state: 'playing' | 'paused' | 'stopped',
+  startEpoch: number | null,   // ms anchor; playhead = (now - startEpoch) / 1000 * speed
+  pausedAtT:  number | null,   // frozen seconds-from-clip-start
+  speed, loop }
 ```
 
-Both states flow through `track_clip_playback_snapshot` so late-joining clients pick up paused clips too. The snapshot entry carries either `startedAt` or `pausedAtT`; the snapshot is no longer always-`startedAt`.
+`stopped` is a state, not the absence of a row: absence-means-stopped would make
+every Stop a delete and every Play a create, which is tombstone churn on the
+most-pressed control in the app. A clip that has never been played has no
+document at all.
 
-## Playback Authority
+The id is DERIVED (`pb:` + clipId), not minted, so two tabs pressing Play on a
+never-played clip produce one document racing on LWW rather than two documents
+colliding on `UNIQUE(clip_id)`.
 
-`TrackClipPlaybackManager` (`packages/backend/src/track_clips/playback.ts`, wired in `index.ts` and exposed via `routes/shared.ts` as `_trackClipPlayback`) is the single source of truth for "what is playing/paused right now". It owns only the playhead anchor — **it does not evaluate keyframes**; clients do that locally. Public surface: `trigger / stop / pause / resume / seek / hydrateAutoplay / sendSnapshotTo / onClipUpdated / onClipDeleted / onClipFinished / triggerEphemeral`. The last two are Phase-1 additions for the spawn flow — see [spawn.md](spawn.md).
+## Playback Authority — none; the transport is a document
 
-In-memory map: `Map<clipId, PlaybackEntry>` where the entry is the discriminated union above (plus `loop`, `sceneId`).
+Playback state lives in the `clip_playback` table (migration 037) and syncs like
+any other document: `{ state: playing | paused | stopped, startEpoch, pausedAtT,
+speed, loop }`, one row per clip, id `pb:<clipId>`. There is no manager, no
+in-memory map, and no playhead on the wire — every peer DERIVES the playhead
+from `startEpoch` against the wall clock (`playheadAt` / `anchorFor` /
+`displayPlayhead` in `@vspark/shared/clipPlayback`). This is principle 1 in
+[mesh.md](mesh.md): sync the inputs, derive the outputs.
 
-### Operations
+Writers:
 
-**`trigger(clipId)`** (start from stopped):
-1. Set entry to `{ kind: 'playing', startedAt: Date.now() }`.
-2. Broadcast `track_clip_started { clipId, startedAt, serverNow }` — clients compute a one-shot clock offset.
-3. If `loop && autoplay`, persist `started_at` to the DB so the loop resumes in-phase after a backend restart.
-4. If non-looping, schedule an auto-stop timer for `duration` ms; on fire, broadcast `track_clip_stopped`.
+- `packages/frontend/src/mesh/playbackWrites.ts` — the editor's transport
+  buttons, writing the document with `undo: false` (transport is a view action,
+  not a document edit).
+- `packages/backend/src/track_clips/playbackDoc.ts` — the same writes for the
+  REST control routes and signal-graph triggers.
+- `packages/backend/src/track_clips/lifecycle.ts` — a 250ms sweep that moves a
+  finished non-looping clip to `stopped`, plus autoplay at boot and the
+  `onClipFinished` listeners the spawn manager uses for tmp-entity cleanup.
 
-**`pause(clipId)`**: freezes wall-clock advancement at the current playhead, wrapping into `[0, duration)` for looping clips. Clears any auto-stop timer. Broadcasts `track_clip_paused { clipId, pausedAtT, serverNow }`. Does **not** persist anything — paused state is ephemeral; only `loop+autoplay+playing` persists `started_at`.
-
-**`resume(clipId)`**: re-anchors `startedAt = Date.now() − pausedAtT*1000` so elapsed time picks up where it left off. Reinstates the auto-stop timer for non-looping clips with the remaining duration. Broadcasts `track_clip_started`.
-
-**`seek(clipId, t)`**: clamps/wraps `t` to clip duration.
-- If playing: shifts `startedAt` so elapsed equals `t`, resets the auto-stop timer, broadcasts `track_clip_started`.
-- If paused (or no entry exists yet): creates/updates a paused entry at `t`, broadcasts `track_clip_paused`. So a clip that has never been played can be scrubbed and shows up as paused at the scrubbed time.
-
-**`stop(clipId)`**: clear the in-memory entry, broadcast `track_clip_stopped`, clear any persisted `started_at`.
-
-**On backend boot:** load every `loop=1 AND autoplay=1` clip. If `started_at` is null, set it to `Date.now()` and persist. Insert into the map as `{ kind: 'playing', startedAt }`.
-
-**Late-joiner sync:** `wsSync.onClientConnected` fires `sendSnapshotTo`, which delivers `track_clip_playback_snapshot { entries, serverNow }` where each entry contains its `clipId`, `loop`, and either `startedAt` or `pausedAtT`.
+Late joiners need no snapshot: they subscribe to the collection and receive the
+current documents like everything else.
 
 ## Trigger Surfaces
 
@@ -108,50 +120,59 @@ A clip can be started/controlled from:
 2. **REST** — see below.
 3. **Signal graph** — node kind `track_clip_trigger`, event input `fire`, config `clipId`. Registered in `packages/backend/src/signal/registry.ts`. Lets VMC events, the API controller, or any other graph drive clips. See [signal-graph.md](signal-graph.md).
 
-All paths go through `TrackClipPlaybackManager`.
+All paths write the same `clip_playback` document.
 
 ## REST Routes
 
 `packages/backend/src/routes/track-clips.ts`:
 
-- `GET    /scenes/:sceneId/track-clips` — list (clips + lanes + keyframes)
-- `POST   /scenes/:sceneId/track-clips`
+- `GET    /scene-nodes/:nodeId/track-clips` / `GET /compose-layers/:layerId/track-clips` — list (clips + lanes + keyframes)
+- `POST   /scene-nodes/:nodeId/track-clips` / `POST /compose-layers/:layerId/track-clips`
 - `PUT    /track-clips/:id` — patch clip-level fields
 - `DELETE /track-clips/:id`
 - `POST   /track-clips/:id/lanes`
 - `PUT    /track-clip-lanes/:id`
 - `DELETE /track-clip-lanes/:id`
-- `PUT    /track-clip-lanes/:id/keyframes` — bulk replace (drag-then-commit on `pointerup`)
+- `PUT    /track-clip-lanes/:id/keyframes` — bulk replace, for callers that only have a list
+- `PUT    /track-clips/:id/events` — bulk replace of the event lane
 - `POST   /track-clips/:id/trigger`
 - `POST   /track-clips/:id/stop`
 - `POST   /track-clips/:id/pause`
 - `POST   /track-clips/:id/resume`
 - `POST   /track-clips/:id/seek` — body `{ t: number }`
 
+Every mutation route writes THROUGH the `track_clip` mesh collection rather than
+SQLite, addressing the path it changes (`lanes.<id>`, `lanes.<id>.keyframes`) —
+see [mesh.md](mesh.md), principle 5. The editor does not use these: it writes the
+document directly through `packages/frontend/src/mesh/clipWrites.ts`, one element
+per write, so a dragged keyframe is one undo step and concurrent edits to
+different keyframes merge. A drag rides the `preview` channel and commits once on
+release.
+
 The scene-bundle endpoint includes `trackClips` so the editor hydrates everything in one request.
 
 ## WS Messages
 
-In `WSMessageKind`:
-
-`track_clip_added`, `track_clip_updated`, `track_clip_removed`, `track_clip_lane_added`, `track_clip_lane_updated`, `track_clip_lane_removed`, `track_clip_keyframes_replaced`, `track_clip_events_replaced`, `track_clip_started`, `track_clip_stopped`, `track_clip_paused`, `track_clip_playback_snapshot`.
-
-Handled in `packages/frontend/src/hooks/useWsSync.ts` following the compose-layer pattern. The snapshot handler reads either `startedAt` or `pausedAtT` per entry.
-
-**Clip create/delete now flow through the sync layer** — `sync.document.upsert`/`remove` for rtype `track_clip` on the single `'sync'` WS kind — instead of the bespoke `track_clip_added`/`track_clip_removed` kinds for persistent clips. The legacy `track_clip_added`/`removed` handlers are kept because the spawn manager still emits them inline for ephemeral spawned clips. Lanes, keyframes, events, and playback messages above stay on their legacy kinds. See [sync.md](sync.md) and [spawn.md](spawn.md).
+The playback kinds (`track_clip_started` / `_paused` / `_stopped` /
+`_playback_snapshot`) are gone with the backend playhead. The document kinds
+(`track_clip_added` / `_updated` / `_removed`, the lane/keyframe/event kinds)
+are still broadcast by the REST routes for legacy consumers, but nothing in the
+editor reads them: clips arrive through the mesh replica and the store feeder.
+The spawn manager still emits `track_clip_added` inline for ephemeral spawned
+clips. See [sync.md](sync.md) and [spawn.md](spawn.md).
 
 ## Frontend Evaluator
 
 `packages/frontend/src/hooks/useTrackClipEvaluator.ts` is mounted in both `Editor.tsx` and `ViewerPage.tsx`.
 
-Per rAF tick, for each entry in `trackClipPlayback`:
+Per rAF tick, for each entry in the store's `clipPlayback` slice:
 
-1. Compute `t`:
-   - `kind: 'playing'` → `t = ((Date.now() - clockOffsetMs) - startedAt) / 1000`, then `resolveClipTime` either modulos by duration (loop) or clamps (non-loop).
-   - `kind: 'paused'` → `t = pausedAtT` (wall clock is not advanced). The evaluator still re-evaluates every tick so edits to lanes / keyframes / handles while paused take effect immediately. Paused clips do **not** complete — non-looping clips won't auto-clear while paused.
+1. Compute `t` with `playheadAt(doc, clip.duration, now)`:
+   - `playing` → elapsed since `startEpoch`, modulo the duration when looping, clamped otherwise.
+   - `paused` → `pausedAtT`. The evaluator still re-evaluates every tick so edits to lanes / keyframes / handles while paused take effect immediately.
 2. For each lane, `evaluateLane` finds the bracketing keyframes and interpolates (linear / step / cubic-bezier with root-finding on the X handle). Pure interpolation utilities live in `components/editor/trackClipEvaluator.ts`.
 3. Compose an **absolute** target value and write it into one of two override maps in the Zustand store. For `relative` clips the evaluator pre-folds the base in (`base + (raw − lane.defaultValue)`) so consumers always just *replace* with the override.
-4. When a playing non-looping clip's `t` reaches the clamp end, the evaluator clears it from `trackClipPlayback`.
+4. Completion is not the evaluator's business: the backend's 250ms sweep moves a finished non-looping clip to `stopped`, and every peer sees that through the document.
 
 **Override slots in the store** (both ephemeral, never persisted):
 
@@ -260,20 +281,25 @@ Each numeric input in the Properties panel gets a small **◆** button next to i
 
 **Backend:**
 - `packages/backend/src/db/migrations/009_track_clips.sql` + `.ts`; `021_track_clip_events.sql` + `.ts` (event/marker lane)
-- `packages/backend/src/track_clips/playback.ts` — `TrackClipPlaybackManager`; play / pause / resume / seek / stop, discriminated union entries
+- `packages/backend/src/db/migrations/037_clip_playback.sql` + `.ts` — the transport document's table
+- `packages/backend/src/track_clips/playbackDoc.ts` — trigger / stop / pause / resume / seek / syncPlaybackLoop / removePlayback, all writing the `clip_playback` document
+- `packages/backend/src/track_clips/lifecycle.ts` — 250ms completion sweep, autoplay at boot, `onClipFinished` listeners, ephemeral durations
 - `packages/backend/src/routes/track-clips.ts` — CRUD + `/trigger /stop /pause /resume /seek` + `PUT /track-clips/:id/events` (event-marker bulk replace); event load via `loadClip`/`mapClip`/`mapEvent`. Mounted in `routes/index.ts`; scene bundle in `routes/scenes.ts` includes nested `trackClips` (with `events`)
 - `packages/backend/src/signal/nodes/track_clip_trigger.ts` (registered in `signal/registry.ts`)
-- `packages/backend/src/index.ts` — manager init + snapshot-on-WS-connect wiring
-- `packages/backend/src/routes/shared.ts` — `_trackClipPlayback` accessor
+- `packages/backend/src/index.ts` — starts the clip lifecycle sweep
 
 **Shared:**
-- `packages/shared/src/types.ts` — `TrackClip` (with `events`), `TrackClipLane`, `TrackClipKeyframe`, `TrackClipEvent`, `TrackClipMode`, `TrackClipTargetKind`, `TrackClipEasing`, `TrackClipStartedMessage`, `TrackClipPausedMessage`, `TrackClipPlaybackEntry` (discriminated), `TrackClipPlaybackSnapshot`; `WSMessageKind` union includes `track_clip_paused`, `track_clip_events_replaced`
+- `packages/shared/src/types.ts` — `TrackClip` (with `events`), `TrackClipLane`, `TrackClipKeyframe`, `TrackClipEvent`, `TrackClipMode`, `TrackClipTargetKind`, `TrackClipEasing`; the child collections are `IdMap`s
+- `packages/shared/src/idMap.ts` — `IdMap`, `itemsOf`, `byId`, `sortedBy`
+- `packages/shared/src/clipPlayback.ts` — `ClipPlaybackDoc`, `playbackDocId`, `playheadAt`, `anchorFor`, `displayPlayhead`
 - `packages/shared/src/schema.ts` — Zod schemas + `*Input` types
 
 **Frontend:**
-- `packages/frontend/src/api/client.ts` — `TrackClipRecord`/`TrackClipLaneRecord`/`TrackClipKeyframeRecord`/`TrackClipEventRecord`, `mapTrackClip*` + `mapTrackClipEvent` helpers, full CRUD + trigger/stop/pause/resume/seek + `replaceTrackClipEvents`; `getScenes` returns `trackClips`
-- `packages/frontend/src/store/editorStore.ts` — slice: `trackClips`, `selectedTrackClipId`, `trackClipPlayback` (discriminated entries), ephemeral `nodeTransformOverrides` + `composeLayerOverrides`, `bottomTab: BottomDockTab`; clip/lane/keyframe CRUD actions, playback set/replace, override set
-- `packages/frontend/src/hooks/useWsSync.ts` — handlers for all `track_clip_*` messages including `track_clip_paused` and the dual-shape snapshot
+- `packages/frontend/src/api/client.ts` — `TrackClipRecord`/`TrackClipLaneRecord`/`TrackClipKeyframeRecord`/`TrackClipEventRecord` (ordered lists), `mapTrackClip*` helpers (the keyed-document boundary), the REST surface used as fallback; `getScenes` returns `trackClips`
+- `packages/frontend/src/store/editorStore.ts` — slice: `trackClips`, `selectedTrackClipId`, `clipPlayback` (the transport documents), ephemeral `nodeTransformOverrides` + `composeLayerOverrides`, `bottomTab: BottomDockTab`
+- `packages/frontend/src/mesh/clipWrites.ts` — per-element clip writes (lane / keyframe / event), preview + commit
+- `packages/frontend/src/mesh/playbackWrites.ts` — transport writes (`undo: false`)
+- `packages/frontend/src/sync/meshStoreFeeder.ts` — mirrors clip documents into the store through `mapTrackClip`
 - `packages/frontend/src/components/editor/trackClipEvaluator.ts` — pure `evaluateLane` + `resolveClipTime`
 - `packages/frontend/src/hooks/useTrackClipEvaluator.ts` — rAF loop; honours paused entries (no wall-clock advance, no auto-complete, still re-evaluates each frame); fires event markers via `lastTByClip` + `crossedMarker` → `dispatchMediaCommand`
 - `packages/frontend/src/hooks/useTrackClipRecorder.ts` — **new**; `canRecord`, `currentPlayhead`, lane-find-or-create + keyframe upsert
