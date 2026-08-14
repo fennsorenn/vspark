@@ -15,7 +15,7 @@
  * here — so the receiver's inert, output-driven projection needs no behaviour
  * execution. Their config rides the initial snapshot for completeness only.
  * (Track-clip animation is the one frontend-evaluated case that *is* forwarded —
- * as a transform stream via `forwardNodeTransform`, not config.)
+ * as a preview overlay on the mesh, not config.)
  *
  * Subscriptions are held in the live grant-gated {@link MeshRouter} (admit-on-
  * subscribe against the real grant store + containment index), not a bespoke map;
@@ -351,27 +351,6 @@ export class SharingManager {
       objectId: nodeId,
       kind,
       payload,
-    });
-  }
-
-  /** Owner: forward a (clip-driven) transform of a node inside a shared subtree.
-   *  Unlike the root-keyed pose path, this resolves the owning root, so a clip
-   *  animating a *child* of the shared object matches too (not just the root).
-   *  Rides the lossy stream channel as a `node_transform_preview` frame — the
-   *  receiver applies it via `smoothNodeTransform` on the projected node (owner
-   *  ids are preserved). Reverts are re-sent a few frames by the caller, so a
-   *  dropped frame here doesn't strand the node. */
-  forwardNodeTransform(
-    nodeId: string,
-    transform: Record<string, number>
-  ): void {
-    // Routing by `scene_node:<nodeId>` matches subscribers whose subtree contains
-    // it (root or child) — the old findOwningRoot membership — over lossy links.
-    this.router.publishStream(`scene_node:${nodeId}`, {
-      rtype: STREAM,
-      objectId: nodeId,
-      kind: 'node_transform_preview',
-      payload: { nodeId, transform },
     });
   }
 

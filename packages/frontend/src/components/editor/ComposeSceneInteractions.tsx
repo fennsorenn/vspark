@@ -13,7 +13,6 @@ import {
   getVrmForScene,
   listRegisteredNodeGroups,
 } from './Viewport';
-import { sendNodeTransformPreview } from '../../hooks/useWsSync';
 import {
   humanoidBoneFor,
   worldToBoneLocalTransform,
@@ -225,10 +224,9 @@ export function ComposeSceneInteractions({
     lastPreviewAtRef.current = { nodeId, t: now };
     const node = useEditorStore.getState().nodes.find((n) => n.id === nodeId);
     const t = transformPayload(group, node, liveScale);
-    // Mesh → local tabs, /ws → object-share subscribers. See the matching note
-    // in Viewport's gizmo onChange.
+    // One write, every audience — local tabs and object-share subscribers read
+    // the same preview overlays.
     previewNodeTransform(nodeId, t);
-    sendNodeTransformPreview(nodeId, t);
   };
 
   // Mirror the live group transform back into the store so React's declarative

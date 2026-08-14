@@ -13,9 +13,9 @@
  * op is model state (see the compose_layer observer below). The bespoke
  * `compose_layer_preview` / `compose_layer_updated` WS kinds that used to carry
  * that beside the mesh have no producer or consumer left, and node gestures now
- * ride the same channel. `node_transform_preview` survives on /ws for object-
- * share subscribers ONLY — their projection is fed outside this feeder — and
- * goes when the share streams migrate.
+ * ride the same channel — including the ones a peer's object-share subscribers
+ * see, which read the same overlays through sync/meshProjection. The
+ * `node_transform_preview` WS kind that used to carry those is gone.
  *
  * Foreign docs: the tab replica also holds behaviors/effects of PLACED
  * remote objects (their subtree subscription is cross-type). Projections
@@ -34,6 +34,7 @@ import {
   smoothComposeLayer,
   smoothNodeTransform,
 } from '../previewSmoother';
+import { applyNodePreview, transformFieldsOf } from './nodePreview';
 import {
   useEditorStore,
   type Behavior,
@@ -51,23 +52,6 @@ import type {
 } from '../api/client';
 
 let started = false;
-
-/** Node transforms are nested inside `components`, unlike a compose layer's flat
- *  x/y/width/height — so a preview path is `components.transform.<field>`. */
-const TRANSFORM_PREFIX = 'components.transform.';
-
-/** Tweened as a single quaternion, so these three cannot be fed in one at a
- *  time — see the ephemeral branch of the scene_node observer. */
-const ROTATION_FIELDS = new Set(['rx', 'ry', 'rz']);
-
-/** The transform component's numeric fields, or null if the node has none. */
-function transformFieldsOf(
-  node: StageObject
-): Record<string, number> | undefined {
-  return (node.components as Record<string, unknown> | undefined)?.transform as
-    | Record<string, number>
-    | undefined;
-}
 
 function parentIsRemote(nodeId: unknown): boolean {
   if (typeof nodeId !== 'string') return false;
@@ -90,32 +74,7 @@ export function startMeshStoreFeeder(): void {
         // is the discriminator; no heuristic, and a cold load can't animate.
         if (c.op === 'ephemeral') {
           const node = c.doc as unknown as StageObject | undefined;
-          if (!node) return;
-          const t = transformFieldsOf(node);
-          if (!t) return;
-          // Previews are written one overlay PER SCALAR PATH, so read back just
-          // the field this op touched rather than re-tweening every axis toward
-          // a value that never changed. A pathless op (shouldn't happen) falls
-          // back to the whole transform.
-          const field = c.path?.startsWith(TRANSFORM_PREFIX)
-            ? c.path.slice(TRANSFORM_PREFIX.length)
-            : null;
-          if (!field) {
-            smoothNodeTransform(node.id, t);
-            return;
-          }
-          // Rotation is the exception: it tweens as ONE quaternion, and
-          // smoothNodeTransform rebuilds the whole target from any axis it is
-          // not given — reading those out of the store, which lags the running
-          // tween. Feeding it the axes one at a time therefore lets the last
-          // op cancel the ones before it (an rz:0 arriving after ry:90 recomputes
-          // the target as (0,0,0) and the node never turns). `t` is the COMPOSED
-          // doc, so all three axes there already carry the in-flight overlays.
-          if (ROTATION_FIELDS.has(field)) {
-            smoothNodeTransform(node.id, { rx: t.rx, ry: t.ry, rz: t.rz });
-            return;
-          }
-          smoothNodeTransform(node.id, { [field]: t[field] });
+          if (node) applyNodePreview(node.id, node, c.path);
           return;
         }
         if (c.op === 'remove') {

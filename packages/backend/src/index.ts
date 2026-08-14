@@ -279,24 +279,6 @@ async function start() {
         msg.nodeId,
         msg.expressions ?? []
       );
-    } else if (kind === 'node_transform_preview') {
-      // Object-share subscribers only. The local relay that used to sit here is
-      // gone: a gesture now reaches every local tab as per-key overlays on the
-      // mesh `preview` channel, and broadcasting here as well just made every
-      // receiver tween the same value twice.
-      //
-      // A subscriber's projection is fed separately from the mesh store feeder,
-      // so it does not see those overlays yet — that is what still keeps this
-      // forward alive, and it goes when the object-share streams migrate.
-      const p = payload as {
-        nodeId?: string;
-        transform?: Record<string, number>;
-      };
-      if (typeof p.nodeId === 'string' && p.transform)
-        multiplayerManager.forwardStream('node_transform_preview', p.nodeId, {
-          nodeId: p.nodeId,
-          transform: p.transform,
-        });
     } else if (kind === 'mp_share_write') {
       // Phase 6 relay: a browser client with no direct edge asks us to forward a
       // write to the owning peer over the mesh. The owner authorizes + persists.

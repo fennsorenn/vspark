@@ -539,7 +539,6 @@ export type WSMessageKind =
   | 'compose_layer_updated'
   | 'compose_layer_removed'
   | 'compose_layer_reordered'
-  | 'node_transform_preview'
   | 'compose_layer_preview'
   | 'track_clip_added'
   | 'track_clip_updated'

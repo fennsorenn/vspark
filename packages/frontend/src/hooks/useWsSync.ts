@@ -13,7 +13,6 @@ import {
   getCollabScenes,
 } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
-import { smoothNodeTransform } from '../previewSmoother';
 import { setIkTargets } from '../ikTargetStore';
 import type {
   IkTargetFrame,
@@ -53,29 +52,6 @@ setShareWriteRelay((owner, env) => {
       JSON.stringify({ kind: 'mp_share_write', payload: { owner, env } })
     );
 });
-
-/** Forward an in-flight transform to OBJECT-SHARE SUBSCRIBERS, so dragging a
- *  shared object is smooth on the receiver's screen.
- *
- *  Local tabs no longer go through here: they get the gesture as per-key
- *  overlays on the mesh `preview` channel (`previewNodeTransform` in
- *  mesh/writes.ts), so the backend does not relay this locally any more.
- *
- *  This survives only because a subscriber's projection is fed separately from
- *  the mesh store feeder; it goes when the object-share streams migrate. Note
- *  that means PropertiesPanel drags — which only write the mesh — are not
- *  forwarded to subscribers, matching their previous behaviour of having no
- *  preview at all. Silently no-ops if the WS isn't open. */
-export function sendNodeTransformPreview(
-  nodeId: string,
-  transform: Record<string, number>
-) {
-  const ws = editorWsRef.current;
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(
-    JSON.stringify({ kind: 'node_transform_preview', nodeId, transform })
-  );
-}
 
 export function useWsSync() {
   const setVmcStatus = useEditorStore((s) => s.setVmcStatus);
@@ -448,12 +424,6 @@ export function useWsSync() {
               );
             } else if (p.kind === 'pose_ik_targets') {
               setIkTargets(f.nodeId as string, f as unknown as IkTargetFrame);
-            } else if (p.kind === 'node_transform_preview') {
-              // Smooth in-flight drag of a shared object on the receiver.
-              smoothNodeTransform(
-                f.nodeId as string,
-                f.transform as Record<string, number>
-              );
             }
           } else if (msg.kind === 'mp_shared_override') {
             // Graph-driven runtime override on a shared node (owner ids are

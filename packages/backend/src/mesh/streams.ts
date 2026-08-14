@@ -10,10 +10,14 @@
  *
  * Receiver side: remote frames for nodes of OUR collab scenes re-broadcast
  * to this server's tabs over /ws under their original kind (vmc_pose,
- * node_transform_preview, …) — same surface the legacy COLLAB_STREAM_RTYPE
- * relay fed. Frames matching only a placed-object subscription are dropped
- * here: object-share streams still ride the legacy `_share_stream` path
- * (relay + direct browser edges), so bridging them too would double-apply.
+ * vmc_blendshapes, …) — same surface the legacy COLLAB_STREAM_RTYPE relay fed.
+ * Frames matching only a placed-object subscription are dropped here:
+ * object-share streams still ride the legacy `_share_stream` path (relay +
+ * direct browser edges), so bridging them too would double-apply.
+ *
+ * What rides here is what cannot be derived — mocap pose, blendshapes, IK
+ * targets. A drag preview is not in that set: it reaches every peer as
+ * overlays on the `scene_node` collection's preview channel.
  *
  * The frontend tab subscriptions don't cover this rtype, so tabs never
  * receive these frames over /mesh (no double with the /ws broadcast).

@@ -30,6 +30,7 @@ import {
   isProjected,
   owningProjectionRoot,
 } from './sharedProjection';
+import { applyNodePreview } from './nodePreview';
 import type { SyncEnvelope } from '@vspark/shared/sync';
 
 type Dto = Record<string, unknown>;
@@ -143,7 +144,28 @@ export function startMeshProjection(): void {
   void initMeshPeer().then((h) => {
     refresh();
     h.collections.scene_node.observe('**', (change) => {
-      if (change.op === 'ephemeral') return; // preview overlays aren't model state
+      // An in-flight gesture on the OWNER's node. It reaches us as per-key
+      // overlays on the lossy `preview` channel — the same ones a local tab
+      // gets — because the placed subscription selects no channel and the
+      // relay carries unstamped ops onward. Projected nodes keep the owner's
+      // ids, so the overlay names the node it moves.
+      //
+      // This is what replaced the `node_transform_preview` frame: a bespoke WS
+      // kind, produced by two gesture handlers beside their mesh write, and
+      // forwarded by the owner's server. Same picture, one transport.
+      if (change.op === 'ephemeral') {
+        if (!change.doc) return;
+        for (const a of active.values()) {
+          if (owningProjectionRoot(a.owner, change.id) !== a.objectId) continue;
+          applyNodePreview(
+            change.id,
+            change.doc as { components?: unknown },
+            change.path
+          );
+          return;
+        }
+        return;
+      }
       if (change.op === 'remove') {
         // Containment is already gone — resolve the object via the projection.
         for (const a of active.values()) {

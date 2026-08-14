@@ -838,18 +838,6 @@ class MultiplayerManager {
     }
   }
 
-  /** Forward a clip-driven transform of a shared subtree node to object-share
-   *  subscribers (read-only projections that can't evaluate the clip themselves).
-   *  NOT sent to collaborative-scene peers: they have the synced clip + playback
-   *  state and evaluate it locally, so forwarding the result would double-drive
-   *  and fight their own evaluation. */
-  forwardNodeTransform(
-    nodeId: string,
-    transform: Record<string, number>
-  ): void {
-    this.sharing?.forwardNodeTransform(nodeId, transform);
-  }
-
   /** Owner: forward a runtime override on a shared scene node to subscribers. */
   forwardOverride(op: 'set' | 'clear', payload: Record<string, unknown>): void {
     this.sharing?.forwardOverride(op, payload);

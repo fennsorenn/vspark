@@ -72,7 +72,7 @@ import type {
   ScheduledAnimation,
   AnimationClipMeta,
 } from '../../store/editorStore';
-import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync';
+import { editorWsRef } from '../../hooks/useWsSync';
 import {
   commitNodePatch,
   commitNodePath,
@@ -5815,12 +5815,9 @@ function TransformGizmo({
     if (now - lastPreviewAtRef.current < 33) return;
     lastPreviewAtRef.current = now;
     const t = buildTransform();
-    // Two audiences, no longer two paths to the same one: the mesh preview
-    // channel carries the gesture to local tabs, while the /ws send reaches
-    // object-share subscribers, whose projection is fed outside the mesh store
-    // feeder. The second goes when the share streams migrate.
+    // One write, every audience: local tabs and object-share subscribers both
+    // read the gesture off the mesh preview channel now.
     previewNodeTransform(selectedNodeId, t);
-    sendNodeTransformPreview(selectedNodeId, t);
   };
 
   const onEnd = () => {
