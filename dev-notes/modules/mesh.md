@@ -768,11 +768,6 @@ used to be here is done, and saying so wrongly is worse than saying nothing.
   `track_clip_lane_removed`. Each is broadcast by a route that has *already*
   written the same doc through the collection, and the feeder has already applied
   it. Kept for now only because outside consumers may listen to them.
-- **Preset deserialization writes SQL directly** — `presets/deserialize.ts`
-  inserts nodes, clips, lanes, keyframes, events and logic rows behind the
-  replica's back, so importing a preset leaves every connected tab stale until
-  it reloads. The same defect the REST routes had, across every rtype a preset
-  carries.
 - **Principle 3's share container** — a mounted scene is still a scene in the
   receiver's scene list rather than a node in their tree with the renderer
   walking into the foreign tree. Principle 2 no longer depends on it (the
@@ -789,7 +784,8 @@ rtype; `logic` has a collection and no polls; clip playback is a document and
 the backend playhead is gone; node and clip previews ride the `preview` channel,
 including for object-share subscribers, so `node_transform_preview` is deleted;
 scene deletion cascades through the collection; list-shaped document fields
-(clip lanes/keyframes/events, graph nodes/edges) are keyed by id.
+(clip lanes/keyframes/events, graph nodes/edges) are keyed by id; preset
+instantiation commits its documents rather than inserting rows.
 
 ## Key files
 
