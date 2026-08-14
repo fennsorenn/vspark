@@ -104,6 +104,23 @@ The mount must still be an **explicit act** rather than inferred from "we hold
 no state for this": a dropped socket and a fresh mount look alike at the
 transport level.
 
+**Implemented** (`MeshPeer.mount(rootId, v?)` / `unmount(rootId)`, and
+`collab_scenes.mounted_at`, migration 038). `Collection.applyOp` raises an
+incoming op's stamp to the mount stamp when the document is in a mounted scope,
+so it lands on the way IN only — what the peer relays onward still carries the
+origin's stamp, which is what keeps the document itself unstamped by us.
+
+Two details worth knowing before touching it:
+
+- The scope is resolved from the containment index **and from the parent the
+  incoming document declares**. The index alone is not enough, and not as an
+  edge case: the receiver deleted this subtree, so the index forgetting it is
+  exactly what happened. A document that arrives has to be placed by what it
+  says about itself.
+- Re-mounting moves the stamp forward, deliberately. Deleting a mounted scene
+  and mounting it again is two acts, and the second one is a request for the
+  tree to come back.
+
 ### 5. The REST API stays — it writes THROUGH the mesh
 
 Migrating a write off REST means changing what the endpoint does, never deleting

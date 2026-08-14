@@ -53,6 +53,7 @@ import {
   clipCollabScene,
   persistCollabAssets,
   indexAllCollabScenes,
+  restoreMountStamps,
   listAllCollabScenes,
   type CollabLink,
   collabPeersForScene,
@@ -164,6 +165,10 @@ class MultiplayerManager {
     // Rebuild the collab node→scene index from the persisted links so live
     // forwarding (edits + pose/preview streams) works after a restart.
     indexAllCollabScenes();
+    // And the mount stamps: the links persist, the peer's mount table does not.
+    // A receiver that restarts must not go back to reconciling a mounted scene
+    // as though it had always had it — see MeshPeer.mount.
+    restoreMountStamps();
     if (broadcast) this.broadcast = broadcast;
     // Remote clip playback + runtime events arrive over the mesh `control`
     // channel; the bridges apply them locally (guarded against re-relay).

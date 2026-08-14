@@ -191,14 +191,14 @@ describe('Migration runner — idempotency', () => {
     expect(countAfter).toBe(countBefore);
   });
 
-  it('all 37 migrations are recorded in _migrations after a full run', () => {
+  it('all 38 migrations are recorded in _migrations after a full run', () => {
     const count = (
       getDb()
         .prepare('SELECT COUNT(*) AS cnt FROM _migrations')
         .all() as { cnt: number }[]
     )[0].cnt;
-    // There are 37 migrations (001 – 037).
-    expect(count).toBe(37);
+    // There are 38 migrations (001 – 038).
+    expect(count).toBe(38);
   });
 
   it('each migration name appears exactly once in _migrations', () => {

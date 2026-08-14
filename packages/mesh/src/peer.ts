@@ -599,6 +599,69 @@ export class MeshPeer implements PeerCore {
     this.index.upsert(rtype, id, { p: parentId });
   }
 
+  // --- mounts ------------------------------------------------------------------
+  //
+  // A MOUNT is not a reconnect. Reconnecting peers share history and comparable
+  // clocks, so ordinary LWW reconciles them. Mounting brings in a tree this peer
+  // has no history with — and if it once held those ids and deleted them, its
+  // tombstones out-stamp the author's live documents: the mount lands empty, and
+  // the mutual subscription then propagates those tombstones back and deletes
+  // the author's scene.
+  //
+  // So a mount records WHEN it happened, and documents in the mounted scope
+  // reconcile against `max(write stamp, mount stamp)`.
+  //
+  // The stamp is LOCAL METADATA on the mount, never written to the documents.
+  // Re-stamping them would work and would break "a document has exactly one
+  // truth" — the same document would carry a different stamp here than at its
+  // author. Keeping it beside them has two consequences that fall out for free:
+  // nothing can leak back (the documents are untouched, so this peer can never
+  // appear as the author of someone else's scene), and it expires by itself
+  // (once a document's own writes pass the mount stamp, `max` is the write
+  // stamp and ordinary LWW resumes — no flag to clear).
+
+  private readonly mounts = new Map<string, HLC>();
+
+  /** Record a mount of the subtree rooted at `rootId`. `v` defaults to now.
+   *  Idempotent per root: re-mounting moves the stamp forward, which is the
+   *  point — a second mount is a second deliberate act. */
+  mount(rootId: string, v?: HLC): void {
+    this.mounts.set(rootId, v ?? this.clock.tick());
+  }
+
+  /** Forget a mount. Documents in the scope reconcile by ordinary LWW again. */
+  unmount(rootId: string): void {
+    this.mounts.delete(rootId);
+  }
+
+  /** The mount stamp covering `id`, if any — the doc itself or an ancestor.
+   *
+   *  `parentHint` is the parent the INCOMING document declares, which is the
+   *  only way to place a document the index has never seen or has forgotten.
+   *  That is the ordinary case here, not an edge one: the receiver deleted this
+   *  subtree, so removing it from the index is exactly what happened, and the
+   *  arriving document has to be placed by what it says about itself. */
+  mountStampFor(id: string, parentHint?: string | null): HLC | undefined {
+    if (this.mounts.size === 0) return undefined; // hot path: no mounts, no walk
+    const own = this.mounts.get(id);
+    if (own) return own;
+    for (const [rootId, v] of this.mounts) {
+      if (this.index.isDescendant('', id, rootId)) return v;
+      if (parentHint === rootId) return v;
+      if (parentHint && this.index.isDescendant('', parentHint, rootId))
+        return v;
+    }
+    return undefined;
+  }
+
+  /** `v`, or the mount stamp if this doc is in a mounted scope and the mount is
+   *  newer. Applied on the way INTO the replica only; what this peer relays
+   *  onward still carries the origin's own stamp. */
+  effectiveStamp(id: string, v: HLC, parentHint?: string | null): HLC {
+    const m = this.mountStampFor(id, parentHint);
+    return m && compareHLC(m, v) > 0 ? m : v;
+  }
+
   indexRemove(id: string): void {
     this.index.remove(id);
   }

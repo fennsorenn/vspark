@@ -15,7 +15,8 @@
 import { randomUUID } from 'crypto';
 import { basename } from 'path';
 import { getDb } from '../db/index.js';
-import { getMeshCollection } from '../mesh/index.js';
+import { getMeshCollection, getMeshPeer } from '../mesh/index.js';
+import { getIdentity } from './identity.js';
 import type { IdMap } from '@vspark/shared/idMap';
 import { type SyncEnvelope } from '@vspark/shared/sync';
 import {
@@ -49,22 +50,53 @@ export function registerCollabScene(
   sceneId: string,
   peerId: string,
   role: CollabRole,
-  projectId: string
+  projectId: string,
+  /** ms epoch of the mount, for 'mounted' rows. See migration 038 and
+   *  `MeshPeer.mount`: documents in a mounted scope reconcile against
+   *  max(write stamp, mount stamp), so this peer's older tombstones cannot
+   *  swallow the tree it just mounted (and then propagate that back to its
+   *  author). Local metadata on the share — never written to the documents. */
+  mountedAt?: number
 ): void {
   getDb()
     .prepare(
-      `INSERT INTO collab_scenes (scene_id, peer_id, role, project_id)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO collab_scenes (scene_id, peer_id, role, project_id, mounted_at)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(scene_id, peer_id)
-       DO UPDATE SET role = excluded.role, project_id = excluded.project_id`
+       DO UPDATE SET role = excluded.role, project_id = excluded.project_id,
+         mounted_at = COALESCE(excluded.mounted_at, collab_scenes.mounted_at)`
     )
-    .run(sceneId, peerId, role, projectId);
+    .run(sceneId, peerId, role, projectId, mountedAt ?? null);
+  if (mountedAt !== undefined) applyMountStamp(sceneId, mountedAt);
+}
+
+/** Tell the mesh peer about a mount, so the scope reconciles against it. */
+function applyMountStamp(sceneId: string, mountedAt: number): void {
+  getMeshPeer()?.mount(sceneId, {
+    t: mountedAt,
+    c: 0,
+    n: getIdentity().peerId,
+  });
+}
+
+/** Re-apply every persisted mount stamp. Called at boot: the links persist, the
+ *  peer's in-memory mount table does not, and a receiver that restarts must not
+ *  quietly go back to reconciling a mounted scene as if it had always had it. */
+export function restoreMountStamps(): void {
+  const rows = getDb()
+    .prepare(
+      "SELECT scene_id, mounted_at FROM collab_scenes WHERE role = 'mounted' AND mounted_at IS NOT NULL"
+    )
+    .all() as { scene_id: string; mounted_at: number }[];
+  for (const r of rows) applyMountStamp(r.scene_id, r.mounted_at);
 }
 
 export function removeCollabScene(sceneId: string, peerId: string): void {
   getDb()
     .prepare('DELETE FROM collab_scenes WHERE scene_id = ? AND peer_id = ?')
     .run(sceneId, peerId);
+  // Nothing mounts this scene here any more, so it reconciles by ordinary LWW.
+  if (!isCollabScene(sceneId)) getMeshPeer()?.unmount(sceneId);
 }
 
 /** Whether a scene id participates in any collaboration (drives whether a local
@@ -233,7 +265,9 @@ export function mountSharedScene(
     sceneId,
     (snapshot.cameraEffects ?? []) as unknown as CameraEffectDto[]
   );
-  registerCollabScene(sceneId, peerId, 'mounted', projectId);
+  // Stamp the mount BEFORE the documents land, so the scope is already in force
+  // when they reconcile against this peer's history.
+  registerCollabScene(sceneId, peerId, 'mounted', projectId, Date.now());
 }
 
 /** nodeId → sceneId, so a `remove` (whose row is already gone) still resolves

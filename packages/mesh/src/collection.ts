@@ -82,6 +82,8 @@ export interface PeerCore {
   subtreeIds(rootId: string): string[];
   parentIdOf(id: string): string | null;
   isDescendant(childId: string, ancestorId: string): boolean;
+  /** `v`, raised to the mount stamp when this doc sits in a mounted scope. */
+  effectiveStamp(id: string, v: HLC, parentHint?: string | null): HLC;
   indexUpsert(rtype: string, id: string, parentId: string | null): void;
   indexRemove(id: string): void;
 }
@@ -255,6 +257,21 @@ export class Collection<T extends object> {
       this.notify(change);
       return change;
     }
+    // A mount is not a reconnect: inside a mounted scope a document reconciles
+    // against max(its own stamp, the mount stamp), so this peer's older
+    // tombstones cannot out-stamp the tree it just deliberately mounted. Local
+    // metadata only — what we relay onward still carries the origin's stamp.
+    // See MeshPeer.mount.
+    v = this.peer.effectiveStamp(
+      id,
+      v,
+      // The parent the incoming doc declares: the index cannot place a document
+      // whose subtree this peer deleted, and that is the case the mount exists
+      // for.
+      op === 'upsert' && data
+        ? (this.cfg.parent?.(data as T)?.id ?? null)
+        : null
+    );
     let change: AppliedChange<T> | null;
     let preChain: string[] | undefined;
     if (op === 'remove') {

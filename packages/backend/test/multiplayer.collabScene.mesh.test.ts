@@ -136,3 +136,79 @@ describe('collabScene mount appliers → mesh store', () => {
     expect(row?.enabled).toBe(1);
   });
 });
+
+/**
+ * The mount stamp (migration 038).
+ *
+ * A mount is not a reconnect: the receiver has no history with the incoming
+ * tree, and if it once held those ids and deleted them, its tombstones
+ * out-stamp the author's live documents — the mount lands empty and, the
+ * subscription being mutual, the tombstones propagate back and delete the
+ * author's scene. So the mount records when it happened and the mesh peer
+ * reconciles that scope against max(write stamp, mount stamp).
+ *
+ * These pin the LINK side: that the stamp is recorded on the share, reaches the
+ * peer, survives a restart, and goes away with the share. The reconciliation
+ * behaviour itself is pinned in packages/mesh/test/mount.test.ts.
+ */
+describe('collab scene mount stamp', () => {
+  let ctx: Awaited<ReturnType<typeof setup>>;
+
+  beforeEach(async () => {
+    ctx = await setup();
+  });
+
+  const link = (sceneId: string) =>
+    ctx
+      .getDb()
+      .prepare('SELECT * FROM collab_scenes WHERE scene_id = ?')
+      .get(sceneId) as { mounted_at: number | null } | undefined;
+
+  it('records the mount time on the share, not on the documents', async () => {
+    const sceneId = randomUUID();
+    ctx.collab.registerCollabScene(sceneId, 'PEER', 'mounted', 'proj', 1000);
+
+    expect(link(sceneId)?.mounted_at).toBe(1000);
+    const { getMeshPeer } = await import('../src/mesh/index.js');
+    expect(getMeshPeer()!.mountStampFor(sceneId)?.t).toBe(1000);
+  });
+
+  it('leaves an author share unstamped — an author mounted nothing', () => {
+    const sceneId = randomUUID();
+    ctx.collab.registerCollabScene(sceneId, 'PEER', 'author', 'proj');
+    expect(link(sceneId)?.mounted_at).toBeNull();
+  });
+
+  it('keeps the stamp when the link is updated for another reason', () => {
+    const sceneId = randomUUID();
+    ctx.collab.registerCollabScene(sceneId, 'PEER', 'mounted', 'proj', 1000);
+    // A re-register that carries no mount time (a role/project correction)
+    // must not silently un-mount the scene.
+    ctx.collab.registerCollabScene(sceneId, 'PEER', 'mounted', 'proj2');
+    expect(link(sceneId)?.mounted_at).toBe(1000);
+  });
+
+  it('restores stamps at boot — the links persist, the peer table does not', async () => {
+    const sceneId = randomUUID();
+    ctx.collab.registerCollabScene(sceneId, 'PEER', 'mounted', 'proj', 1000);
+
+    const { resetBackendMesh, initBackendMesh, getMeshPeer } = await import(
+      '../src/mesh/index.js'
+    );
+    resetBackendMesh();
+    initBackendMesh();
+    expect(getMeshPeer()!.mountStampFor(sceneId)).toBeUndefined();
+
+    ctx.collab.restoreMountStamps();
+    expect(getMeshPeer()!.mountStampFor(sceneId)?.t).toBe(1000);
+  });
+
+  it('drops the scope when the share goes', async () => {
+    const sceneId = randomUUID();
+    ctx.collab.registerCollabScene(sceneId, 'PEER', 'mounted', 'proj', 1000);
+    ctx.collab.removeCollabScene(sceneId, 'PEER');
+
+    const { getMeshPeer } = await import('../src/mesh/index.js');
+    expect(getMeshPeer()!.mountStampFor(sceneId)).toBeUndefined();
+  });
+});

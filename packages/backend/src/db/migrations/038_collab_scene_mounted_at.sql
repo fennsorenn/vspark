@@ -1,0 +1,23 @@
+-- 038_collab_scene_mounted_at: when a mounted scene was mounted.
+--
+-- A mount is not a reconnect. Reconnecting peers share history and comparable
+-- clocks, so ordinary last-write-wins reconciles them. Mounting brings in a
+-- tree this peer has no history with — and if it once held those ids and
+-- deleted them, its tombstones out-stamp the author's live documents: the mount
+-- lands empty, and the subscription being mutual, those tombstones then
+-- propagate back and delete the author's scene.
+--
+-- So the mount records WHEN it happened, and documents in the mounted scope
+-- reconcile against max(write stamp, mount stamp) (MeshPeer.mount).
+--
+-- Why it lives HERE, on the share, and not on the documents: re-stamping the
+-- incoming documents would also work, and would break "a document has exactly
+-- one truth" — the same document would carry a different stamp on the receiver
+-- than at its author. Keeping it beside them means nothing can leak back (the
+-- documents are untouched, so this peer can never appear as the author of
+-- someone else's scene) and it expires by itself (once a document's own writes
+-- pass the mount stamp, max() is the write stamp again).
+--
+-- ms epoch, not a datetime string: it is compared against HLC stamps, which are
+-- ms since epoch. NULL for 'author' rows — an author never mounted anything.
+ALTER TABLE collab_scenes ADD COLUMN mounted_at INTEGER;
