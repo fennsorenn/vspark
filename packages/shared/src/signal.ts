@@ -4,6 +4,7 @@
  * Data types, the Event<T> push-signal wrapper, typed port machinery,
  * the @SignalNode class decorator, and graph descriptor types.
  */
+import { byId, itemsOf, type IdMap } from './idMap.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // VRM bone name registry (VRM 1.x humanoid spec)
@@ -740,4 +741,82 @@ export interface NodeKindMeta {
   display: NodeDisplay | undefined;
   /** True if the kind has a custom inferPorts (ports may grow/shrink at edit time). */
   dynamic?: boolean;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Descriptor document form — how a persisted graph is SYNCED
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A graph descriptor as a synced document: nodes and edges keyed by id rather
+ * than listed.
+ *
+ * `GraphDescriptor` above stays the runtime shape — it is what the engine
+ * instantiates from and what the canvas renders, and both want lists. But a
+ * list is ONE mesh path: with `nodes` as an array, two people moving different
+ * nodes of one graph wrote the same path and last-writer-wins threw one edit
+ * away, taking the whole graph with it. Keyed, an edit addresses
+ * `descriptor.nodes.<nodeId>.position` and the two merge.
+ *
+ * The two forms convert at the boundary ({@link toGraphDescriptor} /
+ * {@link toDescriptorDoc}), so nothing downstream of the canvas or the engine
+ * has to know this exists.
+ */
+export interface GraphDescriptorDoc {
+  id: string;
+  label: string;
+  readonly: boolean;
+  nodes: IdMap<GraphNodeDescriptor>;
+  edges: IdMap<GraphEdgeDescriptor>;
+}
+
+/** An edge's key: DERIVED from its endpoints, never minted.
+ *
+ *  Edges carry no id of their own, and deriving one means two peers drawing the
+ *  same connection converge on one key — an LWW race on identical content —
+ *  instead of minting two uuids and leaving the graph with a duplicate edge
+ *  nobody can see. Same format the node-state snapshot uses for event edges. */
+export const edgeKey = (e: GraphEdgeDescriptor): string =>
+  `${e.fromNodeId}:${e.fromPort}:${e.toNodeId}:${e.toPort}`;
+
+/** Document → runtime. Accepts the list form too, so a descriptor stored before
+ *  the keying (or posted by an outside service) still loads. Nodes come back in
+ *  id order and edges in key order: the engine resolves by id and the canvas by
+ *  position, so neither depends on the order, but a stable one keeps diffs and
+ *  snapshots readable. */
+export function toGraphDescriptor(
+  d: GraphDescriptorDoc | GraphDescriptor | null | undefined
+): GraphDescriptor {
+  const src = (d ?? {}) as Partial<GraphDescriptorDoc & GraphDescriptor>;
+  const nodes = Array.isArray(src.nodes)
+    ? (src.nodes as GraphNodeDescriptor[])
+    : itemsOf(src.nodes as IdMap<GraphNodeDescriptor> | undefined).sort((a, b) =>
+        a.id.localeCompare(b.id)
+      );
+  const edges = Array.isArray(src.edges)
+    ? (src.edges as GraphEdgeDescriptor[])
+    : itemsOf(src.edges as IdMap<GraphEdgeDescriptor> | undefined).sort((a, b) =>
+        edgeKey(a).localeCompare(edgeKey(b))
+      );
+  return {
+    id: src.id ?? '',
+    label: src.label ?? '',
+    readonly: src.readonly ?? false,
+    nodes,
+    edges,
+  };
+}
+
+/** Runtime → document. For writing a whole descriptor at once (a create, a
+ *  preset import); an ordinary edit writes the one element it changes. */
+export function toDescriptorDoc(d: GraphDescriptor): GraphDescriptorDoc {
+  const edges: IdMap<GraphEdgeDescriptor> = {};
+  for (const e of d.edges ?? []) edges[edgeKey(e)] = e;
+  return {
+    id: d.id,
+    label: d.label,
+    readonly: d.readonly ?? false,
+    nodes: byId(d.nodes ?? []),
+    edges,
+  };
 }

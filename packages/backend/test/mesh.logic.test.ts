@@ -180,7 +180,14 @@ describe('logic collection', () => {
     await request(app)
       .post(`/api/projects/${projectId}/logic`)
       .send({ id: 'g1', name: 'G' });
-    const bad = { nodes: [{ id: 'n', kind: 'behavior_config' }], edges: [] };
+    // The document form the collection holds — nodes keyed by id.
+    const bad = {
+      id: 'g1',
+      label: 'G',
+      readonly: false,
+      nodes: { n: { id: 'n', kind: 'behavior_config' } },
+      edges: {},
+    };
 
     const res = await request(app)
       .put('/api/logic/g1')
@@ -195,9 +202,38 @@ describe('logic collection', () => {
     expect(outcome.status).toBe('rejected');
     // And the stored program is untouched by either attempt.
     expect(
-      (getMeshCollection('logic')!.get('g1') as { descriptor: unknown })
-        .descriptor
-    ).toEqual({ nodes: [], edges: [] });
+      (
+        getMeshCollection('logic')!.get('g1') as {
+          descriptor: { nodes: unknown; edges: unknown };
+        }
+      ).descriptor
+    ).toMatchObject({ nodes: {}, edges: {} });
+  });
+
+  it('reads back a descriptor stored in the pre-keying list form', async () => {
+    // Every existing row holds the list form. If load did not accept it, a
+    // graph saved before this change would come back empty — and the empty
+    // program would be written straight back over it on the next edit.
+    await request(app)
+      .post(`/api/projects/${projectId}/logic`)
+      .send({ id: 'g1', name: 'G' });
+    getDb()
+      .prepare('UPDATE logic SET descriptor = ? WHERE id = ?')
+      .run(
+        JSON.stringify({
+          id: 'g1',
+          label: 'G',
+          readonly: false,
+          nodes: [{ id: 'n', kind: 'clock', position: { x: 0, y: 0 } }],
+          edges: [],
+        }),
+        'g1'
+      );
+
+    const res = await request(app).get('/api/logic/g1');
+    expect(res.status).toBe(200);
+    // Answered in the document form, whatever the row held.
+    expect(Object.keys(res.body.data.descriptor.nodes)).toEqual(['n']);
   });
 
   it('still mints an id when the caller does not supply one', async () => {

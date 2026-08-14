@@ -62,3 +62,70 @@ describe('idMap', () => {
     expect('b' in byId(itemsOf(withDelete))).toBe(false);
   });
 });
+
+describe('graph descriptor document form', () => {
+  const node = (id: string) => ({ id, kind: 'clock', position: { x: 0, y: 0 } });
+  const edge = (from: string, to: string) => ({
+    fromNodeId: from,
+    fromPort: 'out',
+    toNodeId: to,
+    toPort: 'in',
+  });
+
+  it('round-trips runtime → document → runtime', async () => {
+    const { toDescriptorDoc, toGraphDescriptor } = await import(
+      '../src/signal.js'
+    );
+    const d = {
+      id: 'g',
+      label: 'G',
+      readonly: false,
+      nodes: [node('a'), node('b')],
+      edges: [edge('a', 'b')],
+    };
+    expect(toGraphDescriptor(toDescriptorDoc(d))).toEqual(d);
+  });
+
+  it('keys edges by their endpoints, since they carry no id', async () => {
+    const { toDescriptorDoc, edgeKey } = await import('../src/signal.js');
+    const e = edge('a', 'b');
+    const doc = toDescriptorDoc({
+      id: 'g',
+      label: 'G',
+      readonly: false,
+      nodes: [],
+      edges: [e, { ...e }],
+    });
+    // Two peers drawing the same connection converge on ONE element rather
+    // than minting two ids and leaving a duplicate edge behind.
+    expect(Object.keys(doc.edges)).toEqual([edgeKey(e)]);
+  });
+
+  it('still reads a descriptor stored before the keying', async () => {
+    const { toGraphDescriptor } = await import('../src/signal.js');
+    // The list form, as every existing row holds it. Without this a graph
+    // saved yesterday would come back empty — and the empty program would be
+    // written straight back over it.
+    const legacy = {
+      id: 'g',
+      label: 'G',
+      readonly: false,
+      nodes: [node('a')],
+      edges: [edge('a', 'b')],
+    };
+    expect(toGraphDescriptor(legacy).nodes).toHaveLength(1);
+    expect(toGraphDescriptor(legacy).edges).toHaveLength(1);
+  });
+
+  it('skips deleted elements', async () => {
+    const { toGraphDescriptor } = await import('../src/signal.js');
+    const d = toGraphDescriptor({
+      id: 'g',
+      label: 'G',
+      readonly: false,
+      nodes: { a: node('a'), b: null },
+      edges: {},
+    });
+    expect(d.nodes.map((n) => n.id)).toEqual(['a']);
+  });
+});

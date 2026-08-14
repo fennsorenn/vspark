@@ -25,6 +25,11 @@ import { defineResource } from './registry.js';
 import { rowToLayer, type LayerRow } from '../routes/compose-layers.js';
 import { loadClip } from '../routes/track-clips.js';
 import { itemsOf, type IdMap } from '@vspark/shared/idMap';
+import {
+  toDescriptorDoc,
+  toGraphDescriptor,
+  type GraphDescriptorDoc,
+} from '@vspark/shared/signal';
 
 interface StageObjectRow {
   id: string;
@@ -443,7 +448,12 @@ defineResource({
       ownerId: r.owner_id,
       name: r.name,
       enabled: r.enabled === 1,
-      descriptor: JSON.parse(r.descriptor) as unknown,
+      // Normalized to the DOCUMENT form (nodes/edges keyed by id) whatever the
+      // row holds: descriptors written before the keying are lists, and this is
+      // where they are converted — the next save writes them back keyed.
+      descriptor: toDescriptorDoc(
+        toGraphDescriptor(JSON.parse(r.descriptor) as GraphDescriptorDoc)
+      ),
       createdAt: r.created_at,
     };
   },

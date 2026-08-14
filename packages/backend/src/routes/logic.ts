@@ -14,6 +14,11 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { getMeshCollection } from '../mesh/index.js';
+import {
+  toDescriptorDoc,
+  toGraphDescriptor,
+  type GraphDescriptorDoc,
+} from '@vspark/shared/signal';
 import { type LogicRow } from '../logic/manager.js';
 
 /** The collection, or null when the mesh isn't up (tests that skip it). */
@@ -57,7 +62,12 @@ function mapLogicRow(r: LogicRow) {
     ownerId: r.owner_id,
     name: r.name,
     enabled: r.enabled === 1,
-    descriptor: JSON.parse(r.descriptor),
+    // The document form, like the collection holds it: nodes and edges keyed
+    // by id. `toGraphDescriptor` on the way in accepts a list, so an outside
+    // service can still POST the runtime shape.
+    descriptor: toDescriptorDoc(
+      toGraphDescriptor(JSON.parse(r.descriptor) as GraphDescriptorDoc)
+    ),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -81,7 +91,7 @@ async function created(
       ownerId,
       name,
       enabled: true,
-      descriptor: { nodes: [], edges: [] },
+      descriptor: { id, label: name, readonly: false, nodes: {}, edges: {} },
     }))
   )
     return false;
@@ -206,7 +216,13 @@ router.put('/logic/:id', async (req, res) => {
     ...cur,
     ...(name !== undefined ? { name } : {}),
     ...(enabled !== undefined ? { enabled } : {}),
-    ...(descriptor !== undefined ? { descriptor } : {}),
+    ...(descriptor !== undefined
+      ? {
+          descriptor: toDescriptorDoc(
+            toGraphDescriptor(descriptor as GraphDescriptorDoc)
+          ),
+        }
+      : {}),
   };
   if (!(await commit(res, req.params.id, doc))) return;
   const row = rowOf(req.params.id);

@@ -1,4 +1,5 @@
 import { itemsOf, type IdMap } from '@vspark/shared/idMap';
+import { toGraphDescriptor } from '@vspark/shared/signal';
 
 const BASE = '/api';
 
@@ -991,13 +992,15 @@ export const fireSignalEvent = (
 // ─── Project graphs ──────────────────────────────────────────────────────────
 
 export const getProjectLogic = (projectId: string) =>
-  request<LogicRecord[]>(`/projects/${projectId}/logic`);
+  request<RawLogic[]>(`/projects/${projectId}/logic`).then((rs) =>
+    rs.map(mapLogic)
+  );
 
 export const createProjectLogic = (projectId: string, name: string) =>
-  request<LogicRecord>(`/projects/${projectId}/logic`, {
+  request<RawLogic>(`/projects/${projectId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
-  });
+  }).then(mapLogic);
 
 /** A scene-node- or compose-layer-scoped graph, tagged with its owner's
  *  display name for listing in the Graphs panel's Scoped section. */
@@ -1007,7 +1010,15 @@ export interface ScopedLogicRecord extends LogicRecord {
 }
 
 export const getProjectScopedLogic = (projectId: string) =>
-  request<ScopedLogicRecord[]>(`/projects/${projectId}/scoped-logic`);
+  request<(RawLogic & { ownerName: string; ownerNodeKind?: string })[]>(
+    `/projects/${projectId}/scoped-logic`
+  ).then((rs) =>
+    rs.map((r) => ({
+      ...mapLogic(r),
+      ownerName: r.ownerName,
+      ownerNodeKind: r.ownerNodeKind,
+    }))
+  );
 
 // ─── Overlive: app credentials ───────────────────────────────────────────────
 
@@ -1199,9 +1210,23 @@ export interface LogicRecord {
   ownerId: string;
   name: string;
   enabled: boolean;
+  /** The RUNTIME shape (nodes/edges as lists) — what the canvas renders and the
+   *  engine instantiates. The document keys them by id so each element is its
+   *  own mesh path; `mapLogic` is the boundary. */
   descriptor: import('@vspark/shared/signal').GraphDescriptor;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** A graph as it arrives: the document form, children keyed by id. */
+export type RawLogic = Omit<LogicRecord, 'descriptor'> & {
+  descriptor: import('@vspark/shared/signal').GraphDescriptorDoc;
+};
+
+/** Document → record. The only place the two descriptor shapes meet on the
+ *  frontend; everything above it works in lists. */
+export function mapLogic(r: RawLogic): LogicRecord {
+  return { ...r, descriptor: toGraphDescriptor(r.descriptor) };
 }
 
 export const getPresets = (projectId: string) =>
@@ -1285,25 +1310,30 @@ export const instantiatePreset = (
 
 /** Generic graph fetch by id — works for any owner kind. Used by the canvas
  *  so it can open a graph without first knowing its scope. */
-export const getLogic = (id: string) => request<LogicRecord>(`/logic/${id}`);
+export const getLogic = (id: string) =>
+  request<RawLogic>(`/logic/${id}`).then(mapLogic);
 
 export const getNodeLogic = (nodeId: string) =>
-  request<LogicRecord[]>(`/scene-nodes/${nodeId}/logic`);
+  request<RawLogic[]>(`/scene-nodes/${nodeId}/logic`).then((rs) =>
+    rs.map(mapLogic)
+  );
 
 export const createNodeLogic = (nodeId: string, name: string) =>
-  request<LogicRecord>(`/scene-nodes/${nodeId}/logic`, {
+  request<RawLogic>(`/scene-nodes/${nodeId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
-  });
+  }).then(mapLogic);
 
 export const getLayerLogic = (layerId: string) =>
-  request<LogicRecord[]>(`/compose-layers/${layerId}/logic`);
+  request<RawLogic[]>(`/compose-layers/${layerId}/logic`).then((rs) =>
+    rs.map(mapLogic)
+  );
 
 export const createLayerLogic = (layerId: string, name: string) =>
-  request<LogicRecord>(`/compose-layers/${layerId}/logic`, {
+  request<RawLogic>(`/compose-layers/${layerId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
-  });
+  }).then(mapLogic);
 
 export const updateLogic = (
   id: string,
@@ -1313,10 +1343,12 @@ export const updateLogic = (
     descriptor: import('@vspark/shared/signal').GraphDescriptor;
   }>
 ) =>
-  request<LogicRecord>(`/logic/${id}`, {
+  request<RawLogic>(`/logic/${id}`, {
     method: 'PUT',
+    // The route accepts either shape; sending the runtime one keeps the
+    // conversion in one place (mapLogic on the way back).
     body: JSON.stringify(patch),
-  });
+  }).then(mapLogic);
 
 export const deleteLogic = (id: string) =>
   request<Record<string, never>>(`/logic/${id}`, { method: 'DELETE' });

@@ -44,6 +44,10 @@ import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { logicLifecycle } from '../logic/lifecycle.js';
 import { validateDescriptor } from '../logic/manager.js';
+import {
+  toGraphDescriptor,
+  type GraphDescriptorDoc,
+} from '@vspark/shared/signal';
 import { isClientParticipant } from '@vspark/shared/sync';
 import '../sync/resources.js'; // side effect: register the descriptors
 
@@ -313,7 +317,7 @@ const BINDINGS: RtypeBinding[] = [
     guard: (d) => {
       if (d.descriptor)
         validateDescriptor(
-          d.descriptor as Parameters<typeof validateDescriptor>[0],
+          toGraphDescriptor(d.descriptor as GraphDescriptorDoc),
           String(d.ownerKind)
         );
     },

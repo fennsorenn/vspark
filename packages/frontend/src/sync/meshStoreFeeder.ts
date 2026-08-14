@@ -43,11 +43,11 @@ import {
   type ClipPlayback,
   type AnimationClipMeta,
 } from '../store/editorStore';
-import { mapTrackClip } from '../api/client';
+import { mapLogic, mapTrackClip } from '../api/client';
 import type {
   CameraEffectRecord,
   ComposeLayerRecord,
-  LogicRecord,
+  RawLogic,
 } from '../api/client';
 
 let started = false;
@@ -329,15 +329,19 @@ export function startMeshStoreFeeder(): void {
           s.removeLogicLocal(c.id);
           return;
         }
-        const g = c.doc as unknown as LogicRecord | undefined;
-        if (g) s.upsertLogic(g);
+        // Same boundary as clips: the document keys the descriptor's nodes and
+        // edges by id, the canvas and the engine want lists.
+        const g = c.doc as unknown as RawLogic | undefined;
+        if (g) s.upsertLogic(mapLogic(g));
       });
       // Every other slice is hydrated by the Editor page's REST load and only
       // takes deltas here; `logic` has no such load, so a subscription snapshot
       // that landed before this observer registered would be lost. Seed from
       // whatever the replica already holds.
       for (const g of h.collections.logic.all())
-        useEditorStore.getState().upsertLogic(g as unknown as LogicRecord);
+        useEditorStore
+          .getState()
+          .upsertLogic(mapLogic(g as unknown as RawLogic));
       h.collections.clip_playback.observe('**', (c) => {
         // No ephemeral branch yet: a scrub rides the preview channel, and the
         // slice below is read through a derivation that reads the doc as-is —

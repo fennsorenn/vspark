@@ -20,7 +20,7 @@ import {
   type EdgeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
+import { SIGNAL_TYPE_COLORS, edgeKey } from '@vspark/shared/signal';
 import type {
   GraphDescriptor,
   NodeKindMeta,
@@ -35,7 +35,15 @@ import { inferForKind } from '@vspark/shared/infer_nodes';
 import { transportOf, type ResolvedPort } from '@vspark/shared/signal_types';
 import type { PortMeta } from '@vspark/shared/node';
 import type { LogicOwnerKind } from '@vspark/shared/types';
-import { commitLogicPath } from '../../../mesh/logicWrites';
+import {
+  commitGraphEdge,
+  commitGraphEdgeDelete,
+  commitGraphNode,
+  commitGraphNodeConfig,
+  commitGraphNodeDelete,
+  commitGraphPaste,
+  previewGraphNode,
+} from '../../../mesh/logicWrites';
 import { SignalNodeCard } from './SignalNodeCard';
 import type { SignalNodeData } from './SignalNodeCard';
 import { FlashEdge } from './FlashEdge';
@@ -199,8 +207,13 @@ function mergeNodes<T extends Node>(prev: T[], next: T[]): T[] {
       p.data as Record<string, unknown>,
       n.data as Record<string, unknown>
     );
+    // A node the user is dragging keeps ITS position: the descriptor's is a
+    // frame behind (the drag previews, it does not commit until release), so
+    // taking `next`'s here would snap the node back under the pointer on any
+    // unrelated rebuild — the 500ms state poll, or another tab's edit.
     const posSame =
-      p.position?.x === n.position?.x && p.position?.y === n.position?.y;
+      p.dragging === true ||
+      (p.position?.x === n.position?.x && p.position?.y === n.position?.y);
     if (dataSame && posSame && p.type === n.type) {
       out.push(p);
     } else {
@@ -360,11 +373,10 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   // Transient banner shown when a drag connection is refused by type inference.
   const [rejectMsg, setRejectMsg] = useState<string | null>(null);
 
-  // For writable project graphs we keep our own mutable copy of the descriptor
-  // and PUT it back debounced. `descriptor` above is the rendered baseline.
-  const editableRef = useRef<GraphDescriptor | null>(null);
-  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const writableRef = useRef(false);
+  // The rendered descriptor, for the change handlers: React Flow hands back ids
+  // and positions, and the element write needs the rest of the record.
+  const descriptorRef = useRef<GraphDescriptor | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   // Track previous edge timestamps to detect new firings
@@ -386,6 +398,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     () => (descriptor ? buildMirror(descriptor, kindMap, ownerKind) : null),
     [descriptor, kindMap, ownerKind]
   );
+  descriptorRef.current = descriptor;
 
   // Show + auto-dismiss the connection-rejected banner (fired by handleConnect).
   useEffect(() => {
@@ -403,56 +416,52 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     return () => clearTimeout(t);
   }, [rejectMsg]);
 
-  // Load descriptor — first check behavior-owned graphs (read-only), then
-  // fall back to standalone project graphs (writable).
+  // A logic graph is READ FROM THE STORE, which the mesh feeder keeps current:
+  // another tab's edit — a moved node, a new edge — lands here without a
+  // refetch, which is the point of keying the descriptor's elements.
+  const storeRecord = useEditorStore((s) => s.logic[graphId]);
+
+  // Behavior-owned graphs are not documents: their descriptors are built by the
+  // behavior managers, so they are fetched, and read-only.
+  const [behaviorDescriptor, setBehaviorDescriptor] =
+    useState<GraphDescriptor | null>(null);
   useEffect(() => {
-    if (!graphId) return;
+    if (!graphId || storeRecord) return;
     let cancelled = false;
-    (async () => {
-      try {
-        const behaviorLogic = await api.getSignalGraphs();
-        const match = behaviorLogic.find((g) => g.id === graphId);
-        if (match) {
-          if (!cancelled) {
-            writableRef.current = false;
-            setWritable(false);
-            setActiveLogicWritable(false);
-            // Behavior-owned graphs are always attached to a scene node.
-            setOwnerKind('scene_node');
-            setDescriptor(match);
-          }
-          return;
-        }
-      } catch {
-        /* ignore */
-      }
-      // Fall back to standalone graphs (project / scene_node / compose_layer)
-      // via the generic getLogic endpoint. All three owner kinds are writable
-      // via the same PUT /graphs/:id route.
-      try {
-        const g = await api.getLogic(graphId);
-        if (g && !cancelled) {
-          const d: GraphDescriptor = {
-            ...g.descriptor,
-            id: g.id,
-            label: g.name,
-            readonly: false,
-          };
-          writableRef.current = true;
-          editableRef.current = d;
-          setWritable(true);
-          setActiveLogicWritable(true);
-          setOwnerKind((g.ownerKind as LogicOwnerKind) || undefined);
-          setDescriptor(d);
-        }
-      } catch {
-        /* ignore */
-      }
-    })();
+    void api
+      .getSignalGraphs()
+      .then((all) => {
+        const match = all.find((g) => g.id === graphId);
+        if (match && !cancelled) setBehaviorDescriptor(match);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [graphId, setActiveLogicWritable]);
+  }, [graphId, storeRecord]);
+
+  useEffect(() => {
+    if (storeRecord) {
+      writableRef.current = true;
+      setWritable(true);
+      setActiveLogicWritable(true);
+      setOwnerKind((storeRecord.ownerKind as LogicOwnerKind) || undefined);
+      setDescriptor({
+        ...storeRecord.descriptor,
+        id: storeRecord.id,
+        label: storeRecord.name,
+        readonly: false,
+      });
+      return;
+    }
+    if (behaviorDescriptor) {
+      writableRef.current = false;
+      setWritable(false);
+      setActiveLogicWritable(false);
+      setOwnerKind('scene_node');
+      setDescriptor(behaviorDescriptor);
+    }
+  }, [storeRecord, behaviorDescriptor, setActiveLogicWritable]);
 
   // Clear writable flag on unmount (so leaving the graph view also clears).
   useEffect(
@@ -558,55 +567,13 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   }, [descriptor, mirror, flashingEdges, edgeValues, setEdges]);
 
   // ── persistence ─────────────────────────────────────────────────────────
-
-  /** Commit the editable descriptor, minus the wrapper fields (id/label/
-   *  readonly) that the canvas adds and the row doesn't store. */
-  const persistDescriptor = useCallback((id: string) => {
-    const next = editableRef.current;
-    if (!next) return;
-    commitLogicPath(id, 'descriptor', {
-      id: next.id,
-      label: next.label,
-      readonly: false,
-      nodes: next.nodes,
-      edges: next.edges,
-    });
-  }, []);
-
-  /** Replace the in-memory descriptor and schedule a debounced commit.
-   *
-   *  The whole descriptor is still one value, so this is last-writer-wins over
-   *  the entire graph: two people editing the SAME graph at once still lose one
-   *  side's work, the difference being that the loser now sees it happen. Making
-   *  concurrent edits merge needs the descriptor re-keyed from `nodes[]`/`edges[]`
-   *  into id-keyed objects, so each element is its own path — the same change
-   *  track_clip lanes need, tracked with it.
-   *
-   *  The debounce stays: it keeps a drag from writing 60 undo entries. */
-  const mutateDescriptor = useCallback(
-    (mut: (d: GraphDescriptor) => GraphDescriptor) => {
-      if (!writableRef.current) return;
-      const current = editableRef.current;
-      if (!current) return;
-      const next = mut(current);
-      editableRef.current = next;
-      setDescriptor(next);
-      if (persistTimer.current) clearTimeout(persistTimer.current);
-      persistTimer.current = setTimeout(() => persistDescriptor(graphId), 400);
-    },
-    [graphId, persistDescriptor]
-  );
-
-  // Flush the pending commit on unmount so a quick edit-then-leave doesn't lose
-  // data.
-  useEffect(() => {
-    return () => {
-      if (!persistTimer.current) return;
-      clearTimeout(persistTimer.current);
-      persistTimer.current = null;
-      if (writableRef.current) persistDescriptor(graphId);
-    };
-  }, [graphId, persistDescriptor]);
+  //
+  // There is none here any more. Every edit below commits the ELEMENT it
+  // changes (`descriptor.nodes.<id>`, `descriptor.edges.<key>`) through
+  // mesh/logicWrites, and the feeder brings it back through the store. The old
+  // shape — mutate a local copy, debounce a PUT of the whole descriptor — is
+  // what made two people editing one graph overwrite each other, and it needed
+  // a flush-on-unmount to avoid losing the last edit.
 
   // ── React Flow event handlers ───────────────────────────────────────────
 
@@ -627,27 +594,31 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       const removals = changes.filter((c) => c.type === 'remove') as Array<
         NodeChange & { id: string }
       >;
+      // Mid-drag positions ride the preview channel: other tabs watch the node
+      // move, and only the release is model state (one undo step per drag).
+      const dragging = changes.filter(
+        (c) => c.type === 'position' && c.dragging === true && c.position
+      ) as Array<
+        NodeChange & { id: string; position: { x: number; y: number } }
+      >;
+      const cur = descriptorRef.current;
+      for (const c of dragging) {
+        const node = cur?.nodes.find((n) => n.id === c.id);
+        if (node) previewGraphNode(graphId, { ...node, position: c.position });
+      }
       if (positionEnds.length === 0 && removals.length === 0) return;
-      mutateDescriptor((d) => {
-        let nodes = d.nodes;
-        let edges = d.edges;
-        if (positionEnds.length > 0) {
-          const byId = new Map(positionEnds.map((c) => [c.id, c.position]));
-          nodes = nodes.map((n) =>
-            byId.has(n.id) ? { ...n, position: byId.get(n.id)! } : n
-          );
-        }
-        if (removals.length > 0) {
-          const removeIds = new Set(removals.map((c) => c.id));
-          nodes = nodes.filter((n) => !removeIds.has(n.id));
-          edges = edges.filter(
-            (e) => !removeIds.has(e.fromNodeId) && !removeIds.has(e.toNodeId)
-          );
-        }
-        return { ...d, nodes, edges };
-      });
+      for (const c of positionEnds) {
+        const node = cur?.nodes.find((n) => n.id === c.id);
+        if (node) commitGraphNode(graphId, { ...node, position: c.position });
+      }
+      if (removals.length > 0)
+        commitGraphNodeDelete(
+          graphId,
+          removals.map((c) => c.id),
+          cur?.edges ?? []
+        );
     },
-    [onNodesChange, mutateDescriptor]
+    [onNodesChange, graphId]
   );
 
   const handleEdgesChange = useCallback(
@@ -659,17 +630,11 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       >;
       if (removals.length === 0) return;
       const removeIds = new Set(removals.map((c) => c.id));
-      mutateDescriptor((d) => ({
-        ...d,
-        edges: d.edges.filter(
-          (e) =>
-            !removeIds.has(
-              `${e.fromNodeId}:${e.fromPort}:${e.toNodeId}:${e.toPort}`
-            )
-        ),
-      }));
+      // React Flow's edge id IS the derived key, so a removal names its element.
+      for (const e of descriptorRef.current?.edges ?? [])
+        if (removeIds.has(edgeKey(e))) commitGraphEdgeDelete(graphId, e);
     },
-    [onEdgesChange, mutateDescriptor]
+    [onEdgesChange, graphId]
   );
 
   const handleConnect = useCallback(
@@ -719,31 +684,18 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
             ? 'event'
             : 'value';
 
-      mutateDescriptor((d) => {
-        const key = `${conn.source}:${fromPort}:${conn.target}:${toPort}`;
-        if (
-          d.edges.some(
-            (e) =>
-              `${e.fromNodeId}:${e.fromPort}:${e.toNodeId}:${e.toPort}` === key
-          )
-        )
-          return d;
-        return {
-          ...d,
-          edges: [
-            ...d.edges,
-            {
-              fromNodeId: conn.source!,
-              fromPort,
-              toNodeId: conn.target!,
-              toPort,
-              kind: edgeKind,
-            },
-          ],
-        };
-      });
+      const edge: GraphEdgeDescriptor = {
+        fromNodeId: conn.source,
+        fromPort,
+        toNodeId: conn.target,
+        toPort,
+        kind: edgeKind,
+      };
+      // No duplicate check needed: the key is derived from the endpoints, so
+      // re-drawing the same connection writes the same path.
+      commitGraphEdge(graphId, edge);
     },
-    [mutateDescriptor, mirror]
+    [graphId, mirror]
   );
 
   /**
@@ -763,20 +715,8 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       }>;
       const d = ce.detail;
       if (!d || d.graphId !== graphId) return;
-      mutateDescriptor((g) => ({
-        ...g,
-        nodes: g.nodes.map((n) =>
-          n.id === d.nodeId
-            ? {
-                ...n,
-                defaultConfig: {
-                  ...(n.defaultConfig ?? {}),
-                  [d.portName]: d.value,
-                },
-              }
-            : n
-        ),
-      }));
+      if (!writableRef.current) return;
+      commitGraphNodeConfig(graphId, d.nodeId, d.portName, d.value);
     };
     window.addEventListener(
       'vspark:project-graph-literal',
@@ -787,7 +727,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
         'vspark:project-graph-literal',
         onLiteralChange as EventListener
       );
-  }, [graphId, mutateDescriptor]);
+  }, [graphId]);
 
   // ── Drop from palette ──────────────────────────────────────────────────
 
@@ -815,9 +755,9 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
         position,
         defaultConfig: {},
       };
-      mutateDescriptor((d) => ({ ...d, nodes: [...d.nodes, newNode] }));
+      commitGraphNode(graphId, newNode);
     },
-    [kindMap, mutateDescriptor, screenToFlowPosition]
+    [kindMap, graphId, screenToFlowPosition]
   );
 
   // ── selection ──────────────────────────────────────────────────────────
@@ -871,7 +811,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
         const selectedNodes = nodes.filter((n) => n.selected);
         if (selectedNodes.length === 0) return;
         const selectedIds = new Set(selectedNodes.map((n) => n.id));
-        const d = editableRef.current;
+        const d = descriptorRef.current;
         if (!d) return;
         const copiedNodes = d.nodes.filter((n) => selectedIds.has(n.id));
         const copiedEdges = d.edges.filter(
@@ -907,11 +847,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
             fromNodeId: idMap.get(e.fromNodeId) ?? e.fromNodeId,
             toNodeId: idMap.get(e.toNodeId) ?? e.toNodeId,
           }));
-          mutateDescriptor((d) => ({
-            ...d,
-            nodes: [...d.nodes, ...newNodes],
-            edges: [...d.edges, ...newEdges],
-          }));
+          commitGraphPaste(graphId, newNodes, newEdges);
           // Re-select the pasted nodes (and only those). The next build
           // pass picks this up via mergeNodes' selected pass-through.
           const newIds = new Set(idMap.values());
@@ -924,14 +860,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [
-    writable,
-    nodes,
-    clipboardPayload,
-    setClipboard,
-    mutateDescriptor,
-    setNodes,
-  ]);
+  }, [writable, nodes, clipboardPayload, setClipboard, graphId, setNodes]);
 
   // Suppress noisy React Flow change-application when the graph is read-only,
   // so accidental keypresses or drags don't update visual state we can't persist.

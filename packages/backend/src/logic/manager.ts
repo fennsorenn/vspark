@@ -22,8 +22,10 @@ import { SignalGraph } from '../signal/engine.js';
 import { NODE_REGISTRY } from '../signal/registry.js';
 import { Clock } from '../signal/nodes/clock.js';
 import { getDb } from '../db/index.js';
+import { toGraphDescriptor } from '@vspark/shared/signal';
 import type {
   GraphDescriptor,
+  GraphDescriptorDoc,
   GraphStateSnapshot,
 } from '@vspark/shared/signal';
 import type { LogicOwnerKind } from '@vspark/shared/types';
@@ -101,7 +103,13 @@ export class LogicManager {
     const row = this.get(id);
     if (!row || row.enabled !== 1) return;
     try {
-      const descriptor = JSON.parse(row.descriptor) as GraphDescriptor;
+      // The row stores the DOCUMENT form (nodes/edges keyed by id, so each is
+      // its own mesh path); the engine wants lists. `toGraphDescriptor` also
+      // accepts the old list form, so a graph stored before the keying still
+      // runs — and is rewritten on its next save.
+      const descriptor = toGraphDescriptor(
+        JSON.parse(row.descriptor) as GraphDescriptorDoc
+      );
       validateDescriptor(descriptor, row.owner_kind);
 
       const nodeStates = parseNodeStateMap(row.node_state);
