@@ -30,8 +30,22 @@ const schema: SchemaProvider = (rtype) => {
     // them; non-recursive. (Indexed so subtree() includes them later.)
     case 'behavior':
     case 'camera_effect':
+      return {
+        parentField: 'nodeId',
+        parentTypes: ['scene_node'],
+        canBeRoot: false,
+      };
+    // A clip hangs off a scene node OR a compose layer, and its DTO says so with
+    // ownerNodeId / ownerLayerId — not `nodeId`, which no clip has ever carried.
+    // Sharing the case above meant every clip indexed with a null parent, so
+    // owning-root resolution and the isDescendant checks behind object-share
+    // grants (multiplayer/sharing.ts, shares.ts) never saw clips as owned.
     case 'track_clip':
-      return { parentField: 'nodeId', parentTypes: ['scene_node'], canBeRoot: false };
+      return {
+        parentField: ['ownerNodeId', 'ownerLayerId'],
+        parentTypes: ['scene_node', 'compose_layer'],
+        canBeRoot: false,
+      };
     default:
       return undefined; // not part of the containment tree
   }

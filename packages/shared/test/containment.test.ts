@@ -140,3 +140,63 @@ describe('checkStructural', () => {
     });
   });
 });
+
+/**
+ * Multi-field parents: an entity that can hang off more than one kind of owner.
+ *
+ * A track clip belongs to a scene node OR a compose layer, and its DTO says so
+ * with `ownerNodeId` / `ownerLayerId`. The backend schema used to give it
+ * `parentField: 'nodeId'` — a field no clip has ever carried — so every clip
+ * indexed with a NULL parent and looked like a root. Nothing errored; owning-
+ * root resolution and the isDescendant checks behind object-share grants simply
+ * never saw a clip as owned by anything.
+ */
+describe('parentField with several candidates', () => {
+  const schemas: Record<string, ContainmentSchema> = {
+    scene_node: { parentField: 'parentId', parentTypes: ['scene_node'], canBeRoot: true },
+    compose_layer: { parentField: 'parentId', parentTypes: ['compose_layer'], canBeRoot: true },
+    track_clip: {
+      parentField: ['ownerNodeId', 'ownerLayerId'],
+      parentTypes: ['scene_node', 'compose_layer'],
+      canBeRoot: false,
+    },
+  };
+  const idx = () => new ContainmentIndex((rt) => schemas[rt]);
+
+  it('takes the first field present — node-owned', () => {
+    const i = idx();
+    i.upsert('scene_node', 'n1', {});
+    i.upsert('track_clip', 'c1', { ownerNodeId: 'n1', ownerLayerId: null });
+    expect(i.childrenOf('n1')).toContain('c1');
+  });
+
+  it('falls through to the next field — layer-owned', () => {
+    const i = idx();
+    i.upsert('compose_layer', 'l1', {});
+    i.upsert('track_clip', 'c1', { ownerNodeId: null, ownerLayerId: 'l1' });
+    expect(i.childrenOf('l1')).toContain('c1');
+  });
+
+  it('a clip with neither owner is parentless, not crashed', () => {
+    const i = idx();
+    i.upsert('track_clip', 'c1', {});
+    expect(i.parentOf('c1')).toBeNull();
+  });
+
+  it('re-parents when the owner changes kind', () => {
+    const i = idx();
+    i.upsert('scene_node', 'n1', {});
+    i.upsert('compose_layer', 'l1', {});
+    i.upsert('track_clip', 'c1', { ownerNodeId: 'n1' });
+    i.upsert('track_clip', 'c1', { ownerNodeId: null, ownerLayerId: 'l1' });
+    expect(i.childrenOf('n1')).not.toContain('c1');
+    expect(i.childrenOf('l1')).toContain('c1');
+  });
+
+  it('a single-string parentField still behaves exactly as before', () => {
+    const i = idx();
+    i.upsert('scene_node', 'root', {});
+    i.upsert('scene_node', 'kid', { parentId: 'root' });
+    expect(i.childrenOf('root')).toContain('kid');
+  });
+});
