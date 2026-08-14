@@ -281,7 +281,6 @@ export function startMeshStoreFeeder(): void {
         }
       });
       h.collections.track_clip.observe('**', (c) => {
-        if (c.op === 'ephemeral') return;
         const s = useEditorStore.getState();
         if (c.op === 'remove') {
           s.removeTrackClip(c.id);
@@ -297,7 +296,17 @@ export function startMeshStoreFeeder(): void {
         // so an existing clip must be REPLACED, not skipped.
         const raw = c.doc as unknown as Record<string, unknown> | undefined;
         if (!raw || parentIsRemote(raw.ownerNodeId)) return;
+        // An ephemeral op is an in-flight keyframe drag: the composed doc
+        // already carries the overlay, so it applies exactly like a committed
+        // one. No tweening — a curve editor's dot must sit where the pointer
+        // is, not chase it — and no special case beyond skipping the add path,
+        // since a clip cannot come into existence on the preview channel.
         const clip = mapTrackClip(raw);
+        if (c.op === 'ephemeral') {
+          if (s.trackClips.some((x) => x.id === clip.id))
+            s.updateTrackClipLocal(clip);
+          return;
+        }
         if (s.trackClips.some((x) => x.id === clip.id))
           s.updateTrackClipLocal(clip);
         else s.addTrackClip(clip);

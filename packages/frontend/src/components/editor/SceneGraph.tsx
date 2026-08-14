@@ -11,6 +11,7 @@ import {
   commitEffectDelete,
   commitEffectPatch,
 } from '../../mesh/effectWrites';
+import { commitClipCreate } from '../../mesh/clipWrites';
 import {
   commitLogicCreate,
   commitLogicDelete,
@@ -119,7 +120,6 @@ function MergedSections({
   const nodeKind = useEditorStore(
     (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
   );
-  const addTrackClip = useEditorStore((s) => s.addTrackClip);
   const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
   const setBottomTab = useEditorStore((s) => s.setBottomTab);
 
@@ -160,11 +160,10 @@ function MergedSections({
   };
   const addClip = async () => {
     try {
-      const clip = await api.createTrackClipForNode(nodeId, {
-        name: 'Clip',
-        duration: 2,
-      });
-      addTrackClip(clip);
+      const clip = await commitClipCreate(
+        { kind: 'scene_node', id: nodeId },
+        { name: 'Clip', duration: 2 }
+      );
       selectTrackClip(clip.id);
       setBottomTab('clips');
     } catch {

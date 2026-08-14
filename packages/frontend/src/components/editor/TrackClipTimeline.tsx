@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
-import { api, ApiError } from '../../api/client';
+import {
+  commitClipPatch,
+  commitEvent,
+  commitEventDelete,
+  commitKeyframe,
+  commitKeyframeDelete,
+  commitLaneCreate,
+  commitLaneDelete,
+  previewKeyframe,
+} from '../../mesh/clipWrites';
 import {
   commitPause,
   commitPlay,
@@ -49,7 +58,6 @@ export function TrackClipTimeline() {
   const { t } = useTranslation('clips');
   const trackClips = useEditorStore((s) => s.trackClips);
   const selectedTrackClipId = useEditorStore((s) => s.selectedTrackClipId);
-  const updateTrackClipLocal = useEditorStore((s) => s.updateTrackClipLocal);
 
   const selectedClip =
     trackClips.find((c) => c.id === selectedTrackClipId) ?? null;
@@ -68,11 +76,7 @@ export function TrackClipTimeline() {
       }}
     >
       {selectedClip ? (
-        <TimelineEditor
-          key={selectedClip.id}
-          clip={selectedClip}
-          onUpdate={updateTrackClipLocal}
-        />
+        <TimelineEditor key={selectedClip.id} clip={selectedClip} />
       ) : (
         <div
           style={{
@@ -102,27 +106,13 @@ interface SelectedKey {
   keyframeId: string;
 }
 
-function TimelineEditor({
-  clip,
-  onUpdate,
-}: {
-  clip: TrackClipRecord;
-  onUpdate: (clip: TrackClipRecord) => void;
-}) {
+function TimelineEditor({ clip }: { clip: TrackClipRecord }) {
   const { t } = useTranslation('clips');
   const selectedNodeId = useEditorStore((s) => s.selectedNodeId);
   const selectedComposeId = useEditorStore((s) => s.selectedComposeLayerId);
   const nodes = useEditorStore((s) => s.nodes);
   const composeLayers = useEditorStore((s) => s.composeLayers);
   const playback = useEditorStore((s) => s.clipPlayback);
-  const addTrackClipLane = useEditorStore((s) => s.addTrackClipLane);
-  const removeTrackClipLaneStore = useEditorStore((s) => s.removeTrackClipLane);
-  const replaceTrackClipLaneKeyframes = useEditorStore(
-    (s) => s.replaceTrackClipLaneKeyframes
-  );
-  const replaceTrackClipEventsStore = useEditorStore(
-    (s) => s.replaceTrackClipEvents
-  );
 
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<SelectedKey | null>(null);
@@ -136,14 +126,11 @@ function TimelineEditor({
     }
   }, [clip, selected]);
 
-  const handlePatchClip = async (
+  const handlePatchClip = (
     patch: Partial<
       Pick<TrackClipRecord, 'name' | 'duration' | 'loop' | 'mode' | 'autoplay'>
     >
-  ) => {
-    const updated = await api.updateTrackClip(clip.id, patch);
-    onUpdate(updated);
-  };
+  ) => commitClipPatch(clip.id, patch);
 
   // Transport writes the mesh document, and nothing else. The REST endpoints
   // still exist for outside services, but they now write the same collection —
@@ -165,67 +152,17 @@ function TimelineEditor({
     paramPath: string,
     defaultValue: number
   ) => {
-    const lane = await api.createTrackClipLane(clip.id, {
+    await commitLaneCreate(clip.id, {
       targetKind: kind,
       targetId,
       paramPath,
       defaultValue,
     });
-    addTrackClipLane(clip.id, lane);
     setAdding(false);
   };
 
-  const handleDeleteLane = async (laneId: string) => {
-    await api.deleteTrackClipLane(laneId);
-    removeTrackClipLaneStore(laneId, clip.id);
-  };
-
-  const handleReplaceKeyframes = async (
-    laneId: string,
-    keyframes: TrackClipKeyframeRecord[]
-  ) => {
-    replaceTrackClipLaneKeyframes(laneId, keyframes);
-    try {
-      await api.replaceTrackClipKeyframes(
-        laneId,
-        keyframes.map((k) => ({
-          id: k.id,
-          t: k.t,
-          value: k.value,
-          easing: k.easing,
-          inHandleTFraction: k.inHandleTFraction,
-          inHandleVFraction: k.inHandleVFraction,
-          outHandleTFraction: k.outHandleTFraction,
-          outHandleVFraction: k.outHandleVFraction,
-        }))
-      );
-    } catch (e) {
-      // 404 means the lane no longer exists on the backend (e.g. the DB was
-      // wiped or the lane was removed by another client). Drop it locally so
-      // we don't keep retrying on every drag tick.
-      if (e instanceof ApiError && e.status === 404) {
-        removeTrackClipLaneStore(laneId, clip.id);
-      }
-    }
-  };
-
-  const handleReplaceEvents = async (events: TrackClipEventRecord[]) => {
-    replaceTrackClipEventsStore(clip.id, events);
-    try {
-      await api.replaceTrackClipEvents(
-        clip.id,
-        events.map((e) => ({
-          id: e.id,
-          t: e.t,
-          action: e.action,
-          targetKind: e.targetKind,
-          targetId: e.targetId,
-          payload: e.payload,
-        }))
-      );
-    } catch {
-      /* non-fatal */
-    }
+  const handleDeleteLane = (laneId: string) => {
+    void commitLaneDelete(clip.id, laneId);
   };
 
   // Media-capable targets: video/audio scene nodes + video/audio compose layers.
@@ -368,17 +305,11 @@ function TimelineEditor({
         <KeyframeProperties
           lane={selectedLane}
           kf={selectedKeyframe}
-          onChange={(updated) => {
-            const next = selectedLane.keyframes
-              .map((k) => (k.id === updated.id ? updated : k))
-              .sort((a, b) => a.t - b.t);
-            handleReplaceKeyframes(selectedLane.id, next);
-          }}
+          onChange={(updated) =>
+            commitKeyframe(clip.id, selectedLane.id, updated)
+          }
           onDelete={() => {
-            handleReplaceKeyframes(
-              selectedLane.id,
-              selectedLane.keyframes.filter((k) => k.id !== selectedKeyframe.id)
-            );
+            commitKeyframeDelete(clip.id, selectedLane.id, selectedKeyframe.id);
             setSelected(null);
           }}
         />
@@ -415,7 +346,11 @@ function TimelineEditor({
               if (selected?.laneId === lane.id) setSelected(null);
             }}
             onDeleteLane={() => handleDeleteLane(lane.id)}
-            onReplaceKeyframes={(kfs) => handleReplaceKeyframes(lane.id, kfs)}
+            onPreviewKeyframe={(kf) => previewKeyframe(clip.id, lane.id, kf)}
+            onCommitKeyframe={(kf) => commitKeyframe(clip.id, lane.id, kf)}
+            onDeleteKeyframe={(kfId) =>
+              commitKeyframeDelete(clip.id, lane.id, kfId)
+            }
           />
         ))}
       </div>
@@ -425,7 +360,8 @@ function TimelineEditor({
         clip={clip}
         targets={mediaTargets}
         playheadT={displayPlayhead(activePlayback, clip.duration) ?? 0}
-        onReplace={handleReplaceEvents}
+        onCommitEvent={(ev) => commitEvent(clip.id, ev)}
+        onDeleteEvent={(id) => commitEventDelete(clip.id, id)}
       />
 
       {/* Footer: add lane */}
@@ -916,7 +852,9 @@ function LaneRow({
   onSelectKey,
   onClearSelection,
   onDeleteLane,
-  onReplaceKeyframes,
+  onPreviewKeyframe,
+  onCommitKeyframe,
+  onDeleteKeyframe,
 }: {
   clip: TrackClipRecord;
   lane: TrackClipLaneRecord;
@@ -924,7 +862,11 @@ function LaneRow({
   onSelectKey: (keyframeId: string) => void;
   onClearSelection: () => void;
   onDeleteLane: () => void;
-  onReplaceKeyframes: (kfs: TrackClipKeyframeRecord[]) => void;
+  /** In-flight drag value — preview channel, no undo entry. */
+  onPreviewKeyframe: (kf: TrackClipKeyframeRecord) => void;
+  /** Settled keyframe (moved, added, edited) — one committed write. */
+  onCommitKeyframe: (kf: TrackClipKeyframeRecord) => void;
+  onDeleteKeyframe: (keyframeId: string) => void;
 }) {
   const { t } = useTranslation('clips');
   const trackRef = useRef<HTMLDivElement>(null);
@@ -1002,8 +944,7 @@ function LaneRow({
       ...draft,
       ...defaultBezierHandles(draft),
     };
-    const merged = [...lane.keyframes, next].sort((a, b) => a.t - b.t);
-    onReplaceKeyframes(merged);
+    onCommitKeyframe(next);
     onSelectKey(next.id);
   };
 
@@ -1152,16 +1093,10 @@ function LaneRow({
               size={size}
               range={range}
               onSelect={() => onSelectKey(kf.id)}
-              onChange={(updated) => {
-                const nextList = lane.keyframes
-                  .map((k) => (k.id === updated.id ? updated : k))
-                  .sort((a, b) => a.t - b.t);
-                onReplaceKeyframes(nextList);
-              }}
+              onChange={(updated) => onPreviewKeyframe(updated)}
+              onCommit={(updated) => onCommitKeyframe(updated)}
               onDelete={() => {
-                onReplaceKeyframes(
-                  lane.keyframes.filter((k) => k.id !== kf.id)
-                );
+                onDeleteKeyframe(kf.id);
                 if (isSelected) onClearSelection();
               }}
             />
@@ -1240,6 +1175,7 @@ function KeyframeDot({
   range,
   onSelect,
   onChange,
+  onCommit,
   onDelete,
 }: {
   kf: TrackClipKeyframeRecord;
@@ -1251,11 +1187,18 @@ function KeyframeDot({
   size: { w: number; h: number };
   range: { min: number; max: number };
   onSelect: () => void;
+  /** Called on every pointer move of a drag — the live value, not model state. */
   onChange: (kf: TrackClipKeyframeRecord) => void;
+  /** Called once when the drag ends, with the value that settled. */
+  onCommit: (kf: TrackClipKeyframeRecord) => void;
   onDelete: () => void;
 }) {
   const { t } = useTranslation('clips');
   const dragKindRef = useRef<'kf' | 'in' | 'out' | null>(null);
+  // The last previewed value, so pointerup can commit what the user sees. `kf`
+  // itself is not enough: it comes from the store, which during a drag holds
+  // the composed preview overlay and lags the pointer by a frame.
+  const draggedRef = useRef<TrackClipKeyframeRecord | null>(null);
 
   const xToT = (x: number) => (x / Math.max(1, size.w)) * duration;
   const yToV = (y: number) => {
@@ -1281,13 +1224,17 @@ function KeyframeDot({
       dragKindRef.current = kind;
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     };
+  const preview = (next: TrackClipKeyframeRecord) => {
+    draggedRef.current = next;
+    onChange(next);
+  };
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragKindRef.current || !trackRef.current) return;
     const rect = trackRef.current.getBoundingClientRect();
     const tAbs = xToT(e.clientX - rect.left);
     const vAbs = yToV(e.clientY - rect.top);
     if (dragKindRef.current === 'kf') {
-      onChange({
+      preview({
         ...kf,
         t: Math.max(0, Math.min(duration, tAbs)),
         value: vAbs,
@@ -1302,7 +1249,7 @@ function KeyframeDot({
       const dv = next.value - kf.value;
       const fracT = dt > 0 ? Math.max(0, Math.min(1, (tAbs - kf.t) / dt)) : 0;
       const fracV = dv !== 0 ? (vAbs - kf.value) / dv : 0;
-      onChange({ ...kf, outHandleTFraction: fracT, outHandleVFraction: fracV });
+      preview({ ...kf, outHandleTFraction: fracT, outHandleVFraction: fracV });
       return;
     }
     if (dragKindRef.current === 'in' && prev) {
@@ -1310,13 +1257,17 @@ function KeyframeDot({
       const dv = kf.value - prev.value;
       const fracT = dt > 0 ? Math.max(0, Math.min(1, (kf.t - tAbs) / dt)) : 0;
       const fracV = dv !== 0 ? (kf.value - vAbs) / dv : 0;
-      onChange({ ...kf, inHandleTFraction: fracT, inHandleVFraction: fracV });
+      preview({ ...kf, inHandleTFraction: fracT, inHandleVFraction: fracV });
       return;
     }
   };
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     dragKindRef.current = null;
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    // One committed write per drag, so undo steps back over the whole gesture
+    // rather than each pixel of it.
+    if (draggedRef.current) onCommit(draggedRef.current);
+    draggedRef.current = null;
   };
   const onContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -1428,12 +1379,16 @@ function EventLane({
   clip,
   targets,
   playheadT,
-  onReplace,
+  onCommitEvent,
+  onDeleteEvent,
 }: {
   clip: TrackClipRecord;
   targets: { kind: TrackClipTargetKind; id: string; name: string }[];
   playheadT: number;
-  onReplace: (events: TrackClipEventRecord[]) => void;
+  /** Add or update ONE marker — markers are keyed by id in the document, so a
+   *  list rewrite would put every marker on one path. */
+  onCommitEvent: (ev: TrackClipEventRecord) => void;
+  onDeleteEvent: (eventId: string) => void;
 }) {
   const { t } = useTranslation('clips');
   const events = [...clip.events].sort((a, b) => a.t - b.t);
@@ -1447,14 +1402,15 @@ function EventLane({
       targetId: targets[0]?.id ?? '',
       payload: null,
     };
-    onReplace([...clip.events, ev]);
+    onCommitEvent(ev);
   };
 
-  const patch = (id: string, p: Partial<TrackClipEventRecord>) =>
-    onReplace(clip.events.map((e) => (e.id === id ? { ...e, ...p } : e)));
+  const patch = (id: string, p: Partial<TrackClipEventRecord>) => {
+    const cur = clip.events.find((e) => e.id === id);
+    if (cur) onCommitEvent({ ...cur, ...p });
+  };
 
-  const remove = (id: string) =>
-    onReplace(clip.events.filter((e) => e.id !== id));
+  const remove = (id: string) => onDeleteEvent(id);
 
   const needsValue = (action: string) =>
     action === 'seek' || action === 'setVolume';

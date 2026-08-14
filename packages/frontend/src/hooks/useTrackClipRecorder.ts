@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { displayPlayhead } from '@vspark/shared/clipPlayback';
-import { api } from '../api/client';
+import { commitKeyframe, commitLaneCreate } from '../mesh/clipWrites';
 import type {
   TrackClipKeyframeRecord,
   TrackClipLaneRecord,
@@ -30,10 +30,6 @@ export function useTrackClipRecorder(): {
   const selectedClipId = useEditorStore((s) => s.selectedTrackClipId);
   const trackClips = useEditorStore((s) => s.trackClips);
   const playback = useEditorStore((s) => s.clipPlayback);
-  const addTrackClipLane = useEditorStore((s) => s.addTrackClipLane);
-  const replaceTrackClipLaneKeyframes = useEditorStore(
-    (s) => s.replaceTrackClipLaneKeyframes
-  );
 
   const selectedClip = trackClips.find((c) => c.id === selectedClipId) ?? null;
   const canRecord = bottomTab === 'clips' && selectedClip != null;
@@ -69,16 +65,14 @@ export function useTrackClipRecorder(): {
           l.paramPath === opts.paramPath
       );
       if (existing) return existing;
-      const lane = await api.createTrackClipLane(clipId, {
+      return commitLaneCreate(clipId, {
         targetKind: opts.targetKind,
         targetId: opts.targetId,
         paramPath: opts.paramPath,
         defaultValue: opts.defaultValue,
       });
-      addTrackClipLane(clipId, lane);
-      return lane;
     },
-    [addTrackClipLane]
+    []
   );
 
   /** Insert (or update at same t) a keyframe on the given lane and persist.
@@ -109,27 +103,12 @@ export function useTrackClipRecorder(): {
         };
         next = { ...draft, ...defaultBezierHandles(draft) };
       }
-      const merged = existing
-        ? lane.keyframes.map((k) => (k.id === existing.id ? next : k))
-        : [...lane.keyframes, next].sort((a, b) => a.t - b.t);
-      replaceTrackClipLaneKeyframes(lane.id, merged);
-      await api
-        .replaceTrackClipKeyframes(
-          lane.id,
-          merged.map((k) => ({
-            id: k.id,
-            t: k.t,
-            value: k.value,
-            easing: k.easing,
-            inHandleTFraction: k.inHandleTFraction,
-            inHandleVFraction: k.inHandleVFraction,
-            outHandleTFraction: k.outHandleTFraction,
-            outHandleVFraction: k.outHandleVFraction,
-          }))
-        )
-        .catch(() => {});
+      // One keyframe, one write: recording a take used to re-send the lane's
+      // whole keyframe list per sample, which on a 60Hz record is the entire
+      // lane on the wire every frame — and one undo entry per sample.
+      commitKeyframe(lane.clipId, lane.id, next);
     },
-    [replaceTrackClipLaneKeyframes]
+    []
   );
 
   const recordKeyframe = useCallback(
