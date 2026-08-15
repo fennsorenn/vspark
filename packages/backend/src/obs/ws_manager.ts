@@ -1,17 +1,28 @@
 /**
- * ObsWsManager — the OBS "power tier": one backend-held obs-websocket
- * connection per project, unlocking control the browser-source bridge
- * ([manager.ts]) can't reach (audio volume/mute, replay path, source/scene
- * control). Modeled on OverliveManager: per-project connection lifecycle, a
- * status state machine persisted + broadcast over WS, inbound event fan-out
- * into project logic graphs, and outbound request methods the obs-websocket
- * action nodes call.
+ * ObsWsManager — the whole OBS integration: one backend-held obs-websocket
+ * connection per project, carrying every OBS source and action node (scene,
+ * transition, output control, audio volume/mute, replay path). Modeled on
+ * OverliveManager: per-project connection lifecycle, a status state machine
+ * persisted + broadcast over WS, inbound event fan-out into project logic
+ * graphs, and outbound request methods the action nodes call.
+ *
+ * It started as a "power tier" beside the `window.obsstudio` browser-source
+ * bridge, for control that API couldn't reach. The bridge is gone: OBS gates
+ * its control calls behind the source's page permission level and silently
+ * ignores anything above it, so actions failed with no error anywhere.
+ * obs-websocket has no such gate and returns a status per request — which is
+ * why every action here reports why it couldn't act.
  *
  * vspark is self-hosted, so the backend is co-located with OBS and reaches
- * `ws://localhost:4455` directly. See dev-notes/plans/obs-websocket-tier.md.
+ * `ws://localhost:4455` directly. See dev-notes/modules/obs.md.
  */
 import { mkEvent } from '@vspark/shared/signal';
-import type { ObsConnectionStatus } from '@vspark/shared';
+import type {
+  ObsConnectionStatus,
+  ObsEvent,
+  ObsOutputKind,
+  ObsOutputState,
+} from '@vspark/shared';
 import { getDb } from '../db/index.js';
 import { logicManager } from '../logic/manager.js';
 import { ObsWsClient, type ObsWsClientOptions } from './ws_client.js';
@@ -33,10 +44,64 @@ interface Conn {
   client: ObsWsClient;
   status: ObsConnectionStatus;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  /** OBS base canvas size, read once per connection (see `_loadCanvasSize`). */
+  canvas: { width: number; height: number };
 }
 
 /** Delay before retrying a dropped connection (fixed; OBS is local). */
 const RECONNECT_MS = 5_000;
+
+/**
+ * Arg-less control verbs → their obs-websocket request name.
+ *
+ * The verb keys are the historical `window.obsstudio` method names, kept
+ * verbatim so existing `obs_control` node configs (`config.action`) keep
+ * working after the transport moved off the browser bridge.
+ */
+const CONTROL_REQUESTS = {
+  startStreaming: 'StartStream',
+  stopStreaming: 'StopStream',
+  startRecording: 'StartRecord',
+  stopRecording: 'StopRecord',
+  pauseRecording: 'PauseRecord',
+  unpauseRecording: 'ResumeRecord',
+  startReplayBuffer: 'StartReplayBuffer',
+  stopReplayBuffer: 'StopReplayBuffer',
+  saveReplayBuffer: 'SaveReplayBuffer',
+  startVirtualcam: 'StartVirtualCam',
+  stopVirtualcam: 'StopVirtualCam',
+} as const;
+
+/** The verbs `obs_control` can issue. */
+export type ObsControlVerb = keyof typeof CONTROL_REQUESTS;
+
+/** Output run-state event → which OBS output it describes. */
+const OUTPUT_BY_EVENT: Record<string, ObsOutputKind> = {
+  StreamStateChanged: 'streaming',
+  RecordStateChanged: 'recording',
+  ReplayBufferStateChanged: 'replay',
+  ReplayBufferSaved: 'replay',
+  VirtualcamStateChanged: 'virtualcam',
+};
+
+/**
+ * obs-websocket `outputState` enum → the folded `output_state` vocabulary the
+ * `obs_output_state` node has always emitted. Deliberately partial: OBS's
+ * reconnecting / reconnected / unknown states have no equivalent in that
+ * vocabulary and had none on the browser bridge either, so they are dropped.
+ */
+const OUTPUT_STATE_BY_OBS: Record<string, ObsOutputState | undefined> = {
+  OBS_WEBSOCKET_OUTPUT_STARTING: 'starting',
+  OBS_WEBSOCKET_OUTPUT_STARTED: 'started',
+  OBS_WEBSOCKET_OUTPUT_STOPPING: 'stopping',
+  OBS_WEBSOCKET_OUTPUT_STOPPED: 'stopped',
+  OBS_WEBSOCKET_OUTPUT_PAUSED: 'paused',
+  OBS_WEBSOCKET_OUTPUT_RESUMED: 'unpaused',
+};
+
+export function isObsControlVerb(v: string): v is ObsControlVerb {
+  return v in CONTROL_REQUESTS;
+}
 
 /** Injectable so tests can supply a fake client without a real socket. */
 export type ObsWsClientFactory = (opts: ObsWsClientOptions) => ObsWsClient;
@@ -98,11 +163,15 @@ export class ObsWsManager {
       client,
       status: 'connecting',
       reconnectTimer: null,
+      canvas: { width: 0, height: 0 },
     };
     this._byProject.set(row.project_id, conn);
     this._setStatus(conn, 'connecting');
 
-    client.on('identified', () => this._setStatus(conn, 'connected'));
+    client.on('identified', () => {
+      this._setStatus(conn, 'connected');
+      void this._loadCanvasSize(conn);
+    });
     client.on('obsEvent', (type: string, data: Record<string, unknown>) =>
       this._onObsEvent(conn.projectId, type, data)
     );
@@ -190,11 +259,72 @@ export class ObsWsManager {
         mul: data.inputVolumeMul,
         db: data.inputVolumeDb,
       });
-    } else if (eventType === 'InputMuteStateChanged') {
+      return;
+    }
+    if (eventType === 'InputMuteStateChanged') {
       this._deliver(projectId, 'obs_mute_changed', {
         input: data.inputName,
         muted: data.inputMuted,
       });
+      return;
+    }
+    if (eventType === 'CurrentProgramSceneChanged') {
+      const conn = this._byProject.get(projectId);
+      this._deliver(projectId, 'obs_scene_changed', {
+        type: 'scene_changed',
+        name: String(data.sceneName ?? ''),
+        width: conn?.canvas.width ?? 0,
+        height: conn?.canvas.height ?? 0,
+      } satisfies Extract<ObsEvent, { type: 'scene_changed' }>);
+      return;
+    }
+    const output = OUTPUT_BY_EVENT[eventType];
+    if (output) this._onOutputEvent(projectId, output, eventType, data);
+  }
+
+  /** Translate an output run-state event into the folded `output_state` shape
+   *  the `obs_output_state` node has always consumed. */
+  private _onOutputEvent(
+    projectId: string,
+    output: ObsOutputKind,
+    eventType: string,
+    data: Record<string, unknown>
+  ): void {
+    // ReplayBufferSaved is its own event, not a run-state transition.
+    if (eventType === 'ReplayBufferSaved') {
+      this._deliver(projectId, 'obs_output_state', {
+        type: 'output_state',
+        output,
+        state: 'saved',
+        active: true,
+      } satisfies Extract<ObsEvent, { type: 'output_state' }>);
+      return;
+    }
+    const state = OUTPUT_STATE_BY_OBS[String(data.outputState ?? '')];
+    // Reconnecting / reconnected / unknown have no slot in the node's state
+    // vocabulary and never existed on the browser bridge — drop them rather
+    // than widen the payload shape graphs are matching on.
+    if (!state) return;
+    this._deliver(projectId, 'obs_output_state', {
+      type: 'output_state',
+      output,
+      state,
+      active: data.outputActive === true,
+    } satisfies Extract<ObsEvent, { type: 'output_state' }>);
+  }
+
+  /** Read OBS's base canvas size once per connection, so `obs_scene_changed`
+   *  can keep reporting the width/height the browser event used to carry.
+   *  obs-websocket has no canvas-resize event, hence connect-time only. */
+  private async _loadCanvasSize(conn: Conn): Promise<void> {
+    try {
+      const res = await conn.client.request('GetVideoSettings');
+      conn.canvas = {
+        width: Number(res.baseWidth ?? 0),
+        height: Number(res.baseHeight ?? 0),
+      };
+    } catch {
+      /* leave the canvas at 0×0; the scene name is the useful part */
     }
   }
 
@@ -232,17 +362,9 @@ export class ObsWsManager {
    * with no OBS connection, and a dropped socket all produced exactly nothing.
    * Every early return now says which case it hit, once per occurrence.
    */
-  private _clientFor(
-    projectId: string,
-    inputName: string,
-    what: string
-  ): ObsWsClient | null {
+  private _clientFor(projectId: string, what: string): ObsWsClient | null {
     if (!projectId) {
       console.warn(`[obs-ws] ${what}: no projectId on the node config`);
-      return null;
-    }
-    if (!inputName) {
-      console.warn(`[obs-ws] ${what}: no input name (wire \`input\` or set config.inputName)`);
       return null;
     }
     const conn = this._byProject.get(projectId);
@@ -257,6 +379,18 @@ export class ObsWsManager {
     return conn.client;
   }
 
+  /** Require a name argument, saying where to supply it when it's missing. */
+  private _requireName(
+    name: string | undefined,
+    what: string,
+    hint: string
+  ): string | null {
+    const trimmed = (name ?? '').trim();
+    if (trimmed) return trimmed;
+    console.warn(`[obs-ws] ${what}: no name given (${hint})`);
+    return null;
+  }
+
   /** Log a rejected obs-websocket request rather than dropping it. */
   private _report(what: string, req: Promise<unknown>): void {
     void req.catch((e: unknown) => {
@@ -265,13 +399,62 @@ export class ObsWsManager {
     });
   }
 
+  /** Switch OBS's active program scene (fire-and-forget). */
+  setScene(projectId: string, scene: string): void {
+    const what = 'SetCurrentProgramScene';
+    const sceneName = this._requireName(
+      scene,
+      what,
+      'wire `scene` or set config.scene'
+    );
+    if (!sceneName) return;
+    const client = this._clientFor(projectId, what);
+    if (!client) return;
+    this._report(
+      `${what}(${sceneName})`,
+      client.request(what, { sceneName })
+    );
+  }
+
+  /** Set OBS's active scene transition (fire-and-forget). */
+  setTransition(projectId: string, transition: string): void {
+    const what = 'SetCurrentSceneTransition';
+    const transitionName = this._requireName(
+      transition,
+      what,
+      'wire `transition` or set config.transition'
+    );
+    if (!transitionName) return;
+    const client = this._clientFor(projectId, what);
+    if (!client) return;
+    this._report(
+      `${what}(${transitionName})`,
+      client.request(what, { transitionName })
+    );
+  }
+
+  /** Issue an arg-less control verb (start/stop stream, record, replay, cam). */
+  control(projectId: string, verb: ObsControlVerb): void {
+    const request = CONTROL_REQUESTS[verb];
+    const client = this._clientFor(projectId, request);
+    if (!client) return;
+    this._report(request, client.request(request));
+  }
+
   /** Set an input's volume by dB or linear multiplier (fire-and-forget). */
   setVolume(
     projectId: string,
-    inputName: string,
+    input: string,
     value: { db?: number; mul?: number }
   ): void {
-    const client = this._clientFor(projectId, inputName, 'SetInputVolume');
+    const what = 'SetInputVolume';
+    const inputName = this._requireName(
+      input,
+      what,
+      'wire `input` or set config.inputName'
+    );
+    if (!inputName) return;
+    const client = this._clientFor(projectId, what);
     if (!client) return;
     const data: Record<string, unknown> = { inputName };
     if (typeof value.mul === 'number') data.inputVolumeMul = value.mul;
@@ -286,10 +469,17 @@ export class ObsWsManager {
   /** Mute / unmute / toggle an input (fire-and-forget). */
   setMute(
     projectId: string,
-    inputName: string,
+    input: string,
     action: 'mute' | 'unmute' | 'toggle'
   ): void {
-    const client = this._clientFor(projectId, inputName, 'SetInputMute');
+    const what = 'SetInputMute';
+    const inputName = this._requireName(
+      input,
+      what,
+      'wire `input` or set config.inputName'
+    );
+    if (!inputName) return;
+    const client = this._clientFor(projectId, what);
     if (!client) return;
     const req =
       action === 'toggle'

@@ -49,8 +49,7 @@ import {
 import { registerAssetUrls } from '../sync/meshProjection';
 import { useConnectionsStore } from '../store/connectionsStore';
 import { clientMesh } from '../mesh/clientMesh';
-import { startObsBridge, handleObsCommand } from '../obs/bridge';
-import type { ObsCommand } from '@vspark/shared/types';
+import { startObsBridge } from '../obs/bridge';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 const RECONNECT_MS = 3000;
@@ -470,9 +469,6 @@ export function useWsSync() {
               command: MediaCommand;
             };
             dispatchMediaCommand(p.targetId, p.command);
-          } else if (msg.kind === 'obs_command') {
-            const p = msg.payload as { command: ObsCommand };
-            if (p.command) handleObsCommand(p.command);
           } else if (msg.kind === 'obs_connection_status') {
             const p = msg.payload as {
               connectionId: string;

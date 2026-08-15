@@ -1,36 +1,22 @@
 import { SignalNode } from '@vspark/shared/signal';
 import { Node } from '@vspark/shared/node';
 import { eventIn } from '@vspark/shared/node_decorators';
-import type { ObsCommand } from '@vspark/shared';
-import { getObsManager } from '../../../obs/manager.js';
-
-/** Arg-less OBS control verbs this node can issue. */
-const VERBS = new Set<ObsCommand['verb']>([
-  'startStreaming',
-  'stopStreaming',
-  'startRecording',
-  'stopRecording',
-  'pauseRecording',
-  'unpauseRecording',
-  'startReplayBuffer',
-  'stopReplayBuffer',
-  'saveReplayBuffer',
-  'startVirtualcam',
-  'stopVirtualcam',
-]);
+import { getObsWsManager, isObsControlVerb } from '../../../obs/ws_manager.js';
 
 /**
  * Issues an arg-less OBS control call selected by `config.action` — start/stop
- * streaming, recording (+ pause/unpause), the replay buffer (incl.
- * `saveReplayBuffer`), or the virtual camera. `saveReplayBuffer` needs OBS page
- * permission BASIC (3); replay start/stop needs ADVANCED (4); streaming /
- * recording / virtualcam need ALL (5). OBS silently ignores calls above the
- * source's level.
+ * streaming, recording (+ pause/unpause), the replay buffer (incl. saving it),
+ * or the virtual camera. Goes out over obs-websocket, so it needs an OBS
+ * connection for the project but no browser-source page permission.
+ *
+ * `config.action` still uses the old `window.obsstudio` verb names
+ * (`startStreaming`, `unpauseRecording`, …) so graphs built against the browser
+ * bridge keep working; `ObsWsManager` maps them onto obs-websocket requests.
  */
 @SignalNode({
   label: 'OBS Control',
   description:
-    'Start/stop streaming, recording, the replay buffer (incl. save), or the virtual camera. Action chosen in config; permission-gated by OBS.',
+    'Start/stop streaming, recording, the replay buffer (incl. save), or the virtual camera over obs-websocket. Action chosen in config; needs an OBS connection.',
   tags: ['obs'],
   color: '#5a3a5a',
 })
@@ -39,9 +25,12 @@ export class ObsControl extends Node {
 
   @eventIn('fire', 'Trigger')
   onFire(): void {
-    const cfg = (this.config ?? {}) as { action?: string };
-    const verb = cfg.action as ObsCommand['verb'] | undefined;
-    if (!verb || !VERBS.has(verb)) return;
-    getObsManager().command({ verb });
+    const cfg = (this.config ?? {}) as { _projectId?: string; action?: string };
+    const action = cfg.action ?? '';
+    if (!isObsControlVerb(action)) {
+      console.warn(`[obs-ws] obs_control: unknown action "${action}"`);
+      return;
+    }
+    getObsWsManager().control(cfg._projectId ?? '', action);
   }
 }

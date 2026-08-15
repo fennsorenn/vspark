@@ -8,9 +8,21 @@ import { loneNode } from './helpers/nodeHarness.js';
 
 const setVolume = vi.fn();
 const setMute = vi.fn();
+const setScene = vi.fn();
+const setTransition = vi.fn();
+const control = vi.fn();
 const getLastReplayPath = vi.fn(async () => '/clips/last.mp4');
 vi.mock('../src/obs/ws_manager.js', () => ({
-  getObsWsManager: () => ({ setVolume, setMute, getLastReplayPath }),
+  getObsWsManager: () => ({
+    setVolume,
+    setMute,
+    setScene,
+    setTransition,
+    control,
+    getLastReplayPath,
+  }),
+  isObsControlVerb: (v: string) =>
+    ['startStreaming', 'saveReplayBuffer', 'unpauseRecording'].includes(v),
 }));
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -18,6 +30,9 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 beforeEach(() => {
   setVolume.mockClear();
   setMute.mockClear();
+  setScene.mockClear();
+  setTransition.mockClear();
+  control.mockClear();
   getLastReplayPath.mockClear();
 });
 
@@ -103,6 +118,54 @@ describe('obs_mute', () => {
     });
     n.deliver('fire', undefined);
     expect(setMute).toHaveBeenCalledWith('p1', 'Mic', 'mute');
+  });
+});
+
+describe('obs_set_scene', () => {
+  it('sets the scene from config', () => {
+    const n = loneNode('obs_set_scene', { _projectId: 'p1', scene: 'Intro' });
+    n.deliver('fire', undefined);
+    expect(setScene).toHaveBeenCalledWith('p1', 'Intro');
+  });
+
+  it('passes an empty name through so the manager can name the reason', () => {
+    const n = loneNode('obs_set_scene', { _projectId: 'p1' });
+    n.deliver('fire', undefined);
+    expect(setScene).toHaveBeenCalledWith('p1', '');
+  });
+});
+
+describe('obs_set_transition', () => {
+  it('sets the transition from config', () => {
+    const n = loneNode('obs_set_transition', {
+      _projectId: 'p1',
+      transition: 'Fade',
+    });
+    n.deliver('fire', undefined);
+    expect(setTransition).toHaveBeenCalledWith('p1', 'Fade');
+  });
+});
+
+describe('obs_control', () => {
+  it('issues a known arg-less verb', () => {
+    const n = loneNode('obs_control', {
+      _projectId: 'p1',
+      action: 'saveReplayBuffer',
+    });
+    n.deliver('fire', undefined);
+    expect(control).toHaveBeenCalledWith('p1', 'saveReplayBuffer');
+  });
+
+  it('ignores an unknown action', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const n = loneNode('obs_control', {
+      _projectId: 'p1',
+      action: 'launchMissiles',
+    });
+    n.deliver('fire', undefined);
+    expect(control).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 
