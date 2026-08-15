@@ -2,8 +2,9 @@
  * Bus / manager subsystem tests.
  *
  * Covers:
- *  - RuntimeOverrideManager (set/get round-trips, type coercion, clear, snapshot,
- *    registerTarget for DB-free scene resolution)
+ *  - RuntimeOverrideManager (set/clear round-trips through the mesh
+ *    `runtime_override` collection, type coercion, registerTarget for DB-free
+ *    scene resolution)
  *  - DataChannelManager (set merge, seed, clear field/scope, clearAll, snapshot)
  *  - MediaControlManager (dispatch with/without ws, empty targetId guard)
  *  - SpawnManager.isEphemeralClip (the only pure unit-testable surface without a
@@ -21,7 +22,14 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createMeshPeer } from '@vspark/mesh';
 import { RuntimeOverrideManager } from '../src/runtime_overrides/manager.js';
+import {
+  initMeshRuntime,
+  overrideCollection,
+  overrideParent,
+  resetMeshRuntime,
+} from '../src/mesh/runtime.js';
 import { DataChannelManager } from '../src/data_channels/manager.js';
 import { MediaControlManager } from '../src/media_control/manager.js';
 import { SpawnManager } from '../src/spawn/manager.js';
@@ -70,43 +78,63 @@ function makeWsStub() {
 
 describe('RuntimeOverrideManager', () => {
   let manager: RuntimeOverrideManager;
-  const { ws, broadcasts } = makeWsStub();
+
+  /** Every live override, as (targetKind, targetId, paramPath, value) rows.
+   *  The replica IS the bus's state now — there is no snapshot method and no
+   *  broadcast to intercept, because a retained document reaches a late joiner
+   *  through its subscription instead. */
+  const rows = () =>
+    (overrideCollection()?.all() ?? []).map((d) => ({
+      targetKind: d.targetKind,
+      targetId: d.targetId,
+      paramPath: d.paramPath,
+      value: d.value,
+    }));
 
   beforeEach(() => {
+    resetMeshRuntime();
+    initMeshRuntime(
+      createMeshPeer({ identity: { peerId: 'test-peer' }, transports: [] })
+    );
     manager = new RuntimeOverrideManager();
-    manager.init(ws);
-    broadcasts.length = 0;
+    manager.init();
   });
 
-  describe('set + get via snapshot', () => {
-    it('set a valid Float param, snapshot contains it', () => {
+  describe('set', () => {
+    it('a valid Float param becomes a document', () => {
       // Register a fake scene mapping so no DB lookup is needed.
       manager.registerTarget('node-1', 'scene-a');
 
       manager.set('scene_node', 'node-1', 'position.x', 3.14);
 
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_kind, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-
-      expect(received).toHaveLength(1);
-      const entry = received[0];
+      expect(rows()).toHaveLength(1);
+      const entry = rows()[0];
       expect(entry.targetKind).toBe('scene_node');
       expect(entry.targetId).toBe('node-1');
       expect(entry.paramPath).toBe('position.x');
-      expect(entry.value).toBeCloseTo(3.14);
+      expect(entry.value).toBeCloseTo(3.14 as number);
     });
 
-    it('broadcasts runtime_override_set on successful set', () => {
+    it('keys one document per overridden path', () => {
       manager.registerTarget('node-2', 'scene-b');
       manager.set('scene_node', 'node-2', 'rotation.y', 1.5);
+      manager.set('scene_node', 'node-2', 'opacity', 0.5);
 
-      expect(broadcasts).toHaveLength(1);
-      expect(broadcasts[0].kind).toBe('runtime_override_set');
-      expect(broadcasts[0].payload.paramPath).toBe('rotation.y');
-      expect(broadcasts[0].payload.value).toBeCloseTo(1.5);
+      // Two params of one node are two documents, so two graphs overriding
+      // different params of the same node cannot clobber each other.
+      expect(overrideCollection()!.get('scene_node:node-2:rotation.y')).toBeDefined();
+      expect(overrideCollection()!.get('scene_node:node-2:opacity')).toBeDefined();
+    });
+
+    it('hangs the document off the target, so scene grants route it', () => {
+      manager.registerTarget('node-2b', 'scene-b');
+      manager.set('scene_node', 'node-2b', 'opacity', 0.25);
+
+      // Containment is what lets an override ride an existing scene-subtree
+      // grant without the grant naming this rtype.
+      expect(
+        overrideParent(overrideCollection()!.get('scene_node:node-2b:opacity')!)
+      ).toEqual({ rtype: 'scene_node', id: 'node-2b' });
     });
 
     it('set replaces an existing override for the same key', () => {
@@ -114,195 +142,106 @@ describe('RuntimeOverrideManager', () => {
       manager.set('scene_node', 'node-3', 'opacity', 0.5);
       manager.set('scene_node', 'node-3', 'opacity', 0.9);
 
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-
-      // Only one entry for that key; value is the latest.
-      const entry = received.find(
-        (e) => e.paramPath === 'opacity' && e.targetId === 'node-3'
-      );
-      expect(entry).toBeDefined();
-      expect(entry!.value).toBeCloseTo(0.9);
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0].value).toBeCloseTo(0.9 as number);
     });
   });
 
   describe('type coercion', () => {
     it('coerces string "42" to number 42 for Float paths', () => {
-      manager.registerTarget('node-c1', 'scene-c1');
-      manager.set('scene_node', 'node-c1', 'position.x', '42');
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received[0]?.value).toBe(42);
+      manager.registerTarget('node-4', 'scene-d');
+      manager.set('scene_node', 'node-4', 'position.y', '42');
+      expect(rows()[0].value).toBe(42);
     });
 
     it('coerces boolean true to 1 for Float paths', () => {
-      manager.registerTarget('node-c2', 'scene-c2');
-      manager.set('scene_node', 'node-c2', 'scale.z', true);
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received[0]?.value).toBe(1);
+      manager.registerTarget('node-5', 'scene-e');
+      manager.set('scene_node', 'node-5', 'position.z', true);
+      expect(rows()[0].value).toBe(1);
     });
 
-    it('ignores set with unknown paramPath (no snapshot entry added)', () => {
-      manager.registerTarget('node-unk', 'scene-unk');
-      manager.set('scene_node', 'node-unk', 'does.not.exist', 99);
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received).toHaveLength(0);
-      expect(warnSpy).toHaveBeenCalled();
+    it('ignores set with unknown paramPath', () => {
+      manager.registerTarget('node-6', 'scene-f');
+      manager.set('scene_node', 'node-6', 'not.a.real.path', 1);
+      expect(rows()).toHaveLength(0);
     });
 
     it('ignores set with uncoercible value', () => {
-      manager.registerTarget('node-bad', 'scene-bad');
-      // An object cannot be coerced to Float — coerceParamValue returns null.
-      manager.set('scene_node', 'node-bad', 'position.y', {} as unknown as number);
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received).toHaveLength(0);
-      expect(warnSpy).toHaveBeenCalled();
+      manager.registerTarget('node-7', 'scene-g');
+      manager.set('scene_node', 'node-7', 'position.x', {});
+      expect(rows()).toHaveLength(0);
     });
 
     it('sets String param with text value', () => {
-      // text.content is a String param for scene_node kinds text_troika/text_canvas
-      // We call it via compose_layer where text.content is also String-typed.
-      manager.registerTarget('layer-s', 'scene-s');
-      manager.set('compose_layer', 'layer-s', 'text.content', 'hello world');
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received[0]?.value).toBe('hello world');
+      manager.registerTarget('node-8', 'scene-h');
+      manager.set('scene_node', 'node-8', 'text.content', 'hello');
+      expect(rows()[0].value).toBe('hello');
     });
   });
 
   describe('clear', () => {
-    it('clear with paramPath removes one entry and broadcasts', () => {
-      manager.registerTarget('node-cl1', 'scene-d');
-      manager.set('scene_node', 'node-cl1', 'position.x', 1);
-      manager.set('scene_node', 'node-cl1', 'position.y', 2);
-      broadcasts.length = 0;
+    it('clear with paramPath removes one document', () => {
+      manager.registerTarget('node-9', 'scene-i');
+      manager.set('scene_node', 'node-9', 'position.x', 1);
+      manager.set('scene_node', 'node-9', 'position.y', 2);
 
-      manager.clear('scene_node', 'node-cl1', 'position.x');
+      manager.clear('scene_node', 'node-9', 'position.x');
 
-      expect(broadcasts).toHaveLength(1);
-      expect(broadcasts[0].kind).toBe('runtime_override_clear');
-      expect(broadcasts[0].payload.paramPath).toBe('position.x');
-
-      // position.y still in snapshot.
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received).toHaveLength(1);
-      expect(received[0].paramPath).toBe('position.y');
+      expect(rows().map((r) => r.paramPath)).toEqual(['position.y']);
     });
 
-    it('clear without paramPath removes all entries for the target', () => {
-      manager.registerTarget('node-cl2', 'scene-e');
-      manager.set('scene_node', 'node-cl2', 'position.x', 1);
-      manager.set('scene_node', 'node-cl2', 'position.y', 2);
-      broadcasts.length = 0;
+    it('clear without paramPath removes every path for the target', () => {
+      manager.registerTarget('node-10', 'scene-j');
+      manager.set('scene_node', 'node-10', 'position.x', 1);
+      manager.set('scene_node', 'node-10', 'opacity', 0.5);
 
-      manager.clear('scene_node', 'node-cl2');
+      manager.clear('scene_node', 'node-10');
 
-      expect(broadcasts).toHaveLength(1);
-      expect(broadcasts[0].kind).toBe('runtime_override_clear');
-      expect(
-        (broadcasts[0].payload as { paramPath?: unknown }).paramPath
-      ).toBeUndefined();
-
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received).toHaveLength(0);
+      // One remove per document — there is no prefix-delete on a replica.
+      expect(rows()).toHaveLength(0);
     });
 
-    it('clear is no-op for unknown targetId (no broadcast)', () => {
-      broadcasts.length = 0;
-      manager.clear('scene_node', 'ghost-id', 'position.x');
-      expect(broadcasts).toHaveLength(0);
+    it('clear leaves other targets alone', () => {
+      manager.registerTarget('node-11', 'scene-k');
+      manager.registerTarget('node-12', 'scene-k');
+      manager.set('scene_node', 'node-11', 'opacity', 0.5);
+      manager.set('scene_node', 'node-12', 'opacity', 0.5);
+
+      manager.clear('scene_node', 'node-11');
+
+      expect(rows().map((r) => r.targetId)).toEqual(['node-12']);
     });
 
-    it('clearAllForTarget removes target from lookup cache', () => {
-      manager.registerTarget('node-ca', 'scene-f');
-      manager.set('scene_node', 'node-ca', 'position.z', 5);
-      broadcasts.length = 0;
+    it('clear is a no-op for an unknown targetId', () => {
+      manager.clear('scene_node', 'never-set');
+      expect(rows()).toHaveLength(0);
+    });
 
-      manager.clearAllForTarget('scene_node', 'node-ca');
+    it('clearAllForTarget removes the documents', () => {
+      manager.registerTarget('node-13', 'scene-l');
+      manager.set('scene_node', 'node-13', 'opacity', 0.5);
 
-      // After clearAllForTarget the snapshot must be empty for this target.
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received).toHaveLength(0);
-      // And a clear broadcast should have been emitted.
-      expect(broadcasts.some((b) => b.kind === 'runtime_override_clear')).toBe(true);
+      manager.clearAllForTarget('scene_node', 'node-13');
+
+      // It also drops the tmp-entity registration, so a later set falls back
+      // to the database lookup — not exercised here, which has no DB.
+      expect(rows()).toHaveLength(0);
     });
   });
 
-  describe('forwarder tap', () => {
-    it('invokes the forwarder on set', () => {
-      manager.registerTarget('node-fwd', 'scene-fwd');
-      const ops: Array<{ op: string; payload: Record<string, unknown> }> = [];
-      manager.setOverrideForwarder((op, payload) => ops.push({ op, payload }));
-
-      manager.set('scene_node', 'node-fwd', 'opacity', 0.3);
-
-      expect(ops).toHaveLength(1);
-      expect(ops[0].op).toBe('set');
-      expect(ops[0].payload.paramPath).toBe('opacity');
-    });
-
-    it('invokes the forwarder on clear', () => {
-      manager.registerTarget('node-fwd2', 'scene-fwd2');
-      const ops: Array<{ op: string }> = [];
-      manager.setOverrideForwarder((op, _p) => ops.push({ op }));
-
-      manager.set('scene_node', 'node-fwd2', 'position.x', 1);
-      ops.length = 0;
-      manager.clear('scene_node', 'node-fwd2', 'position.x');
-
-      expect(ops).toHaveLength(1);
-      expect(ops[0].op).toBe('clear');
-    });
-  });
-
-  describe('snapshot is empty when nothing is set', () => {
-    it('sendSnapshotTo on fresh manager emits empty entries array', () => {
-      const received: unknown[] = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...p.entries);
-      });
-      expect(received).toHaveLength(0);
+  describe('no store', () => {
+    it('set and clear are inert when the mesh is not up', () => {
+      resetMeshRuntime();
+      const m = new RuntimeOverrideManager();
+      m.init();
+      m.registerTarget('node-14', 'scene-m');
+      // An override is best-effort: a missing store logs and drops rather than
+      // throwing into a running graph.
+      expect(() => m.set('scene_node', 'node-14', 'opacity', 0.5)).not.toThrow();
+      expect(() => m.clear('scene_node', 'node-14')).not.toThrow();
     });
   });
 });
-
-// ===========================================================================
-// DataChannelManager
-// ===========================================================================
 
 describe('DataChannelManager', () => {
   let manager: DataChannelManager;

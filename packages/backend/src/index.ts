@@ -194,11 +194,10 @@ async function start() {
   // The persist hook is left unset until set_*_param nodes land in Phase 1.5;
   // until then, `persist: true` falls through to a log + no-op.
   // See dev-notes/modules/runtime-overrides.md.
-  runtimeOverrideManager.init(wsSync, null);
-  // Forward overrides on shared scene nodes to subscriber peers.
-  runtimeOverrideManager.setOverrideForwarder((op, payload) =>
-    multiplayerManager.forwardOverride(op, payload)
-  );
+  // Overrides fan out as retained mesh documents — one write reaches local
+  // tabs, collab peers and object-share subscribers, so there is no forwarder
+  // to install and no /ws broadcast to make.
+  runtimeOverrideManager.init(null);
 
   // Data-channel bus — generic graph→frontend publish surface (set_data node →
   // feed/template compose layer). Sibling of the override bus.
@@ -237,11 +236,10 @@ async function start() {
     ws.on('close', () => clientMeshRelay.onWsClose(ws));
   });
 
-  // Rebroadcast current state to any newly-connecting client.
+  // Rebroadcast current state to any newly-connecting client. Runtime
+  // overrides no longer need a line here: they are retained mesh documents, so
+  // a tab's subscription snapshot carries the current values (mesh/runtime.ts).
   wsSync.onClientConnected((ws) => {
-    runtimeOverrideManager.sendSnapshotTo((kind, payload) =>
-      wsSync.sendTo(ws, kind, payload)
-    );
     dataChannelManager.sendSnapshotTo((kind, payload) =>
       wsSync.sendTo(ws, kind, payload)
     );

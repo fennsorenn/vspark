@@ -41,6 +41,7 @@ import {
   guardClientNodeChild,
 } from './docGuards.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
+import { initMeshRuntime, resetMeshRuntime } from './runtime.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { logicLifecycle } from '../logic/lifecycle.js';
 import {
@@ -449,6 +450,12 @@ export function initBackendMesh(): MeshPeer {
   });
 
   for (const b of BINDINGS) bindCollection(peer, peerId, b);
+  // Runtime state (graph-driven param overrides) lives on its own retained
+  // channel rather than in BINDINGS: it never touches SQLite, so it has no
+  // table, no resource and no persistence tap. Registered here rather than at
+  // the call site so a mesh peer cannot exist without it — a missing runtime
+  // collection is silent, and the overrides simply stop arriving.
+  initMeshRuntime(peer);
   // The animation-clip asset follow-up re-points sourceFilePath through the
   // store once a fetched blob lands.
   const animCol = COLLECTIONS.get('animation_clip');
@@ -485,6 +492,7 @@ export function resetBackendMesh(): void {
   _peer = null;
   _transport = null;
   COLLECTIONS.clear();
+  resetMeshRuntime();
 }
 
 /** Epoch reset: forget deletion markers for the given ids — replica AND the

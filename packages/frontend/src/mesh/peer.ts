@@ -38,7 +38,21 @@ const RTYPES = [
   'scheduled_animation',
   'clip_playback',
   'logic',
+  'runtime_override',
 ] as const;
+
+/** Reliable + stamped + retained, no ack — runtime state that must reach a
+ *  late joiner without landing on anyone's undo stack. MUST match the backend
+ *  registration in `packages/backend/src/mesh/runtime.ts`: an op whose channel
+ *  this peer doesn't know is dropped silently on arrival. */
+const RUNTIME_CHANNEL = 'runtime';
+
+/** rtypes that live on a channel other than the default committed/preview
+ *  pair. The collection's allowed set has to include the channel its writes
+ *  arrive on, or they never apply. */
+const CHANNELS: Partial<Record<string, string[]>> = {
+  runtime_override: [RUNTIME_CHANNEL],
+};
 
 const childOfNode = (d: Dto) =>
   typeof d.nodeId === 'string' ? { rtype: 'scene_node', id: d.nodeId } : null;
@@ -82,6 +96,14 @@ const PARENTS: Partial<
       ? { rtype: 'scene_node', id: d.avatarNodeId }
       : null,
   clip_playback: childOfClip,
+  // A runtime override hangs off the entity it overrides, so a scene-subtree
+  // grant covers every override inside it. Must match the backend
+  // (mesh/runtime.ts `overrideParent`) or the two indexes diverge silently.
+  runtime_override: (d) =>
+    (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
+    typeof d.targetId === 'string'
+      ? { rtype: d.targetKind, id: d.targetId }
+      : null,
   // Owned polymorphically. A project-owned graph has no parent: there is no
   // `project` rtype in the mesh. Must match the backend BINDINGS entry exactly.
   logic: (d) =>
@@ -176,10 +198,17 @@ async function doInit(): Promise<MeshHandles> {
     ],
   });
 
+  peer.channel(RUNTIME_CHANNEL, {
+    transport: 'reliable',
+    stamped: true,
+    retained: true,
+  });
+
   const collections: Record<string, Collection<Dto>> = {};
   for (const rtype of RTYPES)
     collections[rtype] = peer.collection<Dto>(rtype, {
       parent: PARENTS[rtype],
+      channels: CHANNELS[rtype],
       authority: serverPeerId,
     });
 

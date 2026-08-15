@@ -33,6 +33,12 @@ vi.mock('../src/mesh/peer', () => ({
         {
           get: (_t, rtype: string) => ({
             observe: (_p: string, cb: Observer) => observers.set(rtype, cb),
+            // Slices with no REST load (`logic`, `runtime_override`) seed
+            // themselves from the replica. Without this the seed throws, the
+            // feeder swallows it, and every observer AFTER the seed silently
+            // stops being registered — the exact green-but-inert failure the
+            // note above warns about.
+            all: () => [],
           }),
         }
       ),
@@ -339,5 +345,110 @@ describe('meshStoreFeeder — compose_layer scoping', () => {
       doc: { ...layerDoc('l1', 'p1'), name: 'renamed' },
     });
     expect(useEditorStore.getState().composeLayers[0].name).toBe('renamed');
+  });
+});
+
+// ── runtime_override ──────────────────────────────────────────────────────────
+
+/**
+ * Graph-driven param overrides used to arrive as three WS kinds — `_set`,
+ * `_clear`, and a `_snapshot` replayed on every reconnect. They are retained
+ * mesh documents now, one per overridden path, so the feeder has only two cases
+ * and the snapshot is just the applies the subscription delivers.
+ *
+ * The remove case is the one worth pinning: there is no document left to read
+ * the target off, so the id has to be parsed — and a paramPath contains dots,
+ * which is exactly the sort of thing a naive `split(':')` gets wrong.
+ */
+describe('meshStoreFeeder — runtime_override routing', () => {
+  const feedOverride = (op: Op) => observers.get('runtime_override')!(op);
+
+  beforeEach(async () => {
+    await startFeeder();
+    useEditorStore.setState({
+      runtimeNodeOverrides: {},
+      runtimeLayerOverrides: {},
+    });
+  });
+
+  it('applies an override document to the node slice', () => {
+    feedOverride({
+      op: 'upsert',
+      id: 'scene_node:n1:opacity',
+      doc: {
+        id: 'scene_node:n1:opacity',
+        targetKind: 'scene_node',
+        targetId: 'n1',
+        paramPath: 'opacity',
+        value: 0.5,
+      },
+    });
+    expect(useEditorStore.getState().runtimeNodeOverrides).toEqual({
+      n1: { opacity: 0.5 },
+    });
+  });
+
+  it('routes a compose_layer override to the layer slice', () => {
+    feedOverride({
+      op: 'upsert',
+      id: 'compose_layer:l1:x',
+      doc: {
+        id: 'compose_layer:l1:x',
+        targetKind: 'compose_layer',
+        targetId: 'l1',
+        paramPath: 'x',
+        value: 100,
+      },
+    });
+    expect(useEditorStore.getState().runtimeLayerOverrides).toEqual({
+      l1: { x: 100 },
+    });
+  });
+
+  it('clears one path from the id when the document is removed', () => {
+    // A dotted paramPath: the id splits on the FIRST two colons, not on every
+    // one, and the remainder is the path verbatim.
+    feedOverride({
+      op: 'upsert',
+      id: 'scene_node:n1:text.content',
+      doc: {
+        id: 'scene_node:n1:text.content',
+        targetKind: 'scene_node',
+        targetId: 'n1',
+        paramPath: 'text.content',
+        value: 'hi',
+      },
+    });
+    feedOverride({
+      op: 'upsert',
+      id: 'scene_node:n1:opacity',
+      doc: {
+        id: 'scene_node:n1:opacity',
+        targetKind: 'scene_node',
+        targetId: 'n1',
+        paramPath: 'opacity',
+        value: 0.5,
+      },
+    });
+
+    feedOverride({ op: 'remove', id: 'scene_node:n1:text.content' });
+
+    expect(useEditorStore.getState().runtimeNodeOverrides).toEqual({
+      n1: { opacity: 0.5 },
+    });
+  });
+
+  it('ignores a remove whose id is not an override key', () => {
+    feedOverride({ op: 'upsert', id: 'scene_node:n1:opacity', doc: {
+      id: 'scene_node:n1:opacity',
+      targetKind: 'scene_node',
+      targetId: 'n1',
+      paramPath: 'opacity',
+      value: 0.5,
+    } });
+    feedOverride({ op: 'remove', id: 'nonsense' });
+    expect(useEditorStore.getState().runtimeNodeOverrides).toEqual({
+      n1: { opacity: 0.5 },
+    });
   });
 });

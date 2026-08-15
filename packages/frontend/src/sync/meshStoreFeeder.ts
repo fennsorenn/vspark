@@ -53,6 +53,39 @@ import type {
 
 let started = false;
 
+/** A `runtime_override` document, as the backend writes it. */
+interface RawOverride {
+  id: string;
+  targetKind: 'scene_node' | 'compose_layer';
+  targetId: string;
+  paramPath: string;
+  value: number | string | boolean;
+}
+
+/** Split a `runtime_override` id back into its parts. Needed only on remove,
+ *  where there is no document left to read the fields off. The id is
+ *  `${targetKind}:${targetId}:${paramPath}` — kind and id are colon-free, so
+ *  the two splits are unambiguous even though a paramPath contains dots. */
+function parseOverrideId(id: string): {
+  targetKind: 'scene_node' | 'compose_layer';
+  targetId: string;
+  paramPath: string;
+} | null {
+  const i = id.indexOf(':');
+  if (i < 0) return null;
+  const targetKind = id.slice(0, i);
+  if (targetKind !== 'scene_node' && targetKind !== 'compose_layer')
+    return null;
+  const rest = id.slice(i + 1);
+  const j = rest.indexOf(':');
+  if (j < 0) return null;
+  return {
+    targetKind,
+    targetId: rest.slice(0, j),
+    paramPath: rest.slice(j + 1),
+  };
+}
+
 function parentIsRemote(nodeId: unknown): boolean {
   if (typeof nodeId !== 'string') return false;
   return (
@@ -315,6 +348,30 @@ export function startMeshStoreFeeder(): void {
         useEditorStore
           .getState()
           .upsertLogic(mapLogic(g as unknown as RawLogic));
+      // Graph-driven param overrides. One document per overridden path, so a
+      // remove IS the clear — including the whole-target clear, which arrives
+      // as one remove per path rather than a single message with an optional
+      // `paramPath`. There is no snapshot to handle: the channel is retained,
+      // so the subscription snapshot delivers the live overrides as ordinary
+      // applies through this same observer.
+      h.collections.runtime_override.observe('**', (c) => {
+        const s = useEditorStore.getState();
+        if (c.op === 'remove') {
+          const k = parseOverrideId(c.id);
+          if (k) s.clearRuntimeOverride(k.targetKind, k.targetId, k.paramPath);
+          return;
+        }
+        const d = c.doc as unknown as RawOverride | undefined;
+        if (d)
+          s.setRuntimeOverride(d.targetKind, d.targetId, d.paramPath, d.value);
+      });
+      // Same reason as `logic`: no REST load hydrates this slice, so a
+      // subscription snapshot that landed before the observer registered would
+      // be lost. Seed from what the replica already holds.
+      for (const d of h.collections.runtime_override.all() as unknown as RawOverride[])
+        useEditorStore
+          .getState()
+          .setRuntimeOverride(d.targetKind, d.targetId, d.paramPath, d.value);
       h.collections.clip_playback.observe('**', (c) => {
         // No ephemeral branch yet: a scrub rides the preview channel, and the
         // slice below is read through a derivation that reads the doc as-is —

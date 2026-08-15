@@ -59,8 +59,6 @@ const SNAPSHOT = '_share_snapshot';
 const UNSHARED = '_share_unshared';
 /** Live pose/blendshape frame for a shared avatar (rides the lossy stream channel). */
 const STREAM = '_share_stream';
-/** Runtime override set/clear on a shared subtree node (reliable doc channel). */
-const OVERRIDE = '_share_override';
 /** Data-channel set/clear scoped to a shared subtree node (reliable doc channel). */
 const DATACHANNEL = '_share_datachannel';
 /** Receiver → owner: a remote write request on a shared subtree node (Phase 6). */
@@ -75,7 +73,6 @@ export const SHARE_RTYPES = new Set([
   UNSUBSCRIBE,
   SNAPSHOT,
   UNSHARED,
-  OVERRIDE,
   DATACHANNEL,
   WRITE,
   WRITE_NAK,
@@ -273,9 +270,6 @@ export class SharingManager {
         });
         break;
       }
-      case OVERRIDE:
-        this.broadcast('mp_shared_override', { peerId: from, ...data });
-        break;
       case DATACHANNEL:
         this.broadcast('mp_shared_datachannel', { peerId: from, ...data });
         break;
@@ -351,24 +345,6 @@ export class SharingManager {
       objectId: nodeId,
       kind,
       payload,
-    });
-  }
-
-  /** Owner: forward a runtime override set/clear on a shared subtree node. These
-   *  key by the target node id and the receiver applies by that id (no
-   *  per-subscriber root context), so they ride the grant-gated namespace
-   *  `router.publish` — routed to exactly the subscribers whose subtree contains
-   *  the target (subscriptionMatches ≡ the old findOwningRoot membership), over
-   *  each one's reliable link (a dropped `clear` must not stick). Only scene_node
-   *  targets are shared (compose layers aren't). */
-  forwardOverride(op: 'set' | 'clear', payload: Record<string, unknown>): void {
-    if (payload.targetKind !== 'scene_node') return;
-    const targetId = payload.targetId as string;
-    this.router.publish({
-      rtype: OVERRIDE,
-      op: 'event',
-      key: `scene_node:${targetId}`,
-      data: { op, ...payload },
     });
   }
 

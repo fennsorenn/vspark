@@ -3,6 +3,7 @@ import request from 'supertest';
 import type { Express } from 'express';
 import { makeTestApp } from './helpers/testApp.js';
 import { runtimeOverrideManager } from '../src/runtime_overrides/manager.js';
+import { overrideCollection } from '../src/mesh/runtime.js';
 import {
   guardClientSceneNode,
   assertSceneInstanceValid,
@@ -156,14 +157,9 @@ describe('scene-node guards', () => {
   });
 
   describe('runtime overrides on delete', () => {
-    /** Every override currently held, via the snapshot the WS bus sends. */
-    const snapshot = () => {
-      let entries: { targetId: string; paramPath: string }[] = [];
-      runtimeOverrideManager.sendSnapshotTo((_kind, payload) => {
-        entries = payload.entries as { targetId: string; paramPath: string }[];
-      });
-      return entries;
-    };
+    /** Every override currently held. The bus keeps no map of its own any
+     *  more — the retained `runtime_override` collection is the state. */
+    const snapshot = () => overrideCollection()?.all() ?? [];
 
     it("clears a deleted node's overrides from the persistence tap", async () => {
       const { sceneIds } = await seed();

@@ -13,10 +13,9 @@
  *  - revokeUnauthorized (evicts denied subscriptions + sends UNSHARED)
  *  - handleEnvelope ADVERTISE → broadcast mp_shares
  *  - handleEnvelope UNSHARED → broadcast mp_shared_unshared
- *  - handleEnvelope OVERRIDE → broadcast mp_shared_override
  *  - handleEnvelope DATACHANNEL → broadcast mp_shared_datachannel
  *  - handleStreamFrame → broadcast mp_shared_stream
- *  - forwardOverride / forwardDataChannel (global-scope is a no-op)
+ *  - forwardDataChannel (global-scope is a no-op)
  *  - handleEnvelope WRITE_NAK → broadcast mp_shared_write_nak
  *
  * handleEnvelope SUBSCRIBE → gatherObjectSnapshot (DB) and
@@ -210,23 +209,12 @@ describe('SharingManager handleEnvelope UNSHARED', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleEnvelope OVERRIDE / DATACHANNEL.
+// handleEnvelope DATACHANNEL. (_share_override is gone: overrides are retained
+// mesh documents parented to their target, so an object-share subtree grant
+// already routes them — see mesh/runtime.ts.)
 // ---------------------------------------------------------------------------
 
-describe('SharingManager handleEnvelope OVERRIDE / DATACHANNEL', () => {
-  it('broadcasts mp_shared_override', () => {
-    const { sm, broadcasts } = makeSm();
-    sm.handleEnvelope('peer-G', {
-      rtype: '_share_override',
-      op: 'event',
-      key: 'scene_node:node-1',
-      data: { op: 'set', targetKind: 'scene_node', targetId: 'node-1', value: 1 },
-    });
-    expect(
-      broadcasts.some((b) => b.kind === 'mp_shared_override' && (b.payload as { peerId: string }).peerId === 'peer-G')
-    ).toBe(true);
-  });
-
+describe('SharingManager handleEnvelope DATACHANNEL', () => {
   it('broadcasts mp_shared_datachannel', () => {
     const { sm, broadcasts } = makeSm();
     sm.handleEnvelope('peer-H', {
@@ -295,17 +283,10 @@ describe('SharingManager handleStreamFrame', () => {
 });
 
 // ---------------------------------------------------------------------------
-// forwardOverride / forwardDataChannel (global scope → no-op).
+// forwardDataChannel (global scope → no-op).
 // ---------------------------------------------------------------------------
 
-describe('SharingManager forwardOverride / forwardDataChannel', () => {
-  it('forwardOverride skips non-scene_node targetKind', () => {
-    const { sm, sent } = makeSm();
-    const sentBefore = sent.length;
-    sm.forwardOverride('set', { targetKind: 'compose_layer', targetId: 'cl-1', value: 1 });
-    expect(sent.length).toBe(sentBefore);
-  });
-
+describe('SharingManager forwardDataChannel', () => {
   it('forwardDataChannel skips a global (empty) scope', () => {
     const { sm } = makeSm();
     // No participants subscribed, but if the scope check were bypassed we'd see

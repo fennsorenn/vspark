@@ -710,15 +710,6 @@ interface EditorState {
     targetId: string,
     paramPath?: string
   ) => void;
-  /** Bulk apply a snapshot (used on WS (re)connect). Replaces both maps. */
-  replaceRuntimeOverrides: (
-    entries: Array<{
-      targetKind: 'scene_node' | 'compose_layer';
-      targetId: string;
-      paramPath: string;
-      value: RuntimeOverrideValue;
-    }>
-  ) => void;
   /** Mark a (target, param) as user-edited so the evaluator stops overwriting it
    *  until the next clip event. `paramPath` matches the lane's param path. */
   suppressOverride: (
@@ -1308,17 +1299,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return targetKind === 'scene_node'
         ? { runtimeNodeOverrides: next }
         : { runtimeLayerOverrides: next };
-    }),
-  replaceRuntimeOverrides: (entries) =>
-    set(() => {
-      const nodes: Record<string, RuntimeOverrideMap> = {};
-      const layers: Record<string, RuntimeOverrideMap> = {};
-      for (const e of entries) {
-        const bucket = e.targetKind === 'scene_node' ? nodes : layers;
-        const prev = bucket[e.targetId] ?? {};
-        bucket[e.targetId] = { ...prev, [e.paramPath]: e.value };
-      }
-      return { runtimeNodeOverrides: nodes, runtimeLayerOverrides: layers };
     }),
   mergeDataChannels: (scope, fields) =>
     set((s) => ({

@@ -234,40 +234,6 @@ export function useWsSync() {
             useEditorStore
               .getState()
               .replaceTrackClipEvents(clipId, rows.map(mapTrackClipEvent));
-          } else if (msg.kind === 'runtime_override_set') {
-            const p = msg.payload as {
-              targetKind: 'scene_node' | 'compose_layer';
-              targetId: string;
-              paramPath: string;
-              value: number | string | boolean;
-            };
-            useEditorStore
-              .getState()
-              .setRuntimeOverride(
-                p.targetKind,
-                p.targetId,
-                p.paramPath,
-                p.value
-              );
-          } else if (msg.kind === 'runtime_override_clear') {
-            const p = msg.payload as {
-              targetKind: 'scene_node' | 'compose_layer';
-              targetId: string;
-              paramPath?: string;
-            };
-            useEditorStore
-              .getState()
-              .clearRuntimeOverride(p.targetKind, p.targetId, p.paramPath);
-          } else if (msg.kind === 'runtime_override_snapshot') {
-            const p = msg.payload as {
-              entries: Array<{
-                targetKind: 'scene_node' | 'compose_layer';
-                targetId: string;
-                paramPath: string;
-                value: number | string | boolean;
-              }>;
-            };
-            useEditorStore.getState().replaceRuntimeOverrides(p.entries ?? []);
           } else if (msg.kind === 'media_control') {
             const p = msg.payload as {
               targetId: string;
@@ -424,30 +390,6 @@ export function useWsSync() {
               );
             } else if (p.kind === 'pose_ik_targets') {
               setIkTargets(f.nodeId as string, f as unknown as IkTargetFrame);
-            }
-          } else if (msg.kind === 'mp_shared_override') {
-            // Graph-driven runtime override on a shared node (owner ids are
-            // preserved by the projection, so it applies to the projected node).
-            const p = msg.payload as {
-              op: 'set' | 'clear';
-              targetKind: 'scene_node' | 'compose_layer';
-              targetId: string;
-              paramPath?: string;
-              value?: number | string | boolean;
-            };
-            if (p.op === 'set' && p.paramPath != null && p.value != null) {
-              useEditorStore
-                .getState()
-                .setRuntimeOverride(
-                  p.targetKind,
-                  p.targetId,
-                  p.paramPath,
-                  p.value
-                );
-            } else if (p.op === 'clear') {
-              useEditorStore
-                .getState()
-                .clearRuntimeOverride(p.targetKind, p.targetId, p.paramPath);
             }
           } else if (msg.kind === 'mp_shared_datachannel') {
             // Data channel scoped to a shared node (scope = owner node id, which

@@ -656,7 +656,7 @@ describe('setComposeLayerOverride', () => {
 
 // ── Runtime overrides ─────────────────────────────────────────────────────────
 
-describe('setRuntimeOverride / clearRuntimeOverride / replaceRuntimeOverrides', () => {
+describe('setRuntimeOverride / clearRuntimeOverride', () => {
   test('setRuntimeOverride writes to runtimeNodeOverrides', () => {
     useEditorStore.getState().setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.8);
     expect(useEditorStore.getState().runtimeNodeOverrides['node-1']['opacity']).toBe(0.8);
@@ -696,18 +696,6 @@ describe('setRuntimeOverride / clearRuntimeOverride / replaceRuntimeOverrides', 
     expect(useEditorStore.getState().runtimeNodeOverrides).toEqual({});
   });
 
-  test('replaceRuntimeOverrides bulk-replaces both maps', () => {
-    useEditorStore.getState().setRuntimeOverride('scene_node', 'old-node', 'x', 1);
-    useEditorStore.getState().replaceRuntimeOverrides([
-      { targetKind: 'scene_node', targetId: 'node-A', paramPath: 'opacity', value: 0.5 },
-      { targetKind: 'compose_layer', targetId: 'layer-B', paramPath: 'x', value: 100 },
-    ]);
-    const st = useEditorStore.getState();
-    expect(st.runtimeNodeOverrides).toEqual({ 'node-A': { opacity: 0.5 } });
-    expect(st.runtimeLayerOverrides).toEqual({ 'layer-B': { x: 100 } });
-    // Old entries are gone
-    expect(st.runtimeNodeOverrides['old-node']).toBeUndefined();
-  });
 });
 
 // ── Override suppressions ─────────────────────────────────────────────────────
