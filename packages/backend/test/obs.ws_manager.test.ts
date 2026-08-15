@@ -122,6 +122,137 @@ describe('ObsWsManager event routing', () => {
   });
 });
 
+describe('ObsWsManager scene + output events', () => {
+  /** Connect, then hand back the `fire` spy and the live manager. */
+  async function live(kind: string, nodeId = 'n') {
+    await insertConnection();
+    const fire = vi.spyOn(logicManager, 'fire').mockImplementation(() => {});
+    vi.spyOn(logicManager, 'iterateNodes').mockReturnValue([
+      { graphId: 'g', node: { id: nodeId, kind }, projectId: 'p1' },
+    ] as unknown as ReturnType<typeof logicManager.iterateNodes>);
+    const mgr = new ObsWsManager(makeWsStub().ws, () => fake);
+    mgr.refreshProject('p1');
+    fake.goLive();
+    return { fire, mgr };
+  }
+
+  it('routes CurrentProgramSceneChanged with the cached canvas size', async () => {
+    fake.request.mockResolvedValue({ baseWidth: 1920, baseHeight: 1080 });
+    const { fire } = await live('obs_scene_changed');
+    // Let the connect-time GetVideoSettings resolve.
+    await new Promise((r) => setTimeout(r, 0));
+
+    fake.emit('obsEvent', 'CurrentProgramSceneChanged', { sceneName: 'Intro' });
+    expect(fire).toHaveBeenCalledWith(
+      'g',
+      'n',
+      'event',
+      expect.objectContaining({
+        payload: {
+          type: 'scene_changed',
+          name: 'Intro',
+          width: 1920,
+          height: 1080,
+        },
+      })
+    );
+  });
+
+  it('falls back to a 0×0 canvas when GetVideoSettings fails', async () => {
+    fake.request.mockRejectedValue(new Error('nope'));
+    const { fire } = await live('obs_scene_changed');
+    await new Promise((r) => setTimeout(r, 0));
+
+    fake.emit('obsEvent', 'CurrentProgramSceneChanged', { sceneName: 'Cam' });
+    expect(fire).toHaveBeenCalledWith(
+      'g',
+      'n',
+      'event',
+      expect.objectContaining({
+        payload: { type: 'scene_changed', name: 'Cam', width: 0, height: 0 },
+      })
+    );
+  });
+
+  it('folds output run-state events into the output_state shape', async () => {
+    const { fire } = await live('obs_output_state');
+
+    fake.emit('obsEvent', 'RecordStateChanged', {
+      outputActive: true,
+      outputState: 'OBS_WEBSOCKET_OUTPUT_PAUSED',
+    });
+    expect(fire).toHaveBeenLastCalledWith(
+      'g',
+      'n',
+      'event',
+      expect.objectContaining({
+        payload: {
+          type: 'output_state',
+          output: 'recording',
+          state: 'paused',
+          active: true,
+        },
+      })
+    );
+
+    fake.emit('obsEvent', 'StreamStateChanged', {
+      outputActive: false,
+      outputState: 'OBS_WEBSOCKET_OUTPUT_STOPPED',
+    });
+    expect(fire).toHaveBeenLastCalledWith(
+      'g',
+      'n',
+      'event',
+      expect.objectContaining({
+        payload: {
+          type: 'output_state',
+          output: 'streaming',
+          state: 'stopped',
+          active: false,
+        },
+      })
+    );
+  });
+
+  it('maps ReplayBufferSaved onto the saved state', async () => {
+    const { fire } = await live('obs_output_state');
+    fake.emit('obsEvent', 'ReplayBufferSaved', {
+      savedReplayPath: '/clips/x.mp4',
+    });
+    expect(fire).toHaveBeenLastCalledWith(
+      'g',
+      'n',
+      'event',
+      expect.objectContaining({
+        payload: {
+          type: 'output_state',
+          output: 'replay',
+          state: 'saved',
+          active: true,
+        },
+      })
+    );
+  });
+
+  it('drops run-states with no slot in the node vocabulary', async () => {
+    const { fire } = await live('obs_output_state');
+    fake.emit('obsEvent', 'StreamStateChanged', {
+      outputActive: false,
+      outputState: 'OBS_WEBSOCKET_OUTPUT_RECONNECTING',
+    });
+    expect(fire).not.toHaveBeenCalled();
+  });
+
+  it('delivers one fire per event — no cross-source duplication', async () => {
+    const { fire } = await live('obs_scene_changed');
+    fake.emit('obsEvent', 'CurrentProgramSceneChanged', { sceneName: 'Intro' });
+    fake.emit('obsEvent', 'CurrentProgramSceneChanged', { sceneName: 'Intro' });
+    // Two OBS events → two fires: there is a single connection, so the browser
+    // bridge's 400ms dedup window has nothing left to guard against.
+    expect(fire).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('ObsWsManager outbound requests', () => {
   beforeEach(() => {
     vi.spyOn(logicManager, 'iterateNodes').mockReturnValue(
@@ -191,7 +322,11 @@ describe('ObsWsManager outbound requests', () => {
     const mgr = await connected();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mgr.setScene('p1', '   ');
-    expect(fake.request).not.toHaveBeenCalled();
+    // GetVideoSettings fires on connect, so assert on the scene request only.
+    expect(fake.request).not.toHaveBeenCalledWith(
+      'SetCurrentProgramScene',
+      expect.anything()
+    );
     expect(warn.mock.calls[0]?.[0]).toContain('SetCurrentProgramScene');
   });
 

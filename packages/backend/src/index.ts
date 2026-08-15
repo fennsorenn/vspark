@@ -72,7 +72,6 @@ import type {
   LipsyncInputMessage,
   TrackingInputMessage,
   AvatarExpressionsReportMessage,
-  ObsEventMessage,
   ClientHelloMessage,
 } from '@vspark/shared';
 
@@ -259,20 +258,19 @@ async function start() {
   const overliveManager = initOverliveManager(wsSync);
   await overliveManager.startAll();
 
-  // OBS browser-source bridge — routes window.obsstudio events into project
-  // graphs and pushes obs_command control calls back. Also owns render-client
-  // lifecycle (client_hello / disconnect → client_lifecycle nodes).
+  // Render-client lifecycle — client_hello / disconnect → client_lifecycle
+  // nodes. vspark-native: works for a plain browser tab, no OBS needed.
   // See dev-notes/modules/obs.md.
   const { initObsManager } = await import('./obs/manager.js');
-  const obsManager = initObsManager(wsSync);
+  const obsManager = initObsManager();
   wsSync.onClientConnected((ws) => {
     ws.on('close', () => obsManager.handleClientGone(ws));
   });
 
-  // OBS power tier — one backend-held obs-websocket connection per project
-  // (opt-in, credentials in the Accounts UI). Unlocks audio volume/mute + more
-  // that the browser-source API can't reach.
-  // See dev-notes/plans/obs-websocket-tier.md.
+  // OBS integration — one backend-held obs-websocket connection per project
+  // (credentials in the Accounts UI). Carries every OBS control and state node:
+  // scene/transition/output control, audio volume/mute, replay path.
+  // See dev-notes/modules/obs.md.
   const { initObsWsManager } = await import('./obs/ws_manager.js');
   const obsWsManager = initObsWsManager(wsSync);
   obsWsManager.startAll();
@@ -332,10 +330,6 @@ async function start() {
         msg.nodeId,
         msg.expressions ?? []
       );
-    } else if (kind === 'obs_event') {
-      // OBS browser-source event forwarded from the page's window.obsstudio.
-      const msg = payload as ObsEventMessage;
-      if (msg.event) obsManager.handleEvent(sourceWs, msg.event);
     } else if (kind === 'client_hello') {
       // Render client announcing its identity (projectId + stable target marker).
       const msg = payload as ClientHelloMessage;

@@ -1,46 +1,26 @@
 /**
- * ObsManager — the OBS browser-source bridge.
+ * ObsManager — render-client lifecycle bookkeeping.
  *
- * vspark is typically added to OBS as a Browser Source. The page inside that
- * source can talk to OBS via the `window.obsstudio` JS API, but the signal
- * graph runs here in the backend. This manager is the seam:
+ * The WS socket is ephemeral and project-anonymous, so each render client (an
+ * OBS Browser Source, or an ordinary browser tab — both count) sends a
+ * `client_hello` carrying its projectId and a stable `target` marker.
+ * `handleHello` / `handleClientGone` track those connections and fire
+ * `client_lifecycle` nodes on connect/disconnect.
  *
- *  - Inbound: the frontend bridge forwards `window.obsstudio` events as
- *    `obs_event` WS messages. `handleEvent` routes them into every running
- *    project logic graph's matching `obs_*` source node (same pattern as
- *    OverliveManager). Because OBS events are global to the OBS instance, every
- *    open browser source reports the same global event — so identical events
- *    are de-duplicated within a short window before fan-out.
- *
- *  - Outbound: `obs_*` action nodes call `command(...)`, which broadcasts an
- *    `obs_command` to every client; the bridge invokes the matching
- *    `window.obsstudio` method (gated by the source's OBS page permissions).
- *
- *  - Render-client lifecycle: the WS socket is ephemeral and project-anonymous,
- *    so each client sends a `client_hello` carrying its projectId and a stable
- *    `target` marker. `handleHello` / `handleClientGone` track connections and
- *    fire `client_lifecycle` nodes on connect/disconnect. This is vspark-native
- *    (it works for a plain browser tab too), but lives here because it shares
- *    the same per-socket bookkeeping as the OBS bridge.
+ * This used to be the OBS browser-source bridge as well: it routed
+ * `window.obsstudio` events into graph nodes and broadcast `obs_command`
+ * control calls back out. That half is gone — OBS gates control calls behind
+ * the source's page permission level and silently ignores anything above it,
+ * so an action could fail with no error anywhere. OBS control and state now go
+ * over obs-websocket ([ws_manager.ts]), which needs no page permission and
+ * returns a status per request. What is left here is vspark-native and works
+ * with no OBS involvement at all.
  *
  * See dev-notes/modules/obs.md.
  */
 import { mkEvent } from '@vspark/shared/signal';
-import type { ObsCommand, ObsEvent } from '@vspark/shared';
 import { logicManager } from '../logic/manager.js';
-import type { WSSync } from '../ws/index.js';
 import type { WebSocket } from 'ws';
-
-/** Node kind that receives each OBS event family. */
-const OBS_KIND_BY_EVENT: Record<ObsEvent['type'], string> = {
-  scene_changed: 'obs_scene_changed',
-  output_state: 'obs_output_state',
-};
-
-/** Window (ms) within which an identical OBS event from another source is
- *  treated as a duplicate and dropped. Global OBS events fan out to every open
- *  browser source, so without this every source would fire the graph. */
-const DEDUP_WINDOW_MS = 400;
 
 interface ClientMeta {
   projectId: string;
@@ -48,49 +28,10 @@ interface ClientMeta {
 }
 
 export class ObsManager {
-  private readonly _ws: WSSync | null;
   /** Per-socket identity, populated on client_hello. */
   private readonly _clients = new Map<WebSocket, ClientMeta>();
   /** projectId → live render-client count (for client_lifecycle.count). */
   private readonly _countByProject = new Map<string, number>();
-  /** event signature → last-seen epoch ms, for global-event de-duplication. */
-  private readonly _lastSeen = new Map<string, number>();
-
-  constructor(ws?: WSSync) {
-    this._ws = ws ?? null;
-  }
-
-  // ── inbound: OBS events ────────────────────────────────────────────────────
-
-  /** Route an OBS event from a browser source into matching graph nodes. The
-   *  source socket resolves the project scope (via its prior client_hello). */
-  handleEvent(sourceWs: WebSocket, event: ObsEvent): void {
-    const projectId = this._clients.get(sourceWs)?.projectId ?? null;
-    if (this._isDuplicate(projectId, event)) return;
-    this._deliver(projectId, OBS_KIND_BY_EVENT[event.type], event);
-  }
-
-  private _isDuplicate(projectId: string | null, event: ObsEvent): boolean {
-    const sig = `${projectId ?? '*'}:${JSON.stringify(event)}`;
-    const now = Date.now();
-    const last = this._lastSeen.get(sig);
-    this._lastSeen.set(sig, now);
-    // Opportunistic prune so the map can't grow unbounded.
-    if (this._lastSeen.size > 256) {
-      for (const [k, t] of this._lastSeen)
-        if (now - t > DEDUP_WINDOW_MS) this._lastSeen.delete(k);
-    }
-    return last !== undefined && now - last < DEDUP_WINDOW_MS;
-  }
-
-  // ── outbound: control calls ────────────────────────────────────────────────
-
-  /** Ask every connected browser source to invoke a `window.obsstudio` call.
-   *  Fire-and-forget — OBS silently no-ops calls above the source's permission
-   *  level, so there's no ack to wait on. */
-  command(command: ObsCommand): void {
-    this._ws?.broadcast('obs_command', { command });
-  }
 
   // ── render-client lifecycle ────────────────────────────────────────────────
 
@@ -133,18 +74,12 @@ export class ObsManager {
 
   // ── fan-out ─────────────────────────────────────────────────────────────────
 
-  /** Deliver a payload into every running node of `kind`. When `projectId` is
-   *  known the fan-out is scoped to that project; otherwise it reaches all
-   *  projects (OBS events are machine-global, so an un-helloed source still
-   *  drives every project's graphs). Per-node config filters run inside the
-   *  node's own handler, mirroring the overlive nodes. */
-  private _deliver(
-    projectId: string | null,
-    kind: string,
-    payload: unknown
-  ): void {
+  /** Deliver a payload into every running node of `kind` in the project's
+   *  graphs. Per-node config filters run inside the node's own handler,
+   *  mirroring the overlive nodes. */
+  private _deliver(projectId: string, kind: string, payload: unknown): void {
     for (const { graphId, node, projectId: gpId } of logicManager.iterateNodes()) {
-      if (projectId !== null && gpId !== projectId) continue;
+      if (gpId !== projectId) continue;
       if (node.kind !== kind) continue;
       logicManager.fire(graphId, node.id, 'event', mkEvent(payload));
     }
@@ -158,9 +93,9 @@ export class ObsManager {
 
 // Singleton — wired in src/index.ts.
 let _instance: ObsManager | null = null;
-export function initObsManager(ws?: WSSync): ObsManager {
+export function initObsManager(): ObsManager {
   if (_instance) return _instance;
-  _instance = new ObsManager(ws);
+  _instance = new ObsManager();
   return _instance;
 }
 export function getObsManager(): ObsManager {

@@ -1,24 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { loneNode } from './helpers/nodeHarness.js';
 
 /**
- * OBS browser-source bridge nodes.
+ * OBS event-source nodes + client_lifecycle.
  *
- * Source nodes (obs_scene_changed / obs_output_state / client_lifecycle) share
- * the overlive shape: an `@eventIn('event')` handler maps the payload onto node
- * state (applying config filters) and re-emits. Outputs read from state.
+ * These share the overlive shape: an `@eventIn('event')` handler maps the
+ * payload onto node state (applying config filters) and re-emits; outputs read
+ * from state. The payloads are transport-agnostic — obs-websocket now produces
+ * them (see obs.ws_manager.test.ts), the browser bridge used to.
  *
- * Action nodes (obs_set_scene / obs_set_transition / obs_control) call
- * getObsManager().command(...) on `fire` — mocked here so the call is
- * observable.
+ * The OBS action nodes live in nodes.obs.ws.test.ts.
  */
-
-const command = vi.fn();
-vi.mock('../src/obs/manager.js', () => ({
-  getObsManager: () => ({ command }),
-}));
-
-beforeEach(() => command.mockClear());
 
 describe('obs_scene_changed', () => {
   it('maps name/width/height from the payload', () => {
@@ -96,32 +88,5 @@ describe('client_lifecycle', () => {
     const n = loneNode('client_lifecycle', { onlyTarget: 'overlay' });
     n.deliver('event', { phase: 'connected', target: 'main', count: 1 });
     expect(n.state()).toBeUndefined();
-  });
-});
-
-// obs_set_scene moved onto obs-websocket — see nodes.obs.ws.test.ts.
-
-describe('obs_set_transition', () => {
-  it('issues setCurrentTransition with the config name', () => {
-    const n = loneNode('obs_set_transition', { transition: 'Fade' });
-    n.deliver('fire', undefined);
-    expect(command).toHaveBeenCalledWith({
-      verb: 'setCurrentTransition',
-      arg: 'Fade',
-    });
-  });
-});
-
-describe('obs_control', () => {
-  it('issues a whitelisted arg-less verb', () => {
-    const n = loneNode('obs_control', { action: 'saveReplayBuffer' });
-    n.deliver('fire', undefined);
-    expect(command).toHaveBeenCalledWith({ verb: 'saveReplayBuffer' });
-  });
-
-  it('ignores an unknown action', () => {
-    const n = loneNode('obs_control', { action: 'launchMissiles' });
-    n.deliver('fire', undefined);
-    expect(command).not.toHaveBeenCalled();
   });
 });

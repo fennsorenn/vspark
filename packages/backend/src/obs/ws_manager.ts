@@ -11,7 +11,12 @@
  * `ws://localhost:4455` directly. See dev-notes/plans/obs-websocket-tier.md.
  */
 import { mkEvent } from '@vspark/shared/signal';
-import type { ObsConnectionStatus } from '@vspark/shared';
+import type {
+  ObsConnectionStatus,
+  ObsEvent,
+  ObsOutputKind,
+  ObsOutputState,
+} from '@vspark/shared';
 import { getDb } from '../db/index.js';
 import { logicManager } from '../logic/manager.js';
 import { ObsWsClient, type ObsWsClientOptions } from './ws_client.js';
@@ -33,6 +38,8 @@ interface Conn {
   client: ObsWsClient;
   status: ObsConnectionStatus;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  /** OBS base canvas size, read once per connection (see `_loadCanvasSize`). */
+  canvas: { width: number; height: number };
 }
 
 /** Delay before retrying a dropped connection (fixed; OBS is local). */
@@ -61,6 +68,30 @@ const CONTROL_REQUESTS = {
 
 /** The verbs `obs_control` can issue. */
 export type ObsControlVerb = keyof typeof CONTROL_REQUESTS;
+
+/** Output run-state event → which OBS output it describes. */
+const OUTPUT_BY_EVENT: Record<string, ObsOutputKind> = {
+  StreamStateChanged: 'streaming',
+  RecordStateChanged: 'recording',
+  ReplayBufferStateChanged: 'replay',
+  ReplayBufferSaved: 'replay',
+  VirtualcamStateChanged: 'virtualcam',
+};
+
+/**
+ * obs-websocket `outputState` enum → the folded `output_state` vocabulary the
+ * `obs_output_state` node has always emitted. Deliberately partial: OBS's
+ * reconnecting / reconnected / unknown states have no equivalent in that
+ * vocabulary and had none on the browser bridge either, so they are dropped.
+ */
+const OUTPUT_STATE_BY_OBS: Record<string, ObsOutputState | undefined> = {
+  OBS_WEBSOCKET_OUTPUT_STARTING: 'starting',
+  OBS_WEBSOCKET_OUTPUT_STARTED: 'started',
+  OBS_WEBSOCKET_OUTPUT_STOPPING: 'stopping',
+  OBS_WEBSOCKET_OUTPUT_STOPPED: 'stopped',
+  OBS_WEBSOCKET_OUTPUT_PAUSED: 'paused',
+  OBS_WEBSOCKET_OUTPUT_RESUMED: 'unpaused',
+};
 
 export function isObsControlVerb(v: string): v is ObsControlVerb {
   return v in CONTROL_REQUESTS;
@@ -126,11 +157,15 @@ export class ObsWsManager {
       client,
       status: 'connecting',
       reconnectTimer: null,
+      canvas: { width: 0, height: 0 },
     };
     this._byProject.set(row.project_id, conn);
     this._setStatus(conn, 'connecting');
 
-    client.on('identified', () => this._setStatus(conn, 'connected'));
+    client.on('identified', () => {
+      this._setStatus(conn, 'connected');
+      void this._loadCanvasSize(conn);
+    });
     client.on('obsEvent', (type: string, data: Record<string, unknown>) =>
       this._onObsEvent(conn.projectId, type, data)
     );
@@ -218,11 +253,72 @@ export class ObsWsManager {
         mul: data.inputVolumeMul,
         db: data.inputVolumeDb,
       });
-    } else if (eventType === 'InputMuteStateChanged') {
+      return;
+    }
+    if (eventType === 'InputMuteStateChanged') {
       this._deliver(projectId, 'obs_mute_changed', {
         input: data.inputName,
         muted: data.inputMuted,
       });
+      return;
+    }
+    if (eventType === 'CurrentProgramSceneChanged') {
+      const conn = this._byProject.get(projectId);
+      this._deliver(projectId, 'obs_scene_changed', {
+        type: 'scene_changed',
+        name: String(data.sceneName ?? ''),
+        width: conn?.canvas.width ?? 0,
+        height: conn?.canvas.height ?? 0,
+      } satisfies Extract<ObsEvent, { type: 'scene_changed' }>);
+      return;
+    }
+    const output = OUTPUT_BY_EVENT[eventType];
+    if (output) this._onOutputEvent(projectId, output, eventType, data);
+  }
+
+  /** Translate an output run-state event into the folded `output_state` shape
+   *  the `obs_output_state` node has always consumed. */
+  private _onOutputEvent(
+    projectId: string,
+    output: ObsOutputKind,
+    eventType: string,
+    data: Record<string, unknown>
+  ): void {
+    // ReplayBufferSaved is its own event, not a run-state transition.
+    if (eventType === 'ReplayBufferSaved') {
+      this._deliver(projectId, 'obs_output_state', {
+        type: 'output_state',
+        output,
+        state: 'saved',
+        active: true,
+      } satisfies Extract<ObsEvent, { type: 'output_state' }>);
+      return;
+    }
+    const state = OUTPUT_STATE_BY_OBS[String(data.outputState ?? '')];
+    // Reconnecting / reconnected / unknown have no slot in the node's state
+    // vocabulary and never existed on the browser bridge — drop them rather
+    // than widen the payload shape graphs are matching on.
+    if (!state) return;
+    this._deliver(projectId, 'obs_output_state', {
+      type: 'output_state',
+      output,
+      state,
+      active: data.outputActive === true,
+    } satisfies Extract<ObsEvent, { type: 'output_state' }>);
+  }
+
+  /** Read OBS's base canvas size once per connection, so `obs_scene_changed`
+   *  can keep reporting the width/height the browser event used to carry.
+   *  obs-websocket has no canvas-resize event, hence connect-time only. */
+  private async _loadCanvasSize(conn: Conn): Promise<void> {
+    try {
+      const res = await conn.client.request('GetVideoSettings');
+      conn.canvas = {
+        width: Number(res.baseWidth ?? 0),
+        height: Number(res.baseHeight ?? 0),
+      };
+    } catch {
+      /* leave the canvas at 0×0; the scene name is the useful part */
     }
   }
 
@@ -334,10 +430,6 @@ export class ObsWsManager {
   /** Issue an arg-less control verb (start/stop stream, record, replay, cam). */
   control(projectId: string, verb: ObsControlVerb): void {
     const request = CONTROL_REQUESTS[verb];
-    if (!request) {
-      console.warn(`[obs-ws] control: unknown action "${verb}"`);
-      return;
-    }
     const client = this._clientFor(projectId, request);
     if (!client) return;
     this._report(request, client.request(request));

@@ -23,8 +23,13 @@ export const EVENT_SUB = {
   Outputs: 1 << 6,
 } as const;
 
-/** Phase 1 only needs input volume/mute events. */
-const DEFAULT_SUBSCRIPTIONS = EVENT_SUB.Inputs;
+/**
+ * Inputs for volume/mute, Scenes for the active-program-scene change, Outputs
+ * for stream / record / replay-buffer / virtualcam run-state changes — the
+ * three families the OBS source nodes are fed from.
+ */
+const DEFAULT_SUBSCRIPTIONS =
+  EVENT_SUB.Inputs | EVENT_SUB.Scenes | EVENT_SUB.Outputs;
 
 const OP = {
   Hello: 0,
