@@ -234,10 +234,10 @@ lane evaluator untouched.
 ### Shared + routes
 
 - Shared: `TrackClipEvent { id, t, action, targetKind, targetId, payload }`;
-  `TrackClip.events: TrackClipEvent[]`; `WSMessageKind 'track_clip_events_replaced'`.
+  `TrackClip.events: TrackClipEvent[]`.
 - `routes/track-clips.ts`: events are loaded into the clip bundle
   (`loadClip`/`mapClip`/`mapEvent`); bulk-replace endpoint
-  `PUT /track-clips/:id/events` broadcasting `track_clip_events_replaced` (mirrors the
+  `PUT /track-clips/:id/events` writing the whole event map through the clip document (mirrors the
   keyframes bulk-replace pattern).
 - `spawn/manager.ts` clones + retargets event markers for `spawn_clip`. See
   [spawn.md](spawn.md).
@@ -246,7 +246,7 @@ lane evaluator untouched.
 
 - `api/client.ts`: `TrackClipEventRecord` + `mapTrackClipEvent` +
   `api.replaceTrackClipEvents`. Store: `replaceTrackClipEvents`; `useWsSync` handler
-  for `track_clip_events_replaced`.
+  for the clip document's `events` map.
 - `useTrackClipEvaluator.ts`: fires markers when the playhead crosses them. A
   module-level `lastTByClip` map + a `crossedMarker(prevT, t, markerT, duration, loop)`
   helper (handles loop wrap, re-armed per loop) drive firing. **Playing-only** (paused
@@ -295,7 +295,7 @@ Video/audio are first-class asset kinds. See [asset-management.md](asset-managem
 **Shared:**
 - `types.ts` — `MediaTargetKind`, `MediaAction`, `MediaCommand`,
   `MediaControlMessage`, `TrackClipEvent`, `TrackClip.events`, `WSMessageKind`
-  (`media_control`, `track_clip_events_replaced`), `NodeKind` (`video`/`audio`)
+  `MediaCommand` / `MediaControlMessage`, `NodeKind` (`video`/`audio`)
 - `schema.ts` — `sceneNodeKindSchema` (`video`/`audio`/`billboard`)
 
 **Frontend:**
@@ -316,7 +316,7 @@ Video/audio are first-class asset kinds. See [asset-management.md](asset-managem
 - `components/editor/SceneGraph.tsx` — `KIND_ICONS` for video/audio
 - `components/editor/AssetManager.tsx` + `AssetThumb.tsx` — Videos/Audio tabs + thumbs
 - `components/editor/TrackClipTimeline.tsx` — `EventLane` editor
-- `hooks/useWsSync.ts` — `media_control` + `track_clip_events_replaced` handlers
+- `sync/meshStoreFeeder.ts` — the `media_control` observer; clip events arrive with the clip document
 - `hooks/useTrackClipEvaluator.ts` — marker firing (`lastTByClip` / `crossedMarker`)
 - `api/client.ts` — asset kinds + `TrackClipEventRecord` + `replaceTrackClipEvents`
 - `store/editorStore.ts` — `editorAudioPreviewEnabled`, `BottomDockTab`,

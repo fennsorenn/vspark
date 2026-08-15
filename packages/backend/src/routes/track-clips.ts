@@ -11,7 +11,6 @@ import {
   stopClip,
   triggerClip,
 } from '../track_clips/playbackDoc.js';
-import { _ws } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
 import { byId, itemOf, type IdMap } from '@vspark/shared/idMap';
 
@@ -330,7 +329,6 @@ router.put('/track-clips/:id', async (req, res) => {
     if (patch.loop !== undefined) syncPlaybackLoop(id, !!patch.loop);
   }
   const data = loadClip(id);
-  _ws?.broadcast('track_clip_updated', data as Record<string, unknown>);
   res.json({ ok: true, data });
 });
 
@@ -343,7 +341,7 @@ router.put('/track-clips/:id', async (req, res) => {
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
- *       200: { description: Deleted; broadcast as track_clip_removed }
+ *       200: { description: Deleted; the change reaches clients through the mesh store }
  */
 router.delete('/track-clips/:id', async (req, res) => {
   const id = req.params.id;
@@ -404,10 +402,6 @@ router.post('/track-clips/:clipId/lanes', async (req, res) => {
     keyframes: {},
   };
   await col.set(clipId, `lanes.${data.id}`, data).ack;
-  _ws?.broadcast(
-    'track_clip_lane_added',
-    data as unknown as Record<string, unknown>
-  );
   res.status(201).json({ ok: true, data });
 });
 
@@ -453,10 +447,6 @@ router.put('/track-clip-lanes/:id', async (req, res) => {
     if (patch[k] !== undefined) (data as Record<string, unknown>)[k] = patch[k];
   }
   await col.set(cur.id, `lanes.${id}`, data).ack;
-  _ws?.broadcast(
-    'track_clip_lane_updated',
-    data as unknown as Record<string, unknown>
-  );
   res.json({ ok: true, data });
 });
 
@@ -469,7 +459,7 @@ router.put('/track-clip-lanes/:id', async (req, res) => {
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
- *       200: { description: Deleted; broadcast as track_clip_lane_removed }
+ *       200: { description: Deleted; the change reaches clients through the mesh store }
  */
 router.delete('/track-clip-lanes/:id', async (req, res) => {
   const id = req.params.id;
@@ -481,10 +471,6 @@ router.delete('/track-clip-lanes/:id', async (req, res) => {
   // Deleting a key means writing a null over it — `set` can write a path but
   // not remove one, and readers skip nulls (idMap.ts).
   if (col && cur) await col.set(cur.id, `lanes.${id}`, null).ack;
-  _ws?.broadcast('track_clip_lane_removed', {
-    id,
-    clipId: row?.clip_id ?? null,
-  });
   res.json({ ok: true, data: { id } });
 });
 
@@ -546,9 +532,7 @@ router.put('/track-clip-lanes/:id/keyframes', async (req, res) => {
   // drag-then-commit shape a REST caller has; a tab commits the single
   // keyframe it moved instead (see the frontend clip write helpers).
   await col.set(cur.id, `lanes.${laneId}.keyframes`, byId(next)).ack;
-  const data = { laneId, keyframes: next };
-  _ws?.broadcast('track_clip_keyframes_replaced', data);
-  res.json({ ok: true, data });
+  res.json({ ok: true, data: { laneId, keyframes: next } });
 });
 
 /**
@@ -736,9 +720,7 @@ router.put('/track-clips/:id/events', async (req, res) => {
   // The whole event map in one write, matching the endpoint's replace
   // semantics; a tab commits the single marker it moved instead.
   await col.set(clipId, 'events', byId(next)).ack;
-  const data = { clipId, events: next };
-  _ws?.broadcast('track_clip_events_replaced', data);
-  res.json({ ok: true, data });
+  res.json({ ok: true, data: { clipId, events: next } });
 });
 
 export default router;

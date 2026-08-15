@@ -509,24 +509,10 @@ export type WSMessageKind =
   | 'tracking_status'
   | 'pose_ik_targets'
   | 'server_update'
-  | 'behavior_added'
   | 'compose_layer_added'
-  | 'compose_layer_updated'
   | 'compose_layer_removed'
-  | 'compose_layer_reordered'
-  | 'compose_layer_preview'
   | 'track_clip_added'
-  | 'track_clip_updated'
-  | 'track_clip_removed'
-  | 'track_clip_lane_added'
-  | 'track_clip_lane_updated'
-  | 'track_clip_lane_removed'
-  | 'track_clip_keyframes_replaced'
-  | 'track_clip_events_replaced'
-  | 'track_clip_started'
-  | 'track_clip_paused'
-  | 'track_clip_stopped'
-  | 'track_clip_playback_snapshot';
+  | 'track_clip_removed';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 

@@ -154,7 +154,7 @@ The REST routes still exist — they back the fallback ladder and are what scrip
 
 The scenes bundle endpoint also returns `composeLayers` alongside `cameraEffects` so the editor hydrates everything in one request.
 
-WebSocket kinds left for compose layers: `compose_layer_added` / `compose_layer_removed`, still emitted inline by the spawn manager for **ephemeral tmp layers** and handled in [hooks/useWsSync.ts](../../packages/frontend/src/hooks/useWsSync.ts) (see [spawn.md](spawn.md)). `compose_layer_updated`, `compose_layer_reordered` and `compose_layer_preview` survive only as members of the `WSMessageKind` union — no producer, no consumer.
+WebSocket kinds left for compose layers: `compose_layer_added` / `compose_layer_removed`, still emitted inline by the spawn manager for **ephemeral tmp layers** and handled in [hooks/useWsSync.ts](../../packages/frontend/src/hooks/useWsSync.ts) (see [spawn.md](spawn.md)). `compose_layer_updated`, `compose_layer_reordered` and `compose_layer_preview` are gone entirely — they had had no producer or consumer for some time and have now left the `WSMessageKind` union too.
 
 ### Previews (in-flight gestures)
 

@@ -782,12 +782,6 @@ late joiner wants.
 The list below was rewritten after the write migration finished; most of what
 used to be here is done, and saying so wrongly is worse than saying nothing.
 
-- **Document WS kinds that are pure double-applies** — `node_updated`,
-  `camera_effect_updated`, `track_clip_updated`,
-  `track_clip_keyframes_replaced`, `track_clip_events_replaced`,
-  `track_clip_lane_removed`. Each is broadcast by a route that has *already*
-  written the same doc through the collection, and the feeder has already applied
-  it. Kept for now only because outside consumers may listen to them.
 - **Principle 3's share container** — a mounted scene is still a scene in the
   receiver's scene list rather than a node in their tree with the renderer
   walking into the foreign tree. Principle 2 no longer depends on it (the
@@ -807,7 +801,7 @@ scene deletion cascades through the collection; list-shaped document fields
 (clip lanes/keyframes/events, graph nodes/edges) are keyed by id; preset
 instantiation commits its documents rather than inserting rows; runtime
 overrides, published data fields and media commands are collections rather than
-WS kinds.
+WS kinds; the document WS kinds that duplicated a collection write are deleted.
 
 ## Key files
 

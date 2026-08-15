@@ -153,10 +153,12 @@ The scene-bundle endpoint includes `trackClips` so the editor hydrates everythin
 ## WS Messages
 
 The playback kinds (`track_clip_started` / `_paused` / `_stopped` /
-`_playback_snapshot`) are gone with the backend playhead. The document kinds
-(`track_clip_added` / `_updated` / `_removed`, the lane/keyframe/event kinds)
-are still broadcast by the REST routes for legacy consumers, but nothing in the
-editor reads them: clips arrive through the mesh replica and the store feeder.
+`_playback_snapshot`) are gone with the backend playhead. So are the document
+kinds the REST routes used to broadcast alongside their collection write —
+`track_clip_updated`, `track_clip_lane_added` / `_updated` / `_removed`,
+`track_clip_keyframes_replaced`, `track_clip_events_replaced`: each was a second
+copy of an edit the feeder had already applied from the clip document, and the
+document carries all of them because a clip is ONE document.
 The spawn manager still emits `track_clip_added` inline for ephemeral spawned
 clips. See [sync.md](sync.md) and [spawn.md](spawn.md).
 
@@ -207,13 +209,13 @@ Full media model in [media.md](media.md).
 evaluator untouched.
 
 **Shared:** `TrackClipEvent { id, t, action, targetKind, targetId, payload }`
-(`action: MediaAction`, `targetKind: MediaTargetKind`); `TrackClip.events`;
-`WSMessageKind 'track_clip_events_replaced'`.
+(`action: MediaAction`, `targetKind: MediaTargetKind`); `TrackClip.events`.
 
 **Routes** (`routes/track-clips.ts`): events are loaded into the clip bundle
 (`loadClip`/`mapClip`/`mapEvent`); bulk-replace endpoint
-`PUT /track-clips/:id/events` broadcasts `track_clip_events_replaced` (mirrors the
-keyframe bulk-replace). `spawn/manager.ts` clones + retargets event markers when
+`PUT /track-clips/:id/events` writes the whole event map through the collection
+(mirrors the keyframe bulk-replace); the change reaches clients as the clip
+document. `spawn/manager.ts` clones + retargets event markers when
 spawning a clip (see [spawn.md](spawn.md)).
 
 **Evaluator** (`useTrackClipEvaluator.ts`): a module-level `lastTByClip` map plus a

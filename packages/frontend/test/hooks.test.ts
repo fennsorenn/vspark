@@ -417,32 +417,6 @@ describe('useWsSync', () => {
     unmount();
   });
 
-  it('handles node_updated message → patches editorStore node', async () => {
-    useEditorStore.getState().addNode({
-      id: 'node-ws-1',
-      rootSceneNodeId: 'scene-1',
-      projectId: 'proj-1',
-      parentId: null,
-      name: 'Original',
-      kind: 'vrm',
-      components: {},
-    });
-
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'node_updated',
-        payload: { id: 'node-ws-1', name: 'Renamed' },
-      });
-    });
-
-    expect(useEditorStore.getState().nodes.find((n) => n.id === 'node-ws-1')?.name).toBe('Renamed');
-    unmount();
-  });
 
 
 

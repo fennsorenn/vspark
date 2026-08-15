@@ -3,12 +3,8 @@ import { useEditorStore } from '../store/editorStore';
 import type { StageObject } from '../store/editorStore';
 import type { CameraEffectRecord } from '../api/client';
 import {
-  mapBehavior,
   mapComposeLayer,
   mapTrackClip,
-  mapTrackClipLane,
-  mapTrackClipKeyframe,
-  mapTrackClipEvent,
   getScenes,
   getCollabScenes,
 } from '../api/client';
@@ -121,25 +117,12 @@ export function useWsSync() {
               msg.payload.nodeId as string,
               msg.payload as unknown as IkTargetFrame
             );
-          } else if (msg.kind === 'node_updated') {
-            const { id, ...updates } = msg.payload as { id: string } & Record<
-              string,
-              unknown
-            >;
-            useEditorStore.getState().updateNode(id, updates);
           } else if (msg.kind === 'node_added') {
             const store = useEditorStore.getState();
             const node = msg.payload as unknown as StageObject;
             // Only add if we have this scene loaded; avoid duplicates
             if (store.nodes.every((n) => n.id !== node.id)) {
               store.addNode(node);
-            }
-          } else if (msg.kind === 'behavior_added') {
-            const behavior = mapBehavior(msg.payload);
-            const store = useEditorStore.getState();
-            // Dedupe: the originating client may have refetched already.
-            if (store.behaviors.every((b) => b.id !== behavior.id)) {
-              store.addBehavior(behavior);
             }
           } else if (msg.kind === 'node_removed') {
             useEditorStore.getState().deleteNode(msg.payload.id as string);
@@ -192,43 +175,8 @@ export function useWsSync() {
             }
           } else if (msg.kind === 'track_clip_added') {
             useEditorStore.getState().addTrackClip(mapTrackClip(msg.payload));
-          } else if (msg.kind === 'track_clip_updated') {
-            useEditorStore
-              .getState()
-              .updateTrackClipLocal(mapTrackClip(msg.payload));
           } else if (msg.kind === 'track_clip_removed') {
             useEditorStore.getState().removeTrackClip(msg.payload.id as string);
-          } else if (msg.kind === 'track_clip_lane_added') {
-            const lane = mapTrackClipLane(msg.payload);
-            useEditorStore.getState().addTrackClipLane(lane.clipId, lane);
-          } else if (msg.kind === 'track_clip_lane_updated') {
-            useEditorStore
-              .getState()
-              .updateTrackClipLaneLocal(mapTrackClipLane(msg.payload));
-          } else if (msg.kind === 'track_clip_lane_removed') {
-            useEditorStore
-              .getState()
-              .removeTrackClipLane(
-                msg.payload.id as string,
-                (msg.payload.clipId ?? null) as string | null
-              );
-          } else if (msg.kind === 'track_clip_keyframes_replaced') {
-            const laneId = msg.payload.laneId as string;
-            const rows =
-              (msg.payload.keyframes as Record<string, unknown>[]) ?? [];
-            useEditorStore
-              .getState()
-              .replaceTrackClipLaneKeyframes(
-                laneId,
-                rows.map(mapTrackClipKeyframe)
-              );
-          } else if (msg.kind === 'track_clip_events_replaced') {
-            const clipId = msg.payload.clipId as string;
-            const rows =
-              (msg.payload.events as Record<string, unknown>[]) ?? [];
-            useEditorStore
-              .getState()
-              .replaceTrackClipEvents(clipId, rows.map(mapTrackClipEvent));
           } else if (msg.kind === 'mp_status') {
             useConnectionsStore
               .getState()

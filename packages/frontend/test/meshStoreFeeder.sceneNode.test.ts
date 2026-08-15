@@ -439,13 +439,17 @@ describe('meshStoreFeeder — runtime_override routing', () => {
   });
 
   it('ignores a remove whose id is not an override key', () => {
-    feedOverride({ op: 'upsert', id: 'scene_node:n1:opacity', doc: {
+    feedOverride({
+      op: 'upsert',
       id: 'scene_node:n1:opacity',
-      targetKind: 'scene_node',
-      targetId: 'n1',
-      paramPath: 'opacity',
-      value: 0.5,
-    } });
+      doc: {
+        id: 'scene_node:n1:opacity',
+        targetKind: 'scene_node',
+        targetId: 'n1',
+        paramPath: 'opacity',
+        value: 0.5,
+      },
+    });
     feedOverride({ op: 'remove', id: 'nonsense' });
     expect(useEditorStore.getState().runtimeNodeOverrides).toEqual({
       n1: { opacity: 0.5 },
@@ -521,5 +525,143 @@ describe('meshStoreFeeder — data_field routing', () => {
     });
     feedField({ op: 'remove', id: 'n1:a:b' });
     expect(useEditorStore.getState().dataChannels.n1 ?? {}).toEqual({});
+  });
+});
+
+// ── track_clip ────────────────────────────────────────────────────────────────
+
+/**
+ * Clip edits used to arrive twice: once as the clip DOCUMENT through this
+ * feeder, and again as one of five partial WS kinds — `track_clip_updated`,
+ * `track_clip_lane_added` / `_updated` / `_removed`,
+ * `track_clip_keyframes_replaced`, `track_clip_events_replaced` — each
+ * broadcast by a route that had already written the same document. The
+ * broadcasts are deleted, so these pin that the document alone carries every
+ * one of those edits into the store.
+ *
+ * They all take the same form, because a clip is ONE document: whatever
+ * changed, the whole composed doc arrives and `mapTrackClip` turns its keyed
+ * lanes/keyframes/events into the ordered lists the timeline reads.
+ */
+describe('meshStoreFeeder — track_clip routing', () => {
+  const feedClip = (op: Op) => observers.get('track_clip')!(op);
+
+  const kf = (id: string, t: number, value: number) => ({
+    id,
+    t,
+    value,
+    easing: 'linear',
+  });
+  const clipDoc = (over: Record<string, unknown> = {}) => ({
+    id: 'c1',
+    ownerNodeId: 'n1',
+    ownerLayerId: null,
+    name: 'Clip',
+    duration: 4,
+    loop: false,
+    mode: 'override',
+    autoplay: false,
+    lanes: {
+      l1: {
+        id: 'l1',
+        clipId: 'c1',
+        targetKind: 'scene_node',
+        targetId: 'n1',
+        paramPath: 'position.x',
+        defaultValue: 0,
+        keyframes: { k1: kf('k1', 0, 0) },
+      },
+    },
+    events: {},
+    ...over,
+  });
+
+  beforeEach(async () => {
+    await startFeeder();
+    useEditorStore.setState({ projectId: 'p1', nodes: [], trackClips: [] });
+  });
+
+  const clips = () => useEditorStore.getState().trackClips;
+
+  it('adds a clip it does not hold yet', () => {
+    feedClip({ op: 'upsert', id: 'c1', doc: clipDoc() });
+    expect(clips().map((c) => c.name)).toEqual(['Clip']);
+  });
+
+  it('applies a clip field edit (was track_clip_updated)', () => {
+    feedClip({ op: 'upsert', id: 'c1', doc: clipDoc() });
+    feedClip({
+      op: 'upsert',
+      id: 'c1',
+      doc: clipDoc({ name: 'Renamed', loop: true }),
+    });
+    expect(clips()[0].name).toBe('Renamed');
+    expect(clips()[0].loop).toBe(true);
+  });
+
+  it('applies a lane add (was track_clip_lane_added)', () => {
+    feedClip({ op: 'upsert', id: 'c1', doc: clipDoc() });
+    const withTwo = clipDoc();
+    (withTwo.lanes as Record<string, unknown>).l2 = {
+      id: 'l2',
+      clipId: 'c1',
+      targetKind: 'scene_node',
+      targetId: 'n1',
+      paramPath: 'opacity',
+      defaultValue: 1,
+      keyframes: {},
+    };
+    feedClip({ op: 'upsert', id: 'c1', doc: withTwo });
+    expect(clips()[0].lanes.map((l) => l.paramPath).sort()).toEqual([
+      'opacity',
+      'position.x',
+    ]);
+  });
+
+  it('applies a lane removal (was track_clip_lane_removed)', () => {
+    feedClip({ op: 'upsert', id: 'c1', doc: clipDoc() });
+    // A delete writes null over the key — `set` can write a path but not
+    // remove one — and readers skip nulls (@vspark/shared/idMap).
+    feedClip({ op: 'upsert', id: 'c1', doc: clipDoc({ lanes: { l1: null } }) });
+    expect(clips()[0].lanes).toEqual([]);
+  });
+
+  it('applies replaced keyframes (was track_clip_keyframes_replaced)', () => {
+    feedClip({ op: 'upsert', id: 'c1', doc: clipDoc() });
+    const moved = clipDoc();
+    (
+      (moved.lanes as Record<string, Record<string, unknown>>).l1 as {
+        keyframes: Record<string, unknown>;
+      }
+    ).keyframes = { k1: kf('k1', 0, 0), k2: kf('k2', 2, 5) };
+    feedClip({ op: 'upsert', id: 'c1', doc: moved });
+    expect(clips()[0].lanes[0].keyframes.map((k) => k.t)).toEqual([0, 2]);
+  });
+
+  it('applies replaced events (was track_clip_events_replaced)', () => {
+    feedClip({ op: 'upsert', id: 'c1', doc: clipDoc() });
+    feedClip({
+      op: 'upsert',
+      id: 'c1',
+      doc: clipDoc({
+        events: {
+          e1: {
+            id: 'e1',
+            t: 1,
+            action: 'play',
+            targetKind: 'compose_layer',
+            targetId: 'lay-1',
+            payload: null,
+          },
+        },
+      }),
+    });
+    expect(clips()[0].events.map((e) => e.action)).toEqual(['play']);
+  });
+
+  it('removes a clip', () => {
+    feedClip({ op: 'upsert', id: 'c1', doc: clipDoc() });
+    feedClip({ op: 'remove', id: 'c1' });
+    expect(clips()).toEqual([]);
   });
 });

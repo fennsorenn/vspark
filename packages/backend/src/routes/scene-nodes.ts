@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
-import { _ws } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
 import { assertSceneInstanceValid } from '../mesh/docGuards.js';
 
@@ -142,7 +141,7 @@ router.post('/scenes/:sceneId/nodes', async (req, res) => {
  *         application/json:
  *           schema: { $ref: '#/components/schemas/UpdateSceneNode' }
  *     responses:
- *       200: { description: Updated; patch broadcast as node_updated over WebSocket }
+ *       200: { description: Updated; the change reaches clients through the mesh store }
  */
 router.put('/scene-nodes/:id', async (req, res) => {
   const { name, kind, filePath, components } = req.body;
@@ -181,24 +180,11 @@ router.put('/scene-nodes/:id', async (req, res) => {
       .status(500)
       .json({ ok: false, error: { message: outcome.reason } });
 
-  // Double-apply, not a smoothing lane: the `col.set` above already fanned the
-  // full canonical doc to every subscribed tab, and meshStoreFeeder applies it
-  // with the same `updateNode` call this patch ends up in. Nothing smooths this
-  // kind — useWsSync's `node_updated` branch is a plain updateNode, and
-  // previewSmoother is now driven by the mesh feeder's ephemeral branch plus
-  // the object-share stream. Retiring this kind is outstanding migration debt.
-  const patch: Record<string, unknown> = { id: req.params.id };
-  if (name != null) patch.name = name;
-  if ('parentId' in req.body) patch.parentId = req.body.parentId ?? null;
-  if (kind != null) patch.kind = kind;
-  if (filePath != null) patch.filePath = filePath;
-  if (components != null) patch.components = components;
-  if ('boneAttachment' in req.body)
-    patch.boneAttachment = req.body.boneAttachment ?? null;
-  if ('hidden' in req.body) patch.hidden = Boolean(req.body.hidden);
-  if (mergedProperties != null) patch.properties = mergedProperties;
-  _ws?.broadcast('node_updated', patch);
-
+  // The `col.set` above is the whole notification: it fanned the canonical doc
+  // to every subscribed tab, and meshStoreFeeder applies it. The
+  // `node_updated` broadcast that used to follow was a second, WORSE copy of
+  // the same edit — a plain `updateNode(id, patch)` with no knowledge of a
+  // running gesture, so it would snap a node the feeder was mid-tween on.
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
