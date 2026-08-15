@@ -4,6 +4,10 @@
 > "persist + peer project row" over replica-only, to keep a mounted scene
 > available when its author is offline. §4 is what was built; §3 is kept for the
 > reasoning and for the option that was not taken.
+>
+> **Follow-up, 2026-08-15:** principle 3's share container — §2's first bullet,
+> and the one part of §2 that never shipped — is now decided AGAINST for collab
+> scenes. §5 records why.
 
 ## 1. What was wrong
 
@@ -32,7 +36,11 @@ the AUTHOR's, and the frontend feeder had to defend itself:
 That was the same rewrite again, on the read path, existing only because of the
 first one. Two per-client rewrites, each keeping the other necessary.
 
-## 2. What principle 3 asks for instead
+## 2. What principle 3 asked for instead
+
+> **Superseded on 2026-08-15** — the first bullet below (the container) was
+> dropped by decision; the other three shipped. Kept because the reasoning is
+> what §4 was built from. See §5.
 
 > Mounting is rendering, not merging. A shared tree stays whole and unmodified —
 > the owner's ids, the owner's parent links. The receiver's tree holds a share
@@ -44,9 +52,10 @@ node (`kind: 'remote_object'`, carrying `components.remoteRef`) with the owner's
 subtree projected under it, the owner's ids kept verbatim, dropped and restocked
 on (re)subscribe. Mounted SCENES are the case that never got converted.
 
-So the shape of the fix is settled:
+So the shape of the fix looked settled:
 
-- the receiver keeps a **container** it owns (its project, its id);
+- ~~the receiver keeps a **container** it owns (its project, its id)~~ — not
+  taken; see §5;
 - the author's scene documents are held **unmodified**, author's `projectId`
   included;
 - `GET /projects/:id/scenes` stops being "everything with my project_id" and
@@ -122,12 +131,22 @@ scenes are re-fetched fast enough that nobody notices the empty window.
    whole), and adoption asks whether the node's SCENE is one we hold rather than
    whether its project matches.
 
-Not done, and not required by the principle: the **share container node** of
-principle 3. A mounted scene is still a scene in the receiver's scene list
-rather than a node in their tree. What principle 2 needed was for the documents
-to stop being rewritten, and that is what shipped; principle 3's container is a
-presentation change on top, and the placed-object path
-(`sync/sharedProjection.ts`) already shows what it looks like.
+Not done, and — as of 2026-08-15 — **not going to be**: the **share container
+node** of principle 3. A mounted scene stays a scene in the receiver's scene
+list rather than becoming a node in their tree.
+
+> **Decided by the user, 2026-08-15.** Collab scenes are co-edited by design:
+> migration 031 draws the distinction in as many words ("object sharing's
+> read-only ephemeral projection" versus "a real, persisted, editable scene in
+> EACH peer's project"), and `mesh/collab.ts` backs it with a mutual RUCD grant
+> on the scene subtree. A container node would mean either nesting a peer's
+> scene inside one of yours instead of opening it, or — matching the
+> placed-object path exactly — dropping co-editing. Principle 3 keeps its scope:
+> placed objects, where `sync/sharedProjection.ts` already implements it.
+
+What principle 2 needed was for the documents to stop being rewritten, and that
+is what shipped — without the container, which is the evidence that principle 2
+never depended on it.
 
 ## 5. What is already done
 

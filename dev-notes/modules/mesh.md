@@ -88,9 +88,28 @@ links. It is **not** spliced into the receiver's tree. The receiver's tree holds
 a share container node, and the renderer walks into the foreign tree at that
 point. Two trees, joined at display time.
 
-The mesh transports trees; it does not merge them. This is what makes principle
-2 achievable: the field rewriting exists only to force a foreign tree into the
-local one, so removing that job removes the reason to rewrite.
+The mesh transports trees; it does not merge them.
+
+**Scope: placed objects, not collab scenes.** `sync/sharedProjection.ts`
+implements this — a receiver-owned `remote_object` container carrying
+`components.remoteRef`, with the owner's subtree projected under it, dropped and
+restocked on (re)subscribe.
+
+> **Decided by the user, 2026-08-15:** collab scenes deliberately do NOT take
+> this shape. Migration 031 states the distinction outright — object sharing is a
+> read-only ephemeral projection, while a collab scene is "a real, persisted,
+> editable scene in EACH peer's project", backed by a mutual RUCD grant on the
+> scene subtree (`mesh/collab.ts`). Giving them a container node would either
+> nest a peer's scene inside one of yours instead of opening it, or — in the
+> version that matches the placed-object path exactly — remove co-editing
+> altogether. Neither is wanted, so the container is not coming to mounted
+> scenes.
+
+This principle no longer carries principle 2, which is the job it was originally
+written for. The field rewriting existed to force a foreign tree into the local
+one; that rewriting is gone (see principle 2 above), and it went without the
+container, because what principle 2 needed was for the documents to stop being
+edited on the way in — not for the trees to be joined at a node.
 
 ### 4. A mount is not a reconnect
 
@@ -782,15 +801,15 @@ late joiner wants.
 The list below was rewritten after the write migration finished; most of what
 used to be here is done, and saying so wrongly is worse than saying nothing.
 
-- **Principle 3's share container** — a mounted scene is still a scene in the
-  receiver's scene list rather than a node in their tree with the renderer
-  walking into the foreign tree. Principle 2 no longer depends on it (the
-  documents are unmodified either way); this is the presentation half, and
-  `sync/sharedProjection.ts` already shows its shape for placed objects.
 - Component reads → mesh-react hooks (`useMeshDoc` / `useMeshSubtree` / etc.),
   with ack outcomes surfaced as toasts.
 - Phase-6 guarded writes (`_share_write`/NAK) onto guarded mesh writes (per-doc authority).
 - Advertise/offer flow: still legacy.
+
+**Closed, not done:** principle 3's share container for mounted scenes. It was
+on this list; it is now a decision instead — see principle 3 above. Collab
+scenes stay scenes because they are co-edited by design (migration 031), and the
+container belongs to the placed-object path, which already has it.
 
 **Done since this list was first written** (kept short deliberately — the
 details live in the sections above): writes are mesh-authored for every document
