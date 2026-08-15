@@ -794,6 +794,32 @@ unretained `control` channel (`media_control`, keyed by target). Retaining them
 would replay every past `play`/`seek` to each new tab — the opposite of what a
 late joiner wants.
 
+### Write outcomes are visible
+
+A committed write is optimistic — the value is in the replica, the store and on
+screen before the authority has agreed to it — and a refusal makes the peer
+restore the pre-write state. So a rejected edit reads as a field reverting on its
+own, which is indistinguishable from a bug.
+
+Every write path used to drop the outcome, each in its own way: `commitDocPath`
+(the bound-field path, and the most common write in the app) never read the ack
+at all; the create/delete helpers threw into callers that caught and ignored it;
+the REST fallback ended in `.catch(() => {})`.
+
+`frontend/src/mesh/writeFeedback.ts` is the one place an outcome becomes a
+message, and the write helpers call it so no call site has to remember:
+
+- `settled(outcome, subject)` where the outcome is already awaited;
+- `watch(handle.ack, subject)` for a fire-and-forget write — the bound-field
+  path cannot await, since a control commits synchronously from the UI's side;
+- `reportRejected` / `reportFailed` at the sites that still throw, called
+  *before* the throw so a caller's `catch` cannot swallow the notice.
+
+Only refusals surface. An accepted write says nothing (a toast per
+keystroke-commit would be worse than silence), and a **preview-channel write is
+unguarded by construction** — its outcome is never `rejected`, so a gesture never
+raises one.
+
 <a id="remaining"></a>
 
 **Remaining:**
@@ -801,8 +827,16 @@ late joiner wants.
 The list below was rewritten after the write migration finished; most of what
 used to be here is done, and saying so wrongly is worse than saying nothing.
 
-- Component reads → mesh-react hooks (`useMeshDoc` / `useMeshSubtree` / etc.),
-  with ack outcomes surfaced as toasts.
+- Component reads → mesh-react hooks (`useMeshDoc` / `useMeshSubtree` / etc.).
+  `@vspark/mesh-react` is written and tested but **entirely unimported** by the
+  frontend — components read the Zustand store, which `sync/meshStoreFeeder.ts`
+  keeps live. Converting is 201 `useEditorStore` call sites across 27 files, and
+  it buys no behaviour the feeder does not already provide; the store also holds
+  the non-mesh state (selection, dock tabs, pose) those same components read, so
+  a half-conversion leaves each component reading two sources. Worth doing only
+  with a reason beyond tidiness.
+  *(The other half of this bullet — ack outcomes surfaced — is done; see
+  "Write outcomes are visible" above.)*
 - Phase-6 guarded writes (`_share_write`/NAK) onto guarded mesh writes (per-doc authority).
 - Advertise/offer flow: still legacy.
 

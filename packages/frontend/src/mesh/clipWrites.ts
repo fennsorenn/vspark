@@ -24,6 +24,7 @@
  * everywhere else.
  */
 import { getMeshHandles, meshBatch } from './peer';
+import { actionLabel, reportRejected, settled, watch } from './writeFeedback';
 import { playbackDocId } from '@vspark/shared/clipPlayback';
 import { useEditorStore } from '../store/editorStore';
 import {
@@ -61,7 +62,7 @@ export function commitClipPatch(
   >
 ): void {
   if (authored(clipId)) {
-    col()!.update(clipId, patch);
+    watch(col()!.update(clipId, patch).ack, actionLabel('track_clip'));
     return;
   }
   const cur = clipOf(clipId);
@@ -90,8 +91,11 @@ export async function commitLaneCreate(
   };
   if (authored(clipId)) {
     // Keyframes go over as a map — this is the document shape, not the store's.
-    await col()!.set(clipId, `lanes.${lane.id}`, { ...lane, keyframes: {} })
-      .ack;
+    settled(
+      await col()!.set(clipId, `lanes.${lane.id}`, { ...lane, keyframes: {} })
+        .ack,
+      actionLabel('track_clip')
+    );
     // The feeder mirrors the replica into the store; nothing to apply here.
     return lane;
   }
@@ -107,7 +111,10 @@ export async function commitLaneDelete(
   laneId: string
 ): Promise<void> {
   if (authored(clipId)) {
-    await col()!.set(clipId, `lanes.${laneId}`, null).ack;
+    settled(
+      await col()!.set(clipId, `lanes.${laneId}`, null).ack,
+      actionLabel('track_clip')
+    );
     return;
   }
   await api.deleteTrackClipLane(laneId).catch(() => {});
@@ -122,7 +129,10 @@ export function commitLanePatch(
 ): void {
   if (authored(clipId)) {
     for (const [k, v] of Object.entries(patch))
-      col()!.set(clipId, `lanes.${laneId}.${k}`, v);
+      watch(
+        col()!.set(clipId, `lanes.${laneId}.${k}`, v).ack,
+        actionLabel('track_clip')
+      );
     return;
   }
   const lane = laneOf(clipId, laneId);
@@ -171,7 +181,10 @@ export function commitKeyframe(
   kf: TrackClipKeyframeRecord
 ): void {
   if (authored(clipId)) {
-    col()!.set(clipId, `lanes.${laneId}.keyframes.${kf.id}`, kf);
+    watch(
+      col()!.set(clipId, `lanes.${laneId}.keyframes.${kf.id}`, kf).ack,
+      actionLabel('track_clip')
+    );
     return;
   }
   const lane = laneOf(clipId, laneId);
@@ -187,7 +200,10 @@ export function commitKeyframeDelete(
   keyframeId: string
 ): void {
   if (authored(clipId)) {
-    col()!.set(clipId, `lanes.${laneId}.keyframes.${keyframeId}`, null);
+    watch(
+      col()!.set(clipId, `lanes.${laneId}.keyframes.${keyframeId}`, null).ack,
+      actionLabel('track_clip')
+    );
     return;
   }
   const lane = laneOf(clipId, laneId);
@@ -210,7 +226,10 @@ function withEvent(
 /** Add or update one marker. */
 export function commitEvent(clipId: string, ev: TrackClipEventRecord): void {
   if (authored(clipId)) {
-    col()!.set(clipId, `events.${ev.id}`, ev);
+    watch(
+      col()!.set(clipId, `events.${ev.id}`, ev).ack,
+      actionLabel('track_clip')
+    );
     return;
   }
   const clip = clipOf(clipId);
@@ -222,7 +241,10 @@ export function commitEvent(clipId: string, ev: TrackClipEventRecord): void {
 
 export function commitEventDelete(clipId: string, eventId: string): void {
   if (authored(clipId)) {
-    col()!.set(clipId, `events.${eventId}`, null);
+    watch(
+      col()!.set(clipId, `events.${eventId}`, null).ack,
+      actionLabel('track_clip')
+    );
     return;
   }
   const clip = clipOf(clipId);
@@ -262,8 +284,10 @@ export async function commitClipCreate(
       lanes: {},
       events: {},
     }).ack;
-    if (outcome.status === 'rejected')
+    if (outcome.status === 'rejected') {
+      reportRejected(actionLabel('track_clip'), outcome.reason);
       throw new Error(outcome.reason ?? 'clip create refused');
+    }
     return clip;
   }
   const body = { name: clip.name, duration: clip.duration };
@@ -291,7 +315,8 @@ export async function commitClipDelete(clipId: string): Promise<void> {
       if (doc) out.push(playback!.remove(playbackDocId(clipId)).ack);
       return out;
     });
-    await Promise.all(acks);
+    for (const o of await Promise.all(acks))
+      settled(o, actionLabel('track_clip'));
     return;
   }
   useEditorStore.getState().removeTrackClip(clipId);

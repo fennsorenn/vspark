@@ -91,3 +91,20 @@ Eigenschaften** des Objekts ändern, aber keine **Assets** (Modelle, Bilder, Aud
 daran anhängen. Diese Dateien liegen nur auf dem Gerät des Bearbeiters, daher wird
 das Ablegen eines Assets auf einem geteilten Objekt abgelehnt – füge Assets
 stattdessen auf dem besitzenden Server hinzu.
+
+## Wenn eine Änderung abgelehnt wird {#refused}
+
+Deine Änderungen erscheinen sofort – noch bevor das Gerät, dem das bearbeitete
+Objekt gehört, ihnen zugestimmt hat. Fast immer stimmt es zu und dir fällt nichts
+auf.
+
+Wenn nicht – der Eigentümer hat dir die Bearbeitungsrechte mitten in der Sitzung
+entzogen, oder die Änderung wäre auf seiner Kopie ungültig –, springt der Wert
+auf seinen vorherigen Stand zurück und unten rechts erscheint eine kurze Meldung
+mit der Begründung. Dieses Zurückspringen hält deine Ansicht ehrlich, es ist kein
+Fehler: Die Kopie des Eigentümers zählt, also wird alles, was dort abgelehnt
+wird, überall rückgängig gemacht – auch hier.
+
+Die Meldung verschwindet von selbst, oder du schließt sie mit dem **×**. Kommt
+sie für dieselbe Änderung immer wieder, wiederholt sich die Ablehnung und nicht
+die Meldung – prüfe, ob du für diese Freigabe noch Bearbeitungsrechte hast.

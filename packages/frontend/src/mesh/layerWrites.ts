@@ -21,6 +21,7 @@
  */
 import { keyBetween } from '@vspark/shared/fracIndex';
 import { getMeshHandles, meshBatch } from './peer';
+import { actionLabel, reportRejected } from './writeFeedback';
 import {
   commitDocCreate,
   commitDocDelete,
@@ -215,7 +216,10 @@ export async function commitPromoteLayerToNode(
     ]);
     const outcomes = await Promise.all(acks);
     const bad = outcomes.find((o) => o.status === 'rejected');
-    if (bad) throw new Error(bad.reason ?? 'promote refused');
+    if (bad) {
+      reportRejected(actionLabel('compose_layer'), bad.reason);
+      throw new Error(bad.reason ?? 'promote refused');
+    }
     return node;
   }
 

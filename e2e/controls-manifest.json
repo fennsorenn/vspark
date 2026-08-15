@@ -23,6 +23,7 @@
   "components/FileDrop.tsx": "e0f095e333bf",
   "components/LanguageSwitcher.tsx": "d586bfbab528",
   "components/MediaInputWindow.tsx": "8117a46eaf4a",
+  "components/Toasts.tsx": "5238672a38e7",
   "help/DocViewer.tsx": "f02318b50cef",
   "help/HelpButton.tsx": "38c771dcd466",
   "help/HelpWindow.tsx": "def345aefb39",

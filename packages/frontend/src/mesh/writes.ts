@@ -54,6 +54,12 @@
  */
 import { flattenToLeaves, getPath, setPath } from '@vspark/mesh';
 import { getMeshHandles, meshBatch } from './peer';
+import {
+  actionLabel,
+  reportFailed,
+  reportRejected,
+  watch,
+} from './writeFeedback';
 import { useEditorStore, type StageObject } from '../store/editorStore';
 import { api } from '../api/client';
 
@@ -114,8 +120,13 @@ function meshWrite(
   const col = getMeshHandles()?.collections[rtype];
   if (!col?.canWrite()) return false;
   if (!col.get(id)) return false;
-  if (path === null) col.update(id, value as object);
-  else col.set(id, path, value);
+  // The handle is followed, not awaited: a bound control commits synchronously
+  // from the UI's side, and this used to discard it entirely — so a refused
+  // field edit rolled back on screen with nothing said. `watch` reports only
+  // refusals, so the common (accepted) case stays silent.
+  const handle =
+    path === null ? col.update(id, value as object) : col.set(id, path, value);
+  watch(handle.ack, actionLabel(rtype));
   return true;
 }
 
@@ -209,7 +220,9 @@ export function commitDocPath<T extends { id: string }>(
   if (mine(a, doc) && meshWrite(a.rtype, id, path, value)) return;
   const patch = topLevelPatch(doc, path, value);
   a.applyLocal(id, patch);
-  void a.restUpdate(id, patch).catch(() => {});
+  // The REST fallback swallowed its failure too, so an edit made while the peer
+  // was down could vanish on the next load with nothing said.
+  void a.restUpdate(id, patch).catch(() => reportFailed(actionLabel(a.rtype)));
 }
 
 /** Commit a (possibly nested) partial as one op — so an edit that genuinely
@@ -253,8 +266,13 @@ export async function commitDocCreate<T extends { id: string }>(
   const col = getMeshHandles()?.collections[a.rtype];
   if (col?.canWrite()) {
     const outcome = await col.set(doc.id, '', doc).ack;
-    if (outcome.status === 'rejected')
+    // Report BEFORE throwing: several call sites catch a failed create and
+    // treat it as non-fatal, which is fine for control flow but left the user
+    // with a button that did nothing.
+    if (outcome.status === 'rejected') {
+      reportRejected(actionLabel(a.rtype), outcome.reason);
       throw new Error(outcome.reason ?? `${a.rtype} create refused`);
+    }
     // The feeder mirrors the replica into the store; nothing to apply here.
     return doc;
   }

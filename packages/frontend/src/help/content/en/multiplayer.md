@@ -80,3 +80,18 @@ One limit in this version: editors can only change the object's **structure and
 properties**, not attach **assets** (models, images, audio) to it. Those files
 live only on the editor's own machine, so dropping an asset onto a shared object
 is declined — add assets on the owning server instead.
+
+## When a change is refused {#refused}
+
+Your edits show up straight away, before the machine that owns the thing you're
+editing has agreed to them. Almost always it does agree and you never notice.
+
+When it doesn't — the owner revoked your editing rights mid-session, or the
+change wouldn't be valid on their copy — the value snaps back to what it was and
+a short message appears in the bottom-right corner explaining why. That snap-back
+is the system keeping your screen honest, not a glitch: the owner's copy is the
+one that counts, so anything they decline is undone everywhere, including here.
+
+The message disappears on its own, or you can close it with the **×**. If one
+keeps coming back for the same edit, the refusal is repeating rather than the
+notice — check that you still have editing rights on that share.
