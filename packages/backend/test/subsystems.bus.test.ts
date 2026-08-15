@@ -5,7 +5,8 @@
  *  - RuntimeOverrideManager (set/clear round-trips through the mesh
  *    `runtime_override` collection, type coercion, registerTarget for DB-free
  *    scene resolution)
- *  - DataChannelManager (set merge, seed, clear field/scope, clearAll, snapshot)
+ *  - DataChannelManager (set merge, seed, clear field/scope, clearAll) through
+ *    the mesh `data_field` collection
  *  - MediaControlManager (dispatch with/without ws, empty targetId guard)
  *  - SpawnManager.isEphemeralClip (the only pure unit-testable surface without a
  *    live graph — everything else needs DB + playback manager)
@@ -25,6 +26,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMeshPeer } from '@vspark/mesh';
 import { RuntimeOverrideManager } from '../src/runtime_overrides/manager.js';
 import {
+  dataFieldCollection,
   initMeshRuntime,
   overrideCollection,
   overrideParent,
@@ -245,186 +247,129 @@ describe('RuntimeOverrideManager', () => {
 
 describe('DataChannelManager', () => {
   let manager: DataChannelManager;
-  const { ws, broadcasts } = makeWsStub();
+
+  /** Live fields of a scope, as a plain object. The bus keeps no `_scopes` map
+   *  any more — each field is its own retained document. */
+  const fieldsOf = (scope: string) =>
+    Object.fromEntries(
+      (dataFieldCollection()?.all() ?? [])
+        .filter((d) => d.scope === scope)
+        .map((d) => [d.field, d.value])
+    );
+  const scopes = () =>
+    new Set((dataFieldCollection()?.all() ?? []).map((d) => d.scope));
 
   beforeEach(() => {
+    resetMeshRuntime();
+    initMeshRuntime(
+      createMeshPeer({ identity: { peerId: 'test-peer' }, transports: [] })
+    );
     manager = new DataChannelManager();
-    manager.init(ws);
-    broadcasts.length = 0;
   });
 
   describe('set', () => {
-    it('stores and broadcasts merged fields', () => {
+    it('publishes one document per field', () => {
       manager.set('scope-a', { foo: 'bar', n: 42 });
-      expect(broadcasts).toHaveLength(1);
-      expect(broadcasts[0].kind).toBe('data_channel_set');
-      expect(broadcasts[0].payload.scope).toBe('scope-a');
-      expect((broadcasts[0].payload.fields as { foo: string }).foo).toBe('bar');
+      expect(fieldsOf('scope-a')).toEqual({ foo: 'bar', n: 42 });
     });
 
-    it('merges: second set does not erase first field', () => {
+    it('merges: a second set does not erase the first field', () => {
       manager.set('scope-b', { a: 1 });
       manager.set('scope-b', { b: 2 });
+      // Structural, not defensive: different fields are different documents,
+      // so two producers cannot clobber each other even under LWW.
+      expect(fieldsOf('scope-b')).toEqual({ a: 1, b: 2 });
+    });
 
-      const snap: Array<{ scope: string; fields: Record<string, unknown> }> = [];
-      manager.sendSnapshotTo((_k, p) => {
-        const payload = p as { entries: typeof snap };
-        snap.push(...payload.entries);
-      });
-      const entry = snap.find((e) => e.scope === 'scope-b');
-      expect(entry?.fields).toMatchObject({ a: 1, b: 2 });
+    it('keeps a field label containing a dot intact', () => {
+      // The reason a field is a document rather than a dotted path: labels come
+      // from set_data's input ports and are arbitrary user text.
+      manager.set('scope-dot', { 'user.name': 'ada' });
+      expect(fieldsOf('scope-dot')).toEqual({ 'user.name': 'ada' });
     });
 
     it('set with empty fields is a no-op', () => {
       manager.set('scope-empty', {});
-      expect(broadcasts).toHaveLength(0);
+      expect(scopes().has('scope-empty')).toBe(false);
     });
 
-    it('set normalizes non-string scope to empty string (global)', () => {
-      // Internal _scopeKey trims and defaults non-strings to ''
+    it('normalizes a whitespace scope to global', () => {
       manager.set('  ', { x: 1 });
-      const snap: Array<{ scope: string }> = [];
-      manager.sendSnapshotTo((_k, p) => {
-        const payload = p as { entries: typeof snap };
-        snap.push(...payload.entries);
-      });
-      // trimmed scope '' = global
-      expect(snap.some((e) => e.scope === '')).toBe(true);
+      expect(fieldsOf('')).toEqual({ x: 1 });
     });
   });
 
   describe('seed', () => {
     it('seeds only fields not yet present', () => {
       manager.set('scope-seed', { a: 1 });
-      broadcasts.length = 0;
-
       manager.seed('scope-seed', { a: 99, b: 2 });
-
-      // Only b should be broadcast (a was already present).
-      expect(broadcasts).toHaveLength(1);
-      const fields = broadcasts[0].payload.fields as Record<string, unknown>;
-      expect(fields.b).toBe(2);
-      expect(fields.a).toBeUndefined();
+      expect(fieldsOf('scope-seed')).toEqual({ a: 1, b: 2 });
     });
 
-    it('seed is no-op when all fields already present', () => {
+    it('seed is a no-op when all fields are already present', () => {
       manager.set('scope-seed2', { x: 10 });
-      broadcasts.length = 0;
       manager.seed('scope-seed2', { x: 99 });
-      expect(broadcasts).toHaveLength(0);
+      expect(fieldsOf('scope-seed2')).toEqual({ x: 10 });
     });
   });
 
   describe('clear', () => {
     it('clear single field removes only that field', () => {
       manager.set('scope-c', { a: 1, b: 2 });
-      broadcasts.length = 0;
-
       manager.clear('scope-c', 'a');
-
-      expect(broadcasts).toHaveLength(1);
-      expect(broadcasts[0].kind).toBe('data_channel_clear');
-      expect((broadcasts[0].payload as { field?: string }).field).toBe('a');
-
-      const snap: Array<{ scope: string; fields: Record<string, unknown> }> = [];
-      manager.sendSnapshotTo((_k, p) => {
-        const payload = p as { entries: typeof snap };
-        snap.push(...payload.entries);
-      });
-      const entry = snap.find((e) => e.scope === 'scope-c');
-      expect(entry?.fields.b).toBe(2);
-      expect(entry?.fields.a).toBeUndefined();
+      expect(fieldsOf('scope-c')).toEqual({ b: 2 });
     });
 
-    it('clear entire scope broadcasts without field key', () => {
-      manager.set('scope-drop', { x: 1 });
-      broadcasts.length = 0;
-
+    it('clear without a field removes the whole scope', () => {
+      manager.set('scope-drop', { x: 1, y: 2 });
       manager.clear('scope-drop');
-
-      expect(broadcasts[0].kind).toBe('data_channel_clear');
-      expect((broadcasts[0].payload as { field?: string }).field).toBeUndefined();
+      expect(scopes().has('scope-drop')).toBe(false);
     });
 
-    it('clear unknown scope is a no-op', () => {
-      broadcasts.length = 0;
+    it('clear leaves other scopes alone', () => {
+      manager.set('s1', { a: 1 });
+      manager.set('s2', { b: 2 });
+      manager.clear('s1');
+      expect(fieldsOf('s2')).toEqual({ b: 2 });
+    });
+
+    it('clear of an unknown scope is a no-op', () => {
       manager.clear('no-such-scope');
-      expect(broadcasts).toHaveLength(0);
+      expect(scopes().size).toBe(0);
     });
 
-    it('clear unknown field within known scope is a no-op', () => {
+    it('clear of an unknown field within a known scope is a no-op', () => {
       manager.set('scope-nf', { a: 1 });
-      broadcasts.length = 0;
       manager.clear('scope-nf', 'z');
-      expect(broadcasts).toHaveLength(0);
+      expect(fieldsOf('scope-nf')).toEqual({ a: 1 });
     });
   });
 
   describe('clearAll', () => {
-    it('clears every scope and broadcasts a clear for each', () => {
+    it('clears every scope', () => {
       manager.set('s1', { a: 1 });
       manager.set('s2', { b: 2 });
-      broadcasts.length = 0;
-
       manager.clearAll();
-
-      const kinds = broadcasts.map((b) => b.kind);
-      expect(kinds.every((k) => k === 'data_channel_clear')).toBe(true);
-      expect(broadcasts).toHaveLength(2);
+      expect(scopes().size).toBe(0);
     });
 
-    it('clearAll on empty manager is a no-op', () => {
-      broadcasts.length = 0;
-      manager.clearAll();
-      expect(broadcasts).toHaveLength(0);
+    it('clearAll on an empty bus is a no-op', () => {
+      expect(() => manager.clearAll()).not.toThrow();
+      expect(scopes().size).toBe(0);
     });
   });
 
-  describe('sendSnapshotTo', () => {
-    it('snapshot includes all set scopes and their fields', () => {
-      manager.set('alpha', { key: 'val' });
-      manager.set('beta', { num: 7 });
-
-      const snap: Array<{ scope: string; fields: Record<string, unknown> }> = [];
-      manager.sendSnapshotTo((_k, p) => {
-        const payload = p as { entries: typeof snap };
-        snap.push(...payload.entries);
-      });
-      expect(snap).toHaveLength(2);
-    });
-
-    it('snapshot is sent via data_channel_snapshot message kind', () => {
-      manager.set('z', { v: 1 });
-      let capturedKind = '';
-      manager.sendSnapshotTo((kind, _p) => {
-        capturedKind = kind;
-      });
-      expect(capturedKind).toBe('data_channel_snapshot');
-    });
-  });
-
-  describe('forwarder tap', () => {
-    it('forwarder is called on set', () => {
-      const ops: string[] = [];
-      manager.setDataChannelForwarder((op) => ops.push(op));
-      manager.set('fwd-scope', { a: 1 });
-      expect(ops).toContain('set');
-    });
-
-    it('forwarder is called on clear', () => {
-      const ops: string[] = [];
-      manager.setDataChannelForwarder((op) => ops.push(op));
-      manager.set('fwd2', { a: 1 });
-      ops.length = 0;
-      manager.clear('fwd2');
-      expect(ops).toContain('clear');
+  describe('no store', () => {
+    it('every method is inert when the mesh is not up', () => {
+      resetMeshRuntime();
+      const m = new DataChannelManager();
+      expect(() => m.set('s', { a: 1 })).not.toThrow();
+      expect(() => m.seed('s', { a: 1 })).not.toThrow();
+      expect(() => m.clear('s')).not.toThrow();
+      expect(() => m.clearAll()).not.toThrow();
     });
   });
 });
-
-// ===========================================================================
-// MediaControlManager
-// ===========================================================================
 
 describe('MediaControlManager', () => {
   it('broadcasts media_control with correct shape', () => {

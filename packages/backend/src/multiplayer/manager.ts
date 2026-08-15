@@ -61,7 +61,6 @@ import {
   COLLAB_SNAPSHOT_RTYPE,
   type ClipPlaybackAction,
 } from './collabScene.js';
-import { dataChannelManager } from '../data_channels/manager.js';
 import { spawnManager } from '../spawn/manager.js';
 import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
 import type { AssetMeta } from './blobs.js';
@@ -102,8 +101,6 @@ const PROFILE_RTYPE = 'peer_profile';
  *  node/clip CRUD goes through sync.document, so those kinds are excluded to avoid
  *  double-forwarding). Clip play frames are handled per-clip in the relay. */
 const COLLAB_RELAY_KINDS = new Set<string>([
-  'data_channel_set',
-  'data_channel_clear',
   'media_control',
   'node_added',
   'node_removed',
@@ -774,17 +771,7 @@ class MultiplayerManager {
   ): void {
     this.applyingCollabRuntime = true;
     try {
-      if (kind === 'data_channel_set') {
-        dataChannelManager.set(
-          payload.scope as string,
-          (payload.fields ?? {}) as Record<string, unknown>
-        );
-      } else if (kind === 'data_channel_clear') {
-        dataChannelManager.clear(
-          payload.scope as string,
-          payload.field as string | undefined
-        );
-      } else if (kind === 'node_added' || kind === 'compose_layer_added') {
+      if (kind === 'node_added' || kind === 'compose_layer_added') {
         // A spawned ephemeral entity from a peer. It used to be registered
         // with the override bus here, so that the peer's overrides on it could
         // resolve a scene id when this backend re-applied them. Overrides are
@@ -800,14 +787,6 @@ class MultiplayerManager {
     } finally {
       this.applyingCollabRuntime = false;
     }
-  }
-
-  /** Owner: forward a data-channel set/clear scoped to a shared node. */
-  forwardDataChannel(
-    op: 'set' | 'clear',
-    payload: Record<string, unknown>
-  ): void {
-    this.sharing?.forwardDataChannel(op, payload);
   }
 
   /** Replay current share offers to a freshly-connected client (late-join gap). */

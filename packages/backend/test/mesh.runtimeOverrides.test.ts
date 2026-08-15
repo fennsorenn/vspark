@@ -29,8 +29,12 @@ import {
   type MeshPeer,
 } from '@vspark/mesh';
 import {
+  dataFieldCollection,
+  dataFieldKey,
+  dataFieldParent,
   initMeshRuntime,
   overrideCollection,
+  parseDataFieldKey,
   overrideKey,
   parseOverrideKey,
   resetMeshRuntime,
@@ -39,6 +43,7 @@ import {
   type RuntimeOverrideDoc,
 } from '../src/mesh/runtime.js';
 import { RuntimeOverrideManager } from '../src/runtime_overrides/manager.js';
+import { DataChannelManager } from '../src/data_channels/manager.js';
 
 const CHANNEL_PROPS = {
   transport: 'reliable',
@@ -165,6 +170,31 @@ describe('runtime_override collection', () => {
     m.clear('scene_node', 'node-1');
     await lb.flush();
     expect(col.get('scene_node:node-1:opacity')).toBeUndefined();
+  });
+
+  it('keys a data field per (scope, field) and parents it to the scope', () => {
+    // Same shape as an override: one document per published value, hung off
+    // the entity it is scoped to. A GLOBAL field (scope '') belongs to no
+    // entity and gets no parent — it reaches subscribers by rtype alone.
+    const dc = new DataChannelManager();
+    dc.set('', { headline: 'hello' });
+
+    const global = dataFieldCollection()!.get(':headline');
+    expect(global?.value).toBe('hello');
+    expect(dataFieldParent(global!)).toBeNull();
+  });
+
+  it('splits a data-field key on the FIRST colon only', () => {
+    // The scope is an entity id or '' — colon-free either way — and the field
+    // label is arbitrary user text that takes the rest.
+    expect(parseDataFieldKey(dataFieldKey('n1', 'a:b'))).toEqual({
+      scope: 'n1',
+      field: 'a:b',
+    });
+    expect(parseDataFieldKey(dataFieldKey('', 'x'))).toEqual({
+      scope: '',
+      field: 'x',
+    });
   });
 
   it('does not log an undo entry for a graph-driven override', () => {

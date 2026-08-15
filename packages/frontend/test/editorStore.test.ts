@@ -730,7 +730,7 @@ describe('suppressOverride / clearOverrideSuppressions', () => {
 
 // ── Data channels ─────────────────────────────────────────────────────────────
 
-describe('mergeDataChannels / clearDataChannels / replaceDataChannels', () => {
+describe('mergeDataChannels / clearDataChannels', () => {
   test('mergeDataChannels merges fields into a scope', () => {
     useEditorStore.getState().mergeDataChannels('global', { name: 'Alice', score: 42 });
     expect(useEditorStore.getState().dataChannels['global']).toEqual({ name: 'Alice', score: 42 });
@@ -757,17 +757,6 @@ describe('mergeDataChannels / clearDataChannels / replaceDataChannels', () => {
     expect(useEditorStore.getState().dataChannels['s1']).toBeUndefined();
   });
 
-  test('replaceDataChannels bulk-replaces the whole map', () => {
-    useEditorStore.getState().mergeDataChannels('old', { x: 1 });
-    useEditorStore.getState().replaceDataChannels([
-      { scope: 'global', fields: { a: 1 } },
-      { scope: 'player', fields: { hp: 100 } },
-    ]);
-    const dc = useEditorStore.getState().dataChannels;
-    expect(dc['global']).toEqual({ a: 1 });
-    expect(dc['player']).toEqual({ hp: 100 });
-    expect(dc['old']).toBeUndefined();
-  });
 });
 
 // ── Track clips ───────────────────────────────────────────────────────────────

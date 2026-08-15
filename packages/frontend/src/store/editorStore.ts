@@ -560,7 +560,7 @@ interface EditorState {
   /** composeLayerId → paramPath → value, same as above for compose layers. */
   runtimeLayerOverrides: Record<string, RuntimeOverrideMap>;
   /** scope → (field → last-published value), fed by the data-channel bus
-   *  (`set_data` node → WS `data_channel_*`). Consumed by `feed` compose layers
+   *  (`set_data` node → the mesh `data_field` collection). Consumed by `feed` compose layers
    *  (and the 3D billboard), which expose every in-scope field to a user template
    *  by its bare name. scope `''` is GLOBAL; other scopes are a consumer's own id
    *  (a layer/node id). A consumer reads `global ∪ its-own-id`. */
@@ -721,14 +721,10 @@ interface EditorState {
   clearOverrideSuppressions: () => void;
 
   // Data channels (generic graph → frontend publish surface)
-  /** Merge a published field-set into a scope (data-channel bus broadcast). */
+  /** Merge a published field-set into a scope. */
   mergeDataChannels: (scope: string, fields: Record<string, unknown>) => void;
   /** Clear one field in a scope, or the whole scope when `field` is omitted. */
   clearDataChannels: (scope: string, field?: string) => void;
-  /** Bulk apply a snapshot (used on WS (re)connect). Replaces the whole map. */
-  replaceDataChannels: (
-    entries: Array<{ scope: string; fields: Record<string, unknown> }>
-  ) => void;
 
   // Presets
   presets: PresetSummary[];
@@ -1320,12 +1316,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const next = { ...s.dataChannels };
       if (Object.keys(restFields).length === 0) delete next[scope];
       else next[scope] = restFields;
-      return { dataChannels: next };
-    }),
-  replaceDataChannels: (entries) =>
-    set(() => {
-      const next: Record<string, Record<string, unknown>> = {};
-      for (const e of entries) next[e.scope] = { ...e.fields };
       return { dataChannels: next };
     }),
 

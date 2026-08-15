@@ -1,18 +1,19 @@
 /**
- * Runtime state as mesh documents.
+ * Runtime state as mesh documents — graph-driven param overrides, and the
+ * published data fields that feed templates.
  *
- * Runtime overrides — the scalar param writes a signal graph makes at runtime —
- * used to travel three transports at once: the local `/ws` broadcast
- * (`runtime_override_set` / `_clear`, plus a `_snapshot` replayed to each new
- * client), the collab `runtime_control` relay, and the object-share
- * `_share_override` envelope. Three writers, three delivery guarantees, and a
- * fourth copy of the state in the manager's own map.
+ * Both used to travel three transports at once: the local `/ws` broadcast
+ * (`runtime_override_set` / `data_channel_set` / `_clear`, plus a `_snapshot`
+ * replayed to each new client), the collab `runtime_control` relay, and the
+ * object-share `_share_override` / `_share_datachannel` envelopes. Three
+ * writers, three delivery guarantees, and a fourth copy of the state in each
+ * manager's own map.
  *
- * They are STATE, not events: the manager held every live override in
- * `_bySceneId` precisely so it could replay them to a freshly-connected tab.
- * That is what a retained channel is, so the collection replaces the map — a
- * subscriber gets the current overrides in its subscription snapshot, and the
- * `_snapshot` message has nothing left to do.
+ * They are STATE, not events: each manager held every live value (`_bySceneId`,
+ * `_scopes`) precisely so it could replay them to a freshly-connected tab. That
+ * is what a retained channel is, so the collections replace the maps — a
+ * subscriber gets the current values in its subscription snapshot, and the
+ * `_snapshot` messages have nothing left to do.
  *
  * ## Why this channel and not `committed` or `control`
  *
@@ -28,7 +29,7 @@
  * So: reliable + stamped + retained, no ack. Stamped is not optional — LWW
  * needs versions, and the registry rejects a retained channel without it.
  *
- * ## Keying
+ * ## Keying (overrides)
  *
  * `${targetKind}:${targetId}:${paramPath}` — one document per overridden path,
  * so two graphs overriding different params of one node don't clobber each
@@ -99,7 +100,58 @@ export const overrideParent = (
     ? { rtype: d.targetKind, id: d.targetId }
     : null;
 
+// --- data channels -----------------------------------------------------------
+
+export const DATA_FIELD_RTYPE = 'data_field';
+
+/** One published field of one scope.
+ *
+ *  ONE DOCUMENT PER FIELD, not per scope. The bus MERGES fields into a scope
+ *  precisely so two producers publishing different fields don't clobber each
+ *  other; a whole-scope document would reinstate that clobber at the LWW layer,
+ *  and the alternative — a dotted path per field — cannot survive a field label
+ *  containing a dot, and the labels are arbitrary user text from `set_data`'s
+ *  input ports. */
+export interface DataFieldDoc {
+  /** `${scope}:${field}` — scope is an entity id or '' for global, so it never
+   *  contains a colon and the single split is unambiguous. */
+  id: string;
+  scope: string;
+  /** What `scope` names, so both peers derive the same containment parent
+   *  without a database lookup. `null` for the global scope, which belongs to
+   *  no entity. */
+  scopeKind: 'scene_node' | 'compose_layer' | null;
+  field: string;
+  value: unknown;
+  [k: string]: unknown;
+}
+
+export const dataFieldKey = (scope: string, field: string): string =>
+  `${scope}:${field}`;
+
+/** Split a data-field key. The scope may be empty (global). */
+export function parseDataFieldKey(
+  key: string
+): { scope: string; field: string } | null {
+  const i = key.indexOf(':');
+  if (i < 0) return null;
+  return { scope: key.slice(0, i), field: key.slice(i + 1) };
+}
+
+/** Containment: a scoped field hangs off the entity it is scoped to, so a
+ *  share/collab subtree grant carries it. Global fields belong to no entity and
+ *  reach subscribers by rtype alone. */
+export const dataFieldParent = (
+  d: Record<string, unknown>
+): { rtype: string; id: string } | null =>
+  (d.scopeKind === 'scene_node' || d.scopeKind === 'compose_layer') &&
+  typeof d.scope === 'string' &&
+  d.scope !== ''
+    ? { rtype: d.scopeKind, id: d.scope }
+    : null;
+
 let _overrides: Collection<RuntimeOverrideDoc> | null = null;
+let _dataFields: Collection<DataFieldDoc> | null = null;
 
 /** Register the runtime channel + collections. Idempotent. */
 export function initMeshRuntime(peer: MeshPeer): void {
@@ -114,6 +166,11 @@ export function initMeshRuntime(peer: MeshPeer): void {
     parent: overrideParent,
     authority: 'self',
   });
+  _dataFields = peer.collection<DataFieldDoc>(DATA_FIELD_RTYPE, {
+    channels: [RUNTIME_CHANNEL],
+    parent: dataFieldParent,
+    authority: 'self',
+  });
 }
 
 /** The override collection, or null before the mesh is up (tests that skip it,
@@ -124,8 +181,15 @@ export function overrideCollection(): Collection<RuntimeOverrideDoc> | null {
   return _overrides;
 }
 
+/** The data-field collection, or null before the mesh is up. Same best-effort
+ *  contract as {@link overrideCollection}. */
+export function dataFieldCollection(): Collection<DataFieldDoc> | null {
+  return _dataFields;
+}
+
 /** Test seam — drops the registered collections so the next init rebuilds
  *  them against a fresh peer. */
 export function resetMeshRuntime(): void {
   _overrides = null;
+  _dataFields = null;
 }

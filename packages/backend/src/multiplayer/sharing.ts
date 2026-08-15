@@ -59,8 +59,6 @@ const SNAPSHOT = '_share_snapshot';
 const UNSHARED = '_share_unshared';
 /** Live pose/blendshape frame for a shared avatar (rides the lossy stream channel). */
 const STREAM = '_share_stream';
-/** Data-channel set/clear scoped to a shared subtree node (reliable doc channel). */
-const DATACHANNEL = '_share_datachannel';
 /** Receiver → owner: a remote write request on a shared subtree node (Phase 6). */
 const WRITE = '_share_write';
 /** Owner → receiver: a write was rejected (no grant), so roll back the optimism. */
@@ -73,7 +71,6 @@ export const SHARE_RTYPES = new Set([
   UNSUBSCRIBE,
   SNAPSHOT,
   UNSHARED,
-  DATACHANNEL,
   WRITE,
   WRITE_NAK,
 ]);
@@ -270,9 +267,6 @@ export class SharingManager {
         });
         break;
       }
-      case DATACHANNEL:
-        this.broadcast('mp_shared_datachannel', { peerId: from, ...data });
-        break;
       // --- owner side: a granted remote peer's write request ---
       case WRITE:
         this.handleWrite(from, data.env as SyncEnvelope);
@@ -345,20 +339,6 @@ export class SharingManager {
       objectId: nodeId,
       kind,
       payload,
-    });
-  }
-
-  /** Owner: forward a data-channel set/clear scoped to a scene node inside a
-   *  shared subtree (global scope '' and compose-layer scopes aren't shared).
-   *  Same publish-by-key path as overrides (reliable link). */
-  forwardDataChannel(op: 'set' | 'clear', payload: Record<string, unknown>): void {
-    const scope = payload.scope as string;
-    if (!scope) return; // global — not tied to a shared object
-    this.router.publish({
-      rtype: DATACHANNEL,
-      op: 'event',
-      key: `scene_node:${scope}`,
-      data: { op, ...payload },
     });
   }
 

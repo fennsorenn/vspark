@@ -86,6 +86,23 @@ function parseOverrideId(id: string): {
   };
 }
 
+/** A `data_field` document. */
+interface RawDataField {
+  id: string;
+  scope: string;
+  field: string;
+  value: unknown;
+}
+
+/** Split a `data_field` id — needed on remove, where the document is gone. The
+ *  scope is an entity id or '' (global), so it never contains a colon; the
+ *  field label is arbitrary user text and takes the rest. */
+function parseDataFieldId(id: string): { scope: string; field: string } | null {
+  const i = id.indexOf(':');
+  if (i < 0) return null;
+  return { scope: id.slice(0, i), field: id.slice(i + 1) };
+}
+
 function parentIsRemote(nodeId: unknown): boolean {
   if (typeof nodeId !== 'string') return false;
   return (
@@ -372,6 +389,23 @@ export function startMeshStoreFeeder(): void {
         useEditorStore
           .getState()
           .setRuntimeOverride(d.targetKind, d.targetId, d.paramPath, d.value);
+      // Published data fields. One document per (scope, field), so a merge is
+      // just an upsert and a clear is a remove — the `data_channel_set` /
+      // `_clear` / `_snapshot` trio collapses into these two cases.
+      h.collections.data_field.observe('**', (c) => {
+        const s = useEditorStore.getState();
+        if (c.op === 'remove') {
+          const k = parseDataFieldId(c.id);
+          if (k) s.clearDataChannels(k.scope, k.field);
+          return;
+        }
+        const d = c.doc as unknown as RawDataField | undefined;
+        if (d) s.mergeDataChannels(d.scope, { [d.field]: d.value });
+      });
+      for (const d of h.collections.data_field.all() as unknown as RawDataField[])
+        useEditorStore
+          .getState()
+          .mergeDataChannels(d.scope, { [d.field]: d.value });
       h.collections.clip_playback.observe('**', (c) => {
         // No ephemeral branch yet: a scrub rides the preview channel, and the
         // slice below is read through a derivation that reads the doc as-is —

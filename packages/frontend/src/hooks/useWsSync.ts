@@ -240,25 +240,6 @@ export function useWsSync() {
               command: MediaCommand;
             };
             dispatchMediaCommand(p.targetId, p.command);
-          } else if (msg.kind === 'data_channel_set') {
-            const p = msg.payload as {
-              scope: string;
-              fields: Record<string, unknown>;
-            };
-            useEditorStore
-              .getState()
-              .mergeDataChannels(p.scope ?? '', p.fields ?? {});
-          } else if (msg.kind === 'data_channel_clear') {
-            const p = msg.payload as { scope: string; field?: string };
-            useEditorStore.getState().clearDataChannels(p.scope ?? '', p.field);
-          } else if (msg.kind === 'data_channel_snapshot') {
-            const p = msg.payload as {
-              entries: Array<{
-                scope: string;
-                fields: Record<string, unknown>;
-              }>;
-            };
-            useEditorStore.getState().replaceDataChannels(p.entries ?? []);
           } else if (msg.kind === 'mp_status') {
             useConnectionsStore
               .getState()
@@ -390,24 +371,6 @@ export function useWsSync() {
               );
             } else if (p.kind === 'pose_ik_targets') {
               setIkTargets(f.nodeId as string, f as unknown as IkTargetFrame);
-            }
-          } else if (msg.kind === 'mp_shared_datachannel') {
-            // Data channel scoped to a shared node (scope = owner node id, which
-            // the projection preserves, so the projected feed/template resolves it).
-            const p = msg.payload as {
-              op: 'set' | 'clear';
-              scope: string;
-              fields?: Record<string, unknown>;
-              field?: string;
-            };
-            if (p.op === 'set') {
-              useEditorStore
-                .getState()
-                .mergeDataChannels(p.scope ?? '', p.fields ?? {});
-            } else {
-              useEditorStore
-                .getState()
-                .clearDataChannels(p.scope ?? '', p.field);
             }
           } else if (msg.kind === 'mesh_roster') {
             const p = msg.payload as { participants?: string[] };

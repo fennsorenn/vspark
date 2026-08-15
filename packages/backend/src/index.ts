@@ -200,13 +200,10 @@ async function start() {
   runtimeOverrideManager.init(null);
 
   // Data-channel bus — generic graph→frontend publish surface (set_data node →
-  // feed/template compose layer). Sibling of the override bus.
+  // feed/template compose layer). Sibling of the override bus, and like it
+  // needs no wiring: each published field is a retained mesh document, so one
+  // write reaches local tabs, collab peers and object-share subscribers.
   // See dev-notes/modules/data-channels.md.
-  dataChannelManager.init(wsSync);
-  // Forward data channels scoped to a shared node to subscriber peers.
-  dataChannelManager.setDataChannelForwarder((op, payload) =>
-    multiplayerManager.forwardDataChannel(op, payload)
-  );
 
   // Media-control bus — fire-and-forget play/pause/stop/seek commands for
   // video/audio entities (media_control node → frontend media registry).
@@ -236,13 +233,11 @@ async function start() {
     ws.on('close', () => clientMeshRelay.onWsClose(ws));
   });
 
-  // Rebroadcast current state to any newly-connecting client. Runtime
-  // overrides no longer need a line here: they are retained mesh documents, so
-  // a tab's subscription snapshot carries the current values (mesh/runtime.ts).
+  // Rebroadcast current state to any newly-connecting client. Runtime overrides
+  // and data channels no longer need a line here: they are retained mesh
+  // documents, so a tab's subscription snapshot carries the current values
+  // (mesh/runtime.ts).
   wsSync.onClientConnected((ws) => {
-    dataChannelManager.sendSnapshotTo((kind, payload) =>
-      wsSync.sendTo(ws, kind, payload)
-    );
     // Unified sync layer snapshot (no-op until field/stream resources land).
     sync.sendSnapshotTo((env) =>
       wsSync.sendTo(

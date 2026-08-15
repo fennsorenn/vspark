@@ -452,3 +452,74 @@ describe('meshStoreFeeder — runtime_override routing', () => {
     });
   });
 });
+
+// ── data_field ────────────────────────────────────────────────────────────────
+
+/**
+ * Published data fields, same collapse as overrides: `data_channel_set` /
+ * `_clear` / `_snapshot` become upserts and removes of one document per
+ * (scope, field).
+ */
+describe('meshStoreFeeder — data_field routing', () => {
+  const feedField = (op: Op) => observers.get('data_field')!(op);
+
+  beforeEach(async () => {
+    await startFeeder();
+    useEditorStore.setState({ dataChannels: {} });
+  });
+
+  it('merges a field into its scope', () => {
+    feedField({
+      op: 'upsert',
+      id: 'n1:headline',
+      doc: { id: 'n1:headline', scope: 'n1', field: 'headline', value: 'hi' },
+    });
+    feedField({
+      op: 'upsert',
+      id: 'n1:sub',
+      doc: { id: 'n1:sub', scope: 'n1', field: 'sub', value: 2 },
+    });
+    // Two producers, two documents, one merged scope — the merge is the
+    // store's, and neither field can clobber the other.
+    expect(useEditorStore.getState().dataChannels).toEqual({
+      n1: { headline: 'hi', sub: 2 },
+    });
+  });
+
+  it('routes a global field to the empty scope', () => {
+    feedField({
+      op: 'upsert',
+      id: ':ticker',
+      doc: { id: ':ticker', scope: '', field: 'ticker', value: 'x' },
+    });
+    expect(useEditorStore.getState().dataChannels).toEqual({
+      '': { ticker: 'x' },
+    });
+  });
+
+  it('clears one field from the id when its document is removed', () => {
+    feedField({
+      op: 'upsert',
+      id: 'n1:a',
+      doc: { id: 'n1:a', scope: 'n1', field: 'a', value: 1 },
+    });
+    feedField({
+      op: 'upsert',
+      id: 'n1:b',
+      doc: { id: 'n1:b', scope: 'n1', field: 'b', value: 2 },
+    });
+    feedField({ op: 'remove', id: 'n1:a' });
+    expect(useEditorStore.getState().dataChannels).toEqual({ n1: { b: 2 } });
+  });
+
+  it('keeps a field label containing a colon intact on remove', () => {
+    // The id splits on the FIRST colon; everything after it is the label.
+    feedField({
+      op: 'upsert',
+      id: 'n1:a:b',
+      doc: { id: 'n1:a:b', scope: 'n1', field: 'a:b', value: 1 },
+    });
+    feedField({ op: 'remove', id: 'n1:a:b' });
+    expect(useEditorStore.getState().dataChannels.n1 ?? {}).toEqual({});
+  });
+});

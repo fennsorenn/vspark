@@ -39,6 +39,7 @@ const RTYPES = [
   'clip_playback',
   'logic',
   'runtime_override',
+  'data_field',
 ] as const;
 
 /** Reliable + stamped + retained, no ack — runtime state that must reach a
@@ -52,6 +53,7 @@ const RUNTIME_CHANNEL = 'runtime';
  *  arrive on, or they never apply. */
 const CHANNELS: Partial<Record<string, string[]>> = {
   runtime_override: [RUNTIME_CHANNEL],
+  data_field: [RUNTIME_CHANNEL],
 };
 
 const childOfNode = (d: Dto) =>
@@ -103,6 +105,15 @@ const PARENTS: Partial<
     (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
     typeof d.targetId === 'string'
       ? { rtype: d.targetKind, id: d.targetId }
+      : null,
+  // A scoped data field hangs off the entity it is scoped to; a GLOBAL field
+  // (scope '') belongs to no entity and has no parent. The document carries
+  // `scopeKind` so this stays a pure function on both peers.
+  data_field: (d) =>
+    (d.scopeKind === 'scene_node' || d.scopeKind === 'compose_layer') &&
+    typeof d.scope === 'string' &&
+    d.scope !== ''
+      ? { rtype: d.scopeKind, id: d.scope }
       : null,
   // Owned polymorphically. A project-owned graph has no parent: there is no
   // `project` rtype in the mesh. Must match the backend BINDINGS entry exactly.
