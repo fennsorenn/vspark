@@ -1,14 +1,20 @@
 /**
- * ObsWsManager — the OBS "power tier": one backend-held obs-websocket
- * connection per project, unlocking control the browser-source bridge
- * ([manager.ts]) can't reach (audio volume/mute, replay path, source/scene
- * control). Modeled on OverliveManager: per-project connection lifecycle, a
- * status state machine persisted + broadcast over WS, inbound event fan-out
- * into project logic graphs, and outbound request methods the obs-websocket
- * action nodes call.
+ * ObsWsManager — the whole OBS integration: one backend-held obs-websocket
+ * connection per project, carrying every OBS source and action node (scene,
+ * transition, output control, audio volume/mute, replay path). Modeled on
+ * OverliveManager: per-project connection lifecycle, a status state machine
+ * persisted + broadcast over WS, inbound event fan-out into project logic
+ * graphs, and outbound request methods the action nodes call.
+ *
+ * It started as a "power tier" beside the `window.obsstudio` browser-source
+ * bridge, for control that API couldn't reach. The bridge is gone: OBS gates
+ * its control calls behind the source's page permission level and silently
+ * ignores anything above it, so actions failed with no error anywhere.
+ * obs-websocket has no such gate and returns a status per request — which is
+ * why every action here reports why it couldn't act.
  *
  * vspark is self-hosted, so the backend is co-located with OBS and reaches
- * `ws://localhost:4455` directly. See dev-notes/plans/obs-websocket-tier.md.
+ * `ws://localhost:4455` directly. See dev-notes/modules/obs.md.
  */
 import { mkEvent } from '@vspark/shared/signal';
 import type {

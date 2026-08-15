@@ -1,9 +1,8 @@
 # Plan: consolidate the OBS integration onto obs-websocket
 
-> Branch: `feature/obs-ws-consolidation` (create from `dev`, after #60 lands) ·
-> Status: ready-for-handoff
-> This plan is the seed context for a cloud worker. It is a starting point, not an
-> airtight spec — the worker is interactive and may ask to refine it.
+> Branch: `claude/obs-ws-consolidation-bvh17p` · Status: **implemented**
+> Step 0 was decided as **(b) ws-only, browser bridge deleted** (except
+> `client_lifecycle`). See "Outcome" at the end for what actually shipped.
 
 ## Goal
 
@@ -178,3 +177,38 @@ Needs a real OBS; none of this is provable headless.
 Open a PR into `dev` when done. Step 1 + step 2's first node is a shippable
 slice on its own — it fixes the silent-failure case without touching anything
 else.
+
+## Outcome
+
+Shipped in two slices on `claude/obs-ws-consolidation-bvh17p`:
+
+1. `ObsWsManager` gained `setScene` / `setTransition` / `control`, and
+   `obs_set_scene` was repointed at it — the motivating case, fixed on its own.
+2. `obs_set_transition` and `obs_control` followed, the scene and output event
+   families moved onto obs-websocket, and the browser bridge was deleted.
+
+Decisions taken while building, beyond what the plan specified:
+
+- **Step 0 → (b).** One transport. `ObsManager` and
+  `packages/frontend/src/obs/bridge.ts` survive but carry only render-client
+  lifecycle; their names and paths are now historical.
+- **`obs_control`'s config vocabulary is unchanged.** `config.action` still holds
+  `window.obsstudio` method names; `CONTROL_REQUESTS` maps them onto
+  obs-websocket requests, so graphs built against the bridge keep working.
+- **Canvas size.** `CurrentProgramSceneChanged` carries no width/height, unlike
+  the browser event. `GetVideoSettings` is read once per connection and cached
+  (obs-websocket has no canvas-resize event), so `obs_scene_changed` keeps
+  reporting a canvas size. A failed read leaves 0×0.
+- **Unrepresentable output states are dropped.** OBS's `RECONNECTING` /
+  `RECONNECTED` / `UNKNOWN` have no slot in the `ObsOutputState` vocabulary and
+  had no browser-bridge equivalent, so they do not fire rather than widening a
+  payload shape graphs match on.
+- **Dedup removed.** The 400ms window existed because every open browser source
+  reported the same machine-global event. One connection per project means one
+  event is one fire; a unit test pins that two events produce two fires.
+- **Shared types.** `ObsCommand`, `ObsCommandMessage`, `ObsEventMessage` and the
+  `obs_event` / `obs_command` WS kinds are gone. `ObsEvent`, `ObsOutputKind` and
+  `ObsOutputState` stay — they still describe the payloads delivered into the
+  source nodes.
+
+Not done: the real-OBS verification below. It cannot be run headless.
