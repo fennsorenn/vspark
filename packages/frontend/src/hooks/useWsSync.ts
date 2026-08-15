@@ -14,12 +14,7 @@ import {
 } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
 import { setIkTargets } from '../ikTargetStore';
-import type {
-  IkTargetFrame,
-  AnimationBlendMode,
-  MediaCommand,
-} from '@vspark/shared/types';
-import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
+import type { IkTargetFrame, AnimationBlendMode } from '@vspark/shared/types';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 // Legacy 'sync'-envelope bindings are fully retired (§11): every document
 // rtype the tab subscribes to (RTYPES in mesh/peer.ts) feeds the store from
@@ -234,12 +229,6 @@ export function useWsSync() {
             useEditorStore
               .getState()
               .replaceTrackClipEvents(clipId, rows.map(mapTrackClipEvent));
-          } else if (msg.kind === 'media_control') {
-            const p = msg.payload as {
-              targetId: string;
-              command: MediaCommand;
-            };
-            dispatchMediaCommand(p.targetId, p.command);
           } else if (msg.kind === 'mp_status') {
             useConnectionsStore
               .getState()

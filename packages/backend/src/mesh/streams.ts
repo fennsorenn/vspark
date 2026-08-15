@@ -23,6 +23,7 @@
  * receive these frames over /mesh (no double with the /ws broadcast).
  */
 import type { Collection, MeshPeer } from '@vspark/mesh';
+import { CONTROL_CHANNEL } from './runtime.js';
 import {
   collabSceneForNode,
   clipCollabScene,
@@ -31,10 +32,9 @@ import {
   type ClipPlaybackAction,
 } from '../multiplayer/collabScene.js';
 
+export { CONTROL_CHANNEL };
+
 export const NODE_STREAM_RTYPE = 'node_stream';
-/** Reliable unstamped event channel: control messages that must not drop but
- *  are events, not state (never retained, snapshotted, or persisted). */
-export const CONTROL_CHANNEL = 'control';
 export const CLIP_CONTROL_RTYPE = 'clip_control';
 export const RUNTIME_CONTROL_RTYPE = 'runtime_control';
 
@@ -87,11 +87,8 @@ export function initMeshStreams(
   broadcast: (kind: string, payload: Record<string, unknown>) => void
 ): void {
   if (_col) return;
-  peer.channel(CONTROL_CHANNEL, {
-    transport: 'reliable',
-    stamped: false,
-    retained: false,
-  });
+  // CONTROL_CHANNEL is registered by initMeshRuntime (mesh/runtime.ts), which
+  // runs as part of initBackendMesh — before this. One definition, one place.
   _col = peer.collection<StreamFrame>(NODE_STREAM_RTYPE, {
     channels: ['preview'],
   });

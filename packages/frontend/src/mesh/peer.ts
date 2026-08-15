@@ -40,6 +40,7 @@ const RTYPES = [
   'logic',
   'runtime_override',
   'data_field',
+  'media_control',
 ] as const;
 
 /** Reliable + stamped + retained, no ack — runtime state that must reach a
@@ -48,12 +49,19 @@ const RTYPES = [
  *  this peer doesn't know is dropped silently on arrival. */
 const RUNTIME_CHANNEL = 'runtime';
 
+/** Reliable but UNSTAMPED and UNRETAINED — commands, not state. A media
+ *  command must not be replayed to a tab that connects an hour later, which is
+ *  exactly what retention would do. Same name as the backend's
+ *  (mesh/runtime.ts). */
+const CONTROL_CHANNEL = 'control';
+
 /** rtypes that live on a channel other than the default committed/preview
  *  pair. The collection's allowed set has to include the channel its writes
  *  arrive on, or they never apply. */
 const CHANNELS: Partial<Record<string, string[]>> = {
   runtime_override: [RUNTIME_CHANNEL],
   data_field: [RUNTIME_CHANNEL],
+  media_control: [CONTROL_CHANNEL],
 };
 
 const childOfNode = (d: Dto) =>
@@ -114,6 +122,11 @@ const PARENTS: Partial<
     typeof d.scope === 'string' &&
     d.scope !== ''
       ? { rtype: d.scopeKind, id: d.scope }
+      : null,
+  media_control: (d) =>
+    (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
+    typeof d.targetId === 'string'
+      ? { rtype: d.targetKind, id: d.targetId }
       : null,
   // Owned polymorphically. A project-owned graph has no parent: there is no
   // `project` rtype in the mesh. Must match the backend BINDINGS entry exactly.
@@ -213,6 +226,11 @@ async function doInit(): Promise<MeshHandles> {
     transport: 'reliable',
     stamped: true,
     retained: true,
+  });
+  peer.channel(CONTROL_CHANNEL, {
+    transport: 'reliable',
+    stamped: false,
+    retained: false,
   });
 
   const collections: Record<string, Collection<Dto>> = {};

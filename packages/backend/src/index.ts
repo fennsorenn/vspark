@@ -37,7 +37,6 @@ import {
 import { startClipLifecycle } from './track_clips/lifecycle.js';
 import { runtimeOverrideManager } from './runtime_overrides/manager.js';
 import { dataChannelManager } from './data_channels/manager.js';
-import { mediaControlManager } from './media_control/manager.js';
 import { spawnManager } from './spawn/manager.js';
 import { sync } from './sync/index.js';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
@@ -205,10 +204,6 @@ async function start() {
   // write reaches local tabs, collab peers and object-share subscribers.
   // See dev-notes/modules/data-channels.md.
 
-  // Media-control bus — fire-and-forget play/pause/stop/seek commands for
-  // video/audio entities (media_control node → frontend media registry).
-  // See dev-notes/modules/media.md.
-  mediaControlManager.init(wsSync);
 
   // Spawn manager — ephemeral clip-clone spawning. Subscribes to playback
   // completion events so it can tear down tmp entities on clip end.

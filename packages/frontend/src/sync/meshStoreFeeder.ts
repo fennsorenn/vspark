@@ -27,7 +27,9 @@
  *
  * Started from the Editor AND the Viewer page (both render live state).
  */
+import type { MediaCommand } from '@vspark/shared/types';
 import { initMeshPeer } from '../mesh/peer';
+import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
 import {
   hasLayerTween,
   hasNodeTween,
@@ -101,6 +103,14 @@ function parseDataFieldId(id: string): { scope: string; field: string } | null {
   const i = id.indexOf(':');
   if (i < 0) return null;
   return { scope: id.slice(0, i), field: id.slice(i + 1) };
+}
+
+/** A `media_control` document. */
+interface RawMediaControl {
+  id: string;
+  targetKind: 'scene_node' | 'compose_layer';
+  targetId: string;
+  command: MediaCommand;
 }
 
 function parentIsRemote(nodeId: unknown): boolean {
@@ -406,6 +416,14 @@ export function startMeshStoreFeeder(): void {
         useEditorStore
           .getState()
           .mergeDataChannels(d.scope, { [d.field]: d.value });
+      // Media commands. An EVENT, not state: the collection has no retained
+      // channel, so there is nothing to seed from and nothing replayed to a tab
+      // that connects later — a play from an hour ago must not fire now.
+      h.collections.media_control.observe('**', (c) => {
+        const d = c.doc as unknown as RawMediaControl | undefined;
+        if (c.op === 'remove' || !d?.command) return;
+        dispatchMediaCommand(d.targetId, d.command);
+      });
       h.collections.clip_playback.observe('**', (c) => {
         // No ephemeral branch yet: a scrub rides the preview channel, and the
         // slice below is read through a derivation that reads the doc as-is —

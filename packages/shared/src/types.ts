@@ -526,8 +526,7 @@ export type WSMessageKind =
   | 'track_clip_started'
   | 'track_clip_paused'
   | 'track_clip_stopped'
-  | 'track_clip_playback_snapshot'
-  | 'media_control';
+  | 'track_clip_playback_snapshot';
 
 export type UpdateChannel = 'stable' | 'recent' | 'experimental';
 

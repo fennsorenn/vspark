@@ -101,7 +101,6 @@ const PROFILE_RTYPE = 'peer_profile';
  *  node/clip CRUD goes through sync.document, so those kinds are excluded to avoid
  *  double-forwarding). Clip play frames are handled per-clip in the relay. */
 const COLLAB_RELAY_KINDS = new Set<string>([
-  'media_control',
   'node_added',
   'node_removed',
   'compose_layer_added',

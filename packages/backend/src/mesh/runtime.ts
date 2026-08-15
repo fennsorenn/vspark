@@ -150,8 +150,41 @@ export const dataFieldParent = (
     ? { rtype: d.scopeKind, id: d.scope }
     : null;
 
+// --- media commands ----------------------------------------------------------
+
+/** Reliable, stamped=false, retained=false: control messages that must not drop
+ *  but are EVENTS, not state. Defined here rather than in mesh/streams.ts (which
+ *  also uses it) so the channel has one definition. */
+export const CONTROL_CHANNEL = 'control';
+export const MEDIA_CONTROL_RTYPE = 'media_control';
+
+/** One media command, addressed to the video/audio entity it drives.
+ *
+ *  Deliberately NOT on the retained channel the overrides and data fields use:
+ *  a command is a one-shot. Retaining it would replay every past play/seek to
+ *  each new tab on connect, which is the opposite of what a late joiner wants.
+ *  Keyed by target so repeated commands to one entity stay in order, and
+ *  parented to it so subtree grants route it. */
+export interface MediaControlDoc {
+  /** The target entity's id — one live command slot per entity. */
+  id: string;
+  targetKind: 'scene_node' | 'compose_layer';
+  targetId: string;
+  command: unknown;
+  [k: string]: unknown;
+}
+
+export const mediaControlParent = (
+  d: Record<string, unknown>
+): { rtype: string; id: string } | null =>
+  (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
+  typeof d.targetId === 'string'
+    ? { rtype: d.targetKind, id: d.targetId }
+    : null;
+
 let _overrides: Collection<RuntimeOverrideDoc> | null = null;
 let _dataFields: Collection<DataFieldDoc> | null = null;
+let _media: Collection<MediaControlDoc> | null = null;
 
 /** Register the runtime channel + collections. Idempotent. */
 export function initMeshRuntime(peer: MeshPeer): void {
@@ -171,6 +204,16 @@ export function initMeshRuntime(peer: MeshPeer): void {
     parent: dataFieldParent,
     authority: 'self',
   });
+  peer.channel(CONTROL_CHANNEL, {
+    transport: 'reliable',
+    stamped: false,
+    retained: false,
+  });
+  _media = peer.collection<MediaControlDoc>(MEDIA_CONTROL_RTYPE, {
+    channels: [CONTROL_CHANNEL],
+    parent: mediaControlParent,
+    authority: 'self',
+  });
 }
 
 /** The override collection, or null before the mesh is up (tests that skip it,
@@ -187,9 +230,15 @@ export function dataFieldCollection(): Collection<DataFieldDoc> | null {
   return _dataFields;
 }
 
+/** The media-command collection, or null before the mesh is up. */
+export function mediaControlCollection(): Collection<MediaControlDoc> | null {
+  return _media;
+}
+
 /** Test seam — drops the registered collections so the next init rebuilds
  *  them against a fresh peer. */
 export function resetMeshRuntime(): void {
   _overrides = null;
   _dataFields = null;
+  _media = null;
 }

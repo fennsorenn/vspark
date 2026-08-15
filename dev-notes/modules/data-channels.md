@@ -61,17 +61,35 @@ Sibling of `RuntimeOverrideManager`. In-memory, keyed by **`(scope, field)`** �
 - **field** — one published value's label (the former "channel name"), referenced
   by bare name in templates.
 
-Public API: `init(ws)`, `set(scope, fields)` (**merge** — overwrites the named
-fields, leaves others; so two producers sharing a scope don't clobber),
-`seed(scope, fields)` (merge only fields not already present), `clear(scope,
-field?)`, `clearAll()`, `sendSnapshotTo(send)`. WS broadcasts:
-`data_channel_set {scope, fields}`, `data_channel_clear {scope, field?}`,
-`data_channel_snapshot {entries: [{scope, fields}]}`.
+Public API: `set(scope, fields)` (**merge** — overwrites the named fields,
+leaves others), `seed(scope, fields)` (merge only fields not already present),
+`clear(scope, field?)`, `clearAll()`.
 
-Scopes/fields are **retained** until cleared, and re-sent as a snapshot on every
-new WS connect (wired in `index.ts`'s `onClientConnected`, alongside the
-track-clip + override snapshots) so a freshly-loaded editor/viewer matches
-current state.
+**Transport: the mesh `data_field` collection** (`packages/backend/src/mesh/runtime.ts`),
+on the retained `runtime` channel — see [mesh.md](mesh.md) and
+[runtime-overrides.md](runtime-overrides.md), which uses the same channel for
+the same reason.
+
+**One document per (scope, field)**, keyed `${scope}:${field}`. That is what
+makes the merge structural rather than something `set` has to preserve: two
+producers publishing different fields of one scope write different documents and
+cannot clobber each other, even under LWW. The alternative — one document per
+scope with a dotted path per field — would reinstate the clobber and could not
+survive a field label containing a dot, and labels are arbitrary user text from
+`set_data`'s input ports.
+
+Scopes/fields are **retained** until cleared, and the retention is the mesh's: a
+freshly-loaded editor/viewer gets the current values in its subscription
+snapshot, so there is no `data_channel_snapshot` message and nothing wired into
+`onClientConnected`. A clear is a document remove; the whole-scope form is one
+remove per field.
+
+Each document carries `scopeKind` so both peers derive the same containment
+parent without a database lookup: a scoped field hangs off its entity (and so
+rides existing subtree grants to collab peers and object-share subscribers), a
+GLOBAL field (scope `''`) belongs to no entity and reaches subscribers by rtype
+alone. The `_share_datachannel` envelope and the collab `runtime_control` tap
+are deleted.
 
 **Scoping model:** the original Phase-3 bus addressed by a single flat channel
 name. It was reshaped (still pre-merge) so a `set_data` node exposes multiple
@@ -206,11 +224,12 @@ The htm template machinery is shared by both feed surfaces (2D layer + 3D node):
 defaults. `ComposeLayerStack.FeedLayer`, `Viewport.FeedCanvasNode`,
 `ComposeTree`, and `SceneGraph` all import from here.
 
-### Frontend store + WS — `store/editorStore.ts`, `hooks/useWsSync.ts`
+### Frontend store + feeder — `store/editorStore.ts`, `sync/meshStoreFeeder.ts`
 `dataChannels: Record<scope, Record<field, value>>` slice with
-`mergeDataChannels(scope, fields)`, `clearDataChannels(scope, field?)`,
-`replaceDataChannels(entries)`. `useWsSync` handles `data_channel_set` /
-`data_channel_clear` / `data_channel_snapshot`. `FeedLayer` selects
+`mergeDataChannels(scope, fields)` and `clearDataChannels(scope, field?)`.
+The feeder's `data_field` observer drives both — an upsert merges one field, a
+remove clears it (parsing the scope and label out of the document id, since the
+document is gone). `FeedLayer` selects
 `dataChannels['']` and `dataChannels[layer.id]` and merges them (`global ∪ own`).
 Shared by `Editor` and `ViewerPage` (both call `useWsSync` + render
 `ComposeLayerStack`), so streamed output matches the editor.

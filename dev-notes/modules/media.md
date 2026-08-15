@@ -27,10 +27,21 @@ registry call.
 ### Backend — `packages/backend/src/media_control/manager.ts`
 
 `MediaControlManager` (singleton `mediaControlManager`) is a thin
-`dispatch(targetKind, targetId, command)` that broadcasts a `media_control` WS
-message. **Stateless by design**: no stored state, no snapshot-on-connect (a late
-joiner shouldn't replay past one-shots), no SQLite. Init'd in `index.ts` with the
-shared `WSSync`. Empty `targetId` is a no-op.
+`dispatch(targetKind, targetId, command)` that publishes into the mesh
+`media_control` collection (`packages/backend/src/mesh/runtime.ts`), keyed by
+target id and parented to the target. Empty `targetId` is a no-op; so is a
+dispatch before the mesh is up.
+
+**Stateless by design**, and the channel is what enforces it: commands ride the
+`control` channel — reliable but unstamped and **unretained** — not the retained
+`runtime` channel the override and data-field buses use. A subscription snapshot
+carries only a collection's retained channel, so a `play` from an hour ago
+cannot fire on a tab that opens now. Nothing reaches SQLite.
+
+One publish reaches local tabs, collab peers and object-share subscribers, since
+the command is parented to its target and rides the same subtree grants as
+everything else on that entity. The `media_control` WS kind and the collab
+`runtime_control` tap that used to carry it a second time are deleted.
 
 ### Shared types — `packages/shared/src/types.ts`
 
@@ -38,9 +49,8 @@ shared `WSSync`. Empty `targetId` is a no-op.
 - `MediaAction = 'play' | 'pause' | 'stop' | 'restart' | 'seek' | 'setVolume' | 'mute' | 'unmute'`.
 - `MediaCommand = { action: MediaAction; t?: number; volume?: number }` (`t` only
   for `seek`, `volume` only for `setVolume`).
-- `MediaControlMessage = { targetKind, targetId, command }` — payload of the
-  `media_control` WS message.
-- `'media_control'` added to `WSMessageKind`.
+- `MediaControlMessage = { targetKind, targetId, command }` — the shape the
+  `media_control` document carries.
 
 ### Signal node — `media_control`
 
@@ -73,7 +83,7 @@ are imperative (no React re-render).
   `VideoLayer`, and `AudioNode` each register on mount, unregister on unmount.
 - `dispatchMediaCommand(id, cmd)` looks up the handle and calls the matching method;
   no-op when absent (entity not mounted on this client).
-- `useWsSync` routes the `media_control` message to `dispatchMediaCommand`; the
+- `sync/meshStoreFeeder.ts`'s `media_control` observer calls `dispatchMediaCommand`; the
   track-clip event evaluator calls it directly (client-side firing).
 
 ## Video — 3D scene node (`video` kind)
@@ -274,6 +284,7 @@ Video/audio are first-class asset kinds. See [asset-management.md](asset-managem
 
 **Backend:**
 - `media_control/manager.ts` — `MediaControlManager` (stateless command bus)
+- `mesh/runtime.ts` — the `control` channel + the `media_control` collection
 - `signal/nodes/media_control.ts` (registered in `signal/registry.ts`)
 - `db/migrations/021_track_clip_events.{sql,ts}` (registered in `db/index.ts`)
 - `routes/track-clips.ts` — event load + `PUT /track-clips/:id/events`

@@ -7,7 +7,8 @@
  *    scene resolution)
  *  - DataChannelManager (set merge, seed, clear field/scope, clearAll) through
  *    the mesh `data_field` collection
- *  - MediaControlManager (dispatch with/without ws, empty targetId guard)
+ *  - MediaControlManager (dispatch through the mesh `media_control` collection,
+ *    empty targetId guard, nothing retained)
  *  - SpawnManager.isEphemeralClip (the only pure unit-testable surface without a
  *    live graph — everything else needs DB + playback manager)
  *
@@ -28,6 +29,8 @@ import { RuntimeOverrideManager } from '../src/runtime_overrides/manager.js';
 import {
   dataFieldCollection,
   initMeshRuntime,
+  mediaControlCollection,
+  mediaControlParent,
   overrideCollection,
   overrideParent,
   resetMeshRuntime,
@@ -372,39 +375,65 @@ describe('DataChannelManager', () => {
 });
 
 describe('MediaControlManager', () => {
-  it('broadcasts media_control with correct shape', () => {
-    const { ws, broadcasts } = makeWsStub();
-    const manager = new MediaControlManager();
-    manager.init(ws);
+  /** Commands seen by a peer holding the target. The collection is UNRETAINED,
+   *  so this observes rather than reads back a stored value — a command that is
+   *  still readable an hour later would be a command a late joiner replays. */
+  let seen: { targetId: string; command: unknown }[];
 
+  beforeEach(() => {
+    resetMeshRuntime();
+    initMeshRuntime(
+      createMeshPeer({ identity: { peerId: 'test-peer' }, transports: [] })
+    );
+    seen = [];
+    mediaControlCollection()!.observe('**', (c) => {
+      const d = c.doc as { targetId: string; command: unknown } | undefined;
+      if (d) seen.push({ targetId: d.targetId, command: d.command });
+    });
+  });
+
+  it('publishes a command addressed to its target', () => {
+    const manager = new MediaControlManager();
     manager.dispatch('compose_layer', 'layer-123', {
       type: 'play',
     } as import('@vspark/shared').MediaCommand);
 
-    expect(broadcasts).toHaveLength(1);
-    expect(broadcasts[0].kind).toBe('media_control');
-    expect(broadcasts[0].payload.targetKind).toBe('compose_layer');
-    expect(broadcasts[0].payload.targetId).toBe('layer-123');
-    expect((broadcasts[0].payload.command as { type: string }).type).toBe(
-      'play'
-    );
+    expect(seen).toEqual([
+      { targetId: 'layer-123', command: { type: 'play' } },
+    ]);
   });
 
-  it('dispatch is a no-op when targetId is empty string', () => {
-    const { ws, broadcasts } = makeWsStub();
+  it('parents the command to its target', () => {
+    // So a subtree grant on the scene routes it, exactly like the override and
+    // data-field documents on the same entity.
     const manager = new MediaControlManager();
-    manager.init(ws);
+    manager.dispatch('scene_node', 'node-9', {
+      type: 'play',
+    } as import('@vspark/shared').MediaCommand);
+    expect(
+      mediaControlParent({ targetKind: 'scene_node', targetId: 'node-9' })
+    ).toEqual({ rtype: 'scene_node', id: 'node-9' });
+  });
 
+  it('is not replayed to a peer that subscribes later', () => {
+    // The point of the UNRETAINED channel. A subscription snapshot carries
+    // only a collection's retained channel, so `play` an hour ago cannot fire
+    // on a tab that opens now — which is why media commands do NOT live on the
+    // `runtime` channel the overrides and data fields use.
+    expect(mediaControlCollection()!.retainedChannel).toBeUndefined();
+  });
+
+  it('dispatch is a no-op when targetId is an empty string', () => {
+    const manager = new MediaControlManager();
     manager.dispatch('compose_layer', '', {
       type: 'stop',
     } as import('@vspark/shared').MediaCommand);
-
-    expect(broadcasts).toHaveLength(0);
+    expect(seen).toHaveLength(0);
   });
 
-  it('dispatch with no ws initialised does not throw', () => {
+  it('dispatch without a store does not throw', () => {
+    resetMeshRuntime();
     const manager = new MediaControlManager();
-    // ws never set — should not throw.
     expect(() =>
       manager.dispatch('compose_layer', 'x', {
         type: 'pause',
@@ -412,12 +441,9 @@ describe('MediaControlManager', () => {
     ).not.toThrow();
   });
 
-  it('broadcasts different command types without error', () => {
-    const { ws, broadcasts } = makeWsStub();
+  it('delivers every command type, in order', () => {
     const manager = new MediaControlManager();
-    manager.init(ws);
-
-    const commands: import('@vspark/shared').MediaCommand[] = [
+    const commands = [
       { type: 'pause' },
       { type: 'stop' },
       { type: 'restart' },
@@ -425,18 +451,13 @@ describe('MediaControlManager', () => {
       { type: 'mute', muted: true },
     ] as import('@vspark/shared').MediaCommand[];
 
-    for (const cmd of commands) {
-      manager.dispatch('compose_layer', 'tgt', cmd);
-    }
+    for (const cmd of commands) manager.dispatch('compose_layer', 'tgt', cmd);
 
-    expect(broadcasts).toHaveLength(commands.length);
-    expect(broadcasts.every((b) => b.kind === 'media_control')).toBe(true);
+    // Repeated commands to one target are a sequence, not an LWW collapse —
+    // the key is the target, and the channel is unstamped.
+    expect(seen.map((s) => s.command)).toEqual(commands);
   });
 });
-
-// ===========================================================================
-// SpawnManager — unit-testable surface
-// ===========================================================================
 
 describe('SpawnManager.isEphemeralClip', () => {
   it('returns false for an unknown clip id before any spawn', () => {

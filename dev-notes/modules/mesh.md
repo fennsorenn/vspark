@@ -741,6 +741,40 @@ three catch every wiring break above; behaviour tests do not.
   integer scheme it replaced renumbered every sibling per drag, which LWW merged
   into a stack neither peer asked for.
 
+### Runtime state: the `runtime` channel
+
+Graph-driven param overrides and published data fields are **state**, not
+events, and they never touch SQLite. They live on a channel of their own
+(`packages/backend/src/mesh/runtime.ts`):
+
+```
+runtime : reliable, stamped, retained, NO ack
+```
+
+Both halves are load-bearing:
+
+- **retained** — a tab that connects an hour later must see the current
+  override, so the subscription snapshot carries it. This is what replaced the
+  hand-rolled `runtime_override_snapshot` / `data_channel_snapshot` messages
+  that were replayed per WS connect. The existing `control` channel is
+  `retained: false` and would have dropped that guarantee silently.
+- **no `ack`** — only `ch.ack === 'authority'` writes are logged for undo, so an
+  unacked channel keeps a graph firing overrides at frame rate off the authoring
+  tab's undo stack. That is a deliberate use of the ack flag, not a default.
+
+Collections on it, both parented to the entity they describe so existing
+scene-subtree grants route them cross-type:
+
+| rtype | key | notes |
+|---|---|---|
+| `runtime_override` | `${targetKind}:${targetId}:${paramPath}` | one document per overridden path, so two graphs overriding different params of one node cannot clobber each other; a clear is a `remove` |
+| `data_field` | `${scope}:${field}` | one document per published field, which is what makes `set`'s merge structural; carries `scopeKind` so both peers derive the same parent without a DB lookup. Scope `''` is global and has no parent |
+
+**Media commands are the counter-example.** They are events, so they stay on the
+unretained `control` channel (`media_control`, keyed by target). Retaining them
+would replay every past `play`/`seek` to each new tab — the opposite of what a
+late joiner wants.
+
 <a id="remaining"></a>
 
 **Remaining:**
@@ -748,20 +782,6 @@ three catch every wiring break above; behaviour tests do not.
 The list below was rewritten after the write migration finished; most of what
 used to be here is done, and saying so wrongly is worse than saying nothing.
 
-- **Runtime-control kinds ride three transports at once** —
-  `runtime_override_set` / `_clear` (+`_snapshot`), `data_channel_set` / `_clear`
-  (+`_snapshot`) and `media_control` travel the local `/ws` hop, the collab
-  `COLLAB_RELAY_KINDS` tap onto the mesh `runtime_control` rtype, *and* the legacy
-  object-share `_share_override` / `_share_datachannel` envelopes. Note
-  `runtime_override_*` is not in the `WSMessageKind` union at all. Overrides are
-  **durable state**, not events — held in `_bySceneId` and replayed to every new
-  WS client — so the mesh-native home is a stamped + reliable + **retained**
-  channel *without* `ack` (retained ⇒ snapshot-on-subscribe replaces the
-  `_snapshot` kind; no `ack` ⇒ graph-driven overrides can't pollute a tab's undo
-  stack, since only `ch.ack === 'authority'` writes are logged), keyed
-  `${targetKind}:${targetId}:${paramPath}` with the target as containment parent
-  so existing scene-subtree grants route it. The existing `control` channel is
-  `retained: false` and would silently drop the late-joiner guarantee.
 - **Document WS kinds that are pure double-applies** — `node_updated`,
   `camera_effect_updated`, `track_clip_updated`,
   `track_clip_keyframes_replaced`, `track_clip_events_replaced`,
@@ -785,7 +805,9 @@ the backend playhead is gone; node and clip previews ride the `preview` channel,
 including for object-share subscribers, so `node_transform_preview` is deleted;
 scene deletion cascades through the collection; list-shaped document fields
 (clip lanes/keyframes/events, graph nodes/edges) are keyed by id; preset
-instantiation commits its documents rather than inserting rows.
+instantiation commits its documents rather than inserting rows; runtime
+overrides, published data fields and media commands are collections rather than
+WS kinds.
 
 ## Key files
 
@@ -793,7 +815,8 @@ instantiation commits its documents rather than inserting rows.
 - `packages/mesh-react/src/` — hooks.
 - `packages/mesh-transports/src/` — WsServerTransport, WsBackendTransport.
 - `packages/backend/src/mesh/index.ts` — backend bindings, hydration, persistence.
-- `packages/backend/src/mesh/streams.ts` — `node_stream`, `clip_control`, `runtime_control` collections + the `control` channel; collab live-ops bridging helpers.
+- `packages/backend/src/mesh/streams.ts` — `node_stream`, `clip_control`, `runtime_control` collections; collab live-ops bridging helpers.
+- `packages/backend/src/mesh/runtime.ts` — the `runtime` and `control` channels, and the `runtime_override`, `data_field` and `media_control` collections. Registered from `initBackendMesh` so a mesh peer cannot exist without them.
 - `packages/backend/src/mesh/assets.ts` — `initMeshAssets()`: mid-session asset fetch for mesh docs with unresolvable file paths (COLLAB + PLACE paths; inert without multiplayer).
 - `packages/frontend/src/mesh/peer.ts` — frontend peer creation + wiring, the containment schema (`PARENTS`) and the subscribed rtype list (`RTYPES`), plus `meshUndo` / `meshRedo` / `meshBatch`.
 - `packages/frontend/src/mesh/writes.ts` — generic UI write helpers (`MeshDocAdapter`, fallback ladder, batched bottom-up subtree delete) + the `scene_node` wrappers.
