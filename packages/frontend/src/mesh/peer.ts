@@ -162,6 +162,17 @@ export function getMeshHandles(): MeshHandles | null {
 
 let _handles: MeshHandles | null = null;
 
+const _readyObservers = new Set<(h: MeshHandles) => void>();
+
+/** Called once the tab's peer and its collections exist. Fires immediately if
+ *  they already do, so a late subscriber is not left waiting for an event that
+ *  has already happened. Returns an unsubscribe. */
+export function onMeshReady(cb: (h: MeshHandles) => void): () => void {
+  if (_handles) cb(_handles);
+  else _readyObservers.add(cb);
+  return () => _readyObservers.delete(cb);
+}
+
 // --- undo/redo (tab peer) ----------------------------------------------------
 //
 // Mesh-native undo lives on the peer that AUTHORS the committed write. Once a UI
@@ -285,5 +296,10 @@ async function doInit(): Promise<MeshHandles> {
   void armSubscriptions();
 
   _handles = { peer, serverPeerId, collections };
+  // The peer arrives asynchronously, so anything holding a reference to a
+  // collection has to be told when there finally is one. Without this a
+  // component that reads the replica renders empty forever: it mounts before
+  // `doInit` resolves and nothing re-renders it afterwards.
+  for (const cb of _readyObservers) cb(_handles);
   return _handles;
 }

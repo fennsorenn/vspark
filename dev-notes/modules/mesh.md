@@ -820,6 +820,34 @@ keystroke-commit would be worse than silence), and a **preview-channel write is
 unguarded by construction** — its outcome is never `rejected`, so a gesture never
 raises one.
 
+### Reading a document directly
+
+`@vspark/mesh-react` shipped written, tested, and imported by nothing — because
+its hooks take a `Collection` argument and this tab's collections only exist once
+`initMeshPeer()` resolves, so a component had no way to obtain one. The bridge is
+`frontend/src/mesh/hooks.ts`: `useMeshCollection(rtype)`, `useMeshPeer()`,
+`useMeshCanWrite(rtype)`, and the per-document `useSceneNode` / `useComposeLayer`.
+`onMeshReady` (in `mesh/peer.ts`) is what re-renders a component that mounted
+before the peer arrived.
+
+**What this buys is granularity, not liveness.** The feeder already keeps the
+store live and most components read it perfectly well. What a per-document hook
+adds is that `useSceneNode(id)` re-renders when THAT node changes, where
+`useEditorStore((s) => s.nodes)` re-renders every subscriber whenever any node
+anywhere changes. So it is worth reaching for when a component watches one
+document out of many — `CameraViewLayer` (the first conversion) owns a Three.js
+canvas per instance and was re-rendering all of them on every unrelated node
+edit — and not worth it for a component that wants the whole slice anyway.
+
+**The store is still the load path**, and that is what gates converting the rest.
+The editor hydrates from the REST scene bundle, which usually lands before the
+mesh subscription snapshot; a component reading only the replica would render
+empty in that window. `useSceneNode` therefore falls back to the store when the
+replica has no document yet — the two cannot disagree, since the feeder is what
+fills the store — and that fallback is written once, in the hook, so it can be
+deleted in one place when the snapshot becomes the load path. Converting reads
+wholesale before then would trade a working editor for a flashing one.
+
 <a id="remaining"></a>
 
 **Remaining:**
@@ -827,16 +855,10 @@ raises one.
 The list below was rewritten after the write migration finished; most of what
 used to be here is done, and saying so wrongly is worse than saying nothing.
 
-- Component reads → mesh-react hooks (`useMeshDoc` / `useMeshSubtree` / etc.).
-  `@vspark/mesh-react` is written and tested but **entirely unimported** by the
-  frontend — components read the Zustand store, which `sync/meshStoreFeeder.ts`
-  keeps live. Converting is 201 `useEditorStore` call sites across 27 files, and
-  it buys no behaviour the feeder does not already provide; the store also holds
-  the non-mesh state (selection, dock tabs, pose) those same components read, so
-  a half-conversion leaves each component reading two sources. Worth doing only
-  with a reason beyond tidiness.
-  *(The other half of this bullet — ack outcomes surfaced — is done; see
-  "Write outcomes are visible" above.)*
+- Component reads → mesh-react hooks, **partially done**. The bridge exists
+  (`frontend/src/mesh/hooks.ts`) and the first read is converted; the rest is
+  case-by-case, not a sweep — see "Reading a document directly" above for when
+  it is worth it and what still gates a wholesale conversion.
 - Phase-6 guarded writes (`_share_write`/NAK) onto guarded mesh writes (per-doc authority).
 - Advertise/offer flow: still legacy.
 

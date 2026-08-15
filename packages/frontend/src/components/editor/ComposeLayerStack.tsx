@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
+import { useSceneNode } from '../../mesh/hooks';
 import { registerMedia } from './mediaRegistry';
 import { ChromaVideoCanvas } from './ChromaVideoCanvas';
 import { readChroma } from './videoFx';
@@ -130,11 +131,11 @@ export const ComposeStageSizeContext = createContext('');
 
 function CameraViewLayer({ layer }: { layer: ComposeLayerRecord }) {
   const { t } = useTranslation('compose');
-  const nodes = useEditorStore((s) => s.nodes);
   const stageSizeKey = useContext(ComposeStageSizeContext);
-  const cam = layer.cameraNodeId
-    ? nodes.find((n) => n.id === layer.cameraNodeId)
-    : null;
+  // Watch the ONE camera node this layer renders through, rather than the whole
+  // `nodes` array: subscribing to the slice re-rendered every camera view (each
+  // of which owns a Three.js canvas) whenever any node anywhere changed.
+  const cam = useSceneNode(layer.cameraNodeId);
   if (!cam) {
     return (
       <div
