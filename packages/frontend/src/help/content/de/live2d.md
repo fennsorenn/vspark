@@ -82,8 +82,26 @@ Unterordner erwartet. Sieh dir die von vspark genannten Pfade an: verlangt es
 `texture_00.png` ganz oben, ist die Struktur irgendwo zwischen Download und
 Festplatte verloren gegangen.
 
-So behebst du es: **ergänze die fehlenden Dateien direkt im Fenster**. Zieh sie
-auf das Feld unten oder nutze **Dateien wählen…**. Du musst nur ergänzen, was
+**Zuerst sieht vspark in dem nach, was du bereits hochgeladen hast.** Der
+häufigste Fall ist gar keine fehlende Datei, sondern ein umsortierter Ordner: Es
+ist noch alles da, nur nicht mehr an der Stelle, die das Manifest nennt. Findet
+vspark eine fehlende Datei anderswo in deinem Upload, wird sie für dich
+eingesetzt — mit Angabe des Fundorts:
+
+> ✓ gefunden unter `texture_00.png`
+
+Sieh dir diese Zeilen an, bevor du weitermachst. Wirkt eine falsch, drücke
+daneben auf **entfernen** und ergänze die Datei selbst. Hochgeladen wird erst,
+wenn du den Upload-Button drückst — eine falsche Zuordnung kannst du also immer
+vorher ablehnen.
+
+Tragen mehrere Dateien in deinem Ordner denselben Namen, entscheidet vspark
+**nicht** für dich: Die Zeile bietet stattdessen eine Auswahlliste an. Die
+falsche zu nehmen ergäbe ein Modell, das falsch *aussehend* lädt — und das fällt
+schwerer auf als eines, das gar nicht lädt.
+
+Alles weiterhin Fehlende **ergänzt du direkt im Fenster**. Zieh die Dateien auf
+das Feld unten oder nutze **Dateien wählen…**. Du musst nur ergänzen, was noch
 aufgelistet ist — alles bereits Ausgewählte bleibt erhalten, nichts muss neu
 gewählt werden — und drückst dann den Upload-Button.
 

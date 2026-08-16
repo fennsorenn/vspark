@@ -23,6 +23,13 @@
  * basename could satisfy several slots it asks rather than guesses — picking
  * wrong yields a model that loads *looking* wrong, which is worse than one that
  * does not load at all.
+ *
+ * The same matching runs over the upload itself (`planRelocations`), for the
+ * case where every file IS present and only the folder structure was lost. Those
+ * matches arrive pre-filled — but pre-filled is not the same as silent: each row
+ * says where the file was found, each can be removed, and nothing is uploaded
+ * until the user presses the button. That is the line this window draws between
+ * "helpful" and "guessing on the user's behalf".
  */
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -33,6 +40,7 @@ import type {
 } from '../../api/client';
 import { HelpButton } from '../../help/HelpButton';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
+import type { Relocation, AmbiguousRelocation } from '../../lib/live2dBundle';
 
 interface Props {
   report: Live2dBundleReport;
@@ -45,6 +53,10 @@ interface Props {
   pending: BundleFileInput[] | null;
   /** Re-upload the completed bundle. Only called once every required slot is filled. */
   onRetry?: (files: BundleFileInput[]) => void;
+  /** Missing references matched to files already in the upload, pre-filled. */
+  relocations?: Relocation[];
+  /** Missing references several files in the upload could fill — user decides. */
+  ambiguousRelocations?: AmbiguousRelocation[];
   busy?: boolean;
   onClose: () => void;
 }
@@ -72,11 +84,26 @@ interface Leftover {
   candidates: string[];
 }
 
+/** What is filling a slot, and where it came from. */
+interface Filled {
+  file: File;
+  /**
+   * Set when the file was already in the upload at the wrong path, and will be
+   * MOVED into place rather than added. The original entry is dropped on retry
+   * so the same bytes aren't uploaded twice.
+   */
+  movedFrom?: string;
+  /** The move only matched after ignoring letter case — worth showing. */
+  caseOnly?: boolean;
+}
+
 export function Live2dBundleReportWindow({
   report,
   rootName,
   pending,
   onRetry,
+  relocations = [],
+  ambiguousRelocations = [],
   busy = false,
   onClose,
 }: Props) {
@@ -89,10 +116,35 @@ export function Live2dBundleReportWindow({
   // refused, the manifest itself parses, and we still hold what the user picked.
   const canSupply = blocked && !malformed && pending !== null && !!onRetry;
 
-  /** slot relPath → the file the user supplied for it. */
-  const [supplied, setSupplied] = useState<Record<string, File>>({});
+  /** Files in the upload, by their current path — the source for a relocation. */
+  const filesByPath = useMemo(
+    () => new Map((pending ?? []).map((f) => [f.relPath, f.file])),
+    [pending]
+  );
+
+  /**
+   * slot relPath → what is filling it. Seeded from the relocation plan, so a
+   * bundle whose files are all present but rearranged opens already resolved —
+   * visibly, with each row naming where the file was found and offering to
+   * remove it, and still requiring the user to press upload.
+   */
+  const [supplied, setSupplied] = useState<Record<string, Filled>>(() => {
+    const seed: Record<string, Filled> = {};
+    for (const r of relocations) {
+      const file = filesByPath.get(r.foundAt);
+      if (file)
+        seed[r.relPath] = { file, movedFrom: r.foundAt, caseOnly: r.caseOnly };
+    }
+    return seed;
+  });
   const [leftovers, setLeftovers] = useState<Leftover[]>([]);
   const [dragOver, setDragOver] = useState(false);
+
+  /** Slots the upload offers several candidates for, keyed for lookup by row. */
+  const ambiguousBySlot = useMemo(
+    () => new Map(ambiguousRelocations.map((a) => [a.relPath, a.candidates])),
+    [ambiguousRelocations]
+  );
 
   const missing = useMemo(
     () => [...report.missingRequired, ...report.missingOptional],
@@ -108,7 +160,7 @@ export function Live2dBundleReportWindow({
           (m) => basename(m.relPath) === file.name && !nextSupplied[m.relPath]
         )
         .map((m) => m.relPath);
-      if (candidates.length === 1) nextSupplied[candidates[0]] = file;
+      if (candidates.length === 1) nextSupplied[candidates[0]] = { file };
       else
         nextLeftovers.push({
           id: `${file.name}:${file.size}:${nextLeftovers.length}:${leftovers.length}`,
@@ -124,8 +176,24 @@ export function Live2dBundleReportWindow({
   const assignLeftover = (id: string, slot: string) => {
     const item = leftovers.find((l) => l.id === id);
     if (!item) return;
-    setSupplied((prev) => ({ ...prev, [slot]: item.file }));
+    setSupplied((prev) => ({ ...prev, [slot]: { file: item.file } }));
     setLeftovers((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  /** Resolve an ambiguous relocation: take the file already at `foundAt`. */
+  const chooseRelocation = (slot: string, foundAt: string) => {
+    const file = filesByPath.get(foundAt);
+    if (!file) return;
+    setSupplied((prev) => {
+      // One file can only be in one place. If it was already promised to
+      // another slot, that slot goes back to unfilled rather than both
+      // claiming the same bytes.
+      const next = Object.fromEntries(
+        Object.entries(prev).filter(([, v]) => v.movedFrom !== foundAt)
+      );
+      next[slot] = { file, movedFrom: foundAt };
+      return next;
+    });
   };
 
   const clearSlot = (slot: string) =>
@@ -139,26 +207,45 @@ export function Live2dBundleReportWindow({
     (r) => supplied[r.relPath]
   );
   const suppliedCount = Object.keys(supplied).length;
+  const relocatedCount = Object.values(supplied).filter(
+    (v) => v.movedFrom
+  ).length;
 
   const retry = () => {
     if (!pending || !onRetry) return;
-    // Supplied files are additions, never replacements — a slot is only offered
-    // because nothing arrived at that path in the first place.
+    // A relocated file MOVES: drop it from its old path so the bundle doesn't
+    // carry the same bytes twice, once where the manifest wants them and once
+    // where they were wrongly sitting.
+    const moved = new Set(
+      Object.values(supplied)
+        .map((v) => v.movedFrom)
+        .filter((p): p is string => !!p)
+    );
     onRetry([
-      ...pending,
-      ...Object.entries(supplied).map(([relPath, file]) => ({ relPath, file })),
+      ...pending.filter((f) => !moved.has(f.relPath)),
+      ...Object.entries(supplied).map(([relPath, v]) => ({
+        relPath,
+        file: v.file,
+      })),
     ]);
   };
 
   const FileRow = ({ file }: { file: Live2dFileRef }) => {
     const got = supplied[file.relPath];
+    const choices = canSupply ? ambiguousBySlot.get(file.relPath) : undefined;
     return (
-      <li className="vs-live2d-slot" style={rowStyle}>
+      <li className="vs-live2d-slot" style={{ ...rowStyle, flexWrap: 'wrap' }}>
         <span style={{ minWidth: 0 }}>
           <code style={pathStyle}>{file.relPath}</code>
-          {got && (
-            <span style={suppliedStyle}>✓ {t('live2d.supply.supplied')}</span>
-          )}
+          {got &&
+            (got.movedFrom ? (
+              <span className="vs-live2d-slot-moved" style={suppliedStyle}>
+                ✓ {t('live2d.supply.foundAt', { path: got.movedFrom })}
+                {got.caseOnly ? ` (${t('live2d.supply.caseOnly')})` : ''}
+              </span>
+            ) : (
+              <span style={suppliedStyle}>✓ {t('live2d.supply.supplied')}</span>
+            ))}
         </span>
         <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <span style={kindStyle}>
@@ -175,6 +262,33 @@ export function Live2dBundleReportWindow({
             </button>
           )}
         </span>
+        {/* Several files in the upload share this name — the user picks, since
+            handing over the wrong one yields a model that loads looking wrong. */}
+        {choices && !got && (
+          <select
+            className="vs-live2d-relocate-slot"
+            style={{ ...selectStyle, maxWidth: '100%', flexBasis: '100%' }}
+            defaultValue=""
+            aria-label={t('live2d.supply.chooseSource', {
+              path: file.relPath,
+            })}
+            onChange={(e) => {
+              if (e.target.value)
+                chooseRelocation(file.relPath, e.target.value);
+            }}
+          >
+            <option value="">
+              {t('live2d.supply.chooseSourceOption', {
+                count: choices.length,
+              })}
+            </option>
+            {choices.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        )}
       </li>
     );
   };
@@ -278,6 +392,14 @@ export function Live2dBundleReportWindow({
         {canSupply && (
           <div style={sectionStyle}>
             <div style={sectionHeaderStyle}>{t('live2d.supply.title')}</div>
+            {relocatedCount > 0 && (
+              <p
+                className="vs-live2d-relocated-note"
+                style={relocatedNoteStyle}
+              >
+                {t('live2d.supply.relocatedNote', { count: relocatedCount })}
+              </p>
+            )}
             <p style={{ ...hintStyle, margin: '0 0 8px' }}>
               {t('live2d.supply.hint')}
             </p>
@@ -476,6 +598,16 @@ const kindStyle: React.CSSProperties = {
   fontSize: 11,
   whiteSpace: 'nowrap',
   flexShrink: 0,
+};
+const relocatedNoteStyle: React.CSSProperties = {
+  margin: '0 0 8px',
+  fontSize: 12,
+  color: '#cfe0ff',
+  background: 'rgba(37,99,235,0.12)',
+  border: '1px solid rgba(37,99,235,0.4)',
+  borderRadius: 4,
+  padding: '8px 10px',
+  lineHeight: 1.5,
 };
 const suppliedStyle: React.CSSProperties = {
   color: '#4ade80',

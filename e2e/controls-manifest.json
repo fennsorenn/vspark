@@ -11,7 +11,7 @@
   "components/editor/ComposeView.tsx": "9d3513ea8049",
   "components/editor/ContextMenu.tsx": "0c5708e8b0eb",
   "components/editor/CreatePalette.tsx": "25f4c379e21c",
-  "components/editor/Live2dBundleReportWindow.tsx": "d74ae2d5d8db",
+  "components/editor/Live2dBundleReportWindow.tsx": "fd0e8ffbbdcf",
   "components/editor/Live2dManifestPicker.tsx": "7d93e7701309",
   "components/editor/LogicSection.tsx": "aec31b4569f9",
   "components/editor/OverliveAccountsModal.tsx": "018b3d6f8d81",

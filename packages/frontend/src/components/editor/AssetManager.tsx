@@ -31,8 +31,10 @@ import {
   findManifests,
   stripCommonPrefix,
   selectBundle,
+  planRelocations,
   ZipError,
 } from '../../lib/live2dBundle';
+import type { Relocation, AmbiguousRelocation } from '../../lib/live2dBundle';
 
 /** Per-tab contextual help target — one consistent `?` follows the active tab. */
 const tabHelp: Partial<
@@ -160,6 +162,8 @@ export function AssetManager() {
     report: Live2dBundleReport;
     rootName: string;
     pending: BundleFileInput[] | null;
+    relocations: Relocation[];
+    ambiguousRelocations: AmbiguousRelocation[];
   } | null>(null);
   // Open when a folder/archive held several models and one must be chosen.
   const [live2dPicker, setLive2dPicker] = useState<{
@@ -232,6 +236,8 @@ export function AssetManager() {
               // Already stored and rendering — nothing to supply, so no
               // pending set and no retry.
               pending: null,
+              relocations: [],
+              ambiguousRelocations: [],
               report: {
                 manifest: asset.name,
                 refs: missingOptional,
@@ -244,9 +250,25 @@ export function AssetManager() {
     } catch (e: unknown) {
       const report = api.live2dBundleReport(e);
       // Hold the picked files so the completion window can top them up rather
-      // than making the user re-select everything they already chose.
-      if (report) setLive2dReport({ rootName, report, pending: files });
-      else
+      // than making the user re-select everything they already chose. Before
+      // asking for anything, check whether the "missing" files are simply
+      // sitting at the wrong path — a rearranged folder still has them all.
+      if (report) {
+        const { relocations, ambiguous } = planRelocations(
+          files.map((f) => f.relPath),
+          [...report.missingRequired, ...report.missingOptional].map(
+            (r) => r.relPath
+          ),
+          report.refs.map((r) => r.relPath)
+        );
+        setLive2dReport({
+          rootName,
+          report,
+          pending: files,
+          relocations,
+          ambiguousRelocations: ambiguous,
+        });
+      } else
         alert(e instanceof Error ? e.message : t('alerts.live2dUploadFailed'));
     } finally {
       setUploading(false);
@@ -966,6 +988,8 @@ export function AssetManager() {
           report={live2dReport.report}
           rootName={live2dReport.rootName}
           pending={live2dReport.pending}
+          relocations={live2dReport.relocations}
+          ambiguousRelocations={live2dReport.ambiguousRelocations}
           busy={uploading}
           onRetry={(files) => {
             const { rootName } = live2dReport;

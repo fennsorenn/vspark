@@ -77,10 +77,27 @@ paths vspark lists: if it wants `mymodel.2048/texture_00.png` and your folder
 just has `texture_00.png` loose at the top, the structure was lost somewhere
 between the download and your disk.
 
-To fix it, **supply the missing files in the window itself**. Drop them onto the
-box at the bottom, or use **Choose files…**. You only need to add what is listed
-— everything you already picked is still held, so nothing gets re-selected — and
-then press the upload button to finish.
+**First, vspark looks inside what you already uploaded.** The commonest version
+of this problem is not a missing file at all — it is a folder someone
+rearranged, where every file is still there but no longer in the place the
+manifest names. When vspark can find a missing file elsewhere in your upload, it
+fills it in for you and says where it found it:
+
+> ✓ found at `texture_00.png`
+
+Read those lines before continuing. If one looks wrong, press **remove** next to
+it and supply the file yourself instead. Nothing is uploaded until you press the
+upload button, so a wrong match is always yours to reject first.
+
+Where several files in your folder share the same name, vspark will **not**
+choose for you — the row offers a dropdown of the candidates instead, because
+picking the wrong one produces a model that loads *looking* wrong, which is
+harder to spot than one that does not load.
+
+For anything still missing, **supply it in the window itself**. Drop the files
+onto the box at the bottom, or use **Choose files…**. You only need to add what
+is still listed — everything you already picked is still held, so nothing gets
+re-selected — and then press the upload button to finish.
 
 You do **not** have to recreate the folders. Files are matched by name, so
 dropping a bare `texture_00.png` fills the `mymodel.2048/texture_00.png` slot.

@@ -111,6 +111,111 @@ export function selectBundle(
   );
 }
 
+// ─── Repairing a rearranged bundle ───────────────────────────────────────────
+
+/** One missing reference matched to a file sitting somewhere else in the upload. */
+export interface Relocation {
+  /** Where the manifest wants the file. */
+  relPath: string;
+  /** Where the file actually is in the upload. */
+  foundAt: string;
+  /** True when only a case-insensitive comparison matched the two names. */
+  caseOnly: boolean;
+}
+
+/** A missing reference several stray files could plausibly satisfy. */
+export interface AmbiguousRelocation {
+  relPath: string;
+  /** Candidate source paths, for the user to choose between. */
+  candidates: string[];
+}
+
+export interface RelocationPlan {
+  relocations: Relocation[];
+  ambiguous: AmbiguousRelocation[];
+}
+
+const lastSegment = (p: string) => p.split('/').pop() ?? p;
+
+/**
+ * Match manifest references that resolved to nothing against files that ARE in
+ * the upload, just at a different path — the "someone rearranged the folder"
+ * case, where every file is present but the structure the manifest describes is
+ * gone.
+ *
+ * Matching is by file name, exact first and case-insensitively only as a
+ * fallback (archives round-tripped through a case-insensitive filesystem are a
+ * real source of this). A file already sitting at a path the manifest
+ * references is never a candidate — it is doing its job where it is, and moving
+ * it would break the reference it currently satisfies.
+ *
+ * A match is only proposed when it is unambiguous **in both directions**: one
+ * candidate for the slot, and that candidate wanted by no other slot. Anything
+ * else lands in `ambiguous` for the user to decide, because picking wrong here
+ * produces a model that loads *looking* wrong — harder to notice, and harder to
+ * debug, than one that refuses to load.
+ *
+ * This only ever proposes. Applying it is `applyRelocations`, and the caller is
+ * expected to show the user what would move before doing so.
+ */
+export function planRelocations(
+  presentPaths: string[],
+  missingPaths: string[],
+  referencedPaths: string[]
+): RelocationPlan {
+  const spokenFor = new Set(referencedPaths);
+  const strays = presentPaths.filter((p) => !spokenFor.has(p));
+
+  const candidatesFor = (want: string): string[] => {
+    const name = lastSegment(want);
+    const exact = strays.filter((p) => lastSegment(p) === name);
+    if (exact.length > 0) return exact;
+    const lower = name.toLowerCase();
+    return strays.filter((p) => lastSegment(p).toLowerCase() === lower);
+  };
+
+  const bySlot = new Map(missingPaths.map((m) => [m, candidatesFor(m)]));
+
+  // How many slots each stray file could fill — a file wanted by two slots
+  // cannot be handed to either without asking.
+  const demand = new Map<string, number>();
+  for (const cands of bySlot.values())
+    for (const c of cands) demand.set(c, (demand.get(c) ?? 0) + 1);
+
+  const relocations: Relocation[] = [];
+  const ambiguous: AmbiguousRelocation[] = [];
+  for (const [relPath, cands] of bySlot) {
+    if (cands.length === 0) continue;
+    if (cands.length === 1 && demand.get(cands[0]) === 1) {
+      relocations.push({
+        relPath,
+        foundAt: cands[0],
+        caseOnly: lastSegment(cands[0]) !== lastSegment(relPath),
+      });
+      continue;
+    }
+    ambiguous.push({ relPath, candidates: cands });
+  }
+  return { relocations, ambiguous };
+}
+
+/**
+ * Re-path each located file to where the manifest expects it.
+ *
+ * The file is **moved**, not copied: leaving the original behind would upload
+ * the same bytes twice and store a stray the model never references.
+ */
+export function applyRelocations(
+  files: BundleFileInput[],
+  relocations: Relocation[]
+): BundleFileInput[] {
+  const moveTo = new Map(relocations.map((r) => [r.foundAt, r.relPath]));
+  return files.map((f) => {
+    const dest = moveTo.get(f.relPath);
+    return dest ? { ...f, relPath: dest } : f;
+  });
+}
+
 // ─── Drag and drop ───────────────────────────────────────────────────────────
 
 /**

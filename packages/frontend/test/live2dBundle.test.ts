@@ -9,6 +9,8 @@ import {
   readDroppedFiles,
   expandZip,
   ZipError,
+  planRelocations,
+  applyRelocations,
 } from '../src/lib/live2dBundle';
 import type { BundleFileInput } from '../src/api/client';
 
@@ -297,5 +299,154 @@ describe('readDroppedFiles', () => {
     const { files, hadDirectory } = await readDroppedFiles(dt);
     expect(paths(files)).toEqual(['legacy.png']);
     expect(hadDirectory).toBe(false);
+  });
+});
+
+// ─── Repairing a rearranged bundle ───────────────────────────────────────────
+
+describe('planRelocations', () => {
+  it('finds a file that was moved out of its subfolder', () => {
+    // The hiyori-main shape: everything present, structure gone.
+    const plan = planRelocations(
+      ['model.model3.json', 'model.moc3', 'texture_00.png'],
+      ['model.2048/texture_00.png'],
+      ['model.moc3', 'model.2048/texture_00.png']
+    );
+    expect(plan.ambiguous).toEqual([]);
+    expect(plan.relocations).toEqual([
+      {
+        relPath: 'model.2048/texture_00.png',
+        foundAt: 'texture_00.png',
+        caseOnly: false,
+      },
+    ]);
+  });
+
+  it('finds a file buried in an unexpected subfolder', () => {
+    const plan = planRelocations(
+      ['m.model3.json', 'm.moc3', 'extracted/textures/texture_00.png'],
+      ['m.2048/texture_00.png'],
+      ['m.moc3', 'm.2048/texture_00.png']
+    );
+    expect(plan.relocations.map((r) => r.foundAt)).toEqual([
+      'extracted/textures/texture_00.png',
+    ]);
+  });
+
+  it('matches case-insensitively only as a fallback, and flags it', () => {
+    const plan = planRelocations(
+      ['Texture_00.PNG'],
+      ['tex/texture_00.png'],
+      ['tex/texture_00.png']
+    );
+    expect(plan.relocations).toEqual([
+      {
+        relPath: 'tex/texture_00.png',
+        foundAt: 'Texture_00.PNG',
+        caseOnly: true,
+      },
+    ]);
+  });
+
+  it('prefers an exact-case match over a case-insensitive one', () => {
+    const plan = planRelocations(
+      ['a/texture_00.png', 'b/TEXTURE_00.PNG'],
+      ['tex/texture_00.png'],
+      ['tex/texture_00.png']
+    );
+    expect(plan.relocations.map((r) => r.foundAt)).toEqual([
+      'a/texture_00.png',
+    ]);
+  });
+
+  it('never steals a file that is already satisfying another reference', () => {
+    // `tex/texture_00.png` is exactly where reference A wants it. Moving it to
+    // satisfy B would break A — so B gets no proposal at all.
+    const plan = planRelocations(
+      ['m.moc3', 'tex/texture_00.png'],
+      ['other/texture_00.png'],
+      ['m.moc3', 'tex/texture_00.png', 'other/texture_00.png']
+    );
+    expect(plan.relocations).toEqual([]);
+    expect(plan.ambiguous).toEqual([]);
+  });
+
+  it('asks when several strays could fill one slot', () => {
+    const plan = planRelocations(
+      ['a/texture_00.png', 'b/texture_00.png'],
+      ['tex/texture_00.png'],
+      ['tex/texture_00.png']
+    );
+    expect(plan.relocations).toEqual([]);
+    expect(plan.ambiguous).toEqual([
+      {
+        relPath: 'tex/texture_00.png',
+        candidates: ['a/texture_00.png', 'b/texture_00.png'],
+      },
+    ]);
+  });
+
+  it('asks when one stray is wanted by several slots', () => {
+    // Two textures share a name; only one stray exists. Handing it to either
+    // slot is a coin flip, so neither gets it.
+    const plan = planRelocations(
+      ['loose/texture_00.png'],
+      ['a.2048/texture_00.png', 'b.2048/texture_00.png'],
+      ['a.2048/texture_00.png', 'b.2048/texture_00.png']
+    );
+    expect(plan.relocations).toEqual([]);
+    expect(plan.ambiguous.map((a) => a.relPath)).toEqual([
+      'a.2048/texture_00.png',
+      'b.2048/texture_00.png',
+    ]);
+  });
+
+  it('proposes nothing when the file genuinely is not there', () => {
+    const plan = planRelocations(
+      ['m.model3.json', 'm.moc3'],
+      ['tex/texture_00.png'],
+      ['m.moc3', 'tex/texture_00.png']
+    );
+    expect(plan).toEqual({ relocations: [], ambiguous: [] });
+  });
+
+  it('handles several independent moves at once', () => {
+    const plan = planRelocations(
+      ['m.model3.json', 'm.moc3', 'texture_00.png', 'm01.motion3.json'],
+      ['m.2048/texture_00.png', 'motion/m01.motion3.json'],
+      ['m.moc3', 'm.2048/texture_00.png', 'motion/m01.motion3.json']
+    );
+    expect(plan.ambiguous).toEqual([]);
+    expect(
+      plan.relocations.map((r) => `${r.foundAt} -> ${r.relPath}`).sort()
+    ).toEqual([
+      'm01.motion3.json -> motion/m01.motion3.json',
+      'texture_00.png -> m.2048/texture_00.png',
+    ]);
+  });
+});
+
+describe('applyRelocations', () => {
+  it('moves the file rather than copying it', () => {
+    const files = [f('m.model3.json'), f('m.moc3'), f('texture_00.png')];
+    const moved = applyRelocations(files, [
+      {
+        relPath: 'm.2048/texture_00.png',
+        foundAt: 'texture_00.png',
+        caseOnly: false,
+      },
+    ]);
+    expect(paths(moved)).toEqual([
+      'm.model3.json',
+      'm.moc3',
+      'm.2048/texture_00.png',
+    ]);
+    // Same File object, new path — the bytes are not uploaded twice.
+    expect(moved[2].file).toBe(files[2].file);
+  });
+
+  it('leaves everything alone when there is nothing to move', () => {
+    const files = [f('a.model3.json')];
+    expect(paths(applyRelocations(files, []))).toEqual(['a.model3.json']);
   });
 });

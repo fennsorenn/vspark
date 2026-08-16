@@ -6,6 +6,7 @@ import type {
   Live2dBundleReport,
   Live2dFileRef,
 } from '../src/api/client';
+import type { Relocation, AmbiguousRelocation } from '../src/lib/live2dBundle';
 
 const ref = (over: Partial<Live2dFileRef> = {}): Live2dFileRef => ({
   ref: 'model.moc3',
@@ -298,5 +299,184 @@ describe('Live2dBundleReportWindow — supplying missing files', () => {
     expect(
       (document.querySelector('.vs-live2d-retry') as HTMLButtonElement).disabled
     ).toBe(false);
+  });
+});
+
+// ─── Relocating files already in the upload ──────────────────────────────────
+
+/**
+ * The "someone rearranged the folder" case: every file is present, but not
+ * where the manifest says. Matches arrive pre-filled — visibly, and still
+ * requiring the user to press upload.
+ */
+const showRelocated = (
+  r: Live2dBundleReport,
+  pending: BundleFileInput[],
+  relocations: Relocation[],
+  ambiguousRelocations: AmbiguousRelocation[] = []
+) => {
+  const onRetry = vi.fn();
+  renderWithProviders(
+    <Live2dBundleReportWindow
+      report={r}
+      rootName="hiyori-main"
+      pending={pending}
+      onRetry={onRetry}
+      relocations={relocations}
+      ambiguousRelocations={ambiguousRelocations}
+      onClose={vi.fn()}
+    />
+  );
+  return onRetry;
+};
+
+const flatBundle = (): BundleFileInput[] => [
+  { relPath: 'model.model3.json', file: new File(['{}'], 'model.model3.json') },
+  { relPath: 'model.moc3', file: new File(['moc'], 'model.moc3') },
+  { relPath: 'texture_00.png', file: new File(['png'], 'texture_00.png') },
+];
+
+describe('Live2dBundleReportWindow — relocating misplaced files', () => {
+  it('pre-fills the slot and says where the file was found', () => {
+    showRelocated(
+      report({ missingRequired: [texture('model.2048/texture_00.png')] }),
+      flatBundle(),
+      [
+        {
+          relPath: 'model.2048/texture_00.png',
+          foundAt: 'texture_00.png',
+          caseOnly: false,
+        },
+      ]
+    );
+    // Not silent: the row names the source, and a banner explains what happened.
+    expect(screen.getByText(/found at texture_00\.png/)).toBeTruthy();
+    expect(screen.getByText(/found 1 of the missing file/)).toBeTruthy();
+    // Ready to go, but the user still has to press it.
+    expect(
+      (document.querySelector('.vs-live2d-retry') as HTMLButtonElement).disabled
+    ).toBe(false);
+  });
+
+  it('MOVES the file rather than uploading it twice', async () => {
+    const onRetry = showRelocated(
+      report({ missingRequired: [texture('model.2048/texture_00.png')] }),
+      flatBundle(),
+      [
+        {
+          relPath: 'model.2048/texture_00.png',
+          foundAt: 'texture_00.png',
+          caseOnly: false,
+        },
+      ]
+    );
+    await userEvent.click(document.querySelector('.vs-live2d-retry')!);
+
+    const sent = onRetry.mock.calls[0][0] as BundleFileInput[];
+    expect(sent.map((f) => f.relPath)).toEqual([
+      'model.model3.json',
+      'model.moc3',
+      'model.2048/texture_00.png',
+    ]);
+    // The stray original is gone — the same bytes are not sent at both paths.
+    expect(sent.filter((f) => f.relPath === 'texture_00.png')).toEqual([]);
+  });
+
+  it('flags a match that only worked ignoring letter case', () => {
+    showRelocated(
+      report({ missingRequired: [texture('tex/texture_00.png')] }),
+      [
+        {
+          relPath: 'Texture_00.PNG',
+          file: new File(['png'], 'Texture_00.PNG'),
+        },
+      ],
+      [
+        {
+          relPath: 'tex/texture_00.png',
+          foundAt: 'Texture_00.PNG',
+          caseOnly: true,
+        },
+      ]
+    );
+    expect(screen.getByText(/upper\/lower case/)).toBeTruthy();
+  });
+
+  it('lets a wrong-looking proposal be rejected, which re-blocks the upload', async () => {
+    showRelocated(
+      report({ missingRequired: [texture('model.2048/texture_00.png')] }),
+      flatBundle(),
+      [
+        {
+          relPath: 'model.2048/texture_00.png',
+          foundAt: 'texture_00.png',
+          caseOnly: false,
+        },
+      ]
+    );
+    await userEvent.click(document.querySelector('.vs-live2d-slot-clear')!);
+    expect(screen.queryByText(/found at/)).toBeNull();
+    expect(
+      (document.querySelector('.vs-live2d-retry') as HTMLButtonElement).disabled
+    ).toBe(true);
+  });
+
+  it('asks which file when the upload offers several, and fills in on choice', async () => {
+    const pending: BundleFileInput[] = [
+      {
+        relPath: 'model.model3.json',
+        file: new File(['{}'], 'model.model3.json'),
+      },
+      { relPath: 'a/texture_00.png', file: new File(['a'], 'texture_00.png') },
+      { relPath: 'b/texture_00.png', file: new File(['b'], 'texture_00.png') },
+    ];
+    const onRetry = showRelocated(
+      report({ missingRequired: [texture('model.2048/texture_00.png')] }),
+      pending,
+      [],
+      [
+        {
+          relPath: 'model.2048/texture_00.png',
+          candidates: ['a/texture_00.png', 'b/texture_00.png'],
+        },
+      ]
+    );
+    // Nothing pre-filled — a coin flip here would be the silent-wrong-model bug.
+    expect(screen.queryByText(/found at/)).toBeNull();
+    expect(
+      (document.querySelector('.vs-live2d-retry') as HTMLButtonElement).disabled
+    ).toBe(true);
+
+    const select = document.querySelector(
+      '.vs-live2d-relocate-slot'
+    ) as HTMLSelectElement;
+    await userEvent.selectOptions(select, 'b/texture_00.png');
+    expect(screen.getByText(/found at b\/texture_00\.png/)).toBeTruthy();
+
+    await userEvent.click(document.querySelector('.vs-live2d-retry')!);
+    const sent = onRetry.mock.calls[0][0] as BundleFileInput[];
+    // The chosen source moved; the one NOT chosen stays where it was.
+    expect(sent.map((f) => f.relPath).sort()).toEqual([
+      'a/texture_00.png',
+      'model.2048/texture_00.png',
+      'model.model3.json',
+    ]);
+  });
+
+  it('shows no relocation banner when nothing was found in the upload', () => {
+    showRelocated(
+      report({ missingRequired: [texture('tex/texture_00.png')] }),
+      [
+        {
+          relPath: 'model.model3.json',
+          file: new File(['{}'], 'model.model3.json'),
+        },
+      ],
+      []
+    );
+    expect(document.querySelector('.vs-live2d-relocated-note')).toBeNull();
+    expect(
+      (document.querySelector('.vs-live2d-retry') as HTMLButtonElement).disabled
+    ).toBe(true);
   });
 });

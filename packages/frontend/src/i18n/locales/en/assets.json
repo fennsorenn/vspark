@@ -147,7 +147,12 @@
       "ambiguous": "Choose which missing file “{{name}}” is",
       "retry": "Upload with {{count}} added file(s)",
       "retrying": "Uploading…",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "foundAt": "found at {{path}}",
+      "caseOnly": "name differs in upper/lower case",
+      "chooseSource": "Choose which file belongs at {{path}}",
+      "chooseSourceOption": "{{count}} possible matches in this folder — choose one",
+      "relocatedNote": "vspark found {{count}} of the missing file(s) elsewhere in what you uploaded, and has filled them in above — each row shows where it was found. Check them, remove any that look wrong, then upload."
     },
     "picker": {
       "title": "Which model?",

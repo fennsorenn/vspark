@@ -147,7 +147,12 @@
       "ambiguous": "Wähle, welche fehlende Datei „{{name}}“ ist",
       "retry": "{{count}} ergänzte Datei(en) hochladen",
       "retrying": "Wird hochgeladen…",
-      "cancel": "Abbrechen"
+      "cancel": "Abbrechen",
+      "foundAt": "gefunden unter {{path}}",
+      "caseOnly": "Name unterscheidet sich in Groß-/Kleinschreibung",
+      "chooseSource": "Wähle, welche Datei zu {{path}} gehört",
+      "chooseSourceOption": "{{count}} mögliche Treffer in diesem Ordner — wähle einen",
+      "relocatedNote": "vspark hat {{count}} der fehlenden Datei(en) an anderer Stelle in deinem Upload gefunden und oben eingesetzt — jede Zeile zeigt den Fundort. Prüfe sie, entferne, was nicht passt, und lade dann hoch."
     },
     "picker": {
       "title": "Welches Modell?",
