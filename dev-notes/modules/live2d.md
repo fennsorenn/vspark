@@ -218,6 +218,39 @@ per leftover) rather than guessing; a wrong guess yields a model that loads
 *looking* wrong, which is worse than one that does not load. Retry unlocks on
 required slots alone — optional gaps never block.
 
+### Repairing a rearranged bundle
+
+The commonest broken bundle is not missing a file at all: it is a folder someone
+rearranged, where everything is present but no longer where the manifest names
+it (the `hiyori-main` case — `texture_00.png` at the root, manifest wanting
+`hiyori_free_t08.2048/texture_00.png`).
+
+`planRelocations(presentPaths, missingPaths, referencedPaths)` matches unresolved
+references against files that ARE in the upload. `AssetManager` runs it when the
+report arrives and seeds the window's slots, so a rearranged folder opens already
+resolved. `applyRelocations` is not used by the window — it re-paths through the
+same `supplied` machinery — but exists for any non-interactive caller.
+
+Rules, each of which exists to avoid a wrong-looking model:
+
+- Name match, **exact first**, case-insensitive only as a fallback (archives
+  round-tripped through a case-insensitive filesystem). A case-only match sets
+  `caseOnly` and the row says so.
+- A file already at a path the manifest references is **never** a candidate — it
+  is satisfying that reference where it is, and moving it would break it.
+- A match is proposed only when unambiguous **in both directions**: one candidate
+  for the slot, and that candidate wanted by no other slot. Everything else goes
+  to `ambiguous`, rendered as a per-row `select`.
+- Relocated files **move**, not copy: `retry` drops the original entry so the
+  bundle doesn't carry the same bytes at both the right and the wrong path.
+
+**The original plan ruled this out** — "guessing at a user's file layout silently
+is how you get a model that loads wrong instead of not at all". That objection is
+about *silence*, so the answer is visibility, not restraint: every filled row
+names its source, a banner reports the count and asks the user to check, each
+proposal has a `remove` that re-blocks the upload, and nothing is stored until
+the user presses the button. Keep that property if you touch this.
+
 ## Driving a puppet (tracking input)
 A puppet consumes the **same per-node broadcast bus** as a VRM avatar — the bus
 is keyed purely by `nodeId`, renderer-agnostic. Attach a tracking behavior to the
