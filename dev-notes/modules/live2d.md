@@ -30,13 +30,9 @@ the per-node blendshape/pose broadcast bus already routes to a node's id.
 - ~~**Bundle uploads fail silently on a malformed model.**~~ **Fixed** — the
   manifest is now parsed at ingestion and its `FileReferences` resolved against
   the arriving file set. See *Bundle completeness* below.
-- **Dropping a model folder onto the asset dock does not work.** Drag-and-drop
-  routes each file through the single-file upload endpoint, flattening the bundle
-  into separate unusable assets. Only the Models-tab **Upload Live2D** button
-  (folder picker) takes the bundle path. Zip ingestion and an incremental
-  "missing files" flow are planned (see
-  `dev-notes/plans/live2d-bundle-ingestion.md`) and unbuilt — today a bundle
-  reported as incomplete must be re-uploaded whole, not topped up.
+- ~~**Dropping a model folder onto the asset dock does not work.**~~ **Fixed** —
+  drops descend into directories, zips are accepted, and an incomplete bundle
+  can be topped up in place. See *Getting a bundle in* below.
 - **A lone `.model3.json` uploads successfully** via the single-file endpoint and
   produces an asset classified as `live2d` that can never load.
 
@@ -168,10 +164,59 @@ than one that refuses to load. Report; let the user supply.
 
 Frontend: `api.uploadLive2dBundle` resolves to `{ asset, missingOptional }` and
 rejects with an `ApiError` carrying `details`; `api.live2dBundleReport(e)`
-narrows it. `components/editor/Live2dBundleReportWindow.tsx` renders the report
-(required / optional / manifest-error sections, each row showing the path the
-manifest expected) and is the shell the planned incremental-completion flow
-grows into. Help lives at `help/content/{en,de}/live2d.md`.
+narrows it. Help lives at `help/content/{en,de}/live2d.md`.
+
+## Getting a bundle in
+
+**`packages/frontend/src/lib/live2dBundle.ts`** turns whatever the user gave us
+into `{ relPath, file }[]` with the manifest-relative paths intact. Three sources
+converge on it:
+
+- **Folder picker** — `webkitdirectory` → `File.webkitRelativePath`.
+- **Dropped folder** — `readDroppedFiles()` walks `webkitGetAsEntry()`.
+  `e.dataTransfer.files` does *not* descend, which is why dropping a model used
+  to flatten it into unusable single assets. Note `readEntries()` returns **at
+  most 100 entries per call** and must be drained in a loop; reading once
+  silently truncates rather than erroring.
+- **Zip** — `expandZip()` unpacks in the browser. Expansion is client-side by
+  design: the endpoint keeps the one shape it already validates and untrusted
+  archives never reach the server. Entry paths still go through
+  `normalizeBundlePath`, and a Zip-Slip entry is **rejected, not sanitized** —
+  rewriting it would hide a hostile archive. `__MACOSX/` and `.DS_Store` are
+  dropped.
+
+  It uses **`unzipSync`, not the async `unzip`**: the async variant offloads to a
+  blob-URL Worker, and where that is unavailable (a CSP forbidding
+  `worker-src blob:`, a non-browser host) fflate degrades to *silently wrong*
+  output — every entry split into bogus directory names — rather than erroring.
+
+`stripCommonPrefix()` removes the single top-level folder archives wrap models
+in. `findManifests()` + `selectBundle()` handle a source holding several models:
+`Live2dManifestPicker` asks which, and only that model's subtree is uploaded.
+
+**Testing gotcha:** under jsdom, `TextEncoder` returns a cross-realm
+`Uint8Array`, so fflate's `strToU8` + `zipSync` fails its `instanceof` check and
+emits one bogus entry per byte. Build zip fixtures with a same-realm
+`Uint8Array.from(...)` (see `test/live2dBundle.test.ts`).
+
+## Completing an incomplete bundle
+
+`components/editor/Live2dBundleReportWindow.tsx` shows the report — required /
+optional / manifest-error sections, each row naming the path the manifest
+expected — and, when the bundle was *refused*, collects the missing files.
+
+Partial state is **client-side**: the backend writes nothing on rejection, so
+there is no pending-bundle store and no cleanup story for abandoned uploads. The
+browser still holds the picked files (`pending`), the window gathers only the
+stragglers, and `onRetry` re-posts the union. Nothing already chosen is
+re-selected.
+
+Supplied files match by **basename** — a bare `texture_00.png` fills the
+`foo.2048/texture_00.png` slot, so the user never rebuilds the directory tree by
+hand. Where one basename could fill several slots the window asks (a `select`
+per leftover) rather than guessing; a wrong guess yields a model that loads
+*looking* wrong, which is worse than one that does not load. Retry unlocks on
+required slots alone — optional gaps never block.
 
 ## Driving a puppet (tracking input)
 A puppet consumes the **same per-node broadcast bus** as a VRM avatar — the bus
