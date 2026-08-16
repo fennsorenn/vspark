@@ -159,6 +159,9 @@ importers:
       dompurify:
         specifier: ^3.4.7
         version: 3.4.7
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
       htm:
         specifier: ^3.1.1
         version: 3.1.1

@@ -36,23 +36,29 @@ ist.
 
 ## Ein Modell hochladen {#uploading}
 
-1. Öffne den **Assets**-Dock und wechsle zum Tab **Modelle**.
-2. Klicke auf **Live2D hochladen**.
-3. Wähle den **Ordner**, der die `*.model3.json` enthält — nicht eine einzelne
-   Datei darin.
+Es gibt drei Wege, und alle erhalten die Ordnerstruktur:
 
-Die meisten Modelle werden als `.zip` verteilt. Entpacke es zuerst und lasse die
-Ordnerstruktur genau so, wie sie aus dem Archiv kommt. Enthält das Archiv einen
-Ordner wie `Hiyori/runtime/`, ist meist dieser `runtime`-Ordner — der mit der
-`*.model3.json` — der richtige.
+- **Live2D hochladen** (Tab „Modelle“) — öffnet eine Ordnerauswahl. Wähle den
+  **Ordner** mit der `*.model3.json`, nicht eine einzelne Datei darin.
+- **Live2D-Zip** (Tab „Modelle“) — wähle die `.zip` genau so, wie du sie
+  heruntergeladen hast. vspark entpackt sie für dich; vorheriges Entpacken ist
+  nicht nötig.
+- **Drag & Drop** — zieh den Modell**ordner** oder seine `.zip` auf den
+  Assets-Dock. Ordner funktionieren: vspark steigt hinein und behält den Platz
+  jeder Datei innerhalb des Modells bei.
+
+Archive verpacken meist alles in einen einzelnen obersten Ordner (`Hiyori/…`).
+Diese Hülle wird automatisch entfernt, du musst dich also nicht durch das Archiv
+zur richtigen Ebene durchklicken.
 
 Nach dem Upload erscheint das Modell im Tab „Modelle“. Mit **Zur Szene
 hinzufügen** platzierst du es, oder du wählst ein vorhandenes Live2D-Objekt aus
 und nutzt **Anwenden**.
 
-Beachte: vspark lädt **ein Modell auf einmal** hoch. Enthält ein Ordner mehrere
-`*.model3.json`-Dateien, sagt vspark das, statt zu raten, welches Modell gemeint
-war — lade jedes Modell aus seinem eigenen Ordner hoch.
+vspark lädt **ein Modell auf einmal** hoch. Enthält ein Ordner oder Archiv
+mehrere `*.model3.json`-Dateien, fragt vspark nach, welches Modell gemeint ist,
+statt zu raten — wähle eines aus der Liste, und nur dessen Dateien werden
+gespeichert.
 
 ## Fehlende Dateien {#missing-files}
 
@@ -76,20 +82,22 @@ Unterordner erwartet. Sieh dir die von vspark genannten Pfade an: verlangt es
 `texture_00.png` ganz oben, ist die Struktur irgendwo zwischen Download und
 Festplatte verloren gegangen.
 
-So behebst du es:
+So behebst du es: **ergänze die fehlenden Dateien direkt im Fenster**. Zieh sie
+auf das Feld unten oder nutze **Dateien wählen…**. Du musst nur ergänzen, was
+aufgelistet ist — alles bereits Ausgewählte bleibt erhalten, nichts muss neu
+gewählt werden — und drückst dann den Upload-Button.
 
-- **Lade das Modell neu herunter oder entpacke es erneut** und achte darauf, dass
-  dein Entpack-Programm Ordner beibehält. Manche Programme machen Archive
-  standardmäßig flach.
-- **Lege die Ordner von Hand wieder an**, wenn du weißt, wohin die Dateien
-  gehören: erstelle den im Manifest genannten Unterordner und verschiebe die
-  Dateien hinein.
-- Lade den Ordner anschließend erneut hoch.
+Die Ordner musst du **nicht** nachbauen. Zugeordnet wird über den Dateinamen, ein
+loses `texture_00.png` füllt also den Platz `meinmodell.2048/texture_00.png`.
+Käme ein Name für mehrere Plätze infrage, fragt vspark nach, statt für dich zu
+entscheiden: falsch geraten entsteht ein Modell, das falsch aussehend lädt — das
+fällt schwerer auf und ist schwerer zu debuggen als eines, das sich schlicht
+nicht laden lässt.
 
-vspark rät bewusst **nicht**. Ein loses `texture_00.png` kann die vom Manifest
-gesuchte Datei sein — oder zu einem ganz anderen Textursatz gehören. Falsch
-geraten entsteht ein Modell, das falsch aussehend lädt; das fällt schwerer auf
-und ist schwerer zu debuggen als eines, das sich schlicht nicht laden lässt.
+Wenn du lieber von vorn beginnst — etwa weil schon der Download unvollständig
+war — schließe das Fenster, lade das Modell neu herunter oder entpacke es erneut
+(achte darauf, dass dein Entpack-Programm Ordner beibehält; manche machen Archive
+standardmäßig flach) und lade es erneut hoch.
 
 ### Optional — das Modell funktioniert, nur mit weniger {#optional}
 

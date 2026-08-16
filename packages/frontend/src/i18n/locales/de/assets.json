@@ -23,7 +23,9 @@
     "audio": "Audio hochladen",
     "dropFiles": "⬆ Dateien hierher ziehen zum Hochladen",
     "live2d": "Live2D hochladen",
-    "live2dTitle": "Einen Live2D-Modellordner hochladen (.model3.json + .moc3 + Texturen)"
+    "live2dTitle": "Einen Live2D-Modellordner hochladen (.model3.json + .moc3 + Texturen)",
+    "live2dZip": "Live2D-Zip",
+    "live2dZipTitle": "Ein gezipptes Live2D-Modell hochladen — vspark entpackt es für dich"
   },
   "empty": {
     "noAssets": "Noch keine {{tab}}. Oben hochladen.",
@@ -88,7 +90,9 @@
     "applyModelFailed": "Modell konnte nicht gesetzt werden",
     "applyAnimFailed": "Animation konnte nicht angewendet werden",
     "deleteFailed": "Löschen fehlgeschlagen",
-    "live2dUploadFailed": "Live2D-Upload fehlgeschlagen"
+    "live2dUploadFailed": "Live2D-Upload fehlgeschlagen",
+    "live2dZipFailed": "Dieses Zip-Archiv konnte nicht gelesen werden.",
+    "live2dZipNoManifest": "Dieses Zip enthält kein Live2D-Modell (keine *.model3.json darin)."
   },
   "resize": {
     "dragTitle": "Ziehen zum Vergrößern"
@@ -130,6 +134,24 @@
       "motion": "Motion",
       "motionSound": "Motion-Audio",
       "userData": "Benutzerdaten"
+    },
+    "supply": {
+      "title": "Fehlende Dateien ergänzen",
+      "hint": "Zieh die fehlenden Dateien hierher oder wähle sie aus. Die bereits ausgewählten Dateien bleiben erhalten — du musst nur ergänzen, was oben aufgeführt ist. Zugeordnet wird über den Dateinamen, du musst die Ordner also nicht nachbauen.",
+      "dropHere": "Fehlende Dateien hierher ziehen",
+      "addFiles": "Dateien wählen…",
+      "supplied": "ergänzt",
+      "remove": "entfernen",
+      "choose": "Welche?",
+      "unmatched": "gehört nicht zu diesem Modell",
+      "ambiguous": "Wähle, welche fehlende Datei „{{name}}“ ist",
+      "retry": "{{count}} ergänzte Datei(en) hochladen",
+      "retrying": "Wird hochgeladen…",
+      "cancel": "Abbrechen"
+    },
+    "picker": {
+      "title": "Welches Modell?",
+      "lead": "„{{name}}“ enthält {{count}} Live2D-Modelle. vspark lädt ein Modell auf einmal hoch — wähle das gewünschte aus."
     }
   }
 }
