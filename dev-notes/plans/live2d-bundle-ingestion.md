@@ -1,9 +1,22 @@
 # Plan: Live2D bundle ingestion — zip support + incremental completion
 
 > Branch: `feature/live2d-bundle-ingestion` (create from `dev`) ·
-> Status: ready-for-handoff
+> Status: **step 1 shipped; steps 0/2/3/4 outstanding**
 > This plan is the seed context for a cloud worker. It is a starting point, not an
 > airtight spec — the worker is interactive and may ask to refine it.
+>
+> **Decisions taken** (step 0 and the step 1 open questions, settled with the user):
+> zip expansion is **client-side** with **`fflate`**, feeding the existing bundle
+> endpoint unchanged; an optional-missing bundle **uploads with a warning**; and
+> partial state stays **client-side** — the backend rejects and writes nothing,
+> the browser still holds the picked files and re-POSTs a complete bundle. No
+> pending-bundle store, so no cleanup story for abandoned uploads.
+>
+> **Correction to "Acceptance / verification" below:** there are *no* Hiyori
+> bundles under `packages/backend/uploads/` — that directory is gitignored, so a
+> fresh clone has none. Step 1 was verified with synthetic bundles (unit, route
+> and Playwright tiers); a real Cubism sample is still needed to confirm a model
+> actually *renders* after upload.
 
 ## Goal
 

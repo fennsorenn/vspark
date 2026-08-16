@@ -27,19 +27,16 @@ the per-node blendshape/pose broadcast bus already routes to a node's id.
   "works" and "usable". Start from `lib/live2dParamMap.ts` (it is a pure module,
   so it is cheap to iterate on) and the per-node override editor in the
   properties panel, which lets a user compensate without a code change.
-- **Bundle uploads fail silently on a malformed model.** The upload path does not
-  validate the manifest against the files that arrived, so a model whose
-  `FileReferences` point at paths the folder doesn't contain uploads "fine" and
-  then shows only a placeholder, with nothing saying why. This cost real
-  debugging time on a flattened Hiyori download whose manifest wanted
-  `hiyori_free_t08.2048/texture_00.png` and `motion/*.motion3.json` while every
-  file sat at the root. Parsing the manifest on upload and reporting the diff is
-  the fix.
+- ~~**Bundle uploads fail silently on a malformed model.**~~ **Fixed** — the
+  manifest is now parsed at ingestion and its `FileReferences` resolved against
+  the arriving file set. See *Bundle completeness* below.
 - **Dropping a model folder onto the asset dock does not work.** Drag-and-drop
   routes each file through the single-file upload endpoint, flattening the bundle
   into separate unusable assets. Only the Models-tab **Upload Live2D** button
   (folder picker) takes the bundle path. Zip ingestion and an incremental
-  "missing files" flow were discussed and are unbuilt.
+  "missing files" flow are planned (see
+  `dev-notes/plans/live2d-bundle-ingestion.md`) and unbuilt — today a bundle
+  reported as incomplete must be re-uploaded whole, not topped up.
 - **A lone `.model3.json` uploads successfully** via the single-file endpoint and
   produces an asset classified as `live2d` that can never load.
 
@@ -121,11 +118,60 @@ type-checked by this repo's strict tsc. The boundary:
 
 ### Backend
 - `routes/assets.ts` — `POST /projects/:id/assets/bundle` accepts a multi-file
-  bundle (kind `live2d`), validates relPaths (no traversal), requires a
-  `*.model3.json`, allocates a non-colliding dir under `live2d/`, and registers
-  the manifest as an `asset_files` row.
+  bundle (kind `live2d`), validates relPaths (no traversal, via `isSafeRelPath`
+  in `routes/shared.ts`), requires exactly one `*.model3.json`, runs the
+  completeness check below, allocates a non-colliding dir under `live2d/`, and
+  registers the manifest as an `asset_files` row.
 - `routes/config.ts` — `PUT /config` accepts partial updates including
   `live2dLicenseAccepted` (persisted to `config.json`).
+
+## Bundle completeness
+
+A `*.model3.json` names every other file in the bundle **by a path relative to
+itself**. Nothing used to check that those paths resolved, so a flattened or
+truncated download was accepted, stored, registered — and then rendered as a
+blank placeholder with no explanation. (The concrete case: a `hiyori-main`
+download whose manifest wanted `hiyori_free_t08.2048/texture_00.png` and
+`motion/*.motion3.json` while every file sat at the root.)
+
+**`packages/shared/src/live2d.ts`** (`@vspark/shared/live2d`) is the whole rule,
+pure and dependency-free so it runs on the route and in the browser alike:
+
+- `parseLive2dManifest(manifestRelPath, text)` → every `FileReferences` entry as
+  a `Live2dFileRef { ref, relPath, kind, required, label? }`, resolved against
+  the manifest's own directory and deduplicated. Kinds: `moc`, `texture`,
+  `physics`, `pose`, `displayInfo`, `expression`, `motion`, `motionSound`,
+  `userData`. **`Groups`, `HitAreas` and `Layout` are not file references** and
+  are deliberately not walked (verified against the submodule's
+  `cubismmodelsettingjson.ts`, 5-r.3).
+- `normalizeBundlePath(p)` — collapses `.`/`//`, resolves `..`, and returns
+  `null` for anything absolute, backslashed, NUL-bearing or escaping the bundle.
+  Stricter sibling `isSafeRelPath` (`routes/shared.ts`) guards the write path;
+  everything it accepts this returns unchanged, so a file written to disk always
+  matches the path the check compared against.
+- `checkLive2dBundle(...)` → `Live2dBundleReport` splitting misses into
+  **`missingRequired`** (`Moc`, `Textures` — nothing renders without them) and
+  **`missingOptional`** (everything else — the model still renders).
+- `isLive2dBundleBlocked(report)` — required-missing *or* a manifest-level error.
+
+Route behaviour: blocked → `400 LIVE2D_BUNDLE_INCOMPLETE` with the report as
+`error.details`, **written before any file touches disk**, so there are no orphan
+directories and no half-registered asset. Not blocked → `201` with
+`data.missingOptional` attached. Several manifests in one upload →
+`400 LIVE2D_MULTIPLE_MANIFESTS` rather than silently picking the first.
+
+Matching is **exact and case-sensitive**. Inferring that a root-level
+`texture_00.png` satisfies a `foo.2048/texture_00.png` reference is tempting —
+it is what a human did by hand for `hiyori-main` — but guessing at a layout
+yields a model that loads *wrong*, which is harder to notice and harder to debug
+than one that refuses to load. Report; let the user supply.
+
+Frontend: `api.uploadLive2dBundle` resolves to `{ asset, missingOptional }` and
+rejects with an `ApiError` carrying `details`; `api.live2dBundleReport(e)`
+narrows it. `components/editor/Live2dBundleReportWindow.tsx` renders the report
+(required / optional / manifest-error sections, each row showing the path the
+manifest expected) and is the shell the planned incremental-completion flow
+grows into. Help lives at `help/content/{en,de}/live2d.md`.
 
 ## Driving a puppet (tracking input)
 A puppet consumes the **same per-node broadcast bus** as a VRM avatar — the bus
