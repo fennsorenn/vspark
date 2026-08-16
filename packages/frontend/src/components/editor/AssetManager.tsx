@@ -2,7 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import type { AssetFile, Live2dBundleReport } from '../../api/client';
+import type {
+  AssetFile,
+  BundleFileInput,
+  Live2dBundleReport,
+} from '../../api/client';
 import type { BottomDockTab, Behavior } from '../../store/editorStore';
 import { newBehaviorId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import {
@@ -19,6 +23,18 @@ import { DND_ASSET } from './dnd';
 import { behaviorCompatibleWith, createNodeFromLive2dAsset } from './createKinds';
 import { HelpButton } from '../../help/HelpButton';
 import { Live2dBundleReportWindow } from './Live2dBundleReportWindow';
+import { Live2dManifestPicker } from './Live2dManifestPicker';
+import {
+  readDroppedFiles,
+  expandZip,
+  isZipFile,
+  findManifests,
+  stripCommonPrefix,
+  selectBundle,
+  planRelocations,
+  ZipError,
+} from '../../lib/live2dBundle';
+import type { Relocation, AmbiguousRelocation } from '../../lib/live2dBundle';
 
 /** Per-tab contextual help target — one consistent `?` follows the active tab. */
 const tabHelp: Partial<
@@ -138,10 +154,22 @@ export function AssetManager() {
   }, [bottomTabFlash]);
   const modelInputRef = useRef<HTMLInputElement>(null);
   const live2dInputRef = useRef<HTMLInputElement>(null);
+  const live2dZipInputRef = useRef<HTMLInputElement>(null);
   // Open when a Live2D bundle's manifest referenced files the upload lacked.
+  // `pending` holds the picked files for the retry; null when the bundle was
+  // accepted and the report is only a warning.
   const [live2dReport, setLive2dReport] = useState<{
     report: Live2dBundleReport;
     rootName: string;
+    pending: BundleFileInput[] | null;
+    relocations: Relocation[];
+    ambiguousRelocations: AmbiguousRelocation[];
+  } | null>(null);
+  // Open when a folder/archive held several models and one must be chosen.
+  const [live2dPicker, setLive2dPicker] = useState<{
+    files: BundleFileInput[];
+    rootName: string;
+    manifests: string[];
   } | null>(null);
   const animInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -171,59 +199,126 @@ export function AssetManager() {
   const videos = assets.filter((a) => a.kind === 'video');
   const audioAssets = assets.filter((a) => a.kind === 'audio');
 
-  // Live2D models upload as a folder (manifest + moc3 + textures) via the bundle
-  // endpoint, preserving each file's path relative to the model root.
+  // ── Live2D bundle ingestion ────────────────────────────────────────────────
+  //
+  // A Live2D model is a folder of files that only work together, and it reaches
+  // us three ways: the folder picker, a folder dropped on the dock, or a zip
+  // (expanded in the browser). All three converge on `uploadLive2dBundle` with
+  // paths relative to the model root — those paths ARE the model, so everything
+  // here exists to keep them intact.
   //
   // The backend resolves the manifest's FileReferences against the arriving
-  // files. A bundle missing its moc3 or a texture is rejected outright (nothing
-  // is stored) and one missing only motions/expressions is accepted with a
-  // warning — either way the report opens so the user sees WHICH files, instead
-  // of discovering a blank puppet later.
-  const handleUploadLive2dFolder = async (files: FileList | File[]) => {
+  // files. Missing moc3/textures reject the upload outright (nothing is stored)
+  // and missing motions/expressions upload with a warning — either way the
+  // report opens naming the files, instead of leaving the user to discover a
+  // blank puppet later.
+
+  /** Post a bundle, then route the outcome to the report window. */
+  const uploadBundle = async (files: BundleFileInput[], rootName: string) => {
     if (!projectId) {
       alert(t('alerts.noProject'));
       return;
     }
-    const list = Array.from(files);
-    if (list.length === 0) return;
-    const firstPath = list[0].webkitRelativePath || list[0].name;
-    const rootName = firstPath.includes('/')
-      ? firstPath.split('/')[0]
-      : 'live2d-model';
-    const inputs = list.map((f) => {
-      const rel = f.webkitRelativePath || f.name;
-      const relPath = rel.startsWith(`${rootName}/`)
-        ? rel.slice(rootName.length + 1)
-        : rel;
-      return { relPath, file: f };
-    });
     setUploading(true);
     try {
       const { asset, missingOptional } = await api.uploadLive2dBundle(
         projectId,
         rootName,
-        inputs
+        files
       );
       addAsset(asset);
       setTab('models');
-      if (missingOptional.length > 0)
-        setLive2dReport({
-          rootName,
-          report: {
-            manifest: asset.name,
-            refs: missingOptional,
-            missingRequired: [],
-            missingOptional,
-            errors: [],
-          },
-        });
+      setLive2dReport(
+        missingOptional.length === 0
+          ? null
+          : {
+              rootName,
+              // Already stored and rendering — nothing to supply, so no
+              // pending set and no retry.
+              pending: null,
+              relocations: [],
+              ambiguousRelocations: [],
+              report: {
+                manifest: asset.name,
+                refs: missingOptional,
+                missingRequired: [],
+                missingOptional,
+                errors: [],
+              },
+            }
+      );
     } catch (e: unknown) {
       const report = api.live2dBundleReport(e);
-      if (report) setLive2dReport({ rootName, report });
-      else alert(e instanceof Error ? e.message : t('alerts.live2dUploadFailed'));
+      // Hold the picked files so the completion window can top them up rather
+      // than making the user re-select everything they already chose. Before
+      // asking for anything, check whether the "missing" files are simply
+      // sitting at the wrong path — a rearranged folder still has them all.
+      if (report) {
+        const { relocations, ambiguous } = planRelocations(
+          files.map((f) => f.relPath),
+          [...report.missingRequired, ...report.missingOptional].map(
+            (r) => r.relPath
+          ),
+          report.refs.map((r) => r.relPath)
+        );
+        setLive2dReport({
+          rootName,
+          report,
+          pending: files,
+          relocations,
+          ambiguousRelocations: ambiguous,
+        });
+      } else
+        alert(e instanceof Error ? e.message : t('alerts.live2dUploadFailed'));
     } finally {
       setUploading(false);
     }
+  };
+
+  /**
+   * Take a candidate file set through prefix-stripping and model selection,
+   * then upload. An archive usually wraps the model in one folder; several
+   * manifests means the user has to say which model they meant.
+   */
+  const ingestLive2dBundle = async (
+    raw: BundleFileInput[],
+    fallbackName: string
+  ) => {
+    const { files, prefix } = stripCommonPrefix(raw);
+    const rootName = prefix ?? fallbackName;
+    const manifests = findManifests(files);
+    if (manifests.length > 1) {
+      setLive2dPicker({ files, rootName, manifests });
+      return;
+    }
+    await uploadBundle(files, rootName);
+  };
+
+  const handleUploadLive2dFolder = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    await ingestLive2dBundle(
+      list.map((f) => ({ relPath: f.webkitRelativePath || f.name, file: f })),
+      'live2d-model'
+    );
+  };
+
+  const handleUploadLive2dZip = async (file: File) => {
+    setUploading(true);
+    let expanded: BundleFileInput[];
+    try {
+      expanded = await expandZip(file);
+    } catch (e) {
+      setUploading(false);
+      alert(e instanceof ZipError ? e.message : t('alerts.live2dZipFailed'));
+      return;
+    }
+    setUploading(false);
+    if (findManifests(expanded).length === 0) {
+      alert(t('alerts.live2dZipNoManifest'));
+      return;
+    }
+    await ingestLive2dBundle(expanded, file.name.replace(/\.zip$/i, ''));
   };
 
   // OS file drag-and-drop onto the dock. Uploads every dropped file, then jumps
@@ -267,6 +362,45 @@ export function AssetManager() {
   // tile drags use custom MIME types and must pass straight through.
   const isFileDrag = (e: React.DragEvent) =>
     Array.from(e.dataTransfer.types).includes('Files');
+
+  /**
+   * Route a drop: a Live2D bundle (dropped folder or zip containing a manifest)
+   * takes the bundle path; anything else keeps the existing per-file upload, so
+   * dropping images/video/audio/VRMs works exactly as before.
+   *
+   * `e.dataTransfer` must be read synchronously — the event's data is cleared
+   * once the handler yields, so the walk starts before any `await`.
+   */
+  const handleDrop = async (dataTransfer: DataTransfer) => {
+    const { files, hadDirectory } = await readDroppedFiles(dataTransfer);
+    if (files.length === 0) return;
+
+    // A lone zip: expand it and see whether it is a model.
+    if (files.length === 1 && isZipFile(files[0].file)) {
+      const zip = files[0].file;
+      let expanded: BundleFileInput[] = [];
+      try {
+        expanded = await expandZip(zip);
+      } catch {
+        // Unreadable archive — fall through and store it as a plain file
+        // rather than refusing a drop the user may have meant literally.
+      }
+      if (findManifests(expanded).length > 0) {
+        await ingestLive2dBundle(expanded, zip.name.replace(/\.zip$/i, ''));
+        return;
+      }
+      await handleUploadFiles([zip]);
+      return;
+    }
+
+    // A dropped folder holding a manifest is a bundle; a folder of ordinary
+    // media is just several files.
+    if (hadDirectory && findManifests(files).length > 0) {
+      await ingestLive2dBundle(files, 'live2d-model');
+      return;
+    }
+    await handleUploadFiles(files.map((f) => f.file));
+  };
 
   const handleAddToScene = async (asset: AssetFile) => {
     if (!activeSceneId) {
@@ -835,7 +969,7 @@ export function AssetManager() {
         e.preventDefault();
         dragDepth.current = 0;
         setFileDragOver(false);
-        handleUploadFiles(e.dataTransfer.files);
+        handleDrop(e.dataTransfer);
       }}
       style={{
         height: bottomDockHeight,
@@ -853,7 +987,28 @@ export function AssetManager() {
         <Live2dBundleReportWindow
           report={live2dReport.report}
           rootName={live2dReport.rootName}
+          pending={live2dReport.pending}
+          relocations={live2dReport.relocations}
+          ambiguousRelocations={live2dReport.ambiguousRelocations}
+          busy={uploading}
+          onRetry={(files) => {
+            const { rootName } = live2dReport;
+            setLive2dReport(null);
+            uploadBundle(files, rootName);
+          }}
           onClose={() => setLive2dReport(null)}
+        />
+      )}
+      {live2dPicker && (
+        <Live2dManifestPicker
+          manifests={live2dPicker.manifests}
+          rootName={live2dPicker.rootName}
+          onPick={(manifest) => {
+            const { files, rootName } = live2dPicker;
+            setLive2dPicker(null);
+            uploadBundle(selectBundle(files, manifest), rootName);
+          }}
+          onClose={() => setLive2dPicker(null)}
         />
       )}
       {fileDragOver && (
@@ -1000,6 +1155,29 @@ export function AssetManager() {
               onChange={(e) => {
                 if (e.target.files && e.target.files.length > 0)
                   handleUploadLive2dFolder(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            {/* A separate control from the folder picker above: a
+                `webkitdirectory` input can only choose directories, so a zip
+                needs an input of its own. */}
+            <button
+              className="vs-upload-live2d-zip"
+              style={uploadBtn}
+              disabled={uploading}
+              title={t('upload.live2dZipTitle')}
+              onClick={() => live2dZipInputRef.current?.click()}
+            >
+              {uploading ? t('upload.uploading') : t('upload.live2dZip')}
+            </button>
+            <input
+              ref={live2dZipInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleUploadLive2dZip(file);
                 e.target.value = '';
               }}
             />
