@@ -1,12 +1,19 @@
+import type { Live2dBundleReport, Live2dFileRef } from '@vspark/shared/live2d';
+
+export type { Live2dBundleReport, Live2dFileRef };
+
 const BASE = '/api';
 
 /** Thrown by `request()` on a non-ok response. `status` is the HTTP status so
- *  callers can branch on 404 / 503 / etc; `code` is the backend's error code. */
+ *  callers can branch on 404 / 503 / etc; `code` is the backend's error code.
+ *  `details` carries any structured payload the backend attached — e.g. the
+ *  Live2D bundle report listing which referenced files were missing. */
 export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
-    public code: string
+    public code: string,
+    public details?: unknown
   ) {
     super(message);
     this.name = 'ApiError';
@@ -23,7 +30,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const status = json?.error?.status ?? res.status;
     const code = json?.error?.code ?? 'UNKNOWN';
     const msg = json?.error?.message ?? `API error ${status}`;
-    throw new ApiError(status, msg, code);
+    throw new ApiError(status, msg, code, json?.error?.details);
   }
   return json.data as T;
 }
@@ -682,13 +689,25 @@ export interface BundleFileInput {
   file: File;
 }
 
+/** Result of a bundle upload the backend accepted. `missingOptional` is
+ *  non-empty when the model renders but some enhancement it references
+ *  (motions, expressions, physics) had no file in the upload. */
+export interface Live2dUploadResult {
+  asset: AssetFile;
+  missingOptional: Live2dFileRef[];
+}
+
 /** Upload a Live2D model bundle (manifest + moc3 + textures + physics …),
- *  preserving each file's relative path. Returns the registered manifest asset. */
+ *  preserving each file's relative path.
+ *
+ *  Rejects with an `ApiError` whose `code` is `LIVE2D_BUNDLE_INCOMPLETE` and
+ *  whose `details` is a `Live2dBundleReport` when the manifest references files
+ *  the upload doesn't contain — see `live2dBundleReport()` for narrowing it. */
 export const uploadLive2dBundle = (
   projectId: string,
   rootName: string,
   files: BundleFileInput[]
-) =>
+): Promise<Live2dUploadResult> =>
   Promise.all(
     files.map(
       (f) =>
@@ -710,8 +729,20 @@ export const uploadLive2dBundle = (
         method: 'POST',
         body: JSON.stringify({ rootName, kind: 'live2d', files: encoded }),
       }
-    ).then(mapAsset)
+    ).then((row) => ({
+      asset: mapAsset(row),
+      missingOptional: (row.missingOptional ?? []) as Live2dFileRef[],
+    }))
   );
+
+/** Narrow a thrown error to a Live2D bundle report, or null if it isn't one.
+ *  Keeps the `code`-plus-shape check in one place instead of at every catch. */
+export function live2dBundleReport(e: unknown): Live2dBundleReport | null {
+  if (!(e instanceof ApiError) || e.code !== 'LIVE2D_BUNDLE_INCOMPLETE')
+    return null;
+  const d = e.details as Live2dBundleReport | undefined;
+  return d && Array.isArray(d.missingRequired) ? d : null;
+}
 
 export const deleteAsset = (id: string) =>
   request<void>(`/assets/${id}`, { method: 'DELETE' });
@@ -1469,6 +1500,7 @@ export const api = {
   getAssets,
   uploadAsset,
   uploadLive2dBundle,
+  live2dBundleReport,
   deleteAsset,
   createBehavior,
   updateBehavior,

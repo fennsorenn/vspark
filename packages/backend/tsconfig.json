@@ -22,7 +22,8 @@
       "@vspark/shared/arkit": ["../shared/src/arkit_tables.ts"],
       "@vspark/shared/paramPaths": ["../shared/src/paramPaths.ts"],
       "@vspark/shared/blendshapeLimits": ["../shared/src/blendshapeLimits.ts"],
-      "@vspark/shared/style_rig": ["../shared/src/style_rig.ts"]
+      "@vspark/shared/style_rig": ["../shared/src/style_rig.ts"],
+      "@vspark/shared/live2d": ["../shared/src/live2d.ts"]
     }
   },
   "include": ["src/**/*"]

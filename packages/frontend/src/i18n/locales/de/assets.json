@@ -21,7 +21,9 @@
     "image": "Bild hochladen",
     "video": "Video hochladen",
     "audio": "Audio hochladen",
-    "dropFiles": "⬆ Dateien hierher ziehen zum Hochladen"
+    "dropFiles": "⬆ Dateien hierher ziehen zum Hochladen",
+    "live2d": "Live2D hochladen",
+    "live2dTitle": "Einen Live2D-Modellordner hochladen (.model3.json + .moc3 + Texturen)"
   },
   "empty": {
     "noAssets": "Noch keine {{tab}}. Oben hochladen.",
@@ -85,7 +87,8 @@
     "applyCameraBgFailed": "Kamerahintergrund konnte nicht gesetzt werden",
     "applyModelFailed": "Modell konnte nicht gesetzt werden",
     "applyAnimFailed": "Animation konnte nicht angewendet werden",
-    "deleteFailed": "Löschen fehlgeschlagen"
+    "deleteFailed": "Löschen fehlgeschlagen",
+    "live2dUploadFailed": "Live2D-Upload fehlgeschlagen"
   },
   "resize": {
     "dragTitle": "Ziehen zum Vergrößern"
@@ -98,6 +101,35 @@
     "assets": "Erfahre, was Assets sind und wie du Dateien in deinem Projekt hochlädst und verwendest.",
     "create": "Erfahre, wie du Objekte (Avatare, Kameras, Lichter, Requisiten) zu deiner Szene hinzufügst.",
     "effects": "Erfahre, was Kameraeffekte bewirken und wie du sie hinzufügst.",
-    "presets": "Erfahre, wie du Bausteine als Vorlagen speicherst und wiederverwendest."
+    "presets": "Erfahre, wie du Bausteine als Vorlagen speicherst und wiederverwendest.",
+    "live2dMissing": "Erfahre, was ein Live2D-Bundle enthalten muss und was du bei fehlenden Dateien tun kannst."
+  },
+  "live2d": {
+    "report": {
+      "title": "Live2D-Modell unvollständig",
+      "titleIncomplete": "Live2D-Modell mit Lücken hochgeladen",
+      "close": "Schließen",
+      "dismiss": "Verstanden",
+      "manifest": "Manifest:",
+      "leadBlocked": "„{{name}}“ wurde nicht hochgeladen. Das Manifest verweist auf Dateien, die nicht im Ordner lagen — ohne sie gibt es nichts zu rendern.",
+      "leadWarning": "„{{name}}“ wurde hochgeladen und wird dargestellt, aber das Manifest verweist auf Dateien, die nicht im Ordner lagen.",
+      "required": "Fehlt — erforderlich ({{count}})",
+      "requiredHint": "Lade das Modell erneut hoch, mit diesen Dateien unter genau diesen Pfaden. Live2D-Bundles legen Texturen und Motions in Unterordnern ab — ein flach kopierter Ordner ist die übliche Ursache.",
+      "optional": "Fehlt — optional ({{count}})",
+      "optionalHint": "Das Modell wird auch ohne diese Dateien dargestellt. Motions und Ausdrücke, die es nicht findet, stehen einfach nicht zur Verfügung.",
+      "malformed": "Probleme im Manifest",
+      "malformedHint": "Das Manifest selbst ist fehlerhaft, zusätzliche Dateien helfen also nicht. Exportiere das Modell erneut aus Cubism oder lade es neu herunter."
+    },
+    "kind": {
+      "moc": "Modelldaten",
+      "texture": "Textur",
+      "physics": "Physik",
+      "pose": "Pose",
+      "displayInfo": "Anzeigeinfos",
+      "expression": "Ausdruck",
+      "motion": "Motion",
+      "motionSound": "Motion-Audio",
+      "userData": "Benutzerdaten"
+    }
   }
 }

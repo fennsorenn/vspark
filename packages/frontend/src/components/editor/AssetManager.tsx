@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import type { AssetFile } from '../../api/client';
+import type { AssetFile, Live2dBundleReport } from '../../api/client';
 import type { BottomDockTab, Behavior } from '../../store/editorStore';
 import { newBehaviorId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import {
@@ -18,6 +18,7 @@ import { AssetThumb } from './AssetThumb';
 import { DND_ASSET } from './dnd';
 import { behaviorCompatibleWith, createNodeFromLive2dAsset } from './createKinds';
 import { HelpButton } from '../../help/HelpButton';
+import { Live2dBundleReportWindow } from './Live2dBundleReportWindow';
 
 /** Per-tab contextual help target — one consistent `?` follows the active tab. */
 const tabHelp: Partial<
@@ -137,6 +138,11 @@ export function AssetManager() {
   }, [bottomTabFlash]);
   const modelInputRef = useRef<HTMLInputElement>(null);
   const live2dInputRef = useRef<HTMLInputElement>(null);
+  // Open when a Live2D bundle's manifest referenced files the upload lacked.
+  const [live2dReport, setLive2dReport] = useState<{
+    report: Live2dBundleReport;
+    rootName: string;
+  } | null>(null);
   const animInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -167,9 +173,15 @@ export function AssetManager() {
 
   // Live2D models upload as a folder (manifest + moc3 + textures) via the bundle
   // endpoint, preserving each file's path relative to the model root.
+  //
+  // The backend resolves the manifest's FileReferences against the arriving
+  // files. A bundle missing its moc3 or a texture is rejected outright (nothing
+  // is stored) and one missing only motions/expressions is accepted with a
+  // warning — either way the report opens so the user sees WHICH files, instead
+  // of discovering a blank puppet later.
   const handleUploadLive2dFolder = async (files: FileList | File[]) => {
     if (!projectId) {
-      alert('No project loaded.');
+      alert(t('alerts.noProject'));
       return;
     }
     const list = Array.from(files);
@@ -187,11 +199,28 @@ export function AssetManager() {
     });
     setUploading(true);
     try {
-      const asset = await api.uploadLive2dBundle(projectId, rootName, inputs);
+      const { asset, missingOptional } = await api.uploadLive2dBundle(
+        projectId,
+        rootName,
+        inputs
+      );
       addAsset(asset);
       setTab('models');
+      if (missingOptional.length > 0)
+        setLive2dReport({
+          rootName,
+          report: {
+            manifest: asset.name,
+            refs: missingOptional,
+            missingRequired: [],
+            missingOptional,
+            errors: [],
+          },
+        });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Live2D upload failed');
+      const report = api.live2dBundleReport(e);
+      if (report) setLive2dReport({ rootName, report });
+      else alert(e instanceof Error ? e.message : t('alerts.live2dUploadFailed'));
     } finally {
       setUploading(false);
     }
@@ -820,6 +849,13 @@ export function AssetManager() {
       }}
     >
       <BottomDockResizeHandle />
+      {live2dReport && (
+        <Live2dBundleReportWindow
+          report={live2dReport.report}
+          rootName={live2dReport.rootName}
+          onClose={() => setLive2dReport(null)}
+        />
+      )}
       {fileDragOver && (
         <div
           style={{
@@ -948,12 +984,13 @@ export function AssetManager() {
               }}
             />
             <button
+              className="vs-upload-live2d"
               style={uploadBtn}
               disabled={uploading}
-              title="Upload a Live2D model folder (.model3.json + .moc3 + textures)"
+              title={t('upload.live2dTitle')}
               onClick={() => live2dInputRef.current?.click()}
             >
-              {uploading ? 'Uploading…' : 'Upload Live2D'}
+              {uploading ? t('upload.uploading') : t('upload.live2d')}
             </button>
             <input
               ref={live2dInputRef}

@@ -252,6 +252,21 @@ export function isLive2dManifest(name: string): boolean {
   return name.toLowerCase().endsWith('.model3.json');
 }
 
+/**
+ * Reject path-traversal / absolute / backslash segments in a bundle relPath.
+ *
+ * This guards the *write* path: every relPath in an upload is joined onto the
+ * bundle directory, so anything it accepts must be confined to that directory.
+ * It is deliberately stricter than `normalizeBundlePath` in
+ * `@vspark/shared/live2d` (which resolves `.`/`..` rather than rejecting them) —
+ * but everything this accepts, that one returns unchanged, so a relPath written
+ * to disk always equals the path the completeness check matched against.
+ */
+export function isSafeRelPath(p: string): boolean {
+  if (p.startsWith('/') || p.includes('\\') || p.includes('\0')) return false;
+  return p.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..');
+}
+
 /** Sanitize originalName → safe filename stem (no path traversal, no spaces). */
 export function sanitizeStem(originalName: string): string {
   const stem = basename(originalName, extname(originalName));

@@ -18,7 +18,8 @@
     "./feedValidation": "./src/feedValidation.ts",
     "./style_rig": "./src/style_rig.ts",
     "./blendshapeLimits": "./src/blendshapeLimits.ts",
-    "./sync": "./src/sync.ts"
+    "./sync": "./src/sync.ts",
+    "./live2d": "./src/live2d.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",
