@@ -41,6 +41,7 @@ export default defineConfig({
         replacement: shared('blendshapeLimits.ts'),
       },
       { find: '@vspark/shared/sync', replacement: shared('sync.ts') },
+      { find: '@vspark/shared/live2d', replacement: shared('live2d.ts') },
       { find: '@vspark/shared', replacement: shared('types.ts') },
     ],
   },

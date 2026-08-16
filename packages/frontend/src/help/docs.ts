@@ -44,6 +44,7 @@ const TOPIC_ORDER = [
   // Concept pages
   'overview',
   'avatar',
+  'live2d',
   'scene',
   'compose',
   'behaviors',

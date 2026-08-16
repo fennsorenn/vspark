@@ -162,7 +162,7 @@ Custom rehype plugin. Converts a `{#id}` marker at the end of a heading into tha
 
 ### Content — `help/content/<lng>/<topic>.md`
 
-Markdown files for each topic in each supported language. Current topics: `overview`, `avatar`, `scene`, `behaviors`, `logic`. Each contains `{#anchor}` markers on section headings that serve as deep-link targets.
+Markdown files for each topic in each supported language. Current topics (21, `en` + `de` in lockstep): `assets`, `assistant`, `avatar`, `behaviors`, `camera`, `camera-effects`, `compose`, `lighting`, `live2d`, `logic`, `materials`, `multiplayer`, `obs`, `overview`, `particles`, `presets`, `props`, `scene`, `streaming`, `track-clips`, `transform`. Each contains `{#anchor}` markers on section headings that serve as deep-link targets.
 
 Available anchors per topic:
 

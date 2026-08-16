@@ -21,7 +21,9 @@
     "image": "Upload Image",
     "video": "Upload Video",
     "audio": "Upload Audio",
-    "dropFiles": "⬆ Drop files to upload"
+    "dropFiles": "⬆ Drop files to upload",
+    "live2d": "Upload Live2D",
+    "live2dTitle": "Upload a Live2D model folder (.model3.json + .moc3 + textures)"
   },
   "empty": {
     "noAssets": "No {{tab}} yet. Upload one above.",
@@ -85,7 +87,8 @@
     "applyCameraBgFailed": "Failed to set camera background",
     "applyModelFailed": "Failed to set model",
     "applyAnimFailed": "Failed to apply animation",
-    "deleteFailed": "Delete failed"
+    "deleteFailed": "Delete failed",
+    "live2dUploadFailed": "Live2D upload failed"
   },
   "resize": {
     "dragTitle": "Drag to resize"
@@ -98,6 +101,35 @@
     "assets": "Learn what assets are and how to upload and use files in your project.",
     "create": "Learn how to add objects (avatars, cameras, lights, props) to your scene.",
     "effects": "Learn what camera effects do and how to add them.",
-    "presets": "Learn how to save and reuse building blocks as presets."
+    "presets": "Learn how to save and reuse building blocks as presets.",
+    "live2dMissing": "Learn what a Live2D bundle must contain and what to do about missing files."
+  },
+  "live2d": {
+    "report": {
+      "title": "Live2D model incomplete",
+      "titleIncomplete": "Live2D model uploaded with gaps",
+      "close": "Close",
+      "dismiss": "Got it",
+      "manifest": "Manifest:",
+      "leadBlocked": "“{{name}}” was not uploaded. Its manifest references files that were not in the folder, and without them there is nothing to render.",
+      "leadWarning": "“{{name}}” was uploaded and will render, but its manifest references files that were not in the folder.",
+      "required": "Missing — required ({{count}})",
+      "requiredHint": "Upload the model again with these files at exactly these paths. Live2D bundles keep textures and motions in subfolders — uploading a flattened copy is the usual cause.",
+      "optional": "Missing — optional ({{count}})",
+      "optionalHint": "The model renders without these. Motions and expressions it cannot find simply will not be available.",
+      "malformed": "Manifest problems",
+      "malformedHint": "The manifest itself is broken, so supplying files will not help. Re-export the model from Cubism, or download it again."
+    },
+    "kind": {
+      "moc": "model data",
+      "texture": "texture",
+      "physics": "physics",
+      "pose": "pose",
+      "displayInfo": "display info",
+      "expression": "expression",
+      "motion": "motion",
+      "motionSound": "motion audio",
+      "userData": "user data"
+    }
   }
 }
