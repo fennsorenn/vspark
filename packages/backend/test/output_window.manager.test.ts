@@ -148,12 +148,67 @@ describe('OutputWindowManager', () => {
     expect(procs).toHaveLength(1);
   });
 
+  it('prepares the runtime on first need, reporting progress, then opens windows', async () => {
+    const statuses: unknown[] = [];
+    let finish!: () => void;
+    let progress!: (f: number) => void;
+    const prepared = new Promise<void>((r) => (finish = r));
+    const lazy = new OutputWindowManager({
+      viewerOrigin: ORIGIN,
+      prepareLauncher: async (onProgress) => {
+        progress = onProgress;
+        await prepared;
+        return () => {
+          const p = new FakeProcess();
+          procs.push(p);
+          return p;
+        };
+      },
+      onStatus: (s) => statuses.push(s),
+      log,
+    });
+    expect(lazy.status).toEqual({ state: 'idle' });
+    lazy.setScenes([scene('a', { config: {} })]);
+    expect(statuses).toEqual([]); // nothing enabled → no download
+    lazy.setScenes([scene('a')]);
+    lazy.setScenes([scene('a'), scene('b')]); // no second download while preparing
+    progress(0.5);
+    expect(lazy.status).toEqual({ state: 'downloading', progress: 50 });
+    expect(procs).toHaveLength(0);
+    finish();
+    await vi.waitFor(() => expect(procs).toHaveLength(1));
+    expect(procs[0].last.windows.map((w) => w.id)).toEqual(['a', 'b']);
+    expect(statuses).toEqual([{ state: 'downloading', progress: 50 }, { state: 'ready' }]);
+    lazy.stop();
+  });
+
+  it('reports a failed preparation and retries on a later change after 30 s', async () => {
+    let attempts = 0;
+    const lazy = new OutputWindowManager({
+      viewerOrigin: ORIGIN,
+      prepareLauncher: async () => {
+        attempts++;
+        throw new Error('offline');
+      },
+      log,
+    });
+    lazy.setScenes([scene('a')]);
+    await vi.waitFor(() => expect(lazy.status).toEqual({ state: 'error', message: 'offline' }));
+    lazy.setScenes([scene('a', { name: 'x' })]);
+    expect(attempts).toBe(1); // throttled
+    vi.advanceTimersByTime(30_000);
+    lazy.setScenes([scene('a', { name: 'y' })]);
+    expect(attempts).toBe(2);
+    lazy.stop();
+  });
+
   it('logs once and stays inert when the Electron runtime is unavailable', () => {
     const inert = new OutputWindowManager({ viewerOrigin: ORIGIN, launcher: null, log });
     inert.setScenes([scene('a')]);
     inert.setScenes([scene('b')]);
     expect(log).toHaveBeenCalledTimes(1);
     expect(log.mock.calls[0][0]).toMatch(/not available/);
+    expect(inert.status).toEqual({ state: 'unavailable' });
     inert.stop();
   });
 });

@@ -50,7 +50,22 @@ const tc = (key: string, opts?: Record<string, unknown>) =>
 describe('ComposeSceneProperties — OBS window capture', () => {
   beforeEach(() => {
     updateComposeLayer.mockClear();
-    useEditorStore.setState({ composeScenes: [scene], assets: [] });
+    useEditorStore.setState({ composeScenes: [scene], assets: [], outputWindowStatus: null });
+  });
+
+  it('shows runtime download progress and errors instead of the hint', () => {
+    const enabled = { ...scene, config: { obsWindowCapture: true } };
+    useEditorStore.setState({ outputWindowStatus: { state: 'downloading', progress: 42 } });
+    const { rerender } = renderWithProviders(<ComposeSceneProperties scene={enabled} />);
+    expect(screen.getByText(tc('sceneProps.obsWindowDownloading', { progress: 42 }))).toBeTruthy();
+
+    useEditorStore.setState({ outputWindowStatus: { state: 'error', message: 'offline' } });
+    rerender(<ComposeSceneProperties scene={enabled} />);
+    expect(screen.getByText(tc('sceneProps.obsWindowError', { message: 'offline' }))).toBeTruthy();
+
+    useEditorStore.setState({ outputWindowStatus: { state: 'ready' } });
+    rerender(<ComposeSceneProperties scene={enabled} />);
+    expect(screen.getByText(tc('sceneProps.obsWindowHint', { title: 'vspark – Main Output' }))).toBeTruthy();
   });
 
   it('enables window capture: persists config and shows the window title to pick', () => {

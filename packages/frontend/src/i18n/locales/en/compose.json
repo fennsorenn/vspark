@@ -64,7 +64,10 @@
     "bgImage": "Image",
     "obsWindowHeader": "OBS window capture",
     "obsWindowCapture": "Enable for OBS window capture",
-    "obsWindowHint": "While vspark runs, this scene is kept in a hidden window. In OBS, add a Window Capture source and pick “{{title}}”. Unlike a Browser Source, it keeps its frame rate while a fullscreen game is running."
+    "obsWindowHint": "While vspark runs, this scene is kept in a hidden window. In OBS, add a Window Capture source and pick “{{title}}”. Unlike a Browser Source, it keeps its frame rate while a fullscreen game is running.",
+    "obsWindowDownloading": "Setting up OBS window capture: downloading the window runtime (one-time, about 100 MB)… {{progress}}%",
+    "obsWindowError": "Could not set up OBS window capture: {{message}}. It is retried automatically when you change the scene or re-enable this option.",
+    "obsWindowUnavailable": "OBS window capture is not available in this installation."
   },
   "properties": {
     "scopeAllCameras": "Scene-wide (all cameras)",
