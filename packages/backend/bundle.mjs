@@ -23,6 +23,8 @@ const SHARED_ALIAS = {
   '@vspark/shared/cameraEffects':   '../shared/src/cameraEffects.ts',
   '@vspark/shared/feedValidation':  '../shared/src/feedValidation.ts',
   '@vspark/shared/sync':            '../shared/src/sync.ts',
+  '@vspark/shared/style_rig':       '../shared/src/style_rig.ts',
+  '@vspark/shared/blendshapeLimits': '../shared/src/blendshapeLimits.ts',
   '@vspark/shared':                 '../shared/src/types.ts',
 };
 
