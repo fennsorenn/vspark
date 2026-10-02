@@ -31,6 +31,15 @@ else is driving the avatar. It is timed against a shared clock, so every viewer
 When both are active, vspark blends them so the transition looks smooth rather
 than snapping. The blend time is adjustable per avatar.
 
+Tracking is rarely perfect: the signal can freeze for a moment, or a few packets
+can go missing, without the connection actually dropping. **Idle after** sets how
+long such a gap is tolerated before the avatar gives up and returns to its idle
+animation. Raise it if your avatar drops to idle during brief dropouts; lower it
+if it keeps holding a frozen pose too long after you stop tracking. It pairs with
+the blend time: this setting decides *when* the return to idle starts, the blend
+time decides *how fast* it runs. Every tracking source on the avatar (VMC,
+camera tracking) shares the one setting.
+
 > Tip: if your avatar looks frozen, check that a motion-capture behavior is
 > attached and connected — see [Behaviors](topic:behaviors).
 

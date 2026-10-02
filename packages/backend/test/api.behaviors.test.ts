@@ -88,6 +88,39 @@ describe('behaviors API (mesh-backed)', () => {
     expect(res.body.data.sort_order).toBe(5);
   });
 
+  it('seeds the kind default config when create omits one', async () => {
+    // The editor's add-menu seeds `defaultConfig` client-side; the REST path
+    // fills it in too, so a behavior created over the API is not inert.
+    const res = await request(app)
+      .post(`/api/scene-nodes/${nodeId}/behaviors`)
+      .send({ kind: 'blendshape_limiter' });
+    expect(res.status).toBe(201);
+    const limits = res.body.data.config.limits as {
+      groups: unknown[];
+      clamps: unknown[];
+    };
+    expect(limits.groups).toHaveLength(1);
+    expect(limits.clamps).toHaveLength(2);
+
+    // And it round-trips through the store, not just the response body. The
+    // list route returns raw rows, so `config` comes back as a JSON string.
+    const stored = (await listBehaviors(nodeId)).find(
+      (b) => b.kind === 'blendshape_limiter'
+    ) as unknown as { config: string };
+    const parsed = JSON.parse(stored.config) as {
+      limits: { clamps: unknown[] };
+    };
+    expect(parsed.limits.clamps).toHaveLength(2);
+  });
+
+  it('honours an explicitly supplied empty config over the kind default', async () => {
+    const res = await request(app)
+      .post(`/api/scene-nodes/${nodeId}/behaviors`)
+      .send({ kind: 'blendshape_limiter', config: {} });
+    expect(res.status).toBe(201);
+    expect(res.body.data.config).toEqual({});
+  });
+
   it('rejects a behavior without kind (400)', async () => {
     const res = await request(app)
       .post(`/api/scene-nodes/${nodeId}/behaviors`)

@@ -188,7 +188,12 @@ router.post('/projects/:projectId/scenes', (req, res) => {
   const id = randomUUID();
   const projectId = req.params.projectId;
   const db = getDb();
-  const populate = req.body.populate !== false;
+  // Scenes are EMPTY by default: creating a scene and furnishing it are separate
+  // acts, and seeding surprised callers who then added their own camera/lights on
+  // top (the agent duplicating "Key Light" was the visible symptom). Seeding is
+  // opt-in and belongs to first-run onboarding — see Home.tsx, the only caller
+  // that asks for it.
+  const populate = req.body.populate === true;
 
   // Create a kind='scene' node with root_scene_node_id pointing to itself
   db.prepare(
@@ -221,6 +226,18 @@ router.post('/projects/:projectId/scenes', (req, res) => {
           sx: 1,
           sy: 1,
           sz: 1,
+        },
+        // Matches the default for a manually created camera (createKinds.ts):
+        // orthographic, which suits 2D-style avatar framing. Previously this was
+        // omitted entirely, so the seeded camera fell back to perspective and was
+        // the one camera in the app that disagreed with every other.
+        camera: {
+          type: 'camera',
+          projection: 'orthographic',
+          fov: 50,
+          orthoSize: 2,
+          near: 0.1,
+          far: 1000,
         },
       })
     );

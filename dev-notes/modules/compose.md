@@ -248,6 +248,32 @@ See also [frontend.md](frontend.md) for general editor structure and store conve
 - The legacy single-camera viewer route `/viewer/:projectId/:nodeId` renders **only** the camera's 3D output (no compose layers). Compose layers are shown exclusively by the compose-scene viewer (`/viewer/:projectId/compose/:composeSceneId`, via the `composeSceneId` param), whose whole stack — including the `camera_view` 3D layer — is the streamed output. Both render through `ComposeStage`.
 - [track-clips.md](track-clips.md) — track clips can target compose-layer `layer.x`, `layer.y`, `layer.rotation`. `ComposeLayerStack.LayerView` subscribes per-layer to `composeLayerOverrides[layer.id]` in the Zustand store and merges over the base on render. Overrides are runtime-only (never persisted); for `relative`-mode clips the evaluator pre-folds the base in, so the merge is always a plain replace.
 
+## OBS window capture output
+
+Status: **implemented for dev / from-source runs**; release packaging pending. Plan and
+measurements: [plans/obs-output-window.md](../plans/obs-output-window.md).
+
+- **Setting:** compose scene `config.obsWindowCapture: boolean`, toggled by the
+  `.vs-compose-obs-window` checkbox in `ComposeSceneProperties` (`ComposeLayerProperties.tsx`).
+- **Backend:** `packages/backend/src/output_window/manager.ts`. `OutputWindowManager`
+  observes the `compose_layer` mesh collection (debounced `all()` resync) and keeps one
+  window per enabled compose scene for the server's lifetime. The pure `desiredWindows()`
+  maps scenes to `{ id, url, width, height, title }`. A crashed child restarts with
+  exponential backoff; it is stopped from `shutdown()` and `process.on('exit')`.
+- **Electron:** `packages/output-window/main.cjs`, one process for all windows. Windows are
+  frameless, transparent, `skipTaskbar`, non-focusable, sized on-screen while hidden, then
+  parked far off-screen (Windows capture still delivers frames; minimized windows can't be
+  captured). Chromium throttling is disabled (`CalculateNativeWinOcclusion`,
+  `disable-backgrounding-occluded-windows`, `disable-renderer-backgrounding`,
+  `backgroundThrottling: false`). Driven over the **Node IPC channel**, because Electron's
+  main process reads EOF from stdin on Windows; it quits on `disconnect`.
+- **Viewer:** `ViewerPage` with `?output=window` keeps the document transparent outside OBS.
+- **Window title:** `obsOutputWindowTitle(name)` in `@vspark/shared` (`vspark – <scene>`).
+  OBS Window Capture matches by title, so renaming a scene requires re-picking it in OBS.
+- **Viewer origin:** `VSPARK_VIEWER_ORIGIN`, else the backend port when bundled, else Vite
+  (`VITE_DEV_PORT`, default 5173).
+- **Packaged release:** Electron isn't shipped yet, so the manager logs once and stays inert.
+
 ## Known Limitations / Future Work
 
 - `cameraOrder` interleaving is supported by the data model and the properties panel, but the tree UI has no fine-grained "insert between two siblings" affordance. (The tree does support drag-and-drop reparent/reorder — see "Tree drag-and-drop" above — and the ↑/↓ buttons + numeric `sceneOrder` / `cameraOrder` inputs remain.)

@@ -124,3 +124,29 @@ that a **set_data** node publishes into the layer's scope.
 Static visual styles can be added in the **Styles (CSS)** field; dynamic styles
 (colours or sizes that change with the data) go inline inside the template
 markup itself.
+
+## OBS window capture {#obs-window-capture}
+
+Usually you add a compose scene to OBS as a **Browser Source** (the broadcast
+viewer link). That works well, but all Browser Sources in OBS share one
+browser engine. When a game runs **fullscreen with an unlimited frame rate**
+and keeps your graphics card fully busy, Browser Sources can drop to a choppy
+frame rate — especially with several animated Browser Sources at once.
+Tabbing out of the game makes it smooth again, which is the typical sign.
+
+For those cases, tick **Enable for OBS window capture** in the compose scene's
+settings. While vspark is running, it then keeps this scene in a hidden
+window — off-screen and not in the taskbar. In OBS:
+
+1. Add a **Window Capture** source.
+2. Pick the window named **vspark – *scene name*** (the settings panel shows
+   the exact name).
+3. Remove the old Browser Source for this scene.
+
+Transparency is kept, and the window keeps its full frame rate while a
+fullscreen game is running. If you rename the compose scene, the window title
+changes too — pick the window again in OBS.
+
+Independent of the capture method, two settings help a lot: **limit your
+game's frame rate** (in-game limiter or graphics driver), and tick **Shutdown
+source when not visible** on Browser Sources you don't need in every scene.

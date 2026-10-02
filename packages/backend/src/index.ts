@@ -6,8 +6,11 @@ import { createApp } from './app.js';
 import { runMigrations, getDb, closeDb } from './db/index.js';
 import {
   setVmcManager,
+  setIFacialMocapManager,
   setBreathingManager,
   setManualCalibrationManager,
+  setPoseStylizerManager,
+  setBlendshapeLimiterManager,
   setLipsyncManager,
   setTrackingManager,
   setApiControllerManager,
@@ -18,8 +21,11 @@ import {
 import { initUpdateChecker, getInstallDir } from './routes/update.js';
 import { WSSync } from './ws/index.js';
 import { VmcManager } from './behaviors/vmc_receiver/manager.js';
+import { IFacialMocapManager } from './behaviors/ifacialmocap_receiver/manager.js';
 import { BreathingManager } from './behaviors/breathing/manager.js';
 import { ManualCalibrationManager } from './behaviors/manual_calibration/manager.js';
+import { PoseStylizerManager } from './behaviors/pose_stylizer/manager.js';
+import { BlendshapeLimiterManager } from './behaviors/blendshape_limiter/manager.js';
 import { LipsyncManager } from './behaviors/lipsync/manager.js';
 import { TrackingManager } from './behaviors/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from './behaviors/api_controller/manager.js';
@@ -27,7 +33,10 @@ import { TrackClipPlaybackManager } from './track_clips/playback.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { broadcastBus } from './broadcast/bus.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
-import { initIkBroadcast, setIkStreamForwarder } from './signal/nodes/ik_broadcast.js';
+import {
+  initIkBroadcast,
+  setIkStreamForwarder,
+} from './signal/nodes/ik_broadcast.js';
 import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
 import { initStartClip } from './signal/nodes/start_clip.js';
 import { runtimeOverrideManager } from './runtime_overrides/manager.js';
@@ -53,6 +62,13 @@ import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
 import { resolveRendezvousUrl } from './multiplayer/config.js';
 import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
+import { createMcpHttpRouter } from './mcp/http.js';
+import { AssistantManager } from './assistant/manager.js';
+import {
+  OutputWindowManager,
+  createElectronLauncher,
+  type ComposeSceneDoc,
+} from './output_window/manager.js';
 import {
   hydrateContainmentIndex,
   applyDocToIndex,
@@ -61,17 +77,34 @@ import type {
   LipsyncInputMessage,
   TrackingInputMessage,
   AvatarExpressionsReportMessage,
+  ClientHelloMessage,
 } from '@vspark/shared';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const PORT = Number(process.env.PORT) || 3001;
+
 const wsSync = new WSSync();
 const app = createApp({ wsSync });
+
+// MCP server over Streamable HTTP at /mcp. Tools call back into this same
+// backend over loopback, so the MCP path exercises the real REST surface.
+app.use('/mcp', createMcpHttpRouter(`http://127.0.0.1:${PORT}`));
+
+// In-app assistant agent (consumes the MCP via an in-memory transport).
+const assistantManager = new AssistantManager(
+  wsSync,
+  `http://127.0.0.1:${PORT}`
+);
+
 const server = createServer(app);
 
 // Mirrors the bundle check in createApp — used below to decide whether to open
 // a browser once the server is listening.
 const PUBLIC_DIR = join(__dirname, 'public');
+
+// Off-screen OBS window-capture outputs; created in start(), stopped on exit.
+let outputWindows: OutputWindowManager | null = null;
 
 server.on('upgrade', (req, socket, head) => {
   if (req.url?.startsWith('/ws')) {
@@ -106,6 +139,34 @@ async function start() {
       initMeshStreams(mp, (kind, payload) => wsSync.broadcast(kind, payload));
       const sceneNodes = getMeshCollection('scene_node');
       if (sceneNodes) initMeshAssets(mp, sceneNodes);
+    }
+  }
+  // OBS window capture: one off-screen output window per compose scene that has
+  // it enabled, kept in step with live compose-layer changes.
+  {
+    const composeLayers = getMeshCollection('compose_layer');
+    if (composeLayers) {
+      // The viewer is served by this backend when bundled; in dev it lives on Vite.
+      const viewerOrigin =
+        process.env.VSPARK_VIEWER_ORIGIN ??
+        (existsSync(PUBLIC_DIR)
+          ? `http://localhost:${PORT}`
+          : `http://localhost:${process.env.VITE_DEV_PORT || 5173}`);
+      outputWindows = new OutputWindowManager({
+        viewerOrigin,
+        launcher: createElectronLauncher(),
+      });
+      const resync = () =>
+        outputWindows?.setScenes(composeLayers.all() as unknown as ComposeSceneDoc[]);
+      let pending: ReturnType<typeof setTimeout> | null = null;
+      composeLayers.observe('**', () => {
+        if (pending) return;
+        pending = setTimeout(() => {
+          pending = null;
+          resync();
+        }, 250);
+      });
+      resync();
     }
   }
   // Connect to the rendezvous. Defaults to the public instance (see
@@ -155,11 +216,20 @@ async function start() {
   const vmcManager = new VmcManager(wsSync);
   setVmcManager(vmcManager);
 
+  const ifacialMocapManager = new IFacialMocapManager(wsSync);
+  setIFacialMocapManager(ifacialMocapManager);
+
   const breathingManager = new BreathingManager();
   setBreathingManager(breathingManager);
 
   const manualCalibrationManager = new ManualCalibrationManager();
   setManualCalibrationManager(manualCalibrationManager);
+
+  const poseStylizerManager = new PoseStylizerManager();
+  setPoseStylizerManager(poseStylizerManager);
+
+  const blendshapeLimiterManager = new BlendshapeLimiterManager();
+  setBlendshapeLimiterManager(blendshapeLimiterManager);
 
   const lipsyncManager = new LipsyncManager();
   setLipsyncManager(lipsyncManager);
@@ -224,6 +294,23 @@ async function start() {
   const overliveManager = initOverliveManager(wsSync);
   await overliveManager.startAll();
 
+  // Render-client lifecycle — client_hello / disconnect → client_lifecycle
+  // nodes. vspark-native: works for a plain browser tab, no OBS needed.
+  // See dev-notes/modules/obs.md.
+  const { initObsManager } = await import('./obs/manager.js');
+  const obsManager = initObsManager();
+  wsSync.onClientConnected((ws) => {
+    ws.on('close', () => obsManager.handleClientGone(ws));
+  });
+
+  // OBS integration — one backend-held obs-websocket connection per project
+  // (credentials in the Accounts UI). Carries every OBS control and state node:
+  // scene/transition/output control, audio volume/mute, replay path.
+  // See dev-notes/modules/obs.md.
+  const { initObsWsManager } = await import('./obs/ws_manager.js');
+  const obsWsManager = initObsWsManager(wsSync);
+  obsWsManager.startAll();
+
   // Client-mesh signaling relay: track each client's participant id + tear it
   // down on disconnect so the roster stays accurate.
   clientMeshRelay.initWs(wsSync);
@@ -258,6 +345,9 @@ async function start() {
 
   // Handle browser → server media messages
   wsSync.onMessage((kind, payload, sourceWs) => {
+    if (assistantManager.handle(kind, payload, sourceWs)) {
+      return;
+    }
     if (kind === 'lipsync_input') {
       const msg = payload as LipsyncInputMessage;
       lipsyncManager.fireVisemes(msg.behaviorId, msg.visemes ?? {});
@@ -276,6 +366,11 @@ async function start() {
         msg.nodeId,
         msg.expressions ?? []
       );
+    } else if (kind === 'client_hello') {
+      // Render client announcing its identity (projectId + stable target marker).
+      const msg = payload as ClientHelloMessage;
+      if (typeof msg.projectId === 'string')
+        obsManager.handleHello(sourceWs, msg.projectId, msg.target ?? '');
     } else if (kind === 'node_transform_preview') {
       // Live in-flight transform from a drag/wheel gesture in one client; relay
       // to every other client without persisting. The eventual mouseup/settle
@@ -353,9 +448,16 @@ async function start() {
 
   // Start receivers for any components that were persisted
   const vmcRows = getDb()
-    .prepare("SELECT * FROM behaviors WHERE kind = 'vmc_receiver'")
+    .prepare(
+      "SELECT * FROM behaviors WHERE kind IN ('vmc_receiver', 'vmc_receiver_2d')"
+    )
     .all() as Record<string, unknown>[];
   vmcManager.syncBehaviors(vmcRows.map(mapRow));
+
+  const ifacialMocapRows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'ifacialmocap_receiver'")
+    .all() as Record<string, unknown>[];
+  ifacialMocapManager.syncBehaviors(ifacialMocapRows.map(mapRow));
 
   const breathingRows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'breathing'")
@@ -366,6 +468,16 @@ async function start() {
     .prepare("SELECT * FROM behaviors WHERE kind = 'manual_calibration'")
     .all() as Record<string, unknown>[];
   manualCalibrationManager.syncBehaviors(manualCalibrationRows.map(mapRow));
+
+  const poseStylizerRows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'pose_stylizer'")
+    .all() as Record<string, unknown>[];
+  poseStylizerManager.syncBehaviors(poseStylizerRows.map(mapRow));
+
+  const blendshapeLimiterRows = getDb()
+    .prepare("SELECT * FROM behaviors WHERE kind = 'blendshape_limiter'")
+    .all() as Record<string, unknown>[];
+  blendshapeLimiterManager.syncBehaviors(blendshapeLimiterRows.map(mapRow));
 
   const lipsyncRows = getDb()
     .prepare("SELECT * FROM behaviors WHERE kind = 'lipsync_processor'")
@@ -383,7 +495,7 @@ async function start() {
   apiControllerManager.syncBehaviors(apiControllerRows.map(mapRow));
 
   // PORT override lets two instances run on one box (multiplayer testing).
-  const port = Number(process.env.PORT) || 3001;
+  const port = PORT;
   server.listen(port, async () => {
     console.log(`vspark listening on http://localhost:${port}`);
     if (existsSync(PUBLIC_DIR)) {
@@ -400,6 +512,7 @@ function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
   shuttingDown = true;
   try {
+    outputWindows?.stop();
     closeDb();
   } finally {
     process.exit(signal === 'SIGINT' ? 130 : 143);
@@ -407,5 +520,7 @@ function shutdown(signal: NodeJS.Signals): void {
 }
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+// Also covers process.exit paths that bypass shutdown() (e.g. the update exit).
+process.on('exit', () => outputWindows?.stop());
 
 start();

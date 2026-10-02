@@ -51,6 +51,7 @@
   },
   "behavior": {
     "vmc_receiver": { "label": "VMC Receiver", "description": "Receives motion capture data from RhyLive or any VMC-compatible app over UDP." },
+    "ifacialmocap_receiver": { "label": "iFacialMocap Receiver", "description": "Receives ARKit face tracking from the iFacialMocap iOS app over UDP and drives head, eyes and blendshapes." },
     "breathing": { "label": "Breathing", "description": "Adds procedural breathing motion to the chest and spine bones using a sine oscillator." },
     "lipsync_processor": { "label": "Lipsync", "description": "Receives microphone viseme weights from the browser and drives VRM blendshapes in real time." },
     "mediapipe_tracker": { "label": "MediaPipe Tracking", "description": "Receives face, hand, and body pose landmarks from the browser camera and drives VRM bones and blendshapes in real time." },

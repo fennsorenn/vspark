@@ -99,6 +99,29 @@
   "pickApp": {
     "title": "Which Twitch app?"
   },
+  "obs": {
+    "heading": "OBS Connections",
+    "help": "Connect to OBS via obs-websocket to control audio, scenes and more from your Logic.",
+    "add": "+ Add OBS",
+    "empty": "No OBS connection. Enable the obs-websocket server in OBS (Tools → WebSocket Server Settings), then add its address and password here.",
+    "test": "Test",
+    "edit": "Edit",
+    "addTitle": "Add OBS Connection",
+    "editTitle": "Edit OBS Connection",
+    "hint": "In OBS: Tools → WebSocket Server Settings. Use the same port and password shown there. OBS must run on this machine.",
+    "fields": {
+      "label": "Label",
+      "host": "Host",
+      "port": "Port",
+      "password": "Password"
+    },
+    "allRequired": "Label and host are required.",
+    "saveFailed": "Failed to save connection",
+    "removeConfirm": "Remove OBS connection “{{label}}”?",
+    "removeFailed": "Failed to remove connection",
+    "cancel": "Cancel",
+    "save": "Save"
+  },
   "help": {
     "streamAccounts": "Connect Twitch or StreamElements here so vspark can react to live stream events in your Logic automations."
   }

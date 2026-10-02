@@ -236,6 +236,7 @@
     "defaultExpressionHint": "Resting expression weights held until a blendshape broadcast (VMC, lipsync, tracking) overrides them.",
     "propertiesHeader": "Properties",
     "blendTransition": "Blend transition",
+    "trackingGracePeriod": "Idle after",
     "dynamicsHeader": "Motion Snappiness",
     "dynamicsEnable": "Add snappiness to motion",
     "dynamicsFrequency": "Frequency",
@@ -356,7 +357,8 @@
     "pipelineError": "Could not reach pipeline — is tracking active?",
     "resetAll": "Reset all calibration",
     "calibReset": "Calibration reset",
-    "hint": "Head: relax into your natural posture. Arms: touch fingertip to eye corner, hold steady."
+    "hint": "Head: relax into your natural posture. Arms: touch fingertip to eye corner, hold steady.",
+    "headOnlyHint": "Head: look straight at the phone in a relaxed posture, then capture."
   },
   "vmc": {
     "host": "Host",
@@ -366,7 +368,6 @@
     "blendAdditive": "Additive — layered on top",
     "mirror": "Mirror",
     "flipLR": "Flip left / right",
-    "idleAfter": "Idle after",
     "faceMappersHeader": "Face Mappers",
     "localIpsHeader": "This machine's IPs — point your capture app here",
     "setHostTip": "Set host to {{ip}}",
@@ -380,6 +381,19 @@
     "mapperArkitPlaceholder": "ARKit shape…",
     "mapperTargetPlaceholder": "Morph target or expression…",
     "mapperInvalidJson": "Invalid JSON"
+  },
+  "ifm": {
+    "deviceHost": "Device IP",
+    "deviceHostPlaceholder": "iPhone / iPad address, e.g. 192.168.1.42",
+    "blendOverride": "Override — tracking replaces animation",
+    "axesHeader": "Head Axes",
+    "invertPitch": "Invert nod",
+    "invertYaw": "Invert turn",
+    "invertRoll": "Invert tilt",
+    "axesHint": "Flip an axis if the head moves the wrong way. Capture a head neutral below once the axes look right.",
+    "localIpsHeader": "This machine's IPs — enter one in the iFacialMocap app",
+    "compatHint": "Works with iFacialMocap (iOS). Enter the Device IP above and vspark will ask the phone to stream, or leave it empty and point the app at one of the addresses above. Both ends use port {{port}}.",
+    "firewallHint": "Port {{port}} needs to be open in your firewall."
   },
   "lipsync": {
     "sensitivity": "Sensitivity",
@@ -430,6 +444,144 @@
   "breathing": {
     "chestAmplitude": "Chest amplitude",
     "shoulderLift": "Shoulder lift"
+  },
+  "stylizedTracking": {
+    "hint": "Rewrites accurate tracking as stylized motion: a few drivers read off your performance (head, torso, arms) are fanned back out across the whole body, the way a 2D avatar is rigged.",
+    "preset": "Body vs head",
+    "presetName": {
+      "follow": "Body follows head",
+      "counter": "Body counters head",
+      "headOnly": "Head-driven, body follows",
+      "headOnlyCounter": "Head-driven, body counters",
+      "expressive": "Expressive"
+    },
+    "presetHint": {
+      "follow": "Turn your head and the chest, spine and hips turn with it — the whole body leans into the look.",
+      "counter": "Turn your head and the torso twists the other way — a theatrical, posed silhouette. The head and neck carry more so you still look where you're looking.",
+      "headOnly": "Only your head steers the avatar — torso and arm tracking are ignored entirely. Use it with a face-only tracker, or when your body tracking is too noisy to trust. The body moves more per unit of head movement to make up for it.",
+      "headOnlyCounter": "Only your head steers the avatar, and the torso twists against it — contrapposto on a face-only signal. Same use cases as the other head-driven preset, with a more posed silhouette.",
+      "expressive": "Follow's mapping, but it takes far less movement to reach full deflection and the body trails further. For staying fairly still and still reading as animated."
+    },
+    "amount": "Blend",
+    "amountHint": "How much of the stylized pose replaces your tracking. 0 = your tracking untouched, 1 = fully stylized.",
+    "strength": "Strength",
+    "strengthHint": "Overall multiplier on how far the stylized motion travels. 1 = the rig as designed; below 1 tones the whole thing down, above 1 exaggerates it.",
+    "lag": "Follow-through",
+    "restUnmapped": "Rest bones the rig doesn't drive",
+    "responseSection": "Response",
+    "responseHint": "How your movement is read into drivers. Range = how far you have to move for a full-strength response; the rest is glitch and jitter conditioning.",
+    "resetResponse": "Reset response",
+    "rigSection": "Response rig",
+    "rigHint": "Per bone: which drivers move it, by how many degrees at full driver strength, whether it replaces tracking or layers over it, and how far it trails.",
+    "rigModeLabel": "Editor",
+    "rigMode": {
+      "simple": "Simplified",
+      "detailed": "Per bone"
+    },
+    "rigModeHint": {
+      "simple": "Head and body as two sections, plus the body’s own shift. Rotation cells are degrees; shift cells move the hips as a fraction of hip height, so a rig ported to another avatar shifts proportionally. Changing a cell rescales the whole chain, keeping the preset’s falloff — and the arms keep counteracting the body automatically.",
+      "detailed": "Every bone individually. Switching here brought your simplified values across unchanged, so you can carry on from exactly what was running."
+    },
+    "channel": {
+      "headTurn": "Head turn",
+      "headTilt": "Head tilt",
+      "headNod": "Head nod",
+      "bodyTurn": "Body turn",
+      "bodySway": "Body sway",
+      "bodyLean": "Body lean",
+      "shiftSide": "Body shift side",
+      "shiftUp": "Body shift up",
+      "shiftForward": "Body shift fwd"
+    },
+    "channelShort": {
+      "headTurn": "H turn",
+      "headTilt": "H tilt",
+      "headNod": "H nod",
+      "bodyTurn": "B turn",
+      "bodySway": "B sway",
+      "bodyLean": "B lean",
+      "shiftSide": "Shift X",
+      "shiftUp": "Shift Y",
+      "shiftForward": "Shift Z"
+    },
+    "rigStock": "Stock rig",
+    "rigModified": "{{count}} bone changed",
+    "rigModified_other": "{{count}} bones changed",
+    "resetRig": "Reset rig",
+    "resetBone": "Reset bone",
+    "boneMode": "Mode",
+    "boneLag": "Lag",
+    "addDriver": "+ driver…",
+    "addBone": "+ bone…",
+    "mode": {
+      "replace": "Replace",
+      "add": "Add"
+    },
+    "driver": {
+      "headYaw": "Head turn",
+      "headPitch": "Head nod",
+      "headRoll": "Head tilt",
+      "bodyYaw": "Body turn",
+      "bodyPitch": "Body lean",
+      "bodyRoll": "Body sway",
+      "armL": "Left arm height",
+      "armR": "Right arm height",
+      "energy": "Energy"
+    },
+    "response": {
+      "headRange": "Head range",
+      "bodyRange": "Body range",
+      "armRange": "Arm range",
+      "armNeutral": "Arm neutral",
+      "deadzone": "Deadzone",
+      "maxRate": "Max rate",
+      "smoothing": "Smoothing",
+      "energyScale": "Energy scale"
+    },
+    "responseTip": {
+      "headRange": "How far you turn your head for a full-strength head driver.",
+      "bodyRange": "How far you lean or turn your torso for a full-strength body driver.",
+      "armRange": "How far you raise an arm above neutral for a full-strength arm driver.",
+      "armNeutral": "The arm elevation treated as resting, so a relaxed arm doesn't drop the shoulder.",
+      "deadzone": "Driver strength below which you count as still. Stops sensor jitter from making the avatar shimmer.",
+      "maxRate": "Fastest a driver may travel, per second. This is the glitch gate: an impossible jump becomes a short slew instead of a pop.",
+      "smoothing": "How much of the previous frame each driver keeps. Higher is softer and later.",
+      "energyScale": "How much total driver motion counts as full energy."
+    }
+  },
+  "blendshapeLimits": {
+    "enabled": "Limits active",
+    "hint": "Face tracking, lipsync and manual expressions all land in the same frame. These rules stop them from stacking into exaggerated or broken faces.",
+    "resetDefaults": "Reset to defaults",
+    "groupsHeader": "Exclusive groups",
+    "groupsHint": "Expressions in a group cannot occur together. The strongest one wins; the others fade out in proportion to how strong it is.",
+    "clampsHeader": "Clamp rules",
+    "clampsHint": "While the driver expression is active, the target shapes are capped into a reduced range — e.g. joy already closes the eyes, so blink is held back.",
+    "membersHeader": "Members — one row per expression, several names if your model spells it differently",
+    "mode": "Mode",
+    "modeSuppress": "Strongest wins",
+    "modeNormalize": "Normalise sum",
+    "strength": "Strength",
+    "when": "Driver",
+    "targets": "Targets",
+    "range": "Range",
+    "min": "min",
+    "max": "max",
+    "threshold": "Threshold",
+    "ramp": "Fade in with driver",
+    "addName": "Add name or pattern (* allowed), Enter to confirm",
+    "addDriver": "Add driver expression, empty = always on",
+    "addGroup": "Add group",
+    "addMember": "Add member",
+    "addClamp": "Add clamp rule",
+    "newGroup": "New group",
+    "newMember": "New member",
+    "newClamp": "New clamp",
+    "remove": "Remove",
+    "jsonHeader": "Raw JSON",
+    "jsonHint": "The full rule set. Edit it directly and apply — handy for copying a configuration between avatars.",
+    "jsonApply": "Apply JSON",
+    "jsonRevert": "Discard changes"
   },
   "behaviorFallback": "No configurable properties.",
   "effect": {
@@ -535,6 +687,7 @@
     "expressions": "Learn how to set default expressions on your avatar",
     "materials": "Learn how to override avatar materials and shaders",
     "animation": "Learn about idle animations and blend timing",
+    "trackingGracePeriod": "Learn how brief tracking dropouts are ridden out before the avatar returns to idle",
     "dynamics": "Learn how to make motion-capture movement feel snappier",
     "camera": "Learn about camera properties and projections",
     "light": "Learn about light types and shadow settings",
@@ -574,6 +727,10 @@
     "audioSpatial": "Distance and cone parameters for directional audio — reference distance, rolloff, max distance, and the cone angles",
     "twist": "Spread forearm roll along the arm instead of pinching at the elbow",
     "poseSource": "Drive each body section from animation, live tracking, or a blend of both",
-    "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops"
+    "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops",
+    "stylizedTracking": "Learn how stylized tracking reshapes your motion",
+    "ifacialmocap": "Learn how to connect the iFacialMocap iOS app",
+    "ifmFirewall": "Why the app can say “connected” while nothing reaches vspark",
+    "expressionLimits": "Learn how expression limits stop exaggerated or broken faces"
   }
 }

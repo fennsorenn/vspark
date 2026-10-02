@@ -18,6 +18,7 @@ import {
   grantCoversSubscription,
   subscriptionMatches,
   SubscriptionHub,
+  randomUUID,
   type HLC,
   type Grant,
   type Subscription,
@@ -290,5 +291,36 @@ describe('SubscriptionHub', () => {
     expect(dropped).toHaveLength(1);
     expect(hub.participants()).toEqual([]);
     expect(hub.revalidate('nobody')).toEqual([]);
+  });
+});
+
+describe('randomUUID', () => {
+  const V4 =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  it('returns a well-formed v4 UUID', () => {
+    expect(randomUUID()).toMatch(V4);
+  });
+
+  it('is unique across calls', () => {
+    const set = new Set(Array.from({ length: 1000 }, () => randomUUID()));
+    expect(set.size).toBe(1000);
+  });
+
+  it('falls back to getRandomValues when crypto.randomUUID is absent (non-secure context)', () => {
+    const real = globalThis.crypto;
+    // Simulate a plain-HTTP LAN origin: getRandomValues present, randomUUID not.
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { getRandomValues: real.getRandomValues.bind(real) },
+    });
+    try {
+      expect(randomUUID()).toMatch(V4);
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', {
+        configurable: true,
+        value: real,
+      });
+    }
   });
 });

@@ -116,6 +116,21 @@ test('cov-compose: exercise ComposeTree and layer-property controls', async ({
     await collapseBtn.click(); // expand back
   }
 
+  // vs-compose-obs-window — the compose scene (no layer selected) shows its
+  // settings; toggle OBS window capture on, assert it persisted, then off again
+  // so the backend closes the output window it opened.
+  const obsWindow = page.locator('.vs-compose-obs-window');
+  await expect(obsWindow).toBeVisible({ timeout: 5_000 });
+  const sceneConfig = async () => {
+    const res = await request.get(`/api/projects/${projectId}/compose-scenes`);
+    const scenes = ((await res.json()).data ?? []) as ComposeLayer[];
+    return scenes.find((s) => s.id === composeSceneId)?.config ?? {};
+  };
+  await obsWindow.click();
+  await expect.poll(async () => (await sceneConfig()).obsWindowCapture).toBe(true);
+  await obsWindow.click();
+  await expect.poll(async () => (await sceneConfig()).obsWindowCapture).toBe(false);
+
   // ---- 4. Select the layer to show its properties --------------------------
 
   // Click on the layer row to select it.

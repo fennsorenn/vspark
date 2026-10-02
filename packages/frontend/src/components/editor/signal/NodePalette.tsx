@@ -133,6 +133,7 @@ const TAG_ORDER = [
   'scene',
   'clips',
   'overlive',
+  'obs',
   'utility',
 ];
 

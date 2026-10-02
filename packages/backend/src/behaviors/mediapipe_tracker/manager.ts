@@ -4,6 +4,7 @@ import { mkEvent, Blendshapes } from '@vspark/shared/signal';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
+import { trackingGraceMs } from '../tracking_grace.js';
 import {
   makeMediapipeGraphDescriptor,
   HEAD_CALIB_BONES,
@@ -14,12 +15,18 @@ import type { Landmark } from '@vspark/shared';
 import type { WSSync } from '../../ws/index.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 
-/** No landmark frame for this long ⇒ the browser stopped tracking (camera off,
- *  tab hidden, person left frame). Unlike VMC — which must infer loss from
+/** Fallback grace period when the avatar node has no `trackingGracePeriod` set.
+ *  No landmark frame for this long ⇒ the browser stopped tracking (camera off,
+ *  tab hidden, person left frame). Unlike VMC — which must also infer loss from
  *  frame-to-frame /Body deltas — the camera pipeline simply stops sending, so a
- *  plain silence timeout is enough. Loose enough to ride out a few dropped
- *  frames at ~30 fps. */
+ *  plain silence timeout is the only loss path here. Loose enough to ride out a
+ *  few dropped frames at ~30 fps. */
 const TRACKING_TIMEOUT_MS = 1000;
+
+/** Sweep period. Fixed rather than derived from the configured grace period,
+ *  which is per-behavior and hot-editable; 250ms keeps the resolution finer than
+ *  the smallest window the "Idle after" field allows (0.1s). */
+const SWEEP_MS = 250;
 
 interface TrackingFrame {
   face?: Landmark[];
@@ -52,12 +59,8 @@ export class TrackingManager {
   private readonly timer: ReturnType<typeof setInterval>;
 
   constructor(private readonly ws?: WSSync) {
-    // Poll for tracking loss (browser stopped sending). Half the timeout so a
-    // drop is noticed within ~1.5 windows.
-    this.timer = setInterval(
-      () => this.checkTimeouts(),
-      Math.floor(TRACKING_TIMEOUT_MS / 2)
-    );
+    // Poll for tracking loss (browser stopped sending).
+    this.timer = setInterval(() => this.checkTimeouts(), SWEEP_MS);
     // Re-send current tracking state to a freshly-connected client (refresh /
     // new tab), mirroring the VMC receiver, so the SceneGraph indicator is right
     // immediately.
@@ -83,12 +86,27 @@ export class TrackingManager {
     if (!active) broadcastBus.removeBehavior(behaviorId);
   }
 
+  /**
+   * Grace period (ms) before a dropout is reported as a loss, read from the avatar
+   * node's `trackingGracePeriod` property. Shared with vmc_receiver so both
+   * tracking sources on an avatar reach idle on the same clock instead of each
+   * honouring its own constant.
+   *
+   * Falls back to the camera-specific default rather than the shared one: at ~30fps
+   * a shorter window is fine here, and this is only reached when the node carries
+   * no explicit setting.
+   */
+  private graceMs(behaviorId: string): number {
+    return trackingGraceMs(this.nodeIds.get(behaviorId), TRACKING_TIMEOUT_MS);
+  }
+
   private checkTimeouts(): void {
     const now = Date.now();
     for (const [behaviorId, active] of this.trackingActive) {
       if (!active) continue;
       const last = this.lastInput.get(behaviorId) ?? 0;
-      if (now - last > TRACKING_TIMEOUT_MS) this._setTracking(behaviorId, false);
+      if (now - last > this.graceMs(behaviorId))
+        this._setTracking(behaviorId, false);
     }
   }
 

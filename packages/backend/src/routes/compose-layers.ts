@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
+import { validateFeedConfig } from '@vspark/shared/feedValidation';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
@@ -246,6 +247,13 @@ router.post('/compose-scenes/:composeSceneId/layers', async (req, res) => {
       },
     });
   }
+  const configError = validateFeedConfig(config);
+  if (configError) {
+    return res.status(400).json({
+      ok: false,
+      error: { status: 400, message: configError, code: 'VALIDATION_ERROR' },
+    });
+  }
   const layerId = id ?? randomUUID();
 
   // Default ordering: append to the back of the stack so new layers don't unexpectedly cover existing content.
@@ -353,12 +361,31 @@ router.put('/compose-layers/:id', async (req, res) => {
     'anchorV',
     'sceneOrder',
     'cameraOrder',
-    'config',
   ]) {
     if (patch[k] !== undefined) {
       next[k] = patch[k];
       changed = true;
     }
+  }
+  // config is SHALLOW-MERGED into the stored config, not replaced — so a caller
+  // can patch one field (e.g. a feed layer's `css`) without resending the whole
+  // object. The UI already sends the full config, so merge is a no-op for it;
+  // for the assistant it's the difference between restyling and accidentally
+  // wiping the template. Validate the MERGED result so css is checked against
+  // the template it'll actually render with.
+  if (patch.config !== undefined) {
+    const merged = {
+      ...((cur.config as Record<string, unknown> | undefined) ?? {}),
+      ...(patch.config as Record<string, unknown>),
+    };
+    const configError = validateFeedConfig(merged);
+    if (configError)
+      return res.status(400).json({
+        ok: false,
+        error: { status: 400, message: configError, code: 'VALIDATION_ERROR' },
+      });
+    next.config = merged;
+    changed = true;
   }
   if ('parentId' in patch) {
     next.parentId = patch.parentId ?? null;

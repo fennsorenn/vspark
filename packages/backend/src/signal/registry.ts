@@ -13,10 +13,13 @@ import { SceneEntity } from './nodes/scene_entity.js';
 import { ManualTrigger } from './nodes/manual_trigger.js';
 import { ArmIkCalibration } from './nodes/arm_ik_calibration.js';
 import { VmcPacketSource } from './nodes/vmc_packet_source.js';
+import { IFacialMocapPacketSource } from './nodes/ifacialmocap_packet_source.js';
 import { RhyliveBoneMapper } from './nodes/rhylive_bone_mapper.js';
 import { ArkitVrmMapper } from './nodes/arkit_vrm_mapper.js';
 import { BodyCalibration } from './nodes/body_calibration.js';
 import { PoseManualCalibration } from './nodes/pose_manual_calibration.js';
+import { PoseStyleDrivers } from './nodes/pose_style_drivers.js';
+import { PoseStylize } from './nodes/pose_stylize.js';
 import { PoseBroadcast } from './nodes/pose_broadcast.js';
 import { BlendshapesBroadcast } from './nodes/blendshapes_broadcast.js';
 import { BlendshapesSum } from './nodes/blendshapes_sum.js';
@@ -25,6 +28,9 @@ import { PackEvent } from './nodes/pack_event.js';
 import { QueueEvents } from './nodes/queue_events.js';
 import { OnPoseBroadcast } from './nodes/on_pose_broadcast.js';
 import { PoseInterceptorBroadcast } from './nodes/pose_interceptor_broadcast.js';
+import { OnBlendshapesBroadcast } from './nodes/on_blendshapes_broadcast.js';
+import { BlendshapesInterceptorBroadcast } from './nodes/blendshapes_interceptor_broadcast.js';
+import { BlendshapeLimits } from './nodes/blendshape_limits.js';
 import { Clock } from './nodes/clock.js';
 import { Time } from './nodes/time.js';
 import { SineWave } from './nodes/sine_wave.js';
@@ -103,6 +109,21 @@ import {
   OverliveRaidCancel,
 } from './nodes/overlive/actions_interactive.js';
 import { OverliveWhisper } from './nodes/overlive/actions_dm.js';
+// OBS browser-source bridge nodes
+import { ObsSceneChanged } from './nodes/obs/scene_changed.js';
+import { ObsOutputState } from './nodes/obs/output_state.js';
+import { ObsSetScene } from './nodes/obs/set_scene.js';
+import { ObsSetTransition } from './nodes/obs/set_transition.js';
+import { ObsControl } from './nodes/obs/control.js';
+// OBS power tier (obs-websocket) nodes
+import { ObsSetVolume } from './nodes/obs/set_volume.js';
+import { ObsMute } from './nodes/obs/mute.js';
+import { ObsVolumeChanged } from './nodes/obs/volume_changed.js';
+import { ObsMuteChanged } from './nodes/obs/mute_changed.js';
+import { ObsReplayPath } from './nodes/obs/replay_path.js';
+import { ObsConnectionState } from './nodes/obs/connection_state.js';
+// Render-client lifecycle (vspark-native, driven by the browser-source bridge)
+import { ClientLifecycle } from './nodes/client_lifecycle.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -117,10 +138,13 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   ArmIkCalibration,
   // Processing nodes
   VmcPacketSource,
+  IFacialMocapPacketSource,
   RhyliveBoneMapper,
   ArkitVrmMapper,
   BodyCalibration,
   PoseManualCalibration,
+  PoseStyleDrivers,
+  PoseStylize,
   // Output nodes
   PoseBroadcast,
   BlendshapesBroadcast,
@@ -131,6 +155,9 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   // Interceptor nodes
   OnPoseBroadcast,
   PoseInterceptorBroadcast,
+  OnBlendshapesBroadcast,
+  BlendshapesInterceptorBroadcast,
+  BlendshapeLimits,
   // Math / procedural nodes
   Clock,
   Time,
@@ -209,6 +236,21 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   OverliveRaidStart,
   OverliveRaidCancel,
   OverliveWhisper,
+  // OBS browser-source bridge — event sources + control actions
+  ObsSceneChanged,
+  ObsOutputState,
+  ObsSetScene,
+  ObsSetTransition,
+  ObsControl,
+  // OBS power tier (obs-websocket) — audio + connection
+  ObsSetVolume,
+  ObsMute,
+  ObsVolumeChanged,
+  ObsMuteChanged,
+  ObsReplayPath,
+  ObsConnectionState,
+  // Render-client lifecycle
+  ClientLifecycle,
 ];
 
 export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> = new Map(

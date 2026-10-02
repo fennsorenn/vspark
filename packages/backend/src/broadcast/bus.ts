@@ -4,6 +4,7 @@ import type { VRMBoneName } from '@vspark/shared/signal';
 import { getDb } from '../db/index.js';
 import type { WSSync } from '../ws/index.js';
 import { poseInterceptorRegistry } from '../signal/pose_interceptor_registry.js';
+import { blendshapeInterceptorRegistry } from '../signal/blendshape_interceptor_registry.js';
 
 const DEFAULT_TICK_HZ = 60;
 const MIN_TICK_HZ = 1;
@@ -89,6 +90,8 @@ export class BroadcastBus {
     priority: number,
     animationBlendMode: AnimationBlendMode
   ): void {
+    if (!_isIterableMap(pose))
+      return this._rejectPublish('bones', behaviorId, pose);
     const slot = this._slot(sceneNodeId, behaviorId);
     if (!slot) return;
     slot.bones = { pose, priority, animationBlendMode };
@@ -100,9 +103,33 @@ export class BroadcastBus {
     behaviorId: string,
     blendshapes: Blendshapes
   ): void {
+    if (!_isIterableMap(blendshapes))
+      return this._rejectPublish('blendshapes', behaviorId, blendshapes);
     const slot = this._slot(sceneNodeId, behaviorId);
     if (!slot) return;
     slot.blendshapes = { blendshapes };
+  }
+
+  /** Behaviors already warned about, so a 60 Hz producer logs once, not per frame. */
+  private readonly _warned = new Set<string>();
+
+  /**
+   * Drop a malformed publication instead of parking it in a slot. Composition runs
+   * on a timer, so a bad value stored here would throw on every tick — outside any
+   * request scope — and take the process down with it.
+   */
+  private _rejectPublish(
+    what: string,
+    behaviorId: string,
+    value: unknown
+  ): void {
+    const key = `${what}:${behaviorId}`;
+    if (this._warned.has(key)) return;
+    this._warned.add(key);
+    console.warn(
+      `[BroadcastBus] Ignoring ${what} from behavior ${behaviorId}: ` +
+        `expected a ${what === 'bones' ? 'NormalizedPose' : 'Blendshapes'}, got ${_describe(value)}`
+    );
   }
 
   /** Drop all slots belonging to a component (call when the component is deleted/recreated,
@@ -122,6 +149,8 @@ export class BroadcastBus {
           sceneMap.delete(sceneNodeId);
           this._pendingModes.delete(sceneNodeId);
         }
+        this._warned.delete(`bones:${behaviorId}`);
+        this._warned.delete(`blendshapes:${behaviorId}`);
       }
     }
   }
@@ -157,10 +186,7 @@ export class BroadcastBus {
       this._stopScene(sceneId);
   }
 
-  private _slot(
-    sceneNodeId: string,
-    behaviorId: string
-  ): ProducerSlots | null {
+  private _slot(sceneNodeId: string, behaviorId: string): ProducerSlots | null {
     const sceneId = this._resolveSceneId(sceneNodeId);
     if (!sceneId) return null;
     let sceneMap = this._slots.get(sceneId);
@@ -230,7 +256,13 @@ export class BroadcastBus {
     if (!sceneMap || sceneMap.size === 0) return;
     for (const [sceneNodeId, nodeMap] of sceneMap) {
       if (nodeMap.size === 0) continue;
-      this._composeAndEmit(sceneNodeId, nodeMap);
+      try {
+        this._composeAndEmit(sceneNodeId, nodeMap);
+      } catch (err) {
+        // The tick has no caller to propagate to — an escaping throw would be an
+        // unhandled exception and stop the server. Skip this node, keep ticking.
+        console.error(`[BroadcastBus] compose failed for ${sceneNodeId}:`, err);
+      }
     }
   }
 
@@ -259,10 +291,12 @@ export class BroadcastBus {
 
     if (bsSlots.length > 0) {
       const merged = _composeBlendshapes(bsSlots);
-      this._bcast('vmc_blendshapes', sceneNodeId, {
-        nodeId: sceneNodeId,
-        blendshapes: merged.toRecord(),
-      });
+      // Same hand-off as the pose path: if any blendshape interceptor is
+      // registered for this node (e.g. the Expression Limits behavior), the
+      // chain terminal emits via emitMergedBlendshapes instead.
+      if (!blendshapeInterceptorRegistry.start(sceneNodeId, merged)) {
+        this._emitBlendshapes(sceneNodeId, merged);
+      }
     }
   }
 
@@ -275,6 +309,21 @@ export class BroadcastBus {
     this._emitPose(sceneNodeId, pose, mode);
   }
 
+  /** Called by the blendshape interceptor terminal after the chain runs. */
+  emitMergedBlendshapes(sceneNodeId: string, blendshapes: Blendshapes): void {
+    this._emitBlendshapes(sceneNodeId, blendshapes);
+  }
+
+  private _emitBlendshapes(
+    sceneNodeId: string,
+    blendshapes: Blendshapes
+  ): void {
+    this._bcast('vmc_blendshapes', sceneNodeId, {
+      nodeId: sceneNodeId,
+      blendshapes: blendshapes.toRecord(),
+    });
+  }
+
   private _emitPose(
     sceneNodeId: string,
     pose: NormalizedPose,
@@ -284,6 +333,8 @@ export class BroadcastBus {
       nodeId: sceneNodeId,
       bones: pose.toRecord(),
       animationBlendMode: mode,
+      // Omitted for rotation-only poses, which is nearly all of them.
+      ...(pose.offsetCount > 0 ? { offsets: pose.offsetsToRecord() } : {}),
     });
   }
 
@@ -292,6 +343,26 @@ export class BroadcastBus {
     const hz = this._loadSceneTickHz(sceneId);
     this.setSceneTickRate(sceneId, hz);
   }
+}
+
+/**
+ * Structural check for the map-like value classes the bus composes
+ * (`NormalizedPose` / `Blendshapes`): it only ever calls `entries()` and
+ * `toRecord()` on them. Structural rather than `instanceof` so a value that
+ * crossed a module boundary (bundled build, duplicated package copy) still
+ * passes, while a JSON-revived plain object — which has neither method — does not.
+ */
+function _isIterableMap(v: unknown): boolean {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as { entries?: unknown; toRecord?: unknown };
+  return typeof o.entries === 'function' && typeof o.toRecord === 'function';
+}
+
+/** Short, log-safe description of a rejected publication. */
+function _describe(v: unknown): string {
+  if (v === null) return 'null';
+  if (typeof v !== 'object') return typeof v;
+  return `${(v as object).constructor?.name ?? 'object'} ${JSON.stringify(v)?.slice(0, 120) ?? ''}`;
 }
 
 function _clampHz(hz: number): number {
@@ -307,13 +378,25 @@ function _clampHz(hz: number): number {
 function _composeBones(slots: BoneSlot[]): NormalizedPose {
   const sorted = [...slots].sort((a, b) => a.priority - b.priority);
   const acc = new Map<VRMBoneName, Quaternion>();
+  // Translations SUM across slots rather than composing like the rotations do —
+  // two producers each nudging the hips should displace them by the total.
+  const offsets = new Map<VRMBoneName, [number, number, number]>();
   for (const slot of sorted) {
     for (const [bone, q] of slot.pose.entries()) {
       const existing = acc.get(bone);
       acc.set(bone, existing ? q.multiply(existing) : q);
     }
+    for (const [bone, v] of slot.pose.offsetEntries()) {
+      const prev = offsets.get(bone);
+      offsets.set(
+        bone,
+        prev
+          ? [prev[0] + v[0], prev[1] + v[1], prev[2] + v[2]]
+          : [v[0], v[1], v[2]]
+      );
+    }
   }
-  return new NormalizedPose(acc.entries());
+  return new NormalizedPose(acc.entries(), offsets.entries());
 }
 
 /** Compose blendshapes additively across slots, clamped to [0, 1]. */

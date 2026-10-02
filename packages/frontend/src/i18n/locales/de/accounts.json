@@ -99,6 +99,29 @@
   "pickApp": {
     "title": "Welche Twitch-App?"
   },
+  "obs": {
+    "heading": "OBS-Verbindungen",
+    "help": "Verbinde dich über obs-websocket mit OBS, um Audio, Szenen und mehr aus deiner Logik zu steuern.",
+    "add": "+ OBS hinzufügen",
+    "empty": "Keine OBS-Verbindung. Aktiviere den obs-websocket-Server in OBS (Werkzeuge → WebSocket-Servereinstellungen) und trage hier Adresse und Passwort ein.",
+    "test": "Testen",
+    "edit": "Bearbeiten",
+    "addTitle": "OBS-Verbindung hinzufügen",
+    "editTitle": "OBS-Verbindung bearbeiten",
+    "hint": "In OBS: Werkzeuge → WebSocket-Servereinstellungen. Verwende denselben Port und dasselbe Passwort, die dort angezeigt werden. OBS muss auf diesem Rechner laufen.",
+    "fields": {
+      "label": "Bezeichnung",
+      "host": "Host",
+      "port": "Port",
+      "password": "Passwort"
+    },
+    "allRequired": "Bezeichnung und Host sind erforderlich.",
+    "saveFailed": "Verbindung konnte nicht gespeichert werden",
+    "removeConfirm": "OBS-Verbindung „{{label}}“ entfernen?",
+    "removeFailed": "Verbindung konnte nicht entfernt werden",
+    "cancel": "Abbrechen",
+    "save": "Speichern"
+  },
   "help": {
     "streamAccounts": "Verbinde hier Twitch oder StreamElements, damit vspark in deinen Logik-Automatisierungen auf Live-Stream-Ereignisse reagieren kann."
   }
