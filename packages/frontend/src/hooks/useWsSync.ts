@@ -477,6 +477,12 @@ export function useWsSync() {
               message: string | null;
             };
             useEditorStore.getState().patchObsConnectionStatus(p);
+          } else if (msg.kind === 'output_window_status') {
+            useEditorStore
+              .getState()
+              .setOutputWindowStatus(
+                msg.payload as import('../store/editorStore').OutputWindowStatus
+              );
           } else if (msg.kind === 'data_channel_set') {
             const p = msg.payload as {
               scope: string;

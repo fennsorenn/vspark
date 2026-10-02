@@ -70,6 +70,12 @@ import {
   type ComposeSceneDoc,
 } from './output_window/manager.js';
 import {
+  ensureDownloadedRuntime,
+  installDir,
+  sourceRuntime,
+} from './output_window/runtime.js';
+import electronRuntime from '@vspark/output-window/runtime-info.cjs';
+import {
   hydrateContainmentIndex,
   applyDocToIndex,
 } from './sync/containmentIndex.js';
@@ -152,10 +158,31 @@ async function start() {
         (existsSync(PUBLIC_DIR)
           ? `http://localhost:${PORT}`
           : `http://localhost:${process.env.VITE_DEV_PORT || 5173}`);
-      outputWindows = new OutputWindowManager({
+      // From source Electron is in node_modules; the packaged release downloads
+      // the pinned, checksum-verified build on first use into <install>/runtime.
+      const fromSource = sourceRuntime();
+      const mgr = new OutputWindowManager({
         viewerOrigin,
-        launcher: createElectronLauncher(),
+        launcher: fromSource ? createElectronLauncher(fromSource) : null,
+        prepareLauncher: fromSource
+          ? undefined
+          : async (onProgress) =>
+              createElectronLauncher(
+                await ensureDownloadedRuntime({
+                  version: electronRuntime.version,
+                  checksums: electronRuntime.checksums,
+                  cacheDir:
+                    process.env.VSPARK_RUNTIME_DIR ?? join(installDir, 'runtime'),
+                  mainScript: join(installDir, 'output-window', 'main.cjs'),
+                  onProgress,
+                })
+              ),
+        onStatus: (status) => wsSync.broadcast('output_window_status', status),
       });
+      outputWindows = mgr;
+      wsSync.onClientConnected((ws) =>
+        wsSync.sendTo(ws, 'output_window_status', mgr.status)
+      );
       const resync = () =>
         outputWindows?.setScenes(composeLayers.all() as unknown as ComposeSceneDoc[]);
       let pending: ReturnType<typeof setTimeout> | null = null;

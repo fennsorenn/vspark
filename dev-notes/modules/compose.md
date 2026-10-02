@@ -250,7 +250,7 @@ See also [frontend.md](frontend.md) for general editor structure and store conve
 
 ## OBS window capture output
 
-Status: **implemented for dev / from-source runs**; release packaging pending. Plan and
+Status: **implemented** (from source and in the packaged release, which downloads Electron on first use). Plan and
 measurements: [plans/obs-output-window.md](../plans/obs-output-window.md).
 
 - **Setting:** compose scene `config.obsWindowCapture: boolean`, toggled by the
@@ -272,7 +272,16 @@ measurements: [plans/obs-output-window.md](../plans/obs-output-window.md).
   OBS Window Capture matches by title, so renaming a scene requires re-picking it in OBS.
 - **Viewer origin:** `VSPARK_VIEWER_ORIGIN`, else the backend port when bundled, else Vite
   (`VITE_DEV_PORT`, default 5173).
-- **Packaged release:** Electron isn't shipped yet, so the manager logs once and stays inert.
+- **Packaged release:** Electron is downloaded on first use (`output_window/runtime.ts`). The
+  bundle inlines the Electron version and the official release-zip SHA-256s
+  (`@vspark/output-window/runtime-info.cjs` → `electron/checksums.json`). The backend fetches
+  `electron-v<ver>-<platform>-<arch>.zip` from Electron's GitHub release, verifies it,
+  extracts it via staging → rename into `<install>/runtime/` (override:
+  `VSPARK_RUNTIME_DIR`) and writes a `.vspark-verified` marker; a cached runtime is reused.
+  The release zip ships `output-window/main.cjs`; in-place updates leave `runtime/` alone.
+  Status (`idle` / `downloading` + progress / `ready` / `error` / `unavailable`) is broadcast
+  as `output_window_status` (snapshot on connect) and shown under the checkbox. A failed
+  preparation is retried on a later scene change, at most every 30 s.
 
 ## Known Limitations / Future Work
 

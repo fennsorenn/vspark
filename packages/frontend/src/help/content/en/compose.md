@@ -136,7 +136,9 @@ Tabbing out of the game makes it smooth again, which is the typical sign.
 
 For those cases, tick **Enable for OBS window capture** in the compose scene's
 settings. While vspark is running, it then keeps this scene in a hidden
-window — off-screen and not in the taskbar. In OBS:
+window — off-screen and not in the taskbar. The first time you enable it,
+vspark downloads the window runtime once (about 100 MB); the settings panel
+shows the progress. In OBS:
 
 1. Add a **Window Capture** source.
 2. Pick the window named **vspark – *scene name*** (the settings panel shows

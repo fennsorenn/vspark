@@ -1,6 +1,6 @@
 # Plan: vspark output window (OBS Window Capture path)
 
-> Branch: `feature/obs-output-window` · Status: slice 1 implemented (per-scene output windows, dev runs); release packaging open
+> Branch: `feature/obs-output-window` · Status: implemented — per-scene output windows; packaged release downloads the pinned Electron on first use
 > Investigation done 2026-10-01/02 on the user's machine (Windows 11, RTX 3090, OBS 32.2.1).
 
 ## Goal
