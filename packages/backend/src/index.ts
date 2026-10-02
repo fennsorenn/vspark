@@ -65,6 +65,11 @@ import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
 import { createMcpHttpRouter } from './mcp/http.js';
 import { AssistantManager } from './assistant/manager.js';
 import {
+  OutputWindowManager,
+  createElectronLauncher,
+  type ComposeSceneDoc,
+} from './output_window/manager.js';
+import {
   hydrateContainmentIndex,
   applyDocToIndex,
 } from './sync/containmentIndex.js';
@@ -97,6 +102,9 @@ const server = createServer(app);
 // Mirrors the bundle check in createApp — used below to decide whether to open
 // a browser once the server is listening.
 const PUBLIC_DIR = join(__dirname, 'public');
+
+// Off-screen OBS window-capture outputs; created in start(), stopped on exit.
+let outputWindows: OutputWindowManager | null = null;
 
 server.on('upgrade', (req, socket, head) => {
   if (req.url?.startsWith('/ws')) {
@@ -131,6 +139,34 @@ async function start() {
       initMeshStreams(mp, (kind, payload) => wsSync.broadcast(kind, payload));
       const sceneNodes = getMeshCollection('scene_node');
       if (sceneNodes) initMeshAssets(mp, sceneNodes);
+    }
+  }
+  // OBS window capture: one off-screen output window per compose scene that has
+  // it enabled, kept in step with live compose-layer changes.
+  {
+    const composeLayers = getMeshCollection('compose_layer');
+    if (composeLayers) {
+      // The viewer is served by this backend when bundled; in dev it lives on Vite.
+      const viewerOrigin =
+        process.env.VSPARK_VIEWER_ORIGIN ??
+        (existsSync(PUBLIC_DIR)
+          ? `http://localhost:${PORT}`
+          : `http://localhost:${process.env.VITE_DEV_PORT || 5173}`);
+      outputWindows = new OutputWindowManager({
+        viewerOrigin,
+        launcher: createElectronLauncher(),
+      });
+      const resync = () =>
+        outputWindows?.setScenes(composeLayers.all() as unknown as ComposeSceneDoc[]);
+      let pending: ReturnType<typeof setTimeout> | null = null;
+      composeLayers.observe('**', () => {
+        if (pending) return;
+        pending = setTimeout(() => {
+          pending = null;
+          resync();
+        }, 250);
+      });
+      resync();
     }
   }
   // Connect to the rendezvous. Defaults to the public instance (see
@@ -476,6 +512,7 @@ function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
   shuttingDown = true;
   try {
+    outputWindows?.stop();
     closeDb();
   } finally {
     process.exit(signal === 'SIGINT' ? 130 : 143);
@@ -483,5 +520,7 @@ function shutdown(signal: NodeJS.Signals): void {
 }
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+// Also covers process.exit paths that bypass shutdown() (e.g. the update exit).
+process.on('exit', () => outputWindows?.stop());
 
 start();

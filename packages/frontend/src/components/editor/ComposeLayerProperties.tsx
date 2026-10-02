@@ -12,6 +12,7 @@ import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { CSS_BLEND_MODES, readChroma } from './videoFx';
 import { HelpButton } from '../../help/HelpButton';
+import { obsOutputWindowTitle } from '@vspark/shared';
 import {
   DEFAULT_COMPOSE_WIDTH,
   DEFAULT_COMPOSE_HEIGHT,
@@ -1163,6 +1164,12 @@ export function ComposeSceneProperties({
     updateSceneLocal({ ...scene, config });
     api.updateComposeLayer(scene.id, { config }).catch(() => {});
   };
+  const obsWindow = scene.config?.obsWindowCapture === true;
+  const setObsWindow = (on: boolean) => {
+    const config = { ...scene.config, obsWindowCapture: on };
+    updateSceneLocal({ ...scene, config });
+    api.updateComposeLayer(scene.id, { config }).catch(() => {});
+  };
 
   return (
     <div style={{ padding: '4px 2px' }}>
@@ -1176,6 +1183,44 @@ export function ComposeSceneProperties({
         precision={0}
         onCommit={commitSize}
       />
+
+      <div
+        style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}
+      >
+        {t('sceneProps.obsWindowHeader')}
+        <HelpButton
+          topic="compose"
+          anchor="obs-window-capture"
+          tip={t('help.obsWindowCapture')}
+        />
+      </div>
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          fontSize: 12,
+          color: '#bbb',
+          cursor: 'pointer',
+        }}
+      >
+        <input
+          className="vs-compose-obs-window"
+          type="checkbox"
+          checked={obsWindow}
+          onChange={(e) => setObsWindow(e.target.checked)}
+        />
+        {t('sceneProps.obsWindowCapture')}
+      </label>
+      {obsWindow && (
+        <div
+          style={{ fontSize: 10, color: '#666', lineHeight: 1.4, marginTop: 4 }}
+        >
+          {t('sceneProps.obsWindowHint', {
+            title: obsOutputWindowTitle(scene.name),
+          })}
+        </div>
+      )}
 
       <div style={sectionHeader}>{t('sceneProps.previewBgHeader')}</div>
       <div style={{ fontSize: 10, color: '#666', lineHeight: 1.4, marginBottom: 8 }}>

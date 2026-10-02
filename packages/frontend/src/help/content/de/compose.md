@@ -140,3 +140,32 @@ Standard-HTML-Elemente und kann auf jedes Feld verweisen, das ein
 Statische visuelle Stile können im Feld **Stile (CSS)** hinzugefügt werden;
 dynamische Stile (Farben oder Größen, die sich mit den Daten ändern) werden direkt
 im Vorlagen-Markup selbst inline angegeben.
+
+## OBS-Fensteraufnahme {#obs-window-capture}
+
+Normalerweise fügst du eine Kompositionsszene als **Browserquelle** in OBS ein
+(der Link zum Broadcast-Viewer). Das funktioniert gut, aber alle
+Browserquellen in OBS teilen sich eine Browser-Engine. Läuft ein Spiel im
+**Vollbild mit unbegrenzter Bildrate** und lastet deine Grafikkarte voll aus,
+können Browserquellen ruckeln — besonders bei mehreren animierten
+Browserquellen gleichzeitig. Dass es nach dem Heraustabben aus dem Spiel
+wieder flüssig läuft, ist das typische Anzeichen.
+
+Für solche Fälle aktivierst du **Für OBS-Fensteraufnahme aktivieren** in den
+Einstellungen der Kompositionsszene. Solange vspark läuft, wird die Szene dann
+in einem versteckten Fenster bereitgehalten — außerhalb des Bildschirms und
+nicht in der Taskleiste. In OBS:
+
+1. Füge eine **Fensteraufnahme**-Quelle hinzu.
+2. Wähle das Fenster **vspark – *Szenenname*** (das Einstellungsfeld zeigt den
+   genauen Namen).
+3. Entferne die alte Browserquelle für diese Szene.
+
+Die Transparenz bleibt erhalten, und das Fenster behält seine volle Bildrate,
+während ein Spiel im Vollbild läuft. Benennst du die Kompositionsszene um,
+ändert sich auch der Fenstertitel — wähle das Fenster in OBS dann neu aus.
+
+Unabhängig von der Aufnahmeart helfen zwei Einstellungen viel: **begrenze die
+Bildrate deines Spiels** (Limiter im Spiel oder im Grafiktreiber) und aktiviere
+**Quelle herunterfahren, wenn nicht sichtbar** bei Browserquellen, die du
+nicht in jeder Szene brauchst.

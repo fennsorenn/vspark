@@ -86,7 +86,11 @@ export function ViewerPage() {
     const inOBS =
       typeof (window as unknown as { obsstudio?: unknown }).obsstudio !==
         'undefined' || /\bOBS\b/.test(navigator.userAgent);
-    const bg = inOBS ? 'transparent' : '#000000';
+    // `?output=window` is the backend's off-screen output window, captured by
+    // OBS Window Capture — it composites over the desktop, so stay transparent.
+    const outputWindow =
+      new URLSearchParams(window.location.search).get('output') === 'window';
+    const bg = inOBS || outputWindow ? 'transparent' : '#000000';
     document.documentElement.style.background = bg;
     document.body.style.background = bg;
     return () => {
