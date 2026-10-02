@@ -104,6 +104,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The Live2D runtime builds against the CubismWebFramework submodule
+          # (packages/frontend/vendor); mirror ci.yml or the frontend build fails.
+          submodules: recursive
 
       - uses: pnpm/action-setup@v4
 
