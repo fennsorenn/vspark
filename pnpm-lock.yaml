@@ -72,7 +72,7 @@ importers:
         specifier: ^7.5.0
         version: 7.5.1(express@4.22.1)
       extract-zip:
-        specifier: ^2
+        specifier: ^2.0.1
         version: 2.0.1
       node-sqlite3-wasm:
         specifier: ^0.8.57
