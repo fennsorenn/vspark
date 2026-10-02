@@ -104,6 +104,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The Live2D runtime builds against the CubismWebFramework submodule
+          # (packages/frontend/vendor); mirror ci.yml or the frontend build fails.
+          submodules: recursive
 
       - uses: pnpm/action-setup@v4
 
@@ -221,6 +225,11 @@ jobs:
           cp packages/backend/dist/${{ matrix.node_binary }} release/vspark/
           cp packages/backend/dist/${{ matrix.start_script }} release/vspark/
           cp packages/backend/dist/version.json release/vspark/
+          # OBS window capture: the Electron main script ships here; the Electron
+          # runtime itself is downloaded (checksum-pinned) on first use into
+          # vspark/runtime/, which in-place updates leave untouched.
+          mkdir -p release/vspark/output-window
+          cp packages/output-window/main.cjs release/vspark/output-window/
           cd release
           if [[ "${{ matrix.platform }}" == "win-x64" ]]; then
             powershell -Command "Compress-Archive -Path vspark -DestinationPath vspark-${{ matrix.platform }}.zip"

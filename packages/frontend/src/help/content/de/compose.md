@@ -154,7 +154,9 @@ wieder flüssig läuft, ist das typische Anzeichen.
 Für solche Fälle aktivierst du **Für OBS-Fensteraufnahme aktivieren** in den
 Einstellungen der Kompositionsszene. Solange vspark läuft, wird die Szene dann
 in einem versteckten Fenster bereitgehalten — außerhalb des Bildschirms und
-nicht in der Taskleiste. In OBS:
+nicht in der Taskleiste. Beim ersten Aktivieren lädt vspark einmalig die
+Fenster-Laufzeit herunter (etwa 100 MB); das Einstellungsfeld zeigt den
+Fortschritt. In OBS:
 
 1. Füge eine **Fensteraufnahme**-Quelle hinzu.
 2. Wähle das Fenster **vspark – *Szenenname*** (das Einstellungsfeld zeigt den

@@ -7,8 +7,8 @@
 // All windows live in a single Electron child process (packages/output-window),
 // driven over the Node IPC channel with the full desired window set per message.
 import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { obsOutputWindowTitle } from '@vspark/shared';
+import type { RuntimePaths } from './runtime.js';
 
 export interface ComposeSceneDoc {
   id: string;
@@ -54,6 +54,15 @@ export function desiredWindows(
 }
 
 const MAX_RESTART_MS = 30_000;
+const RETRY_AFTER_ERROR_MS = 30_000;
+
+/** Runtime state, broadcast to editors as `output_window_status`. */
+export type OutputRuntimeStatus =
+  | { state: 'idle' }
+  | { state: 'downloading'; progress: number }
+  | { state: 'ready' }
+  | { state: 'error'; message: string }
+  | { state: 'unavailable' };
 
 export class OutputWindowManager {
   private desired: OutputWindowSpec[] = [];
@@ -62,21 +71,85 @@ export class OutputWindowManager {
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private restartDelay: number;
   private stopped = false;
-  private warnedUnavailable = false;
+  private launcher: OutputLauncher | null;
+  private preparing = false;
+  private failedAt = 0;
+  private _status: OutputRuntimeStatus;
 
   constructor(
     private readonly opts: {
       viewerOrigin: string;
-      launcher: OutputLauncher | null;
+      /** Ready-to-use launcher (running from source, tests). */
+      launcher?: OutputLauncher | null;
+      /**
+       * Makes a launcher available on first need — e.g. downloads the Electron
+       * runtime in the packaged release. Retried on the next scene change after
+       * a failure.
+       */
+      prepareLauncher?: (onProgress: (fraction: number) => void) => Promise<OutputLauncher>;
+      onStatus?: (status: OutputRuntimeStatus) => void;
       log?: (msg: string) => void;
       restartDelayMs?: number;
     }
   ) {
     this.restartDelay = opts.restartDelayMs ?? 1000;
+    this.launcher = opts.launcher ?? null;
+    this._status = this.launcher ? { state: 'ready' } : { state: 'idle' };
   }
 
   private log(msg: string): void {
     (this.opts.log ?? console.log)(`[OutputWindows] ${msg}`);
+  }
+
+  get status(): OutputRuntimeStatus {
+    return this._status;
+  }
+
+  private setStatus(s: OutputRuntimeStatus): void {
+    if (JSON.stringify(s) === JSON.stringify(this._status)) return;
+    this._status = s;
+    this.opts.onStatus?.(s);
+  }
+
+  /** Obtain a launcher, preparing the runtime if needed. False while not (yet) possible. */
+  private ensureLauncher(): boolean {
+    if (this.launcher) return true;
+    if (!this.opts.prepareLauncher) {
+      if (this._status.state !== 'unavailable') {
+        this.log(
+          'OBS window capture is enabled for a compose scene, but the output-window runtime (Electron) is not available in this install.'
+        );
+        this.setStatus({ state: 'unavailable' });
+      }
+      return false;
+    }
+    if (this.preparing) return false;
+    // After a failure, retry on a later scene change — but not more than every 30 s.
+    if (this._status.state === 'error' && Date.now() - this.failedAt < RETRY_AFTER_ERROR_MS) {
+      return false;
+    }
+    this.preparing = true;
+    // Status turns 'downloading' only once bytes arrive — a cached runtime
+    // goes straight to 'ready' without flashing a download in the editor.
+    this.log('preparing the output-window runtime');
+    this.opts
+      .prepareLauncher((fraction) =>
+        this.setStatus({ state: 'downloading', progress: Math.round(fraction * 100) })
+      )
+      .then((launcher) => {
+        this.preparing = false;
+        this.launcher = launcher;
+        this.setStatus({ state: 'ready' });
+        this.log('output-window runtime ready');
+        this.apply();
+      })
+      .catch((e: Error) => {
+        this.preparing = false;
+        this.failedAt = Date.now();
+        this.setStatus({ state: 'error', message: e.message });
+        this.log(`output-window runtime unavailable: ${e.message}`);
+      });
+    return false;
   }
 
   /** Replace the known compose scenes; opens/updates/closes windows to match. */
@@ -104,18 +177,10 @@ export class OutputWindowManager {
 
   private ensureProcess(): boolean {
     if (this.restartTimer) return false; // a restart is already scheduled
-    if (!this.opts.launcher) {
-      if (!this.warnedUnavailable) {
-        this.warnedUnavailable = true;
-        this.log(
-          'OBS window capture is enabled for a compose scene, but the output-window runtime (Electron) is not available in this install.'
-        );
-      }
-      return false;
-    }
+    if (!this.ensureLauncher() || !this.launcher) return false;
     let proc: OutputProcess;
     try {
-      proc = this.opts.launcher();
+      proc = this.launcher();
     } catch (e) {
       this.log(`failed to start output windows: ${(e as Error).message}`);
       this.scheduleRestart();
@@ -159,24 +224,11 @@ export class OutputWindowManager {
   }
 }
 
-/**
- * Launcher for the Electron output-window process, or null when the runtime is
- * not installed (e.g. the packaged release, which does not ship Electron yet).
- */
+/** Launcher that spawns the Electron output-window process from resolved paths. */
 export function createElectronLauncher(
+  { electronPath, mainScript }: RuntimePaths,
   log: (msg: string) => void = console.log
-): OutputLauncher | null {
-  let electronPath: string;
-  let mainScript: string;
-  try {
-    const require = createRequire(import.meta.url);
-    ({ electronPath, mainScript } = require('@vspark/output-window') as {
-      electronPath: string;
-      mainScript: string;
-    });
-  } catch {
-    return null;
-  }
+): OutputLauncher {
   return () => {
     // IPC, not stdin: Electron's main process reads EOF from stdin on Windows.
     const child = spawn(electronPath, [mainScript], {

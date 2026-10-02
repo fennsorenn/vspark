@@ -64,7 +64,10 @@
     "bgImage": "Bild",
     "obsWindowHeader": "OBS-Fensteraufnahme",
     "obsWindowCapture": "Für OBS-Fensteraufnahme aktivieren",
-    "obsWindowHint": "Solange vspark läuft, wird diese Szene in einem versteckten Fenster bereitgehalten. Füge in OBS eine Fensteraufnahme-Quelle hinzu und wähle „{{title}}“. Anders als eine Browserquelle behält sie ihre Bildrate, während ein Spiel im Vollbild läuft."
+    "obsWindowHint": "Solange vspark läuft, wird diese Szene in einem versteckten Fenster bereitgehalten. Füge in OBS eine Fensteraufnahme-Quelle hinzu und wähle „{{title}}“. Anders als eine Browserquelle behält sie ihre Bildrate, während ein Spiel im Vollbild läuft.",
+    "obsWindowDownloading": "OBS-Fensteraufnahme wird eingerichtet: Fenster-Laufzeit wird heruntergeladen (einmalig, etwa 100 MB) … {{progress}} %",
+    "obsWindowError": "OBS-Fensteraufnahme konnte nicht eingerichtet werden: {{message}}. Es wird automatisch erneut versucht, wenn du die Szene änderst oder diese Option erneut aktivierst.",
+    "obsWindowUnavailable": "OBS-Fensteraufnahme ist in dieser Installation nicht verfügbar."
   },
   "properties": {
     "scopeAllCameras": "Szenenweit (alle Kameras)",

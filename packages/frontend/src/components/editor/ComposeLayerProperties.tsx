@@ -1165,6 +1165,7 @@ export function ComposeSceneProperties({
     api.updateComposeLayer(scene.id, { config }).catch(() => {});
   };
   const obsWindow = scene.config?.obsWindowCapture === true;
+  const runtime = useEditorStore((s) => s.outputWindowStatus);
   const setObsWindow = (on: boolean) => {
     const config = { ...scene.config, obsWindowCapture: on };
     updateSceneLocal({ ...scene, config });
@@ -1214,11 +1215,22 @@ export function ComposeSceneProperties({
       </label>
       {obsWindow && (
         <div
-          style={{ fontSize: 10, color: '#666', lineHeight: 1.4, marginTop: 4 }}
+          style={{
+            fontSize: 10,
+            color: runtime?.state === 'error' ? '#e06c6c' : '#666',
+            lineHeight: 1.4,
+            marginTop: 4,
+          }}
         >
-          {t('sceneProps.obsWindowHint', {
-            title: obsOutputWindowTitle(scene.name),
-          })}
+          {runtime?.state === 'downloading'
+            ? t('sceneProps.obsWindowDownloading', { progress: runtime.progress })
+            : runtime?.state === 'error'
+              ? t('sceneProps.obsWindowError', { message: runtime.message })
+              : runtime?.state === 'unavailable'
+                ? t('sceneProps.obsWindowUnavailable')
+                : t('sceneProps.obsWindowHint', {
+                    title: obsOutputWindowTitle(scene.name),
+                  })}
         </div>
       )}
 
