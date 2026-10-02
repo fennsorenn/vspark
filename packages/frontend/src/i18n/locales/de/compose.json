@@ -61,7 +61,10 @@
     "previewBgMode": "Quelle",
     "bgTransparent": "Transparent (Schachbrett)",
     "bgColor": "Farbe",
-    "bgImage": "Bild"
+    "bgImage": "Bild",
+    "obsWindowHeader": "OBS-Fensteraufnahme",
+    "obsWindowCapture": "Für OBS-Fensteraufnahme aktivieren",
+    "obsWindowHint": "Solange vspark läuft, wird diese Szene in einem versteckten Fenster bereitgehalten. Füge in OBS eine Fensteraufnahme-Quelle hinzu und wähle „{{title}}“. Anders als eine Browserquelle behält sie ihre Bildrate, während ein Spiel im Vollbild läuft."
   },
   "properties": {
     "scopeAllCameras": "Szenenweit (alle Kameras)",
@@ -147,6 +150,7 @@
   },
   "help": {
     "compose": "Mehr zu Compose: was es ist, Szenen und wie Ebenen dein Stream-Layout aufbauen.",
-    "layerProperties": "Mehr zu Ebenen: Bild-, Video-, Browserquellen- und Vorlagen-Typen."
+    "layerProperties": "Mehr zu Ebenen: Bild-, Video-, Browserquellen- und Vorlagen-Typen.",
+    "obsWindowCapture": "Mehr dazu, wann sich die OBS-Fensteraufnahme statt einer Browserquelle lohnt."
   }
 }

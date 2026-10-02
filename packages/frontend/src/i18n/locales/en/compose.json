@@ -61,7 +61,10 @@
     "previewBgMode": "Source",
     "bgTransparent": "Transparent (checkerboard)",
     "bgColor": "Color",
-    "bgImage": "Image"
+    "bgImage": "Image",
+    "obsWindowHeader": "OBS window capture",
+    "obsWindowCapture": "Enable for OBS window capture",
+    "obsWindowHint": "While vspark runs, this scene is kept in a hidden window. In OBS, add a Window Capture source and pick “{{title}}”. Unlike a Browser Source, it keeps its frame rate while a fullscreen game is running."
   },
   "properties": {
     "scopeAllCameras": "Scene-wide (all cameras)",
@@ -147,6 +150,7 @@
   },
   "help": {
     "compose": "Learn about Compose: what it is, scenes, and how layers build your stream layout.",
-    "layerProperties": "Learn about layers: image, video, browser source, and template types."
+    "layerProperties": "Learn about layers: image, video, browser source, and template types.",
+    "obsWindowCapture": "Learn when to use OBS Window Capture instead of a Browser Source."
   }
 }

@@ -248,6 +248,16 @@ export interface ComposeLayer {
   updatedAt: string;
 }
 
+/**
+ * Title of a compose scene's off-screen output window (`config.obsWindowCapture`).
+ * OBS Window Capture lists and matches windows by this title, so the backend
+ * (which opens the window) and the editor (which tells the user what to pick)
+ * must agree on it.
+ */
+export function obsOutputWindowTitle(composeSceneName: string): string {
+  return `vspark – ${composeSceneName}`;
+}
+
 // --- Logic (user-built signal graphs with owner scoping) ---
 
 export type LogicOwnerKind = 'project' | 'scene_node' | 'compose_layer';
