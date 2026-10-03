@@ -1,4 +1,4 @@
-import { type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useEditorStore,
@@ -134,6 +134,18 @@ export function ComposeLayerProperties({
 
   const commit = (patch: Partial<ComposeLayerRecord>) =>
     commitLayerPatch(layer.id, patch);
+
+  // The name is typed into a local draft and committed on blur. Mirroring each
+  // keystroke into the store (the old path) let any replica echo for this layer
+  // — e.g. a just-committed visibility toggle — overwrite the unsaved text
+  // before blur read it back.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  useEffect(() => setNameDraft(null), [layer.id]);
+  const commitName = () => {
+    if (nameDraft !== null && nameDraft !== layer.name)
+      commitLayerPath(layer.id, 'name', nameDraft);
+    setNameDraft(null);
+  };
 
   // Stack order. Drag-and-drop in the compose tree is the primary way to
   // reorder; these buttons are the precision path. Paint order is ascending
@@ -378,13 +390,9 @@ export function ComposeLayerProperties({
       <input
         type="text"
         className="vs-layer-name"
-        value={layer.name}
-        onChange={(e) => updateLayerLocal(layer.id, { name: e.target.value })}
-        onBlur={(e) =>
-          api
-            .updateComposeLayer(layer.id, { name: e.target.value })
-            .catch(() => {})
-        }
+        value={nameDraft ?? layer.name}
+        onChange={(e) => setNameDraft(e.target.value)}
+        onBlur={commitName}
         style={textInput}
       />
 
